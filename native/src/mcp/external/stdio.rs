@@ -37,13 +37,23 @@ impl StdioMcpClient {
         };
 
         let client_info = ClientInfo::default();
-        match client_info
-            .clone()
-            .serve_with_lifecycle(spawn_transport(config).await?, auto_lifecycle)
-            .await
-        {
-            Ok(running) => Ok(Self { client: running }),
-            Err(error) if super::should_retry_with_legacy_handshake(&error) => {
+
+        // 旧 SDK 服务器（如 fastmcp 构建的 firecrawl-mcp）对带 `_meta` 的
+        // `server/discover` 探测会静默不响应——既不返回 JSON-RPC 错误也不
+        // 关闭连接，导致 Auto 协商无限挂起。加超时：超时视为服务器不支持
+        // 2026-07-28 无状态协议，回退 legacy initialize 握手重连。
+        const DISCOVER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        let auto_result = tokio::time::timeout(
+            DISCOVER_PROBE_TIMEOUT,
+            client_info
+                .clone()
+                .serve_with_lifecycle(spawn_transport(config).await?, auto_lifecycle),
+        )
+        .await;
+
+        match auto_result {
+            Ok(Ok(running)) => Ok(Self { client: running }),
+            Ok(Err(error)) if super::should_retry_with_legacy_handshake(&error) => {
                 // 旧子进程的管道已随 transport 关闭，重新 spawn 一个，
                 // 改用 legacy 握手重连一次。
                 match Self::connect_legacy(config).await {
@@ -55,10 +65,22 @@ impl StdioMcpClient {
                     ))),
                 }
             }
-            Err(error) => Err(Error::from_reason(format!(
+            Ok(Err(error)) => Err(Error::from_reason(format!(
                 "Failed to initialize external MCP stdio server {}: {error}",
                 config.name
             ))),
+            Err(_elapsed) => {
+                // server/discover 探测超时：服务器静默不响应（如 fastmcp 构建的
+                // firecrawl-mcp）。超时的 future 被 drop 时子进程随之终止，
+                // connect_legacy 会重新 spawn 一个进程。
+                match Self::connect_legacy(config).await {
+                    Ok(client) => Ok(client),
+                    Err(_) => Err(Error::from_reason(format!(
+                        "Failed to initialize external MCP stdio server {}: Auto negotiate timed out (no response to server/discover), legacy initialize handshake also failed",
+                        config.name
+                    ))),
+                }
+            }
         }
     }
 
