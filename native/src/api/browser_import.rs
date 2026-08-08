@@ -258,7 +258,7 @@ fn firefox_account_name(profile_dir: &Path) -> String {
         let mut segments = line.split('"');
         segments.next(); // user_pref(
         segments.next(); // services.sync.username
-        segments.next(); // ", 
+        segments.next(); // ",
         if let Some(value) = segments.next() {
             if !value.trim().is_empty() {
                 return value.trim().to_string();

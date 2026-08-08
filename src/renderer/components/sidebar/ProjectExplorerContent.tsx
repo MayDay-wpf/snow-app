@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   ArrowLeft,
   ChevronDown,
   ChevronRight,
@@ -15,10 +16,11 @@ import { localizeSshError } from "../../utils/sshErrorMessages";
 import type {
   DirectoryEntry,
   FileSearchResult,
-  SshConnectParams,
+  SshConnectionStatus,
 } from "../../../preload";
 import { ExplorerEntryContextMenu } from "./ExplorerEntryContextMenu";
 import type { FileTag } from "../mainContent/chatInput/fileTagUtils";
+import { buildSshConnectParams } from "./personalization/roleFileUtils";
 import type { SidebarContentProps } from "./types";
 
 type TreeNode = {
@@ -29,6 +31,8 @@ type TreeNode = {
   children?: TreeNode[];
   loaded?: boolean;
   loading?: boolean;
+  stale?: boolean;
+  error?: string;
 };
 
 type FlatNode = {
@@ -141,6 +145,35 @@ const formatSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const toTreeNodes = (entries: DirectoryEntry[]): TreeNode[] =>
+  entries.map((entry) => ({
+    name: entry.name,
+    path: entry.path,
+    isDirectory: entry.isDirectory,
+    size: entry.size,
+    loaded: !entry.isDirectory,
+    loading: false,
+  }));
+
+// A refresh only replaces the directory listing. Loaded descendants remain
+// attached so a reconnect can restore every visible branch without flicker.
+const mergeTreeNodes = (
+  freshNodes: TreeNode[],
+  previousNodes: TreeNode[]
+): TreeNode[] =>
+  freshNodes.map((node) => {
+    const previous = previousNodes.find((item) => item.path === node.path);
+    return previous?.children
+      ? {
+          ...node,
+          children: previous.children,
+          loaded: previous.loaded,
+          stale: previous.stale,
+          error: previous.error,
+        }
+      : node;
+  });
+
 export function ProjectExplorerContent({
   onSwitchContent,
   onOpenFile,
@@ -162,10 +195,14 @@ export function ProjectExplorerContent({
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [rootName, setRootName] = useState("");
   const [isSsh, setIsSsh] = useState(false);
-  const sshSessionIdRef = useRef<string | null>(null);
+  const sshProfileIdRef = useRef<string | null>(null);
+  const sshGenerationRef = useRef(0);
+  const [sshConnectionStatus, setSshConnectionStatus] =
+    useState<SshConnectionStatus | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [isStale, setIsStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [entryContextMenu, setEntryContextMenu] =
@@ -173,6 +210,8 @@ export function ProjectExplorerContent({
   const treeRef = useRef<HTMLDivElement | null>(null);
   const treeStateRef = useRef<TreeNode[]>([]);
   const rootPathRef = useRef<string | null>(null);
+  const rootLoadRequestRef = useRef(0);
+  const expandedPathsRef = useRef<Set<string>>(new Set());
   const loadChildrenRef = useRef<
     ((parentPath: string) => Promise<void>) | null
   >(null);
@@ -195,6 +234,10 @@ export function ProjectExplorerContent({
   );
 
   const loadRootDirectory = useCallback(async (): Promise<void> => {
+    const request = rootLoadRequestRef.current + 1;
+    rootLoadRequestRef.current = request;
+    const isCurrentRequest = (): boolean => rootLoadRequestRef.current === request;
+
     if (!explorerDirectoryId) {
       setError(
         t("sidebar.explorerNoActiveDirectory", {
@@ -211,8 +254,9 @@ export function ProjectExplorerContent({
 
     try {
       const directories = await window.snow.listWorkspaceDirectories();
+      if (!isCurrentRequest()) return;
       const targetDir = directories.find(
-        (d) => d.directoryId === explorerDirectoryId
+        (directory) => directory.directoryId === explorerDirectoryId
       );
 
       if (!targetDir) {
@@ -226,93 +270,90 @@ export function ProjectExplorerContent({
         return;
       }
 
+      const sameRoot = rootPathRef.current === targetDir.path;
+      if (!sameRoot) {
+        setTree([]);
+        setExpandedPaths(new Set());
+      }
       setRootPath(targetDir.path);
       rootPathRef.current = targetDir.path;
       setRootName(targetDir.name);
 
       const sshDir = targetDir.path.startsWith("ssh://");
       setIsSsh(sshDir);
+      let entries: DirectoryEntry[];
 
       if (sshDir) {
         const parsed = await window.snow.sshParseUrl(targetDir.path);
-        const credential = await window.snow.sshGetCredential(
-          parsed.host,
-          parsed.port,
-          parsed.username
-        );
-
-        const connectParams: SshConnectParams = {
-          host: parsed.host,
-          port: parsed.port,
-          username: parsed.username,
-          authMethod: credential?.authMethod ?? "password",
-        };
-
-        if (credential?.privateKeyPath) {
-          connectParams.privateKeyPath = credential.privateKeyPath;
-        }
-
-        const secret = credential?.encryptedSecret
-          ? await window.snow.sshGetDecryptedSecret(
-              parsed.host,
-              parsed.port,
-              parsed.username
-            )
+        if (!isCurrentRequest()) return;
+        let profile = sshProfileIdRef.current
+          ? await window.snow.sshGetProfileConnection(sshProfileIdRef.current)
           : null;
 
-        if (secret) {
-          if (connectParams.authMethod === "password") {
-            connectParams.password = secret;
-          } else {
-            connectParams.passphrase = secret;
+        if (!sameRoot || !profile) {
+          const params = await buildSshConnectParams(targetDir.path);
+          if (!params) {
+            throw new Error("SSH credentials are unavailable for this workspace");
+          }
+          const nextProfile = await window.snow.sshConnectProfile(params);
+          if (!isCurrentRequest()) {
+            window.snow.sshReleaseProfile(nextProfile.profileId).catch(() => undefined);
+            return;
+          }
+          const previousProfileId = sshProfileIdRef.current;
+          sshProfileIdRef.current = nextProfile.profileId;
+          sshGenerationRef.current = nextProfile.generation;
+          setSshConnectionStatus(nextProfile.status);
+          profile = nextProfile;
+          if (previousProfileId) {
+            void window.snow.sshReleaseProfile(previousProfileId);
           }
         }
 
-        const sessionId = await window.snow.sshConnect(connectParams);
-        sshSessionIdRef.current = sessionId;
+        if (profile.generation > sshGenerationRef.current) {
+          sshGenerationRef.current = profile.generation;
+        }
+        if (profile.status !== "connected") {
+          throw new Error(profile.lastError ?? "SSH profile is reconnecting");
+        }
 
-        const sshEntries = await window.snow.sshListDirectory(
-          sessionId,
+        entries = await window.snow.sshListDirectory(
+          profile.profileId,
           parsed.remotePath
         );
-        const nodes: TreeNode[] = sshEntries.map((entry) => ({
-          name: entry.name,
-          path: entry.path,
-          isDirectory: entry.isDirectory,
-          size: entry.size,
-          loaded: !entry.isDirectory,
-          loading: false,
-        }));
-
-        setTree(nodes);
       } else {
-        const entries = await window.snow.readDirectoryEntries(targetDir.path);
-        const nodes: TreeNode[] = entries.map((entry: DirectoryEntry) => ({
-          name: entry.name,
-          path: entry.path,
-          isDirectory: entry.isDirectory,
-          size: entry.size,
-          loaded: !entry.isDirectory,
-          loading: false,
-        }));
-
-        setTree(nodes);
+        if (sshProfileIdRef.current) {
+          void window.snow.sshReleaseProfile(sshProfileIdRef.current);
+          sshProfileIdRef.current = null;
+        }
+        setSshConnectionStatus(null);
+        entries = await window.snow.readDirectoryEntries(targetDir.path);
       }
-    } catch (err) {
+
+      if (!isCurrentRequest()) return;
+      const nodes = toTreeNodes(entries);
+      setTree((previous) =>
+        sameRoot ? mergeTreeNodes(nodes, previous) : nodes
+      );
+      setIsStale(false);
+    } catch (loadError) {
+      if (!isCurrentRequest()) return;
+      setIsStale(true);
       setError(
-        err instanceof Error
-          ? toExplorerErrorMessage(err)
+        loadError instanceof Error
+          ? toExplorerErrorMessage(loadError)
           : t("sidebar.explorerLoadError", {
               defaultValue: "Failed to load directory contents",
             })
       );
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+      }
     }
   }, [explorerDirectoryId, t]);
 
   useEffect(() => {
-    setExpandedPaths(new Set());
     void loadRootDirectory();
   }, [loadRootDirectory]);
 
@@ -341,7 +382,7 @@ export function ProjectExplorerContent({
       ): TreeNode[] => {
         return nodes.map((node) => {
           if (node.path === targetPath) {
-            if (node.loaded || node.loading) {
+            if ((node.loaded && !node.error) || node.loading) {
               return node;
             }
 
@@ -367,25 +408,28 @@ export function ProjectExplorerContent({
 
   const loadChildren = useCallback(
     async (parentPath: string): Promise<void> => {
+      const requestGeneration = sshGenerationRef.current;
       try {
         let entries: DirectoryEntry[];
-        if (isSsh && sshSessionIdRef.current) {
+        if (isSsh) {
+          if (!sshProfileIdRef.current) {
+            throw new Error("SSH profile is not connected");
+          }
           const sshEntries = await window.snow.sshListDirectory(
-            sshSessionIdRef.current,
+            sshProfileIdRef.current,
             parentPath
           );
           entries = sshEntries;
         } else {
           entries = await window.snow.readDirectoryEntries(parentPath);
         }
-        const childNodes: TreeNode[] = entries.map((entry: DirectoryEntry) => ({
-          name: entry.name,
-          path: entry.path,
-          isDirectory: entry.isDirectory,
-          size: entry.size,
-          loaded: !entry.isDirectory,
-          loading: false,
-        }));
+        // A result from an earlier transport generation may be valid SFTP
+        // data but belongs to an obsolete connection; never let it overwrite
+        // data restored after reconnect.
+        if (isSsh && requestGeneration !== sshGenerationRef.current) {
+          return;
+        }
+        const childNodes = toTreeNodes(entries);
 
         setTree((prev) => {
           const updateNode = (nodes: TreeNode[]): TreeNode[] => {
@@ -393,9 +437,11 @@ export function ProjectExplorerContent({
               if (node.path === parentPath) {
                 return {
                   ...node,
-                  children: childNodes,
+                  children: mergeTreeNodes(childNodes, node.children ?? []),
                   loaded: true,
                   loading: false,
+                  stale: false,
+                  error: undefined,
                 };
               }
 
@@ -412,12 +458,22 @@ export function ProjectExplorerContent({
 
           return updateNode(prev);
         });
-      } catch {
+      } catch (loadError) {
         setTree((prev) => {
           const markError = (nodes: TreeNode[]): TreeNode[] => {
             return nodes.map((node) => {
               if (node.path === parentPath) {
-                return { ...node, loading: false, loaded: true, children: [] };
+                // Preserve the last successful children. A failed directory
+                // listing must never be rendered as a successful empty one.
+                return {
+                  ...node,
+                  loading: false,
+                  stale: true,
+                  error:
+                    loadError instanceof Error
+                      ? loadError.message
+                      : "Failed to load directory",
+                };
               }
 
               if (node.children) {
@@ -439,7 +495,7 @@ export function ProjectExplorerContent({
   );
 
   // Keep loadChildrenRef in sync so handleToggle always calls the latest
-  // version of loadChildren (which depends on isSsh and sshSessionIdRef).
+  // profile-aware loader.
   useEffect(() => {
     loadChildrenRef.current = loadChildren;
   }, [loadChildren]);
@@ -477,9 +533,9 @@ export function ProjectExplorerContent({
 
       setError(null);
       try {
-        if (isSsh && sshSessionIdRef.current) {
+        if (isSsh && sshProfileIdRef.current) {
           await window.snow.sshRenameEntry(
-            sshSessionIdRef.current,
+            sshProfileIdRef.current,
             entryPath,
             newName
           );
@@ -538,8 +594,8 @@ export function ProjectExplorerContent({
 
       setError(null);
       try {
-        if (isSsh && sshSessionIdRef.current) {
-          await window.snow.sshDeleteEntry(sshSessionIdRef.current, entryPath);
+        if (isSsh && sshProfileIdRef.current) {
+          await window.snow.sshDeleteEntry(sshProfileIdRef.current, entryPath);
         } else {
           await window.snow.deleteWorkspaceEntry(rootPath, entryPath);
         }
@@ -744,10 +800,38 @@ export function ProjectExplorerContent({
   }, [tree]);
 
   useEffect(() => {
+    expandedPathsRef.current = expandedPaths;
+  }, [expandedPaths]);
+
+  useEffect(() => {
+    return window.snow.onSshProfileConnection((connection) => {
+      if (connection.profileId !== sshProfileIdRef.current) {
+        return;
+      }
+      setSshConnectionStatus(connection.status);
+      if (
+        connection.status !== "connected" ||
+        connection.generation <= sshGenerationRef.current
+      ) {
+        return;
+      }
+
+      sshGenerationRef.current = connection.generation;
+      const visiblePaths = Array.from(expandedPathsRef.current);
+      void (async (): Promise<void> => {
+        await loadRootDirectory();
+        for (const path of visiblePaths) {
+          await loadChildrenRef.current?.(path);
+        }
+      })();
+    });
+  }, [loadRootDirectory]);
+
+  useEffect(() => {
     return () => {
-      if (sshSessionIdRef.current) {
-        void window.snow.sshDisconnect(sshSessionIdRef.current);
-        sshSessionIdRef.current = null;
+      if (sshProfileIdRef.current) {
+        void window.snow.sshReleaseProfile(sshProfileIdRef.current);
+        sshProfileIdRef.current = null;
       }
     };
   }, []);
@@ -793,7 +877,15 @@ export function ProjectExplorerContent({
       setSelectedPath(result.path);
       setSelectedLines(new Map());
       lineSelectAnchorRef.current = null;
-      onOpenFile?.(result.path, result.name);
+      onOpenFile?.(
+        result.path,
+        result.name,
+        isSsh,
+        sshProfileIdRef.current,
+        undefined,
+        rootPath ?? undefined,
+        explorerDirectoryId ?? undefined
+      );
     },
     [onOpenFile]
   );
@@ -851,7 +943,15 @@ export function ProjectExplorerContent({
       setSelectedLines(single);
       lineSelectAnchorRef.current = { path: result.path, line };
       setSelectedPath(result.path);
-      onOpenFile?.(result.path, result.name, undefined, undefined, line);
+      onOpenFile?.(
+        result.path,
+        result.name,
+        isSsh,
+        sshProfileIdRef.current,
+        line,
+        rootPath ?? undefined,
+        explorerDirectoryId ?? undefined
+      );
     },
     [onOpenFile]
   );
@@ -950,10 +1050,20 @@ export function ProjectExplorerContent({
             <span className="explorer-root-path" title={rootPath}>
               {rootPath}
             </span>
+            {isSsh && sshConnectionStatus ? (
+              <span className={`explorer-connection-status ${sshConnectionStatus}`}>
+                {sshConnectionStatus}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
-        {error ? <span className="explorer-error">{error}</span> : null}
+        {error ? (
+          <span className={`explorer-error${isStale ? " stale" : ""}`}>
+            {isStale ? <AlertCircle size={13} /> : null}
+            {error}
+          </span>
+        ) : null}
 
         {isSearchMode ? (
           <div className="explorer-tree" ref={treeRef}>
@@ -1056,7 +1166,7 @@ export function ProjectExplorerContent({
                   <div
                     className={`explorer-tree-row${
                       isSelected ? " selected" : ""
-                    }`}
+                    }${node.stale ? " stale" : ""}`}
                     key={node.path}
                     draggable
                     onDragStart={(event) => handleTreeDragStart(event, node)}
@@ -1069,7 +1179,10 @@ export function ProjectExplorerContent({
                           node.path,
                           node.name,
                           isSsh,
-                          sshSessionIdRef.current
+                          sshProfileIdRef.current,
+                          undefined,
+                          rootPath ?? undefined,
+                          explorerDirectoryId ?? undefined
                         );
                       }
                     }}
@@ -1099,6 +1212,13 @@ export function ProjectExplorerContent({
                         className="spin explorer-tree-loading"
                         size={11}
                       />
+                    ) : node.error ? (
+                      <span title={node.error}>
+                        <AlertCircle
+                          className="explorer-tree-error"
+                          size={11}
+                        />
+                      </span>
                     ) : null}
                     {isLast ? null : null}
                   </div>

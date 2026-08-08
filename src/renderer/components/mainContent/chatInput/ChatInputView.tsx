@@ -19,7 +19,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { useI18n } from "../../../i18n";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../../hooks/useAppleThemeMotion";
 import { Modal } from "../../common/Modal";
 import type { ChatInputViewProps } from "./types";
 import { TEXT_SNIPPET_THRESHOLD } from "./constants";
@@ -144,6 +149,8 @@ export const ChatInputView = ({
   restoreContent,
 }: ChatInputViewProps): React.JSX.Element => {
   const { t } = useI18n();
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const popoverTransition = appleSurfaceTransition(reducedMotion);
   const {
     handleNewChat,
     handleSendMessage,
@@ -2076,8 +2083,33 @@ export const ChatInputView = ({
                   </span>
                   <ChevronDown size={12} />
                 </button>
-                {isModelMenuOpen && (
-                  <div className={`model-dropdown drop-${modelDropdownDir}`}>
+                <AnimatePresence initial={false}>
+                  {isModelMenuOpen && (
+                    <motion.div
+                      animate={
+                        appleMotionEnabled
+                          ? reducedMotion
+                            ? { opacity: 1 }
+                            : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                          : undefined
+                      }
+                      className={`model-dropdown drop-${modelDropdownDir}`}
+                      exit={
+                        appleMotionEnabled
+                          ? reducedMotion
+                            ? { opacity: 0 }
+                            : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                          : undefined
+                      }
+                      initial={
+                        appleMotionEnabled
+                          ? reducedMotion
+                            ? { opacity: 0 }
+                            : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                          : false
+                      }
+                      transition={appleMotionEnabled ? popoverTransition : undefined}
+                    >
                     {modelMenuView === "root" && (
                       <div className="model-dropdown-list">
                         <button
@@ -2478,8 +2510,9 @@ export const ChatInputView = ({
                           </div>
                         </>
                       ))}
-                  </div>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <TokenUsageRing
                 tokenUsage={tokenUsage}

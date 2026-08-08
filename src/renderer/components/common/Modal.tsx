@@ -7,6 +7,11 @@ import {
   useRef,
 } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../hooks/useAppleThemeMotion";
 
 type ModalProps = {
   open: boolean;
@@ -41,10 +46,12 @@ export function Modal({
   size = "medium",
   closeDisabled = false,
   className = "",
-}: ModalProps): React.JSX.Element | null {
+}: ModalProps): React.JSX.Element {
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const transition = appleSurfaceTransition(reducedMotion);
 
   useEffect(() => {
     if (!open) return;
@@ -60,8 +67,6 @@ export function Modal({
       previouslyFocusedElement?.focus();
     };
   }, [open]);
-
-  if (!open) return null;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -95,37 +100,67 @@ export function Modal({
     .join(" ");
 
   return createPortal(
-    <div className="app-modal-overlay">
-      <div
-        aria-describedby={description ? descriptionId : undefined}
-        aria-labelledby={titleId}
-        aria-modal="true"
-        className={dialogClassName}
-        onKeyDown={handleKeyDown}
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <div className="app-modal-header">
-          <div className="app-modal-title-group">
-            <strong id={titleId}>{title}</strong>
-            {description && <span id={descriptionId}>{description}</span>}
-          </div>
-          <button
-            aria-label={closeLabel}
-            className="icon-btn ghost app-modal-close"
-            disabled={closeDisabled}
-            onClick={onClose}
-            title={closeLabel}
-            type="button"
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          animate={appleMotionEnabled ? { opacity: 1 } : undefined}
+          className="app-modal-overlay"
+          exit={appleMotionEnabled ? { opacity: 0 } : undefined}
+          initial={appleMotionEnabled ? { opacity: 0 } : false}
+          transition={appleMotionEnabled ? { duration: 0.16 } : undefined}
+        >
+          <motion.div
+            animate={
+              appleMotionEnabled
+                ? { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                : undefined
+            }
+            aria-describedby={description ? descriptionId : undefined}
+            aria-labelledby={titleId}
+            aria-modal="true"
+            className={dialogClassName}
+            exit={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.985, y: -4, filter: "blur(1px)" }
+                : undefined
+            }
+            initial={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.985, y: -4, filter: "blur(1px)" }
+                : false
+            }
+            onKeyDown={handleKeyDown}
+            ref={dialogRef}
+            role="dialog"
+            tabIndex={-1}
+            transition={appleMotionEnabled ? transition : undefined}
           >
-            <X size={16} strokeWidth={1.9} />
-          </button>
-        </div>
-        <div className="app-modal-body">{children}</div>
-        {footer && <div className="app-modal-footer">{footer}</div>}
-      </div>
-    </div>,
+            <div className="app-modal-header">
+              <div className="app-modal-title-group">
+                <strong id={titleId}>{title}</strong>
+                {description && <span id={descriptionId}>{description}</span>}
+              </div>
+              <button
+                aria-label={closeLabel}
+                className="icon-btn ghost app-modal-close"
+                disabled={closeDisabled}
+                onClick={onClose}
+                title={closeLabel}
+                type="button"
+              >
+                <X size={16} strokeWidth={1.9} />
+              </button>
+            </div>
+            <div className="app-modal-body">{children}</div>
+            {footer && <div className="app-modal-footer">{footer}</div>}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body
   );
 }

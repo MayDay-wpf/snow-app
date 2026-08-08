@@ -38,6 +38,8 @@ type FileViewerContentProps = {
   fileName: string;
   isSsh: boolean;
   sshSessionId?: string | null;
+  sshWorkspaceRoot?: string;
+  sshWorkspaceId?: string;
   focusLine?: number;
   onDirtyChange?: (dirty: boolean) => void;
   /** 在文件所在目录打开终端。 */
@@ -164,6 +166,10 @@ const formatSize = (bytes: number): string => {
 const isEditable = (content: FileContentResult): boolean =>
   !content.isBinary && !content.isImage;
 
+const serializeRemoteVersion = (
+  version: FileContentResult["remoteVersion"] | undefined
+): string => JSON.stringify(version ?? { exists: false });
+
 /** 解析 markdown 链接路径：支持 `path:line` 与 `path#Lline` 行号定位。 */
 const parseHrefPathWithLine = (
   raw: string
@@ -225,6 +231,8 @@ export function FileViewerContent({
   fileName,
   isSsh,
   sshSessionId,
+  sshWorkspaceRoot,
+  sshWorkspaceId,
   focusLine,
   onDirtyChange,
   onOpenTerminal,
@@ -267,9 +275,31 @@ export function FileViewerContent({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState(false);
+  const [saveGuarantee, setSaveGuarantee] = useState<
+    "strong_atomic" | "atomic_best_effort" | "compatibility" | null
+  >(null);
+  const [draftStatus, setDraftStatus] = useState<"pending" | "conflict" | null>(
+    null
+  );
 
   const originalContentRef = useRef("");
   const onDirtyChangeRef = useRef(onDirtyChange);
+  const draftSnapshotRef = useRef<{
+    profileId: string;
+    workspaceId: string;
+    remotePath: string;
+    baseVersionJson: string;
+    content: string;
+    dirty: boolean;
+    status: "pending" | "conflict";
+  } | null>(null);
+  const sawSshDisconnectRef = useRef(false);
+
+  const canPersistRemoteDraft =
+    isSsh &&
+    typeof sshSessionId === "string" &&
+    sshSessionId.startsWith("ssh-profile:") &&
+    Boolean(sshWorkspaceId);
 
   // 代码视图滚动容器与高亮行相关状态。focusLine 由外部
   // （搜索结果点击行）传入，加载完内容后滚动到该行并临时高亮。
@@ -312,6 +342,8 @@ export function FileViewerContent({
     setDirty(false);
     setSaveError(null);
     setSavedAt(false);
+    setSaveGuarantee(null);
+    setDraftStatus(null);
     setEditedContent("");
     setMdMode("preview");
     try {
@@ -323,6 +355,37 @@ export function FileViewerContent({
       }
       setContent(result);
       originalContentRef.current = result.content;
+      if (canPersistRemoteDraft && sshSessionId && sshWorkspaceId) {
+        try {
+          const drafts = await window.snow.sshListRemoteDrafts(
+            sshWorkspaceId,
+            sshSessionId
+          );
+          const draft = drafts.find((item) => item.remotePath === filePath);
+          if (draft) {
+            const isCurrentBaseVersion =
+              draft.baseVersionJson === serializeRemoteVersion(result.remoteVersion);
+            setEditMode(true);
+            setEditedContent(draft.content);
+            setDirty(draft.content !== result.content);
+            setDraftStatus(isCurrentBaseVersion ? draft.status : "conflict");
+            if (!isCurrentBaseVersion) {
+              setSaveError(
+                t("rightPanel.fileViewerSaveConflict", {
+                  defaultValue:
+                    "The remote file changed. Reload it before saving your changes.",
+                })
+              );
+              void window.snow.sshUpsertRemoteDraft({
+                ...draft,
+                status: "conflict",
+              });
+            }
+          }
+        } catch {
+          // A draft lookup must not make a readable remote file unavailable.
+        }
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -334,7 +397,14 @@ export function FileViewerContent({
     } finally {
       setLoading(false);
     }
-  }, [filePath, isSsh, sshSessionId, t]);
+  }, [
+    canPersistRemoteDraft,
+    filePath,
+    isSsh,
+    sshSessionId,
+    sshWorkspaceId,
+    t,
+  ]);
 
   useEffect(() => {
     void loadFile();
@@ -455,6 +525,7 @@ export function FileViewerContent({
     setDirty(false);
     setSaveError(null);
     setSavedAt(false);
+    setSaveGuarantee(null);
   }, [content, isMarkdown]);
 
   const handleExitEditMode = useCallback(() => {
@@ -469,12 +540,31 @@ export function FileViewerContent({
         return;
       }
     }
+    if (canPersistRemoteDraft && sshSessionId && sshWorkspaceId) {
+      void window.snow.sshDeleteRemoteDraft(
+        sshSessionId,
+        sshWorkspaceId,
+        filePath
+      ).catch(() => {
+        // Keep an undeleted draft recoverable if SQLite is unavailable.
+      });
+    }
+    if (draftSnapshotRef.current) {
+      draftSnapshotRef.current.dirty = false;
+    }
     setEditMode(false);
     setDirty(false);
     setSaveError(null);
     setSavedAt(false);
     setEditedContent("");
-  }, [dirty, t]);
+  }, [
+    canPersistRemoteDraft,
+    dirty,
+    filePath,
+    sshSessionId,
+    sshWorkspaceId,
+    t,
+  ]);
 
   const handleValueChange = useCallback((next: string) => {
     setEditedContent(next);
@@ -483,7 +573,87 @@ export function FileViewerContent({
     if (!isDirty) {
       setSaveError(null);
       setSavedAt(false);
+      setDraftStatus(null);
+    } else {
+      setDraftStatus("pending");
     }
+  }, []);
+
+  const persistRemoteDraft = useCallback(
+    async (status: "pending" | "conflict"): Promise<void> => {
+      if (!canPersistRemoteDraft || !sshSessionId || !sshWorkspaceId) {
+        return;
+      }
+      await window.snow.sshUpsertRemoteDraft({
+        profileId: sshSessionId,
+        workspaceId: sshWorkspaceId,
+        remotePath: filePath,
+        baseVersionJson: serializeRemoteVersion(content?.remoteVersion),
+        content: editedContent,
+        status,
+      });
+      if (draftSnapshotRef.current) {
+        draftSnapshotRef.current.status = status;
+      }
+      setDraftStatus(status);
+    },
+    [
+      canPersistRemoteDraft,
+      content?.remoteVersion,
+      editedContent,
+      filePath,
+      sshSessionId,
+      sshWorkspaceId,
+    ]
+  );
+
+  useEffect(() => {
+    if (!dirty || !canPersistRemoteDraft) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void persistRemoteDraft("pending").catch(() => {
+        // The editor remains dirty; the final unmount flush retries this write.
+      });
+    }, 750);
+    return () => window.clearTimeout(timer);
+  }, [canPersistRemoteDraft, dirty, persistRemoteDraft]);
+
+  useEffect(() => {
+    draftSnapshotRef.current =
+      canPersistRemoteDraft && sshSessionId && sshWorkspaceId
+        ? {
+            profileId: sshSessionId,
+            workspaceId: sshWorkspaceId,
+            remotePath: filePath,
+            baseVersionJson: serializeRemoteVersion(content?.remoteVersion),
+            content: editedContent,
+            dirty,
+            status: draftStatus ?? "pending",
+          }
+        : null;
+  }, [
+    canPersistRemoteDraft,
+    content?.remoteVersion,
+    draftStatus,
+    dirty,
+    editedContent,
+    filePath,
+    sshSessionId,
+    sshWorkspaceId,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      const draft = draftSnapshotRef.current;
+      if (!draft?.dirty) {
+        return;
+      }
+      void window.snow.sshUpsertRemoteDraft({
+        ...draft,
+        status: draft.status,
+      });
+    };
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -491,35 +661,123 @@ export function FileViewerContent({
     setSaving(true);
     setSaveError(null);
     setSavedAt(false);
+    setSaveGuarantee(null);
     try {
-      if (isSsh && sshSessionId) {
-        await window.snow.sshWriteFile(sshSessionId, filePath, editedContent);
+      let remoteSave:
+        | {
+            guarantee: "strong_atomic" | "atomic_best_effort" | "compatibility";
+            version: NonNullable<FileContentResult["remoteVersion"]>;
+          }
+        | undefined;
+      if (isSsh) {
+        if (!sshSessionId || !sshWorkspaceId || !content?.remoteVersion) {
+          throw new Error("Remote file save is missing its verified workspace or version");
+        }
+        remoteSave = await window.snow.sshWriteFile(
+          sshSessionId,
+          filePath,
+          editedContent,
+          {
+            workspaceId: sshWorkspaceId,
+            expectedVersion: content.remoteVersion,
+          }
+        );
       } else {
         await window.snow.writeFileContent(filePath, editedContent);
       }
       originalContentRef.current = editedContent;
+      if (draftSnapshotRef.current) {
+        draftSnapshotRef.current.dirty = false;
+      }
       setDirty(false);
       setSavedAt(true);
+      setSaveGuarantee(remoteSave?.guarantee ?? null);
       window.setTimeout(() => setSavedAt(false), 2000);
       if (content) {
         setContent({
           ...content,
           content: editedContent,
           size: new Blob([editedContent]).size,
+          remoteVersion: remoteSave?.version ?? content.remoteVersion,
         });
       }
+      if (canPersistRemoteDraft && sshSessionId && sshWorkspaceId) {
+        try {
+          await window.snow.sshDeleteRemoteDraft(
+            sshSessionId,
+            sshWorkspaceId,
+            filePath
+          );
+        } catch {
+          // The remote write is already durable. A stale local draft is
+          // recoverable and must not turn that successful save into an error.
+        }
+        setDraftStatus(null);
+      }
     } catch (err) {
+      const message = err instanceof Error ? err.message : "";
       setSaveError(
-        err instanceof Error
-          ? err.message
-          : t("rightPanel.fileViewerSaveError", {
-              defaultValue: "Failed to save file",
+        /\[SSH_FILE_CONFLICT\]/.test(message)
+          ? t("rightPanel.fileViewerSaveConflict", {
+              defaultValue:
+                "The remote file changed. Reload it before saving your changes.",
             })
+          : message ||
+              t("rightPanel.fileViewerSaveError", {
+                defaultValue: "Failed to save file",
+              })
       );
+      if (/\[SSH_FILE_CONFLICT\]/.test(message)) {
+        void persistRemoteDraft("conflict").catch(() => {
+          // Preserve the editor even when local draft persistence is unavailable.
+        });
+      }
     } finally {
       setSaving(false);
     }
-  }, [dirty, saving, isSsh, sshSessionId, filePath, editedContent, content, t]);
+  }, [
+    dirty,
+    saving,
+    isSsh,
+    sshSessionId,
+    sshWorkspaceRoot,
+    filePath,
+    editedContent,
+    content,
+    canPersistRemoteDraft,
+    persistRemoteDraft,
+    t,
+    sshWorkspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!canPersistRemoteDraft || !sshSessionId) {
+      return;
+    }
+    return window.snow.onSshProfileConnection((connection) => {
+      if (connection.profileId !== sshSessionId) {
+        return;
+      }
+      if (connection.status !== "connected") {
+        sawSshDisconnectRef.current = true;
+        return;
+      }
+      if (
+        sawSshDisconnectRef.current &&
+        dirty &&
+        draftStatus === "pending"
+      ) {
+        sawSshDisconnectRef.current = false;
+        void handleSave();
+      } else if (connection.status === "connected") {
+        sawSshDisconnectRef.current = false;
+      }
+    });
+  }, [canPersistRemoteDraft, dirty, draftStatus, handleSave, sshSessionId]);
+
+  useEffect(() => {
+    sawSshDisconnectRef.current = false;
+  }, [sshSessionId]);
 
   // Markdown 预览中点击文件链接（相对路径/绝对路径）：解析为绝对路径后
   // 通过 open-file 事件在右侧面板新建文件阅读器 tab，替代 Electron 默认
@@ -540,6 +798,8 @@ export function FileViewerContent({
         filePath: resolved.path,
         isSsh,
         sshSessionId: isSsh ? sshSessionId : undefined,
+        sshWorkspaceRoot: isSsh ? sshWorkspaceRoot : undefined,
+        sshWorkspaceId: isSsh ? sshWorkspaceId : undefined,
         focusLine: resolved.line,
       });
     },
@@ -1102,11 +1362,45 @@ export function FileViewerContent({
                   defaultValue: "Unsaved",
                 })
               : savedAt
-              ? t("rightPanel.fileViewerSaved", {
-                  defaultValue: "Saved",
-                })
+              ? saveGuarantee === "strong_atomic"
+                ? t("rightPanel.fileViewerSavedStrongAtomic", {
+                    defaultValue: "Saved (strong atomic)",
+                  })
+                : saveGuarantee === "atomic_best_effort"
+                ? t("rightPanel.fileViewerSavedAtomicBestEffort", {
+                    defaultValue: "Saved (atomic best effort)",
+                  })
+                : saveGuarantee === "compatibility"
+                ? t("rightPanel.fileViewerSavedCompatibility", {
+                    defaultValue: "Saved (compatibility mode)",
+                  })
+                : t("rightPanel.fileViewerSaved", {
+                    defaultValue: "Saved",
+                  })
               : t("rightPanel.fileViewerEditing", {
                   defaultValue: "Editing",
+                })}
+          </span>
+        ) : null}
+        {editMode && draftStatus ? (
+          <span
+            className={`file-viewer-draft-status ${draftStatus}`}
+            title={
+              draftStatus === "conflict"
+                ? t("rightPanel.fileViewerDraftConflict", {
+                    defaultValue: "Remote changes require review before saving",
+                  })
+                : t("rightPanel.fileViewerDraftPending", {
+                    defaultValue: "Draft pending remote sync",
+                  })
+            }
+          >
+            {draftStatus === "conflict"
+              ? t("rightPanel.fileViewerDraftConflict", {
+                  defaultValue: "Draft conflict",
+                })
+              : t("rightPanel.fileViewerDraftPending", {
+                  defaultValue: "Draft pending",
                 })}
           </span>
         ) : null}

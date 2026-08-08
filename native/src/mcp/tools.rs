@@ -19,21 +19,19 @@ enum ToolCheckpointCapture {
     Worktree(Option<CheckpointWorktreeCapture>),
 }
 
-use super::builtin::{
-    execute_builtin_tool, get_builtin_servers_with_tools, get_builtin_tools,
-};
+use super::builtin::{execute_builtin_tool, get_builtin_servers_with_tools, get_builtin_tools};
 use super::servers::app_control::{AppControlCallback, AppControlService};
 use super::servers::bash::{BashService, BashStreamCallback, BashStreamChunk};
 use super::servers::browser::{BrowserCommandCallback, BrowserService};
 use super::servers::codebase::CodebaseService;
 use super::servers::codelens::CodeLensService;
+use super::servers::config::ConfigService;
 use super::servers::filesystem::FilesystemService;
 use super::servers::grep::GrepService;
 use super::servers::imagegen::ImageGenService;
-use super::servers::config::ConfigService;
 use super::servers::remote_workspace::{
-    is_ssh_path, resolve_remote_project_workspace, resolve_remote_workspace_path,
-    RemoteWorkspaceCallback,
+    execute_remote_workspace_command, is_ssh_path, resolve_remote_project_workspace,
+    resolve_remote_workspace_path, RemoteWorkspaceCallback,
 };
 use super::servers::skills::SkillsService;
 use super::servers::terminal::{TerminalCommandCallback, TerminalService};
@@ -94,6 +92,7 @@ const REQUEST_APPROVAL_FULL_NAME: &str = "app-control-requestApproval";
 pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "user-interaction",
     "app-control",
+    "remote-job",
     "filesystem",
     "sub-agents",
     "websearch",
@@ -145,28 +144,29 @@ pub async fn list_mcp_project_servers(
     project_id: String,
 ) -> napi::Result<Vec<McpProjectServerStatus>> {
     let project_id = required_value(project_id, "Project id")?;
-    let scope = load_project_scope(Some(&project_id)).await?.ok_or_else(|| {
-        Error::new(
-            Status::InvalidArg,
-            "Project id is required to list project MCP servers".to_string(),
-        )
-    })?;
+    let scope = load_project_scope(Some(&project_id))
+        .await?
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "Project id is required to list project MCP servers".to_string(),
+            )
+        })?;
 
     // Image generation tool is only globally available when at least one
     // channel (OpenAI / Gemini) is configured and enabled in Settings ->
     // Image generation. When both are unconfigured the server is globally
     // disabled so the front-end toggle reflects the real state (instead of
     // appearing enabled while the tool is silently excluded from context).
-    let imagegen_configured = tokio::task::spawn_blocking(|| {
-        crate::mcp::servers::imagegen::is_imagegen_configured()
-    })
-    .await
-    .map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to check image generation configuration: {error}"),
-        )
-    })??;
+    let imagegen_configured =
+        tokio::task::spawn_blocking(|| crate::mcp::servers::imagegen::is_imagegen_configured())
+            .await
+            .map_err(|error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to check image generation configuration: {error}"),
+                )
+            })??;
 
     let mut servers = get_builtin_servers_with_tools()
         .into_iter()
@@ -177,15 +177,11 @@ pub async fn list_mcp_project_servers(
             // so the front-end toggle stays in sync with collect_all_mcp_tools.
             // The error field uses a stable code (not a localized string) that
             // the front-end maps to the user's language.
-            let (global_enabled, error) =
-                if server_id == "imagegen" && !imagegen_configured {
-                    (
-                        false,
-                        Some("imagegen:not_configured".to_string()),
-                    )
-                } else {
-                    (true, None)
-                };
+            let (global_enabled, error) = if server_id == "imagegen" && !imagegen_configured {
+                (false, Some("imagegen:not_configured".to_string()))
+            } else {
+                (true, None)
+            };
             McpProjectServerStatus {
                 id: scope_server_id,
                 name: builtin_server_name(&server_id).to_string(),
@@ -202,8 +198,8 @@ pub async fn list_mcp_project_servers(
         let scope_server_id =
             super::external::project_scope_server_id(&external_server.config_server_id);
         let project_owned = external_server.source == "project";
-        let enabled = external_server.enabled
-            && (project_owned || scope.is_server_enabled(&scope_server_id));
+        let enabled =
+            external_server.enabled && (project_owned || scope.is_server_enabled(&scope_server_id));
         servers.push(McpProjectServerStatus {
             id: scope_server_id,
             name: external_server.name,
@@ -224,12 +220,14 @@ pub async fn list_mcp_project_server_tools(
 ) -> napi::Result<Vec<McpProjectToolStatus>> {
     let project_id = required_value(project_id, "Project id")?;
     let server_id = required_value(server_id, "MCP server id")?;
-    let scope = load_project_scope(Some(&project_id)).await?.ok_or_else(|| {
-        Error::new(
-            Status::InvalidArg,
-            "Project id is required to list project MCP server tools".to_string(),
-        )
-    })?;
+    let scope = load_project_scope(Some(&project_id))
+        .await?
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "Project id is required to list project MCP server tools".to_string(),
+            )
+        })?;
 
     if let Some(builtin_server_id) = server_id.strip_prefix("builtin:") {
         let tools = get_builtin_servers_with_tools()
@@ -251,7 +249,8 @@ pub async fn list_mcp_project_server_tools(
             format!("Unknown MCP project server: {server_id}"),
         )
     })?;
-    let tools = super::external::discover_server_tools(Some(&project_id), external_server_id).await?;
+    let tools =
+        super::external::discover_server_tools(Some(&project_id), external_server_id).await?;
     Ok(to_project_tool_statuses(&tools, &scope))
 }
 
@@ -410,16 +409,15 @@ pub async fn collect_all_mcp_tools(
     // Image generation tool is only exposed when at least one channel
     // (OpenAI / Gemini) is configured and enabled in Settings -> Image
     // generation; when both are unconfigured the tool disappears entirely.
-    let imagegen_configured = tokio::task::spawn_blocking(|| {
-        crate::mcp::servers::imagegen::is_imagegen_configured()
-    })
-    .await
-    .map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to check image generation configuration: {error}"),
-        )
-    })??;
+    let imagegen_configured =
+        tokio::task::spawn_blocking(|| crate::mcp::servers::imagegen::is_imagegen_configured())
+            .await
+            .map_err(|error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to check image generation configuration: {error}"),
+                )
+            })??;
 
     let mut tools = get_builtin_tools()
         .into_iter()
@@ -474,7 +472,8 @@ async fn is_codebase_available(project_id: Option<&str>) -> Result<bool> {
         if !scope.enabled.unwrap_or(false) {
             return Ok(false);
         }
-        match crate::storage::services::codebase_index::get_index_stats(&database_path, &project_id) {
+        match crate::storage::services::codebase_index::get_index_stats(&database_path, &project_id)
+        {
             Ok(stats) => Ok(stats.total_chunks > 0),
             Err(_) => Ok(false),
         }
@@ -592,10 +591,7 @@ fn builtin_server_name(server_id: &str) -> &str {
     }
 }
 
-async fn ensure_project_tool_enabled(
-    project_id: Option<&str>,
-    tool_name: &str,
-) -> Result<()> {
+async fn ensure_project_tool_enabled(project_id: Option<&str>, tool_name: &str) -> Result<()> {
     let Some(scope) = load_project_scope(project_id).await? else {
         return Ok(());
     };
@@ -620,7 +616,10 @@ async fn ensure_project_tool_enabled(
                     format!("MCP tool is no longer available: {tool_name}"),
                 )
             })?;
-        (resolved_server.scope_server_id, resolved_server.project_owned)
+        (
+            resolved_server.scope_server_id,
+            resolved_server.project_owned,
+        )
     };
 
     if !project_owned && !scope.is_server_enabled(&server_scope_id) {
@@ -639,9 +638,7 @@ async fn ensure_project_tool_enabled(
     Ok(())
 }
 
-async fn load_project_scope(
-    project_id: Option<&str>,
-) -> Result<Option<McpProjectScopeSettings>> {
+async fn load_project_scope(project_id: Option<&str>) -> Result<Option<McpProjectScopeSettings>> {
     let Some(project_id) = project_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -770,8 +767,7 @@ fn register_remote_tool_execution(
     on_chunk: &BashStreamCallback,
 ) -> (String, tokio_util::sync::CancellationToken) {
     let tool_execution_id = Uuid::new_v4().to_string();
-    let cancel_token =
-        crate::api::cancel::register_tool_execution(&tool_execution_id);
+    let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
     on_chunk.call(
         BashStreamChunk {
             stream: "tool_execution".to_string(),
@@ -849,14 +845,10 @@ pub async fn call_mcp_tool(
 
     if let Some(ref allowed_tools) = sub_agent_allowed_tools {
         let wildcard_enabled = allowed_tools.iter().any(|name| name == "*");
-        if !wildcard_enabled
-            && !allowed_tools.iter().any(|name| name == &tool_full_name)
-        {
+        if !wildcard_enabled && !allowed_tools.iter().any(|name| name == &tool_full_name) {
             return Err(Error::new(
                 Status::GenericFailure,
-                format!(
-                    "Sub-agent tool is not in the allowed whitelist: {tool_full_name}"
-                ),
+                format!("Sub-agent tool is not in the allowed whitelist: {tool_full_name}"),
             ));
         }
     }
@@ -896,7 +888,40 @@ pub async fn call_mcp_tool(
 
     let returns_plain_text = tool_full_name == "skills-skill-execute";
     let masking_tool_name = tool_full_name.clone();
-    let result = if tool_full_name == "bash-terminal-execute" {
+    let result = if tool_full_name == "remote-job-start" {
+        if !uses_remote_workspace {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "remote-job-start requires an SSH workspace".to_string(),
+            ));
+        }
+        let mut durable_args = args.clone();
+        durable_args["durable"] = Value::Bool(true);
+        BashService::new()
+            .execute_terminal_stream(
+                &durable_args,
+                project_id.as_deref(),
+                sensitive_authorization_token.as_deref(),
+                on_chunk,
+                &on_remote_workspace_command,
+            )
+            .await?
+    } else if let Some(remote_job_tool) = tool_full_name.strip_prefix("remote-job-") {
+        let operation = match remote_job_tool {
+            "status" => "remote-job-status",
+            "read" => "remote-job-read",
+            "cancel" => "remote-job-cancel",
+            "list" => "remote-job-list",
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    format!("Unknown Remote Job tool: {remote_job_tool}"),
+                ));
+            }
+        };
+        execute_remote_workspace_command(&on_remote_workspace_command, operation, &args, None)
+            .await?
+    } else if tool_full_name == "bash-terminal-execute" {
         let terminal_result = BashService::new()
             .execute_terminal_stream(
                 &args,
@@ -950,8 +975,7 @@ pub async fn call_mcp_tool(
                 format!("Unsupported remote workspace MCP tool: {tool_full_name}"),
             )
         })?;
-        let (tool_execution_id, cancel_token) =
-            register_remote_tool_execution(&on_chunk);
+        let (tool_execution_id, cancel_token) = register_remote_tool_execution(&on_chunk);
         let fs_result = FilesystemService::new()
             .execute_async(
                 filesystem_tool,
@@ -1007,8 +1031,16 @@ pub async fn call_mcp_tool(
     } else if let Some(codelens_tool) = tool_full_name.strip_prefix("codelens-") {
         let service = CodeLensService::new();
         match codelens_tool {
-            "find_definition" => service.execute_find_definition(&args, project_id.as_deref()).await?,
-            "find_references" => service.execute_find_references(&args, project_id.as_deref()).await?,
+            "find_definition" => {
+                service
+                    .execute_find_definition(&args, project_id.as_deref())
+                    .await?
+            }
+            "find_references" => {
+                service
+                    .execute_find_references(&args, project_id.as_deref())
+                    .await?
+            }
             "file_outline" => service.execute_file_outline(&args).await?,
             _ => {
                 return Err(Error::new(
@@ -1045,11 +1077,9 @@ pub async fn call_mcp_tool(
                 "Skill execution returned an invalid text result".to_string(),
             )
         })?;
-        let masked = super::privacy_mask::mask_tool_result_if_needed(
-            &masking_tool_name,
-            &plain_text,
-        )
-        .await?;
+        let masked =
+            super::privacy_mask::mask_tool_result_if_needed(&masking_tool_name, &plain_text)
+                .await?;
         return Ok(masked);
     }
 
@@ -1199,10 +1229,8 @@ fn path_contains_symlink(workspace_path: &Path, candidate_path: &Path) -> bool {
 }
 
 fn is_allowed_remote_plan_write(workspace_path: &str, requested_path: &str) -> bool {
-    let resolved_path = resolve_remote_workspace_path(
-        workspace_path,
-        &requested_path.trim().replace('\\', "/"),
-    );
+    let resolved_path =
+        resolve_remote_workspace_path(workspace_path, &requested_path.trim().replace('\\', "/"));
     let Some((workspace_authority, workspace_segments)) = normalize_ssh_path(workspace_path) else {
         return false;
     };
@@ -1264,14 +1292,29 @@ async fn prepare_remote_workspace_args(
     let Some(path) = args.get(path_field).and_then(Value::as_str) else {
         return Ok((args, false));
     };
+    let remote_project_workspace = resolve_remote_project_workspace(project_id).await?;
     if is_ssh_path(path) {
+        if let Some(workspace_path) = remote_project_workspace.as_deref() {
+            if let (
+                Some((workspace_authority, workspace_segments)),
+                Some((candidate_authority, candidate_segments)),
+            ) = (normalize_ssh_path(workspace_path), normalize_ssh_path(path))
+            {
+                if workspace_authority == candidate_authority
+                    && remote_segments_start_with(&candidate_segments, &workspace_segments)
+                {
+                    args["workspaceRoot"] = Value::String(workspace_path.to_string());
+                }
+            }
+        }
         return Ok((args, true));
     }
 
-    let Some(workspace_path) = resolve_remote_project_workspace(project_id).await? else {
+    let Some(workspace_path) = remote_project_workspace else {
         return Ok((args, false));
     };
     args[path_field] = Value::String(resolve_remote_workspace_path(&workspace_path, path));
+    args["workspaceRoot"] = Value::String(workspace_path);
     Ok((args, true))
 }
 
@@ -1279,7 +1322,9 @@ fn remote_workspace_path_field(tool_full_name: &str) -> Option<&'static str> {
     match tool_full_name {
         "filesystem-read" | "filesystem-replace_edit" | "filesystem-create" => Some("filePath"),
         "grep-search" => Some("path"),
-        "bash-terminal-execute" => Some("workingDirectory"),
+        "bash-terminal-execute" | "remote-job-start" | "remote-job-list" => {
+            Some("workingDirectory")
+        }
         _ => None,
     }
 }

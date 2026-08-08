@@ -1,6 +1,6 @@
 import { AlertCircle, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SshConnectParams } from "../../../../preload";
+import type { SshConnectParams, SshFileVersion } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { Modal } from "../../common/Modal";
@@ -92,6 +92,7 @@ export const RoleEditorPanel = ({
     useState<ProjectDirectoryInfo | null>(null);
   const loadGenerationRef = useRef(0);
   const sshSessionIdRef = useRef<string | null>(null);
+  const remoteRoleVersionRef = useRef<SshFileVersion>({ exists: false });
 
   const roleFilePath = directoryInfo
     ? directoryInfo.isSsh
@@ -115,6 +116,7 @@ export const RoleEditorPanel = ({
     setSaveSuccess(false);
     setContent("");
     setOriginalContent("");
+    remoteRoleVersionRef.current = { exists: false };
 
     try {
       const info = await resolveProjectDirectory(projectId);
@@ -154,11 +156,13 @@ export const RoleEditorPanel = ({
           const text = result.isBinary ? "" : result.content;
           setContent(text);
           setOriginalContent(text);
+          remoteRoleVersionRef.current = result.remoteVersion ?? { exists: false };
         } catch (readError) {
           if (loadGenerationRef.current !== generation) return;
           // File does not exist yet — start with empty content.
           setContent("");
           setOriginalContent("");
+          remoteRoleVersionRef.current = { exists: false };
         }
       } else {
         try {
@@ -212,7 +216,7 @@ export const RoleEditorPanel = ({
   }, []);
 
   const handleSave = async (): Promise<void> => {
-    if (!directoryInfo || !roleFilePath || isSaving) return;
+    if (!directoryInfo || !roleFilePath || !projectId || isSaving) return;
 
     setIsSaving(true);
     setError(null);
@@ -229,11 +233,16 @@ export const RoleEditorPanel = ({
           }
           sshSessionIdRef.current = await window.snow.sshConnect(connectParams);
         }
-        await window.snow.sshWriteFile(
+        const writeResult = await window.snow.sshWriteFile(
           sshSessionIdRef.current,
           roleFilePath,
-          content
+          content,
+          {
+            workspaceId: projectId,
+            expectedVersion: remoteRoleVersionRef.current,
+          }
         );
+        remoteRoleVersionRef.current = writeResult.version;
       } else {
         await window.snow.writeFileContent(roleFilePath, content);
       }

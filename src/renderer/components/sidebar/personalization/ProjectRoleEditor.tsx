@@ -6,7 +6,10 @@ import {
   Save,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WorkspaceDirectoryRecord } from "../../../../preload";
+import type {
+  SshFileVersion,
+  WorkspaceDirectoryRecord,
+} from "../../../../preload";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { useI18n } from "../../../i18n";
 import {
@@ -48,6 +51,8 @@ export const ProjectRoleEditor = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const loadGenerationRef = useRef(0);
   const sshSessionIdRef = useRef<string | null>(null);
+  const remoteRoleVersionRef = useRef<SshFileVersion>({ exists: false });
+  const remoteSettingsVersionRef = useRef<SshFileVersion>({ exists: false });
 
   // 断开 SSH 会话（切换项目/卸载时）。
   const disconnectSsh = useCallback((): void => {
@@ -77,6 +82,8 @@ export const ProjectRoleEditor = ({
     setSettingsContent("");
     setIncludeGlobalRules(true);
     setOriginalIncludeGlobalRules(true);
+    remoteRoleVersionRef.current = { exists: false };
+    remoteSettingsVersionRef.current = { exists: false };
     disconnectSsh();
   }, [disconnectSsh]);
 
@@ -119,11 +126,13 @@ export const ProjectRoleEditor = ({
             const text = result.isBinary ? "" : result.content;
             setContent(text);
             setOriginalContent(text);
+            remoteRoleVersionRef.current = result.remoteVersion ?? { exists: false };
           } catch (readError) {
             if (loadGenerationRef.current !== generation) return;
             // File does not exist yet — start with empty content.
             setContent("");
             setOriginalContent("");
+            remoteRoleVersionRef.current = { exists: false };
           }
           try {
             const result = await window.snow.sshReadFile(
@@ -136,8 +145,12 @@ export const ProjectRoleEditor = ({
             setSettingsContent(text);
             setIncludeGlobalRules(enabled);
             setOriginalIncludeGlobalRules(enabled);
+            remoteSettingsVersionRef.current = result.remoteVersion ?? {
+              exists: false,
+            };
           } catch {
             setSettingsContent("");
+            remoteSettingsVersionRef.current = { exists: false };
           }
         } else {
           try {
@@ -201,6 +214,9 @@ export const ProjectRoleEditor = ({
 
     try {
       if (directoryInfo.isSsh) {
+        if (!activeDirectory?.directoryId) {
+          throw new Error("Remote project rule save is missing its workspace ID");
+        }
         if (!sshSessionIdRef.current) {
           const connectParams = await buildSshConnectParams(directoryInfo.path);
           if (!connectParams) {
@@ -215,11 +231,16 @@ export const ProjectRoleEditor = ({
           }
           sshSessionIdRef.current = await window.snow.sshConnect(connectParams);
         }
-        await window.snow.sshWriteFile(
+        const roleWrite = await window.snow.sshWriteFile(
           sshSessionIdRef.current,
           roleFilePath,
-          content
+          content,
+          {
+            workspaceId: activeDirectory.directoryId,
+            expectedVersion: remoteRoleVersionRef.current,
+          }
         );
+        remoteRoleVersionRef.current = roleWrite.version;
         if (includeGlobalRules !== originalIncludeGlobalRules) {
           const settingsDirectory = settingsFilePath.replace(/\/[^/]+$/, "");
           const quotedDirectory = `'${settingsDirectory.replace(/'/g, `'"'"'`)}'`;
@@ -231,11 +252,16 @@ export const ProjectRoleEditor = ({
             settingsContent,
             includeGlobalRules
           );
-          await window.snow.sshWriteFile(
+          const settingsWrite = await window.snow.sshWriteFile(
             sshSessionIdRef.current,
             settingsFilePath,
-            nextSettings
+            nextSettings,
+            {
+              workspaceId: activeDirectory.directoryId,
+              expectedVersion: remoteSettingsVersionRef.current,
+            }
           );
+          remoteSettingsVersionRef.current = settingsWrite.version;
           setSettingsContent(nextSettings);
         }
       } else {

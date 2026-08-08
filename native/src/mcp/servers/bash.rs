@@ -63,21 +63,14 @@ fn interactive_sessions() -> &'static tokio::sync::Mutex<HashMap<String, Interac
 /// The session is looked up by the UUID that was emitted as the
 /// `interactive_session` stream chunk.  After writing, the stdin pipe is
 /// **not** closed — the process may still need more input later.
-pub async fn write_interactive_stdin(
-    session_id: String,
-    input: String,
-) -> napi::Result<()> {
+pub async fn write_interactive_stdin(session_id: String, input: String) -> napi::Result<()> {
     let mut sessions = interactive_sessions().lock().await;
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| {
-            Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Interactive session not found or already terminated: {session_id}"
-                ),
-            )
-        })?;
+    let session = sessions.get_mut(&session_id).ok_or_else(|| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Interactive session not found or already terminated: {session_id}"),
+        )
+    })?;
     session
         .stdin
         .write_all(input.as_bytes())
@@ -142,10 +135,7 @@ pub async fn authorize_sensitive_command(command: String, token: String) -> napi
     Ok(())
 }
 
-async fn consume_sensitive_command_authorization(
-    command: &str,
-    token: Option<&str>,
-) -> bool {
+async fn consume_sensitive_command_authorization(command: &str, token: Option<&str>) -> bool {
     let Some(token) = token.filter(|value| !value.is_empty()) else {
         return false;
     };
@@ -168,7 +158,7 @@ impl McpService for BashService {
         vec![McpTool {
             server_id: SERVER_ID.to_string(),
             name: "terminal-execute".to_string(),
-            description: "Execute terminal commands like npm, git, build scripts, etc. BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
+            description: "Execute terminal commands like npm, git, build scripts, etc. BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nFor a durable build, test, install, deployment, or unknown-duration command on an SSH workspace, pass durable:true. It creates a Remote Job that survives SSH disconnects; then use remote-job-status and remote-job-read. Interactive commands (password prompts, y/n confirmations) cannot be durable; use the application terminal instead.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -195,6 +185,10 @@ impl McpService for BashService {
                     "detach": {
                         "type": "boolean",
                         "description": "Run the command in the background and return immediately. Output is written to <workingDirectory>/.snow/logs/<name>-<timestamp>.log; the result contains { detached: true, pid, logPath, hint }. Use for long-running services: monitor via filesystem-read on logPath, stop via taskkill /PID <pid> (Windows) / kill <pid> (POSIX). Default: false. Cannot be combined with isInteractive; not supported for remote (SSH) workspaces."
+                    },
+                    "durable": {
+                        "type": "boolean",
+                        "description": "For SSH workspaces only, launch a Durable Remote Job that survives SSH disconnection. Use for builds, tests, installs, deployments, and unknown-duration commands. Default: false. Cannot be combined with detach or isInteractive."
                     },
                     "sessionId": {
                         "type": "string",
@@ -297,15 +291,23 @@ impl BashService {
         // <workingDirectory>/.snow/logs/. This is the supported way to start
         // long-running services (dev servers, watchers, databases) without
         // blocking the agent until the timeout.
-        let detach = args
-            .get("detach")
+        let detach = args.get("detach").and_then(Value::as_bool).unwrap_or(false);
+        let durable = args
+            .get("durable")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
         if detach && is_interactive {
             return Err(Error::new(
                 Status::InvalidArg,
-                "detach cannot be combined with isInteractive: a detached command has no stdin".to_string(),
+                "detach cannot be combined with isInteractive: a detached command has no stdin"
+                    .to_string(),
+            ));
+        }
+        if durable && (detach || is_interactive) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "durable cannot be combined with detach or isInteractive".to_string(),
             ));
         }
 
@@ -335,11 +337,8 @@ impl BashService {
             check_sensitive_commands(&command, project_id).await
         };
         if !sensitive_matches.is_empty()
-            && !consume_sensitive_command_authorization(
-                &command,
-                sensitive_authorization_token,
-            )
-            .await
+            && !consume_sensitive_command_authorization(&command, sensitive_authorization_token)
+                .await
         {
             let error_payload = json!({
                 "error": "SENSITIVE_COMMAND_DETECTED",
@@ -368,14 +367,14 @@ impl BashService {
             }
             let mut remote_args = args.clone();
             remote_args["workingDirectory"] = Value::String(remote_working_directory);
+            remote_args["durable"] = Value::Bool(durable);
             // Register a cancellation token for the remote execution so the
             // stop button / session abort can settle the pending Electron
             // promise immediately (mirrors the local-process registration
             // further down). The id is streamed as a `tool_execution` chunk
             // so the frontend can target this call for cancellation.
             let tool_execution_id = Uuid::new_v4().to_string();
-            let cancel_token =
-                crate::api::cancel::register_tool_execution(&tool_execution_id);
+            let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
             emit_stream_chunk(&on_chunk, "tool_execution", tool_execution_id.clone());
             let result = execute_remote_workspace_command(
                 on_remote_workspace_command,
@@ -386,6 +385,12 @@ impl BashService {
             .await;
             crate::api::cancel::unregister_tool_execution(&tool_execution_id);
             return result;
+        }
+        if durable {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "durable is only supported for remote (SSH) workspaces".to_string(),
+            ));
         }
 
         let shell_path = load_terminal_shell_path().await?;
@@ -521,8 +526,7 @@ impl BashService {
         // `tool_execution` chunk (mirroring how `interactive_session` ids
         // are delivered) so the tool call can be targeted for cancellation.
         let tool_execution_id = Uuid::new_v4().to_string();
-        let cancel_token =
-            crate::api::cancel::register_tool_execution(&tool_execution_id);
+        let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
         emit_stream_chunk(&callback, "tool_execution", tool_execution_id.clone());
 
         // For interactive sessions, take the stdin pipe and register the
@@ -534,17 +538,10 @@ impl BashService {
             if let Some(stdin) = child.stdin.take() {
                 let session_id = Uuid::new_v4().to_string();
                 let mut sessions = interactive_sessions().lock().await;
-                sessions.insert(
-                    session_id.clone(),
-                    InteractiveSession { stdin },
-                );
+                sessions.insert(session_id.clone(), InteractiveSession { stdin });
                 drop(sessions);
 
-                emit_stream_chunk(
-                    &callback,
-                    "interactive_session",
-                    session_id.clone(),
-                );
+                emit_stream_chunk(&callback, "interactive_session", session_id.clone());
                 Some(session_id)
             } else {
                 None
@@ -553,12 +550,14 @@ impl BashService {
             None
         };
 
-        let stdout_task = child.stdout.take().map(|stdout| {
-            tokio::spawn(read_stream(stdout, "stdout", Arc::clone(&callback)))
-        });
-        let stderr_task = child.stderr.take().map(|stderr| {
-            tokio::spawn(read_stream(stderr, "stderr", Arc::clone(&callback)))
-        });
+        let stdout_task = child
+            .stdout
+            .take()
+            .map(|stdout| tokio::spawn(read_stream(stdout, "stdout", Arc::clone(&callback))));
+        let stderr_task = child
+            .stderr
+            .take()
+            .map(|stderr| tokio::spawn(read_stream(stderr, "stderr", Arc::clone(&callback))));
 
         // Interactive commands use a much longer timeout because they
         // wait for user input.  We use 24 hours as the upper bound.
@@ -640,9 +639,9 @@ impl BashService {
                 // single bounded safety timeout, never twice that timeout.
                 tokio::join!(
                     await_stream_task(stdout_task, Some(Duration::from_secs(3))),
-                    await_stream_task(stderr_task, Some(Duration::from_secs(3))),
-                )
-            };
+                     await_stream_task(stderr_task, Some(Duration::from_secs(3))),
+                 )
+             };
 
         // No further cancellation can target this execution once the
         // process has settled and the pipe drain has finished.
@@ -715,12 +714,9 @@ async fn await_stream_task(
 /// taskkill /PID 只能杀掉 wsl.exe 壳进程，WSL 实例内的 Linux 进程需要
 /// 通过 pkill / wsl --terminate 停止，hint 提示据此区分。
 fn is_wsl_command(command: &str) -> bool {
-    command
-        .split_whitespace()
-        .next()
-        .is_some_and(|token| {
-            token.eq_ignore_ascii_case("wsl") || token.eq_ignore_ascii_case("wsl.exe")
-        })
+    command.split_whitespace().next().is_some_and(|token| {
+        token.eq_ignore_ascii_case("wsl") || token.eq_ignore_ascii_case("wsl.exe")
+    })
 }
 
 /// 生成 detach 模式日志文件的完整路径并创建父目录。
@@ -853,11 +849,7 @@ where
     strip_ansi_codes(&String::from_utf8_lossy(&output))
 }
 
-fn emit_complete_utf8_chunks(
-    on_chunk: &BashStreamCallback,
-    stream: &str,
-    pending: &mut Vec<u8>,
-) {
+fn emit_complete_utf8_chunks(on_chunk: &BashStreamCallback, stream: &str, pending: &mut Vec<u8>) {
     loop {
         match std::str::from_utf8(pending) {
             Ok(text) => {
@@ -887,11 +879,7 @@ fn emit_complete_utf8_chunks(
     }
 }
 
-fn emit_stream_chunk(
-    on_chunk: &BashStreamCallback,
-    stream: &str,
-    data: String,
-) {
+fn emit_stream_chunk(on_chunk: &BashStreamCallback, stream: &str, data: String) {
     if data.is_empty() {
         return;
     }
@@ -921,10 +909,8 @@ fn strip_ansi_codes(input: &str) -> String {
         // CSI sequences: ESC [ ... final byte in 0x40..=0x7E
         // OSC sequences: ESC ] ... BEL  or  ESC ] ... ESC \  (ST)
         // Other two-byte escapes (ESC + single char) that some tools emit.
-        Regex::new(
-            r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9AB]",
-        )
-        .expect("invalid ANSI strip regex")
+        Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9AB]")
+            .expect("invalid ANSI strip regex")
     });
     re.replace_all(input, "").into_owned()
 }
@@ -1040,8 +1026,7 @@ fn is_self_destructive_command(command: &str) -> SelfDestructCheck {
 
     // Windows: Stop-Process targeting node/electron
     if lower.contains("stop-process")
-        && (regex_matches(r"(?i)\bnode\b", command)
-            || regex_matches(r"(?i)\belectron\b", command))
+        && (regex_matches(r"(?i)\bnode\b", command) || regex_matches(r"(?i)\belectron\b", command))
     {
         return SelfDestructCheck {
             is_self_destructive: true,
@@ -1063,7 +1048,12 @@ fn is_self_destructive_command(command: &str) -> SelfDestructCheck {
     let stop_process_pattern = format!(r"(?i)\bStop-Process\s+.*-Id\s+{}\b", pid_str);
     let taskkill_pattern = format!(r"(?i)\btaskkill\b.*/PID\s+{}\b", pid_str);
 
-    let pid_patterns = [kill_pattern, kill9_pattern, stop_process_pattern, taskkill_pattern];
+    let pid_patterns = [
+        kill_pattern,
+        kill9_pattern,
+        stop_process_pattern,
+        taskkill_pattern,
+    ];
 
     for pattern in &pid_patterns {
         if regex_matches(pattern, command) {
@@ -1095,5 +1085,3 @@ fn regex_matches(pattern: &str, text: &str) -> bool {
         .map(|r| r.is_match(text))
         .unwrap_or(false)
 }
-
-

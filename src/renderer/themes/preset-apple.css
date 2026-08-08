@@ -1,0 +1,760 @@
+/* Apple is deliberately a platform UI, not a recolored Material skin.
+ * Toolbar and sidebars carry material; working content stays solid so the
+ * hierarchy remains readable. */
+:root[data-theme-preset="apple"] {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Helvetica Neue", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  --font-brand-body: var(--font-sans);
+  --font-brand-display: var(--font-sans);
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --apple-press-scale: 0.97;
+  --apple-motion-response: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --apple-motion-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --apple-material-filter: blur(24px) saturate(180%);
+  --apple-control-shadow: 0 1px 2px rgba(28, 28, 30, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --apple-popover-shadow: 0 18px 44px rgba(28, 28, 30, 0.16),
+    0 2px 8px rgba(28, 28, 30, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  --accent: var(--apple-blue);
+  --accent-primary: var(--apple-blue);
+  --accent-secondary: var(--apple-green);
+  --accent-color: var(--apple-blue);
+  --accent-orange: var(--apple-orange);
+  --accent-orange-bg: var(--apple-orange-fill);
+  --accent-orange-text: var(--apple-orange-text);
+  --accent-primary-bg: var(--apple-blue-fill);
+  --accent-primary-text: var(--apple-blue-text);
+  --color-primary: var(--apple-blue);
+  --color-success: var(--apple-green);
+  --color-error: var(--apple-red);
+  --success: var(--apple-green);
+  --warning: var(--apple-orange);
+  --danger: var(--apple-red);
+  --text-link: var(--apple-blue);
+  --border-focus: var(--apple-blue);
+  --surface-hover: var(--apple-blue-fill);
+  --surface-island: var(--apple-content);
+  --surface-island-strong: var(--apple-content);
+  --surface-island-muted: var(--apple-sidebar-material);
+  --island-shadow: var(--apple-control-shadow);
+  --shadow-sm: var(--apple-control-shadow);
+  --shadow-md: var(--apple-popover-shadow);
+}
+
+:root[data-theme-preset="apple"][data-theme="light"] {
+  color-scheme: light;
+  --apple-blue: #007aff;
+  --apple-blue-text: #005cc8;
+  --apple-blue-fill: rgba(0, 122, 255, 0.12);
+  --apple-green: #34c759;
+  --apple-red: #ff3b30;
+  --apple-orange: #ff9500;
+  --apple-orange-fill: rgba(255, 149, 0, 0.15);
+  --apple-orange-text: #ad5d00;
+  --apple-window: #e8e8ed;
+  --apple-toolbar-material: rgba(250, 250, 252, 0.78);
+  --apple-sidebar-material: rgba(246, 246, 248, 0.76);
+  --apple-content: #ffffff;
+  --apple-control: rgba(255, 255, 255, 0.8);
+  --apple-popover: rgba(255, 255, 255, 0.9);
+  --apple-hairline: rgba(60, 60, 67, 0.18);
+  --app-bg: var(--apple-window) !important;
+  --chrome-bg: #f7f7fa !important;
+  --bg-primary: #ffffff !important;
+  --bg-secondary: #f2f2f7 !important;
+  --bg-tertiary: #e5e5ea !important;
+  --bg-hover: #e9e9ee !important;
+  --bg-active: #d1d1d6 !important;
+  --border-color: #d1d1d6 !important;
+  --border-light: #e5e5ea !important;
+  --border-subtle: #c7c7cc !important;
+  --text-primary: #1d1d1f !important;
+  --text-secondary: #3a3a3c !important;
+  --text-tertiary: #6e6e73 !important;
+  --text-muted: #8e8e93 !important;
+  --accent-blue: #007aff !important;
+  --accent-blue-bg: #dceeff !important;
+  --accent-blue-text: #005cc8 !important;
+  --accent-green: #34c759 !important;
+  --accent-green-bg: #ddf7e5 !important;
+  --accent-green-text: #187a34 !important;
+  --accent-red: #ff3b30 !important;
+  --accent-red-bg: #ffe2e0 !important;
+  --accent-red-text: #ba1a12 !important;
+  --selection-bg: rgba(0, 122, 255, 0.2) !important;
+  --focus-ring: rgba(0, 122, 255, 0.28) !important;
+  --on-solid: #ffffff !important;
+  --scrollbar-thumb: rgba(60, 60, 67, 0.3);
+  --scrollbar-thumb-hover: rgba(60, 60, 67, 0.46);
+  --scrollbar-thumb-active: rgba(60, 60, 67, 0.58);
+}
+
+:root[data-theme-preset="apple"][data-theme="dark"] {
+  color-scheme: dark;
+  --apple-blue: #0a84ff;
+  --apple-blue-text: #6eb5ff;
+  --apple-blue-fill: rgba(10, 132, 255, 0.22);
+  --apple-green: #30d158;
+  --apple-red: #ff453a;
+  --apple-orange: #ff9f0a;
+  --apple-orange-fill: rgba(255, 159, 10, 0.2);
+  --apple-orange-text: #ffb340;
+  --apple-window: #000000;
+  --apple-toolbar-material: rgba(28, 28, 30, 0.8);
+  --apple-sidebar-material: rgba(44, 44, 46, 0.74);
+  --apple-content: #1c1c1e;
+  --apple-control: rgba(58, 58, 60, 0.78);
+  --apple-popover: rgba(44, 44, 46, 0.92);
+  --apple-hairline: rgba(84, 84, 88, 0.68);
+  --apple-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --apple-popover-shadow: 0 20px 48px rgba(0, 0, 0, 0.42),
+    0 2px 8px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --app-bg: #000000 !important;
+  --chrome-bg: #1c1c1e !important;
+  --bg-primary: #1c1c1e !important;
+  --bg-secondary: #2c2c2e !important;
+  --bg-tertiary: #3a3a3c !important;
+  --bg-hover: #363638 !important;
+  --bg-active: #48484a !important;
+  --border-color: #38383a !important;
+  --border-light: #2c2c2e !important;
+  --border-subtle: #48484a !important;
+  --text-primary: #f5f5f7 !important;
+  --text-secondary: #e5e5ea !important;
+  --text-tertiary: #c7c7cc !important;
+  --text-muted: #98989d !important;
+  --accent-blue: #0a84ff !important;
+  --accent-blue-bg: rgba(10, 132, 255, 0.24) !important;
+  --accent-blue-text: #6eb5ff !important;
+  --accent-green: #30d158 !important;
+  --accent-green-bg: rgba(48, 209, 88, 0.2) !important;
+  --accent-green-text: #74e39a !important;
+  --accent-red: #ff453a !important;
+  --accent-red-bg: rgba(255, 69, 58, 0.2) !important;
+  --accent-red-text: #ff8a83 !important;
+  --selection-bg: rgba(10, 132, 255, 0.3) !important;
+  --focus-ring: rgba(10, 132, 255, 0.38) !important;
+  --on-solid: #ffffff !important;
+  --scrollbar-thumb: rgba(235, 235, 245, 0.24);
+  --scrollbar-thumb-hover: rgba(235, 235, 245, 0.38);
+  --scrollbar-thumb-active: rgba(235, 235, 245, 0.5);
+}
+
+/* Typography and the window hierarchy */
+:root[data-theme-preset="apple"] :is(body, button, input, select, textarea) {
+  font-family: var(--app-font-family, var(--font-sans));
+  font-feature-settings: "kern";
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  letter-spacing: 0;
+}
+
+:root[data-theme-preset="apple"] :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-brand-display);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+:root[data-theme-preset="apple"] :is(.app-shell, .app-layout) {
+  background: var(--apple-window);
+}
+
+:root[data-theme-preset="apple"] .app-layout {
+  padding: 0;
+}
+
+:root[data-theme-preset="apple"] .top-bar {
+  gap: 8px;
+  min-height: var(--header-height);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--apple-hairline);
+  background: var(--apple-toolbar-material);
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.top-bar-left, .top-bar-main, .top-bar-right) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme-preset="apple"] .sidebar {
+  padding: 0 6px 6px;
+  border-right: 1px solid var(--apple-hairline);
+  background: var(--apple-sidebar-material);
+  box-shadow: none;
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+}
+
+:root[data-theme-preset="apple"] .sidebar-top {
+  padding: 10px 8px 6px;
+}
+
+:root[data-theme-preset="apple"] .main-content {
+  padding: 16px 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--apple-content);
+  box-shadow: none;
+}
+
+:root[data-theme-preset="apple"] .app-shell.right-panel-fullscreen .main-content {
+  padding: 0;
+}
+
+:root[data-theme-preset="apple"] .right-panel {
+  border: 0;
+  border-left: 1px solid var(--apple-hairline);
+  border-radius: 0;
+  background: var(--apple-sidebar-material);
+  box-shadow: none;
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+}
+
+/* Motion owns layout projection for these persistent application regions. */
+:root[data-theme-preset="apple"]
+  :is(.top-bar, .sidebar, .main-content, .right-panel) {
+  transition: none;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.main-header, .panel-tabs, .browser-toolbar, .git-control-header,
+    .codebase-panel-header, .file-viewer-header, .sidebar-content-header,
+    .section-header, .api-settings-page-header) {
+  border-bottom-color: var(--apple-hairline);
+  background: transparent;
+}
+
+/* Immediate, reversible feedback for desktop controls. */
+:root[data-theme-preset="apple"]
+  :is(.icon-btn, .nav-item, .list-item, .settings-item, .chat-item,
+    .panel-tab, .panel-tab-btn, .toolbar-btn, .browser-nav-btn,
+    .codebase-panel-view-btn, .file-viewer-action-btn, .git-action-btn,
+    .right-panel-tab-item, .top-bar-todo-btn, .top-bar-plus-btn) {
+  transition: transform 100ms ease-out, background-color 180ms var(--apple-motion-response),
+    border-color 180ms var(--apple-motion-response), color 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"] .icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.icon-btn:hover, .panel-tab-btn:hover, .browser-nav-btn:hover:not(:disabled),
+    .toolbar-btn:hover:not(:disabled)) {
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.nav-item, .list-item, .settings-item, .chat-item) {
+  min-height: 34px;
+  border-color: transparent;
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme-preset="apple"] .nav-item {
+  padding-right: 10px;
+  padding-left: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.nav-item:hover, .list-item:hover, .settings-item:hover, .chat-item:hover,
+    .chat-item.menu-open) {
+  background: color-mix(in srgb, var(--apple-blue-fill) 72%, transparent);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.nav-item.active, .list-item.active, .settings-item.active, .chat-item.active) {
+  border-color: transparent;
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+  box-shadow: none;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.settings-item.active::before, .chat-item.active::before) {
+  display: none;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.settings-item.active .settings-item-title, .chat-item.active .chat-item-title,
+    .nav-item.active svg) {
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"] .chat-item-icon {
+  border-color: var(--apple-hairline);
+  background: var(--apple-control);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.chat-item-icon.streaming, .chat-item-icon.completed) {
+  border-color: transparent;
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.panel-tab, .toolbar-btn.model, .btn-commit) {
+  border: 1px solid var(--apple-hairline);
+  border-radius: var(--radius-md);
+  background: var(--apple-control);
+  box-shadow: var(--apple-control-shadow);
+}
+
+:root[data-theme-preset="apple"] .panel-tab.active {
+  border-color: transparent;
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+  font-weight: 600;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.top-bar .new-chat-btn, .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary, .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary, .confirm-dialog-btn.confirm,
+    .tool-call-user-question-submit, .tool-call-plan-approval-approve,
+    .project-sensitive-command-save, .personalization-save-btn,
+    .branch-create-submit-btn, .git-commit-btn.primary, .mcp-editor-mode-btn.active,
+    .send-btn, .pending-message-send-now) {
+  border-color: var(--apple-blue);
+  background: var(--apple-blue);
+  color: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 122, 255, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.top-bar .new-chat-btn, .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary, .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary, .confirm-dialog-btn.confirm,
+    .tool-call-user-question-submit, .tool-call-plan-approval-approve,
+    .project-sensitive-command-save, .personalization-save-btn,
+    .branch-create-submit-btn, .git-commit-btn.primary, .send-btn,
+    .pending-message-send-now):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--apple-blue) 88%, #000000);
+  color: #ffffff;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.api-settings-action-btn, .api-settings-form-btn, .confirm-dialog-btn,
+    .model-manual-btn, .project-codebase-embed-btn, .git-commit-btn) {
+  min-height: 32px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.api-settings-action-btn.secondary, .api-settings-form-btn.secondary,
+    .confirm-dialog-btn.cancel, .btn-commit) {
+  border-color: var(--apple-hairline);
+  background: var(--apple-control);
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.api-settings-action-btn.secondary, .api-settings-form-btn.secondary,
+    .confirm-dialog-btn.cancel, .btn-commit):hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"] button:active:not(:disabled),
+:root[data-theme-preset="apple"] [role="button"]:active {
+  transform: scale(var(--apple-press-scale));
+}
+
+/* Controls use the native macOS proportions and settle without a bounce. */
+:root[data-theme-preset="apple"]
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea, .custom-select-trigger, .model-manual-field,
+    .search-modal-input, .browser-address-input, .browser-find-input,
+    .git-commit-input, .file-viewer-search-input, .branch-create-input) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-md);
+  background: var(--apple-control);
+  color: var(--text-primary);
+  box-shadow: var(--apple-control-shadow);
+  transition: border-color 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response), background-color 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"]
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea, .custom-select-trigger, .model-manual-field,
+    .search-modal-input, .browser-address-input, .browser-find-input,
+    .git-commit-input, .file-viewer-search-input, .branch-create-input):focus {
+  border-color: var(--apple-blue);
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--apple-control-shadow);
+  outline: none;
+}
+
+:root[data-theme-preset="apple"] .toggle-slider {
+  width: 38px;
+  height: 24px;
+  border-color: transparent;
+  background: var(--bg-active);
+  box-shadow: inset 0 1px 2px rgba(28, 28, 30, 0.16);
+  transition: background-color 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"] .toggle-slider::after {
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(28, 28, 30, 0.22);
+  transition: transform 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"] .toggle-switch input:checked + .toggle-slider {
+  background: var(--apple-green);
+  box-shadow: inset 0 1px 1px rgba(0, 81, 37, 0.18);
+}
+
+:root[data-theme-preset="apple"] .toggle-switch input:checked + .toggle-slider::after {
+  transform: translateX(14px);
+}
+
+:root[data-theme-preset="apple"] .toggle-switch input:focus-visible + .toggle-slider {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Conversation surfaces are solid, concise, and only rise when interactive. */
+:root[data-theme-preset="apple"] .user-message-bubble {
+  border-color: transparent;
+  border-radius: 20px 20px 5px 20px;
+  background: var(--apple-blue);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.chat-input-container, .chat-input-wrapper) {
+  border-color: var(--apple-hairline);
+  background: var(--apple-control);
+  box-shadow: var(--apple-control-shadow);
+  transition: border-color 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response), background-color 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.chat-input-container, .chat-input-wrapper):focus-within {
+  border-color: var(--apple-blue);
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--apple-control-shadow);
+}
+
+:root[data-theme-preset="apple"] .input-box {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--apple-control);
+  box-shadow: var(--apple-control-shadow);
+}
+
+:root[data-theme-preset="apple"] .input-box::before {
+  content: none;
+  animation: none;
+}
+
+:root[data-theme-preset="apple"] .input-box:focus-within {
+  border-color: var(--apple-blue);
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--apple-control-shadow);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.chat-empty-quick-card, .tool-call-card, .tool-call-content,
+    .api-settings-summary-card, .theme-preset-card) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--apple-content);
+  box-shadow: var(--apple-control-shadow);
+}
+
+:root[data-theme-preset="apple"] .chat-empty-quick-card {
+  transition: transform 180ms var(--apple-motion-emphasis),
+    border-color 180ms var(--apple-motion-response), box-shadow 180ms var(--apple-motion-response),
+    background-color 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"] .chat-empty-quick-card:hover:not(:disabled),
+:root[data-theme-preset="apple"] .chat-empty-quick-card:focus-visible {
+  border-color: color-mix(in srgb, var(--apple-blue) 38%, var(--apple-hairline));
+  background: var(--apple-blue-fill);
+  box-shadow: 0 6px 16px rgba(28, 28, 30, 0.12);
+  transform: translateY(-1px);
+}
+
+:root[data-theme-preset="apple"]
+  :is(pre, .code-block, .markdown-table-wrapper, .diff-viewer, .terminal-container,
+    .chat-message-tool, .context-compaction-message, .context-compaction-stream,
+    .file-changes-card, .tool-call-bash-terminal, .pending-messages-area) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: none;
+}
+
+/* A floating layer materializes from its trigger instead of appearing flat. */
+:root[data-theme-preset="apple"]
+  :is(.top-bar-plus-dropdown, .top-bar-todo-dropdown, .plus-menu-dropdown,
+    .model-dropdown, .file-mention-popup, .chat-command-panel,
+    .custom-select-dropdown, .browser-menu-dropdown, .branch-dropdown) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--apple-popover);
+  box-shadow: var(--apple-popover-shadow);
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+  transform-origin: top right;
+}
+
+/* These surfaces are owned by AnimatePresence and must not run a competing
+ * keyframe animation. */
+:root[data-theme-preset="apple"]
+  :is(.top-bar-plus-dropdown, .top-bar-todo-dropdown, .model-dropdown,
+    .custom-select-dropdown, .file-mention-popup, .chat-command-panel,
+    .plus-menu-dropdown, .context-menu) {
+  animation: none;
+}
+
+:root[data-theme-preset="apple"] .custom-select-dropdown-portal {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.browser-menu-dropdown, .branch-dropdown) {
+  animation: apple-materialize 220ms var(--apple-motion-emphasis) both;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.chat-item-menu, .explorer-entry-context-menu, .context-menu, .popover-content,
+    .emoji-picker) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--apple-popover);
+  box-shadow: var(--apple-popover-shadow);
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+  transform-origin: top left;
+  animation: apple-materialize 220ms var(--apple-motion-emphasis) both;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.app-modal-dialog, .confirm-dialog, .search-modal, .command-palette) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-xl);
+  background: var(--apple-popover);
+  box-shadow: var(--apple-popover-shadow);
+  backdrop-filter: var(--apple-material-filter);
+  -webkit-backdrop-filter: var(--apple-material-filter);
+  transform-origin: center;
+  animation: none;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.app-modal-header, .app-modal-footer, .confirm-dialog-header,
+    .top-bar-todo-dropdown-header) {
+  border-color: var(--apple-hairline);
+  background: transparent;
+}
+
+:root[data-theme-preset="apple"]
+  :is(.app-modal-overlay, .confirm-dialog-overlay) {
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.top-bar-plus-dropdown-item, .top-bar-todo-item, .top-bar-todo-item-status,
+    .top-bar-todo-pin-btn, .chat-item-menu-item, .context-menu-item,
+    .explorer-entry-context-menu-item, .custom-select-item, .plus-menu-item,
+    .file-mention-item, .emoji-picker-item, .model-dropdown-item,
+    .browser-menu-item, .branch-dropdown-item, .chat-command-item, .mention-entry) {
+  border-radius: var(--radius-sm);
+  transition: transform 100ms ease-out, background-color 160ms var(--apple-motion-response),
+    color 160ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.top-bar-plus-dropdown-item:hover, .top-bar-todo-item:hover,
+    .top-bar-todo-item-status:hover:not(:disabled), .top-bar-todo-pin-btn:hover,
+    .chat-item-menu-item:hover, .context-menu-item:hover,
+    .explorer-entry-context-menu-item:hover, .custom-select-item:hover,
+    .plus-menu-item:hover, .file-mention-item:hover, .emoji-picker-item:hover,
+    .model-dropdown-item:hover, .model-dropdown-item.active, .browser-menu-item:hover,
+    .branch-dropdown-item:hover, .chat-command-item:hover, .mention-entry:hover) {
+  background: var(--apple-blue-fill);
+  color: var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.theme-mode-option, .theme-preset-card, .api-settings-form-section) {
+  border-color: var(--apple-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--apple-content);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.theme-mode-option, .theme-preset-card) {
+  transition: transform 180ms var(--apple-motion-emphasis),
+    border-color 180ms var(--apple-motion-response), background-color 180ms var(--apple-motion-response),
+    box-shadow 180ms var(--apple-motion-response);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.theme-mode-option:hover:not(:disabled), .theme-preset-card:hover:not(:disabled)) {
+  border-color: color-mix(in srgb, var(--apple-blue) 30%, var(--apple-hairline));
+  transform: translateY(-1px);
+}
+
+:root[data-theme-preset="apple"]
+  :is(.theme-mode-option.active, .theme-preset-card.active) {
+  border-color: var(--apple-blue);
+  background: var(--apple-blue-fill);
+  box-shadow: 0 0 0 1px var(--apple-blue);
+}
+
+:root[data-theme-preset="apple"]
+  :is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@keyframes apple-materialize {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.985);
+    backdrop-filter: blur(8px) saturate(125%);
+    -webkit-backdrop-filter: blur(8px) saturate(125%);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+    backdrop-filter: var(--apple-material-filter);
+    -webkit-backdrop-filter: var(--apple-material-filter);
+  }
+}
+
+@keyframes apple-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  :root[data-theme-preset="apple"] .top-bar {
+    background: var(--chrome-bg);
+  }
+
+  :root[data-theme-preset="apple"] :is(.sidebar, .right-panel) {
+    background: var(--bg-secondary);
+  }
+
+  :root[data-theme-preset="apple"]
+    :is(.top-bar-plus-dropdown, .top-bar-todo-dropdown, .plus-menu-dropdown,
+      .model-dropdown, .file-mention-popup, .chat-command-panel,
+      .custom-select-dropdown, .browser-menu-dropdown,
+      .branch-dropdown, .chat-item-menu, .explorer-entry-context-menu, .context-menu,
+      .popover-content, .emoji-picker, .app-modal-dialog, .confirm-dialog,
+      .search-modal, .command-palette) {
+    background: var(--bg-primary);
+  }
+}
+
+@media (max-width: 720px) {
+  :root[data-theme-preset="apple"] .top-bar {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  :root[data-theme-preset="apple"] .main-content {
+    padding: 12px 8px;
+  }
+
+  :root[data-theme-preset="apple"]
+    :is(.icon-btn, .api-settings-action-btn, .api-settings-form-btn,
+      .confirm-dialog-btn, .model-manual-btn, .project-codebase-embed-btn,
+      .git-commit-btn) {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-preset="apple"]
+    :is(.browser-menu-dropdown, .branch-dropdown, .chat-item-menu,
+      .explorer-entry-context-menu, .context-menu, .popover-content, .emoji-picker) {
+    animation: apple-fade-in 160ms ease both;
+  }
+
+  :root[data-theme-preset="apple"]
+    :is(.chat-empty-quick-card, .theme-mode-option, .theme-preset-card,
+      button, [role="button"]):active {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme-preset="apple"] {
+    --apple-toolbar-material: var(--chrome-bg);
+    --apple-sidebar-material: var(--bg-secondary);
+    --apple-control: var(--bg-primary);
+    --apple-popover: var(--bg-primary);
+  }
+
+  :root[data-theme-preset="apple"]
+    :is(.top-bar, .sidebar, .right-panel, .top-bar-plus-dropdown,
+      .top-bar-todo-dropdown, .plus-menu-dropdown, .model-dropdown,
+      .file-mention-popup, .chat-command-panel, .custom-select-dropdown,
+      .browser-menu-dropdown, .branch-dropdown,
+      .chat-item-menu, .explorer-entry-context-menu, .context-menu, .popover-content,
+      .emoji-picker, .app-modal-dialog, .confirm-dialog, .search-modal,
+      .command-palette) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme-preset="apple"]
+    :is(.top-bar, .sidebar, .right-panel, .theme-mode-option, .theme-preset-card,
+      .chat-empty-quick-card, .app-modal-dialog, .confirm-dialog,
+      .top-bar-plus-dropdown, .top-bar-todo-dropdown, .chat-item-menu,
+      .context-menu, .custom-select-dropdown, input, select, textarea) {
+    border-color: var(--border-subtle);
+  }
+}

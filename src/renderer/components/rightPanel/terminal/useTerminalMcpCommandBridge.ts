@@ -3,6 +3,7 @@ import type {
   TerminalCommandRequest,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
+import type { TerminalOpenOptions } from "../types";
 import {
   createTerminalTabId,
   executeTerminalMcpCommand,
@@ -22,8 +23,7 @@ export type TerminalMcpTabCallbacks = {
   openTab: (
     cwd: string,
     tabId?: string,
-    shellPath?: string,
-    sessionId?: string
+    options?: TerminalOpenOptions
   ) => string;
   closeTab: (tabId: string) => boolean;
   focusTab: (tabId: string) => boolean;
@@ -73,7 +73,7 @@ export const useTerminalMcpCommandBridge = (
               activeDir?.path ||
               "";
             const tabId = createTerminalTabId();
-            cb.openTab(cwd, tabId, shellPath, sessionId);
+            cb.openTab(cwd, tabId, { shellPath, sessionId });
             await waitForTerminalTab(tabId);
             return JSON.stringify({
               tabId,

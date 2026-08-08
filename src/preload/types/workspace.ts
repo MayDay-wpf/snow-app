@@ -32,6 +32,8 @@ export type FileSearchResult = {
 };
 
 /** 自然语言文件搜索 agent 的进度回调数据（每次工具调用一条）。 */
+import type { SshFileVersion } from "./ssh";
+
 export type FileSearchAgentProgress = {
   round: number;
   tool: string;
@@ -47,6 +49,8 @@ export type FileContentResult = {
   mimeType: string;
   encoding: string;
   size: number;
+  /** Present only for remote SSH reads and used as the save CAS token. */
+  remoteVersion?: SshFileVersion;
 };
 
 /**

@@ -13,8 +13,14 @@ import {
   Terminal,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import type { WorkspaceDirectoryRecord } from "../../preload";
 import { useI18n } from "../i18n";
+import {
+  appleLayoutTransition,
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../hooks/useAppleThemeMotion";
 import { useChatConversationContext } from "./mainContent/chatMessages";
 import { CodebaseSyncIndicator } from "./TopBar/CodebaseSyncIndicator";
 import { TodoPanelButton } from "./TopBar/TodoPanelButton";
@@ -47,6 +53,9 @@ export const TopBar = ({
   onOpenCodebase,
 }: TopBarProps): React.JSX.Element => {
   const { t } = useI18n();
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const layoutTransition = appleLayoutTransition(reducedMotion);
+  const popoverTransition = appleSurfaceTransition(reducedMotion);
   const {
     handleNewChat,
     summary,
@@ -437,12 +446,18 @@ export const TopBar = ({
   const isTodoPanelInteractive = isTodoPanelOpen && !isTodoPanelPinned;
 
   return (
-    <header
+    <motion.header
       className={`top-bar${isPlusMenuOpen ? " plus-menu-open" : ""}${
         isTodoPanelOpen ? " todo-panel-open" : ""
       }${isTodoPanelInteractive ? " todo-panel-interactive" : ""}`}
+      layout={appleMotionEnabled}
+      transition={appleMotionEnabled ? layoutTransition : undefined}
     >
-      <div className="top-bar-left">
+      <motion.div
+        className="top-bar-left"
+        layout={appleMotionEnabled}
+        transition={appleMotionEnabled ? layoutTransition : undefined}
+      >
         <div className="top-bar-sidebar-actions" aria-label="Sidebar actions">
           <button
             className="icon-btn sidebar-toggle-btn"
@@ -463,9 +478,13 @@ export const TopBar = ({
             <SquarePen size={16} strokeWidth={1.8} />
           </button>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="top-bar-main">
+      <motion.div
+        className="top-bar-main"
+        layout={appleMotionEnabled}
+        transition={appleMotionEnabled ? layoutTransition : undefined}
+      >
         <div className="header-title-group">
           <h2 className="header-title">{headerTitle}</h2>
           {headerSubtitle ? (
@@ -495,10 +514,11 @@ export const TopBar = ({
             }
           }}
         />
-      </div>
+      </motion.div>
 
-      <div
+      <motion.div
         className="top-bar-right"
+        layout={appleMotionEnabled}
         onContextMenu={(event) => {
           // 右侧圆角卡片（项目标签 + 新建/面板/全屏按钮）任意位置右键：
           // 提供针对当前项目的快捷操作。容器已整体脱离窗口 drag 区域，
@@ -506,6 +526,7 @@ export const TopBar = ({
           event.preventDefault();
           setBranchContextMenu({ x: event.clientX, y: event.clientY });
         }}
+        transition={appleMotionEnabled ? layoutTransition : undefined}
       >
         <div className="top-bar-branch-info">
           {activeDirectory && (
@@ -532,24 +553,50 @@ export const TopBar = ({
             >
               <Plus size={16} strokeWidth={1.8} />
             </button>
-            {isPlusMenuOpen && (
-              <div className="top-bar-plus-dropdown">
-                {plusMenuItems.map((item) => {
-                  const ItemIcon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      className="top-bar-plus-dropdown-item"
-                      type="button"
-                      onClick={() => handlePlusMenuAction(item.id)}
-                    >
-                      <ItemIcon size={13} strokeWidth={1.8} />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <AnimatePresence initial={false}>
+              {isPlusMenuOpen && (
+                <motion.div
+                  animate={
+                    appleMotionEnabled
+                      ? reducedMotion
+                        ? { opacity: 1 }
+                        : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                      : undefined
+                  }
+                  className="top-bar-plus-dropdown"
+                  exit={
+                    appleMotionEnabled
+                      ? reducedMotion
+                        ? { opacity: 0 }
+                        : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                      : undefined
+                  }
+                  initial={
+                    appleMotionEnabled
+                      ? reducedMotion
+                        ? { opacity: 0 }
+                        : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                      : false
+                  }
+                  transition={appleMotionEnabled ? popoverTransition : undefined}
+                >
+                  {plusMenuItems.map((item) => {
+                    const ItemIcon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        className="top-bar-plus-dropdown-item"
+                        type="button"
+                        onClick={() => handlePlusMenuAction(item.id)}
+                      >
+                        <ItemIcon size={13} strokeWidth={1.8} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           {!isRightPanelFullscreen && (
             <button
@@ -572,7 +619,7 @@ export const TopBar = ({
             <FullscreenToggleIcon size={16} strokeWidth={1.8} />
           </button>
         </div>
-      </div>
+      </motion.div>
       {branchContextMenu && (
         <ContextMenu
           x={branchContextMenu.x}
@@ -581,6 +628,6 @@ export const TopBar = ({
           onClose={() => setBranchContextMenu(null)}
         />
       )}
-    </header>
+    </motion.header>
   );
 };

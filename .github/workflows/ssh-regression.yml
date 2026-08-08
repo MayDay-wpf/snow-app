@@ -1,0 +1,137 @@
+name: SSH Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/fixtures/openssh/**"
+      - ".github/workflows/ssh-regression.yml"
+      - "native/src/bin/snow-agent.rs"
+      - "scripts/build-snow-agent-release.cjs"
+      - "scripts/verify-snow-agent-release.cjs"
+      - "src/main/ssh/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snow-agent-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check TypeScript
+        run: npm run check:ts
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Test MCP Remote Job schema
+        run: cargo test --manifest-path native/Cargo.toml remote_jobs
+
+      - name: Build a signed test Snow Agent
+        run: |
+          umask 077
+          openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/snow-agent-test-key.pem"
+          export SNOW_AGENT_RELEASE_SIGNING_KEY="$(cat "$RUNNER_TEMP/snow-agent-test-key.pem")"
+          export SNOW_AGENT_RELEASE_TAG="v$(node -p "require('./package.json').version")"
+          npm run build:snow-agent-release -- linux-x64-musl
+          npm run verify:snow-agent-release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-snow-agent-test-assets
+          path: |
+            release/snow-agent-linux-x64-musl
+            release/snow-agent-linux-x64-musl.json
+            resources/snow-agent/trust.json
+          if-no-files-found: error
+
+  openssh:
+    needs: snow-agent-fixture
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["12", "13"]
+        fixture: [no-tmux, noexec, sftp-disabled, permit-tty-no]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-snow-agent-test-assets
+          path: .snow-agent-test-assets
+
+      - name: Restore signed test Agent assets
+        run: |
+          mkdir -p release resources/snow-agent
+          find .snow-agent-test-assets -type f -name 'snow-agent-linux-x64-musl*' -exec cp {} release/ \;
+          cp "$(find .snow-agent-test-assets -type f -name trust.json -print -quit)" resources/snow-agent/trust.json
+          chmod 0700 release/snow-agent-linux-x64-musl
+          npm run verify:snow-agent-release
+
+      - name: Start Debian OpenSSH fixture
+        env:
+          DEBIAN_VERSION: ${{ matrix.debian }}
+          FIXTURE: ${{ matrix.fixture }}
+        run: |
+          image="snow-openssh-${DEBIAN_VERSION}-${FIXTURE}"
+          docker build --build-arg DEBIAN_VERSION="$DEBIAN_VERSION" -t "$image" -f .github/fixtures/openssh/Dockerfile .github/fixtures/openssh
+          args="--rm -d -p 127.0.0.1::22 -e SNOW_SSH_TEST_FIXTURE=$FIXTURE"
+          if [ "$FIXTURE" = "noexec" ]; then
+            args="$args --tmpfs /home/snow/.local/lib/snow-app/agent:rw,noexec,nosuid,nodev,size=64m"
+          fi
+          container_id=$(docker run $args "$image")
+          port=$(docker port "$container_id" 22/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')
+          test -n "$port"
+          printf 'SNOW_SSH_FIXTURE_CONTAINER=%s\nSNOW_SSH_FIXTURE_PORT=%s\n' "$container_id" "$port" >> "$GITHUB_ENV"
+
+      - name: Serve signed Snow Agent release assets
+        run: |
+          python3 -m http.server 18080 --bind 127.0.0.1 --directory release > "$RUNNER_TEMP/snow-agent-http.log" 2>&1 &
+          echo "SNOW_AGENT_HTTP_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Run Debian OpenSSH Remote Job regression
+        env:
+          SNOW_AGENT_RELEASE_BASE_URL: http://127.0.0.1:18080
+          SNOW_SSH_TEST: "1"
+          SNOW_SSH_TEST_FIXTURE: ${{ matrix.fixture }}
+          SNOW_SSH_TEST_HOST: 127.0.0.1
+        run: |
+          SNOW_SSH_TEST_PORT="$SNOW_SSH_FIXTURE_PORT" \
+            node_modules/.bin/vitest run src/main/ssh/remoteJobs.openssh.test.ts
+
+      - name: Stop OpenSSH fixture
+        if: always()
+        run: |
+          if [ -n "${SNOW_AGENT_HTTP_PID:-}" ]; then kill "$SNOW_AGENT_HTTP_PID" || true; fi
+          if [ -n "${SNOW_SSH_FIXTURE_CONTAINER:-}" ]; then docker rm -f "$SNOW_SSH_FIXTURE_CONTAINER" || true; fi

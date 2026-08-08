@@ -8,7 +8,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useI18n } from "../../i18n";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../hooks/useAppleThemeMotion";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { shortcutEvents } from "../shortcutEvents";
 import type { ChatConversationMessage } from "../mainContent/chatMessages/utils/conversationTypes";
@@ -83,6 +88,8 @@ export const TodoPanelButton = ({
   onPinnedChange,
 }: TodoPanelButtonProps): React.JSX.Element | null => {
   const { t } = useI18n();
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const popoverTransition = appleSurfaceTransition(reducedMotion);
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
@@ -349,8 +356,33 @@ export const TodoPanelButton = ({
           <span className="top-bar-todo-badge">{incompleteCount}</span>
         ) : null}
       </button>
-      {isOpen ? (
-        <div className="top-bar-todo-dropdown">
+      <AnimatePresence initial={false}>
+        {isOpen ? (
+          <motion.div
+            animate={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 1 }
+                  : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                : undefined
+            }
+            className="top-bar-todo-dropdown"
+            exit={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : undefined
+            }
+            initial={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : false
+            }
+            transition={appleMotionEnabled ? popoverTransition : undefined}
+          >
           <div className="top-bar-todo-dropdown-header">
             <span className="top-bar-todo-dropdown-title">
               {t("topBar.todo.title")}
@@ -446,8 +478,9 @@ export const TodoPanelButton = ({
               </button>
             </div>
           ) : null}
-        </div>
-      ) : null}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       <ConfirmDialog
         open={confirmDeleteIds !== null}
         variant="danger"

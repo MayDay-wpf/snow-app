@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { motion } from "motion/react";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../hooks/useAppleThemeMotion";
 
 export type ContextMenuItem = {
   id: string;
@@ -40,6 +45,8 @@ export function ContextMenu({
 }: ContextMenuProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [top, setTop] = useState(y);
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const transition = appleSurfaceTransition(reducedMotion);
 
   // 测量菜单实际高度，避免超出窗口底部。
   useLayoutEffect(() => {
@@ -100,11 +107,26 @@ export function ContextMenu({
   );
 
   return createPortal(
-    <div
+    <motion.div
+      animate={
+        appleMotionEnabled
+          ? reducedMotion
+            ? { opacity: 1 }
+            : { opacity: 1, scale: 1, filter: "blur(0px)" }
+          : undefined
+      }
       ref={menuRef}
       className="context-menu"
+      initial={
+        appleMotionEnabled
+          ? reducedMotion
+            ? { opacity: 0 }
+            : { opacity: 0, scale: 0.98, filter: "blur(1px)" }
+          : false
+      }
       role="menu"
       style={{ left: Math.max(8, left), top: Math.max(8, top) }}
+      transition={appleMotionEnabled ? transition : undefined}
     >
       {items.map(renderItem)}
       {footerItems && footerItems.length > 0 && (
@@ -113,7 +135,7 @@ export function ContextMenu({
           {footerItems.map(renderItem)}
         </>
       )}
-    </div>,
+    </motion.div>,
     document.body
   );
 }

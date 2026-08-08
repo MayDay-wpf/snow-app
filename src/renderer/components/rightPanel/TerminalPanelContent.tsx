@@ -11,6 +11,7 @@ import { useTerminalMcpInstance } from "./terminal/useTerminalMcpInstance";
 export type TerminalPanelContentProps = {
   tabId: string;
   cwd: string;
+  ptyId?: string;
   shellPath?: string;
   sessionId?: string;
   isActive: boolean;
@@ -86,6 +87,7 @@ const DEFAULT_FONT_FAMILY =
 export const TerminalPanelContent = ({
   tabId,
   cwd,
+  ptyId: attachedPtyId,
   shellPath: shellPathProp,
   sessionId,
   isActive,
@@ -94,7 +96,7 @@ export const TerminalPanelContent = ({
   onProcessExit,
 }: TerminalPanelContentProps): React.JSX.Element => {
   const settings = useTerminalSettings();
-  const shellPath = shellPathProp ?? settings.shellPath;
+  const shellPath = shellPathProp?.trim() || settings.shellPath;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -258,13 +260,15 @@ export const TerminalPanelContent = ({
       try {
         const cols = term.cols > 0 ? term.cols : 80;
         const rows = term.rows > 0 ? term.rows : 24;
-        const id = await window.snow.ptyCreate({
-          cwd,
-          cols,
-          rows,
-          shellPath: shellPath || undefined,
-          sessionId,
-        });
+        const id =
+          attachedPtyId ??
+          (await window.snow.ptyCreate({
+            cwd,
+            cols,
+            rows,
+            shellPath: shellPath || undefined,
+            sessionId,
+          }));
         if (disposed) {
           void window.snow.ptyKill(id);
           return;
@@ -332,7 +336,7 @@ export const TerminalPanelContent = ({
       cleanupRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, shellPath, sessionId]);
+  }, [attachedPtyId, cwd, shellPath, sessionId]);
 
   // Live-update font settings without recreating the terminal / PTY.
   useEffect(() => {

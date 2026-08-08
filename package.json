@@ -22,6 +22,8 @@
     "build:linux": "npm run build && electron-builder --linux AppImage deb",
     "build:all": "npm run build && electron-builder -mwl",
     "build:rust": "node scripts/build-native.cjs",
+    "build:snow-agent-release": "node scripts/build-snow-agent-release.cjs",
+    "verify:snow-agent-release": "node scripts/verify-snow-agent-release.cjs",
     "postinstall": "node scripts/patch-spectre.cjs && node scripts/ensure-conpty-dll.cjs",
     "check": "npm run check:ts && cargo check --manifest-path native/Cargo.toml",
     "check:ts": "tsc --noEmit",
@@ -44,6 +46,7 @@
     "markdown-it": "^14.2.0",
     "markdown-it-texmath": "^1.0.0",
     "mermaid": "^11.16.0",
+    "motion": "12.43.0",
     "node-pty": "^1.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -66,7 +69,8 @@
     "electron": "^37.10.3",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.7"
   },
   "build": {
     "appId": "com.snow.app",
@@ -110,6 +114,10 @@
       {
         "from": "resources/web",
         "to": "web"
+      },
+      {
+        "from": "resources/snow-agent/trust.json",
+        "to": "snow-agent/trust.json"
       }
     ],
     "directories": {

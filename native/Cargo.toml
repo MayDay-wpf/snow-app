@@ -7,6 +7,10 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "snow-agent"
+path = "src/bin/snow-agent.rs"
+
 [dependencies]
 chrono = "0.4.38"
 blake3 = "1"
@@ -18,6 +22,7 @@ napi = { version = "3.2.4", default-features = false, features = ["napi4", "asyn
 napi-derive = "3.2.4"
 reqwest = { version = "0.12.5", features = ["blocking", "json", "stream", "multipart", "gzip", "brotli", "deflate"] }
 flate2 = "1"
+libc = "0.2"
 tar = "0.4"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1.0.204", features = ["derive"] }
@@ -105,4 +110,3 @@ opt-level = 1
 [profile.release]
 lto = "thin"
 codegen-units = 4
-

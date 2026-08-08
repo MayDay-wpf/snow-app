@@ -1,10 +1,27 @@
-const { copyFileSync, existsSync, readdirSync, unlinkSync, statSync } = require("node:fs");
+const {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} = require("node:fs");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+} = require("node:crypto");
 
 const projectRoot = join(__dirname, "..");
 const nativeDir = join(projectRoot, "native");
-
+const resourcesDir = join(projectRoot, "resources");
+const agentResourcesDir = join(resourcesDir, "snow-agent");
+const packageVersion = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8")).version;
+const releaseTag = (process.env.SNOW_AGENT_RELEASE_TAG || `v${packageVersion}`).trim();
+const releaseKeyId = (process.env.SNOW_AGENT_RELEASE_KEY_ID || "snow-agent-ed25519-2026").trim();
 const targetMap = {
   "win32-x64": {
     triple: "x86_64-pc-windows-msvc",
@@ -112,6 +129,62 @@ function runCargoBuild(triple) {
 function getArtifactPath(t) {
   return join(nativeDir, "target", t.triple, "release", t.artifact);
 }
+
+function normalizePem(value) {
+  return value.replace(/\\n/g, "\n").trim() + "\n";
+}
+
+function loadReleaseSigningKey() {
+  const configured = process.env.SNOW_AGENT_RELEASE_SIGNING_KEY?.trim();
+  if (configured) {
+    return createPrivateKey(normalizePem(configured));
+  }
+  if (process.env.SNOW_AGENT_REQUIRE_RELEASE_SIGNING === "1") {
+    throw new Error(
+      "SNOW_AGENT_RELEASE_SIGNING_KEY is required when publishing Snow Agent assets"
+    );
+  }
+  console.warn(
+    "SNOW_AGENT_RELEASE_SIGNING_KEY is not configured; using an ephemeral development key"
+  );
+  return generateKeyPairSync("ed25519").privateKey;
+}
+
+const releaseSigningKey = loadReleaseSigningKey();
+const releasePublicKey = createPublicKey(releaseSigningKey)
+  .export({ type: "spki", format: "pem" })
+  .toString();
+
+function writeTrustConfig() {
+  if (!/^v[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$/.test(releaseTag)) {
+    throw new Error(`Invalid Snow Agent release tag: ${releaseTag}`);
+  }
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(releaseKeyId)) {
+    throw new Error(`Invalid Snow Agent release key id: ${releaseKeyId}`);
+  }
+  if (releaseTag !== `v${packageVersion}`) {
+    throw new Error(
+      `Snow Agent release tag ${releaseTag} does not match package version v${packageVersion}`
+    );
+  }
+  mkdirSync(agentResourcesDir, { recursive: true });
+  writeFileSync(
+    join(agentResourcesDir, "trust.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        repository: "MayDay-wpf/snow-app",
+        releaseTag,
+        publicKey: releasePublicKey,
+      },
+      null,
+      2
+    )}\n`,
+    { mode: 0o600 }
+  );
+}
+
+writeTrustConfig();
 
 function copyNativeBinding(artifactPath, outputPath, platformName) {
   try {

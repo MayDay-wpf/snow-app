@@ -65,7 +65,7 @@ type CredentialOption = {
 };
 
 const normalizeRemotePath = (path: string): string => {
-  const segments = path.split("/").filter(Boolean);
+  const segments = path.trim().split("/").filter(Boolean);
   return segments.length > 0 ? `/${segments.join("/")}` : "/";
 };
 
@@ -100,6 +100,7 @@ export function SshConnectWizard({
   const [connectError, setConnectError] = useState<ConnectErrorState | null>(
     null
   );
+  const [hostKeyChanged, setHostKeyChanged] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const [remotePath, setRemotePath] = useState("/");
@@ -269,9 +270,12 @@ export function SshConnectWizard({
     }
   };
 
-  const handleConnect = async (): Promise<void> => {
+  const handleConnect = async (
+    hostKeyPolicy?: "replace"
+  ): Promise<void> => {
     setIsConnecting(true);
     setConnectError(null);
+    setHostKeyChanged(false);
 
     const params: SshConnectParams = {
       host: host.trim(),
@@ -279,6 +283,9 @@ export function SshConnectWizard({
       username: username.trim(),
       authMethod,
     };
+    if (hostKeyPolicy) {
+      params.hostKeyPolicy = hostKeyPolicy;
+    }
 
     if (authMethod === "password") {
       params.password = password;
@@ -294,6 +301,7 @@ export function SshConnectWizard({
       // Error 会丢弃自定义属性（code/detail），不能在失败时依赖 err.code。
       const result = await window.snow.sshConnectDetailed(params);
       if (!result.ok) {
+        setHostKeyChanged(result.detail.includes("Host key changed"));
         setConnectError({
           code: result.code,
           message: t(SSH_ERROR_I18N_KEYS[result.code], {
@@ -306,6 +314,7 @@ export function SshConnectWizard({
 
       const id = result.sessionId;
       setSessionId(id);
+      setHostKeyChanged(false);
 
       if (rememberCredential) {
         const secret =
@@ -323,14 +332,19 @@ export function SshConnectWizard({
       setStep("browse");
     } catch (err) {
       // 后续操作（如保存凭证）仍可能抛异常，兜底展示原始消息。
+      const message =
+        err instanceof Error
+          ? err.message
+          : t("sidebar.sshConnectError", {
+              defaultValue: "Failed to connect to SSH server",
+            });
+      setHostKeyChanged(
+        message.includes("Host key changed") ||
+          message.startsWith("[SSH_HOST_KEY_CHANGED]")
+      );
       setConnectError({
         code: null,
-        message:
-          err instanceof Error
-            ? err.message
-            : t("sidebar.sshConnectError", {
-                defaultValue: "Failed to connect to SSH server",
-              }),
+        message,
       });
     } finally {
       setIsConnecting(false);
@@ -825,6 +839,18 @@ export function SshConnectWizard({
                     </span>
                   ) : null}
                 </div>
+                {hostKeyChanged ? (
+                  <button
+                    className="ssh-wizard-host-key-confirm"
+                    disabled={isConnecting}
+                    onClick={() => void handleConnect("replace")}
+                    type="button"
+                  >
+                    {t("sidebar.sshTrustNewHostKey", {
+                      defaultValue: "Trust new host key",
+                    })}
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

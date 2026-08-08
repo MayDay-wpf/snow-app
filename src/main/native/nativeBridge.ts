@@ -223,6 +223,18 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete workspace directories"
           )
         ),
+      listRemoteDrafts: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to list remote drafts")
+        ),
+      upsertRemoteDraft: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to write remote drafts")
+        ),
+      deleteRemoteDraft: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete remote drafts")
+        ),
       listInstalledIdes: () =>
         Promise.reject(
           new Error("Rust native bridge is required to detect installed IDEs")

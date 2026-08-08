@@ -19,13 +19,16 @@ type SensitiveCommandConfirmDialogProps = {
   ) => void;
 };
 
-const BASH_TOOL_NAME = "bash-terminal-execute";
+const COMMAND_TOOL_NAMES = new Set([
+  "bash-terminal-execute",
+  "remote-job-start",
+]);
 
 const parseBashArgument = (
   toolCall: ToolCallInfo,
   key: "command" | "description"
 ): string | null => {
-  if (toolCall.name !== BASH_TOOL_NAME) {
+  if (!COMMAND_TOOL_NAMES.has(toolCall.name)) {
     return null;
   }
 

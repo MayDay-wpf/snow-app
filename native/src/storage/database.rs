@@ -249,7 +249,7 @@ fn recover_database(database_path: &Path) -> Result<()> {
 
         // Read all rows from the corrupted database, tolerating errors.
         let select_result = read_only_conn.prepare(&format!("SELECT {column_list} FROM \"{table_name}\""));
-        
+
         if let Ok(mut select_stmt) = select_result {
             // We iterate rows, skipping any that trigger corruption errors.
             let column_count = columns.len();
@@ -763,6 +763,7 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
     // Ensure the codebase embed sessions table exists. Defined in a separate
     // module so the schema lives next to its CRUD functions.
     services::codebase_embed_sessions::ensure_sessions_table(connection)?;
+    services::remote_drafts::ensure_remote_drafts_table(connection)?;
 
     // Ensure the image library table exists (generated images index).
     services::image_library::ensure_image_library_table(connection)?;

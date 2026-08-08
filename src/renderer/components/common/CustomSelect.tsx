@@ -7,6 +7,11 @@ import {
 } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../hooks/useAppleThemeMotion";
 
 export type CustomSelectOption = {
   value: string;
@@ -55,6 +60,8 @@ export function CustomSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const transition = appleSurfaceTransition(reducedMotion);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -95,10 +102,11 @@ export function CustomSelect({
 
   // Initial measurement for portal dropdown.
   useLayoutEffect(() => {
-    if (!isOpen || !portal) {
+    if (!portal) {
       setDropdownRect(null);
       return;
     }
+    if (!isOpen) return;
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     setDropdownRect({
@@ -126,8 +134,24 @@ export function CustomSelect({
     setIsOpen((v) => !v);
   };
 
-  const dropdownContent = (
-    <div className="custom-select-dropdown" ref={dropdownRef}>
+  const dropdownTarget = appleMotionEnabled
+    ? reducedMotion
+      ? { opacity: 1 }
+      : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+    : undefined;
+  const dropdownInitial = appleMotionEnabled
+    ? reducedMotion
+      ? { opacity: 0 }
+      : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+    : false;
+  const dropdownExit = appleMotionEnabled
+    ? reducedMotion
+      ? { opacity: 0 }
+      : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+    : undefined;
+
+  const dropdownItems = (
+    <>
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -141,7 +165,20 @@ export function CustomSelect({
           )}
         </button>
       ))}
-    </div>
+    </>
+  );
+
+  const dropdown = (
+    <motion.div
+      animate={dropdownTarget}
+      className="custom-select-dropdown"
+      exit={dropdownExit}
+      initial={dropdownInitial}
+      ref={dropdownRef}
+      transition={appleMotionEnabled ? transition : undefined}
+    >
+      {dropdownItems}
+    </motion.div>
   );
 
   return (
@@ -158,26 +195,43 @@ export function CustomSelect({
         </span>
         <ChevronDown size={14} />
       </button>
-      {isOpen &&
-        (portal && dropdownRect ? (
-          createPortal(
-            <div
-              className="custom-select-dropdown-portal"
-              style={{
-                position: "fixed",
-                top: `${dropdownRect.top}px`,
-                left: `${dropdownRect.left}px`,
-                width: `${dropdownRect.width}px`,
-                zIndex: 100000,
+      {portal && dropdownRect
+        ? createPortal(
+            <AnimatePresence
+              initial={false}
+              onExitComplete={() => {
+                if (!isOpen) {
+                  setDropdownRect(null);
+                }
               }}
             >
-              {dropdownContent}
-            </div>,
+              {isOpen && (
+                <motion.div
+                  animate={dropdownTarget}
+                  className="custom-select-dropdown-portal"
+                  exit={dropdownExit}
+                  initial={dropdownInitial}
+                  ref={dropdownRef}
+                  style={{
+                    position: "fixed",
+                    top: `${dropdownRect.top}px`,
+                    left: `${dropdownRect.left}px`,
+                    width: `${dropdownRect.width}px`,
+                    zIndex: 100000,
+                  }}
+                  transition={appleMotionEnabled ? transition : undefined}
+                >
+                  <div className="custom-select-dropdown">{dropdownItems}</div>
+                </motion.div>
+              )}
+            </AnimatePresence>,
             document.body
           )
-        ) : (
-          dropdownContent
-        ))}
+        : !portal && (
+            <AnimatePresence initial={false}>
+              {isOpen && dropdown}
+            </AnimatePresence>
+          )}
     </div>
   );
 }

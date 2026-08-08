@@ -91,7 +91,8 @@ const decodeHref = (href: string): string => {
  * 4. [title] 中的完整路径（兜底）
  */
 export const usePathClickOpen = (
-  directoryPath: string | undefined
+  directoryPath: string | undefined,
+  directoryId: string | undefined
 ): {
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
 } => {
@@ -139,10 +140,11 @@ export const usePathClickOpen = (
         filePath: resolved,
         isSsh: isSshWorkspace,
         sshWorkspacePath: isSshWorkspace ? directoryPath : undefined,
+        sshWorkspaceId: isSshWorkspace ? directoryId : undefined,
         focusLine: focusLine && focusLine > 0 ? focusLine : undefined,
       });
     },
-    [directoryPath]
+    [directoryId, directoryPath]
   );
 
   const handleClick = useCallback(

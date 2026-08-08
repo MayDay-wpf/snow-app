@@ -6,7 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useI18n } from "../../../../i18n";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../../../hooks/useAppleThemeMotion";
 import type { ChatCommand } from "./types";
 
 export type CommandPanelHandle = {
@@ -23,6 +28,8 @@ type CommandPanelProps = {
 export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
   function CommandPanel({ commands, query, visible, onClose, onSelect }, ref) {
     const { t } = useI18n();
+    const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+    const transition = appleSurfaceTransition(reducedMotion);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
 
@@ -107,16 +114,37 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
       [filteredCommands, onClose, onSelect, selectedIndex]
     );
 
-    if (!visible) {
-      return null;
-    }
     return (
-      <div
-        className="chat-command-panel"
-        role="listbox"
-        data-esc-panel
-        aria-label={t("chatCommand.title")}
-      >
+      <AnimatePresence initial={false}>
+        {visible && (
+          <motion.div
+            animate={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 1 }
+                  : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                : undefined
+            }
+            className="chat-command-panel"
+            data-esc-panel
+            exit={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : undefined
+            }
+            initial={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : false
+            }
+            role="listbox"
+            aria-label={t("chatCommand.title")}
+            transition={appleMotionEnabled ? transition : undefined}
+          >
         <div className="chat-command-list" ref={listRef}>
           {filteredCommands.length > 0 ? (
             filteredCommands.map((command, index) => {
@@ -170,7 +198,9 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
             <kbd>Esc</kbd> {t("chatCommand.close")}
           </span>
         </div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     );
   }
 );

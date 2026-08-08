@@ -7,7 +7,12 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useI18n } from "../../../i18n";
+import {
+  appleSurfaceTransition,
+  useAppleThemeMotion,
+} from "../../../hooks/useAppleThemeMotion";
 import { useDropdownDirection } from "./useDropdownDirection";
 
 export type PlusMenuItem = {
@@ -64,6 +69,8 @@ export const PlusMenu = ({
   onAutoScrollChange,
 }: PlusMenuProps): React.JSX.Element => {
   const { t } = useI18n();
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
+  const transition = appleSurfaceTransition(reducedMotion);
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownDir = useDropdownDirection(containerRef, isOpen);
@@ -129,8 +136,33 @@ export const PlusMenu = ({
       >
         <Plus size={16} />
       </button>
-      {isOpen && (
-        <div className={`plus-menu-dropdown drop-${dropdownDir}`}>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            animate={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 1 }
+                  : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }
+                : undefined
+            }
+            className={`plus-menu-dropdown drop-${dropdownDir}`}
+            exit={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : undefined
+            }
+            initial={
+              appleMotionEnabled
+                ? reducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, scale: 0.98, y: -4, filter: "blur(1px)" }
+                : false
+            }
+            transition={appleMotionEnabled ? transition : undefined}
+          >
           {sections.map((section, sectionIndex) => (
             <div key={section.id} className="plus-menu-section">
               <div className="plus-menu-section-title">{section.label}</div>
@@ -282,8 +314,9 @@ export const PlusMenu = ({
               </div>
             )}
           </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

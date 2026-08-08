@@ -1,7 +1,12 @@
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
+import { motion } from "motion/react";
 import { ChatContent } from "./mainContent/ChatContent";
 import { useI18n } from "../i18n";
+import {
+  appleLayoutTransition,
+  useAppleThemeMotion,
+} from "../hooks/useAppleThemeMotion";
 import type { MainContentView } from "./mainContent/types";
 import type { WorkspaceDirectoryRecord } from "../../preload";
 
@@ -118,6 +123,7 @@ const BrowserSettingsPanel = lazy(() =>
 type MainContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
   activeView: MainContentView;
+  isResizing?: boolean;
   onSelectView: (view: MainContentView) => void;
 };
 
@@ -136,10 +142,18 @@ const LazyPanelFallback = (): React.JSX.Element => {
 export const MainContent = ({
   activeDirectory,
   activeView,
+  isResizing = false,
   onSelectView,
 }: MainContentProps): React.JSX.Element => {
+  const { enabled: appleMotionEnabled, reducedMotion } = useAppleThemeMotion();
   return (
-    <main className="main-content">
+    <motion.main
+      className="main-content"
+      layout={appleMotionEnabled && !isResizing}
+      transition={
+        appleMotionEnabled ? appleLayoutTransition(reducedMotion) : undefined
+      }
+    >
       {activeView === "chat" ? (
         <ChatContent
           activeDirectory={activeDirectory}
@@ -215,6 +229,6 @@ export const MainContent = ({
           ) : null}
         </Suspense>
       )}
-    </main>
+    </motion.main>
   );
 };

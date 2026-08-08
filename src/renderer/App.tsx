@@ -218,7 +218,9 @@ export const App = (): React.JSX.Element => {
       fileName: string,
       isSsh?: boolean,
       sshSessionId?: string | null,
-      focusLine?: number
+      focusLine?: number,
+      sshWorkspaceRoot?: string,
+      sshWorkspaceId?: string
     ) => {
       if (isRightPanelCollapsed) {
         setIsRightPanelCollapsed(false);
@@ -229,7 +231,9 @@ export const App = (): React.JSX.Element => {
           fileName,
           isSsh,
           sshSessionId,
-          focusLine
+          focusLine,
+          sshWorkspaceRoot,
+          sshWorkspaceId
         );
       });
     },
@@ -373,6 +377,7 @@ export const App = (): React.JSX.Element => {
               activeDirectory={activeDirectory}
               activeMainView={activeMainView}
               isCollapsed={isSidebarCollapsed}
+              isResizing={activeResizeTarget !== null}
               onActiveDirectoryChange={setActiveDirectory}
               onSelectMainView={setActiveMainView}
               onOpenSshWizard={handleOpenSshWizard}
@@ -392,6 +397,7 @@ export const App = (): React.JSX.Element => {
             <MainContent
               activeDirectory={activeDirectory}
               activeView={activeMainView}
+              isResizing={activeResizeTarget !== null}
               onSelectView={setActiveMainView}
             />
             {!isRightPanelCollapsed && (
@@ -411,6 +417,7 @@ export const App = (): React.JSX.Element => {
               ref={rightPanelRef}
               isCollapsed={isRightPanelCollapsed}
               isFullscreen={isRightPanelFullscreen}
+              isResizing={activeResizeTarget !== null}
               activeDirectory={activeDirectory}
             />
           </div>

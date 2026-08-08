@@ -11,7 +11,8 @@ export type RightPanelContentKey =
   | "browser"
   | "file"
   | "file-diff-preview"
-  | "codebase";
+  | "codebase"
+  | "remote-jobs";
 
 export type RightPanelContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -24,8 +25,15 @@ export type DiffTabData = {
   diffLoading: boolean;
 };
 
+export type TerminalOpenOptions = {
+  ptyId?: string;
+  shellPath?: string;
+  sessionId?: string;
+};
+
 export type TerminalTabData = {
   cwd: string;
+  ptyId?: string;
   shellPath?: string;
   sessionId?: string;
 };
@@ -40,6 +48,8 @@ export type FileViewerTabData = {
   fileName: string;
   isSsh: boolean;
   sshSessionId?: string | null;
+  sshWorkspaceRoot?: string;
+  sshWorkspaceId?: string;
   focusLine?: number;
 };
 
@@ -57,6 +67,10 @@ export type CodebaseTabData = {
   projectName: string;
 };
 
+export type RemoteJobsTabData = {
+  workspacePath: string;
+};
+
 export type RightPanelTab = {
   id: string;
   type:
@@ -66,7 +80,8 @@ export type RightPanelTab = {
     | "browser"
     | "file"
     | "file-diff-preview"
-    | "codebase";
+    | "codebase"
+    | "remote-jobs";
   title: string;
   data?:
     | DiffTabData
@@ -74,7 +89,8 @@ export type RightPanelTab = {
     | BrowserTabData
     | FileViewerTabData
     | FileDiffPreviewTabData
-    | CodebaseTabData;
+    | CodebaseTabData
+    | RemoteJobsTabData;
 };
 
 export type OpenDiffTabCallback = (
@@ -89,7 +105,8 @@ export type OpenFileTabCallback = (
   filePath: string,
   fileName: string,
   isSsh: boolean,
-  sshSessionId?: string | null
+  sshSessionId?: string | null,
+  sshWorkspaceRoot?: string
 ) => void;
 
 export type { FileContentResult };

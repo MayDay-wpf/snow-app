@@ -716,9 +716,30 @@ export function createToolExecutor(
               effectiveKey === PENDING_SESSION_KEY ? undefined : effectiveKey
             );
 
+            // Durable Remote Jobs also persist their conversation and tool-call
+            // binding so the Job panel can recover context after a restart.
+            if (
+              toolCall.name === "remote-job-start" &&
+              effectiveKey !== PENDING_SESSION_KEY
+            ) {
+              try {
+                const parsedArgs = JSON.parse(toolArgs) as Record<
+                  string,
+                  unknown
+                >;
+                parsedArgs.sessionId = effectiveKey;
+                parsedArgs.conversationId = effectiveKey;
+                parsedArgs.toolCallId = toolCall.callId || undefined;
+                toolArgs = JSON.stringify(parsedArgs);
+              } catch {
+                // If args are not valid JSON, let the tool fail naturally.
+              }
+            }
+
             let sensitiveAuthorizationToken: string | undefined;
             if (
-              toolCall.name === "bash-terminal-execute" &&
+              (toolCall.name === "bash-terminal-execute" ||
+                toolCall.name === "remote-job-start") &&
               authorizationDecision.status === "approved" &&
               authorizationDecision.sensitiveCommandConfirmed === true
             ) {

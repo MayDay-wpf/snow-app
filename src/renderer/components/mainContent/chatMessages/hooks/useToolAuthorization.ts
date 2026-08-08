@@ -470,7 +470,10 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       const checkSensitiveBash = async (): Promise<
         ToolAuthorizationDecision | "needs-dialog"
       > => {
-        if (toolCall.name !== "bash-terminal-execute") {
+        if (
+          toolCall.name !== "bash-terminal-execute" &&
+          toolCall.name !== "remote-job-start"
+        ) {
           return shouldAutoApprove() ? { status: "approved" } : "needs-dialog";
         }
 

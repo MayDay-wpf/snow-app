@@ -81,6 +81,10 @@ jobs:
       - name: Build TypeScript + Vite + Rust native
         env:
           NATIVE_BUILD_ARCH: ${{ matrix.arch }}
+          SNOW_AGENT_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          SNOW_AGENT_RELEASE_KEY_ID: snow-agent-ed25519-2026
+          SNOW_AGENT_RELEASE_SIGNING_KEY: ${{ secrets.SNOW_AGENT_RELEASE_SIGNING_KEY }}
+          SNOW_AGENT_REQUIRE_RELEASE_SIGNING: "1"
         run: npm run build
 
       - name: Build electron packages
@@ -107,10 +111,89 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/latest*.yml
+            release/snow-agent-*
           if-no-files-found: warn
 
+  snow-agent:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-musl
+            rust_target: x86_64-unknown-linux-musl
+            cargo_subcommand: zigbuild
+          - os: ubuntu-latest
+            target: linux-arm64-musl
+            rust_target: aarch64-unknown-linux-musl
+            cargo_subcommand: zigbuild
+          - os: macos-15-intel
+            target: darwin-x64
+            rust_target: x86_64-apple-darwin
+            cargo_subcommand: build
+          - os: macos-latest
+            target: darwin-arm64
+            rust_target: aarch64-apple-darwin
+            cargo_subcommand: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Setup Zig and cargo-zigbuild
+        if: matrix.cargo_subcommand == 'zigbuild'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - uses: taiki-e/install-action@v2
+        if: matrix.cargo_subcommand == 'zigbuild'
+        with:
+          tool: cargo-zigbuild
+
+      - name: Build signed static Snow Agent
+        env:
+          SNOW_AGENT_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          SNOW_AGENT_RELEASE_KEY_ID: snow-agent-ed25519-2026
+          SNOW_AGENT_RELEASE_SIGNING_KEY: ${{ secrets.SNOW_AGENT_RELEASE_SIGNING_KEY }}
+          SNOW_AGENT_CARGO_SUBCOMMAND: ${{ matrix.cargo_subcommand }}
+        run: npm run build:snow-agent-release -- ${{ matrix.target }}
+
+      - name: Verify signed Snow Agent release asset
+        run: npm run verify:snow-agent-release
+
+      - name: Upload Snow Agent release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: snow-agent-${{ matrix.target }}
+          path: |
+            release/snow-agent-${{ matrix.target }}
+            release/snow-agent-${{ matrix.target }}.json
+          if-no-files-found: error
+
+      - name: Upload Snow Agent trust root
+        if: matrix.target == 'linux-x64-musl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snow-agent-trust
+          path: resources/snow-agent/trust.json
+          if-no-files-found: error
+
   publish:
-    needs: build
+    needs: [build, snow-agent]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -121,6 +204,14 @@ jobs:
         with:
           path: release
           merge-multiple: true
+
+      - name: Verify all signed Snow Agent release assets
+        env:
+          SNOW_AGENT_REQUIRED_TARGETS: linux-x64-musl,linux-arm64-musl,darwin-x64,darwin-arm64
+        run: |
+          mkdir -p resources/snow-agent
+          cp release/trust.json resources/snow-agent/trust.json
+          npm run verify:snow-agent-release
 
       - name: Merge macOS update yml (arm64 + x64)
         run: node scripts/merge-mac-yml.cjs
@@ -157,3 +248,4 @@ jobs:
             release/*.deb
             release/latest*.yml
             release/latest-mac.json
+            release/snow-agent-*

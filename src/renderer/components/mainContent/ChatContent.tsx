@@ -210,7 +210,8 @@ const ChatContentBody = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   // 覆盖整个中间输出区：文件变更统计、消息正文、Thinking、工具调用和压缩输出。
   const pathClickOpenProps = usePathClickOpen(
-    directoryIdToPath(conversationDirectoryId) ?? activeDirectory?.path
+    directoryIdToPath(conversationDirectoryId) ?? activeDirectory?.path,
+    conversationDirectoryId ?? activeDirectory?.directoryId
   );
   const activeConversationIdRef = useRef(activeConversationId);
   const previousActiveConversationIdRef = useRef(activeConversationId);

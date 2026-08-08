@@ -451,7 +451,6 @@ input {
     transform: scale(1.3);
   }
 }
-
 .top-bar-todo-dropdown {
   position: absolute;
   top: calc(100% + 6px);
@@ -2636,10 +2635,39 @@ input {
 }
 
 .explorer-error {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   color: var(--accent-red);
   font-size: 11.5px;
   line-height: 1.35;
   padding: 4px 8px;
+}
+
+.explorer-error.stale {
+  color: var(--accent-amber-text, #b45309);
+}
+
+.explorer-connection-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.explorer-connection-status.connected {
+  color: var(--accent-green);
+}
+
+.explorer-connection-status.reconnecting,
+.explorer-connection-status.degraded {
+  color: var(--accent-amber-text, #b45309);
+}
+
+.explorer-connection-status.offline,
+.explorer-connection-status.auth_required,
+.explorer-connection-status.host_key_changed {
+  color: var(--accent-red);
 }
 
 .explorer-tree {
@@ -2672,6 +2700,16 @@ input {
 .explorer-tree-row.selected {
   background: var(--bg-active);
   color: var(--text-primary);
+}
+
+.explorer-tree-row.stale .tree-icon,
+.explorer-tree-error {
+  color: var(--accent-amber-text, #b45309);
+}
+
+.explorer-tree-error {
+  flex-shrink: 0;
+  margin-left: 4px;
 }
 
 .explorer-tree-chevron {
@@ -3959,6 +3997,320 @@ input {
   .plugin-marketplace-install-mcp-details > div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+.remote-jobs-panel {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.remote-jobs-header,
+.remote-jobs-detail-toolbar,
+.remote-jobs-actions,
+.remote-jobs-header-actions,
+.remote-jobs-start-actions {
+  display: flex;
+  align-items: center;
+}
+
+.remote-jobs-header {
+  justify-content: space-between;
+  min-height: 48px;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.remote-jobs-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.remote-jobs-workspace,
+.remote-jobs-meta,
+.remote-jobs-backend {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.remote-jobs-workspace {
+  display: block;
+  max-width: 300px;
+  overflow: hidden;
+  margin-top: 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-jobs-icon-button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.remote-jobs-icon-button:hover:not(:disabled) {
+  border-color: var(--border-color);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.remote-jobs-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.remote-jobs-icon-button.danger:hover:not(:disabled) {
+  color: var(--accent-red);
+}
+
+.remote-jobs-header-actions {
+  gap: 4px;
+}
+
+.remote-jobs-start-button,
+.remote-jobs-form-button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.remote-jobs-start-button {
+  padding: 0 8px;
+}
+
+.remote-jobs-start-button:hover,
+.remote-jobs-form-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.remote-jobs-start-form {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.remote-jobs-start-form label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.remote-jobs-start-form textarea {
+  width: 100%;
+  min-height: 58px;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 7px 8px;
+}
+
+.remote-jobs-start-form textarea:focus {
+  outline: none;
+  border-color: var(--text-muted);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.remote-jobs-start-actions {
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.remote-jobs-form-button {
+  padding: 0 9px;
+}
+
+.remote-jobs-form-button.primary {
+  border-color: var(--accent-blue-text);
+  background: var(--accent-blue-text);
+  color: #fff;
+}
+
+.remote-jobs-form-button.primary:hover:not(:disabled) {
+  border-color: var(--accent-blue-text);
+  background: var(--accent-blue-text);
+  color: #fff;
+  filter: brightness(1.08);
+}
+
+.remote-jobs-form-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.remote-jobs-body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(0, 1fr);
+}
+
+.remote-jobs-list {
+  overflow: auto;
+  border-right: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.remote-jobs-item {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.remote-jobs-item:hover,
+.remote-jobs-item.selected {
+  background: var(--bg-hover);
+}
+
+.remote-jobs-command {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-jobs-status {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.remote-jobs-status-running,
+.remote-jobs-status-launching,
+.remote-jobs-status-preparing {
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue-text);
+}
+
+.remote-jobs-status-succeeded {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-text);
+}
+
+.remote-jobs-status-failed,
+.remote-jobs-status-timed_out,
+.remote-jobs-status-cancelled,
+.remote-jobs-status-lost,
+.remote-jobs-status-launch_failed,
+.remote-jobs-status-indeterminate {
+  background: var(--accent-red-bg);
+  color: var(--accent-red-text);
+}
+
+.remote-jobs-detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.remote-jobs-detail-toolbar {
+  min-height: 42px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.remote-jobs-detail-toolbar > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.remote-jobs-actions {
+  gap: 3px;
+}
+
+.remote-jobs-output {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.remote-jobs-empty,
+.remote-jobs-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.remote-jobs-error {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--accent-red-bg);
+  color: var(--accent-red-text);
+}
+
+.is-spinning {
+  animation: remote-jobs-spin 0.9s linear infinite;
+}
+
+@keyframes remote-jobs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .remote-jobs-body {
+    grid-template-columns: minmax(132px, 0.38fr) minmax(0, 1fr);
   }
 }
 
@@ -25823,6 +26175,23 @@ body.ctrl-held [data-path] {
   color: var(--accent-red);
 }
 
+.ssh-wizard-host-key-confirm {
+  display: block;
+  margin-top: 6px;
+}
+
+.ssh-wizard-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  font-size: 12px;
+}
+
 /* 匹配高亮层：绝对定位于 .file-viewer-code（position: relative）内，
    横向偏移由内联 transform translateX(-scrollLeft) 实时补偿。 */
 .file-viewer-search-marks {
@@ -26246,6 +26615,20 @@ body.ctrl-held [data-path] {
   white-space: pre-wrap;
   word-break: break-all;
   user-select: text;
+}
+
+.file-viewer-draft-status {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-amber-text, #b45309);
+  background: var(--accent-amber-bg, rgba(217, 119, 6, 0.12));
+  font-size: 10px;
+}
+
+.file-viewer-draft-status.conflict {
+  color: var(--accent-red-text, #b91c1c);
+  background: var(--accent-red-bg, rgba(220, 38, 38, 0.12));
 }
 
 .tool-call-codebase-no-results,

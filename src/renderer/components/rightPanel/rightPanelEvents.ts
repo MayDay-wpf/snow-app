@@ -49,6 +49,10 @@ export type OpenFilePayload = {
   isSsh?: boolean;
   /** SSH 工作区 URL，用于在右侧面板按现有凭证链路建立/复用会话。 */
   sshWorkspacePath?: string;
+  /** SSH 工作区 URL，用于校验远程文件写入边界。 */
+  sshWorkspaceRoot?: string;
+  /** 持久草稿绑定的稳定工作区 ID。 */
+  sshWorkspaceId?: string;
   /** 远程会话 ID（已有会话时可直接传入）。 */
   sshSessionId?: string | null;
   /** 需要定位到的行号（1-based）。 */
