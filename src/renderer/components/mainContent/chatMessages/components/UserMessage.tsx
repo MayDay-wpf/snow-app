@@ -6,6 +6,7 @@ import {
   FileText,
   GitCommitHorizontal,
   GitCompare,
+  Globe,
   MousePointer2,
   ScanSearch,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { UserMessageActions } from "./UserMessageActions";
 import { HookExecutionUI } from "../toolCalls/HookExecutionUI";
 import type { UserMessageProps } from "../utils/types";
 import {
+  extractUrlHost,
   formatLinesStr,
   parseContentSegments,
 } from "../../chatInput/fileTagUtils";
@@ -338,6 +340,30 @@ export const UserMessage = memo(
                       size={12}
                       className="user-message-file-chip-icon"
                       style={{ color: "#1a73e8" }}
+                    />
+                    <span className="user-message-file-chip-name">
+                      {displayName}
+                    </span>
+                  </span>
+                );
+              }
+
+              if (segment.type === "web") {
+                const host = extractUrlHost(segment.tag.url);
+                const displayName = segment.tag.title
+                  ? `${segment.tag.title} · ${host}`
+                  : host;
+                const webTitle = `${displayName} (${segment.tag.url})`;
+                return (
+                  <span
+                    className="user-message-file-chip web-chip"
+                    key={index}
+                    title={webTitle}
+                  >
+                    <Globe
+                      size={12}
+                      className="user-message-file-chip-icon"
+                      style={{ color: "#0f766e" }}
                     />
                     <span className="user-message-file-chip-name">
                       {displayName}

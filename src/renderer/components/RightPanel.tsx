@@ -46,6 +46,85 @@ import type {
   RightPanelTab,
   TerminalTabData,
 } from "./rightPanel/types";
+import {
+  TERMINAL_DRAG_MIME,
+  type TerminalDragPayload,
+} from "./rightPanel/terminal/terminalMonitor";
+
+/** 可拖拽到聊天输入框的 tab 类型（git / codebase 为固定面板，不参与） */
+const DRAGGABLE_TAB_TYPES = new Set([
+  "terminal",
+  "file",
+  "diff",
+  "file-diff-preview",
+  "browser",
+]);
+
+/**
+ * 右侧 tab 拖拽到聊天输入框：
+ * - 终端 tab → 携带 TERMINAL_DRAG_MIME，输入框 drop 后进入「监控终端」模式
+ * - 文件类 tab（file / diff / file-diff-preview）→ 携带 file-tags，
+ *   输入框 drop 后插入文件引用 chip（与 git 面板拖 commit 标签同一套机制）
+ * - 浏览器 tab → 携带 web-tag（实时 URL + 页面标题），
+ *   输入框 drop 后插入网页引用 chip
+ */
+const handleTabDragStart = (
+  event: React.DragEvent<HTMLDivElement>,
+  tab: RightPanelTab
+): void => {
+  if (!DRAGGABLE_TAB_TYPES.has(tab.type)) {
+    return;
+  }
+  if (tab.type === "terminal") {
+    const terminalTab = tab.data as TerminalTabData | undefined;
+    const payload: TerminalDragPayload = {
+      tabId: tab.id,
+      cwd: terminalTab?.cwd ?? "",
+      title: tab.title,
+    };
+    event.dataTransfer.setData(TERMINAL_DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.effectAllowed = "link";
+    return;
+  }
+  if (tab.type === "browser") {
+    // 浏览器 tab：携带实时 URL（页面内导航后由 onUrlChange 同步到 data.url）
+    const browserTab = tab.data as BrowserTabData | undefined;
+    const url = browserTab?.url;
+    if (!url) {
+      return;
+    }
+    event.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({
+        type: "web-tag",
+        url,
+        title: tab.title,
+      })
+    );
+    event.dataTransfer.effectAllowed = "copy";
+    return;
+  }
+  // 文件类 tab：统一取出 filePath + 名称，作为 file-tags 拖入输入框
+  const data = tab.data as
+    | FileViewerTabData
+    | DiffTabData
+    | FileDiffPreviewTabData;
+  const filePath = data.filePath;
+  const fileName =
+    (data as FileViewerTabData).fileName ??
+    (data as FileDiffPreviewTabData).fileName ??
+    filePath.split("/").pop() ??
+    filePath;
+  if (!filePath) {
+    return;
+  }
+  const tags = [{ path: filePath, name: fileName }];
+  event.dataTransfer.setData(
+    "application/json",
+    JSON.stringify({ type: "file-tags", tags })
+  );
+  event.dataTransfer.effectAllowed = "copy";
+};
 
 // 非默认 tab 的重组件按需加载，避免 xterm / highlight.js 等重型依赖打入首屏 chunk。
 const FileViewerContent = lazy(() =>
@@ -246,6 +325,21 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       },
       []
     );
+
+    // 页面导航（含页面内跳转）后同步 tab 的实时 URL，
+    // 供拖拽引用时携带最新地址（BrowserPanelContent 的 onUrlChange 回调）。
+    const handleBrowserUrlChange = useCallback((tabId: string, url: string) => {
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === tabId && tab.type === "browser"
+            ? {
+                ...tab,
+                data: { ...(tab.data as BrowserTabData), url },
+              }
+            : tab
+        )
+      );
+    }, []);
 
     // 打开（或切换到已存在的）代码库数据 tab。tab id 固定，避免同一时间
     // 存在多个代码库 tab；切换项目时通过更新 data 复用同一个 tab。
@@ -838,6 +932,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               initialUrl={(tab.data as BrowserTabData).url}
               isActive={activeTabId === tab.id}
               onTitleChange={(title) => handleBrowserTitleChange(tab.id, title)}
+              onUrlChange={(url) => handleBrowserUrlChange(tab.id, url)}
             />
           ) : tab.type === "codebase" ? (
             (tab.data as CodebaseTabData) ? (
@@ -904,7 +999,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
 
     return (
       <aside className={panelClasses}>
-        {tabs.length > 1 && (
+        {tabs.length > 0 && (
           <div className="right-panel-tabs">
             <div
               ref={tabListRef}
@@ -933,6 +1028,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                     activeTabId === tab.id ? "active" : ""
                   }`}
                   onClick={() => setActiveTabId(tab.id)}
+                  draggable={DRAGGABLE_TAB_TYPES.has(tab.type)}
+                  onDragStart={(event) => handleTabDragStart(event, tab)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     setActiveTabId(tab.id);

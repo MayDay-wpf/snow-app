@@ -10,7 +10,6 @@ export type TerminalSettingsForm = {
   fontSize: string;
   fontWeight: string;
   lineHeight: string;
-  proxy: string;
 };
 
 export type TerminalSettingsValue = TerminalSettings;

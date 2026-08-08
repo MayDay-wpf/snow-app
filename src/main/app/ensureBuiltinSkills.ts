@@ -16,6 +16,8 @@ const SKILLS_DIR_NAME = "skills";
 const DOCS_DIR_NAME = "docs";
 const SKILL_FILE_NAME = "SKILL.md";
 const DOCS_VERSION_FILE_NAME = ".snow-docs-version";
+/** 内置 skills 同步版本标记（位于 ~/.snow/skills/ 内，记录应用版本）。 */
+const SKILLS_VERSION_FILE_NAME = ".snow-skills-version";
 
 /**
  * 应用内置资源的源目录。
@@ -48,12 +50,43 @@ const copyDirRecursive = (sourceDir: string, targetDir: string): void => {
   }
 };
 
+/** 读取 SKILL.md frontmatter 的 enable 开关（未显式声明时返回 null）。 */
+const readEnableFlag = (file: string): boolean | null => {
+  try {
+    const content = readFileSync(file, "utf8");
+    const match = content.match(/^enable:\s*(true|false)\s*$/m);
+    return match ? match[1] === "true" : null;
+  } catch {
+    return null;
+  }
+};
+
+/** 写回 SKILL.md frontmatter 的 enable 开关（未显式声明时保持原样）。 */
+const writeEnableFlag = (file: string, enabled: boolean): void => {
+  try {
+    const content = readFileSync(file, "utf8");
+    const updated = content.replace(
+      /^enable:\s*(true|false)\s*$/m,
+      `enable: ${enabled}`
+    );
+    if (updated !== content) {
+      writeFileSync(file, updated, "utf8");
+    }
+  } catch {
+    // 写回失败不影响同步本身
+  }
+};
+
 /**
- * 首次启动时把应用内置 skills（resources/skills/<id>/SKILL.md）逐个复制到
- * 用户目录 ~/.snow/skills/<id>/SKILL.md，使用户能看到并能在 Skills 设置中
- * 开关该技能。
+ * 把应用内置 skills（resources/skills/<id>/SKILL.md）同步到用户目录
+ * ~/.snow/skills/<id>/SKILL.md，使用户能看到并能在 Skills 设置中开关。
  *
- * 幂等：目标文件已存在时跳过（不覆盖用户可能的编辑）。
+ * 同步触发条件：首次安装（版本标记缺失）、应用升级（版本变化），或
+ * 开发模式（内置 skill 内容随代码迭代，每次启动即时生效）。同步时只
+ * 覆盖内置 skill 目录，绝不触碰用户自装或其他来源的 skill；同时保留
+ * 用户在设置里对内置 skill 的启用/禁用开关（覆盖后写回 frontmatter
+ * 的 enable）。用户对内置 skill 文件本身的编辑会在同步时被官方版本
+ * 覆盖（与内置文档升级语义一致）。
  */
 export const ensureBuiltinSkills = (): void => {
   const sourceRoot = builtinSourceDir(join("resources", SKILLS_DIR_NAME));
@@ -68,43 +101,84 @@ export const ensureBuiltinSkills = (): void => {
     snowLog.warn({
       module: "app/skills",
       func: "ensureBuiltinSkills",
-      message: "Builtin skills source dir not found, skipping install",
+      message: "Builtin skills source dir not found, skipping sync",
       error: error instanceof Error ? error.message : String(error),
     });
     return;
   }
 
+  const skillsDir = join(userSnowDir(), SKILLS_DIR_NAME);
+  const versionFile = join(skillsDir, SKILLS_VERSION_FILE_NAME);
+  const currentVersion = app.getVersion();
+
+  // 是否需要同步：标记缺失或版本变化（正式发布推送），或开发模式
+  // （内容随代码迭代，每次启动即时生效）。
+  let versionChanged = true;
+  try {
+    versionChanged =
+      !existsSync(versionFile) ||
+      readFileSync(versionFile, "utf8").trim() !== currentVersion;
+  } catch {
+    versionChanged = true;
+  }
+  if (!versionChanged && app.isPackaged) {
+    return;
+  }
+
+  let synced = 0;
+  let failed = 0;
   for (const skillId of skillIds) {
     const sourceFile = join(sourceRoot, skillId, SKILL_FILE_NAME);
     if (!existsSync(sourceFile)) {
       continue;
     }
 
-    const targetDir = join(userSnowDir(), SKILLS_DIR_NAME, skillId);
+    const targetDir = join(skillsDir, skillId);
     const targetFile = join(targetDir, SKILL_FILE_NAME);
 
-    if (existsSync(targetFile)) {
-      continue;
-    }
-
     try {
+      // 保留用户开关：覆盖前读取目标 frontmatter 的 enable 状态，覆盖后
+      // 写回，避免自动推送把用户在设置里的启用/禁用重置为官方默认。
+      const userEnable = existsSync(targetFile)
+        ? readEnableFlag(targetFile)
+        : null;
       mkdirSync(targetDir, { recursive: true });
       copyFileSync(sourceFile, targetFile);
-      snowLog.info({
-        module: "app/skills",
-        func: "ensureBuiltinSkills",
-        message: "Builtin skill installed",
-        context: targetFile,
-      });
+      if (userEnable !== null) {
+        writeEnableFlag(targetFile, userEnable);
+      }
+      synced++;
     } catch (error) {
+      failed++;
       snowLog.warn({
         module: "app/skills",
         func: "ensureBuiltinSkills",
-        message: `Failed to install builtin skill: ${skillId}`,
+        message: `Failed to sync builtin skill: ${skillId}`,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
+
+  // 同步成功后记录版本（源为空时跳过，避免把空同步固化为已同步状态）。
+  if (skillIds.length > 0) {
+    try {
+      writeFileSync(versionFile, currentVersion, "utf8");
+    } catch (error) {
+      snowLog.warn({
+        module: "app/skills",
+        func: "ensureBuiltinSkills",
+        message: "Failed to write builtin skills version marker",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  snowLog.info({
+    module: "app/skills",
+    func: "ensureBuiltinSkills",
+    message: `Builtin skills synced (${synced} synced, ${failed} failed)`,
+    context: `${sourceRoot} -> ${skillsDir}`,
+  });
 };
 
 /**

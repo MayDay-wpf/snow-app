@@ -186,16 +186,7 @@ automatically:
   bounded by **Max concurrent generations** in the settings (1–8, default
   4); the rest queue up and a new one starts as soon as one finishes, and
   each card shows its own progress in real time;
-- **In-chat display**: results render as a **frame-free gallery** — each card's
-  aspect ratio follows the real generated-image ratio (all images from one
-  parallel batch share the same ratio, so rows never look ragged). The whole
-  batch **shares a single row width** with count-based column tiers: 2–4
-  images fill one row, 5–6 use three columns over two rows, 7–8 use four
-  columns over two rows (no lone tail image); ultra-wide images (>1.6:1)
-  span the full row and ultra-tall ones (<7:10) are height-capped, so extreme
-  aspect ratios stay fully visible and undistorted. Multiple images carry a
-  subtle **index badge** at the top-left; click any image to zoom into the
-  lightbox, where the download action lives;
+- **In-chat display**: two or more consecutive `imagegen-generate` calls are combined into `ImageGenGallery`. Two to four images use the image count as the column count, five to six use three columns, and seven to eight use four. Narrow containers automatically reduce the layout to three, two, or one column. Each cell uses contain sizing to show the complete image without distortion; galleries do not apply special full-row layouts to wide or tall images. Multiple images have index badges; click one to open the lightbox and download it;
 - **Upstream returns only links**: some relays return `data[].url` (e.g. S3
   pre-signed links) instead of image data. The tool now **downloads and
   persists** such images into the image library (disk + index), so the
@@ -211,13 +202,24 @@ automatically:
 - **Channel selection**: the AI picks a usable channel per request (OpenAI is
   the default when both are enabled); you can ask explicitly, e.g. “use Gemini”.
 
+### Reference Paths and Runtime Limits
+
+Reference items in `images` may use inline `data` or a `path`. Two path forms are supported:
+
+1. An **absolute disk path**, such as `C:/Users/name/photo.png`;
+2. A **safe relative path**, such as `upload/2026-07-25/hash.png`.
+
+A relative path must start with `upload/`, may not traverse with `..`, and is resolved relative to the application database directory. Absolute paths are explicitly supported by the runtime, but should reference only trusted files you are allowed to read. `[Reference image #N ...]` blocks produced while textifying vision messages always use safe `upload/...` paths so absolute paths and large base64 payloads do not enter the model context.
+
+Hard input limits come from the runtime source and current error messages. In this version, `MAX_IMAGES` and `MAX_BASE64_LEN` in `imagegen.rs` allow at most 14 images per `images` group (and per legacy `requestImages` group), with about 20 MiB of **encoded data** per image; data read from a path is encoded and checked against the same limit. The tool description recommends no more than five images per call for compatibility with stricter upstreams. That recommendation is not the current runtime count limit. Models and providers may impose lower limits, so follow current capabilities and provider responses.
+
 ### Tool Parameters (`imagegen-generate`)
 
 | Param               | Type              | Description                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `prompt`            | string (required) | Generation description, or the edit instruction with reference images (**one call = one image**; for several images fire multiple parallel calls)                                                                                                                                                                                                                                                                                             |
 | `prompts`           | array             | **Legacy, not recommended**: a different prompt per image `["prompt 1", "prompt 2", ...]` (1-8 items; overrides `n`). To generate several different images, fire **multiple parallel calls** (one call per image with its own single `prompt`) instead of packing prompts into one call                                                                                                                                                                                                                       |
-| `images`            | array             | Reference images `[{data, mimeType}]` or `[{path, mimeType}]` for image-to-image editing; `path` is a relative path under the upload/ directory (from `[Reference image #N ...]` blocks in textified messages; the server reads the file itself); **server-side limit is 14 images**, ≤20MB each (the tool description guides the AI to ≤5 per call to stay compatible with stricter provider limits); ignored when `requestImages` is provided |
+| `images`            | array             | Reference images `[{data, mimeType}]` or `[{path, mimeType}]`; `path` may be an absolute disk path or a safe `upload/...` relative path (must start with `upload/` and may not contain `..`). The current runtime allows 14 images per group and about 20 MiB of encoded data per image; the five-image tool-description recommendation only targets stricter upstream compatibility. Ignored when `requestImages` is present |
 | `requestImages`     | array             | **Legacy, not recommended**: a different reference-image group per request `[[group 1...], [group 2...], ...]` (shape same as `images`), group count must equal the request count (= `prompts` length or `n`, 1-8). To restyle several source images, fire **multiple parallel calls** (one call per source image with its own `images` group) instead                                                                                                                                                              |
 | `model`             | string            | Override the configured model                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `provider`          | enum              | `auto` (default) / `openai` / `gemini`, backend override                                                                                                                                                                                                                                                                                                                                                                          |
@@ -250,9 +252,16 @@ page=image-library`):
 
 | Capability | Description |
 | --- | --- |
-| View | Lists all images newest-first (thumbnail + model/date metadata) with filters for aspect ratio (landscape/square/portrait), time (today/7d/30d), provider and model; click for a lightbox view |
-| Delete | **Removes the disk file and index row, and rewrites conversation messages referencing the image** (the image becomes a broken reference in chat, no dead links remain) |
-| Custom save dir | The panel header shows the current root; **Change** picks a new directory, **Reset** restores the default `~/.snowapp/image/` (backed by the `image_library_dir` setting) |
+| Browse and filter | The default view is an **album card wall** (one cover card per album); click into the image grid. Lists images newest-first with thumbnails and model/date metadata. Select **All**, **Uncategorized**, or a specific album, then combine that with aspect-ratio (landscape/square/portrait), time (today/7d/30d), provider, and model filters. Click an image to open the lightbox |
+| Search | The top search box does fuzzy matching over **file name / prompt / model / provider**; typing a keyword switches from the album card wall to the image grid automatically |
+| Album organization | Create and rename albums, then use each image's album selector to move it into an album or back to **Uncategorized**; you can also **drag an image directly onto an album card** to classify it. Album deletion requires confirmation; its images are **kept** and all move to **Uncategorized** |
+| Batch operations | Multi-select images to enter batch mode and reveal a batch toolbar: **move into album** (including back to Uncategorized) and **batch delete** (deleted one by one; a failure does not stop the rest) |
+| Manual import | Click **Import** and pick local image files; they are copied into the library directory and indexed, then appear in the list. Multiple selection is supported |
+| Download | Download the current image under its original file name from either the library card or the lightbox toolbar |
+| Delete image | Requires confirmation; afterwards the disk file **and** index row are removed together, and conversation messages referencing the image are rewritten (references become invalid instead of dangling) |
+| Custom save directory | The panel header shows the current root. **Change** selects another directory and **Reset** restores `~/.snowapp/image/` through the `image_library_dir` setting |
+
+Albums are an organizational lifecycle over library index data, not the lifetime of image files: **deleting an album never deletes its images**, and moving an image changes only its classification. A physical file and index row are removed only by **Delete image** or when conversation deletion explicitly selects **Delete images too**.
 
 Related behaviors:
 
@@ -264,6 +273,41 @@ Related behaviors:
   (physical files + index rows);
 - **Backup**: the library defaults to `~/.snowapp/image/` — include it in
   backups (see [3-reference/4-data-storage-locations](../3-reference/4-data-storage-locations.md)).
+
+### 5.1 Generation and Persistence Flow
+
+Every successful result is written to the library directory and indexed in SQLite `image_library`. If the upstream returns only a remote URL, the tool downloads and persists it; the URL remains only as a fallback when the download fails.
+
+```mermaid
+flowchart LR
+    A[User attachment] --> V[Runtime validation]
+    P[Absolute path or safe upload path] --> V
+    V --> G[OpenAI or Gemini]
+    G --> R[Base64 data or remote URL]
+    R --> D[Decode or download]
+    D --> F[Library file image/...]
+    F --> S[SQLite image_library]
+    S --> C{Consecutive generation calls}
+    C -->|1| O[Single conversation card]
+    C -->|2 or more| H[ImageGenGallery]
+    X[Delete conversation] --> K{Delete images too}
+    K -->|Off by default| S
+    K -->|Selected| Z[Delete files and index rows]
+```
+
+Deleting a conversation **keeps library images by default**. Physical files and index rows are removed only when **Delete images too** is selected in the confirmation dialog. The `upload/...` conversation upload area is outside the `image/...` library migration scope.
+
+### 5.2 Library Directory Migration Boundaries
+
+An empty library switches directories directly. A non-empty library uses a recoverable migration:
+
+1. `prepare` creates the target directory, lists only valid indexed `image/...` paths, and writes a migration log;
+2. Files are **copied** in chunks, with an attempted catch-up copy for images created during migration before commit;
+3. `commit` updates `image_library_dir`, then performs best-effort cleanup of old files;
+4. Cancellation, copy failure, or closing the migration panel removes copied target files and keeps the old directory setting;
+5. After a process interruption, the next startup reads the log: an uncommitted migration rolls back, while a committed migration resumes cleanup.
+
+The migration rejects `..`, and the new root may not be inside the current library root. Unindexed miscellaneous files and `upload/...` files are not moved. Cleanup failure after commit may leave orphaned files. A failed catch-up copy for newly created images is recorded but does not guarantee that commit is blocked, so back up important libraries separately rather than treating migration as a zero-loss backup.
 
 ## 6. Managing via the config Tool (AI / CLI)
 

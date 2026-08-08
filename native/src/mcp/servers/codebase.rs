@@ -109,21 +109,17 @@ impl CodebaseService {
             .ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "projectId is required for tool \"codebase-search\". "
-                        .to_string(),
+                    "projectId is required for tool \"codebase-search\". ".to_string(),
                 )
             })?
             .to_string();
 
-        let query = args
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                Error::new(
-                    Status::InvalidArg,
-                    "query is required for tool \"codebase-search\"".to_string(),
-                )
-            })?;
+        let query = args.get("query").and_then(Value::as_str).ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "query is required for tool \"codebase-search\"".to_string(),
+            )
+        })?;
 
         let top_n = args
             .get("topN")
@@ -135,8 +131,7 @@ impl CodebaseService {
         if query.trim().is_empty() {
             return Err(Error::new(
                 Status::InvalidArg,
-                "query must be a non-empty string for tool \"codebase-search\""
-                    .to_string(),
+                "query must be a non-empty string for tool \"codebase-search\"".to_string(),
             ));
         }
 
@@ -148,7 +143,10 @@ impl CodebaseService {
             let db_path = database_path.clone();
             let pid = project_id.clone();
             tokio::task::spawn_blocking(move || {
-                let scope = crate::storage::services::system_settings::get_codebase_project_scope_settings(&db_path, &pid)?;
+                let scope =
+                    crate::storage::services::system_settings::get_codebase_project_scope_settings(
+                        &db_path, &pid,
+                    )?;
                 let settings = load_codebase_settings(&db_path)?;
                 Ok::<_, Error>((scope, settings))
             })
@@ -197,12 +195,10 @@ impl CodebaseService {
             settings.embedding_dimensions,
         );
 
-        let query_vectors = crate::api::embedding::embed_batch(
-            &embedding_config,
-            &[query.to_string()],
-        )
-        .await
-        .map_err(|e| Error::from_reason(format!("Failed to embed query: {}", e.reason)))?;
+        let query_vectors =
+            crate::api::embedding::embed_batch(&embedding_config, &[query.to_string()])
+                .await
+                .map_err(|e| Error::from_reason(format!("Failed to embed query: {}", e.reason)))?;
 
         let query_vector = query_vectors
             .into_iter()
@@ -328,25 +324,26 @@ impl CodebaseService {
                 })
                 .collect();
 
-            let reranked = match crate::api::reranking::rerank(&reranking_config, query, &rerank_docs).await {
-                Ok(rerank_results) => {
-                    let reranked: Vec<crate::storage::services::codebase_index::SearchResult> =
-                        rerank_results
-                            .iter()
-                            .filter_map(|rr| initial_results.get(rr.index).cloned())
-                            .take(top_n)
-                            .collect();
-                    if reranked.is_empty() {
-                        initial_results.into_iter().take(top_n).collect()
-                    } else {
-                        reranked
+            let reranked =
+                match crate::api::reranking::rerank(&reranking_config, query, &rerank_docs).await {
+                    Ok(rerank_results) => {
+                        let reranked: Vec<crate::storage::services::codebase_index::SearchResult> =
+                            rerank_results
+                                .iter()
+                                .filter_map(|rr| initial_results.get(rr.index).cloned())
+                                .take(top_n)
+                                .collect();
+                        if reranked.is_empty() {
+                            initial_results.into_iter().take(top_n).collect()
+                        } else {
+                            reranked
+                        }
                     }
-                }
-                Err(_e) => {
-                    // Reranking failed — fall back to original cosine ordering.
-                    initial_results.into_iter().take(top_n).collect()
-                }
-            };
+                    Err(_e) => {
+                        // Reranking failed — fall back to original cosine ordering.
+                        initial_results.into_iter().take(top_n).collect()
+                    }
+                };
             PipelineOutcome {
                 results: reranked,
                 pipeline_type: PipelineType::Reranking,
@@ -412,12 +409,12 @@ async fn re_search_with_refined_query(
     refined_query: &str,
     limit: usize,
 ) -> Result<Vec<crate::storage::services::codebase_index::SearchResult>> {
-    let query_vectors = crate::api::embedding::embed_batch(
-        embedding_config,
-        &[refined_query.to_string()],
-    )
-    .await
-    .map_err(|e| Error::from_reason(format!("Failed to embed refined query: {}", e.reason)))?;
+    let query_vectors =
+        crate::api::embedding::embed_batch(embedding_config, &[refined_query.to_string()])
+            .await
+            .map_err(|e| {
+                Error::from_reason(format!("Failed to embed refined query: {}", e.reason))
+            })?;
 
     let query_vector = query_vectors
         .into_iter()
@@ -463,9 +460,7 @@ fn load_codebase_settings(database_path: &std::path::Path) -> Result<CodebaseSet
     Ok(settings)
 }
 
-fn build_reranking_config(
-    settings: &CodebaseSettings,
-) -> crate::api::reranking::RerankingConfig {
+fn build_reranking_config(settings: &CodebaseSettings) -> crate::api::reranking::RerankingConfig {
     crate::api::reranking::RerankingConfig::from_settings(
         &settings.reranking_model_name,
         &settings.reranking_base_url,

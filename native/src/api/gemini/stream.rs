@@ -16,8 +16,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, inject_custom_headers};
-use crate::api::retry::{non_sse_response_error, should_retry, wait_before_retry, RetryOptions};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
+use crate::api::retry::{non_sse_response_error, should_retry, wait_before_retry, RetryOptions};
 use crate::api::sse::find_sse_separator;
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
@@ -127,12 +127,16 @@ pub(super) async fn collect_gemini_stream(
                                 stream_token_count: stream_token_count as i64,
                                 elapsed_ms: stream_start.elapsed().as_millis() as i64,
                                 ttft_ms,
+                                vision_status: None,
                             },
                             ThreadsafeFunctionCallMode::NonBlocking,
                         );
 
                         match wait_before_retry(retry_options, cancel_token, attempt).await {
-                            Ok(()) => { attempt += 1; continue; }
+                            Ok(()) => {
+                                attempt += 1;
+                                continue;
+                            }
                             Err(e) => return Err(e),
                         }
                     }
@@ -156,12 +160,16 @@ pub(super) async fn collect_gemini_stream(
                             stream_token_count: stream_token_count as i64,
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
+                            vision_status: None,
                         },
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
 
                     match wait_before_retry(retry_options, cancel_token, attempt).await {
-                        Ok(()) => { attempt += 1; continue; }
+                        Ok(()) => {
+                            attempt += 1;
+                            continue;
+                        }
                         Err(e) => return Err(e),
                     }
                 }
@@ -352,6 +360,7 @@ pub(super) async fn collect_gemini_stream(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -399,6 +408,7 @@ pub(super) async fn collect_gemini_stream(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -416,7 +426,8 @@ pub(super) async fn collect_gemini_stream(
 
         let content = content_chunks.join("").trim().to_string();
         let thinking = thinking_chunks.join("").trim().to_string();
-        let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_else(|_| "[]".to_string());
+        let tool_calls_json =
+            serde_json::to_string(&tool_calls).unwrap_or_else(|_| "[]".to_string());
 
         return Ok(GeminiStreamResult {
             id: response_id,
@@ -437,9 +448,7 @@ pub(super) async fn collect_gemini_stream(
 /// `Authorization` header is needed. User-supplied custom headers are
 /// injected afterwards, except `content-type` and `accept-encoding` which
 /// are reserved.
-pub(super) fn build_header_map(
-    custom_headers: &HashMap<String, String>,
-) -> Result<HeaderMap> {
+pub(super) fn build_header_map(custom_headers: &HashMap<String, String>) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("identity"));

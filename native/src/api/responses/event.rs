@@ -142,10 +142,7 @@ pub(super) fn process_responses_sse_event_block(
             // reconstruct them (name + call_id) if the stream ends
             "response.output_item.added" => {
                 if let Some(item) = event.get("item") {
-                    let item_type = item
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
+                    let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
 
                     // Capture reasoning items (with encrypted_content) as
                     // early as possible.
@@ -174,21 +171,15 @@ pub(super) fn process_responses_sse_event_block(
                 // Capture reasoning items (with encrypted_content) for
                 // round-tripping when store:false.
                 if let Some(item) = event.get("item") {
-                    let item_type = item
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
+                    let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
                     if item_type == "reasoning" {
                         // Replace any prior entry from `added` with the
                         // finalised `done` version, or push if not already
                         // tracked.
-                        if let Some(pos) = reasoning_items
-                            .iter()
-                            .position(|existing| {
-                                existing.get("id").and_then(Value::as_str)
-                                    == item.get("id").and_then(Value::as_str)
-                            })
-                        {
+                        if let Some(pos) = reasoning_items.iter().position(|existing| {
+                            existing.get("id").and_then(Value::as_str)
+                                == item.get("id").and_then(Value::as_str)
+                        }) {
                             reasoning_items[pos] = item.clone();
                         } else {
                             reasoning_items.push(item.clone());
@@ -212,15 +203,16 @@ pub(super) fn process_responses_sse_event_block(
                         read_response_string(response, "id").unwrap_or_else(|| response_id.clone());
                     *response_model = read_response_string(response, "model")
                         .unwrap_or_else(|| response_model.clone());
-                    *response_status = read_response_string(response, "status").unwrap_or_else(|| {
-                        if event_type == "response.failed" {
-                            "failed".to_string()
-                        } else if event_type == "response.incomplete" {
-                            "incomplete".to_string()
-                        } else {
-                            response_status.clone()
-                        }
-                    });
+                    *response_status =
+                        read_response_string(response, "status").unwrap_or_else(|| {
+                            if event_type == "response.failed" {
+                                "failed".to_string()
+                            } else if event_type == "response.incomplete" {
+                                "incomplete".to_string()
+                            } else {
+                                response_status.clone()
+                            }
+                        });
                     *token_usage = extract_token_usage(response);
                     *completed_response = Some(response.clone());
                 }
@@ -258,6 +250,52 @@ pub(super) fn read_stream_text_delta(value: Option<&Value>) -> String {
         .filter(|text| !text.is_empty())
         .map(ToString::to_string)
         .unwrap_or_default()
+}
+
+/// Extract a useful error message from a terminal Responses API payload.
+///
+/// OpenAI-compatible relays commonly return `response.error` as an object
+/// (`{ code, type, message }`), while some return a plain string. Preserve the
+/// type/code metadata so retry classification can distinguish transient server
+/// failures from permanent request errors.
+pub(super) fn extract_response_error(response: &Value) -> Option<String> {
+    let error = response.get("error")?;
+    match error {
+        Value::Null => None,
+        Value::String(message) => {
+            let message = message.trim();
+            (!message.is_empty()).then(|| message.to_string())
+        }
+        Value::Object(fields) => {
+            let message = fields
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let mut details = Vec::new();
+            for key in ["type", "code"] {
+                if let Some(value) = fields
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    details.push(format!("{key}={value}"));
+                }
+            }
+
+            if let Some(message) = message {
+                if details.is_empty() {
+                    Some(message.to_string())
+                } else {
+                    Some(format!("{message} ({})", details.join(", ")))
+                }
+            } else {
+                serde_json::to_string(error).ok()
+            }
+        }
+        _ => serde_json::to_string(error).ok(),
+    }
 }
 
 /// Extract token usage from a Responses API `response` JSON object.
@@ -528,5 +566,36 @@ pub(super) fn collect_output_text(value: Option<&Value>, chunks: &mut Vec<String
             collect_output_text(object.get("content"), chunks);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_response_error;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_object_error_with_retry_metadata() {
+        let response = json!({
+            "error": {
+                "message": "Temporary upstream failure",
+                "type": "server_error",
+                "code": "server_error"
+            }
+        });
+
+        assert_eq!(
+            extract_response_error(&response).as_deref(),
+            Some("Temporary upstream failure (type=server_error, code=server_error)")
+        );
+    }
+
+    #[test]
+    fn extracts_plain_string_error() {
+        let response = json!({"error": "rate limit exceeded"});
+        assert_eq!(
+            extract_response_error(&response).as_deref(),
+            Some("rate limit exceeded")
+        );
     }
 }

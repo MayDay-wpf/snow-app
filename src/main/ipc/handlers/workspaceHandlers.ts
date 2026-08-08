@@ -261,40 +261,62 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
     }
   );
 
-  // ===== File picker dialog (multi-select) =====
+  // ===== File picker dialogs (multi-select) =====
+  // Windows 原生对话框不支持在 openFile + openDirectory 混合模式下
+  // 同时多选文件与文件夹（实际只呈现文件夹视图），因此拆分为
+  // 独立的文件选择与文件夹选择两个入口，保证文案与行为一致。
+  const showPickDialog = async (
+    event: Electron.IpcMainInvokeEvent,
+    dialogTitle: unknown,
+    properties: Array<"openFile" | "openDirectory" | "multiSelections">,
+    fallbackTitle: string
+  ): Promise<{ path: string; isDirectory: boolean }[] | null> => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const title =
+      typeof dialogTitle === "string" && dialogTitle.trim()
+        ? dialogTitle.trim()
+        : fallbackTitle;
+    const options: Electron.OpenDialogOptions = {
+      title,
+      properties,
+    };
+    const result = browserWindow
+      ? await dialog.showOpenDialog(browserWindow, options)
+      : await dialog.showOpenDialog(options);
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    const entries = await Promise.all(
+      result.filePaths.map(async (path) => {
+        try {
+          const stat = await fs.stat(path);
+          return { path, isDirectory: stat.isDirectory() };
+        } catch {
+          return { path, isDirectory: false };
+        }
+      })
+    );
+
+    return entries;
+  };
+
   ipcMain.handle(
     "workspace-directories:select-files",
-    async (event, dialogTitle: unknown) => {
-      const browserWindow = BrowserWindow.fromWebContents(event.sender);
-      const title =
-        typeof dialogTitle === "string" && dialogTitle.trim()
-          ? dialogTitle.trim()
-          : "Select files and folders";
-      const options: Electron.OpenDialogOptions = {
-        title,
-        properties: ["openFile", "openDirectory", "multiSelections"],
-      };
-      const result = browserWindow
-        ? await dialog.showOpenDialog(browserWindow, options)
-        : await dialog.showOpenDialog(options);
+    (event, dialogTitle: unknown) =>
+      showPickDialog(event, dialogTitle, ["openFile", "multiSelections"], "Select files")
+  );
 
-      if (result.canceled || result.filePaths.length === 0) {
-        return null;
-      }
-
-      const entries = await Promise.all(
-        result.filePaths.map(async (path) => {
-          try {
-            const stat = await fs.stat(path);
-            return { path, isDirectory: stat.isDirectory() };
-          } catch {
-            return { path, isDirectory: false };
-          }
-        })
-      );
-
-      return entries;
-    }
+  ipcMain.handle(
+    "workspace-directories:select-directories",
+    (event, dialogTitle: unknown) =>
+      showPickDialog(
+        event,
+        dialogTitle,
+        ["openDirectory", "multiSelections"],
+        "Select folders"
+      )
   );
 
   // ===== Resolve dropped external file paths =====
@@ -349,6 +371,27 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         : await dialog.showOpenDialog(options);
 
       return result.canceled ? null : result.filePaths[0] ?? null;
+    }
+  );
+  ipcMain.handle(
+    "terminal-settings:validate-shell-path",
+    async (_event, shellPath: unknown) => {
+      const path = typeof shellPath === "string" ? shellPath.trim() : "";
+      if (!path) {
+        return { valid: true };
+      }
+      // 纯文件名（如 wsl.exe / bash）交由运行时按 PATH 解析，此处无法确认；
+      // 含路径分隔符的路径（绝对或相对）必须真实存在。
+      const hasSeparator = path.includes("/") || path.includes("\\");
+      if (!hasSeparator) {
+        return { valid: true };
+      }
+      try {
+        await fs.access(path);
+        return { valid: true };
+      } catch {
+        return { valid: false, reason: `Shell executable not found: ${path}` };
+      }
     }
   );
   ipcMain.handle(

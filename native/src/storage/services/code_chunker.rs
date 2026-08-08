@@ -29,15 +29,22 @@ impl Default for ChunkingConfig {
 }
 
 impl ChunkingConfig {
-    pub fn from_settings(
-        max_lines: i32,
-        min_lines: i32,
-        min_chars: i32,
-        overlap: i32,
-    ) -> Self {
-        let max_lines_per_chunk = if max_lines > 0 { max_lines as usize } else { 200 };
-        let min_lines_per_chunk = if min_lines > 0 { min_lines as usize } else { 10 };
-        let min_chars_per_chunk = if min_chars > 0 { min_chars as usize } else { 20 };
+    pub fn from_settings(max_lines: i32, min_lines: i32, min_chars: i32, overlap: i32) -> Self {
+        let max_lines_per_chunk = if max_lines > 0 {
+            max_lines as usize
+        } else {
+            200
+        };
+        let min_lines_per_chunk = if min_lines > 0 {
+            min_lines as usize
+        } else {
+            10
+        };
+        let min_chars_per_chunk = if min_chars > 0 {
+            min_chars as usize
+        } else {
+            20
+        };
         // Ensure overlap is less than max_lines
         let overlap_lines = if overlap > 0 {
             (overlap as usize).min(max_lines_per_chunk.saturating_sub(1))

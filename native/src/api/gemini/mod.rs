@@ -18,10 +18,10 @@ use tokio_util::sync::CancellationToken;
 use crate::api::conversation::{
     prepare_context_request, resolve_sub_agent_tools, ConversationContextRequest,
 };
-use crate::api::retry::RetryOptions;
 use crate::api::responses::{
     ResponsesApiRequest, ResponsesApiResult, ResponsesApiStreamCallback, TokenUsage,
 };
+use crate::api::retry::RetryOptions;
 use crate::storage::services::app_logs::{log_api_error, log_api_warning, maybe_log_api_request};
 use crate::storage::services::chat_conversations::{
     store_chat_exchange, ChatContextMessage, StoreChatExchangeInput,
@@ -111,6 +111,8 @@ async fn create_gemini_response_async(
         skip_context: request.skip_context.unwrap_or(false),
         plan_mode: request.plan_mode.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
+        is_sub_agent: request.is_sub_agent_request(),
+        sub_agent_system_prompt: request.sub_agent_system_prompt.as_deref(),
         system_prompt_ids_json: &api_config.system_prompt_ids_json,
         remote_role_content: request.remote_role_content.as_deref(),
         remote_include_global_rules: request.remote_include_global_rules,
@@ -127,6 +129,7 @@ async fn create_gemini_response_async(
         &api_config,
         &custom_headers,
         skip_context,
+        Some(on_chunk),
     )
     .await?;
 
@@ -149,7 +152,8 @@ async fn create_gemini_response_async(
         tools,
         &prepared_request.user_system_prompts,
     )?;
-    let retry_options = RetryOptions::from_config(api_config.max_retries, api_config.retry_base_delay_ms);
+    let retry_options =
+        RetryOptions::from_config(api_config.max_retries, api_config.retry_base_delay_ms);
     let request_payload_json = serde_json::to_string(&payload).unwrap_or_default();
     maybe_log_api_request(
         database_path.clone(),
@@ -194,7 +198,10 @@ async fn create_gemini_response_async(
             &database_path,
             "create_gemini_response_stream",
             "AI returned empty response",
-            &format!("model={}, status={}", streamed_response.model, streamed_response.status),
+            &format!(
+                "model={}, status={}",
+                streamed_response.model, streamed_response.status
+            ),
         );
     }
 

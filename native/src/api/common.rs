@@ -66,6 +66,7 @@ pub(crate) fn emit_stream_chunk(
                 stream_token_count: *stream_token_count as i64,
                 elapsed_ms,
                 ttft_ms,
+                vision_status: None,
             },
             ThreadsafeFunctionCallMode::NonBlocking,
         );
@@ -87,6 +88,7 @@ pub(crate) fn emit_stream_chunk(
             stream_token_count: *stream_token_count as i64,
             elapsed_ms,
             ttft_ms,
+            vision_status: None,
         },
         ThreadsafeFunctionCallMode::NonBlocking,
     );
@@ -122,6 +124,7 @@ pub(crate) fn emit_tool_args_probe(
             stream_token_count: *stream_token_count as i64,
             elapsed_ms,
             ttft_ms,
+            vision_status: None,
         },
         ThreadsafeFunctionCallMode::NonBlocking,
     );
@@ -194,10 +197,7 @@ pub(crate) fn push_reasoning_text(value: Option<&Value>, chunks: &mut Vec<String
                 Some(obj) => obj,
                 None => continue,
             };
-            let item_type = detail_obj
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let item_type = detail_obj.get("type").and_then(Value::as_str).unwrap_or("");
             // Only harvest human-readable text; skip encrypted/redacted blobs.
             if item_type == "reasoning.encrypted" {
                 continue;
@@ -271,7 +271,10 @@ pub(crate) fn inject_custom_headers(
         }
 
         let header_name = trimmed_key.parse::<HeaderName>().map_err(|error| {
-            Error::from_reason(format!("Invalid custom header '{}': {}", trimmed_key, error))
+            Error::from_reason(format!(
+                "Invalid custom header '{}': {}",
+                trimmed_key, error
+            ))
         })?;
         let header_value = HeaderValue::from_str(trimmed_value).map_err(|error| {
             Error::from_reason(format!(

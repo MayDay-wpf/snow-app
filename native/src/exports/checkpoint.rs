@@ -21,10 +21,7 @@ pub async fn create_checkpoint(work_dir: String) -> napi::Result<String> {
 /// Files created after the checkpoint are deleted; files that existed at
 /// checkpoint time are overwritten with their snapshot content.
 #[napi]
-pub async fn restore_checkpoint(
-    checkpoint_id: String,
-    work_dir: String,
-) -> napi::Result<()> {
+pub async fn restore_checkpoint(checkpoint_id: String, work_dir: String) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
         crate::storage::services::checkpoint::restore_checkpoint(checkpoint_id, work_dir)
     })

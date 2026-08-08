@@ -97,7 +97,10 @@ impl Default for HookRuleDef {
     }
 }
 
-pub async fn execute_hooks(database_path: &Path, input: &HookExecuteInput) -> Result<HookExecuteResult> {
+pub async fn execute_hooks(
+    database_path: &Path,
+    input: &HookExecuteInput,
+) -> Result<HookExecuteResult> {
     let hook_type = input.hook_type.trim();
     if hook_type.is_empty() {
         return Err(Error::new(
@@ -154,7 +157,10 @@ pub async fn execute_hooks(database_path: &Path, input: &HookExecuteInput) -> Re
                 && result.exit_code == Some(1);
             let is_hard = matches!(&result.action_type.as_str(), t if *t == "command")
                 && !result.success
-                && result.exit_code.map(|code| code >= 2 || code < 0).unwrap_or(false);
+                && result
+                    .exit_code
+                    .map(|code| code >= 2 || code < 0)
+                    .unwrap_or(false);
 
             if is_soft {
                 soft_signal = true;
@@ -256,7 +262,11 @@ fn match_rule(rule: &HookRuleDef, context: &Value) -> bool {
         _ => return true,
     };
 
-    let matchers: Vec<&str> = matcher.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let matchers: Vec<&str> = matcher
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     if matchers.is_empty() {
         return true;
     }
@@ -329,9 +339,7 @@ async fn execute_action(action: &HookActionDef, context: &Value) -> Result<HookA
                 command: None,
                 exit_code: None,
                 output: None,
-                error: Some(
-                    "Prompt hooks are not supported in the native executor".to_string(),
-                ),
+                error: Some("Prompt hooks are not supported in the native executor".to_string()),
                 additional_context: None,
             })
         }
@@ -366,11 +374,12 @@ async fn execute_command_action(
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
 
-    let stdin_data = if context.is_object() && !context.as_object().map(|m| m.is_empty()).unwrap_or(true) {
-        Some(serde_json::to_string(context).unwrap_or_default())
-    } else {
-        None
-    };
+    let stdin_data =
+        if context.is_object() && !context.as_object().map(|m| m.is_empty()).unwrap_or(true) {
+            Some(serde_json::to_string(context).unwrap_or_default())
+        } else {
+            None
+        };
 
     // 复用终端设置：读取 system_settings.terminal_settings 的 shellPath，
     // 按 shell family 构造启动参数（PowerShell 注入 UTF-8 编码、cmd 带 chcp 65001，
@@ -416,7 +425,8 @@ async fn execute_command_action(
 
     drop(child.stdin.take());
 
-    let wait_result = match tokio::time::timeout(Duration::from_millis(timeout), child.wait()).await {
+    let wait_result = match tokio::time::timeout(Duration::from_millis(timeout), child.wait()).await
+    {
         Ok(Ok(status)) => Ok(status),
         Ok(Err(error)) => Err(Error::new(
             Status::GenericFailure,
@@ -477,8 +487,16 @@ async fn execute_command_action(
         success,
         command: Some(command.to_string()),
         exit_code: Some(exit_code),
-        output: if stdout.is_empty() { None } else { Some(stdout) },
-        error: if stderr.is_empty() { None } else { Some(stderr) },
+        output: if stdout.is_empty() {
+            None
+        } else {
+            Some(stdout)
+        },
+        error: if stderr.is_empty() {
+            None
+        } else {
+            Some(stderr)
+        },
         additional_context,
     })
 }

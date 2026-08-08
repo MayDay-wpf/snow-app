@@ -73,6 +73,12 @@ pub struct ResponsesApiRequest {
     /// into the payload nor persisted as normal user messages.
     pub resume_after_compaction: Option<bool>,
     pub sub_agent_tools_json: Option<String>,
+    /// Sub-agent-only system prompt. Combined with Snow's built-in protocol
+    /// and the selected API profile's prompts for sub-agent requests.
+    pub sub_agent_system_prompt: Option<String>,
+    /// Deprecated compatibility field. New sub-agent requests send
+    /// `api_profile` explicitly; this value is used only when that field is
+    /// absent on a request already identified as a sub-agent.
     pub sub_agent_config_profile: Option<String>,
     /// When true, skip loading conversation history and injecting the built-in
     /// system prompt. Used by lightweight single-shot completions (e.g. AI
@@ -89,6 +95,15 @@ pub struct ResponsesApiRequest {
     /// Absent for local workspaces — Rust reads the file itself.
     pub remote_role_content: Option<String>,
     pub remote_include_global_rules: Option<bool>,
+}
+
+impl ResponsesApiRequest {
+    pub fn is_sub_agent_request(&self) -> bool {
+        self.sub_agent_tools_json
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+    }
 }
 
 #[napi(object)]
@@ -137,6 +152,13 @@ pub struct ResponsesApiStreamChunk {
     /// or thinking delta arrives, then frozen at that value for the
     /// remainder of the streaming iteration.
     pub ttft_ms: i64,
+    /// External-vision textify progress event. `None` for regular chunks;
+    /// when set, the payload is a JSON string such as
+    /// `{"phase":"describing","index":1,"total":2,"model":"..."}` pushed by
+    /// `api::vision::textify_images_in_messages` while it describes user
+    /// images with the external vision model. The renderer uses it to show
+    /// an intermediate "analyzing image with vision model" status card.
+    pub vision_status: Option<String>,
 }
 
 /// ThreadsafeFunction variant of the streaming callback.
@@ -147,8 +169,13 @@ pub struct ResponsesApiStreamChunk {
 ///
 /// `ThreadsafeFunction` is `Send + Sync`, which allows it to be called from the
 /// background tokio worker thread without blocking the Node.js main thread.
-pub type ResponsesApiStreamCallback =
-    ThreadsafeFunction<ResponsesApiStreamChunk, Unknown<'static>, ResponsesApiStreamChunk, Status, false>;
+pub type ResponsesApiStreamCallback = ThreadsafeFunction<
+    ResponsesApiStreamChunk,
+    Unknown<'static>,
+    ResponsesApiStreamChunk,
+    Status,
+    false,
+>;
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -238,6 +265,8 @@ async fn create_response_async(
         skip_context: request.skip_context.unwrap_or(false),
         plan_mode: request.plan_mode.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
+        is_sub_agent: request.is_sub_agent_request(),
+        sub_agent_system_prompt: request.sub_agent_system_prompt.as_deref(),
         system_prompt_ids_json: &api_config.system_prompt_ids_json,
         remote_role_content: request.remote_role_content.as_deref(),
         remote_include_global_rules: request.remote_include_global_rules,
@@ -266,6 +295,7 @@ async fn create_response_async(
         &api_config,
         &effective_headers,
         skip_context,
+        Some(on_chunk),
     )
     .await?;
 
@@ -288,7 +318,8 @@ async fn create_response_async(
         tools,
         &prepared_request.user_system_prompts,
     )?;
-    let retry_options = RetryOptions::from_config(api_config.max_retries, api_config.retry_base_delay_ms);
+    let retry_options =
+        RetryOptions::from_config(api_config.max_retries, api_config.retry_base_delay_ms);
     let stream_idle_timeout_sec =
         resolve_stream_idle_timeout_sec(api_config.stream_idle_timeout_sec);
     let request_payload_json = serde_json::to_string(&payload).unwrap_or_default();
@@ -347,7 +378,10 @@ async fn create_response_async(
             &database_path,
             "create_response_stream_with_context",
             "AI returned empty response",
-            &format!("model={}, status={}", streamed_response.model, streamed_response.status),
+            &format!(
+                "model={}, status={}",
+                streamed_response.model, streamed_response.status
+            ),
         );
     }
 

@@ -4,12 +4,14 @@ import {
   FileText,
   GitCommitHorizontal,
   GitCompare,
+  Globe,
   MousePointer2,
   ScanSearch,
   Trash2,
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import {
+  extractUrlHost,
   formatLinesStr,
   parseContentSegments,
   type ContentSegment,
@@ -150,6 +152,27 @@ const renderSegments = (content: string): React.ReactNode => {
             size={12}
             className="user-message-file-chip-icon"
             style={{ color: "#1a73e8" }}
+          />
+          <span className="user-message-file-chip-name">{displayName}</span>
+        </span>
+      );
+    }
+
+    if (segment.type === "web") {
+      const { tag } = segment;
+      const host = extractUrlHost(tag.url);
+      const displayName = tag.title ? `${tag.title} · ${host}` : host;
+      const webTitle = `${displayName} (${tag.url})`;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip web-chip"
+          title={webTitle}
+        >
+          <Globe
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "#0f766e" }}
           />
           <span className="user-message-file-chip-name">{displayName}</span>
         </span>

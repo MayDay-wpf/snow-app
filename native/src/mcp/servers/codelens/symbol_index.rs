@@ -75,7 +75,8 @@ impl SymbolIndex {
             }
             self.exports_by_file.insert(file_path.to_string(), exports);
             // Tree-sitter files don't have JS-style imports
-            self.imports_by_file.insert(file_path.to_string(), Vec::new());
+            self.imports_by_file
+                .insert(file_path.to_string(), Vec::new());
         }
     }
 
@@ -165,11 +166,7 @@ impl SymbolIndex {
         }
     }
 
-    pub fn resolve_symbol(
-        &self,
-        name: &str,
-        from_file: Option<&str>,
-    ) -> Option<&IndexEntry> {
+    pub fn resolve_symbol(&self, name: &str, from_file: Option<&str>) -> Option<&IndexEntry> {
         if let Some(from) = from_file {
             if let Some(imports) = self.imports_by_file.get(from) {
                 for (imported_name, _source) in imports {
@@ -258,7 +255,9 @@ fn parse_file_for_index(
     }
 
     let mut imports: Vec<(String, String)> = Vec::new();
-    let mut import_visitor = ImportVisitor { imports: &mut imports };
+    let mut import_visitor = ImportVisitor {
+        imports: &mut imports,
+    };
     import_visitor.visit_program(&program);
 
     (exports, imports)
@@ -340,10 +339,28 @@ fn walk_source_dir(dir: &Path, files: &mut Vec<PathBuf>) {
 fn is_skip_dir(name: &str) -> bool {
     matches!(
         name,
-        "node_modules" | ".git" | ".svn" | ".hg" | "target" | "dist" | "out" | "build"
-            | ".next" | ".nuxt" | ".snow" | ".cache" | ".turbo" | "__pycache__"
-            | ".pytest_cache" | ".venv" | "venv" | ".idea" | ".vscode" | "coverage"
-            | ".nyc_output" | "release"
+        "node_modules"
+            | ".git"
+            | ".svn"
+            | ".hg"
+            | "target"
+            | "dist"
+            | "out"
+            | "build"
+            | ".next"
+            | ".nuxt"
+            | ".snow"
+            | ".cache"
+            | ".turbo"
+            | "__pycache__"
+            | ".pytest_cache"
+            | ".venv"
+            | "venv"
+            | ".idea"
+            | ".vscode"
+            | "coverage"
+            | ".nyc_output"
+            | "release"
     )
 }
 
@@ -354,10 +371,44 @@ fn is_source_file(path: &Path) -> bool {
     };
     matches!(
         ext.as_str(),
-        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "mts" | "cts"
-            | "py" | "pyw" | "pyi" | "rs" | "go" | "c" | "h" | "java" | "cs" | "rb"
-            | "php" | "phtml" | "css" | "scss" | "sass" | "less" | "html" | "htm"
-            | "json" | "json5" | "jsonc" | "yaml" | "yml" | "sh" | "bash" | "zsh"
-            | "fish" | "ps1" | "psm1" | "bat" | "cmd" | "lua"
+        "ts" | "tsx"
+            | "js"
+            | "jsx"
+            | "mjs"
+            | "cjs"
+            | "mts"
+            | "cts"
+            | "py"
+            | "pyw"
+            | "pyi"
+            | "rs"
+            | "go"
+            | "c"
+            | "h"
+            | "java"
+            | "cs"
+            | "rb"
+            | "php"
+            | "phtml"
+            | "css"
+            | "scss"
+            | "sass"
+            | "less"
+            | "html"
+            | "htm"
+            | "json"
+            | "json5"
+            | "jsonc"
+            | "yaml"
+            | "yml"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "ps1"
+            | "psm1"
+            | "bat"
+            | "cmd"
+            | "lua"
     )
 }

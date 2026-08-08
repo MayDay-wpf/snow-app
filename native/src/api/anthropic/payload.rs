@@ -8,11 +8,12 @@ use std::sync::OnceLock;
 use uuid::Uuid;
 
 use crate::api::config::{
-    normalize_base_url, resolve_sdk_api_base_url, DEFAULT_ANTHROPIC_BASE_URL, DEFAULT_OPENAI_BASE_URL,
+    normalize_base_url, resolve_sdk_api_base_url, DEFAULT_ANTHROPIC_BASE_URL,
+    DEFAULT_OPENAI_BASE_URL,
 };
 use crate::api::conversation::parse_chat_message_content;
-use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::api::responses::ResponsesApiRequest;
+use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
 
 /// Process-level persistent Anthropic user_id.
@@ -92,11 +93,13 @@ pub(super) fn build_anthropic_payload(
                 continue;
             }
             let results = match message.tool_results_json {
-                Some(ref raw) => crate::api::conversation::tool_messages::parse_tool_results_with_images(
-                    raw,
-                    database_path,
-                    skip_image_parsing,
-                ),
+                Some(ref raw) => {
+                    crate::api::conversation::tool_messages::parse_tool_results_with_images(
+                        raw,
+                        database_path,
+                        skip_image_parsing,
+                    )
+                }
                 None => Vec::new(),
             };
             let mut tool_result_blocks = Vec::new();
@@ -178,7 +181,9 @@ pub(super) fn build_anthropic_payload(
 
             if let Some(ref tool_calls_raw) = message.tool_calls_json {
                 let tool_use_blocks =
-                    crate::api::conversation::tool_messages::tool_calls_as_anthropic_blocks(tool_calls_raw);
+                    crate::api::conversation::tool_messages::tool_calls_as_anthropic_blocks(
+                        tool_calls_raw,
+                    );
                 if !tool_use_blocks.is_empty() {
                     let mut content_blocks = Vec::new();
                     // Thinking blocks must come first so the API can verify
@@ -356,10 +361,8 @@ pub(crate) fn apply_last_user_message_cache_control(
         let total = messages.len();
         for index in (0..total).rev() {
             let is_first_user_message = index == 0;
-            let is_user_message = messages[index]
-                .get("role")
-                .and_then(Value::as_str)
-                == Some("user");
+            let is_user_message =
+                messages[index].get("role").and_then(Value::as_str) == Some("user");
             if !is_user_message {
                 continue;
             }
@@ -385,8 +388,7 @@ pub(crate) fn apply_last_user_message_cache_control(
                 }
                 Some(Value::Array(arr)) => {
                     if let Some(last_block) = arr.last_mut() {
-                        last_block["cache_control"] =
-                            json!({ "type": "ephemeral", "ttl": "5m" });
+                        last_block["cache_control"] = json!({ "type": "ephemeral", "ttl": "5m" });
                     }
                 }
                 _ => {}

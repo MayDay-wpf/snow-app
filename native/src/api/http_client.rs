@@ -13,6 +13,7 @@
 //! `proxy_browser_settings`，JSON 结构与前端
 //! `ProxyBrowserSettings` 类型一致。
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use napi::bindgen_prelude::*;
@@ -61,15 +62,10 @@ impl ProxyConfig {
     /// 当 `enabled` 为 false 时直接返回原 builder，由 reqwest 默认
     /// 跟随系统代理环境变量。当 `enabled` 为 true 时注入
     /// `http://{host}:{port}` 代理。
-    pub fn apply(
-        self,
-        mut builder: reqwest::ClientBuilder,
-    ) -> Result<reqwest::ClientBuilder> {
+    pub fn apply(self, mut builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder> {
         if self.enabled {
             let proxy = reqwest::Proxy::all(format!("http://{}:{}", self.host, self.port))
-                .map_err(|error| {
-                    Error::from_reason(format!("Invalid proxy settings: {error}"))
-                })?;
+                .map_err(|error| Error::from_reason(format!("Invalid proxy settings: {error}")))?;
             builder = builder.proxy(proxy);
         }
         Ok(builder)
@@ -122,26 +118,166 @@ fn parse_proxy_config(raw: &str) -> ProxyConfig {
         .map(|p| p as u16)
         .unwrap_or(DEFAULT_PROXY_PORT);
 
-    ProxyConfig { enabled, host, port }
+    ProxyConfig {
+        enabled,
+        host,
+        port,
+    }
+}
+
+/// 统一的应用 User-Agent（Telegram Desktop 风格）。
+///
+/// 所有通过此模块创建的 HTTP 客户端默认携带该 UA，保证服务端
+/// 能识别请求来源与应用版本。格式：
+/// `Snow-App/<version> Snow App (<OS>; <arch>)`
+///
+/// 该 UA 设置在 client 的默认头上：当用户启用了自定义请求头
+/// （custom-headers）并在 scheme 中显式配置了 `User-Agent` 时，
+/// 请求级 header 会覆盖此默认值，尊重用户的覆盖。
+pub fn app_user_agent() -> String {
+    format!(
+        "Snow-App/{} Snow App ({})",
+        env!("CARGO_PKG_VERSION"),
+        ua_platform()
+    )
+}
+
+/// UA 中的平台描述（仿 Telegram Desktop），携带真实操作系统版本。
+/// 例如：`Windows NT 10.0.26100; Win64; x64`、`Macintosh; ARM64 Mac OS X 15_3_1`。
+/// 首次调用时检测一次并缓存（进程生命周期内不变），后续零开销。
+fn ua_platform() -> &'static str {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED.get_or_init(detect_platform)
+}
+
+/// 检测真实操作系统信息。
+fn detect_platform() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let nt = windows_nt_version().unwrap_or_else(|| "10.0".to_string());
+        match std::env::consts::ARCH {
+            "aarch64" => format!("Windows NT {nt}; Win64; ARM64"),
+            _ => format!("Windows NT {nt}; Win64; x64"),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let arch = if std::env::consts::ARCH == "aarch64" {
+            "ARM64"
+        } else {
+            "Intel"
+        };
+        match macos_version() {
+            Some(ver) => format!("Macintosh; {arch} Mac OS X {ver}"),
+            None => format!("Macintosh; {arch} Mac OS X"),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match linux_distro() {
+            Some(distro) => format!("X11; Linux {} ({distro})", std::env::consts::ARCH),
+            None => format!("X11; Linux {}", std::env::consts::ARCH),
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        format!("{}; {}", std::env::consts::OS, std::env::consts::ARCH)
+    }
+}
+
+/// Windows：读取注册表 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+/// 的 `CurrentBuildNumber`（如 26100）与 `UBR`（如 1150），拼成
+/// `10.0.26100.1150`。失败时回退到 `10.0`。
+#[cfg(target_os = "windows")]
+fn windows_nt_version() -> Option<String> {
+    const SUBKEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    let build = reg_query_value(SUBKEY, "CurrentBuildNumber")?;
+    let ubr = reg_query_value(SUBKEY, "UBR").unwrap_or_default();
+    Some(if ubr.is_empty() {
+        format!("10.0.{build}")
+    } else {
+        format!("10.0.{build}.{ubr}")
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn reg_query_value(subkey: &str, name: &str) -> Option<String> {
+    let output = std::process::Command::new("reg")
+        .args(["query", subkey, "/v", name])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    // 输出行形如：`    CurrentBuildNumber    REG_SZ    26100`
+    text.lines().find_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with(name) {
+            trimmed.split_whitespace().last().map(|v| v.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+/// macOS：`sw_vers -productVersion` 获取真实版本（如 15.3.1），
+/// 点号转下划线（浏览器 / Telegram 惯例：`15_3_1`）。
+#[cfg(target_os = "macos")]
+fn macos_version() -> Option<String> {
+    let output = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if version.is_empty() {
+        None
+    } else {
+        Some(version.replace('.', "_"))
+    }
+}
+
+/// Linux：解析 `/etc/os-release` 的 `PRETTY_NAME`（如 `Ubuntu 24.04.1 LTS`），
+/// 回退到 `VERSION_ID`（如 `24.04`）。
+#[cfg(target_os = "linux")]
+fn linux_distro() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    let pretty = content.lines().find_map(|line| {
+        line.strip_prefix("PRETTY_NAME=")
+            .map(|v| v.trim_matches('"').trim().to_string())
+    });
+    let version_id = content.lines().find_map(|line| {
+        line.strip_prefix("VERSION_ID=")
+            .map(|v| v.trim_matches('"').trim().to_string())
+    });
+    pretty.or(version_id).filter(|v| !v.is_empty())
 }
 
 /// 创建带代理设置的默认 HTTP 客户端。
 ///
 /// 适用于不需要额外自定义（timeout / default_headers 等）的场景。
+/// 客户端默认携带统一的应用 User-Agent（见 [`app_user_agent`]）。
 pub async fn build_proxied_client() -> Result<reqwest::Client> {
     let config = load_proxy_config().await?;
-    let builder = config.apply(reqwest::Client::builder())?;
+    let builder = config.apply(reqwest::Client::builder().user_agent(app_user_agent()))?;
     builder
         .build()
         .map_err(|error| Error::from_reason(format!("Failed to create HTTP client: {error}")))
 }
 
 /// 创建带代理设置和自定义超时的 HTTP 客户端。
-pub async fn build_proxied_client_with_timeout(
-    timeout: Duration,
-) -> Result<reqwest::Client> {
+///
+/// 客户端默认携带统一的应用 User-Agent（见 [`app_user_agent`]）。
+pub async fn build_proxied_client_with_timeout(timeout: Duration) -> Result<reqwest::Client> {
     let config = load_proxy_config().await?;
-    let builder = config.apply(reqwest::Client::builder().timeout(timeout))?;
+    let builder = config.apply(
+        reqwest::Client::builder()
+            .user_agent(app_user_agent())
+            .timeout(timeout),
+    )?;
     builder
         .build()
         .map_err(|error| Error::from_reason(format!("Failed to create HTTP client: {error}")))

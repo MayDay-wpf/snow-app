@@ -15,5 +15,6 @@ export type {
   GitPushPullResult,
   GitCheckoutResult,
   GitLogEntry,
+  GitCommitFile,
   GitRepoInfo,
 } from "./types";

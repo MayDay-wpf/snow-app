@@ -1,0 +1,16 @@
+# pnpm 11 项目配置（v11 起不再读取 package.json 的 "pnpm" 字段，统一在此声明）
+
+# 允许执行构建/安装脚本的依赖（原生模块编译、二进制下载必需）
+allowBuilds:
+  cpu-features: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  node-pty: true
+  ssh2: true
+
+# 依赖版本覆盖
+overrides:
+  # electron-builder 26.15.x 依赖 @electron/get ^3.0.0，但 3.0.0 缺少其所需的
+  # ElectronDownloadCacheMode 导出（3.1.0 才引入），强制解析到 3.1.0
+  '@electron/get': 3.1.0

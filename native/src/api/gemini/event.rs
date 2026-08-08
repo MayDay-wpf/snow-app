@@ -44,10 +44,7 @@ pub(super) fn process_gemini_sse_event_block(
         let event = match serde_json::from_str::<Value>(data) {
             Ok(event) => event,
             Err(error) => {
-                eprintln!(
-                    "Gemini stream event parse error (skipping line): {}",
-                    error
-                );
+                eprintln!("Gemini stream event parse error (skipping line): {}", error);
                 continue;
             }
         };
@@ -151,15 +148,10 @@ fn process_gemini_event(
         *response_model = model;
     }
 
-    if let Some(usage) = event
-        .get("usageMetadata")
-        .filter(|value| !value.is_null())
-    {
+    if let Some(usage) = event.get("usageMetadata").filter(|value| !value.is_null()) {
         token_usage.input_tokens = read_first_i64(usage, &[&["promptTokenCount"]]);
-        token_usage.output_tokens = read_first_i64(usage, &[
-            &["candidatesTokenCount"],
-            &["totalTokenCount"],
-        ]);
+        token_usage.output_tokens =
+            read_first_i64(usage, &[&["candidatesTokenCount"], &["totalTokenCount"]]);
         token_usage.cache_read_input_tokens =
             read_first_i64(usage, &[&["cachedContentTokenCount"]]);
     }

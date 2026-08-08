@@ -38,6 +38,7 @@ export const ChatMessageList = ({
     streamTokenCount,
     streamElapsedMs,
     streamTtftMs,
+    visionAnalysis,
   } = useChatConversationContext();
 
   const lastAssistantMessageId = useMemo(() => {
@@ -260,6 +261,38 @@ export const ChatMessageList = ({
     ]
   );
 
+  // Intermediate status card shown while the backend describes user images
+  // with the external vision model (textify pass). Lives at the end of the
+  // message list, above the input area; disappears on the final done/error
+  // event. Fixed min-height keeps the virtualization scrollbar stable.
+  const renderVisionStatusCard = (): React.JSX.Element | null => {
+    if (
+      !visionAnalysis ||
+      (visionAnalysis.phase !== "describing" &&
+        visionAnalysis.phase !== "cached")
+    ) {
+      return null;
+    }
+    return (
+      <div className="chat-vision-status" role="status">
+        <span className="chat-vision-status-spinner" aria-hidden="true" />
+        <span className="chat-vision-status-text">
+          {t("chat.visionAnalyzing", {
+            defaultValue: "Analyzing images with vision model…",
+          })}
+        </span>
+        <span className="chat-vision-status-progress">
+          {visionAnalysis.index}/{visionAnalysis.total}
+        </span>
+        {visionAnalysis.model ? (
+          <span className="chat-vision-status-model" title={visionAnalysis.model}>
+            {visionAnalysis.model}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
   // Keep the fork divider outside virtualization so it is always present when
   // visible (it is a single small node and never needs height preservation).
   const renderItem = (
@@ -299,6 +332,7 @@ export const ChatMessageList = ({
         {forkDividerIndex === messages.length && forkedFromConversationId
           ? renderForkDivider()
           : null}
+        {renderVisionStatusCard()}
       </div>
     );
   }
@@ -314,6 +348,7 @@ export const ChatMessageList = ({
       {afterFork.map((message, index) =>
         renderItem(message, forkDividerIndex + index)
       )}
+      {renderVisionStatusCard()}
     </div>
   );
 };

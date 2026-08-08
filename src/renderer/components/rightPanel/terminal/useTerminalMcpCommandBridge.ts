@@ -10,6 +10,8 @@ import {
   parseTerminalMcpCommandArgs,
   waitForTerminalTab,
 } from "./terminalMcpController";
+import { readTerminalSettingsJson } from "../../sidebar/terminalSettings/terminalSettingsUtils";
+import { TERMINAL_SETTING_CODE } from "../../sidebar/terminalSettings/terminalSettingsConstants";
 
 export type TerminalTabInfo = {
   tabId: string;
@@ -75,10 +77,26 @@ export const useTerminalMcpCommandBridge = (
             const tabId = createTerminalTabId();
             cb.openTab(cwd, tabId, shellPath, sessionId);
             await waitForTerminalTab(tabId);
+
+            // 反馈实际生效的 shell（而非仅回显调用参数）：显式传参优先，
+            // 其次终端设置 shellPath，最后是系统检测默认——保证智能体拿到的
+            // shellPath 与终端里真实运行的 shell 一致。
+            const [settingsValue, detectedTerminals] = await Promise.all([
+              window.snow.getSystemSettingValue(TERMINAL_SETTING_CODE),
+              window.snow.detectTerminals(),
+            ]);
+            const configuredShell =
+              readTerminalSettingsJson(settingsValue).shellPath;
+            const effectiveShell =
+              shellPath ||
+              configuredShell ||
+              detectedTerminals[0]?.path ||
+              "";
+
             return JSON.stringify({
               tabId,
               cwd: cwd || null,
-              shellPath: shellPath || null,
+              shellPath: effectiveShell || null,
               opened: true,
             });
           }

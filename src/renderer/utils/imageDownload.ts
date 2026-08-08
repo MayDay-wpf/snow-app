@@ -20,7 +20,7 @@ export const dataUrlToBlob = (dataUrl: string): Blob => {
 };
 
 /** 把任意图片 src（data URL、http(s) URL 或 img-proxy:// 代理 URL）解析为 Blob。 */
-const srcToBlob = async (src: string): Promise<Blob> => {
+export const srcToBlob = async (src: string): Promise<Blob> => {
   if (src.startsWith("data:")) {
     return dataUrlToBlob(src);
   }

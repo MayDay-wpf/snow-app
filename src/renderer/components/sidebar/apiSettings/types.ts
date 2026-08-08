@@ -29,6 +29,14 @@ export type ApiConfigFormData = {
   systemPromptIdsJson: string;
   customHeaderSchemeId: string;
   thinkingValue: string;
+  responsesVerbosity: string;
+  responsesFastMode: boolean;
+  googleSearch: boolean;
+  visionGoogleSearch: boolean;
+  visionThinkingEnabled: boolean;
+  visionThinkingEffort: string;
+  visionMaxTokens: string;
+  configJson: string;
 };
 
 export type ApiConfigItem = ApiConfigRecord;

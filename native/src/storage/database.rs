@@ -100,9 +100,7 @@ pub fn open_connection(database_path: impl AsRef<Path>) -> rusqlite::Result<Conn
 
 pub fn ensure_database(database_path: &Path) -> Result<()> {
     // First attempt: normal open + schema creation.
-    match open_connection(database_path)
-        .and_then(|connection| create_schema(&connection))
-    {
+    match open_connection(database_path).and_then(|connection| create_schema(&connection)) {
         Ok(()) => Ok(()),
         Err(first_error) => {
             // If the error looks like corruption, attempt recovery before
@@ -122,10 +120,7 @@ pub fn ensure_database(database_path: &Path) -> Result<()> {
                         // Recovery failed — surface the original error so the
                         // caller sees the root cause, but log the recovery
                         // failure too.
-                        eprintln!(
-                            "Snow App database recovery failed: {}",
-                            recover_error
-                        );
+                        eprintln!("Snow App database recovery failed: {}", recover_error);
                         Err(database_error(database_path, "initialize", first_error))
                     }
                 }
@@ -198,9 +193,7 @@ fn recover_database(database_path: &Path) -> Result<()> {
         database_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .map_err(|e| {
-        Error::from_reason(format!("Failed to open corrupted database read-only: {e}"))
-    })?;
+    .map_err(|e| Error::from_reason(format!("Failed to open corrupted database read-only: {e}")))?;
 
     // Set a busy timeout so we don't fail if another connection holds a lock.
     let _ = read_only_conn.busy_timeout(Duration::from_secs(5));
@@ -208,7 +201,9 @@ fn recover_database(database_path: &Path) -> Result<()> {
     // Build the schema in the recovered database first (using our own
     // create_schema, which is idempotent with CREATE TABLE IF NOT EXISTS).
     create_schema(&recovered_conn).map_err(|e| {
-        Error::from_reason(format!("Failed to create schema in recovered database: {e}"))
+        Error::from_reason(format!(
+            "Failed to create schema in recovered database: {e}"
+        ))
     })?;
 
     // Copy data from each table.
@@ -248,8 +243,9 @@ fn recover_database(database_path: &Path) -> Result<()> {
             .join(", ");
 
         // Read all rows from the corrupted database, tolerating errors.
-        let select_result = read_only_conn.prepare(&format!("SELECT {column_list} FROM \"{table_name}\""));
-        
+        let select_result =
+            read_only_conn.prepare(&format!("SELECT {column_list} FROM \"{table_name}\""));
+
         if let Ok(mut select_stmt) = select_result {
             // We iterate rows, skipping any that trigger corruption errors.
             let column_count = columns.len();
@@ -291,9 +287,7 @@ fn recover_database(database_path: &Path) -> Result<()> {
                             );
 
                             if let Err(e) = recovered_conn.execute(&insert_sql, []) {
-                                eprintln!(
-                                    "Recovery: failed to insert row into {table_name}: {e}"
-                                );
+                                eprintln!("Recovery: failed to insert row into {table_name}: {e}");
                                 skipped_count += 1;
                             } else {
                                 recovered_count += 1;
@@ -303,9 +297,7 @@ fn recover_database(database_path: &Path) -> Result<()> {
                         Err(e) => {
                             // Row read error — likely corruption. Log and
                             // try to continue to the next row.
-                            eprintln!(
-                                "Recovery: skipping corrupted row in {table_name}: {e}"
-                            );
+                            eprintln!("Recovery: skipping corrupted row in {table_name}: {e}");
                             skipped_count += 1;
                             // If the error is fatal (cursor is dead), break.
                             if e.to_string().to_lowercase().contains("malformed") {
@@ -329,10 +321,12 @@ fn recover_database(database_path: &Path) -> Result<()> {
     // Run post-schema migrations on the recovered database to ensure it has
     // all columns/indexes the current schema expects.
     migrations::run_post_schema_migrations(&recovered_conn).map_err(|e| {
-        Error::from_reason(format!("Failed to run migrations on recovered database: {e}"))
+        Error::from_reason(format!(
+            "Failed to run migrations on recovered database: {e}"
+        ))
     })?;
 
-    let _ = recovered_conn.pragma_update(None, "user_version", 26);
+    let _ = recovered_conn.pragma_update(None, "user_version", 27);
     drop(recovered_conn);
     drop(read_only_conn);
 
@@ -356,9 +350,7 @@ fn recover_database(database_path: &Path) -> Result<()> {
         // If the rename fails, try to restore the backup so we don't leave
         // the user with no database at all.
         let _ = fs::rename(&backup_path, database_path);
-        Error::from_reason(format!(
-            "Failed to move recovered database into place: {e}"
-        ))
+        Error::from_reason(format!("Failed to move recovered database into place: {e}"))
     })?;
 
     eprintln!(
@@ -578,6 +570,7 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
            system_prompt TEXT NOT NULL DEFAULT '',
            tools_json TEXT NOT NULL DEFAULT '[]',
            config_profile TEXT NOT NULL DEFAULT '',
+           model TEXT NOT NULL DEFAULT '',
            builtin INTEGER NOT NULL DEFAULT 0,
            sort_order INTEGER NOT NULL DEFAULT 0,
            source TEXT NOT NULL DEFAULT 'manual',
@@ -773,7 +766,7 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
     // columns and the sub-agent project_id rebuild (see migrations.rs).
     migrations::run_post_schema_migrations(connection)?;
 
-    connection.pragma_update(None, "user_version", 26)?;
+    connection.pragma_update(None, "user_version", 27)?;
 
     Ok(())
 }
@@ -783,4 +776,32 @@ pub fn database_error(database_path: &Path, action: &str, error: rusqlite::Error
         "Failed to {action} Snow App sqlite database at '{}': {error}",
         database_path.display()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_schema;
+    use rusqlite::Connection;
+
+    #[test]
+    fn fresh_schema_includes_sub_agent_model_and_current_user_version() {
+        let connection = Connection::open_in_memory().expect("open database");
+        create_schema(&connection).expect("create schema");
+
+        let model_column: (String, String) = connection
+            .query_row(
+                "SELECT type, dflt_value
+                   FROM pragma_table_info('sub_agent_configs')
+                  WHERE name = 'model'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read model column");
+        let user_version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read user version");
+
+        assert_eq!(model_column, ("TEXT".into(), "''".into()));
+        assert_eq!(user_version, 27);
+    }
 }

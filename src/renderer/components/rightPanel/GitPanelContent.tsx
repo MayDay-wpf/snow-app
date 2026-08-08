@@ -3,7 +3,12 @@ import { MoveVertical } from "lucide-react";
 
 import { useI18n } from "../../i18n";
 import { DiffViewer } from "./DiffViewer";
-import type { GitDiffResult, GitFileStatus, GitStatusResult } from "./git";
+import type {
+  GitCommitFile,
+  GitDiffResult,
+  GitFileStatus,
+  GitStatusResult,
+} from "./git";
 import { GitControl, RepoSelector, useGitRepos } from "./git";
 import type { OpenDiffTabCallback } from "./types";
 import type { RightPanelContentProps } from "./types";
@@ -14,6 +19,15 @@ const SPLIT_DEFAULT = 0.5;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
+
+/** 将提交文件（GitCommitFile）转换为 DiffViewer 所需的 GitFileStatus 形状。 */
+const toGitFileStatus = (file: GitCommitFile): GitFileStatus => ({
+  path: file.path,
+  oldPath: null,
+  indexStatus: "",
+  workdirStatus: "",
+  status: file.status,
+});
 
 export function GitPanelContent({
   activeDirectory,
@@ -27,6 +41,12 @@ export function GitPanelContent({
 }): React.JSX.Element {
   const { t } = useI18n();
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null);
+  // 当 diff 来自提交树（GitGraph）时记录提交 hash，diff 加载走
+  // gitCommitFileDiff 而不是工作区 diff。
+  const [commitFileSelection, setCommitFileSelection] = useState<{
+    hash: string;
+    file: GitCommitFile;
+  } | null>(null);
   const [diffResult, setDiffResult] = useState<GitDiffResult | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
@@ -53,8 +73,15 @@ export function GitPanelContent({
       selectedFile.indexStatus !== "?" &&
       selectedFile.indexStatus !== "";
 
-    window.snow
-      .gitFileDiff(repoPath, selectedFile.path, isStaged)
+    const diffPromise = commitFileSelection
+      ? window.snow.gitCommitFileDiff(
+          repoPath,
+          commitFileSelection.hash,
+          selectedFile.path
+        )
+      : window.snow.gitFileDiff(repoPath, selectedFile.path, isStaged);
+
+    diffPromise
       .then((result) => {
         setDiffResult(result);
       })
@@ -64,7 +91,16 @@ export function GitPanelContent({
       .finally(() => {
         setDiffLoading(false);
       });
-  }, [repoPath, selectedFile]);
+  }, [repoPath, selectedFile, commitFileSelection]);
+
+  /** 提交树中点击提交内文件：显示该提交中该文件的差异。 */
+  const handleCommitFileSelect = useCallback(
+    (file: GitCommitFile, hash: string) => {
+      setSelectedFile(toGitFileStatus(file));
+      setCommitFileSelection({ hash, file });
+    },
+    []
+  );
 
   const startSplitResize = useCallback(
     (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -108,9 +144,11 @@ export function GitPanelContent({
           repos={repos}
           onRepoSelect={setSelectedRepoPath}
           onFileSelect={setSelectedFile}
+          onCommitFileSelect={handleCommitFileSelect}
           onStatusChange={setGitStatus}
           onOpenFile={onOpenFile}
           onOpenTerminal={onOpenTerminal}
+          onOpenInTab={onOpenInTab}
         />
       </div>
 

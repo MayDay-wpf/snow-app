@@ -156,9 +156,9 @@ export const parseImageGenArgs = (args: string): ParsedImageGenArgs | null => {
             // 内联 base64 参考图
             images.push({ data: item.data, mimeType: item.mimeType });
           } else if (typeof item.path === "string" && item.path.trim() !== "") {
-            // 磁盘相对路径引用（来自文本化消息的 [Reference image #N ...] 块），
-            // 服务端已按此路径读取原图完成图生图；渲染端无法直接访问该路径，
-            // 以占位图展示
+            // 磁盘路径引用（绝对路径或 upload/ 相对路径，来自文本化消息的
+            // [Reference image #N ...] 块），服务端已按此路径读取原图完成
+            // 图生图；渲染端无法直接访问该路径，以占位图展示
             images.push({
               data: "",
               mimeType: item.mimeType,
@@ -329,6 +329,141 @@ export const parseImageGenResult = (
 
 export const truncateLabel = (value: string, max: number): string =>
   value.length > max ? `${value.slice(0, max)}...` : value;
+
+// ---------------------------------------------------------------------------
+// 失败原因分类与国际化
+//
+// 后端（Rust）生成的错误消息是英文自由文本（含上游 API message 与修复
+// 建议），无法整体翻译。这里按关键词将错误归类为有限的本地化类别，
+// UI 层展示「本地化标题 + 原始英文详情（小字）」，既看懂原因又不丢细节。
+// ---------------------------------------------------------------------------
+
+export type ImageGenErrorKind =
+  | "timeout"
+  | "auth"
+  | "rateLimit"
+  | "server"
+  | "network"
+  | "noModel"
+  | "modelUnsupported"
+  | "missingPrompt"
+  | "sizeInvalid"
+  | "fallback";
+
+export type ClassifiedImageGenError = {
+  kind: ImageGenErrorKind;
+  /** 原始英文错误消息（后端完整输出，保留细节与修复建议） */
+  detail: string;
+};
+
+/** 错误分类规则：按顺序匹配，先精确后通用。 */
+const ERROR_CLASSIFIERS: Array<{
+  kind: ImageGenErrorKind;
+  test: (lower: string) => boolean;
+}> = [
+  {
+    kind: "timeout",
+    test: (m) =>
+      m.includes("timed out") ||
+      m.includes("timeout") ||
+      m.includes("deadline exceeded") ||
+      m.includes("took too long"),
+  },
+  {
+    kind: "auth",
+    test: (m) =>
+      m.includes("401") ||
+      m.includes("403") ||
+      m.includes("unauthorized") ||
+      m.includes("authentication") ||
+      m.includes("invalid api key") ||
+      m.includes("api key") ||
+      m.includes("permission denied") ||
+      m.includes("forbidden"),
+  },
+  {
+    kind: "rateLimit",
+    test: (m) =>
+      m.includes("429") ||
+      m.includes("rate limit") ||
+      m.includes("too many requests") ||
+      m.includes("quota") ||
+      m.includes("insufficient") ||
+      m.includes("exceeded"),
+  },
+  {
+    kind: "server",
+    test: (m) =>
+      m.includes("500") ||
+      m.includes("502") ||
+      m.includes("503") ||
+      m.includes("504") ||
+      m.includes("internal server") ||
+      m.includes("server error") ||
+      m.includes("service unavailable") ||
+      m.includes("bad gateway"),
+  },
+  {
+    kind: "network",
+    test: (m) =>
+      m.includes("connection") ||
+      m.includes("connect ") ||
+      m.includes("dns") ||
+      m.includes("reqwest") ||
+      m.includes("tls") ||
+      m.includes("ssl") ||
+      m.includes("certificate") ||
+      m.includes("reset by peer") ||
+      m.includes("unexpected eof") ||
+      m.includes("failed to create http client"),
+  },
+  {
+    kind: "noModel",
+    test: (m) =>
+      m.includes("no image model configured") ||
+      m.includes("no model configured") ||
+      m.includes("model is required"),
+  },
+  {
+    kind: "modelUnsupported",
+    test: (m) =>
+      (m.includes("does not support image") ||
+        m.includes("does not support image-to-image") ||
+        m.includes("image input") ||
+        m.includes("multimodal")) &&
+      (m.includes("not supported") || m.includes("does not support")),
+  },
+  {
+    kind: "missingPrompt",
+    test: (m) =>
+      m.includes("prompt is required") || m.includes("missing prompt"),
+  },
+  {
+    kind: "sizeInvalid",
+    test: (m) =>
+      (m.includes("size") || m.includes("aspect ratio")) &&
+      (m.includes("invalid") ||
+        m.includes("not supported") ||
+        m.includes("unsupported")),
+  },
+];
+
+/** 将后端英文错误消息归类为本地化类别。 */
+export const classifyImageGenError = (
+  message: string
+): ClassifiedImageGenError => {
+  const lower = message.toLowerCase();
+  for (const rule of ERROR_CLASSIFIERS) {
+    if (rule.test(lower)) {
+      return { kind: rule.kind, detail: message };
+    }
+  }
+  return { kind: "fallback", detail: message };
+};
+
+/** 本地化标题对应的 i18n key（配合 t() 使用）。 */
+export const imageGenErrorTitleKey = (kind: ImageGenErrorKind): string =>
+  `toolCall.imagegen.error.${kind}`;
 
 /** 宽高比超过该阈值视为超宽（通栏展示），低于该阈值视为超窄（限高展示） */
 export const IMG_WIDE_RATIO = 1.6;

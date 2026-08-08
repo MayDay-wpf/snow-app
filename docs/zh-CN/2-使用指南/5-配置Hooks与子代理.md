@@ -1,200 +1,305 @@
 # 5-配置 Hooks 与子代理
 
-Snow App 的生命周期 Hooks（自动化）与子代理（Sub-agents）配置既可以在
-设置面板中手动完成，也可以由 **AI Agent 直接通过内置 `config` 工具写入**
-应用数据库（与 UI 同源，立即生效）。
+Snow App 的 Hooks 和子代理配置存储在应用 SQLite 数据库中，与设置 UI 同源。Agent 可通过内置 `config` 服务读写，成功后立即生效。
 
-## 1. Hooks 配置教程
+## 1. Hooks
 
-### 1.1 基本概念
+### 1.1 作用域与有效规则
 
-- **Hook** 是挂在 AI 会话生命周期节点上的自动化规则：当某个事件发生时，
-  按规则执行命令（`command`）、注入上下文（`context`）或向 AI 发出指令
-  （`prompt`）。
-- **作用域**：`global`（全局，所有项目生效）与 `project`（项目级，仅当前
-  项目生效）。同一 hook 类型配置了项目级时，**项目级覆盖全局**。
-- 每条 hook 配置 = 一个 `hookType` + 一组规则（`rules`）。
+- 全局 Hook 对所有项目可用；项目 Hook 需要 `projectId`；
+- 执行某个 `hookType` 时，若该项目有**非空规则数组**，使用项目规则；否则回退同类型全局规则；
+- 项目规则不会与全局规则合并；即使项目规则中的动作全部禁用，只要规则数组非空，也会阻止回退全局规则；
+- 每个 action 只有在 **`enabled` 明确等于 `true`** 时才执行。字段缺省、`null` 或 `false` 都会跳过。设置 UI 保存时会显式写入该字段，通过 config 手写时也必须写。
 
-### 1.2 Hook 类型（hookType）
+### 1.2 Hook 类型
 
-| hookType | 触发时机 | 支持的 action |
+| `hookType` | 触发时机 | 允许的 action |
 | --- | --- | --- |
-| `onUserMessage` | 用户发送新消息后、转发给 AI 前 | `command`、`context` |
-| `beforeToolCall` | 任何工具调用前（可用 matcher 限定工具） | `command` |
-| `toolConfirmation` | 工具需要用户授权确认时 | `command` |
+| `onUserMessage` | 用户消息进入 AI 前 | `command`、`context` |
+| `beforeToolCall` | 工具调用前 | `command` |
+| `toolConfirmation` | 工具进入确认流程时 | `command` |
 | `afterToolCall` | 工具调用完成后 | `command` |
-| `onSubAgentComplete` | 子代理任务完成时 | `command`、`prompt` |
-| `beforeSubAgentStart` | 子代理激活前（可用 matcher 限定子代理） | `command`、`context` |
+| `onSubAgentComplete` | 子代理完成后 | `command`、`prompt` |
+| `beforeSubAgentStart` | 子代理启动前 | `command`、`context` |
 | `beforeCompress` | 上下文压缩前 | `command` |
-| `onSessionStart` | 打开已有会话时（fire-and-forget） | `command`、`context` |
-| `onStop` | 会话停止/清理时（fire-and-forget） | `command`、`prompt` |
+| `onSessionStart` | 打开已有会话时；fire-and-forget | `command`、`context` |
+| `onStop` | 会话停止/清理时；fire-and-forget | `command`、`prompt` |
 
-### 1.3 rules 数据结构
+> `prompt` 是合法配置类型，但当前 native executor 不发起模型调用，而是返回“不支持”的失败记录。不要依赖 `prompt` action 实现生产自动化；优先使用可验证的 `command`，或在允许的触发点使用 `context`。`beforeSubAgentStart` 的 context 目前会被记录，但调用方不会把它追加到子代理 prompt。
 
-```jsonc
-[
-  {
-    "description": "规则说明（必填）",
-    "matcher": "bash-*",          // 可选：工具 hook 用通配符限定工具名
-    "hooks": [                     // 必填：action 数组
-      {
-        "type": "command",        // command | prompt | context
-        "command": "node guard.js", // type=command 时
-        "timeout": 5000,          // 可选，毫秒
-        "enabled": true           // 可选，默认 true
-      }
-    ]
-  }
-]
+### 1.3 Rule 与 action 字段
+
+```json
+{
+  "description": "为发布检查注入项目规则",
+  "matcher": "toolName:bash-*",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "node scripts/check-release.mjs",
+      "timeout": 5000,
+      "enabled": true
+    }
+  ]
+}
 ```
 
-action 类型说明：
-
-| type | 作用 | 适用 hook |
+| 字段 | 位置 | 说明 |
 | --- | --- | --- |
-| `command` | 执行 shell 命令；上下文 JSON 经 stdin 传入；按退出码处理输出 | 全部 |
-| `prompt` | 给 AI 的指令，结果作为软信号 | `onSubAgentComplete`、`onStop` |
-| `context` | 静态上下文注入 | `onSessionStart`、`onUserMessage`、`beforeSubAgentStart` |
+| `description` | rule | 必须存在；建议说明意图和失败影响。 |
+| `matcher` | rule | 可选。逗号分隔表示 OR；支持 `key:glob`，如 `toolName:bash-*`；无 key 时优先匹配 `toolName`，再检查上下文文本。 |
+| `hooks` | rule | 必填 action 数组。 |
+| `type` | action | `command`、`context` 或允许位置的 `prompt`。 |
+| `command` | command | 通过终端设置中选择的 shell 执行。 |
+| `content` | context | 静态文本；JSON 中的 `additionalContext` 或 `prompt` 字段会被提取，否则使用全文。 |
+| `prompt` | prompt | 当前 native executor 不执行模型调用。 |
+| `timeout` | command | 毫秒；缺省 `5000`。超时会终止子进程并返回错误。 |
+| `enabled` | action | **执行必需为 `true`**；缺省不会执行。 |
 
-### 1.4 退出码约定（command 类型）
+command action 会把事件上下文 JSON 写入 stdin，并在上下文包含 `cwd` 时使用该目录。stdout/stderr 按退出码解释：
 
-| 退出码 | 含义 |
+| 退出码 | 结果 |
 | --- | --- |
-| `0` | 通过；stdout 作为上下文注入（如 `[Hook Context]`），对话中不可见 |
-| `1` | 软警告；stdout 作为 `[Hook Warning]`；若 stdout 是 `{"decision":{"message":"..."}}` 格式的 JSON，则触发用户决策确认 UI |
-| `2+` | 阻断；当前流程中断，stderr/错误信息展示给用户 |
+| `0` | 通过；非空 stdout 成为附加上下文。stdout 若为 JSON，可从 `additionalContext` 或 `prompt` 提取。 |
+| `1` | 软警告；记录日志。stdout 为 `{"decision":{"message":"..."}}` 时，请求交互式用户决策。 |
+| `2+` 或无有效退出码 | 阻断当前可阻断流程，优先展示 stderr，其次 stdout。 |
 
-### 1.5 配置方式
+`onSessionStart` 与 `onStop` 是 fire-and-forget：调用方会把交互式决策降级为普通警告，不能依赖它们阻断流程。
 
-**方式 A：设置面板（手动）**
+### 1.4 Hooks 执行流程
+
+```mermaid
+flowchart TD
+    A[生命周期事件] --> B[读取项目 hookType 规则]
+    B --> C{项目规则数组非空?}
+    C -->|是| D[只使用项目规则]
+    C -->|否| E[读取全局同类型规则]
+    D --> F[依次检查 matcher]
+    E --> F
+    F --> G{规则匹配?}
+    G -->|否| H[该规则动作计为 skipped]
+    G -->|是| I[遍历 actions]
+    I --> J{enabled 明确为 true?}
+    J -->|否| K[跳过 action]
+    J -->|是| L[按类型执行]
+    L --> M{command 退出码}
+    M -->|0| N[附加上下文并继续]
+    M -->|1| O[警告或请求用户决策]
+    M -->|2+| P[阻断可阻断流程]
+```
+
+### 1.5 通过 UI 配置
 
 1. 打开 **设置 → Hooks 设置**；
-2. 选择作用域 Tab（全局 / 项目；项目 Tab 需先选中一个项目）；
-3. 选择 hook 类型 → 添加规则与动作 → 保存。
+2. 选择全局或项目范围；
+3. 选择 `hookType`，添加规则与动作；
+4. 确认每个应执行动作的开关已打开；
+5. 保存并用低风险事件测试；
+6. 查看 Hook 执行记录与应用日志。
 
-**方式 B：AI Agent 通过 config 工具（自动）**
+### 1.6 通过 `config` 配置
+
+全局 command Hook：
 
 ```jsonc
-// 全局 hook：拦截所有 bash 工具调用的危险命令
 config-set scope=hooks key=beforeToolCall value={
   "rules": [
     {
-      "description": "阻止对根目录执行 rm -rf",
-      "matcher": "bash-*",
+      "description": "运行只读工具审计",
+      "matcher": "toolName:filesystem-*",
       "hooks": [
         {
           "type": "command",
-          "command": "ctx=$(cat); cmd=$(echo \"$ctx\" | jq -r '.args.command // empty'); if echo \"$cmd\" | grep -qE 'rm\\s+-rf\\s+/'; then echo '已阻止：禁止对根目录执行 rm -rf'; exit 2; fi",
-          "timeout": 5000
+          "command": "node scripts/audit-tool-call.mjs",
+          "timeout": 5000,
+          "enabled": true
         }
       ]
     }
   ]
 }
+```
 
-// 项目级 hook（需提供 projectId）：仅某项目生效，覆盖全局同名 hook
+项目 context Hook：
+
+```jsonc
 config-set scope=hooks key=onUserMessage projectId=<projectId> value={
   "rules": [
     {
-      "description": "为该项目注入技术栈上下文",
+      "description": "注入当前项目技术栈",
       "hooks": [
-        { "type": "context", "content": "本项目使用 Electron + Rust（napi-rs）。" }
+        {
+          "type": "context",
+          "content": "本项目使用 Electron、React、TypeScript 与 Rust。",
+          "enabled": true
+        }
       ]
     }
   ]
 }
-
-// 查询
-config-list scope=hooks                    // 全局 hook 列表
-config-list scope=hooks projectId=<projectId>  // 某项目的 hook 列表
-config-get  scope=hooks key=beforeToolCall
-config-delete scope=hooks key=beforeToolCall projectId=<projectId>
 ```
 
-> `projectId` 即项目（工作区目录）的 `directoryId`，可通过
-> `config-list scope=app` 或项目相关界面获得。
+包含多个 action 时，每一个都显式设置 `enabled`：
 
-## 2. 子代理配置教程
+```json
+{
+  "rules": [
+    {
+      "description": "压缩前检查并记录上下文",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node scripts/check-context.mjs",
+          "timeout": 5000,
+          "enabled": true
+        },
+        {
+          "type": "command",
+          "command": "node scripts/write-audit.mjs",
+          "timeout": 5000,
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}
+```
 
-### 2.1 基本概念
+推荐流程：
 
-- 子代理是拥有独立 system prompt、工具集与 API 配置文件的专用 Agent，
-  通过 `sub-agents-activate` 工具激活执行任务。
-- **作用域**：全局（所有项目可用）与项目级（仅当前项目可用）。
-  **激活时项目级子代理优先，未命中时回退到全局同名子代理**。
-- 内置 `agent_general`（通用子代理）不可删除或通过 config 工具修改。
+1. `config-list scope=hooks projectId=<projectId>` 查看现状和 `guidance`；
+2. `config-get scope=hooks key=<hookType> projectId=<projectId>` 保存当前值；
+3. `config-set` 写入完整 `rules`；
+4. 立即 `config-get` 回读，逐个检查 `enabled`；
+5. 用低风险事件测试退出码与 matcher；
+6. `config-delete` 前展示 scope、key、projectId 和影响并取得明确确认。
 
-### 2.2 配置方式
+Hook 数据库写入会创建写入期间的临时备份，成功后删除本次备份；不要把它当持久历史。
 
-**方式 A：设置面板（手动）**
+## 2. 子代理
+
+### 2.1 配置字段与作用域
+
+子代理通过 `sub-agents-activate` 运行在独立执行循环中，没有主对话历史。配置字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `name` | 展示名称，必填。 |
+| `description` | 告诉主 Agent 何时委派。 |
+| `systemPrompt` | 必须自包含：使命、输入、流程、工具、安全边界和输出。 |
+| `toolsJson` | JSON 字符串或工具名数组。`["*"]` 表示全部，`[]` 表示无工具。 |
+| `configProfile` | 留空时继承启动它的主会话本次运行所用 API Profile 和当前模型；非空时固定使用指定 Profile。 |
+| `model` | 仅固定 Profile 时生效；非空时固定模型，留空时使用该 Profile 的 `advancedModel`。 |
+
+激活时先查当前项目的同 ID 配置，未命中才回退全局。内置 `agent_general` 不可通过 config 修改或删除。
+
+启动前会一次性校验工具、Profile 和模型，并生成运行快照。普通循环、工具递归、自动压缩和压缩后续跑都复用该快照，不会在每轮跟随全局配置变化。每次请求仍按固定 Profile 名读取最新凭证，但 Profile 被删除时会严格失败，不会切换到其他供应商。子会话会持久化启动时实际使用的 Profile 和模型，因此历史展示不受后续子代理/API 配置修改影响。
+
+工具规则：
+
+- **显式工具名列表必须传 `projectId`**，因此该子代理是项目级；
+- 全局子代理只能使用 `["*"]` 或 `[]`；
+- 项目级列表中的每个工具必须是当前项目已启用的完整工具名；
+- 外部 MCP 工具的服务器公开名前缀也必须属于当前项目启用的服务器；
+- 激活时若配置工具不可用或被禁用，会返回错误，而不是静默扩大权限。
+
+### 2.2 子代理会话视图
+
+子代理运行时以独立会话呈现，打开该会话可看到：
+
+- **顶部标题**：显示**阶段名称**（激活时 prompt 截断到 80 字符，即该子代理被派发的任务阶段）替代项目名；副标题标注**由哪个主会话启动**；
+- **信息卡片**：消息列表上方展示 `agentName` 徽章、阶段标题、**跳转主会话**按钮，以及**完整提示词**（默认 3 行截断，悬停显示全文）；
+- **数据来源**：会话记录 `title` / `subAgentName` + 首条用户消息（prompt）+ 父会话标题（异步获取）。
+
+### 2.3 通过 UI 配置
 
 1. 打开 **设置 → 子代理设置**；
-2. 选择作用域 Tab（全局 / 项目）；
-3. 添加/编辑子代理（名称、描述、系统提示词、MCP 工具、API 配置档）→ 保存。
+2. 选择全局或项目范围；
+3. 填写名称、描述和完整 system prompt；
+4. 全局代理选择全部工具或无工具；项目代理可选择具体工具；
+5. 保持“跟随主会话（推荐）”，或选择固定 API 配置；固定后可再选择独立模型，留空则使用该配置的高级模型；
+6. 保存后，从主对话发起一个边界清晰的测试任务。
 
-**方式 B：AI Agent 通过 config 工具（自动）**
+### 2.4 通过 `config` 配置
+
+合法的全局子代理示例：
 
 ```jsonc
-// 创建全局子代理（key = agentId）
-config-set scope=subAgents key=agent_code_reviewer value={
-  "name": "代码审查员",
-  "description": "审查代码质量与安全性",
-  "systemPrompt": "你是资深代码审查员，专注发现 bug、安全问题与性能隐患。",
-  "toolsJson": ["grep-search", "filesystem-read", "codelens-file_outline"],
-  "configProfile": "gpt-4o"
+config-set scope=subAgents key=agent_readonly_reviewer value={
+  "name": "只读审查员",
+  "description": "需要独立审查并返回问题清单时使用",
+  "systemPrompt": "你是只读审查员。先验证输入和文件，再按严重级别输出问题与证据。不得修改文件、运行命令或推测缺失业务规则。没有工具时说明无法验证的部分。",
+  "toolsJson": [],
+  "configProfile": "",
+  "model": ""
 }
-
-// 创建项目级子代理（提供 projectId；同 id 时项目级优先）
-config-set scope=subAgents key=agent_db_migrator projectId=<projectId> value={
-  "name": "数据库迁移助手",
-  "description": "本项目专用：生成与执行数据库迁移",
-  "systemPrompt": "你是本项目的数据库迁移专家……",
-  "toolsJson": ["bash-terminal-execute", "dbx-dbx_execute_query"]
-}
-
-// 查询与删除
-config-list scope=subAgents                        // 全部（含项目级）
-config-get  scope=subAgents key=agent_code_reviewer
-config-delete scope=subAgents key=agent_db_migrator projectId=<projectId>
 ```
 
-> 注意：`toolsJson` 中的工具名必须是当前项目已启用的 MCP 工具或内置工具
-> 全名（`{server_id}-{tool_name}`）。`configProfile` 必须是已存在的
-> API 配置档名，为空表示跟随全局生效配置。
+项目级显式工具示例：
 
-## 3. AI / 命令行配置引导（config 工具）
+```jsonc
+config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
+  "name": "项目审查员",
+  "description": "审查当前项目代码并返回带路径的发现",
+  "systemPrompt": "你是当前项目的只读代码审查员。使用允许工具读取事实，按严重级别、文件路径、证据和修复建议输出；不得修改文件。",
+  "toolsJson": [
+    "filesystem-read",
+    "grep-search",
+    "codelens-file_outline"
+  ],
+  "configProfile": "",
+  "model": ""
+}
+```
 
-AI Agent 通过内置 `config` 工具配置时的规则速查（与 `config-list` 响应中
-返回的 `guidance` 引导一致）：
+写入前先 `config-list scope=subAgents projectId=<projectId>` 获取 guidance 和当前工具环境；写入后 `config-get` 回读。`config-delete` 同样需要用户明确确认。
 
-### 3.1 子代理规则与常见坑
+### 2.5 子代理与 Hooks 时序
 
-| 规则 | 说明 |
+```mermaid
+sequenceDiagram
+    participant Main as 主 Agent
+    participant Config as 子代理配置库
+    participant Hooks as Hooks 执行器
+    participant Sub as 子代理独立循环
+    Main->>Config: 按 projectId 和 agentId 查询
+    alt 存在项目级配置
+        Config-->>Main: 返回项目级配置
+    else 未命中
+        Config-->>Main: 回退全局同 ID 配置
+    end
+    Main->>Hooks: beforeSubAgentStart 上下文
+    alt Hook 以 2+ 阻断
+        Hooks-->>Main: 返回阻断消息
+    else 允许或 Hook 执行异常
+        Hooks-->>Main: 继续
+        Main->>Sub: 自包含 systemPrompt + 用户任务 + 允许工具
+        Sub->>Sub: 独立执行与验证
+        Sub-->>Main: 完成摘要
+        Main->>Hooks: onSubAgentComplete + 摘要
+        alt Hook 以 2+ 阻断
+            Hooks-->>Main: 用阻断消息替换摘要
+        else Hook 返回上下文或警告
+            Hooks-->>Main: 附加到摘要
+        end
+        Main-->>Main: 记录子代理与 Hook 结果
+    end
+```
+
+注意：`beforeSubAgentStart` Hook 执行自身发生异常时，当前调用方会继续激活子代理；因此安全阻断脚本必须可靠、可测试，并用明确的 `2+` 退出码返回阻断。
+
+## 3. 验证与排错
+
+| 症状 | 检查 |
 | --- | --- |
-| `toolsJson` 显式工具名列表 **必须传 `projectId`** | 选择具体工具的子代理必然是**项目级**；全局子代理只能用 `"*"`（全部工具）或空列表 |
-| 工具名必须项目可用 | `toolsJson` 中的每个工具名必须是该项目已启用的内置/MCP 工具全名，否则写入被拒 |
-| `configProfile` 留空 | 表示跟随全局生效配置；填已存在的 API 配置档名可指定独立模型 |
-| `systemPrompt` 完全自包含 | 子代理独立运行、**无会话历史**——使命、原则、工具用法、输出格式都要写全 |
-| 项目级优先 | 激活时项目级子代理优先于同名全局子代理；未命中回退全局 |
-| 内置保护 | `agent_general` 不可修改、不可删除 |
-
-**获取 `projectId`**：即项目工作区目录的 `directoryId`，可在
-`~/.snow/projects/index.json` 中按项目路径（`knownPaths`）查到；
-也可让用户在 **设置 → 子代理设置 → 项目** 范围界面中选择项目后查看。
-
-### 3.2 Hooks 规则速查
-
-| 规则 | 说明 |
-| --- | --- |
-| `hookType` 白名单 | `onUserMessage` / `beforeToolCall` / `toolConfirmation` / `afterToolCall` / `onSubAgentComplete` / `beforeSubAgentStart` / `beforeCompress` / `onSessionStart` / `onStop` |
-| `matcher` 通配符 | 工具类 hook 可用 glob 限定（如 `bash-*` 只拦 bash 工具） |
-| `command` 退出码 | `0`=通过（stdout 注入 `[Hook Context]`）；`1`=软警告（stdout 为 `{"decision":{"message":"..."}}` 时触发用户决策 UI）；`2+`=阻断流程 |
-| action 适用性 | `prompt` 仅 `onSubAgentComplete`/`onStop`；`context` 仅 `onSessionStart`/`onUserMessage`/`beforeSubAgentStart` |
-| 项目级覆盖 | 传 `projectId` 的项目级 hook 覆盖同类型全局 hook |
-
-### 3.3 配置流程建议
-
-1. 先 `config-list scope=<域>` 查看现状与响应中的 `guidance` 引导；
-2. 按上文「配置方式 B」的示例构造 `config-set` 请求；
-3. 写入后 `config-get` 回读确认；
-4. 涉及项目级配置时先确认 `projectId`（见 3.1）。
+| Hook 保存成功但从不执行 | action 是否显式 `"enabled": true`；缺省值会被 native executor 跳过。 |
+| 项目 Hook 未回退全局 | 项目规则数组非空即取代全局；删除项目配置或使用空规则数组才会回退。 |
+| matcher 不命中 | 核对上下文键名和完整工具名；需要时使用 `toolName:<glob>`。 |
+| command 超时 | 默认 5000 ms；检查 shell、PATH、cwd、stdin 读取和合理的正数 `timeout`。 |
+| 退出 1 没有决策卡 | stdout 必须是有效 JSON，且包含字符串 `decision.message`；fire-and-forget Hook 只显示警告。 |
+| prompt action 没有效果 | 当前 native executor 不执行 prompt 模型调用；改用 command 或受支持的 context。 |
+| context 未进入子代理 prompt | `beforeSubAgentStart` 当前只记录结果，不拼接子代理 prompt；把必需内容写入子代理 `systemPrompt`。 |
+| 全局子代理显式工具列表被拒 | 显式列表需要 `projectId`；改成项目级，或全局使用 `["*"]`/`[]`。 |
+| 子代理找不到工具 | 使用当前项目的完整启用工具名，检查 MCP 服务器和项目工具开关。 |
+| 子代理行为依赖主对话 | 子代理没有主会话历史；把上下文放进任务 prompt 或自包含 `systemPrompt`。 |
+| 同 ID 激活了错误配置 | 项目级优先于全局；分别 `config-get` 并核对 `projectId`。 |

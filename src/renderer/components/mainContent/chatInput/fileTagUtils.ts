@@ -74,6 +74,13 @@ export type ElementTag = {
   note: string;
 };
 
+export type WebTag = {
+  /** 网页 URL（拖拽时取浏览器 tab 的实时地址） */
+  url: string;
+  /** 页面标题（可选，缺失时 chip 仅显示域名） */
+  title?: string;
+};
+
 /**
  * 浏览器面板元素选择器完成选取后，通过该全局事件将 ElementTag 派发给
  * 聊天输入框（ChatInputView）插入为 element chip。
@@ -95,7 +102,8 @@ export type ContentSegment =
   | { type: "change"; tag: ChangeTag }
   | { type: "text-snippet"; tag: TextSnippetTag }
   | { type: "review"; tag: ReviewTag }
-  | { type: "element"; tag: ElementTag };
+  | { type: "element"; tag: ElementTag }
+  | { type: "web"; tag: WebTag };
 
 /**
  * 将行号数组格式化为紧凑的字符串表示，连续区间合并为范围。
@@ -253,6 +261,30 @@ export const encodeElementTag = (tag: ElementTag): string =>
   })}@@`;
 
 /**
+ * 将网页引用编码为 web 标签。
+ * url / title 为结构化字段（标题可能含引号等字符，由 JSON 序列化承载），
+ * 发送给 AI 时保留完整 URL 便于其使用浏览器工具打开该页面。
+ */
+export const encodeWebTag = (tag: WebTag): string =>
+  `@@web:${JSON.stringify({
+    url: tag.url,
+    title: tag.title,
+  })}@@`;
+
+/**
+ * 提取 URL 的域名（含端口），用于 web chip 显示。
+ * 无法解析（如异常 URL）时原样返回输入。
+ */
+export const extractUrlHost = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    return parsed.host || url;
+  } catch {
+    return url;
+  }
+};
+
+/**
  * 根据原始文本生成一个简短的摘要标签，用于 chip 显示。
  *
  * 跳过过短或纯符号的行（如 "{", "}", ">", "<?"），从多行累积
@@ -295,7 +327,7 @@ export const buildTextSnippetSummary = (text: string, maxLen = 30): string => {
 
 export const parseContentSegments = (content: string): ContentSegment[] => {
   const segments: ContentSegment[] = [];
-  const regex = /@@(file|dir|image|commit|change|text-snippet|review|element):(.+?)@@/g;
+  const regex = /@@(file|dir|image|commit|change|text-snippet|review|element|web):(.+?)@@/g;
   let lastIndex = 0;
   let imageCounter = 0;
   let match: RegExpExecArray | null;
@@ -357,6 +389,24 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
             note: data.note ? base64ToUtf8(data.note) : "",
           },
         });
+      } catch {
+        segments.push({ type: "text", content: match[0] });
+      }
+    } else if (kind === "web") {
+      try {
+        const data = JSON.parse(value) as Partial<WebTag>;
+        const url = data.url ?? "";
+        if (!url) {
+          segments.push({ type: "text", content: match[0] });
+        } else {
+          segments.push({
+            type: "web",
+            tag: {
+              url,
+              title: typeof data.title === "string" ? data.title : undefined,
+            },
+          });
+        }
       } catch {
         segments.push({ type: "text", content: match[0] });
       }
@@ -570,6 +620,26 @@ export const createElementChipHtml = (tag: ElementTag): string => {
 };
 
 /**
+ * 生成网页引用 chip HTML。显示「标题 · 域名」，标题缺失时仅显示域名；
+ * 完整 URL 存放在 data-web-data 中，供序列化与点击打开浏览器使用。
+ */
+export const createWebTagChipHtml = (tag: WebTag): string => {
+  const webData = escapeHtml(
+    JSON.stringify({
+      url: tag.url,
+      title: tag.title,
+    })
+  );
+  const host = extractUrlHost(tag.url);
+  const displayName = tag.title ? `${tag.title} · ${host}` : host;
+  return `<span class="file-chip web-chip" contenteditable="false" data-web-tag="true" data-web-data="${webData}" title="${escapeHtml(
+    `${displayName} (${tag.url})`
+  )}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span><span class="file-chip-name">${escapeHtml(
+    displayName
+  )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
+};
+
+/**
  * 将内容片段列表渲染为可插入编辑区的 HTML：纯文本做 HTML 转义
  * （换行转为 <br>），各类标签转换为对应 chip。用于剪贴板粘贴、
  * 草稿还原等场景重建 chip。
@@ -598,6 +668,9 @@ export const buildSegmentsHtml = (segments: ContentSegment[]): string =>
       if (segment.type === "element") {
         return createElementChipHtml(segment.tag);
       }
+      if (segment.type === "web") {
+        return createWebTagChipHtml(segment.tag);
+      }
       return createChipHtml(segment.tag);
     })
     .join("");
@@ -610,6 +683,7 @@ type ChipSerializers = {
   textSnippet: (tag: TextSnippetTag) => string;
   review: (tag: ReviewTag) => string;
   element: (tag: ElementTag) => string;
+  web: (tag: WebTag) => string;
 };
 
 const readEditableContentWith = (
@@ -718,6 +792,22 @@ const readEditableContentWith = (
         } catch {
           // Ignore malformed element data
         }
+      } else if (elem.dataset.webTag === "true") {
+        try {
+          const data = JSON.parse(
+            elem.dataset.webData || "{}"
+          ) as Partial<WebTag>;
+          const url = data.url ?? "";
+          if (url) {
+            result += serializers.web({
+              url,
+              title:
+                typeof data.title === "string" ? data.title : undefined,
+            });
+          }
+        } catch {
+          // Ignore malformed web data
+        }
       } else if (elem.tagName === "BR") {
         result += "\n";
       } else {
@@ -746,6 +836,7 @@ export const readEditableContent = (el: HTMLElement): string =>
     textSnippet: encodeTextSnippetTag,
     review: encodeReviewTag,
     element: encodeElementTag,
+    web: encodeWebTag,
   });
 
 /**
@@ -768,6 +859,8 @@ export const readEditableContentAsPlainText = (el: HTMLElement): string =>
     textSnippet: (tag) => tag.content,
     review: (tag) => tag.summary,
     element: (tag) => (tag.note ? `${tag.label}: ${tag.note}` : tag.label),
+    // 复制到应用外时输出「标题 URL」，保留可读性与可点击性
+    web: (tag) => (tag.title ? `${tag.title} ${tag.url}` : tag.url),
   });
 
 export const insertHtmlAtSelection = (html: string): void => {

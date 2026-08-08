@@ -124,9 +124,7 @@ pub fn insert_vectors(
             }
             transaction.commit()
         })
-        .map_err(|error| {
-            database::database_error(database_path, "insert codebase vectors", error)
-        })
+        .map_err(|error| database::database_error(database_path, "insert codebase vectors", error))
 }
 
 /// Get statistics about the indexed vectors for a project.
@@ -141,11 +139,10 @@ pub fn get_index_stats(database_path: &Path, project_id: &str) -> Result<IndexSt
     let table_name = vector_table_name(project_id);
     database::open_connection(database_path)
         .and_then(|connection| {
-            let total_chunks: i64 = connection.query_row(
-                &format!("SELECT COUNT(*) FROM {table_name}"),
-                [],
-                |row| row.get(0),
-            )?;
+            let total_chunks: i64 =
+                connection.query_row(&format!("SELECT COUNT(*) FROM {table_name}"), [], |row| {
+                    row.get(0)
+                })?;
             let total_files: i64 = connection.query_row(
                 &format!("SELECT COUNT(DISTINCT file_path) FROM {table_name}"),
                 [],
@@ -162,9 +159,7 @@ pub fn get_index_stats(database_path: &Path, project_id: &str) -> Result<IndexSt
                 total_size_bytes,
             })
         })
-        .map_err(|error| {
-            database::database_error(database_path, "get codebase index stats", error)
-        })
+        .map_err(|error| database::database_error(database_path, "get codebase index stats", error))
 }
 
 /// Get a map of `file_path -> file_hash` for all files that already have
@@ -173,7 +168,10 @@ pub fn get_index_stats(database_path: &Path, project_id: &str) -> Result<IndexSt
 /// (incremental re-indexing / resume after interruption).
 ///
 /// Returns an empty map if the vector table doesn't exist yet.
-pub fn get_indexed_file_hashes(database_path: &Path, project_id: &str) -> Result<std::collections::HashMap<String, String>> {
+pub fn get_indexed_file_hashes(
+    database_path: &Path,
+    project_id: &str,
+) -> Result<std::collections::HashMap<String, String>> {
     let table_name = vector_table_name(project_id);
     let map = database::open_connection(database_path)
         .and_then(|connection| {
@@ -222,16 +220,16 @@ pub fn delete_vectors_for_file(
 /// (their vectors need to be removed).
 ///
 /// Returns an empty set if the vector table doesn't exist yet.
-pub fn get_indexed_file_paths(database_path: &Path, project_id: &str) -> Result<std::collections::HashSet<String>> {
+pub fn get_indexed_file_paths(
+    database_path: &Path,
+    project_id: &str,
+) -> Result<std::collections::HashSet<String>> {
     let table_name = vector_table_name(project_id);
     let set = database::open_connection(database_path)
         .and_then(|connection| {
-            let mut statement = connection.prepare(&format!(
-                "SELECT DISTINCT file_path FROM {table_name}"
-            ))?;
-            let rows = statement.query_map([], |row| {
-                Ok(row.get::<_, String>(0)?)
-            })?;
+            let mut statement =
+                connection.prepare(&format!("SELECT DISTINCT file_path FROM {table_name}"))?;
+            let rows = statement.query_map([], |row| Ok(row.get::<_, String>(0)?))?;
             let mut collected = std::collections::HashSet::new();
             for row in rows {
                 collected.insert(row?);
@@ -298,7 +296,15 @@ pub fn search_vectors(
 
             let mut collected: Vec<SearchResult> = Vec::new();
             for row in rows {
-                let (file_path, relative_path, chunk_index, start_line, end_line, content, embedding_json) = row?;
+                let (
+                    file_path,
+                    relative_path,
+                    chunk_index,
+                    start_line,
+                    end_line,
+                    content,
+                    embedding_json,
+                ) = row?;
                 let stored = match serde_json::from_str::<Vec<f64>>(&embedding_json) {
                     Ok(v) => v,
                     Err(_) => continue,
@@ -397,13 +403,19 @@ pub fn get_file_embeddings(
             })?;
 
             // Aggregate chunks per file, accumulating the mean embedding.
-            let mut by_file: std::collections::HashMap<
-                String,
-                (FileEmbeddingRecord, usize),
-            > = std::collections::HashMap::new();
+            let mut by_file: std::collections::HashMap<String, (FileEmbeddingRecord, usize)> =
+                std::collections::HashMap::new();
 
             for row in rows {
-                let (relative_path, file_path, _chunk_index, start_line, end_line, content_len, embedding_json) = row?;
+                let (
+                    relative_path,
+                    file_path,
+                    _chunk_index,
+                    start_line,
+                    end_line,
+                    content_len,
+                    embedding_json,
+                ) = row?;
                 let embedding: Vec<f64> = match serde_json::from_str(&embedding_json) {
                     Ok(v) => v,
                     Err(_) => continue,

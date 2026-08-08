@@ -175,34 +175,6 @@ export function TerminalSettingsForm({
           </div>
         </div>
 
-        {/* ===== Network ===== */}
-        <div className="api-settings-form-section">
-          <div className="api-settings-form-section-header">
-            <strong className="api-settings-form-section-title">
-              {t("settings.terminalSectionNetwork", {
-                defaultValue: "Network",
-              })}
-            </strong>
-          </div>
-
-          <div className="api-settings-form-grid">
-            <label className="api-settings-field wide">
-              <span>
-                {t("settings.terminalProxy", { defaultValue: "Proxy" })}
-              </span>
-              <input
-                value={form.proxy}
-                onChange={onUpdateField("proxy")}
-                onBlur={handleInputBlur}
-                placeholder={t("settings.terminalProxyPlaceholder", {
-                  defaultValue:
-                    "e.g. http://127.0.0.1:7890 (leave empty for none)",
-                })}
-                disabled={isBusy}
-              />
-            </label>
-          </div>
-        </div>
       </div>
 
       <div className="api-settings-form-actions">

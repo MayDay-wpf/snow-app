@@ -9,7 +9,6 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   fontSize: 14,
   fontWeight: "normal",
   lineHeight: 1.2,
-  proxy: "",
 };
 
 export const FONT_WEIGHT_OPTIONS = [

@@ -41,6 +41,7 @@ type FlatNode = {
 type ExplorerEntryContextMenuState = {
   name: string;
   path: string;
+  isDirectory: boolean;
   position: { x: number; y: number };
 };
 
@@ -144,6 +145,7 @@ const formatSize = (bytes: number): string => {
 export function ProjectExplorerContent({
   onSwitchContent,
   onOpenFile,
+  onOpenTerminal,
   explorerDirectoryId,
 }: SidebarContentProps): React.JSX.Element {
   const { t } = useI18n();
@@ -456,13 +458,14 @@ export function ProjectExplorerContent({
   const handleEntryContextMenu = useCallback(
     (
       event: React.MouseEvent<HTMLDivElement>,
-      entry: { name: string; path: string }
+      entry: { name: string; path: string; isDirectory: boolean }
     ): void => {
       event.preventDefault();
       setSelectedPath(entry.path);
       setEntryContextMenu({
         name: entry.name,
         path: entry.path,
+        isDirectory: entry.isDirectory,
         position: { x: event.clientX, y: event.clientY },
       });
     },
@@ -1111,8 +1114,12 @@ export function ProjectExplorerContent({
       {entryContextMenu ? (
         <ExplorerEntryContextMenu
           entryName={entryContextMenu.name}
+          entryPath={entryContextMenu.path}
+          isDirectory={entryContextMenu.isDirectory}
+          isSsh={isSsh}
           onClose={() => setEntryContextMenu(null)}
           onDelete={() => handleDeleteEntry(entryContextMenu.path)}
+          onOpenTerminal={onOpenTerminal}
           onRename={(newName) =>
             handleRenameEntry(entryContextMenu.path, newName)
           }

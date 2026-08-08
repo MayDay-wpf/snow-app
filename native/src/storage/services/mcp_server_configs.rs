@@ -22,7 +22,10 @@ pub fn delete_mcp_server_config(database_path: &Path, server_id: &str) -> Result
     database::open_connection(database_path)
         .and_then(|mut connection| {
             let transaction = connection.transaction()?;
-            transaction.execute("DELETE FROM mcp_server_configs WHERE server_id = ?1", [server_id])?;
+            transaction.execute(
+                "DELETE FROM mcp_server_configs WHERE server_id = ?1",
+                [server_id],
+            )?;
             super::import_resources::delete_mcp_tracking_for_target(
                 &transaction,
                 "global",

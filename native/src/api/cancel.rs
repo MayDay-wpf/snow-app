@@ -187,5 +187,3 @@ pub fn cancel_tool_execution(tool_execution_id: &str) -> bool {
 pub fn unregister_tool_execution(tool_execution_id: &str) {
     unregister_stream(&format!("{TOOL_EXECUTION_PREFIX}{tool_execution_id}"));
 }
-
-

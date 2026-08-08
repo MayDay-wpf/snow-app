@@ -2,26 +2,28 @@
 name: snow-app-docs
 description: >-
   Guides the agent to read the built-in Snow App documentation
-  (~/.snow/docs) and then help the user configure MCP servers, skills,
-  sub-agents, hooks, API keys/models, image generation, proxy & network,
-  project-scoped settings, or look up settings.json fields and built-in
-  tools. Use this skill whenever the user asks to configure, inspect or
-  troubleshoot any of these areas. Covers the config built-in service
+  (~/.snow/docs) before configuring or troubleshooting Snow App. Covers MCP
+  servers; installing, managing, creating, and authoring Skills; sub-agents;
+  Hooks; API keys/models; image generation; proxy/network; third-party config
+  and Plugin runtimes; browser passwords and local-browser data import; app
+  updates; security/privacy/tool authorization; personalization, system prompts,
+  custom headers, themes, and shortcuts; usage/log diagnostics; project-scoped
+  settings; settings.json fields; storage locations; and built-in tools. Use
+  this Skill whenever the user asks to configure, inspect, create, author, or
+  troubleshoot any of these areas. It covers the config built-in service
   (config-list/get/set/delete; scopes: settings/snowcfg/proxy/app/
   custom-headers/system-prompt/theme/language/permissions/lsp-config/buddy/
-  subAgents/hooks/skills/logs/imagegen/personalization), including
-  project-scoped
-  mcpServers/sensitiveCommands/subAgents/hooks/skills via `projectId`, the
-  read-only logs scope for diagnostics, the imagegen multi-channel settings
-  (channels keyed by id/name/provider type, plus the top-level
-  maxConcurrentImages concurrency cap, apiKey masked), and the
-  app-control-openSettings shortcut (e.g. page=imagegen-settings).
-enabled: true
-allowed_tools:
+  subAgents/hooks/skills/logs/imagegen/personalization), including project-
+  scoped mcpServers/sensitiveCommands/subAgents/hooks/skills via `projectId`,
+  the read-only logs scope, imagegen multi-channel settings and top-level
+  maxConcurrentImages, masked secrets, and app-control-openSettings.
+enable: true
+allowed-tools:
   - config-list
   - config-get
   - config-set
   - config-delete
+  - user-interaction-askUserQuestion
   - app-control-openSettings
   - bash-terminal-execute
   - filesystem-read
@@ -33,10 +35,11 @@ allowed_tools:
 
 # Snow App 文档阅读与配置指导（Docs & Configuration Guide）
 
-当用户请求**配置 MCP 服务器、安装与管理 Skills、配置 Hooks 与子代理、
-配置 API 密钥与模型、配置图像生成、配置代理与网络、项目级设置**，或询问
-**settings.json 字段 / 内置工具 / 日志诊断**时，先阅读应用内置文档，
-再按文档步骤动手配置，而不是凭记忆操作。
+当用户请求**配置 MCP 服务器、安装与管理 Skills、创建与编写 Skills、配置 Hooks
+与子代理、配置 API 密钥与模型、配置图像生成、配置代理与网络、导入第三方配置
+与插件、管理浏览器密码/数据、处理应用更新、个性化与自定义请求头、用量/日志诊断、
+项目级设置**，或询问 **settings.json 字段 / 内置工具 / 安全边界 / 数据位置**时，
+先阅读应用内置文档，再按文档步骤动手配置，而不是凭记忆操作。
 
 ## 1. 先读文档（Read the docs first）
 
@@ -52,6 +55,7 @@ allowed_tools:
 | --- | --- | --- |
 | 配置 MCP 服务器 | `2-使用指南/1-配置MCP服务器.md`（en: `2-guides/1-configure-mcp.md`） | `3-参考手册/1-settings.json配置参考.md` |
 | 安装与管理 Skills | `2-使用指南/2-安装与管理Skills.md`（en: `2-guides/2-install-and-manage-skills.md`） | — |
+| 创建与编写 Skills | `2-使用指南/21-创建与编写Skills.md`（en: `2-guides/21-create-and-author-skills.md`） | — |
 | 配置 API 密钥与模型 | `2-使用指南/3-配置API密钥与模型.md`（en: `2-guides/3-configure-api-keys.md`） | `3-参考手册/1-settings.json配置参考.md` |
 | 配置图像生成 | `2-使用指南/9-图像生成.md`（en: `2-guides/9-image-generation.md`） | `3-参考手册/2-内置工具参考.md`（imagegen 章节与 config 的 imagegen scope） |
 | 使用聊天与 AI 助手（界面/对话/命令/回滚/压缩） | `2-使用指南/10-使用聊天与AI助手.md`（en: `2-guides/10-using-chat-and-ai.md`） | — |
@@ -61,6 +65,13 @@ allowed_tools:
 | 配置 Hooks 与子代理 | `2-使用指南/5-配置Hooks与子代理.md`（en: `2-guides/5-configure-hooks-and-subagents.md`） | — |
 | 浏览器自动化 | `2-使用指南/6-浏览器自动化.md`（en: `2-guides/6-browser-automation.md`） | — |
 | 代码库索引与代码诊断 | `2-使用指南/7-代码库索引与代码诊断.md`（en: `2-guides/7-codebase-index-and-diagnostics.md`） | — |
+| 第三方配置导入与插件 runtime | `2-使用指南/8-第三方配置导入.md`（en: `2-guides/8-third-party-configuration-import.md`） | `3-参考手册/5-安全与信任边界.md` |
+| AI 开发协作、经验与前端美化工作流 | `2-使用指南/13-AI开发协作.md`、`2-使用指南/14-AI开发经验与教训.md`、`2-使用指南/15-前端设计与美化工作流.md`（en: `2-guides/13-ai-development-collaboration.md`、`2-guides/14-ai-development-lessons.md`、`2-guides/15-frontend-design-and-beautification-workflow.md`） | `4-架构与开发/2-开发者指南.md` |
+| 安全、隐私与工具授权 | `2-使用指南/16-安全隐私与工具授权.md`（en: `2-guides/16-security-privacy-and-tool-authorization.md`） | `3-参考手册/5-安全与信任边界.md` |
+| 浏览器设置、密码保险库与本机导入 | `2-使用指南/17-浏览器设置密码与数据导入.md`（en: `2-guides/17-browser-settings-passwords-and-import.md`） | `3-参考手册/4-数据存储位置.md` |
+| 应用更新 | `2-使用指南/18-应用更新.md`（en: `2-guides/18-app-updates.md`） | `3-参考手册/5-安全与信任边界.md` |
+| 系统提示词、个性化、请求头、主题与快捷键 | `2-使用指南/19-个性化主题与快捷键.md`（en: `2-guides/19-personalization-theme-and-shortcuts.md`） | `3-参考手册/3-配置文件字段参考.md` |
+| 用量统计与系统日志 | `2-使用指南/20-用量统计与系统日志.md`（en: `2-guides/20-usage-statistics-and-system-logs.md`） | `3-参考手册/4-数据存储位置.md` |
 | 查询内置工具 / 配置域 / 日志 | — | `3-参考手册/2-内置工具参考.md`（en: `3-reference/2-builtin-tools-reference.md`） |
 | 查询配置文件字段 | — | `3-参考手册/3-配置文件字段参考.md`（en: `3-reference/3-config-file-field-reference.md`） |
 
@@ -108,8 +119,9 @@ allowed_tools:
   - 详细规则见文档 `2-使用指南/5-配置Hooks与子代理.md` 第 2 节
 - **Hooks**：`config-list scope=hooks` 查看；`config-set scope=hooks
   key=<hookType> value={rules:[{description, matcher?, hooks:[{type,
-  command?|prompt?|content?, timeout?, enabled?}]}]}` 配置；传 `projectId`
-  为项目级。写入应用数据库**立即生效**。
+  command?|prompt?|content?, timeout?, enabled:true}]}]}` 配置；传 `projectId`
+  为项目级。**每个需要执行的 action 都必须显式写 `enabled: true`；缺省、
+  null 或 false 均不会执行。**写入应用数据库立即生效。
 - **全局规则（personalization）**：`~/.snow/ROLE.md` 是全局角色/规则文件
   （纯文本 markdown，非 JSON）。`config-list scope=personalization` 返回
   键规格 + 长度/预览；`config-get scope=personalization key=role` 返回规则
@@ -117,19 +129,24 @@ allowed_tools:
   value=<字符串>` 整体替换规则全文（写前自动备份，写后下一个对话生效）；
   `config-delete scope=personalization key=role` 删除 ROLE.md（恢复默认，
   需用户确认）。修改后提示用户到「设置 → 个人化设置」或重启应用生效。
-- **管理 Skills**：用 `config-list scope=skills` 查看可用技能与 GitHub 已装
-  记录；用 `config-set scope=skills key=<skillId> value={enabled: true|false}`
-  切换开关——不传 `projectId` 时改写 SKILL.md frontmatter 的 `enable` 字段
-  （全局生效，注意字段名是 `enable` 而非 `enabled`），传 `projectId` 时写入
-  应用数据库项目级覆盖（立即生效且优先于 frontmatter）；用
-  `config-set scope=skills key=<skillId> value={url, location}` 从 GitHub
-  安装（`url` 支持完整 URL 与 `owner/repo` 简写；指定分支和子目录用
-  `https://github.com/<owner>/<repo>/tree/<branch>/<subdir>` 格式，例如
-  `https://github.com/cli/cli/tree/trunk/skills/gh` 安装 cli/cli 仓库 trunk
-  分支 skills/gh 子目录下的技能；`location` 为 `global` 或 `project`，
-  项目安装需带 `projectId`），用
-  `config-delete scope=skills key=<skillId>` 卸载（**仅限 GitHub 安装的技能**，
-  手动放置或应用自带的技能需删除目录）。
+- **管理 Skills**：先读安装管理指南。扫描同 ID 覆盖优先级为
+  `<project>/.snow/skills` > `<project>/.agents/skills` > `~/.snow/skills` >
+  `~/.agents/skills`。用 `config-list scope=skills` 查看有效 `path`、状态与
+  GitHub 已装记录；用 `config-set scope=skills key=<skillId>
+  value={enabled: true|false}` 切换开关——config API 参数名是 `enabled`，
+  但不传 `projectId` 时实际改写 SKILL.md frontmatter 的 **`enable`** 字段；
+  传 `projectId` 时写入项目数据库覆盖，且优先于 frontmatter。GitHub 安装用
+  `value={url, location}`，`location` 为 `global` 或 `project`（项目安装需
+  `projectId`）。`config-delete scope=skills key=<skillId>` 仅卸载
+  `~/.snow/skills-registry.json` 已登记的 GitHub Skill，且删除前必须确认；
+  手动放置或应用自带 Skill 不在此卸载边界内。
+- **创建 / 编写 Skills**：必须先完整阅读
+  `2-使用指南/21-创建与编写Skills.md`（en:
+  `2-guides/21-create-and-author-skills.md`）。真实 frontmatter 字段是
+  **`enable` 与 `allowed-tools`**，不是 `enabled` / `allowed_tools`；技能 ID
+  来自 `SKILL.md` 相对扫描根目录的路径，不来自 `name`。创建前检查四个扫描
+  根目录的同 ID 覆盖，使用最小权限工具列表，创建后用 config list/get 核对
+  `id`、`path`、`defaultEnabled`、`enabled` 与 `allowedTools`，再运行只读测试。
 - **图像生成（多渠道）**：用 `config-list scope=imagegen` 查看各渠道状态
   （enabled/model/configured）与全局 `maxConcurrentImages`（最大并发生成数
   1-8，默认 4，AI 一次请求多张时最多同时生成的张数）；写入用 `config-set

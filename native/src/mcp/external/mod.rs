@@ -65,12 +65,13 @@ pub async fn discover_tools(
                             .contains(&project_scope_server_id(&config.server_id)))
             })
             .map(|config| {
-                let server_name = server_names
-                    .get(&config.server_id)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external")
-                    });
+                let server_name =
+                    server_names
+                        .get(&config.server_id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external")
+                        });
                 async move { discover_config_tools(config, server_name).await }
             }),
     )
@@ -97,9 +98,7 @@ pub async fn discover_tools(
     Ok(tools)
 }
 
-pub async fn discover_project_servers(
-    project_id: &str,
-) -> Result<Vec<ExternalMcpProjectServer>> {
+pub async fn discover_project_servers(project_id: &str) -> Result<Vec<ExternalMcpProjectServer>> {
     let configs = load_configs(Some(project_id)).await?;
     Ok(configs
         .into_iter()
@@ -171,9 +170,9 @@ pub async fn resolve_project_scope_server(
     client.close().await;
     let tools = tools_result?;
     let tool_names = public_tool_names(&tools);
-    let tool_exists = tools.iter().any(|tool| {
-        tool_names.get(&tool.name).map(String::as_str) == Some(public_tool_name)
-    });
+    let tool_exists = tools
+        .iter()
+        .any(|tool| tool_names.get(&tool.name).map(String::as_str) == Some(public_tool_name));
     if !tool_exists {
         return Err(Error::from_reason(format!(
             "External MCP tool {tool_full_name} is no longer available"
@@ -236,9 +235,7 @@ async fn call_tool_with_client(
     let tool_names = public_tool_names(&tools);
     let remote_tool = tools
         .into_iter()
-        .find(|tool| {
-            tool_names.get(&tool.name).map(String::as_str) == Some(public_tool_name)
-        })
+        .find(|tool| tool_names.get(&tool.name).map(String::as_str) == Some(public_tool_name))
         .ok_or_else(|| {
             Error::from_reason(format!(
                 "External MCP tool {public_tool_name} is no longer available"
@@ -285,8 +282,8 @@ async fn discover_config_tools(
         Ok(tools) => tools?,
         Err(_) => {
             return Err(Error::from_reason(format!(
-                "External MCP server {server_label} timed out after {timeout_ms}ms while listing tools"
-            )))
+            "External MCP server {server_label} timed out after {timeout_ms}ms while listing tools"
+        )))
         }
     };
 
@@ -343,9 +340,7 @@ async fn load_configs(project_id: Option<&str>) -> Result<Vec<McpServerConfigRec
 
 fn parse_external_tool_name(full_name: &str) -> Option<(&str, &str)> {
     let (server_name, tool_name) = super::tools::split_tool_full_name(full_name)?;
-    if server_name.is_empty()
-        || tool_name.is_empty()
-        || BUILTIN_SERVER_NAMES.contains(&server_name)
+    if server_name.is_empty() || tool_name.is_empty() || BUILTIN_SERVER_NAMES.contains(&server_name)
     {
         return None;
     }
@@ -369,9 +364,7 @@ fn public_server_names(configs: &[McpServerConfigRecord]) -> HashMap<String, Str
 /// 已处理 sanitize 冲突与内置名保留，与 `discover_tools` 的命名一致。
 /// 供 config 服务器静态校验子代理 toolsJson 中的外部工具名前缀
 /// （不实际连接服务器，因此只校验服务器归属与启用状态）。
-pub(crate) fn public_server_name_map(
-    configs: &[McpServerConfigRecord],
-) -> HashMap<String, String> {
+pub(crate) fn public_server_name_map(configs: &[McpServerConfigRecord]) -> HashMap<String, String> {
     public_server_names(configs)
 }
 
@@ -403,7 +396,11 @@ fn assign_unique_names(
         .collect::<HashSet<_>>();
     let mut assigned_names = HashMap::new();
     for (identity, base_name) in candidates {
-        let is_conflicting = base_name_counts.get(&base_name).copied().unwrap_or_default() > 1
+        let is_conflicting = base_name_counts
+            .get(&base_name)
+            .copied()
+            .unwrap_or_default()
+            > 1
             || used_names.contains(&base_name);
         let mut public_name = if is_conflicting {
             format!("{base_name}_{}", short_hash(&identity))
@@ -455,7 +452,9 @@ fn short_hash(value: &str) -> String {
 /// Trait abstracting the operations all transport-specific MCP clients must
 /// provide. Implemented by both `StdioMcpClient` and `HttpMcpClient`.
 pub(super) trait ClientHandle: Send + Sync {
-    fn list_all_tools(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<RemoteMcpTool>>> + Send + '_>>;
+    fn list_all_tools(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<RemoteMcpTool>>> + Send + '_>>;
     fn call_tool<'a>(
         &'a self,
         name: &'a str,
@@ -481,7 +480,8 @@ macro_rules! impl_client_handle {
                 &'a self,
                 name: &'a str,
                 arguments: &'a Value,
-            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>>
+            {
                 Box::pin(<$ty>::call_tool(self, name, arguments))
             }
 

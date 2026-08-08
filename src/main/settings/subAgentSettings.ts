@@ -50,6 +50,7 @@ export const normalizeSubAgentConfig = (
   const name = toText(source.name).trim();
   const description = toText(source.description).trim();
   const configProfile = toText(source.configProfile).trim();
+  const model = toText(source.model).trim();
   const builtin = agentId === BUILTIN_GENERAL_AGENT_ID;
   const rawProjectId = toText(source.projectId).trim();
 
@@ -71,6 +72,7 @@ export const normalizeSubAgentConfig = (
     systemPrompt: toText(source.systemPrompt),
     toolsJson: normalizeToolsJson(source.toolsJson, builtin),
     configProfile,
+    model,
     builtin,
     sortOrder: toInteger(source.sortOrder, 0),
     source: builtin ? SUB_AGENT_SOURCE_BUILTIN : SUB_AGENT_SOURCE_MANUAL,

@@ -17,9 +17,11 @@ import {
   THINKING_OPTIONS_BY_METHOD,
 } from "./constants";
 import {
+  getResponsesFastModeFromConfig,
   getThinkingValueFromConfig,
   normalizeRequestMethod,
   toConfigUpdatePayload,
+  toResponsesFastModeUpdatePayload,
 } from "./configThinking";
 import type {
   ChatInputActions,
@@ -97,6 +99,8 @@ export const useChatInputController = ({
   const [thinkingValue, setThinkingValue] = useState(DEFAULT_THINKING_VALUE);
   const [isSavingThinking, setIsSavingThinking] = useState(false);
   const [thinkingError, setThinkingError] = useState<string | null>(null);
+  const [isSavingFastMode, setIsSavingFastMode] = useState(false);
+  const [fastModeError, setFastModeError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const labels = useMemo(
@@ -142,6 +146,7 @@ export const useChatInputController = ({
     const loadRuntimeApiConfig = async () => {
       setIsLoadingApiConfig(true);
       setThinkingError(null);
+      setFastModeError(null);
       setModelError(null);
       setModels([]);
 
@@ -158,39 +163,18 @@ export const useChatInputController = ({
 
         setApiConfigs(configs);
 
-        // Resolve the conversation-scoped profile:
-        //   - sub-agent conversations always use their agent's configProfile
-        //   - main conversations use their persisted apiProfileName binding
-        //   - a brand-new conversation (no conversationId yet) follows the
-        //     global active profile until the user switches it in the input
-        let requestedProfile = "";
-        let subAgentConversation = false;
-        if (conversation?.conversationType === "sub_agent") {
-          subAgentConversation = true;
-          const subAgentId = conversation.subAgentId.trim();
-          if (!subAgentId) {
-            throw new Error("Sub-agent configuration is not available");
-          }
-
-          const subAgentConfig = await window.snow.getSubAgentConfig(
-            subAgentId
-          );
-          if (cancelled) {
-            return;
-          }
-          if (!subAgentConfig) {
-            throw new Error(`Sub-agent configuration not found: ${subAgentId}`);
-          }
-          requestedProfile = subAgentConfig.configProfile.trim();
-        } else {
-          requestedProfile = conversation?.apiProfileName?.trim() ?? "";
-        }
+        // Resolve the conversation-scoped profile from the persisted runtime
+        // snapshot. Sub-agent history must never consult the current agent
+        // configuration because that configuration may have changed or been
+        // deleted after the run completed.
+        const subAgentConversation =
+          conversation?.conversationType === "sub_agent";
+        const requestedProfile = conversation?.apiProfileName?.trim() ?? "";
         setIsSubAgentConversation(subAgentConversation);
 
-        // Sub-agent conversations resolve their profile from the agent's
-        // configProfile: a specified-but-missing profile fails fast (the
-        // Rust backend hard-errors the same way); an empty profile follows
-        // the global active profile just like an unbound main conversation.
+        // A persisted profile snapshot is strict for sub-agents. Legacy rows
+        // without a snapshot retain the old active-profile fallback so existing
+        // history remains readable after migration.
         let runtimeConfig: ApiConfigRecord | null = null;
         if (requestedProfile) {
           runtimeConfig =
@@ -217,16 +201,10 @@ export const useChatInputController = ({
 
         setSelectedApiProfile(runtimeConfig.profileName);
         setRuntimeApiConfig(runtimeConfig);
-        // Sub-agent conversations always run with the profile's advanced
-        // model — the Rust backend resolves the sub-agent model from its
-        // configProfile on every request, so a model inherited from the
-        // parent conversation record would be misleading.
+        // Persisted conversation model is the immutable display snapshot for
+        // completed sub-agents and the remembered selection for main chats.
         const rememberedModel = conversation?.model?.trim() ?? "";
-        setSelectedModel(
-          subAgentConversation
-            ? runtimeConfig.advancedModel || ""
-            : rememberedModel || runtimeConfig.advancedModel || ""
-        );
+        setSelectedModel(rememberedModel || runtimeConfig.advancedModel || "");
         setThinkingValue(getThinkingValueFromConfig(runtimeConfig));
       } catch (error) {
         if (cancelled) {
@@ -243,6 +221,7 @@ export const useChatInputController = ({
         setThinkingValue(DEFAULT_THINKING_VALUE);
         setModelError(message);
         setThinkingError(message);
+        setFastModeError(message);
       } finally {
         if (!cancelled) {
           setIsLoadingApiConfig(false);
@@ -586,6 +565,7 @@ export const useChatInputController = ({
       // Reset the model picker to the new provider's default.
       setModels([]);
       setModelError(null);
+      setFastModeError(null);
       setSelectedModel(nextConfig.advancedModel || "");
       setThinkingValue(getThinkingValueFromConfig(nextConfig));
 
@@ -627,6 +607,10 @@ export const useChatInputController = ({
   }, [handleOpenApiProfileMenu]);
 
   const requestMethod = normalizeRequestMethod(runtimeApiConfig?.requestMethod);
+  const responsesFastModeEnabled =
+    requestMethod === "responses" &&
+    runtimeApiConfig !== null &&
+    getResponsesFastModeFromConfig(runtimeApiConfig);
   const thinkingOptions = THINKING_OPTIONS_BY_METHOD[requestMethod];
   const activeThinkingOption = useMemo(() => {
     const matchingOption = thinkingOptions.find(
@@ -678,6 +662,61 @@ export const useChatInputController = ({
     [runtimeApiConfig, t]
   );
 
+  const handleToggleResponsesFastMode = useCallback(async (): Promise<void> => {
+    if (
+      !runtimeApiConfig ||
+      requestMethod !== "responses" ||
+      isStreaming ||
+      isSubAgentConversation ||
+      isSavingFastMode
+    ) {
+      return;
+    }
+
+    const previousConfig = runtimeApiConfig;
+    const nextEnabled = !getResponsesFastModeFromConfig(previousConfig);
+    const optimisticConfig = toResponsesFastModeUpdatePayload(
+      previousConfig,
+      nextEnabled
+    );
+
+    setRuntimeApiConfig(optimisticConfig);
+    setIsSavingFastMode(true);
+    setFastModeError(null);
+
+    try {
+      const updatedConfigs = await window.snow.upsertApiConfig(optimisticConfig);
+      const nextRuntimeConfig =
+        updatedConfigs.find(
+          (config) => config.profileName === previousConfig.profileName
+        ) ?? optimisticConfig;
+      setApiConfigs(updatedConfigs);
+      setRuntimeApiConfig((currentConfig) =>
+        currentConfig?.profileName === previousConfig.profileName
+          ? nextRuntimeConfig
+          : currentConfig
+      );
+    } catch (error) {
+      setRuntimeApiConfig((currentConfig) =>
+        currentConfig?.profileName === previousConfig.profileName
+          ? previousConfig
+          : currentConfig
+      );
+      setFastModeError(
+        error instanceof Error ? error.message : t("chat.saveFastModeError")
+      );
+    } finally {
+      setIsSavingFastMode(false);
+    }
+  }, [
+    isSavingFastMode,
+    isStreaming,
+    isSubAgentConversation,
+    requestMethod,
+    runtimeApiConfig,
+    t,
+  ]);
+
   useLayoutEffect(() => {
     adjustHeight();
   }, [adjustHeight]);
@@ -709,6 +748,9 @@ export const useChatInputController = ({
     isLoadingApiConfig,
     isSavingThinking,
     thinkingError,
+    responsesFastModeEnabled,
+    isSavingFastMode,
+    fastModeError,
     labels,
     isStreaming,
     isAborting,
@@ -728,6 +770,7 @@ export const useChatInputController = ({
     handleOpenApiProfileMenu,
     handleSelectApiProfile,
     handleSelectThinking,
+    handleToggleResponsesFastMode,
     restoreContent,
   };
 };

@@ -9,20 +9,36 @@ import type {
  * askUserQuestion 以 ToolCallInfo.interactionId 贯通 renderer/preload/main/Rust。
  */
 export const useUserQuestion = (ctx: ConversationContextValue) => {
+  const {
+    directoryId,
+    notifyUserInteractionRequired,
+    pendingUserQuestionRef,
+    sessionsRefData,
+    setPendingUserQuestionConversationIds,
+    updateSessionMessages,
+    userQuestionTargetRef,
+  } = ctx;
+
+  const reconcilePendingUserQuestionConversationIds = useCallback((): void => {
+    const conversationIds = new Set<string>();
+    for (const pending of pendingUserQuestionRef.current.values()) {
+      conversationIds.add(pending.sessionKey);
+    }
+    setPendingUserQuestionConversationIds(conversationIds);
+  }, [pendingUserQuestionRef, setPendingUserQuestionConversationIds]);
+
   // 注册全局 UserQuestion handler，将问题挂到对应工具卡片
   useEffect(() => {
     const unregister = window.snow.registerUserQuestionHandler(
       (request: UserQuestionRequest): Promise<string> => {
-        const target = ctx.userQuestionTargetRef.current.get(
-          request.interactionId
-        );
+        const target = userQuestionTargetRef.current.get(request.interactionId);
         if (!target) {
           return Promise.reject(
             new Error("No active tool call matches this user question")
           );
         }
 
-        ctx.updateSessionMessages(target.sessionKey, (currentMessages) =>
+        updateSessionMessages(target.sessionKey, (currentMessages) =>
           currentMessages.map((message) => {
             if (message.id !== target.assistantMessageId) {
               return message;
@@ -50,31 +66,43 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
         );
 
         // 通知系统：用户交互工具需要用户回答时触发系统通知
-        ctx.notifyUserInteractionRequired(request.question);
+        notifyUserInteractionRequired({
+          conversationId: target.sessionKey,
+          directoryId:
+            sessionsRefData.current.get(target.sessionKey)?.directoryId ??
+            directoryId,
+          reason: request.question,
+        });
 
         return new Promise<string>((resolve, reject) => {
-          ctx.pendingUserQuestionRef.current.set(request.questionId, {
+          pendingUserQuestionRef.current.set(request.questionId, {
+            sessionKey: target.sessionKey,
             interactionId: request.interactionId,
             resolve,
             reject,
           });
+          reconcilePendingUserQuestionConversationIds();
         });
       }
     );
 
     return () => {
       unregister();
-      for (const pending of ctx.pendingUserQuestionRef.current.values()) {
+      for (const pending of pendingUserQuestionRef.current.values()) {
         pending.reject(new Error("User question handler was disposed"));
       }
-      ctx.pendingUserQuestionRef.current.clear();
-      ctx.userQuestionTargetRef.current.clear();
+      pendingUserQuestionRef.current.clear();
+      reconcilePendingUserQuestionConversationIds();
+      userQuestionTargetRef.current.clear();
     };
   }, [
-    ctx.updateSessionMessages,
-    ctx.pendingUserQuestionRef,
-    ctx.userQuestionTargetRef,
-    ctx.notifyUserInteractionRequired,
+    directoryId,
+    notifyUserInteractionRequired,
+    pendingUserQuestionRef,
+    reconcilePendingUserQuestionConversationIds,
+    sessionsRefData,
+    updateSessionMessages,
+    userQuestionTargetRef,
   ]);
 
   const settleUserQuestion = useCallback(
@@ -84,7 +112,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
       selectedOptions: string[],
       customAnswers: string[]
     ): void => {
-      const pending = ctx.pendingUserQuestionRef.current.get(questionId);
+      const pending = pendingUserQuestionRef.current.get(questionId);
       if (!pending) {
         return;
       }
@@ -105,11 +133,9 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
         return;
       }
 
-      const target = ctx.userQuestionTargetRef.current.get(
-        pending.interactionId
-      );
+      const target = userQuestionTargetRef.current.get(pending.interactionId);
       if (target) {
-        ctx.updateSessionMessages(target.sessionKey, (currentMessages) =>
+        updateSessionMessages(target.sessionKey, (currentMessages) =>
           currentMessages.map((message) => {
             if (message.id !== target.assistantMessageId) {
               return message;
@@ -138,8 +164,9 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
         );
       }
 
-      ctx.pendingUserQuestionRef.current.delete(questionId);
-      ctx.userQuestionTargetRef.current.delete(pending.interactionId);
+      pendingUserQuestionRef.current.delete(questionId);
+      reconcilePendingUserQuestionConversationIds();
+      userQuestionTargetRef.current.delete(pending.interactionId);
       pending.resolve(
         JSON.stringify({
           cancelled,
@@ -150,9 +177,10 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
       );
     },
     [
-      ctx.updateSessionMessages,
-      ctx.pendingUserQuestionRef,
-      ctx.userQuestionTargetRef,
+      pendingUserQuestionRef,
+      reconcilePendingUserQuestionConversationIds,
+      updateSessionMessages,
+      userQuestionTargetRef,
     ]
   );
 
@@ -176,20 +204,22 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
 
   const rejectPendingUserQuestions = useCallback(
     (sessionKey?: string): void => {
-      for (const [questionId, pending] of ctx.pendingUserQuestionRef.current) {
-        const target = ctx.userQuestionTargetRef.current.get(
-          pending.interactionId
-        );
-        if (sessionKey && target?.sessionKey !== sessionKey) {
+      for (const [questionId, pending] of pendingUserQuestionRef.current) {
+        if (sessionKey && pending.sessionKey !== sessionKey) {
           continue;
         }
 
         pending.reject(new Error("User question interrupted"));
-        ctx.pendingUserQuestionRef.current.delete(questionId);
-        ctx.userQuestionTargetRef.current.delete(pending.interactionId);
+        pendingUserQuestionRef.current.delete(questionId);
+        userQuestionTargetRef.current.delete(pending.interactionId);
       }
+      reconcilePendingUserQuestionConversationIds();
     },
-    [ctx.pendingUserQuestionRef, ctx.userQuestionTargetRef]
+    [
+      pendingUserQuestionRef,
+      reconcilePendingUserQuestionConversationIds,
+      userQuestionTargetRef,
+    ]
   );
 
   return {

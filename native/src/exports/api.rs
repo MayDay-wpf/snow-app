@@ -5,21 +5,18 @@ use napi_derive::napi;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::config::get_api_config_custom_headers;
-use crate::api::conversation::{
-    create_response_stream as create_conversation_response_stream,
+use crate::api::conversation::create_response_stream as create_conversation_response_stream;
+use crate::api::file_search_agent::{
+    run_file_search_agent as run_agent, FileSearchAgentProgressCallback,
 };
 use crate::api::models::{
     fetch_available_models as fetch_models_with_config, fetch_available_models_for_active_config,
     ApiConfigForModels, Model,
 };
-use crate::api::responses::{
-    ResponsesApiRequest, ResponsesApiResult, ResponsesApiStreamCallback,
-};
-use crate::api::file_search_agent::{
-    run_file_search_agent as run_agent, FileSearchAgentProgressCallback,
-};
+use crate::api::responses::{ResponsesApiRequest, ResponsesApiResult, ResponsesApiStreamCallback};
 use crate::api::summary::generate_conversation_summary as generate_summary;
 use crate::api::theme_palette::generate_theme_palette_stream;
+use crate::mcp::servers::app_control::AppControlCallback;
 use crate::mcp::servers::bash::{
     authorize_sensitive_command as authorize_command,
     write_interactive_stdin as write_interactive_stdin_impl, BashStreamCallback,
@@ -27,18 +24,15 @@ use crate::mcp::servers::bash::{
 use crate::mcp::servers::browser::BrowserCommandCallback;
 use crate::mcp::servers::remote_workspace::RemoteWorkspaceCallback;
 use crate::mcp::servers::skills::{ProjectSkillDefinition, SkillDefinition, SkillsService};
-use crate::mcp::servers::app_control::AppControlCallback;
 use crate::mcp::servers::terminal::TerminalCommandCallback;
 use crate::mcp::servers::user_interaction::UserQuestionCallback;
 use crate::mcp::tools::{
-    call_mcp_tool as call_tool,
-    list_mcp_project_server_tools as list_project_server_tools,
-    list_mcp_project_servers as list_project_servers,
-    list_mcp_server_tools as list_server_tools,
+    call_mcp_tool as call_tool, list_mcp_project_server_tools as list_project_server_tools,
+    list_mcp_project_servers as list_project_servers, list_mcp_server_tools as list_server_tools,
     list_mcp_tools as list_all_mcp_tools,
     set_mcp_project_server_enabled as set_project_server_enabled,
-    set_mcp_project_tool_enabled as set_project_tool_enabled,
-    McpProjectServerStatus, McpProjectToolStatus, McpToolDefinition,
+    set_mcp_project_tool_enabled as set_project_tool_enabled, McpProjectServerStatus,
+    McpProjectToolStatus, McpToolDefinition,
 };
 use crate::storage::initialize_app_storage;
 use crate::storage::services::fs_explorer::FileSearchResult;
@@ -57,17 +51,19 @@ pub async fn fetch_available_models() -> napi::Result<Vec<Model>> {
 }
 
 #[napi]
-pub async fn fetch_available_models_for_config(config: ApiConfigForModels) -> napi::Result<Vec<Model>> {
+pub async fn fetch_available_models_for_config(
+    config: ApiConfigForModels,
+) -> napi::Result<Vec<Model>> {
     // 使用 spawn_blocking 确保 HTTP 请求和 SQLite I/O 不阻塞 Node.js 主线程
     tokio::task::spawn_blocking(move || {
         let storage_info = initialize_app_storage()?;
         let database_path = PathBuf::from(storage_info.database_path);
         let custom_header_schemes =
-            crate::storage::services::custom_header_schemes::list_custom_header_schemes(&database_path)?;
-        let custom_headers = get_api_config_custom_headers(
-            &custom_header_schemes,
-            &config.custom_header_scheme_id,
-        );
+            crate::storage::services::custom_header_schemes::list_custom_header_schemes(
+                &database_path,
+            )?;
+        let custom_headers =
+            get_api_config_custom_headers(&custom_header_schemes, &config.custom_header_scheme_id);
 
         fetch_models_with_config(&config, &custom_headers)
     })
@@ -221,9 +217,7 @@ pub async fn set_skill_enabled(
 }
 
 #[napi]
-pub async fn list_project_skills(
-    project_id: String,
-) -> napi::Result<Vec<ProjectSkillDefinition>> {
+pub async fn list_project_skills(project_id: String) -> napi::Result<Vec<ProjectSkillDefinition>> {
     SkillsService::new().list_project(&project_id).await
 }
 
@@ -284,10 +278,7 @@ pub async fn authorize_sensitive_command(command: String, token: String) -> napi
 }
 
 #[napi]
-pub async fn write_interactive_stdin(
-    session_id: String,
-    input: String,
-) -> napi::Result<()> {
+pub async fn write_interactive_stdin(session_id: String, input: String) -> napi::Result<()> {
     write_interactive_stdin_impl(session_id, input).await
 }
 

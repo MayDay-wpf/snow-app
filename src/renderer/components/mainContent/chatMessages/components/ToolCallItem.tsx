@@ -154,6 +154,109 @@ const getArgsSummary = (args: string): string | undefined => {
   }
 };
 
+/** 解码转义存储的 `\n` / `\r\n` 为真实换行（仅当字符串不含真实换行时）。 */
+const decodeEscapedNewlines = (text: string): string => {
+  if (text.includes("\n") || !text.includes("\\n")) {
+    return text;
+  }
+  return text
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t");
+};
+
+/** 常见的长文本字段名（按优先级）。外部 MCP 结果常把正文放在这些字段里。 */
+const LONG_TEXT_KEYS = [
+  "content",
+  "text",
+  "value",
+  "markdown",
+  "result",
+  "output",
+  "html",
+  "description",
+  "summary",
+  "message",
+  "body",
+  "data",
+] as const;
+
+/** 从结果对象中提取长文本字段（含转义换行/真实换行或超过 160 字符）。 */
+const extractLongText = (data: Record<string, unknown>): string | null => {
+  for (const key of LONG_TEXT_KEYS) {
+    const value = data[key];
+    if (
+      typeof value === "string" &&
+      value.trim() !== "" &&
+      (value.includes("\\n") || value.includes("\n") || value.length > 160)
+    ) {
+      return decodeEscapedNewlines(value);
+    }
+  }
+  return null;
+};
+
+/** 通用兜底的结果渲染：JSON 美化 + 长文本字段提取，避免外部 MCP 结果一坨转义文本。 */
+const ResultSection = ({ raw }: { raw: string }): React.JSX.Element => {
+  const { t } = useI18n();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+  if (parsed === undefined) {
+    return (
+      <div className="tool-call-section">
+        <span className="tool-call-section-label">
+          {t("toolCall.common.result")}
+        </span>
+        <pre className="tool-call-section-pre">{raw}</pre>
+      </div>
+    );
+  }
+  if (typeof parsed === "string") {
+    return (
+      <div className="tool-call-section">
+        <span className="tool-call-section-label">
+          {t("toolCall.common.result")}
+        </span>
+        <pre className="tool-call-section-pre">{decodeEscapedNewlines(parsed)}</pre>
+      </div>
+    );
+  }
+  if (isRecord(parsed)) {
+    const longText = extractLongText(parsed);
+    if (longText !== null) {
+      return (
+        <div className="tool-call-section">
+          <div className="tool-call-section-head">
+            <span className="tool-call-section-label">
+              {t("toolCall.common.result")}
+            </span>
+            <span className="tool-call-config-value-badge">
+              {t("toolCall.common.charCount", {
+                values: { count: longText.length.toLocaleString() },
+              })}
+            </span>
+          </div>
+          <pre className="tool-call-section-pre tool-call-config-value-text">
+            {longText}
+          </pre>
+        </div>
+      );
+    }
+  }
+  return (
+    <div className="tool-call-section">
+      <span className="tool-call-section-label">
+        {t("toolCall.common.result")}
+      </span>
+      <pre className="tool-call-section-pre">{JSON.stringify(parsed, null, 2)}</pre>
+    </div>
+  );
+};
+
 export const ToolCallItem = memo(
   ({ toolCall, hookExecutions }: ToolCallItemProps): React.JSX.Element => {
     const { t } = useI18n();
@@ -281,12 +384,7 @@ export const ToolCallItem = memo(
               </div>
             ) : null}
             {toolCall.result ? (
-              <div className="tool-call-section">
-                <span className="tool-call-section-label">
-                  {t("toolCall.common.result")}
-                </span>
-                <pre className="tool-call-section-pre">{toolCall.result}</pre>
-              </div>
+              <ResultSection raw={toolCall.result} />
             ) : null}
           </>
         ) : null}

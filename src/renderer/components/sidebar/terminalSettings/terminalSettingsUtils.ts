@@ -28,7 +28,6 @@ export const normalizeTerminalSettings = (value: unknown): TerminalSettings => {
       source.lineHeight,
       DEFAULT_TERMINAL_SETTINGS.lineHeight
     ),
-    proxy: toText(source.proxy).trim(),
   };
 };
 
@@ -54,7 +53,6 @@ export const toTerminalForm = (
   fontSize: String(settings.fontSize),
   fontWeight: settings.fontWeight,
   lineHeight: String(settings.lineHeight),
-  proxy: settings.proxy,
 });
 
 export const toTerminalSettings = (
@@ -65,5 +63,4 @@ export const toTerminalSettings = (
   fontSize: toNumber(form.fontSize, DEFAULT_TERMINAL_SETTINGS.fontSize),
   fontWeight: form.fontWeight.trim() || DEFAULT_TERMINAL_SETTINGS.fontWeight,
   lineHeight: toNumber(form.lineHeight, DEFAULT_TERMINAL_SETTINGS.lineHeight),
-  proxy: form.proxy.trim(),
 });

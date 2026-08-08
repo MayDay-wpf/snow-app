@@ -69,6 +69,10 @@ export const createMessageId = (
 export const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "AI 响应失败，请稍后重试。";
 
+/** Treat provider terminal failures and locally persisted errors identically. */
+export const isResponseErrorStatus = (status: string): boolean =>
+  status === "error" || status === "failed";
+
 type McpImageContentBlock = {
   type: "image";
   data: string;
@@ -363,7 +367,7 @@ export const buildConversationMessages = (
             : record.content,
         thinking: record.thinking || undefined,
         timestamp: record.createdAt,
-        status: record.status === "error" ? "error" : "sent",
+        status: isResponseErrorStatus(record.status) ? "error" : "sent",
         responseId: record.responseId || undefined,
         checkpointId: record.checkpointId || undefined,
         model: record.model || undefined,

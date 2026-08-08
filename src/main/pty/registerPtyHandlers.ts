@@ -27,9 +27,9 @@ const normalizePtySessionOptions = (value: unknown): PtySessionOptions => {
 export const registerPtyHandlers = (): void => {
   ipcMain.handle(
     "pty:create",
-    (event: IpcMainInvokeEvent, options: unknown) => {
+    async (event: IpcMainInvokeEvent, options: unknown) => {
       const opts = normalizePtySessionOptions(options);
-      return createPtySession(event.sender, opts);
+      return await createPtySession(event.sender, opts);
     }
   );
 

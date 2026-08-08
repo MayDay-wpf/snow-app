@@ -8,6 +8,7 @@ import { isSshPath, parseSshUrl } from "../ssh/sshManager";
 import { getDecryptedSecret, getSshCredential } from "../ssh/sshCredentials";
 import { ensureConptyDll } from "./conptyDllHelper";
 import { buildPtyEnvironment } from "./ptyEnvironment";
+import { native } from "../native/nativeBridge";
 
 const require2 = createRequire(import.meta.url);
 
@@ -45,10 +46,9 @@ const generatePtyId = (): string =>
   `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 /**
- * Windows 默认 shell 选择：优先 PowerShell 7 (pwsh.exe) —— 其自带的
- * PSReadLine 在 ConPTY 下 Ctrl+C 行为正确（仅取消当前行/中断，不会
- * 退出 shell），与 Windows Terminal 体验一致；其次 Windows PowerShell；
- * 最后回退 COMSPEC (cmd.exe)。
+ * Windows 兜底 shell：当 native detect_terminals() 未检测到任何终端时使用
+ * （正常情况不会走到这里——detect 顺序与 Rust 侧完全一致：PowerShell Core →
+ * PowerShell → CMD → Git Bash → COMSPEC）。优先级 pwsh > powershell > cmd。
  */
 const getShell = (): string => {
   if (process.platform === "win32") {
@@ -229,10 +229,10 @@ const buildSshSpawnConfig = (cwd: string): SshSpawnConfig | null => {
   return config;
 };
 
-export const createPtySession = (
+export const createPtySession = async (
   webContents: WebContents,
   options: PtySessionOptions
-): string => {
+): Promise<string> => {
   const id = generatePtyId();
   const customShell = options.shellPath?.trim();
   const isWindows = process.platform === "win32";
@@ -247,7 +247,15 @@ export const createPtySession = (
     shell = sshConfig.shell;
     shellArgs = sshConfig.args;
     spawnCwd = undefined; // Remote path, not a local cwd
-  } else if (customShell && existsSync(customShell)) {
+  } else if (customShell) {
+    // 显式指定了 shell：含路径分隔符的路径必须真实存在，否则直接报错，
+    // 绝不静默回退到默认 shell（避免"传参成功但实际用的是别的 shell"）。
+    // 纯文件名（如 wsl.exe / bash）允许，由 spawn 时按 PATH 解析。
+    const looksLikePath =
+      customShell.includes("/") || customShell.includes("\\");
+    if (looksLikePath && !existsSync(customShell)) {
+      throw new Error(`Terminal shell not found: ${customShell}`);
+    }
     shell = customShell;
     if (isWindows && isWslShell(customShell)) {
       // WSL ignores the Windows process cwd; pass the project directory via
@@ -261,7 +269,12 @@ export const createPtySession = (
       spawnCwd = options.cwd || undefined;
     }
   } else {
-    shell = getShell();
+    // 未显式指定：与 bash 工具（Rust resolve_shell_and_args）完全同源，
+    // 使用 native detect_terminals() 的检测顺序取第一个，保证智能体命令
+    // 与集成终端使用同一个默认 shell。detect 失败时 getShell() 兜底。
+    const detected = await native.detectTerminals();
+    const detectedPath = detected[0]?.path?.trim();
+    shell = detectedPath || getShell();
     shellArgs = getShellArgs();
     spawnCwd = options.cwd || undefined;
   }

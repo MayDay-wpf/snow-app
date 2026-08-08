@@ -42,7 +42,7 @@ const workerPath = (): string => {
       new URL("./import-discovery-worker.mjs", import.meta.url)
     );
   }
-  return join(__dirname, "import-discovery-worker.js");
+  return join(import.meta.dirname, "import-discovery-worker.js");
 };
 
 const failPending = (error: Error): void => {

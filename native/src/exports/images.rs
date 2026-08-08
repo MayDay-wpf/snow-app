@@ -6,7 +6,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::storage::{ImageLibraryRecord, MigrationProgress};
+use crate::storage::{ImageAlbumRecord, ImageLibraryRecord, MigrationProgress};
 
 fn map_spawn_error(error: tokio::task::JoinError) -> Error {
     Error::new(
@@ -65,9 +65,7 @@ pub async fn delete_image_library_image(id: String) -> napi::Result<()> {
 
 /// 统计指定会话中引用的图库图片数量（删除会话确认框展示用）。
 #[napi]
-pub async fn count_conversation_images(
-    conversation_ids: Vec<String>,
-) -> napi::Result<i64> {
+pub async fn count_conversation_images(conversation_ids: Vec<String>) -> napi::Result<i64> {
     tokio::task::spawn_blocking(move || crate::storage::count_conversation_images(conversation_ids))
         .await
         .map_err(map_spawn_error)?
@@ -76,9 +74,7 @@ pub async fn count_conversation_images(
 /// 级联删除指定会话中引用的图库图片（物理文件 + 索引行）。
 /// 由删除会话流程调用（选择不保留图片时）。
 #[napi]
-pub async fn delete_conversation_images(
-    conversation_ids: Vec<String>,
-) -> napi::Result<i64> {
+pub async fn delete_conversation_images(conversation_ids: Vec<String>) -> napi::Result<i64> {
     tokio::task::spawn_blocking(move || {
         crate::storage::delete_conversation_images(conversation_ids)
     })
@@ -89,11 +85,9 @@ pub async fn delete_conversation_images(
 /// 准备图库迁移：校验目标目录并写入迁移日志；返回待迁移图片数量（0 表示无需迁移）。
 #[napi]
 pub async fn prepare_image_library_migration(target_dir: String) -> napi::Result<u32> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::prepare_image_library_migration(target_dir)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::prepare_image_library_migration(target_dir))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 /// 复制下一批图库文件并返回迁移进度（copied/total/done）。
@@ -116,6 +110,54 @@ pub async fn commit_image_library_migration() -> napi::Result<()> {
 #[napi]
 pub async fn rollback_image_library_migration() -> napi::Result<()> {
     tokio::task::spawn_blocking(crate::storage::rollback_image_library_migration)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 列出全部相册（按创建时间倒序），含封面路径（最新一张图）与图片数量。
+#[napi]
+pub async fn list_image_albums() -> napi::Result<Vec<ImageAlbumRecord>> {
+    tokio::task::spawn_blocking(crate::storage::list_image_albums)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 创建相册（名称去除首尾空白，不允许为空）。
+#[napi]
+pub async fn create_image_album(name: String) -> napi::Result<ImageAlbumRecord> {
+    tokio::task::spawn_blocking(move || crate::storage::create_image_album(name))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 重命名相册（相册不存在时返回错误）。
+#[napi]
+pub async fn rename_image_album(id: String, name: String) -> napi::Result<ImageAlbumRecord> {
+    tokio::task::spawn_blocking(move || crate::storage::rename_image_album(id, name))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 删除相册：相册内图片保留（album_id 置空，图片移入未分类）。
+#[napi]
+pub async fn delete_image_album(id: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::delete_image_album(id))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 将图片移入 / 移出相册（album_id 传 null 表示移出到未分类）。
+#[napi]
+pub async fn set_image_album(image_id: String, album_id: Option<String>) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::set_image_album(image_id, album_id))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 手动导入图片文件（复制进图库目录并写入索引），返回成功导入的记录。
+#[napi]
+pub async fn import_image_files(file_paths: Vec<String>) -> napi::Result<Vec<ImageLibraryRecord>> {
+    tokio::task::spawn_blocking(move || crate::storage::import_image_files(file_paths))
         .await
         .map_err(map_spawn_error)?
 }

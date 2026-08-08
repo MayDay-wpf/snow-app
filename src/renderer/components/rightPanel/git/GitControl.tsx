@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 import type {
+  GitCommitFile,
   GitFileStatus,
   GitRepoInfo,
   GitStatusResult,
@@ -27,16 +28,21 @@ import { BranchSelector } from "./BranchSelector";
 import { GitFileList } from "./GitFileList";
 import { GitGraph } from "./GitGraph";
 import { RepoSelector } from "./RepoSelector";
+import type { OpenDiffTabCallback } from "../types";
 
 type GitControlProps = {
   repoPath: string | undefined | null;
   repos?: GitRepoInfo[];
   onRepoSelect?: (path: string) => void;
   onFileSelect: (file: GitFileStatus | null) => void;
+  /** 提交树中点击提交内文件，请求查看该提交中该文件的差异。 */
+  onCommitFileSelect?: (file: GitCommitFile, hash: string) => void;
   onStatusChange?: (status: GitStatusResult | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   /** 在文件所在目录打开终端。 */
   onOpenTerminal?: (cwd: string) => void;
+  /** 在新标签页打开提交内文件的 Diff。 */
+  onOpenInTab?: OpenDiffTabCallback;
 };
 
 const isSelectedKey = (section: "staged" | "unstaged", path: string) =>
@@ -47,9 +53,11 @@ export const GitControl = ({
   repos,
   onRepoSelect,
   onFileSelect,
+  onCommitFileSelect,
   onStatusChange,
   onOpenFile,
   onOpenTerminal,
+  onOpenInTab,
 }: GitControlProps): React.JSX.Element => {
   const { t } = useI18n();
   const { status, isLoading, error, refresh } = useGitStatus(repoPath);
@@ -839,6 +847,8 @@ export const GitControl = ({
           repoPath={repoPath}
           refreshKey={graphRefreshKey}
           onLoaded={handleGraphLoaded}
+          onCommitFileSelect={onCommitFileSelect}
+          onOpenInTab={onOpenInTab}
         />
       )}
 

@@ -158,9 +158,9 @@ pub fn start_codebase_watch(
 
     // Already watching this project — no-op.
     {
-        let map = watchers().lock().map_err(|e| {
-            napi::Error::from_reason(format!("Lock error: {e}"))
-        })?;
+        let map = watchers()
+            .lock()
+            .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
         if map.contains_key(&project_id) {
             return Ok(());
         }
@@ -187,8 +187,8 @@ pub fn start_codebase_watch(
     }));
 
     let debounce_state_for_callback = debounce_state.clone();
-    let mut watcher = notify::recommended_watcher(
-        move |res: Result<notify::Event, notify::Error>| {
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 // Check if any affected path is a relevant file (or a
                 // non-noise directory).
@@ -210,18 +210,13 @@ pub fn start_codebase_watch(
                     guard.last_event = Some(Instant::now());
                 }
             }
-        },
-    )
-    .map_err(|e| {
-        napi::Error::from_reason(format!("Failed to create codebase watcher: {e}"))
-    })?;
+        })
+        .map_err(|e| napi::Error::from_reason(format!("Failed to create codebase watcher: {e}")))?;
 
     // Watch the entire project recursively.
     watcher
         .watch(&root, notify::RecursiveMode::Recursive)
-        .map_err(|e| {
-            napi::Error::from_reason(format!("Failed to watch {project_path}: {e}"))
-        })?;
+        .map_err(|e| napi::Error::from_reason(format!("Failed to watch {project_path}: {e}")))?;
 
     // Spawn the debounce polling thread. This thread wakes up every
     // POLL_INTERVAL_MS, checks whether the debounce window has elapsed since
@@ -252,9 +247,7 @@ pub fn start_codebase_watch(
                                 let elapsed = Instant::now().duration_since(last_event_time);
                                 if elapsed >= debounce_duration {
                                     match g.last_fire {
-                                        Some(last_fire_time) => {
-                                            last_fire_time < last_event_time
-                                        }
+                                        Some(last_fire_time) => last_fire_time < last_event_time,
                                         None => true,
                                     }
                                 } else {
@@ -298,9 +291,9 @@ pub fn start_codebase_watch(
     };
 
     {
-        let mut map = watchers().lock().map_err(|e| {
-            napi::Error::from_reason(format!("Lock error: {e}"))
-        })?;
+        let mut map = watchers()
+            .lock()
+            .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
         map.insert(project_id, handle);
     }
 
@@ -311,9 +304,9 @@ pub fn start_codebase_watch(
 #[napi]
 pub fn stop_codebase_watch(project_id: String) -> napi::Result<()> {
     let removed = {
-        let mut map = watchers().lock().map_err(|e| {
-            napi::Error::from_reason(format!("Lock error: {e}"))
-        })?;
+        let mut map = watchers()
+            .lock()
+            .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
         map.remove(&project_id)
     };
 

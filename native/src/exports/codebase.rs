@@ -12,17 +12,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::embedding::{self, EmbeddingConfig};
 use crate::storage::services::code_chunker::{chunk_content, ChunkingConfig};
-use crate::storage::services::codebase_embed_sessions::{
-    self, EmbedSessionRecord,
-};
+use crate::storage::services::codebase_embed_sessions::{self, EmbedSessionRecord};
 use crate::storage::services::codebase_index::{
-    self, delete_vectors_for_file, ensure_vector_table, get_index_stats,
-    get_indexed_file_hashes, get_indexed_file_paths, insert_vectors, list_indexed_files,
-    VectorInsert,
+    self, delete_vectors_for_file, ensure_vector_table, get_index_stats, get_indexed_file_hashes,
+    get_indexed_file_paths, insert_vectors, list_indexed_files, VectorInsert,
 };
-use crate::storage::services::codebase_watcher::{
-    self, CodebaseChangeCallback,
-};
+use crate::storage::services::codebase_watcher::{self, CodebaseChangeCallback};
 use crate::storage::services::file_scanner::{scan_project, ScannedFile};
 use crate::storage::services::system_settings::get_system_setting_value;
 use crate::storage::services::workspace_directories::get_workspace_directory_path;
@@ -192,11 +187,7 @@ fn is_paused(session_id: &str) -> bool {
 /// registry, NOT the database — so it reflects the true live state of
 /// background embeddings even after the user switches projects.
 fn is_embedding_active_for_project(project_id: &str) -> bool {
-    with_sessions(|sessions| {
-        sessions
-            .values()
-            .any(|s| s.project_id == project_id)
-    })
+    with_sessions(|sessions| sessions.values().any(|s| s.project_id == project_id))
 }
 
 /// Check whether the shared abort flag (error-triggered shutdown) is set.
@@ -256,8 +247,7 @@ struct CodebaseSettings {
 }
 
 fn load_codebase_settings(database_path: &Path) -> Result<CodebaseSettings> {
-    let raw = get_system_setting_value(database_path, "codebase_settings")?
-        .unwrap_or_default();
+    let raw = get_system_setting_value(database_path, "codebase_settings")?.unwrap_or_default();
     let settings: CodebaseSettings = serde_json::from_str(&raw).map_err(|error| {
         Error::from_reason(format!("Failed to parse codebase settings: {error}"))
     })?;
@@ -268,8 +258,13 @@ fn load_codebase_settings(database_path: &Path) -> Result<CodebaseSettings> {
 // NAPI 导出函数
 // ============================================================================
 
-type EmbedProgressCallback =
-    ThreadsafeFunction<CodebaseEmbedProgress, Unknown<'static>, CodebaseEmbedProgress, Status, false>;
+type EmbedProgressCallback = ThreadsafeFunction<
+    CodebaseEmbedProgress,
+    Unknown<'static>,
+    CodebaseEmbedProgress,
+    Status,
+    false,
+>;
 
 /// A file's scanned metadata, its chunked content, and the raw source text.
 /// Used as the unit of work for concurrent embedding — each `FileChunks` is
@@ -328,7 +323,10 @@ pub async fn start_codebase_embedding(
         let db_path = database_path.clone();
         let sid = session_id.clone();
         let pid = project_id.clone();
-        let now = chrono::Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = chrono::Utc::now()
+            .naive_utc()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
         let record = EmbedSessionRecord {
             session_id: sid,
             project_id: pid,
@@ -552,7 +550,9 @@ pub async fn start_codebase_embedding(
         .iter()
         .filter(|fc| {
             let hash = blake3::hash(fc.content.as_bytes()).to_hex().to_string();
-            indexed_file_hashes.get(&fc.file.path).map_or(false, |h| *h == hash)
+            indexed_file_hashes
+                .get(&fc.file.path)
+                .map_or(false, |h| *h == hash)
         })
         .count() as i32;
 
@@ -560,7 +560,9 @@ pub async fn start_codebase_embedding(
         .iter()
         .filter(|fc| {
             let hash = blake3::hash(fc.content.as_bytes()).to_hex().to_string();
-            indexed_file_hashes.get(&fc.file.path).map_or(false, |h| *h == hash)
+            indexed_file_hashes
+                .get(&fc.file.path)
+                .map_or(false, |h| *h == hash)
         })
         .map(|fc| fc.chunks.len() as i32)
         .sum();
@@ -669,15 +671,7 @@ pub async fn start_codebase_embedding(
             let pc = processed_chunks.lock().map(|g| *g).unwrap_or(0);
             (pf, pc)
         };
-        send_progress(
-            "error",
-            total_files,
-            pf,
-            total_chunks,
-            pc,
-            "",
-            &err_msg,
-        );
+        send_progress("error", total_files, pf, total_chunks, pc, "", &err_msg);
         unregister_session(&session_id);
         // Return Ok — the error is communicated via progress phase.
         let _ = results;
@@ -690,15 +684,7 @@ pub async fn start_codebase_embedding(
             let pc = processed_chunks.lock().map(|g| *g).unwrap_or(0);
             (pf, pc)
         };
-        send_progress(
-            "cancelled",
-            total_files,
-            pf,
-            total_chunks,
-            pc,
-            "",
-            "",
-        );
+        send_progress("cancelled", total_files, pf, total_chunks, pc, "", "");
         unregister_session(&session_id);
         let _ = results;
         return Ok(());
@@ -710,15 +696,7 @@ pub async fn start_codebase_embedding(
         let pc = processed_chunks.lock().map(|g| *g).unwrap_or(0);
         (pf, pc)
     };
-    send_progress(
-        "done",
-        total_files,
-        pf,
-        total_chunks,
-        pc,
-        "",
-        "",
-    );
+    send_progress("done", total_files, pf, total_chunks, pc, "", "");
 
     unregister_session(&session_id);
     Ok(())
@@ -820,10 +798,9 @@ async fn embed_single_file(
                 let db_path = database_path.to_path_buf();
                 let pid = project_id.to_string();
                 let vectors = std::mem::take(&mut file_vectors);
-                let _ = tokio::task::spawn_blocking(move || {
-                    insert_vectors(&db_path, &pid, &vectors)
-                })
-                .await;
+                let _ =
+                    tokio::task::spawn_blocking(move || insert_vectors(&db_path, &pid, &vectors))
+                        .await;
             }
             return FileEmbedResult::Cancelled;
         }
@@ -832,10 +809,9 @@ async fn embed_single_file(
                 let db_path = database_path.to_path_buf();
                 let pid = project_id.to_string();
                 let vectors = std::mem::take(&mut file_vectors);
-                let _ = tokio::task::spawn_blocking(move || {
-                    insert_vectors(&db_path, &pid, &vectors)
-                })
-                .await;
+                let _ =
+                    tokio::task::spawn_blocking(move || insert_vectors(&db_path, &pid, &vectors))
+                        .await;
             }
             return FileEmbedResult::Cancelled;
         }
@@ -846,10 +822,9 @@ async fn embed_single_file(
                 let db_path = database_path.to_path_buf();
                 let pid = project_id.to_string();
                 let vectors = std::mem::take(&mut file_vectors);
-                let _ = tokio::task::spawn_blocking(move || {
-                    insert_vectors(&db_path, &pid, &vectors)
-                })
-                .await;
+                let _ =
+                    tokio::task::spawn_blocking(move || insert_vectors(&db_path, &pid, &vectors))
+                        .await;
             }
             return FileEmbedResult::Cancelled;
         }
@@ -860,14 +835,7 @@ async fn embed_single_file(
         let inputs: Vec<String> = batch.iter().map(|c| c.content.clone()).collect();
 
         // Embed this batch with retry.
-        let embeddings = match embed_with_retry(
-            embedding_config,
-            &inputs,
-            session_id,
-            3,
-        )
-        .await
-        {
+        let embeddings = match embed_with_retry(embedding_config, &inputs, session_id, 3).await {
             Ok(emb) => emb,
             Err(embed_err) => {
                 // On embed failure: store whatever vectors we have collected
@@ -1297,8 +1265,7 @@ pub fn start_codebase_watch(
 /// Stop watching a project directory for codebase file changes.
 #[napi]
 pub fn stop_codebase_watch(project_id: String) -> Result<()> {
-    codebase_watcher::stop_codebase_watch(project_id)
-        .map_err(|e| Error::from_reason(e.to_string()))
+    codebase_watcher::stop_codebase_watch(project_id).map_err(|e| Error::from_reason(e.to_string()))
 }
 
 // ============================================================================
@@ -1481,10 +1448,8 @@ pub async fn sync_codebase_changes(
     };
 
     // Build the set of current file paths on disk
-    let current_file_paths: std::collections::HashSet<String> = scanned_files
-        .iter()
-        .map(|f| f.path.clone())
-        .collect();
+    let current_file_paths: std::collections::HashSet<String> =
+        scanned_files.iter().map(|f| f.path.clone()).collect();
 
     // Phase 2: Delete vectors for files that no longer exist or are no
     // longer eligible for embedding.
@@ -1509,20 +1474,11 @@ pub async fn sync_codebase_changes(
             let db_path = Arc::clone(&database_path);
             let pid = (*project_id).clone();
             let fp = file_path.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                delete_vectors_for_file(&db_path, &pid, &fp)
-            })
-            .await;
+            let _ =
+                tokio::task::spawn_blocking(move || delete_vectors_for_file(&db_path, &pid, &fp))
+                    .await;
             deleted_files += 1;
-            send_progress(
-                "deleting",
-                0,
-                0,
-                deleted_files,
-                0,
-                file_path,
-                "",
-            );
+            send_progress("deleting", 0, 0, deleted_files, 0, file_path, "");
         }
     }
 
@@ -1657,9 +1613,7 @@ pub async fn sync_codebase_changes(
                     );
                     return Ok(CodebaseSyncResult {
                         changed: deleted_files > 0,
-                        embedded_files: *processed_files
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner()),
+                        embedded_files: *processed_files.lock().unwrap_or_else(|e| e.into_inner()),
                         deleted_files,
                         skipped_files,
                         error: err_msg,
@@ -1708,9 +1662,7 @@ pub async fn sync_codebase_changes(
                     );
                     return Ok(CodebaseSyncResult {
                         changed: deleted_files > 0,
-                        embedded_files: *processed_files
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner()),
+                        embedded_files: *processed_files.lock().unwrap_or_else(|e| e.into_inner()),
                         deleted_files,
                         skipped_files,
                         error: err_msg,
@@ -1729,9 +1681,7 @@ pub async fn sync_codebase_changes(
                     );
                     return Ok(CodebaseSyncResult {
                         changed: deleted_files > 0,
-                        embedded_files: *processed_files
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner()),
+                        embedded_files: *processed_files.lock().unwrap_or_else(|e| e.into_inner()),
                         deleted_files,
                         skipped_files,
                         error: err_msg,

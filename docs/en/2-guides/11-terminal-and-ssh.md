@@ -88,4 +88,18 @@ Remote workspaces support Git just like local ones:
 
 - Terminal settings (shell path, font, etc.): Settings → Terminal
   (`app-control-openSettings page=terminal-settings`)
+  - **Unified shell**: The shell path in Terminal settings is the single
+    authority for every command execution — the AI's `bash-terminal-execute`,
+    lifecycle Hooks scripts, the Git panel (WSL scenarios) and the integrated
+    terminal in the right panel all use this shell. When left empty, the
+    system default terminal is auto-detected (Windows: PowerShell → CMD →
+    Git Bash → COMSPEC; macOS/Linux: zsh → bash → fish → sh → `$SHELL`),
+    and the AI commands and the integrated terminal resolve to the same result.
+  - **Path validation**: Saving a non-empty shell path validates file
+    existence — invalid paths are rejected. `terminal-open` also fails
+    immediately when given a non-existent shell path instead of silently
+    falling back to the default shell.
+  - The network proxy field has been removed from Terminal settings (for
+    proxy in terminal commands, configure `HTTP_PROXY`/`HTTPS_PROXY`
+    environment variables in your shell).
 - Git panel: [12-git-and-code-browsing](12-git-and-code-browsing.md)

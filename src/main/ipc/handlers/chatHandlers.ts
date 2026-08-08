@@ -97,6 +97,10 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       typeof source.subAgentToolsJson === "string"
         ? source.subAgentToolsJson
         : undefined,
+    subAgentSystemPrompt:
+      typeof source.subAgentSystemPrompt === "string"
+        ? source.subAgentSystemPrompt
+        : undefined,
     subAgentConfigProfile:
       typeof source.subAgentConfigProfile === "string"
         ? source.subAgentConfigProfile

@@ -39,7 +39,9 @@ const KNOWN_IDES: &[(&str, &str, &[&str])] = &[
 ];
 
 /// 根据小写名称匹配已知 IDE，精确匹配优先，其次按列表顺序做包含匹配。
-fn match_known_ide(lower_name: &str) -> Option<&'static (&'static str, &'static str, &'static [&'static str])> {
+fn match_known_ide(
+    lower_name: &str,
+) -> Option<&'static (&'static str, &'static str, &'static [&'static str])> {
     if let Some(matched) = KNOWN_IDES
         .iter()
         .find(|(_, _, keys)| keys.iter().any(|key| lower_name == *key))
@@ -195,29 +197,79 @@ mod windows {
                 r"%PROGRAMFILES%\Microsoft VS Code Insiders\Code - Insiders.exe",
             ],
         ),
-        ("cursor", "Cursor", &[r"%LOCALAPPDATA%\Programs\Cursor\Cursor.exe"]),
-        ("windsurf", "Windsurf", &[r"%LOCALAPPDATA%\Programs\Windsurf\Windsurf.exe"]),
+        (
+            "cursor",
+            "Cursor",
+            &[r"%LOCALAPPDATA%\Programs\Cursor\Cursor.exe"],
+        ),
+        (
+            "windsurf",
+            "Windsurf",
+            &[r"%LOCALAPPDATA%\Programs\Windsurf\Windsurf.exe"],
+        ),
         ("trae", "Trae", &[r"%LOCALAPPDATA%\Programs\Trae\Trae.exe"]),
-        ("sublime", "Sublime Text", &[r"%PROGRAMFILES%\Sublime Text\sublime_text.exe"]),
+        (
+            "sublime",
+            "Sublime Text",
+            &[r"%PROGRAMFILES%\Sublime Text\sublime_text.exe"],
+        ),
         ("zed", "Zed", &[r"%LOCALAPPDATA%\Programs\Zed\zed.exe"]),
-        ("intellij", "IntelliJ IDEA", &[
-            r"%PROGRAMFILES%\JetBrains\IntelliJ IDEA\bin\idea64.exe",
-            r"%PROGRAMFILES%\JetBrains\IntelliJ IDEA Community Edition\bin\idea64.exe",
-        ]),
-        ("webstorm", "WebStorm", &[r"%PROGRAMFILES%\JetBrains\WebStorm\bin\webstorm64.exe"]),
-        ("pycharm", "PyCharm", &[
-            r"%PROGRAMFILES%\JetBrains\PyCharm\bin\pycharm64.exe",
-            r"%PROGRAMFILES%\JetBrains\PyCharm Community Edition\bin\pycharm64.exe",
-        ]),
-        ("goland", "GoLand", &[r"%PROGRAMFILES%\JetBrains\GoLand\bin\goland64.exe"]),
-        ("clion", "CLion", &[r"%PROGRAMFILES%\JetBrains\CLion\bin\clion64.exe"]),
-        ("phpstorm", "PhpStorm", &[r"%PROGRAMFILES%\JetBrains\PhpStorm\bin\phpstorm64.exe"]),
-        ("rubymine", "RubyMine", &[r"%PROGRAMFILES%\JetBrains\RubyMine\bin\rubymine64.exe"]),
-        ("rider", "Rider", &[r"%PROGRAMFILES%\JetBrains\Rider\bin\rider64.exe"]),
-        ("datagrip", "DataGrip", &[r"%PROGRAMFILES%\JetBrains\DataGrip\bin\datagrip64.exe"]),
-        ("android-studio", "Android Studio", &[
-            r"%PROGRAMFILES%\Android\Android Studio\bin\studio64.exe",
-        ]),
+        (
+            "intellij",
+            "IntelliJ IDEA",
+            &[
+                r"%PROGRAMFILES%\JetBrains\IntelliJ IDEA\bin\idea64.exe",
+                r"%PROGRAMFILES%\JetBrains\IntelliJ IDEA Community Edition\bin\idea64.exe",
+            ],
+        ),
+        (
+            "webstorm",
+            "WebStorm",
+            &[r"%PROGRAMFILES%\JetBrains\WebStorm\bin\webstorm64.exe"],
+        ),
+        (
+            "pycharm",
+            "PyCharm",
+            &[
+                r"%PROGRAMFILES%\JetBrains\PyCharm\bin\pycharm64.exe",
+                r"%PROGRAMFILES%\JetBrains\PyCharm Community Edition\bin\pycharm64.exe",
+            ],
+        ),
+        (
+            "goland",
+            "GoLand",
+            &[r"%PROGRAMFILES%\JetBrains\GoLand\bin\goland64.exe"],
+        ),
+        (
+            "clion",
+            "CLion",
+            &[r"%PROGRAMFILES%\JetBrains\CLion\bin\clion64.exe"],
+        ),
+        (
+            "phpstorm",
+            "PhpStorm",
+            &[r"%PROGRAMFILES%\JetBrains\PhpStorm\bin\phpstorm64.exe"],
+        ),
+        (
+            "rubymine",
+            "RubyMine",
+            &[r"%PROGRAMFILES%\JetBrains\RubyMine\bin\rubymine64.exe"],
+        ),
+        (
+            "rider",
+            "Rider",
+            &[r"%PROGRAMFILES%\JetBrains\Rider\bin\rider64.exe"],
+        ),
+        (
+            "datagrip",
+            "DataGrip",
+            &[r"%PROGRAMFILES%\JetBrains\DataGrip\bin\datagrip64.exe"],
+        ),
+        (
+            "android-studio",
+            "Android Studio",
+            &[r"%PROGRAMFILES%\Android\Android Studio\bin\studio64.exe"],
+        ),
     ];
 
     /// 各 IDE 在注册表 App Paths / Uninstall 中对应的可执行文件名。
@@ -233,7 +285,11 @@ mod windows {
         ("windsurf", "Windsurf", &["Windsurf.exe", "Windsurf"]),
         ("trae", "Trae", &["Trae.exe", "Trae"]),
         ("zed", "Zed", &["zed.exe", "zed"]),
-        ("sublime", "Sublime Text", &["sublime_text.exe", "sublime_text"]),
+        (
+            "sublime",
+            "Sublime Text",
+            &["sublime_text.exe", "sublime_text"],
+        ),
         ("intellij", "IntelliJ IDEA", &["idea64.exe", "idea.exe"]),
         ("webstorm", "WebStorm", &["webstorm64.exe", "webstorm.exe"]),
         ("pycharm", "PyCharm", &["pycharm64.exe", "pycharm.exe"]),
@@ -243,7 +299,11 @@ mod windows {
         ("rubymine", "RubyMine", &["rubymine64.exe", "rubymine.exe"]),
         ("rider", "Rider", &["rider64.exe", "rider.exe"]),
         ("datagrip", "DataGrip", &["datagrip64.exe", "datagrip.exe"]),
-        ("android-studio", "Android Studio", &["studio64.exe", "studio.exe"]),
+        (
+            "android-studio",
+            "Android Studio",
+            &["studio64.exe", "studio.exe"],
+        ),
     ];
 
     /// 展开 %VAR% 形式的占位符。注意先替换带括号的变量，
@@ -390,7 +450,8 @@ mod windows {
 
         for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
             for uninstall_path in uninstall_paths {
-                let Ok(root) = RegKey::predef(hive).open_subkey_with_flags(uninstall_path, KEY_READ)
+                let Ok(root) =
+                    RegKey::predef(hive).open_subkey_with_flags(uninstall_path, KEY_READ)
                 else {
                     continue;
                 };
@@ -474,7 +535,11 @@ mod linux {
         ("rubymine", "RubyMine", &["rubymine"]),
         ("rider", "Rider", &["rider"]),
         ("datagrip", "DataGrip", &["datagrip"]),
-        ("android-studio", "Android Studio", &["android-studio", "studio"]),
+        (
+            "android-studio",
+            "Android Studio",
+            &["android-studio", "studio"],
+        ),
     ];
 
     /// JetBrains 系的启动脚本名（Linux 上为 bin/ 下的 .sh）。
@@ -501,8 +566,22 @@ mod linux {
         ),
         ("cursor", "Cursor", &["com.todesktop.230113m5300dxn61"]),
         ("sublime", "Sublime Text", &["com.sublimetext.sublime"]),
-        ("intellij", "IntelliJ IDEA", &["com.jetbrains.IntelliJ-IDEA-Community", "com.jetbrains.IntelliJ-IDEA-Ultimate"]),
-        ("pycharm", "PyCharm", &["com.jetbrains.PyCharm-Community", "com.jetbrains.PyCharm-Professional"]),
+        (
+            "intellij",
+            "IntelliJ IDEA",
+            &[
+                "com.jetbrains.IntelliJ-IDEA-Community",
+                "com.jetbrains.IntelliJ-IDEA-Ultimate",
+            ],
+        ),
+        (
+            "pycharm",
+            "PyCharm",
+            &[
+                "com.jetbrains.PyCharm-Community",
+                "com.jetbrains.PyCharm-Professional",
+            ],
+        ),
         ("webstorm", "WebStorm", &["com.jetbrains.WebStorm"]),
         ("goland", "GoLand", &["com.jetbrains.GoLand"]),
         ("clion", "CLion", &["com.jetbrains.CLion"]),
@@ -660,8 +739,9 @@ pub async fn open_in_ide(ide_id: String, project_path: String) -> napi::Result<(
             ));
         }
 
-        let executable = resolve_ide_executable(trimmed_id)
-            .ok_or_else(|| napi::Error::from_reason(format!("IDE \"{trimmed_id}\" is not installed")))?;
+        let executable = resolve_ide_executable(trimmed_id).ok_or_else(|| {
+            napi::Error::from_reason(format!("IDE \"{trimmed_id}\" is not installed"))
+        })?;
 
         let mut command = std::process::Command::new(&executable);
         command.arg(trimmed_path);
@@ -674,14 +754,9 @@ pub async fn open_in_ide(ide_id: String, project_path: String) -> napi::Result<(
             command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
         }
 
-        command
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| {
-                napi::Error::from_reason(format!(
-                    "Failed to launch {executable}: {error}"
-                ))
-            })
+        command.spawn().map(|_| ()).map_err(|error| {
+            napi::Error::from_reason(format!("Failed to launch {executable}: {error}"))
+        })
     })
     .await
     .map_err(|error| napi::Error::from_reason(format!("Failed to open IDE: {error}")))?

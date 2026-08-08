@@ -83,4 +83,15 @@ AI 的 `bash-terminal-execute` 每次执行独立命令；需要**长驻进程�
 
 - 终端设置（shell 路径、字体等）：设置 → 终端设置
   （`app-control-openSettings page=terminal-settings`）
+  - **Shell 统一生效**：终端设置中的 Shell 路径是所有命令执行的唯一
+    权威来源——AI 的 `bash-terminal-execute`、生命周期 Hooks 脚本、
+    Git 面板（WSL 场景）与右侧集成终端均使用该 Shell；留空时自动检测
+    系统默认终端（Windows：PowerShell → CMD → Git Bash → COMSPEC；
+    macOS/Linux：zsh → bash → fish → sh → `$SHELL`），AI 命令与集成
+    终端的检测结果完全一致。
+  - **路径校验**：保存非空 Shell 路径时会校验文件存在性，无效路径将被
+    拒绝保存；`terminal-open` 传入不存在的 Shell 路径也会直接报错，
+    不会静默回退到默认 Shell。
+  - 网络代理字段已从终端设置中移除（终端内命令如需代理，请在 Shell
+    环境自行配置 `HTTP_PROXY`/`HTTPS_PROXY` 等环境变量）。
 - Git 面板：[12-Git面板与代码浏览](12-Git面板与代码浏览.md)

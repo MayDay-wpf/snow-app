@@ -9,11 +9,11 @@ export const macTrafficLightPosition = { x: 18, y: 28 };
 // - 打包后由 electron-builder extraResources 复制到 process.resourcesPath
 //   （Windows: <安装目录>/resources，macOS: .app/Contents/Resources）；
 // - 开发/preview 模式下 out/main 相对项目根目录，直接使用 resources/。
-// 不能固定用 __dirname 相对路径：打包后 __dirname 位于 app.asar 内，
+// 不能固定用模块目录相对路径：打包后模块位于 app.asar 内，
 // 而图标 PNG 未打进 asar，会导致托盘/窗口图标全部加载失败。
 const RESOURCES_DIR = app.isPackaged
   ? process.resourcesPath
-  : join(__dirname, "../../resources");
+  : join(import.meta.dirname, "../../resources");
 
 export const APP_ICON_PATH = join(RESOURCES_DIR, "icon.png");
 // Windows 标题栏小图标优先使用包含多尺寸位图的 ICO；PNG 在 Chromium DevTools

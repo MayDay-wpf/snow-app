@@ -4,6 +4,7 @@ import {
   FileText,
   GitCommitHorizontal,
   GitCompare,
+  Globe,
   MessageSquare,
   MousePointer2,
   ScanSearch,
@@ -11,6 +12,7 @@ import {
 import { useI18n } from "../../../../i18n";
 import type { UserMessageSummary } from "../../../../../preload";
 import {
+  extractUrlHost,
   formatLinesStr,
   parseContentSegments,
   type ContentSegment,
@@ -85,6 +87,12 @@ const buildPlainTextSummary = (content: string): string => {
         segment.tag.note
           ? `${segment.tag.label}: ${segment.tag.note}`
           : segment.tag.label
+      );
+    } else if (segment.type === "web") {
+      parts.push(
+        segment.tag.title
+          ? `${segment.tag.title} ${segment.tag.url}`
+          : segment.tag.url
       );
     } else {
       const { tag } = segment;
@@ -233,6 +241,28 @@ const renderRailSegments = (content: string): React.ReactNode => {
             size={12}
             className="user-message-file-chip-icon"
             style={{ color: "#1a73e8" }}
+          />
+          <span className="user-message-file-chip-name">{displayName}</span>
+        </span>
+      );
+    }
+
+    if (segment.type === "web") {
+      const host = extractUrlHost(segment.tag.url);
+      const displayName = segment.tag.title
+        ? `${segment.tag.title} · ${host}`
+        : host;
+      const webTitle = `${displayName} (${segment.tag.url})`;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip web-chip"
+          title={webTitle}
+        >
+          <Globe
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "#0f766e" }}
           />
           <span className="user-message-file-chip-name">{displayName}</span>
         </span>

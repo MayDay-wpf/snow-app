@@ -114,25 +114,24 @@ fn default_keyboard_shortcuts_value() -> String {
 }
 
 pub fn get_keyboard_shortcuts_settings(database_path: &Path) -> Result<KeyboardShortcutsSettings> {
-    let raw_value =
-        match database::open_connection(database_path).and_then(|connection| {
-            connection
-                .query_row(
-                    "SELECT setting_value FROM system_settings WHERE setting_code = ?1",
-                    [KEYBOARD_SHORTCUTS_SETTING_CODE],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-        }) {
-            Ok(value) => value,
-            Err(error) => {
-                return Err(database::database_error(
-                    database_path,
-                    "read keyboard shortcuts settings",
-                    error,
-                ))
-            }
-        };
+    let raw_value = match database::open_connection(database_path).and_then(|connection| {
+        connection
+            .query_row(
+                "SELECT setting_value FROM system_settings WHERE setting_code = ?1",
+                [KEYBOARD_SHORTCUTS_SETTING_CODE],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+    }) {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(database::database_error(
+                database_path,
+                "read keyboard shortcuts settings",
+                error,
+            ))
+        }
+    };
 
     match raw_value {
         Some(value) => {

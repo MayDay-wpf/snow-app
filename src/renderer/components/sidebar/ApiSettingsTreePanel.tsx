@@ -18,7 +18,14 @@ import {
 } from "./apiSettings/apiSettingsConstants";
 import {
   emptyApiConfigForm,
+  extractGoogleSearchFromConfigJson,
+  extractResponsesFastModeFromConfigJson,
+  extractResponsesVerbosityFromConfigJson,
   extractThinkingValueFromConfigJson,
+  extractVisionGoogleSearchFromConfigJson,
+  extractVisionMaxTokensFromConfigJson,
+  extractVisionThinkingEffortFromConfigJson,
+  extractVisionThinkingEnabledFromConfigJson,
   toApiConfigPayload,
 } from "./apiSettings/apiSettingsUtils";
 import { calculateAutoCompressThresholdPercent } from "./apiSettings/autoCompressThreshold";
@@ -249,6 +256,24 @@ export function ApiSettingsTreePanel({
         config.configJson,
         config.requestMethod || DEFAULT_REQUEST_METHOD
       ),
+      responsesVerbosity: extractResponsesVerbosityFromConfigJson(
+        config.configJson
+      ),
+      responsesFastMode: extractResponsesFastModeFromConfigJson(
+        config.configJson
+      ),
+      googleSearch: extractGoogleSearchFromConfigJson(config.configJson),
+      visionGoogleSearch: extractVisionGoogleSearchFromConfigJson(
+        config.configJson
+      ),
+      visionThinkingEnabled: extractVisionThinkingEnabledFromConfigJson(
+        config.configJson
+      ),
+      visionThinkingEffort: extractVisionThinkingEffortFromConfigJson(
+        config.configJson
+      ),
+      visionMaxTokens: extractVisionMaxTokensFromConfigJson(config.configJson),
+      configJson: config.configJson,
     });
   };
 

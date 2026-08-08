@@ -2,6 +2,7 @@ import type { ResponsesApiStreamChunk } from "../../../../../preload/types/api";
 import type {
   ConversationContextValue,
   HookExecutionRecord,
+  VisionAnalysisState,
 } from "../utils/conversationTypes";
 import { formatMessageTime } from "../utils/conversationHelpers";
 import { appendHookExecutionToMessage } from "./hookOutcome";
@@ -165,6 +166,31 @@ export const createStreamChunkHandler = (
 ) => {
   return (chunk: ResponsesApiStreamChunk): void => {
     if (isCancelled()) {
+      return;
+    }
+
+    // External-vision textify progress event: update the session-level
+    // visionAnalysis field only, never touch message content. The backend
+    // pushes these chunks while it describes user images with the external
+    // vision model (before the first content delta arrives).
+    if (chunk.visionStatus) {
+      try {
+        const parsed = JSON.parse(chunk.visionStatus) as VisionAnalysisState;
+        // describing/cached → show the intermediate status card; done with
+        // remaining images → keep the card (the next describing event will
+        // advance the index); done on the last image / error → clear.
+        const keep =
+          parsed.phase === "describing" ||
+          parsed.phase === "cached" ||
+          (parsed.phase === "done" && parsed.index < parsed.total);
+        ctx.updateSessionField(
+          sessionKey,
+          "visionAnalysis",
+          keep ? parsed : undefined
+        );
+      } catch {
+        // Ignore unparseable vision status payloads.
+      }
       return;
     }
 

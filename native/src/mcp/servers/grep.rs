@@ -61,21 +61,103 @@ const SKIP_DIRS: &[&str] = &[
 /// Files with other extensions are skipped to avoid searching binaries,
 /// media, and other non-text files.
 const CODE_EXTENSIONS: &[&str] = &[
-    "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts",
-    "py", "pyw", "rb", "go", "rs", "java", "kt", "kts", "swift",
-    "c", "cpp", "cc", "cxx", "h", "hpp", "hxx", "hh", "m", "mm",
-    "cs", "vb", "fs", "fsx",
-    "css", "scss", "sass", "less", "styl",
-    "html", "htm", "xml", "svg", "vue", "svelte", "astro",
-    "json", "json5", "jsonc", "yaml", "yml", "toml", "ini",
-    "cfg", "conf", "config", "properties",
-    "md", "mdx", "mdc", "txt", "rst", "tex",
-    "sh", "bash", "zsh", "fish", "ps1", "psm1", "bat", "cmd",
-    "sql", "graphql", "gql", "prisma",
-    "dockerfile", "makefile", "cmake", "ninja",
-    "lua", "php", "r", "dart", "scala", "clj", "cljs", "ex", "exs",
-    "erl", "hs", "ml", "nim", "zig", "v", "proto", "thrift",
-    "gitignore", "dockerignore", "editorconfig", "env",
+    "ts",
+    "tsx",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+    "mts",
+    "cts",
+    "py",
+    "pyw",
+    "rb",
+    "go",
+    "rs",
+    "java",
+    "kt",
+    "kts",
+    "swift",
+    "c",
+    "cpp",
+    "cc",
+    "cxx",
+    "h",
+    "hpp",
+    "hxx",
+    "hh",
+    "m",
+    "mm",
+    "cs",
+    "vb",
+    "fs",
+    "fsx",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "styl",
+    "html",
+    "htm",
+    "xml",
+    "svg",
+    "vue",
+    "svelte",
+    "astro",
+    "json",
+    "json5",
+    "jsonc",
+    "yaml",
+    "yml",
+    "toml",
+    "ini",
+    "cfg",
+    "conf",
+    "config",
+    "properties",
+    "md",
+    "mdx",
+    "mdc",
+    "txt",
+    "rst",
+    "tex",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "ps1",
+    "psm1",
+    "bat",
+    "cmd",
+    "sql",
+    "graphql",
+    "gql",
+    "prisma",
+    "dockerfile",
+    "makefile",
+    "cmake",
+    "ninja",
+    "lua",
+    "php",
+    "r",
+    "dart",
+    "scala",
+    "clj",
+    "cljs",
+    "ex",
+    "exs",
+    "erl",
+    "hs",
+    "ml",
+    "nim",
+    "zig",
+    "v",
+    "proto",
+    "thrift",
+    "gitignore",
+    "dockerignore",
+    "editorconfig",
+    "env",
 ];
 
 impl McpService for GrepService {
@@ -169,30 +251,21 @@ impl GrepService {
     /// 本地路径的 grep 搜索执行体（不含 SSH 远程派发逻辑）。
     /// 文件搜索 agent 等内部调用方复用此入口执行本地搜索。
     pub async fn execute_search_local(&self, args: &Value) -> napi::Result<Value> {
-        let pattern = args
-            .get("pattern")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                Error::new(
-                    Status::InvalidArg,
-                    "pattern is required for tool \"grep-search\"".to_string(),
-                )
-            })?;
+        let pattern = args.get("pattern").and_then(Value::as_str).ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "pattern is required for tool \"grep-search\"".to_string(),
+            )
+        })?;
 
-        let search_path = args
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(".");
+        let search_path = args.get("path").and_then(Value::as_str).unwrap_or(".");
 
         let file_glob = args
             .get("fileGlob")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty());
 
-        let is_regex = args
-            .get("isRegex")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+        let is_regex = args.get("isRegex").and_then(Value::as_bool).unwrap_or(true);
 
         let case_sensitive = args
             .get("caseSensitive")
@@ -237,14 +310,9 @@ impl GrepService {
                 }
             }
         } else {
-            let out = run_native_search(
-                pattern,
-                search_path,
-                is_regex,
-                case_sensitive,
-                max_results,
-            )
-            .await?;
+            let out =
+                run_native_search(pattern, search_path, is_regex, case_sensitive, max_results)
+                    .await?;
             ("native", out)
         };
 
@@ -283,10 +351,12 @@ async fn is_ripgrep_available() -> bool {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    cmd.spawn().and_then(|mut child| {
-        let _ = child.start_kill();
-        Ok(())
-    }).is_ok()
+    cmd.spawn()
+        .and_then(|mut child| {
+            let _ = child.start_kill();
+            Ok(())
+        })
+        .is_ok()
 }
 
 async fn run_ripgrep(
@@ -337,37 +407,31 @@ async fn run_ripgrep(
         )
     })?;
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(SEARCH_TIMEOUT_SECS),
-        async {
-            let mut stdout = String::new();
-            if let Some(mut stdout_pipe) = child.stdout.take() {
-                stdout_pipe
-                    .read_to_string(&mut stdout)
-                    .await
-                    .map_err(|e| {
-                        Error::new(
-                            Status::GenericFailure,
-                            format!("Failed to read ripgrep stdout: {e}"),
-                        )
-                    })?;
-            }
-
-            if let Some(mut stderr_pipe) = child.stderr.take() {
-                let mut stderr_buf = Vec::new();
-                let _ = stderr_pipe.read_to_end(&mut stderr_buf).await;
-            }
-
-            let status = child.wait().await.map_err(|e| {
+    let result = tokio::time::timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), async {
+        let mut stdout = String::new();
+        if let Some(mut stdout_pipe) = child.stdout.take() {
+            stdout_pipe.read_to_string(&mut stdout).await.map_err(|e| {
                 Error::new(
                     Status::GenericFailure,
-                    format!("Failed to wait for ripgrep: {e}"),
+                    format!("Failed to read ripgrep stdout: {e}"),
                 )
             })?;
+        }
 
-            Ok::<(String, std::process::ExitStatus), Error>((stdout, status))
-        },
-    )
+        if let Some(mut stderr_pipe) = child.stderr.take() {
+            let mut stderr_buf = Vec::new();
+            let _ = stderr_pipe.read_to_end(&mut stderr_buf).await;
+        }
+
+        let status = child.wait().await.map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to wait for ripgrep: {e}"),
+            )
+        })?;
+
+        Ok::<(String, std::process::ExitStatus), Error>((stdout, status))
+    })
     .await;
 
     match result {
@@ -421,16 +485,12 @@ async fn run_native_search(
     let max_lines = max_results.min(500); // Hard cap to avoid huge output.
 
     // Run the file walk in a blocking thread to avoid blocking the tokio runtime.
-    let result = tokio::task::spawn_blocking(move || {
-        native_search_sync(&path_buf, &regex, max_lines)
-    })
-    .await
-    .map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Search task failed: {e}"),
-        )
-    })??;
+    let result =
+        tokio::task::spawn_blocking(move || native_search_sync(&path_buf, &regex, max_lines))
+            .await
+            .map_err(|e| {
+                Error::new(Status::GenericFailure, format!("Search task failed: {e}"))
+            })??;
 
     Ok(result)
 }
@@ -452,19 +512,10 @@ fn compile_search_regex(
         builder = Regex::new(&format!("(?i){}", actual_pattern));
     }
 
-    builder.map_err(|e| {
-        Error::new(
-            Status::InvalidArg,
-            format!("Invalid regex pattern: {e}"),
-        )
-    })
+    builder.map_err(|e| Error::new(Status::InvalidArg, format!("Invalid regex pattern: {e}")))
 }
 
-fn native_search_sync(
-    root: &Path,
-    regex: &Regex,
-    max_lines: usize,
-) -> napi::Result<String> {
+fn native_search_sync(root: &Path, regex: &Regex, max_lines: usize) -> napi::Result<String> {
     let mut output = String::new();
     let mut match_count = 0usize;
 
@@ -521,10 +572,21 @@ fn is_searchable_file(path: &Path) -> bool {
         let lower = name.to_lowercase();
         if matches!(
             lower.as_str(),
-            "dockerfile" | "makefile" | "rakefile" | "gemfile"
-                | "procfile" | "brewfile" | "vagrantfile" | ".gitignore"
-                | ".dockerignore" | ".editorconfig" | ".env" | ".npmrc"
-                | ".prettierrc" | ".eslintrc" | ".babelrc"
+            "dockerfile"
+                | "makefile"
+                | "rakefile"
+                | "gemfile"
+                | "procfile"
+                | "brewfile"
+                | "vagrantfile"
+                | ".gitignore"
+                | ".dockerignore"
+                | ".editorconfig"
+                | ".env"
+                | ".npmrc"
+                | ".prettierrc"
+                | ".eslintrc"
+                | ".babelrc"
         ) {
             return true;
         }
@@ -610,9 +672,8 @@ fn parse_grep_output(output: &str) -> Vec<Value> {
 static GREP_LINE_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
 
 fn parse_grep_line(line: &str) -> Option<Value> {
-    let re = GREP_LINE_RE.get_or_init(|| {
-        Regex::new(r"^(.+?):(\d+):(.*)$").expect("invalid grep line regex")
-    });
+    let re = GREP_LINE_RE
+        .get_or_init(|| Regex::new(r"^(.+?):(\d+):(.*)$").expect("invalid grep line regex"));
     let captures = re.captures(line)?;
     let file_path = captures.get(1)?.as_str();
     let line_number: u64 = captures.get(2)?.as_str().parse().ok()?;

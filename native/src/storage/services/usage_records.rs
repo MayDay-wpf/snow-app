@@ -186,17 +186,11 @@ pub fn list_usage_records(
                     |row| row.get(0),
                 )?
             } else if filter_conversation {
-                connection.query_row(
-                    &count_sql,
-                    params![conversation_id.trim()],
-                    |row| row.get(0),
-                )?
+                connection.query_row(&count_sql, params![conversation_id.trim()], |row| {
+                    row.get(0)
+                })?
             } else if filter_directory {
-                connection.query_row(
-                    &count_sql,
-                    params![directory_id.trim()],
-                    |row| row.get(0),
-                )?
+                connection.query_row(&count_sql, params![directory_id.trim()], |row| row.get(0))?
             } else {
                 connection.query_row(&count_sql, [], |row| row.get(0))?
             };
@@ -227,7 +221,12 @@ pub fn list_usage_records(
             let mut statement = connection.prepare(&list_sql)?;
             let rows = if filter_conversation && filter_directory {
                 statement.query_map(
-                    params![conversation_id.trim(), directory_id.trim(), safe_limit, safe_offset],
+                    params![
+                        conversation_id.trim(),
+                        directory_id.trim(),
+                        safe_limit,
+                        safe_offset
+                    ],
                     map_usage_row,
                 )?
             } else if filter_conversation {
@@ -253,11 +252,7 @@ pub fn list_usage_records(
 /// Aggregate usage statistics over an optional time range. `since` and
 /// `until` are RFC3339/SQLite datetime strings; empty strings skip the
 /// corresponding bound.
-pub fn get_usage_summary(
-    database_path: &Path,
-    since: &str,
-    until: &str,
-) -> Result<UsageSummary> {
+pub fn get_usage_summary(database_path: &Path, since: &str, until: &str) -> Result<UsageSummary> {
     let filter_since = !since.trim().is_empty();
     let filter_until = !until.trim().is_empty();
 
@@ -405,7 +400,9 @@ pub fn get_usage_daily_breakdown(
 
             rows.collect()
         })
-        .map_err(|error| database::database_error(database_path, "get usage daily breakdown", error))
+        .map_err(|error| {
+            database::database_error(database_path, "get usage daily breakdown", error)
+        })
 }
 
 fn map_daily_row(row: &Row<'_>) -> rusqlite::Result<DailyUsageBreakdown> {

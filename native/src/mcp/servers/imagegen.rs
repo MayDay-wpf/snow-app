@@ -17,7 +17,7 @@
 //!   3. a clear error telling the agent to configure the settings or pass the
 //!      missing argument.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use base64::Engine;
@@ -27,12 +27,19 @@ use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::super::service::McpService;
 use super::super::servers::bash::{BashStreamCallback, BashStreamChunk};
+use super::super::service::McpService;
 use super::super::tools::McpTool;
 
 const SERVER_ID: &str = "imagegen";
 const TOOL_GENERATE: &str = "generate";
+/// 视觉分析工具：读取项目中的图片（如 UI 设计稿）并用视觉模型生成描述，
+/// 供主模型理解设计后编码还原（前端页面等）。
+const TOOL_DESCRIBE: &str = "image-describe";
+const TOOL_DESCRIBE_NAME: &str = "imagegen-image-describe";
+
+/// image-describe 默认分析提示词（UI/UX 设计稿还原场景）。
+const DEFAULT_DESCRIBE_PROMPT: &str = "Describe this image as a UI/UX design reference for front-end implementation. Cover: overall layout structure (sections, columns, hierarchy), color palette (exact hex codes where discernible), typography (font styles, sizes, weights), spacing and margins, components (buttons, cards, forms, navigation, modals, lists), visual effects (shadows, gradients, border radius), icons and imagery, and any responsive/adaptive hints. Output a concise but COMPLETE structured description (use sections) that a developer can directly translate into code to recreate the page.";
 /// Image models may take several minutes for complex prompts (gpt-image 2K/4K,
 /// Gemini Nano Banana with web search). This is the DEFAULT when the settings
 /// panel value is missing; users can raise it in Settings -> Image generation.
@@ -132,6 +139,27 @@ impl ImageGenService {
         ImageGenService
     }
 
+    /// `image-describe`：读取磁盘图片（绝对路径或 upload/ 相对路径）并用
+    /// 视觉模型生成描述。用于「读取项目中的 UI 设计稿 → 理解设计 →
+    /// 编码还原前端页面」的工作流。视觉配置复用主 API 的 vision 通道。
+    pub async fn execute_describe(&self, args: &Value) -> napi::Result<Value> {
+        let path = required_string(args, "path", TOOL_DESCRIBE)?;
+        let user_prompt = args
+            .get("prompt")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or(DEFAULT_DESCRIBE_PROMPT);
+
+        let description = crate::api::vision::describe_image_file(path, user_prompt).await?;
+
+        Ok(json!({
+            "path": path,
+            "description": description,
+            "note": "Use this description to understand the design. If the task is to recreate this UI with code, analyze the description carefully (layout, colors, typography, spacing, components) and implement it with the filesystem tools. Do NOT reference the image file in the final code — embed colors/values from the description."
+        }))
+    }
+
     pub async fn execute_generate(
         &self,
         args: &Value,
@@ -225,8 +253,7 @@ impl ImageGenService {
         let images = parse_reference_images(args, &database_path)?;
         let request_images = parse_request_images(args, &database_path)?;
         // 图生图（edits / inlineData 参考图）暂不支持流式预览
-        let stream_enabled =
-            stream_enabled && images.is_empty() && request_images.is_empty();
+        let stream_enabled = stream_enabled && images.is_empty() && request_images.is_empty();
 
         // --- 7.5 Model capability guards (avoid provider 400 errors) ---
         // dall-e-3 仅支持文生图（OpenAI /images/edits 端点不接受 dall-e-3）
@@ -269,16 +296,13 @@ impl ImageGenService {
                     if list.is_empty() {
                         return Err(Error::new(
                             Status::InvalidArg,
-                            "`prompts` must be a non-empty array of non-empty strings"
-                                .to_string(),
+                            "`prompts` must be a non-empty array of non-empty strings".to_string(),
                         ));
                     }
                     if list.len() > MAX_PARALLEL_IMAGES {
                         return Err(Error::new(
                             Status::InvalidArg,
-                            format!(
-                                "`prompts` supports at most {MAX_PARALLEL_IMAGES} entries"
-                            ),
+                            format!("`prompts` supports at most {MAX_PARALLEL_IMAGES} entries"),
                         ));
                     }
                     Some(list)
@@ -347,20 +371,46 @@ impl ImageGenService {
         match provider {
             "gemini" => {
                 self.generate_gemini(
-                    args, channel_config, per_request_prompts.as_slice(), &model, &size,
-                    &quality, &base_url, api_key, requests, stream_enabled, on_chunk,
-                    per_request_images.as_slice(), seed, thinking_level.as_deref(),
-                    image_search, &channel_label, timeout_secs,
+                    args,
+                    channel_config,
+                    per_request_prompts.as_slice(),
+                    &model,
+                    &size,
+                    &quality,
+                    &base_url,
+                    api_key,
+                    requests,
+                    stream_enabled,
+                    on_chunk,
+                    per_request_images.as_slice(),
+                    seed,
+                    thinking_level.as_deref(),
+                    image_search,
+                    &channel_label,
+                    timeout_secs,
                 )
                 .await
             }
             _ => {
                 self.generate_openai(
-                    args, per_request_prompts.as_slice(), &model, &size, &quality,
-                    &output_format, &base_url, api_key, requests, stream_enabled,
-                    on_chunk, per_request_images.as_slice(), seed,
-                    input_fidelity.as_deref(), background.as_deref(),
-                    moderation.as_deref(), &channel_label, timeout_secs,
+                    args,
+                    per_request_prompts.as_slice(),
+                    &model,
+                    &size,
+                    &quality,
+                    &output_format,
+                    &base_url,
+                    api_key,
+                    requests,
+                    stream_enabled,
+                    on_chunk,
+                    per_request_images.as_slice(),
+                    seed,
+                    input_fidelity.as_deref(),
+                    background.as_deref(),
+                    moderation.as_deref(),
+                    &channel_label,
+                    timeout_secs,
                 )
                 .await
             }
@@ -416,8 +466,7 @@ impl ImageGenService {
                     let prompt = prompts[request_index];
                     let request_images: &[ReferenceImage] = images[request_index];
                     // 用户显式指定 seed 且并发多张时逐张递增，避免生成完全相同的图
-                    let request_seed =
-                        seed.map(|value| value.wrapping_add(request_index as u64));
+                    let request_seed = seed.map(|value| value.wrapping_add(request_index as u64));
 
                     // --- Image-to-image: POST /images/edits (multipart) ---
                     if !request_images.is_empty() {
@@ -456,14 +505,14 @@ impl ImageGenService {
                                 if let Some(value) =
                                     args.get("outputCompression").and_then(Value::as_u64)
                                 {
-                                    form = form
-                                        .text("output_compression", value.clamp(0, 100).to_string());
+                                    form = form.text(
+                                        "output_compression",
+                                        value.clamp(0, 100).to_string(),
+                                    );
                                 }
                                 if let Some(value) = input_fidelity {
                                     // gpt-image-2 不允许设置 input_fidelity（自动高保真）
-                                    if !is_gpt_image_2
-                                        && matches!(value, "low" | "high" | "auto")
-                                    {
+                                    if !is_gpt_image_2 && matches!(value, "low" | "high" | "auto") {
                                         form = form.text("input_fidelity", value.to_string());
                                     }
                                 }
@@ -491,18 +540,14 @@ impl ImageGenService {
                                 .send()
                                 .await
                                 .map_err(|error| {
-                                    generic_error(format!(
-                                        "Image edit request failed: {error}"
-                                    ))
+                                    generic_error(format!("Image edit request failed: {error}"))
                                 })?;
                             let status = response.status();
                             if status.is_success() {
                                 break response;
                             }
-                            let response_body: Value = response
-                                .json()
-                                .await
-                                .unwrap_or_else(|_| json!({}));
+                            let response_body: Value =
+                                response.json().await.unwrap_or_else(|_| json!({}));
                             if attempt == 0
                                 && current_background.is_some()
                                 && is_transparent_unsupported_error(&response_body)
@@ -518,16 +563,10 @@ impl ImageGenService {
                             ));
                         };
 
-                        let response_body: Value = response
-                            .json()
-                            .await
-                            .map_err(|error| {
-                                generic_error(format!(
-                                    "Failed to parse image edit response: {error}"
-                                ))
-                            })?;
-                        let Some(data) = response_body.get("data").and_then(Value::as_array)
-                        else {
+                        let response_body: Value = response.json().await.map_err(|error| {
+                            generic_error(format!("Failed to parse image edit response: {error}"))
+                        })?;
+                        let Some(data) = response_body.get("data").and_then(Value::as_array) else {
                             return Err(generic_error(
                                 "Image edit response is missing the data array".to_string(),
                             ));
@@ -608,18 +647,14 @@ impl ImageGenService {
                             .send()
                             .await
                             .map_err(|error| {
-                                generic_error(format!(
-                                    "Image generation request failed: {error}"
-                                ))
+                                generic_error(format!("Image generation request failed: {error}"))
                             })?;
                         let status = response.status();
                         if status.is_success() {
                             break response;
                         }
-                        let response_body: Value = response
-                            .json()
-                            .await
-                            .unwrap_or_else(|_| json!({}));
+                        let response_body: Value =
+                            response.json().await.unwrap_or_else(|_| json!({}));
                         if attempt == 0
                             && body.get("background").is_some()
                             && is_transparent_unsupported_error(&response_body)
@@ -661,8 +696,7 @@ impl ImageGenService {
                                 .collect()
                         } else {
                             return Err(generic_error(
-                                "Image generation stream ended without any image data"
-                                    .to_string(),
+                                "Image generation stream ended without any image data".to_string(),
                             ));
                         };
                         return collect_openai_result(
@@ -676,14 +710,11 @@ impl ImageGenService {
                     }
 
                     // --- Non-streaming path ---
-                    let response_body: Value = response
-                        .json()
-                        .await
-                        .map_err(|error| {
-                            generic_error(format!(
-                                "Failed to parse image generation response: {error}"
-                            ))
-                        })?;
+                    let response_body: Value = response.json().await.map_err(|error| {
+                        generic_error(format!(
+                            "Failed to parse image generation response: {error}"
+                        ))
+                    })?;
 
                     let Some(data) = response_body.get("data").and_then(Value::as_array) else {
                         return Err(generic_error(
@@ -736,9 +767,7 @@ impl ImageGenService {
     ) -> napi::Result<Value> {
         let is_nano_banana_2 = matches!(
             model,
-            "gemini-3.1-flash-image"
-                | "gemini-3-pro-image"
-                | "gemini-3.1-flash-lite-image"
+            "gemini-3.1-flash-image" | "gemini-3-pro-image" | "gemini-3.1-flash-lite-image"
         );
 
         // --- Shared: web search grounding (tools) ---
@@ -751,8 +780,7 @@ impl ImageGenService {
             let mut search_tool = json!({ "type": "google_search" });
             if image_search {
                 // 图片搜索（3.1 Flash Image 专属）：web + image 双通道
-                search_tool["search_types"] =
-                    json!(["web_search", "image_search"]);
+                search_tool["search_types"] = json!(["web_search", "image_search"]);
             }
             tools.push(search_tool);
         }
@@ -787,9 +815,7 @@ impl ImageGenService {
                 interactions_response_format["image_size"] = json!(trimmed);
             } else if trimmed.contains(':')
                 && trimmed.split(':').count() == 2
-                && trimmed
-                    .split(':')
-                    .all(|part| part.parse::<u32>().is_ok())
+                && trimmed.split(':').all(|part| part.parse::<u32>().is_ok())
             {
                 interactions_response_format["aspect_ratio"] = json!(trimmed);
             }
@@ -811,7 +837,10 @@ impl ImageGenService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            if matches!(person_generation, "dont_allow" | "allow_all" | "allow_adult") {
+            if matches!(
+                person_generation,
+                "dont_allow" | "allow_all" | "allow_adult"
+            ) {
                 interactions_generation_config["personGeneration"] = json!(person_generation);
             }
         }
@@ -856,7 +885,10 @@ impl ImageGenService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            if matches!(person_generation, "dont_allow" | "allow_all" | "allow_adult") {
+            if matches!(
+                person_generation,
+                "dont_allow" | "allow_all" | "allow_adult"
+            ) {
                 legacy_generation_config["personGeneration"] = json!(person_generation);
             }
         }
@@ -876,8 +908,7 @@ impl ImageGenService {
                     let prompt = prompts[request_index];
                     let request_images: &[ReferenceImage] = images[request_index];
                     // 用户显式指定 seed 且并发多张时逐张递增，避免生成完全相同的图
-                    let request_seed =
-                        seed.map(|value| value.wrapping_add(request_index as u64));
+                    let request_seed = seed.map(|value| value.wrapping_add(request_index as u64));
 
                     // --- Nano Banana 2+: Interactions API ---
                     if is_nano_banana_2 {
@@ -916,16 +947,12 @@ impl ImageGenService {
                             .send()
                             .await
                             .map_err(|error| {
-                                generic_error(format!(
-                                    "Image generation request failed: {error}"
-                                ))
+                                generic_error(format!("Image generation request failed: {error}"))
                             })?;
                         let status = response.status();
                         if !status.is_success() {
-                            let response_body: Value = response
-                                .json()
-                                .await
-                                .unwrap_or_else(|_| json!({}));
+                            let response_body: Value =
+                                response.json().await.unwrap_or_else(|_| json!({}));
                             return Err(api_error(
                                 "Image generation failed",
                                 status.as_u16(),
@@ -933,14 +960,11 @@ impl ImageGenService {
                             ));
                         }
 
-                        let response_body: Value = response
-                            .json()
-                            .await
-                            .map_err(|error| {
-                                generic_error(format!(
-                                    "Failed to parse image generation response: {error}"
-                                ))
-                            })?;
+                        let response_body: Value = response.json().await.map_err(|error| {
+                            generic_error(format!(
+                                "Failed to parse image generation response: {error}"
+                            ))
+                        })?;
 
                         // Parse steps[].content blocks where type == "image"
                         // (only model_output steps; thought steps are hidden drafts).
@@ -986,16 +1010,12 @@ impl ImageGenService {
                         .send()
                         .await
                         .map_err(|error| {
-                            generic_error(format!(
-                                "Image generation request failed: {error}"
-                            ))
+                            generic_error(format!("Image generation request failed: {error}"))
                         })?;
                     let status = response.status();
                     if !status.is_success() {
-                        let response_body: Value = response
-                            .json()
-                            .await
-                            .unwrap_or_else(|_| json!({}));
+                        let response_body: Value =
+                            response.json().await.unwrap_or_else(|_| json!({}));
                         return Err(api_error(
                             "Image generation failed",
                             status.as_u16(),
@@ -1010,14 +1030,11 @@ impl ImageGenService {
                     }
 
                     // --- Non-streaming path ---
-                    let response_body: Value = response
-                        .json()
-                        .await
-                        .map_err(|error| {
-                            generic_error(format!(
-                                "Failed to parse image generation response: {error}"
-                            ))
-                        })?;
+                    let response_body: Value = response.json().await.map_err(|error| {
+                        generic_error(format!(
+                            "Failed to parse image generation response: {error}"
+                        ))
+                    })?;
 
                     let images = parse_gemini_candidates(&response_body);
                     collect_gemini_result(prompt, model, channel_label, images)
@@ -1050,12 +1067,12 @@ impl McpService for ImageGenService {
                     },
                     "images": {
                         "type": "array",
-                        "description": "Reference images for image-to-image editing: [{ \\\"data\\\": \\\"<base64>\\\", \\\"mimeType\\\": \\\"image/png\\\" }] or [{ \\\"path\\\": \\\"upload/2026-07-25/x.png\\\", \\\"mimeType\\\": \\\"image/png\\\" }]. For `data`, extract base64 from the user's attached images in the conversation (the @@image:data:...@@ tags / multimodal image blocks). For `path`, copy the exact JSON object from a [Reference image #N for imagegen-generate: ...] block in a textified user message (text-only main model): the server resolves it relative to the conversation's upload/ directory and reads the file itself, so do NOT paste raw base64 into the context. Max 5 images, ~20MB each. When provided: OpenAI -> /images/edits endpoint; Gemini -> inlineData parts (prompt-based editing). When `requestImages` is provided, this `images` group is IGNORED (each request uses its own group).",
+                        "description": "Reference images for image-to-image editing: [{ \\\"data\\\": \\\"<base64>\\\", \\\"mimeType\\\": \\\"image/png\\\" }] or [{ \\\"path\\\": \\\"upload/2026-07-25/x.png\\\", \\\"mimeType\\\": \\\"image/png\\\" }]. For `data`, extract base64 from the user's attached images in the conversation (the @@image:data:...@@ tags / multimodal image blocks). For `path`, copy the exact JSON object from a [Reference image #N for imagegen-generate: ...] block in a textified user message (text-only main model), or use the file's absolute disk path (e.g. C:/Users/xx/photo.png): relative paths are resolved against the conversation's upload/ directory; the server reads the file itself, so do NOT paste raw base64 into the context. Max 5 images, ~20MB each. When provided: OpenAI -> /images/edits endpoint; Gemini -> inlineData parts (prompt-based editing). When `requestImages` is provided, this `images` group is IGNORED (each request uses its own group).",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "data": { "type": "string", "description": "Base64-encoded image data (without the data: prefix)" },
-                                "path": { "type": "string", "description": "Relative file path under the conversation's upload/ directory, e.g. upload/2026-07-25/hash.png (from [Reference image #N for imagegen-generate: ...] blocks)" },
+                                "path": { "type": "string", "description": "Absolute disk path (e.g. C:/path/to/photo.png) or a path relative to the conversation's upload/ directory (e.g. upload/2026-07-25/hash.png, from [Reference image #N for imagegen-generate: ...] blocks)" },
                                 "mimeType": { "type": "string", "description": "Image MIME type, e.g. image/png, image/jpeg, image/webp" }
                             },
                             "required": ["data", "mimeType"]
@@ -1077,7 +1094,7 @@ impl McpService for ImageGenService {
                                 "type": "object",
                                 "properties": {
                                     "data": { "type": "string", "description": "Base64-encoded image data (without the data: prefix)" },
-                                    "path": { "type": "string", "description": "Relative file path under the conversation's upload/ directory, e.g. upload/2026-07-25/hash.png (from [Reference image #N for imagegen-generate: ...] blocks)" },
+                                    "path": { "type": "string", "description": "Absolute disk path (e.g. C:/path/to/photo.png) or a path relative to the conversation's upload/ directory (e.g. upload/2026-07-25/hash.png, from [Reference image #N for imagegen-generate: ...] blocks)" },
                                     "mimeType": { "type": "string", "description": "Image MIME type, e.g. image/png, image/jpeg, image/webp" }
                                 },
                                 "required": ["data", "mimeType"]
@@ -1167,6 +1184,25 @@ impl McpService for ImageGenService {
                 },
                 "required": ["prompt"]
             }),
+        }, McpTool {
+            server_id: SERVER_ID.to_string(),
+            name: TOOL_DESCRIBE_NAME.to_string(),
+            description: "Analyze an image file on disk with the vision model (uses the vision channel of the main API config) and return a structured description. USE THIS when the user asks you to read/understand a design image from the project (e.g. UI mockups, design screenshots, Figma exports) and implement or recreate it as code — for example 'look at the design in design/home.png and build this page'. The `path` accepts an absolute disk path (e.g. C:/Users/xx/project/design/home.png or /home/user/project/design/home.png) or a path relative to the conversation's upload/ directory (upload/2026-07-25/hash.png). Max 20MB, image formats only. Combine with filesystem tools: list/search the project for design files first, then describe each relevant image, then write the implementation code. The description focuses on UI/UX details (layout, colors with hex codes, typography, spacing, components, effects) so it can be translated directly into front-end code."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path of the image to analyze: absolute disk path (e.g. C:/Users/xx/project/design/home.png) or upload/ relative path."
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Optional custom analysis focus (e.g. \\\"focus on the color palette and spacing\\\"). Defaults to a UI/UX design description prompt."
+                    }
+                },
+                "required": ["path"]
+            }),
         }]
     }
 
@@ -1176,8 +1212,12 @@ impl McpService for ImageGenService {
                 "The ImageGen tool must be executed through the asynchronous executor"
                     .to_string(),
             )),
+            TOOL_DESCRIBE => Err(generic_error(
+                "The image-describe tool must be executed through the asynchronous executor"
+                    .to_string(),
+            )),
             _ => Err(generic_error(format!(
-                "Unknown tool: \"{tool_name}\" for MCP server \"{SERVER_ID}\". Available tools: [imagegen-generate]"
+                "Unknown tool: \"{tool_name}\" for MCP server \"{SERVER_ID}\". Available tools: [imagegen-generate, imagegen-image-describe]"
             ))),
         }
     }
@@ -1192,10 +1232,12 @@ struct ReferenceImage {
 /// 解析 `images` 参数。每个元素支持两种引用方式：
 /// - `{ "data": "<base64>", "mimeType": "image/png" }` —— 内联 base64
 ///   （兼容 `data:image/png;base64,...` data URL 前缀，自动剥离）；
-/// - `{ "path": "upload/2026-07-25/hash.png", "mimeType": "image/png" }`
-///   —— 相对数据库文件所在目录的磁盘路径（来自纯文本主模型消息中的
-///   `[Reference image #N for imagegen-generate: ...]` 引用块），由服务端
-///   读取文件并转 base64，避免把大段 base64 塞进对话上下文。
+/// - `{ "path": "C:/Users/xx/photo.png", "mimeType": "image/png" }`
+///   —— 绝对磁盘路径（用户本地任意目录的图片），或
+///   `upload/2026-07-25/hash.png` 这种相对数据库文件所在目录的路径（来自
+///   纯文本主模型消息中的 `[Reference image #N for imagegen-generate: ...]`
+///   引用块），由服务端读取文件并转 base64，避免把大段 base64 塞进对话
+///   上下文。
 /// 最多 14 张（Gemini 3 Pro Image 官方上限），单张 base64 上限约 20MB。
 /// 解析参考图数组（`images` 或 `requestImages` 的单个分组）。
 fn parse_reference_image_items(
@@ -1211,7 +1253,10 @@ fn parse_reference_image_items(
     if items.len() > MAX_IMAGES {
         return Err(Error::new(
             Status::InvalidArg,
-            format!("Too many reference images: {} (max {MAX_IMAGES})", items.len()),
+            format!(
+                "Too many reference images: {} (max {MAX_IMAGES})",
+                items.len()
+            ),
         ));
     }
 
@@ -1227,7 +1272,8 @@ fn parse_reference_image_items(
         let Some(data) = item.get("data").and_then(Value::as_str) else {
             return Err(Error::new(
                 Status::InvalidArg,
-                "Each reference image must have a base64 `data` string or a `path` string".to_string(),
+                "Each reference image must have a base64 `data` string or a `path` string"
+                    .to_string(),
             ));
         };
         let data = data.trim().to_string();
@@ -1273,10 +1319,7 @@ fn parse_reference_image_items(
 }
 
 /// 解析顶层 `images` 参数（所有请求共用的参考图）。
-fn parse_reference_images(
-    args: &Value,
-    database_path: &Path,
-) -> napi::Result<Vec<ReferenceImage>> {
+fn parse_reference_images(args: &Value, database_path: &Path) -> napi::Result<Vec<ReferenceImage>> {
     let Some(items) = args.get("images").and_then(Value::as_array) else {
         return Ok(Vec::new());
     };
@@ -1333,10 +1376,13 @@ fn parse_request_images(
     Ok(result)
 }
 
-/// 按磁盘相对路径读取参考图（`{ "path": ... }` 引用块形式）。
+/// 按磁盘路径读取参考图（`{ "path": ... }` 引用块形式）。
 ///
-/// 仅允许 `upload/` 目录内的相对路径（相对数据库文件所在目录），拒绝绝对
-/// 路径与路径穿越（`..`），防止模型利用该参数读取 upload 目录以外的文件。
+/// 支持两种形式：
+/// - 绝对磁盘路径（如 `C:/Users/xx/photo.png`、`/home/xx/photo.png`）：
+///   直接读取，用于从任意目录引用用户本地图片；
+/// - `upload/` 目录内的相对路径（相对数据库文件所在目录）：读取会话上传
+///   目录下的文件；拒绝路径穿越（`..`），防止相对路径逃逸出 upload 目录。
 fn load_reference_image_from_path(
     path: &str,
     item: &Value,
@@ -1351,19 +1397,24 @@ fn load_reference_image_from_path(
             "Reference image `path` must not be empty".to_string(),
         ));
     }
-    if !normalized.starts_with("upload/") || normalized.contains("..") {
-        return Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Invalid reference image path: \"{path}\". Only relative paths under the conversation's upload/ directory are allowed (e.g. upload/2026-07-25/hash.png)."
-            ),
-        ));
-    }
-
-    let file_path = database_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(&normalized);
+    let file_path = if Path::new(&normalized).is_absolute() {
+        // 绝对磁盘路径：用户本地任意目录的图片，直接读取
+        PathBuf::from(&normalized)
+    } else {
+        // 相对路径：仅允许 upload/ 目录内，拒绝路径穿越（..）
+        if !normalized.starts_with("upload/") || normalized.contains("..") {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Invalid reference image path: \"{path}\". Use an absolute file path (e.g. C:/path/to/image.png) or a relative path under the conversation's upload/ directory (e.g. upload/2026-07-25/hash.png)."
+                ),
+            ));
+        }
+        database_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&normalized)
+    };
     let bytes = std::fs::read(&file_path).map_err(|_| {
         Error::new(
             Status::InvalidArg,
@@ -1399,7 +1450,13 @@ fn load_reference_image_from_path(
 
 /// 按文件扩展名推断图片 MIME 类型（与 `images.rs` 的推断保持一致）。
 fn mime_for_path(path: &str) -> String {
-    match path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
+    match path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "png" => "image/png".to_string(),
         "jpg" | "jpeg" => "image/jpeg".to_string(),
         "gif" => "image/gif".to_string(),
@@ -1412,9 +1469,12 @@ fn mime_for_path(path: &str) -> String {
 
 fn decode_base64(data: &str) -> napi::Result<Vec<u8>> {
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
-    BASE64_STANDARD
-        .decode(data)
-        .map_err(|error| Error::new(Status::InvalidArg, format!("Invalid base64 image data: {error}")))
+    BASE64_STANDARD.decode(data).map_err(|error| {
+        Error::new(
+            Status::InvalidArg,
+            format!("Invalid base64 image data: {error}"),
+        )
+    })
 }
 
 fn ext_for_mime(mime_type: &str) -> String {
@@ -1459,8 +1519,7 @@ async fn read_openai_sse(
     let mut line_count = 0usize;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk
-            .map_err(|error| generic_error(format!("Stream read failed: {error}")))?;
+        let chunk = chunk.map_err(|error| generic_error(format!("Stream read failed: {error}")))?;
         buffer.extend_from_slice(&chunk);
 
         loop {
@@ -1581,16 +1640,20 @@ async fn collect_openai_result(
         ));
     }
 
-    Ok(build_result(prompt, model, channel_label, generated, content, remote_urls))
+    Ok(build_result(
+        prompt,
+        model,
+        channel_label,
+        generated,
+        content,
+        remote_urls,
+    ))
 }
 
 /// 下载远程图片（预签名 URL 等）为二进制。仅允许 http(s)，校验响应
 /// Content-Type 必须为 image/*（缺失时按 URL 后缀推断），限制大小与超时；
 /// 任何失败返回 None（由调用方回退为文本链接展示，不阻断生成结果返回）。
-async fn download_remote_image(
-    client: &reqwest::Client,
-    url: &str,
-) -> Option<(Vec<u8>, String)> {
+async fn download_remote_image(client: &reqwest::Client, url: &str) -> Option<(Vec<u8>, String)> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return None;
     }
@@ -1724,8 +1787,7 @@ async fn read_gemini_stream(
     let mut partial_index = 0usize;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk
-            .map_err(|error| generic_error(format!("Stream read failed: {error}")))?;
+        let chunk = chunk.map_err(|error| generic_error(format!("Stream read failed: {error}")))?;
         buffer.extend_from_slice(&chunk);
 
         loop {
@@ -1863,14 +1925,8 @@ fn load_imagegen_settings() -> napi::Result<ImageGenSettings> {
             }
 
             // 更旧单渠道格式（顶层字段）→ 迁移为一个渠道
-            let old_provider = parsed
-                .get("provider")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let old_base_url = parsed
-                .get("baseUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let old_provider = parsed.get("provider").and_then(Value::as_str).unwrap_or("");
+            let old_base_url = parsed.get("baseUrl").and_then(Value::as_str).unwrap_or("");
             let is_gemini = old_provider == "gemini"
                 || old_base_url.contains("generativelanguage")
                 || old_base_url.contains("googleapis.com");
@@ -2065,9 +2121,7 @@ fn api_error(prefix: &str, status: u16, response_body: &Value) -> Error {
 /// 常见 400 错误的修复提示（命中关键词时给出具体建议）。
 fn hint_for_api_400(message: &str) -> Option<&'static str> {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("number of images")
-        || (lower.contains("n must be") && lower.contains("1"))
-    {
+    if lower.contains("number of images") || (lower.contains("n must be") && lower.contains("1")) {
         return Some(
             "Possible cause: this model does not support generating multiple images per request (n>1). Retry with n=1.",
         );
@@ -2081,14 +2135,12 @@ fn hint_for_api_400(message: &str) -> Option<&'static str> {
             "Possible cause: this model does not support image inputs (image-to-image). Retry without reference images, or use gpt-image-1/gpt-image-2 / a Gemini Nano Banana model for editing.",
         );
     }
-    if lower.contains("size") && (lower.contains("invalid") || lower.contains("not supported"))
-    {
+    if lower.contains("size") && (lower.contains("invalid") || lower.contains("not supported")) {
         return Some(
             "Possible cause: the requested size / aspect ratio is not supported by this model. Retry with a supported size (e.g. 1024x1024 for OpenAI, 1K/2K/4K or a 12-ratio preset for Gemini).",
         );
     }
-    if lower.contains("quality") && (lower.contains("invalid") || lower.contains("not supported"))
-    {
+    if lower.contains("quality") && (lower.contains("invalid") || lower.contains("not supported")) {
         return Some(
             "Possible cause: the requested quality value is not supported by this model. Retry with quality=\"auto\" or omit quality.",
         );
@@ -2158,10 +2210,7 @@ fn merge_parallel_results(
                         }
                     }
                 }
-                generated += value
-                    .get("imageCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
+                generated += value.get("imageCount").and_then(Value::as_u64).unwrap_or(0) as usize;
             }
             Err(error) => failures.push(error.to_string()),
         }

@@ -38,11 +38,9 @@ const MAX_FILE_SIZE: u64 = 512 * 1024;
 /// All file extensions CodeLens can handle (oxc + tree-sitter combined).
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     // oxc (JS/TS family)
-    "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts",
-    // tree-sitter languages
-    "py", "pyw", "pyi", "rs", "go", "c", "h", "java", "cs", "rb",
-    "php", "phtml", "css", "scss", "sass", "less", "html", "htm",
-    "json", "json5", "jsonc", "yaml", "yml", "sh", "bash", "zsh",
+    "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", // tree-sitter languages
+    "py", "pyw", "pyi", "rs", "go", "c", "h", "java", "cs", "rb", "php", "phtml", "css", "scss",
+    "sass", "less", "html", "htm", "json", "json5", "jsonc", "yaml", "yml", "sh", "bash", "zsh",
     "fish", "ps1", "psm1", "bat", "cmd", "lua",
 ];
 
@@ -503,7 +501,10 @@ fn read_source_file(file_path: &str) -> napi::Result<(String, String)> {
     };
 
     if !is_supported {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("(none)");
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("(none)");
         return Err(Error::new(
             Status::InvalidArg,
             format!(
@@ -512,12 +513,8 @@ fn read_source_file(file_path: &str) -> napi::Result<(String, String)> {
         ));
     }
 
-    let source_text = std::fs::read_to_string(path).map_err(|e| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to read file: {e}"),
-        )
-    })?;
+    let source_text = std::fs::read_to_string(path)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to read file: {e}")))?;
 
     // Return the canonical path if possible, otherwise the original
     let canonical = std::fs::canonicalize(path)

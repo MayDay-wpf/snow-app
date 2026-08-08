@@ -13,6 +13,7 @@ import {
   formatMessageTime,
   formatToolResultsContent,
   getErrorMessage,
+  isResponseErrorStatus,
   parseToolCalls,
 } from "../utils/conversationHelpers";
 import {
@@ -212,7 +213,8 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       const executeSubAgentActivation = createSubAgentActivation({
         ctx,
         requestToolAuthorizations,
-        model: options.model,
+        parentApiProfile: options.apiProfile,
+        parentModel: options.model,
         planApprovedSessionKeysRef,
       });
 
@@ -294,6 +296,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         }
 
         const response = await streamPromise;
+        const responseFailed = isResponseErrorStatus(response.status);
 
         const ref = ctx.sessionsRefData.current.get(effectiveKey);
         if (ref) {
@@ -413,7 +416,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             // subsequent AI iterations must NOT refresh the list to avoid
             // excessive re-sorting. Follow-up messages already refreshed the
             // list at send time (handleSendMessage).
-            if (response.status !== "error") {
+            if (!responseFailed) {
               const refreshId = response.conversationId;
               void window.snow
                 .getChatConversation(refreshId)
@@ -438,7 +441,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           if (
             isFirstMessage &&
             !summaryTriggered &&
-            response.status !== "error"
+            !responseFailed
           ) {
             summaryTriggered = true;
             const summaryConvId = response.conversationId;
@@ -493,7 +496,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         // message is now persisted via store_chat_exchange) and re-fetch.
         ctx.setConversationVersion((version) => version + 1);
 
-        if (response.tokenUsage && response.status !== "error") {
+        if (response.tokenUsage && !responseFailed) {
           ctx.updateSessionField(
             effectiveKey,
             "tokenUsage",
@@ -532,7 +535,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         if (
           loopWillContinue &&
           response.tokenUsage &&
-          response.status !== "error" &&
+          !responseFailed &&
           effectiveKey !== PENDING_SESSION_KEY
         ) {
           // Use the conversation-scoped profile (options.apiProfile) so the
@@ -646,12 +649,8 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           return;
         }
 
-        // Update assistant message with the persisted result. Failed responses
-        // still migrate the session, but remain visible locally as an error.
-        // Note: "incomplete" status (stream interrupted mid-response) is NOT
-        // treated as a hard failure — if tool calls were collected before the
-        // interruption, we still process them so the agent loop can continue.
-        const responseFailed = response.status === "error";
+        // Failed responses still migrate the session, but remain visible
+        // locally as an error. "incomplete" responses are partial but usable.
         ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
           currentMessages.map((currentMessage) => {
             if (currentMessage.id !== currentAssistantMessageId) {
@@ -1234,7 +1233,11 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             !isRunCancelled(finalSessionKey)
           ) {
             const sessionState = ctx.sessionsRef.current?.[finalSessionKey];
-            ctx.notifyAiComplete(sessionState?.summary || undefined);
+            ctx.notifyAiComplete({
+              conversationId: finalSessionKey,
+              directoryId: sessionState?.directoryId ?? ctx.directoryId,
+              title: sessionState?.summary || undefined,
+            });
           }
         });
     },

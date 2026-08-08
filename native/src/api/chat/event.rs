@@ -2,12 +2,10 @@
 
 use std::collections::HashMap;
 
+use crate::api::common::{push_reasoning_text, push_trimmed_string, read_first_i64, read_string};
+use crate::storage::services::chat_conversations::ChatTokenUsage;
 use napi::bindgen_prelude::*;
 use serde_json::Value;
-use crate::api::common::{
-    push_reasoning_text, push_trimmed_string, read_first_i64, read_string,
-};
-use crate::storage::services::chat_conversations::ChatTokenUsage;
 
 /// Process a raw SSE event block (text between two separators) for the
 /// Chat Completions streaming protocol. Each `data:` line is parsed
@@ -53,10 +51,7 @@ pub(super) fn process_sse_event_block(
         let event = match serde_json::from_str::<Value>(data) {
             Ok(event) => event,
             Err(error) => {
-                eprintln!(
-                    "Chat stream event parse error (skipping line): {}",
-                    error
-                );
+                eprintln!("Chat stream event parse error (skipping line): {}", error);
                 continue;
             }
         };
@@ -158,20 +153,35 @@ fn process_chat_completion_event(
                 // arguments are still assembled by `collect_tool_calls`; we
                 // only need the delta text for counting.
                 collect_tool_call_argument_delta(delta, tool_args_delta);
-                collect_tool_calls(delta.get("tool_calls"), tool_calls, tool_call_positions_by_index, true);
+                collect_tool_calls(
+                    delta.get("tool_calls"),
+                    tool_calls,
+                    tool_call_positions_by_index,
+                    true,
+                );
             }
 
             if let Some(message) = choice.get("message") {
                 push_trimmed_string(message.get("content"), content_chunks);
                 push_reasoning_text(Some(message), thinking_chunks);
-                collect_tool_calls(message.get("tool_calls"), tool_calls, tool_call_positions_by_index, false);
+                collect_tool_calls(
+                    message.get("tool_calls"),
+                    tool_calls,
+                    tool_call_positions_by_index,
+                    false,
+                );
             }
 
             // Fallback: some non-standard providers place tool_calls directly
             // on the choice object (not inside delta or message).
             if choice.get("delta").is_none() && choice.get("message").is_none() {
                 push_trimmed_string(choice.get("content"), content_chunks);
-                collect_tool_calls(choice.get("tool_calls"), tool_calls, tool_call_positions_by_index, false);
+                collect_tool_calls(
+                    choice.get("tool_calls"),
+                    tool_calls,
+                    tool_call_positions_by_index,
+                    false,
+                );
             }
 
             if let Some(finish_reason) = choice
@@ -334,5 +344,3 @@ fn merge_tool_call_field(key: &str, target: &mut Value, delta: &Value) {
 fn is_ignorable_tool_call_delta_value(value: &Value) -> bool {
     value.is_null() || value.as_str().is_some_and(str::is_empty)
 }
-
-

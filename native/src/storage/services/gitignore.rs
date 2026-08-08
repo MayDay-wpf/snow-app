@@ -8,6 +8,12 @@ use std::path::{Path, PathBuf};
 /// This is intentionally a lightweight implementation — it does not aim for
 /// 100% git compatibility, but covers the patterns typically found in real
 /// projects (node_modules, dist, *.log, .env, etc.).
+///
+/// Scope model: subdirectory `.gitignore` files are loaded via
+/// `load_directory_gitignore` and their patterns are rewritten into
+/// root-anchored form. Callers load parent directories before children so
+/// that deeper rules override shallower ones (patterns are evaluated in
+/// order), mirroring git's precedence.
 #[derive(Debug, Clone)]
 pub struct GitignoreMatcher {
     patterns: Vec<GitignorePattern>,
@@ -21,10 +27,19 @@ struct GitignorePattern {
     segments: Vec<String>,
 }
 
+/// A single parsed `.gitignore` line (before scope prefixing is applied).
+struct ParsedPattern {
+    negated: bool,
+    dir_only: bool,
+    anchored: bool,
+    segments: Vec<String>,
+}
+
 impl GitignoreMatcher {
     /// Build a matcher by reading `.gitignore` files from the given root
     /// directory and all of its parent directories (mirroring git behaviour
-    /// where parent `.gitignore` files also apply).
+    /// where parent `.gitignore` files also apply), plus the repository-local
+    /// `.git/info/exclude` file.
     pub fn from_project_root(root: &Path) -> Self {
         let mut patterns = Vec::new();
 
@@ -50,61 +65,127 @@ impl GitignoreMatcher {
             }
         }
 
+        // Repository-local excludes (.git/info/exclude) apply with root scope.
+        let info_exclude = root.join(".git").join("info").join("exclude");
+        if info_exclude.is_file() {
+            if let Ok(content) = fs::read_to_string(&info_exclude) {
+                Self::parse_into(&content, &mut patterns);
+            }
+        }
+
         Self { patterns }
+    }
+
+    /// Load the `.gitignore` of a subdirectory and append its patterns with
+    /// the directory as their scope.
+    ///
+    /// `root` is the project root (used to locate the `.gitignore` file on
+    /// disk); `dir_relative` is the subdirectory **relative to the project
+    /// root** (used to scope the patterns).
+    ///
+    /// Each pattern is rewritten into a root-anchored form so the flat
+    /// `is_ignored(relative_path)` interface keeps working:
+    /// - anchored patterns (`/build/`, `foo/bar`) become `<dir>/build/`
+    /// - unanchored patterns (`*.log`, `dist/`) become `<dir>/**/...` so they
+    ///   still match at any depth below the directory (git semantics)
+    ///
+    /// Callers must load a directory's rules **before** matching any path
+    /// below it, and parent directories before children, so that deeper
+    /// rules override shallower ones (patterns are evaluated in order).
+    pub fn load_directory_gitignore(&mut self, root: &Path, dir_relative: &Path) {
+        let gitignore_path = root.join(dir_relative).join(".gitignore");
+        if !gitignore_path.is_file() {
+            return;
+        }
+        let Ok(content) = fs::read_to_string(&gitignore_path) else {
+            return;
+        };
+
+        let dir_rel = dir_relative.to_string_lossy().replace('\\', "/");
+        let dir_segments: Vec<String> = dir_rel.split('/').map(String::from).collect();
+
+        for line in content.lines() {
+            let Some(parsed) = Self::parse_line(line) else {
+                continue;
+            };
+            let mut segments = Vec::with_capacity(dir_segments.len() + 1 + parsed.segments.len());
+            segments.extend(dir_segments.iter().cloned());
+            if !parsed.anchored {
+                // Unanchored: match at any depth below the directory, so
+                // insert a `**` segment between the scope and the pattern.
+                segments.push("**".to_string());
+            }
+            segments.extend(parsed.segments);
+            self.patterns.push(GitignorePattern {
+                negated: parsed.negated,
+                dir_only: parsed.dir_only,
+                anchored: true,
+                segments,
+            });
+        }
+    }
+
+    /// Parse a single non-empty, non-comment `.gitignore` line.
+    fn parse_line(line: &str) -> Option<ParsedPattern> {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
+
+        // Remove trailing whitespace and trailing backslash escapes
+        let line = line.trim_end_matches('\\').trim_end();
+        if line.is_empty() {
+            return None;
+        }
+
+        let mut raw = line.to_string();
+        let mut negated = false;
+        let mut dir_only = false;
+        let mut anchored = false;
+
+        if raw.starts_with('!') {
+            negated = true;
+            raw = raw[1..].to_string();
+        }
+
+        if raw.ends_with('/') {
+            dir_only = true;
+            raw = raw.trim_end_matches('/').to_string();
+        }
+
+        if raw.starts_with('/') {
+            anchored = true;
+            raw = raw.trim_start_matches('/').to_string();
+        }
+
+        if raw.is_empty() {
+            return None;
+        }
+
+        // If the pattern contains a `/` (other than leading), it is
+        // implicitly anchored.
+        if raw.contains('/') {
+            anchored = true;
+        }
+
+        Some(ParsedPattern {
+            negated,
+            dir_only,
+            anchored,
+            segments: raw.split('/').map(String::from).collect(),
+        })
     }
 
     fn parse_into(content: &str, patterns: &mut Vec<GitignorePattern>) {
         for line in content.lines() {
-            let line = line.trim();
-
-            // Skip empty lines and comments
-            if line.is_empty() || line.starts_with('#') {
+            let Some(parsed) = Self::parse_line(line) else {
                 continue;
-            }
-
-            // Remove trailing whitespace and trailing backslash escapes
-            let line = line.trim_end_matches('\\').trim_end();
-            if line.is_empty() {
-                continue;
-            }
-
-            let mut raw = line.to_string();
-            let mut negated = false;
-            let mut dir_only = false;
-            let mut anchored = false;
-
-            if raw.starts_with('!') {
-                negated = true;
-                raw = raw[1..].to_string();
-            }
-
-            if raw.ends_with('/') {
-                dir_only = true;
-                raw = raw.trim_end_matches('/').to_string();
-            }
-
-            if raw.starts_with('/') {
-                anchored = true;
-                raw = raw.trim_start_matches('/').to_string();
-            }
-
-            if raw.is_empty() {
-                continue;
-            }
-
-            // If the pattern contains a `/` (other than leading), it is
-            // implicitly anchored.
-            if raw.contains('/') {
-                anchored = true;
-            }
-
-            let segments: Vec<String> = raw.split('/').map(String::from).collect();
-
+            };
             patterns.push(GitignorePattern {
-                negated,
-                dir_only,
-                anchored,
-                segments,
+                negated: parsed.negated,
+                dir_only: parsed.dir_only,
+                anchored: parsed.anchored,
+                segments: parsed.segments,
             });
         }
     }
@@ -136,18 +217,13 @@ impl GitignoreMatcher {
         let path_count = path_parts.len();
 
         if pattern.anchored {
-            // Anchored: match from the root only
-            if seg_count > path_count {
-                return false;
-            }
-            for (i, seg) in pattern.segments.iter().enumerate() {
-                if !Self::segment_matches(seg, path_parts[i]) {
-                    return false;
-                }
-            }
-            // If pattern has fewer segments, it matches the directory prefix
-            // and everything under it.
-            true
+            // Anchored: match from the root only. `**` matches zero or more
+            // segments (git semantics), so no `seg_count > path_count` guard
+            // here — the recursive matcher handles zero-length `**`; a
+            // pattern that is a strict prefix of the path also matches
+            // (directory-prefix semantics, e.g. `dist/` covers everything
+            // under `dist/`).
+            Self::anchored_match(&pattern.segments, path_parts, 0, 0)
         } else {
             // Non-anchored: match at any depth.
             // Try matching starting at each possible position.
@@ -168,6 +244,34 @@ impl GitignoreMatcher {
             }
             false
         }
+    }
+
+    /// Anchored segment-by-segment match with `**` support (zero or more
+    /// segments) and directory-prefix semantics: when the pattern is fully
+    /// consumed before the path ends, the path still matches.
+    fn anchored_match(segments: &[String], path_parts: &[&str], si: usize, pi: usize) -> bool {
+        if si == segments.len() {
+            return true; // pattern fully matched (possibly as a directory prefix)
+        }
+        if segments[si] == "**" {
+            // `**` matches zero segments: skip it.
+            if Self::anchored_match(segments, path_parts, si + 1, pi) {
+                return true;
+            }
+            // `**` matches one or more segments: consume one path segment
+            // and try again with the same `**`.
+            if pi < path_parts.len() {
+                return Self::anchored_match(segments, path_parts, si, pi + 1);
+            }
+            return false;
+        }
+        if pi >= path_parts.len() {
+            return false;
+        }
+        if !Self::segment_matches(&segments[si], path_parts[pi]) {
+            return false;
+        }
+        Self::anchored_match(segments, path_parts, si + 1, pi + 1)
     }
 
     fn segment_matches(pattern_seg: &str, path_seg: &str) -> bool {
@@ -218,5 +322,119 @@ impl GitignoreMatcher {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Create a unique temporary directory for a test (no extra dependency).
+    fn temp_dir(tag: &str) -> PathBuf {
+        let unique = format!(
+            "snow-gitignore-test-{}-{}-{}",
+            std::process::id(),
+            tag,
+            TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let dir = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn write(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn subdirectory_gitignore_is_scoped_to_its_directory() {
+        let root = temp_dir("scope");
+        write(&root.join(".gitignore"), "*.root\n");
+        write(&root.join("sub/.gitignore"), "*.log\n");
+        write(&root.join("sub/deep/nested/keep.txt"), "x");
+        write(&root.join("other/file.log"), "x");
+
+        let mut matcher = GitignoreMatcher::from_project_root(&root);
+        // 子目录规则必须在匹配子目录路径之前加载（模拟 collect 的遍历顺序）。
+        matcher.load_directory_gitignore(&root, Path::new("sub"));
+
+        // 子目录规则只作用于 sub 下任意深度。
+        assert!(matcher.is_ignored("sub/a.log", false));
+        assert!(matcher.is_ignored("sub/deep/b.log", false));
+        // 兄弟目录不受影响。
+        assert!(!matcher.is_ignored("other/file.log", false));
+        // root 规则仍然有效。
+        assert!(matcher.is_ignored("other/x.root", false));
+        assert!(!matcher.is_ignored("sub/deep/nested/keep.txt", false));
+    }
+
+    #[test]
+    fn unanchored_subdirectory_pattern_matches_zero_depth() {
+        let root = temp_dir("zero");
+        write(&root.join("packages/ui/.gitignore"), "dist/\n");
+        write(&root.join("packages/ui/dist/bundle.js"), "x");
+        write(&root.join("packages/ui/src/app.ts"), "x");
+
+        let mut matcher = GitignoreMatcher::from_project_root(&root);
+        matcher.load_directory_gitignore(&root, Path::new("packages/ui"));
+
+        // `dist/` 非锚定 → 前缀化为 packages/ui/**/dist：零层（dist 直接在
+        // ui 下）与深层（ui/a/dist）都应命中（dir_only 规则作用于目录，
+        // 目录被忽略后其内容在 collect 遍历中自然被跳过）。
+        assert!(matcher.is_ignored("packages/ui/dist", true));
+        assert!(matcher.is_ignored("packages/ui/a/dist", true));
+        assert!(!matcher.is_ignored("packages/ui/src/app.ts", false));
+    }
+
+    #[test]
+    fn anchored_subdirectory_pattern_binds_to_directory_root() {
+        let root = temp_dir("anchored");
+        write(&root.join("sub/.gitignore"), "/build/\n");
+        write(&root.join("sub/build/out.js"), "x");
+        write(&root.join("sub/deep/build/out.js"), "x");
+
+        let mut matcher = GitignoreMatcher::from_project_root(&root);
+        matcher.load_directory_gitignore(&root, Path::new("sub"));
+
+        // 锚定到 sub 根：sub/build 命中，sub/deep/build 不命中。
+        assert!(matcher.is_ignored("sub/build", true));
+        assert!(!matcher.is_ignored("sub/deep/build", true));
+    }
+
+    #[test]
+    fn deeper_gitignore_overrides_shallower_one() {
+        let root = temp_dir("override");
+        write(&root.join("packages/.gitignore"), "*.tmp\n");
+        write(&root.join("packages/ui/.gitignore"), "!keep.tmp\n");
+        write(&root.join("packages/ui/keep.tmp"), "x");
+        write(&root.join("packages/ui/drop.tmp"), "x");
+        write(&root.join("packages/other/drop.tmp"), "x");
+
+        let mut matcher = GitignoreMatcher::from_project_root(&root);
+        // 遍历顺序：父目录规则先加载，子目录规则后加载（git 语义：
+        // 深层规则覆盖浅层规则）。
+        matcher.load_directory_gitignore(&root, Path::new("packages"));
+        matcher.load_directory_gitignore(&root, Path::new("packages/ui"));
+
+        assert!(matcher.is_ignored("packages/other/drop.tmp", false));
+        assert!(matcher.is_ignored("packages/ui/drop.tmp", false));
+        // 子目录的 negation 覆盖父目录规则。
+        assert!(!matcher.is_ignored("packages/ui/keep.tmp", false));
+    }
+
+    #[test]
+    fn info_exclude_applies_at_root_scope() {
+        let root = temp_dir("exclude");
+        write(&root.join(".git/info/exclude"), "secret.txt\n");
+        write(&root.join("secret.txt"), "x");
+        write(&root.join("keep.txt"), "x");
+
+        let matcher = GitignoreMatcher::from_project_root(&root);
+        assert!(matcher.is_ignored("secret.txt", false));
+        assert!(!matcher.is_ignored("keep.txt", false));
     }
 }

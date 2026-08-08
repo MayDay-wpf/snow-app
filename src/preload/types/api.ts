@@ -74,6 +74,7 @@ export type ResponsesApiRequest = {
    */
   resumeAfterCompaction?: boolean | null;
   subAgentToolsJson?: string | null;
+  subAgentSystemPrompt?: string | null;
   subAgentConfigProfile?: string | null;
   skipContext?: boolean | null;
   planMode?: boolean | null;
@@ -110,4 +111,9 @@ export type ResponsesApiStreamChunk = {
   streamTokenCount: number;
   elapsedMs: number;
   ttftMs: number;
+  /** External-vision textify progress event. Present only while the backend
+   *  describes user images with the external vision model; payload is a JSON
+   *  string like {"phase":"describing","index":1,"total":2,"model":"..."}.
+   *  The renderer shows an intermediate status card for it. */
+  visionStatus?: string;
 };

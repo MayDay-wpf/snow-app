@@ -9,6 +9,8 @@ import {
   readSnowCliCustomHeadersConfig,
 } from "../../settings/customHeadersSettings";
 import {
+  deleteSnowCliMcpServerConfig,
+  deleteSnowCliProjectMcpServerConfig,
   normalizeMcpServerConfig,
   normalizeProjectMcpServerConfig,
   readSnowCliMcpConfig,
@@ -167,7 +169,14 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
       if (typeof serverId !== "string" || !serverId.trim()) {
         throw new Error("MCP server ID is required");
       }
-      await native.deleteMcpServerConfig(serverId.trim());
+      const normalizedServerId = serverId.trim();
+      const existing = (await native.listMcpServerConfigs()).find(
+        (item) => item.serverId === normalizedServerId
+      );
+      if (existing?.source === "snow-cli") {
+        deleteSnowCliMcpServerConfig(existing.name);
+      }
+      await native.deleteMcpServerConfig(normalizedServerId);
       return native.listMcpServerConfigs();
     }
   );
@@ -196,9 +205,20 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
       if (typeof serverId !== "string" || !serverId.trim()) {
         throw new Error("MCP server ID is required");
       }
+      const normalizedServerId = serverId.trim();
+      const existing = (await native.listProjectMcpServerConfigs(
+        normalizedProjectId
+      )).find((item) => item.serverId === normalizedServerId);
+      if (existing?.source === "snow-cli") {
+        await deleteSnowCliProjectMcpServerConfig(
+          native,
+          normalizedProjectId,
+          existing.name
+        );
+      }
       await native.deleteProjectMcpServerConfig(
         normalizedProjectId,
-        serverId.trim()
+        normalizedServerId
       );
       return native.listProjectMcpServerConfigs(normalizedProjectId);
     }

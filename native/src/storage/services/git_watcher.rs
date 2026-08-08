@@ -28,7 +28,9 @@ fn is_noise(path: &str) -> bool {
     {
         return true;
     }
-    if normalized.contains("/.git/") && (normalized.contains("/logs/") || normalized.contains("/hooks/")) {
+    if normalized.contains("/.git/")
+        && (normalized.contains("/logs/") || normalized.contains("/hooks/"))
+    {
         return true;
     }
     false
@@ -55,17 +57,14 @@ const DEBOUNCE_MS: u64 = 300;
     ts_args_type = "repoPath: string, onChange: (repoPath: string) => void",
     ts_return_type = "void"
 )]
-pub fn start_git_watch(
-    repo_path: String,
-    on_change: GitChangeCallback,
-) -> napi::Result<()> {
+pub fn start_git_watch(repo_path: String, on_change: GitChangeCallback) -> napi::Result<()> {
     use notify::Watcher;
 
     // Already watching this repo
     {
-        let map = watchers().lock().map_err(|e| {
-            napi::Error::from_reason(format!("Lock error: {e}"))
-        })?;
+        let map = watchers()
+            .lock()
+            .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
         if map.contains_key(&repo_path) {
             return Ok(());
         }
@@ -74,14 +73,11 @@ pub fn start_git_watch(
     let debounce_state = std::sync::Arc::new(Mutex::new(None::<Instant>));
     let repo_path_for_cb = repo_path.clone();
 
-    let mut watcher = notify::recommended_watcher(
-        move |res: Result<notify::Event, notify::Error>| {
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 // Check if any affected path is non-noise
-                let should_fire = event
-                    .paths
-                    .iter()
-                    .any(|p| !is_noise(&p.to_string_lossy()));
+                let should_fire = event.paths.iter().any(|p| !is_noise(&p.to_string_lossy()));
 
                 if !should_fire {
                     return;
@@ -103,30 +99,22 @@ pub fn start_git_watch(
                     }
                 }
             }
-        },
-    )
-    .map_err(|e| {
-        napi::Error::from_reason(format!("Failed to create watcher: {e}"))
-    })?;
+        })
+        .map_err(|e| napi::Error::from_reason(format!("Failed to create watcher: {e}")))?;
 
     // Watch the entire repo recursively
     watcher
-        .watch(
-            Path::new(&repo_path),
-            notify::RecursiveMode::Recursive,
-        )
-        .map_err(|e| {
-            napi::Error::from_reason(format!("Failed to watch {repo_path}: {e}"))
-        })?;
+        .watch(Path::new(&repo_path), notify::RecursiveMode::Recursive)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to watch {repo_path}: {e}")))?;
 
     let state = WatchState {
         _watcher: Box::new(watcher),
     };
 
     {
-        let mut map = watchers().lock().map_err(|e| {
-            napi::Error::from_reason(format!("Lock error: {e}"))
-        })?;
+        let mut map = watchers()
+            .lock()
+            .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
         map.insert(repo_path, state);
     }
 
@@ -136,9 +124,9 @@ pub fn start_git_watch(
 /// Stop watching a git repository.
 #[napi]
 pub fn stop_git_watch(repo_path: String) -> napi::Result<()> {
-    let mut map = watchers().lock().map_err(|e| {
-        napi::Error::from_reason(format!("Lock error: {e}"))
-    })?;
+    let mut map = watchers()
+        .lock()
+        .map_err(|e| napi::Error::from_reason(format!("Lock error: {e}")))?;
 
     // Removing the WatchState drops the watcher, which stops watching
     map.remove(&repo_path);

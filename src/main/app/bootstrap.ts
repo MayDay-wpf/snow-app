@@ -112,8 +112,9 @@ export const bootstrapApplication = (): void => {
     // 初始化系统托盘（黑白脱色图标 + 悬停快速信息 + 右键菜单）。
     initTray(native);
 
-    // 首次启动安装内置 skills 并同步内置文档（供 snow-app-docs 技能阅读），
-    // 均为幂等操作。
+    // 安装/同步内置 skills 与内置文档（供 snow-app-docs 技能阅读）：
+    // 首次安装、应用升级或开发模式下自动推送官方版本；内置 skill 的
+    // 用户启用/禁用开关会在同步时保留。
     ensureBuiltinSkills();
     ensureBuiltinDocs();
 

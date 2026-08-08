@@ -24,6 +24,8 @@ export type BrowserPanelContentProps = {
   initialUrl: string;
   isActive: boolean;
   onTitleChange?: (title: string) => void;
+  /** 页面每次导航（含页面内跳转）后的最新 URL 回调，用于上层同步 tab 数据 */
+  onUrlChange?: (url: string) => void;
 };
 
 const normalizeUrl = (input: string, homepage: string): string => {
@@ -70,6 +72,7 @@ export const BrowserPanelContent = ({
   initialUrl,
   isActive,
   onTitleChange,
+  onUrlChange,
 }: BrowserPanelContentProps): React.JSX.Element => {
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
   const consoleMessagesRef = useRef<unknown[]>([]);
@@ -78,6 +81,9 @@ export const BrowserPanelContent = ({
   // 避免多个浏览器实例时每次父组件重渲染都反复卸载/重建 webview 监听器。
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
+  // onUrlChange 与 onTitleChange 同因,同样经 ref 持有。
+  const onUrlChangeRef = useRef(onUrlChange);
+  onUrlChangeRef.current = onUrlChange;
   const { homepage, loaded, setHomepage } = useBrowserHomepage();
   // When an explicit initialUrl is provided, use it immediately. Otherwise,
   // leave the address bar and webview src empty until the homepage has been
@@ -211,6 +217,10 @@ export const BrowserPanelContent = ({
       // Keep the menu's zoom display in sync with the webview's actual zoom
       // (Electron persists zoom per webContents across navigations).
       setZoomFactor(webview.getZoomFactor());
+      // 上报最新 URL，供 RightPanel 同步 tab.data.url（拖拽引用需要实时地址）
+      if (onUrlChangeRef.current) {
+        onUrlChangeRef.current(e.url);
+      }
     };
 
     const handleDidStartLoading = (): void => {

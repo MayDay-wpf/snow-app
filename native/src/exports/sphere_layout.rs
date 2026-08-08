@@ -195,11 +195,8 @@ fn run_force_layout(positions: &mut [[f64; 3]], sim: &[f64], n: usize, rng: &mut
 
                 // 相似度越高目标距离越近；低相似文件被推到球体边缘。
                 let target = (1.5 * SPHERE_RADIUS).min(
-                    (0.12 * SPHERE_RADIUS).max(
-                        SPHERE_RADIUS
-                            * (1.0 - sim[i * n + j]).max(0.0).powf(1.4)
-                            * 0.62,
-                    ),
+                    (0.12 * SPHERE_RADIUS)
+                        .max(SPHERE_RADIUS * (1.0 - sim[i * n + j]).max(0.0).powf(1.4) * 0.62),
                 );
                 let spring = (target - d) * SPRING_K * alpha;
                 let fx = (spring * dx) / d;
@@ -254,10 +251,9 @@ fn run_force_layout(positions: &mut [[f64; 3]], sim: &[f64], n: usize, rng: &mut
     // 整体缩放，让散点始终铺满球体空间（保持离散球形态）。
     let mut max_norm = 0.0f64;
     for position in positions.iter() {
-        let norm = (position[0] * position[0]
-            + position[1] * position[1]
-            + position[2] * position[2])
-            .sqrt();
+        let norm =
+            (position[0] * position[0] + position[1] * position[1] + position[2] * position[2])
+                .sqrt();
         max_norm = max_norm.max(norm);
     }
     if max_norm > 0.05 * SPHERE_RADIUS {

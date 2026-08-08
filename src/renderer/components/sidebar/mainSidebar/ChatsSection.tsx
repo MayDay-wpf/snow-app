@@ -1,13 +1,26 @@
 import {
-  AlertTriangle,
+  Check,
+  CheckCircle2,
   CheckSquare,
   ChevronRight,
+  CircleAlert,
+  Folder,
   Loader2,
+  MessageSquareMore,
+  Minus,
   Trash2,
   X,
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import { ChatDeleteConfirmDialog } from "./ChatDeleteConfirmDialog";
 import { useI18n } from "../../../i18n";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
 import { PENDING_SESSION_KEY } from "../../mainContent/chatMessages/utils/conversationTypes";
@@ -19,32 +32,38 @@ import { ChatItem } from "./ChatItem";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 import {
+  formatTimeLabel,
   groupConversationsByTime,
   parseDbTimestamp,
+  type TimeGroup,
   type TimeGroupKey,
 } from "./chatTimeGroup";
+import type {
+  CrossProjectNotification,
+  CrossProjectNotificationGroup,
+} from "./useCrossProjectNotifications";
 
 const CHAT_PAGE_SIZE = 20;
 
 /**
- * 排序会话列表：运行中的会话永远置顶，其余按 updatedAt 倒序。
+ * 排序会话列表：运行中或需关注的会话永远置顶，其余按 updatedAt 倒序。
  *
- * 运行中会话（streamingConversationIds）内部按 updatedAt 倒序，
- * 非运行中会话也按 updatedAt 倒序，两组拼接后返回。
+ * 运行中或需关注的会话（runningConversationIds）内部按 updatedAt 倒序，
+ * 其他会话也按 updatedAt 倒序，两组拼接后返回。
  *
  * 必须基于时间戳比较，不能直接用字符串 localeCompare：
  * 占位符会话的 updatedAt 是 ISO UTC 格式（带 T 与 Z），
  * 而数据库返回的是 SQLite 本地时间格式（空格分隔、无时区），
  * 两种格式的字典序与真实时间顺序不一致，会导致新会话排到旧会话下方。
  *
- * 注意：streamingConversationIds 只在会话开始/结束时变化（非每 token），
- * 因此不会导致流式过程中频繁重排序。
+ * runningConversationIds 仅在流式或待处理交互的生命周期边界变化，
+ * 不会随每个流式 token 更新，因此不会导致流式过程中频繁重排序。
  */
 const sortConversationsByUpdatedAt = (
   items: ChatConversationRecord[],
-  streamingIds?: Set<string>
+  runningConversationIds?: Set<string>
 ): ChatConversationRecord[] => {
-  if (!streamingIds || streamingIds.size === 0) {
+  if (!runningConversationIds || runningConversationIds.size === 0) {
     return [...items].sort(
       (a, b) =>
         parseDbTimestamp(b.updatedAt).getTime() -
@@ -53,11 +72,11 @@ const sortConversationsByUpdatedAt = (
     );
   }
 
-  const streaming: ChatConversationRecord[] = [];
+  const running: ChatConversationRecord[] = [];
   const rest: ChatConversationRecord[] = [];
   for (const item of items) {
-    if (streamingIds.has(item.conversationId)) {
-      streaming.push(item);
+    if (runningConversationIds.has(item.conversationId)) {
+      running.push(item);
     } else {
       rest.push(item);
     }
@@ -71,15 +90,17 @@ const sortConversationsByUpdatedAt = (
       parseDbTimestamp(a.updatedAt).getTime() ||
     b.conversationId.localeCompare(a.conversationId);
 
-  streaming.sort(compareByTime);
+  running.sort(compareByTime);
   rest.sort(compareByTime);
 
-  return [...streaming, ...rest];
+  return [...running, ...rest];
 };
 
 type ChatsSectionProps = {
   isSwitchingDirectory: boolean;
   activeDirectory?: WorkspaceDirectoryRecord | null;
+  /** 跨项目通知（其他项目的运行中/需关注/已完成会话分组） */
+  crossProjectNotifications: CrossProjectNotificationGroup[];
 };
 
 type SubAgentMap = Record<string, ChatConversationRecord[]>;
@@ -87,6 +108,7 @@ type SubAgentMap = Record<string, ChatConversationRecord[]>;
 export function ChatsSection({
   isSwitchingDirectory,
   activeDirectory,
+  crossProjectNotifications,
 }: ChatsSectionProps): React.JSX.Element {
   const { t } = useI18n();
   const {
@@ -100,9 +122,18 @@ export function ChatsSection({
     activeConversationId,
     abortConversation,
     streamingConversationIds,
+    attentionRequiredConversationIds,
     completedConversationIds,
     clearInputDraft,
   } = useChatConversationContext();
+  const runningConversationIds = useMemo(
+    () =>
+      new Set([
+        ...streamingConversationIds,
+        ...attentionRequiredConversationIds,
+      ]),
+    [streamingConversationIds, attentionRequiredConversationIds]
+  );
   const [conversations, setConversations] = useState<ChatConversationRecord[]>(
     []
   );
@@ -138,6 +169,14 @@ export function ChatsSection({
       return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
     } catch {
       return {};
+    }
+  });
+  // 「其他项目」跨项目通知区块收起状态（localStorage 持久化）
+  const [isCrossProjectCollapsed, setIsCrossProjectCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("chats-cross-project-collapsed") === "true";
+    } catch {
+      return false;
     }
   });
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -230,7 +269,7 @@ export function ChatsSection({
         const updated = prev.map((item) =>
           item.conversationId === conv.conversationId ? conv : item
         );
-        return sortConversationsByUpdatedAt(updated, streamingConversationIds);
+        return sortConversationsByUpdatedAt(updated, runningConversationIds);
       }
 
       // If the real conversation arrives, replace the pending placeholder.
@@ -241,32 +280,32 @@ export function ChatsSection({
         const replaced = prev.map((item, index) =>
           index === pendingIndex ? conv : item
         );
-        return sortConversationsByUpdatedAt(replaced, streamingConversationIds);
+        return sortConversationsByUpdatedAt(replaced, runningConversationIds);
       }
 
       isNew = true;
       // New conversation: prepend and re-sort by updatedAt
       return sortConversationsByUpdatedAt(
         [conv, ...prev],
-        streamingConversationIds
+        runningConversationIds
       );
     });
 
     if (isNew) {
       setTotal((prev) => prev + 1);
     }
-  }, [upsertedConversation, directoryId, streamingConversationIds]);
+  }, [upsertedConversation, directoryId, runningConversationIds]);
 
-  // 当流式状态变化时（会话开始/结束），重新排序使运行中会话移到顶部。
-  // streamingConversationIds 只在会话开始/结束时变化，不会在流式过程中频繁更新。
+  // 流式或待处理交互状态变化时，重新排序使相关会话保持在顶部。
+  // runningConversationIds 只在生命周期边界变化，不会随每个流式 token 更新。
   useEffect(() => {
-    if (streamingConversationIds.size === 0) {
+    if (runningConversationIds.size === 0) {
       return;
     }
     setConversations((prev) =>
-      sortConversationsByUpdatedAt(prev, streamingConversationIds)
+      sortConversationsByUpdatedAt(prev, runningConversationIds)
     );
-  }, [streamingConversationIds]);
+  }, [runningConversationIds]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (isLoadingMore || !hasMore || !directoryId || isLoading) {
@@ -323,6 +362,33 @@ export function ChatsSection({
   }, [hasMore, isLoading, loadMore, conversations.length]);
 
   const showLoading = isSwitchingDirectory || (isLoading && directoryId !== "");
+
+  // 打开其他项目的通知会话：先激活其所属项目，再打开会话。
+  // 激活成功后主进程广播 workspace-directory-list:changed，项目列表与
+  // 对话列表会自动刷新到目标项目，随后 handleSelectConversation 加载
+  // 会话历史；即使激活失败，会话记录已存在，直接打开也不受影响。
+  const handleOpenCrossProjectNotification = async (
+    group: CrossProjectNotificationGroup,
+    notification: CrossProjectNotification
+  ): Promise<void> => {
+    try {
+      await window.snow.activateWorkspaceDirectory(group.directoryId);
+    } catch {
+      // 项目切换失败不阻塞会话打开
+    }
+    await handleSelectConversation(
+      notification.conversation.conversationId,
+      notification.conversation.summary || notification.conversation.title,
+      {
+        inputTokens: notification.conversation.inputTokens,
+        outputTokens: notification.conversation.outputTokens,
+        cacheCreationInputTokens:
+          notification.conversation.cacheCreationInputTokens,
+        cacheReadInputTokens: notification.conversation.cacheReadInputTokens,
+      },
+      group.directoryId
+    );
+  };
 
   const handlePin = async (
     conversation: ChatConversationRecord
@@ -447,6 +513,7 @@ export function ChatsSection({
     }
     setIsMultiSelectMode(false);
     setSelectedIds(new Set());
+    setShowBatchConfirm(false);
   };
 
   /** 收起/展开会话区域；收起时退出多选模式并持久化到 localStorage */
@@ -485,6 +552,31 @@ export function ChatsSection({
   };
   const handleDeselectAll = (): void => {
     setSelectedIds(new Set());
+  };
+
+  /**
+   * 分组粒度的全选/取消全选：目标分组内全部已选时取消该组，
+   * 否则选中该组全部（与顶部全局全选互不影响）。
+   */
+  const handleToggleGroupSelect = (group: TimeGroup): void => {
+    const groupIds = group.conversations
+      .filter((conv) => conv.conversationId !== PENDING_SESSION_KEY)
+      .map((conv) => conv.conversationId);
+    if (groupIds.length === 0) {
+      return;
+    }
+    const allSelected = groupIds.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of groupIds) {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      }
+      return next;
+    });
   };
 
   // 打开批量删除确认框：查询所选会话引用的图库图片数
@@ -554,7 +646,7 @@ export function ChatsSection({
   const timeGroups = groupConversationsByTime(
     conversations,
     new Date(),
-    streamingConversationIds
+    runningConversationIds
   );
 
   useEffect(() => {
@@ -724,6 +816,19 @@ export function ChatsSection({
     });
   };
 
+  /** 收起/展开「其他项目」跨项目通知区块并持久化到 localStorage */
+  const toggleCrossProjectCollapsed = (): void => {
+    setIsCrossProjectCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("chats-cross-project-collapsed", String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
   return (
     <div
       className={`sidebar-section chats-section${
@@ -819,57 +924,6 @@ export function ChatsSection({
           </button>
         </div>
       )}
-      {isMultiSelectMode && showBatchConfirm ? (
-        <div className="chat-batch-confirm">
-          <div className="chat-batch-confirm-content">
-            <AlertTriangle size={13} className="chat-item-menu-confirm-icon" />
-            <span className="chat-item-menu-confirm-text">
-              {t("sidebar.chatMultiSelectDeleteConfirm", {
-                defaultValue: "Delete {{count}} selected conversations?",
-                values: { count: selectedIds.size },
-              })}
-            </span>
-          </div>
-          {batchImagesCount !== null && batchImagesCount > 0 ? (
-            <label className="chat-item-menu-delete-images">
-              <input
-                type="checkbox"
-                checked={batchDeleteImages}
-                onChange={(event) => setBatchDeleteImages(event.target.checked)}
-              />
-              <span>
-                {t("sidebar.chatDeleteImagesOptionBatch", {
-                  defaultValue:
-                    "Also delete the {{count}} image(s) generated in the selected conversations",
-                  values: { count: batchImagesCount },
-                })}
-              </span>
-            </label>
-          ) : null}
-          <div className="chat-item-menu-confirm-actions">
-            <button
-              type="button"
-              className="chat-item-menu-confirm-btn cancel"
-              onClick={() => setShowBatchConfirm(false)}
-              disabled={isBatchDeleting}
-            >
-              {t("common.cancel", { defaultValue: "Cancel" })}
-            </button>
-            <button
-              type="button"
-              className="chat-item-menu-confirm-btn delete"
-              onClick={() => void handleBatchDelete()}
-              disabled={isBatchDeleting}
-            >
-              {isBatchDeleting ? (
-                <Loader2 size={12} className="spin" />
-              ) : (
-                t("sidebar.chatActionDelete", { defaultValue: "Delete" })
-              )}
-            </button>
-          </div>
-        </div>
-      ) : null}
       {!isCollapsed && (
         <div className="section-list" ref={sectionListRef}>
           {showLoading ? (
@@ -887,14 +941,150 @@ export function ChatsSection({
             </span>
           ) : error ? (
             <span className="empty-text error">{error}</span>
-          ) : conversations.length === 0 ? (
+          ) : conversations.length === 0 &&
+            crossProjectNotifications.length === 0 ? (
             <span className="empty-text">
               {t("sidebar.noChats", { defaultValue: "No chats" })}
             </span>
           ) : (
             <>
+              {/* 跨项目通知：其他项目运行中/需关注/已完成的会话，
+                  点击自动切换项目并打开对应会话 */}
+              {crossProjectNotifications.length > 0 && (
+                <div className="cross-project-notifications">
+                  <button
+                    type="button"
+                    className="cross-project-notifications-header"
+                    onClick={toggleCrossProjectCollapsed}
+                    aria-expanded={!isCrossProjectCollapsed}
+                    title={t("sidebar.crossProjectToggleCollapse", {
+                      defaultValue:
+                        "Collapse/expand other project notifications",
+                    })}
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={
+                        isCrossProjectCollapsed
+                          ? ""
+                          : "cross-project-notifications-chevron--open"
+                      }
+                    />
+                    <span>
+                      {t("sidebar.crossProjectNotificationsTitle", {
+                        defaultValue: "Other projects",
+                      })}
+                    </span>
+                  </button>
+                  {!isCrossProjectCollapsed &&
+                    crossProjectNotifications.map((group) => (
+                      <div
+                        className="cross-project-notification-group"
+                        key={group.directoryId}
+                      >
+                        <div className="cross-project-notification-project">
+                          <Folder size={11} aria-hidden="true" />
+                          <span className="cross-project-notification-project-name">
+                            {group.directoryName}
+                          </span>
+                          <span className="cross-project-notification-project-count">
+                            {group.notifications.length}
+                          </span>
+                        </div>
+                        {group.notifications.map((notification) => {
+                          const conversation = notification.conversation;
+                          const displayName =
+                            conversation.summary ||
+                            conversation.title ||
+                            t("sidebar.untitledChat", {
+                              defaultValue: "Untitled",
+                            });
+                          const parsedDate = parseDbTimestamp(
+                            conversation.updatedAt
+                          );
+                          const timeLabel = formatTimeLabel(
+                            parsedDate,
+                            new Date(),
+                            t
+                          );
+                          return (
+                            <button
+                              type="button"
+                              className="cross-project-notification-item"
+                              key={conversation.conversationId}
+                              onClick={() =>
+                                void handleOpenCrossProjectNotification(
+                                  group,
+                                  notification
+                                )
+                              }
+                              title={t(
+                                "sidebar.crossProjectNotificationOpenTitle",
+                                {
+                                  values: {
+                                    project: group.directoryName,
+                                    conversation: displayName,
+                                  },
+                                  defaultValue:
+                                    "Open {{conversation}} in {{project}}",
+                                }
+                              )}
+                            >
+                              <span
+                                className={`chat-item-icon${
+                                  notification.isAttentionRequired
+                                    ? " attention-required"
+                                    : notification.isStreaming
+                                      ? " streaming"
+                                      : notification.isCompleted
+                                        ? " completed"
+                                        : ""
+                                }`}
+                              >
+                                {notification.isAttentionRequired ? (
+                                  <CircleAlert size={12} aria-hidden="true" />
+                                ) : notification.isStreaming ? (
+                                  <Loader2
+                                    size={11}
+                                    className="spin"
+                                    aria-hidden="true"
+                                  />
+                                ) : notification.isCompleted ? (
+                                  <CheckCircle2 size={12} aria-hidden="true" />
+                                ) : (
+                                  <MessageSquareMore
+                                    size={11}
+                                    aria-hidden="true"
+                                  />
+                                )}
+                              </span>
+                              <span className="list-label">{displayName}</span>
+                              <span className="cross-project-notification-time">
+                                {timeLabel}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                </div>
+              )}
               {timeGroups.map((group) => {
                 const isGroupCollapsed = collapsedGroupKeys[group.key] === true;
+                // 分组粒度的选择状态：全部已选 / 部分已选 / 未选
+                const groupSelectableIds = group.conversations
+                  .filter(
+                    (conv) => conv.conversationId !== PENDING_SESSION_KEY
+                  )
+                  .map((conv) => conv.conversationId);
+                const groupSelectedCount = groupSelectableIds.filter((id) =>
+                  selectedIds.has(id)
+                ).length;
+                const isGroupAllSelected =
+                  groupSelectableIds.length > 0 &&
+                  groupSelectedCount === groupSelectableIds.length;
+                const isGroupPartialSelected =
+                  groupSelectedCount > 0 && !isGroupAllSelected;
                 return (
                   <div key={group.key}>
                     <button
@@ -918,6 +1108,51 @@ export function ChatsSection({
                       <span className="chat-time-group-count">
                         {group.conversations.length}
                       </span>
+                      {isMultiSelectMode && groupSelectableIds.length > 0 && (
+                        <span
+                          className={`chat-time-group-select${
+                            isGroupAllSelected ? " checked" : ""
+                          }${
+                            isGroupPartialSelected ? " indeterminate" : ""
+                          }`}
+                          role="checkbox"
+                          aria-checked={
+                            isGroupAllSelected
+                              ? true
+                              : isGroupPartialSelected
+                                ? "mixed"
+                                : false
+                          }
+                          title={
+                            isGroupAllSelected
+                              ? t(
+                                  "sidebar.chatMultiSelectGroupDeselect",
+                                  { defaultValue: "Deselect this group" }
+                                )
+                              : t("sidebar.chatMultiSelectGroupSelect", {
+                                  defaultValue: "Select this group",
+                                })
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleToggleGroupSelect(group);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handleToggleGroupSelect(group);
+                            }
+                          }}
+                          tabIndex={0}
+                        >
+                          {isGroupAllSelected ? (
+                            <Check size={11} strokeWidth={3} />
+                          ) : isGroupPartialSelected ? (
+                            <Minus size={11} strokeWidth={3} />
+                          ) : null}
+                        </span>
+                      )}
                     </button>
                     {!isGroupCollapsed &&
                       group.conversations.map((conversation) => {
@@ -935,6 +1170,9 @@ export function ChatsSection({
                                 conversation.conversationId ===
                                 activeConversationId
                               }
+                              isAttentionRequired={attentionRequiredConversationIds.has(
+                                conversation.conversationId
+                              )}
                               isStreaming={streamingConversationIds.has(
                                 conversation.conversationId
                               )}
@@ -1047,6 +1285,17 @@ export function ChatsSection({
           )}
         </div>
       )}
+      {/* 单条与批量删除共用同一确认弹窗，并通过 portal 渲染到 body。 */}
+      <ChatDeleteConfirmDialog
+        conversationCount={selectedIds.size}
+        deleteImages={batchDeleteImages}
+        imagesCount={batchImagesCount}
+        isBatch
+        onCancel={() => setShowBatchConfirm(false)}
+        onConfirm={() => void handleBatchDelete()}
+        onDeleteImagesChange={setBatchDeleteImages}
+        open={showBatchConfirm}
+      />
     </div>
   );
 }

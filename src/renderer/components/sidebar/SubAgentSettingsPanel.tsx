@@ -1,6 +1,10 @@
 import { Folder, Globe2, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApiConfigRecord, SubAgentConfigRecord } from "../../../preload";
+import type {
+  ApiConfigRecord,
+  Model,
+  SubAgentConfigRecord,
+} from "../../../preload";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { Modal } from "../common/Modal";
 import { useI18n } from "../../i18n";
@@ -29,16 +33,20 @@ export function SubAgentSettingsPanel({
   const [apiConfigs, setApiConfigs] = useState<ApiConfigRecord[]>([]);
   const [draft, setDraft] = useState<SubAgentDraft | null>(null);
   const [toolOptions, setToolOptions] = useState<SubAgentToolOption[]>([]);
+  const [modelOptions, setModelOptions] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isToolCatalogLoading, setIsToolCatalogLoading] = useState(false);
+  const [isModelCatalogLoading, setIsModelCatalogLoading] = useState(false);
   const [toolCatalogError, setToolCatalogError] = useState("");
+  const [modelCatalogError, setModelCatalogError] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [activeScope, setActiveScope] = useState<"global" | "project">(
     "global"
   );
   const toolCatalogGenerationRef = useRef(0);
+  const modelCatalogGenerationRef = useRef(0);
   const projectId = activeDirectory?.directoryId;
   const isGlobalScope = activeScope === "global";
   /** 当前作用域对应的 projectId：全局 Tab 为 undefined，项目 Tab 为当前项目。 */
@@ -144,6 +152,58 @@ export function SubAgentSettingsPanel({
   useEffect(() => {
     void loadProjectTools();
   }, [loadProjectTools]);
+
+  useEffect(() => {
+    const generation = modelCatalogGenerationRef.current + 1;
+    modelCatalogGenerationRef.current = generation;
+    setModelOptions([]);
+    setModelCatalogError("");
+
+    const profileName = draft?.configProfile.trim() ?? "";
+    if (!profileName) {
+      setIsModelCatalogLoading(false);
+      return;
+    }
+
+    const apiConfig = apiConfigs.find(
+      (config) => config.profileName === profileName
+    );
+    if (!apiConfig) {
+      setIsModelCatalogLoading(false);
+      return;
+    }
+
+    setIsModelCatalogLoading(true);
+    void window.snow
+      .fetchAvailableModelsForConfig({
+        baseUrl: apiConfig.baseUrl,
+        baseUrlMode: apiConfig.baseUrlMode,
+        apiKey: apiConfig.apiKey,
+        requestMethod: apiConfig.requestMethod,
+        customHeaderSchemeId: apiConfig.customHeaderSchemeId,
+      })
+      .then((models) => {
+        if (modelCatalogGenerationRef.current === generation) {
+          setModelOptions(models);
+        }
+      })
+      .catch((modelError: unknown) => {
+        if (modelCatalogGenerationRef.current === generation) {
+          setModelCatalogError(
+            modelError instanceof Error
+              ? modelError.message
+              : t("settings.subAgentModelsLoadError", {
+                  defaultValue: "Failed to load models for this API profile",
+                })
+          );
+        }
+      })
+      .finally(() => {
+        if (modelCatalogGenerationRef.current === generation) {
+          setIsModelCatalogLoading(false);
+        }
+      });
+  }, [apiConfigs, draft?.configProfile, t]);
 
   const startAdd = (): void => {
     const maxSortOrder = agents.reduce(
@@ -467,6 +527,9 @@ export function SubAgentSettingsPanel({
             isBusy={isBusy}
             isSaving={isSaving}
             isToolCatalogLoading={isToolCatalogLoading}
+            isModelCatalogLoading={isModelCatalogLoading}
+            modelCatalogError={modelCatalogError}
+            modelOptions={modelOptions}
             projectId={projectId}
             toolCatalogError={toolCatalogError}
             toolOptions={toolOptions}

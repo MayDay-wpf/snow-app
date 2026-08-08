@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import type { ApiConfigRecord } from "../../../../../preload";
 
@@ -113,6 +113,10 @@ export const useChatConversation = (
   const [completedConversationIds, setCompletedConversationIds] = useState<
     Set<string>
   >(new Set());
+  const [
+    pendingUserQuestionConversationIds,
+    setPendingUserQuestionConversationIds,
+  ] = useState<Set<string>>(new Set());
   const [isLoadingInitialHistory, setIsLoadingInitialHistory] = useState(false);
   const [draftToRestore, setDraftToRestore] = useState<string | null>(null);
   const [autoSendToken, setAutoSendToken] = useState(0);
@@ -129,6 +133,16 @@ export const useChatConversation = (
   const [pendingToolAuthorizations, setPendingToolAuthorizations] = useState<
     ConversationContextValue["pendingToolAuthorizations"]
   >([]);
+  const attentionRequiredConversationIds = useMemo(() => {
+    const conversationIds = new Set(pendingUserQuestionConversationIds);
+    for (const toolCall of pendingToolAuthorizations) {
+      const conversationId = toolCall.authorizationConversationId?.trim();
+      if (conversationId) {
+        conversationIds.add(conversationId);
+      }
+    }
+    return conversationIds;
+  }, [pendingToolAuthorizations, pendingUserQuestionConversationIds]);
   const [activePendingMessages, setActivePendingMessages] = useState<string[]>(
     []
   );
@@ -193,7 +207,9 @@ export const useChatConversation = (
       model?: string,
       isAuto?: boolean,
       subAgentConfigProfile?: string,
-      apiProfile?: string
+      apiProfile?: string,
+      subAgentToolsJson?: string,
+      subAgentSystemPrompt?: string
     ) => Promise<string | null>
   >(async () => null);
   const yoloModeRef = useRef(yoloMode);
@@ -358,6 +374,8 @@ export const useChatConversation = (
     fileChangeStatsHydratedRef,
     streamingConversationIds,
     completedConversationIds,
+    pendingUserQuestionConversationIds,
+    attentionRequiredConversationIds,
     isLoadingInitialHistory,
     draftToRestore,
     rollbackPreview,
@@ -408,6 +426,7 @@ export const useChatConversation = (
     setSubAgentSessionEvent,
     setStreamingConversationIds,
     setCompletedConversationIds,
+    setPendingUserQuestionConversationIds,
     setIsLoadingInitialHistory,
     setDraftToRestore,
     setRollbackPreview,
@@ -437,9 +456,9 @@ export const useChatConversation = (
     saveInputDraft: () => {},
     getInputDraft: () => undefined,
     clearInputDraft: () => {},
-    notifyAiComplete: () => {},
-    notifySensitiveCommandIntercepted: () => {},
-    notifyUserInteractionRequired: () => {},
+    notifyAiComplete: (_options) => {},
+    notifySensitiveCommandIntercepted: (_options) => {},
+    notifyUserInteractionRequired: (_options) => {},
   };
 
   // --- 1. Conversation session management ---
@@ -577,7 +596,7 @@ export const useChatConversation = (
     (conversationId: string, summary: string): void => {
       ctx.updateSessionField(conversationId, "summary", summary);
     },
-    [ctx]
+    [ctx.updateSessionField]
   );
 
   return {
@@ -599,10 +618,12 @@ export const useChatConversation = (
     runTtftMs: activeSession?.runTtftMs ?? 0,
     baselineCheckpointId: activeSession?.baselineCheckpointId,
     streamStartedAt: activeSession?.streamStartedAt ?? 0,
+    visionAnalysis: activeSession?.visionAnalysis,
     forkedFromConversationId: activeSession?.forkedFromConversationId,
     forkMessageCount: activeSession?.forkMessageCount,
     streamingConversationIds,
     completedConversationIds,
+    attentionRequiredConversationIds,
     isLoadingOlderMessages: activeSession?.isLoadingOlderMessages ?? false,
     hasMoreMessages: activeSession?.hasMoreMessages ?? false,
     isInitialHistoryLoaded: activeSession?.isInitialHistoryLoaded ?? false,

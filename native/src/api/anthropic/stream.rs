@@ -7,15 +7,18 @@ use std::time::Duration;
 use futures::StreamExt;
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{
+    HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE,
+};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, inject_custom_headers};
-use crate::api::retry::{
-    non_sse_response_error, should_retry, stream_idle_timeout_error, wait_before_retry, RetryOptions,
-};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
+use crate::api::retry::{
+    non_sse_response_error, should_retry, stream_idle_timeout_error, wait_before_retry,
+    RetryOptions,
+};
 use crate::api::sse::find_sse_separator;
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
@@ -151,12 +154,16 @@ pub(super) async fn collect_anthropic_stream(
                                 stream_token_count: stream_token_count as i64,
                                 elapsed_ms: stream_start.elapsed().as_millis() as i64,
                                 ttft_ms,
+                                vision_status: None,
                             },
                             ThreadsafeFunctionCallMode::NonBlocking,
                         );
 
                         match wait_before_retry(retry_options, cancel_token, attempt).await {
-                            Ok(()) => { attempt += 1; continue; }
+                            Ok(()) => {
+                                attempt += 1;
+                                continue;
+                            }
                             Err(e) => return Err(e),
                         }
                     }
@@ -180,12 +187,16 @@ pub(super) async fn collect_anthropic_stream(
                             stream_token_count: stream_token_count as i64,
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
+                            vision_status: None,
                         },
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
 
                     match wait_before_retry(retry_options, cancel_token, attempt).await {
-                        Ok(()) => { attempt += 1; continue; }
+                        Ok(()) => {
+                            attempt += 1;
+                            continue;
+                        }
                         Err(e) => return Err(e),
                     }
                 }
@@ -238,6 +249,7 @@ pub(super) async fn collect_anthropic_stream(
                             stream_token_count: stream_token_count as i64,
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
+                            vision_status: None,
                         },
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
@@ -387,6 +399,7 @@ pub(super) async fn collect_anthropic_stream(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -448,6 +461,7 @@ pub(super) async fn collect_anthropic_stream(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -535,7 +549,8 @@ pub(super) async fn collect_anthropic_stream(
     let content = content_chunks.join("").trim().to_string();
     let thinking = thinking_chunks.join("").trim().to_string();
     let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_else(|_| "[]".to_string());
-    let thinking_blocks_json = serde_json::to_string(&thinking_blocks).unwrap_or_else(|_| "[]".to_string());
+    let thinking_blocks_json =
+        serde_json::to_string(&thinking_blocks).unwrap_or_else(|_| "[]".to_string());
 
     // Anthropic returns input_tokens, cache_creation_input_tokens, and
     // cache_read_input_tokens as disjoint values. Normalize so input_tokens
@@ -587,7 +602,12 @@ pub(super) fn build_header_map(
     inject_custom_headers(
         &mut headers,
         custom_headers,
-        &["authorization", "x-api-key", "content-type", "accept-encoding"],
+        &[
+            "authorization",
+            "x-api-key",
+            "content-type",
+            "accept-encoding",
+        ],
     )?;
 
     Ok(headers)

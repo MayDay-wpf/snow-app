@@ -73,22 +73,21 @@ impl TodoService {
     /// List TODO items created by add actions that will be deleted when
     /// rolling back to the given response_id. Returns items whose response
     /// belongs to an assistant message at or after the rollback boundary.
-    pub fn list_todos_for_rollback(
-        session_id: &str,
-        response_id: &str,
-    ) -> napi::Result<String> {
+    pub fn list_todos_for_rollback(session_id: &str, response_id: &str) -> napi::Result<String> {
         let storage_info = crate::storage::initialize_app_storage().map_err(|e| {
             Error::new(
                 Status::GenericFailure,
                 format!("Failed to initialize app storage: {e}"),
             )
         })?;
-        let conn = crate::storage::database::open_connection(&storage_info.database_path).map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to open database: {e}"),
-            )
-        })?;
+        let conn = crate::storage::database::open_connection(&storage_info.database_path).map_err(
+            |e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to open database: {e}"),
+                )
+            },
+        )?;
 
         let mut stmt = conn
             .prepare(
@@ -107,9 +106,7 @@ impl TodoService {
                    ) \
                  ORDER BY created_at ASC",
             )
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Prepare failed: {e}"))
-            })?;
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Prepare failed: {e}")))?;
 
         let items: Vec<TodoItem> = stmt
             .query_map(rusqlite::params![session_id, response_id], |row| {
@@ -123,13 +120,9 @@ impl TodoService {
                     response_id: row.get(6)?,
                 })
             })
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Query failed: {e}"))
-            })?
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Query failed: {e}")))?
             .collect::<rusqlite::Result<Vec<TodoItem>>>()
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Row parse failed: {e}"))
-            })?;
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Row parse failed: {e}")))?;
 
         serde_json::to_string(&items).map_err(|e| {
             Error::new(
@@ -156,9 +149,7 @@ impl TodoService {
                 "SELECT id, content, status, created_at, updated_at, parent_id, response_id \
                  FROM todo_items WHERE session_id = ?1 ORDER BY created_at ASC",
             )
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Prepare failed: {e}"))
-            })?;
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Prepare failed: {e}")))?;
 
         let items: Vec<TodoItem> = stmt
             .query_map([session_id], |row| {
@@ -172,13 +163,9 @@ impl TodoService {
                     response_id: row.get(6)?,
                 })
             })
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Query failed: {e}"))
-            })?
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Query failed: {e}")))?
             .collect::<rusqlite::Result<Vec<TodoItem>>>()
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Row parse failed: {e}"))
-            })?;
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Row parse failed: {e}")))?;
 
         Ok(items)
     }
@@ -220,9 +207,7 @@ impl TodoService {
                     |_| Ok(()),
                 )
                 .optional()
-                .map_err(|e| {
-                    Error::new(Status::GenericFailure, format!("Query failed: {e}"))
-                })?;
+                .map_err(|e| Error::new(Status::GenericFailure, format!("Query failed: {e}")))?;
             if existing.is_none() {
                 continue;
             }
@@ -251,13 +236,8 @@ impl TodoService {
         Ok(any_found)
     }
 
-    fn delete_todos(
-        conn: &Connection,
-        session_id: &str,
-        ids: &[String],
-    ) -> napi::Result<usize> {
-        let id_set: std::collections::HashSet<&str> =
-            ids.iter().map(|s| s.as_str()).collect();
+    fn delete_todos(conn: &Connection, session_id: &str, ids: &[String]) -> napi::Result<usize> {
+        let id_set: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
 
         // Delete the items themselves and their direct children.
         let mut to_delete: Vec<String> = Vec::new();
@@ -277,9 +257,7 @@ impl TodoService {
                 "DELETE FROM todo_items WHERE id = ?1 AND session_id = ?2",
                 rusqlite::params![id, session_id],
             )
-            .map_err(|e| {
-                Error::new(Status::GenericFailure, format!("Delete failed: {e}"))
-            })?;
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Delete failed: {e}")))?;
         }
         Ok(to_delete.len())
     }
@@ -431,7 +409,8 @@ impl TodoService {
         if status.is_none() && content.is_none() {
             return Err(Error::new(
                 Status::InvalidArg,
-                "At least one of 'status' or 'content' must be provided for action=update".to_string(),
+                "At least one of 'status' or 'content' must be provided for action=update"
+                    .to_string(),
             ));
         }
 
@@ -627,12 +606,7 @@ impl TodoService {
             }
         })
         .await
-        .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Task join error: {e}"),
-            )
-        })??;
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task join error: {e}")))??;
 
         Ok(result)
     }

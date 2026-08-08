@@ -1,4 +1,4 @@
-import { Globe, Monitor, Type } from "lucide-react";
+import { Monitor, Type } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import type { TerminalSettingsValue } from "./types";
 
@@ -32,14 +32,6 @@ export function TerminalSettingsSummary({
           {t("settings.terminalFontSize", { defaultValue: "Font size" })}:{" "}
           {preview.fontSize}
         </small>
-      </div>
-      <div className="api-settings-summary-card">
-        <Globe size={15} strokeWidth={1.8} />
-        <span>
-          {preview.proxy ||
-            t("settings.terminalProxyNone", { defaultValue: "None" })}
-        </span>
-        <small>{t("settings.terminalProxy", { defaultValue: "Proxy" })}</small>
       </div>
     </div>
   );

@@ -42,11 +42,7 @@ pub fn list_project_mcp_server_configs(
     project_id: &str,
 ) -> Result<Vec<ProjectMcpServerConfigRecord>> {
     let settings = get_project_mcp_server_settings(database_path, project_id)?;
-    Ok(settings
-        .servers
-        .iter()
-        .map(to_project_record)
-        .collect())
+    Ok(settings.servers.iter().map(to_project_record).collect())
 }
 
 pub fn list_effective_mcp_server_configs(
@@ -101,19 +97,23 @@ pub(crate) fn upsert_project_mcp_server_config_with_connection(
 ) -> rusqlite::Result<()> {
     let name = normalize_required_value(&item.name, "MCP server name")
         .map_err(project_mcp_error_from_napi)?;
-    let transport_type = normalize_transport_type(&item.transport_type)
-        .map_err(project_mcp_error_from_napi)?;
+    let transport_type =
+        normalize_transport_type(&item.transport_type).map_err(project_mcp_error_from_napi)?;
     let url = item.url.trim().to_string();
     let command = item.command.trim().to_string();
     if transport_type == "http" && url.is_empty() {
         return Err(project_mcp_storage_error("HTTP MCP server URL is required"));
     }
     if transport_type == "stdio" && command.is_empty() {
-        return Err(project_mcp_storage_error("Stdio MCP server command is required"));
+        return Err(project_mcp_storage_error(
+            "Stdio MCP server command is required",
+        ));
     }
     validate_json_string_array(&item.args_json, "Args").map_err(project_mcp_error_from_napi)?;
-    validate_json_string_object(&item.env_json, "Environment").map_err(project_mcp_error_from_napi)?;
-    validate_json_string_object(&item.headers_json, "Headers").map_err(project_mcp_error_from_napi)?;
+    validate_json_string_object(&item.env_json, "Environment")
+        .map_err(project_mcp_error_from_napi)?;
+    validate_json_string_object(&item.headers_json, "Headers")
+        .map_err(project_mcp_error_from_napi)?;
     if item.timeout_ms.is_some_and(|timeout| timeout <= 0) {
         return Err(project_mcp_storage_error(
             "MCP server timeout must be a positive integer",
@@ -141,9 +141,11 @@ pub(crate) fn upsert_project_mcp_server_config_with_connection(
             "MCP server name already exists in global scope",
         ));
     }
-    if settings.servers.iter().any(|server| {
-        server.server_id != server_id && server.name.trim() == name
-    }) {
+    if settings
+        .servers
+        .iter()
+        .any(|server| server.server_id != server_id && server.name.trim() == name)
+    {
         return Err(project_mcp_storage_error(
             "MCP server name already exists in this project",
         ));
@@ -225,7 +227,9 @@ pub fn delete_project_mcp_server_config(
                 .servers
                 .retain(|server| server.server_id != normalized_server_id);
             if settings.servers.len() == previous_len {
-                return Err(project_mcp_storage_error("Project MCP server does not exist"));
+                return Err(project_mcp_storage_error(
+                    "Project MCP server does not exist",
+                ));
             }
             write_project_mcp_server_settings_with_connection(&transaction, &settings)?;
             super::import_resources::delete_mcp_tracking_for_target(
@@ -237,7 +241,9 @@ pub fn delete_project_mcp_server_config(
             transaction.commit()?;
             Ok(())
         })
-        .map_err(|error| database::database_error(database_path, "delete project MCP server config", error))
+        .map_err(|error| {
+            database::database_error(database_path, "delete project MCP server config", error)
+        })
 }
 
 fn get_project_mcp_server_settings(
@@ -245,8 +251,12 @@ fn get_project_mcp_server_settings(
     project_id: &str,
 ) -> Result<ProjectMcpServerSettings> {
     database::open_connection(database_path)
-        .and_then(|connection| get_project_mcp_server_settings_with_connection(&connection, project_id))
-        .map_err(|error| database::database_error(database_path, "read project MCP server settings", error))
+        .and_then(|connection| {
+            get_project_mcp_server_settings_with_connection(&connection, project_id)
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "read project MCP server settings", error)
+        })
 }
 
 fn get_project_mcp_server_settings_with_connection(
@@ -272,9 +282,12 @@ fn get_project_mcp_server_settings_with_connection(
         });
     };
 
-    let mut settings = serde_json::from_str::<ProjectMcpServerSettings>(&raw_value).map_err(
-        |error| project_mcp_storage_error(format!("Failed to parse project MCP server settings: {error}")),
-    )?;
+    let mut settings =
+        serde_json::from_str::<ProjectMcpServerSettings>(&raw_value).map_err(|error| {
+            project_mcp_storage_error(format!(
+                "Failed to parse project MCP server settings: {error}"
+            ))
+        })?;
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.to_string();
@@ -292,8 +305,12 @@ fn write_project_mcp_server_settings(
     settings: &ProjectMcpServerSettings,
 ) -> Result<()> {
     database::open_connection(database_path)
-        .and_then(|connection| write_project_mcp_server_settings_with_connection(&connection, settings))
-        .map_err(|error| database::database_error(database_path, "write project MCP server settings", error))
+        .and_then(|connection| {
+            write_project_mcp_server_settings_with_connection(&connection, settings)
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "write project MCP server settings", error)
+        })
 }
 
 fn write_project_mcp_server_settings_with_connection(
@@ -302,7 +319,9 @@ fn write_project_mcp_server_settings_with_connection(
 ) -> rusqlite::Result<()> {
     let setting_code = project_mcp_server_setting_code(&settings.project_id);
     let setting_value = serde_json::to_string(settings).map_err(|error| {
-        project_mcp_storage_error(format!("Failed to serialize project MCP server settings: {error}"))
+        project_mcp_storage_error(format!(
+            "Failed to serialize project MCP server settings: {error}"
+        ))
     })?;
     system_settings::set_system_setting_with_connection(
         connection,
@@ -425,7 +444,9 @@ fn validate_json_string_object(value: &str, label: &str) -> Result<()> {
         )
     })?;
     let valid = parsed.as_object().is_some_and(|items| {
-        items.iter().all(|(key, value)| !key.trim().is_empty() && value.is_string())
+        items
+            .iter()
+            .all(|(key, value)| !key.trim().is_empty() && value.is_string())
     });
     if !valid {
         return Err(Error::new(

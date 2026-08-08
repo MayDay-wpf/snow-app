@@ -55,11 +55,7 @@ pub fn update_memo_content(
 
 /// Sets the status of a memo ("pending" or "done").
 /// Returns the updated record, or an error if no row matched `memo_id`.
-pub fn update_memo_status(
-    database_path: &Path,
-    memo_id: &str,
-    status: &str,
-) -> Result<MemoRecord> {
+pub fn update_memo_status(database_path: &Path, memo_id: &str, status: &str) -> Result<MemoRecord> {
     let normalized = normalize_status(status);
     database::open_connection(database_path)
         .and_then(|connection| {
@@ -81,7 +77,10 @@ pub fn delete_memo(database_path: &Path, memo_id: &str) -> Result<()> {
 
 /// Returns total / pending / done memo counts for the sidebar badge,
 /// scoped to `directory_id`.
-pub fn get_memo_count_summary(database_path: &Path, directory_id: &str) -> Result<MemoCountSummary> {
+pub fn get_memo_count_summary(
+    database_path: &Path,
+    directory_id: &str,
+) -> Result<MemoCountSummary> {
     database::open_connection(database_path)
         .and_then(|connection| {
             let total: i32 = connection.query_row(
@@ -125,8 +124,7 @@ fn create_memo_with_connection(
         ],
     )?;
 
-    fetch_memo_by_id(connection, &memo_id)?
-        .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    fetch_memo_by_id(connection, &memo_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
 
 fn query_memos_page(

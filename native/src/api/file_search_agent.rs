@@ -23,9 +23,9 @@ use crate::api::summary::{
     resolve_anthropic_endpoint, resolve_chat_endpoint,
 };
 use crate::mcp::builtin::get_builtin_tools;
-use crate::mcp::service::McpService;
 use crate::mcp::servers::filesystem::FilesystemService;
 use crate::mcp::servers::grep::GrepService;
+use crate::mcp::service::McpService;
 use crate::mcp::tools::{
     tools_as_anthropic_json, tools_as_gemini_json, tools_as_openai_chat_json,
     tools_as_openai_responses_json, McpTool,
@@ -166,11 +166,7 @@ pub async fn run_file_search_agent(
             // 首轮未调用任何工具就给出答案：视为无依据回答，强制追问一轮，
             // 要求模型先实际使用工具搜索再作答。
             AgentRound::Done(text) if round == 0 => {
-                push_no_tool_follow_up(
-                    &mut messages,
-                    api_config.request_method.as_str(),
-                    &text,
-                );
+                push_no_tool_follow_up(&mut messages, api_config.request_method.as_str(), &text);
             }
             AgentRound::Done(text) => return parse_final_results(&text, &workspace_root),
             AgentRound::Continue(append) => {
@@ -256,10 +252,8 @@ async fn send_streaming_sse_request(
         let status = response.status();
         if !status.is_success() {
             let error_body = response.text().await.unwrap_or_default();
-            let error = Error::from_reason(format!(
-                "API request failed: {} {}",
-                status, error_body
-            ));
+            let error =
+                Error::from_reason(format!("API request failed: {} {}", status, error_body));
             if !should_retry(&error, attempt, retry_options) {
                 return Err(error);
             }
@@ -281,8 +275,7 @@ async fn send_streaming_sse_request(
             })?;
             byte_buffer.extend_from_slice(&chunk);
             loop {
-                let Some((separator_pos, separator_len)) = find_sse_separator(&byte_buffer)
-                else {
+                let Some((separator_pos, separator_len)) = find_sse_separator(&byte_buffer) else {
                     break;
                 };
                 let event_bytes: Vec<u8> = byte_buffer.drain(..separator_pos).collect();
@@ -337,9 +330,7 @@ fn process_sse_event_block(
     // 网关忽略 stream 参数直接返回非流式响应，或 `: ping` 注释行）。
     if !processed {
         let trimmed_block = event_block.trim();
-        if !trimmed_block.is_empty()
-            && !trimmed_block.starts_with(':')
-            && trimmed_block != "[DONE]"
+        if !trimmed_block.is_empty() && !trimmed_block.starts_with(':') && trimmed_block != "[DONE]"
         {
             if let Ok(event) = serde_json::from_str::<Value>(trimmed_block) {
                 on_event(event)?;
@@ -715,10 +706,8 @@ async fn run_responses_round(
                     // 只采纳 output_text 正文；reasoning 是模型内部思考，跳过。
                     if let Some(content) = item.get("content").and_then(Value::as_array) {
                         for part in content {
-                            let part_type = part
-                                .get("type")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default();
+                            let part_type =
+                                part.get("type").and_then(Value::as_str).unwrap_or_default();
                             if part_type == "output_text" {
                                 if let Some(part_text) = part.get("text").and_then(Value::as_str) {
                                     text.push_str(part_text);
@@ -901,7 +890,11 @@ async fn run_anthropic_round(
     let mut text = String::new();
     let mut assistant_blocks: Vec<Value> = Vec::new();
     for block in &content_blocks {
-        match block.get("type").and_then(Value::as_str).unwrap_or_default() {
+        match block
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "text" => {
                 if let Some(block_text) = block.get("text").and_then(Value::as_str) {
                     text.push_str(block_text);
@@ -1016,9 +1009,8 @@ fn merge_anthropic_stream_event(event: &Value, blocks_by_index: &mut BTreeMap<us
                     }
                 }
                 "input_json_delta" => {
-                    if let Some(partial) = event
-                        .pointer("/delta/partial_json")
-                        .and_then(Value::as_str)
+                    if let Some(partial) =
+                        event.pointer("/delta/partial_json").and_then(Value::as_str)
                     {
                         let current = block["input"].as_str().unwrap_or("");
                         block["input"] = json!(format!("{}{}", current, partial));
@@ -1118,7 +1110,11 @@ async fn run_gemini_round(
     let mut model_parts: Vec<Value> = Vec::new();
     for part in parts {
         // thought 标记的 part 是模型内部推理，跳过。
-        if part.get("thought").and_then(Value::as_bool).unwrap_or(false) {
+        if part
+            .get("thought")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             continue;
         }
         if let Some(part_text) = part.get("text").and_then(Value::as_str) {
@@ -1135,8 +1131,7 @@ async fn run_gemini_round(
                 .get("args")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let arguments_json =
-                serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string());
+            let arguments_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string());
             // gemini 协议没有 call_id，用序号生成占位 id。
             let call_id = format!("function-call-{}", tool_calls.len());
             tool_calls.push(AgentToolCall {
@@ -1519,8 +1514,14 @@ fn parse_result_entry(item: &Value, workspace_root: &str) -> Option<FileSearchRe
         .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(&path).to_string());
 
     let relative_path = relative_to_workspace(workspace_root, &path, raw_path);
-    let is_directory = item.get("isDirectory").and_then(Value::as_bool).unwrap_or(false);
-    let matched_name = item.get("matchedName").and_then(Value::as_bool).unwrap_or(true);
+    let is_directory = item
+        .get("isDirectory")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let matched_name = item
+        .get("matchedName")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     let line_matches = parse_line_matches(item.get("lineMatches"));
 
     Some(FileSearchResult {

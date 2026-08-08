@@ -519,7 +519,13 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             };
 
             // 通知系统：敏感命令被拦截，需要用户确认
-            ctx.notifySensitiveCommandIntercepted(toolCall.name);
+            ctx.notifySensitiveCommandIntercepted({
+              conversationId,
+              directoryId:
+                projectId ??
+                ctx.sessionsRefData.current.get(conversationId)?.directoryId,
+              toolName: toolCall.name,
+            });
 
             return new Promise<ToolAuthorizationDecision>((resolve) => {
               ctx.pendingToolAuthorizationRef.current.set(authorizationId, {
@@ -570,6 +576,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.yoloModeRef,
       ctx.alwaysApprovedToolsRef,
       ctx.pendingToolAuthorizationRef,
+      ctx.sessionsRefData,
       ctx.setPendingToolAuthorizations,
       ctx.notifySensitiveCommandIntercepted,
     ]

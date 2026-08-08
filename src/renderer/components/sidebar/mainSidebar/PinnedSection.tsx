@@ -30,6 +30,7 @@ export function PinnedSection({
     activeConversationId,
     abortConversation,
     streamingConversationIds,
+    attentionRequiredConversationIds,
     completedConversationIds,
     clearInputDraft,
   } = useChatConversationContext();
@@ -296,6 +297,9 @@ export function PinnedSection({
               key={conversation.conversationId}
               conversation={conversation}
               isActive={conversation.conversationId === activeConversationId}
+              isAttentionRequired={attentionRequiredConversationIds.has(
+                conversation.conversationId
+              )}
               isStreaming={streamingConversationIds.has(
                 conversation.conversationId
               )}

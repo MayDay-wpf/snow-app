@@ -15,7 +15,7 @@ export const normalizeRequestMethod = (value: unknown): RequestMethod => {
 
 const parseConfigJson = (configJson: string): Record<string, unknown> => {
   try {
-    const parsed = JSON.parse(configJson);
+    const parsed: unknown = JSON.parse(configJson);
     return isRecord(parsed) ? parsed : {};
   } catch {
     return {};
@@ -80,6 +80,41 @@ export const getThinkingValueFromConfig = (config: ApiConfigRecord): string => {
     : {};
   return resolveThinkingValue(chatThinking, "reasoning_effort");
 };
+
+export const getResponsesFastModeFromConfig = (
+  config: ApiConfigRecord
+): boolean => {
+  const parsedConfig = parseConfigJson(config.configJson);
+  const snowcfg = isRecord(parsedConfig.snowcfg) ? parsedConfig.snowcfg : {};
+  return snowcfg.responsesFastMode === true;
+};
+
+const buildConfigJsonWithResponsesFastMode = (
+  config: ApiConfigRecord,
+  enabled: boolean
+): string => {
+  const parsedConfig = parseConfigJson(config.configJson);
+  const snowcfg = {
+    ...(isRecord(parsedConfig.snowcfg) ? parsedConfig.snowcfg : {}),
+    responsesFastMode: enabled,
+  };
+
+  return JSON.stringify({
+    ...parsedConfig,
+    snowcfg,
+  });
+};
+
+export const toResponsesFastModeUpdatePayload = (
+  config: ApiConfigRecord,
+  enabled: boolean
+): ApiConfigRecord => ({
+  ...config,
+  apiKey: "",
+  visionApiKey: "",
+  visionBaseUrlMode: config.visionBaseUrlMode || "auto",
+  configJson: buildConfigJsonWithResponsesFastMode(config, enabled),
+});
 
 const buildConfigJsonWithThinking = (
   config: ApiConfigRecord,

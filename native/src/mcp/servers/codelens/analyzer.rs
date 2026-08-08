@@ -196,8 +196,6 @@ fn reference_access_str(reference: &oxc::semantic::Reference) -> &'static str {
     }
 }
 
-
-
 pub fn build_file_outline(file_path: &str, source_text: &str) -> Vec<OutlineEntry> {
     let path = Path::new(file_path);
     let source_type = source_type_from_path(path);
@@ -389,16 +387,29 @@ pub fn find_symbol_at_position(
     let offset = byte_offset_from_line_col(&line_index, line, column);
 
     for symbol in &analyzed.symbols {
-        let start = byte_offset_from_line_col(&line_index, symbol.location.line, symbol.location.column);
-        let end = byte_offset_from_line_col(&line_index, symbol.location.end_line, symbol.location.end_column);
+        let start =
+            byte_offset_from_line_col(&line_index, symbol.location.line, symbol.location.column);
+        let end = byte_offset_from_line_col(
+            &line_index,
+            symbol.location.end_line,
+            symbol.location.end_column,
+        );
         if offset >= start && offset < end {
             return Some((symbol.name.clone(), symbol.clone()));
         }
     }
 
     for (name, ref_info) in &analyzed.references {
-        let start = byte_offset_from_line_col(&line_index, ref_info.location.line, ref_info.location.column);
-        let end = byte_offset_from_line_col(&line_index, ref_info.location.end_line, ref_info.location.end_column);
+        let start = byte_offset_from_line_col(
+            &line_index,
+            ref_info.location.line,
+            ref_info.location.column,
+        );
+        let end = byte_offset_from_line_col(
+            &line_index,
+            ref_info.location.end_line,
+            ref_info.location.end_column,
+        );
         if offset >= start && offset < end {
             for symbol in &analyzed.symbols {
                 if symbol.name == *name {
@@ -424,8 +435,13 @@ pub fn find_references_at_position(
     let mut symbol_name: Option<String> = None;
 
     for symbol in &analyzed.symbols {
-        let start = byte_offset_from_line_col(&line_index, symbol.location.line, symbol.location.column);
-        let end = byte_offset_from_line_col(&line_index, symbol.location.end_line, symbol.location.end_column);
+        let start =
+            byte_offset_from_line_col(&line_index, symbol.location.line, symbol.location.column);
+        let end = byte_offset_from_line_col(
+            &line_index,
+            symbol.location.end_line,
+            symbol.location.end_column,
+        );
         if offset >= start && offset < end {
             symbol_name = Some(symbol.name.clone());
             break;
@@ -434,8 +450,16 @@ pub fn find_references_at_position(
 
     if symbol_name.is_none() {
         for (name, ref_info) in &analyzed.references {
-            let start = byte_offset_from_line_col(&line_index, ref_info.location.line, ref_info.location.column);
-            let end = byte_offset_from_line_col(&line_index, ref_info.location.end_line, ref_info.location.end_column);
+            let start = byte_offset_from_line_col(
+                &line_index,
+                ref_info.location.line,
+                ref_info.location.column,
+            );
+            let end = byte_offset_from_line_col(
+                &line_index,
+                ref_info.location.end_line,
+                ref_info.location.end_column,
+            );
             if offset >= start && offset < end {
                 symbol_name = Some(name.clone());
                 break;
@@ -463,7 +487,11 @@ pub fn find_references_at_position(
 
 /// Find all references to a symbol by name within a single JS/TS file.
 /// Includes both resolved references, unresolved references, and the definition itself.
-pub fn find_references_by_name(file_path: &str, source_text: &str, name: &str) -> Vec<ReferenceInfo> {
+pub fn find_references_by_name(
+    file_path: &str,
+    source_text: &str,
+    name: &str,
+) -> Vec<ReferenceInfo> {
     let analyzed = analyze_file(file_path, source_text);
     let mut refs = Vec::new();
 
@@ -495,7 +523,11 @@ pub fn find_references_by_name(file_path: &str, source_text: &str, name: &str) -
 }
 
 /// Find the definition of a symbol by name within a single JS/TS file.
-pub fn find_definition_by_name(file_path: &str, source_text: &str, name: &str) -> Option<SymbolInfo> {
+pub fn find_definition_by_name(
+    file_path: &str,
+    source_text: &str,
+    name: &str,
+) -> Option<SymbolInfo> {
     let analyzed = analyze_file(file_path, source_text);
     analyzed.symbols.into_iter().find(|s| s.name == name)
 }

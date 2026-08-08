@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -25,9 +25,7 @@ pub struct FileContentResult {
     pub size: i64,
 }
 
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "svg",
-];
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "svg"];
 
 const MIME_TYPES: &[(&str, &str)] = &[
     ("png", "image/png"),
@@ -218,32 +216,127 @@ const DOTDIR_ALLOWLIST: &[&str] = &[
 // File extensions that are textual and worth scanning for content matches.
 // Binary / image / archive / media extensions are excluded automatically.
 const TEXTUAL_EXTENSIONS: &[&str] = &[
-    "txt", "md", "mdx", "markdown", "rst", "log", "csv", "tsv", "ini", "cfg",
-    "conf", "config", "properties", "yaml", "yml", "toml", "json", "jsonc",
-    "json5", "xml", "html", "htm", "css", "scss", "sass", "less", "styl",
-    "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "vue", "svelte",
-    "astro", "py", "rb", "php", "go", "rs", "c", "h", "cpp", "cc", "cxx",
-    "hpp", "hxx", "java", "kt", "kts", "swift", "scala", "clj", "cljs",
-    "edn", "ex", "exs", "erl", "hrl", "fs", "fsx", "ml", "mli", "nim",
-    "dart", "lua", "pl", "pm", "r", "R", "jl", "sh", "bash", "zsh", "fish",
-    "ps1", "bat", "cmd", "sql", "graphql", "gql", "proto", "thrift", "sol",
-    "vy", "asm", "s", "wasm", "wat", "make", "mk", "tf",
-    "tfvars", "hcl", "env", "gitignore", "dockerignore", "npmignore",
-    "editorconfig", "prettierrc", "eslintrc", "babelrc", "stylelintrc",
-    "wxml", "wxss", "axml", "acss",
+    "txt",
+    "md",
+    "mdx",
+    "markdown",
+    "rst",
+    "log",
+    "csv",
+    "tsv",
+    "ini",
+    "cfg",
+    "conf",
+    "config",
+    "properties",
+    "yaml",
+    "yml",
+    "toml",
+    "json",
+    "jsonc",
+    "json5",
+    "xml",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "styl",
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "mjs",
+    "cjs",
+    "mts",
+    "cts",
+    "vue",
+    "svelte",
+    "astro",
+    "py",
+    "rb",
+    "php",
+    "go",
+    "rs",
+    "c",
+    "h",
+    "cpp",
+    "cc",
+    "cxx",
+    "hpp",
+    "hxx",
+    "java",
+    "kt",
+    "kts",
+    "swift",
+    "scala",
+    "clj",
+    "cljs",
+    "edn",
+    "ex",
+    "exs",
+    "erl",
+    "hrl",
+    "fs",
+    "fsx",
+    "ml",
+    "mli",
+    "nim",
+    "dart",
+    "lua",
+    "pl",
+    "pm",
+    "r",
+    "R",
+    "jl",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "ps1",
+    "bat",
+    "cmd",
+    "sql",
+    "graphql",
+    "gql",
+    "proto",
+    "thrift",
+    "sol",
+    "vy",
+    "asm",
+    "s",
+    "wasm",
+    "wat",
+    "make",
+    "mk",
+    "tf",
+    "tfvars",
+    "hcl",
+    "env",
+    "gitignore",
+    "dockerignore",
+    "npmignore",
+    "editorconfig",
+    "prettierrc",
+    "eslintrc",
+    "babelrc",
+    "stylelintrc",
+    "wxml",
+    "wxss",
+    "axml",
+    "acss",
 ];
 
 // Extensions that are known to be binary and must never be scanned for text.
 const BINARY_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif", "heic",
-    "heif", "avif", "psd", "ai", "sketch", "fig", "xcf", "mp3", "wav", "flac",
-    "ogg", "opus", "aac", "m4a", "wma", "mp4", "mov", "mkv", "avi", "wmv",
-    "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "zip", "tar", "gz", "tgz",
-    "bz2", "xz", "zst", "lz", "lzma", "7z", "rar", "iso", "dmg", "pkg",
-    "deb", "rpm", "msi", "exe", "dll", "so", "dylib", "a", "lib", "o", "obj",
-    "pdb", "ipa", "apk", "aab", "jar", "war", "class", "wasm", "ncb",
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
-    "sqlite", "sqlite3", "db", "mdb", "lock", "bin", "dat",
+    "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif", "heic", "heif", "avif",
+    "psd", "ai", "sketch", "fig", "xcf", "mp3", "wav", "flac", "ogg", "opus", "aac", "m4a", "wma",
+    "mp4", "mov", "mkv", "avi", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "zip", "tar",
+    "gz", "tgz", "bz2", "xz", "zst", "lz", "lzma", "7z", "rar", "iso", "dmg", "pkg", "deb", "rpm",
+    "msi", "exe", "dll", "so", "dylib", "a", "lib", "o", "obj", "pdb", "ipa", "apk", "aab", "jar",
+    "war", "class", "wasm", "ncb", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt",
+    "ods", "odp", "sqlite", "sqlite3", "db", "mdb", "lock", "bin", "dat",
 ];
 
 fn is_textual_extension(ext: &str) -> bool {
@@ -340,10 +433,7 @@ pub fn read_directory_entries(dir_path: &str) -> Result<Vec<DirectoryEntry>> {
     }
 
     let entries = fs::read_dir(path).map_err(|e| {
-        Error::from_reason(format!(
-            "Failed to read directory '{}': {}",
-            dir_path, e
-        ))
+        Error::from_reason(format!("Failed to read directory '{}': {}", dir_path, e))
     })?;
 
     let mut result: Vec<DirectoryEntry> = Vec::new();
@@ -367,7 +457,11 @@ pub fn read_directory_entries(dir_path: &str) -> Result<Vec<DirectoryEntry>> {
         let is_directory = metadata.is_dir();
         // Lazy loading: don't read directory contents during listing.
         // Children are loaded on demand when the user expands the directory.
-        let size = if is_directory { 0 } else { metadata.len() as i64 };
+        let size = if is_directory {
+            0
+        } else {
+            metadata.len() as i64
+        };
 
         result.push(DirectoryEntry {
             name,
@@ -741,13 +835,11 @@ fn collect_matching_dirs(
 ) {
     if depth > 0
         && rel_segments.len() >= dir_segments.len()
-        && rel_segments
-            .windows(dir_segments.len())
-            .any(|win| {
-                win.iter()
-                    .zip(dir_segments.iter())
-                    .all(|(a, b)| a.starts_with(b))
-            })
+        && rel_segments.windows(dir_segments.len()).any(|win| {
+            win.iter()
+                .zip(dir_segments.iter())
+                .all(|(a, b)| a.starts_with(b))
+        })
     {
         candidates.push(current_dir.to_path_buf());
     }
@@ -875,7 +967,9 @@ fn resolve_workspace_entry(root_path: &str, entry_path: &str) -> Result<(PathBuf
     })?;
 
     if entry == root || !entry.starts_with(&root) {
-        return Err(Error::from_reason("Workspace entry is outside the workspace root"));
+        return Err(Error::from_reason(
+            "Workspace entry is outside the workspace root",
+        ));
     }
 
     Ok((root, entry))
@@ -889,7 +983,9 @@ fn validate_entry_name(name: &str) -> Result<&str> {
     ) && Path::new(trimmed).components().count() == 1;
 
     if !is_single_normal_component {
-        return Err(Error::from_reason("Entry name must be a single file or directory name"));
+        return Err(Error::from_reason(
+            "Entry name must be a single file or directory name",
+        ));
     }
 
     Ok(trimmed)
@@ -898,9 +994,9 @@ fn validate_entry_name(name: &str) -> Result<&str> {
 pub fn rename_workspace_entry(root_path: &str, entry_path: &str, new_name: &str) -> Result<()> {
     let (_root, entry) = resolve_workspace_entry(root_path, entry_path)?;
     let name = validate_entry_name(new_name)?;
-    let parent = entry.parent().ok_or_else(|| {
-        Error::from_reason("Workspace entry does not have a parent directory")
-    })?;
+    let parent = entry
+        .parent()
+        .ok_or_else(|| Error::from_reason("Workspace entry does not have a parent directory"))?;
     let destination = parent.join(name);
 
     if destination.exists() {
@@ -913,7 +1009,8 @@ pub fn rename_workspace_entry(root_path: &str, entry_path: &str, new_name: &str)
     fs::rename(&entry, &destination).map_err(|error| {
         Error::from_reason(format!(
             "Failed to rename workspace entry '{}': {}",
-            entry.display(), error
+            entry.display(),
+            error
         ))
     })
 }
@@ -929,7 +1026,8 @@ pub fn delete_workspace_entry(root_path: &str, entry_path: &str) -> Result<()> {
     result.map_err(|error| {
         Error::from_reason(format!(
             "Failed to delete workspace entry '{}': {}",
-            entry.display(), error
+            entry.display(),
+            error
         ))
     })
 }
@@ -951,12 +1049,8 @@ pub fn read_file_content(file_path: &str) -> Result<FileContentResult> {
         )));
     }
 
-    let buffer = fs::read(path).map_err(|e| {
-        Error::from_reason(format!(
-            "Failed to read file '{}': {}",
-            file_path, e
-        ))
-    })?;
+    let buffer = fs::read(path)
+        .map_err(|e| Error::from_reason(format!("Failed to read file '{}': {}", file_path, e)))?;
 
     Ok(process_file_content(file_path, buffer))
 }
@@ -976,10 +1070,6 @@ pub fn write_file_content(file_path: &str, content: &str) -> Result<()> {
         }
     }
 
-    fs::write(path, content.as_bytes()).map_err(|e| {
-        Error::from_reason(format!(
-            "Failed to write file '{}': {}",
-            file_path, e
-        ))
-    })
+    fs::write(path, content.as_bytes())
+        .map_err(|e| Error::from_reason(format!("Failed to write file '{}': {}", file_path, e)))
 }

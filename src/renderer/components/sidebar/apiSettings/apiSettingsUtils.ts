@@ -23,6 +23,74 @@ const normalizeRequestMethod = (value: string): RequestMethod => {
   return "chat";
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseConfigJson = (configJson: string): Record<string, unknown> => {
+  try {
+    const parsed: unknown = JSON.parse(configJson);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const readSnowcfg = (configJson: string): Record<string, unknown> => {
+  const parsed = parseConfigJson(configJson);
+  return isRecord(parsed.snowcfg) ? parsed.snowcfg : {};
+};
+
+export const extractResponsesVerbosityFromConfigJson = (
+  configJson: string
+): string => {
+  const value = readSnowcfg(configJson).responsesVerbosity;
+  return value === "low" || value === "medium" || value === "high" ? value : "";
+};
+
+export const extractResponsesFastModeFromConfigJson = (
+  configJson: string
+): boolean => readSnowcfg(configJson).responsesFastMode === true;
+
+/** 读取 gemini 渠道的谷歌搜索联网开关（snowcfg.googleSearch） */
+export const extractGoogleSearchFromConfigJson = (
+  configJson: string
+): boolean => readSnowcfg(configJson).googleSearch === true;
+
+/** 读取 gemini 视觉（图片模型）渠道的谷歌搜索联网开关（snowcfg.visionGoogleSearch） */
+export const extractVisionGoogleSearchFromConfigJson = (
+  configJson: string
+): boolean => readSnowcfg(configJson).visionGoogleSearch === true;
+
+/** 读取视觉模型的思考开关（snowcfg.visionThinking.enabled，默认关闭） */
+export const extractVisionThinkingEnabledFromConfigJson = (
+  configJson: string
+): boolean => {
+  const thinking = readSnowcfg(configJson).visionThinking;
+  return (
+    typeof thinking === "object" &&
+    thinking !== null &&
+    (thinking as { enabled?: unknown }).enabled === true
+  );
+};
+
+/** 读取视觉模型的思考强度（snowcfg.visionThinking.reasoning_effort） */
+export const extractVisionThinkingEffortFromConfigJson = (
+  configJson: string
+): string => {
+  const thinking = readSnowcfg(configJson).visionThinking;
+  if (typeof thinking !== "object" || thinking === null) return "";
+  const effort = (thinking as { reasoning_effort?: unknown }).reasoning_effort;
+  return typeof effort === "string" && effort.trim() ? effort : "";
+};
+
+/** 读取视觉模型的最大输出 tokens（snowcfg.visionMaxTokens，默认 4096） */
+export const extractVisionMaxTokensFromConfigJson = (
+  configJson: string
+): string => {
+  const value = readSnowcfg(configJson).visionMaxTokens;
+  return typeof value === "number" && value > 0 ? String(value) : "";
+};
+
 /**
  * Validates a thinking value against the available options for the given
  * request method. Returns the value itself when it is a known option for
@@ -50,12 +118,19 @@ export const resolveThinkingValue = (
 const buildConfigJsonWithThinking = (
   thinkingValue: string,
   requestMethod: string,
-  snowcfgBase: Record<string, unknown>
+  configJson: string,
+  snowcfgOverrides: Record<string, unknown>
 ): string => {
   const method = normalizeRequestMethod(requestMethod);
   const isThinkingEnabled = thinkingValue !== "none";
-
-  const snowcfg: Record<string, unknown> = { ...snowcfgBase };
+  const parsedConfig = parseConfigJson(configJson);
+  const existingSnowcfg = isRecord(parsedConfig.snowcfg)
+    ? parsedConfig.snowcfg
+    : {};
+  const snowcfg: Record<string, unknown> = {
+    ...existingSnowcfg,
+    ...snowcfgOverrides,
+  };
   snowcfg.requestMethod = requestMethod || method;
 
   if (method === "anthropic") {
@@ -81,7 +156,10 @@ const buildConfigJsonWithThinking = (
     };
   }
 
-  return JSON.stringify({ snowcfg });
+  return JSON.stringify({
+    ...parsedConfig,
+    snowcfg,
+  });
 };
 
 /**
@@ -167,6 +245,14 @@ export const emptyApiConfigForm = (
   systemPromptIdsJson: "",
   customHeaderSchemeId: "",
   thinkingValue: DEFAULT_THINKING_VALUE,
+  responsesVerbosity: "",
+  responsesFastMode: false,
+  googleSearch: false,
+  visionGoogleSearch: false,
+  visionThinkingEnabled: false,
+  visionThinkingEffort: "",
+  visionMaxTokens: "",
+  configJson: "{}",
 });
 
 export const parseOptionalInteger = (value: string): number | null => {
@@ -196,6 +282,7 @@ export function toApiConfigPayload(
   const configJson = buildConfigJsonWithThinking(
     data.thinkingValue || DEFAULT_THINKING_VALUE,
     requestMethod,
+    data.configJson,
     {
       baseUrl,
       baseUrlMode: data.baseUrlMode,
@@ -211,6 +298,17 @@ export function toApiConfigPayload(
       enableAutoCompress: data.enableAutoCompress,
       autoCompressThresholdPercent,
       autoCompressThreshold: autoCompressThresholdTokens ?? undefined,
+      responsesVerbosity: data.responsesVerbosity || undefined,
+      responsesFastMode: data.responsesFastMode,
+      googleSearch: data.googleSearch,
+      visionGoogleSearch: data.visionGoogleSearch,
+      visionThinking: data.visionThinkingEnabled
+        ? {
+            enabled: true,
+            reasoning_effort: data.visionThinkingEffort || undefined,
+          }
+        : { enabled: false },
+      visionMaxTokens: parseOptionalInteger(data.visionMaxTokens) ?? undefined,
     }
   );
 

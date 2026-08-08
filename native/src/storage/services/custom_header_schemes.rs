@@ -6,9 +6,7 @@ use rusqlite::{params, Connection};
 use super::super::database;
 use super::super::{CustomHeaderSchemeInput, CustomHeaderSchemeRecord};
 
-pub fn list_custom_header_schemes(
-    database_path: &Path,
-) -> Result<Vec<CustomHeaderSchemeRecord>> {
+pub fn list_custom_header_schemes(database_path: &Path) -> Result<Vec<CustomHeaderSchemeRecord>> {
     database::open_connection(database_path)
         .and_then(|connection| query_custom_header_schemes(&connection))
         .map_err(|error| {

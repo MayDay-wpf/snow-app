@@ -13,7 +13,6 @@ export type TerminalSettings = {
   fontSize: number;
   fontWeight: string;
   lineHeight: number;
-  proxy: string;
 };
 
 export type PrivacyApiConfig = {
@@ -345,6 +344,7 @@ export type SubAgentConfigInput = {
   systemPrompt: string;
   toolsJson: string;
   configProfile: string;
+  model: string;
   builtin: boolean;
   sortOrder: number;
   source: string;

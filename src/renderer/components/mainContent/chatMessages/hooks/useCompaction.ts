@@ -23,7 +23,9 @@ export const useCompaction = (ctx: ConversationContextValue) => {
       model?: string,
       isAuto = false,
       subAgentConfigProfile?: string,
-      apiProfile?: string
+      apiProfile?: string,
+      subAgentToolsJson?: string,
+      subAgentSystemPrompt?: string
     ): Promise<string | null> => {
       const sessionRef = ctx.sessionsRefData.current.get(conversationId);
       if (sessionRef) {
@@ -87,6 +89,8 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         // conversations, carry the configured profile so Rust resolves the
         // same API config the sub-agent uses for the handoff.
         apiProfile,
+        subAgentToolsJson,
+        subAgentSystemPrompt,
         subAgentConfigProfile,
       };
 

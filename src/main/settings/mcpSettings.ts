@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   McpServerConfigInput,
@@ -33,6 +33,66 @@ type SnowCliMcpConfig = {
   scope: McpScope;
   servers: SnowCliMcpServer[];
   projectId?: string;
+};
+
+const deleteServerFromSettingsFile = (
+  filePath: string,
+  serverName: string
+): void => {
+  if (!existsSync(filePath)) {
+    return;
+  }
+
+  let settings: Record<string, unknown>;
+  try {
+    settings = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`Failed to read MCP settings file: ${filePath}`, { cause: error });
+  }
+
+  if (!isRecord(settings.mcpServers) || !(serverName in settings.mcpServers)) {
+    return;
+  }
+
+  const nextServers = { ...settings.mcpServers };
+  delete nextServers[serverName];
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    writeFileSync(
+      temporaryPath,
+      `${JSON.stringify({ ...settings, mcpServers: nextServers }, null, 2)}\n`,
+      "utf8"
+    );
+    renameSync(temporaryPath, filePath);
+  } catch (error) {
+    throw new Error(`Failed to update MCP settings file: ${filePath}`, { cause: error });
+  } finally {
+    if (existsSync(temporaryPath)) {
+      unlinkSync(temporaryPath);
+    }
+  }
+};
+
+export const deleteSnowCliMcpServerConfig = (serverName: string): void => {
+  deleteServerFromSettingsFile(SNOW_CLI_GLOBAL_SETTINGS_FILE, serverName);
+};
+
+export const deleteSnowCliProjectMcpServerConfig = async (
+  native: NativeBridge,
+  projectId: string,
+  serverName: string
+): Promise<void> => {
+  const directory = (await native.listWorkspaceDirectories()).find(
+    (item) => item.directoryId === projectId
+  );
+  if (!directory) {
+    throw new Error(`Project directory not found: ${projectId}`);
+  }
+  deleteServerFromSettingsFile(
+    join(directory.path, ".snow", "settings.json"),
+    serverName
+  );
 };
 
 const toServerId = (scope: string, name: string): string =>

@@ -62,8 +62,8 @@ pub fn tool_calls_as_chat_completions(tool_calls_json: &str) -> Vec<Value> {
     normalize_tool_calls(tool_calls_json)
         .into_iter()
         .map(|entry| {
-            let arguments = serde_json::to_string(&entry.input)
-                .unwrap_or_else(|_| "{}".to_string());
+            let arguments =
+                serde_json::to_string(&entry.input).unwrap_or_else(|_| "{}".to_string());
             serde_json::json!({
                 "id": entry.id,
                 "type": "function",
@@ -82,9 +82,21 @@ pub fn parse_tool_results_json(raw: &str) -> Vec<(String, String, String)> {
         .unwrap_or_default()
         .into_iter()
         .map(|v| {
-            let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-            let call_id = v.get("callId").and_then(|x| x.as_str()).unwrap_or("").to_string();
-            let result = v.get("result").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let name = v
+                .get("name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let call_id = v
+                .get("callId")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let result = v
+                .get("result")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             (name, call_id, result)
         })
         .collect()
@@ -233,10 +245,7 @@ fn normalize_tool_calls(tool_calls_json: &str) -> Vec<NormalizedToolCall> {
                 } else {
                     serde_json::json!({})
                 }
-            } else if let Some(args) = call
-                .get("functionCall")
-                .and_then(|f| f.get("args"))
-            {
+            } else if let Some(args) = call.get("functionCall").and_then(|f| f.get("args")) {
                 args.clone()
             } else {
                 serde_json::json!({})
@@ -413,8 +422,7 @@ pub fn ensure_tool_pairing(messages: &mut Vec<ChatContextMessage>) {
                             })
                         })
                         .collect();
-                    messages[i].tool_results_json =
-                        serde_json::to_string(&filtered_json).ok();
+                    messages[i].tool_results_json = serde_json::to_string(&filtered_json).ok();
                 }
             }
         }

@@ -15,6 +15,7 @@ type SidebarProps = {
   onActiveDirectoryChange?: SidebarContentProps["onActiveDirectoryChange"];
   onSelectMainView: SidebarContentProps["onSelectMainView"];
   onOpenSshWizard?: () => void;
+  onOpenTerminal?: SidebarContentProps["onOpenTerminal"];
   onOpenFile?: (
     filePath: string,
     fileName: string,
@@ -31,6 +32,7 @@ export const Sidebar = ({
   onActiveDirectoryChange,
   onSelectMainView,
   onOpenSshWizard,
+  onOpenTerminal,
   onOpenFile,
 }: SidebarProps): React.JSX.Element => {
   const [activeContent, setActiveContent] = useState<SidebarContentKey>("main");
@@ -93,6 +95,7 @@ export const Sidebar = ({
     onSwitchContent: handleSwitchContent,
     onSwitchToExplorer: handleSwitchToExplorer,
     onOpenSshWizard,
+    onOpenTerminal,
     onOpenFile,
   };
 

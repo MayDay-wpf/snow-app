@@ -234,14 +234,9 @@ async fn spawn_transport(
 
 fn rmcp_tool_to_remote(tool: rmcp::model::Tool) -> RemoteMcpTool {
     let name = tool.name.to_string();
-    let description = tool
-        .description
-        .as_deref()
-        .unwrap_or_default()
-        .to_string();
-    let input_schema = serde_json::to_value(tool.input_schema.as_ref()).unwrap_or_else(|_| {
-        serde_json::json!({ "type": "object", "properties": {} })
-    });
+    let description = tool.description.as_deref().unwrap_or_default().to_string();
+    let input_schema = serde_json::to_value(tool.input_schema.as_ref())
+        .unwrap_or_else(|_| serde_json::json!({ "type": "object", "properties": {} }));
     RemoteMcpTool {
         name,
         description,
@@ -250,21 +245,18 @@ fn rmcp_tool_to_remote(tool: rmcp::model::Tool) -> RemoteMcpTool {
 }
 
 fn call_tool_result_to_value(result: rmcp::model::CallToolResult) -> serde_json::Value {
-    serde_json::to_value(&result).unwrap_or_else(|_| {
-        serde_json::json!({ "content": [], "isError": false })
-    })
+    serde_json::to_value(&result)
+        .unwrap_or_else(|_| serde_json::json!({ "content": [], "isError": false }))
 }
 
 fn parse_string_array(value: &str, field: &str) -> Result<Vec<String>> {
-    serde_json::from_str(value).map_err(|error| {
-        Error::from_reason(format!("Invalid external MCP {field} JSON: {error}"))
-    })
+    serde_json::from_str(value)
+        .map_err(|error| Error::from_reason(format!("Invalid external MCP {field} JSON: {error}")))
 }
 
 fn parse_string_map(value: &str, field: &str) -> Result<HashMap<String, String>> {
-    serde_json::from_str(value).map_err(|error| {
-        Error::from_reason(format!("Invalid external MCP {field} JSON: {error}"))
-    })
+    serde_json::from_str(value)
+        .map_err(|error| Error::from_reason(format!("Invalid external MCP {field} JSON: {error}")))
 }
 
 /// On Windows, resolves a bare command name against PATH + PATHEXT.

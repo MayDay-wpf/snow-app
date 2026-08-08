@@ -110,10 +110,9 @@ pub fn parse_github_url(input: &str) -> Option<ParsedGitHubUrl> {
 
     // Full https / http URL
     // https://github.com/owner/repo/tree/branch/sub/dir
-    let url_re = regex::Regex::new(
-        r"(?i)^https?://github\.com/([^/]+)/([^/]+)(?:/tree/([^/]+)(/.*)?)?$",
-    )
-    .ok()?;
+    let url_re =
+        regex::Regex::new(r"(?i)^https?://github\.com/([^/]+)/([^/]+)(?:/tree/([^/]+)(/.*)?)?$")
+            .ok()?;
     if let Some(caps) = url_re.captures(&working) {
         let owner = caps.get(1)?.as_str().to_string();
         let repo = caps.get(2)?.as_str().to_string();
@@ -341,7 +340,7 @@ fn resolve_commit_sha(parsed: &ParsedGitHubUrl) -> napi::Result<ShaInfo> {
         parsed.owner, parsed.repo, ref_path
     );
     let client = build_http_client()?;
-    let resp = client.get(&url).header("User-Agent", "snow-app").send().map_err(|e| {
+    let resp = client.get(&url).send().map_err(|e| {
         Error::new(
             Status::GenericFailure,
             format!("GitHub API request failed: {e}"),
@@ -350,17 +349,16 @@ fn resolve_commit_sha(parsed: &ParsedGitHubUrl) -> napi::Result<ShaInfo> {
 
     if !resp.status().is_success() {
         // Fall back to the repo endpoint for default branch info
-        let repo_url = format!("https://api.github.com/repos/{}/{}", parsed.owner, parsed.repo);
-        let repo_resp = client
-            .get(&repo_url)
-            .header("User-Agent", "snow-app")
-            .send()
-            .map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("GitHub repo API request failed: {e}"),
-                )
-            })?;
+        let repo_url = format!(
+            "https://api.github.com/repos/{}/{}",
+            parsed.owner, parsed.repo
+        );
+        let repo_resp = client.get(&repo_url).send().map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("GitHub repo API request failed: {e}"),
+            )
+        })?;
         if !repo_resp.status().is_success() {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -386,16 +384,12 @@ fn resolve_commit_sha(parsed: &ParsedGitHubUrl) -> napi::Result<ShaInfo> {
             "https://api.github.com/repos/{}/{}/commits/{}",
             parsed.owner, parsed.repo, default_branch
         );
-        let sha_resp = client
-            .get(&sha_url)
-            .header("User-Agent", "snow-app")
-            .send()
-            .map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("GitHub commits API request failed: {e}"),
-                )
-            })?;
+        let sha_resp = client.get(&sha_url).send().map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("GitHub commits API request failed: {e}"),
+            )
+        })?;
         if !sha_resp.status().is_success() {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -440,7 +434,8 @@ fn resolve_commit_sha(parsed: &ParsedGitHubUrl) -> napi::Result<ShaInfo> {
 }
 
 fn build_http_client() -> napi::Result<reqwest::blocking::Client> {
-    let mut builder = reqwest::blocking::Client::builder().user_agent("snow-app");
+    let mut builder =
+        reqwest::blocking::Client::builder().user_agent(crate::api::http_client::app_user_agent());
     // Use a GitHub token when available to avoid unauthenticated API rate
     // limits (60 requests/hour per IP). Reads GITHUB_TOKEN first, then
     // GH_TOKEN (the environment variable used by the gh CLI, e.g. after
@@ -452,8 +447,7 @@ fn build_http_client() -> napi::Result<reqwest::blocking::Client> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(token) = token {
-        if let Ok(header_value) =
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+        if let Ok(header_value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
         {
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert(reqwest::header::AUTHORIZATION, header_value);
@@ -475,7 +469,11 @@ fn build_http_client() -> napi::Result<reqwest::blocking::Client> {
 /// api.github.com tarball endpoint: codeload is not subject to the anonymous
 /// API rate limit, so installs keep working without authentication (e.g. no
 /// gh login / GITHUB_TOKEN). It accepts a branch, tag, commit SHA or `HEAD`.
-fn download_and_extract(parsed: &ParsedGitHubUrl, ref_name: &str, target_dir: &Path) -> napi::Result<()> {
+fn download_and_extract(
+    parsed: &ParsedGitHubUrl,
+    ref_name: &str,
+    target_dir: &Path,
+) -> napi::Result<()> {
     let download_url = format!(
         "https://codeload.github.com/{}/{}/tar.gz/{}",
         parsed.owner, parsed.repo, ref_name
@@ -805,9 +803,10 @@ impl DirectoryCommit {
 fn derive_skill_id(metadata: &Option<(String, String)>, repo: &str) -> String {
     if let Some((name, _)) = metadata {
         if !name.is_empty() {
-            let id = name
-                .to_lowercase()
-                .replace(|c: char| !c.is_ascii_alphanumeric() && c != '/' && c != '-', "-");
+            let id = name.to_lowercase().replace(
+                |c: char| !c.is_ascii_alphanumeric() && c != '/' && c != '-',
+                "-",
+            );
             let id = collapse_dashes(&id);
             let id = id.trim_matches('-').to_string();
             if !id.is_empty() {
@@ -818,9 +817,7 @@ fn derive_skill_id(metadata: &Option<(String, String)>, repo: &str) -> String {
     let fallback = repo
         .to_lowercase()
         .replace(|c: char| !c.is_ascii_alphanumeric(), "-");
-    collapse_dashes(&fallback)
-        .trim_matches('-')
-        .to_string()
+    collapse_dashes(&fallback).trim_matches('-').to_string()
 }
 
 /// Replace runs of consecutive `-` with a single `-` (mirrors `/-+/g`).
@@ -986,7 +983,10 @@ fn install_skill_from_github_blocking(
     };
 
     // 2. Create temp directory
-    let tmp_dir = std::env::temp_dir().join(format!("snow-skill-{}", chrono::Utc::now().timestamp_millis()));
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "snow-skill-{}",
+        chrono::Utc::now().timestamp_millis()
+    ));
     fs::create_dir_all(&tmp_dir).map_err(|e| {
         Error::new(
             Status::GenericFailure,
@@ -1144,8 +1144,7 @@ pub async fn uninstall_github_skill(
             });
         };
 
-        let skill_dir =
-            get_skill_directory(&record.id, &record.location, project_root.as_deref());
+        let skill_dir = get_skill_directory(&record.id, &record.location, project_root.as_deref());
         remove_dir_if_exists(&skill_dir)?;
         remove_record(&record.id, &record.location)?;
 
@@ -1203,4 +1202,3 @@ fn resolve_project_root(project_id: &str) -> napi::Result<Option<PathBuf>> {
         )?;
     Ok(project_path.map(PathBuf::from))
 }
-

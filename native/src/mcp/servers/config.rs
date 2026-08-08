@@ -36,7 +36,7 @@ const TOOL_SET: &str = "set";
 const TOOL_DELETE: &str = "delete";
 
 /// DB-backed 配置域：子代理配置（写入应用 SQLite 数据库，与 UI 同源）。
-/// key = agentId，value = { name, description, systemPrompt, toolsJson, configProfile }。
+/// key = agentId，value = { name, description, systemPrompt, toolsJson, configProfile, model }。
 const SCOPE_SUB_AGENTS: &str = "subAgents";
 
 /// DB-backed 配置域：生命周期 hook 配置。
@@ -113,119 +113,436 @@ struct ScopeSpec {
 }
 
 const SETTINGS_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "mcpServers", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "codebase", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "sensitiveCommands", value_type: ValueType::Array, sensitive: false },
-    KeySpec { key: "yoloMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "planMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "vulnerabilityHuntingMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "toolSearchEnabled", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "hybridCompressEnabled", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "teamMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "goal", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "ultraTodoEnabled", value_type: ValueType::Bool, sensitive: false },
+    KeySpec {
+        key: "mcpServers",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "codebase",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "sensitiveCommands",
+        value_type: ValueType::Array,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "yoloMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "planMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "vulnerabilityHuntingMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "toolSearchEnabled",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "hybridCompressEnabled",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "teamMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "goal",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "ultraTodoEnabled",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
 ];
 
 const SNOWCFG_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "baseUrl", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "baseUrlMode", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "apiKey", value_type: ValueType::String, sensitive: true },
-    KeySpec { key: "requestMethod", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "advancedModel", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "basicModel", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "supportsVision", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "visionBaseUrl", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "visionBaseUrlMode", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "visionApiKey", value_type: ValueType::String, sensitive: true },
-    KeySpec { key: "visionRequestMethod", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "visionModel", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "maxContextTokens", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "maxTokens", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "showThinking", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "streamIdleTimeoutSec", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "maxRetries", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "retryDelayMs", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "enableAutoCompress", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "autoCompressThreshold", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "toolResultTokenLimit", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "anthropicBeta", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "streamingDisplay", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "systemPromptId", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "customHeadersSchemeId", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "anthropicCacheTTL", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "responsesReasoning", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "responsesVerbosity", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "responsesFastMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "chatThinking", value_type: ValueType::Object, sensitive: false },
+    KeySpec {
+        key: "baseUrl",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "baseUrlMode",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "apiKey",
+        value_type: ValueType::String,
+        sensitive: true,
+    },
+    KeySpec {
+        key: "requestMethod",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "advancedModel",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "basicModel",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "supportsVision",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "visionBaseUrl",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "visionBaseUrlMode",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "visionApiKey",
+        value_type: ValueType::String,
+        sensitive: true,
+    },
+    KeySpec {
+        key: "visionRequestMethod",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "visionModel",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "maxContextTokens",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "maxTokens",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "showThinking",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "streamIdleTimeoutSec",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "maxRetries",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "retryDelayMs",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "enableAutoCompress",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "autoCompressThreshold",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "toolResultTokenLimit",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "anthropicBeta",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "streamingDisplay",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "systemPromptId",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "customHeadersSchemeId",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "anthropicCacheTTL",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "responsesReasoning",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "responsesVerbosity",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "responsesFastMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "chatThinking",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
 ];
 
 const PROXY_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "enabled", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "host", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "port", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "searchEngine", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "browserPath", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "browserDebugPort", value_type: ValueType::Int, sensitive: false },
+    KeySpec {
+        key: "enabled",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "host",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "port",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "searchEngine",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "browserPath",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "browserDebugPort",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
 ];
 
-const APP_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "activeProfile", value_type: ValueType::String, sensitive: false },
-];
+const APP_SCOPE_KEYS: &[KeySpec] = &[KeySpec {
+    key: "activeProfile",
+    value_type: ValueType::String,
+    sensitive: false,
+}];
 
 /// 自定义请求头方案（schemes 内可能含 Authorization 等敏感头，整体脱敏）。
 const CUSTOM_HEADERS_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "active", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "schemes", value_type: ValueType::Array, sensitive: true },
+    KeySpec {
+        key: "active",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "schemes",
+        value_type: ValueType::Array,
+        sensitive: true,
+    },
 ];
 
 /// 系统提示词（prompts 含提示词正文，脱敏展示）。
 const SYSTEM_PROMPT_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "active", value_type: ValueType::Array, sensitive: false },
-    KeySpec { key: "prompts", value_type: ValueType::Array, sensitive: true },
+    KeySpec {
+        key: "active",
+        value_type: ValueType::Array,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "prompts",
+        value_type: ValueType::Array,
+        sensitive: true,
+    },
 ];
 
 const THEME_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "theme", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "simpleMode", value_type: ValueType::Bool, sensitive: false },
-    KeySpec { key: "diffOpacity", value_type: ValueType::Number, sensitive: false },
-    KeySpec { key: "toolDisplayMode", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "thinkDisplayMode", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "subAgentDisplayMode", value_type: ValueType::String, sensitive: false },
-    KeySpec { key: "toolIcons", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "customColors", value_type: ValueType::Object, sensitive: false },
+    KeySpec {
+        key: "theme",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "simpleMode",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "diffOpacity",
+        value_type: ValueType::Number,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "toolDisplayMode",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "thinkDisplayMode",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "subAgentDisplayMode",
+        value_type: ValueType::String,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "toolIcons",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "customColors",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
 ];
 
-const LANGUAGE_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "language", value_type: ValueType::String, sensitive: false },
-];
+const LANGUAGE_SCOPE_KEYS: &[KeySpec] = &[KeySpec {
+    key: "language",
+    value_type: ValueType::String,
+    sensitive: false,
+}];
 
-const PERMISSIONS_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "alwaysApprovedTools", value_type: ValueType::Array, sensitive: false },
-];
+const PERMISSIONS_SCOPE_KEYS: &[KeySpec] = &[KeySpec {
+    key: "alwaysApprovedTools",
+    value_type: ValueType::Array,
+    sensitive: false,
+}];
 
 const LSP_CONFIG_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "schemaVersion", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "servers", value_type: ValueType::Object, sensitive: false },
+    KeySpec {
+        key: "schemaVersion",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "servers",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
 ];
 
 const BUDDY_SCOPE_KEYS: &[KeySpec] = &[
-    KeySpec { key: "version", value_type: ValueType::Int, sensitive: false },
-    KeySpec { key: "companion", value_type: ValueType::Object, sensitive: false },
-    KeySpec { key: "muted", value_type: ValueType::Bool, sensitive: false },
+    KeySpec {
+        key: "version",
+        value_type: ValueType::Int,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "companion",
+        value_type: ValueType::Object,
+        sensitive: false,
+    },
+    KeySpec {
+        key: "muted",
+        value_type: ValueType::Bool,
+        sensitive: false,
+    },
 ];
 
 const SCOPES: &[ScopeSpec] = &[
-    ScopeSpec { scope: "settings", file_name: "settings.json", root_key: None, keys: SETTINGS_SCOPE_KEYS },
-    ScopeSpec { scope: "snowcfg", file_name: "config.json", root_key: Some("snowcfg"), keys: SNOWCFG_SCOPE_KEYS },
-    ScopeSpec { scope: "proxy", file_name: "proxy-config.json", root_key: None, keys: PROXY_SCOPE_KEYS },
-    ScopeSpec { scope: "app", file_name: "active-profile.json", root_key: None, keys: APP_SCOPE_KEYS },
-    ScopeSpec { scope: "custom-headers", file_name: "custom-headers.json", root_key: None, keys: CUSTOM_HEADERS_SCOPE_KEYS },
-    ScopeSpec { scope: "system-prompt", file_name: "system-prompt.json", root_key: None, keys: SYSTEM_PROMPT_SCOPE_KEYS },
-    ScopeSpec { scope: "theme", file_name: "theme.json", root_key: None, keys: THEME_SCOPE_KEYS },
-    ScopeSpec { scope: "language", file_name: "language.json", root_key: None, keys: LANGUAGE_SCOPE_KEYS },
-    ScopeSpec { scope: "permissions", file_name: "permissions.json", root_key: None, keys: PERMISSIONS_SCOPE_KEYS },
-    ScopeSpec { scope: "lsp-config", file_name: "lsp-config.json", root_key: None, keys: LSP_CONFIG_SCOPE_KEYS },
-    ScopeSpec { scope: "buddy", file_name: "buddy.json", root_key: None, keys: BUDDY_SCOPE_KEYS },
+    ScopeSpec {
+        scope: "settings",
+        file_name: "settings.json",
+        root_key: None,
+        keys: SETTINGS_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "snowcfg",
+        file_name: "config.json",
+        root_key: Some("snowcfg"),
+        keys: SNOWCFG_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "proxy",
+        file_name: "proxy-config.json",
+        root_key: None,
+        keys: PROXY_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "app",
+        file_name: "active-profile.json",
+        root_key: None,
+        keys: APP_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "custom-headers",
+        file_name: "custom-headers.json",
+        root_key: None,
+        keys: CUSTOM_HEADERS_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "system-prompt",
+        file_name: "system-prompt.json",
+        root_key: None,
+        keys: SYSTEM_PROMPT_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "theme",
+        file_name: "theme.json",
+        root_key: None,
+        keys: THEME_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "language",
+        file_name: "language.json",
+        root_key: None,
+        keys: LANGUAGE_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "permissions",
+        file_name: "permissions.json",
+        root_key: None,
+        keys: PERMISSIONS_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "lsp-config",
+        file_name: "lsp-config.json",
+        root_key: None,
+        keys: LSP_CONFIG_SCOPE_KEYS,
+    },
+    ScopeSpec {
+        scope: "buddy",
+        file_name: "buddy.json",
+        root_key: None,
+        keys: BUDDY_SCOPE_KEYS,
+    },
 ];
 
 /// 备份目录名（~/.snow/.config-backups）。
@@ -452,9 +769,7 @@ impl ConfigService {
             ValueType::String => value.is_string(),
             ValueType::Bool => value.is_boolean(),
             ValueType::Int => value.is_i64() || value.is_u64(),
-            ValueType::Number => {
-                value.is_f64() || value.is_i64() || value.is_u64()
-            }
+            ValueType::Number => value.is_f64() || value.is_i64() || value.is_u64(),
             ValueType::Object => value.is_object(),
             ValueType::Array => value.is_array(),
         };
@@ -597,15 +912,12 @@ impl ConfigService {
 
     /// custom-headers.schemes 数组结构校验（元素含 headers 对象）。
     fn validate_custom_header_schemes(value: &Value) -> napi::Result<()> {
-        let schemes = value.as_array().ok_or_else(|| {
-            invalid_nested_field_error("custom-headers.schemes", "array")
-        })?;
+        let schemes = value
+            .as_array()
+            .ok_or_else(|| invalid_nested_field_error("custom-headers.schemes", "array"))?;
         for (index, scheme) in schemes.iter().enumerate() {
             let obj = scheme.as_object().ok_or_else(|| {
-                invalid_nested_field_error(
-                    &format!("custom-headers.schemes[{index}]"),
-                    "object",
-                )
+                invalid_nested_field_error(&format!("custom-headers.schemes[{index}]"), "object")
             })?;
             for key in ["id", "name", "createdAt"] {
                 if let Some(v) = obj.get(key) {
@@ -627,9 +939,7 @@ impl ConfigService {
                 for (header_name, header_value) in header_obj {
                     if !header_value.is_string() {
                         return Err(invalid_nested_field_error(
-                            &format!(
-                                "custom-headers.schemes[{index}].headers.{header_name}"
-                            ),
+                            &format!("custom-headers.schemes[{index}].headers.{header_name}"),
                             "string",
                         ));
                     }
@@ -641,15 +951,12 @@ impl ConfigService {
 
     /// system-prompt.prompts 数组结构校验（元素含提示词正文）。
     fn validate_system_prompt_prompts(value: &Value) -> napi::Result<()> {
-        let prompts = value.as_array().ok_or_else(|| {
-            invalid_nested_field_error("system-prompt.prompts", "array")
-        })?;
+        let prompts = value
+            .as_array()
+            .ok_or_else(|| invalid_nested_field_error("system-prompt.prompts", "array"))?;
         for (index, prompt) in prompts.iter().enumerate() {
             let obj = prompt.as_object().ok_or_else(|| {
-                invalid_nested_field_error(
-                    &format!("system-prompt.prompts[{index}]"),
-                    "object",
-                )
+                invalid_nested_field_error(&format!("system-prompt.prompts[{index}]"), "object")
             })?;
             for key in ["id", "name", "content", "createdAt"] {
                 if let Some(v) = obj.get(key) {
@@ -667,15 +974,12 @@ impl ConfigService {
 
     /// lsp-config.servers 对象结构校验（每个语言服务器配置）。
     fn validate_lsp_servers(value: &Value) -> napi::Result<()> {
-        let servers = value.as_object().ok_or_else(|| {
-            invalid_nested_field_error("lsp-config.servers", "object")
-        })?;
+        let servers = value
+            .as_object()
+            .ok_or_else(|| invalid_nested_field_error("lsp-config.servers", "object"))?;
         for (lang, server) in servers {
             let obj = server.as_object().ok_or_else(|| {
-                invalid_nested_field_error(
-                    &format!("lsp-config.servers.{lang}"),
-                    "object",
-                )
+                invalid_nested_field_error(&format!("lsp-config.servers.{lang}"), "object")
             })?;
             for key in ["command", "installCommand"] {
                 if let Some(v) = obj.get(key) {
@@ -693,9 +997,7 @@ impl ConfigService {
                         for (i, item) in arr.iter().enumerate() {
                             if !item.is_string() {
                                 return Err(invalid_nested_field_error(
-                                    &format!(
-                                        "lsp-config.servers.{lang}.{key}[{i}]"
-                                    ),
+                                    &format!("lsp-config.servers.{lang}.{key}[{i}]"),
                                     "string",
                                 ));
                             }
@@ -711,9 +1013,7 @@ impl ConfigService {
             if let Some(v) = obj.get("initializationOptions") {
                 if !v.is_object() {
                     return Err(invalid_nested_field_error(
-                        &format!(
-                            "lsp-config.servers.{lang}.initializationOptions"
-                        ),
+                        &format!("lsp-config.servers.{lang}.initializationOptions"),
                         "object",
                     ));
                 }
@@ -763,9 +1063,7 @@ impl ConfigService {
                     .filter(|path| {
                         path.file_name()
                             .and_then(|name| name.to_str())
-                            .is_some_and(|name| {
-                                name.starts_with(&prefix) && name.ends_with(".bak")
-                            })
+                            .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".bak"))
                     })
                     .collect()
             })
@@ -887,7 +1185,10 @@ impl ConfigService {
                     .unwrap_or_else(|_| "{}".to_string()),
                 headers_json: serde_json::to_string(server.get("headers").unwrap_or(&json!({})))
                     .unwrap_or_else(|_| "{}".to_string()),
-                enabled: server.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                enabled: server
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
                 timeout_ms: server
                     .get("timeoutMs")
                     .and_then(Value::as_i64)
@@ -963,7 +1264,8 @@ impl ConfigService {
                 return self.list_db_hooks(project_id);
             }
 
-            let scope = Self::find_scope(scope_name).ok_or_else(|| invalid_scope_error(scope_name))?;
+            let scope =
+                Self::find_scope(scope_name).ok_or_else(|| invalid_scope_error(scope_name))?;
             let mut root = Self::read_json(scope)?;
             let config_root = Self::config_root(scope, &mut root)?;
 
@@ -975,24 +1277,18 @@ impl ConfigService {
                 let display = if let Some(pid) = &project_id {
                     if scope.scope == "settings" && key_spec.key == "mcpServers" {
                         self.list_project_mcp_servers(pid)?
-                    } else if scope.scope == "settings"
-                        && key_spec.key == "sensitiveCommands"
-                    {
+                    } else if scope.scope == "settings" && key_spec.key == "sensitiveCommands" {
                         self.list_project_sensitive_commands(pid)?
                     } else {
                         match config_root.get(key_spec.key) {
-                            Some(value) if key_spec.sensitive => {
-                                Self::mask_value(value)
-                            }
+                            Some(value) if key_spec.sensitive => Self::mask_value(value),
                             Some(value) => value.clone(),
                             None => Value::Null,
                         }
                     }
                 } else {
                     match config_root.get(key_spec.key) {
-                        Some(value) if key_spec.sensitive => {
-                            Self::mask_value(value)
-                        }
+                        Some(value) if key_spec.sensitive => Self::mask_value(value),
                         Some(value) => value.clone(),
                         None => Value::Null,
                     }
@@ -1071,7 +1367,8 @@ impl ConfigService {
         }
 
         let scope = Self::find_scope(scope_name).ok_or_else(|| invalid_scope_error(scope_name))?;
-        let key_spec = Self::find_key(scope, key_name).ok_or_else(|| invalid_key_error(scope, key_name))?;
+        let key_spec =
+            Self::find_key(scope, key_name).ok_or_else(|| invalid_key_error(scope, key_name))?;
 
         let mut root = Self::read_json(scope)?;
         let config_root = Self::config_root(scope, &mut root)?;
@@ -1091,7 +1388,10 @@ impl ConfigService {
         let scope_name = required_string(args, "scope")?;
         let key_name = required_string(args, "key")?;
         let value = args.get("value").cloned().ok_or_else(|| {
-            Error::new(Status::InvalidArg, "value is required for config-set".to_string())
+            Error::new(
+                Status::InvalidArg,
+                "value is required for config-set".to_string(),
+            )
         })?;
         let project_id = optional_project_id(args);
         if scope_name == SCOPE_SUB_AGENTS {
@@ -1119,7 +1419,8 @@ impl ConfigService {
         }
 
         let scope = Self::find_scope(scope_name).ok_or_else(|| invalid_scope_error(scope_name))?;
-        let key_spec = Self::find_key(scope, key_name).ok_or_else(|| invalid_key_error(scope, key_name))?;
+        let key_spec =
+            Self::find_key(scope, key_name).ok_or_else(|| invalid_key_error(scope, key_name))?;
         Self::validate_value(key_spec, &value)?;
 
         // settings.mcpServers 特殊处理：同步到应用 DB（生效作用域），
@@ -1138,7 +1439,10 @@ impl ConfigService {
             config_root.insert(key_name.to_string(), value.clone());
         }
         let content = serde_json::to_string_pretty(&Value::Object(root)).map_err(|error| {
-            Error::new(Status::GenericFailure, format!("Failed to serialize config: {error}"))
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to serialize config: {error}"),
+            )
         })?;
         Self::atomic_write(&file_path, &content)?;
         // 写入成功：删除本次写前备份（临时安全网不再需要）。
@@ -1214,7 +1518,10 @@ impl ConfigService {
 
         let backup = Self::backup_file(&file_path)?;
         let content = serde_json::to_string_pretty(&Value::Object(root)).map_err(|error| {
-            Error::new(Status::GenericFailure, format!("Failed to serialize config: {error}"))
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to serialize config: {error}"),
+            )
         })?;
         Self::atomic_write(&file_path, &content)?;
         // 删除成功：清理本次写前备份（临时安全网不再需要）。
@@ -1236,14 +1543,11 @@ impl ConfigService {
     // ---------------------------------------------------------------------
 
     /// 组装项目级 MCP 服务器为 {name: config} 对象（与全局 settings.json 形态一致）。
-    fn list_project_mcp_servers(
-        &self,
-        project_id: &str,
-    ) -> napi::Result<Value> {
+    fn list_project_mcp_servers(&self, project_id: &str) -> napi::Result<Value> {
         use crate::storage::services::project_mcp_server_configs as store;
         let db_path = db_path_or_error(&self.db_path)?;
-        let servers = store::list_project_mcp_server_configs(db_path, project_id)
-            .map_err(|error| {
+        let servers =
+            store::list_project_mcp_server_configs(db_path, project_id).map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
                     format!("Failed to list project MCP servers: {error}"),
@@ -1271,32 +1575,24 @@ impl ConfigService {
     }
 
     /// 全量替换项目级 MCP 服务器：清空现有项目级条目后逐条 upsert。
-    fn set_project_mcp_servers(
-        &self,
-        project_id: &str,
-        value: &Value,
-    ) -> napi::Result<Value> {
+    fn set_project_mcp_servers(&self, project_id: &str, value: &Value) -> napi::Result<Value> {
         use crate::storage::services::project_mcp_server_configs as store;
         let db_path = db_path_or_error(&self.db_path)?;
-        let existing = store::list_project_mcp_server_configs(db_path, project_id)
-            .map_err(|error| {
+        let existing =
+            store::list_project_mcp_server_configs(db_path, project_id).map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
                     format!("Failed to list project MCP servers: {error}"),
                 )
             })?;
         for server in &existing {
-            store::delete_project_mcp_server_config(
-                db_path,
-                project_id,
-                &server.server_id,
-            )
-            .map_err(|error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to clear project MCP servers: {error}"),
-                )
-            })?;
+            store::delete_project_mcp_server_config(db_path, project_id, &server.server_id)
+                .map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to clear project MCP servers: {error}"),
+                    )
+                })?;
         }
         let mut updated = 0usize;
         if let Value::Object(servers) = value {
@@ -1322,14 +1618,10 @@ impl ConfigService {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
-                    args_json: serde_json::to_string(
-                        server.get("args").unwrap_or(&json!([])),
-                    )
-                    .unwrap_or_else(|_| "[]".to_string()),
-                    env_json: serde_json::to_string(
-                        server.get("env").unwrap_or(&json!({})),
-                    )
-                    .unwrap_or_else(|_| "{}".to_string()),
+                    args_json: serde_json::to_string(server.get("args").unwrap_or(&json!([])))
+                        .unwrap_or_else(|_| "[]".to_string()),
+                    env_json: serde_json::to_string(server.get("env").unwrap_or(&json!({})))
+                        .unwrap_or_else(|_| "{}".to_string()),
                     headers_json: serde_json::to_string(
                         server.get("headers").unwrap_or(&json!({})),
                     )
@@ -1345,15 +1637,14 @@ impl ConfigService {
                     sort_order: index as i32,
                     source: "snow-cli".to_string(),
                 };
-                store::upsert_project_mcp_server_config(db_path, project_id, &input)
-                    .map_err(|error| {
+                store::upsert_project_mcp_server_config(db_path, project_id, &input).map_err(
+                    |error| {
                         Error::new(
                             Status::GenericFailure,
-                            format!(
-                                "Failed to upsert project MCP server {name}: {error}"
-                            ),
+                            format!("Failed to upsert project MCP server {name}: {error}"),
                         )
-                    })?;
+                    },
+                )?;
                 updated += 1;
             }
         }
@@ -1366,14 +1657,11 @@ impl ConfigService {
     }
 
     /// 清空项目级 MCP 服务器。
-    fn clear_project_mcp_servers(
-        &self,
-        project_id: &str,
-    ) -> napi::Result<Value> {
+    fn clear_project_mcp_servers(&self, project_id: &str) -> napi::Result<Value> {
         use crate::storage::services::project_mcp_server_configs as store;
         let db_path = db_path_or_error(&self.db_path)?;
-        let existing = store::list_project_mcp_server_configs(db_path, project_id)
-            .map_err(|error| {
+        let existing =
+            store::list_project_mcp_server_configs(db_path, project_id).map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
                     format!("Failed to list project MCP servers: {error}"),
@@ -1381,17 +1669,13 @@ impl ConfigService {
             })?;
         let deleted = existing.len();
         for server in &existing {
-            store::delete_project_mcp_server_config(
-                db_path,
-                project_id,
-                &server.server_id,
-            )
-            .map_err(|error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to delete project MCP server: {error}"),
-                )
-            })?;
+            store::delete_project_mcp_server_config(db_path, project_id, &server.server_id)
+                .map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to delete project MCP server: {error}"),
+                    )
+                })?;
         }
         Ok(json!({
             "scope": "settings",
@@ -1402,20 +1686,17 @@ impl ConfigService {
     }
 
     /// 列出项目级敏感命令（DB 合并全局视图）。
-    fn list_project_sensitive_commands(
-        &self,
-        project_id: &str,
-    ) -> napi::Result<Value> {
+    fn list_project_sensitive_commands(&self, project_id: &str) -> napi::Result<Value> {
         use crate::storage::services::project_sensitive_command_configs as store;
         let db_path = db_path_or_error(&self.db_path)?;
-        let records =
-            store::list_project_sensitive_command_configs(db_path, project_id)
-                .map_err(|error| {
-                    Error::new(
-                        Status::GenericFailure,
-                        format!("Failed to list project sensitive commands: {error}"),
-                    )
-                })?;
+        let records = store::list_project_sensitive_command_configs(db_path, project_id).map_err(
+            |error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to list project sensitive commands: {error}"),
+                )
+            },
+        )?;
         let items: Vec<Value> = records
             .iter()
             .map(|record| {
@@ -1447,29 +1728,25 @@ impl ConfigService {
 
         // 1. 清空现有项目自定义规则（inherited 的全局规则由服务端保护不可删，
         //    仅通过 enabled 覆盖表达；见下方 global 分支）。
-        let existing =
-            store::list_project_sensitive_command_configs(db_path, project_id)
-                .map_err(|error| {
-                    Error::new(
-                        Status::GenericFailure,
-                        format!("Failed to list project sensitive commands: {error}"),
-                    )
-                })?;
+        let existing = store::list_project_sensitive_command_configs(db_path, project_id).map_err(
+            |error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to list project sensitive commands: {error}"),
+                )
+            },
+        )?;
         for record in &existing {
             if record.inherited {
                 continue;
             }
-            store::delete_project_sensitive_command_config(
-                db_path,
-                project_id,
-                &record.command_id,
-            )
-            .map_err(|error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to clear project sensitive commands: {error}"),
-                )
-            })?;
+            store::delete_project_sensitive_command_config(db_path, project_id, &record.command_id)
+                .map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to clear project sensitive commands: {error}"),
+                    )
+                })?;
         }
 
         // 2. 全局规则集合（判断某 command_id 是否匹配全局 preset）。
@@ -1502,7 +1779,8 @@ impl ConfigService {
                 if command_id.is_empty() {
                     return Err(Error::new(
                         Status::InvalidArg,
-                        "sensitiveCommands[..].commandId is required for project-scoped write".to_string(),
+                        "sensitiveCommands[..].commandId is required for project-scoped write"
+                            .to_string(),
                     ));
                 }
                 let enabled = entry
@@ -1512,10 +1790,7 @@ impl ConfigService {
                 if global_ids.contains(command_id) {
                     // 匹配全局规则 → enabled 覆盖。
                     store::set_project_sensitive_command_enabled(
-                        db_path,
-                        project_id,
-                        command_id,
-                        enabled,
+                        db_path, project_id, command_id, enabled,
                     )
                     .map_err(|error| {
                         Error::new(
@@ -1541,19 +1816,15 @@ impl ConfigService {
                         enabled,
                         sort_order: index as i32,
                     };
-                    store::upsert_project_sensitive_command_config(
-                        db_path,
-                        project_id,
-                        &input,
-                    )
-                    .map_err(|error| {
-                        Error::new(
-                            Status::GenericFailure,
-                            format!(
+                    store::upsert_project_sensitive_command_config(db_path, project_id, &input)
+                        .map_err(|error| {
+                            Error::new(
+                                Status::GenericFailure,
+                                format!(
                                 "Failed to upsert project sensitive command {command_id}: {error}"
                             ),
-                        )
-                    })?;
+                            )
+                        })?;
                 }
                 updated += 1;
             }
@@ -1567,36 +1838,29 @@ impl ConfigService {
     }
 
     /// 清空项目级敏感命令（自定义规则 + enabled 覆盖）。
-    fn clear_project_sensitive_commands(
-        &self,
-        project_id: &str,
-    ) -> napi::Result<Value> {
+    fn clear_project_sensitive_commands(&self, project_id: &str) -> napi::Result<Value> {
         use crate::storage::services::project_sensitive_command_configs as store;
         let db_path = db_path_or_error(&self.db_path)?;
-        let existing =
-            store::list_project_sensitive_command_configs(db_path, project_id)
-                .map_err(|error| {
-                    Error::new(
-                        Status::GenericFailure,
-                        format!("Failed to list project sensitive commands: {error}"),
-                    )
-                })?;
+        let existing = store::list_project_sensitive_command_configs(db_path, project_id).map_err(
+            |error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to list project sensitive commands: {error}"),
+                )
+            },
+        )?;
         let deleted = existing.iter().filter(|record| !record.inherited).count();
         for record in &existing {
             if record.inherited {
                 continue;
             }
-            store::delete_project_sensitive_command_config(
-                db_path,
-                project_id,
-                &record.command_id,
-            )
-            .map_err(|error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to delete project sensitive command: {error}"),
-                )
-            })?;
+            store::delete_project_sensitive_command_config(db_path, project_id, &record.command_id)
+                .map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to delete project sensitive command: {error}"),
+                    )
+                })?;
         }
         Ok(json!({
             "scope": "settings",
@@ -1631,6 +1895,7 @@ impl ConfigService {
                     "systemPrompt": config.system_prompt,
                     "toolsJson": config.tools_json,
                     "configProfile": config.config_profile,
+                    "model": config.model,
                     "builtin": config.builtin,
                     "sortOrder": config.sort_order,
                     "source": config.source,
@@ -1642,26 +1907,21 @@ impl ConfigService {
             "scope": SCOPE_SUB_AGENTS,
             "items": items,
             "count": items.len(),
-            "guidance": "CREATING A SUB-AGENT - config-set scope=subAgents key=<agentId> value={name, description?, systemPrompt?, toolsJson?, configProfile?}.
+            "guidance": "CREATING A SUB-AGENT - config-set scope=subAgents key=<agentId> value={name, description?, systemPrompt?, toolsJson?, configProfile?, model?}.
+        \
+KEY RULES: (1) an explicit toolsJson tool-name list REQUIRES projectId (the agent becomes project-scoped); \"*\" or an empty list is allowed for global agents; (2) toolsJson accepts a JSON string or an array of tool names that must be enabled for the project; (3) empty configProfile inherits the parent conversation's effective API profile and model at activation; a fixed configProfile uses model when provided, otherwise that profile's advancedModel; (4) project-scoped agents take priority over a same-id global agent at activation; (5) the built-in agent_general cannot be modified or deleted. The systemPrompt must be fully self-contained (no conversation history).
 \
-KEY RULES: (1) an explicit toolsJson tool-name list REQUIRES projectId (the agent becomes project-scoped); \"*\" or an empty list is allowed for global agents; (2) toolsJson accepts a JSON string or an array of tool names that must be enabled for the project; (3) configProfile = an existing API profile name, empty = follow the active global config; (4) project-scoped agents take priority over a same-id global agent at activation; (5) the built-in agent_general cannot be modified or deleted. The systemPrompt must be fully self-contained (no conversation history).
-\
-Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: en/2-guides/5-configure-hooks-and-subagents.md)",
+        Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: en/2-guides/5-configure-hooks-and-subagents.md)",
         }))
     }
 
-    fn get_db_sub_agent(
-        &self,
-        agent_id: &str,
-        project_id: Option<String>,
-    ) -> napi::Result<Value> {
+    fn get_db_sub_agent(&self, agent_id: &str, project_id: Option<String>) -> napi::Result<Value> {
         let db_path = db_path_or_error(&self.db_path)?;
-        let config =
-            crate::storage::services::sub_agent_configs::get_sub_agent_config(
-                db_path,
-                agent_id,
-                project_id.as_deref(),
-            )?;
+        let config = crate::storage::services::sub_agent_configs::get_sub_agent_config(
+            db_path,
+            agent_id,
+            project_id.as_deref(),
+        )?;
         let value = match config {
             Some(config) => json!({
                 "agentId": config.agent_id,
@@ -1671,6 +1931,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
                 "systemPrompt": config.system_prompt,
                 "toolsJson": config.tools_json,
                 "configProfile": config.config_profile,
+                "model": config.model,
                 "builtin": config.builtin,
                 "sortOrder": config.sort_order,
                 "source": config.source,
@@ -1712,9 +1973,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                Error::new(Status::InvalidArg, "value.name is required".to_string())
-            })?;
+            .ok_or_else(|| Error::new(Status::InvalidArg, "value.name is required".to_string()))?;
         if name.chars().count() > 100 {
             return Err(Error::new(
                 Status::InvalidArg,
@@ -1741,6 +2000,13 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             .get("configProfile")
             .and_then(Value::as_str)
             .unwrap_or("")
+            .trim()
+            .to_string();
+        let model = config
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
             .to_string();
 
         // toolsJson 兼容两种形式：字符串数组或 JSON 字符串。
@@ -1776,12 +2042,11 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
 
         // 写前备份现有记录（如有），作为写入期间的临时安全网；
         // 写入成功并验证后清理。
-        let existing =
-            crate::storage::services::sub_agent_configs::get_sub_agent_config(
-                db_path,
-                agent_id,
-                project_id.as_deref(),
-            )?;
+        let existing = crate::storage::services::sub_agent_configs::get_sub_agent_config(
+            db_path,
+            agent_id,
+            project_id.as_deref(),
+        )?;
         let backup = match existing {
             Some(config) => Self::backup_db_value(
                 &format!("subAgents.{agent_id}"),
@@ -1793,6 +2058,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
                     "systemPrompt": config.system_prompt,
                     "toolsJson": config.tools_json,
                     "configProfile": config.config_profile,
+                    "model": config.model,
                     "builtin": config.builtin,
                     "sortOrder": config.sort_order,
                     "source": config.source,
@@ -1812,14 +2078,13 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             system_prompt,
             tools_json,
             config_profile,
+            model,
             builtin: false,
             sort_order,
             source: SOURCE_SNOW_CLI.to_string(),
             project_id,
         };
-        crate::storage::services::sub_agent_configs::upsert_sub_agent_config(
-            db_path, &item,
-        )?;
+        crate::storage::services::sub_agent_configs::upsert_sub_agent_config(db_path, &item)?;
         Self::cleanup_backup(backup);
         Ok(json!({
             "scope": SCOPE_SUB_AGENTS,
@@ -1840,12 +2105,11 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             ));
         }
         let db_path = db_path_or_error(&self.db_path)?;
-        let existing =
-            crate::storage::services::sub_agent_configs::get_sub_agent_config(
-                db_path,
-                agent_id,
-                project_id.as_deref(),
-            )?;
+        let existing = crate::storage::services::sub_agent_configs::get_sub_agent_config(
+            db_path,
+            agent_id,
+            project_id.as_deref(),
+        )?;
         let deleted = existing.is_some();
         if existing.as_ref().is_some_and(|config| config.builtin) {
             return Err(Error::new(
@@ -1865,6 +2129,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
                     "systemPrompt": config.system_prompt,
                     "toolsJson": config.tools_json,
                     "configProfile": config.config_profile,
+                    "model": config.model,
                     "builtin": config.builtin,
                     "sortOrder": config.sort_order,
                     "source": config.source,
@@ -1889,13 +2154,16 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
 
     fn list_db_hooks(&self, project_id: Option<String>) -> napi::Result<Value> {
         let db_path = db_path_or_error(&self.db_path)?;
-        let scope = if project_id.is_some() { "project" } else { "global" };
-        let records =
-            crate::storage::services::hooks_configs::list_hook_configs(
-                db_path,
-                scope,
-                project_id.as_deref(),
-            )?;
+        let scope = if project_id.is_some() {
+            "project"
+        } else {
+            "global"
+        };
+        let records = crate::storage::services::hooks_configs::list_hook_configs(
+            db_path,
+            scope,
+            project_id.as_deref(),
+        )?;
         let items: Vec<Value> = records
             .iter()
             .map(|record| {
@@ -1916,18 +2184,14 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             "items": items,
             "count": items.len(),
             "guidance": "CONFIGURING HOOKS - config-set scope=hooks key=<hookType> value={rules:[{description, matcher?, hooks:[{type, ...}]}]}.
-\
+        \
 KEY RULES: (1) hookType whitelist: onUserMessage, beforeToolCall, toolConfirmation, afterToolCall, onSubAgentComplete, beforeSubAgentStart, beforeCompress, onSessionStart, onStop; (2) command actions exit codes: 0 = pass (stdout injected as [Hook Context]), 1 = soft warning (a stdout of {\"decision\":{\"message\":\"...\"}} triggers the user decision UI), 2+ = abort; (3) prompt actions only for onSubAgentComplete/onStop, context actions only for onSessionStart/onUserMessage/beforeSubAgentStart; (4) pass projectId for a project-scoped hook (overrides the same-type global hook).
 \
-Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: en/2-guides/5-configure-hooks-and-subagents.md)",
+        Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: en/2-guides/5-configure-hooks-and-subagents.md)",
         }))
     }
 
-    fn get_db_hook(
-        &self,
-        hook_type: &str,
-        project_id: Option<String>,
-    ) -> napi::Result<Value> {
+    fn get_db_hook(&self, hook_type: &str, project_id: Option<String>) -> napi::Result<Value> {
         let list = self.list_db_hooks(project_id)?;
         let items = list
             .get("items")
@@ -1936,9 +2200,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
             .unwrap_or_default();
         let found = items
             .iter()
-            .find(|item| {
-                item.get("hookType").and_then(Value::as_str) == Some(hook_type)
-            })
+            .find(|item| item.get("hookType").and_then(Value::as_str) == Some(hook_type))
             .cloned();
         Ok(json!({
             "scope": SCOPE_HOOKS,
@@ -1972,23 +2234,22 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
                 format!("Failed to serialize hook rules: {error}"),
             )
         })?;
-        let scope = if project_id.is_some() { "project" } else { "global" };
+        let scope = if project_id.is_some() {
+            "project"
+        } else {
+            "global"
+        };
         // 写前备份现有 hook 配置（如有），作为写入期间的临时安全网；
         // 写入成功并验证后清理。
-        let records =
-            crate::storage::services::hooks_configs::list_hook_configs(
-                db_path,
-                &scope,
-                project_id.as_deref(),
-            )?;
-        let backup = match records
-            .iter()
-            .find(|record| record.hook_type == hook_type)
-        {
-            Some(record) => Self::backup_db_value(
-                &format!("hooks.{hook_type}"),
-                &record.rules_json,
-            )?,
+        let records = crate::storage::services::hooks_configs::list_hook_configs(
+            db_path,
+            &scope,
+            project_id.as_deref(),
+        )?;
+        let backup = match records.iter().find(|record| record.hook_type == hook_type) {
+            Some(record) => {
+                Self::backup_db_value(&format!("hooks.{hook_type}"), &record.rules_json)?
+            }
             None => None,
         };
         let item = crate::storage::HookConfigInput {
@@ -2007,32 +2268,25 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
         }))
     }
 
-    fn delete_db_hook(
-        &self,
-        hook_type: &str,
-        project_id: Option<String>,
-    ) -> napi::Result<Value> {
+    fn delete_db_hook(&self, hook_type: &str, project_id: Option<String>) -> napi::Result<Value> {
         let db_path = db_path_or_error(&self.db_path)?;
-        let scope = if project_id.is_some() { "project" } else { "global" };
+        let scope = if project_id.is_some() {
+            "project"
+        } else {
+            "global"
+        };
         // 先查存在性，与文件域 delete 的 deleted:false 语义对齐。
-        let records =
-            crate::storage::services::hooks_configs::list_hook_configs(
-                db_path,
-                &scope,
-                project_id.as_deref(),
-            )?;
-        let deleted = records
-            .iter()
-            .any(|record| record.hook_type == hook_type);
+        let records = crate::storage::services::hooks_configs::list_hook_configs(
+            db_path,
+            &scope,
+            project_id.as_deref(),
+        )?;
+        let deleted = records.iter().any(|record| record.hook_type == hook_type);
         // 写前备份现有 hook 配置（如有），删除成功并验证后清理。
-        let backup = match records
-            .iter()
-            .find(|record| record.hook_type == hook_type)
-        {
-            Some(record) => Self::backup_db_value(
-                &format!("hooks.{hook_type}"),
-                &record.rules_json,
-            )?,
+        let backup = match records.iter().find(|record| record.hook_type == hook_type) {
+            Some(record) => {
+                Self::backup_db_value(&format!("hooks.{hook_type}"), &record.rules_json)?
+            }
             None => None,
         };
         crate::storage::services::hooks_configs::delete_hook_config(
@@ -2052,11 +2306,7 @@ Full guide: ~/.snow/docs/zh-CN/2-使用指南/5-配置Hooks与子代理.md (en: 
     /// skills scope：把 config 工具的 list/get/set/delete 语义映射到
     /// SkillsConfigService 的内部工具，复用其全部校验与实现
     /// （list / setEnabled / installGithub / uninstall）。
-    async fn execute_skills_scope(
-        &self,
-        tool_name: &str,
-        args: &Value,
-    ) -> napi::Result<Value> {
+    async fn execute_skills_scope(&self, tool_name: &str, args: &Value) -> napi::Result<Value> {
         let service = super::skills_config::SkillsConfigService::new();
         match tool_name {
             TOOL_LIST => service.execute_async("list", args).await,
@@ -2498,12 +2748,10 @@ fn migrate_imagegen_channels(settings: &Value) -> Value {
             if channel.is_object() {
                 let mut migrated = channel.clone();
                 if let Some(map) = migrated.as_object_mut() {
-                    map.entry("id".to_string())
-                        .or_insert_with(|| json!(key));
+                    map.entry("id".to_string()).or_insert_with(|| json!(key));
                     map.entry("provider".to_string())
                         .or_insert_with(|| json!(provider));
-                    map.entry("name".to_string())
-                        .or_insert_with(|| json!(""));
+                    map.entry("name".to_string()).or_insert_with(|| json!(""));
                 }
                 channels.push(migrated);
             }
@@ -2550,13 +2798,9 @@ fn load_imagegen_settings_value() -> napi::Result<Value> {
         "imagegen_settings",
     )?;
     match value {
-        Some(raw) if !raw.trim().is_empty() => {
-            serde_json::from_str(&raw).map_err(|error| {
-                Error::from_reason(format!(
-                    "Failed to parse imagegen settings: {error}"
-                ))
-            })
-        }
+        Some(raw) if !raw.trim().is_empty() => serde_json::from_str(&raw).map_err(|error| {
+            Error::from_reason(format!("Failed to parse imagegen settings: {error}"))
+        }),
         _ => Ok(json!({})),
     }
 }
@@ -2592,9 +2836,7 @@ fn mask_channel_api_key(value: Value) -> Value {
             }
             Value::Object(masked)
         }
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(mask_channel_api_key).collect())
-        }
+        Value::Array(items) => Value::Array(items.into_iter().map(mask_channel_api_key).collect()),
         other => other,
     }
 }
@@ -2720,7 +2962,10 @@ fn set_personalization_role(args: &Value) -> napi::Result<Value> {
         return Err(invalid_personalization_key_error(key_name));
     }
     let value = args.get("value").cloned().ok_or_else(|| {
-        Error::new(Status::InvalidArg, "value is required for config-set".to_string())
+        Error::new(
+            Status::InvalidArg,
+            "value is required for config-set".to_string(),
+        )
     })?;
     if !value.is_string() {
         return Err(Error::new(
@@ -2789,10 +3034,10 @@ fn invalid_personalization_key_error(key: &str) -> Error {
 }
 
 /// 校验并返回应用数据库路径；native 存储未初始化时给出明确错误。
-    /// logs scope（只读日志域）：列出/读取/清理 ~/.snow/log 下的应用日志，
-    /// 供 agent 自主进行异常分析。set 只读；delete 需精确文件名（防路径穿越）。
+/// logs scope（只读日志域）：列出/读取/清理 ~/.snow/log 下的应用日志，
+/// 供 agent 自主进行异常分析。set 只读；delete 需精确文件名（防路径穿越）。
 fn execute_logs_scope(tool_name: &str, args: &Value) -> napi::Result<Value> {
-        match tool_name {
+    match tool_name {
             TOOL_LIST => list_log_files(),
             TOOL_GET => read_log_file(args),
             TOOL_SET => Err(Error::new(
@@ -2807,193 +3052,189 @@ fn execute_logs_scope(tool_name: &str, args: &Value) -> napi::Result<Value> {
                 ),
             )),
         }
-    }
+}
 
-    /// 日志文件名校验（YYYY-MM-DD-level.log，防路径穿越）。
-    fn valid_log_name(name: &str) -> bool {
-        static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = RE.get_or_init(|| {
-            regex::Regex::new(LOG_FILE_RE).expect("LOG_FILE_RE is a valid regex")
-        });
-        re.is_match(name)
-    }
+/// 日志文件名校验（YYYY-MM-DD-level.log，防路径穿越）。
+fn valid_log_name(name: &str) -> bool {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re =
+        RE.get_or_init(|| regex::Regex::new(LOG_FILE_RE).expect("LOG_FILE_RE is a valid regex"));
+    re.is_match(name)
+}
 
-    /// 日志目录（~/.snow/log）。
-    fn log_dir() -> PathBuf {
-        ConfigService::snow_dir().join(LOG_DIR_NAME)
-    }
+/// 日志目录（~/.snow/log）。
+fn log_dir() -> PathBuf {
+    ConfigService::snow_dir().join(LOG_DIR_NAME)
+}
 
-    /// config-list logs：列出日志文件（按日期倒序）+ 错误摘要。
-    fn list_log_files() -> napi::Result<Value> {
-        let dir = log_dir();
-        if !dir.exists() {
-            return Ok(json!({
-                "scope": SCOPE_LOGS,
-                "directory": dir.to_string_lossy(),
-                "files": [],
-                "summary": { "totalFiles": 0, "totalBytes": 0, "latestErrorFile": null },
-            }));
-        }
-        let mut files: Vec<Value> = Vec::new();
-        let mut total_bytes: u64 = 0;
-        let mut latest_error: Option<String> = None;
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                if !valid_log_name(name) {
-                    continue;
-                }
-                let metadata = entry.metadata().ok();
-                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
-                total_bytes += size;
-                let level = name
-                    .strip_suffix(".log")
-                    .and_then(|stem| stem.rsplit('-').next())
-                    .unwrap_or("")
-                    .to_string();
-                if level == "error" {
-                    if latest_error.is_none()
-                        || name > latest_error.as_deref().unwrap_or("")
-                    {
-                        latest_error = Some(name.to_string());
-                    }
-                }
-                let last_modified = metadata
-                    .and_then(|m| m.modified().ok())
-                    .map(|t| {
-                        t.duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as i64)
-                            .unwrap_or(0)
-                    })
-                    .unwrap_or(0);
-                files.push(json!({
-                    "file": name,
-                    "date": name.get(..10),
-                    "level": level,
-                    "size": size,
-                    "lastModified": last_modified,
-                }));
-            }
-        }
-        // 按日期倒序（文件名前缀即日期）。
-        files.sort_by(|a, b| {
-            b.get("file")
-                .and_then(Value::as_str)
-                .cmp(&a.get("file").and_then(Value::as_str))
-        });
-        Ok(json!({
+/// config-list logs：列出日志文件（按日期倒序）+ 错误摘要。
+fn list_log_files() -> napi::Result<Value> {
+    let dir = log_dir();
+    if !dir.exists() {
+        return Ok(json!({
             "scope": SCOPE_LOGS,
             "directory": dir.to_string_lossy(),
-            "files": files,
-            "summary": {
-                "totalFiles": files.len(),
-                "totalBytes": total_bytes,
-                "latestErrorFile": latest_error,
-            },
-        }))
+            "files": [],
+            "summary": { "totalFiles": 0, "totalBytes": 0, "latestErrorFile": null },
+        }));
     }
+    let mut files: Vec<Value> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let mut latest_error: Option<String> = None;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !valid_log_name(name) {
+                continue;
+            }
+            let metadata = entry.metadata().ok();
+            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            total_bytes += size;
+            let level = name
+                .strip_suffix(".log")
+                .and_then(|stem| stem.rsplit('-').next())
+                .unwrap_or("")
+                .to_string();
+            if level == "error" {
+                if latest_error.is_none() || name > latest_error.as_deref().unwrap_or("") {
+                    latest_error = Some(name.to_string());
+                }
+            }
+            let last_modified = metadata
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            files.push(json!({
+                "file": name,
+                "date": name.get(..10),
+                "level": level,
+                "size": size,
+                "lastModified": last_modified,
+            }));
+        }
+    }
+    // 按日期倒序（文件名前缀即日期）。
+    files.sort_by(|a, b| {
+        b.get("file")
+            .and_then(Value::as_str)
+            .cmp(&a.get("file").and_then(Value::as_str))
+    });
+    Ok(json!({
+        "scope": SCOPE_LOGS,
+        "directory": dir.to_string_lossy(),
+        "files": files,
+        "summary": {
+            "totalFiles": files.len(),
+            "totalBytes": total_bytes,
+            "latestErrorFile": latest_error,
+        },
+    }))
+}
 
-    /// config-get logs：读取指定日志文件的尾部内容。
-    /// key 支持精确文件名（`2026-08-03-error.log`）或级别简写（error/warn/info/debug，
-    /// 读取今天的对应文件）。可选 `limit` 控制返回行数（默认 200，最大 2000）。
-    fn read_log_file(args: &Value) -> napi::Result<Value> {
-        let key = required_string(args, "key")?;
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|v| (v as usize).clamp(1, LOG_MAX_LINES))
-            .unwrap_or(LOG_DEFAULT_LINES);
+/// config-get logs：读取指定日志文件的尾部内容。
+/// key 支持精确文件名（`2026-08-03-error.log`）或级别简写（error/warn/info/debug，
+/// 读取今天的对应文件）。可选 `limit` 控制返回行数（默认 200，最大 2000）。
+fn read_log_file(args: &Value) -> napi::Result<Value> {
+    let key = required_string(args, "key")?;
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|v| (v as usize).clamp(1, LOG_MAX_LINES))
+        .unwrap_or(LOG_DEFAULT_LINES);
 
-        let file_name = if valid_log_name(key) {
-            key.to_string()
-        } else if ["debug", "info", "warn", "error"].contains(&key) {
-            format!(
-                "{}-{}.log",
-                chrono::Local::now().format("%Y-%m-%d"),
-                key
-            )
-        } else {
-            return Err(Error::new(
+    let file_name = if valid_log_name(key) {
+        key.to_string()
+    } else if ["debug", "info", "warn", "error"].contains(&key) {
+        format!("{}-{}.log", chrono::Local::now().format("%Y-%m-%d"), key)
+    } else {
+        return Err(Error::new(
                 Status::InvalidArg,
                 format!(
                     "Invalid log key: \"{key}\". Use a log file name (e.g. 2026-08-03-error.log) or a level shortcut (debug/info/warn/error for today's file)"
                 ),
             ));
-        };
+    };
 
-        let path = log_dir().join(&file_name);
-        if !path.exists() {
-            return Ok(json!({
-                "scope": SCOPE_LOGS,
-                "key": key,
-                "file": file_name,
-                "exists": false,
-                "content": "",
-                "totalLines": 0,
-                "truncated": false,
-            }));
-        }
-        let file = std::fs::File::open(&path).map_err(|error| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to open log file {}: {error}", path.to_string_lossy()),
-            )
-        })?;
-        // 环形缓冲保留最后 limit 行，避免大文件全量加载。
-        use std::io::BufRead;
-        let reader = std::io::BufReader::new(file);
-        let mut tail: std::collections::VecDeque<String> =
-            std::collections::VecDeque::with_capacity(limit);
-        let mut total_lines: usize = 0;
-        for line in reader.lines().map_while(|l| l.ok()) {
-            total_lines += 1;
-            if tail.len() == limit {
-                tail.pop_front();
-            }
-            tail.push_back(line);
-        }
-        let truncated = total_lines > limit;
-        Ok(json!({
+    let path = log_dir().join(&file_name);
+    if !path.exists() {
+        return Ok(json!({
             "scope": SCOPE_LOGS,
             "key": key,
             "file": file_name,
-            "exists": true,
-            "content": tail.make_contiguous().join("\n"),
-            "totalLines": total_lines,
-            "returnedLines": tail.len(),
-            "truncated": truncated,
-            "hint": truncated.then(|| format!("file has {total_lines} lines; showing the last {limit} — read with a larger `limit` if needed")),
-        }))
+            "exists": false,
+            "content": "",
+            "totalLines": 0,
+            "truncated": false,
+        }));
     }
+    let file = std::fs::File::open(&path).map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!(
+                "Failed to open log file {}: {error}",
+                path.to_string_lossy()
+            ),
+        )
+    })?;
+    // 环形缓冲保留最后 limit 行，避免大文件全量加载。
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(file);
+    let mut tail: std::collections::VecDeque<String> =
+        std::collections::VecDeque::with_capacity(limit);
+    let mut total_lines: usize = 0;
+    for line in reader.lines().map_while(|l| l.ok()) {
+        total_lines += 1;
+        if tail.len() == limit {
+            tail.pop_front();
+        }
+        tail.push_back(line);
+    }
+    let truncated = total_lines > limit;
+    Ok(json!({
+        "scope": SCOPE_LOGS,
+        "key": key,
+        "file": file_name,
+        "exists": true,
+        "content": tail.make_contiguous().join("\n"),
+        "totalLines": total_lines,
+        "returnedLines": tail.len(),
+        "truncated": truncated,
+        "hint": truncated.then(|| format!("file has {total_lines} lines; showing the last {limit} — read with a larger `limit` if needed")),
+    }))
+}
 
-    /// config-delete logs：删除指定日志文件（仅精确文件名，防路径穿越）。
-    fn delete_log_file(args: &Value) -> napi::Result<Value> {
-        let key = required_string(args, "key")?;
-        if !valid_log_name(key) {
-            return Err(Error::new(
+/// config-delete logs：删除指定日志文件（仅精确文件名，防路径穿越）。
+fn delete_log_file(args: &Value) -> napi::Result<Value> {
+    let key = required_string(args, "key")?;
+    if !valid_log_name(key) {
+        return Err(Error::new(
                 Status::InvalidArg,
                 format!(
                     "Invalid log key: \"{key}\". config-delete logs only accepts an exact log file name (e.g. 2026-08-03-error.log)"
                 ),
             ));
-        }
-        let path = log_dir().join(key);
-        let deleted = if path.exists() {
-            std::fs::remove_file(&path).is_ok()
-        } else {
-            false
-        };
-        Ok(json!({
-            "scope": SCOPE_LOGS,
-            "key": key,
-            "deleted": deleted,
-        }))
     }
+    let path = log_dir().join(key);
+    let deleted = if path.exists() {
+        std::fs::remove_file(&path).is_ok()
+    } else {
+        false
+    };
+    Ok(json!({
+        "scope": SCOPE_LOGS,
+        "key": key,
+        "deleted": deleted,
+    }))
+}
 
-    fn db_path_or_error(db_path: &str) -> napi::Result<&Path> {
+fn db_path_or_error(db_path: &str) -> napi::Result<&Path> {
     if db_path.is_empty() {
         return Err(Error::new(
             Status::GenericFailure,
@@ -3042,8 +3283,11 @@ fn validate_sub_agent_tools(
         .iter()
         .map(|tool| tool.full_name())
         .collect();
-    let configs = crate::storage::services::project_mcp_server_configs::
-        list_effective_mcp_server_configs(db_path, Some(project_id))?;
+    let configs =
+        crate::storage::services::project_mcp_server_configs::list_effective_mcp_server_configs(
+            db_path,
+            Some(project_id),
+        )?;
     let public_names = public_server_name_map(&configs);
     let enabled_server_names: HashSet<String> = configs
         .iter()
@@ -3169,7 +3413,7 @@ impl McpService for ConfigService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: TOOL_SET.to_string(),
-                description: "Write a value for a configuration key (whitelisted scopes only; type-checked; auto-backup to ~/.snow/.config-backups as a temporary safety net before the write, removed after a successful write; atomic write).\nRULES:\n- settings.mcpServers: syncs into the app database on write and takes effect immediately (same diff semantics as the UI sync action).\n- Other file-backed scopes (snowcfg/proxy/app/custom-headers/system-prompt/theme/language/permissions/lsp-config/buddy): changes may need an app restart or a UI re-save. personalization (key=role, value must be a string): replaces the whole ~/.snow/ROLE.md file (markdown text); takes effect in the next conversation.\n- DB-backed scopes (take effect immediately): subAgents (key=agentId, value={name, description?, systemPrompt?, toolsJson?, configProfile?}; an explicit toolsJson tool list requires projectId, see the guidance from config-list scope=subAgents); hooks (key=hookType, value={rules:[...]}, see the guidance from config-list scope=hooks); imagegen (value={channels:[...]} full replace, {<channelId>: {...}} per-channel merge keeping omitted fields, or a global field alone: {maxConcurrentImages: N} clamped to 1-8 / {timeoutSecs: N} clamped to 60-3600).\n- Project-scoped: pass projectId for settings.mcpServers (full replace of {name: {type,url,command,args,env,headers,enabled,timeoutMs}}) or settings.sensitiveCommands (full replace of [{commandId, pattern, description, enabled}]); other scopes ignore projectId.".to_string(),
+                description: "Write a value for a configuration key (whitelisted scopes only; type-checked; auto-backup to ~/.snow/.config-backups as a temporary safety net before the write, removed after a successful write; atomic write).\nRULES:\n- settings.mcpServers: syncs into the app database on write and takes effect immediately (same diff semantics as the UI sync action).\n- Other file-backed scopes (snowcfg/proxy/app/custom-headers/system-prompt/theme/language/permissions/lsp-config/buddy): changes may need an app restart or a UI re-save. personalization (key=role, value must be a string): replaces the whole ~/.snow/ROLE.md file (markdown text); takes effect in the next conversation.\n- DB-backed scopes (take effect immediately): subAgents (key=agentId, value={name, description?, systemPrompt?, toolsJson?, configProfile?, model?}; an explicit toolsJson tool list requires projectId, see the guidance from config-list scope=subAgents); hooks (key=hookType, value={rules:[...]}, see the guidance from config-list scope=hooks); imagegen (value={channels:[...]} full replace, {<channelId>: {...}} per-channel merge keeping omitted fields, or a global field alone: {maxConcurrentImages: N} clamped to 1-8 / {timeoutSecs: N} clamped to 60-3600).\n- Project-scoped: pass projectId for settings.mcpServers (full replace of {name: {type,url,command,args,env,headers,enabled,timeoutMs}}) or settings.sensitiveCommands (full replace of [{commandId, pattern, description, enabled}]); other scopes ignore projectId.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -3254,10 +3498,7 @@ fn type_name(value_type: ValueType) -> &'static str {
 }
 
 fn available_scopes() -> String {
-    let mut scopes: Vec<&str> = SCOPES
-        .iter()
-        .map(|spec| spec.scope)
-        .collect();
+    let mut scopes: Vec<&str> = SCOPES.iter().map(|spec| spec.scope).collect();
     scopes.push(SCOPE_SUB_AGENTS);
     scopes.push(SCOPE_HOOKS);
     scopes.push(SCOPE_SKILLS);

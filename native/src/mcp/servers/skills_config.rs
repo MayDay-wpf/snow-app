@@ -184,9 +184,7 @@ impl SkillsConfigService {
         if location != "global" && location != "project" {
             return Err(Error::new(
                 Status::InvalidArg,
-                format!(
-                    "location must be \"global\" or \"project\", got \"{location}\""
-                ),
+                format!("location must be \"global\" or \"project\", got \"{location}\""),
             ));
         }
         let project_id = optional_string(args, "projectId")?;
@@ -235,7 +233,6 @@ impl SkillsConfigService {
         }))
     }
 }
-
 
 fn optional_string(args: &Value, key: &str) -> napi::Result<Option<String>> {
     Ok(args

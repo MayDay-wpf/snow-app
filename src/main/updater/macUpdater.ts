@@ -35,6 +35,28 @@ const MANIFEST_URL =
 // 运行时定时检查间隔（毫秒），默认 1 小时
 const RUNTIME_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
+// 统一的应用 User-Agent（与 native 侧 http_client.rs 保持一致）：
+// Snow-App/<version> Snow App <role> (<OS>; <arch>)
+const appUserAgent = (role?: string): string =>
+  `Snow-App/${app.getVersion()} Snow App${role ? ` ${role}` : ""} (${uaPlatform()})`;
+
+const uaPlatform = (): string => {
+  // process.getSystemVersion() 返回真实系统版本（如 10.0.26100 / 15.3.1 / 24.04）
+  const sysVer = process.getSystemVersion();
+  if (process.platform === "win32") {
+    const arch = process.arch === "arm64" ? "ARM64" : "x64";
+    return `Windows NT ${sysVer}; Win64; ${arch}`;
+  }
+  if (process.platform === "darwin") {
+    const arch = process.arch === "arm64" ? "ARM64" : "Intel";
+    return `Macintosh; ${arch} Mac OS X ${sysVer.replace(/\./g, "_")}`;
+  }
+  if (process.platform === "linux") {
+    return `X11; Linux ${process.arch} (${sysVer})`;
+  }
+  return `${process.platform}; ${process.arch}`;
+};
+
 // 清单请求超时（毫秒）
 const MANIFEST_FETCH_TIMEOUT_MS = 20 * 1000;
 
@@ -113,7 +135,7 @@ const fetchManifest = async (): Promise<MacUpdateManifest> => {
     const response = await net.fetch(MANIFEST_URL, {
       signal: controller.signal,
       headers: {
-        "User-Agent": `snow-app-updater/${app.getVersion()}`,
+        "User-Agent": appUserAgent("Updater"),
         Accept: "application/json",
       },
     });
@@ -152,7 +174,7 @@ const downloadZip = async (
 ): Promise<void> => {
   const response = await net.fetch(fileInfo.url, {
     headers: {
-      "User-Agent": `snow-app-updater/${app.getVersion()}`,
+      "User-Agent": appUserAgent("Updater"),
     },
   });
   if (!response.ok || !response.body) {

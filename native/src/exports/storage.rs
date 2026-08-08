@@ -1,20 +1,6 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::storage::{
-    ApiConfigInput, ApiConfigRecord, AppStorageInfo, ChatConversationPage,
-    ChatConversationRecord, ChatMessagePage, ChatMessageRecord, CodebaseProjectScopeSettings,
-    ConversationSearchResult,
-    CustomHeaderSchemeInput, CustomHeaderSchemeRecord, HookConfigInput, HookConfigRecord,
-    ImportDatabaseTransactionInput, ImportResourceInput, ImportResourceRecord, ImportResourceRelease, ImportResourceReleaseInput,
-    McpServerConfigInput, McpServerConfigRecord, ProjectMcpServerConfigRecord,
-    PluginInput, PluginMarketplaceInput, PluginMarketplaceRecord, PluginRecord,
-    ProjectSensitiveCommandConfigInput, ProjectSensitiveCommandConfigRecord,
-    SensitiveCommandConfigInput, SensitiveCommandConfigRecord, SensitiveCommandMatchResult,
-    SubAgentConfigInput, SubAgentConfigRecord, SystemPromptItemInput, SystemPromptItemRecord,
-    WorkspaceDirectoryInput,
-    WorkspaceDirectoryRecord, MemoCountSummary, MemoPage, MemoRecord, UserMessageSummary,
-};
 use crate::hooks::{HookExecuteInput, HookExecuteResult};
 use crate::storage::services::fs_explorer::{DirectoryEntry, FileContentResult, FileSearchResult};
 use crate::storage::services::privacy_settings::{
@@ -22,6 +8,19 @@ use crate::storage::services::privacy_settings::{
 };
 use crate::storage::services::theme_settings::{
     CustomTheme, ThemeBackground, ThemePalette, ThemeSettings, ThemeStreamCursor,
+};
+use crate::storage::{
+    ApiConfigInput, ApiConfigRecord, AppStorageInfo, ChatConversationPage, ChatConversationRecord,
+    ChatMessagePage, ChatMessageRecord, CodebaseProjectScopeSettings, ConversationSearchResult,
+    CustomHeaderSchemeInput, CustomHeaderSchemeRecord, HookConfigInput, HookConfigRecord,
+    ImportDatabaseTransactionInput, ImportResourceInput, ImportResourceRecord,
+    ImportResourceRelease, ImportResourceReleaseInput, McpServerConfigInput, McpServerConfigRecord,
+    MemoCountSummary, MemoPage, MemoRecord, PluginInput, PluginMarketplaceInput,
+    PluginMarketplaceRecord, PluginRecord, ProjectMcpServerConfigRecord,
+    ProjectSensitiveCommandConfigInput, ProjectSensitiveCommandConfigRecord,
+    SensitiveCommandConfigInput, SensitiveCommandConfigRecord, SensitiveCommandMatchResult,
+    SubAgentConfigInput, SubAgentConfigRecord, SystemPromptItemInput, SystemPromptItemRecord,
+    UserMessageSummary, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,
 };
 
 // ============================================================================
@@ -93,11 +92,9 @@ pub async fn get_request_logging_expiry() -> napi::Result<i64> {
 
 #[napi]
 pub async fn set_request_logging_expiry(expires_at_ms: i64) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::set_request_logging_expiry(expires_at_ms)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::set_request_logging_expiry(expires_at_ms))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi(object)]
@@ -500,10 +497,7 @@ pub async fn get_codebase_project_scope_settings(
 }
 
 #[napi]
-pub async fn set_codebase_project_enabled(
-    project_id: String,
-    enabled: bool,
-) -> napi::Result<()> {
+pub async fn set_codebase_project_enabled(project_id: String, enabled: bool) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
         crate::storage::set_codebase_project_enabled(project_id, enabled)
     })
@@ -524,10 +518,7 @@ pub async fn set_codebase_project_agent_review(
 }
 
 #[napi]
-pub async fn set_codebase_project_reranking(
-    project_id: String,
-    enabled: bool,
-) -> napi::Result<()> {
+pub async fn set_codebase_project_reranking(project_id: String, enabled: bool) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
         crate::storage::set_codebase_project_reranking(project_id, enabled)
     })
@@ -537,11 +528,9 @@ pub async fn set_codebase_project_reranking(
 
 #[napi]
 pub async fn check_project_has_gitignore(project_id: String) -> napi::Result<bool> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::check_project_has_gitignore(project_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::check_project_has_gitignore(project_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -660,7 +649,9 @@ pub async fn activate_workspace_directory(directory_id: String) -> napi::Result<
 }
 
 #[napi]
-pub async fn reorder_workspace_directories(items: Vec<WorkspaceDirectoryInput>) -> napi::Result<()> {
+pub async fn reorder_workspace_directories(
+    items: Vec<WorkspaceDirectoryInput>,
+) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || crate::storage::reorder_workspace_directories(items))
         .await
         .map_err(map_spawn_error)?
@@ -707,9 +698,11 @@ pub async fn rename_workspace_entry(
 
 #[napi]
 pub async fn delete_workspace_entry(root_path: String, entry_path: String) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || crate::storage::delete_workspace_entry(root_path, entry_path))
-        .await
-        .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_workspace_entry(root_path, entry_path)
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -727,15 +720,10 @@ pub async fn read_file_content(file_path: String) -> napi::Result<FileContentRes
 }
 
 #[napi]
-pub async fn write_file_content(
-    file_path: String,
-    content: String,
-) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::write_file_content(file_path, content)
-    })
-    .await
-    .map_err(map_spawn_error)?
+pub async fn write_file_content(file_path: String, content: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::write_file_content(file_path, content))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -763,11 +751,9 @@ pub async fn delete_mcp_server_config(server_id: String) -> napi::Result<()> {
 pub async fn list_project_mcp_server_configs(
     project_id: String,
 ) -> napi::Result<Vec<ProjectMcpServerConfigRecord>> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::list_project_mcp_server_configs(project_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::list_project_mcp_server_configs(project_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -809,9 +795,7 @@ pub async fn upsert_import_resources(items: Vec<ImportResourceInput>) -> napi::R
 }
 
 #[napi]
-pub async fn commit_import_transaction(
-    input: ImportDatabaseTransactionInput,
-) -> napi::Result<()> {
+pub async fn commit_import_transaction(input: ImportDatabaseTransactionInput) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || crate::storage::commit_import_transaction(input))
         .await
         .map_err(map_spawn_error)?
@@ -880,11 +864,9 @@ pub async fn list_hook_configs(
     scope: String,
     project_id: Option<String>,
 ) -> napi::Result<Vec<HookConfigRecord>> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::list_hook_configs(scope, project_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::list_hook_configs(scope, project_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -931,11 +913,9 @@ pub async fn get_sub_agent_config(
     agent_id: String,
     project_id: Option<String>,
 ) -> napi::Result<Option<SubAgentConfigRecord>> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::get_sub_agent_config(agent_id, project_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::get_sub_agent_config(agent_id, project_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -950,9 +930,11 @@ pub async fn delete_sub_agent_config(
     agent_id: String,
     project_id: Option<String>,
 ) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || crate::storage::delete_sub_agent_config(agent_id, project_id))
-        .await
-        .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_sub_agent_config(agent_id, project_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -963,7 +945,9 @@ pub async fn list_sensitive_command_configs() -> napi::Result<Vec<SensitiveComma
 }
 
 #[napi]
-pub async fn upsert_sensitive_command_config(item: SensitiveCommandConfigInput) -> napi::Result<()> {
+pub async fn upsert_sensitive_command_config(
+    item: SensitiveCommandConfigInput,
+) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || crate::storage::upsert_sensitive_command_config(item))
         .await
         .map_err(map_spawn_error)?
@@ -971,11 +955,9 @@ pub async fn upsert_sensitive_command_config(item: SensitiveCommandConfigInput) 
 
 #[napi]
 pub async fn delete_sensitive_command_config(command_id: String) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::delete_sensitive_command_config(command_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::delete_sensitive_command_config(command_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -1039,7 +1021,9 @@ pub async fn check_sensitive_command_match(
 }
 
 #[napi]
-pub async fn list_chat_conversations(directory_id: String) -> napi::Result<Vec<ChatConversationRecord>> {
+pub async fn list_chat_conversations(
+    directory_id: String,
+) -> napi::Result<Vec<ChatConversationRecord>> {
     tokio::task::spawn_blocking(move || crate::storage::list_chat_conversations(directory_id))
         .await
         .map_err(map_spawn_error)?
@@ -1058,15 +1042,31 @@ pub async fn list_chat_conversations_paginated(
     .map_err(map_spawn_error)?
 }
 
+/// 跨项目按会话 ID 查询会话记录（供「跨项目通知」使用）。
 #[napi]
-pub async fn list_pinned_conversations(directory_id: String) -> napi::Result<Vec<ChatConversationRecord>> {
+pub async fn list_chat_conversations_by_ids(
+    conversation_ids: Vec<String>,
+) -> napi::Result<Vec<ChatConversationRecord>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::list_chat_conversations_by_ids(conversation_ids)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn list_pinned_conversations(
+    directory_id: String,
+) -> napi::Result<Vec<ChatConversationRecord>> {
     tokio::task::spawn_blocking(move || crate::storage::list_pinned_conversations(directory_id))
         .await
         .map_err(map_spawn_error)?
 }
 
 #[napi]
-pub async fn search_chat_conversations(query: String) -> napi::Result<Vec<ConversationSearchResult>> {
+pub async fn search_chat_conversations(
+    query: String,
+) -> napi::Result<Vec<ConversationSearchResult>> {
     tokio::task::spawn_blocking(move || crate::storage::search_chat_conversations(query))
         .await
         .map_err(map_spawn_error)?
@@ -1110,6 +1110,7 @@ pub async fn create_sub_agent_session(
     agent_id: String,
     agent_name: String,
     directory_id: String,
+    api_profile_name: String,
     model: String,
     title: String,
 ) -> napi::Result<()> {
@@ -1120,6 +1121,7 @@ pub async fn create_sub_agent_session(
             agent_id,
             agent_name,
             directory_id,
+            api_profile_name,
             model,
             title,
         )
@@ -1135,11 +1137,7 @@ pub async fn update_sub_agent_session_status(
     error_message: String,
 ) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
-        crate::storage::update_sub_agent_session_status(
-            conversation_id,
-            run_status,
-            error_message,
-        )
+        crate::storage::update_sub_agent_session_status(conversation_id, run_status, error_message)
     })
     .await
     .map_err(map_spawn_error)?
@@ -1165,20 +1163,14 @@ pub async fn update_conversation_status(
 }
 
 #[napi]
-pub async fn rename_conversation(
-    conversation_id: String,
-    title: String,
-) -> napi::Result<()> {
+pub async fn rename_conversation(conversation_id: String, title: String) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || crate::storage::rename_conversation(conversation_id, title))
         .await
         .map_err(map_spawn_error)?
 }
 
 #[napi]
-pub async fn update_conversation_emoji(
-    conversation_id: String,
-    emoji: String,
-) -> napi::Result<()> {
+pub async fn update_conversation_emoji(conversation_id: String, emoji: String) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
         crate::storage::update_conversation_emoji(conversation_id, emoji)
     })
@@ -1213,13 +1205,12 @@ pub async fn delete_conversations(conversation_ids: Vec<String>) -> napi::Result
 }
 
 #[napi]
-pub async fn append_tool_message(
-    conversation_id: String,
-    content: String,
-) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || crate::storage::append_tool_message(conversation_id, content))
-        .await
-        .map_err(map_spawn_error)?
+pub async fn append_tool_message(conversation_id: String, content: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::append_tool_message(conversation_id, content)
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -1232,9 +1223,7 @@ pub async fn list_chat_messages(conversation_id: String) -> napi::Result<Vec<Cha
 /// Lightweight list of user messages for the chat UI's user-message rail.
 /// Runs on a blocking thread so the Node.js event loop is never blocked.
 #[napi]
-pub async fn list_user_messages(
-    conversation_id: String,
-) -> napi::Result<Vec<UserMessageSummary>> {
+pub async fn list_user_messages(conversation_id: String) -> napi::Result<Vec<UserMessageSummary>> {
     tokio::task::spawn_blocking(move || crate::storage::list_user_messages(conversation_id))
         .await
         .map_err(map_spawn_error)?
@@ -1247,11 +1236,7 @@ pub async fn list_chat_messages_paginated(
     limit: i32,
 ) -> napi::Result<ChatMessagePage> {
     tokio::task::spawn_blocking(move || {
-        crate::storage::list_chat_messages_paginated(
-            conversation_id,
-            before_message_id,
-            limit,
-        )
+        crate::storage::list_chat_messages_paginated(conversation_id, before_message_id, limit)
     })
     .await
     .map_err(map_spawn_error)?
@@ -1301,10 +1286,7 @@ pub async fn list_todos_for_rollback(
     response_id: String,
 ) -> napi::Result<String> {
     tokio::task::spawn_blocking(move || {
-        crate::mcp::servers::todo::TodoService::list_todos_for_rollback(
-            &session_id,
-            &response_id,
-        )
+        crate::mcp::servers::todo::TodoService::list_todos_for_rollback(&session_id, &response_id)
     })
     .await
     .map_err(map_spawn_error)?
@@ -1381,10 +1363,7 @@ pub async fn clear_app_logs() -> napi::Result<u32> {
 }
 
 #[napi]
-pub async fn export_conversation(
-    conversation_id: String,
-    format: String,
-) -> napi::Result<String> {
+pub async fn export_conversation(conversation_id: String, format: String) -> napi::Result<String> {
     tokio::task::spawn_blocking(move || {
         crate::storage::export_conversation(conversation_id, format)
     })
@@ -1412,37 +1391,24 @@ pub async fn list_memos(
 }
 
 #[napi]
-pub async fn create_memo(
-    directory_id: String,
-    content: String,
-) -> napi::Result<MemoRecord> {
+pub async fn create_memo(directory_id: String, content: String) -> napi::Result<MemoRecord> {
     tokio::task::spawn_blocking(move || crate::storage::create_memo(directory_id, content))
         .await
         .map_err(map_spawn_error)?
 }
 
 #[napi]
-pub async fn update_memo_content(
-    memo_id: String,
-    content: String,
-) -> napi::Result<MemoRecord> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::update_memo_content(memo_id, content)
-    })
-    .await
-    .map_err(map_spawn_error)?
+pub async fn update_memo_content(memo_id: String, content: String) -> napi::Result<MemoRecord> {
+    tokio::task::spawn_blocking(move || crate::storage::update_memo_content(memo_id, content))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
-pub async fn update_memo_status(
-    memo_id: String,
-    status: String,
-) -> napi::Result<MemoRecord> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::update_memo_status(memo_id, status)
-    })
-    .await
-    .map_err(map_spawn_error)?
+pub async fn update_memo_status(memo_id: String, status: String) -> napi::Result<MemoRecord> {
+    tokio::task::spawn_blocking(move || crate::storage::update_memo_status(memo_id, status))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 #[napi]
@@ -1454,11 +1420,9 @@ pub async fn delete_memo(memo_id: String) -> napi::Result<()> {
 
 #[napi]
 pub async fn get_memo_count_summary(directory_id: String) -> napi::Result<MemoCountSummary> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::get_memo_count_summary(directory_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::get_memo_count_summary(directory_id))
+        .await
+        .map_err(map_spawn_error)?
 }
 
 /// 将 tokio JoinError 转换为 napi Error
@@ -1549,10 +1513,9 @@ impl From<KeyboardShortcutsSettingsNapi>
 
 #[napi]
 pub async fn get_keyboard_shortcuts_settings() -> napi::Result<KeyboardShortcutsSettingsNapi> {
-    let settings =
-        tokio::task::spawn_blocking(crate::storage::get_keyboard_shortcuts_settings)
-            .await
-            .map_err(map_spawn_error)??;
+    let settings = tokio::task::spawn_blocking(crate::storage::get_keyboard_shortcuts_settings)
+        .await
+        .map_err(map_spawn_error)??;
     Ok(settings.into())
 }
 
@@ -1561,9 +1524,7 @@ pub async fn set_keyboard_shortcuts_settings(
     settings: KeyboardShortcutsSettingsNapi,
 ) -> napi::Result<()> {
     let settings = settings.into();
-    tokio::task::spawn_blocking(move || {
-        crate::storage::set_keyboard_shortcuts_settings(settings)
-    })
-    .await
-    .map_err(map_spawn_error)?
+    tokio::task::spawn_blocking(move || crate::storage::set_keyboard_shortcuts_settings(settings))
+        .await
+        .map_err(map_spawn_error)?
 }

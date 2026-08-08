@@ -162,14 +162,9 @@ impl HttpMcpClient {
 
 fn rmcp_tool_to_remote(tool: rmcp::model::Tool) -> RemoteMcpTool {
     let name = tool.name.to_string();
-    let description = tool
-        .description
-        .as_deref()
-        .unwrap_or_default()
-        .to_string();
-    let input_schema = serde_json::to_value(tool.input_schema.as_ref()).unwrap_or_else(|_| {
-        serde_json::json!({ "type": "object", "properties": {} })
-    });
+    let description = tool.description.as_deref().unwrap_or_default().to_string();
+    let input_schema = serde_json::to_value(tool.input_schema.as_ref())
+        .unwrap_or_else(|_| serde_json::json!({ "type": "object", "properties": {} }));
     RemoteMcpTool {
         name,
         description,
@@ -180,9 +175,8 @@ fn rmcp_tool_to_remote(tool: rmcp::model::Tool) -> RemoteMcpTool {
 fn call_tool_result_to_value(result: rmcp::model::CallToolResult) -> serde_json::Value {
     // Serialize the entire CallToolResult as JSON. This preserves content blocks,
     // is_error flag, and structured_content so callers can interpret it fully.
-    serde_json::to_value(&result).unwrap_or_else(|_| {
-        serde_json::json!({ "content": [], "isError": false })
-    })
+    serde_json::to_value(&result)
+        .unwrap_or_else(|_| serde_json::json!({ "content": [], "isError": false }))
 }
 
 fn parse_headers(value: &str) -> Result<HashMap<HeaderName, HeaderValue>> {

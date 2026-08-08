@@ -119,6 +119,9 @@ the runtime API is flat.
 - Main-process native calls must **not** bypass `nativeBridge` (except during
   initialization — see `bootstrap.ts` comments: raw binding avoids the
   storageReady deadlock).
+- **The main process runs as ESM**: `__dirname` / `__filename` are forbidden;
+  always use `import.meta.dirname` / `import.meta.filename` (already migrated
+  in `src/main/app/`, `nativeBridge.ts`, and others).
 - New MCP tools should follow the parameter-description style of existing
   servers in `native/src/mcp/servers/` (schemas are exposed to AI models —
   describe constraints and defaults precisely).
@@ -226,9 +229,9 @@ A commit message consists of a **header** and an optional **body**:
 ```
 
 - **Header**: one line, at most 72 characters; `type` and `scope` are lowercase,
-  `summary` is written in Chinese (keep technical terms like `N+1`, `IPC`,
-  `localStorage` in English as-is).
-- **Body**: multiple lines, explaining *why* the change was made and its impact;
+  and the `summary` is concise, imperative English. Keep technical terms such as
+  `N+1`, `IPC`, and `localStorage` unchanged.
+- **Body**: multiple lines explaining *why* the change was made and its impact;
   use `-` bullets when needed. Write a body only for complex changes or breaking
   behavior — simple changes need just the header.
 
@@ -236,14 +239,14 @@ A commit message consists of a **header** and an optional **body**:
 
 | type | Purpose | Example |
 | --- | --- | --- |
-| `feat` | New feature | `feat(chat): 输入草稿按会话持久化 - 切换会话不丢失输入` |
-| `fix` | Bug fix | `fix(imagegen): 模型能力校验 - 不支持多图的模型禁用参考图` |
-| `refactor` | Refactor, behavior unchanged | `refactor(sidebar): 批量删除改用批量 API - 消除 N+1` |
-| `docs` | Documentation only | `docs: 补充 Git 提交信息规范说明` |
-| `chore` | Build/deps/misc | `chore: 排除 e2e-verify-config.cjs 出版本控制` |
-| `perf` | Performance improvement | `perf(chat): 子代理查询合并为单条 SQL - 避免 N+1` |
-| `test` | Tests | `test(storage): 批量删除级联删除用例` |
-| `style` | Styling/formatting (no logic change) | `style: 统一导入排序` |
+| `feat` | New feature | `feat(chat): persist drafts per conversation - preserve input when switching` |
+| `fix` | Bug fix | `fix(imagegen): validate model capabilities - disable references for text-only models` |
+| `refactor` | Refactor, behavior unchanged | `refactor(sidebar): use batch deletion API - remove N+1 calls` |
+| `docs` | Documentation only | `docs: document commit message conventions` |
+| `chore` | Build/deps/misc | `chore: exclude e2e verification scratch files` |
+| `perf` | Performance improvement | `perf(chat): batch sub-agent queries - avoid N+1 calls` |
+| `test` | Tests | `test(storage): cover cascading deletion in batch operations` |
+| `style` | Styling/formatting (no logic change) | `style: normalize import ordering` |
 
 ### 7.3 Scope (optional)
 
@@ -256,19 +259,22 @@ module-specific.
 - Start with a verb describing *what was done*, not *what it is*;
 - One commit does one thing — keep the summary aligned with the diff, no mixed changes;
 - Append motivation with ` - ` when needed, e.g.
-  `feat(chat): 输入草稿按会话持久化 - 切换会话不丢失输入`.
+  `feat(chat): persist drafts per conversation - preserve input when switching`.
 
 ### 7.5 Body Example
 
 ```text
-fix(sidebar): 修复右键会话菜单不显示
+fix(sidebar): keep the conversation context menu open
 
-根因：关闭菜单的 document 级 contextmenu 监听用三点按钮容器判断
-目标是否在组件内，右键发生在会话行其他区域时被误判为外部点击，
-同一事件循环内菜单刚打开就被关闭（React 批处理后锚点被清空）。
+Root cause: the document-level contextmenu listener decided whether the
+target was inside the component by checking only the ellipsis-button
+container. A right-click elsewhere on the conversation row was treated as
+an outside click, so the menu opened and closed in the same event loop
+after React cleared the anchor during batching.
 
-修复：改用 closest('.chat-item') 比较所在会话行，同一行内右键
-不关闭菜单，其它区域右键正常切换。
+Fix: compare the owning conversation row with closest('.chat-item').
+Right-clicking the same row no longer closes the menu, while right-clicking
+another area still switches it correctly.
 ```
 
 ### 7.6 Before Committing
@@ -303,11 +309,14 @@ Design points & conventions:
   ~1MB image expands to ~340k tokens of base64. The reference block carries
   only a relative path (a few dozen bytes); `imagegen-generate` reads the file
   itself via `load_reference_image_from_path` in `mcp/servers/imagegen.rs`.
-- **Security boundary**: `path` accepts only relative paths with an `upload/`
-  prefix; `..` traversal and absolute paths are rejected. The renderer
-  thumbnail IPC `images:resolve-upload-image`
-  (`src/main/ipc/handlers/imageHandlers.ts`) applies the same double check
-  (prefix match + prefix re-check after normalize).
+- **Two path boundaries**: reference blocks produced by vision textification
+  always contain a safe relative path with an `upload/` prefix and reject `..`
+  traversal, keeping machine-specific absolute paths out of model context.
+  The runtime `images[].path` interface of `imagegen-generate` also accepts a
+  trusted absolute disk path. The renderer thumbnail IPC
+  `images:resolve-upload-image` (`src/main/ipc/handlers/imageHandlers.ts`)
+  continues to double-check generated reference paths (prefix match plus a
+  second prefix check after normalization).
 - **User messages only**: tool results (e.g. browser screenshots) are textified
   without reference blocks to avoid context bloat; `ChatImage.source`
   (`api/conversation/images.rs`) records the on-disk relative path, and

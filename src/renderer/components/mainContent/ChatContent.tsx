@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowLeft,
+  Bot,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
@@ -153,6 +154,9 @@ const ChatContentBody = ({
     conversationType: string;
     subAgentStatus: string;
     parentConversationId: string;
+    title: string;
+    subAgentName: string;
+    subAgentId: string;
   } | null>(null);
 
   useEffect(() => {
@@ -172,6 +176,9 @@ const ChatContentBody = ({
           conversationType: record.conversationType,
           subAgentStatus: record.subAgentStatus,
           parentConversationId: record.parentConversationId,
+          title: record.title,
+          subAgentName: record.subAgentName,
+          subAgentId: record.subAgentId,
         });
       })
       .catch(() => {
@@ -206,6 +213,50 @@ const ChatContentBody = ({
     activeConversationMeta?.parentConversationId ||
     liveSubAgentEvent?.parentConversationId ||
     "";
+
+  // 子代理关联的主会话信息（标题/摘要），用于信息头的“由主会话启动”展示。
+  const [subAgentParentMeta, setSubAgentParentMeta] = useState<{
+    title: string;
+    summary: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!subAgentParentConversationId) {
+      setSubAgentParentMeta(null);
+      return;
+    }
+
+    let cancelled = false;
+    void window.snow
+      .getChatConversation(subAgentParentConversationId)
+      .then((record) => {
+        if (cancelled || !record) {
+          return;
+        }
+        setSubAgentParentMeta({
+          title: record.title,
+          summary: record.summary,
+        });
+      })
+      .catch(() => {
+        // Best effort — the header simply omits the parent label.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subAgentParentConversationId]);
+
+  // Sub-agent header display data. The live session event wins while the run
+  // is in flight; the persisted record covers reopened conversations. The
+  // session title is the prompt truncated to 80 chars (set at activation), so
+  // it reads as the "stage" the sub-agent was spawned for; the full prompt is
+  // the first user message of this conversation.
+  const subAgentName =
+    liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
+  const subAgentSessionTitle = activeConversationMeta?.title ?? "";
+  const subAgentPrompt =
+    messages.find((message) => message.role === "user")?.content ?? "";
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // 覆盖整个中间输出区：文件变更统计、消息正文、Thinking、工具调用和压缩输出。
@@ -926,6 +977,7 @@ const ChatContentBody = ({
         }`}
         ref={scrollRef}
         onClick={pathClickOpenProps.onClick}
+        onAuxClick={pathClickOpenProps.onAuxClick}
         onWheel={handleChatWheel}
         onTouchStart={markUserScrollIntent}
         onPointerDown={handleChatPointerDown}
@@ -953,6 +1005,18 @@ const ChatContentBody = ({
           </div>
         ) : hasMessages ? (
           <>
+            {isSubAgentConversation ? (
+              <SubAgentInfoHeader
+                agentName={subAgentName}
+                sessionTitle={subAgentSessionTitle}
+                prompt={subAgentPrompt}
+                parentTitle={
+                  subAgentParentMeta?.title || subAgentParentMeta?.summary || ""
+                }
+                parentConversationId={subAgentParentConversationId}
+                onBackToParent={handleSelectConversation}
+              />
+            ) : null}
             {isLoadingOlderMessages ? (
               <div className="chat-history-skeleton" aria-hidden="true">
                 <div className="chat-history-skeleton-line" />
@@ -1065,6 +1129,79 @@ const ChatContentBody = ({
           onConfirm={handleConfirmRollback}
           onCancel={cancelRollback}
         />
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * Info header shown at the top of a sub-agent conversation's message list.
+ * It surfaces what the read-only run was about: the sub-agent's display name
+ * (agent id), the session title (the prompt truncated at activation, i.e. the
+ * "stage" it was spawned for), the parent conversation that launched it (with
+ * a shortcut back), and the full prompt that was delegated.
+ */
+const SubAgentInfoHeader = ({
+  agentName,
+  sessionTitle,
+  prompt,
+  parentTitle,
+  parentConversationId,
+  onBackToParent,
+}: {
+  agentName: string;
+  sessionTitle: string;
+  prompt: string;
+  parentTitle: string;
+  parentConversationId: string;
+  onBackToParent: (conversationId: string) => Promise<void> | void;
+}): React.JSX.Element => {
+  const { t } = useI18n();
+
+  // The session title is the prompt truncated to 80 chars at activation; if
+  // it is missing (e.g. the record has not loaded yet), fall back to a fresh
+  // truncation of the prompt, then to the agent name.
+  const displayTitle =
+    sessionTitle ||
+    (prompt.length > 80 ? `${prompt.slice(0, 80)}...` : prompt) ||
+    agentName;
+
+  return (
+    <div className="sub-agent-info-header">
+      <div className="sub-agent-info-header-top">
+        {agentName ? (
+          <span className="sub-agent-info-agent" title={agentName}>
+            <Bot size={13} strokeWidth={1.8} aria-hidden="true" />
+            <span>{agentName}</span>
+          </span>
+        ) : null}
+        {parentConversationId ? (
+          <button
+            type="button"
+            className="sub-agent-info-parent"
+            onClick={() => void onBackToParent(parentConversationId)}
+            title={parentTitle || undefined}
+          >
+            <ArrowLeft size={12} strokeWidth={2} aria-hidden="true" />
+            <span>
+              {t("chat.subAgentInfo.launchedBy", {
+                defaultValue: 'Launched by parent "{{title}}"',
+                values: { title: parentTitle || "…" },
+              })}
+            </span>
+          </button>
+        ) : null}
+      </div>
+      <div className="sub-agent-info-title" title={displayTitle}>
+        {displayTitle}
+      </div>
+      {prompt ? (
+        <div className="sub-agent-info-prompt" title={prompt}>
+          <span className="sub-agent-info-prompt-label">
+            {t("chat.subAgentInfo.prompt", { defaultValue: "Prompt" })}
+          </span>
+          <span className="sub-agent-info-prompt-text">{prompt}</span>
+        </div>
       ) : null}
     </div>
   );

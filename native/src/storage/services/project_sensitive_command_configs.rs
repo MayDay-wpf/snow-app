@@ -37,8 +37,7 @@ pub fn list_project_sensitive_command_configs(
     database_path: &Path,
     project_id: &str,
 ) -> Result<Vec<ProjectSensitiveCommandConfigRecord>> {
-    let global_commands =
-        sensitive_command_configs::list_sensitive_command_configs(database_path)?;
+    let global_commands = sensitive_command_configs::list_sensitive_command_configs(database_path)?;
     let settings = get_project_sensitive_command_settings(database_path, project_id)?;
 
     Ok(merge_project_sensitive_command_configs(
@@ -54,8 +53,7 @@ pub fn set_project_sensitive_command_enabled(
     enabled: bool,
 ) -> Result<()> {
     let normalized_command_id = normalize_required_value(command_id, "Sensitive command id")?;
-    let global_commands =
-        sensitive_command_configs::list_sensitive_command_configs(database_path)?;
+    let global_commands = sensitive_command_configs::list_sensitive_command_configs(database_path)?;
     let mut settings = get_project_sensitive_command_settings(database_path, project_id)?;
 
     if let Some(global_command) = global_commands
@@ -96,8 +94,7 @@ pub fn upsert_project_sensitive_command_config(
 ) -> Result<()> {
     let pattern = normalize_required_value(&item.pattern, "Sensitive command pattern")?;
     let description = item.description.trim().to_string();
-    let global_commands =
-        sensitive_command_configs::list_sensitive_command_configs(database_path)?;
+    let global_commands = sensitive_command_configs::list_sensitive_command_configs(database_path)?;
     let mut settings = get_project_sensitive_command_settings(database_path, project_id)?;
     let command_id = if item.command_id.trim().is_empty() {
         format!("project-{}", database::create_snowflake_id())
@@ -118,9 +115,10 @@ pub fn upsert_project_sensitive_command_config(
     let duplicate_global_pattern = global_commands
         .iter()
         .any(|command| command.pattern.trim() == pattern);
-    let duplicate_project_pattern = settings.custom_commands.iter().any(|command| {
-        command.command_id != command_id && command.pattern.trim() == pattern
-    });
+    let duplicate_project_pattern = settings
+        .custom_commands
+        .iter()
+        .any(|command| command.command_id != command_id && command.pattern.trim() == pattern);
     if duplicate_global_pattern || duplicate_project_pattern {
         return Err(Error::new(
             Status::InvalidArg,
@@ -138,13 +136,15 @@ pub fn upsert_project_sensitive_command_config(
         command.enabled = item.enabled;
         command.sort_order = item.sort_order;
     } else {
-        settings.custom_commands.push(ProjectSensitiveCommandConfig {
-            command_id,
-            pattern,
-            description,
-            enabled: item.enabled,
-            sort_order: item.sort_order,
-        });
+        settings
+            .custom_commands
+            .push(ProjectSensitiveCommandConfig {
+                command_id,
+                pattern,
+                description,
+                enabled: item.enabled,
+                sort_order: item.sort_order,
+            });
     }
 
     write_project_sensitive_command_settings(database_path, &settings)
@@ -178,8 +178,7 @@ fn get_project_sensitive_command_settings(
 ) -> Result<ProjectSensitiveCommandSettings> {
     let normalized_project_id = normalize_required_value(project_id, "Project id")?;
     let setting_code = project_sensitive_command_setting_code(&normalized_project_id);
-    let Some(raw_value) =
-        system_settings::get_system_setting_value(database_path, &setting_code)?
+    let Some(raw_value) = system_settings::get_system_setting_value(database_path, &setting_code)?
     else {
         return Ok(ProjectSensitiveCommandSettings {
             project_id: normalized_project_id,
@@ -232,9 +231,7 @@ fn merge_project_sensitive_command_configs(
     global_commands: &[SensitiveCommandConfigRecord],
     settings: &ProjectSensitiveCommandSettings,
 ) -> Vec<ProjectSensitiveCommandConfigRecord> {
-    let mut commands = Vec::with_capacity(
-        global_commands.len() + settings.custom_commands.len(),
-    );
+    let mut commands = Vec::with_capacity(global_commands.len() + settings.custom_commands.len());
 
     commands.extend(global_commands.iter().map(|command| {
         ProjectSensitiveCommandConfigRecord {

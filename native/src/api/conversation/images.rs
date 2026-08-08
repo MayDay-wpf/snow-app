@@ -293,7 +293,10 @@ fn parse_base64_image_data_url(data_url: &str) -> Option<ChatImage> {
     // 校验 base64 内容合法性。非法的 base64 会导致上游 API 直接拒绝请求
     // （例如 "Invalid 'input[0].content[1].image_url' ... invalid base64-encoded value"）。
     // 这里与上游使用相同的标准解码器提前拦截，避免把脏数据发到视觉模型。
-    if base64::engine::general_purpose::STANDARD.decode(data).is_err() {
+    if base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .is_err()
+    {
         return None;
     }
 
@@ -317,7 +320,9 @@ fn try_extract_svg_source(value: &str, database_path: &Path) -> Option<String> {
         if media_type != "image/svg+xml" {
             return None;
         }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(data.trim()).ok()?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data.trim())
+            .ok()?;
         return String::from_utf8(bytes).ok();
     }
 
@@ -329,7 +334,13 @@ fn try_extract_svg_source(value: &str, database_path: &Path) -> Option<String> {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(value);
-    if file_path.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() != Some("svg") {
+    if file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_lowercase)
+        .as_deref()
+        != Some("svg")
+    {
         return None;
     }
     fs::read_to_string(&file_path).ok()
@@ -466,9 +477,7 @@ pub fn resolve_inline_images_from_disk(content: &str, database_path: &Path) -> S
 
         if value.trim().starts_with("data:") {
             result.push_str(&remaining[tag_start..full_tag_end]);
-        } else if let Some(image) =
-            parse_image_tag_value(value, database_path).unwrap_or(None)
-        {
+        } else if let Some(image) = parse_image_tag_value(value, database_path).unwrap_or(None) {
             result.push_str(&format!("@@image:{}@@", image.data_url));
         } else {
             result.push_str(&remaining[tag_start..full_tag_end]);

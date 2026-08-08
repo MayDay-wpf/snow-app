@@ -20,10 +20,7 @@ pub fn list_system_prompts(database_path: &Path) -> Result<Vec<SystemPromptItemR
         .map_err(|error| database::database_error(database_path, "list system prompts", error))
 }
 
-pub fn upsert_system_prompt(
-    database_path: &Path,
-    item: &SystemPromptItemInput,
-) -> Result<()> {
+pub fn upsert_system_prompt(database_path: &Path, item: &SystemPromptItemInput) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| upsert_system_prompt_with_connection(&connection, item))
         .map_err(|error| database::database_error(database_path, "upsert system prompt", error))
@@ -44,9 +41,7 @@ pub fn delete_system_prompt(database_path: &Path, prompt_id: &str) -> Result<()>
         .map_err(|error| database::database_error(database_path, "delete system prompt", error))
 }
 
-fn query_system_prompts(
-    connection: &Connection,
-) -> rusqlite::Result<Vec<SystemPromptItemRecord>> {
+fn query_system_prompts(connection: &Connection) -> rusqlite::Result<Vec<SystemPromptItemRecord>> {
     let mut statement = connection.prepare(
         "SELECT id,
                 prompt_id,
@@ -143,10 +138,14 @@ fn normalize_scope(item: &SystemPromptItemInput) -> Result<(String, Option<Strin
                 .as_deref()
                 .map(str::trim)
                 .filter(|project_id| !project_id.is_empty())
-                .ok_or_else(|| Error::from_reason("Project-scoped system prompts require a project ID"))?;
+                .ok_or_else(|| {
+                    Error::from_reason("Project-scoped system prompts require a project ID")
+                })?;
             Ok((PROJECT_SCOPE.to_string(), Some(project_id.to_string())))
         }
-        _ => Err(Error::from_reason("System prompt scope must be global or project")),
+        _ => Err(Error::from_reason(
+            "System prompt scope must be global or project",
+        )),
     }
 }
 
@@ -188,9 +187,10 @@ pub fn resolve_active_system_prompt_contents(
 
     let mut contents = Vec::new();
     for id in ids {
-        if let Some(prompt) = prompts.iter().find(|item| {
-            item.prompt_id == id && prompt_applies_to_directory(item, directory_id)
-        }) {
+        if let Some(prompt) = prompts
+            .iter()
+            .find(|item| item.prompt_id == id && prompt_applies_to_directory(item, directory_id))
+        {
             let content = prompt.content.trim();
             if !content.is_empty() {
                 contents.push(content.to_string());

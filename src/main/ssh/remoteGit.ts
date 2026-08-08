@@ -778,6 +778,48 @@ export const remoteGetCommitDiff = async (
   }
 };
 
+/** Diff of a single file within a single commit (`git show <hash> -- <path>`). */
+export const remoteGetCommitFileDiff = async (
+  workspacePath: string,
+  hash: string,
+  filePath: string
+): Promise<GitDiffResult> => {
+  const diffArgs = ["show", "--format=", "--find-renames", hash, "--", filePath];
+
+  try {
+    let stdout = await runRemoteGit(workspacePath, diffArgs);
+
+    if (stdout.includes("Binary files")) {
+      // Git's heuristic may falsely flag text files as binary (e.g. files
+      // containing NUL bytes). Retry with --text to force a text-mode diff.
+      let textDiff = "";
+      try {
+        textDiff = await runRemoteGit(workspacePath, [
+          "show",
+          "--format=",
+          "--text",
+          hash,
+          "--",
+          filePath,
+        ]);
+      } catch {
+        // keep empty
+      }
+      if (textDiff) {
+        return { content: textDiff, isBinary: false };
+      }
+      return { content: "Binary file - diff not available", isBinary: true };
+    }
+
+    return { content: stdout, isBinary: false };
+  } catch (err) {
+    return {
+      content: err instanceof Error ? err.message : String(err),
+      isBinary: false,
+    };
+  }
+};
+
 /**
  * Discovers git repositories under the remote workspace root by walking
  * the directory tree over SFTP (mirrors `discover_git_repos` in the Rust

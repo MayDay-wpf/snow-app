@@ -46,7 +46,15 @@ Snow App 通过 **API 档案（Profile）** 管理模型服务商的接入信息
 - **自定义请求头方案**：选择 `custom-headers.json` 中定义的 scheme，
   可选"继承全局"或"不使用"；
 - **自动压缩**：开启 `enableAutoCompress` 后，当上下文用量达到阈值
-  `autoCompressThreshold`（百分比）时自动压缩历史消息。
+  `autoCompressThreshold`（百分比）时自动压缩历史消息；
+- **Google 搜索（Gemini）**：开启 `googleSearch` 后，Gemini 聊天请求会注入
+  Google Search 工具实现实时联网接地（Grounding with Google Search）；
+  视觉模型独立配置区另有 `visionGoogleSearch` 开关，可单独控制视觉请求；
+- **Responses Fast Mode**：当请求方法为 `responses` 时，可开启
+  `responsesFastMode` 快速模式，让服务端以快速模式处理响应式请求。
+
+表单会按请求方法校验字段：切换请求方法时，不适用于该方法的字段会被
+重置或跳过（如思考强度、Responses 专属选项），避免提交无效组合。
 
 以上配置统一保存于 `~/.snow/config.json` 的 `snowcfg` 字段，与 Snow CLI 共享。
 

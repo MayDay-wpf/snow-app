@@ -4,21 +4,21 @@ use std::sync::Arc;
 use napi::bindgen_prelude::*;
 use serde_json::Value;
 
-use super::service::McpService;
 use super::servers::app_control::AppControlService;
 use super::servers::bash::BashService;
 use super::servers::browser::BrowserService;
 use super::servers::codebase::CodebaseService;
 use super::servers::codelens::CodeLensService;
+use super::servers::config::ConfigService;
 use super::servers::filesystem::FilesystemService;
 use super::servers::grep::GrepService;
 use super::servers::imagegen::ImageGenService;
-use super::servers::config::ConfigService;
 use super::servers::sub_agents::SubAgentsService;
 use super::servers::terminal::TerminalService;
 use super::servers::todo::TodoService;
 use super::servers::user_interaction::UserInteractionService;
 use super::servers::websearch::WebSearchService;
+use super::service::McpService;
 use super::tools::McpTool;
 
 /// 按固定注册顺序构造内置 MCP 服务。
@@ -142,9 +142,7 @@ pub fn sanitize_tool_full_name(raw: &str) -> String {
     let mut i = 0usize;
 
     while i < bytes.len() {
-        let is_name_char = |b: u8| {
-            b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
-        };
+        let is_name_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
         if is_name_char(bytes[i]) {
             let start = i;
             while i < bytes.len() && is_name_char(bytes[i]) {

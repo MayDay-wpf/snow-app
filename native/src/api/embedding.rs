@@ -32,7 +32,11 @@ impl EmbeddingConfig {
             model_name: model_name.to_string(),
             base_url: normalize_base_url(base_url),
             api_key: api_key.to_string(),
-            dimensions: if dimensions > 0 { dimensions as usize } else { 1536 },
+            dimensions: if dimensions > 0 {
+                dimensions as usize
+            } else {
+                1536
+            },
         }
     }
 }
@@ -50,18 +54,14 @@ impl EmbeddingConfig {
 ///   `x-goog-api-key` header and a distinct request/response format.
 /// - `mistral`: Mistral embedding API. OpenAI-compatible but uses
 ///   `output_dimension` instead of `dimensions` in the request body.
-pub async fn embed_batch(
-    config: &EmbeddingConfig,
-    inputs: &[String],
-) -> Result<Vec<Vec<f64>>> {
+pub async fn embed_batch(config: &EmbeddingConfig, inputs: &[String]) -> Result<Vec<Vec<f64>>> {
     if inputs.is_empty() {
         return Ok(Vec::new());
     }
 
-    let client = crate::api::http_client::build_proxied_client_with_timeout(
-        Duration::from_secs(120),
-    )
-    .await?;
+    let client =
+        crate::api::http_client::build_proxied_client_with_timeout(Duration::from_secs(120))
+            .await?;
 
     let endpoint = resolve_embedding_endpoint(config);
     let headers = build_headers(config);
@@ -84,17 +84,12 @@ pub async fn embed_batch(
         .json(&body)
         .send()
         .await
-        .map_err(|error| {
-            Error::from_reason(format!(
-                "Embedding API request failed: {error}"
-            ))
-        })?;
+        .map_err(|error| Error::from_reason(format!("Embedding API request failed: {error}")))?;
 
     let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|error| Error::from_reason(format!("Failed to read embedding response: {error}")))?;
+    let response_text = response.text().await.map_err(|error| {
+        Error::from_reason(format!("Failed to read embedding response: {error}"))
+    })?;
 
     if !status.is_success() {
         return Err(Error::from_reason(format!(
@@ -208,14 +203,8 @@ fn resolve_openai_compatible_endpoint(base_url: &str, embedding_type: &str) -> S
 /// - all others: use standard `Authorization: Bearer {key}` header
 fn build_headers(config: &EmbeddingConfig) -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "Content-Type",
-        HeaderValue::from_static("application/json"),
-    );
-    headers.insert(
-        "Accept",
-        HeaderValue::from_static("application/json"),
-    );
+    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
+    headers.insert("Accept", HeaderValue::from_static("application/json"));
 
     if config.api_key.is_empty() {
         return headers;
@@ -357,9 +346,7 @@ fn parse_openai_response(parsed: &Value, expected_count: usize) -> Result<Vec<Ve
     let data = parsed
         .get("data")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            Error::from_reason("Embedding response missing 'data' array")
-        })?;
+        .ok_or_else(|| Error::from_reason("Embedding response missing 'data' array"))?;
 
     if data.len() != expected_count {
         return Err(Error::from_reason(format!(
@@ -380,9 +367,7 @@ fn parse_openai_response(parsed: &Value, expected_count: usize) -> Result<Vec<Ve
         let embedding = item
             .get("embedding")
             .and_then(Value::as_array)
-            .ok_or_else(|| {
-                Error::from_reason("Embedding response item missing 'embedding' array")
-            })?
+            .ok_or_else(|| Error::from_reason("Embedding response item missing 'embedding' array"))?
             .iter()
             .map(|v| {
                 v.as_f64().ok_or_else(|| {
@@ -476,9 +461,7 @@ fn parse_gemini_response(parsed: &Value, expected_count: usize) -> Result<Vec<Ve
         .map(|emb| {
             emb.get("values")
                 .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    Error::from_reason("Gemini embedding item missing 'values' array")
-                })?
+                .ok_or_else(|| Error::from_reason("Gemini embedding item missing 'values' array"))?
                 .iter()
                 .map(|v| {
                     v.as_f64().ok_or_else(|| {

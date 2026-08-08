@@ -9,13 +9,17 @@ import {
   ClipboardList,
   Command,
   Target,
+  File,
+  Folder,
   Keyboard,
   Loader2,
-  Paperclip,
+  Radio,
   RefreshCw,
   Search,
+  Send,
   Square,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -36,6 +40,7 @@ import {
   createElementChipHtml,
   createImageChipHtml,
   createTextSnippetChipHtml,
+  createWebTagChipHtml,
   insertHtmlAtSelection,
   insertLineBreak,
   parseContentSegments,
@@ -49,6 +54,7 @@ import {
   type FileTag,
   type ImageTag,
   type TextSnippetTag,
+  type WebTag,
 } from "./fileTagUtils";
 import {
   FileMentionPopup,
@@ -67,11 +73,23 @@ import { useChatConversationContext } from "../chatMessages";
 import { directoryIdToPath } from "../chatMessages/utils/conversationHelpers";
 import { collectConversationFileChanges } from "../chatMessages/hooks/fileChangeTracking";
 import { useConversationFileChanges } from "./useConversationFileChanges";
+import {
+  TERMINAL_DRAG_MIME,
+  TERMINAL_INSERT_TEXT_EVENT,
+  startTerminalMonitor,
+  stopTerminalMonitor,
+  type TerminalDragPayload,
+  type TerminalInsertTextPayload,
+} from "../../rightPanel/terminal/terminalMonitor";
+import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
 import { CommandPanel, type CommandPanelHandle } from "./commands/CommandPanel";
 import { createChatCommands } from "./commands/commandRegistry";
 import { FileChangesPanel } from "./commands/FileChangesPanel";
 import { ReviewPanel } from "./commands/ReviewPanel";
 import type { ChatCommand } from "./commands/types";
+
+/** 终端监控日志预览保留的最大行数 */
+const MAX_MONITORED_LINES = 1000;
 
 export const ChatInputView = ({
   placeholder,
@@ -101,6 +119,9 @@ export const ChatInputView = ({
   isLoadingApiConfig,
   isSavingThinking,
   thinkingError,
+  responsesFastModeEnabled,
+  isSavingFastMode,
+  fastModeError,
   labels,
   isStreaming,
   isAborting,
@@ -141,6 +162,7 @@ export const ChatInputView = ({
   handleToggleModelMenu,
   handleSelectApiProfile,
   handleSelectThinking,
+  handleToggleResponsesFastMode,
   restoreContent,
 }: ChatInputViewProps): React.JSX.Element => {
   const { t } = useI18n();
@@ -365,6 +387,45 @@ export const ChatInputView = ({
     summary: string;
   } | null>(null);
 
+  // ------------------------------------------------------------------
+  // 终端监控模式：拖拽终端到输入框后，实时订阅该终端的日志流
+  // ------------------------------------------------------------------
+
+  /** 当前监控的终端（null = 未监控） */
+  const [monitoredTerminal, setMonitoredTerminal] = useState<{
+    tabId: string;
+    cwd: string;
+  } | null>(null);
+  /** 监控到的日志行（环形保留最近 MAX_MONITORED_LINES 行） */
+  const [monitoredLines, setMonitoredLines] = useState<string[]>([]);
+  /** 监控条日志预览是否展开 */
+  const [monitorExpanded, setMonitorExpanded] = useState(false);
+  /** 监控日志预览滚动容器（新行到达时自动滚到底部） */
+  const monitorScrollRef = useRef<HTMLDivElement | null>(null);
+
+  /** 停止监控当前终端 */
+  const handleStopMonitor = useCallback((): void => {
+    setMonitoredTerminal((prev) => {
+      if (prev) {
+        stopTerminalMonitor(prev.tabId);
+      }
+      return null;
+    });
+    setMonitoredLines([]);
+    setMonitorExpanded(false);
+  }, []);
+
+  /** 监控日志预览展开时自动滚动到底部 */
+  useEffect(() => {
+    if (!monitorExpanded) {
+      return;
+    }
+    const el = monitorScrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [monitoredLines.length, monitorExpanded]);
+
   // 通用 chip 详情悬停预览（file / commit / change / review / element）
   const [chipDetails, setChipDetails] = useState<{
     rows: { label: string; value: string }[];
@@ -421,6 +482,34 @@ export const ChatInputView = ({
     },
     [syncContent, textareaRef]
   );
+
+  /** 终端工具栏「添加到输入框」事件：把日志编码为 text-snippet 小组件（chip）插入输入框 */
+  useEffect(() => {
+    const onInsertText = (event: Event): void => {
+      const detail = (event as CustomEvent<TerminalInsertTextPayload>).detail;
+      if (!detail?.text) {
+        return;
+      }
+      const el = textareaRef.current;
+      if (!el) {
+        return;
+      }
+      el.focus();
+      // 大段终端日志以 chip 形式存入输入框：避免文字铺开占满输入区，
+      // 点击 chip 可展开查看完整内容，发送时序列化为摘要文本。
+      const summary = buildTextSnippetSummary(detail.text, 36);
+      const tag: TextSnippetTag = {
+        content: detail.text,
+        summary,
+        charCount: detail.text.length,
+      };
+      insertHtmlAtSelection(createTextSnippetChipHtml(tag));
+      syncContent();
+    };
+    window.addEventListener(TERMINAL_INSERT_TEXT_EVENT, onInsertText);
+    return () =>
+      window.removeEventListener(TERMINAL_INSERT_TEXT_EVENT, onInsertText);
+  }, [syncContent, textareaRef]);
 
   const insertFileTags = useCallback(
     (tags: FileTag[]) => {
@@ -705,6 +794,30 @@ export const ChatInputView = ({
         textareaRef.current.classList.remove("drag-over");
       }
 
+      // 终端拖拽手柄：拖到输入框 = 进入「监控终端」模式（实时订阅日志流）
+      const terminalData = event.dataTransfer.getData(TERMINAL_DRAG_MIME);
+      if (terminalData) {
+        try {
+          const payload = JSON.parse(terminalData) as TerminalDragPayload;
+          if (payload && typeof payload.tabId === "string") {
+            startTerminalMonitor(payload.tabId, (lines) => {
+              setMonitoredLines((prev) =>
+                [...prev, ...lines].slice(-MAX_MONITORED_LINES)
+              );
+            });
+            setMonitoredTerminal({
+              tabId: payload.tabId,
+              cwd: payload.cwd || "",
+            });
+            setMonitoredLines([]);
+            setMonitorExpanded(true);
+          }
+        } catch {
+          // 无效的终端拖拽数据：忽略
+        }
+        return;
+      }
+
       // 支持从文件管理器拖入图片（单张或多张），与粘贴图片行为保持一致
       const droppedFiles = Array.from(event.dataTransfer.files);
       const imageFiles = droppedFiles.filter((file) =>
@@ -737,6 +850,29 @@ export const ChatInputView = ({
 
       try {
         const parsed = JSON.parse(jsonData) as Record<string, unknown>;
+
+        // 浏览器 tab 拖拽：{ type: "web-tag", url, title } → 插入网页引用 chip
+        if (
+          parsed.type === "web-tag" &&
+          typeof parsed.url === "string" &&
+          parsed.url.length > 0
+        ) {
+          const tag: WebTag = {
+            url: parsed.url,
+            title:
+              typeof parsed.title === "string" && parsed.title.length > 0
+                ? parsed.title
+                : undefined,
+          };
+
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+          }
+
+          insertHtmlAtSelection(createWebTagChipHtml(tag));
+          syncContent();
+          return;
+        }
 
         // 搜索结果组合拖拽：{ type: "file-tags", tags: FileTag[] }
         if (parsed.type === "file-tags" && Array.isArray(parsed.tags)) {
@@ -857,15 +993,19 @@ export const ChatInputView = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       const types = event.dataTransfer.types;
       // 应用内拖拽（文件/commit/change 标签）走 application/json；
-      // 从文件管理器拖入的外部文件走 Files。两者均需 preventDefault
+      // 终端监控拖拽走 application/x-snow-terminal（dropEffect: link）；
+      // 从文件管理器拖入的外部文件走 Files。三者均需 preventDefault
       // 才能允许 drop，否则浏览器默认拒绝（显示禁止光标）。
+      const hasTerminal = types.includes(TERMINAL_DRAG_MIME);
       const allowed =
-        types.includes("application/json") || types.includes("Files");
+        types.includes("application/json") ||
+        types.includes("Files") ||
+        hasTerminal;
       if (!allowed) {
         return;
       }
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
+      event.dataTransfer.dropEffect = hasTerminal ? "link" : "copy";
       if (!isDraggingOverRef.current && textareaRef.current) {
         isDraggingOverRef.current = true;
         textareaRef.current.classList.add("drag-over");
@@ -1402,6 +1542,37 @@ export const ChatInputView = ({
     [textareaRef]
   );
 
+  // 点击 web chip 主体（非 remove 按钮）→ 在右侧面板打开对应网页。
+  // 通过 rightPanelEvents 事件总线请求 RightPanel 新建/切换到浏览器 tab。
+  const handleWebChipClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement;
+      // 点击 remove 按钮时不打开浏览器
+      if (target.closest("[data-chip-remove='true']")) {
+        return;
+      }
+      const chip = target.closest(
+        "[data-web-tag='true']"
+      ) as HTMLElement | null;
+      if (!chip || !textareaRef.current?.contains(chip)) {
+        return;
+      }
+      const rawData = chip.dataset.webData;
+      if (!rawData) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(rawData) as { url?: string };
+        if (parsed.url) {
+          rightPanelEvents.emit("open-browser-tab", { url: parsed.url });
+        }
+      } catch {
+        // Ignore malformed data
+      }
+    },
+    [textareaRef]
+  );
+
   const handleTextSnippetEditorSave = useCallback(() => {
     if (!textSnippetEditor) {
       return;
@@ -1439,7 +1610,7 @@ export const ChatInputView = ({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       const chip = target.closest(
-        "[data-file-tag='true'],[data-commit-tag='true'],[data-change-tag='true'],[data-review-tag='true'],[data-element-tag='true']"
+        "[data-file-tag='true'],[data-commit-tag='true'],[data-change-tag='true'],[data-review-tag='true'],[data-element-tag='true'],[data-web-tag='true']"
       ) as HTMLElement | null;
       const clear = (): void => {
         if (chipDetailsTimerRef.current) {
@@ -1574,6 +1745,20 @@ export const ChatInputView = ({
           if (data.text) {
             content = base64ToUtf8(data.text);
           }
+        } else if (chip.dataset.webTag === "true") {
+          const data = JSON.parse(
+            chip.dataset.webData ?? "{}"
+          ) as { url?: string; title?: string };
+          rows.push({
+            label: t("chatInput.chipDetailsUrl"),
+            value: data.url ?? "",
+          });
+          if (data.title) {
+            rows.push({
+              label: t("chatInput.chipDetailsTitle"),
+              value: data.title,
+            });
+          }
         }
       } catch {
         clear();
@@ -1619,10 +1804,30 @@ export const ChatInputView = ({
     }
   }, []);
 
-  const handleSelectFilesAndFolders = useCallback(async () => {
+  // Windows 原生对话框无法在同一视图混合多选文件和文件夹，
+  // 因此"添加文件"与"添加文件夹"拆分为两个独立入口，
+  // 分别调用纯文件 / 纯文件夹选择器，避免文案与行为不一致。
+  const handleSelectFiles = useCallback(async () => {
     try {
-      const selected = await window.snow.selectFiles(
-        t("plusMenu.selectFilesTitle")
+      const selected = await window.snow.selectFiles(t("plusMenu.selectFilesTitle"));
+      if (!selected || selected.length === 0) {
+        return;
+      }
+      const tags: FileTag[] = selected.map((item) => {
+        const path = item.path;
+        const name = path.split("/").filter(Boolean).pop() || path;
+        return { path, name, isDirectory: item.isDirectory };
+      });
+      insertFileTags(tags);
+    } catch {
+      // dialog cancelled or error
+    }
+  }, [insertFileTags, t]);
+
+  const handleSelectFolders = useCallback(async () => {
+    try {
+      const selected = await window.snow.selectDirectories(
+        t("plusMenu.selectFoldersTitle")
       );
       if (!selected || selected.length === 0) {
         return;
@@ -1645,15 +1850,21 @@ export const ChatInputView = ({
         label: t("plusMenu.sectionAdd"),
         items: [
           {
-            id: "files-and-folders",
-            label: t("plusMenu.filesAndFolders"),
-            icon: Paperclip,
-            onSelect: () => void handleSelectFilesAndFolders(),
+            id: "files",
+            label: t("plusMenu.files"),
+            icon: File,
+            onSelect: () => void handleSelectFiles(),
+          },
+          {
+            id: "folders",
+            label: t("plusMenu.folders"),
+            icon: Folder,
+            onSelect: () => void handleSelectFolders(),
           },
         ],
       },
     ],
-    [t, handleSelectFilesAndFolders]
+    [t, handleSelectFiles, handleSelectFolders]
   );
 
   const handleWithdrawPending = useCallback(
@@ -1791,6 +2002,84 @@ export const ChatInputView = ({
             />
           </div>
         ) : null}
+        {/* 终端监控模式：拖拽终端到输入框后出现，实时显示该终端日志 */}
+        {monitoredTerminal ? (
+          <div
+            className={`terminal-monitor-bar${
+              monitorExpanded ? " expanded" : ""
+            }`}
+            role="status"
+          >
+            <div className="terminal-monitor-main">
+              <button
+                type="button"
+                className="terminal-monitor-head"
+                onClick={() => setMonitorExpanded((v) => !v)}
+                title={t("chat.terminalMonitorToggle", {
+                  defaultValue: "展开 / 收起监控日志",
+                })}
+              >
+                <Radio
+                  size={12}
+                  strokeWidth={2}
+                  className="terminal-monitor-icon"
+                  aria-hidden="true"
+                />
+                <span className="terminal-monitor-label">
+                  {t("chat.terminalMonitorLabel", {
+                    defaultValue: "监控终端",
+                  })}
+                </span>
+                <span className="terminal-monitor-cwd">
+                  {monitoredTerminal.cwd}
+                </span>
+                <span className="terminal-monitor-count">
+                  {t("chat.terminalMonitorLines", {
+                    defaultValue: "{{count}} 行",
+                    values: { count: monitoredLines.length },
+                  })}
+                </span>
+                <ChevronDown
+                  size={13}
+                  className={`terminal-monitor-chevron${
+                    monitorExpanded ? " open" : ""
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+              <button
+                type="button"
+                className="terminal-monitor-stop"
+                onClick={handleStopMonitor}
+                title={t("chat.terminalMonitorStop", {
+                  defaultValue: "停止监控",
+                })}
+                aria-label={t("chat.terminalMonitorStop", {
+                  defaultValue: "停止监控",
+                })}
+              >
+                <X size={12} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+            {monitorExpanded ? (
+              <div className="terminal-monitor-log" ref={monitorScrollRef}>
+                {monitoredLines.length > 0 ? (
+                  monitoredLines.map((line, index) => (
+                    <div key={index} className="terminal-monitor-line">
+                      {line || "\u00A0"}
+                    </div>
+                  ))
+                ) : (
+                  <div className="terminal-monitor-empty">
+                    {t("chat.terminalMonitorEmpty", {
+                      defaultValue: "等待终端输出…",
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="input-box">
           <div
             ref={textareaRef}
@@ -1822,6 +2111,7 @@ export const ChatInputView = ({
             onClick={(event) => {
               handleChipRemove(event);
               handleTextSnippetClick(event);
+              handleWebChipClick(event);
             }}
           />
           {imagePreview &&
@@ -2074,6 +2364,20 @@ export const ChatInputView = ({
                       {thinkingLabel}
                     </span>
                   </span>
+                  {requestMethod === "responses" &&
+                    responsesFastModeEnabled && (
+                      <span
+                        className="model-trigger-fast"
+                        title={fastModeError ?? t("chat.fastModeEnabled")}
+                      >
+                        {isSavingFastMode ? (
+                          <Loader2 size={12} className="spin" />
+                        ) : (
+                          <Zap size={12} />
+                        )}
+                        <span>Fast</span>
+                      </span>
+                    )}
                   <ChevronDown size={12} />
                 </button>
                 {isModelMenuOpen && (
@@ -2122,6 +2426,45 @@ export const ChatInputView = ({
                             <ChevronRight size={12} />
                           </span>
                         </button>
+                        {requestMethod === "responses" && (
+                          <button
+                            className={`model-dropdown-item model-fast-mode-toggle ${
+                              responsesFastModeEnabled ? "active" : ""
+                            }`}
+                            role="switch"
+                            aria-checked={responsesFastModeEnabled}
+                            disabled={
+                              !runtimeApiConfig ||
+                              isLoadingApiConfig ||
+                              isSavingFastMode ||
+                              isStreaming ||
+                              isSubAgentConversation
+                            }
+                            onClick={() =>
+                              void handleToggleResponsesFastMode()
+                            }
+                            type="button"
+                            title={fastModeError ?? t("chat.fastModeHint")}
+                          >
+                            <span className="model-dropdown-item-name with-icon">
+                              <Zap size={14} className="thinking-option-icon" />
+                              <span>{t("chat.fastMode")}</span>
+                            </span>
+                            <span className="model-menu-value">
+                              {isSavingFastMode ? (
+                                <Loader2 size={12} className="spin" />
+                              ) : (
+                                <span className="model-menu-value-text">
+                                  {t(
+                                    responsesFastModeEnabled
+                                      ? "chat.fastModeOn"
+                                      : "chat.fastModeOff"
+                                  )}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        )}
                         {!isSubAgentConversation && apiConfigs.length > 0 && (
                           <button
                             className="model-dropdown-item"

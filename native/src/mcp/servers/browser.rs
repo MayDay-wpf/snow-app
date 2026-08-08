@@ -933,8 +933,10 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
             let selector = optional_non_empty_string(args, "selector")?;
             let selector_gone = optional_non_empty_string(args, "selectorGone")?;
             let has_time = time.is_some() && !time.is_some_and(Value::is_null);
-            let has_condition =
-                text.is_some() || text_gone.is_some() || selector.is_some() || selector_gone.is_some();
+            let has_condition = text.is_some()
+                || text_gone.is_some()
+                || selector.is_some()
+                || selector_gone.is_some();
             if !has_time && !has_condition {
                 return Err(Error::new(
                     Status::InvalidArg,
@@ -970,9 +972,7 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
             if selector.is_none() && text.is_none() && ref_value.is_none() {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    format!(
-                        "Either selector, text, or ref is required for browser-{tool_name}"
-                    ),
+                    format!("Either selector, text, or ref is required for browser-{tool_name}"),
                 ));
             }
             // hover：支持精确文本匹配。
@@ -1044,8 +1044,7 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
                 if value.as_str().is_none() {
                     return Err(Error::new(
                         Status::InvalidArg,
-                        "values must be an array of strings for browser-select_option"
-                            .to_string(),
+                        "values must be an array of strings for browser-select_option".to_string(),
                     ));
                 }
             }

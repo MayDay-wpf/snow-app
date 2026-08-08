@@ -893,7 +893,7 @@ export function ImageGenSettingsPanel({
                 onChange={updateDraftEvent("enabled")}
                 disabled={draftSaving}
               />
-              <span className="toggle-switch-slider" />
+              <span className="toggle-slider" />
             </label>
           </label>
         </div>
@@ -1164,7 +1164,7 @@ export function ImageGenSettingsPanel({
                       onChange={updateDraftEvent("webSearch")}
                       disabled={draftSaving}
                     />
-                    <span className="toggle-switch-slider" />
+                    <span className="toggle-slider" />
                   </label>
                 </div>
               ) : null}

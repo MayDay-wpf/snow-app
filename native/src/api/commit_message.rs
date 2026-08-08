@@ -46,10 +46,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
             },
             crate::api::responses::ResponsesApiMessage {
                 role: "user".to_string(),
-                content: format!(
-                    "Here is the staged diff:\n\n```\n{}\n```",
-                    diff_content
-                ),
+                content: format!("Here is the staged diff:\n\n```\n{}\n```", diff_content),
                 tool_results_json: None,
                 thinking: None,
                 thinking_blocks_json: None,
@@ -65,6 +62,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
         context_compaction: None,
         resume_after_compaction: None,
         sub_agent_tools_json: None,
+        sub_agent_system_prompt: None,
         sub_agent_config_profile: None,
         skip_context: Some(true),
         plan_mode: None,
@@ -87,9 +85,7 @@ pub async fn generate_commit_message_stream(
     let context = tokio::task::spawn_blocking(get_active_api_request_context)
         .await
         .map_err(|join_error| {
-            Error::from_reason(format!(
-                "Failed to resolve API configuration: {join_error}"
-            ))
+            Error::from_reason(format!("Failed to resolve API configuration: {join_error}"))
         })??;
 
     let api_config = &context.api_config;
@@ -129,21 +125,24 @@ pub async fn generate_commit_message_stream(
     {
         let mut config_value: serde_json::Value =
             serde_json::from_str(&api_config.config_json).unwrap_or_else(|_| serde_json::json!({}));
-        if let Some(snowcfg) = config_value
-            .as_object_mut()
-            .and_then(|obj| {
-                obj.entry("snowcfg")
-                    .or_insert_with(|| serde_json::json!({}))
-                    .as_object_mut()
-            })
-        {
+        if let Some(snowcfg) = config_value.as_object_mut().and_then(|obj| {
+            obj.entry("snowcfg")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+        }) {
             snowcfg.insert("chatThinking".into(), serde_json::json!({"enabled": false}));
-            snowcfg.insert("responsesReasoning".into(), serde_json::json!({"enabled": false}));
+            snowcfg.insert(
+                "responsesReasoning".into(),
+                serde_json::json!({"enabled": false}),
+            );
             snowcfg.insert("thinking".into(), serde_json::json!({"enabled": false}));
-            snowcfg.insert("geminiThinking".into(), serde_json::json!({"enabled": false}));
+            snowcfg.insert(
+                "geminiThinking".into(),
+                serde_json::json!({"enabled": false}),
+            );
         }
-        api_config.config_json = serde_json::to_string(&config_value)
-            .unwrap_or(api_config.config_json);
+        api_config.config_json =
+            serde_json::to_string(&config_value).unwrap_or(api_config.config_json);
     }
 
     let result = match request_method.as_str() {

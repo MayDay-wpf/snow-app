@@ -1,5 +1,9 @@
 import { ipcRenderer } from "electron";
-import type { ImageLibraryMigrationProgress, ImageLibraryRecord } from "../types/imageLibrary";
+import type {
+  ImageAlbumRecord,
+  ImageLibraryMigrationProgress,
+  ImageLibraryRecord,
+} from "../types/imageLibrary";
 
 /** 图像管理系统（Image Library）API。 */
 export const imageLibraryApi = {
@@ -54,4 +58,32 @@ export const imageLibraryApi = {
   /** 回滚迁移：删除已复制到新目录的文件并移除日志（幂等） */
   rollbackImageLibraryMigration: (): Promise<void> =>
     ipcRenderer.invoke("images:library-migrate-rollback"),
+
+  /** 列出全部相册（按创建时间倒序），含封面路径与图片数量 */
+  listImageAlbums: (): Promise<ImageAlbumRecord[]> =>
+    ipcRenderer.invoke("images:album-list"),
+
+  /** 创建相册；名称去空白、不允许为空 */
+  createImageAlbum: (name: string): Promise<ImageAlbumRecord> =>
+    ipcRenderer.invoke("images:album-create", name),
+
+  /** 重命名相册 */
+  renameImageAlbum: (id: string, name: string): Promise<ImageAlbumRecord> =>
+    ipcRenderer.invoke("images:album-rename", id, name),
+
+  /** 删除相册：相册内图片保留（移入未分类） */
+  deleteImageAlbum: (id: string): Promise<void> =>
+    ipcRenderer.invoke("images:album-delete", id),
+
+  /** 将图片移入 / 移出相册（albumId 传 null 表示移出到未分类） */
+  setImageAlbum: (imageId: string, albumId: string | null): Promise<void> =>
+    ipcRenderer.invoke("images:album-set-image", imageId, albumId),
+
+  /** 弹出图片文件选择对话框（多选），返回选中文件路径数组或 null */
+  selectImageFiles: (dialogTitle?: string): Promise<string[] | null> =>
+    ipcRenderer.invoke("images:select-images", dialogTitle),
+
+  /** 手动导入图片文件到图库（复制 + 写索引），返回成功导入的记录 */
+  importImageFiles: (filePaths: string[]): Promise<ImageLibraryRecord[]> =>
+    ipcRenderer.invoke("images:import-images", filePaths),
 };

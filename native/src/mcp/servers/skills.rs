@@ -148,10 +148,11 @@ impl SkillsService {
             };
             let storage_info = crate::storage::initialize_app_storage()?;
             let database_path = PathBuf::from(storage_info.database_path);
-            let settings = crate::storage::services::system_settings::get_skills_project_scope_settings(
-                &database_path,
-                &project_id,
-            )?;
+            let settings =
+                crate::storage::services::system_settings::get_skills_project_scope_settings(
+                    &database_path,
+                    &project_id,
+                )?;
             let skills = load_available_skills(Some(&project_root));
             Ok(skills
                 .into_values()
@@ -252,11 +253,7 @@ impl SkillsService {
         .await
     }
 
-    pub async fn execute(
-        &self,
-        args: &Value,
-        project_id: Option<&str>,
-    ) -> napi::Result<Value> {
+    pub async fn execute(&self, args: &Value, project_id: Option<&str>) -> napi::Result<Value> {
         let requested_skill_id = args
             .get("skill")
             .and_then(Value::as_str)
@@ -276,13 +273,13 @@ impl SkillsService {
             if let Some(project_id) = project_id.as_deref() {
                 let storage_info = crate::storage::initialize_app_storage()?;
                 let database_path = PathBuf::from(storage_info.database_path);
-                let settings = crate::storage::services::system_settings::get_skills_project_scope_settings(
-                    &database_path,
-                    project_id,
-                )?;
-                skills.retain(|skill_id, skill| {
-                    settings.effective_enabled(skill_id, skill.enabled)
-                });
+                let settings =
+                    crate::storage::services::system_settings::get_skills_project_scope_settings(
+                        &database_path,
+                        project_id,
+                    )?;
+                skills
+                    .retain(|skill_id, skill| settings.effective_enabled(skill_id, skill.enabled));
             } else {
                 skills.retain(|_, skill| skill.enabled);
             }
@@ -401,7 +398,6 @@ fn load_available_skills(project_root: Option<&Path>) -> BTreeMap<String, Skill>
     skills
 }
 
-
 fn load_skills_from_directory(
     skills: &mut BTreeMap<String, Skill>,
     base_skills_dir: &Path,
@@ -478,10 +474,7 @@ fn load_skills_from_directory(
 }
 
 fn should_skip_skill_directory(name: &str) -> bool {
-    name == "templates"
-        || name == "examples"
-        || name == "node_modules"
-        || name.starts_with('.')
+    name == "templates" || name == "examples" || name == "node_modules" || name.starts_with('.')
 }
 
 fn read_skill_file(skill_path: &Path) -> Option<(SkillMetadata, String)> {
@@ -511,8 +504,7 @@ fn update_skill_file_enabled(skill_path: &Path, enabled: bool) -> napi::Result<(
     })? {
         Some((frontmatter_start, frontmatter_end, _)) => {
             let frontmatter = &file_content[frontmatter_start..frontmatter_end];
-            let updated_frontmatter =
-                update_frontmatter_enabled(frontmatter, enabled, line_ending);
+            let updated_frontmatter = update_frontmatter_enabled(frontmatter, enabled, line_ending);
             format!(
                 "{}{}{}",
                 &file_content[..frontmatter_start],
@@ -520,9 +512,9 @@ fn update_skill_file_enabled(skill_path: &Path, enabled: bool) -> napi::Result<(
                 &file_content[frontmatter_end..]
             )
         }
-        None => format!(
-            "---{line_ending}enable: {enabled}{line_ending}---{line_ending}{file_content}"
-        ),
+        None => {
+            format!("---{line_ending}enable: {enabled}{line_ending}---{line_ending}{file_content}")
+        }
     };
 
     fs::write(&file_path, updated_content).map_err(|error| {
@@ -583,9 +575,7 @@ fn parse_skill_document(
     Ok((metadata, content))
 }
 
-fn frontmatter_bounds(
-    content: &str,
-) -> std::result::Result<Option<(usize, usize, usize)>, String> {
+fn frontmatter_bounds(content: &str) -> std::result::Result<Option<(usize, usize, usize)>, String> {
     let mut lines = content.split_inclusive('\n');
     let Some(first_line) = lines.next() else {
         return Ok(None);
@@ -607,15 +597,15 @@ fn frontmatter_bounds(
     Err("Skill frontmatter is missing a closing --- marker".to_string())
 }
 
-fn split_frontmatter(
-    content: &str,
-) -> std::result::Result<Option<(&str, &str)>, String> {
-    Ok(frontmatter_bounds(content)?.map(|(frontmatter_start, frontmatter_end, body_start)| {
-        (
-            &content[frontmatter_start..frontmatter_end],
-            &content[body_start..],
-        )
-    }))
+fn split_frontmatter(content: &str) -> std::result::Result<Option<(&str, &str)>, String> {
+    Ok(
+        frontmatter_bounds(content)?.map(|(frontmatter_start, frontmatter_end, body_start)| {
+            (
+                &content[frontmatter_start..frontmatter_end],
+                &content[body_start..],
+            )
+        }),
+    )
 }
 
 fn strip_nested_frontmatter(content: &str) -> &str {
@@ -754,10 +744,7 @@ fn generate_skill_tree(skill_path: &Path) -> String {
     let mut entries = entries.flatten().collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_is_dir = left.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
-        let right_is_dir = right
-            .file_type()
-            .map(|kind| kind.is_dir())
-            .unwrap_or(false);
+        let right_is_dir = right.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
         right_is_dir
             .cmp(&left_is_dir)
             .then_with(|| left.file_name().cmp(&right.file_name()))

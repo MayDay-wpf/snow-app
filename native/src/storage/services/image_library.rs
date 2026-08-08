@@ -12,10 +12,10 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use base64::Engine;
 use super::super::database;
 use super::super::paths;
 use super::system_settings;
+use base64::Engine;
 
 /// image_library 记录（服务层结构体，napi 结构体在 storage/mod.rs 门面层）
 #[derive(Debug, Clone)]
@@ -31,9 +31,28 @@ pub struct ImageLibraryRecord {
     pub model: String,
     pub provider: String,
     pub created_at: String,
+    /// 所属相册 id；None = 未归类
+    pub album_id: Option<String>,
+}
+
+/// 相册记录（服务层结构体）。
+#[derive(Debug, Clone)]
+pub struct ImageAlbumRecord {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    /// 相册封面：最新一张图的图库相对路径（image/...）；空相册为 None
+    pub cover_path: Option<String>,
+    /// 相册内图片数量
+    pub image_count: i64,
 }
 
 /// 建表（B 模式：在 database.rs::create_schema() 末尾调用）
+///
+/// 兼容旧库迁移：
+/// - `image_albums` 表用 CREATE TABLE IF NOT EXISTS（新库直接建，旧库首次升级建）
+/// - `image_library.album_id` 列通过 pragma_table_info 检测后补列（幂等），
+///   旧数据 album_id 为 NULL = 未归类，删除相册时图片置 NULL 不删图。
 pub fn ensure_image_library_table(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS image_library (
@@ -50,8 +69,26 @@ pub fn ensure_image_library_table(connection: &rusqlite::Connection) -> rusqlite
            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
          );
          CREATE INDEX IF NOT EXISTS idx_image_library_created
-           ON image_library(created_at DESC, id DESC);",
-    )
+           ON image_library(created_at DESC, id DESC);
+         CREATE TABLE IF NOT EXISTS image_albums (
+           id TEXT PRIMARY KEY NOT NULL,
+           name TEXT NOT NULL,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );",
+    )?;
+
+    // 幂等补列：image_library.album_id（旧库升级路径）
+    let has_album_id: bool = connection
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('image_library') WHERE name = 'album_id'")?
+        .query_row([], |row| row.get(0))?;
+    if !has_album_id {
+        connection.execute_batch("ALTER TABLE image_library ADD COLUMN album_id TEXT;")?;
+    }
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_image_library_album ON image_library(album_id);",
+    )?;
+
+    Ok(())
 }
 
 /// 图片根目录：优先读取用户自定义路径（system_settings `image_library_dir`），
@@ -109,7 +146,8 @@ fn probe_dimensions(bytes: &[u8], mime_type: &str) -> (Option<i64>, Option<i64>)
                 continue;
             }
             let marker = bytes[offset + 1];
-            if (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
+            if (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC
+            {
                 let height = u16::from_be_bytes([bytes[offset + 5], bytes[offset + 6]]);
                 let width = u16::from_be_bytes([bytes[offset + 7], bytes[offset + 8]]);
                 return (Some(width as i64), Some(height as i64));
@@ -249,6 +287,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ImageLibraryRecord> {
         model: row.get(8)?,
         provider: row.get(9)?,
         created_at: row.get(10)?,
+        album_id: row.get(11)?,
     })
 }
 
@@ -258,7 +297,7 @@ pub fn list_images(database_path: &Path) -> Result<Vec<ImageLibraryRecord>> {
         .and_then(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, relative_path, file_name, mime_type, size_bytes, width, height,
-                        prompt, model, provider, created_at
+                        prompt, model, provider, created_at, album_id
                    FROM image_library
                   ORDER BY created_at DESC, id DESC",
             )?;
@@ -266,6 +305,140 @@ pub fn list_images(database_path: &Path) -> Result<Vec<ImageLibraryRecord>> {
             rows.collect()
         })
         .map_err(|error| database::database_error(database_path, "list image library", error))
+}
+
+/// 列出全部相册（按创建时间倒序），含封面路径（最新一张图）与图片数量。
+pub fn list_albums(database_path: &Path) -> Result<Vec<ImageAlbumRecord>> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT a.id, a.name, a.created_at,
+                        (SELECT i.relative_path FROM image_library i
+                          WHERE i.album_id = a.id
+                          ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS cover_path,
+                        (SELECT COUNT(*) FROM image_library i WHERE i.album_id = a.id) AS image_count
+                   FROM image_albums a
+                  ORDER BY a.created_at DESC, a.id DESC",
+            )?;
+            let rows = statement.query_map([], map_album_row)?;
+            rows.collect()
+        })
+        .map_err(|error| database::database_error(database_path, "list image albums", error))
+}
+
+fn map_album_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ImageAlbumRecord> {
+    Ok(ImageAlbumRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        cover_path: row.get(3)?,
+        image_count: row.get(4)?,
+    })
+}
+
+/// 按 id 查询相册（含封面与数量）。
+fn find_album(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> rusqlite::Result<Option<ImageAlbumRecord>> {
+    connection
+        .query_row(
+            "SELECT a.id, a.name, a.created_at,
+                    (SELECT i.relative_path FROM image_library i
+                      WHERE i.album_id = a.id
+                      ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS cover_path,
+                    (SELECT COUNT(*) FROM image_library i WHERE i.album_id = a.id) AS image_count
+               FROM image_albums a
+              WHERE a.id = ?1",
+            params![id],
+            map_album_row,
+        )
+        .optional()
+}
+
+/// 创建相册。名称去除首尾空白，不允许为空；名称不强制唯一。
+pub fn create_album(database_path: &Path, name: &str) -> Result<ImageAlbumRecord> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(napi::Error::from_reason(
+            "Image album name must not be empty".to_string(),
+        ));
+    }
+    let id = database::create_snowflake_id();
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection.execute(
+                "INSERT INTO image_albums (id, name) VALUES (?1, ?2)",
+                params![id, name],
+            )?;
+            find_album(&connection, &id)
+                .and_then(|album| album.ok_or_else(|| rusqlite::Error::InvalidQuery))
+        })
+        .map_err(|error| database::database_error(database_path, "create image album", error))
+}
+
+/// 重命名相册。相册不存在时返回错误。
+pub fn rename_album(database_path: &Path, id: &str, name: &str) -> Result<ImageAlbumRecord> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(napi::Error::from_reason(
+            "Image album name must not be empty".to_string(),
+        ));
+    }
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let affected = connection.execute(
+                "UPDATE image_albums SET name = ?1 WHERE id = ?2",
+                params![name, id],
+            )?;
+            if affected == 0 {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            find_album(&connection, id)
+                .and_then(|album| album.ok_or(rusqlite::Error::QueryReturnedNoRows))
+        })
+        .map_err(|error| database::database_error(database_path, "rename image album", error))
+}
+
+/// 删除相册：相册内图片的 album_id 置 NULL（图片本身保留），相册封面随之失效。
+pub fn delete_album(database_path: &Path, id: &str) -> Result<()> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection.execute(
+                "UPDATE image_library SET album_id = NULL WHERE album_id = ?1",
+                params![id],
+            )?;
+            connection.execute("DELETE FROM image_albums WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .map_err(|error| database::database_error(database_path, "delete image album", error))
+}
+
+/// 将图片移入 / 移出相册（album_id 为 None 时移出）。
+/// 相册或图片不存在时返回错误。
+pub fn set_image_album(database_path: &Path, image_id: &str, album_id: Option<&str>) -> Result<()> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            if let Some(album_id) = album_id {
+                let album_exists: bool = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM image_albums WHERE id = ?1)",
+                    params![album_id],
+                    |row| row.get(0),
+                )?;
+                if !album_exists {
+                    return Err(rusqlite::Error::QueryReturnedNoRows);
+                }
+            }
+            let affected = connection.execute(
+                "UPDATE image_library SET album_id = ?1 WHERE id = ?2",
+                params![album_id, image_id],
+            )?;
+            if affected == 0 {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            Ok(())
+        })
+        .map_err(|error| database::database_error(database_path, "set image album", error))
 }
 
 /// 将图库相对路径（image/...）解析为根目录下的绝对路径。
@@ -340,8 +513,9 @@ pub fn delete_image(database_path: &Path, id: &str) -> Result<()> {
     };
 
     // 1) 重写引用该图的会话消息（content + raw_json）
-    let rewritten = rewrite_messages_referencing(&tx, &relative_path)
-        .map_err(|error| database::database_error(database_path, "rewrite messages for image", error))?;
+    let rewritten = rewrite_messages_referencing(&tx, &relative_path).map_err(|error| {
+        database::database_error(database_path, "rewrite messages for image", error)
+    })?;
 
     // 2) 删除索引行
     tx.execute("DELETE FROM image_library WHERE id = ?1", params![id])
@@ -365,6 +539,125 @@ pub fn delete_image(database_path: &Path, id: &str) -> Result<()> {
         eprintln!("[image-library] deleted '{relative_path}', rewrote {rewritten} message(s)");
     }
     Ok(())
+}
+
+/// 按文件头魔数探测图片 MIME 类型（PNG/JPEG/GIF/WebP），未知时按扩展名推断。
+fn detect_mime(bytes: &[u8], fallback_ext: &str) -> String {
+    if bytes.len() >= 8 && &bytes[0..8] == b"\x89PNG\r\n\x1a\n" {
+        return "image/png".to_string();
+    }
+    if bytes.len() >= 3 && &bytes[0..3] == b"GIF8" {
+        return "image/gif".to_string();
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return "image/webp".to_string();
+    }
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
+        return "image/jpeg".to_string();
+    }
+    match fallback_ext {
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "webp" => "image/webp".to_string(),
+        "gif" => "image/gif".to_string(),
+        _ => "image/png".to_string(),
+    }
+}
+
+/// 按 id 查询图片记录。
+fn find_image(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> rusqlite::Result<Option<ImageLibraryRecord>> {
+    connection
+        .query_row(
+            "SELECT id, relative_path, file_name, mime_type, size_bytes, width, height,
+                    prompt, model, provider, created_at, album_id
+               FROM image_library
+              WHERE id = ?1",
+            params![id],
+            map_row,
+        )
+        .optional()
+}
+
+/// 手动导入图片：将外部文件复制进图库目录（按当天日期子目录）并写入索引。
+/// 跳过不可读 / 空文件 / 复制失败的文件；返回成功导入的记录列表。
+/// 手动导入的图片无 prompt/model/provider（索引留空，前端展示文件名）。
+pub fn import_image_files(
+    database_path: &Path,
+    file_paths: &[String],
+) -> Result<Vec<ImageLibraryRecord>> {
+    let root = image_library_root()?;
+    let date_dir = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let target_dir = root.join(&date_dir);
+    fs::create_dir_all(&target_dir).map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to create image library date directory '{}': {error}",
+            target_dir.display()
+        ))
+    })?;
+
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open for image import", error))?;
+
+    let mut imported: Vec<ImageLibraryRecord> = Vec::new();
+    for path_str in file_paths {
+        let source = PathBuf::from(path_str);
+        if !source.is_file() {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&source) else {
+            continue;
+        };
+        if bytes.is_empty() {
+            continue;
+        }
+        let fallback_ext = source
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let mime_type = detect_mime(&bytes, &fallback_ext);
+        let file_name = format!(
+            "img-{}-{}.{}",
+            chrono::Local::now().format("%Y%m%d%H%M%S"),
+            database::create_snowflake_id(),
+            ext_for_mime(&mime_type)
+        );
+        let abs_path = target_dir.join(&file_name);
+        if let Err(error) = fs::copy(&source, &abs_path) {
+            eprintln!(
+                "[image-library] failed to import '{}': {error}",
+                source.display()
+            );
+            continue;
+        }
+
+        let relative_path = format!("image/{date_dir}/{file_name}");
+        let (width, height) = probe_dimensions(&bytes, &mime_type);
+        let id = database::create_snowflake_id();
+        let insert_result = connection.execute(
+            "INSERT INTO image_library (
+               id, relative_path, file_name, mime_type, size_bytes, width, height
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, relative_path, file_name, mime_type, bytes.len() as i64, width, height],
+        );
+        match insert_result {
+            Ok(_) => {
+                if let Some(record) = find_image(&connection, &id).unwrap_or(None) {
+                    imported.push(record);
+                }
+            }
+            Err(error) => {
+                // 索引失败：清理已复制文件，避免孤儿文件
+                eprintln!(
+                    "[image-library] failed to index imported image '{relative_path}': {error}"
+                );
+                let _ = fs::remove_file(&abs_path);
+            }
+        }
+    }
+    Ok(imported)
 }
 
 /// 扫描并重写所有引用 `relative_path` 的消息。
@@ -452,9 +745,8 @@ fn collect_paths_for_conversations(
 ) -> rusqlite::Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
     for conversation_id in conversation_ids {
-        let mut statement = connection.prepare(
-            "SELECT content, raw_json FROM chat_messages WHERE conversation_id = ?1",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT content, raw_json FROM chat_messages WHERE conversation_id = ?1")?;
         let rows = statement.query_map(params![conversation_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })?;
@@ -470,14 +762,13 @@ fn collect_paths_for_conversations(
 }
 
 /// 统计指定会话中引用的图库图片数量（去重后按索引存在性计数）。
-pub fn count_conversation_images(
-    database_path: &Path,
-    conversation_ids: &[String],
-) -> Result<i64> {
+pub fn count_conversation_images(database_path: &Path, conversation_ids: &[String]) -> Result<i64> {
     let connection = database::open_connection(database_path)
         .map_err(|error| database::database_error(database_path, "open for image count", error))?;
-    let paths = collect_paths_for_conversations(&connection, conversation_ids)
-        .map_err(|error| database::database_error(database_path, "scan conversation images", error))?;
+    let paths =
+        collect_paths_for_conversations(&connection, conversation_ids).map_err(|error| {
+            database::database_error(database_path, "scan conversation images", error)
+        })?;
     let mut count = 0i64;
     for path in &paths {
         let exists: bool = connection
@@ -500,14 +791,17 @@ pub fn delete_conversation_images(
     database_path: &Path,
     conversation_ids: &[String],
 ) -> Result<i64> {
-    let mut connection = database::open_connection(database_path)
-        .map_err(|error| database::database_error(database_path, "open for image cascade", error))?;
-    let paths = collect_paths_for_conversations(&connection, conversation_ids)
-        .map_err(|error| database::database_error(database_path, "scan conversation images", error))?;
+    let mut connection = database::open_connection(database_path).map_err(|error| {
+        database::database_error(database_path, "open for image cascade", error)
+    })?;
+    let paths =
+        collect_paths_for_conversations(&connection, conversation_ids).map_err(|error| {
+            database::database_error(database_path, "scan conversation images", error)
+        })?;
 
-    let tx = connection
-        .transaction()
-        .map_err(|error| database::database_error(database_path, "begin image cascade tx", error))?;
+    let tx = connection.transaction().map_err(|error| {
+        database::database_error(database_path, "begin image cascade tx", error)
+    })?;
 
     let mut removed_files: Vec<String> = Vec::new();
     for path in &paths {
@@ -518,12 +812,17 @@ pub fn delete_conversation_images(
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| database::database_error(database_path, "query image record", error))?;
+            .map_err(|error| {
+                database::database_error(database_path, "query image record", error)
+            })?;
         if file_name.is_none() {
             continue;
         }
-        tx.execute("DELETE FROM image_library WHERE relative_path = ?1", params![path])
-            .map_err(|error| database::database_error(database_path, "delete image index", error))?;
+        tx.execute(
+            "DELETE FROM image_library WHERE relative_path = ?1",
+            params![path],
+        )
+        .map_err(|error| database::database_error(database_path, "delete image index", error))?;
         removed_files.push(path.clone());
     }
 
@@ -669,8 +968,9 @@ fn load_migration_journal() -> Result<Option<MigrationJournal>> {
     if !path.exists() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&path)
-        .map_err(|error| Error::from_reason(format!("Failed to read migration journal: {error}")))?;
+    let content = fs::read_to_string(&path).map_err(|error| {
+        Error::from_reason(format!("Failed to read migration journal: {error}"))
+    })?;
     match serde_json::from_str(&content) {
         Ok(journal) => Ok(Some(journal)),
         Err(error) => {

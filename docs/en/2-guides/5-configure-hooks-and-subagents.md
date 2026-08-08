@@ -1,204 +1,305 @@
 # 5-Configure Hooks and Sub-agents
 
-Snow App lifecycle hooks (automation) and sub-agents can be configured either
-manually in the settings panels or **directly by the AI Agent through the
-built-in `config` tool** (same source as the UI — the app SQLite database —
-and effective immediately).
+Snow App stores Hooks and sub-agent configuration in the app SQLite database, shared with the Settings UI. The Agent can read and write it through the built-in `config` service, and successful changes take effect immediately.
 
-## 1. Hooks configuration guide
+## 1. Hooks
 
-### 1.1 Concepts
+### 1.1 Scope and effective rules
 
-- A **hook** is an automation rule attached to a lifecycle node of the AI
-  session: when an event fires, rules execute a command (`command`), inject
-  context (`context`) or issue an instruction to the AI (`prompt`).
-- **Scope**: `global` (shared by all projects) or `project` (current project
-  only). When a project configures the same hook type, **the project-level
-  config overrides the global one**.
-- Each hook config = one `hookType` + a set of rules (`rules`).
+- A global Hook is available to all projects; a project Hook requires `projectId`;
+- For a `hookType`, Snow App uses the project's rules when that array is **non-empty**; otherwise it falls back to the global rules of the same type;
+- Project and global rules are not merged. A non-empty project array suppresses global fallback even when every action in it is disabled;
+- An action runs only when **`enabled` is explicitly `true`**. Missing, `null`, and `false` all mean skipped. The Settings UI writes this field explicitly; hand-written config must do the same.
 
 ### 1.2 Hook types
 
-| hookType | Fires when | Supported actions |
+| `hookType` | Trigger | Allowed actions |
 | --- | --- | --- |
-| `onUserMessage` | A new user message is sent, before it reaches the AI | `command`, `context` |
-| `beforeToolCall` | Before any tool call (matcher can limit the tools) | `command` |
-| `toolConfirmation` | When a tool requires user approval | `command` |
+| `onUserMessage` | Before a user message reaches the AI | `command`, `context` |
+| `beforeToolCall` | Before a tool call | `command` |
+| `toolConfirmation` | When a tool enters confirmation | `command` |
 | `afterToolCall` | After a tool call completes | `command` |
-| `onSubAgentComplete` | When a sub-agent task finishes | `command`, `prompt` |
-| `beforeSubAgentStart` | Before a sub-agent is activated (matcher supported) | `command`, `context` |
+| `onSubAgentComplete` | After a sub-agent completes | `command`, `prompt` |
+| `beforeSubAgentStart` | Before a sub-agent starts | `command`, `context` |
 | `beforeCompress` | Before context compaction | `command` |
-| `onSessionStart` | When an existing conversation is opened (fire-and-forget) | `command`, `context` |
-| `onStop` | When a session stops / is cleaned up (fire-and-forget) | `command`, `prompt` |
+| `onSessionStart` | When an existing conversation opens; fire-and-forget | `command`, `context` |
+| `onStop` | When a conversation stops or is cleaned up; fire-and-forget | `command`, `prompt` |
 
-### 1.3 Rules data structure
+> `prompt` is a valid configuration type, but the current native executor does not make a model call; it returns an unsupported failure record. Do not depend on a `prompt` action for production automation. Prefer a verifiable `command`, or `context` where allowed. A `beforeSubAgentStart` context result is currently recorded but is not appended to the child agent prompt by the caller.
 
-```jsonc
-[
-  {
-    "description": "Rule description (required)",
-    "matcher": "bash-*",          // optional: glob limiting tool hooks to specific tools
-    "hooks": [                     // required: action array
-      {
-        "type": "command",        // command | prompt | context
-        "command": "node guard.js", // for type=command
-        "timeout": 5000,          // optional, milliseconds
-        "enabled": true           // optional, default true
-      }
-    ]
-  }
-]
+### 1.3 Rule and action fields
+
+```json
+{
+  "description": "Inject project policy into release checks",
+  "matcher": "toolName:bash-*",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "node scripts/check-release.mjs",
+      "timeout": 5000,
+      "enabled": true
+    }
+  ]
+}
 ```
 
-Action types:
-
-| type | Effect | Applicable hooks |
+| Field | Location | Meaning |
 | --- | --- | --- |
-| `command` | Runs a shell command; the context JSON is piped via stdin; output is handled per exit code | all |
-| `prompt` | An instruction to the AI; result acts as a soft signal | `onSubAgentComplete`, `onStop` |
-| `context` | Static context injection | `onSessionStart`, `onUserMessage`, `beforeSubAgentStart` |
+| `description` | rule | Must be present; describe intent and failure impact. |
+| `matcher` | rule | Optional. Commas mean OR; `key:glob` is supported, such as `toolName:bash-*`. Without a key, matching checks `toolName` first, then context text. |
+| `hooks` | rule | Required action array. |
+| `type` | action | `command`, `context`, or `prompt` where allowed. |
+| `command` | command | Runs through the shell selected in terminal settings. |
+| `content` | context | Static text. JSON fields `additionalContext` or `prompt` are extracted; otherwise the whole text is used. |
+| `prompt` | prompt | The current native executor does not run a model call. |
+| `timeout` | command | Milliseconds; defaults to `5000`. Timeout kills the child and returns an error. |
+| `enabled` | action | **Must be `true` to execute**; missing means skipped. |
 
-### 1.4 Exit code convention (command type)
+A command receives event context JSON on stdin and uses `cwd` from context when present. stdout/stderr are interpreted by exit code:
 
-| Exit code | Meaning |
+| Exit code | Result |
 | --- | --- |
-| `0` | Pass; stdout is injected as context (e.g. `[Hook Context]`), invisible in the UI |
-| `1` | Soft warning; stdout becomes `[Hook Warning]`; if stdout is JSON of the form `{"decision":{"message":"..."}}`, the decision confirmation UI is triggered |
-| `2+` | Blocked; the current flow is interrupted and the error is shown to the user |
+| `0` | Pass; non-empty stdout becomes additional context. JSON stdout can supply `additionalContext` or `prompt`. |
+| `1` | Soft warning and warning log. stdout shaped as `{"decision":{"message":"..."}}` requests an interactive user decision. |
+| `2+` or no valid exit code | Block the current blockable flow, preferring stderr and then stdout as the message. |
 
-### 1.5 How to configure
+`onSessionStart` and `onStop` are fire-and-forget. Their caller downgrades interactive decisions to ordinary warnings, so they cannot be relied on to block a flow.
 
-**Option A: settings panel (manual)**
+### 1.4 Hook execution flow
 
-1. Open **Settings → Hooks settings**;
-2. Pick the scope tab (Global / Project; the Project tab requires an active project);
-3. Select a hook type → add rules and actions → save.
+```mermaid
+flowchart TD
+    A[Lifecycle event] --> B[Read project hookType rules]
+    B --> C{Project rule array non-empty?}
+    C -->|Yes| D[Use project rules only]
+    C -->|No| E[Read global rules of same type]
+    D --> F[Evaluate matchers in order]
+    E --> F
+    F --> G{Rule matches?}
+    G -->|No| H[Count rule actions as skipped]
+    G -->|Yes| I[Iterate actions]
+    I --> J{enabled explicitly true?}
+    J -->|No| K[Skip action]
+    J -->|Yes| L[Execute by type]
+    L --> M{Command exit code}
+    M -->|0| N[Add context and continue]
+    M -->|1| O[Warn or request user decision]
+    M -->|2+| P[Block blockable flow]
+```
 
-**Option B: AI Agent via the config tool (automatic)**
+### 1.5 Configure in the UI
+
+1. Open **Settings → Hooks Settings**;
+2. Select Global or Project scope;
+3. Choose a `hookType`, then add rules and actions;
+4. Ensure the toggle is on for every action that should run;
+5. Save and test with a low-risk event;
+6. Inspect Hook execution records and app logs.
+
+### 1.6 Configure through `config`
+
+Global command Hook:
 
 ```jsonc
-// Global hook: block dangerous commands in all bash tool calls
 config-set scope=hooks key=beforeToolCall value={
   "rules": [
     {
-      "description": "Block rm -rf on the root directory",
-      "matcher": "bash-*",
+      "description": "Run read-only tool auditing",
+      "matcher": "toolName:filesystem-*",
       "hooks": [
         {
           "type": "command",
-          "command": "ctx=$(cat); cmd=$(echo \"$ctx\" | jq -r '.args.command // empty'); if echo \"$cmd\" | grep -qE 'rm\\s+-rf\\s+/'; then echo 'Blocked: rm -rf on root is forbidden'; exit 2; fi",
-          "timeout": 5000
+          "command": "node scripts/audit-tool-call.mjs",
+          "timeout": 5000,
+          "enabled": true
         }
       ]
     }
   ]
 }
+```
 
-// Project-scoped hook (provide projectId): only for one project, overrides the global one
+Project context Hook:
+
+```jsonc
 config-set scope=hooks key=onUserMessage projectId=<projectId> value={
   "rules": [
     {
-      "description": "Inject tech stack context for this project",
+      "description": "Inject this project's technology stack",
       "hooks": [
-        { "type": "context", "content": "This project uses Electron + Rust (napi-rs)." }
+        {
+          "type": "context",
+          "content": "This project uses Electron, React, TypeScript, and Rust.",
+          "enabled": true
+        }
       ]
     }
   ]
 }
-
-// Query & delete
-config-list scope=hooks                    // global hooks
-config-list scope=hooks projectId=<projectId>  // project hooks
-config-get  scope=hooks key=beforeToolCall
-config-delete scope=hooks key=beforeToolCall projectId=<projectId>
 ```
 
-> `projectId` is the `directoryId` of the project (workspace directory).
+When there are multiple actions, set `enabled` explicitly on each one:
 
-## 2. Sub-agents configuration guide
+```json
+{
+  "rules": [
+    {
+      "description": "Check and record context before compaction",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node scripts/check-context.mjs",
+          "timeout": 5000,
+          "enabled": true
+        },
+        {
+          "type": "command",
+          "command": "node scripts/write-audit.mjs",
+          "timeout": 5000,
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}
+```
 
-### 2.1 Concepts
+Recommended flow:
 
-- A **sub-agent** is a specialized agent with its own system prompt, tool set
-  and API config profile, activated via the `sub-agents-activate` tool.
-- **Scope**: global (available in all projects) or project-scoped (available
-  in that project only). **On activation the project-scoped sub-agent wins;
-  when absent, it falls back to the global one with the same id**.
-- The built-in `agent_general` cannot be deleted or modified via config tools.
+1. Run `config-list scope=hooks projectId=<projectId>` and read the current state and `guidance`;
+2. Preserve the current value with `config-get scope=hooks key=<hookType> projectId=<projectId>`;
+3. Write the complete `rules` value with `config-set`;
+4. Immediately read it back and inspect every `enabled` field;
+5. Test matcher and exit-code behavior with a low-risk event;
+6. Before `config-delete`, show the scope, key, projectId, and impact and obtain explicit confirmation.
 
-### 2.2 How to configure
+Hook database writes create a temporary backup during the operation and remove it after success. It is not persistent history.
 
-**Option A: settings panel (manual)**
+## 2. Sub-agents
 
-1. Open **Settings → Sub-agent settings**;
-2. Pick the scope tab (Global / Project);
-3. Add/edit a sub-agent (name, description, system prompt, MCP tools, API
-   profile) → save.
+### 2.1 Fields and scope
 
-**Option B: AI Agent via the config tool (automatic)**
+A sub-agent runs through `sub-agents-activate` in an independent execution loop with no main-conversation history. Configuration fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Required display name. |
+| `description` | Tells the main Agent when to delegate. |
+| `systemPrompt` | Must be self-contained: mission, inputs, workflow, tools, safety, and output. |
+| `toolsJson` | JSON string or tool-name array. `["*"]` means all tools; `[]` means no tools. |
+| `configProfile` | Empty inherits the API profile and current model used by the parent conversation's current run; non-empty pins the named profile. |
+| `model` | Applies only with a pinned profile; non-empty pins the model, while empty uses that profile's `advancedModel`. |
+
+Activation looks up the current project's same-ID configuration first and falls back to global only when it is absent. Built-in `agent_general` cannot be modified or deleted through config.
+
+Before creating a sub-session, Snow validates the tools, profile, and model once and creates a runtime snapshot. The normal loop, recursive tool loop, automatic compaction, and post-compaction resume all reuse that snapshot instead of following later global changes. Each request still reloads current credentials by the fixed profile name, but deleting that profile causes a strict failure rather than switching providers. The sub-session persists the profile and model actually selected at startup, so history display is not affected by later sub-agent or API configuration edits.
+
+Tool rules:
+
+- An **explicit tool-name list requires `projectId`**, so that sub-agent is project-scoped;
+- A global sub-agent may use only `["*"]` or `[]`;
+- Every tool in a project list must be an exact full tool name enabled for that project;
+- An external MCP tool's public server-name prefix must belong to a server enabled for the project;
+- Activation returns an error when configured tools are unavailable or disabled; it does not silently expand permissions.
+
+### 2.2 Sub-agent Conversation View
+
+A sub-agent runs in its own conversation. Opening it shows:
+
+- **Header title**: displays the **stage name** (the prompt truncated to 80 characters at activation — the task stage the sub-agent was spawned for) instead of the project name; the subtitle notes **which main conversation launched it**;
+- **Info card**: above the message list, an `agentName` badge, the stage title, a **jump back to the main conversation** button, and the **full prompt** (clamped to 3 lines by default; hovering shows the whole text);
+- **Data sources**: the conversation record's `title` / `subAgentName`, the first user message (the prompt), and the parent conversation's title (fetched asynchronously).
+
+### 2.3 Configure in the UI
+
+1. Open **Settings → Sub-agent Settings**;
+2. Select Global or Project scope;
+3. Enter the name, description, and a complete system prompt;
+4. Choose all/no tools for a global agent, or select explicit tools for a project agent;
+5. Keep **Follow the parent conversation (recommended)**, or select a pinned API profile. With a pinned profile, optionally select an independent model; leaving it empty uses the profile's advanced model;
+6. Save, then delegate one narrowly scoped test task from the main conversation.
+
+### 2.4 Configure through `config`
+
+Valid global sub-agent:
 
 ```jsonc
-// Create a global sub-agent (key = agentId)
-config-set scope=subAgents key=agent_code_reviewer value={
-  "name": "Code Reviewer",
-  "description": "Reviews code quality and security",
-  "systemPrompt": "You are a senior code reviewer focused on bugs, security issues and performance.",
-  "toolsJson": ["grep-search", "filesystem-read", "codelens-file_outline"],
-  "configProfile": "gpt-4o"
+config-set scope=subAgents key=agent_readonly_reviewer value={
+  "name": "Read-only Reviewer",
+  "description": "Use for an independent review and issue list",
+  "systemPrompt": "You are a read-only reviewer. Verify inputs and files first, then report issues and evidence by severity. Never modify files, run commands, or guess missing business rules. With no tools, identify what cannot be verified.",
+  "toolsJson": [],
+  "configProfile": "",
+  "model": ""
 }
-
-// Create a project-scoped sub-agent (provide projectId; same id wins over global)
-config-set scope=subAgents key=agent_db_migrator projectId=<projectId> value={
-  "name": "DB Migration Assistant",
-  "description": "Project-specific: generate and run database migrations",
-  "systemPrompt": "You are this project's database migration expert...",
-  "toolsJson": ["bash-terminal-execute", "dbx-dbx_execute_query"]
-}
-
-// Query & delete
-config-list scope=subAgents                        // all (incl. project-scoped)
-config-get  scope=subAgents key=agent_code_reviewer
-config-delete scope=subAgents key=agent_db_migrator projectId=<projectId>
 ```
 
-> Note: tool names in `toolsJson` must be full names (`{server_id}-{tool_name}`)
-> of built-in or project-enabled MCP tools. `configProfile` must be an existing
-> API config profile name; empty means "follow the global active profile".
+Project-scoped explicit tools:
 
-## 3. AI / CLI Configuration Guide (config tool)
+```jsonc
+config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
+  "name": "Project Reviewer",
+  "description": "Review the current project and return findings with paths",
+  "systemPrompt": "You are this project's read-only code reviewer. Use allowed tools to establish facts. Report severity, file path, evidence, and remediation. Never modify files.",
+  "toolsJson": [
+    "filesystem-read",
+    "grep-search",
+    "codelens-file_outline"
+  ],
+  "configProfile": "",
+  "model": ""
+}
+```
 
-Quick rules for configuring via the built-in `config` tool (mirrors the
-`guidance` returned by `config-list`):
+Before writing, run `config-list scope=subAgents projectId=<projectId>` to obtain guidance and the current tool environment. Read back with `config-get` after writing. `config-delete` also requires explicit user confirmation.
 
-### 3.1 Sub-agent rules & common pitfalls
+### 2.5 Sub-agent and Hooks sequence
 
-| Rule | Description |
+```mermaid
+sequenceDiagram
+    participant Main as Main Agent
+    participant Config as Sub-agent config store
+    participant Hooks as Hooks executor
+    participant Sub as Independent sub-agent loop
+    Main->>Config: Look up projectId and agentId
+    alt Project configuration exists
+        Config-->>Main: Return project configuration
+    else Not found
+        Config-->>Main: Fall back to global same-ID configuration
+    end
+    Main->>Hooks: beforeSubAgentStart context
+    alt Hook blocks with 2+
+        Hooks-->>Main: Return block message
+    else Allowed or Hook execution error
+        Hooks-->>Main: Continue
+        Main->>Sub: Self-contained systemPrompt + task + allowed tools
+        Sub->>Sub: Execute and validate independently
+        Sub-->>Main: Completion summary
+        Main->>Hooks: onSubAgentComplete + summary
+        alt Hook blocks with 2+
+            Hooks-->>Main: Replace summary with block message
+        else Hook returns context or warning
+            Hooks-->>Main: Append to summary
+        end
+        Main-->>Main: Record sub-agent and Hook results
+    end
+```
+
+If `beforeSubAgentStart` Hook execution itself throws, the current caller continues activation. A security gate must therefore be reliable, tested, and return an explicit `2+` exit code when blocking.
+
+## 3. Validation and troubleshooting
+
+| Symptom | Check |
 | --- | --- |
-| An explicit `toolsJson` tool-name list **requires `projectId`** | A sub-agent with a specific tool list is necessarily **project-scoped**; global agents may only use `"*"` (all tools) or an empty list |
-| Tool names must be project-enabled | Every name in `toolsJson` must be a built-in/MCP tool full name enabled for that project, otherwise the write is rejected |
-| Empty `configProfile` | Follows the active global config; a profile name pins a specific model config |
-| `systemPrompt` must be self-contained | The sub-agent runs standalone with **no conversation history** — mission, principles, tool usage and output format all belong in the prompt |
-| Project-scoped wins | At activation, a project-scoped agent takes priority over a same-id global one; falls back to global if not found |
-| Built-in protection | `agent_general` cannot be modified or deleted |
-
-**Getting `projectId`**: it is the `directoryId` of the workspace directory —
-look it up in `~/.snow/projects/index.json` by the project path (`knownPaths`),
-or ask the user to pick the project in **Settings → Sub-agents → Project**.
-
-### 3.2 Hooks quick rules
-
-| Rule | Description |
-| --- | --- |
-| `hookType` whitelist | `onUserMessage` / `beforeToolCall` / `toolConfirmation` / `afterToolCall` / `onSubAgentComplete` / `beforeSubAgentStart` / `beforeCompress` / `onSessionStart` / `onStop` |
-| `matcher` glob | Tool hooks can be limited with a glob (e.g. `bash-*` for bash tools only) |
-| `command` exit codes | `0` = pass (stdout injected as `[Hook Context]`); `1` = soft warning (a stdout of `{"decision":{"message":"..."}}` triggers the user decision UI); `2+` = abort |
-| Action applicability | `prompt` only for `onSubAgentComplete`/`onStop`; `context` only for `onSessionStart`/`onUserMessage`/`beforeSubAgentStart` |
-| Project overrides | A project-scoped hook (with `projectId`) overrides the same-type global hook |
-
-### 3.3 Recommended flow
-
-1. `config-list scope=<scope>` first — inspect the current state and the
-   `guidance` in the response;
-2. Build the `config-set` request following the examples above;
-3. `config-get` afterwards to confirm;
-4. Resolve `projectId` first when project-scoped (see 3.1).
+| Hook saves but never runs | Ensure the action explicitly has `"enabled": true`; a missing value is skipped by the native executor. |
+| Project Hook does not fall back globally | A non-empty project array replaces global rules; delete the project config or use an empty rule array to fall back. |
+| Matcher does not match | Verify context keys and full tool name; use `toolName:<glob>` when appropriate. |
+| Command times out | Default is 5000 ms; inspect shell, PATH, cwd, stdin handling, and a reasonable positive `timeout`. |
+| Exit 1 shows no decision card | stdout must be valid JSON with a string `decision.message`; fire-and-forget Hooks only show a warning. |
+| Prompt action has no effect | The current native executor does not execute prompt model calls; use command or supported context. |
+| Context does not reach the child prompt | `beforeSubAgentStart` currently records context but does not append it to the child prompt; put required content in `systemPrompt`. |
+| Global sub-agent explicit list is rejected | Explicit lists require `projectId`; make it project-scoped or use global `["*"]`/`[]`. |
+| Sub-agent cannot find a tool | Use the exact project-enabled full tool name and inspect MCP server/project tool toggles. |
+| Sub-agent depends on main conversation | It has no main history; place context in the task prompt or self-contained `systemPrompt`. |
+| Wrong same-ID config activates | Project scope wins over global; query both scopes and verify `projectId`. |

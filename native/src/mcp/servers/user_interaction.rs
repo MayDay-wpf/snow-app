@@ -218,15 +218,12 @@ fn validate_answer_json(answer_json: &str, options: &[String]) -> napi::Result<N
 
     if cancelled {
         let read_cancelled_array = |field: &str| -> napi::Result<Vec<String>> {
-            let values = object
-                .get(field)
-                .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    Error::new(
-                        Status::InvalidArg,
-                        format!("Cancelled user answer must contain an empty {field} array"),
-                    )
-                })?;
+            let values = object.get(field).and_then(Value::as_array).ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("Cancelled user answer must contain an empty {field} array"),
+                )
+            })?;
             normalize_string_array(values, field)
         };
         let answers = read_cancelled_array("answers")?;
@@ -307,10 +304,7 @@ fn optional_string_array(value: Option<&Value>, field: &str) -> napi::Result<Vec
 }
 
 fn is_scalar_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::String(_) | Value::Number(_) | Value::Bool(_)
-    )
+    matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_))
 }
 
 fn coerce_scalar_to_string(value: &Value) -> Option<String> {
@@ -367,4 +361,3 @@ fn unknown_tool_error(tool_name: &str) -> Error {
         ),
     )
 }
-

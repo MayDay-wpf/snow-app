@@ -1,90 +1,155 @@
-# 2-install-and-manage-skills
+# 2-Install and Manage Skills
 
-A skill is a document (`SKILL.md`) that guides an AI agent to complete a specific task. This article explains how to install, write, toggle, and uninstall skills.
+A Skill is an instruction package whose entry point is `SKILL.md`. Snow App scans Skill directories and dynamically registers the names and descriptions of enabled Skills with `skills-skill-execute`. When the agent selects one, Snow App loads its body, directory tree, and tool restrictions.
 
-## 1. Skill Locations
+This guide covers scanning, installation, toggles, agent-based management, and uninstallation. To author a Skill from scratch, continue with [Create and Author Skills](21-create-and-author-skills.md).
 
-Snow App automatically loads skills from the following directories (priority from high to low):
+## 1. Scan directories and override precedence
 
-| Directory | Scope |
-| --- | --- |
-| `<project>/.agents/skills/` | Project level (highest priority) |
-| `<project>/.snow/skills/` | Project level |
-| `~/.agents/skills/` | Global user level |
-| `~/.snow/skills/` | Global user level (built-in skill install location) |
+With a project context, Snow App scans in the following order. **A later Skill with the same ID replaces an earlier one**:
 
-Each skill is a directory containing a `SKILL.md`; the directory name is the skill ID:
+| Scan order | Directory | Scope | Same-ID precedence |
+| --- | --- | --- | --- |
+| 1 | `~/.agents/skills/` | Global user | Lowest |
+| 2 | `~/.snow/skills/` | Global user; global GitHub install target | Higher than 1 |
+| 3 | `<project>/.agents/skills/` | Project | Higher than global directories |
+| 4 | `<project>/.snow/skills/` | Project; project GitHub install target | Highest |
 
+Without a project context, only the two global directories are scanned. Scanning is recursive: every directory that contains `SKILL.md` is a Skill. **The Skill ID is the path relative to the scan root**, normalized to `/`. For example:
+
+```text
+<project>/.snow/skills/
+└── team/
+    └── release/
+        ├── SKILL.md
+        └── checklist.md
 ```
-~/.snow/skills/
-└── my-skill/
-    └── SKILL.md
-```
 
-## 2. Installing from GitHub
+The Skill ID is `team/release`, not the frontmatter `name`. Directories whose names start with `.` and directories named `templates`, `examples`, or `node_modules` are not traversed.
 
-### Via the GUI
+> A same-ID override replaces the whole Skill—metadata, body, path, and tool restrictions are not merged. When troubleshooting, inspect the effective `path`, `location`, and `source` first.
+
+## 2. Install from GitHub
+
+### 2.1 Settings panel
 
 1. Open **Settings → Skills Settings**;
-2. Paste the repository address into the "Install from GitHub" input box;
-3. Full URLs and `owner/repo` shorthand are supported, and you can specify a branch and a subdirectory. URL examples:
-   - `https://github.com/owner/repo` or `owner/repo` — uses the default branch and auto-discovers skills at the repo root or under `skills/`;
-   - `https://github.com/owner/repo/tree/<branch>/<subdir>` — targets a specific branch and subdirectory, e.g. `https://github.com/cli/cli/tree/trunk/skills/gh` installs the skill under `skills/gh` on the `trunk` branch of `cli/cli`;
-4. Click Install; once complete, the skill appears in the list and can be toggled immediately.
+2. Enter a source under **Install from GitHub**;
+3. Choose **Global** or **Project**. A project install requires an active project;
+4. After installation, verify the ID, path, and toggle in the list.
 
-### Manually (the agent can execute this directly)
+Supported source formats:
 
-```bash
-# 下载仓库到临时目录
-git clone --depth 1 https://github.com/owner/repo.git /tmp/my-skill-repo
-# 找到 SKILL.md（可能在根目录或子目录），复制到全局技能目录
-mkdir -p ~/.snow/skills/my-skill
-cp /tmp/my-skill-repo/SKILL.md ~/.snow/skills/my-skill/SKILL.md
-```
+- `https://github.com/owner/repo`
+- `owner/repo`
+- `owner/repo@branch`
+- `owner/repo@branch:sub/dir`
+- `https://github.com/owner/repo/tree/branch/sub/dir`
 
-New skills are loaded immediately; no app restart is needed.
+The repository's default branch is used when no branch is specified. The installer first checks whether the selected base directory itself contains `SKILL.md`. If not, it discovers `SKILL.md` only in its **immediate child directories**, which supports multi-Skill repositories. If the Skill is nested deeper, specify that subdirectory in the source URL.
 
-## 3. SKILL.md Format
+A GitHub installation:
+
+1. Downloads and extracts the repository archive;
+2. Derives a safe installation ID from frontmatter `name`, falling back to the repository name;
+3. Installs the complete Skill directory into `~/.snow/skills/<id>/` or `<project>/.snow/skills/<id>/`;
+4. Records it in `~/.snow/skills-registry.json` for later identification and uninstallation;
+5. Stages the previous directory before replacing a same-ID target and attempts rollback if the registry update fails.
+
+New content is rescanned on the next Skill-list refresh or invocation; an app restart is not required.
+
+## 3. Actual `SKILL.md` frontmatter
+
+The field names currently recognized by Snow App are **`enable`** and **`allowed-tools`**:
 
 ```markdown
 ---
-name: skill-name
-description: 一句话说明用途（Agent 据此判断何时使用）
-enabled: true
-allowed_tools:
+name: release-checker
+description: Validate a release package and produce a concise checklist.
+enable: true
+allowed-tools:
   - filesystem-read
-  - bash-terminal-execute
+  - grep-search
 ---
 
-# 技能正文
+# Release checker
 
-给 Agent 的详细操作指导……
+Follow the repository release policy, inspect the requested artifacts, and report
+blocking problems before suggestions.
 ```
 
-**Frontmatter fields**:
-
-| Field | Required | Description |
+| Field | Required | Parsing semantics |
 | --- | --- | --- |
-| `name` | No | Skill name; defaults to the directory name if omitted |
-| `description` | No | Skill description, used by the agent for automatic selection |
-| `enabled` | No | Defaults to `true`; `false` means disabled by default |
-| `allowed_tools` | No | When listed, the skill can **only use** these tools during execution |
+| `name` | No | Display name; defaults to the final segment of the Skill ID. It also contributes to the installation ID for GitHub installs. |
+| `description` | No | Registered in the Skill tool description so the agent can decide when to load it. State the trigger and expected output clearly. |
+| `enable` | No | Boolean, default `true`. With `false`, the Skill is not registered or executable by default. |
+| `allowed-tools` | No | A YAML string array or comma-separated string. When non-empty, loading the Skill adds an “only these tools” restriction; an empty list means unrestricted. |
 
-## 4. Toggling and Uninstalling
+`enabled` and `allowed_tools` are **not Skill frontmatter fields** and do not have the intended effect. The config API's `value.enabled` below is valid; that API parameter ultimately writes the frontmatter field named `enable`.
 
-- **Toggle**: Settings → Skills Settings → the switch in the list;
-- **Uninstall GitHub-installed skills**: Skills Settings → the Uninstall button;
-- **Uninstall manually**: delete the corresponding skill directory.
-- **Via the agent**: the agent can perform the same operations with the `config` built-in service — `config-list scope=skills` to inspect the current state, `config-set scope=skills value={enabled}` to toggle a skill (global: rewrites the frontmatter; project: writes an app DB override), and `config-set scope=skills value={url, location}` / `config-delete scope=skills` to install/uninstall (uninstall only works for GitHub-installed skills). See `3-reference/2-builtin-tools-reference.md`.
+Use exact Snow App tool names in `allowed-tools`, such as `filesystem-read` and `config-list`. This is an agent tool whitelist included with the loaded Skill prompt, not an operating-system sandbox. Follow least privilege and omit write, command, or network tools that the workflow does not need.
 
-## 5. Built-in Skills
+## 4. Toggles and project overrides
 
-Snow App ships with the **snow-app-docs** skill (enabled by default), which guides the agent to read the app documentation and then help users configure MCP, skills, API, proxy, etc. You can turn it off at any time in Skills Settings.
+### 4.1 Settings panel
 
-## 6. FAQ
+In **Settings → Skills Settings**:
 
-| Symptom | Cause & fix |
+- The global view rewrites the top-level `enable` field of the effective `SKILL.md`;
+- The project view stores a project override in the app database and does not edit the Skill file;
+- When an override exists, the effective state is “project database override > effective Skill's `enable` value.”
+
+### 4.2 Manage through the `config` service
+
+Skills are not an arbitrary object-valued configuration file. The `config` service delegates its `skills` scope to the same Skills service used by the UI:
+
+```text
+config-list scope=skills projectId=<projectId>
+config-get  scope=skills key=team/release projectId=<projectId>
+config-set  scope=skills key=team/release projectId=<projectId> value={"enabled":false}
+```
+
+Important semantics:
+
+- `config-list` returns `skills` and `githubInstalled`. In a project view, `defaultEnabled` is the frontmatter value and `enabled` is the effective value after the database override;
+- A global toggle also uses `value={"enabled":...}`, but the service rewrites **`enable`** in the Skill file;
+- With `projectId`, the service writes only a project database override, effective immediately;
+- The config tool in the current conversation may auto-inject the active project ID. Use `currentProjectId` in the response to verify context, and pass an empty `projectId` when you explicitly need global configuration;
+- Install with `value={"url":"owner/repo","location":"global"}`. For a project installation, use `location:"project"` and pass `projectId`. `key` is required for config API routing, while the actual installation ID is still derived from the installed content;
+- Run `config-get` or `config-list` again after a change and verify the path and effective state.
+
+## 5. Uninstallation boundaries
+
+### 5.1 GitHub-installed Skills
+
+The Settings-panel uninstall action and:
+
+```text
+config-delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
+```
+
+only apply to GitHub installations recorded in `~/.snow/skills-registry.json`. Before an agent calls `config-delete`, it must show the scope, key, projectId, and impact and obtain explicit user confirmation.
+
+Uninstallation removes the `~/.snow/skills/<id>` or `<project>/.snow/skills/<id>` directory identified by the registry record, then removes that record. To avoid ambiguity in registry lookup by ID, do not install two GitHub Skills with the same ID in global and project scopes. Inspect `githubInstalled` with `config-list scope=skills` first.
+
+### 5.2 Manually placed or app-provided Skills
+
+A Skill without a GitHub registry record cannot be removed through the config/UI GitHub-uninstall flow:
+
+- For a manually placed Skill, delete the exact directory only after user confirmation;
+- For an app-provided or deployment-copied Skill, do not assume it is uninstallable; prefer disabling it;
+- A lower-precedence same-ID Skill still exists while shadowed and becomes visible again if the overriding directory is removed.
+
+Directory deletion is destructive. An agent must confirm the exact path, source, and impact and must not infer a directory from the display name alone.
+
+## 6. Troubleshooting
+
+| Symptom | Cause and fix |
 | --- | --- |
-| The skill doesn't appear after installation | Make sure the directory structure is `<skills-dir>/<skill-id>/SKILL.md` |
-| The agent cannot use certain tools | The skill declares `allowed_tools`; add the tools in the frontmatter |
-| The skill has no effect | Check the `enabled` field; skills with invalid frontmatter are skipped |
+| Skill does not appear | Ensure the filename is exactly `SKILL.md`; check skipped directories; fix an unclosed `---` marker or invalid YAML. |
+| Toggle appears ineffective | Use frontmatter `enable`; then check for a project database override or a higher-precedence same-ID Skill. |
+| Agent does not select the Skill | Add a specific `description`, confirm `enable: true`, and refresh the Skill list. |
+| A tool is rejected | Ensure `allowed-tools` contains the exact full tool name; `allowed_tools` is invalid. |
+| GitHub source reports no Skill | Neither the root nor an immediate child has `SKILL.md`; point a subdirectory URL at the correct level. |
+| Uninstall returns “not installed from GitHub” | The Skill has no registry record; verify its source and use the manual-directory workflow. |
+| Edits do not take effect | Inspect the effective `path` through `config-list`, rule out same-ID shadowing, then load it again on the next turn. |

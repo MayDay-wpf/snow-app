@@ -4,7 +4,6 @@ import {
   PinOff,
   Pencil,
   Trash2,
-  AlertTriangle,
   Download,
   ChevronRight,
   ChevronLeft,
@@ -15,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useI18n } from "../../../i18n";
-import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { ChatDeleteConfirmDialog } from "./ChatDeleteConfirmDialog";
 import { useMenuPosition } from "./useMenuPosition";
 import { EmojiPicker } from "./EmojiPicker";
 
@@ -227,18 +226,6 @@ export function ChatItemMenu({
   };
 
   const handleDeleteConfirm = (): void => {
-    // 用户选择不保留图片时，先级联删除图库图片（物理 + 索引），
-    // 再执行会话删除；删除失败不阻断会话删除
-    if (deleteImages && (imagesCount ?? 0) > 0) {
-      void window.snow
-        .deleteConversationImages([conversationId])
-        .catch((error) => {
-          console.error(
-            "[chat] cascade delete conversation images failed:",
-            error
-          );
-        });
-    }
     onDelete(deleteImages);
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
@@ -317,59 +304,7 @@ export function ChatItemMenu({
               }
               role="menu"
             >
-              {showConfirm ? (
-                <>
-                  <div className="chat-item-menu-confirm">
-                    <AlertTriangle
-                      size={13}
-                      className="chat-item-menu-confirm-icon"
-                    />
-                    <span className="chat-item-menu-confirm-text">
-                      {t("sidebar.chatDeleteConfirm", {
-                        defaultValue:
-                          "Are you sure you want to delete this conversation?",
-                      })}
-                    </span>
-                  </div>
-                  {imagesCount !== null && imagesCount > 0 ? (
-                    <label className="chat-item-menu-delete-images">
-                      <input
-                        type="checkbox"
-                        checked={deleteImages}
-                        onChange={(event) =>
-                          setDeleteImages(event.target.checked)
-                        }
-                      />
-                      <span>
-                        {t("sidebar.chatDeleteImagesOption", {
-                          defaultValue:
-                            "Also delete the {{count}} image(s) generated in this conversation",
-                          values: { count: imagesCount },
-                        })}
-                      </span>
-                    </label>
-                  ) : null}
-                  <div className="chat-item-menu-confirm-actions">
-                    <button
-                      type="button"
-                      className="chat-item-menu-confirm-btn cancel"
-                      onClick={handleDeleteCancel}
-                    >
-                      {t("common.cancel", { defaultValue: "Cancel" })}
-                    </button>
-                    <button
-                      type="button"
-                      className="chat-item-menu-confirm-btn delete"
-                      onClick={handleDeleteConfirm}
-                    >
-                      {t("sidebar.chatActionDelete", {
-                        defaultValue: "Delete",
-                      })}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
+              <>
                   <button
                     type="button"
                     className="chat-item-menu-item"
@@ -471,7 +406,6 @@ export function ChatItemMenu({
                     </span>
                   </button>
                 </>
-              )}
             </div>,
             document.body
           )
@@ -528,39 +462,16 @@ export function ChatItemMenu({
         />
       )}
       </span>
-      <ConfirmDialog
-        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-        confirmLabel={t("sidebar.chatActionDelete", {
-          defaultValue: "Delete",
-        })}
-        message={t("sidebar.chatDeleteConfirm", {
-          defaultValue: "Are you sure you want to delete this conversation?",
-        })}
+      <ChatDeleteConfirmDialog
+        conversationCount={1}
+        deleteImages={deleteImages}
+        imagesCount={imagesCount}
+        isBatch={false}
         onCancel={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
+        onDeleteImagesChange={setDeleteImages}
         open={showConfirm}
-        title={t("sidebar.chatDeleteConfirmTitle", {
-          defaultValue: "Confirm deletion",
-        })}
-        variant="danger"
-      >
-        {imagesCount !== null && imagesCount > 0 ? (
-          <label className="chat-item-menu-delete-images">
-            <input
-              checked={deleteImages}
-              onChange={(event) => setDeleteImages(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              {t("sidebar.chatDeleteImagesOption", {
-                defaultValue:
-                  "Also delete the {{count}} image(s) generated in this conversation",
-                values: { count: imagesCount },
-              })}
-            </span>
-          </label>
-        ) : null}
-      </ConfirmDialog>
+      />
     </>
   );
 }

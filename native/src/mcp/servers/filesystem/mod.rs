@@ -267,14 +267,15 @@ impl FilesystemService {
 
         // search_lines_variants: 每个元素是 (变体名, 行数组)
         let search_content_stripped = try_strip_line_prefixes(search_content);
-        let variants: Vec<(&str, Vec<&str>)> = vec![
-            ("exact", search_content.split('\n').collect()),
-        ]
-        .into_iter()
-        .chain(search_content_stripped.as_ref().map(|s| {
-            ("exact_after_stripping_prefixes", s.split('\n').collect())
-        }))
-        .collect();
+        let variants: Vec<(&str, Vec<&str>)> =
+            vec![("exact", search_content.split('\n').collect())]
+                .into_iter()
+                .chain(
+                    search_content_stripped
+                        .as_ref()
+                        .map(|s| ("exact_after_stripping_prefixes", s.split('\n').collect())),
+                )
+                .collect();
 
         // Step 1: 精确行级匹配
         // 在 file_lines 中查找与 search 某个变体完全相同的行序列（归一化比较）。
@@ -287,12 +288,9 @@ impl FilesystemService {
             // 收集所有匹配位置
             let mut match_positions: Vec<usize> = Vec::new();
             for start in 0..=(file_lines.len() - search_line_count) {
-                let all_match = search_lines
-                    .iter()
-                    .enumerate()
-                    .all(|(i, &sline)| {
-                        normalize_whitespace(&file_lines[start + i]) == normalize_whitespace(sline)
-                    });
+                let all_match = search_lines.iter().enumerate().all(|(i, &sline)| {
+                    normalize_whitespace(&file_lines[start + i]) == normalize_whitespace(sline)
+                });
                 if all_match {
                     match_positions.push(start);
                 }
@@ -302,10 +300,8 @@ impl FilesystemService {
                 let end_line = target_start + search_line_count;
 
                 // 行级替换：用 splice 替换目标行范围
-                let replacement_lines: Vec<String> = replace_content
-                    .split('\n')
-                    .map(str::to_owned)
-                    .collect();
+                let replacement_lines: Vec<String> =
+                    replace_content.split('\n').map(str::to_owned).collect();
                 let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
                 new_lines.splice(target_start..end_line, replacement_lines);
                 let new_content = new_lines.join("\n");
@@ -350,10 +346,8 @@ impl FilesystemService {
             find_best_line_match_v2(search_content, &file_lines)
         {
             if similarity >= FUZZY_MATCH_THRESHOLD {
-                let replacement_lines: Vec<String> = replace_content
-                    .split('\n')
-                    .map(str::to_owned)
-                    .collect();
+                let replacement_lines: Vec<String> =
+                    replace_content.split('\n').map(str::to_owned).collect();
                 let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
                 new_lines.splice(start_line..end_line, replacement_lines);
                 let new_content = new_lines.join("\n");
@@ -653,7 +647,10 @@ fn try_strip_line_prefixes(text: &str) -> Option<String> {
 /// 在文件行数组中，按行滑动窗口查找与 searchContent 最相似的区间。
 /// 基于 normalize_whitespace + Levenshtein 距离 + 变窗口 + 首行预过滤。
 /// 返回 (起始行号, 结束行号(不含), 相似度)，均为 0-indexed。
-fn find_best_line_match_v2(search_content: &str, file_lines: &[&str]) -> Option<(usize, usize, f64)> {
+fn find_best_line_match_v2(
+    search_content: &str,
+    file_lines: &[&str],
+) -> Option<(usize, usize, f64)> {
     let search_lines: Vec<&str> = search_content.split('\n').collect();
     if search_lines.is_empty() || file_lines.is_empty() {
         return None;
@@ -666,7 +663,8 @@ fn find_best_line_match_v2(search_content: &str, file_lines: &[&str]) -> Option<
 
     let threshold = FUZZY_MATCH_THRESHOLD;
     let normalized_search = normalize_whitespace(search_content);
-    let normalized_first_line = normalize_whitespace(search_lines.first().copied().unwrap_or_default());
+    let normalized_first_line =
+        normalize_whitespace(search_lines.first().copied().unwrap_or_default());
 
     // 变窗口：大代码块允许窗口大小浮动以改善边界对齐
     let window_delta = if base_window >= 10 {
@@ -682,7 +680,9 @@ fn find_best_line_match_v2(search_content: &str, file_lines: &[&str]) -> Option<
     for start_index in 0..=(file_lines.len() - base_window) {
         // 首行预过滤：首行相似度低于阈值则跳过
         let normalized_candidate_first = normalize_whitespace(file_lines[start_index]);
-        if compute_levenshtein_similarity(&normalized_first_line, &normalized_candidate_first, 0.5) < 0.5 {
+        if compute_levenshtein_similarity(&normalized_first_line, &normalized_candidate_first, 0.5)
+            < 0.5
+        {
             continue;
         }
 
@@ -987,12 +987,7 @@ fn is_image_file(path: &Path) -> bool {
             .and_then(|ext| ext.to_str())
             .map(str::to_lowercase)
             .as_deref(),
-        Some("png")
-            | Some("jpg")
-            | Some("jpeg")
-            | Some("gif")
-            | Some("webp")
-            | Some("bmp")
+        Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("bmp")
     )
 }
 
@@ -1034,11 +1029,7 @@ fn read_image_as_data_url(path: &Path) -> napi::Result<String> {
 
 /// 将文本内容按行号范围分页，返回带行号前缀的内容。
 /// 文本文件与 Office 文档提取出的文本共用该逻辑。
-fn format_numbered_lines(
-    content: &str,
-    start_line: Option<u64>,
-    end_line: Option<u64>,
-) -> Value {
+fn format_numbered_lines(content: &str, start_line: Option<u64>, end_line: Option<u64>) -> Value {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
 

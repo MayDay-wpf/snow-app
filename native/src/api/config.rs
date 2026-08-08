@@ -31,7 +31,9 @@ pub fn get_api_request_context_for_profile(
         return Err(Error::from_reason("No API configuration found"));
     }
 
-    let requested_profile = profile_name.map(str::trim).filter(|value| !value.is_empty());
+    let requested_profile = profile_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let selected_index = if let Some(requested_profile) = requested_profile {
         configs
             .iter()
@@ -42,16 +44,19 @@ pub fn get_api_request_context_for_profile(
                 ))
             })?
     } else {
-        configs.iter().position(|config| config.is_active).unwrap_or(0)
+        configs
+            .iter()
+            .position(|config| config.is_active)
+            .unwrap_or(0)
     };
     let api_config = configs.remove(selected_index);
 
     let custom_header_schemes =
-        crate::storage::services::custom_header_schemes::list_custom_header_schemes(&database_path)?;
-    let custom_headers = get_api_config_custom_headers(
-        &custom_header_schemes,
-        &api_config.custom_header_scheme_id,
-    );
+        crate::storage::services::custom_header_schemes::list_custom_header_schemes(
+            &database_path,
+        )?;
+    let custom_headers =
+        get_api_config_custom_headers(&custom_header_schemes, &api_config.custom_header_scheme_id);
 
     Ok(ActiveApiRequestContext {
         database_path,
@@ -72,7 +77,9 @@ pub fn get_api_request_context_for_profile(
 pub fn get_api_request_context_with_fallback(
     profile_name: Option<&str>,
 ) -> Result<ActiveApiRequestContext> {
-    let trimmed_profile = profile_name.map(str::trim).filter(|value| !value.is_empty());
+    let trimmed_profile = profile_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     if let Some(trimmed_profile) = trimmed_profile {
         match get_api_request_context_for_profile(Some(trimmed_profile)) {
@@ -113,9 +120,7 @@ pub fn get_api_request_context_with_fallback(
     get_api_request_context_for_profile(None)
 }
 
-pub fn get_active_custom_headers(
-    schemes: &[CustomHeaderSchemeRecord],
-) -> HashMap<String, String> {
+pub fn get_active_custom_headers(schemes: &[CustomHeaderSchemeRecord]) -> HashMap<String, String> {
     schemes
         .iter()
         .find(|scheme| scheme.is_active)
@@ -155,11 +160,7 @@ fn parse_custom_headers(scheme: &CustomHeaderSchemeRecord) -> HashMap<String, St
 
     object
         .iter()
-        .filter_map(|(key, value)| {
-            value
-                .as_str()
-                .map(|value| (key.clone(), value.to_string()))
-        })
+        .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_string())))
         .collect()
 }
 
@@ -228,12 +229,7 @@ fn strip_known_endpoint_suffix(base_url: &str) -> Option<String> {
 }
 
 fn get_known_endpoint_suffix(pathname: &str) -> Option<&str> {
-    for suffix in [
-        "/chat/completions",
-        "/responses",
-        "/messages",
-        "/models",
-    ] {
+    for suffix in ["/chat/completions", "/responses", "/messages", "/models"] {
         if pathname.ends_with(suffix) {
             return Some(suffix);
         }

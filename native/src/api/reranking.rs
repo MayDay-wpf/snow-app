@@ -94,10 +94,8 @@ pub async fn rerank(
         ));
     }
 
-    let client = crate::api::http_client::build_proxied_client_with_timeout(
-        Duration::from_secs(60),
-    )
-    .await?;
+    let client =
+        crate::api::http_client::build_proxied_client_with_timeout(Duration::from_secs(60)).await?;
 
     let endpoint = resolve_rerank_endpoint(&config.base_url);
     let headers = build_headers(config);
@@ -120,15 +118,12 @@ pub async fn rerank(
         .json(&body)
         .send()
         .await
-        .map_err(|error| {
-            Error::from_reason(format!("Reranking API request failed: {error}"))
-        })?;
+        .map_err(|error| Error::from_reason(format!("Reranking API request failed: {error}")))?;
 
     let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|error| Error::from_reason(format!("Failed to read reranking response: {error}")))?;
+    let response_text = response.text().await.map_err(|error| {
+        Error::from_reason(format!("Failed to read reranking response: {error}"))
+    })?;
 
     if !status.is_success() {
         return Err(Error::from_reason(format!(
@@ -166,10 +161,7 @@ fn resolve_rerank_endpoint(base_url: &str) -> String {
 
 fn build_headers(config: &RerankingConfig) -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "Content-Type",
-        HeaderValue::from_static("application/json"),
-    );
+    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
     headers.insert("Accept", HeaderValue::from_static("application/json"));
 
     if !config.api_key.is_empty() {
@@ -214,15 +206,15 @@ fn parse_rerank_response(response_text: &str, expected_count: usize) -> Result<V
         .unwrap_or(response_text);
 
     let parsed: Value = serde_json::from_str(response_text).map_err(|error| {
-        Error::from_reason(format!("Failed to parse reranking response as JSON: {error}"))
+        Error::from_reason(format!(
+            "Failed to parse reranking response as JSON: {error}"
+        ))
     })?;
 
     let results = parsed
         .get("results")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            Error::from_reason("Reranking response missing 'results' array")
-        })?;
+        .ok_or_else(|| Error::from_reason("Reranking response missing 'results' array"))?;
 
     let mut collected: Vec<RerankResult> = Vec::with_capacity(results.len());
     for item in results {
@@ -230,9 +222,7 @@ fn parse_rerank_response(response_text: &str, expected_count: usize) -> Result<V
             .get("index")
             .and_then(Value::as_u64)
             .map(|i| i as usize)
-            .ok_or_else(|| {
-                Error::from_reason("Reranking response item missing 'index' field")
-            })?;
+            .ok_or_else(|| Error::from_reason("Reranking response item missing 'index' field"))?;
 
         if index >= expected_count {
             return Err(Error::from_reason(format!(

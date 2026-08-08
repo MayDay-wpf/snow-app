@@ -17,58 +17,264 @@ const PRESET_SENSITIVE_COMMANDS: &[PresetSensitiveCommand] = &[
     // rm 必须是独立命令词（前一个字符不是 `-` 或词字符），且后跟至少一个
     // 参数，才可能产生删除行为。旧规则 "rm " 无词边界，会误匹配 arm64、
     // warm、--rm、--format 等任意包含 rm 的子串。
-    PresetSensitiveCommand { command_id: "rm", pattern: r"(?:^|[^-\w])rm\s+\S", description: "Delete files or directories (rm, rm -rf, etc.)", enabled: true },
-    PresetSensitiveCommand { command_id: "rmdir", pattern: "rmdir ", description: "Remove directories", enabled: true },
-    PresetSensitiveCommand { command_id: "unlink", pattern: "unlink ", description: "Delete files using unlink command", enabled: true },
-    PresetSensitiveCommand { command_id: "mv-to-trash", pattern: "mv * /tmp", description: "Move files to trash/tmp (potential data loss)", enabled: false },
-    PresetSensitiveCommand { command_id: "chmod", pattern: "chmod ", description: "Change file permissions", enabled: false },
-    PresetSensitiveCommand { command_id: "chown", pattern: "chown ", description: "Change file ownership", enabled: false },
-    PresetSensitiveCommand { command_id: "dd", pattern: "dd ", description: "Low-level data copy (disk operations)", enabled: true },
-    PresetSensitiveCommand { command_id: "mkfs", pattern: "mkfs", description: "Format filesystem", enabled: true },
-    PresetSensitiveCommand { command_id: "fdisk", pattern: "fdisk ", description: "Disk partition manipulation", enabled: true },
-    PresetSensitiveCommand { command_id: "killall", pattern: "killall ", description: "Kill all processes by name", enabled: false },
-    PresetSensitiveCommand { command_id: "pkill", pattern: "pkill ", description: "Kill processes by pattern", enabled: false },
-    PresetSensitiveCommand { command_id: "reboot", pattern: "reboot", description: "Reboot the system", enabled: true },
-    PresetSensitiveCommand { command_id: "shutdown", pattern: "shutdown ", description: "Shutdown the system", enabled: true },
-    PresetSensitiveCommand { command_id: "sudo", pattern: "sudo ", description: "Execute commands with superuser privileges", enabled: false },
-    PresetSensitiveCommand { command_id: "su", pattern: "su ", description: "Switch user", enabled: false },
-    PresetSensitiveCommand { command_id: "curl-post", pattern: "curl*-X POST", description: "HTTP POST requests (potential data transmission)", enabled: false },
-    PresetSensitiveCommand { command_id: "wget", pattern: "wget ", description: "Download files from internet", enabled: false },
-    PresetSensitiveCommand { command_id: "git-push", pattern: "git push", description: "Push code to remote repository", enabled: false },
-    PresetSensitiveCommand { command_id: "git-force-push", pattern: "git push*--force", description: "Force push to remote repository (destructive)", enabled: true },
-    PresetSensitiveCommand { command_id: "git-force-push-short", pattern: "git push*-f ", description: "Force push to remote repository with -f flag (destructive)", enabled: true },
-    PresetSensitiveCommand { command_id: "git-reset-hard", pattern: "git reset*--hard", description: "Hard reset git repository (destructive)", enabled: true },
-    PresetSensitiveCommand { command_id: "git-clean", pattern: "git clean*-f", description: "Remove untracked files from git repository", enabled: true },
-    PresetSensitiveCommand { command_id: "git-revert", pattern: "git revert", description: "Revert git commits", enabled: false },
-    PresetSensitiveCommand { command_id: "git-reset", pattern: "git reset ", description: "Reset git repository state", enabled: false },
-    PresetSensitiveCommand { command_id: "npm-publish", pattern: "npm publish", description: "Publish package to npm registry", enabled: true },
-    PresetSensitiveCommand { command_id: "docker-rm", pattern: "docker rm", description: "Remove Docker containers", enabled: false },
-    PresetSensitiveCommand { command_id: "docker-rmi", pattern: "docker rmi", description: "Remove Docker images", enabled: false },
-    PresetSensitiveCommand { command_id: "powershell-remove-item", pattern: "Remove-Item ", description: "PowerShell delete files or directories", enabled: true },
-    PresetSensitiveCommand { command_id: "powershell-remove-item-recurse", pattern: "Remove-Item*-Recurse", description: "PowerShell recursive delete (destructive)", enabled: true },
-    PresetSensitiveCommand { command_id: "format-volume", pattern: "Format-Volume", description: "Format disk volume (destructive)", enabled: true },
-    PresetSensitiveCommand { command_id: "mysql", pattern: "mysql ", description: "MySQL CLI client (direct database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "psql", pattern: "psql ", description: "PostgreSQL CLI client (direct database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "sqlite3", pattern: "sqlite3 ", description: "SQLite3 CLI (direct database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "mongosh", pattern: "mongosh ", description: "MongoDB Shell (direct database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "redis-cli", pattern: "redis-cli ", description: "Redis CLI client (direct cache/database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "sqlcmd", pattern: "sqlcmd ", description: "SQL Server CLI client (direct database access)", enabled: false },
-    PresetSensitiveCommand { command_id: "sql-drop-table", pattern: "DROP TABLE", description: "SQL DROP TABLE statement (destroys table and all data)", enabled: true },
-    PresetSensitiveCommand { command_id: "sql-drop-database", pattern: "DROP DATABASE", description: "SQL DROP DATABASE statement (destroys entire database)", enabled: true },
-    PresetSensitiveCommand { command_id: "sql-truncate", pattern: "TRUNCATE ", description: "SQL TRUNCATE statement (removes all rows from table)", enabled: true },
-    PresetSensitiveCommand { command_id: "sql-delete", pattern: "DELETE FROM", description: "SQL DELETE statement (removes rows from table)", enabled: false },
+    PresetSensitiveCommand {
+        command_id: "rm",
+        pattern: r"(?:^|[^-\w])rm\s+\S",
+        description: "Delete files or directories (rm, rm -rf, etc.)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "rmdir",
+        pattern: "rmdir ",
+        description: "Remove directories",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "unlink",
+        pattern: "unlink ",
+        description: "Delete files using unlink command",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "mv-to-trash",
+        pattern: "mv * /tmp",
+        description: "Move files to trash/tmp (potential data loss)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "chmod",
+        pattern: "chmod ",
+        description: "Change file permissions",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "chown",
+        pattern: "chown ",
+        description: "Change file ownership",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "dd",
+        pattern: "dd ",
+        description: "Low-level data copy (disk operations)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "mkfs",
+        pattern: "mkfs",
+        description: "Format filesystem",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "fdisk",
+        pattern: "fdisk ",
+        description: "Disk partition manipulation",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "killall",
+        pattern: "killall ",
+        description: "Kill all processes by name",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "pkill",
+        pattern: "pkill ",
+        description: "Kill processes by pattern",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "reboot",
+        pattern: "reboot",
+        description: "Reboot the system",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "shutdown",
+        pattern: "shutdown ",
+        description: "Shutdown the system",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "sudo",
+        pattern: "sudo ",
+        description: "Execute commands with superuser privileges",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "su",
+        pattern: "su ",
+        description: "Switch user",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "curl-post",
+        pattern: "curl*-X POST",
+        description: "HTTP POST requests (potential data transmission)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "wget",
+        pattern: "wget ",
+        description: "Download files from internet",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-push",
+        pattern: "git push",
+        description: "Push code to remote repository",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-force-push",
+        pattern: "git push*--force",
+        description: "Force push to remote repository (destructive)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-force-push-short",
+        pattern: "git push*-f ",
+        description: "Force push to remote repository with -f flag (destructive)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-reset-hard",
+        pattern: "git reset*--hard",
+        description: "Hard reset git repository (destructive)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-clean",
+        pattern: "git clean*-f",
+        description: "Remove untracked files from git repository",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-revert",
+        pattern: "git revert",
+        description: "Revert git commits",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "git-reset",
+        pattern: "git reset ",
+        description: "Reset git repository state",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "npm-publish",
+        pattern: "npm publish",
+        description: "Publish package to npm registry",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "docker-rm",
+        pattern: "docker rm",
+        description: "Remove Docker containers",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "docker-rmi",
+        pattern: "docker rmi",
+        description: "Remove Docker images",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "powershell-remove-item",
+        pattern: "Remove-Item ",
+        description: "PowerShell delete files or directories",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "powershell-remove-item-recurse",
+        pattern: "Remove-Item*-Recurse",
+        description: "PowerShell recursive delete (destructive)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "format-volume",
+        pattern: "Format-Volume",
+        description: "Format disk volume (destructive)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "mysql",
+        pattern: "mysql ",
+        description: "MySQL CLI client (direct database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "psql",
+        pattern: "psql ",
+        description: "PostgreSQL CLI client (direct database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "sqlite3",
+        pattern: "sqlite3 ",
+        description: "SQLite3 CLI (direct database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "mongosh",
+        pattern: "mongosh ",
+        description: "MongoDB Shell (direct database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "redis-cli",
+        pattern: "redis-cli ",
+        description: "Redis CLI client (direct cache/database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "sqlcmd",
+        pattern: "sqlcmd ",
+        description: "SQL Server CLI client (direct database access)",
+        enabled: false,
+    },
+    PresetSensitiveCommand {
+        command_id: "sql-drop-table",
+        pattern: "DROP TABLE",
+        description: "SQL DROP TABLE statement (destroys table and all data)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "sql-drop-database",
+        pattern: "DROP DATABASE",
+        description: "SQL DROP DATABASE statement (destroys entire database)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "sql-truncate",
+        pattern: "TRUNCATE ",
+        description: "SQL TRUNCATE statement (removes all rows from table)",
+        enabled: true,
+    },
+    PresetSensitiveCommand {
+        command_id: "sql-delete",
+        pattern: "DELETE FROM",
+        description: "SQL DELETE statement (removes rows from table)",
+        enabled: false,
+    },
 ];
 
 pub fn seed_default_sensitive_command_configs(database_path: &Path) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| seed_defaults_with_connection(&connection))
-        .map_err(|error| database::database_error(database_path, "seed sensitive command configs", error))
+        .map_err(|error| {
+            database::database_error(database_path, "seed sensitive command configs", error)
+        })
 }
 
-pub fn list_sensitive_command_configs(database_path: &Path) -> Result<Vec<SensitiveCommandConfigRecord>> {
+pub fn list_sensitive_command_configs(
+    database_path: &Path,
+) -> Result<Vec<SensitiveCommandConfigRecord>> {
     database::open_connection(database_path)
         .and_then(|connection| query_sensitive_command_configs(&connection))
-        .map_err(|error| database::database_error(database_path, "list sensitive command configs", error))
+        .map_err(|error| {
+            database::database_error(database_path, "list sensitive command configs", error)
+        })
 }
 
 pub fn upsert_sensitive_command_config(
@@ -77,13 +283,12 @@ pub fn upsert_sensitive_command_config(
 ) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| upsert_sensitive_command_config_with_connection(&connection, item))
-        .map_err(|error| database::database_error(database_path, "upsert sensitive command config", error))
+        .map_err(|error| {
+            database::database_error(database_path, "upsert sensitive command config", error)
+        })
 }
 
-pub fn delete_sensitive_command_config(
-    database_path: &Path,
-    command_id: &str,
-) -> Result<()> {
+pub fn delete_sensitive_command_config(database_path: &Path, command_id: &str) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| {
             connection.execute(
@@ -93,7 +298,9 @@ pub fn delete_sensitive_command_config(
             )?;
             Ok(())
         })
-        .map_err(|error| database::database_error(database_path, "delete sensitive command config", error))
+        .map_err(|error| {
+            database::database_error(database_path, "delete sensitive command config", error)
+        })
 }
 
 fn seed_defaults_with_connection(connection: &Connection) -> rusqlite::Result<()> {

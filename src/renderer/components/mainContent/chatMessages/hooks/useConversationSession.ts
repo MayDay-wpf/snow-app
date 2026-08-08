@@ -1,9 +1,42 @@
 import { useCallback } from "react";
 import type {
-  ConversationContextValue,
-  ConversationSessionState,
+  AppNotificationOptions,
+  NotificationConversationTarget,
+} from "../../../../../shared/notification";
+import type {
   ChatConversationMessage,
+  ConversationContextValue,
+  ConversationNotificationContext,
+  ConversationSessionState,
+  NotifyAiCompleteOptions,
+  NotifySensitiveCommandOptions,
+  NotifyUserInteractionOptions,
 } from "../utils/conversationTypes";
+
+type ConversationNotificationOptions = Omit<AppNotificationOptions, "target"> &
+  ConversationNotificationContext;
+
+const showConversationNotification = ({
+  conversationId,
+  directoryId,
+  ...options
+}: ConversationNotificationOptions): void => {
+  const normalizedConversationId = conversationId?.trim();
+  const normalizedDirectoryId = directoryId?.trim();
+  const target: NotificationConversationTarget | undefined =
+    normalizedConversationId && normalizedDirectoryId
+      ? {
+          kind: "conversation",
+          conversationId: normalizedConversationId,
+          directoryId: normalizedDirectoryId,
+        }
+      : undefined;
+  const notificationOptions: AppNotificationOptions = target
+    ? { ...options, target }
+    : options;
+
+  void window.snow.showNotification(notificationOptions);
+};
 
 /**
  * 会话管理逻辑：创建、迁移、更新会话状态等。
@@ -183,35 +216,59 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
    * 2. 敏感命令拦截 — bash 命令匹配敏感规则，需要用户确认
    * 3. 用户交互工具确认 — askUserQuestion 需要用户回答
    */
-  const notifyAiComplete = useCallback((conversationTitle?: string): void => {
-    const title = conversationTitle
-      ? conversationTitle.length > 30
-        ? `${conversationTitle.slice(0, 30)}...`
-        : conversationTitle
-      : "";
-    void window.snow.showNotification({
-      title: "AI 任务已完成",
-      body: title ? `会话「${title}」已结束` : "当前会话已结束，请返回查看",
-    });
-  }, []);
-
-  const notifySensitiveCommandIntercepted = useCallback(
-    (toolName: string): void => {
-      void window.snow.showNotification({
-        title: "敏感命令需要确认",
-        body: `工具 ${toolName} 触发了敏感命令拦截，请返回确认`,
+  const notifyAiComplete = useCallback(
+    ({
+      conversationId,
+      directoryId,
+      title: conversationTitle,
+    }: NotifyAiCompleteOptions): void => {
+      const title = conversationTitle
+        ? conversationTitle.length > 30
+          ? `${conversationTitle.slice(0, 30)}...`
+          : conversationTitle
+        : "";
+      showConversationNotification({
+        title: "AI 任务已完成",
+        body: title ? `会话「${title}」已结束` : "当前会话已结束，请返回查看",
+        conversationId,
+        directoryId,
       });
     },
     []
   );
 
-  const notifyUserInteractionRequired = useCallback((reason: string): void => {
-    const body = reason.length > 60 ? `${reason.slice(0, 60)}...` : reason;
-    void window.snow.showNotification({
-      title: "需要您的输入",
-      body,
-    });
-  }, []);
+  const notifySensitiveCommandIntercepted = useCallback(
+    ({
+      conversationId,
+      directoryId,
+      toolName,
+    }: NotifySensitiveCommandOptions): void => {
+      showConversationNotification({
+        title: "敏感命令需要确认",
+        body: `工具 ${toolName} 触发了敏感命令拦截，请返回确认`,
+        conversationId,
+        directoryId,
+      });
+    },
+    []
+  );
+
+  const notifyUserInteractionRequired = useCallback(
+    ({
+      conversationId,
+      directoryId,
+      reason,
+    }: NotifyUserInteractionOptions): void => {
+      const body = reason.length > 60 ? `${reason.slice(0, 60)}...` : reason;
+      showConversationNotification({
+        title: "需要您的输入",
+        body,
+        conversationId,
+        directoryId,
+      });
+    },
+    []
+  );
 
   return {
     setActiveId,

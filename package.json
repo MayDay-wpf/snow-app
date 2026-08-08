@@ -24,6 +24,7 @@
     "build:rust": "node scripts/build-native.cjs",
     "postinstall": "node scripts/patch-spectre.cjs && node scripts/ensure-conpty-dll.cjs",
     "check": "npm run check:ts && cargo check --manifest-path native/Cargo.toml",
+    "check:docs": "node scripts/check-docs.cjs",
     "check:ts": "tsc --noEmit",
     "preview": "electron-vite preview"
   },

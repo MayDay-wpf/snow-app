@@ -10,6 +10,7 @@ export type SubAgentDraft = {
   systemPrompt: string;
   toolNames: string[];
   configProfile: string;
+  model: string;
   builtin: boolean;
   sortOrder: number;
   source: string;

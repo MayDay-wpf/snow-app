@@ -46,12 +46,18 @@ fn build_git_command(repo_path: &str, args: &[&str]) -> Command {
     if detect_shell_family(&shell_path) == "wsl" {
         // 所有参数统一 shell_quote：`safe.directory=*` 中的 `*` 若不
         // 加引号会被 bash 通配符展开，导致 git 收到错误的配置值。
-        let git_cmd = ["git", "-c", "core.quotepath=false", "-c", "safe.directory=*"]
-            .iter()
-            .chain(args.iter())
-            .map(|a| shell_quote(a))
-            .collect::<Vec<String>>()
-            .join(" ");
+        let git_cmd = [
+            "git",
+            "-c",
+            "core.quotepath=false",
+            "-c",
+            "safe.directory=*",
+        ]
+        .iter()
+        .chain(args.iter())
+        .map(|a| shell_quote(a))
+        .collect::<Vec<String>>()
+        .join(" ");
         let mut cmd = Command::new(&shell_path);
         cmd.arg("--cd").arg(wsl_cd_path(repo_path));
         cmd.args(["-e", "bash", "-lc", &git_cmd]);
@@ -178,11 +184,7 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let err_msg = if stderr.is_empty() {
-            stdout
-        } else {
-            stderr
-        };
+        let err_msg = if stderr.is_empty() { stdout } else { stderr };
         return Err(Error::from_reason(err_msg));
     }
 
@@ -756,16 +758,15 @@ pub fn discard_changes(repo_path: &str, file_paths: &[String]) -> Result<GitStag
     let mut tracked: Vec<&str> = Vec::new();
 
     // Query the current status to classify each file path.
-    let status_output =
-        match run_git(repo_path, &["status", "--porcelain", "-z", "-uall"]) {
-            Ok(s) => s,
-            Err(e) => {
-                return Ok(GitStageResult {
-                    success: false,
-                    message: format!("{e}"),
-                })
-            }
-        };
+    let status_output = match run_git(repo_path, &["status", "--porcelain", "-z", "-uall"]) {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(GitStageResult {
+                success: false,
+                message: format!("{e}"),
+            })
+        }
+    };
 
     let path_set: std::collections::HashSet<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
@@ -917,7 +918,17 @@ pub fn get_git_log(repo_path: &str, skip: i32, limit: i32) -> Result<Vec<GitLogE
     // remote-tracking branches and tags apart.
     let output = run_git_raw(
         repo_path,
-        &["log", "--all", "--decorate=full", format_arg, "--date=iso", "--skip", &skip_str, "--max-count", &max_count_str],
+        &[
+            "log",
+            "--all",
+            "--decorate=full",
+            format_arg,
+            "--date=iso",
+            "--skip",
+            &skip_str,
+            "--max-count",
+            &max_count_str,
+        ],
     )?;
 
     let mut entries: Vec<GitLogEntry> = Vec::new();
@@ -932,10 +943,7 @@ pub fn get_git_log(repo_path: &str, skip: i32, limit: i32) -> Result<Vec<GitLogE
             continue;
         }
 
-        let parents: Vec<String> = parts[7]
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
+        let parents: Vec<String> = parts[7].split_whitespace().map(|s| s.to_string()).collect();
 
         entries.push(GitLogEntry {
             hash: parts[0].to_string(),
@@ -974,7 +982,7 @@ pub fn get_commit_files(repo_path: &str, hash: &str) -> Result<Vec<GitCommitFile
             continue;
         }
 
-    files.push(GitCommitFile {
+        files.push(GitCommitFile {
             status: parts[0].to_string(),
             path: parts[1].to_string(),
         });
@@ -995,12 +1003,63 @@ pub fn get_commit_diff(repo_path: &str, hash: &str) -> Result<GitDiffResult> {
         });
     }
 
+    let args = vec!["show", "--format=", "--find-renames", "--no-ext-diff", hash];
+
+    match run_git(repo_path, &args) {
+        Ok(stdout) => {
+            if stdout.contains("Binary files") {
+                let text_args = vec!["show", "--format=", "--text", "--no-ext-diff", hash];
+                match run_git(repo_path, &text_args) {
+                    Ok(text_diff) if !text_diff.is_empty() => {
+                        return Ok(GitDiffResult {
+                            content: text_diff,
+                            is_binary: false,
+                        });
+                    }
+                    _ => {
+                        return Ok(GitDiffResult {
+                            content: "Binary file - diff not available".to_string(),
+                            is_binary: true,
+                        });
+                    }
+                }
+            }
+
+            Ok(GitDiffResult {
+                content: stdout,
+                is_binary: false,
+            })
+        }
+        Err(e) => Ok(GitDiffResult {
+            content: format!("{e}"),
+            is_binary: false,
+        }),
+    }
+}
+
+/// Get the diff of a single file within a single commit
+/// (`git show <hash> -- <path>`).
+///
+/// `git show` is used instead of `git diff <hash>^ <hash>` because it also
+/// works for the root commit (compares against the empty tree) and for
+/// merge commits it shows the combined diff against the first parent.
+/// Binary files are detected the same way as `get_file_diff` / `get_commit_diff`.
+pub fn get_commit_file_diff(repo_path: &str, hash: &str, file_path: &str) -> Result<GitDiffResult> {
+    if !is_git_repo(repo_path) {
+        return Ok(GitDiffResult {
+            content: String::new(),
+            is_binary: false,
+        });
+    }
+
     let args = vec![
         "show",
         "--format=",
         "--find-renames",
         "--no-ext-diff",
         hash,
+        "--",
+        file_path,
     ];
 
     match run_git(repo_path, &args) {
@@ -1012,6 +1071,8 @@ pub fn get_commit_diff(repo_path: &str, hash: &str) -> Result<GitDiffResult> {
                     "--text",
                     "--no-ext-diff",
                     hash,
+                    "--",
+                    file_path,
                 ];
                 match run_git(repo_path, &text_args) {
                     Ok(text_diff) if !text_diff.is_empty() => {

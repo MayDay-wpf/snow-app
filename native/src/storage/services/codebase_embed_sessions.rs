@@ -96,9 +96,7 @@ pub fn upsert_session(database_path: &Path, record: &EmbedSessionRecord) -> Resu
                 ],
             )
         })
-        .map_err(|error| {
-            database_error(database_path, "upsert codebase embed session", error)
-        })?;
+        .map_err(|error| database_error(database_path, "upsert codebase embed session", error))?;
     Ok(())
 }
 
@@ -134,9 +132,7 @@ pub fn update_session_progress(
                 ],
             )
         })
-        .map_err(|error| {
-            database_error(database_path, "update codebase embed progress", error)
-        })?;
+        .map_err(|error| database_error(database_path, "update codebase embed progress", error))?;
     Ok(())
 }
 
@@ -159,9 +155,7 @@ pub fn update_session_status(
                 params![session_id, status, error_value],
             )
         })
-        .map_err(|error| {
-            database_error(database_path, "update codebase embed status", error)
-        })?;
+        .map_err(|error| database_error(database_path, "update codebase embed status", error))?;
     Ok(())
 }
 
@@ -175,9 +169,7 @@ pub fn delete_session(database_path: &Path, session_id: &str) -> Result<()> {
                 params![session_id],
             )
         })
-        .map_err(|error| {
-            database_error(database_path, "delete codebase embed session", error)
-        })?;
+        .map_err(|error| database_error(database_path, "delete codebase embed session", error))?;
     Ok(())
 }
 

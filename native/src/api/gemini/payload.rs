@@ -9,8 +9,8 @@ use crate::api::config::{
     normalize_base_url, resolve_sdk_api_base_url, DEFAULT_GEMINI_BASE_URL, DEFAULT_OPENAI_BASE_URL,
 };
 use crate::api::conversation::parse_chat_message_content;
-use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::api::responses::ResponsesApiRequest;
+use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
 
 pub(crate) fn resolve_gemini_endpoint(
@@ -72,11 +72,13 @@ pub(super) fn build_gemini_payload(
                 continue;
             }
             let results = match message.tool_results_json {
-                Some(ref raw) => crate::api::conversation::tool_messages::parse_tool_results_with_images(
-                    raw,
-                    database_path,
-                    skip_image_parsing,
-                ),
+                Some(ref raw) => {
+                    crate::api::conversation::tool_messages::parse_tool_results_with_images(
+                        raw,
+                        database_path,
+                        skip_image_parsing,
+                    )
+                }
                 None => Vec::new(),
             };
             for tool_result in &results {
@@ -138,7 +140,9 @@ pub(super) fn build_gemini_payload(
         if role == "assistant" {
             if let Some(ref tool_calls_raw) = message.tool_calls_json {
                 let function_call_parts =
-                    crate::api::conversation::tool_messages::tool_calls_as_gemini_parts(tool_calls_raw);
+                    crate::api::conversation::tool_messages::tool_calls_as_gemini_parts(
+                        tool_calls_raw,
+                    );
                 if !function_call_parts.is_empty() {
                     let mut parts = Vec::new();
                     // Round-trip thinking as a thought text part so Gemini
@@ -250,7 +254,11 @@ pub(super) fn build_gemini_payload(
         generation_config["thinkingConfig"] = thinking_config;
     }
 
-    if !generation_config.as_object().map(|obj| obj.is_empty()).unwrap_or(true) {
+    if !generation_config
+        .as_object()
+        .map(|obj| obj.is_empty())
+        .unwrap_or(true)
+    {
         payload["generationConfig"] = generation_config;
     }
 
@@ -258,6 +266,23 @@ pub(super) fn build_gemini_payload(
         if tools.as_array().is_some_and(|items| !items.is_empty()) {
             payload["tools"] = tools;
         }
+    }
+
+    // Google Search grounding（Gemini 原生联网搜索）：
+    // 配置 snowcfg.googleSearch 开启时，向 tools 数组注入 google_search 工具。
+    // 与 MCP function tools 可共存，Gemini 允许 tools 中混合声明与内置工具。
+    if build_gemini_google_search_enabled(&api_config.config_json) {
+        let has_tools = payload
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty());
+        if !has_tools {
+            payload["tools"] = json!([]);
+        }
+        payload["tools"]
+            .as_array_mut()
+            .expect("tools is an array")
+            .push(json!({ "google_search": {} }));
     }
 
     Ok(payload)
@@ -272,10 +297,7 @@ fn normalize_gemini_role(role: &str) -> &str {
 
 pub(crate) fn build_gemini_thinking_config(config_json: &str) -> Option<Value> {
     let parsed = serde_json::from_str::<Value>(config_json).ok()?;
-    let gemini_thinking = parsed
-        .get("snowcfg")?
-        .get("geminiThinking")?
-        .as_object()?;
+    let gemini_thinking = parsed.get("snowcfg")?.get("geminiThinking")?.as_object()?;
     let enabled = gemini_thinking
         .get("enabled")
         .and_then(Value::as_bool)
@@ -291,4 +313,13 @@ pub(crate) fn build_gemini_thinking_config(config_json: &str) -> Option<Value> {
         .filter(|value| !value.is_empty() && *value != "none")?;
 
     Some(json!({ "thinkingLevel": thinking_level }))
+}
+
+/// 读取配置中的谷歌搜索联网开关（snowcfg.googleSearch）。
+/// 开启时 gemini 请求会注入 google_search 工具（Gemini 原生 grounding）。
+pub(crate) fn build_gemini_google_search_enabled(config_json: &str) -> bool {
+    serde_json::from_str::<Value>(config_json)
+        .ok()
+        .and_then(|parsed| parsed.get("snowcfg")?.get("googleSearch")?.as_bool())
+        .unwrap_or(false)
 }

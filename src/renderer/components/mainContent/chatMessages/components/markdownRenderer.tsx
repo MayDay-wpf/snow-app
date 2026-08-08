@@ -412,6 +412,7 @@ export const MarkdownBlock = memo(
           className={className}
           dangerouslySetInnerHTML={{ __html: html }}
           onClick={handleClick}
+          onAuxClick={handleClick}
           ref={containerRef}
         />
         {lightboxSrc

@@ -59,7 +59,10 @@ pub(super) fn process_anthropic_sse_event_block(
         };
 
         // Detect message_stop to signal normal stream completion.
-        let event_type = event.get("type").and_then(Value::as_str).unwrap_or_default();
+        let event_type = event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if event_type == "message_stop" {
             *stream_finished = true;
             raw_events.push(event);
@@ -99,7 +102,10 @@ pub(super) fn process_anthropic_sse_event_block(
             return;
         }
         if let Ok(event) = serde_json::from_str::<Value>(trimmed_block) {
-            let event_type = event.get("type").and_then(Value::as_str).unwrap_or_default();
+            let event_type = event
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if event_type == "message_stop" {
                 *stream_finished = true;
                 raw_events.push(event);
@@ -142,7 +148,10 @@ fn process_anthropic_event(
     tool_args_delta: &mut String,
     tool_parse_errors: &mut Vec<String>,
 ) -> Result<()> {
-    let event_type = event.get("type").and_then(Value::as_str).unwrap_or_default();
+    let event_type = event
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
 
     match event_type {
         "message_start" => {
@@ -210,9 +219,8 @@ fn process_anthropic_event(
                             if let Some(position) =
                                 tool_call_positions_by_index.get(&index).copied()
                             {
-                                if let Some(tool_call) = tool_calls
-                                    .get_mut(position)
-                                    .and_then(Value::as_object_mut)
+                                if let Some(tool_call) =
+                                    tool_calls.get_mut(position).and_then(Value::as_object_mut)
                                 {
                                     tool_call.insert("input".to_string(), input);
                                 }
@@ -272,9 +280,7 @@ fn process_anthropic_event(
                         // Write the cryptographic signature into the last
                         // thinking block. Anthropic requires thinking blocks
                         // to carry their original signature when passed back.
-                        if let Some(signature) =
-                            delta.get("signature").and_then(Value::as_str)
-                        {
+                        if let Some(signature) = delta.get("signature").and_then(Value::as_str) {
                             if !signature.is_empty() {
                                 if let Some(thinking_block) = thinking_blocks.last_mut() {
                                     if let Some(obj) = thinking_block.as_object_mut() {
@@ -307,7 +313,9 @@ fn process_anthropic_event(
 
                                 // Best-effort intermediate parse for early UI updates.
                                 // The final, authoritative parse happens in content_block_stop.
-                                if let Ok(input) = serde_json::from_str::<Value>(input_json.as_str()) {
+                                if let Ok(input) =
+                                    serde_json::from_str::<Value>(input_json.as_str())
+                                {
                                     if let Some(position) =
                                         tool_call_positions_by_index.get(&index).copied()
                                     {
@@ -344,7 +352,9 @@ fn process_anthropic_event(
                 if let Some(output_tokens) = read_path_i64(usage, &["output_tokens"]) {
                     token_usage.output_tokens = output_tokens;
                 }
-                if let Some(input_tokens) = read_path_i64(usage, &["input_tokens"]).filter(|n| *n > 0) {
+                if let Some(input_tokens) =
+                    read_path_i64(usage, &["input_tokens"]).filter(|n| *n > 0)
+                {
                     token_usage.input_tokens = input_tokens;
                 }
                 if let Some(cache_creation) =
@@ -352,8 +362,8 @@ fn process_anthropic_event(
                 {
                     token_usage.cache_creation_input_tokens = cache_creation;
                 }
-                if let Some(cache_read) = read_path_i64(usage, &["cache_read_input_tokens"])
-                    .filter(|n| *n > 0)
+                if let Some(cache_read) =
+                    read_path_i64(usage, &["cache_read_input_tokens"]).filter(|n| *n > 0)
                 {
                     token_usage.cache_read_input_tokens = cache_read;
                 }

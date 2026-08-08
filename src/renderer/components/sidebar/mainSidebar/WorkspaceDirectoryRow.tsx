@@ -21,6 +21,8 @@ type WorkspaceDirectoryRowProps = {
   dragOverDirectoryId: string | null;
   /** 行内重命名编辑态（由列表层单例管理，保证同时只编辑一行） */
   isEditing: boolean;
+  /** 该项目的跨项目通知会话数（>0 时显示徽标） */
+  notificationCount?: number;
   editingValue: string;
   onEditingValueChange: (value: string) => void;
   onRenameSubmit: () => void;
@@ -63,6 +65,7 @@ export function WorkspaceDirectoryRow({
   draggedDirectoryId,
   dragOverDirectoryId,
   isEditing,
+  notificationCount,
   editingValue,
   onEditingValueChange,
   onRenameSubmit,
@@ -220,6 +223,17 @@ export function WorkspaceDirectoryRow({
                   defaultValue: "Local",
                 })}
           </span>
+          {notificationCount ? (
+            <span
+              className="workspace-directory-notification-badge"
+              title={t("sidebar.directoryNotificationBadgeTitle", {
+                values: { count: notificationCount },
+                defaultValue: "{{count}} notification(s) in this project",
+              })}
+            >
+              {notificationCount}
+            </span>
+          ) : null}
           <span className="workspace-directory-index">
             {index + 1}/{totalCount}
           </span>

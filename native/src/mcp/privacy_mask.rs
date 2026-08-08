@@ -99,8 +99,7 @@ fn direct_secret_patterns() -> Vec<DirectSecretPattern> {
     ]
 }
 
-const SENSITIVE_KEY_NAME_PATTERN: &str =
-    r"(?:api[_-]?key|openai[_-]?api[_-]?key|anthropic[_-]?api[_-]?key|gemini[_-]?api[_-]?key|google[_-]?api[_-]?key|x-api-key|x-api-token|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|password|passwd|pwd|authorization|cookie|session[_-]?(?:id|token|key)|access[_-]?key|secret[_-]?key|private[_-]?key|webhook[_-]?secret|signing[_-]?secret)";
+const SENSITIVE_KEY_NAME_PATTERN: &str = r"(?:api[_-]?key|openai[_-]?api[_-]?key|anthropic[_-]?api[_-]?key|gemini[_-]?api[_-]?key|google[_-]?api[_-]?key|x-api-key|x-api-token|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|password|passwd|pwd|authorization|cookie|session[_-]?(?:id|token|key)|access[_-]?key|secret[_-]?key|private[_-]?key|webhook[_-]?secret|signing[_-]?secret)";
 
 fn quoted_context_pattern() -> Regex {
     let pattern = format!(
@@ -137,7 +136,10 @@ fn url_query_pattern() -> Regex {
 }
 
 fn china_id_pattern() -> Regex {
-    Regex::new(r"(?i)\b[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dX]\b").unwrap()
+    Regex::new(
+        r"(?i)\b[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dX]\b",
+    )
+    .unwrap()
 }
 
 fn payment_card_pattern() -> Regex {
@@ -201,7 +203,10 @@ fn is_definitely_code(value: &str) -> bool {
     if Regex::new(r"^new\s+\S").unwrap().is_match(value) {
         return true;
     }
-    if Regex::new(r"^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*\s*\(").unwrap().is_match(value) {
+    if Regex::new(r"^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*\s*\(")
+        .unwrap()
+        .is_match(value)
+    {
         return true;
     }
     if Regex::new(r"^\$[A-Za-z_$][\w$]*").unwrap().is_match(value) {
@@ -254,7 +259,13 @@ fn should_mask_context_value(value: &str, key_name: &str) -> bool {
     normalized.len() >= 8
 }
 
-fn add_match(matches: &mut Vec<SensitiveMatch>, start: usize, end: usize, match_type: &str, confidence: f64) {
+fn add_match(
+    matches: &mut Vec<SensitiveMatch>,
+    start: usize,
+    end: usize,
+    match_type: &str,
+    confidence: f64,
+) {
     if start < end {
         matches.push(SensitiveMatch {
             start,
@@ -334,10 +345,7 @@ fn collect_context_matches_multi(
     confidence: f64,
 ) {
     for capture in pattern.captures_iter(text) {
-        let key_name = capture
-            .get(key_group)
-            .map(|m| m.as_str())
-            .unwrap_or("");
+        let key_name = capture.get(key_group).map(|m| m.as_str()).unwrap_or("");
         let mut found = false;
         for &group in value_groups {
             let Some(value_match) = capture.get(group) else {
@@ -427,7 +435,13 @@ fn collect_validated_matches(text: &str, matches: &mut Vec<SensitiveMatch>) {
 fn collect_local_sensitive_matches(text: &str) -> Vec<SensitiveMatch> {
     let mut matches = Vec::new();
     for pattern in direct_secret_patterns() {
-        add_regex_matches(text, &mut matches, &pattern.pattern, pattern.match_type, pattern.confidence);
+        add_regex_matches(
+            text,
+            &mut matches,
+            &pattern.pattern,
+            pattern.match_type,
+            pattern.confidence,
+        );
     }
 
     collect_context_matches_multi(
@@ -482,7 +496,11 @@ fn merge_sensitive_matches(mut matches: Vec<SensitiveMatch>) -> Vec<SensitiveMat
         a.start
             .cmp(&b.start)
             .then_with(|| b.end.cmp(&a.end))
-            .then_with(|| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| {
+                b.confidence
+                    .partial_cmp(&a.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     });
 
     let mut merged: Vec<SensitiveMatch> = Vec::new();
@@ -534,7 +552,11 @@ fn mask_value_by_type(match_type: &str, value: &str) -> String {
     if match_type == "private_key_block" {
         let lines: Vec<&str> = value.split('\n').collect();
         if lines.len() >= 2 {
-            return format!("{}\n[REDACTED PRIVATE KEY]\n{}", lines[0], lines[lines.len() - 1]);
+            return format!(
+                "{}\n[REDACTED PRIVATE KEY]\n{}",
+                lines[0],
+                lines[lines.len() - 1]
+            );
         }
         return "[REDACTED PRIVATE KEY]".to_string();
     }
@@ -623,7 +645,10 @@ async fn mask_with_api(text: &str, settings: &PrivacySettings) -> ApiResult<Stri
         }
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent(crate::api::http_client::app_user_agent())
+        .build()
+        .map_err(|e| e.to_string())?;
     let body = json!({
         "text": text,
         "aggregation_strategy": "simple",
@@ -652,10 +677,7 @@ async fn mask_with_api(text: &str, settings: &PrivacySettings) -> ApiResult<Stri
 /// Decide whether a tool result should be masked based on the stored privacy
 /// settings, then apply masking if needed. Reads from SQLite via
 /// `spawn_blocking` so the Node.js event loop is never blocked.
-pub async fn mask_tool_result_if_needed(
-    tool_full_name: &str,
-    content: &str,
-) -> Result<String> {
+pub async fn mask_tool_result_if_needed(tool_full_name: &str, content: &str) -> Result<String> {
     if content.is_empty() {
         return Ok(content.to_string());
     }

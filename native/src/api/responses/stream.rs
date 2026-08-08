@@ -16,19 +16,18 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::common::{emit_stream_chunk, truncate_utf8_safe};
+use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
 use crate::api::retry::{
-    non_sse_response_error, should_retry, stream_idle_timeout_error, wait_before_retry, RetryOptions,
-};
-use crate::api::responses::{
-    ResponsesApiStreamCallback, ResponsesApiStreamChunk,
+    non_sse_response_error, should_retry, stream_idle_timeout_error, wait_before_retry,
+    RetryOptions,
 };
 use crate::api::sse::find_sse_separator;
 use crate::api::token_counter::count_tokens;
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
 use super::event::{
-    collect_reasoning_items, collect_reasoning_text, collect_tool_calls,
-    extract_output_text, extract_response_thinking, process_responses_sse_event_block,
+    collect_reasoning_items, collect_reasoning_text, collect_tool_calls, extract_output_text,
+    extract_response_error, extract_response_thinking, process_responses_sse_event_block,
 };
 
 pub(super) struct StreamingResponseResult {
@@ -174,12 +173,16 @@ pub(super) async fn collect_streaming_response(
                                 stream_token_count: stream_token_count as i64,
                                 elapsed_ms: stream_start.elapsed().as_millis() as i64,
                                 ttft_ms,
+                                vision_status: None,
                             },
                             ThreadsafeFunctionCallMode::NonBlocking,
                         );
 
                         match wait_before_retry(retry_options, cancel_token, attempt).await {
-                            Ok(()) => { attempt += 1; continue; }
+                            Ok(()) => {
+                                attempt += 1;
+                                continue;
+                            }
                             Err(e) => return Err(e),
                         }
                     }
@@ -203,12 +206,16 @@ pub(super) async fn collect_streaming_response(
                             stream_token_count: stream_token_count as i64,
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
+                            vision_status: None,
                         },
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
 
                     match wait_before_retry(retry_options, cancel_token, attempt).await {
-                        Ok(()) => { attempt += 1; continue; }
+                        Ok(()) => {
+                            attempt += 1;
+                            continue;
+                        }
                         Err(e) => return Err(e),
                     }
                 }
@@ -281,6 +288,7 @@ pub(super) async fn collect_streaming_response(
                             stream_token_count: stream_token_count as i64,
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
+                            vision_status: None,
                         },
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
@@ -380,6 +388,42 @@ pub(super) async fn collect_streaming_response(
             continue;
         }
 
+        // Process a final SSE event even when the upstream closes without the
+        // usual blank-line separator. Terminal failed/completed events often
+        // carry the only status and error details for the request.
+        if response_status != "cancelled" && !byte_buffer.is_empty() {
+            let trailing_buffer = String::from_utf8_lossy(&byte_buffer).to_string();
+            if !trailing_buffer.trim().is_empty() {
+                let (content_delta, thinking_delta) = process_responses_sse_event_block(
+                    &trailing_buffer,
+                    &mut raw_events,
+                    &mut content_chunks,
+                    &mut thinking_chunks,
+                    &mut tool_calls,
+                    &mut reasoning_items,
+                    &mut streaming_tool_items,
+                    &mut response_id,
+                    &mut response_model,
+                    &mut response_status,
+                    &mut token_usage,
+                    &mut completed_response,
+                    &mut stream_completed_normally,
+                    &mut reasoning_text_streamed,
+                );
+                if ttft_ms == 0 {
+                    ttft_ms = stream_start.elapsed().as_millis() as i64;
+                }
+                emit_stream_chunk(
+                    on_chunk,
+                    content_delta,
+                    thinking_delta,
+                    &mut stream_token_count,
+                    stream_start.elapsed().as_millis() as i64,
+                    ttft_ms,
+                );
+            }
+        }
+
         // Empty-response interruption: the connection dropped (EOF or read
         // error) before ANY content, thinking, tool call, or streaming tool
         // fragment was produced. Retrying is safe — nothing was emitted to
@@ -413,6 +457,7 @@ pub(super) async fn collect_streaming_response(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -479,13 +524,6 @@ pub(super) async fn collect_streaming_response(
         }
 
         if let Some(response) = completed_response.as_ref() {
-            // Check for error responses
-            if let Some(error_msg) = response.get("error").and_then(Value::as_str) {
-                if response_status == "failed" && content_chunks.is_empty() && tool_calls.is_empty() {
-                    return Err(Error::from_reason(error_msg.to_string()));
-                }
-            }
-
             if content_chunks.is_empty() {
                 let content = extract_output_text(response);
                 if !content.is_empty() {
@@ -515,6 +553,54 @@ pub(super) async fn collect_streaming_response(
             // API."
             if reasoning_items.is_empty() {
                 collect_reasoning_items(response.get("output"), &mut reasoning_items);
+            }
+        }
+
+        // A terminal `response.failed` event is a failed request, not a valid
+        // empty assistant response. Retry transient provider failures only when
+        // no output has been emitted; otherwise preserve the partial result and
+        // let the caller surface it as failed.
+        if response_status == "failed"
+            && content_chunks.is_empty()
+            && thinking_chunks.is_empty()
+            && tool_calls.is_empty()
+            && reasoning_items.is_empty()
+        {
+            let error_message = completed_response
+                .as_ref()
+                .and_then(extract_response_error)
+                .unwrap_or_else(|| {
+                    "Responses API returned failed status without error details".to_string()
+                });
+            let error = Error::from_reason(error_message);
+
+            if !should_retry(&error, attempt, retry_options) {
+                return Err(error);
+            }
+
+            on_chunk.call(
+                ResponsesApiStreamChunk {
+                    content_delta: String::new(),
+                    thinking_delta: String::new(),
+                    content: String::new(),
+                    thinking: String::new(),
+                    retrying: true,
+                    retry_attempt: Some((attempt + 1) as i32),
+                    retry_error: Some(error.reason.clone()),
+                    stream_token_count: stream_token_count as i64,
+                    elapsed_ms: stream_start.elapsed().as_millis() as i64,
+                    ttft_ms,
+                    vision_status: None,
+                },
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+
+            match wait_before_retry(retry_options, cancel_token, attempt).await {
+                Ok(()) => {
+                    attempt += 1;
+                    continue;
+                }
+                Err(wait_error) => return Err(wait_error),
             }
         }
 
@@ -564,6 +650,7 @@ pub(super) async fn collect_streaming_response(
                     stream_token_count: stream_token_count as i64,
                     elapsed_ms: stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
+                    vision_status: None,
                 },
                 ThreadsafeFunctionCallMode::NonBlocking,
             );
@@ -574,40 +661,6 @@ pub(super) async fn collect_streaming_response(
                     continue;
                 }
                 Err(e) => return Err(e),
-            }
-        }
-
-        // Process trailing buffer (incomplete SSE event at stream end).
-        if response_status != "cancelled" && !byte_buffer.is_empty() {
-            let trailing_buffer = String::from_utf8_lossy(&byte_buffer).to_string();
-            if !trailing_buffer.trim().is_empty() {
-                let (content_delta, thinking_delta) = process_responses_sse_event_block(
-                    &trailing_buffer,
-                    &mut raw_events,
-                    &mut content_chunks,
-                    &mut thinking_chunks,
-                    &mut tool_calls,
-                    &mut reasoning_items,
-                    &mut streaming_tool_items,
-                    &mut response_id,
-                    &mut response_model,
-                    &mut response_status,
-                    &mut token_usage,
-                    &mut completed_response,
-                    &mut stream_completed_normally,
-                    &mut reasoning_text_streamed,
-                );
-                if ttft_ms == 0 {
-                    ttft_ms = stream_start.elapsed().as_millis() as i64;
-                }
-                emit_stream_chunk(
-                    on_chunk,
-                    content_delta,
-                    thinking_delta,
-                    &mut stream_token_count,
-                    stream_start.elapsed().as_millis() as i64,
-                    ttft_ms,
-                );
             }
         }
 

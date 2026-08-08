@@ -55,7 +55,8 @@ impl WebSearchService {
         let settings = load_search_engine_settings().await?;
         let proxy_config = crate::api::http_client::load_proxy_config().await?;
         let client = build_http_client(&proxy_config)?;
-        let results = search_with_engine(&client, &settings.search_engine, query, max_results).await?;
+        let results =
+            search_with_engine(&client, &settings.search_engine, query, max_results).await?;
         let total_results = results.len();
 
         Ok(json!({
@@ -76,9 +77,11 @@ impl WebSearchService {
         );
         let proxy_config = crate::api::http_client::load_proxy_config().await?;
         let client = build_http_client(&proxy_config)?;
-        let response = client.get(url).send().await.map_err(|error| {
-            generic_error(format!("Failed to fetch page: {error}"))
-        })?;
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| generic_error(format!("Failed to fetch page: {error}")))?;
         let status = response.status();
         if !status.is_success() {
             return Err(generic_error(format!(
@@ -97,9 +100,8 @@ impl WebSearchService {
             .to_ascii_lowercase();
 
         if is_image_response(url, &content_type) {
-            let mime_type = image_mime_type(url, &content_type).ok_or_else(|| {
-                generic_error("Unable to determine image MIME type".to_string())
-            })?;
+            let mime_type = image_mime_type(url, &content_type)
+                .ok_or_else(|| generic_error("Unable to determine image MIME type".to_string()))?;
             let bytes = response.bytes().await.map_err(|error| {
                 generic_error(format!("Failed to read image response: {error}"))
             })?;
@@ -128,9 +130,10 @@ impl WebSearchService {
             }));
         }
 
-        let html = response.text().await.map_err(|error| {
-            generic_error(format!("Failed to read page content: {error}"))
-        })?;
+        let html = response
+            .text()
+            .await
+            .map_err(|error| generic_error(format!("Failed to read page content: {error}")))?;
         let title = extract_title(&html);
         let content = extract_page_text(&html, max_length);
         let content_preview = truncate_text(&content, 500);
@@ -281,7 +284,10 @@ async fn search_with_engine(
     }
     let response = client
         .get(search_url)
-        .header(reqwest::header::ACCEPT, "application/rss+xml, application/xml, text/xml, */*")
+        .header(
+            reqwest::header::ACCEPT,
+            "application/rss+xml, application/xml, text/xml, */*",
+        )
         .query(&query_params)
         .send()
         .await
@@ -309,8 +315,9 @@ async fn search_with_engine(
 fn parse_duckduckgo_results(html: &str, max_results: usize) -> Vec<Value> {
     let link_regex = Regex::new(r#"(?is)<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#)
         .expect("DuckDuckGo result link regex must compile");
-    let snippet_regex = Regex::new(r#"(?is)<[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</[^>]+>"#)
-        .expect("DuckDuckGo snippet regex must compile");
+    let snippet_regex =
+        Regex::new(r#"(?is)<[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</[^>]+>"#)
+            .expect("DuckDuckGo snippet regex must compile");
     let snippets: Vec<String> = snippet_regex
         .captures_iter(html)
         .map(|capture| clean_html_text(capture.get(1).map_or("", |value| value.as_str())))
@@ -382,8 +389,8 @@ fn decode_duckduckgo_url(raw_url: &str) -> String {
 }
 
 fn extract_title(html: &str) -> String {
-    let title_regex = Regex::new(r"(?is)<title[^>]*>(.*?)</title>")
-        .expect("title regex must compile");
+    let title_regex =
+        Regex::new(r"(?is)<title[^>]*>(.*?)</title>").expect("title regex must compile");
     title_regex
         .captures(html)
         .and_then(|capture| capture.get(1))
@@ -412,7 +419,10 @@ fn extract_page_text(html: &str, max_length: usize) -> String {
         return text;
     }
 
-    format!("{}\n\n[Content truncated...]", truncate_text(&text, max_length))
+    format!(
+        "{}\n\n[Content truncated...]",
+        truncate_text(&text, max_length)
+    )
 }
 
 fn clean_html_text(value: &str) -> String {
@@ -512,4 +522,3 @@ fn is_http_url(url: &str) -> bool {
 fn generic_error(message: String) -> Error {
     Error::new(Status::GenericFailure, message)
 }
-

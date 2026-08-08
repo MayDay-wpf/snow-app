@@ -59,23 +59,21 @@ pub fn upsert_hook_config(database_path: &Path, item: &HookConfigInput) -> Resul
     let (existing_value, _) = read_hooks_setting(database_path, &setting_code)?;
 
     let mut root: serde_json::Map<String, Value> = match existing_value.as_deref() {
-        Some(json) if !json.trim().is_empty() => {
-            match serde_json::from_str::<Value>(json) {
-                Ok(Value::Object(map)) => map,
-                Ok(_) => {
-                    return Err(Error::new(
-                        Status::GenericFailure,
-                        "Hooks config JSON must be an object".to_string(),
-                    ));
-                }
-                Err(error) => {
-                    return Err(Error::new(
-                        Status::GenericFailure,
-                        format!("Failed to parse hooks config JSON: {error}"),
-                    ));
-                }
+        Some(json) if !json.trim().is_empty() => match serde_json::from_str::<Value>(json) {
+            Ok(Value::Object(map)) => map,
+            Ok(_) => {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "Hooks config JSON must be an object".to_string(),
+                ));
             }
-        }
+            Err(error) => {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to parse hooks config JSON: {error}"),
+                ));
+            }
+        },
         _ => serde_json::Map::new(),
     };
 
@@ -117,13 +115,11 @@ pub fn delete_hook_config(
     let (existing_value, _) = read_hooks_setting(database_path, &setting_code)?;
 
     let mut root: serde_json::Map<String, Value> = match existing_value.as_deref() {
-        Some(json) if !json.trim().is_empty() => {
-            match serde_json::from_str::<Value>(json) {
-                Ok(Value::Object(map)) => map,
-                Ok(_) => serde_json::Map::new(),
-                Err(_) => serde_json::Map::new(),
-            }
-        }
+        Some(json) if !json.trim().is_empty() => match serde_json::from_str::<Value>(json) {
+            Ok(Value::Object(map)) => map,
+            Ok(_) => serde_json::Map::new(),
+            Err(_) => serde_json::Map::new(),
+        },
         _ => serde_json::Map::new(),
     };
 
@@ -155,10 +151,7 @@ fn normalize_scope(value: &str) -> Result<String> {
     }
 }
 
-fn normalize_project_id_for_scope(
-    scope: &str,
-    project_id: Option<&str>,
-) -> Result<Option<String>> {
+fn normalize_project_id_for_scope(scope: &str, project_id: Option<&str>) -> Result<Option<String>> {
     if scope == "global" {
         return Ok(None);
     }

@@ -1,5 +1,5 @@
 import { AlertCircle, Loader2, Save, Wrench, X } from "lucide-react";
-import type { ApiConfigRecord } from "../../../../preload";
+import type { ApiConfigRecord, Model } from "../../../../preload";
 import { CustomSelect } from "../../common/CustomSelect";
 import { useI18n } from "../../../i18n";
 import { usesAllTools } from "./subAgentUtils";
@@ -11,6 +11,9 @@ type SubAgentEditorProps = {
   isBusy: boolean;
   isSaving: boolean;
   isToolCatalogLoading: boolean;
+  isModelCatalogLoading: boolean;
+  modelCatalogError: string;
+  modelOptions: Model[];
   projectId?: string;
   toolCatalogError: string;
   toolOptions: SubAgentToolOption[];
@@ -25,6 +28,9 @@ export function SubAgentEditor({
   isBusy,
   isSaving,
   isToolCatalogLoading,
+  isModelCatalogLoading,
+  modelCatalogError,
+  modelOptions,
   projectId,
   toolCatalogError,
   toolOptions,
@@ -43,7 +49,7 @@ export function SubAgentEditor({
     {
       value: "",
       label: t("settings.subAgentFollowActiveApiProfile", {
-        defaultValue: "Follow the enabled API profile",
+        defaultValue: "Follow the parent conversation (recommended)",
       }),
     },
     ...(draft.configProfile &&
@@ -63,6 +69,31 @@ export function SubAgentEditor({
       label: `${config.displayName || config.profileName} · ${
         config.advancedModel
       }`,
+    })),
+  ];
+
+  const selectedApiConfig = apiConfigs.find(
+    (config) => config.profileName === draft.configProfile
+  );
+  const availableModelIds = Array.from(
+    new Set(
+      [
+        selectedApiConfig?.advancedModel,
+        draft.model,
+        ...modelOptions.map((model) => model.id),
+      ].filter((modelId): modelId is string => Boolean(modelId?.trim()))
+    )
+  );
+  const fixedModelOptions = [
+    {
+      value: "",
+      label: t("settings.subAgentUseProfileAdvancedModel", {
+        defaultValue: "Use the API profile's advanced model",
+      }),
+    },
+    ...availableModelIds.map((modelId) => ({
+      value: modelId,
+      label: modelId,
     })),
   ];
 
@@ -103,30 +134,66 @@ export function SubAgentEditor({
         <label className="api-settings-field">
           <span>
             {t("settings.subAgentConfigProfile", {
-              defaultValue: "API profile",
+              defaultValue: "API and model",
             })}
           </span>
           <CustomSelect
             value={draft.configProfile}
             options={apiProfileOptions}
-            onChange={(value) => onDraftChange({ configProfile: value })}
+            onChange={(value) =>
+              onDraftChange({ configProfile: value, model: "" })
+            }
             disabled={isBusy}
           />
           {apiConfigs.length === 0 ? (
             <small className="sub-agent-field-hint">
               {t("settings.subAgentApiProfileEmpty", {
                 defaultValue:
-                  "No API profiles are configured. The sub-agent will follow the profile enabled in API settings when one becomes available.",
+                  "No API profiles are configured. Configure one before starting a sub-agent.",
               })}
             </small>
           ) : null}
           <small className="sub-agent-field-hint">
             {t("settings.subAgentApiProfileHint", {
               defaultValue:
-                "By default, the sub-agent follows the profile enabled in API settings. Selecting a specific profile pins its connection, system prompts, and custom headers.",
+                "By default, the sub-agent inherits the parent conversation's API profile and model. Selecting a profile pins the API connection and lets you optionally pin a model.",
             })}
           </small>
         </label>
+        {draft.configProfile ? (
+          <label className="api-settings-field">
+            <span>
+              {t("settings.subAgentModel", { defaultValue: "Model" })}
+            </span>
+            <CustomSelect
+              value={draft.model}
+              options={fixedModelOptions}
+              onChange={(value) => onDraftChange({ model: value })}
+              disabled={isBusy || isModelCatalogLoading}
+            />
+            {isModelCatalogLoading ? (
+              <small className="sub-agent-field-hint">
+                {t("settings.subAgentModelsLoading", {
+                  defaultValue: "Loading models...",
+                })}
+              </small>
+            ) : null}
+            {modelCatalogError ? (
+              <small className="sub-agent-field-hint">
+                {t("settings.subAgentModelsLoadFallback", {
+                  defaultValue:
+                    "Model loading failed. The saved model and the profile's advanced model remain available.",
+                })}
+              </small>
+            ) : null}
+            <small className="sub-agent-field-hint">
+              {t("settings.subAgentModelHint", {
+                defaultValue:
+                  "Leave this unset to use the selected profile's advanced model.",
+              })}
+            </small>
+          </label>
+        ) : null}
         <label className="api-settings-field wide">
           <span>
             {t("settings.subAgentDescription", { defaultValue: "Description" })}

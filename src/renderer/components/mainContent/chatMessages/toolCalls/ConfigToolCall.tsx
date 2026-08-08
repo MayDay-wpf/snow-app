@@ -55,6 +55,68 @@ const extractEntries = (data: Record<string, unknown>): unknown[] => {
   return [];
 };
 
+/**
+ * 值美化：将转义存储的 `\n` / `\r\n` 还原为真实换行（仅在字符串不含真实换行时）。
+ * 例如 personalization 的 role 规则全文以转义形式落盘，直接展示会挤成一行。
+ */
+const decodeEscapedNewlines = (text: string): string => {
+  if (text.includes("\n") || !text.includes("\\n")) {
+    return text;
+  }
+  return text
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t");
+};
+
+/** get / set 成功后对 value 字段的美化展示。 */
+const ValuePreview = ({ value }: { value: unknown }): React.JSX.Element | null => {
+  const { t } = useI18n();
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    return (
+      <section className="tool-call-section">
+        <span className="tool-call-section-label">
+          {t("toolCall.common.result")}
+        </span>
+        <pre className="tool-call-section-pre">
+          {JSON.stringify(value, null, 2)}
+        </pre>
+      </section>
+    );
+  }
+  const text = decodeEscapedNewlines(value);
+  if (text.length <= 120 && !text.includes("\n")) {
+    return (
+      <section className="tool-call-section">
+        <span className="tool-call-section-label">
+          {t("toolCall.common.result")}
+        </span>
+        <code className="tool-call-config-value-inline">{text}</code>
+      </section>
+    );
+  }
+  return (
+    <section className="tool-call-section">
+      <div className="tool-call-section-head">
+        <span className="tool-call-section-label">
+          {t("toolCall.common.result")}
+        </span>
+        <span className="tool-call-config-value-badge">
+          {t("toolCall.common.charCount", {
+            values: { count: text.length.toLocaleString() },
+          })}
+        </span>
+      </div>
+      <pre className="tool-call-section-pre tool-call-config-value-text">
+        {text}
+      </pre>
+    </section>
+  );
+};
+
 /** 提取条目数组里每项的 key / scope / agentId 等标识字段。 */
 const entryLabel = (entry: unknown): string | undefined => {
   if (!isRecord(entry)) {
@@ -208,7 +270,11 @@ export const ConfigToolCall = ({
           </div>
         ) : null}
 
-        {resultText ? (
+        {(parsedResult.type === "success" &&
+        (operation === "set" || operation === "get") &&
+        "value" in parsedResult.data) ? (
+          <ValuePreview value={parsedResult.data.value} />
+        ) : resultText ? (
           <section className="tool-call-section">
             <span className="tool-call-section-label">
               {t("toolCall.common.result")}

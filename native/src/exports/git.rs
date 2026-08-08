@@ -3,35 +3,34 @@ use napi_derive::napi;
 use crate::api::commit_message::generate_commit_message_stream;
 use crate::api::responses::{ResponsesApiResult, ResponsesApiStreamCallback};
 use crate::storage::services::git::{
-    GitBranch, GitCheckoutResult, GitCommitFile, GitCommitResult, GitDiffResult,
-    GitLogEntry, GitPushPullResult, GitRepoInfo, GitStageResult, GitStatusResult,
+    GitBranch, GitCheckoutResult, GitCommitFile, GitCommitResult, GitDiffResult, GitLogEntry,
+    GitPushPullResult, GitRepoInfo, GitStageResult, GitStatusResult,
 };
-use crate::storage::services::git_watcher::{GitChangeCallback};
+use crate::storage::services::git_watcher::GitChangeCallback;
 
 #[napi]
 pub async fn get_git_status(repo_path: String) -> napi::Result<GitStatusResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::get_git_status(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to get git status: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::get_git_status(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to get git status: {join_error}"))
+        })?
 }
 
 #[napi]
 pub async fn get_git_branches(repo_path: String) -> napi::Result<Vec<GitBranch>> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::get_git_branches(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to get git branches: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::get_git_branches(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to get git branches: {join_error}"))
+        })?
 }
 
 #[napi]
-pub async fn git_stage_files(repo_path: String, file_paths: Vec<String>) -> napi::Result<GitStageResult> {
+pub async fn git_stage_files(
+    repo_path: String,
+    file_paths: Vec<String>,
+) -> napi::Result<GitStageResult> {
     tokio::task::spawn_blocking(move || {
         crate::storage::services::git::stage_files(&repo_path, &file_paths)
     })
@@ -42,7 +41,10 @@ pub async fn git_stage_files(repo_path: String, file_paths: Vec<String>) -> napi
 }
 
 #[napi]
-pub async fn git_unstage_files(repo_path: String, file_paths: Vec<String>) -> napi::Result<GitStageResult> {
+pub async fn git_unstage_files(
+    repo_path: String,
+    file_paths: Vec<String>,
+) -> napi::Result<GitStageResult> {
     tokio::task::spawn_blocking(move || {
         crate::storage::services::git::unstage_files(&repo_path, &file_paths)
     })
@@ -54,24 +56,20 @@ pub async fn git_unstage_files(repo_path: String, file_paths: Vec<String>) -> na
 
 #[napi]
 pub async fn git_stage_all(repo_path: String) -> napi::Result<GitStageResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::stage_all(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to stage all files: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::stage_all(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to stage all files: {join_error}"))
+        })?
 }
 
 #[napi]
 pub async fn git_unstage_all(repo_path: String) -> napi::Result<GitStageResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::unstage_all(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to unstage all files: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::unstage_all(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to unstage all files: {join_error}"))
+        })?
 }
 
 #[napi]
@@ -80,9 +78,7 @@ pub async fn git_commit(repo_path: String, message: String) -> napi::Result<GitC
         crate::storage::services::git::commit_changes(&repo_path, &message)
     })
     .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to commit: {join_error}"))
-    })?
+    .map_err(|join_error| napi::Error::from_reason(format!("Failed to commit: {join_error}")))?
 }
 
 /// Push local commits to the remote. Runs on the blocking thread pool
@@ -90,13 +86,11 @@ pub async fn git_commit(repo_path: String, message: String) -> napi::Result<GitC
 /// must never block the async runtime.
 #[napi]
 pub async fn git_push(repo_path: String) -> napi::Result<GitPushPullResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::push_changes(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to push to remote: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::push_changes(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to push to remote: {join_error}"))
+        })?
 }
 
 /// Pull changes from the remote. Runs on the blocking thread pool
@@ -104,13 +98,11 @@ pub async fn git_push(repo_path: String) -> napi::Result<GitPushPullResult> {
 /// must never block the async runtime.
 #[napi]
 pub async fn git_pull(repo_path: String) -> napi::Result<GitPushPullResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::pull_changes(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to pull from remote: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::pull_changes(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to pull from remote: {join_error}"))
+        })?
 }
 
 /// Fetch from the remote without merging. Runs on the blocking thread
@@ -118,17 +110,18 @@ pub async fn git_pull(repo_path: String) -> napi::Result<GitPushPullResult> {
 /// it must never block the async runtime.
 #[napi]
 pub async fn git_fetch(repo_path: String) -> napi::Result<GitPushPullResult> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::git::fetch_remote(&repo_path)
-    })
-    .await
-    .map_err(|join_error| {
-        napi::Error::from_reason(format!("Failed to fetch from remote: {join_error}"))
-    })?
+    tokio::task::spawn_blocking(move || crate::storage::services::git::fetch_remote(&repo_path))
+        .await
+        .map_err(|join_error| {
+            napi::Error::from_reason(format!("Failed to fetch from remote: {join_error}"))
+        })?
 }
 
 #[napi]
-pub async fn git_checkout(repo_path: String, branch_name: String) -> napi::Result<GitCheckoutResult> {
+pub async fn git_checkout(
+    repo_path: String,
+    branch_name: String,
+) -> napi::Result<GitCheckoutResult> {
     tokio::task::spawn_blocking(move || {
         crate::storage::services::git::checkout_branch(&repo_path, &branch_name)
     })
@@ -213,16 +206,31 @@ pub async fn get_git_commit_files(
 /// Get the full diff introduced by a single commit. Runs on the blocking
 /// thread pool so `git show` never blocks the async runtime.
 #[napi]
-pub async fn get_commit_diff(
-    repo_path: String,
-    hash: String,
-) -> napi::Result<GitDiffResult> {
+pub async fn get_commit_diff(repo_path: String, hash: String) -> napi::Result<GitDiffResult> {
     tokio::task::spawn_blocking(move || {
         crate::storage::services::git::get_commit_diff(&repo_path, &hash)
     })
     .await
     .map_err(|join_error| {
         napi::Error::from_reason(format!("Failed to get commit diff: {join_error}"))
+    })?
+}
+
+/// Get the diff of a single file within a single commit
+/// (`git show <hash> -- <path>`). Runs on the blocking thread pool so
+/// `git show` never blocks the async runtime.
+#[napi]
+pub async fn git_commit_file_diff(
+    repo_path: String,
+    hash: String,
+    file_path: String,
+) -> napi::Result<GitDiffResult> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::services::git::get_commit_file_diff(&repo_path, &hash, &file_path)
+    })
+    .await
+    .map_err(|join_error| {
+        napi::Error::from_reason(format!("Failed to get commit file diff: {join_error}"))
     })?
 }
 
@@ -247,10 +255,7 @@ pub async fn discover_git_repos(root_path: String) -> napi::Result<Vec<GitRepoIn
     ts_args_type = "repoPath: string, onChange: (repoPath: string) => void",
     ts_return_type = "void"
 )]
-pub fn start_git_watch(
-    repo_path: String,
-    on_change: GitChangeCallback,
-) -> napi::Result<()> {
+pub fn start_git_watch(repo_path: String, on_change: GitChangeCallback) -> napi::Result<()> {
     crate::storage::services::git_watcher::start_git_watch(repo_path, on_change)
 }
 #[napi]
@@ -330,4 +335,3 @@ pub async fn generate_commit_message_from_diff(
 
     result
 }
-

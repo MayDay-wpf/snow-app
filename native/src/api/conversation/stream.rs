@@ -18,17 +18,37 @@ use crate::storage::services::chat_conversations::{
 };
 use crate::storage::services::usage_records::{record_usage, UsageRecordInput};
 
+fn normalize_non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn resolve_sub_agent_profile(
+    explicit_api_profile: Option<&str>,
+    deprecated_config_profile: Option<&str>,
+) -> Result<String> {
+    normalize_non_empty(explicit_api_profile)
+        .or_else(|| normalize_non_empty(deprecated_config_profile))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            Error::from_reason(
+                "Sub-agent API profile snapshot is required; refusing to fall back to the global active profile",
+            )
+        })
+}
+
+fn resolve_sub_agent_model(requested_model: Option<&str>, advanced_model: &str) -> Result<String> {
+    normalize_non_empty(requested_model)
+        .or_else(|| normalize_non_empty(Some(advanced_model)))
+        .map(str::to_owned)
+        .ok_or_else(|| Error::from_reason("Sub-agent model snapshot is not available"))
+}
+
 pub async fn create_response_stream(
     mut request: ResponsesApiRequest,
     on_chunk: ResponsesApiStreamCallback,
     stream_id: String,
 ) -> Result<ResponsesApiResult> {
-    let is_sub_agent = request
-        .sub_agent_tools_json
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some();
+    let is_sub_agent = request.is_sub_agent_request();
     if is_sub_agent {
         // Plan Mode and Goal Mode belong exclusively to the main conversation.
         // Keep the provider prompt and request-scoped tool injection in normal
@@ -37,33 +57,27 @@ pub async fn create_response_stream(
         request.plan_mode = Some(false);
         request.goal_mode = Some(false);
     }
-    let sub_agent_config_profile = request
-        .sub_agent_config_profile
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    let explicit_api_profile = request
-        .api_profile
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    let request_conversation_id = request
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
+    let deprecated_sub_agent_profile =
+        normalize_non_empty(request.sub_agent_config_profile.as_deref()).map(str::to_owned);
+    let explicit_api_profile =
+        normalize_non_empty(request.api_profile.as_deref()).map(str::to_owned);
+    let strict_sub_agent_profile = if is_sub_agent {
+        Some(resolve_sub_agent_profile(
+            explicit_api_profile.as_deref(),
+            deprecated_sub_agent_profile.as_deref(),
+        )?)
+    } else {
+        None
+    };
+    let request_conversation_id =
+        normalize_non_empty(request.conversation_id.as_deref()).map(str::to_owned);
 
     let context = tokio::task::spawn_blocking(move || {
-        // A sub-agent request (non-empty sub_agent_tools_json) always resolves
-        // its configured profile. A context-compaction request carries no tools
-        // but may still target a sub-agent profile, so honour an explicit
-        // profile here too — otherwise the handoff would wrongly fall back to
-        // the active config instead of the sub-agent's own API configuration.
-        if is_sub_agent || sub_agent_config_profile.is_some() {
-            get_api_request_context_for_profile(sub_agent_config_profile.as_deref())
+        if let Some(profile) = strict_sub_agent_profile {
+            // Sub-agent snapshots are strict: credentials are reloaded by the
+            // fixed profile name on every request, but a deleted profile must
+            // fail instead of silently switching providers.
+            get_api_request_context_for_profile(Some(&profile))
         } else {
             // Conversation-scoped profile resolution with graceful fallback:
             //   1. explicit apiProfile on the request (first message of a
@@ -74,32 +88,28 @@ pub async fn create_response_stream(
                 .map(|storage_info| PathBuf::from(storage_info.database_path))
                 .ok();
             let resolved_profile = explicit_api_profile.or_else(|| {
-                request_conversation_id.as_deref().and_then(|conversation_id| {
-                    database_path.as_ref().and_then(|database_path| {
-                        get_conversation_api_profile(database_path, conversation_id)
-                            .ok()
-                            .flatten()
+                request_conversation_id
+                    .as_deref()
+                    .and_then(|conversation_id| {
+                        database_path.as_ref().and_then(|database_path| {
+                            get_conversation_api_profile(database_path, conversation_id)
+                                .ok()
+                                .flatten()
+                        })
                     })
-                })
             });
             get_api_request_context_with_fallback(resolved_profile.as_deref())
         }
     })
     .await
     .map_err(|join_error| {
-        Error::from_reason(format!(
-            "Failed to resolve API configuration: {join_error}"
-        ))
+        Error::from_reason(format!("Failed to resolve API configuration: {join_error}"))
     })??;
-    if is_sub_agent
-        && request
-            .model
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_none()
-    {
-        request.model = Some(context.api_config.advanced_model.clone());
+    if is_sub_agent {
+        request.model = Some(resolve_sub_agent_model(
+            request.model.as_deref(),
+            &context.api_config.advanced_model,
+        )?);
     }
 
     let failure_messages = request
@@ -354,5 +364,63 @@ pub async fn create_response_stream(
                 persisted_user_message_ids: Vec::new(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_sub_agent_model, resolve_sub_agent_profile};
+
+    #[test]
+    fn explicit_sub_agent_profile_is_trimmed_and_preferred() {
+        let profile =
+            resolve_sub_agent_profile(Some("  pinned-profile  "), Some("deprecated-profile"))
+                .expect("resolve explicit profile");
+
+        assert_eq!(profile, "pinned-profile");
+    }
+
+    #[test]
+    fn deprecated_sub_agent_profile_remains_a_legacy_fallback() {
+        let profile = resolve_sub_agent_profile(Some("  "), Some(" legacy-profile "))
+            .expect("resolve deprecated profile");
+
+        assert_eq!(profile, "legacy-profile");
+    }
+
+    #[test]
+    fn blank_sub_agent_profiles_fail_instead_of_using_global_active_profile() {
+        let error = resolve_sub_agent_profile(Some(" \n "), Some("\t"))
+            .expect_err("blank snapshots must fail");
+
+        assert!(error
+            .to_string()
+            .contains("refusing to fall back to the global active profile"));
+    }
+
+    #[test]
+    fn explicit_sub_agent_model_is_trimmed_and_preferred() {
+        let model = resolve_sub_agent_model(Some("  pinned-model  "), "advanced-model")
+            .expect("resolve explicit model");
+
+        assert_eq!(model, "pinned-model");
+    }
+
+    #[test]
+    fn blank_sub_agent_model_uses_profile_advanced_model() {
+        let model = resolve_sub_agent_model(Some("  "), "  advanced-model  ")
+            .expect("resolve advanced model");
+
+        assert_eq!(model, "advanced-model");
+    }
+
+    #[test]
+    fn missing_sub_agent_model_snapshot_fails() {
+        let error =
+            resolve_sub_agent_model(None, " \n ").expect_err("missing model snapshots must fail");
+
+        assert!(error
+            .to_string()
+            .contains("Sub-agent model snapshot is not available"));
     }
 }

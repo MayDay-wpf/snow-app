@@ -1,9 +1,11 @@
 import {
+  Check,
+  CheckCircle2,
   ChevronRight,
+  CircleAlert,
   GitFork,
   Loader2,
   MessageSquareMore,
-  Check,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -15,6 +17,7 @@ import { formatTimeLabel, parseDbTimestamp } from "./chatTimeGroup";
 type ChatItemProps = {
   conversation: ChatConversationRecord;
   isActive?: boolean;
+  isAttentionRequired?: boolean;
   isStreaming?: boolean;
   isCompleted?: boolean;
   subAgentConversations?: ChatConversationRecord[];
@@ -36,6 +39,7 @@ type ChatItemProps = {
 export function ChatItem({
   conversation,
   isActive = false,
+  isAttentionRequired = false,
   isStreaming = false,
   isCompleted = false,
   subAgentConversations = [],
@@ -138,6 +142,26 @@ export function ChatItem({
     conversation.summary ||
     conversation.title ||
     t("sidebar.untitledChat", { defaultValue: "Untitled" });
+  const showAttentionStatus = !isMultiSelectMode && isAttentionRequired;
+  const showStreamingStatus =
+    !isMultiSelectMode && !showAttentionStatus && isStreaming;
+  const showCompletedStatus =
+    !isMultiSelectMode &&
+    !showAttentionStatus &&
+    !showStreamingStatus &&
+    isCompleted;
+  const showDefaultIcon =
+    !showAttentionStatus && !showStreamingStatus && !showCompletedStatus;
+  const statusLabel = showAttentionStatus
+    ? t("sidebar.chatStatusNeedsAction", { defaultValue: "Needs action" })
+    : showCompletedStatus
+      ? t("sidebar.chatStatusCompleted", { defaultValue: "Completed" })
+      : null;
+  const statusDescription = showAttentionStatus
+    ? t("sidebar.chatStatusWaitingForReviewOrInput", {
+        defaultValue: "Waiting for review or input",
+      })
+    : (statusLabel ?? "");
 
   const now = new Date();
   const parsedDate = parseDbTimestamp(conversation.updatedAt);
@@ -218,18 +242,28 @@ export function ChatItem({
         </span>
       ) : (
         <span
-          className={`chat-item-icon${isStreaming ? " streaming" : ""}${
-            isCompleted && !isStreaming ? " completed" : ""
-          }${isForked ? " forked" : ""}${
-            hasSubAgents ? " has-sub-agents" : ""
-          }${hasEmoji ? " has-emoji" : ""}`}
+          className={`chat-item-icon${
+            showAttentionStatus
+              ? " attention-required"
+              : showStreamingStatus
+                ? " streaming"
+                : showCompletedStatus
+                  ? " completed"
+                  : ""
+          }${showDefaultIcon && isForked ? " forked" : ""}${
+            showDefaultIcon && hasSubAgents ? " has-sub-agents" : ""
+          }${showDefaultIcon && hasEmoji ? " has-emoji" : ""}`}
           onClick={(event) => {
             // 图标不再承载交互，点击仅阻止选中会话；修改入口在右键菜单中
             event.stopPropagation();
           }}
         >
-          {isStreaming ? (
-            <Loader2 size={11} className="spin" />
+          {showAttentionStatus ? (
+            <CircleAlert size={12} aria-hidden="true" />
+          ) : showStreamingStatus ? (
+            <Loader2 size={11} className="spin" aria-hidden="true" />
+          ) : showCompletedStatus ? (
+            <CheckCircle2 size={12} aria-hidden="true" />
           ) : hasEmoji ? (
             <span className="chat-item-emoji">{conversation.emoji}</span>
           ) : isForked ? (
@@ -237,7 +271,6 @@ export function ChatItem({
           ) : (
             <MessageSquareMore size={11} />
           )}
-          {isCompleted && !isStreaming && <span className="chat-item-badge" />}
         </span>
       )}
       <div className="chat-item-content">
@@ -279,6 +312,17 @@ export function ChatItem({
               >
                 {displayName}
               </span>
+              {statusLabel && (
+                <span
+                  className={`chat-item-status-label ${
+                    showAttentionStatus ? "attention-required" : "completed"
+                  }`}
+                  title={statusDescription}
+                  aria-label={statusDescription}
+                >
+                  {statusLabel}
+                </span>
+              )}
               {hasSubAgents && runningSubAgentCount > 0 && (
                 <span className="chat-item-sub-agent-count">
                   {runningSubAgentCount}

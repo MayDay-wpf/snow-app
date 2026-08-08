@@ -16,14 +16,18 @@ pub const FORMAT_CSV: &str = "csv";
 
 /// 获取会话记录和全部消息，然后按照指定格式生成导出内容。
 /// 所有 SQLite I/O 由调用方的 spawn_blocking 包裹，不会阻塞 Node.js 主线程。
-pub fn export_conversation(database_path: &Path, conversation_id: &str, format: &str) -> Result<String> {
+pub fn export_conversation(
+    database_path: &Path,
+    conversation_id: &str,
+    format: &str,
+) -> Result<String> {
     let conversation = chat_conversations::get_chat_conversation(database_path, conversation_id)?
         .ok_or_else(|| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Conversation not found: {conversation_id}"),
-            )
-        })?;
+        Error::new(
+            Status::GenericFailure,
+            format!("Conversation not found: {conversation_id}"),
+        )
+    })?;
 
     let messages = chat_conversations::list_chat_messages(database_path, conversation_id)?;
 
@@ -59,7 +63,10 @@ pub fn extension_for_format(format: &str) -> &'static str {
 // Markdown
 // ============================================================================
 
-fn render_markdown(conversation: &ChatConversationRecord, messages: &[ChatMessageRecord]) -> String {
+fn render_markdown(
+    conversation: &ChatConversationRecord,
+    messages: &[ChatMessageRecord],
+) -> String {
     let title = display_title(conversation);
     let mut output = String::new();
 
@@ -184,16 +191,19 @@ fn render_html(conversation: &ChatConversationRecord, messages: &[ChatMessageRec
         let role_class = role_css_class(&role);
         let avatar = role_avatar(&role);
         let model_badge = if !message.model.is_empty() && role == "assistant" {
-            format!("<span class=\"msg-model\">{}</span>", html_escape(&message.model))
+            format!(
+                "<span class=\"msg-model\">{}</span>",
+                html_escape(&message.model)
+            )
         } else {
             String::new()
         };
 
-        output.push_str(&format!(
-            "<article class=\"msg {role_class}\">\n"
-        ));
+        output.push_str(&format!("<article class=\"msg {role_class}\">\n"));
         output.push_str("<div class=\"msg-avatar-wrap\">\n");
-        output.push_str(&format!("<div class=\"msg-avatar avatar-{role_class}\">{avatar}</div>\n"));
+        output.push_str(&format!(
+            "<div class=\"msg-avatar avatar-{role_class}\">{avatar}</div>\n"
+        ));
         output.push_str("<div class=\"msg-meta\">\n");
         output.push_str(&format!("<span class=\"msg-role\">{label}</span>\n"));
         if !model_badge.is_empty() {
@@ -433,7 +443,12 @@ fn ordered_list_item(line: &str) -> Option<&str> {
     while idx < bytes.len() && bytes[idx].is_ascii_digit() {
         idx += 1;
     }
-    if idx > 0 && idx < bytes.len() && bytes[idx] == b'.' && idx + 1 < bytes.len() && bytes[idx + 1] == b' ' {
+    if idx > 0
+        && idx < bytes.len()
+        && bytes[idx] == b'.'
+        && idx + 1 < bytes.len()
+        && bytes[idx + 1] == b' '
+    {
         Some(&line[idx + 2..])
     } else {
         None
@@ -913,8 +928,7 @@ fn render_json(
     messages: &[ChatMessageRecord],
 ) -> Result<String> {
     let conversation_json = conversation_to_json(conversation);
-    let messages_json: Vec<serde_json::Value> =
-        messages.iter().map(message_to_json).collect();
+    let messages_json: Vec<serde_json::Value> = messages.iter().map(message_to_json).collect();
 
     let export = json!({
         "conversation": conversation_json,
@@ -1025,14 +1039,12 @@ fn render_csv(
             })?;
     }
 
-    let bytes = writer
-        .into_inner()
-        .map_err(|error| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to finalize CSV: {error}"),
-            )
-        })?;
+    let bytes = writer.into_inner().map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to finalize CSV: {error}"),
+        )
+    })?;
 
     String::from_utf8(bytes).map_err(|error| {
         Error::new(

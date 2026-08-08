@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use crate::api::common::inject_custom_headers;
 use crate::api::config::{normalize_base_url, resolve_sdk_api_base_url};
 use crate::api::conversation::parse_chat_message_content;
-use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::api::responses::ResponsesApiRequest;
+use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
 
 /// Resolve the full HTTP endpoint URL for a Responses API request.
@@ -71,11 +71,13 @@ pub(super) fn build_responses_payload(
                 continue;
             }
             let results = match message.tool_results_json {
-                Some(ref raw) => crate::api::conversation::tool_messages::parse_tool_results_with_images(
-                    raw,
-                    database_path,
-                    skip_image_parsing,
-                ),
+                Some(ref raw) => {
+                    crate::api::conversation::tool_messages::parse_tool_results_with_images(
+                        raw,
+                        database_path,
+                        skip_image_parsing,
+                    )
+                }
                 None => Vec::new(),
             };
             for tool_result in &results {
@@ -150,7 +152,11 @@ pub(super) fn build_responses_payload(
             .unwrap_or_default();
         let has_reasoning = !reasoning_items.is_empty();
 
-        if content.is_empty() && message.tool_calls_json.is_none() && !has_thinking && !has_reasoning {
+        if content.is_empty()
+            && message.tool_calls_json.is_none()
+            && !has_thinking
+            && !has_reasoning
+        {
             continue;
         }
 
@@ -252,12 +258,20 @@ pub(super) fn build_responses_payload(
 
         if !content.is_empty() {
             if skip_image_parsing || !has_images {
-                let block_type = if role == "assistant" { "output_text" } else { "input_text" };
+                let block_type = if role == "assistant" {
+                    "output_text"
+                } else {
+                    "input_text"
+                };
                 content_blocks.push(json!({"type": block_type, "text": content}));
             } else {
                 let parsed_content = parse_chat_message_content(content, database_path)?;
                 if !parsed_content.text.is_empty() {
-                    let block_type = if role == "assistant" { "output_text" } else { "input_text" };
+                    let block_type = if role == "assistant" {
+                        "output_text"
+                    } else {
+                        "input_text"
+                    };
                     content_blocks.push(json!({"type": block_type, "text": parsed_content.text}));
                 }
                 for image in &parsed_content.images {
@@ -323,6 +337,14 @@ pub(super) fn build_responses_payload(
         payload["reasoning"] = reasoning;
     }
 
+    if let Some(text) = build_responses_text_config(&api_config.config_json) {
+        payload["text"] = text;
+    }
+
+    if let Some(service_tier) = build_responses_service_tier(&api_config.config_json) {
+        payload["service_tier"] = json!(service_tier);
+    }
+
     if let Some(tools) = tools {
         if tools.as_array().is_some_and(|items| !items.is_empty()) {
             payload["tools"] = tools;
@@ -377,6 +399,29 @@ pub(crate) fn build_responses_reasoning(config_json: &str) -> Option<Value> {
     }))
 }
 
+fn build_responses_text_config(config_json: &str) -> Option<Value> {
+    let parsed = serde_json::from_str::<Value>(config_json).ok()?;
+    let verbosity = parsed
+        .get("snowcfg")?
+        .get("responsesVerbosity")?
+        .as_str()?
+        .trim();
+
+    match verbosity {
+        "low" | "medium" | "high" => Some(json!({
+            "verbosity": verbosity,
+        })),
+        _ => None,
+    }
+}
+
+fn build_responses_service_tier(config_json: &str) -> Option<&'static str> {
+    let parsed = serde_json::from_str::<Value>(config_json).ok()?;
+    let enabled = parsed.get("snowcfg")?.get("responsesFastMode")?.as_bool()?;
+
+    enabled.then_some("priority")
+}
+
 // ---------------------------------------------------------------------------
 // HTTP header building
 // ---------------------------------------------------------------------------
@@ -407,4 +452,79 @@ pub(super) fn build_header_map(
     )?;
 
     Ok(headers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_responses_service_tier, build_responses_text_config};
+    use serde_json::json;
+
+    #[test]
+    fn builds_responses_text_verbosity() {
+        for verbosity in ["low", "medium", "high"] {
+            let config_json = json!({
+                "snowcfg": {
+                    "responsesVerbosity": verbosity,
+                }
+            })
+            .to_string();
+
+            assert_eq!(
+                build_responses_text_config(&config_json),
+                Some(json!({ "verbosity": verbosity }))
+            );
+        }
+    }
+
+    #[test]
+    fn ignores_invalid_responses_text_verbosity() {
+        for config_json in [
+            r#"{"snowcfg":{"responsesVerbosity":""}}"#,
+            r#"{"snowcfg":{"responsesVerbosity":"verbose"}}"#,
+            r#"{"snowcfg":{"responsesVerbosity":true}}"#,
+            r#"{"snowcfg":{}}"#,
+            "not-json",
+        ] {
+            assert_eq!(build_responses_text_config(config_json), None);
+        }
+    }
+
+    #[test]
+    fn enables_responses_fast_mode_as_priority_tier() {
+        let config_json = r#"{"snowcfg":{"responsesFastMode":true}}"#;
+
+        assert_eq!(build_responses_service_tier(config_json), Some("priority"));
+    }
+
+    #[test]
+    fn omits_service_tier_when_fast_mode_is_disabled() {
+        for config_json in [
+            r#"{"snowcfg":{"responsesFastMode":false}}"#,
+            r#"{"snowcfg":{"responsesFastMode":"true"}}"#,
+            r#"{"snowcfg":{}}"#,
+            "not-json",
+        ] {
+            assert_eq!(build_responses_service_tier(config_json), None);
+        }
+    }
+
+    #[test]
+    fn supports_legacy_config_without_responses_options() {
+        let config_json = r#"{
+            "snowcfg": {
+                "requestMethod": "responses",
+                "responsesReasoning": {
+                    "enabled": true,
+                    "effort": "high"
+                },
+                "legacyProviderOption": "keep"
+            },
+            "legacyTopLevel": {
+                "enabled": true
+            }
+        }"#;
+
+        assert_eq!(build_responses_text_config(config_json), None);
+        assert_eq!(build_responses_service_tier(config_json), None);
+    }
 }

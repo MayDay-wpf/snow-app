@@ -105,9 +105,7 @@ pub fn is_supported(file_path: &str) -> bool {
 
 /// Determine the TsLang from a file path (handles extensionless files too).
 pub fn lang_from_path(file_path: &str) -> Option<TsLang> {
-    let ext = Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())?;
+    let ext = Path::new(file_path).extension().and_then(|e| e.to_str())?;
     TsLang::from_extension(ext)
 }
 
@@ -196,13 +194,16 @@ pub fn build_file_outline(file_path: &str, source_text: &str) -> Vec<OutlineEntr
 /// Return a tree-sitter query string for extracting symbol definitions.
 fn outline_query(lang: TsLang) -> &'static str {
     match lang {
-        TsLang::Python => r#"
+        TsLang::Python => {
+            r#"
             (function_definition name: (identifier) @name) @definition
             (class_definition name: (identifier) @name) @definition
             (decorated_definition definition: (function_definition name: (identifier) @name)) @definition
             (decorated_definition definition: (class_definition name: (identifier) @name)) @definition
-        "#,
-        TsLang::Rust => r#"
+        "#
+        }
+        TsLang::Rust => {
+            r#"
             (function_item name: (identifier) @name) @definition
             (struct_item name: (type_identifier) @name) @definition
             (enum_item name: (type_identifier) @name) @definition
@@ -213,46 +214,61 @@ fn outline_query(lang: TsLang) -> &'static str {
             (static_item name: (identifier) @name) @definition
             (type_item name: (type_identifier) @name) @definition
             (macro_definition name: (identifier) @name) @definition
-        "#,
-        TsLang::Go => r#"
+        "#
+        }
+        TsLang::Go => {
+            r#"
             (function_declaration name: (identifier) @name) @definition
             (method_declaration name: (field_identifier) @name) @definition
             (type_declaration (type_spec name: (type_identifier) @name)) @definition
-        "#,
-        TsLang::C => r#"
+        "#
+        }
+        TsLang::C => {
+            r#"
             (function_definition declarator: (function_declarator declarator: (identifier) @name)) @definition
             (function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @definition
             (struct_specifier name: (type_identifier) @name) @definition
             (enum_specifier name: (type_identifier) @name) @definition
-        "#,
-        TsLang::Java => r#"
+        "#
+        }
+        TsLang::Java => {
+            r#"
             (method_declaration name: (identifier) @name) @definition
             (class_declaration name: (identifier) @name) @definition
             (interface_declaration name: (identifier) @name) @definition
             (enum_declaration name: (identifier) @name) @definition
-        "#,
-        TsLang::CSharp => r#"
+        "#
+        }
+        TsLang::CSharp => {
+            r#"
             (method_declaration name: (identifier) @name) @definition
             (class_declaration name: (identifier) @name) @definition
             (interface_declaration name: (identifier) @name) @definition
             (enum_declaration name: (identifier) @name) @definition
             (struct_declaration name: (identifier) @name) @definition
-        "#,
-        TsLang::Ruby => r#"
+        "#
+        }
+        TsLang::Ruby => {
+            r#"
             (method name: (identifier) @name) @definition
             (class name: (constant) @name) @definition
             (module name: (constant) @name) @definition
-        "#,
-        TsLang::Php => r#"
+        "#
+        }
+        TsLang::Php => {
+            r#"
             (function_definition name: (name) @name) @definition
             (class_declaration name: (name) @name) @definition
             (interface_declaration name: (name) @name) @definition
             (method_declaration name: (name) @name) @definition
-        "#,
-        TsLang::Lua => r#"
+        "#
+        }
+        TsLang::Lua => {
+            r#"
             (function_declaration name: (identifier) @name) @definition
             (function name: (identifier) @name) @definition
-        "#,
+        "#
+        }
         _ => "",
     }
 }
@@ -360,7 +376,9 @@ pub fn find_symbol_at_position(
         column: (column.saturating_sub(1)) as usize,
     };
 
-    let node = tree.root_node().descendant_for_point_range(target_point, target_point)?;
+    let node = tree
+        .root_node()
+        .descendant_for_point_range(target_point, target_point)?;
 
     // Walk up the tree to find a named node with an identifier child
     let mut current = Some(node);
@@ -442,23 +460,47 @@ fn is_identifier_like(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
-        && s.chars().next().map(|c| c.is_alphabetic() || c == '_' || c == '$').unwrap_or(false)
+        && s.chars()
+            .next()
+            .map(|c| c.is_alphabetic() || c == '_' || c == '$')
+            .unwrap_or(false)
 }
 
 fn is_definition_node(kind: &str, lang: TsLang) -> bool {
     match lang {
-        TsLang::Python => kind.contains("function") || kind.contains("class") || kind.contains("definition"),
+        TsLang::Python => {
+            kind.contains("function") || kind.contains("class") || kind.contains("definition")
+        }
         TsLang::Rust => matches!(
             kind,
-            "function_item" | "struct_item" | "enum_item" | "trait_item"
-                | "impl_item" | "mod_item" | "const_item" | "static_item"
-                | "type_item" | "macro_definition"
+            "function_item"
+                | "struct_item"
+                | "enum_item"
+                | "trait_item"
+                | "impl_item"
+                | "mod_item"
+                | "const_item"
+                | "static_item"
+                | "type_item"
+                | "macro_definition"
         ),
         TsLang::Go => kind.contains("function") || kind.contains("method") || kind.contains("type"),
         TsLang::C => kind.contains("function") || kind.contains("struct") || kind.contains("enum"),
-        TsLang::Java | TsLang::CSharp => matches!(kind, "method_declaration" | "class_declaration" | "interface_declaration" | "enum_declaration" | "struct_declaration"),
+        TsLang::Java | TsLang::CSharp => matches!(
+            kind,
+            "method_declaration"
+                | "class_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+                | "struct_declaration"
+        ),
         TsLang::Ruby => matches!(kind, "method" | "class" | "module"),
-        TsLang::Php => kind.contains("function") || kind.contains("method") || kind.contains("class") || kind.contains("interface"),
+        TsLang::Php => {
+            kind.contains("function")
+                || kind.contains("method")
+                || kind.contains("class")
+                || kind.contains("interface")
+        }
         TsLang::Lua => kind.contains("function"),
         _ => false,
     }
@@ -484,10 +526,16 @@ pub fn find_references_at_position(
         column: (column.saturating_sub(1)) as usize,
     };
 
-    let node = tree.root_node().descendant_for_point_range(target_point, target_point)?;
+    let node = tree
+        .root_node()
+        .descendant_for_point_range(target_point, target_point)?;
 
     // Get the identifier text at the position
-    let identifier_text = node.utf8_text(source_text.as_bytes()).ok()?.trim().to_string();
+    let identifier_text = node
+        .utf8_text(source_text.as_bytes())
+        .ok()?
+        .trim()
+        .to_string();
 
     if identifier_text.is_empty() || !is_identifier_like(&identifier_text) {
         return None;
@@ -532,7 +580,11 @@ pub fn find_references_at_position(
 }
 
 /// Find all references to a symbol by name within a single tree-sitter file.
-pub fn find_references_by_name(file_path: &str, source_text: &str, name: &str) -> Vec<ReferenceInfo> {
+pub fn find_references_by_name(
+    file_path: &str,
+    source_text: &str,
+    name: &str,
+) -> Vec<ReferenceInfo> {
     let (_lang, tree) = match parse(file_path, source_text) {
         Some(v) => v,
         None => return Vec::new(),
@@ -552,7 +604,11 @@ pub fn find_references_by_name(file_path: &str, source_text: &str, name: &str) -
 }
 
 /// Find the definition of a symbol by name within a single tree-sitter file.
-pub fn find_definition_by_name(file_path: &str, source_text: &str, name: &str) -> Option<SymbolInfo> {
+pub fn find_definition_by_name(
+    file_path: &str,
+    source_text: &str,
+    name: &str,
+) -> Option<SymbolInfo> {
     let outline = build_file_outline(file_path, source_text);
 
     for entry in outline {

@@ -54,10 +54,22 @@ export const TopBar = ({
     activeConversationId,
     messages,
     isStreaming,
+    subAgentSessionEvents,
   } = useChatConversationContext();
   const [conversationDirectoryName, setConversationDirectoryName] = useState<
     string | undefined
   >(undefined);
+  // Sub-agent conversation meta (persisted record) for the active conversation
+  // plus the title of the parent conversation it was launched from. Used to
+  // render the header as the sub-agent's stage name instead of the project
+  // name when viewing a read-only sub-agent conversation.
+  const [activeConversationMeta, setActiveConversationMeta] = useState<{
+    conversationType: string;
+    title: string;
+    subAgentName: string;
+    parentConversationId: string;
+  } | null>(null);
+  const [parentConversationTitle, setParentConversationTitle] = useState("");
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [isTodoPanelOpen, setIsTodoPanelOpen] = useState(false);
   const [isTodoPanelPinned, setIsTodoPanelPinned] = useState(false);
@@ -289,6 +301,50 @@ export const TopBar = ({
     };
   }, [conversationDirectoryId, activeDirectory]);
 
+  // Fetch the active conversation's persisted meta (conversation type, sub-agent
+  // fields, parent id) and, when it is a sub-agent conversation, the parent
+  // conversation's title so the header can show where the run came from.
+  useEffect(() => {
+    if (!activeConversationId) {
+      setActiveConversationMeta(null);
+      setParentConversationTitle("");
+      return;
+    }
+
+    let cancelled = false;
+    void window.snow
+      .getChatConversation(activeConversationId)
+      .then((record) => {
+        if (cancelled || !record) {
+          return null;
+        }
+        setActiveConversationMeta({
+          conversationType: record.conversationType,
+          title: record.title,
+          subAgentName: record.subAgentName,
+          parentConversationId: record.parentConversationId,
+        });
+        return record.parentConversationId
+          ? window.snow.getChatConversation(record.parentConversationId)
+          : null;
+      })
+      .then((parentRecord) => {
+        if (cancelled) {
+          return;
+        }
+        setParentConversationTitle(
+          parentRecord?.title || parentRecord?.summary || ""
+        );
+      })
+      .catch(() => {
+        // Best effort — the header falls back to the project name.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversationId]);
+
   const SidebarToggleIcon = isSidebarCollapsed ? SidebarOpen : SidebarClose;
   const sidebarToggleLabel = isSidebarCollapsed
     ? "Expand sidebar"
@@ -308,8 +364,31 @@ export const TopBar = ({
     ? conversationDirectoryName
     : activeDirectory?.name;
 
-  const headerTitle = summary || displayDirectoryName || "New Chat";
-  const headerSubtitle = displayDirectoryName || "";
+  // Sub-agent conversations: the header shows the stage name (the prompt
+  // truncated at activation) as the title and the launching parent
+  // conversation as the subtitle — the project name alone says nothing about
+  // what the run was doing.
+  const liveSubAgentEvent = activeConversationId
+    ? subAgentSessionEvents[activeConversationId]
+    : undefined;
+  const isSubAgentConversation =
+    Boolean(liveSubAgentEvent) ||
+    activeConversationMeta?.conversationType === "sub_agent";
+  const subAgentDisplayName =
+    liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
+
+  const headerTitle = isSubAgentConversation
+    ? activeConversationMeta?.title ||
+      (summary || displayDirectoryName || "New Chat")
+    : summary || displayDirectoryName || "New Chat";
+  const headerSubtitle = isSubAgentConversation
+    ? parentConversationTitle
+      ? t("chat.subAgentInfo.launchedBy", {
+          defaultValue: 'Launched by parent "{{title}}"',
+          values: { title: parentConversationTitle },
+        })
+      : subAgentDisplayName
+    : displayDirectoryName || "";
 
   useEffect(() => {
     if (!isPlusMenuOpen) {

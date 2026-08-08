@@ -15,6 +15,8 @@ type WorkspaceDirectoryListProps = {
   isActionLocked: boolean;
   isLoadingDirectories: boolean;
   loadMoreRef: RefObject<HTMLDivElement | null>;
+  /** 各项目通知计数（directoryId → 通知会话数），用于条目徽标 */
+  notificationCountByDirectory?: Record<string, number>;
   onActivate: (directoryId: string) => void;
   onDelete: (directoryId: string) => void;
   onDragEnd: () => void;
@@ -38,6 +40,7 @@ export function WorkspaceDirectoryList({
   isActionLocked,
   isLoadingDirectories,
   loadMoreRef,
+  notificationCountByDirectory,
   onActivate,
   onDelete,
   onDragEnd,
@@ -133,6 +136,9 @@ export function WorkspaceDirectoryList({
               isActionLocked={isActionLocked}
               isEditing={editingDirectoryId === directory.directoryId}
               key={directory.directoryId}
+              notificationCount={
+                notificationCountByDirectory?.[directory.directoryId] ?? 0
+              }
               onActivate={onActivate}
               onDelete={onDelete}
               onDragEnd={onDragEnd}

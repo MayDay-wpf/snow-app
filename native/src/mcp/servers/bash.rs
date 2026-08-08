@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::exports::terminal::{
     detect_shell_family, load_terminal_shell_path, resolve_login_path, resolve_shell_and_args,
 };
+use crate::storage::services::app_logs::{insert_app_log, AppLogInput};
 
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -63,21 +64,14 @@ fn interactive_sessions() -> &'static tokio::sync::Mutex<HashMap<String, Interac
 /// The session is looked up by the UUID that was emitted as the
 /// `interactive_session` stream chunk.  After writing, the stdin pipe is
 /// **not** closed — the process may still need more input later.
-pub async fn write_interactive_stdin(
-    session_id: String,
-    input: String,
-) -> napi::Result<()> {
+pub async fn write_interactive_stdin(session_id: String, input: String) -> napi::Result<()> {
     let mut sessions = interactive_sessions().lock().await;
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| {
-            Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Interactive session not found or already terminated: {session_id}"
-                ),
-            )
-        })?;
+    let session = sessions.get_mut(&session_id).ok_or_else(|| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Interactive session not found or already terminated: {session_id}"),
+        )
+    })?;
     session
         .stdin
         .write_all(input.as_bytes())
@@ -106,6 +100,92 @@ impl BashService {
 const SERVER_ID: &str = "bash";
 const DEFAULT_TIMEOUT_MS: u64 = 30000;
 const SENSITIVE_AUTHORIZATION_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct BashExecutionTimings {
+    argument_parse_ms: u64,
+    sensitive_check_ms: u64,
+    remote_resolve_ms: u64,
+    remote_dispatch_ms: u64,
+    terminal_settings_ms: u64,
+    shell_resolve_ms: u64,
+    login_path_ms: u64,
+    spawn_ms: u64,
+    first_output_ms: Option<u64>,
+    process_wait_ms: u64,
+    pipe_drain_ms: u64,
+    total_ms: u64,
+}
+
+struct BashExecutionLog<'a> {
+    level: &'a str,
+    message: &'a str,
+    status: &'a str,
+    route: &'a str,
+    timeout_ms: u64,
+    is_interactive: bool,
+    detached: bool,
+    session_id: Option<&'a str>,
+    tool_execution_id: Option<&'a str>,
+    exit_code: Option<i32>,
+    captured_stdout_bytes: usize,
+    captured_stderr_bytes: usize,
+    timings: BashExecutionTimings,
+}
+
+fn log_bash_execution(entry: BashExecutionLog<'_>) {
+    let duration = format!("{}ms", entry.timings.total_ms);
+    let context = json!({
+        "toolName": "bash-terminal-execute",
+        "status": entry.status,
+        "route": entry.route,
+        "timeoutMs": entry.timeout_ms,
+        "interactive": entry.is_interactive,
+        "detached": entry.detached,
+        "sessionId": entry.session_id,
+        "toolExecutionId": entry.tool_execution_id,
+        "exitCode": entry.exit_code,
+        "capturedStdoutBytes": entry.captured_stdout_bytes,
+        "capturedStderrBytes": entry.captured_stderr_bytes,
+        "timings": {
+            "argumentParseMs": entry.timings.argument_parse_ms,
+            "sensitiveCheckMs": entry.timings.sensitive_check_ms,
+            "remoteResolveMs": entry.timings.remote_resolve_ms,
+            "remoteDispatchMs": entry.timings.remote_dispatch_ms,
+            "terminalSettingsMs": entry.timings.terminal_settings_ms,
+            "shellResolveMs": entry.timings.shell_resolve_ms,
+            "loginPathMs": entry.timings.login_path_ms,
+            "spawnMs": entry.timings.spawn_ms,
+            "firstOutputMs": entry.timings.first_output_ms,
+            "processWaitMs": entry.timings.process_wait_ms,
+            "pipeDrainMs": entry.timings.pipe_drain_ms,
+            "totalMs": entry.timings.total_ms,
+        }
+    })
+    .to_string();
+    let input = AppLogInput {
+        level: entry.level.to_string(),
+        module: "tool_execution".to_string(),
+        func: "bash_terminal_execute".to_string(),
+        line: None,
+        message: entry.message.to_string(),
+        input: None,
+        output: None,
+        duration: Some(duration),
+        context: Some(context),
+        error: None,
+        source: "main".to_string(),
+    };
+
+    // Tool logging must never extend the command's critical path. Resolve the
+    // cached database path and perform the SQLite insert on the blocking pool;
+    // failures are intentionally ignored so diagnostics cannot break tools.
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Ok(database_path) = crate::storage::ensure_database_file() {
+            let _ = insert_app_log(&database_path, &input);
+        }
+    });
+}
 
 struct SensitiveCommandAuthorization {
     command: String,
@@ -142,10 +222,7 @@ pub async fn authorize_sensitive_command(command: String, token: String) -> napi
     Ok(())
 }
 
-async fn consume_sensitive_command_authorization(
-    command: &str,
-    token: Option<&str>,
-) -> bool {
+async fn consume_sensitive_command_authorization(command: &str, token: Option<&str>) -> bool {
     let Some(token) = token.filter(|value| !value.is_empty()) else {
         return false;
     };
@@ -168,7 +245,7 @@ impl McpService for BashService {
         vec![McpTool {
             server_id: SERVER_ID.to_string(),
             name: "terminal-execute".to_string(),
-            description: "Execute terminal commands like npm, git, build scripts, etc. BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
+            description: "Execute terminal commands like npm, git, build scripts, etc. Commands ALWAYS run in the shell configured in Terminal settings (shellPath); when unset, the auto-detected default terminal is used (PowerShell -> CMD -> Git Bash -> COMSPEC on Windows). BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -233,6 +310,7 @@ impl BashService {
         on_chunk: BashStreamCallback,
         on_remote_workspace_command: &RemoteWorkspaceCallback,
     ) -> napi::Result<Value> {
+        let execution_started = Instant::now();
         let command = args
             .get("command")
             .and_then(Value::as_str)
@@ -297,15 +375,14 @@ impl BashService {
         // <workingDirectory>/.snow/logs/. This is the supported way to start
         // long-running services (dev servers, watchers, databases) without
         // blocking the agent until the timeout.
-        let detach = args
-            .get("detach")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let detach = args.get("detach").and_then(Value::as_bool).unwrap_or(false);
+        let argument_parse_ms = execution_started.elapsed().as_millis() as u64;
 
         if detach && is_interactive {
             return Err(Error::new(
                 Status::InvalidArg,
-                "detach cannot be combined with isInteractive: a detached command has no stdin".to_string(),
+                "detach cannot be combined with isInteractive: a detached command has no stdin"
+                    .to_string(),
             ));
         }
 
@@ -329,18 +406,17 @@ impl BashService {
         // because the user is expected to confirm every input in the
         // interactive terminal UI — a separate confirmation dialog would be
         // redundant.
+        let sensitive_check_started = Instant::now();
         let sensitive_matches = if is_interactive {
             Vec::new()
         } else {
             check_sensitive_commands(&command, project_id).await
         };
-        if !sensitive_matches.is_empty()
-            && !consume_sensitive_command_authorization(
-                &command,
-                sensitive_authorization_token,
-            )
-            .await
-        {
+        let sensitive_authorized = sensitive_matches.is_empty()
+            || consume_sensitive_command_authorization(&command, sensitive_authorization_token)
+                .await;
+        let sensitive_check_ms = sensitive_check_started.elapsed().as_millis() as u64;
+        if !sensitive_authorized {
             let error_payload = json!({
                 "error": "SENSITIVE_COMMAND_DETECTED",
                 "message": "Command matched a sensitive command rule and requires confirmation",
@@ -354,11 +430,13 @@ impl BashService {
             ));
         }
 
+        let remote_resolve_started = Instant::now();
         let remote_working_directory = if is_ssh_path(&working_directory) {
             Some(working_directory.clone())
         } else {
             resolve_remote_project_workspace(project_id).await?
         };
+        let remote_resolve_ms = remote_resolve_started.elapsed().as_millis() as u64;
         if let Some(remote_working_directory) = remote_working_directory {
             if detach {
                 return Err(Error::new(
@@ -374,9 +452,9 @@ impl BashService {
             // further down). The id is streamed as a `tool_execution` chunk
             // so the frontend can target this call for cancellation.
             let tool_execution_id = Uuid::new_v4().to_string();
-            let cancel_token =
-                crate::api::cancel::register_tool_execution(&tool_execution_id);
+            let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
             emit_stream_chunk(&on_chunk, "tool_execution", tool_execution_id.clone());
+            let remote_dispatch_started = Instant::now();
             let result = execute_remote_workspace_command(
                 on_remote_workspace_command,
                 "bash-terminal-execute",
@@ -384,23 +462,70 @@ impl BashService {
                 Some(&cancel_token),
             )
             .await;
+            let remote_dispatch_ms = remote_dispatch_started.elapsed().as_millis() as u64;
             crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+            let exit_code = result
+                .as_ref()
+                .ok()
+                .and_then(|value| value.get("exitCode"))
+                .and_then(Value::as_i64)
+                .map(|value| value as i32);
+            let (level, status, message) = match (&result, exit_code) {
+                (Ok(_), Some(0) | None) => {
+                    ("INFO", "completed", "Remote terminal command completed")
+                }
+                (Ok(_), Some(_)) => (
+                    "WARN",
+                    "non_zero_exit",
+                    "Remote terminal command exited with a non-zero status",
+                ),
+                (Err(_), _) => ("ERROR", "failed", "Remote terminal command failed"),
+            };
+            log_bash_execution(BashExecutionLog {
+                level,
+                message,
+                status,
+                route: "remote",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: false,
+                session_id: session_id.as_deref(),
+                tool_execution_id: Some(&tool_execution_id),
+                exit_code,
+                captured_stdout_bytes: 0,
+                captured_stderr_bytes: 0,
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    remote_dispatch_ms,
+                    total_ms: execution_started.elapsed().as_millis() as u64,
+                    ..BashExecutionTimings::default()
+                },
+            });
             return result;
         }
 
+        let terminal_settings_started = Instant::now();
         let shell_path = load_terminal_shell_path().await?;
+        let terminal_settings_ms = terminal_settings_started.elapsed().as_millis() as u64;
+        let shell_resolve_started = Instant::now();
         let (shell, shell_args) =
             resolve_shell_and_args(&shell_path, &command, Some(&working_directory)).await?;
+        let shell_resolve_ms = shell_resolve_started.elapsed().as_millis() as u64;
 
         // resolve_login_path 在 Windows 上返回注册表中的 Windows PATH（分号分隔的
         // Windows 路径）。这对 powershell/cmd 有用，但注入给 WSL 会破坏 Linux 的 PATH
         //（Linux 用冒号分隔）。WSL 通过 `bash -lc` 自行从 .profile 加载 Linux PATH，
         // 因此跳过注入。
+        let login_path_started = Instant::now();
         let login_path = if detect_shell_family(&shell) == "wsl" {
             None
         } else {
             resolve_login_path().await
         };
+        let login_path_ms = login_path_started.elapsed().as_millis() as u64;
 
         let mut process = Command::new(&shell);
         process
@@ -477,12 +602,43 @@ impl BashService {
             process.process_group(0);
         }
 
-        let mut child = process.spawn().map_err(|error| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to spawn process: {error}"),
-            )
-        })?;
+        let spawn_started = Instant::now();
+        let mut child = match process.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let spawn_ms = spawn_started.elapsed().as_millis() as u64;
+                log_bash_execution(BashExecutionLog {
+                    level: "ERROR",
+                    message: "Terminal process failed to spawn",
+                    status: "spawn_failed",
+                    route: "local",
+                    timeout_ms: timeout,
+                    is_interactive,
+                    detached: detach,
+                    session_id: session_id.as_deref(),
+                    tool_execution_id: None,
+                    exit_code: None,
+                    captured_stdout_bytes: 0,
+                    captured_stderr_bytes: 0,
+                    timings: BashExecutionTimings {
+                        argument_parse_ms,
+                        sensitive_check_ms,
+                        remote_resolve_ms,
+                        terminal_settings_ms,
+                        shell_resolve_ms,
+                        login_path_ms,
+                        spawn_ms,
+                        total_ms: execution_started.elapsed().as_millis() as u64,
+                        ..BashExecutionTimings::default()
+                    },
+                });
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to spawn process: {error}"),
+                ));
+            }
+        };
+        let spawn_ms = spawn_started.elapsed().as_millis() as u64;
 
         // detach 模式：不等待、不注册取消 token、不读取输出。拿到 PID 后
         // 立即返回；child 在此 drop（kill_on_drop=false，进程孤儿化后继续
@@ -498,6 +654,31 @@ impl BashService {
             } else {
                 ""
             };
+            log_bash_execution(BashExecutionLog {
+                level: "INFO",
+                message: "Detached terminal process started",
+                status: "detached",
+                route: "local",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: true,
+                session_id: session_id.as_deref(),
+                tool_execution_id: None,
+                exit_code: None,
+                captured_stdout_bytes: 0,
+                captured_stderr_bytes: 0,
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    terminal_settings_ms,
+                    shell_resolve_ms,
+                    login_path_ms,
+                    spawn_ms,
+                    total_ms: execution_started.elapsed().as_millis() as u64,
+                    ..BashExecutionTimings::default()
+                },
+            });
             return Ok(json!({
                 "detached": true,
                 "pid": pid,
@@ -521,8 +702,7 @@ impl BashService {
         // `tool_execution` chunk (mirroring how `interactive_session` ids
         // are delivered) so the tool call can be targeted for cancellation.
         let tool_execution_id = Uuid::new_v4().to_string();
-        let cancel_token =
-            crate::api::cancel::register_tool_execution(&tool_execution_id);
+        let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
         emit_stream_chunk(&callback, "tool_execution", tool_execution_id.clone());
 
         // For interactive sessions, take the stdin pipe and register the
@@ -534,17 +714,10 @@ impl BashService {
             if let Some(stdin) = child.stdin.take() {
                 let session_id = Uuid::new_v4().to_string();
                 let mut sessions = interactive_sessions().lock().await;
-                sessions.insert(
-                    session_id.clone(),
-                    InteractiveSession { stdin },
-                );
+                sessions.insert(session_id.clone(), InteractiveSession { stdin });
                 drop(sessions);
 
-                emit_stream_chunk(
-                    &callback,
-                    "interactive_session",
-                    session_id.clone(),
-                );
+                emit_stream_chunk(&callback, "interactive_session", session_id.clone());
                 Some(session_id)
             } else {
                 None
@@ -553,11 +726,24 @@ impl BashService {
             None
         };
 
+        let first_output_ms = Arc::new(OnceLock::new());
         let stdout_task = child.stdout.take().map(|stdout| {
-            tokio::spawn(read_stream(stdout, "stdout", Arc::clone(&callback)))
+            tokio::spawn(read_stream(
+                stdout,
+                "stdout",
+                Arc::clone(&callback),
+                Arc::clone(&first_output_ms),
+                execution_started,
+            ))
         });
         let stderr_task = child.stderr.take().map(|stderr| {
-            tokio::spawn(read_stream(stderr, "stderr", Arc::clone(&callback)))
+            tokio::spawn(read_stream(
+                stderr,
+                "stderr",
+                Arc::clone(&callback),
+                Arc::clone(&first_output_ms),
+                execution_started,
+            ))
         });
 
         // Interactive commands use a much longer timeout because they
@@ -568,6 +754,7 @@ impl BashService {
             Duration::from_millis(timeout)
         };
 
+        let process_wait_started = Instant::now();
         let wait_result = tokio::select! {
             // Cancellation and timeout are safety-critical. Prefer them over a
             // process that becomes ready at the same time, so a stop request
@@ -589,6 +776,7 @@ impl BashService {
                 }
             },
         };
+        let process_wait_ms = process_wait_started.elapsed().as_millis() as u64;
 
         // Clean up the interactive session after the process exits.
         if let Some(ref session_id) = interactive_session_id {
@@ -619,34 +807,82 @@ impl BashService {
         // this drain phase is the only part of the execution still pending,
         // so the stop button keeps targeting the execution (even though the
         // wait itself is bounded) instead of silently no-oping.
-        let (stdout, stderr) =
-            if matches!(
-                wait_result,
-                ProcessWaitResult::Cancelled | ProcessWaitResult::TimedOut
-            ) {
-                // A stop or timeout must not wait for inherited pipe handles.
-                // The live stream already delivered the useful partial output;
-                // abort both readers immediately after the process-tree kill.
-                if let Some(task) = stdout_task {
-                    task.abort();
-                }
-                if let Some(task) = stderr_task {
-                    task.abort();
-                }
-                (String::new(), String::new())
-            } else {
-                // Drain stdout and stderr concurrently. A grandchild that keeps
-                // one pipe open can therefore delay completion by at most the
-                // single bounded safety timeout, never twice that timeout.
-                tokio::join!(
-                    await_stream_task(stdout_task, Some(Duration::from_secs(3))),
-                    await_stream_task(stderr_task, Some(Duration::from_secs(3))),
-                )
-            };
+        let pipe_drain_started = Instant::now();
+        let (stdout, stderr) = if matches!(
+            wait_result,
+            ProcessWaitResult::Cancelled | ProcessWaitResult::TimedOut
+        ) {
+            // A stop or timeout must not wait for inherited pipe handles.
+            // The live stream already delivered the useful partial output;
+            // abort both readers immediately after the process-tree kill.
+            if let Some(task) = stdout_task {
+                task.abort();
+            }
+            if let Some(task) = stderr_task {
+                task.abort();
+            }
+            (String::new(), String::new())
+        } else {
+            // Drain stdout and stderr concurrently. A grandchild that keeps
+            // one pipe open can therefore delay completion by at most the
+            // single bounded safety timeout, never twice that timeout.
+            tokio::join!(
+                await_stream_task(stdout_task, Some(Duration::from_secs(3))),
+                await_stream_task(stderr_task, Some(Duration::from_secs(3))),
+            )
+        };
+        let pipe_drain_ms = pipe_drain_started.elapsed().as_millis() as u64;
 
         // No further cancellation can target this execution once the
         // process has settled and the pipe drain has finished.
         crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+        let (level, status, message, exit_code) = match &wait_result {
+            ProcessWaitResult::Completed(0) => {
+                ("INFO", "completed", "Terminal command completed", Some(0))
+            }
+            ProcessWaitResult::Completed(code) => (
+                "WARN",
+                "non_zero_exit",
+                "Terminal command exited with a non-zero status",
+                Some(*code),
+            ),
+            ProcessWaitResult::TimedOut => ("WARN", "timeout", "Terminal command timed out", None),
+            ProcessWaitResult::Cancelled => {
+                ("INFO", "cancelled", "Terminal command was cancelled", None)
+            }
+            ProcessWaitResult::Failed(_) => {
+                ("ERROR", "failed", "Terminal process wait failed", None)
+            }
+        };
+        log_bash_execution(BashExecutionLog {
+            level,
+            message,
+            status,
+            route: "local",
+            timeout_ms: timeout,
+            is_interactive,
+            detached: false,
+            session_id: session_id.as_deref(),
+            tool_execution_id: Some(&tool_execution_id),
+            exit_code,
+            captured_stdout_bytes: stdout.len(),
+            captured_stderr_bytes: stderr.len(),
+            timings: BashExecutionTimings {
+                argument_parse_ms,
+                sensitive_check_ms,
+                remote_resolve_ms,
+                terminal_settings_ms,
+                shell_resolve_ms,
+                login_path_ms,
+                spawn_ms,
+                first_output_ms: first_output_ms.get().copied(),
+                process_wait_ms,
+                pipe_drain_ms,
+                total_ms: execution_started.elapsed().as_millis() as u64,
+                ..BashExecutionTimings::default()
+            },
+        });
 
         match wait_result {
             ProcessWaitResult::Completed(exit_code) => Ok(json!({
@@ -715,12 +951,9 @@ async fn await_stream_task(
 /// taskkill /PID 只能杀掉 wsl.exe 壳进程，WSL 实例内的 Linux 进程需要
 /// 通过 pkill / wsl --terminate 停止，hint 提示据此区分。
 fn is_wsl_command(command: &str) -> bool {
-    command
-        .split_whitespace()
-        .next()
-        .is_some_and(|token| {
-            token.eq_ignore_ascii_case("wsl") || token.eq_ignore_ascii_case("wsl.exe")
-        })
+    command.split_whitespace().next().is_some_and(|token| {
+        token.eq_ignore_ascii_case("wsl") || token.eq_ignore_ascii_case("wsl.exe")
+    })
 }
 
 /// 生成 detach 模式日志文件的完整路径并创建父目录。
@@ -823,6 +1056,8 @@ async fn read_stream<R>(
     mut reader: R,
     stream: &'static str,
     on_chunk: Arc<BashStreamCallback>,
+    first_output_ms: Arc<OnceLock<u64>>,
+    execution_started: Instant,
 ) -> String
 where
     R: AsyncRead + Unpin,
@@ -837,6 +1072,7 @@ where
             Ok(read) => read,
         };
 
+        let _ = first_output_ms.set(execution_started.elapsed().as_millis() as u64);
         output.extend_from_slice(&buffer[..read]);
         pending_utf8.extend_from_slice(&buffer[..read]);
         emit_complete_utf8_chunks(&on_chunk, stream, &mut pending_utf8);
@@ -853,11 +1089,7 @@ where
     strip_ansi_codes(&String::from_utf8_lossy(&output))
 }
 
-fn emit_complete_utf8_chunks(
-    on_chunk: &BashStreamCallback,
-    stream: &str,
-    pending: &mut Vec<u8>,
-) {
+fn emit_complete_utf8_chunks(on_chunk: &BashStreamCallback, stream: &str, pending: &mut Vec<u8>) {
     loop {
         match std::str::from_utf8(pending) {
             Ok(text) => {
@@ -887,11 +1119,7 @@ fn emit_complete_utf8_chunks(
     }
 }
 
-fn emit_stream_chunk(
-    on_chunk: &BashStreamCallback,
-    stream: &str,
-    data: String,
-) {
+fn emit_stream_chunk(on_chunk: &BashStreamCallback, stream: &str, data: String) {
     if data.is_empty() {
         return;
     }
@@ -921,10 +1149,8 @@ fn strip_ansi_codes(input: &str) -> String {
         // CSI sequences: ESC [ ... final byte in 0x40..=0x7E
         // OSC sequences: ESC ] ... BEL  or  ESC ] ... ESC \  (ST)
         // Other two-byte escapes (ESC + single char) that some tools emit.
-        Regex::new(
-            r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9AB]",
-        )
-        .expect("invalid ANSI strip regex")
+        Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9AB]")
+            .expect("invalid ANSI strip regex")
     });
     re.replace_all(input, "").into_owned()
 }
@@ -1040,8 +1266,7 @@ fn is_self_destructive_command(command: &str) -> SelfDestructCheck {
 
     // Windows: Stop-Process targeting node/electron
     if lower.contains("stop-process")
-        && (regex_matches(r"(?i)\bnode\b", command)
-            || regex_matches(r"(?i)\belectron\b", command))
+        && (regex_matches(r"(?i)\bnode\b", command) || regex_matches(r"(?i)\belectron\b", command))
     {
         return SelfDestructCheck {
             is_self_destructive: true,
@@ -1063,7 +1288,12 @@ fn is_self_destructive_command(command: &str) -> SelfDestructCheck {
     let stop_process_pattern = format!(r"(?i)\bStop-Process\s+.*-Id\s+{}\b", pid_str);
     let taskkill_pattern = format!(r"(?i)\btaskkill\b.*/PID\s+{}\b", pid_str);
 
-    let pid_patterns = [kill_pattern, kill9_pattern, stop_process_pattern, taskkill_pattern];
+    let pid_patterns = [
+        kill_pattern,
+        kill9_pattern,
+        stop_process_pattern,
+        taskkill_pattern,
+    ];
 
     for pattern in &pid_patterns {
         if regex_matches(pattern, command) {
@@ -1095,5 +1325,3 @@ fn regex_matches(pattern: &str, text: &str) -> bool {
         .map(|r| r.is_match(text))
         .unwrap_or(false)
 }
-
-

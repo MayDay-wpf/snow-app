@@ -76,6 +76,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_system_prompt_scope(connection)?;
     migrate_chat_conversations_modes(connection)?;
     migrate_sub_agent_configs_project_id(connection)?;
+    migrate_sub_agent_configs_model(connection)?;
     purge_assistant_raw_json_blobs(connection)?;
     Ok(())
 }
@@ -93,13 +94,14 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
 /// the snowflake-ID migration was applied; development databases are expected
 /// to be rebuilt.
 fn reset_legacy_integer_primary_key_tables(connection: &Connection) -> rusqlite::Result<()> {
-    let has_legacy_primary_key = LEGACY_INTEGER_PRIMARY_KEY_TABLES
-        .iter()
-        .try_fold(false, |found, table_name| {
-            Ok::<bool, rusqlite::Error>(
-                found || has_integer_primary_key(connection, table_name)?,
-            )
-        })?;
+    let has_legacy_primary_key =
+        LEGACY_INTEGER_PRIMARY_KEY_TABLES
+            .iter()
+            .try_fold(false, |found, table_name| {
+                Ok::<bool, rusqlite::Error>(
+                    found || has_integer_primary_key(connection, table_name)?,
+                )
+            })?;
 
     if !has_legacy_primary_key {
         return Ok(());
@@ -384,6 +386,7 @@ fn migrate_sub_agent_configs_project_id(connection: &Connection) -> rusqlite::Re
            system_prompt TEXT NOT NULL DEFAULT '',
            tools_json TEXT NOT NULL DEFAULT '[]',
            config_profile TEXT NOT NULL DEFAULT '',
+           model TEXT NOT NULL DEFAULT '',
            builtin INTEGER NOT NULL DEFAULT 0,
            sort_order INTEGER NOT NULL DEFAULT 0,
            source TEXT NOT NULL DEFAULT 'manual',
@@ -392,14 +395,14 @@ fn migrate_sub_agent_configs_project_id(connection: &Connection) -> rusqlite::Re
            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
            UNIQUE(agent_id, project_id)
          );
-         INSERT INTO sub_agent_configs (
-           id, agent_id, name, description, system_prompt, tools_json,
-           config_profile, builtin, sort_order, source, project_id,
-           created_at, updated_at
-         )
-         SELECT id, agent_id, name, description, system_prompt, tools_json,
-                config_profile, builtin, sort_order, source, '',
-                created_at, updated_at
+           INSERT INTO sub_agent_configs (
+            id, agent_id, name, description, system_prompt, tools_json,
+            config_profile, model, builtin, sort_order, source, project_id,
+            created_at, updated_at
+          )
+          SELECT id, agent_id, name, description, system_prompt, tools_json,
+                 config_profile, '', builtin, sort_order, source, '',
+                 created_at, updated_at
            FROM sub_agent_configs_legacy;
          CREATE INDEX IF NOT EXISTS idx_sub_agent_configs_builtin
            ON sub_agent_configs(builtin);
@@ -409,6 +412,28 @@ fn migrate_sub_agent_configs_project_id(connection: &Connection) -> rusqlite::Re
            ON sub_agent_configs(project_id);
          DROP TABLE sub_agent_configs_legacy;",
     )?;
+
+    Ok(())
+}
+
+/// Adds the optional independent model override for sub-agents.
+///
+/// Existing rows receive an empty string, which preserves the compatibility
+/// rule: inherited agents use the parent runtime model, while fixed-profile
+/// agents use that profile's advanced model. Idempotent on fresh or already
+/// migrated databases.
+fn migrate_sub_agent_configs_model(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(sub_agent_configs)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if !columns.iter().any(|column| column == "model") {
+        connection.execute(
+            "ALTER TABLE sub_agent_configs ADD COLUMN model TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -453,4 +478,148 @@ fn purge_assistant_raw_json_blobs(connection: &Connection) -> rusqlite::Result<(
         connection.execute_batch("VACUUM")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{migrate_sub_agent_configs_model, migrate_sub_agent_configs_project_id};
+    use rusqlite::{params, Connection};
+
+    fn create_legacy_sub_agent_configs(connection: &Connection) {
+        connection
+            .execute_batch(
+                "CREATE TABLE sub_agent_configs (
+                   id TEXT PRIMARY KEY NOT NULL,
+                   agent_id TEXT NOT NULL UNIQUE,
+                   name TEXT NOT NULL,
+                   description TEXT NOT NULL DEFAULT '',
+                   system_prompt TEXT NOT NULL DEFAULT '',
+                   tools_json TEXT NOT NULL DEFAULT '[]',
+                   config_profile TEXT NOT NULL DEFAULT '',
+                   builtin INTEGER NOT NULL DEFAULT 0,
+                   sort_order INTEGER NOT NULL DEFAULT 0,
+                   source TEXT NOT NULL DEFAULT 'manual',
+                   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );",
+            )
+            .expect("create legacy sub-agent table");
+    }
+
+    fn create_current_sub_agent_configs(connection: &Connection, include_model: bool) {
+        let model_column = if include_model {
+            "model TEXT NOT NULL DEFAULT '',"
+        } else {
+            ""
+        };
+        connection
+            .execute_batch(&format!(
+                "CREATE TABLE sub_agent_configs (
+                   id TEXT PRIMARY KEY NOT NULL,
+                   agent_id TEXT NOT NULL,
+                   name TEXT NOT NULL,
+                   description TEXT NOT NULL DEFAULT '',
+                   system_prompt TEXT NOT NULL DEFAULT '',
+                   tools_json TEXT NOT NULL DEFAULT '[]',
+                   config_profile TEXT NOT NULL DEFAULT '',
+                   {model_column}
+                   builtin INTEGER NOT NULL DEFAULT 0,
+                   sort_order INTEGER NOT NULL DEFAULT 0,
+                   source TEXT NOT NULL DEFAULT 'manual',
+                   project_id TEXT NOT NULL DEFAULT '',
+                   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                   UNIQUE(agent_id, project_id)
+                 );"
+            ))
+            .expect("create current sub-agent table");
+    }
+
+    #[test]
+    fn legacy_sub_agent_migration_preserves_profile_and_adds_empty_snapshot_fields() {
+        let connection = Connection::open_in_memory().expect("open database");
+        create_legacy_sub_agent_configs(&connection);
+        connection
+            .execute(
+                "INSERT INTO sub_agent_configs (
+                   id, agent_id, name, config_profile
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params!["1", "legacy-agent", "Legacy", "fixed-profile"],
+            )
+            .expect("insert legacy agent");
+
+        migrate_sub_agent_configs_project_id(&connection).expect("migrate project scope");
+        migrate_sub_agent_configs_model(&connection).expect("migrate model");
+
+        let values: (String, String, String) = connection
+            .query_row(
+                "SELECT config_profile, project_id, model
+                   FROM sub_agent_configs
+                  WHERE agent_id = 'legacy-agent'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read migrated agent");
+        assert_eq!(
+            values,
+            ("fixed-profile".into(), String::new(), String::new())
+        );
+    }
+
+    #[test]
+    fn model_migration_is_idempotent_and_adds_only_one_column() {
+        let connection = Connection::open_in_memory().expect("open database");
+        create_current_sub_agent_configs(&connection, false);
+
+        migrate_sub_agent_configs_model(&connection).expect("first model migration");
+        migrate_sub_agent_configs_model(&connection).expect("second model migration");
+
+        let model_columns: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sub_agent_configs') WHERE name = 'model'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count model columns");
+        assert_eq!(model_columns, 1);
+    }
+
+    #[test]
+    fn model_migration_preserves_existing_value_and_default() {
+        let connection = Connection::open_in_memory().expect("open database");
+        create_current_sub_agent_configs(&connection, true);
+        connection
+            .execute(
+                "INSERT INTO sub_agent_configs (id, agent_id, name, model)
+                 VALUES ('1', 'custom', 'Custom', 'custom-model')",
+                [],
+            )
+            .expect("insert custom model");
+        connection
+            .execute(
+                "INSERT INTO sub_agent_configs (id, agent_id, name)
+                 VALUES ('2', 'default', 'Default')",
+                [],
+            )
+            .expect("insert default model");
+
+        migrate_sub_agent_configs_model(&connection).expect("migrate existing model column");
+
+        let custom: String = connection
+            .query_row(
+                "SELECT model FROM sub_agent_configs WHERE agent_id = 'custom'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read custom model");
+        let default_model: String = connection
+            .query_row(
+                "SELECT model FROM sub_agent_configs WHERE agent_id = 'default'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read default model");
+        assert_eq!(custom, "custom-model");
+        assert!(default_model.is_empty());
+    }
 }

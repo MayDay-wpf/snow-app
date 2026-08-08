@@ -233,25 +233,22 @@ pub(crate) struct TerminalSettingsJson {
 /// shellPath 为空时返回空字符串，由调用方决定回退策略。
 /// 同步版本供 spawn_blocking 线程上的同步调用方（如 git 执行器）使用。
 pub(crate) fn load_terminal_shell_path_sync() -> napi::Result<String> {
-    let setting_json =
-        crate::storage::get_system_setting_value(TERMINAL_SETTINGS_CODE.to_string()).map_err(
-            |error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to read terminal settings: {error}"),
-                )
-            },
-        )?;
+    let setting_json = crate::storage::get_system_setting_value(TERMINAL_SETTINGS_CODE.to_string())
+        .map_err(|error| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to read terminal settings: {error}"),
+            )
+        })?;
 
     match setting_json {
         Some(json) => {
-            let settings: TerminalSettingsJson =
-                serde_json::from_str(&json).map_err(|error| {
-                    Error::new(
-                        Status::GenericFailure,
-                        format!("Failed to parse terminal settings: {error}"),
-                    )
-                })?;
+            let settings: TerminalSettingsJson = serde_json::from_str(&json).map_err(|error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to parse terminal settings: {error}"),
+                )
+            })?;
             Ok(settings.shell_path)
         }
         None => Ok(String::new()),
@@ -373,7 +370,10 @@ pub(crate) fn fallback_shell_args(command: &str) -> napi::Result<(String, Vec<St
         let utf8_command = format!("chcp 65001>nul && {}", command);
         Ok(("cmd".to_string(), vec!["/C".to_string(), utf8_command]))
     } else {
-        Ok(("sh".to_string(), vec!["-c".to_string(), command.to_string()]))
+        Ok((
+            "sh".to_string(),
+            vec!["-c".to_string(), command.to_string()],
+        ))
     }
 }
 

@@ -1,20 +1,18 @@
-import { ipcMain } from "electron";
-import {
-  showAppNotification,
-  type AppNotificationOptions,
-} from "../../notification/notificationManager";
+import { BrowserWindow, ipcMain } from "electron";
+import { showAppNotification } from "../../notification/notificationManager";
+import { isAppNotificationOptions } from "../../../shared/notification";
 
 export const registerNotificationHandlers = (): void => {
-  ipcMain.handle("notification:show", (_event, options: unknown) => {
-    if (
-      !options ||
-      typeof options !== "object" ||
-      typeof (options as AppNotificationOptions).title !== "string" ||
-      typeof (options as AppNotificationOptions).body !== "string"
-    ) {
+  ipcMain.handle("notification:show", (event, options: unknown) => {
+    if (!isAppNotificationOptions(options)) {
       return;
     }
 
-    showAppNotification(options as AppNotificationOptions);
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!sourceWindow || sourceWindow.isDestroyed()) {
+      return;
+    }
+
+    showAppNotification(options, sourceWindow);
   });
 };

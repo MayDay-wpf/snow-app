@@ -151,6 +151,10 @@ export const workspaceApi = {
     dialogTitle?: string
   ): Promise<{ path: string; isDirectory: boolean }[] | null> =>
     ipcRenderer.invoke("workspace-directories:select-files", dialogTitle),
+  selectDirectories: (
+    dialogTitle?: string
+  ): Promise<{ path: string; isDirectory: boolean }[] | null> =>
+    ipcRenderer.invoke("workspace-directories:select-directories", dialogTitle),
   /**
    * 解析拖入编辑区的外部文件为真实磁盘路径列表。
    *

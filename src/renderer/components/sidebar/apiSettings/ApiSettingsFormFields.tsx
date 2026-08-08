@@ -28,6 +28,34 @@ import type { ApiConfigFormData } from "./types";
 
 type ModelField = "advancedModel" | "basicModel";
 
+type TokenPreset = {
+  value: string;
+  label: string;
+};
+
+// 基于 2026 年主流模型能力整理的数值档位；仅展示规格，不绑定模型名称。
+const CONTEXT_TOKEN_PRESETS: TokenPreset[] = [
+  { value: "128000", label: "128K" },
+  { value: "204800", label: "200K" },
+  { value: "262144", label: "256K" },
+  { value: "400000", label: "400K" },
+  { value: "500000", label: "500K" },
+  { value: "1000000", label: "1M" },
+  { value: "1048576", label: "1M (1,048,576)" },
+  { value: "1050000", label: "1.05M" },
+];
+
+const OUTPUT_TOKEN_PRESETS: TokenPreset[] = [
+  { value: "16384", label: "16K" },
+  { value: "32768", label: "32K" },
+  { value: "65536", label: "64K" },
+  { value: "128000", label: "128K" },
+  { value: "131072", label: "128K (131,072)" },
+  { value: "262144", label: "256K" },
+  { value: "384000", label: "384K" },
+  { value: "500000", label: "500K" },
+];
+
 type ApiSettingsFormFieldsProps = {
   data: ApiConfigFormData;
   onChange: (field: keyof ApiConfigFormData, value: string | boolean) => void;
@@ -314,6 +342,85 @@ export function ApiSettingsFormFields({
               disabled={disabled}
             />
           </label>
+          {data.requestMethod === "gemini" && (
+            <div className="api-settings-field">
+              <span>
+                {t("settings.apiGoogleSearch", {
+                  defaultValue: "Google search",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={data.googleSearch}
+                  onChange={changeField("googleSearch")}
+                  disabled={disabled}
+                  hidden
+                />
+                <span className="toggle-slider" />
+                <span>
+                  {t(
+                    data.googleSearch
+                      ? "settings.enabled"
+                      : "settings.disabled"
+                  )}
+                </span>
+              </label>
+              <small className="api-settings-hint-text">
+                {t("settings.apiGoogleSearchHint", {
+                  defaultValue:
+                    "When enabled, Gemini chat requests inject the Google Search tool for real-time web grounding.",
+                })}
+              </small>
+            </div>
+          )}
+          {data.requestMethod === "responses" && (
+            <>
+              <label className="api-settings-field">
+                <span>{t("settings.apiResponsesVerbosity")}</span>
+                <CustomSelect
+                  value={data.responsesVerbosity}
+                  options={[
+                    {
+                      value: "",
+                      label: t("settings.apiResponsesVerbosityDefault"),
+                    },
+                    { value: "low", label: "Low" },
+                    { value: "medium", label: "Medium" },
+                    { value: "high", label: "High" },
+                  ]}
+                  onChange={(value) => onChange("responsesVerbosity", value)}
+                  disabled={disabled}
+                />
+                <small className="api-settings-hint-text">
+                  {t("settings.apiResponsesVerbosityHint")}
+                </small>
+              </label>
+              <div className="api-settings-field">
+                <span>{t("settings.apiResponsesFastMode")}</span>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={data.responsesFastMode}
+                    onChange={changeField("responsesFastMode")}
+                    disabled={disabled}
+                    hidden
+                  />
+                  <span className="toggle-slider" />
+                  <span>
+                    {t(
+                      data.responsesFastMode
+                        ? "settings.enabled"
+                        : "settings.disabled"
+                    )}
+                  </span>
+                </label>
+                <small className="api-settings-hint-text">
+                  {t("settings.apiResponsesFastModeHint")}
+                </small>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -405,8 +512,22 @@ export function ApiSettingsFormFields({
               placeholder="e.g. 128000"
               type="number"
               min={0}
+              list="api-context-token-presets"
               disabled={disabled}
             />
+            <datalist id="api-context-token-presets">
+              {CONTEXT_TOKEN_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </datalist>
+            <small className="api-settings-hint-text">
+              {t("settings.apiTokenPresetsHint", {
+                defaultValue:
+                  "Choose a common preset from the input suggestions, or enter a custom value.",
+              })}
+            </small>
           </label>
           <label className="api-settings-field">
             <span>
@@ -418,8 +539,16 @@ export function ApiSettingsFormFields({
               placeholder="e.g. 4096"
               type="number"
               min={0}
+              list="api-output-token-presets"
               disabled={disabled}
             />
+            <datalist id="api-output-token-presets">
+              {OUTPUT_TOKEN_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </datalist>
             <small className="api-settings-hint-text">
               {t("settings.apiMaxTokensHint", {
                 defaultValue: "Leave empty to omit this parameter from requests.",
@@ -515,6 +644,117 @@ export function ApiSettingsFormFields({
                 placeholder="gpt-4.1"
                 disabled={disabled}
               />
+            </label>
+            {data.visionRequestMethod === "gemini" && (
+              <div className="api-settings-field">
+                <span>
+                  {t("settings.apiGoogleSearch", {
+                    defaultValue: "Google search",
+                  })}
+                </span>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={data.visionGoogleSearch}
+                    onChange={changeField("visionGoogleSearch")}
+                    disabled={disabled}
+                    hidden
+                  />
+                  <span className="toggle-slider" />
+                  <span>
+                    {t(
+                      data.visionGoogleSearch
+                        ? "settings.enabled"
+                        : "settings.disabled"
+                    )}
+                  </span>
+                </label>
+                <small className="api-settings-hint-text">
+                  {t("settings.apiGoogleSearchHint", {
+                    defaultValue:
+                      "When enabled, Gemini requests inject the Google Search tool (native Gemini grounding) for real-time web information.",
+                  })}
+                </small>
+              </div>
+            )}
+            <div className="api-settings-field">
+              <span>
+                {t("settings.apiVisionThinking", {
+                  defaultValue: "Thinking",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={data.visionThinkingEnabled}
+                  onChange={changeField("visionThinkingEnabled")}
+                  disabled={disabled}
+                  hidden
+                />
+                <span className="toggle-slider" />
+                <span>
+                  {t(
+                    data.visionThinkingEnabled
+                      ? "settings.enabled"
+                      : "settings.disabled"
+                  )}
+                </span>
+              </label>
+              <small className="api-settings-hint-text">
+                {t("settings.apiVisionThinkingHint", {
+                  defaultValue:
+                    "Disabled by default for speed. When disabled, Gemini requests explicitly set thinking budget to 0; Anthropic is always non-thinking.",
+                })}
+              </small>
+            </div>
+            {data.visionThinkingEnabled &&
+              (data.visionRequestMethod === "chat" ||
+                data.visionRequestMethod === "responses") && (
+                <label className="api-settings-field">
+                  <span>
+                    {t("settings.apiVisionThinkingEffort", {
+                      defaultValue: "Thinking effort",
+                    })}
+                  </span>
+                  <CustomSelect
+                    value={data.visionThinkingEffort || "medium"}
+                    options={(
+                      THINKING_OPTIONS_BY_METHOD[
+                        (data.visionRequestMethod ||
+                          "chat") as keyof typeof THINKING_OPTIONS_BY_METHOD
+                      ] || THINKING_OPTIONS_BY_METHOD.chat
+                    )
+                      .filter((option) => option.value !== "none")
+                      .map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    onChange={(value) =>
+                      onChange("visionThinkingEffort", value)
+                    }
+                    disabled={disabled}
+                  />
+                </label>
+              )}
+            <label className="api-settings-field">
+              <span>
+                {t("settings.apiVisionMaxTokens", {
+                  defaultValue: "Max output tokens",
+                })}
+              </span>
+              <input
+                value={data.visionMaxTokens}
+                onChange={changeField("visionMaxTokens")}
+                placeholder="4096"
+                type="number"
+                min={256}
+                disabled={disabled}
+              />
+              <small className="api-settings-hint-text">
+                {t("settings.apiVisionMaxTokensHint", {
+                  defaultValue: "Maximum output tokens for image descriptions. Defaults to 4096 when empty.",
+                })}
+              </small>
             </label>
           </div>
         )}

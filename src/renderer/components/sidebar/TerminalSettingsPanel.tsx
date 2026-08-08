@@ -127,6 +127,24 @@ export function TerminalSettingsPanel({
       setIsSaving(true);
       setError("");
       try {
+        // 校验 shell 路径有效性：非空时含路径分隔符的路径必须真实存在，
+        // 避免保存后终端无法启动（纯文件名交由运行时按 PATH 解析）。
+        if (settings.shellPath) {
+          const shellValidation = await window.snow.validateTerminalShellPath(
+            settings.shellPath
+          );
+          if (!shellValidation.valid) {
+            if (isMountedRef.current) {
+              setError(
+                t("settings.terminalShellPathValidationError", {
+                  defaultValue:
+                    "Shell executable does not exist. Check the path or leave it empty to auto-detect.",
+                })
+              );
+            }
+            return;
+          }
+        }
         await window.snow.setSystemSetting(
           TERMINAL_SETTING_NAME,
           TERMINAL_SETTING_CODE,

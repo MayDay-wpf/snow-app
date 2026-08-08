@@ -1,144 +1,171 @@
 # 8-Third-party Configuration Import
 
-Snow App can scan and import configuration from other AI coding tools
-(Codex, Claude Code, OpenCode) and install or manage declarative Plugins.
-This guide covers the **Settings → Third-party configuration** page
-(settings page id: `import-settings`).
+Snow App can discover and import MCP servers, Skills, prompts, commands, agents, and plugins from Codex, Claude Code, and OpenCode. It can also install and manage declarative plugins. Open **Settings → Third-party configuration** (page id: `import-settings`).
 
-The page has two tabs:
-
-| Tab | Description |
+| Tab | Purpose |
 | --- | --- |
-| Import configuration | Scan and import MCP, Skills, Prompts, Commands, Agents and Plugins from Codex / Claude Code / OpenCode |
-| Manage Plugins | Manage imported Plugins (enable / disable / update / uninstall / run) and install Plugins from marketplaces |
+| Import configuration | Discover third-party configuration in the active environment, select candidates, and import them |
+| Manage Plugins | Enable, disable, update, and uninstall plugins; manage marketplaces and plugin runtimes |
 
-## 1. Import Configuration
+## 1. Sources and Importable Content
 
-### 1.1 Supported Sources
-
-Switch the source at the top of the tab (Codex / Claude Code / OpenCode).
-Snow App automatically scans the locations below and lists importable candidates:
-
-| Source | Config home | Scanned config files | Importable content |
+| Source | Configuration root | Main scanned files | Importable content |
 | --- | --- | --- | --- |
-| Codex | `CODEX_HOME` env var or `~/.codex` | Global `config.toml`; project `<project>/.codex/config.toml` | MCP servers, `AGENTS.md` / `AGENTS.override.md`, profile prompts, Skills, Plugins |
-| Claude Code | `CLAUDE_CONFIG_DIR` env var or `~/.claude` | `~/.claude.json`, `~/.claude/settings.json`; project `.mcp.json` | MCP servers, `CLAUDE.md`, rules, commands, Skills |
-| OpenCode | `OPENCODE_CONFIG_DIR`, `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` (legacy `~/.opencode` also supported) | Global `config.json` / `opencode.json` / `opencode.jsonc`; project `opencode.json` / `opencode.jsonc` / `.opencode/opencode.json` / `.opencode/opencode.jsonc` | MCP (`mcp` field), `instructions`, commands, agents, Skills |
+| Codex | `CODEX_HOME` or `~/.codex` | Global/project `config.toml`, `AGENTS.md`, `AGENTS.override.md` | MCP, prompts, Skills, Plugins |
+| Claude Code | `CLAUDE_CONFIG_DIR` or `~/.claude` | `~/.claude.json`, `settings.json`, project `.mcp.json`, `CLAUDE.md`, rules/commands | MCP, prompts, Commands, Skills |
+| OpenCode | `OPENCODE_CONFIG_DIR`, `$XDG_CONFIG_HOME/opencode`, `~/.config/opencode`; legacy `~/.opencode` is supported | Global/project `config.json`, `opencode.json/jsonc`, `.opencode/...` | MCP, instructions, Commands, Agents, Skills |
 
-Each source tab shows:
+Discovery shows summary cards, candidate items, actual source paths, and warnings. Candidate states include New, Already effective, Update available, Conflict, Unsupported, and Managed. Identical content from several sources is merged. The same logical ID with different content becomes a Conflict, and only one variant may be selected. Snow App rescans before commit; if content changed, refresh before importing.
 
-- **Summary cards**: MCP servers (global / project counts), Skills, Prompts, Plugins or project config count;
-- **Candidate list**: checkbox list of importable items;
-- **Source files**: the scanned config directory and file paths with found/missing state;
-- **Warnings**: non-blocking notes found during scanning (e.g. unsupported MCP transports).
+## 2. Local, WSL, and SSH Discovery Rules
 
-### 1.2 Candidate Status
+Snow App does not scan every registered remote environment. The active project determines the discovery scope:
 
-| Status | Meaning |
+| Current context | Discovery scope |
 | --- | --- |
-| New | Fresh candidate, ready to import |
-| Already effective | Already in effect (e.g. the Skill is inside a path Snow already scans), no import needed |
-| Update available | Imported before, but the source content changed |
-| Conflict | Multiple sources use the same logical ID with different content; pick only one |
-| Unsupported | Cannot be imported (see "Unsupported items" below) |
-| Managed | Already managed by Snow with identical content |
+| No active project supplied | Local global configuration only; the global settings page does not enter WSL or SSH automatically |
+| Ordinary local Windows project | Local global configuration plus the active local project |
+| Project under `\\wsl$\<distro>\...` or `\\wsl.localhost\<distro>\...` | Local global discovery remains enabled, plus the active WSL project in that distribution |
+| `ssh://...` project | Local global discovery remains enabled, plus the active SSH host's remote home and project |
 
-### 1.3 Committing an Import
+For WSL, Snow App resolves the Linux home from `/etc/passwd` and reads files through the UNC mapping. Failure to resolve the home produces a warning and falls back to local-only discovery. For SSH, Snow App connects to the active host, resolves its remote home, scans the project, and closes the session after discovery. Connection or home-resolution failure also warns and falls back to local only.
 
-1. Switch to the target source tab;
-2. Click **Refresh discovery** to rescan (optional; the page scans on open);
-3. Check the candidates to import (Conflict candidates are mutually exclusive — only one can be checked);
-4. Click **Import selected (n)** at the bottom.
+Additional boundaries:
 
-After committing, a summary shows the counts of imported, unchanged, skipped and
-unsupported items.
+- Registered WSL/SSH projects are not all scanned; only the environment for the active project is used;
+- An SSH-declared stdio MCP command cannot run on the local machine and is marked Unsupported;
+- An SSH Skill may be downloaded to local staging and then enter the same directory transaction as a local Skill.
 
-### 1.4 Import Targets
+## 3. Selecting and Importing
 
-| Candidate type | Import target |
+1. Select Codex, Claude Code, or OpenCode;
+2. Review source paths, warnings, and candidate states; use **Refresh discovery** when needed;
+3. Select candidates; conflicting variants are mutually exclusive;
+4. Click **Import selected (n)**;
+5. Review the imported, unchanged, skipped, and unsupported counts.
+
+| Candidate type | Target |
 | --- | --- |
-| MCP server | Snow's MCP settings (global / project scope preserved) |
-| Skill | Copied to `~/.snow/skills` (global) or `<project>/.snow/skills` (project), managed by Snow |
-| Prompt / Command / Agent | System Prompt |
-| Plugin | Plugin management (its components are managed by Snow) |
+| MCP | Snow MCP settings, preserving global/project scope |
+| Skill | `~/.snow/skills` or `<project>/.snow/skills` |
+| Prompt / Command / Agent | System Prompt storage |
+| Plugin | Snow plugin management and managed components |
 
-### 1.5 Deduplication and Conflict Rules
+If a target already exists with different content and is not an unchanged Snow-managed snapshot, the import skips it instead of overwriting the user's directory.
 
-- Sources with identical content are merged into one candidate with all sources listed (shared);
-- Same logical ID with different content produces a **Conflict**; only one content variant can be selected;
-- Before committing, the app rescans; if a candidate changed, refresh first and then commit again.
+## 4. Reversible Directory Transaction
 
-### 1.6 Unsupported Items
+Skills and plugins are not overwritten while discovery runs. Directory changes and the database commit form a recoverable transaction:
 
-- Claude Code WebSocket (`ws`) and SSE (`sse`) MCP servers;
-- Claude Code MCP servers using `headersHelper`;
-- Plugin MCP declarations with neither `command` nor `url`.
+1. Copy each source directory to staging under the target's parent directory;
+2. If the target exists, atomically rename it to a `previous` backup in the same directory;
+3. Rename staged `new` into the final target;
+4. After every directory commit succeeds, commit MCP entries, managed resources, and metadata in one native database transaction;
+5. On any failure, roll promoted directories back in reverse order;
+6. Remove `previous` and staging data only after the database commit succeeds;
+7. If automatic recovery is incomplete, retain recovery data and report its paths in the error.
 
-## 2. Managing Plugins
+```mermaid
+flowchart LR
+    A[Discover] --> B[Hash and deduplicate]
+    B --> C[Freshness re-scan]
+    C --> D[Stage directories]
+    D --> E[Preserve old targets]
+    E --> F[Promote staged directories]
+    F --> G[Atomic database commit]
+    G -->|Success| H[Clean backups and staging]
+    D -->|Failure| R[Reverse directory rollback]
+    E -->|Failure| R
+    F -->|Failure| R
+    G -->|Failure| R
+    R --> Q{Rollback complete}
+    Q -->|Yes| Z[Restore previous state]
+    Q -->|No| K[Keep recovery data and report paths]
+```
 
-The **Manage Plugins** tab manages declarative Plugins owned by Snow. Plugins are
-declared in `marketplace.json` (or `marketplace.json` under `.agents/plugins/`,
-`.claude-plugin/`, `.codex-plugin/`). Snow only reads their declarative components
-(MCP, Skill, Prompt, Command, Agent, Hook) and **never runs install scripts**.
+## 5. Two MCP Enablement Semantics
 
-### 2.1 Installed Plugins
+### 5.1 Ordinary Configuration Import
 
-| Action | Description |
+When importing an MCP server from ordinary Codex, Claude Code, or OpenCode configuration:
+
+- `enabled` is inherited from the source declaration;
+- If the source omits `enabled`, normalization defaults it to `true`;
+- The marketplace's per-MCP approval dialog is not involved.
+
+### 5.2 Plugin Marketplace Installation
+
+Installing a marketplace plugin applies stricter component approval:
+
+- Before installation, review each MCP's transport, command, args, env, headers, URL, and declaration path;
+- Every MCP is disabled by default. The user must select each one, and only approved components are written with `enabled=true`;
+- Approval is bound to an `approvalHash` derived from `componentId + declarationPath + connectionHash`;
+- Snow App validates again before and after installation. A declaration change invalidates the old approval and requires another review;
+- A plugin's `defaultEnabled` does not automatically approve its MCP servers.
+
+These flows are intentionally different: ordinary configuration imports preserve source enablement, while marketplace plugins require explicit approval for every bundled MCP server.
+
+## 6. Plugin Marketplaces and Declarative Components
+
+Supported marketplace sources include local directories, `owner/repo[@ref]`, Git URLs, and HTTPS URLs that point directly to `marketplace.json`. Marketplace caches live in `~/.snow/plugin-marketplaces`; installed plugins live in `~/.snow/plugins/marketplaces`. Removing a marketplace clears its cache but keeps installed plugins.
+
+Snow App can import declarative MCP, Skill, Prompt, Command, and Agent components and **does not run install scripts**. A Hook directory or manifest declaration is detected but currently marked Unsupported: it is not imported as an executable Snow lifecycle Hook, and plugin Hook code does not run. External code can run only through a plugin's optional Snow runtime after the user explicitly starts it and reviews its permissions. Import records a content hash for the plugin directory, which is used for update detection and runtime integrity checks.
+
+## 7. Plugin Runtime Security and Lifecycle
+
+A plugin may optionally declare a runtime. A plugin without one cannot be started. Before launch, Snow App:
+
+- Recomputes the source-directory hash and refuses to run if it differs from the saved `contentHash`, requiring a rescan/update;
+- Requires an entry that exists inside the plugin directory and has a `.js`, `.mjs`, or `.cjs` extension;
+- Supports only `storage`, `network`, and `child-process` declarations. The normal Settings UI submits the declaration list unchanged as the granted list;
+- Requires the low-level granted value to be a duplicate-free string array containing every declared permission. A missing declared permission, duplicate, or invalid shape produces `permission-denied`. The current validator does not reject extra strings, but Node permission flags are always derived only from the plugin declaration, so extras do not expand effective runtime authority.
+
+The runtime starts as an isolated worker through Electron `utilityProcess.fork`, with Node permission flags narrowing its capabilities:
+
+| Permission | Runtime capability |
 | --- | --- |
-| Enable / disable | Toggle the plugin switch; disabled components stop taking effect |
-| Update | Re-fetch the latest version when an update is available |
-| Uninstall | Remove the plugin and its Snow-managed components |
-| Runtime | A plugin may declare a runtime (isolated utility process). Starting it asks for confirmation of requested permissions (Plugin storage, Network, Child process); only run code you trust |
+| Default | Read-only access to plugin source, entry, and required application paths |
+| `storage` | Write access to a plugin-specific storage directory named from the first 24 characters of the plugin ID's SHA-256 hash |
+| `network` | Adds `--allow-net` |
+| `child-process` | Adds `--allow-child-process` |
 
-Expanding a plugin shows its component list, source path and runtime information.
+Lifecycle states include `unavailable`, `stopped`, `starting`, `running`, `stopping`, `timed-out`, `crashed`, `permission-denied`, and `failed`:
 
-### 2.2 Plugin Marketplaces
+1. The worker must send `ready` within `runtime.timeoutMs`; otherwise it is killed and marked `timed-out`;
+2. Stop first sends `{type: "stop"}` and force-kills the process only if it has not exited after five seconds;
+3. Disable, update, and uninstall stop the runtime first;
+4. App shutdown calls `stopAll()`.
 
-Click **Add marketplace** to add a marketplace. Supported source formats:
+Installing declarative components, not running install scripts, rejecting plugin Hooks, and explicitly starting a Snow runtime are separate trust boundaries. Run plugin code only after reviewing its content hash, entry, and declared permissions.
 
-| Source format | Example |
+```mermaid
+stateDiagram-v2
+    [*] --> stopped
+    stopped --> starting: User starts runtime
+    starting --> permission_denied: Permissions mismatch
+    starting --> failed: Hash or entry validation fails
+    starting --> running: ready within timeoutMs
+    starting --> timed_out: No ready before timeout
+    running --> stopping: Stop, disable, update, uninstall, or app exit
+    stopping --> stopped: Worker exits
+    stopping --> stopped: Force kill after 5 seconds
+    running --> crashed: Unexpected exit
+    crashed --> starting: User retries
+```
+
+## 8. Unsupported Items and Troubleshooting
+
+| Symptom | Resolution |
 | --- | --- |
-| Local path | `./my-marketplace` (must contain `marketplace.json`) |
-| GitHub repository | `owner/repo` or `owner/repo@ref` |
-| Git URL | `https://github.com/owner/repo.git#ref` |
-| HTTPS manifest URL | `https://example.com/marketplace.json` (HTTPS only, must point directly to the manifest) |
+| Source not found | The source tool is not installed or has not been used; install/run it, then refresh |
+| Unsupported | Review the warning; common cases are Claude Code `ws`/`sse`, `headersHelper`, a plugin MCP without command/URL, or an SSH stdio MCP |
+| Import discovery changed | Source content changed after discovery; refresh and select again |
+| A user directory was not overwritten | Different content outside an unchanged Snow-managed snapshot is skipped for safety |
+| Runtime is permission-denied | Verify that the granted value is a duplicate-free string array containing every declared permission; review and submit the plugin's declaration list again from Settings |
+| Runtime is timed-out | The plugin did not send `ready` within `runtime.timeoutMs` |
 
-After adding a marketplace:
+## 9. References
 
-- Marketplace caches live in `~/.snow/plugin-marketplaces`; installed Plugins live in `~/.snow/plugins/marketplaces`;
-- Select the marketplace to browse its catalog and click **Install Plugin**;
-- Installed Plugins show their toggle here, so you can enable / disable / update directly;
-- Removing a marketplace deletes its Snow cache but **keeps installed Plugins**.
-
-> Security note: only install Plugins from sources you trust. Snow does not run
-> plugin install scripts, but enabling a plugin runtime executes external code —
-> review its permission requests first.
-
-## 3. Managed Resources and Release
-
-Imported MCP servers, Skills and Prompt / Command / Agent items are tracked by
-Snow as managed resources (stored under `~/.snow` with source paths and content
-hashes). When source content changes, the candidate shows **Update available**;
-re-import to sync.
-
-When deleting a managed resource:
-
-- **Skill**: only directories inside `~/.snow/skills` or project `.snow/skills` can be deleted (protects original sources);
-- **MCP**: the entry is removed from Snow's MCP settings;
-- **Prompt / Command / Agent**: the entry is removed from the System Prompt.
-
-## 4. FAQ
-
-| Symptom | Cause & fix |
-| --- | --- |
-| Source shows "Source not found" | The tool is not installed or never used; install/use it once, then refresh |
-| Candidate stays "Unsupported" | Check the warning details (e.g. MCP uses ws / sse transport) |
-| "Import discovery changed" on commit | The candidate changed after scanning; click Refresh discovery, then commit |
-| Duplicates from multiple tools | Identical content is merged into one candidate; multiple tools are only listed as sources |
-| Marketplace add fails | Use a local path, `owner/repo`, a Git URL, or a direct HTTPS `marketplace.json` link |
-
-## 5. Reference
-
-- MCP configuration: [1-configure-mcp](1-configure-mcp.md)
-- Installing and managing Skills: [2-install-and-manage-skills](2-install-and-manage-skills.md)
-- System prompt (`system-prompt.json`): see [3-config-file-field-reference](../3-reference/3-config-file-field-reference.md)
+- [Configure MCP Servers](1-configure-mcp.md)
+- [Install and Manage Skills](2-install-and-manage-skills.md)
+- [Configuration File Field Reference](../3-reference/3-config-file-field-reference.md)

@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 
 use crate::api::config::{normalize_base_url, resolve_sdk_api_base_url};
 use crate::api::conversation::parse_chat_message_content;
-use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::api::responses::ResponsesApiRequest;
+use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
 
 pub(super) fn resolve_chat_completions_endpoint(api_config: &ApiConfigRecord) -> String {
@@ -63,11 +63,13 @@ pub(super) fn build_chat_completions_payload(
                 continue;
             }
             let results = match message.tool_results_json {
-                Some(ref raw) => crate::api::conversation::tool_messages::parse_tool_results_with_images(
-                    raw,
-                    database_path,
-                    skip_image_parsing,
-                ),
+                Some(ref raw) => {
+                    crate::api::conversation::tool_messages::parse_tool_results_with_images(
+                        raw,
+                        database_path,
+                        skip_image_parsing,
+                    )
+                }
                 None => Vec::new(),
             };
             for tool_result in &results {

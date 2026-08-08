@@ -68,7 +68,10 @@ pub fn delete_plugin(database_path: &Path, plugin_id: &str) -> Result<()> {
         .map_err(|error| database::database_error(database_path, "delete plugin", error))
 }
 
-pub(crate) fn upsert_plugin(transaction: &Transaction<'_>, item: &PluginInput) -> rusqlite::Result<()> {
+pub(crate) fn upsert_plugin(
+    transaction: &Transaction<'_>,
+    item: &PluginInput,
+) -> rusqlite::Result<()> {
     validate_plugin(item).map_err(invalid_input)?;
     transaction.execute(
         "INSERT INTO plugins (

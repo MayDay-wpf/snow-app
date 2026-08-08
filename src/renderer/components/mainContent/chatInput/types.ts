@@ -86,6 +86,9 @@ export type ChatInputState = {
   isLoadingApiConfig: boolean;
   isSavingThinking: boolean;
   thinkingError: string | null;
+  responsesFastModeEnabled: boolean;
+  isSavingFastMode: boolean;
+  fastModeError: string | null;
   labels: ChatInputLabels;
   isStreaming: boolean;
   isAborting: boolean;
@@ -124,6 +127,7 @@ export type ChatInputActions = {
   handleOpenApiProfileMenu: () => void;
   handleSelectApiProfile: (profileName: string) => Promise<void>;
   handleSelectThinking: (nextValue: string) => Promise<void>;
+  handleToggleResponsesFastMode: () => Promise<void>;
   restoreContent: (content: string) => void;
 };
 

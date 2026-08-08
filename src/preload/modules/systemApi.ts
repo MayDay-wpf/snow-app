@@ -1,5 +1,10 @@
 import { ipcRenderer, type IpcRendererEvent } from "electron";
 import { join } from "node:path";
+import {
+  isNotificationConversationTarget,
+  type AppNotificationOptions,
+  type NotificationConversationTarget,
+} from "../../shared/notification";
 import type {
   BashStreamChunk,
   BrowserCommandRequest,
@@ -40,9 +45,54 @@ const USER_QUESTION_RESPONSE_CHANNEL = "user-question:response";
 const APP_CONTROL_CHANNEL = "app-control:request";
 const APP_CONTROL_RESPONSE_CHANNEL = "app-control:response";
 const CODEBASE_EMBED_PROGRESS_CHANNEL = "codebase:embed:progress";
+const NOTIFICATION_ACTIVATED_CHANNEL = "notification:activated";
+const MAX_BUFFERED_NOTIFICATION_ACTIVATIONS = 50;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+type NotificationActivationSubscriber = (
+  target: NotificationConversationTarget
+) => void;
+
+const notificationActivationSubscribers =
+  new Set<NotificationActivationSubscriber>();
+const notificationActivationBuffer: NotificationConversationTarget[] = [];
+
+const deliverNotificationActivation = (
+  subscriber: NotificationActivationSubscriber,
+  target: NotificationConversationTarget
+): void => {
+  try {
+    subscriber(target);
+  } catch (error) {
+    console.error("[notification] Activation subscriber failed", error);
+  }
+};
+
+ipcRenderer.on(
+  NOTIFICATION_ACTIVATED_CHANNEL,
+  (_event: IpcRendererEvent, target: unknown): void => {
+    if (!isNotificationConversationTarget(target)) {
+      return;
+    }
+
+    if (notificationActivationSubscribers.size === 0) {
+      if (
+        notificationActivationBuffer.length >=
+        MAX_BUFFERED_NOTIFICATION_ACTIVATIONS
+      ) {
+        notificationActivationBuffer.shift();
+      }
+      notificationActivationBuffer.push(target);
+      return;
+    }
+
+    for (const subscriber of notificationActivationSubscribers) {
+      deliverNotificationActivation(subscriber, target);
+    }
+  }
+);
 
 const createMcpToolStreamId = (): string =>
   `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -675,11 +725,22 @@ export const systemApi = {
     ipcRenderer.invoke("debug:write-log", level, entry),
   sum: (a: number, b: number): Promise<number> =>
     ipcRenderer.invoke("native:sum", a, b),
-  showNotification: (options: {
-    title: string;
-    body: string;
-    silent?: boolean;
-  }): Promise<void> => ipcRenderer.invoke("notification:show", options),
+  showNotification: (options: AppNotificationOptions): Promise<void> =>
+    ipcRenderer.invoke("notification:show", options),
+  onNotificationActivated: (
+    callback: (target: NotificationConversationTarget) => void
+  ): (() => void) => {
+    notificationActivationSubscribers.add(callback);
+
+    const bufferedTargets = notificationActivationBuffer.splice(0);
+    for (const target of bufferedTargets) {
+      deliverNotificationActivation(callback, target);
+    }
+
+    return () => {
+      notificationActivationSubscribers.delete(callback);
+    };
+  },
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:get-version"),
   downloadUpdate: (): Promise<UpdateStatus> =>
     ipcRenderer.invoke("updater:download-update"),

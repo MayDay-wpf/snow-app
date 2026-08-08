@@ -12,8 +12,13 @@ pub struct RemoteWorkspaceCommand {
     pub args_json: String,
 }
 
-pub type RemoteWorkspaceCallback =
-    ThreadsafeFunction<RemoteWorkspaceCommand, Promise<String>, RemoteWorkspaceCommand, Status, false>;
+pub type RemoteWorkspaceCallback = ThreadsafeFunction<
+    RemoteWorkspaceCommand,
+    Promise<String>,
+    RemoteWorkspaceCommand,
+    Status,
+    false,
+>;
 
 pub fn is_ssh_path(path: &str) -> bool {
     path.trim_start().starts_with("ssh://")
@@ -93,12 +98,15 @@ pub async fn execute_remote_workspace_command(
         args_json,
     };
 
-    let promise = on_command.call_async_catch(command).await.map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to dispatch remote workspace command to Electron: {error}"),
-        )
-    })?;
+    let promise = on_command
+        .call_async_catch(command)
+        .await
+        .map_err(|error| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to dispatch remote workspace command to Electron: {error}"),
+            )
+        })?;
 
     // When a cancellation token is supplied (conversation stop / per-tool
     // stop button), race the Electron-side promise against it so the tool

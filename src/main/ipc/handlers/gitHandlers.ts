@@ -9,6 +9,7 @@ import {
   remoteFetchRemote,
   remoteGetCommitFiles,
   remoteGetCommitDiff,
+  remoteGetCommitFileDiff,
   remoteGetFileDiff,
   remoteGetGitBranches,
   remoteGetGitLog,
@@ -288,6 +289,25 @@ export const registerGitHandlers = (native: NativeBridge): void => {
       return isSshPath(trimmed)
         ? remoteGetCommitDiff(trimmed, hash.trim())
         : native.getCommitDiff(trimmed, hash.trim());
+    }
+  );
+
+  ipcMain.handle(
+    "git:commit-file-diff",
+    async (_event, repoPath: unknown, hash: unknown, filePath: unknown) => {
+      if (typeof repoPath !== "string" || !repoPath.trim()) {
+        throw new Error("Repository path is required");
+      }
+      if (typeof hash !== "string" || !hash.trim()) {
+        throw new Error("Commit hash is required");
+      }
+      if (typeof filePath !== "string" || !filePath.trim()) {
+        throw new Error("File path is required");
+      }
+      const trimmed = repoPath.trim();
+      return isSshPath(trimmed)
+        ? remoteGetCommitFileDiff(trimmed, hash.trim(), filePath.trim())
+        : native.gitCommitFileDiff(trimmed, hash.trim(), filePath.trim());
     }
   );
   // ===== Git repo discovery =====

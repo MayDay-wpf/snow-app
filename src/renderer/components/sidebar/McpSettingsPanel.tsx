@@ -73,6 +73,10 @@ export function McpSettingsPanel({
     source: ImportResourceSource;
     disposition: ImportResourceReleaseDisposition;
   } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    server: McpSettingsListItem;
+    scope: McpScope;
+  } | null>(null);
   const [draft, setDraft] = useState<McpServerDraft | null>(null);
   const [toolsByServerId, setToolsByServerId] = useState<
     Record<string, McpServerTool[]>
@@ -845,16 +849,27 @@ export function McpSettingsPanel({
       requestRelease(server.importResource, source, "delete");
       return;
     }
-    if (isGlobalScope) {
-      const globalServer = findGlobalServer(server.serverId);
+    setPendingDelete({ server, scope: activeScope });
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    const pending = pendingDelete;
+    if (!pending) {
+      return;
+    }
+    setPendingDelete(null);
+
+    if (pending.scope === "global") {
+      const globalServer = findGlobalServer(pending.server.serverId);
       if (globalServer) {
-        void handleDelete(globalServer);
+        await handleDelete(globalServer);
       }
       return;
     }
-    const projectServer = findProjectServer(server.serverId);
+
+    const projectServer = findProjectServer(pending.server.serverId);
     if (projectServer) {
-      void handleProjectDelete(projectServer);
+      await handleProjectDelete(projectServer);
     }
   };
 
@@ -901,6 +916,12 @@ export function McpSettingsPanel({
       setIsReleasing(false);
     }
   };
+
+  const pendingDeleteIsSnowCli = pendingDelete
+    ? pendingDelete.scope === "global"
+      ? findGlobalServer(pendingDelete.server.serverId)?.source === "snow-cli"
+      : findProjectServer(pendingDelete.server.serverId)?.source === "snow-cli"
+    : false;
 
   return (
     <div className="api-settings-page" role="region">
@@ -1150,6 +1171,27 @@ export function McpSettingsPanel({
           />
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={t("settings.mcpDeleteConfirmTitle", {
+          defaultValue: "Delete MCP server",
+        })}
+        message={pendingDeleteIsSnowCli
+          ? t("settings.mcpDeleteSnowCliConfirm", {
+              defaultValue: "Delete {{name}} from Snow App and its Snow CLI settings file? This prevents it from returning after the next sync.",
+              values: { name: pendingDelete?.server.name ?? "" },
+            })
+          : t("settings.mcpDeleteConfirm", {
+              defaultValue: "Delete the MCP server {{name}}?",
+              values: { name: pendingDelete?.server.name ?? "" },
+            })}
+        confirmLabel={t("settings.delete", { defaultValue: "Delete" })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        variant="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingRelease)}

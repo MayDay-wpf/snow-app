@@ -79,6 +79,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         // Empty tool whitelist: palette generation is a pure vision→JSON task
         // and must not carry any MCP/builtin tools in the payload.
         sub_agent_tools_json: Some("[]".to_string()),
+        sub_agent_system_prompt: None,
         sub_agent_config_profile: None,
         // Keep skip_context unset (false) so providers parse the @@image:...@@
         // tag into their native multimodal payloads. An empty conversation_id
@@ -102,9 +103,7 @@ fn read_image_as_data_url(image_path: &str) -> Result<String> {
         ))
     })?;
     if bytes.is_empty() {
-        return Err(Error::from_reason(
-            "Background image file is empty.",
-        ));
+        return Err(Error::from_reason("Background image file is empty."));
     }
 
     let media_type = extension_to_media_type(path);
@@ -145,9 +144,7 @@ pub async fn generate_theme_palette_stream(
     let image_data_url = tokio::task::spawn_blocking(move || read_image_as_data_url(&image_path))
         .await
         .map_err(|join_error| {
-            Error::from_reason(format!(
-                "Failed to read background image: {join_error}"
-            ))
+            Error::from_reason(format!("Failed to read background image: {join_error}"))
         })??;
 
     // --- 2. Resolve selected API config (blocking SQLite I/O) ---
@@ -161,9 +158,7 @@ pub async fn generate_theme_palette_stream(
     })
     .await
     .map_err(|join_error| {
-        Error::from_reason(format!(
-            "Failed to resolve API configuration: {join_error}"
-        ))
+        Error::from_reason(format!("Failed to resolve API configuration: {join_error}"))
     })??;
 
     let api_config = &context.api_config;
@@ -212,18 +207,21 @@ pub async fn generate_theme_palette_stream(
     {
         let mut config_value: serde_json::Value =
             serde_json::from_str(&api_config.config_json).unwrap_or_else(|_| serde_json::json!({}));
-        if let Some(snowcfg) = config_value
-            .as_object_mut()
-            .and_then(|obj| {
-                obj.entry("snowcfg")
-                    .or_insert_with(|| serde_json::json!({}))
-                    .as_object_mut()
-            })
-        {
+        if let Some(snowcfg) = config_value.as_object_mut().and_then(|obj| {
+            obj.entry("snowcfg")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+        }) {
             snowcfg.insert("chatThinking".into(), serde_json::json!({"enabled": false}));
-            snowcfg.insert("responsesReasoning".into(), serde_json::json!({"enabled": false}));
+            snowcfg.insert(
+                "responsesReasoning".into(),
+                serde_json::json!({"enabled": false}),
+            );
             snowcfg.insert("thinking".into(), serde_json::json!({"enabled": false}));
-            snowcfg.insert("geminiThinking".into(), serde_json::json!({"enabled": false}));
+            snowcfg.insert(
+                "geminiThinking".into(),
+                serde_json::json!({"enabled": false}),
+            );
         }
         api_config.config_json =
             serde_json::to_string(&config_value).unwrap_or(api_config.config_json);

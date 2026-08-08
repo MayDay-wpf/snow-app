@@ -117,13 +117,15 @@ fn extract_pdf_text(path: &Path) -> napi::Result<String> {
 }
 
 /// 打开 OOXML 文档（zip 容器）。
-fn open_ooxml_archive(
-    path: &Path,
-) -> napi::Result<zip::ZipArchive<std::io::BufReader<fs::File>>> {
+fn open_ooxml_archive(path: &Path) -> napi::Result<zip::ZipArchive<std::io::BufReader<fs::File>>> {
     let file = fs::File::open(path).map_err(|error| {
         Error::new(
             Status::GenericFailure,
-            format!("Failed to open document: {} (path: {})", error, path.display()),
+            format!(
+                "Failed to open document: {} (path: {})",
+                error,
+                path.display()
+            ),
         )
     })?;
 
@@ -326,7 +328,11 @@ fn extract_csv_text(path: &Path) -> napi::Result<String> {
     let bytes = fs::read(path).map_err(|error| {
         Error::new(
             Status::GenericFailure,
-            format!("Failed to open CSV file: {} (path: {})", error, path.display()),
+            format!(
+                "Failed to open CSV file: {} (path: {})",
+                error,
+                path.display()
+            ),
         )
     })?;
     let text = super::text_codec::decode_text_bytes(&bytes)
@@ -351,7 +357,11 @@ fn extract_csv_text(path: &Path) -> napi::Result<String> {
         let record = record.map_err(|error| {
             Error::new(
                 Status::GenericFailure,
-                format!("Failed to parse CSV record: {} (path: {})", error, path.display()),
+                format!(
+                    "Failed to parse CSV record: {} (path: {})",
+                    error,
+                    path.display()
+                ),
             )
         })?;
 
@@ -408,7 +418,9 @@ fn unescape_xml_entities(text: &str) -> String {
             "apos" => result.push('\''),
             _ => {
                 let code_point = entity.strip_prefix('#').and_then(|digits| {
-                    if let Some(hex) = digits.strip_prefix('x').or_else(|| digits.strip_prefix('X'))
+                    if let Some(hex) = digits
+                        .strip_prefix('x')
+                        .or_else(|| digits.strip_prefix('X'))
                     {
                         u32::from_str_radix(hex, 16).ok()
                     } else {

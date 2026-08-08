@@ -539,6 +539,7 @@ export type SubAgentConfigInput = {
   systemPrompt: string;
   toolsJson: string;
   configProfile: string;
+  model: string;
   builtin: boolean;
   sortOrder: number;
   source: string;
@@ -682,6 +683,19 @@ export type ImageLibraryRecord = {
   model: string;
   provider: string;
   createdAt: string;
+  /** 所属相册 id；null = 未分类 */
+  albumId: string | null;
+};
+
+/** 图库相册记录 */
+export type ImageAlbumRecord = {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** 相册封面：最新一张图的图库相对路径（image/...）；空相册为 null */
+  coverPath: string | null;
+  /** 相册内图片数量 */
+  imageCount: number;
 };
 
 /** 图库目录迁移进度 */
@@ -743,6 +757,7 @@ export type ResponsesApiRequest = {
    */
   resumeAfterCompaction?: boolean;
   subAgentToolsJson?: string;
+  subAgentSystemPrompt?: string;
   subAgentConfigProfile?: string;
   skipContext?: boolean;
   planMode?: boolean;
@@ -786,6 +801,8 @@ export type ResponsesApiStreamChunk = {
   streamTokenCount: number;
   elapsedMs: number;
   ttftMs: number;
+  /** External-vision textify progress event (JSON string). See preload types. */
+  visionStatus?: string;
 };
 
 export type McpToolDefinition = {
@@ -1239,6 +1256,10 @@ export type NativeBridge = {
     limit: number,
     offset: number
   ) => Promise<ChatConversationPage>;
+  /** 跨项目按会话 ID 查询会话记录（供「跨项目通知」使用）。 */
+  listChatConversationsByIds: (
+    conversationIds: string[]
+  ) => Promise<ChatConversationRecord[]>;
   listPinnedConversations: (
     directoryId: string
   ) => Promise<ChatConversationRecord[]>;
@@ -1260,6 +1281,7 @@ export type NativeBridge = {
     agentId: string,
     agentName: string,
     directoryId: string,
+    apiProfileName: string,
     model: string,
     title: string
   ) => Promise<void>;
@@ -1422,6 +1444,11 @@ export type NativeBridge = {
     repoPath: string,
     hash: string
   ) => Promise<GitDiffResult>;
+  gitCommitFileDiff: (
+    repoPath: string,
+    hash: string,
+    filePath: string
+  ) => Promise<GitDiffResult>;
   discoverGitRepos: (rootPath: string) => Promise<GitRepoInfo[]>;
   startGitWatch: (
     repoPath: string,
@@ -1505,6 +1532,13 @@ export type NativeBridge = {
   getImageLibraryDir: () => Promise<string>;
   setImageLibraryDir: (dir: string) => Promise<void>;
   listImageLibrary: () => Promise<ImageLibraryRecord[]>;
+  listImageAlbums: () => Promise<ImageAlbumRecord[]>;
+  createImageAlbum: (name: string) => Promise<ImageAlbumRecord>;
+  renameImageAlbum: (id: string, name: string) => Promise<ImageAlbumRecord>;
+  deleteImageAlbum: (id: string) => Promise<void>;
+  setImageAlbum: (imageId: string, albumId: string | null) => Promise<void>;
+  /** 手动导入图片文件（复制进图库目录并写入索引），返回成功导入的记录 */
+  importImageFiles: (filePaths: string[]) => Promise<ImageLibraryRecord[]>;
   readImageLibraryFile: (relativePath: string) => Promise<string | null>;
   deleteImageLibraryImage: (id: string) => Promise<void>;
   countConversationImages: (conversationIds: string[]) => Promise<number>;

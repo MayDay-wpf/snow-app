@@ -35,7 +35,10 @@ fn validate_project_name(project_name: &str) -> Result<()> {
     }
     // Windows 不允许出现在目录名中的字符
     const INVALID_CHARS: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
-    if trimmed.chars().any(|character| INVALID_CHARS.contains(&character)) {
+    if trimmed
+        .chars()
+        .any(|character| INVALID_CHARS.contains(&character))
+    {
         return Err(Error::from_reason(format!(
             "Project name contains invalid characters: \"{trimmed}\""
         )));
