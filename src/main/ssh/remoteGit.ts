@@ -527,6 +527,27 @@ export const remoteCreateBranch = async (
   }
 };
 
+/** 已知图片扩展名。对这些文件不做 `--text` 强制文本 diff：二进制内容
+ *  按文本输出会产生巨大乱码 patch，渲染端解析会卡死。 */
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "bmp",
+  "webp",
+  "ico",
+  "svg",
+  "tif",
+  "tiff",
+  "avif",
+]);
+
+const isImagePath = (filePath: string): boolean => {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  return IMAGE_EXTENSIONS.has(ext);
+};
+
 export const remoteGetFileDiff = async (
   workspacePath: string,
   filePath: string,
@@ -540,6 +561,11 @@ export const remoteGetFileDiff = async (
     let stdout = await runRemoteGit(workspacePath, diffArgs);
 
     if (stdout.includes("Binary files")) {
+      // 图片扩展名：直接判定为二进制，绝不 `--text` 重试
+      // （会 dump 出巨大乱码 patch，渲染端解析卡死）。
+      if (isImagePath(filePath)) {
+        return { content: "Binary file - diff not available", isBinary: true };
+      }
       // Git's heuristic may falsely flag text files as binary (e.g. files
       // containing NUL bytes). Retry with --text to force a text-mode diff.
       const textArgs = staged
@@ -561,6 +587,9 @@ export const remoteGetFileDiff = async (
     // full-file diff via `git diff --no-index /dev/null <file>`, which
     // exits with code 1 when files differ — handled by runRemoteGitRaw.
     if (!staged && !stdout) {
+      if (isImagePath(filePath)) {
+        return { content: "Binary file - diff not available", isBinary: true };
+      }
       const fullDiff = await runRemoteGitRaw(workspacePath, [
         "diff",
         "--no-index",
@@ -781,7 +810,8 @@ export const remoteGetCommitDiff = async (
 
     if (stdout.includes("Binary files")) {
       // Git's heuristic may falsely flag text files as binary (e.g. files
-      // containing NUL bytes). Retry with --text to force a text-mode diff.
+      // containing NUL bytes). Retry with --text to force a text-mode diff,
+      // bounded to 256 KB — a larger dump means a genuinely binary file.
       let textDiff = "";
       try {
         textDiff = await runRemoteGit(workspacePath, [
@@ -793,7 +823,7 @@ export const remoteGetCommitDiff = async (
       } catch {
         // keep empty
       }
-      if (textDiff) {
+      if (textDiff && textDiff.length <= 256 * 1024) {
         return { content: textDiff, isBinary: false };
       }
       return { content: "Binary file - diff not available", isBinary: true };
@@ -820,8 +850,14 @@ export const remoteGetCommitFileDiff = async (
     let stdout = await runRemoteGit(workspacePath, diffArgs);
 
     if (stdout.includes("Binary files")) {
+      // 图片扩展名：直接判定为二进制，绝不 `--text` 重试
+      // （会 dump 出巨大乱码 patch，渲染端解析卡死）。
+      if (isImagePath(filePath)) {
+        return { content: "Binary file - diff not available", isBinary: true };
+      }
       // Git's heuristic may falsely flag text files as binary (e.g. files
-      // containing NUL bytes). Retry with --text to force a text-mode diff.
+      // containing NUL bytes). Retry with --text to force a text-mode diff,
+      // bounded to 256 KB — a larger dump means a genuinely binary file.
       let textDiff = "";
       try {
         textDiff = await runRemoteGit(workspacePath, [
@@ -835,7 +871,7 @@ export const remoteGetCommitFileDiff = async (
       } catch {
         // keep empty
       }
-      if (textDiff) {
+      if (textDiff && textDiff.length <= 256 * 1024) {
         return { content: textDiff, isBinary: false };
       }
       return { content: "Binary file - diff not available", isBinary: true };

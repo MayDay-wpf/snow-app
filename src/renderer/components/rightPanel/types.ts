@@ -2,6 +2,7 @@ import type {
   FileContentResult,
   GitDiffResult,
   GitFileStatus,
+  GitImageDiff,
   WorkspaceDirectoryRecord,
 } from "../../../preload";
 
@@ -11,7 +12,8 @@ export type RightPanelContentKey =
   | "browser"
   | "file"
   | "file-diff-preview"
-  | "codebase";
+  | "codebase"
+  | "drawing";
 
 export type RightPanelContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -22,6 +24,8 @@ export type DiffTabData = {
   selectedFile: GitFileStatus;
   diffResult: GitDiffResult | null;
   diffLoading: boolean;
+  /** 图片文件的旧/新版本预览数据；非图片或未加载时为 null。 */
+  imageDiff?: GitImageDiff | null;
 };
 
 export type TerminalOpenOptions = {
@@ -71,6 +75,9 @@ export type CodebaseTabData = {
   projectName: string;
 };
 
+/** 绘图工作台 tab 数据（画布内容保存在组件内部状态，无需持久化字段）。 */
+export type DrawingTabData = Record<string, never>;
+
 export type RightPanelTab = {
   id: string;
   type:
@@ -80,7 +87,8 @@ export type RightPanelTab = {
     | "browser"
     | "file"
     | "file-diff-preview"
-    | "codebase";
+    | "codebase"
+    | "drawing";
   title: string;
   data?:
     | DiffTabData
@@ -88,13 +96,15 @@ export type RightPanelTab = {
     | BrowserTabData
     | FileViewerTabData
     | FileDiffPreviewTabData
-    | CodebaseTabData;
+    | CodebaseTabData
+    | DrawingTabData;
 };
 
 export type OpenDiffTabCallback = (
   file: GitFileStatus,
   diffResult: GitDiffResult | null,
-  diffLoading: boolean
+  diffLoading: boolean,
+  imageDiff?: GitImageDiff | null
 ) => void;
 
 export type OpenFileDiffPreviewTabCallback = (

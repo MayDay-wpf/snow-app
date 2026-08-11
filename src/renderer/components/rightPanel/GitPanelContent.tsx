@@ -7,6 +7,7 @@ import type {
   GitCommitFile,
   GitDiffResult,
   GitFileStatus,
+  GitImageDiff,
   GitStatusResult,
 } from "./git";
 import { GitControl, RepoSelector, useGitRepos } from "./git";
@@ -19,6 +20,11 @@ const SPLIT_DEFAULT = 0.5;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
+
+/** 与 Rust 端 / SSH 端保持一致的图片扩展名判定。 */
+const IMAGE_FILE_REGEX = /\.(png|jpe?g|gif|bmp|webp|ico|svg|tiff?|avif)$/i;
+
+const isImageFile = (path: string): boolean => IMAGE_FILE_REGEX.test(path);
 
 /** 将提交文件（GitCommitFile）转换为 DiffViewer 所需的 GitFileStatus 形状。 */
 const toGitFileStatus = (file: GitCommitFile): GitFileStatus => ({
@@ -48,12 +54,15 @@ export function GitPanelContent({
     "staged" | "unstaged" | null
   >(null);
   // 当 diff 来自提交树（GitGraph）时记录提交 hash，diff 加载走
-  // gitCommitFileDiff 而不是工作区 diff。
+  // gitCommitFileDiff 而不是工作区 diff。parentHash 用于图片对比的
+  // 旧版本（第一个父提交）。
   const [commitFileSelection, setCommitFileSelection] = useState<{
     hash: string;
+    parentHash: string | null;
     file: GitCommitFile;
   } | null>(null);
   const [diffResult, setDiffResult] = useState<GitDiffResult | null>(null);
+  const [imageDiff, setImageDiff] = useState<GitImageDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
   const [splitRatio, setSplitRatio] = useState(SPLIT_DEFAULT);
@@ -70,6 +79,7 @@ export function GitPanelContent({
   useEffect(() => {
     if (!repoPath || !selectedFile) {
       setDiffResult(null);
+      setImageDiff(null);
       return;
     }
 
@@ -78,6 +88,54 @@ export function GitPanelContent({
     // 同一文件同时存在于两个区域时，indexStatus 无法区分点击位置，
     // 必须以 selectedSection 为准。
     const isStaged = selectedSection === "staged";
+
+    // 图片文件：渲染旧/新版本图片而非文本 diff。
+    // 文本 diff 对图片会因二进制 --text 重试产生巨大乱码 patch 而卡死，
+    // 因此图片路径完全不请求 gitFileDiff。
+    if (isImageFile(selectedFile.path)) {
+      setDiffResult(null);
+      const untracked = selectedFile.indexStatus === "?";
+
+      // 确定旧/新版本的读取来源：
+      // - 提交树场景：新=该提交，旧=第一个父提交（无父则为新增）
+      // - 已暂存：旧=HEAD，新=索引(:0)
+      // - 未暂存已跟踪：旧=HEAD，新=工作区磁盘
+      // - 未跟踪（新增）：只有新=工作区磁盘；删除文件磁盘读取失败→只有旧
+      let oldRevision: string | null = null;
+      let newRevision: string | null = null;
+      if (commitFileSelection) {
+        newRevision = commitFileSelection.hash;
+        oldRevision = commitFileSelection.parentHash;
+      } else if (isStaged) {
+        oldRevision = "HEAD";
+        newRevision = ":0";
+      } else if (!untracked) {
+        oldRevision = "HEAD";
+        newRevision = null; // 工作区磁盘
+      } else {
+        newRevision = null; // 工作区磁盘
+      }
+
+      void Promise.all([
+        oldRevision
+          ? window.snow
+              .gitFileContent(repoPath, selectedFile.path, oldRevision)
+              .catch(() => null)
+          : Promise.resolve(null),
+        newRevision
+          ? window.snow
+              .gitFileContent(repoPath, selectedFile.path, newRevision)
+              .catch(() => null)
+          : Promise.resolve(null),
+      ])
+        .then(([oldContent, newContent]) => {
+          setImageDiff({ old: oldContent, new: newContent });
+        })
+        .finally(() => {
+          setDiffLoading(false);
+        });
+      return;
+    }
 
     const diffPromise = commitFileSelection
       ? window.snow.gitCommitFileDiff(
@@ -110,10 +168,10 @@ export function GitPanelContent({
 
   /** 提交树中点击提交内文件：显示该提交中该文件的差异。 */
   const handleCommitFileSelect = useCallback(
-    (file: GitCommitFile, hash: string) => {
+    (file: GitCommitFile, hash: string, parentHash: string | null) => {
       setSelectedFile(toGitFileStatus(file));
       setSelectedSection(null);
-      setCommitFileSelection({ hash, file });
+      setCommitFileSelection({ hash, parentHash, file });
     },
     []
   );
@@ -198,8 +256,12 @@ export function GitPanelContent({
             selectedFile={selectedFile}
             diffResult={diffResult}
             diffLoading={diffLoading}
+            imageDiff={imageDiff}
             onOpenInTab={onOpenInTab}
-            onClose={() => setSelectedFile(null)}
+            onClose={() => {
+              setSelectedFile(null);
+              setCommitFileSelection(null);
+            }}
           />
         ) : (
           <div className="diff-viewer">

@@ -1606,6 +1606,11 @@ export type NativeBridge = {
     filePath: string,
     staged: boolean
   ) => Promise<GitDiffResult>;
+  gitFileContent: (
+    repoPath: string,
+    filePath: string,
+    revision: string | null
+  ) => Promise<FileContentResult>;
   gitDiscardChanges: (
     repoPath: string,
     filePaths: string[]

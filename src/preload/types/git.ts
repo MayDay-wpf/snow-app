@@ -32,6 +32,23 @@ export type GitDiffResult = {
   isBinary: boolean;
 };
 
+/** 单个 git 文件内容（工作区或某 revision），图片为 base64 + MIME。 */
+export type GitFileContentResult = {
+  content: string;
+  isBinary: boolean;
+  isImage: boolean;
+  isSvg: boolean;
+  mimeType: string;
+  encoding: string;
+  size: number;
+};
+
+/** 图片 diff 预览：旧版本（HEAD/父提交/索引）与新版本（工作区/提交）。 */
+export type GitImageDiff = {
+  old: GitFileContentResult | null;
+  new: GitFileContentResult | null;
+};
+
 export type GitStageResult = {
   success: boolean;
   message: string;

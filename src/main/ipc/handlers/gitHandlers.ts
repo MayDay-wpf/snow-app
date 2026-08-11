@@ -328,6 +328,31 @@ export const registerGitHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
+    "git:file-content",
+    async (
+      _event,
+      repoPath: unknown,
+      filePath: unknown,
+      revision: unknown
+    ) => {
+      if (typeof repoPath !== "string" || !repoPath.trim()) {
+        throw new Error("Repository path is required");
+      }
+      if (typeof filePath !== "string" || !filePath.trim()) {
+        throw new Error("File path is required");
+      }
+      const trimmed = repoPath.trim();
+      const rev = typeof revision === "string" ? revision.trim() || null : null;
+      if (isSshPath(trimmed)) {
+        // Remote (SSH) repos cannot read file bytes locally — the caller
+        // falls back to the binary-file placeholder.
+        throw new Error("File content preview is not supported for remote repositories");
+      }
+      return native.gitFileContent(trimmed, filePath.trim(), rev);
+    }
+  );
+
+  ipcMain.handle(
     "git:discard",
     async (_event, repoPath: unknown, filePaths: unknown) => {
       if (typeof repoPath !== "string" || !repoPath.trim()) {

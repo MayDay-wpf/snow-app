@@ -5,6 +5,7 @@ import type {
   GitCommitFile,
   GitCommitResult,
   GitDiffResult,
+  GitFileContentResult,
   GitLogEntry,
   GitPushPullResult,
   GitRepoInfo,
@@ -102,6 +103,12 @@ export const gitApi = {
     staged: boolean
   ): Promise<GitDiffResult> =>
     ipcRenderer.invoke("git:file-diff", repoPath, filePath, staged),
+  gitFileContent: (
+    repoPath: string,
+    filePath: string,
+    revision: string | null
+  ): Promise<GitFileContentResult> =>
+    ipcRenderer.invoke("git:file-content", repoPath, filePath, revision),
   gitDiscardChanges: (
     repoPath: string,
     filePaths: string[]

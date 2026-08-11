@@ -42,7 +42,11 @@ type GitControlProps = {
     section?: "staged" | "unstaged"
   ) => void;
   /** 提交树中点击提交内文件，请求查看该提交中该文件的差异。 */
-  onCommitFileSelect?: (file: GitCommitFile, hash: string) => void;
+  onCommitFileSelect?: (
+    file: GitCommitFile,
+    hash: string,
+    parentHash: string | null
+  ) => void;
   onStatusChange?: (status: GitStatusResult | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   /** 在文件所在目录打开终端。 */

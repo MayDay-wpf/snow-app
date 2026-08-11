@@ -162,6 +162,24 @@ pub async fn git_file_diff(
     })?
 }
 
+/// Read a file's content from the working tree (`revision` empty/null) or
+/// from a git revision (`git show <revision>:<path>`). Images come back as
+/// base64 with a MIME type so the renderer can display them directly.
+#[napi]
+pub async fn git_file_content(
+    repo_path: String,
+    file_path: String,
+    revision: Option<String>,
+) -> napi::Result<crate::storage::services::fs_explorer::FileContentResult> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::services::git::get_file_content(&repo_path, &file_path, revision.as_deref())
+    })
+    .await
+    .map_err(|join_error| {
+        napi::Error::from_reason(format!("Failed to get file content: {join_error}"))
+    })?
+}
+
 #[napi]
 pub async fn git_discard_changes(
     repo_path: String,

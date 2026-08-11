@@ -31,7 +31,11 @@ type GitGraphProps = {
   onLoaded?: () => void;
   /** Fired when a file in an expanded commit is clicked, requesting its
       per-commit diff to be shown in the diff viewer. */
-  onCommitFileSelect?: (file: GitCommitFile, hash: string) => void;
+  onCommitFileSelect?: (
+    file: GitCommitFile,
+    hash: string,
+    parentHash: string | null
+  ) => void;
   /** Opens a commit file's diff in a new right-panel tab. */
   onOpenInTab?: OpenDiffTabCallback;
 };
@@ -44,6 +48,11 @@ const toGitFileStatus = (file: GitCommitFile): GitFileStatus => ({
   workdirStatus: "",
   status: file.status,
 });
+
+/** 图片文件直接渲染图片而非文本 diff（文本 diff 会因二进制 --text
+ *  重试产生巨大乱码 patch 而卡死）。 */
+const isImageFile = (path: string): boolean =>
+  /\.(png|jpe?g|gif|bmp|webp|ico|svg|tiff?|avif)$/i.test(path);
 
 // --- Types ---
 
@@ -570,6 +579,7 @@ export const GitGraph = ({
     y: number;
     file: GitCommitFile;
     hash: string;
+    parentHash: string | null;
   } | null>(null);
 
   const positionTooltip = useCallback((clientX: number, clientY: number) => {
@@ -673,8 +683,9 @@ export const GitGraph = ({
   /** 提交内文件右键菜单：在新标签页打开 Diff / 复制文件路径。 */
   const buildCommitFileMenuItems = (
     file: GitCommitFile,
-    hash: string
-  ): ContextMenuItem[] => [
+    hash: string,
+    parentHash: string | null
+  ) => [
     {
       id: "open-diff-in-tab",
       label: t("git.openDiffInNewTab", {
@@ -684,7 +695,7 @@ export const GitGraph = ({
       disabled: !repoPath || !onOpenInTab,
       onClick: () => {
         setFileContextMenu(null);
-        void openCommitFileDiffInTab(file, hash);
+        void openCommitFileDiffInTab(file, hash, parentHash);
       },
     },
     {
@@ -704,7 +715,8 @@ export const GitGraph = ({
   /** 在新标签页打开提交内文件 Diff：先以加载态打开标签，再异步填充结果。 */
   const openCommitFileDiffInTab = async (
     file: GitCommitFile,
-    hash: string
+    hash: string,
+    parentHash: string | null
   ): Promise<void> => {
     if (!repoPath || !onOpenInTab) {
       return;
@@ -712,6 +724,18 @@ export const GitGraph = ({
     const fileStatus = toGitFileStatus(file);
     onOpenInTab(fileStatus, null, true);
     try {
+      if (isImageFile(file.path)) {
+        // 图片文件：加载该提交版本与父提交版本直接渲染图片，
+        // 请求文本 diff 会因二进制 --text 重试产生巨大乱码而卡死。
+        const [newContent, oldContent] = await Promise.all([
+          window.snow.gitFileContent(repoPath, file.path, hash),
+          parentHash
+            ? window.snow.gitFileContent(repoPath, file.path, parentHash)
+            : Promise.resolve(null),
+        ]);
+        onOpenInTab(fileStatus, null, false, { old: oldContent, new: newContent });
+        return;
+      }
       const result = await window.snow.gitCommitFileDiff(
         repoPath,
         hash,
@@ -947,7 +971,11 @@ export const GitGraph = ({
                               hash: row.commit.hash,
                               path: file.path,
                             });
-                            onCommitFileSelect?.(file, row.commit.hash);
+                            onCommitFileSelect?.(
+                              file,
+                              row.commit.hash,
+                              row.commit.parents[0] ?? null
+                            );
                           }}
                           onContextMenu={(event) => {
                             event.preventDefault();
@@ -958,6 +986,7 @@ export const GitGraph = ({
                               y: event.clientY,
                               file,
                               hash: row.commit.hash,
+                              parentHash: row.commit.parents[0] ?? null,
                             });
                           }}
                           title={t("git.viewCommitFileDiff", {
@@ -1097,7 +1126,8 @@ export const GitGraph = ({
           y={fileContextMenu.y}
           items={buildCommitFileMenuItems(
             fileContextMenu.file,
-            fileContextMenu.hash
+            fileContextMenu.hash,
+            fileContextMenu.parentHash
           )}
           onClose={() => setFileContextMenu(null)}
         />

@@ -10,4 +10,6 @@ export type {
   GitLogEntry,
   GitCommitFile,
   GitRepoInfo,
+  GitFileContentResult,
+  GitImageDiff,
 } from "../../../../preload";

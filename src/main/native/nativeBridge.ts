@@ -706,6 +706,9 @@ export const loadNativeBridge = (): NativeBridge => {
       gitFileDiff: () => {
         throw new Error("Rust native bridge is required for git file diff");
       },
+      gitFileContent: () => {
+        throw new Error("Rust native bridge is required for git file content");
+      },
       startGitWatch: () => {
         throw new Error("Rust native bridge is required for git watch");
       },

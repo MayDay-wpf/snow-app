@@ -220,6 +220,72 @@ pub(crate) fn run_git_raw(repo_path: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Like `run_git_raw` but returns the raw stdout bytes without lossy
+/// UTF-8 conversion. Used to read file contents (e.g. images) from a
+/// revision via `git show <rev>:<path>`, where the bytes must survive
+/// intact for base64 encoding.
+pub(crate) fn run_git_bytes(repo_path: &str, args: &[&str]) -> Result<Vec<u8>> {
+    let mut cmd = build_git_command(repo_path, args);
+    // Same `safe.directory=*` bypass as `run_git` — see its comment.
+
+    let output = cmd.output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Error::from_reason(GIT_NOT_FOUND_MESSAGE)
+        } else {
+            Error::from_reason(format!("Failed to execute git: {e}"))
+        }
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let err_msg = if stderr.is_empty() { stdout } else { stderr };
+        return Err(Error::from_reason(err_msg));
+    }
+
+    Ok(output.stdout)
+}
+
+/// 单个文件内容的最大字节数（图片预览传输用）。超出时拒绝读取，
+/// 避免超大 base64 经过 IPC 传输导致 UI 卡顿。
+const MAX_FILE_CONTENT_BYTES: usize = 20 * 1024 * 1024;
+
+/// Read a file's raw content either from the working tree (`revision` is
+/// None/empty) or from a git revision (`git show <revision>:<path>`).
+///
+/// The content is processed through `process_file_content` so images come
+/// back as base64 with a MIME type, ready for direct `<img>` rendering.
+pub fn get_file_content(
+    repo_path: &str,
+    file_path: &str,
+    revision: Option<&str>,
+) -> Result<crate::storage::services::fs_explorer::FileContentResult> {
+    let bytes: Vec<u8> = match revision {
+        Some(rev) if !rev.trim().is_empty() => {
+            let rev_path = format!("{rev}:{file_path}");
+            let args = vec!["show", &rev_path];
+            run_git_bytes(repo_path, &args)?
+        }
+        _ => {
+            let full_path = Path::new(repo_path).join(file_path);
+            std::fs::read(&full_path).map_err(|e| {
+                Error::from_reason(format!("Failed to read file {}: {e}", full_path.display()))
+            })?
+        }
+    };
+
+    if bytes.len() > MAX_FILE_CONTENT_BYTES {
+        return Err(Error::from_reason(format!(
+            "File too large to preview ({:.1} MB)",
+            bytes.len() as f64 / (1024.0 * 1024.0)
+        )));
+    }
+
+    Ok(crate::storage::services::fs_explorer::process_file_content(
+        file_path, bytes,
+    ))
+}
+
 pub(crate) fn is_git_repo(repo_path: &str) -> bool {
     Path::new(repo_path).join(".git").exists()
 }
