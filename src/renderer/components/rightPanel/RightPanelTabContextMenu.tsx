@@ -4,6 +4,7 @@ import {
   CopyX,
   ExternalLink,
   Globe,
+  Paintbrush,
   Terminal,
   X,
   XCircle,
@@ -32,13 +33,14 @@ type RightPanelTabContextMenuProps = {
   onOpenInNewWindow?: () => void;
   onNewTerminal: () => void;
   onNewBrowser: () => void;
+  onNewDrawing: () => void;
   onCloseTab: () => void;
   onClose: () => void;
 };
 
 /**
- * 右侧面板 tab 的右键菜单：新建终端 / 新建浏览器 / 关闭标签页（含
- * 关闭其他、关闭右侧、关闭左侧、关闭所有）。定位在鼠标点击处，
+ * 右侧面板 tab 的右键菜单：新建终端 / 新建浏览器 / 新建绘图工作台 / 关闭标签页
+ * （含关闭其他、关闭右侧、关闭左侧、关闭所有）。定位在鼠标点击处，
  * 越界时自动收进视口；点击外部或按 Esc 关闭。
  */
 export function RightPanelTabContextMenu({
@@ -52,6 +54,7 @@ export function RightPanelTabContextMenu({
   onOpenInNewWindow,
   onNewTerminal,
   onNewBrowser,
+  onNewDrawing,
   onCloseTab,
   onClose,
 }: RightPanelTabContextMenuProps): React.JSX.Element {
@@ -73,6 +76,14 @@ export function RightPanelTabContextMenu({
       }),
       icon: <Globe size={13} strokeWidth={1.8} />,
       onClick: onNewBrowser,
+    },
+    {
+      id: "new-drawing",
+      label: t("rightPanel.tabContextNewDrawing", {
+        defaultValue: "New Drawing",
+      }),
+      icon: <Paintbrush size={13} strokeWidth={1.8} />,
+      onClick: onNewDrawing,
     },
   ];
 

@@ -342,12 +342,16 @@ export type ImageGenErrorKind =
   | "timeout"
   | "auth"
   | "rateLimit"
+  | "contentFiltered"
   | "server"
   | "network"
   | "noModel"
+  | "modelNotFound"
   | "modelUnsupported"
   | "missingPrompt"
   | "sizeInvalid"
+  | "invalidParams"
+  | "inputTooLarge"
   | "fallback";
 
 export type ClassifiedImageGenError = {
@@ -382,6 +386,18 @@ const ERROR_CLASSIFIERS: Array<{
       m.includes("forbidden"),
   },
   {
+    // 参考图/文件超限：必须先于 rateLimit（"exceeded" 通用词会误伤）。
+    kind: "inputTooLarge",
+    test: (m) =>
+      m.includes("too large") ||
+      m.includes("exceeds the maximum") ||
+      m.includes("exceeds the size limit") ||
+      m.includes("exceeds the limit") ||
+      m.includes("larger than") ||
+      m.includes("too many images") ||
+      m.includes("maximum number of images"),
+  },
+  {
     kind: "rateLimit",
     test: (m) =>
       m.includes("429") ||
@@ -390,6 +406,22 @@ const ERROR_CLASSIFIERS: Array<{
       m.includes("quota") ||
       m.includes("insufficient") ||
       m.includes("exceeded"),
+  },
+  {
+    // 内容被服务商安全/审核策略拒绝。
+    kind: "contentFiltered",
+    test: (m) =>
+      m.includes("content filter") ||
+      m.includes("safety") ||
+      m.includes("policy") ||
+      m.includes("blocked") ||
+      m.includes("filtered") ||
+      m.includes("not allowed") ||
+      m.includes("refused") ||
+      m.includes("violates") ||
+      m.includes("violation") ||
+      m.includes("moderation") ||
+      m.includes("flagged"),
   },
   {
     kind: "server",
@@ -425,6 +457,19 @@ const ERROR_CLASSIFIERS: Array<{
       m.includes("model is required"),
   },
   {
+    kind: "modelNotFound",
+    test: (m) =>
+      m.includes("model not found") ||
+      m.includes("unknown model") ||
+      m.includes("model does not exist") ||
+      m.includes("model doesn't exist") ||
+      m.includes("model not available") ||
+      m.includes("model not supported") ||
+      m.includes("invalid model") ||
+      m.includes("no model named") ||
+      m.includes("404 not found"),
+  },
+  {
     kind: "modelUnsupported",
     test: (m) =>
       (m.includes("does not support image") ||
@@ -445,6 +490,22 @@ const ERROR_CLASSIFIERS: Array<{
       (m.includes("invalid") ||
         m.includes("not supported") ||
         m.includes("unsupported")),
+  },
+  {
+    kind: "invalidParams",
+    test: (m) =>
+      m.includes("400") ||
+      m.includes("bad request") ||
+      m.includes("invalid argument") ||
+      m.includes("invalid parameter") ||
+      m.includes("invalid parameters") ||
+      m.includes("invalid value") ||
+      m.includes("invalid input") ||
+      m.includes("invalid request") ||
+      m.includes("must be a valid") ||
+      m.includes("is required") ||
+      m.includes("unsupported parameter") ||
+      m.includes("unknown parameter"),
   },
 ];
 

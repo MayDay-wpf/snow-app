@@ -80,7 +80,8 @@ export type RightPanelTab = {
     | "browser"
     | "file"
     | "file-diff-preview"
-    | "codebase";
+    | "codebase"
+    | "drawing";
   title: string;
   data?:
     | DiffTabData

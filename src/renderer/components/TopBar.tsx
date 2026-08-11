@@ -6,6 +6,7 @@ import {
   Globe,
   Maximize2,
   Minimize2,
+  Paintbrush,
   Plus,
   SidebarClose,
   SidebarOpen,
@@ -32,6 +33,7 @@ type TopBarProps = {
   onOpenTerminal?: () => void;
   onOpenBrowser?: () => void;
   onOpenCodebase?: (projectId: string, projectName: string) => void;
+  onOpenDrawing?: () => void;
 };
 
 export const TopBar = ({
@@ -45,6 +47,7 @@ export const TopBar = ({
   onOpenTerminal,
   onOpenBrowser,
   onOpenCodebase,
+  onOpenDrawing,
 }: TopBarProps): React.JSX.Element => {
   const { t } = useI18n();
   const {
@@ -436,6 +439,15 @@ export const TopBar = ({
         onOpenBrowser?.();
       },
     },
+    {
+      id: "drawing",
+      label: t("topBar.plusMenu.drawing", { defaultValue: "Drawing" }),
+      icon: <Paintbrush size={13} strokeWidth={1.8} />,
+      onClick: () => {
+        setBranchContextMenu(null);
+        onOpenDrawing?.();
+      },
+    },
     ...(canOpenCodebase && activeProjectId
       ? [
           {
@@ -494,6 +506,11 @@ export const TopBar = ({
       label: t("topBar.plusMenu.browser", { defaultValue: "Browser" }),
       icon: Globe,
     },
+    {
+      id: "drawing",
+      label: t("topBar.plusMenu.drawing", { defaultValue: "Drawing" }),
+      icon: Paintbrush,
+    },
     ...(canOpenCodebase
       ? [{ id: "codebase", label: t("topBar.plusMenu.codebase"), icon: Database }]
       : []),
@@ -504,6 +521,8 @@ export const TopBar = ({
       onOpenTerminal?.();
     } else if (actionId === "browser") {
       onOpenBrowser?.();
+    } else if (actionId === "drawing") {
+      onOpenDrawing?.();
     } else if (actionId === "codebase" && activeProjectId) {
       onOpenCodebase?.(
         activeProjectId,

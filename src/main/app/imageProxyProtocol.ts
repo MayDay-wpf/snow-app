@@ -61,14 +61,19 @@ const serveLocalImage = async (
   }
 
   let root: string;
+  let inner: string;
   if (normalized.startsWith("image/")) {
     root = await native.getImageLibraryRoot();
+    // 根目录本身即 image 目录（物理文件直接位于根目录下，按 日期/文件名 落盘），
+    // image/ 仅为逻辑前缀 —— 与 Rust 侧 library_file_path 的 strip_prefix 保持一致。
+    inner = normalized.slice("image/".length);
   } else {
-    // upload/ 以上传图片根目录为根（优先用户自定义路径，回退 ~/.snowapp/upload）
+    // upload/ 同上：根目录本身即 upload 目录，upload/ 仅为逻辑前缀。
     root = await native.getUploadRoot();
+    inner = normalized.slice("upload/".length);
   }
 
-  const filePath = normalize(join(root, normalized));
+  const filePath = normalize(join(root, inner));
   // 二次校验：解析后的路径必须仍在允许的根目录内（防符号链接/分隔符绕过）。
   const rootPrefix = root.endsWith(sep) ? root : root + sep;
   if (
