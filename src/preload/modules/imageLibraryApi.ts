@@ -79,6 +79,17 @@ export const imageLibraryApi = {
   setImageAlbum: (imageId: string, albumId: string | null): Promise<void> =>
     ipcRenderer.invoke("images:album-set-image", imageId, albumId),
 
+  /** 设置相册手动封面（imageId 传 null 清除，回退最新一张图） */
+  setImageAlbumCover: (
+    albumId: string,
+    imageId: string | null
+  ): Promise<ImageAlbumRecord> =>
+    ipcRenderer.invoke("images:album-set-cover", albumId, imageId),
+
+  /** 相册拖拽排序：按给定顺序持久化 sort_order */
+  reorderImageAlbums: (orderedIds: string[]): Promise<void> =>
+    ipcRenderer.invoke("images:album-reorder", orderedIds),
+
   /** 弹出图片文件选择对话框（多选），返回选中文件路径数组或 null */
   selectImageFiles: (dialogTitle?: string): Promise<string[] | null> =>
     ipcRenderer.invoke("images:select-images", dialogTitle),

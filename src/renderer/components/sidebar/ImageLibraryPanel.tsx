@@ -16,6 +16,8 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Send,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -78,6 +80,28 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
+/** 从拖拽数据中读取图库图片 id 列表（application/json「library-images」协议）。 */
+const readDraggedImageIds = (dataTransfer: DataTransfer): string[] => {
+  const jsonData = dataTransfer.getData("application/json");
+  if (!jsonData) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(jsonData) as {
+      type?: unknown;
+      images?: unknown;
+    };
+    if (parsed.type !== "library-images" || !Array.isArray(parsed.images)) {
+      return [];
+    }
+    return parsed.images
+      .map((image) => (image as { id?: unknown })?.id)
+      .filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+};
+
 type ImageLibraryPanelProps = {
   onClose: () => void;
 };
@@ -89,12 +113,10 @@ export const ImageLibraryPanel = ({
   const [items, setItems] = useState<ImageLibraryRecord[]>([]);
   const [albums, setAlbums] = useState<ImageAlbumRecord[]>([]);
   /**
-   * 两级视图模式：
-   * - "overview"：相册卡片墙（按相册级别展示，默认进入）
-   * - "gallery"：当前相册/全部/未分类的图片网格
+   * 扁平层级视图：默认直接展示「全部」图片网格，
+   * 顶部相册栏（全部 / 未分类 / 相册）一键切换浏览范围。
    */
-  const [viewMode, setViewMode] = useState<"overview" | "gallery">("overview");
-  /** 当前选中的相册："all" = 全部，"" = 未分类，其他 = 相册 id */
+  /** 当前选中的相册：\"all\" = 全部，\"\" = 未分类，其他 = 相册 id */
   const [activeAlbum, setActiveAlbum] = useState<string>("all");
   const [creatingAlbum, setCreatingAlbum] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
@@ -132,6 +154,13 @@ export const ImageLibraryPanel = ({
   const copiedKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  /** 轻量操作反馈（设为封面/发送到聊天框等，数秒后消失）。 */
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  /** 相册排序拖拽中（携带的相册 id）。 */
+  const [draggingAlbumId, setDraggingAlbumId] = useState<string | null>(null);
   /** 手动导入图片中 */
   const [importing, setImporting] = useState(false);
   /** 拖拽悬停的目标相册（null = 无；"none" = 未分类） */
@@ -384,7 +413,6 @@ export const ImageLibraryPanel = ({
       setAlbumError("");
       // 创建成功后直接进入该相册的图片视图
       setActiveAlbum(album.id);
-      setViewMode("gallery");
     } catch (albumError) {
       console.warn("[image-library] create album failed", albumError);
       setAlbumError(
@@ -451,8 +479,6 @@ export const ImageLibraryPanel = ({
       );
       if (activeAlbum === album.id) {
         setActiveAlbum("all");
-        // 删除的是当前浏览的相册 → 回到相册卡片墙
-        setViewMode("overview");
       }
     } catch (deleteError) {
       console.warn("[image-library] delete album failed", deleteError);
@@ -511,6 +537,133 @@ export const ImageLibraryPanel = ({
     copiedKeyTimerRef.current = setTimeout(() => setCopiedKey(null), 1500);
   };
 
+  /** 轻量操作反馈（数秒后自动消失）。 */
+  const showActionToast = useCallback((text: string): void => {
+    setActionToast(text);
+    if (actionToastTimerRef.current) {
+      clearTimeout(actionToastTimerRef.current);
+    }
+    actionToastTimerRef.current = setTimeout(() => setActionToast(null), 2000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (actionToastTimerRef.current) {
+        clearTimeout(actionToastTimerRef.current);
+      }
+    };
+  }, []);
+
+  /** 批量复制选中图片的提示词（按选择顺序拼接，空提示词跳过）。 */
+  const handleBatchCopyPrompts = useCallback(async (): Promise<void> => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      return;
+    }
+    const texts = ids
+      .map((id) => items.find((record) => record.id === id))
+      .filter(
+        (record): record is ImageLibraryRecord =>
+          !!record && record.prompt.trim() !== ""
+      )
+      .map((record) => record.prompt.trim());
+    if (texts.length === 0) {
+      return;
+    }
+    await copyText(texts.join("\n\n"), "batch-prompts");
+  }, [selectedIds, items]);
+
+  /** 灯箱/卡片：发送当前图片到聊天输入框（异步解析 data URL 后插入 chip）。 */
+  const sendToChat = useCallback(
+    async (record: ImageLibraryRecord): Promise<void> => {
+      const dataUrl =
+        dataUrls[record.relativePath] ??
+        (await window.snow.resolveLibraryImage(record.relativePath));
+      if (!dataUrl) {
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent("chat-input:insert-images", {
+          detail: {
+            images: [
+              {
+                name: record.fileName || "image.png",
+                dataUrl,
+              },
+            ],
+          },
+        })
+      );
+      showActionToast(t("settings.imageLibrarySentToChat"));
+    },
+    [dataUrls, showActionToast, t]
+  );
+
+  /** 灯箱/卡片：设为绘图工作台参考图（工作台常驻监听全局事件）。 */
+  const setAsReference = useCallback(
+    (record: ImageLibraryRecord): void => {
+      window.dispatchEvent(
+        new CustomEvent("drawing:set-reference", {
+          detail: {
+            path: record.relativePath,
+            mimeType: record.mimeType,
+          },
+        })
+      );
+      showActionToast(t("settings.imageLibraryRefSet"));
+    },
+    [showActionToast, t]
+  );
+
+  /** 将图片设为所在相册的手动封面。 */
+  const handleSetCover = useCallback(
+    async (record: ImageLibraryRecord): Promise<void> => {
+      if (!record.albumId) {
+        return;
+      }
+      try {
+        const updated = await window.snow.setImageAlbumCover(
+          record.albumId,
+          record.id
+        );
+        setAlbums((prev) =>
+          prev.map((album) => (album.id === updated.id ? updated : album))
+        );
+        showActionToast(t("settings.imageLibraryCoverSet"));
+      } catch (coverError) {
+        console.warn("[image-library] set album cover failed", coverError);
+      }
+    },
+    [showActionToast, t]
+  );
+
+  /** 相册排序拖拽：把 dragging 相册移动到目标相册位置并持久化。 */
+  const reorderAlbumTo = useCallback(
+    (draggedId: string, targetId: string): void => {
+      if (draggedId === targetId) {
+        return;
+      }
+      const ids = albums.map((album) => album.id);
+      const from = ids.indexOf(draggedId);
+      const to = ids.indexOf(targetId);
+      if (from < 0 || to < 0) {
+        return;
+      }
+      ids.splice(from, 1);
+      ids.splice(to, 0, draggedId);
+      const byId = new Map(albums.map((album) => [album.id, album]));
+      setAlbums(
+        ids
+          .map((id) => byId.get(id))
+          .filter((album): album is ImageAlbumRecord => !!album)
+      );
+      void window.snow.reorderImageAlbums(ids).catch((error) => {
+        console.warn("[image-library] reorder albums failed", error);
+      });
+    },
+    [albums]
+  );
+
   /** 单选 / Ctrl 点选切换；Shift 为范围连选（基于当前过滤+排序结果） */
   const toggleSelect = (
     record: ImageLibraryRecord,
@@ -565,10 +718,13 @@ export const ImageLibraryPanel = ({
     setSelectedIds(new Set());
   };
 
-  /** 批量移入相册（albumId 空 = 移出到未分类） */
-  const batchMoveToAlbum = async (albumId: string): Promise<void> => {
+  /** 批量移入相册（albumId 空 = 移出到未分类；idsOverride 供拖拽批量归类） */
+  const batchMoveToAlbum = async (
+    albumId: string,
+    idsOverride?: string[]
+  ): Promise<void> => {
     const target = albumId || null;
-    const ids = [...selectedIds];
+    const ids = idsOverride ?? [...selectedIds];
     if (ids.length === 0) {
       return;
     }
@@ -649,6 +805,75 @@ export const ImageLibraryPanel = ({
       setImporting(false);
     }
   };
+
+  // ------------------------------------------------------------------
+  // 本地图片文件拖入面板 → 导入图库
+  // ------------------------------------------------------------------
+  const [panelDragOver, setPanelDragOver] = useState(false);
+
+  const handlePanelDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>): void => {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setPanelDragOver(true);
+    },
+    []
+  );
+
+  const handlePanelDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>): void => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+        setPanelDragOver(false);
+      }
+    },
+    []
+  );
+
+  const handlePanelDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>): Promise<void> => {
+      event.preventDefault();
+      setPanelDragOver(false);
+      const files: File[] = [];
+      for (let i = 0; i < event.dataTransfer.files.length; i++) {
+        const file = event.dataTransfer.files.item(i);
+        if (file) {
+          files.push(file);
+        }
+      }
+      if (files.length === 0) {
+        return;
+      }
+      const entries = await window.snow.resolveDroppedFiles(files);
+      const imagePaths = entries.filter(
+        (entry) =>
+          !entry.isDirectory &&
+          /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|tiff?)$/i.test(entry.path)
+      );
+      if (imagePaths.length === 0) {
+        return;
+      }
+      setImporting(true);
+      try {
+        const imported = await window.snow.importImageFiles(
+          imagePaths.map((entry) => entry.path)
+        );
+        if (imported.length > 0) {
+          await load();
+        }
+      } catch (importError) {
+        console.warn("[image-library] drag import failed", importError);
+        setError(
+          importError instanceof Error
+            ? importError.message
+            : String(importError)
+        );
+      } finally {
+        setImporting(false);
+      }
+    },
+    [load]
+  );
 
   /** 估算网格列数（键盘上下导航用） */
   const getColumnCount = (): number => {
@@ -791,46 +1016,16 @@ export const ImageLibraryPanel = ({
     setTimeFilter("all");
     setModelFilter("all");
     setProviderFilter("all");
-    // 条件清空后回到相册卡片墙（从「无匹配」空态操作时体验更连贯）
-    setViewMode("overview");
   };
 
   // ------------------------------------------------------------------
-  // 两级视图：相册卡片墙（overview） / 图片网格（gallery）
+  // 视图：相册栏切换浏览范围（全部 / 未分类 / 相册）
   // ------------------------------------------------------------------
 
-  /** 是否展示相册卡片墙（默认视图；输入搜索词时强制进入图片网格看结果） */
-  const showOverview =
-    viewMode === "overview" && searchQuery.trim().length === 0;
-
-  /** 打开某个相册的图片网格视图（albumId："all" / "none" / 相册 id） */
+  /** 切换到某个浏览范围（\"all\" / \"none\" / 相册 id） */
   const openGallery = (albumId: string): void => {
     setActiveAlbum(albumId);
-    setViewMode("gallery");
   };
-
-  /** 相册墙「全部」卡片封面：最新一张图片的缩略图 */
-  const allCover = useMemo(() => {
-    const newest = items[0];
-    return newest ? dataUrls[newest.relativePath] ?? "" : "";
-  }, [items, dataUrls]);
-
-  /** 相册墙「未分类」卡片封面：未分类图片中最新一张的缩略图 */
-  const noneCover = useMemo(() => {
-    for (const item of items) {
-      if (item.albumId === null) {
-        const url = dataUrls[item.relativePath];
-        if (url) return url;
-      }
-    }
-    return "";
-  }, [items, dataUrls]);
-
-  /** 未分类图片数量 */
-  const noneCount = useMemo(
-    () => items.filter((item) => item.albumId === null).length,
-    [items]
-  );
 
   /** gallery 视图顶部标题（当前浏览范围名） */
   const galleryTitle = useMemo(() => {
@@ -840,13 +1035,13 @@ export const ImageLibraryPanel = ({
     return album ? album.name : t("settings.imageLibraryAlbumNone");
   }, [activeAlbum, albums, t]);
 
-  /** 视图切换时重置增量渲染上限与滚动位置 */
+  /** 浏览范围切换时重置增量渲染上限与滚动位置 */
   useEffect(() => {
     setVisibleLimit(60);
     if (contentRef.current) {
       contentRef.current.scrollTop = 0;
     }
-  }, [viewMode, activeAlbum]);
+  }, [activeAlbum]);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -881,7 +1076,14 @@ export const ImageLibraryPanel = ({
   }, [selectedIds.size, lightbox]);
 
   return (
-    <div className="api-settings-page image-library-page">
+    <div
+      className={`api-settings-page image-library-page${
+        panelDragOver ? " drag-over" : ""
+      }`}
+      onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
+      onDrop={(event) => void handlePanelDrop(event)}
+    >
       <div className="api-settings-page-header">
         <div className="api-settings-title-group">
           <strong>{t("settings.imageLibrary")}</strong>
@@ -959,8 +1161,14 @@ export const ImageLibraryPanel = ({
           }}
           onDrop={(event) => {
             event.preventDefault();
-            const draggedId = event.dataTransfer.getData("text/plain");
+            event.stopPropagation(); // 阻止冒泡到面板根（避免触发文件导入）
+            const draggedIds = readDraggedImageIds(event.dataTransfer);
             setDragOverAlbum(null);
+            if (draggedIds.length > 0) {
+              void batchMoveToAlbum("", draggedIds);
+              return;
+            }
+            const draggedId = event.dataTransfer.getData("text/plain");
             const record = items.find((r) => r.id === draggedId);
             if (record && record.albumId !== null) {
               void moveToAlbum(record, "");
@@ -981,10 +1189,28 @@ export const ImageLibraryPanel = ({
               type="button"
               className={`image-library-album-chip${
                 dragOverAlbum === album.id ? " drag-over" : ""
-              }`}
+              }${draggingAlbumId === album.id ? " dragging" : ""}`}
               onClick={() => openGallery(album.id)}
               title={`${album.name} · ${album.imageCount}`}
+              draggable
+              onDragStart={(event) => {
+                // 相册排序拖拽：自定义 MIME（与图片归类协议区分）
+                event.dataTransfer.setData(
+                  "application/x-snow-album",
+                  album.id
+                );
+                event.dataTransfer.effectAllowed = "move";
+                setDraggingAlbumId(album.id);
+              }}
+              onDragEnd={() => setDraggingAlbumId(null)}
               onDragOver={(event) => {
+                // 相册排序拖拽优先（move 效果）；否则图片归类（copy 效果）
+                if (event.dataTransfer.types.includes("application/x-snow-album")) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverAlbum(album.id);
+                  return;
+                }
                 if (!event.dataTransfer.types.includes("text/plain")) return;
                 event.preventDefault();
                 setDragOverAlbum(album.id);
@@ -1002,8 +1228,23 @@ export const ImageLibraryPanel = ({
               }}
               onDrop={(event) => {
                 event.preventDefault();
-                const draggedId = event.dataTransfer.getData("text/plain");
+                event.stopPropagation(); // 阻止冒泡到面板根（避免触发文件导入）
+                const albumDragId = event.dataTransfer.getData(
+                  "application/x-snow-album"
+                );
                 setDragOverAlbum(null);
+                setDraggingAlbumId(null);
+                if (albumDragId) {
+                  // 相册排序：移动到目标位置
+                  reorderAlbumTo(albumDragId, album.id);
+                  return;
+                }
+                const draggedIds = readDraggedImageIds(event.dataTransfer);
+                if (draggedIds.length > 0) {
+                  void batchMoveToAlbum(album.id, draggedIds);
+                  return;
+                }
+                const draggedId = event.dataTransfer.getData("text/plain");
                 const record = items.find((r) => r.id === draggedId);
                 if (record && record.albumId !== album.id) {
                   void moveToAlbum(record, album.id);
@@ -1105,12 +1346,37 @@ export const ImageLibraryPanel = ({
           />
           <button
             type="button"
+            className="image-library-batch-copy"
+            onClick={() => void handleBatchCopyPrompts()}
+            disabled={copiedKey === "batch-prompts"}
+          >
+            {copiedKey === "batch-prompts" ? (
+              <>
+                <Check size={12} aria-hidden="true" />
+                {t("settings.imageLibraryCopied")}
+              </>
+            ) : (
+              <>
+                <Copy size={12} aria-hidden="true" />
+                {t("settings.imageLibraryBatchCopyPrompt")}
+              </>
+            )}
+          </button>
+          <button
+            type="button"
             className="image-library-batch-delete"
             onClick={() => setPendingBatchDelete(true)}
           >
             <Trash2 size={12} aria-hidden="true" />
             {t("settings.imageLibraryBatchDelete")}
           </button>
+        </div>
+      ) : null}
+
+      {/* 轻量操作反馈（设为封面/发送到聊天框等） */}
+      {actionToast ? (
+        <div className="image-library-action-toast" role="status">
+          {actionToast}
         </div>
       ) : null}
 
@@ -1122,10 +1388,6 @@ export const ImageLibraryPanel = ({
             value={searchQuery}
             onChange={(event) => {
               setSearchQuery(event.target.value);
-              // 输入搜索词时进入图片网格视图展示结果
-              if (event.target.value.trim()) {
-                setViewMode("gallery");
-              }
             }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -1146,9 +1408,6 @@ export const ImageLibraryPanel = ({
             </button>
           ) : null}
         </div>
-        {/* 相册卡片墙视图下只保留搜索框，筛选仅对图片网格有意义 */}
-        {!showOverview ? (
-          <>
         <div className="image-library-filter-group">
           {(
             [
@@ -1228,199 +1487,19 @@ export const ImageLibraryPanel = ({
           ]}
           onChange={(value) => setSortBy(value as SortBy)}
         />
-          </>
-        ) : null}
       </div>
 
-      {showOverview ? (
-        /* ===================== 相册卡片墙（按相册级别展示） ===================== */
-        <div
-          className="image-library-content"
-          ref={contentRef}
-          onScroll={handleContentScroll}
-        >
-          {loading ? (
-            <div className="image-library-state" role="status">
-              <Loader2
-                className="tool-call-icon-spinning"
-                size={20}
-                aria-hidden="true"
-              />
-              <span>{t("common.loading")}</span>
-            </div>
-          ) : error ? (
-            <div className="image-library-state">
-              <span className="tool-call-error">{error}</span>
-            </div>
-          ) : (
-            <div className="image-library-albums-view">
-              <div className="image-library-albums-head">
-                <span className="image-library-albums-title">
-                  {t("settings.imageLibraryAlbums")}
-                </span>
-                <span className="image-library-albums-count">
-                  {t("settings.imageLibraryCount", {
-                    values: { count: items.length },
-                  })}
-                </span>
-              </div>
-              {items.length === 0 ? (
-                <div className="image-library-state">
-                  <span className="image-library-state-icon">
-                    <ImageIcon size={26} aria-hidden="true" />
-                  </span>
-                  <span>{t("settings.imageLibraryEmpty")}</span>
-                  <button
-                    type="button"
-                    className="image-library-album-card add compact"
-                    onClick={openCreateAlbum}
-                  >
-                    <FolderPlus size={16} aria-hidden="true" />
-                    <span className="image-library-album-card-name">
-                      {t("settings.imageLibraryAlbumCreate")}
-                    </span>
-                  </button>
-                </div>
-              ) : (
-                <div className="image-library-album-grid">
-                  {/* 全部图片 */}
-                  <button
-                    type="button"
-                    className="image-library-album-card"
-                    onClick={() => openGallery("all")}
-                    title={t("settings.imageLibraryAlbumAll")}
-                  >
-                    <span className="image-library-album-card-cover">
-                      {allCover ? (
-                        <img src={allCover} alt="" />
-                      ) : (
-                        <ImageIcon size={22} aria-hidden="true" />
-                      )}
-                    </span>
-                    <span className="image-library-album-card-info">
-                      <span className="image-library-album-card-name">
-                        {t("settings.imageLibraryAlbumAll")}
-                      </span>
-                      <span className="image-library-album-card-count">
-                        {items.length}
-                      </span>
-                    </span>
-                  </button>
-                  {/* 未分类 */}
-                  <button
-                    type="button"
-                    className="image-library-album-card"
-                    onClick={() => openGallery("none")}
-                    title={t("settings.imageLibraryAlbumNone")}
-                  >
-                    <span className="image-library-album-card-cover">
-                      {noneCover ? (
-                        <img src={noneCover} alt="" />
-                      ) : (
-                        <FolderOpen size={22} aria-hidden="true" />
-                      )}
-                    </span>
-                    <span className="image-library-album-card-info">
-                      <span className="image-library-album-card-name">
-                        {t("settings.imageLibraryAlbumNone")}
-                      </span>
-                      <span className="image-library-album-card-count">
-                        {noneCount}
-                      </span>
-                    </span>
-                  </button>
-                  {/* 用户相册 */}
-                  {albums.map((album) => (
-                    <span
-                      key={album.id}
-                      className="image-library-album-card-wrap"
-                    >
-                      <button
-                        type="button"
-                        className="image-library-album-card"
-                        onClick={() => openGallery(album.id)}
-                        title={`${album.name} · ${album.imageCount}`}
-                      >
-                        <span className="image-library-album-card-cover">
-                          {albumCovers[album.id] ? (
-                            <img src={albumCovers[album.id]} alt="" />
-                          ) : (
-                            <FolderOpen size={22} aria-hidden="true" />
-                          )}
-                        </span>
-                        <span className="image-library-album-card-info">
-                          <span className="image-library-album-card-name">
-                            {album.name}
-                          </span>
-                          <span className="image-library-album-card-count">
-                            {album.imageCount}
-                          </span>
-                        </span>
-                      </button>
-                      <span className="image-library-album-card-actions">
-                        <button
-                          type="button"
-                          title={t("settings.imageLibraryAlbumRename")}
-                          aria-label={t("settings.imageLibraryAlbumRename")}
-                          onClick={() => startRenameAlbum(album)}
-                        >
-                          <Pencil size={11} aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title={t("settings.imageLibraryAlbumDelete")}
-                          aria-label={t("settings.imageLibraryAlbumDelete")}
-                          onClick={() => setPendingAlbumDelete(album)}
-                        >
-                          <Trash2 size={11} aria-hidden="true" />
-                        </button>
-                      </span>
-                    </span>
-                  ))}
-                  {/* 新建相册 */}
-                  <button
-                    type="button"
-                    className="image-library-album-card add"
-                    onClick={openCreateAlbum}
-                    title={t("settings.imageLibraryAlbumCreate")}
-                  >
-                    <span className="image-library-album-card-cover">
-                      <FolderPlus size={22} aria-hidden="true" />
-                    </span>
-                    <span className="image-library-album-card-info">
-                      <span className="image-library-album-card-name">
-                        {t("settings.imageLibraryAlbumCreate")}
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {/* ===================== 图片网格视图（面包屑 + 工具栏 + 网格） ===================== */}
-          <div className="image-library-gallery-header">
-            <button
-              type="button"
-              className="image-library-back-btn"
-              onClick={() => setViewMode("overview")}
-              title={t("settings.imageLibraryAlbums")}
-            >
-              <ChevronLeft size={13} aria-hidden="true" />
-              {t("settings.imageLibraryAlbums")}
-            </button>
-            <span className="image-library-gallery-title">
-              {galleryTitle}
-            </span>
-            <span className="image-library-gallery-count">
-              {t("settings.imageLibraryCount", {
-                values: { count: filtered.length },
-              })}
-            </span>
-          </div>
+      {/* ===== 图片网格（相册栏切换浏览范围：全部 / 未分类 / 相册） ===== */}
+      <div className="image-library-gallery-header">
+        <span className="image-library-gallery-title">
+          {galleryTitle}
+        </span>
+        <span className="image-library-gallery-count">
+          {t("settings.imageLibraryCount", {
+            values: { count: filtered.length },
+          })}
+        </span>
+      </div>
 
       <div
         className="image-library-content"
@@ -1446,7 +1525,12 @@ export const ImageLibraryPanel = ({
               <ImageIcon size={26} aria-hidden="true" />
             </span>
             {items.length === 0 ? (
-              <span>{t("settings.imageLibraryEmpty")}</span>
+              <>
+                <span>{t("settings.imageLibraryEmpty")}</span>
+                <span className="image-library-state-hint">
+                  {t("settings.imageLibraryDragImportHint")}
+                </span>
+              </>
             ) : (
               <>
                 <span>{t("settings.imageLibraryEmptyFiltered")}</span>
@@ -1466,7 +1550,7 @@ export const ImageLibraryPanel = ({
           </div>
         ) : (
           <>
-            <div className="image-library-grid" ref={gridRef}>
+            <div className="image-library-grid masonry" ref={gridRef}>
             {filtered.slice(0, visibleLimit).map((record) => {
               const src = dataUrls[record.relativePath];
               const selected = selectedIds.has(record.id);
@@ -1484,9 +1568,32 @@ export const ImageLibraryPanel = ({
                   onClick={() => setLightbox(record)}
                   onKeyDown={(event) => handleCardKeyDown(event, record)}
                   onContextMenu={(event) => openContextMenu(event, record)}
-                  draggable={selectedIds.size === 0}
+                  draggable
                   onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", record.id);
+                    // 拖拽协议：卡片在选中集中时拖拽整组（批量归类/批量发图），
+                    // 否则拖拽单张。application/json 供聊天框/工作台消费，
+                    // text/plain 兼容相册 chip 旧协议。
+                    const dragged = selectedIds.has(record.id)
+                      ? [...selectedIds]
+                      : [record.id];
+                    const images = dragged
+                      .map((id) => items.find((r) => r.id === id))
+                      .filter((r): r is ImageLibraryRecord => !!r);
+                    event.dataTransfer.setData(
+                      "application/json",
+                      JSON.stringify({
+                        type: "library-images",
+                        images: images.map((r) => ({
+                          id: r.id,
+                          path: r.relativePath,
+                          mimeType: r.mimeType,
+                          name: r.relativePath.split("/").pop() ?? r.fileName,
+                        })),
+                      })
+                    );
+                    if (images.length === 1) {
+                      event.dataTransfer.setData("text/plain", images[0].id);
+                    }
                     event.dataTransfer.effectAllowed = "copy";
                   }}
                   title={record.prompt || record.fileName}
@@ -1596,8 +1703,6 @@ export const ImageLibraryPanel = ({
           </>
         )}
       </div>
-        </>
-      )}
 
       {lightbox && lightboxDataUrl
         ? createPortal(
@@ -1657,6 +1762,24 @@ export const ImageLibraryPanel = ({
                 >
                   <Download size={13} aria-hidden="true" />
                   {t("toolCall.imagegen.download")}
+                </button>
+                <button
+                  type="button"
+                  className="image-library-lightbox-action"
+                  title={t("settings.imageLibrarySetAsReference")}
+                  onClick={() => setAsReference(lightbox)}
+                >
+                  <Sparkles size={13} aria-hidden="true" />
+                  {t("settings.imageLibrarySetAsReference")}
+                </button>
+                <button
+                  type="button"
+                  className="image-library-lightbox-action"
+                  title={t("settings.imageLibrarySendToChat")}
+                  onClick={() => void sendToChat(lightbox)}
+                >
+                  <Send size={13} aria-hidden="true" />
+                  {t("settings.imageLibrarySendToChat")}
                 </button>
                 <button
                   type="button"
@@ -1812,6 +1935,28 @@ export const ImageLibraryPanel = ({
                 void copyText(contextMenu.record.fileName, "context-name");
               },
             },
+            {
+              id: "send-chat",
+              label: t("settings.imageLibrarySendToChat"),
+              icon: <Send size={12} aria-hidden="true" />,
+              onClick: () => {
+                setContextMenu(null);
+                void sendToChat(contextMenu.record);
+              },
+            },
+            ...(contextMenu.record.albumId
+              ? [
+                  {
+                    id: "set-cover",
+                    label: t("settings.imageLibrarySetAsCover"),
+                    icon: <ImageIcon size={12} aria-hidden="true" />,
+                    onClick: () => {
+                      setContextMenu(null);
+                      void handleSetCover(contextMenu.record);
+                    },
+                  },
+                ]
+              : []),
             {
               id: "delete",
               label: t("settings.imageLibraryDelete"),

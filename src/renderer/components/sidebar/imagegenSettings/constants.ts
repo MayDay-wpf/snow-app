@@ -59,9 +59,67 @@ export const DEFAULT_GEMINI_BASE_URL =
 
 /** 常见生图模型提示（placeholder 用，含别名与预览版）。 */
 export const OPENAI_MODEL_EXAMPLES =
-  "gpt-image-2, dall-e-3, chatgpt-image-latest (preview), ...";
+  "gpt-image-2, dall-e-3, chatgpt-image-latest (preview), grok-imagine-image-2.0 (xAI), ...";
 export const GEMINI_MODEL_EXAMPLES =
   "gemini-3.1-flash-image (Nano Banana 2), gemini-3-pro-image (Nano Banana Pro), gemini-3.1-flash-lite-image (Nano Banana 2 Lite), gemini-2.5-flash-image (legacy), ...";
+/** xAI Grok Imagine 模型示例（OpenAI 兼容协议，baseUrl = https://api.x.ai/v1）。 */
+export const GROK_MODEL_EXAMPLES =
+  "grok-imagine-image-quality, grok-imagine-image-2.0, ...";
+
+/** xAI Grok Imagine 支持的全部宽高比（官方文档；auto = 模型自选，作默认）。 */
+export const GROK_ASPECT_RATIOS = [
+  "1:1",
+  "16:9",
+  "9:16",
+  "4:3",
+  "3:4",
+  "3:2",
+  "2:3",
+  "2:1",
+  "1:2",
+  "19.5:9",
+  "9:19.5",
+  "20:9",
+  "9:20",
+];
+
+/** xAI Grok Imagine 支持的分辨率（官方文档：1k / 2k；空 = 渠道默认）。 */
+export const GROK_SIZE_PRESETS = ["", "1k", "2k"] as const;
+
+/**
+ * 解析 Grok 的 defaultSize（与 Gemini 同款 "比例@分辨率" 格式）：
+ * - "16:9" → { ratio: "16:9", resolution: "" }
+ * - "2k" → { ratio: "", resolution: "2k" }
+ * - "16:9@2k" → { ratio: "16:9", resolution: "2k" }
+ * - 其他（自定义/空）→ 均为 ""
+ */
+export const matchGrokSizePreset = (
+  size: string
+): { ratio: string; resolution: string } => {
+  const trimmed = size.trim();
+  const [ratioPart, sizePart] = trimmed.includes("@")
+    ? trimmed.split("@")
+    : [trimmed, ""];
+  const ratio = GROK_ASPECT_RATIOS.includes(ratioPart.trim())
+    ? ratioPart.trim()
+    : "";
+  const resolution = (GROK_SIZE_PRESETS as readonly string[]).includes(
+    sizePart.trim()
+  )
+    ? sizePart.trim()
+    : "";
+  return { ratio, resolution };
+};
+
+/** 组合 Grok 的宽高比与分辨率为存储值（"16:9@2k"）。 */
+export const buildGrokSize = (ratio: string, resolution: string): string => {
+  const ratioPart = ratio.trim();
+  const sizePart = resolution.trim();
+  if (ratioPart && sizePart) {
+    return `${ratioPart}@${sizePart}`;
+  }
+  return ratioPart || sizePart;
+};
 
 /**
  * OpenAI gpt-image 推荐分辨率（12API 文档）：
@@ -89,21 +147,40 @@ export const OPENAI_SIZE_PRESETS: Record<
 /** OpenAI size 档位（与 OPENAI_SIZE_PRESETS 的键一致）。 */
 export const OPENAI_SIZE_TIERS = ["1K", "2K", "4K"] as const;
 
-/** Gemini 常用宽高比快捷选项。 */
+/** Gemini 常用宽高比快捷选项（3 Pro / 3.1 Flash Lite / 2.5 Flash Image 官方支持集）。 */
 export const GEMINI_ASPECT_RATIOS = [
   "1:1",
-  "5:4",
-  "4:3",
-  "3:2",
-  "16:9",
-  "2:1",
-  "21:9",
-  "4:5",
-  "3:4",
   "2:3",
-  "1:2",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
   "9:16",
+  "16:9",
+  "21:9",
 ];
+
+/** Gemini 3.1 Flash Image 独有超宽比例（官方文档）。 */
+export const GEMINI_ASPECT_RATIOS_FLASH3_EXTRA = [
+  "1:4",
+  "1:8",
+  "4:1",
+  "8:1",
+];
+
+/**
+ * 按模型返回 Gemini 支持的宽高比列表（官方文档 2026-07）：
+ * - gemini-3.1-flash-image：14 种（含 1:4 / 1:8 / 4:1 / 8:1 超宽）
+ * - 其他（3 Pro / 3.1 Flash Lite / 2.5 Flash Image）：10 种
+ */
+export const getGeminiAspectRatios = (model: string): string[] => {
+  const id = model.toLowerCase();
+  if (id.includes("gemini-3.1-flash-image") && !id.includes("flash-lite")) {
+    return [...GEMINI_ASPECT_RATIOS, ...GEMINI_ASPECT_RATIOS_FLASH3_EXTRA];
+  }
+  return [...GEMINI_ASPECT_RATIOS];
+};
 
 /**
  * Gemini imageSize 可选值（12API 文档）：

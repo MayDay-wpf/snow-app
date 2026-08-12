@@ -1085,6 +1085,14 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to manage image albums")
         ),
+      setImageAlbumCover: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to set album covers")
+        ),
+      reorderImageAlbums: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to reorder image albums")
+        ),
       importImageFiles: () =>
         Promise.reject(
           new Error("Rust native bridge is required to import images")

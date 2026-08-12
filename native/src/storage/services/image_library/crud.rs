@@ -45,18 +45,23 @@ pub fn list_images(database_path: &Path) -> Result<Vec<ImageLibraryRecord>> {
         .map_err(|error| database::database_error(database_path, "list image library", error))
 }
 
-/// 列出全部相册（按创建时间倒序），含封面路径（最新一张图）与图片数量。
+/// 列出全部相册（按拖拽排序 sort_order，其次创建时间倒序），
+/// 封面 = 手动设置的封面（cover_image_id），未设置时回退最新一张图。
 pub fn list_albums(database_path: &Path) -> Result<Vec<ImageAlbumRecord>> {
     database::open_connection(database_path)
         .and_then(|connection| {
             let mut statement = connection.prepare(
                 "SELECT a.id, a.name, a.created_at,
-                        (SELECT i.relative_path FROM image_library i
-                          WHERE i.album_id = a.id
-                          ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS cover_path,
+                        COALESCE(
+                          (SELECT i.relative_path FROM image_library i
+                            WHERE i.id = a.cover_image_id LIMIT 1),
+                          (SELECT i.relative_path FROM image_library i
+                            WHERE i.album_id = a.id
+                            ORDER BY i.created_at DESC, i.id DESC LIMIT 1)
+                        ) AS cover_path,
                         (SELECT COUNT(*) FROM image_library i WHERE i.album_id = a.id) AS image_count
                    FROM image_albums a
-                  ORDER BY a.created_at DESC, a.id DESC",
+                  ORDER BY a.sort_order ASC, a.created_at DESC, a.id DESC",
             )?;
             let rows = statement.query_map([], map_album_row)?;
             rows.collect()
@@ -82,9 +87,13 @@ fn find_album(
     connection
         .query_row(
             "SELECT a.id, a.name, a.created_at,
-                    (SELECT i.relative_path FROM image_library i
-                      WHERE i.album_id = a.id
-                      ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS cover_path,
+                    COALESCE(
+                      (SELECT i.relative_path FROM image_library i
+                        WHERE i.id = a.cover_image_id LIMIT 1),
+                      (SELECT i.relative_path FROM image_library i
+                        WHERE i.album_id = a.id
+                        ORDER BY i.created_at DESC, i.id DESC LIMIT 1)
+                    ) AS cover_path,
                     (SELECT COUNT(*) FROM image_library i WHERE i.album_id = a.id) AS image_count
                FROM image_albums a
               WHERE a.id = ?1",
@@ -92,6 +101,95 @@ fn find_album(
             map_album_row,
         )
         .optional()
+}
+
+/// 设置相册手动封面：image_id 传 None 时清除手动封面（回退最新一张图）。
+/// 校验图片必须属于该相册（或不存在），防止跨相册引用。
+pub fn set_album_cover(
+    database_path: &Path,
+    album_id: &str,
+    image_id: Option<&str>,
+) -> Result<ImageAlbumRecord> {
+    let mut connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open for album cover", error))?;
+    let tx = connection
+        .transaction()
+        .map_err(|error| database::database_error(database_path, "begin album cover tx", error))?;
+
+    let album_exists: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM image_albums WHERE id = ?1)",
+            params![album_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| database::database_error(database_path, "check album exists", error))?;
+    if !album_exists {
+        return Err(database::database_error(
+            database_path,
+            "album not found for cover",
+            rusqlite::Error::QueryReturnedNoRows,
+        ));
+    }
+    if let Some(image_id) = image_id {
+        // 图片必须存在且属于该相册
+        let belongs: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM image_library WHERE id = ?1 AND album_id = ?2)",
+                params![image_id, album_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| database::database_error(database_path, "check image belongs", error))?;
+        if !belongs {
+            return Err(database::database_error(
+                database_path,
+                "image does not belong to album",
+                rusqlite::Error::QueryReturnedNoRows,
+            ));
+        }
+        tx.execute(
+            "UPDATE image_albums SET cover_image_id = ?1 WHERE id = ?2",
+            params![image_id, album_id],
+        )
+        .map_err(|error| database::database_error(database_path, "set album cover", error))?;
+    } else {
+        tx.execute(
+            "UPDATE image_albums SET cover_image_id = NULL WHERE id = ?1",
+            params![album_id],
+        )
+        .map_err(|error| database::database_error(database_path, "clear album cover", error))?;
+    }
+
+    let record = find_album(&tx, album_id)
+        .map_err(|error| database::database_error(database_path, "query album after cover", error))?
+        .ok_or_else(|| {
+            database::database_error(
+                database_path,
+                "album missing after cover update",
+                rusqlite::Error::QueryReturnedNoRows,
+            )
+        })?;
+    tx.commit()
+        .map_err(|error| database::database_error(database_path, "commit album cover", error))?;
+    Ok(record)
+}
+
+/// 拖拽排序：按给定相册 id 顺序写入 sort_order（0,1,2,...）；
+/// 未出现在列表中的相册保持原 sort_order（排在末尾）。
+pub fn reorder_albums(database_path: &Path, ordered_ids: &[String]) -> Result<()> {
+    let mut connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open for album reorder", error))?;
+    let tx = connection
+        .transaction()
+        .map_err(|error| database::database_error(database_path, "begin album reorder tx", error))?;
+    for (index, album_id) in ordered_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE image_albums SET sort_order = ?1 WHERE id = ?2",
+            params![index as i64, album_id],
+        )
+        .map_err(|error| database::database_error(database_path, "update album order", error))?;
+    }
+    tx.commit()
+        .map_err(|error| database::database_error(database_path, "commit album reorder", error))
 }
 
 /// 创建相册。名称去除首尾空白，不允许为空；名称不强制唯一。

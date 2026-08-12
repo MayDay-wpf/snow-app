@@ -377,6 +377,10 @@ const getModelCapabilities = (modelId: string): string[] => {
   if (id.includes("gpt-image-1")) {
     return ["cap2k", "capStream", "capImageToImage", "capFidelity"];
   }
+  if (id.includes("grok-imagine")) {
+    // xAI Grok Imagine：OpenAI 兼容协议，比例+分辨率（1k/2k），支持图生图
+    return ["cap2k", "capImageToImage"];
+  }
   if (id.includes("dall-e")) {
     return ["capTextToImageOnly"];
   }

@@ -1616,6 +1616,22 @@ pub fn set_image_album(image_id: String, album_id: Option<String>) -> Result<()>
     services::image_library::set_image_album(&database_path, &image_id, album_id.as_deref())
 }
 
+/// 设置相册手动封面（image_id 传 null 清除，回退最新一张图）。
+pub fn set_image_album_cover(
+    album_id: String,
+    image_id: Option<String>,
+) -> Result<ImageAlbumRecord> {
+    let database_path = ensure_database_file()?;
+    services::image_library::set_album_cover(&database_path, &album_id, image_id.as_deref())
+        .map(ImageAlbumRecord::from)
+}
+
+/// 相册拖拽排序：按给定顺序写入 sort_order。
+pub fn reorder_image_albums(ordered_ids: Vec<String>) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::image_library::reorder_albums(&database_path, &ordered_ids)
+}
+
 /// 手动导入图片文件（复制进图库目录并写入索引），返回成功导入的记录。
 pub fn import_image_files(file_paths: Vec<String>) -> Result<Vec<ImageLibraryRecord>> {
     let database_path = ensure_database_file()?;

@@ -1746,6 +1746,13 @@ export type NativeBridge = {
   renameImageAlbum: (id: string, name: string) => Promise<ImageAlbumRecord>;
   deleteImageAlbum: (id: string) => Promise<void>;
   setImageAlbum: (imageId: string, albumId: string | null) => Promise<void>;
+  /** 设置相册手动封面（imageId 传 null 清除，回退最新一张图） */
+  setImageAlbumCover: (
+    albumId: string,
+    imageId: string | null
+  ) => Promise<ImageAlbumRecord>;
+  /** 相册拖拽排序：按给定顺序持久化 sort_order */
+  reorderImageAlbums: (orderedIds: string[]) => Promise<void>;
   /** 手动导入图片文件（复制进图库目录并写入索引），返回成功导入的记录 */
   importImageFiles: (filePaths: string[]) => Promise<ImageLibraryRecord[]>;
   readImageLibraryFile: (relativePath: string) => Promise<string | null>;

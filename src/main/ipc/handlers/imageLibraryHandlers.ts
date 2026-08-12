@@ -188,6 +188,38 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
+    "images:album-set-cover",
+    async (_event, albumId: unknown, imageId: unknown): Promise<unknown> => {
+      if (typeof albumId !== "string" || albumId.trim() === "") {
+        throw new Error("Invalid album id");
+      }
+      if (imageId !== null && typeof imageId !== "string") {
+        throw new Error("Invalid image id");
+      }
+      const normalizedImageId =
+        typeof imageId === "string" && imageId.trim() !== ""
+          ? imageId.trim()
+          : null;
+      return native.setImageAlbumCover(albumId.trim(), normalizedImageId);
+    }
+  );
+
+  ipcMain.handle(
+    "images:album-reorder",
+    async (_event, orderedIds: unknown): Promise<void> => {
+      if (
+        !Array.isArray(orderedIds) ||
+        orderedIds.some((id) => typeof id !== "string" || id.trim() === "")
+      ) {
+        throw new Error("Invalid album id list");
+      }
+      await native.reorderImageAlbums(
+        orderedIds.map((id) => (id as string).trim())
+      );
+    }
+  );
+
+  ipcMain.handle(
     "images:select-images",
     async (event, dialogTitle: unknown): Promise<string[] | null> => {
       const browserWindow = BrowserWindow.fromWebContents(event.sender);

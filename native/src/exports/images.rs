@@ -154,6 +154,27 @@ pub async fn set_image_album(image_id: String, album_id: Option<String>) -> napi
         .map_err(map_spawn_error)?
 }
 
+/// 设置相册手动封面（image_id 传 null 清除，回退最新一张图）。
+#[napi]
+pub async fn set_image_album_cover(
+    album_id: String,
+    image_id: Option<String>,
+) -> napi::Result<ImageAlbumRecord> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::set_image_album_cover(album_id, image_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+/// 相册拖拽排序：按给定顺序写入 sort_order。
+#[napi]
+pub async fn reorder_image_albums(ordered_ids: Vec<String>) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::reorder_image_albums(ordered_ids))
+        .await
+        .map_err(map_spawn_error)?
+}
+
 /// 手动导入图片文件（复制进图库目录并写入索引），返回成功导入的记录。
 #[napi]
 pub async fn import_image_files(file_paths: Vec<String>) -> napi::Result<Vec<ImageLibraryRecord>> {

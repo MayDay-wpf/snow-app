@@ -586,6 +586,39 @@ export const ChatInputView = ({
     }
   }, [handleChange, renumberImageChips, textareaRef]);
 
+  // 图库面板「发送到聊天框」事件（跨组件联动，如设置页图片库灯箱）。
+  useEffect(() => {
+    const handleInsertImages = (event: Event): void => {
+      const detail = (
+        event as CustomEvent<{
+          images?: { name?: unknown; dataUrl?: unknown }[];
+        }>
+      ).detail;
+      const images = Array.isArray(detail?.images) ? detail.images : [];
+      for (const image of images) {
+        if (typeof image?.dataUrl !== "string" || !image.dataUrl) {
+          continue;
+        }
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+        insertHtmlAtSelection(
+          createImageChipHtml({
+            name:
+              typeof image.name === "string" && image.name.length > 0
+                ? image.name
+                : "image.png",
+            dataUrl: image.dataUrl,
+          })
+        );
+        syncContent();
+      }
+    };
+    window.addEventListener("chat-input:insert-images", handleInsertImages);
+    return () =>
+      window.removeEventListener("chat-input:insert-images", handleInsertImages);
+  }, [syncContent]);
+
   const insertFileTag = useCallback(
     (tag: FileTag) => {
       if (textareaRef.current) {
@@ -1095,6 +1128,60 @@ export const ChatInputView = ({
 
       try {
         const parsed = JSON.parse(jsonData) as Record<string, unknown>;
+
+        // 图库图片拖拽：{ type: "library-image", path, mimeType?, name? }
+        // 或批量：{ type: "library-images", images: [{ path, mimeType?, name? }] }
+        // → 异步解析为 data URL 并逐个插入图片 chip（与粘贴/拖入图片一致）。
+        const libraryImages: { path: string; name: string }[] = [];
+        if (parsed.type === "library-image" && typeof parsed.path === "string") {
+          libraryImages.push({
+            path: parsed.path,
+            name:
+              typeof parsed.name === "string" && parsed.name.length > 0
+                ? parsed.name
+                : parsed.path.split("/").pop() ?? "image.png",
+          });
+        } else if (
+          parsed.type === "library-images" &&
+          Array.isArray(parsed.images)
+        ) {
+          for (const raw of parsed.images) {
+            const image = raw as { path?: unknown; name?: unknown };
+            if (typeof image.path === "string") {
+              libraryImages.push({
+                path: image.path,
+                name:
+                  typeof image.name === "string" && image.name.length > 0
+                    ? image.name
+                    : image.path.split("/").pop() ?? "image.png",
+              });
+            }
+          }
+        }
+        if (libraryImages.length > 0) {
+          void (async () => {
+            for (const image of libraryImages) {
+              try {
+                const dataUrl = await window.snow.resolveLibraryImage(
+                  image.path
+                );
+                if (!dataUrl) {
+                  continue;
+                }
+                if (textareaRef.current) {
+                  textareaRef.current.focus();
+                }
+                insertHtmlAtSelection(
+                  createImageChipHtml({ name: image.name, dataUrl })
+                );
+                syncContent();
+              } catch {
+                // 单张解析失败：跳过继续
+              }
+            }
+          })();
+          return;
+        }
 
         // 浏览器 tab 拖拽：{ type: "web-tag", url, title, instanceId?, tabId? }
         // → 插入网页引用 chip；若携带实例定位信息则异步请求三层网页快照

@@ -276,6 +276,20 @@ impl ImageGenService {
                 "Model \"{model}\" does not support image-to-image (reference images). {hint}"
             )));
         }
+        // Gemini 参考图数量上限（官方文档）：3 系列 14 张，2.5 Flash Image 3 张。
+        if provider == "gemini" && !images.is_empty() {
+            let max_ref = if model_lower.contains("gemini-2.5-flash-image") {
+                3
+            } else {
+                14
+            };
+            if images.len() > max_ref {
+                return Err(Error::from_reason(format!(
+                    "Model \"{model}\" supports at most {max_ref} reference images, got {}. Reduce the number of reference images.",
+                    images.len()
+                )));
+            }
+        }
         // dall-e-3 每次只能生成 1 张：n>1 自动收敛为 1，避免 400。
         let n = if is_dall_e_3 { n.min(1) } else { n };
 
@@ -447,6 +461,10 @@ impl ImageGenService {
         let mime_type = mime_for_format(output_format.as_deref().unwrap_or("png"));
         let is_dall_e = model.to_ascii_lowercase().starts_with("dall-e");
         let is_gpt_image_2 = model.to_ascii_lowercase().contains("gpt-image-2");
+        // xAI Grok Imagine：OpenAI 兼容端点，但尺寸用 aspect_ratio + resolution
+        // （不走 size），图生图走 JSON body（非 multipart），不支持 SSE 流式。
+        let is_grok = model.to_ascii_lowercase().contains("grok-imagine")
+            || model.to_ascii_lowercase().contains("grok-image");
 
         // 单次调用内并发 n 个子请求（每个子请求 n=1）：中转/上游不支持
         // 单请求多图，拆成并发请求绕开限制。n>1 时禁用流式——多路
@@ -455,6 +473,7 @@ impl ImageGenService {
         let allow_stream = stream_enabled
             && requests == 1
             && !is_dall_e
+            && !is_grok
             && images.iter().all(|set| set.is_empty());
         let client = build_client(timeout_secs).await?;
 
@@ -471,8 +490,53 @@ impl ImageGenService {
                     // 用户显式指定 seed 且并发多张时逐张递增，避免生成完全相同的图
                     let request_seed = seed.map(|value| value.wrapping_add(request_index as u64));
 
-                    // --- Image-to-image: POST /images/edits (multipart) ---
+                    // --- Image-to-image: POST /images/edits ---
                     if !request_images.is_empty() {
+                        // xAI Grok Imagine：edits 走 application/json（非 multipart），
+                        // 参考图以 data URI 形式放入 image.url；暂取第一张。
+                        if is_grok {
+                            let body = json!({
+                                "model": model,
+                                "prompt": prompt,
+                                "image": {
+                                    "url": format!(
+                                        "data:{};base64,{}",
+                                        request_images[0].mime_type, request_images[0].data
+                                    )
+                                }
+                            });
+                            let response = client
+                                .post(&edits_endpoint)
+                                .bearer_auth(api_key)
+                                .json(&body)
+                                .send()
+                                .await
+                                .map_err(|error| {
+                                    generic_error(format!("Grok image edit request failed: {error}"))
+                                })?;
+                            let status = response.status();
+                            let response_body: Value = response.json().await.unwrap_or_else(|_| json!({}));
+                            if !status.is_success() {
+                                return Err(api_error(
+                                    "Grok image edit failed",
+                                    status.as_u16(),
+                                    &response_body,
+                                ));
+                            }
+                            let Some(data) = response_body.get("data").and_then(Value::as_array) else {
+                                return Err(generic_error(
+                                    "Grok image edit response is missing the data array".to_string(),
+                                ));
+                            };
+                            return collect_openai_result(
+                                prompt,
+                                model,
+                                channel_label,
+                                data.iter().cloned().collect(),
+                                mime_type,
+                            )
+                            .await;
+                        }
                         let build_form =
                             |background: Option<&str>| -> napi::Result<reqwest::multipart::Form> {
                                 let mut form = reqwest::multipart::Form::new()
@@ -593,6 +657,28 @@ impl ImageGenService {
                         "prompt": prompt,
                         "n": 1,
                     });
+                    if is_grok {
+                        // xAI Grok Imagine：尺寸 = aspect_ratio + resolution（1k/2k），
+                        // 不走 OpenAI 的 size；quality 仅 low/medium（2.0 支持）；
+                        // 不支持 output_format / output_compression / seed /
+                        // background / moderation，一律不发送。
+                        if let Some(value) = args.get("aspectRatio").and_then(Value::as_str) {
+                            if !value.is_empty() {
+                                body["aspect_ratio"] = json!(value);
+                            }
+                        }
+                        if let Some(value) = args.get("resolution").and_then(Value::as_str) {
+                            if !value.is_empty() {
+                                body["resolution"] = json!(value);
+                            }
+                        }
+                        if let Some(value) = quality {
+                            if matches!(value.as_str(), "low" | "medium") {
+                                body["quality"] = json!(value);
+                            }
+                        }
+                        body["response_format"] = json!("b64_json");
+                    } else {
                     if let Some(value) = size {
                         body["size"] = json!(value);
                     }
@@ -637,6 +723,7 @@ impl ImageGenService {
                             map.remove("background");
                             map.remove("moderation");
                         }
+                    }
                     }
 
                     // 部分模型/代理不支持透明背景（400 "Transparent background is not
@@ -826,6 +913,18 @@ impl ImageGenService {
         if let Some(quality) = quality {
             if matches!(quality.as_str(), "low" | "medium" | "high") {
                 interactions_response_format["image_quality"] = json!(quality);
+            }
+        }
+        // 输出格式（Gemini 3 系列 response_format mime_type：png / jpeg）
+        if let Some(output_format) = args.get("outputFormat").and_then(Value::as_str) {
+            match output_format.trim().to_ascii_lowercase().as_str() {
+                "png" => {
+                    interactions_response_format["mime_type"] = json!("image/png");
+                }
+                "jpeg" | "jpg" => {
+                    interactions_response_format["mime_type"] = json!("image/jpeg");
+                }
+                _ => {}
             }
         }
         let mut interactions_generation_config = json!({});
