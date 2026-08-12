@@ -206,7 +206,10 @@ export function ProjectExplorerContent({
   const [isLoading, setIsLoading] = useState(false);
   const [isStale, setIsStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // 多选集合：path -> 选中。支持 ctrl/cmd 点选切换、shift 范围选择。
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  // shift 范围选择锚点：最近一次普通/ctrl 点击（或右键）的路径。
+  const selectionAnchorRef = useRef<string | null>(null);
   const [entryContextMenu, setEntryContextMenu] =
     useState<ExplorerEntryContextMenuState | null>(null);
   const treeRef = useRef<HTMLDivElement | null>(null);
@@ -520,7 +523,14 @@ export function ProjectExplorerContent({
       entry: { name: string; path: string; isDirectory: boolean }
     ): void => {
       event.preventDefault();
-      setSelectedPath(entry.path);
+      // 右键多选区域中的条目时保留整个选中集合；右键未选中条目则单选它。
+      setSelectedPaths((prev) => {
+        if (prev.has(entry.path)) {
+          return prev;
+        }
+        return new Set([entry.path]);
+      });
+      selectionAnchorRef.current = entry.path;
       setEntryContextMenu({
         name: entry.name,
         path: entry.path,
@@ -577,7 +587,36 @@ export function ProjectExplorerContent({
           return next;
         });
 
-        setSelectedPath(newPath);
+        // 选中集合同步：被重命名条目及其子路径的选中状态跟随迁移。
+        setSelectedPaths((prev) => {
+          const next = new Set<string>();
+          for (const p of prev) {
+            if (p === entryPath) {
+              next.add(newPath);
+            } else if (
+              p.startsWith(entryPath + "/") ||
+              p.startsWith(entryPath + "\\")
+            ) {
+              next.add(newPath + p.substring(entryPath.length));
+            } else {
+              next.add(p);
+            }
+          }
+          return next;
+        });
+        // shift 锚点同步迁移，避免锚点失效导致后续范围选择降级。
+        const anchor = selectionAnchorRef.current;
+        if (
+          anchor !== null &&
+          (anchor === entryPath ||
+            anchor.startsWith(entryPath + "/") ||
+            anchor.startsWith(entryPath + "\\"))
+        ) {
+          selectionAnchorRef.current =
+            anchor === entryPath
+              ? newPath
+              : newPath + anchor.substring(entryPath.length);
+        }
       } catch (operationError) {
         setError(
           operationError instanceof Error
@@ -623,7 +662,27 @@ export function ProjectExplorerContent({
           return next;
         });
 
-        setSelectedPath(null);
+        // 从选中集合移除被删除条目及其子路径；shift 锚点若被删除则清空。
+        setSelectedPaths((prev) => {
+          const next = new Set<string>();
+          for (const p of prev) {
+            if (
+              p !== entryPath &&
+              !p.startsWith(entryPath + "/") &&
+              !p.startsWith(entryPath + "\\")
+            ) {
+              next.add(p);
+            }
+          }
+          return next;
+        });
+        if (
+          selectionAnchorRef.current === entryPath ||
+          (selectionAnchorRef.current?.startsWith(entryPath + "/") ?? false) ||
+          (selectionAnchorRef.current?.startsWith(entryPath + "\\") ?? false)
+        ) {
+          selectionAnchorRef.current = null;
+        }
       } catch (operationError) {
         setError(
           operationError instanceof Error
@@ -847,19 +906,126 @@ export function ProjectExplorerContent({
     [tree, expandedPaths]
   );
 
+  // 树行点击：ctrl/cmd 切换选中、shift 范围选择；普通点击单选并打开/展开。
+  const handleTreeRowClick = useCallback(
+    (
+      event: React.MouseEvent<HTMLDivElement>,
+      node: TreeNode,
+      hasChildren: boolean
+    ): void => {
+      // 让树容器获得焦点，保证 Ctrl+A 全选与键盘操作可用。
+      treeRef.current?.focus();
+
+      const isCtrl = event.ctrlKey || event.metaKey;
+      const isShift = event.shiftKey;
+
+      // ctrl/cmd：切换该条目的选中状态，不打开文件、不展开目录。
+      if (isCtrl) {
+        setSelectedPaths((prev) => {
+          const next = new Set(prev);
+          if (next.has(node.path)) {
+            next.delete(node.path);
+          } else {
+            next.add(node.path);
+          }
+          return next;
+        });
+        selectionAnchorRef.current = node.path;
+        return;
+      }
+
+      // shift：从锚点到当前条目的可见范围选择（不打开文件、不展开目录）。
+      if (isShift) {
+        const anchor = selectionAnchorRef.current;
+        if (anchor) {
+          const visiblePaths = flatNodes.map((f) => f.node.path);
+          const anchorIndex = visiblePaths.indexOf(anchor);
+          const currentIndex = visiblePaths.indexOf(node.path);
+          if (anchorIndex >= 0 && currentIndex >= 0) {
+            const from = Math.min(anchorIndex, currentIndex);
+            const to = Math.max(anchorIndex, currentIndex);
+            setSelectedPaths(new Set(visiblePaths.slice(from, to + 1)));
+            return;
+          }
+        }
+        // 锚点失效时降级为单选。
+        setSelectedPaths(new Set([node.path]));
+        selectionAnchorRef.current = node.path;
+        return;
+      }
+
+      // 普通点击：单选 + 目录展开/折叠或打开文件（保持原有行为）。
+      setSelectedPaths(new Set([node.path]));
+      selectionAnchorRef.current = node.path;
+      if (hasChildren) {
+        void handleToggle(node.path);
+      } else {
+        onOpenFile?.(
+          node.path,
+          node.name,
+          isSsh,
+          sshProfileIdRef.current,
+          undefined,
+          rootPath ?? undefined,
+          explorerDirectoryId ?? undefined
+        );
+      }
+    },
+    [
+      flatNodes,
+      handleToggle,
+      onOpenFile,
+      isSsh,
+      rootPath,
+      explorerDirectoryId,
+    ]
+  );
+
+  // 树容器键盘：Ctrl/Cmd + A 全选当前可见条目。
+  const handleTreeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setSelectedPaths(new Set(flatNodes.map((f) => f.node.path)));
+        // 锚点重置为最后一项，便于后续 shift 继续扩展范围。
+        if (flatNodes.length > 0) {
+          selectionAnchorRef.current =
+            flatNodes[flatNodes.length - 1].node.path;
+        }
+      }
+    },
+    [flatNodes]
+  );
+
+  // 树条目拖拽：若拖拽的是已选中的条目且存在多个选中项，则携带整个选中
+  // 集合（file-tags 多文件协议）；否则仅携带该条目（保持原有单对象格式）。
   const handleTreeDragStart = useCallback(
     (event: React.DragEvent<HTMLDivElement>, node: TreeNode) => {
-      event.dataTransfer.setData(
-        "application/json",
-        JSON.stringify({
-          path: node.path,
-          name: node.name,
-          isDirectory: node.isDirectory,
-        })
-      );
+      if (selectedPaths.has(node.path) && selectedPaths.size > 1) {
+        const tags: FileTag[] = flatNodes
+          .filter((f) => selectedPaths.has(f.node.path))
+          .map((f) => ({
+            path: f.node.path,
+            name: f.node.name,
+            isDirectory: f.node.isDirectory,
+          }));
+        event.dataTransfer.setData(
+          "application/json",
+          JSON.stringify({ type: "file-tags", tags })
+        );
+      } else {
+        event.dataTransfer.setData(
+          "application/json",
+          JSON.stringify({
+            path: node.path,
+            name: node.name,
+            isDirectory: node.isDirectory,
+          })
+        );
+      }
       event.dataTransfer.effectAllowed = "copy";
     },
-    []
+    [flatNodes, selectedPaths]
   );
 
   // 将当前选中行按文件聚合成 FileTag 列表。拖拽时统一发送。
@@ -880,7 +1046,7 @@ export function ProjectExplorerContent({
   // 点击文件名：清空行选择，打开文件（不带行号）。
   const handleSearchFileNameClick = useCallback(
     (result: FileSearchResult) => {
-      setSelectedPath(result.path);
+      setSelectedPaths(new Set([result.path]));
       setSelectedLines(new Map());
       lineSelectAnchorRef.current = null;
       onOpenFile?.(
@@ -948,7 +1114,7 @@ export function ProjectExplorerContent({
       single.set(result.path, new Set([line]));
       setSelectedLines(single);
       lineSelectAnchorRef.current = { path: result.path, line };
-      setSelectedPath(result.path);
+      setSelectedPaths(new Set([result.path]));
       onOpenFile?.(
         result.path,
         result.name,
@@ -1164,10 +1330,15 @@ export function ProjectExplorerContent({
               </span>
             ) : null}
 
-            <div className="explorer-tree" ref={treeRef}>
+            <div
+              className="explorer-tree"
+              ref={treeRef}
+              tabIndex={-1}
+              onKeyDown={handleTreeKeyDown}
+            >
               {flatNodes.map((flatNode, index) => {
                 const { node, depth, hasChildren, isExpanded } = flatNode;
-                const isSelected = selectedPath === node.path;
+                const isSelected = selectedPaths.has(node.path);
                 const isLast = index === flatNodes.length - 1;
 
                 return (
@@ -1178,22 +1349,9 @@ export function ProjectExplorerContent({
                     key={node.path}
                     draggable
                     onDragStart={(event) => handleTreeDragStart(event, node)}
-                    onClick={() => {
-                      setSelectedPath(node.path);
-                      if (hasChildren) {
-                        void handleToggle(node.path);
-                      } else {
-                        onOpenFile?.(
-                          node.path,
-                          node.name,
-                          isSsh,
-                          sshProfileIdRef.current,
-                          undefined,
-                          rootPath ?? undefined,
-                          explorerDirectoryId ?? undefined
-                        );
-                      }
-                    }}
+                    onClick={(event) =>
+                      handleTreeRowClick(event, node, hasChildren)
+                    }
                     onContextMenu={(event) =>
                       handleEntryContextMenu(event, node)
                     }

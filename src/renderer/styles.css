@@ -2986,6 +2986,10 @@ input {
   padding: 2px 0;
 }
 
+.explorer-tree:focus {
+  outline: none;
+}
+
 .explorer-tree-row {
   display: flex;
   align-items: center;
