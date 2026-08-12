@@ -128,6 +128,31 @@ type AggregatedModel = {
 
 const COUNT_OPTIONS = [1, 2, 4, 8];
 
+/**
+ * 从 "WxH" 分辨率计算最简宽高比（如 1024x1024 → "1:1"、1792x1008 → "16:9"）。
+ * 无法解析（非 WxH 格式，如 "auto"）返回空字符串。
+ */
+const ratioFromResolution = (size: string): string => {
+  const match = /^(\d+)\s*[x×]\s*(\d+)$/i.exec(size.trim());
+  if (!match) {
+    return "";
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!width || !height) {
+    return "";
+  }
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const divisor = gcd(width, height);
+  if (divisor <= 1) {
+    return `${width}:${height}`;
+  }
+  const w = width / divisor;
+  const h = height / divisor;
+  // 化简后数值过大（如 3840:1080）时保留原始分辨率，避免出现超长比例串。
+  return w <= 100 && h <= 100 ? `${w}:${h}` : `${width}:${height}`;
+};
+
 /** OpenAI 输出格式选项（空 = 渠道默认）。 */
 const OPENAI_FORMAT_OPTIONS = [
   { value: "", labelKey: "rightPanel.aiDrawing.formatDefault" },
@@ -520,6 +545,19 @@ export function DrawingPanelContent({
       if (preset) {
         setRatio(preset.ratio);
         setTier(preset.tier);
+      } else {
+        // 渠道默认无法匹配预设（自定义分辨率或 auto）：尽力解析出宽高比展示，
+        // 档位留空（跟随渠道默认），避免下拉框只显示「渠道默认」这种抽象文案。
+        // 仅当化简出的比例属于当前模型的可用选项时才填充，否则保持空
+        // （「默认」选项的展示文本会由 defaultRatioLabel 兜底，避免 select 空白）。
+        const fallbackRatio = ratioFromResolution(channel.defaultSize);
+        const ratioAvailable = supportsSizeTier(channel.provider, channel.model)
+          ? fallbackRatio in OPENAI_SIZE_PRESETS
+          : openaiFixedSizePresets(channel.model).some(
+              (item) => item.ratio === fallbackRatio
+            );
+        setRatio(fallbackRatio && ratioAvailable ? fallbackRatio : "");
+        setTier("");
       }
     }
   }, []);
@@ -703,6 +741,46 @@ export function DrawingPanelContent({
     }
     return "";
   }, [selectedChannel, ratio, tier, showTier, effectiveModel, capabilities]);
+
+  /** 渠道默认尺寸原文（空 = 未配置，如渠道使用服务商默认）。 */
+  const channelDefaultSize = (selectedChannel?.defaultSize ?? "").trim();
+
+  /** 宽高比下拉「默认」选项的展示文本：优先显示渠道默认解析出的比例，否则显示默认尺寸原文。 */
+  const defaultRatioLabel = useMemo((): string => {
+    if (!selectedChannel || !channelDefaultSize) {
+      return "";
+    }
+    if (selectedChannel.provider === "gemini") {
+      return matchGeminiSizePreset(channelDefaultSize).ratio;
+    }
+    if (capabilities?.sizeSystem === "ratio-resolution") {
+      return matchGrokSizePreset(channelDefaultSize).ratio;
+    }
+    return (
+      matchOpenAISizePreset(channelDefaultSize)?.ratio ??
+      ratioFromResolution(channelDefaultSize)
+    );
+  }, [selectedChannel, channelDefaultSize, capabilities]);
+
+  /** 尺寸/分辨率下拉「默认」选项的展示文本：优先显示渠道默认解析出的具体值，否则显示默认尺寸原文。 */
+  const defaultTierLabel = useMemo((): string => {
+    if (!selectedChannel || !channelDefaultSize) {
+      return "";
+    }
+    if (selectedChannel.provider === "gemini") {
+      const preset = matchGeminiSizePreset(channelDefaultSize);
+      return preset.imageSize || preset.ratio || "";
+    }
+    if (capabilities?.sizeSystem === "ratio-resolution") {
+      const preset = matchGrokSizePreset(channelDefaultSize);
+      return preset.resolution || preset.ratio || "";
+    }
+    const preset = matchOpenAISizePreset(channelDefaultSize);
+    if (preset) {
+      return OPENAI_SIZE_PRESETS[preset.ratio]?.[preset.tier] ?? preset.tier;
+    }
+    return channelDefaultSize;
+  }, [selectedChannel, channelDefaultSize, capabilities]);
 
   /** Gemini 档位候选（按模型能力过滤）。 */
   const geminiTierOptions = useMemo(() => {
@@ -1520,7 +1598,11 @@ export function DrawingPanelContent({
             value={ratio}
             onChange={(event) => setRatio(event.target.value)}
           >
-            <option value="">{t("rightPanel.aiDrawing.sizeDefault")}</option>
+            <option value="">
+              {defaultRatioLabel ||
+                channelDefaultSize ||
+                t("rightPanel.aiDrawing.sizeDefault")}
+            </option>
             {(capabilities?.sizeSystem === "ratio-resolution" ||
             capabilities?.sizeSystem === "gemini-tier"
               ? capabilities.ratios
@@ -1548,7 +1630,9 @@ export function DrawingPanelContent({
               {capabilities.resolutions.map((value) => (
                 <option key={value} value={value}>
                   {value === ""
-                    ? t("rightPanel.aiDrawing.sizeDefault")
+                    ? defaultTierLabel ||
+                      channelDefaultSize ||
+                      t("rightPanel.aiDrawing.sizeDefault")
                     : value}
                 </option>
               ))}
@@ -1575,7 +1659,11 @@ export function DrawingPanelContent({
                     : undefined
               }
             >
-              <option value="">{t("rightPanel.aiDrawing.sizeDefault")}</option>
+              <option value="">
+                {defaultTierLabel ||
+                  channelDefaultSize ||
+                  t("rightPanel.aiDrawing.sizeDefault")}
+              </option>
               {(isGemini
                 ? geminiTierOptions
                 : OPENAI_SIZE_TIERS
