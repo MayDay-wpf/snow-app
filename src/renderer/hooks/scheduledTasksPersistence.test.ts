@@ -163,18 +163,26 @@ test("fromWire skips tasks with unreadable schedule JSON", () => {
 
 test("store hydrates persisted tasks and reconciles expired ones", async () => {
   const upserted: Array<{ id: string; status: string }> = [];
+  const calls: string[] = [];
   const fakeApi = {
-    listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => [
-      makeWire({ id: "a", nextRunAt: "2099-01-01T00:00:00.000Z" }),
-      makeWire({
-        id: "b",
-        scheduleJson: JSON.stringify({
-          type: "once",
-          executeAt: "2020-01-01T00:00:00.000Z",
+    reconcileScheduledTaskRuns: async (): Promise<number> => {
+      calls.push("reconcile");
+      return 0;
+    },
+    listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => {
+      calls.push("list");
+      return [
+        makeWire({ id: "a", nextRunAt: "2099-01-01T00:00:00.000Z" }),
+        makeWire({
+          id: "b",
+          scheduleJson: JSON.stringify({
+            type: "once",
+            executeAt: "2020-01-01T00:00:00.000Z",
+          }),
+          nextRunAt: "2020-01-01T00:00:00.000Z",
         }),
-        nextRunAt: "2020-01-01T00:00:00.000Z",
-      }),
-    ],
+      ];
+    },
     upsertScheduledTask: async (input: {
       id: string;
       status: string;
@@ -204,6 +212,8 @@ test("store hydrates persisted tasks and reconciles expired ones", async () => {
       upserted.map((entry) => entry.id).sort(),
       ["b"]
     );
+    // Zombie run rows are fixed up BEFORE the history snapshot is read.
+    assert.deepEqual(calls, ["reconcile", "list"]);
   });
 });
 
@@ -211,6 +221,7 @@ test("store writes create/remove mutations through the persistence adapter", asy
   const upserted: string[] = [];
   const deleted: string[] = [];
   const fakeApi = {
+    reconcileScheduledTaskRuns: async (): Promise<number> => 0,
     listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => [],
     upsertScheduledTask: async (input: { id: string }): Promise<unknown> => {
       upserted.push(input.id);
@@ -243,4 +254,163 @@ test("store writes create/remove mutations through the persistence adapter", asy
     await flush();
     assert.ok(deleted.includes(task.id));
   });
+});
+
+test("remove issued during pending hydration is not resurrected", async () => {
+  const deleted: string[] = [];
+  let resolveList!: (rows: ScheduledTaskWireRecord[]) => void;
+  const listPromise = new Promise<ScheduledTaskWireRecord[]>((resolve) => {
+    resolveList = resolve;
+  });
+  const fakeApi = {
+    reconcileScheduledTaskRuns: async (): Promise<number> => 0,
+    listScheduledTasks: (): Promise<ScheduledTaskWireRecord[]> => listPromise,
+    upsertScheduledTask: async (input: unknown): Promise<unknown> => input,
+    deleteScheduledTask: async (taskId: string): Promise<void> => {
+      deleted.push(taskId);
+    },
+    clearScheduledTasks: async (): Promise<number> => 0,
+    appendScheduledTaskRun: async (): Promise<string> => "run-1",
+    finalizeScheduledTaskRun: async (): Promise<void> => undefined,
+  };
+
+  await withFakeBridge(fakeApi, async () => {
+    const store = new ScheduledTasksStore();
+    const hydration = store.ensureHydrated();
+    // Hydration is still waiting on the list snapshot...
+    store.remove("doomed");
+    resolveList([makeWire({ id: "doomed" })]);
+    await hydration;
+    await flush();
+
+    // The tombstone drops the row instead of resurrecting it...
+    assert.equal(store.list().length, 0);
+    // ...and the DB delete was issued regardless.
+    assert.ok(deleted.includes("doomed"));
+  });
+});
+
+test("createAndAwait is idempotent for the same id and persists once", async () => {
+  const upserted: string[] = [];
+  const fakeApi = {
+    reconcileScheduledTaskRuns: async (): Promise<number> => 0,
+    listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => [],
+    upsertScheduledTask: async (input: { id: string }): Promise<unknown> => {
+      upserted.push(input.id);
+      return input;
+    },
+    deleteScheduledTask: async (): Promise<void> => undefined,
+    clearScheduledTasks: async (): Promise<number> => 0,
+    appendScheduledTaskRun: async (): Promise<string> => "run-1",
+    finalizeScheduledTaskRun: async (): Promise<void> => undefined,
+  };
+
+  await withFakeBridge(fakeApi, async () => {
+    const store = new ScheduledTasksStore();
+    const input = {
+      id: "idem-1",
+      name: "Idempotent",
+      prompt: "Run it",
+      schedule: {
+        type: "once" as const,
+        executeAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    };
+    const first = await store.createAndAwait(input);
+    const second = await store.createAndAwait(input);
+
+    assert.equal(first.id, second.id);
+    assert.equal(store.list().length, 1);
+    assert.equal(upserted.length, 1);
+  });
+});
+
+test("createAndAwait rolls back and rethrows when persistence fails", async () => {
+  const fakeApi = {
+    reconcileScheduledTaskRuns: async (): Promise<number> => 0,
+    listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => [],
+    upsertScheduledTask: async (): Promise<never> => {
+      throw new Error("disk full");
+    },
+    deleteScheduledTask: async (): Promise<void> => undefined,
+    clearScheduledTasks: async (): Promise<number> => 0,
+    appendScheduledTaskRun: async (): Promise<string> => "run-1",
+    finalizeScheduledTaskRun: async (): Promise<void> => undefined,
+  };
+
+  await withFakeBridge(fakeApi, async () => {
+    const store = new ScheduledTasksStore();
+    await assert.rejects(
+      store.createAndAwait({
+        name: "Doomed",
+        prompt: "Run it",
+        schedule: {
+          type: "once",
+          executeAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      }),
+      /disk full/
+    );
+    // The in-memory task is rolled back so a retry cannot duplicate it.
+    assert.equal(store.list().length, 0);
+  });
+});
+
+test("hydration retries transient failures with backoff", async () => {
+  let listCalls = 0;
+  const fakeApi = {
+    reconcileScheduledTaskRuns: async (): Promise<number> => 0,
+    listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => {
+      listCalls += 1;
+      if (listCalls < 2) {
+        throw new Error("database is locked");
+      }
+      return [makeWire({ id: "later" })];
+    },
+    upsertScheduledTask: async (input: unknown): Promise<unknown> => input,
+    deleteScheduledTask: async (): Promise<void> => undefined,
+    clearScheduledTasks: async (): Promise<number> => 0,
+    appendScheduledTaskRun: async (): Promise<string> => "run-1",
+    finalizeScheduledTaskRun: async (): Promise<void> => undefined,
+  };
+
+  await withFakeBridge(fakeApi, async () => {
+    const store = new ScheduledTasksStore();
+    await store.ensureHydrated();
+    assert.equal(listCalls, 2);
+    assert.equal(store.list().length, 1);
+  });
+});
+
+test("hydration starts the tick loop so persisted tasks can fire", async () => {
+  const originalSetInterval = globalThis.setInterval;
+  let intervalCalls = 0;
+  globalThis.setInterval = ((fn: () => void, ms?: number) => {
+    intervalCalls += 1;
+    return originalSetInterval(fn, ms);
+  }) as typeof setInterval;
+  try {
+    const fakeApi = {
+      reconcileScheduledTaskRuns: async (): Promise<number> => 0,
+      listScheduledTasks: async (): Promise<ScheduledTaskWireRecord[]> => [
+        makeWire({ id: "resumed", nextRunAt: "2099-01-01T00:00:00.000Z" }),
+      ],
+      upsertScheduledTask: async (input: unknown): Promise<unknown> => input,
+      deleteScheduledTask: async (): Promise<void> => undefined,
+      clearScheduledTasks: async (): Promise<number> => 0,
+      appendScheduledTaskRun: async (): Promise<string> => "run-1",
+      finalizeScheduledTaskRun: async (): Promise<void> => undefined,
+    };
+
+    await withFakeBridge(fakeApi, async () => {
+      const store = new ScheduledTasksStore();
+      await store.ensureHydrated();
+      // Regression: without this, hydrated tasks never fire after a restart
+      // because only create() used to start the coarse tick loop.
+      assert.ok(intervalCalls >= 1);
+      store.clear();
+    });
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+  }
 });

@@ -1741,6 +1741,8 @@ export type NativeBridge = {
     durationMs?: number,
     error?: string
   ) => Promise<void>;
+  /** Marks run rows left "running" by a crashed session as errored. */
+  reconcileScheduledTaskRuns: () => Promise<number>;
   sha256File: (filePath: string) => Promise<string>;
   getImageLibraryRoot: () => Promise<string>;
   getImageLibraryDir: () => Promise<string>;

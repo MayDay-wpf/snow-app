@@ -211,6 +211,12 @@ export const useAppControl = ({
             // The store validates the schedule strictly; an invalid schedule
             // throws here and the error propagates back to the MCP tool caller.
             const input: CreateScheduledTaskInput = {
+              // Idempotency key: retrying the tool call with the same id
+              // returns the already-created task instead of a duplicate.
+              id:
+                typeof payload.id === "string" && payload.id.trim()
+                  ? payload.id.trim()
+                  : undefined,
               directoryId: directory?.directoryId ?? "",
               name,
               prompt,
@@ -249,7 +255,11 @@ export const useAppControl = ({
                   ? payload.thinkingStrength
                   : undefined,
             };
-            const created = scheduledTasksStore.create(input);
+            // Durability-aware creation: success is only reported once the
+            // task row is committed to the database. A persistence failure
+            // rolls the in-memory task back and propagates here, so the model
+            // sees a clean error and can safely retry with the same id.
+            const created = await scheduledTasksStore.createAndAwait(input);
             window.dispatchEvent(
               new CustomEvent(APP_CONTROL_SCHEDULED_TASK_CREATED_EVENT, {
                 detail: { taskId: created.id, name: created.name },

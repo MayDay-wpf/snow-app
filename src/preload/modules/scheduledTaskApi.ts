@@ -85,6 +85,10 @@ export const scheduledTaskApi = {
       durationMs,
       error
     ),
+  /** Marks run rows left "running" by a crashed session as errored. Called
+   *  once at startup before hydration reads the run history. */
+  reconcileScheduledTaskRuns: (): Promise<number> =>
+    ipcRenderer.invoke("scheduled-tasks:reconcile-runs"),
   /** Runs a pre-script shell command in the given cwd. Never blocks: the
    *  Rust backend spawns the process on the tokio runtime. */
   runPreScript: (

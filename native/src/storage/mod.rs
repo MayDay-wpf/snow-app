@@ -1482,6 +1482,13 @@ pub fn finalize_scheduled_task_run(
     )
 }
 
+/// Marks run rows left "running" by a crashed session as errored. See
+/// `services::scheduled_tasks::reconcile_interrupted_runs`.
+pub fn reconcile_scheduled_task_runs() -> Result<u32> {
+    let database_path = ensure_database_file()?;
+    services::scheduled_tasks::reconcile_interrupted_runs(&database_path)
+}
+
 // ===== Keyboard shortcuts =====
 
 pub fn get_keyboard_shortcuts_settings(

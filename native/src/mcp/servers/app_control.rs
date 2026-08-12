@@ -233,10 +233,14 @@ impl McpService for AppControlService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: TOOL_CREATE_SCHEDULED_TASK.to_string(),
-                description: "Create a new scheduled task in the Snow App. Tasks are saved in the local database and kept after restarting the app; executions missed while the app is closed are skipped. When a task fires, its prompt is sent to the AI Loop (a new chat conversation is created and auto-sent), giving the task access to all tools. A task is either \"once\" (executes a single time at a chosen start time) or \"recurring\" (repeats either at a fixed interval or every day at a fixed time). Optionally a preScript (shell command, run in the project directory) decides whether the AI Loop fires: exit code 0 = run, 1 = skip; or the last stdout line may be a JSON object {\"run\":bool,\"reason\":string,\"output\":string,\"prompt\":string} — \"output\" is injected into the {{SCRIPT_OUTPUT}} placeholder in the prompt, \"prompt\" fully overrides it, and \"reason\" is recorded when skipped (also written to app logs). Non-zero/non-1 exit, timeout or spawn failure counts as a script error: by default the AI Loop does not run (task recorded as error); set runOnScriptError=true to run anyway.".to_string(),
+                description: "Create a new scheduled task in the Snow App. Tasks are saved in the local database and kept after restarting the app; executions missed while the app is closed are skipped. When a task fires, its prompt is sent to the AI Loop (a new chat conversation is created and auto-sent), giving the task access to all tools. A task is either \"once\" (executes a single time at a chosen start time) or \"recurring\" (repeats either at a fixed interval or every day at a fixed time). Optionally a preScript (shell command, run in the project directory) decides whether the AI Loop fires: exit code 0 = run, 1 = skip; or the last stdout line may be a JSON object {\"run\":bool,\"reason\":string,\"output\":string,\"prompt\":string} — \"output\" is injected into the {{SCRIPT_OUTPUT}} placeholder in the prompt, \"prompt\" fully overrides it, and \"reason\" is recorded when skipped (also written to app logs). Non-zero/non-1 exit, timeout or spawn failure counts as a script error: by default the AI Loop does not run (task recorded as error); set runOnScriptError=true to run anyway. Creation is idempotent when `id` is provided: retrying a call with the same id returns the already-created task instead of creating a duplicate.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Optional idempotency key (max 128 characters). When provided and a task with this id already exists, the existing task is returned instead of creating a duplicate — safe to reuse when retrying a timed-out or failed tool call."
+                        },
                         "name": {
                             "type": "string",
                             "description": "A human-readable name for the task."
@@ -621,6 +625,13 @@ fn validate_open_settings_args(args: &Value) -> napi::Result<(String, Value)> {
 
 /// Minimum interval (1 minute) for interval-mode recurring tasks.
 const MIN_SCHEDULED_INTERVAL_MS: i64 = 60_000;
+/// Maximum interval (366 days) for interval-mode recurring tasks. Keeps the
+/// computed `nextRunAt` far inside the JS `Date` range so
+/// `new Date(ms).toISOString()` can never throw; anything longer should use
+/// "daily" or "once" instead.
+const MAX_SCHEDULED_INTERVAL_MS: i64 = 366 * 24 * 60 * 60 * 1000;
+/// Maximum length of an idempotency id supplied by the model.
+const MAX_SCHEDULED_TASK_ID_LEN: usize = 128;
 
 fn validate_create_scheduled_task_args(args: &Value) -> napi::Result<(String, Value)> {
     let name = args
@@ -648,6 +659,25 @@ fn validate_create_scheduled_task_args(args: &Value) -> napi::Result<(String, Va
                     .to_string(),
             )
         })?;
+
+    // Optional idempotency id: when the model retries a timed-out tool call
+    // with the same id, the renderer returns the already-created task instead
+    // of a duplicate. Trimmed; empty/absent means "no id" (fresh UUID).
+    let id = args
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(id) = id {
+        if id.chars().count() > MAX_SCHEDULED_TASK_ID_LEN {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "id must be at most {MAX_SCHEDULED_TASK_ID_LEN} characters for createScheduledTask"
+                ),
+            ));
+        }
+    }
 
     let schedule = args
         .get("schedule")
@@ -697,7 +727,7 @@ fn validate_create_scheduled_task_args(args: &Value) -> napi::Result<(String, Va
                 return Err(Error::new(
                     Status::InvalidArg,
                     format!(
-                        "schedule.executeAt is not a valid ISO 8601 timestamp: \"{execute_at}\""
+                        "schedule.executeAt must be an ISO 8601 timestamp WITH a timezone offset (e.g. \"2026-08-12T10:00:00Z\" or \"2026-08-12T10:00:00+08:00\"), received \"{execute_at}\""
                     ),
                 ));
             }
@@ -718,20 +748,37 @@ fn validate_create_scheduled_task_args(args: &Value) -> napi::Result<(String, Va
 
             match mode {
                 "interval" => {
-                    let interval_ms = schedule
-                        .get("intervalMs")
-                        .and_then(Value::as_i64)
-                        .ok_or_else(|| {
-                            Error::new(
+                    let interval_ms = match schedule.get("intervalMs") {
+                        Some(Value::Number(number)) => {
+                            number.as_i64().ok_or_else(|| {
+                                Error::new(
+                                    Status::InvalidArg,
+                                    "schedule.intervalMs must be an integer number of milliseconds (no fractions) when mode is \"interval\""
+                                        .to_string(),
+                                )
+                            })?
+                        }
+                        _ => {
+                            return Err(Error::new(
                                 Status::InvalidArg,
-                                "schedule.intervalMs is required (number, ms) when mode is \"interval\"".to_string(),
-                            )
-                        })?;
+                                "schedule.intervalMs is required (integer number of milliseconds) when mode is \"interval\""
+                                    .to_string(),
+                            ))
+                        }
+                    };
                     if interval_ms < MIN_SCHEDULED_INTERVAL_MS {
                         return Err(Error::new(
                             Status::InvalidArg,
                             format!(
                                 "schedule.intervalMs must be >= {MIN_SCHEDULED_INTERVAL_MS} (1 minute), received {interval_ms}"
+                            ),
+                        ));
+                    }
+                    if interval_ms > MAX_SCHEDULED_INTERVAL_MS {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            format!(
+                                "schedule.intervalMs must be <= {MAX_SCHEDULED_INTERVAL_MS} (366 days), received {interval_ms}"
                             ),
                         ));
                     }
@@ -796,6 +843,9 @@ fn validate_create_scheduled_task_args(args: &Value) -> napi::Result<(String, Va
     // strings are omitted. basicModel is retained for display/config alignment;
     // model remains the advanced model used by the task's fired conversation.
     let mut payload = serde_json::Map::new();
+    if let Some(id) = id {
+        payload.insert("id".to_string(), json!(id));
+    }
     payload.insert("name".to_string(), json!(name));
     payload.insert("prompt".to_string(), json!(prompt));
     payload.insert("schedule".to_string(), Value::Object(normalized));

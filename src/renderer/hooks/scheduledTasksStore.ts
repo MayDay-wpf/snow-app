@@ -45,6 +45,14 @@ import type {
 
 /** Minimum interval for interval-mode recurring tasks. */
 const MIN_INTERVAL_MS = 60_000;
+/** Maximum interval for interval-mode recurring tasks (366 days). Keeps the
+ *  computed `nextRunAt` far inside the JS Date range so `toISOString()` can
+ *  never throw; anything longer should use "daily" or "once" instead. */
+const MAX_INTERVAL_MS = 366 * 24 * 60 * 60 * 1000;
+/** How many times hydration retries before giving up. */
+const HYDRATE_MAX_ATTEMPTS = 3;
+/** Base delay between hydration retries (multiplied by the attempt number). */
+const HYDRATE_RETRY_DELAY_MS = 2_000;
 /** Bounds the per-task run-history ring buffer (newest last). */
 const MAX_RUN_HISTORY = 20;
 
@@ -128,9 +136,13 @@ export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
   if (schedule.mode === "interval") {
     const interval =
       typeof schedule.intervalMs === "number" ? schedule.intervalMs : NaN;
-    if (!Number.isFinite(interval) || interval < MIN_INTERVAL_MS) {
+    if (
+      !Number.isInteger(interval) ||
+      interval < MIN_INTERVAL_MS ||
+      interval > MAX_INTERVAL_MS
+    ) {
       throw new Error(
-        `intervalMs must be a number >= ${MIN_INTERVAL_MS} (1 minute), received ${schedule.intervalMs}`
+        `intervalMs must be an integer between ${MIN_INTERVAL_MS} and ${MAX_INTERVAL_MS} ms (1 minute - 366 days), received ${schedule.intervalMs}`
       );
     }
   } else {
@@ -280,6 +292,7 @@ const createPersistence = (): PersistenceAdapter | null => {
     appendRun: (taskId, runAt) => api.appendScheduledTaskRun(taskId, runAt),
     finalizeRun: (taskId, runId, status, durationMs, error) =>
       api.finalizeScheduledTaskRun(taskId, runId, status, durationMs, error),
+    reconcileRuns: () => api.reconcileScheduledTaskRuns(),
   };
 };
 
@@ -296,6 +309,8 @@ type PersistenceAdapter = {
     durationMs?: number,
     error?: string
   ): Promise<void>;
+  /** Marks run rows left "running" by a crashed session as errored. */
+  reconcileRuns(): Promise<number>;
 };
 
 /**
@@ -397,6 +412,23 @@ export class ScheduledTasksStore {
   /** Currently in-flight execution task ids, to prevent overlapping runs. */
   private runningIds = new Set<string>();
 
+  /**
+   * Serializes every persistence write (upsert/delete/clear/run rows) in the
+   * order the mutations happened. Without this, fire-and-forget IPC calls can
+   * commit out of order — a create upsert landing after a delete resurrects
+   * the task on the next restart, and a "running" write landing after the
+   * "completed" write leaves stale state in the database.
+   */
+  private persistQueue: Promise<unknown> = Promise.resolve();
+  /** True once the database snapshot has been fully loaded into the map. */
+  private hydrated = false;
+  /** Tombstones for deletes/clears issued while hydration is still in flight;
+   *  hydrate() consults them so rows that were deleted in the meantime are
+   *  not resurrected. */
+  private pendingRemovals = new Set<string>();
+  /** `null` = clear everything, `""` = global tasks only, other = one project. */
+  private pendingClears: Array<string | null> = [];
+
   /** Persistence layer (null = in-memory only). Resolved lazily on first use
    *  so tests without the preload bridge keep the legacy behavior. */
   private persistence: PersistenceAdapter | null = null;
@@ -459,28 +491,76 @@ export class ScheduledTasksStore {
   };
 
   /** Loads persisted tasks once. Safe to call multiple times; concurrent
-   *  callers share the same in-flight promise. */
+   *  callers share the same in-flight promise. Transient failures are retried
+   *  with backoff so a one-off busy database at startup does not silently
+   *  disable every persisted task for the whole session. */
   ensureHydrated = (): Promise<void> => {
     if (this.hydratePromise) return this.hydratePromise;
     if (!this.persistence) {
       this.persistence = createPersistence();
     }
     if (!this.persistence) {
+      this.hydrated = true;
       this.hydratePromise = Promise.resolve();
       return this.hydratePromise;
     }
-    this.hydratePromise = this.hydrate(this.persistence).catch((error) => {
-      console.warn("[scheduledTasks] Failed to hydrate from database:", error);
+    this.hydratePromise = this.hydrateWithRetry().catch((error) => {
+      // Retries exhausted: keep working with whatever is in memory; individual
+      // mutations still persist on their own and the next app start re-attempts
+      // hydration.
+      console.warn(
+        "[scheduledTasks] Hydration from database failed permanently:",
+        error
+      );
     });
     return this.hydratePromise;
   };
 
+  private hydrateWithRetry = async (): Promise<void> => {
+    const persistence = this.persistence;
+    if (!persistence) return;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= HYDRATE_MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.hydrate(persistence);
+        return;
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `[scheduledTasks] Hydration attempt ${attempt}/${HYDRATE_MAX_ATTEMPTS} failed:`,
+          error
+        );
+        if (attempt < HYDRATE_MAX_ATTEMPTS) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, HYDRATE_RETRY_DELAY_MS * attempt)
+          );
+        }
+      }
+    }
+    throw lastError;
+  };
+
   private hydrate = async (persistence: PersistenceAdapter): Promise<void> => {
+    // Fix up run rows left "running" by a crashed previous session BEFORE
+    // reading them, so the loaded history already shows the error instead of
+    // a dangling "running" entry that was never written back to the DB.
+    await persistence.reconcileRuns();
+
     const stored = await persistence.list();
     const now = Date.now();
     const dirty: ScheduledTaskRecord[] = [];
 
     for (const wire of stored) {
+      // Tombstones for deletes/clears issued while hydration was in flight:
+      // drop the resurrected rows instead of bringing them back.
+      if (this.pendingRemovals.has(wire.id)) continue;
+      const directoryId = wire.directoryId ?? "";
+      if (
+        this.pendingClears.includes(null) ||
+        this.pendingClears.includes(directoryId)
+      ) {
+        continue;
+      }
       const record = fromWire(wire);
       if (!record) continue;
       // A task created while hydration was in flight is already live in the
@@ -491,14 +571,24 @@ export class ScheduledTasksStore {
       if (changed) dirty.push(task);
     }
 
+    this.hydrated = true;
+    this.pendingRemovals.clear();
+    this.pendingClears = [];
+
+    // The tick loop is normally started by create(); after a restart the map
+    // is filled by hydration instead. Start it here — otherwise persisted
+    // tasks would sit in the map forever without ever firing.
+    if (this.tasks.size > 0) {
+      this.ensureTick();
+    }
+
     if (dirty.length > 0) {
       this.notify();
       for (const task of dirty) {
-        void persistence
-          .upsert(toWire(task))
-          .catch((error) =>
+        this.enqueuePersist(() => persistence.upsert(toWire(task))).catch(
+          (error) =>
             console.warn("[scheduledTasks] Failed to persist reconciliation:", error)
-          );
+        );
       }
     } else {
       this.notify();
@@ -530,8 +620,11 @@ export class ScheduledTasksStore {
       });
   };
 
-  create = (input: CreateScheduledTaskInput): ScheduledTaskRecord => {
-    void this.ensureHydrated();
+  /** Builds a validated record and inserts it into the in-memory map. Shared
+   *  by the sync best-effort `create` and the durability-aware `createAndAwait`. */
+  private applyCreate = (
+    input: CreateScheduledTaskInput
+  ): ScheduledTaskRecord => {
     // Empty directoryId = global task (not bound to any project).
     const directoryId = (input.directoryId ?? "").trim();
     const name = (input.name ?? "").trim();
@@ -564,7 +657,7 @@ export class ScheduledTasksStore {
     const now = Date.now();
     const nextRunMs = computeNextRunMs(input.schedule, now);
     const record: ScheduledTaskRecord = {
-      id: generateId(),
+      id: input.id?.trim() || generateId(),
       directoryId,
       name,
       prompt,
@@ -589,33 +682,100 @@ export class ScheduledTasksStore {
     };
     this.tasks.set(record.id, record);
     this.ensureTick();
-    this.persistUpsert(record);
     this.notify();
     return record;
   };
 
+  create = (input: CreateScheduledTaskInput): ScheduledTaskRecord => {
+    void this.ensureHydrated();
+    // Idempotent replay: the same id returns the already-created task instead
+    // of a duplicate (used by the app-control tool to survive retries).
+    const existingId = input.id?.trim();
+    if (existingId) {
+      const existing = this.tasks.get(existingId);
+      if (existing) return existing;
+    }
+    const record = this.applyCreate(input);
+    this.persistUpsert(record);
+    return record;
+  };
+
+  /** Durability-aware creation used by the app-control tool bridge: only
+   *  reports success once the task row is committed to the database. On
+   *  persistence failure the in-memory task is rolled back and the error
+   *  rethrown, so a model retry (same id) cannot create duplicates. The UI
+   *  keeps the best-effort `create`. */
+  createAndAwait = async (
+    input: CreateScheduledTaskInput
+  ): Promise<ScheduledTaskRecord> => {
+    await this.ensureHydrated();
+    const existingId = input.id?.trim();
+    if (existingId) {
+      const existing = this.tasks.get(existingId);
+      if (existing) return existing;
+    }
+    const record = this.applyCreate(input);
+    if (this.persistence) {
+      try {
+        await this.enqueuePersist(() =>
+          this.persistence!.upsert(toWire(record))
+        );
+      } catch (error) {
+        // Roll back so the task exists nowhere — the model sees a clean
+        // failure and a retry recreates it exactly once.
+        this.tasks.delete(record.id);
+        this.runningIds.delete(record.id);
+        if (this.tasks.size === 0) {
+          this.stopTick();
+        }
+        this.notify();
+        throw error;
+      }
+    }
+    return record;
+  };
+
   remove = (id: string): void => {
-    if (this.tasks.delete(id)) {
+    if (!this.hydrated) {
+      // Hydration is still in flight: remember the id so hydrate() drops the
+      // row instead of resurrecting it.
+      this.pendingRemovals.add(id);
+    }
+    const existed = this.tasks.delete(id);
+    if (existed) {
       this.runningIds.delete(id);
       if (this.tasks.size === 0) {
         this.stopTick();
       }
-      void this.persistence?.remove(id).catch((error) => {
+    }
+    // Always issue the DB delete (idempotent): a delete issued before the
+    // hydration snapshot completes must still reach the database.
+    if (this.persistence) {
+      this.enqueuePersist(() => this.persistence!.remove(id)).catch((error) => {
         console.warn("[scheduledTasks] Failed to delete task:", error);
       });
+    }
+    if (existed) {
       this.notify();
     }
   };
 
   clear = (directoryId?: string): void => {
+    if (!this.hydrated) {
+      this.pendingClears.push(directoryId === undefined ? null : directoryId);
+    }
     if (directoryId === undefined) {
       // Clear everything (e.g. process exit / global reset).
       this.tasks.clear();
       this.runningIds.clear();
       this.stopTick();
-      void this.persistence?.clear(null).catch((error) => {
-        console.warn("[scheduledTasks] Failed to clear tasks:", error);
-      });
+      if (this.persistence) {
+        this.enqueuePersist(() => this.persistence!.clear(null)).catch(
+          (error) => {
+            console.warn("[scheduledTasks] Failed to clear tasks:", error);
+          }
+        );
+      }
       this.notify();
       return;
     }
@@ -628,20 +788,31 @@ export class ScheduledTasksStore {
         cleared = true;
       }
     }
-    if (cleared) {
+    // Issue the DB clear when something was removed OR when hydration is still
+    // pending (rows may exist in the database without a map entry yet).
+    if (cleared || !this.hydrated) {
       if (this.tasks.size === 0) {
         this.stopTick();
       }
-      void this.persistence?.clear(directoryId).catch((error) => {
-        console.warn("[scheduledTasks] Failed to clear tasks:", error);
-      });
-      this.notify();
+      if (this.persistence) {
+        this.enqueuePersist(() => this.persistence!.clear(directoryId)).catch(
+          (error) => {
+            console.warn("[scheduledTasks] Failed to clear tasks:", error);
+          }
+        );
+      }
+      if (cleared) {
+        this.notify();
+      }
     }
   };
 
   /** Removes ONLY global tasks (empty directoryId). Used by the global
    *  section's clear button so project tasks are never touched. */
   clearGlobal = (): void => {
+    if (!this.hydrated) {
+      this.pendingClears.push("");
+    }
     let cleared = false;
     for (const [id, task] of this.tasks) {
       if (task.directoryId === "") {
@@ -650,14 +821,20 @@ export class ScheduledTasksStore {
         cleared = true;
       }
     }
-    if (cleared) {
+    if (cleared || !this.hydrated) {
       if (this.tasks.size === 0) {
         this.stopTick();
       }
-      void this.persistence?.clear("").catch((error) => {
-        console.warn("[scheduledTasks] Failed to clear global tasks:", error);
-      });
-      this.notify();
+      if (this.persistence) {
+        this.enqueuePersist(() => this.persistence!.clear("")).catch(
+          (error) => {
+            console.warn("[scheduledTasks] Failed to clear global tasks:", error);
+          }
+        );
+      }
+      if (cleared) {
+        this.notify();
+      }
     }
   };
 
@@ -686,7 +863,9 @@ export class ScheduledTasksStore {
       runOnScriptError:
         input.preScript && input.preScript.trim()
           ? (input.runOnScriptError ?? false)
-          : undefined,
+          : // Preserve a boolean even without a pre-script: the DB column is
+            // NOT NULL and an undefined value would fail the whole upsert.
+            (task.runOnScriptError ?? false),
       updatedAt: new Date().toISOString(),
     };
     this.tasks.set(id, updated);
@@ -761,11 +940,14 @@ export class ScheduledTasksStore {
     this.notify();
 
     // Record the run in the persisted history table. The run id is awaited so
-    // the finalize write can target the exact row.
+    // the finalize write can target the exact row; the queue keeps the append
+    // before the finalize in the database.
     let runId: string | undefined;
     if (this.persistence) {
       try {
-        runId = await this.persistence.appendRun(task.id, startedAt);
+        runId = await this.enqueuePersist(() =>
+          this.persistence!.appendRun(task.id, startedAt)
+        );
       } catch (error) {
         console.warn("[scheduledTasks] Failed to record task run:", error);
       }
@@ -866,17 +1048,17 @@ export class ScheduledTasksStore {
           (Number.isNaN(Date.parse(startedAt))
             ? undefined
             : Date.now() - Date.parse(startedAt));
-        void this.persistence
-          .finalizeRun(
+        this.enqueuePersist(() =>
+          this.persistence!.finalizeRun(
             id,
             runId,
             status,
             durationMs,
             last?.error
           )
-          .catch((error) =>
-            console.warn("[scheduledTasks] Failed to finalize task run:", error)
-          );
+        ).catch((error) =>
+          console.warn("[scheduledTasks] Failed to finalize task run:", error)
+        );
       }
 
       this.notify();
@@ -1071,12 +1253,27 @@ export class ScheduledTasksStore {
     return this.execute(id);
   };
 
+  /** Runs `op` after every previously enqueued persistence write, keeping DB
+   *  commit order identical to mutation order. Returns the op's promise so
+   *  callers that need durability (createAndAwait, run finalization) can await
+   *  it; a failed write never blocks later ones. */
+  private enqueuePersist = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = this.persistQueue.then(op, op);
+    this.persistQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+
   /** Writes the task row back to SQLite (best-effort, never blocks). */
   private persistUpsert = (record: ScheduledTaskRecord): void => {
     if (!this.persistence) return;
-    void this.persistence.upsert(toWire(record)).catch((error) => {
-      console.warn("[scheduledTasks] Failed to persist task:", error);
-    });
+    this.enqueuePersist(() => this.persistence!.upsert(toWire(record))).catch(
+      (error) => {
+        console.warn("[scheduledTasks] Failed to persist task:", error);
+      }
+    );
   };
 }
 

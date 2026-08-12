@@ -60,3 +60,10 @@ pub async fn finalize_scheduled_task_run(
     .await
     .map_err(map_spawn_error)?
 }
+
+#[napi]
+pub async fn reconcile_scheduled_task_runs() -> napi::Result<u32> {
+    tokio::task::spawn_blocking(crate::storage::reconcile_scheduled_task_runs)
+        .await
+        .map_err(map_spawn_error)?
+}

@@ -129,6 +129,12 @@ export type CreateScheduledTaskInput = {
   /** The workspace directory this task belongs to. Optional: when omitted or
    *  empty, the task is created as a GLOBAL task (not bound to any project). */
   directoryId?: string;
+  /**
+   * Optional idempotency key. When provided and a task with this id already
+   * exists, creation returns the existing task instead of creating a
+   * duplicate — safe to reuse when retrying a timed-out tool call.
+   */
+  id?: string;
   name: string;
   prompt: string;
   schedule: ScheduledTaskSchedule;

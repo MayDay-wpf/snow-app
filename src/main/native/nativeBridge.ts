@@ -1048,6 +1048,10 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to finalize task runs")
         ),
+      reconcileScheduledTaskRuns: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to reconcile task runs")
+        ),
       sha256File: () =>
         Promise.reject(
           new Error("Rust native bridge is required to compute sha256")

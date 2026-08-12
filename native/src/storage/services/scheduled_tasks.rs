@@ -97,6 +97,28 @@ pub fn finalize_scheduled_task_run(
         })
 }
 
+/// Marks every run row still in "running" state as errored. Called once at
+/// startup (hydration) — before any run of the current session can have been
+/// appended — so every "running" row necessarily belongs to a crashed
+/// previous session whose finalize write was lost. This keeps the runs table
+/// consistent with the renderer's restart reconciliation instead of leaving
+/// zombie "running" rows forever. Returns the number of rows corrected.
+pub fn reconcile_interrupted_runs(database_path: &Path) -> Result<u32> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let updated = connection.execute(
+                "UPDATE scheduled_task_runs
+                    SET status = 'error', error = 'Interrupted by app shutdown'
+                  WHERE status = 'running'",
+                [],
+            )?;
+            Ok(updated as u32)
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "reconcile scheduled task runs", error)
+        })
+}
+
 fn list_with_connection(connection: &Connection) -> rusqlite::Result<Vec<ScheduledTaskRecord>> {
     let mut statement = connection.prepare(
         "SELECT id, directory_id, name, prompt, schedule_json,
@@ -204,7 +226,11 @@ fn upsert_with_connection(
             input.last_error,
             input.pre_script,
             input.pre_script_timeout_ms,
-            input.run_on_script_error,
+            // The DB column is NOT NULL DEFAULT 0; an explicit NULL would fail
+            // the whole upsert (SQLite only applies DEFAULT when the column is
+            // omitted). Coalesce here so a renderer that passes `undefined`
+            // (e.g. updating a task without a pre-script) still persists.
+            input.run_on_script_error.unwrap_or(false),
             input.skip_count,
             input.last_skipped_at,
             input.last_skip_reason,

@@ -83,10 +83,10 @@ const requireTaskInput = (value: unknown): ScheduledTaskRecordInput => {
     lastError: requireOptionalString(record.lastError),
     preScript: requireOptionalString(record.preScript),
     preScriptTimeoutMs: requireOptionalInt(record.preScriptTimeoutMs),
-    runOnScriptError:
-      typeof record.runOnScriptError === "boolean"
-        ? record.runOnScriptError
-        : undefined,
+    // Always a boolean: the DB column is NOT NULL DEFAULT 0 and an explicit
+    // null/undefined would fail the whole upsert (SQLite only applies DEFAULT
+    // when the column is omitted from the INSERT).
+    runOnScriptError: record.runOnScriptError === true,
     skipCount:
       typeof record.skipCount === "number" && Number.isFinite(record.skipCount)
         ? Math.floor(record.skipCount)
@@ -152,4 +152,8 @@ export const registerScheduledTaskHandlers = (native: NativeBridge): void => {
       );
     }
   );
+
+  ipcMain.handle("scheduled-tasks:reconcile-runs", () => {
+    return native.reconcileScheduledTaskRuns();
+  });
 };

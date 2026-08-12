@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ScheduledTaskRunOptions } from "../../preload";
-import { scheduledTasksStore } from "./scheduledTasksStore";
+import { scheduledTasksStore, validateSchedule } from "./scheduledTasksStore";
 
 test("scheduled task creation and execution preserve basicModel", async (t) => {
   scheduledTasksStore.clear();
@@ -137,4 +137,87 @@ test("scheduled task update feeds the executor with new overrides", async (t) =>
   assert.equal(receivedOptions.apiProfile, "profile-b");
   assert.equal(receivedOptions.model, "model-b");
   assert.equal(receivedOptions.thinkingStrength, "high");
+});
+
+test("scheduled task update keeps runOnScriptError boolean without preScript", (t) => {
+  scheduledTasksStore.clear();
+  t.after(() => {
+    scheduledTasksStore.clear();
+  });
+
+  const task = scheduledTasksStore.create({
+    name: "No script",
+    prompt: "Run the task",
+    schedule: {
+      type: "once" as const,
+      executeAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  });
+
+  // Regression: runOnScriptError must stay a boolean (the DB column is
+  // NOT NULL); an undefined value used to fail the whole SQLite upsert.
+  const updated = scheduledTasksStore.update(task.id, { model: "model-x" });
+  assert.ok(updated);
+  assert.equal(updated.runOnScriptError, false);
+
+  const cleared = scheduledTasksStore.update(task.id, {
+    model: "model-y",
+    preScript: "",
+  });
+  assert.ok(cleared);
+  assert.equal(cleared.runOnScriptError, false);
+  assert.equal(cleared.preScript, undefined);
+});
+
+test("scheduled task create is idempotent when the same id is reused", (t) => {
+  scheduledTasksStore.clear();
+  t.after(() => {
+    scheduledTasksStore.clear();
+  });
+
+  const input = {
+    id: "stable-id",
+    name: "Idempotent",
+    prompt: "Run the task",
+    schedule: {
+      type: "once" as const,
+      executeAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  };
+  const first = scheduledTasksStore.create(input);
+  const second = scheduledTasksStore.create(input);
+
+  assert.equal(first.id, "stable-id");
+  assert.equal(second.id, first.id);
+  assert.equal(scheduledTasksStore.list().length, 1);
+});
+
+test("validateSchedule rejects fractional and oversized intervals", () => {
+  assert.throws(
+    () =>
+      validateSchedule({
+        type: "recurring",
+        mode: "interval",
+        intervalMs: 60_000.5,
+      }),
+    /integer/
+  );
+  assert.throws(
+    () =>
+      validateSchedule({
+        type: "recurring",
+        mode: "interval",
+        intervalMs: 366 * 24 * 60 * 60 * 1000 + 1,
+      }),
+    /366 days/
+  );
+  assert.throws(
+    () =>
+      validateSchedule({
+        type: "recurring",
+        mode: "interval",
+        intervalMs: 59_000,
+      }),
+    /1 minute/
+  );
 });
