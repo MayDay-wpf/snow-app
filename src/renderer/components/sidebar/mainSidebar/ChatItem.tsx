@@ -6,7 +6,6 @@ import {
   GitFork,
   Loader2,
   MessageSquareMore,
-  XCircle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -15,8 +14,6 @@ import type { ChatConversationRecord } from "../../../../preload";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import {
   CONVERSATION_DRAG_MIME,
-  conversationContextEvents,
-  readConversationDragPayload,
   type ConversationDragPayload,
 } from "./conversationContextEvents";
 import { formatTimeLabel, parseDbTimestamp } from "./chatTimeGroup";
@@ -84,12 +81,6 @@ export function ChatItem({
   const isSubmittingRef = useRef(false);
   const cancelledRef = useRef(false);
   const [isDragSource, setIsDragSource] = useState(false);
-  const [isDropTarget, setIsDropTarget] = useState(false);
-  const [dragFeedback, setDragFeedback] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isEditing && editInputRef.current) {
@@ -224,22 +215,8 @@ export function ChatItem({
     setContextMenuAnchor({ x: event.clientX, y: event.clientY });
   };
 
-  // ===== 会话拖拽：把本会话附加到另一会话开头作为上下文 =====
+  // ===== 会话拖拽源：拖到聊天输入框 = 把本会话注入为目标会话的开头上下文 =====
   const canDrag = !isEditing && !isMultiSelectMode && !isRunning;
-
-  const showDragFeedback = (feedback: {
-    type: "success" | "error";
-    text: string;
-  }): void => {
-    setDragFeedback(feedback);
-    if (feedbackTimerRef.current) {
-      clearTimeout(feedbackTimerRef.current);
-    }
-    feedbackTimerRef.current = setTimeout(() => {
-      setDragFeedback(null);
-      feedbackTimerRef.current = null;
-    }, 3000);
-  };
 
   const handleDragStart = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!canDrag) {
@@ -259,73 +236,6 @@ export function ChatItem({
 
   const handleDragEnd = (): void => {
     setIsDragSource(false);
-    setIsDropTarget(false);
-  };
-
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (isEditing || isMultiSelectMode || isRunning) {
-      return;
-    }
-    const payload = readConversationDragPayload(event.dataTransfer);
-    if (
-      !payload ||
-      payload.conversationId === conversation.conversationId ||
-      payload.directoryId !== conversation.directoryId
-    ) {
-      // 跨项目 / 自引用 / 非会话拖拽：不 preventDefault → 显示禁止光标
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setIsDropTarget(true);
-  };
-
-  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
-    // 仅当离开当前元素（不含进入子元素）时清除；relatedTarget 为 null
-    // 表示拖出窗口/列表边界，同样清除，避免 drop-target 样式残留
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      return;
-    }
-    setIsDropTarget(false);
-  };
-
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>): void => {
-    setIsDropTarget(false);
-    if (isEditing || isMultiSelectMode || isRunning) {
-      return;
-    }
-    const payload = readConversationDragPayload(event.dataTransfer);
-    if (
-      !payload ||
-      payload.conversationId === conversation.conversationId ||
-      payload.directoryId !== conversation.directoryId
-    ) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    void (async () => {
-      try {
-        await window.snow.addContextAttachment(
-          conversation.conversationId,
-          payload.conversationId
-        );
-        conversationContextEvents.emit(
-          "attachments-changed",
-          conversation.conversationId
-        );
-        showDragFeedback({
-          type: "success",
-          text: t("conversationContext.attachSuccess", {
-            defaultValue: "已附加为上下文",
-          }),
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        showDragFeedback({ type: "error", text: message });
-      }
-    })();
   };
 
   const handleToggleExpand = (event: React.MouseEvent): void => {
@@ -348,16 +258,13 @@ export function ChatItem({
         isActive ? " active" : ""
       }${isMultiSelectMode ? " multi-select" : ""}${
         isSelected ? " selected" : ""
-      }${isDragSource ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}`}
+      }${isDragSource ? " dragging" : ""}`}
       key={conversation.conversationId}
       onClick={handleSelectClick}
       onContextMenu={handleContextMenu}
       draggable={canDrag}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
@@ -520,24 +427,6 @@ export function ChatItem({
               onContextMenuClose={() => setContextMenuAnchor(null)}
             />
           )}
-        </span>
-      )}
-      {dragFeedback && (
-        <span
-          className={`chat-item-drag-feedback ${
-            dragFeedback.type === "success" ? "success" : "error"
-          }`}
-          role="status"
-          aria-live="polite"
-        >
-          {dragFeedback.type === "success" ? (
-            <CheckCircle2 size={12} aria-hidden="true" />
-          ) : (
-            <XCircle size={12} aria-hidden="true" />
-          )}
-          <span className="chat-item-drag-feedback-text">
-            {dragFeedback.text}
-          </span>
         </span>
       )}
     </div>

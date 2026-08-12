@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Wrench,
+  RotateCcw,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -40,6 +41,14 @@ type CheckHint = "up-to-date" | "error" | null;
 
 // 可迁移的存储位置（checkpoint / upload）
 const STORAGE_KINDS: StorageLocationKind[] = ["checkpoint", "upload"];
+
+// 会话上下文注入预算（与 Rust native 侧 context_attachments.rs 保持一致）
+const ATTACH_CONTEXT_SINGLE_BUDGET_SETTING = "attach_context_single_budget_chars";
+const ATTACH_CONTEXT_TOTAL_BUDGET_SETTING = "attach_context_total_budget_chars";
+const ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT = 40000;
+const ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT = 60000;
+const ATTACH_CONTEXT_BUDGET_MIN = 1000;
+const ATTACH_CONTEXT_BUDGET_MAX = 200000;
 
 /** 待确认迁移的目标目录 */
 type PendingMigration = {
@@ -145,6 +154,96 @@ export function GeneralSettingsPanel({
   const imageLibraryActiveRef = useRef(false);
   const imageLibraryPendingMigrationRef =
     useRef<ImageLibraryPendingMigration | null>(null);
+  // 会话上下文注入预算（单附件 / 全部附件合计，字符数）
+  const [attachSingleBudget, setAttachSingleBudget] = useState<string>(
+    String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+  );
+  const [attachTotalBudget, setAttachTotalBudget] = useState<string>(
+    String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
+  );
+  const [attachBudgetSaved, setAttachBudgetSaved] = useState(false);
+  const attachBudgetSavedTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const [single, total] = await Promise.all([
+        window.snow.getSystemSettingValue(ATTACH_CONTEXT_SINGLE_BUDGET_SETTING),
+        window.snow.getSystemSettingValue(ATTACH_CONTEXT_TOTAL_BUDGET_SETTING),
+      ]);
+      setAttachSingleBudget(
+        single ?? String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+      );
+      setAttachTotalBudget(
+        total ?? String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
+      );
+    })().catch(() => undefined);
+    return () => {
+      if (attachBudgetSavedTimerRef.current) {
+        clearTimeout(attachBudgetSavedTimerRef.current);
+        attachBudgetSavedTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /** 保存单个预算设置；非法（非数字 / 低于下限）不保存，超上限截断。 */
+  const saveAttachBudget = (code: string, raw: string): void => {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < ATTACH_CONTEXT_BUDGET_MIN) {
+      return;
+    }
+    const clamped = Math.min(parsed, ATTACH_CONTEXT_BUDGET_MAX);
+    const normalized = String(clamped);
+    if (code === ATTACH_CONTEXT_SINGLE_BUDGET_SETTING) {
+      setAttachSingleBudget(normalized);
+    } else {
+      setAttachTotalBudget(normalized);
+    }
+    void window.snow
+      .setSystemSetting("会话上下文注入预算", code, normalized)
+      .then(() => {
+        setAttachBudgetSaved(true);
+        if (attachBudgetSavedTimerRef.current) {
+          clearTimeout(attachBudgetSavedTimerRef.current);
+        }
+        attachBudgetSavedTimerRef.current = setTimeout(() => {
+          setAttachBudgetSaved(false);
+          attachBudgetSavedTimerRef.current = null;
+        }, 2000);
+      })
+      .catch(() => undefined);
+  };
+
+  /** 恢复默认预算并写入设置。 */
+  const resetAttachBudgets = (): void => {
+    setAttachSingleBudget(String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT));
+    setAttachTotalBudget(String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT));
+    void window.snow
+      .setSystemSetting(
+        "会话上下文注入预算",
+        ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
+        String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+      )
+      .then(() =>
+        window.snow.setSystemSetting(
+          "会话上下文注入预算",
+          ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
+          String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
+        )
+      )
+      .then(() => {
+        setAttachBudgetSaved(true);
+        if (attachBudgetSavedTimerRef.current) {
+          clearTimeout(attachBudgetSavedTimerRef.current);
+        }
+        attachBudgetSavedTimerRef.current = setTimeout(() => {
+          setAttachBudgetSaved(false);
+          attachBudgetSavedTimerRef.current = null;
+        }, 2000);
+      })
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     window.snow
@@ -1016,6 +1115,98 @@ export function GeneralSettingsPanel({
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="api-settings-manual-form">
+        <div className="api-settings-manual-header">
+          <strong>
+            {t("settings.attachContextTitle", {
+              defaultValue: "会话上下文注入",
+            })}
+          </strong>
+          <span>
+            {t("settings.attachContextInfo", {
+              defaultValue:
+                "拖拽历史会话到输入框，可将其注入为当前会话的开头上下文。注入前会自动清洗（剔除思考链与工具执行细节）并按预算裁剪，保护上下文窗口。",
+            })}
+          </span>
+        </div>
+
+        <div className="api-settings-form-body">
+          <div className="settings-about-row">
+            <span className="settings-item-description">
+              {t("settings.attachContextSingleBudget", {
+                defaultValue: "单附件预算（字符）",
+              })}
+            </span>
+            <input
+              className="settings-number-input"
+              type="number"
+              min={ATTACH_CONTEXT_BUDGET_MIN}
+              max={ATTACH_CONTEXT_BUDGET_MAX}
+              step={1000}
+              value={attachSingleBudget}
+              onChange={(event) => setAttachSingleBudget(event.target.value)}
+              onBlur={() =>
+                saveAttachBudget(
+                  ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
+                  attachSingleBudget
+                )
+              }
+              title={t("settings.attachContextBudgetHint", {
+                defaultValue: "范围 1000-200000，超出自动截断。",
+              })}
+            />
+          </div>
+          <div className="settings-about-row">
+            <span className="settings-item-description">
+              {t("settings.attachContextTotalBudget", {
+                defaultValue: "全部附件合计预算（字符）",
+              })}
+            </span>
+            <input
+              className="settings-number-input"
+              type="number"
+              min={ATTACH_CONTEXT_BUDGET_MIN}
+              max={ATTACH_CONTEXT_BUDGET_MAX}
+              step={1000}
+              value={attachTotalBudget}
+              onChange={(event) => setAttachTotalBudget(event.target.value)}
+              onBlur={() =>
+                saveAttachBudget(
+                  ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
+                  attachTotalBudget
+                )
+              }
+              title={t("settings.attachContextBudgetHint", {
+                defaultValue: "范围 1000-200000，超出自动截断。",
+              })}
+            />
+          </div>
+          <div className="settings-update-actions">
+            <div className="settings-attach-budget-actions">
+              <button
+                className="nav-item"
+                onClick={resetAttachBudgets}
+                type="button"
+              >
+                <RotateCcw size={14} strokeWidth={1.8} />
+                <span>
+                  {t("settings.attachContextReset", {
+                    defaultValue: "恢复默认",
+                  })}
+                </span>
+              </button>
+              {attachBudgetSaved && (
+                <span className="settings-update-hint">
+                  {t("settings.attachContextSaved", {
+                    defaultValue: "已保存",
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

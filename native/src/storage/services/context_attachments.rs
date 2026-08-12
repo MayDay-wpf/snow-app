@@ -16,10 +16,46 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::super::database;
 use super::chat_conversations::load_context_messages;
+use super::system_settings::get_system_setting_value;
 
 /// 注入上下文预算（字符数）：超长会话按消息边界裁剪、保留最近内容。
-/// 保守固定值 ≈ 10k tokens（中文约 1 token ≈ 2 字符），后续可做成设置。
+/// 中文约 1 token ≈ 1-2 字符，40k 字符约对应 2-4 万 token 的对话量。
 pub const ATTACH_CONTEXT_BUDGET_CHARS: usize = 40_000;
+
+/// 全部附件合计的注入预算上限（字符数）：防止多个附件叠加撑爆上下文。
+pub const ATTACH_CONTEXT_TOTAL_BUDGET_CHARS: usize = 60_000;
+
+/// 预算设置项 code（system_settings 表，可配置范围 1000..=200_000）。
+pub const ATTACH_CONTEXT_SINGLE_BUDGET_SETTING: &str = "attach_context_single_budget_chars";
+pub const ATTACH_CONTEXT_TOTAL_BUDGET_SETTING: &str = "attach_context_total_budget_chars";
+
+/// 读取用户配置的附件注入预算（字符数）：(单附件预算, 总预算)。
+/// 设置缺失 / 非法 / 超出保护范围时回退默认值。
+pub fn read_attach_context_budgets(database_path: &Path) -> (usize, usize) {
+    let single = read_budget_setting(
+        database_path,
+        ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
+        ATTACH_CONTEXT_BUDGET_CHARS,
+    );
+    let total = read_budget_setting(
+        database_path,
+        ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
+        ATTACH_CONTEXT_TOTAL_BUDGET_CHARS,
+    );
+    (single, total)
+}
+
+/// 读取单个预算设置；缺失 / 非法 / 超出 [MIN, MAX] 时回退默认值。
+fn read_budget_setting(database_path: &Path, code: &str, default: usize) -> usize {
+    const MIN_BUDGET: usize = 1_000;
+    const MAX_BUDGET: usize = 200_000;
+    get_system_setting_value(database_path, code)
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|value| (MIN_BUDGET..=MAX_BUDGET).contains(value))
+        .unwrap_or(default)
+}
 
 /// 会话上下文附件记录（服务层结构体；napi 结构体在 storage/mod.rs 门面层）。
 #[derive(Debug, Clone)]
@@ -252,11 +288,22 @@ pub fn remove_context_attachment(
 /// 1. 过滤：跳过 role=tool 消息（纯执行噪音）；跳过空正文消息；
 /// 2. 剥离思考：不复制 thinking / thinking_blocks_json / tool_calls_json，
 ///    仅保留 user / assistant 正文；
-/// 3. 裁剪：超出 `ATTACH_CONTEXT_BUDGET_CHARS` 时按消息边界从最旧开始丢弃，
+/// 3. 裁剪：超出预算时按消息边界从最旧开始丢弃，
 ///    保证至少保留最后 1 条消息（保留最近内容）。
 ///
-/// 注入与 UI 预览共用此函数。
+/// 注入与 UI 预览共用此函数（默认预算见 `ATTACH_CONTEXT_BUDGET_CHARS`）。
 pub fn render_attachment_context(database_path: &Path, source_id: &str) -> Result<String> {
+    render_attachment_context_with_budget(database_path, source_id, ATTACH_CONTEXT_BUDGET_CHARS)
+}
+
+/// 带预算的渲染版本：`budget_chars` 控制单附件裁剪上限（字符数）。
+/// 注入链路按用户配置的预算调用（见 `read_attach_context_budgets`）；
+/// UI 预览保持默认预算，所见即所得。
+pub fn render_attachment_context_with_budget(
+    database_path: &Path,
+    source_id: &str,
+    budget_chars: usize,
+) -> Result<String> {
     let connection = database::open_connection(database_path)
         .map_err(|error| database::database_error(database_path, "open db for render context", error))?;
     let title: String = connection
@@ -302,7 +349,7 @@ pub fn render_attachment_context(database_path: &Path, source_id: &str) -> Resul
     }
 
     // 超长裁剪：从最旧（队首）丢弃整段，保底保留最后 1 条
-    while total_len > ATTACH_CONTEXT_BUDGET_CHARS && segments.len() > 1 {
+    while total_len > budget_chars && segments.len() > 1 {
         if let Some(removed) = segments.first() {
             total_len = total_len.saturating_sub(removed.len());
             segments.remove(0);

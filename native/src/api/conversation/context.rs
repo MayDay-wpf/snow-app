@@ -289,14 +289,31 @@ pub fn prepare_context_request(
             &conversation_id,
         )?;
     if !attached.is_empty() {
+        // 预算控制（可配置，见 read_attach_context_budgets）：每个附件按
+        // 单附件预算渲染，但所有附件合计不得超过总预算 —— 累计实际注入
+        // 长度，剩余预算耗尽后不再注入后续附件。
+        let (single_budget, total_budget) =
+            crate::storage::services::context_attachments::read_attach_context_budgets(
+                request.database_path,
+            );
+        let mut used_chars: usize = 0;
         let mut injected: Vec<ChatContextMessage> = Vec::with_capacity(attached.len());
         for attachment in attached {
+            let remaining = total_budget.saturating_sub(used_chars);
+            if remaining == 0 {
+                break;
+            }
             let rendered = crate::storage::services::context_attachments::
-                render_attachment_context(request.database_path, &attachment.source_conversation_id)?;
+                render_attachment_context_with_budget(
+                    request.database_path,
+                    &attachment.source_conversation_id,
+                    single_budget.min(remaining),
+                )?;
             let content = rendered.trim();
             if content.is_empty() {
                 continue;
             }
+            used_chars += content.len();
             injected.push(ChatContextMessage {
                 role: "user".to_string(),
                 content: content.to_string(),

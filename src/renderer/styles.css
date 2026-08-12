@@ -3472,6 +3472,31 @@ input {
   gap: 8px;
 }
 
+.settings-about-row .settings-number-input {
+  width: 120px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.settings-about-row .settings-number-input:focus {
+  outline: none;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.settings-attach-budget-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.settings-attach-budget-actions .nav-item {
+  width: auto;
+  padding: 4px 10px;
+}
+
 .settings-update-actions {
   display: flex;
   flex-direction: column;
@@ -33452,6 +33477,14 @@ body.ctrl-held [data-path] {
 /* ===== Update Dialog（更新弹窗） ===== */
 .update-dialog {
   height: min(560px, calc(100vh - 48px));
+/* ==========================================================================
+   Conversation context attachments — 拖拽会话到输入框，注入为开头上下文
+   ========================================================================== */
+
+/* --- 会话项拖拽状态（拖拽源） --- */
+.chat-item.dragging {
+  opacity: 0.45;
+>>>>>>> 3ac38825 (feat: 拖拽会话到输入框注入上下文，支持注入预算配置)
 }
 
 .update-dialog .app-modal-body {
@@ -33461,6 +33494,32 @@ body.ctrl-held [data-path] {
   flex-direction: column;
   gap: 12px;
   padding: 14px 16px 16px;
+/* 拖拽会话到输入框：成功/失败反馈徽标（悬浮于输入框右上角） */
+.chat-input-drag-feedback {
+  position: absolute;
+  right: 10px;
+  top: -13px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 320px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.chat-input-drag-feedback.success {
+  color: var(--success-text, #4caf7d);
+  background: var(--success-bg, rgba(76, 175, 125, 0.14));
+}
+.chat-input-drag-feedback.error {
+  color: var(--error-text, #ef6d6d);
+  background: var(--error-bg, rgba(239, 109, 109, 0.14));
+}
+.chat-input-drag-feedback-text {
+>>>>>>> 3ac38825 (feat: 拖拽会话到输入框注入上下文，支持注入预算配置)
   overflow: hidden;
 }
 

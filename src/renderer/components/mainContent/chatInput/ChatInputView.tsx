@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Bot,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +26,7 @@ import {
   Target,
   Trash2,
   X,
+  XCircle,
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -93,6 +95,11 @@ import {
   type TerminalInsertTextPayload,
 } from "../../rightPanel/terminal/terminalMonitor";
 import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
+import {
+  CONVERSATION_DRAG_MIME,
+  conversationContextEvents,
+  readConversationDragPayload,
+} from "../../sidebar/mainSidebar/conversationContextEvents";
 import {
   WEB_SNAPSHOT_REQUEST_EVENT,
   WEB_SNAPSHOT_RESULT_EVENT,
@@ -265,6 +272,25 @@ export const ChatInputView = ({
     fallbackChanges: fallbackFileChanges,
   });
   const isDraggingOverRef = useRef(false);
+  // 会话拖拽到输入框的结果反馈徽标（成功/失败），3 秒后自动消失
+  const [dragFeedback, setDragFeedback] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const dragFeedbackTimerRef = useRef<number | null>(null);
+  const showDragFeedback = useCallback(
+    (feedback: { type: "success" | "error"; text: string }): void => {
+      setDragFeedback(feedback);
+      if (dragFeedbackTimerRef.current !== null) {
+        window.clearTimeout(dragFeedbackTimerRef.current);
+      }
+      dragFeedbackTimerRef.current = window.setTimeout(() => {
+        setDragFeedback(null);
+        dragFeedbackTimerRef.current = null;
+      }, 3000);
+    },
+    []
+  );
   // F4 网页快照：待处理请求表（requestId → web chip 定位信息）。拖入标签页
   // 后登记，快照结果按 requestId 匹配取出定位信息，再在编辑区 DOM 中按
   // URL/标题找到对应 web chip 回填（chip 可能已被删除/消息已发送，找不到
@@ -1051,6 +1077,38 @@ export const ChatInputView = ({
         return;
       }
 
+      // 会话上下文注入：拖拽侧边栏会话到输入框 = 附加为当前会话的开头上下文。
+      // 拖拽源仅携带 CONVERSATION_DRAG_MIME（无文件 / json / text），需单独消费；
+      // 校验（同目录 / 非自引用 / 非子代理）在 dragOver 已做，此处兜底再读一次。
+      if (event.dataTransfer.getData(CONVERSATION_DRAG_MIME)) {
+        const payload = readConversationDragPayload(event.dataTransfer);
+        if (payload && activeConversationId) {
+          void (async () => {
+            try {
+              await window.snow.addContextAttachment(
+                activeConversationId,
+                payload.conversationId
+              );
+              conversationContextEvents.emit(
+                "attachments-changed",
+                activeConversationId
+              );
+              showDragFeedback({
+                type: "success",
+                text: t("conversationContext.attachSuccess", {
+                  defaultValue: "已附加为开头上下文",
+                }),
+              });
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              showDragFeedback({ type: "error", text: message });
+            }
+          })();
+        }
+        return;
+      }
+
       // 支持从文件管理器拖入图片（单张或多张），与粘贴图片行为保持一致
       const droppedFiles = Array.from(event.dataTransfer.files);
       const imageFiles = droppedFiles.filter((file) =>
@@ -1265,24 +1323,50 @@ export const ChatInputView = ({
         // Ignore invalid drag data
       }
     },
-    [insertDroppedPlainText, insertExternalFiles, insertFileTags, syncContent, textareaRef]
+    [
+      insertDroppedPlainText,
+      insertExternalFiles,
+      insertFileTags,
+      syncContent,
+      textareaRef,
+      activeConversationId,
+      showDragFeedback,
+      t,
+    ]
   );
 
   const handleDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       const types = event.dataTransfer.types;
+      // 会话上下文注入：拖拽侧边栏会话到输入框（CONVERSATION_DRAG_MIME）。
+      // 前置校验：当前会话存在、非自引用、同工作区目录、当前会话非子代理会话，
+      // 不满足则保持禁止光标（不 preventDefault），由 native 侧幂等兜底。
+      const hasConversationDrag = types.includes(CONVERSATION_DRAG_MIME);
+      if (hasConversationDrag) {
+        const payload = readConversationDragPayload(event.dataTransfer);
+        const conversationAllowed =
+          !!payload &&
+          !!activeConversationId &&
+          payload.conversationId !== activeConversationId &&
+          payload.directoryId === conversationDirectoryId &&
+          !isSubAgentConversation;
+        if (!conversationAllowed) {
+          return;
+        }
+      }
       // 应用内拖拽（文件/commit/change 标签）走 application/json；
       // 终端监控拖拽走 application/x-snow-terminal（dropEffect: link）；
       // 从文件管理器拖入的外部文件走 Files；
       // 浏览器 webview 页面选中文字拖入走 text/plain（方案 A）。
-      // 四者均需 preventDefault 才能允许 drop，否则浏览器默认拒绝
+      // 以上均需 preventDefault 才能允许 drop，否则浏览器默认拒绝
       // （显示禁止光标）。
       const hasTerminal = types.includes(TERMINAL_DRAG_MIME);
       const allowed =
         types.includes("application/json") ||
         types.includes("Files") ||
         types.includes("text/plain") ||
-        hasTerminal;
+        hasTerminal ||
+        hasConversationDrag;
       if (!allowed) {
         return;
       }
@@ -1293,7 +1377,12 @@ export const ChatInputView = ({
         textareaRef.current.classList.add("drag-over");
       }
     },
-    [textareaRef]
+    [
+      textareaRef,
+      activeConversationId,
+      conversationDirectoryId,
+      isSubAgentConversation,
+    ]
   );
 
   const handleDragLeave = useCallback(
@@ -2522,6 +2611,24 @@ export const ChatInputView = ({
               handleWebChipClick(event);
             }}
           />
+          {dragFeedback && (
+            <span
+              className={`chat-input-drag-feedback ${
+                dragFeedback.type === "success" ? "success" : "error"
+              }`}
+              role="status"
+              aria-live="polite"
+            >
+              {dragFeedback.type === "success" ? (
+                <CheckCircle2 size={12} aria-hidden="true" />
+              ) : (
+                <XCircle size={12} aria-hidden="true" />
+              )}
+              <span className="chat-input-drag-feedback-text">
+                {dragFeedback.text}
+              </span>
+            </span>
+          )}
           {imagePreview &&
             createPortal(
               <div
