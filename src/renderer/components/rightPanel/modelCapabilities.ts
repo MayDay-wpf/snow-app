@@ -195,8 +195,13 @@ export const inferModelCapabilities = (
       supportsFidelity: false,
       supportsSeed: true,
       supportsStream: true,
-      // Gemini 仅接受 low/medium/high（auto 会被忽略）
-      qualityOptions: QUALITY_OPTIONS.filter((option) => option.value !== "auto"),
+      // Gemini 仅接受 low/medium/high（auto 会被忽略）；「默认」（空值）=
+      // 不发送 quality，由 Rust 侧应用渠道配置的 defaultQuality，
+      // 避免此前把质量静默强制成 "high" 发送。
+      qualityOptions: [
+        { value: "", labelKey: "rightPanel.aiDrawing.qualityDefault" },
+        ...QUALITY_OPTIONS.filter((option) => option.value !== "auto"),
+      ],
     };
   }
 

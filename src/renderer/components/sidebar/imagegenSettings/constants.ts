@@ -103,11 +103,21 @@ export const matchGrokSizePreset = (
   const ratio = GROK_ASPECT_RATIOS.includes(ratioPart.trim())
     ? ratioPart.trim()
     : "";
-  const resolution = (GROK_SIZE_PRESETS as readonly string[]).includes(
+  let resolution = (GROK_SIZE_PRESETS as readonly string[]).includes(
     sizePart.trim()
   )
     ? sizePart.trim()
     : "";
+  // 无 @ 的纯分辨率写法（如 "2k"）：整串直接匹配档位（文档注释承诺的行为，
+  // 此前实现会把整串误当比例解析，导致 resolution 永远为空）。
+  if (
+    !ratio &&
+    !resolution &&
+    trimmed !== "" &&
+    (GROK_SIZE_PRESETS as readonly string[]).includes(trimmed)
+  ) {
+    resolution = trimmed;
+  }
   return { ratio, resolution };
 };
 
@@ -202,14 +212,29 @@ export const matchGeminiSizePreset = (
   const [ratioPart, sizePart] = trimmed.includes("@")
     ? trimmed.split("@")
     : [trimmed, ""];
-  const ratio = GEMINI_ASPECT_RATIOS.includes(ratioPart.trim())
+  // 比例匹配使用全量候选（常规 10 种 + gemini-3.1-flash-image 超宽 4 种），
+  // 否则渠道默认尺寸配 "4:1@2K" 等超宽比例时解析失败、面板无法回填。
+  const ratio = [
+    ...GEMINI_ASPECT_RATIOS,
+    ...GEMINI_ASPECT_RATIOS_FLASH3_EXTRA,
+  ].includes(ratioPart.trim())
     ? ratioPart.trim()
     : "";
-  const imageSize = (GEMINI_SIZE_PRESETS as readonly string[]).includes(
+  let imageSize = (GEMINI_SIZE_PRESETS as readonly string[]).includes(
     sizePart.trim()
   )
     ? sizePart.trim()
     : "";
+  // 无 @ 的纯档位写法（如 "2K"）：整串直接匹配档位（文档注释承诺的行为，
+  // 此前实现会把整串误当比例解析，导致 imageSize 永远为空）。
+  if (
+    !ratio &&
+    !imageSize &&
+    trimmed !== "" &&
+    (GEMINI_SIZE_PRESETS as readonly string[]).includes(trimmed)
+  ) {
+    imageSize = trimmed;
+  }
   return { ratio, imageSize };
 };
 

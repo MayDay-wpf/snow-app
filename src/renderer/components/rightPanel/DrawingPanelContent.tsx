@@ -313,12 +313,15 @@ function LibraryImage({
     // 预取 data URL 作为兜底（不阻塞首帧协议加载）。
     // 图库路径（image/...）走图库 IPC；upload/ 相对路径与绝对路径
     // （本地上传的参考图）走 resolveUploadImage（支持任意本地路径）。
+    // 注意：path 变化时必须先清掉旧图的 data URL，否则同一组件实例
+    // （灯箱左右切换、参考图 A→B）会一直残留并显示第一张已解析的图。
     const load = path.startsWith("image/")
       ? resolveLibraryDataUrl
       : resolveUploadDataUrl;
+    setResolved(null);
     void load(path).then((dataUrl) => {
       if (!cancelled && dataUrl) {
-        setResolved((prev) => prev ?? dataUrl);
+        setResolved(dataUrl);
       }
     });
     return () => {
@@ -667,6 +670,9 @@ export function DrawingPanelContent({
         );
         if (target) {
           setChannelId(target.id);
+          // 同步渠道切换标记：随后因 channelId 变化触发的 loadSettings
+          // 不再重复 syncChannelSize，也避免并发加载时旧渠道状态回写。
+          lastSyncedChannelRef.current = target.id;
           syncChannelSize(target);
         }
       }
@@ -745,6 +751,9 @@ export function DrawingPanelContent({
   /** 渠道默认尺寸原文（空 = 未配置，如渠道使用服务商默认）。 */
   const channelDefaultSize = (selectedChannel?.defaultSize ?? "").trim();
 
+  /** 渠道默认质量原文（空 = 未配置；「默认」选项展示用，实际参数由 Rust 侧应用）。 */
+  const channelDefaultQuality = (selectedChannel?.defaultQuality ?? "").trim();
+
   /** 宽高比下拉「默认」选项的展示文本：优先显示渠道默认解析出的比例，否则显示默认尺寸原文。 */
   const defaultRatioLabel = useMemo((): string => {
     if (!selectedChannel || !channelDefaultSize) {
@@ -809,7 +818,7 @@ export function DrawingPanelContent({
     }
   }, [capabilities, count, background, webSearch, imageSearch]);
 
-  /** 质量选项联动：模型变化后当前值不在选项内时回退（auto → high → 首项）。 */
+  /** 质量选项联动：模型变化后当前值不在选项内时回退（默认 → auto → high → 首项）。 */
   useEffect(() => {
     const options = qualityOptions;
     if (options.length === 0) {
@@ -819,6 +828,7 @@ export function DrawingPanelContent({
       return;
     }
     const fallback =
+      options.find((option) => option.value === "")?.value ??
       options.find((option) => option.value === "auto")?.value ??
       options.find((option) => option.value === "high")?.value ??
       options[0].value;
@@ -1047,9 +1057,10 @@ export function DrawingPanelContent({
       return [];
     }
     const items: GalleryItem[] = [];
-    for (const image of gen.result.images) {
+    for (const [index, image] of gen.result.images.entries()) {
       items.push({
-        key: image.path ?? `img-${image.data.length}`,
+        // 无 path 的纯 base64 图：key 附加索引，避免两张等长 base64 撞 key。
+        key: image.path ?? `img-${index}-${image.data.length}`,
         src: image.path
           ? proxyForLibraryPath(image.path)
           : `data:${image.mimeType};base64,${image.data}`,
@@ -1334,19 +1345,27 @@ export function DrawingPanelContent({
         return;
       }
       if (inLibrary) {
-        // 拖入图库区：导入图库（复制 + 写索引）。
-        const imported = await window.snow.importImageFiles(
-          imagePaths.map((entry) => entry.path)
-        );
-        if (imported.length > 0) {
+        // 拖入图库区：导入图库（复制 + 写索引）；失败给出明确提示。
+        try {
+          const imported = await window.snow.importImageFiles(
+            imagePaths.map((entry) => entry.path)
+          );
+          if (imported.length > 0) {
+            setImportNotice({
+              kind: "ok",
+              text: t("rightPanel.aiDrawing.importDone", {
+                defaultValue: "Imported {{count}} images",
+                values: { count: imported.length },
+              }),
+            });
+            void loadLibrary();
+          }
+        } catch (error) {
+          console.warn("[ai-drawing] import image files failed", error);
           setImportNotice({
-            kind: "ok",
-            text: t("rightPanel.aiDrawing.importDone", {
-              defaultValue: "Imported {{count}} images",
-              values: { count: imported.length },
-            }),
+            kind: "error",
+            text: t("rightPanel.aiDrawing.importFailed"),
           });
-          void loadLibrary();
         }
       } else {
         // 拖入其他区域：第一张设为参考图（绝对路径，不进入图库）。
@@ -1696,7 +1715,10 @@ export function DrawingPanelContent({
             >
               {qualityOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {t(option.labelKey)}
+                  {(option.value === "" || option.value === "auto") &&
+                  channelDefaultQuality
+                    ? `${t(option.labelKey)} (${channelDefaultQuality})`
+                    : t(option.labelKey)}
                 </option>
               ))}
             </select>
