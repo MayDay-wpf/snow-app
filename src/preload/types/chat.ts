@@ -83,3 +83,16 @@ export type UserMessageSummary = {
   content: string;
   createdAt: string;
 };
+
+/**
+ * 会话上下文附件：目标会话（conversationId）在开头附带源会话
+ * （sourceConversationId）作为背景上下文。按 sortOrder 升序注入。
+ */
+export type ContextAttachmentRecord = {
+  conversationId: string;
+  sourceConversationId: string;
+  title: string;
+  emoji: string;
+  sortOrder: number;
+  createdAt: string;
+};

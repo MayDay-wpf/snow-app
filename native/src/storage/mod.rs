@@ -1498,6 +1498,63 @@ pub fn set_keyboard_shortcuts_settings(
 }
 
 // ============================================================================
+// 会话上下文附件（Context Attachments）
+// ============================================================================
+
+/// 会话上下文附件记录（napi 结构体）：B 附带 A，A 作为 B 的开头上下文。
+#[napi(object)]
+pub struct ContextAttachmentRecord {
+    pub conversation_id: String,
+    pub source_conversation_id: String,
+    pub title: String,
+    pub emoji: String,
+    pub sort_order: i64,
+    pub created_at: String,
+}
+
+impl From<services::context_attachments::ContextAttachmentRecord> for ContextAttachmentRecord {
+    fn from(record: services::context_attachments::ContextAttachmentRecord) -> Self {
+        ContextAttachmentRecord {
+            conversation_id: record.conversation_id,
+            source_conversation_id: record.source_conversation_id,
+            title: record.title,
+            emoji: record.emoji,
+            sort_order: record.sort_order,
+            created_at: record.created_at,
+        }
+    }
+}
+
+/// 列出 B 挂载的附带会话（按注入顺序：先注入在前）。
+pub fn list_context_attachments(conversation_id: String) -> Result<Vec<ContextAttachmentRecord>> {
+    let database_path = ensure_database_file()?;
+    services::context_attachments::list_context_attachments(&database_path, &conversation_id)
+        .map(|records| records.into_iter().map(ContextAttachmentRecord::from).collect())
+}
+
+/// 建立「B 附带 A」引用（校验：同目录 / 非自引用 / 非子代理 / 幂等去重）。
+pub fn add_context_attachment(
+    target_id: String,
+    source_id: String,
+) -> Result<ContextAttachmentRecord> {
+    let database_path = ensure_database_file()?;
+    services::context_attachments::add_context_attachment(&database_path, &target_id, &source_id)
+        .map(ContextAttachmentRecord::from)
+}
+
+/// 移除「B 附带 A」引用（纯关系删除）。
+pub fn remove_context_attachment(target_id: String, source_id: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::context_attachments::remove_context_attachment(&database_path, &target_id, &source_id)
+}
+
+/// 智能精简渲染「会话 A」为上下文块文本（注入与 UI 预览共用）。
+pub fn render_attachment_context(source_id: String) -> Result<String> {
+    let database_path = ensure_database_file()?;
+    services::context_attachments::render_attachment_context(&database_path, &source_id)
+}
+
+// ============================================================================
 // 图像管理系统（Image Library）
 // ============================================================================
 

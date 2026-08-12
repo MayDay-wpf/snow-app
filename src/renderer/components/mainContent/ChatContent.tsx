@@ -19,6 +19,8 @@ import { useI18n } from "../../i18n";
 import { ChatInput } from "./ChatInput";
 import { EmptyChatGreeting } from "./EmptyChatGreeting";
 import { ChatMessageList, useChatConversationContext } from "./chatMessages";
+import { ConversationContextBar } from "./conversationContext/ConversationContextBar";
+import { ConversationContextFold } from "./conversationContext/ConversationContextFold";
 import { RollbackConfirmDialog } from "./chatMessages/dialogs/RollbackConfirmDialog";
 import { CompactionStream } from "./chatMessages/components/CompactionStream";
 import { UserMessageRail } from "./chatMessages/components/UserMessageRail";
@@ -977,6 +979,12 @@ const ChatContentBody = ({
         hasHistoryContent ? "has-messages" : "is-empty"
       }`}
     >
+      <ConversationContextBar
+        conversationId={activeConversationId ?? null}
+        onOpenConversation={(conversationId) =>
+          void handleSelectConversation(conversationId)
+        }
+      />
       <div
         key={activeConversationId ?? "new-chat"}
         className={`chat-area ${
@@ -1031,6 +1039,9 @@ const ChatContentBody = ({
                 <div className="chat-history-skeleton-line" />
               </div>
             ) : null}
+            <ConversationContextFold
+              conversationId={activeConversationId ?? null}
+            />
             <ChatMessageList
               messages={messages}
               isStreaming={isStreaming}

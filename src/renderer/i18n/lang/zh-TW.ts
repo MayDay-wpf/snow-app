@@ -1159,8 +1159,8 @@ export const zhTW = {
   "settings.imagegenEditorInfo":
     "每個渠道完全獨立：協定、Base URL、金鑰、模型與預設參數。",
   "settings.imagegenSizePreset": "尺寸預設",
-  "settings.imagegenSizeTier": "檔位",
-  "settings.imagegenModelSizeHint": "此模型支援檔位：{sizes}",
+  "settings.imagegenSizeTier": "尺寸",
+  "settings.imagegenModelSizeHint": "此模型支援尺寸：{sizes}",
   "settings.imagegenSizeArbitraryHint":
     "此模型支援任意解析度：寬高皆須為 16 的倍數、比例 1:3~3:1，最大 3840x2160（超過 2560x1440 為實驗性）。",
   "settings.imagegenModelPreviewBadge": "預覽",
@@ -3186,4 +3186,9 @@ export const zhTW = {
   "settings.shortcutRecording": "請按下組合鍵...",
   "settings.shortcutRecordingHint": "按下組合鍵綁定，或按 Esc 取消",
   "settings.shortcutReset": "恢復預設",
+  "conversationContext.attachSuccess": "已附加為開頭上下文",
+  "conversationContext.barLabel": "附帶的歷史對話",
+  "conversationContext.removeAttachment": "移除附帶的對話",
+  "conversationContext.foldLabel": "附帶的 {{count}} 個歷史對話",
+  "conversationContext.foldLoading": "載入中…",
 } satisfies Record<string, string>;

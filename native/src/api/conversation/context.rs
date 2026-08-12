@@ -278,6 +278,50 @@ pub fn prepare_context_request(
         }
     }
 
+    // --- Conversation context attachments: inject attached conversations
+    //     as prefix context blocks (after the system prompt, before the
+    //     conversation's own history). Non-recursive: only the attached
+    //     conversation's own messages are rendered; its own attachments are
+    //     not followed (prevents context explosion / cycles). ---
+    let attached =
+        crate::storage::services::context_attachments::list_context_attachments(
+            request.database_path,
+            &conversation_id,
+        )?;
+    if !attached.is_empty() {
+        let mut injected: Vec<ChatContextMessage> = Vec::with_capacity(attached.len());
+        for attachment in attached {
+            let rendered = crate::storage::services::context_attachments::
+                render_attachment_context(request.database_path, &attachment.source_conversation_id)?;
+            let content = rendered.trim();
+            if content.is_empty() {
+                continue;
+            }
+            injected.push(ChatContextMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+                tool_calls_json: None,
+                tool_results_json: None,
+                thinking: None,
+                thinking_blocks_json: None,
+            });
+        }
+        if !injected.is_empty() {
+            // Main-conversation path: the system prompt sits at messages[0],
+            // so injected blocks go at index 1. Sub-agent / skip_context paths
+            // keep the system prompt out of `messages` — inject at the front.
+            let insert_at = if messages
+                .first()
+                .is_some_and(|msg| msg.role.trim() == "system" || msg.role.trim() == "developer")
+            {
+                1
+            } else {
+                0
+            };
+            messages.splice(insert_at..insert_at, injected);
+        }
+    }
+
     messages.extend(current_messages.iter().cloned());
 
     // --- Tool-pairing guard: ensure no orphan tool calls or results reach the

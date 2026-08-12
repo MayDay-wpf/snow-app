@@ -8,6 +8,7 @@ pub mod code_chunker;
 pub mod codebase_embed_sessions;
 pub mod codebase_index;
 pub mod codebase_watcher;
+pub mod context_attachments;
 pub mod conversation_export;
 pub mod custom_header_schemes;
 pub mod file_scanner;

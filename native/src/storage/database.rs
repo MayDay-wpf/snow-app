@@ -808,6 +808,10 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
     // Ensure the image library table exists (generated images index).
     services::image_library::ensure_image_library_table(connection)?;
 
+    // Ensure the conversation context attachments table exists (conversation
+    // drag-to-attach as prefix context).
+    services::context_attachments::ensure_context_attachments_table(connection)?;
+
     // Post-schema migrations run AFTER CREATE TABLE to add columns that
     // older databases lack but fresh databases already have. Each migration
     // is idempotent. Includes the local per-conversation Plan/Goal Mode

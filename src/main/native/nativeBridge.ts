@@ -595,6 +595,28 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to find latest tool result")
         ),
+      listContextAttachments: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list context attachments"
+          )
+        ),
+      addContextAttachment: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to add context attachment")
+        ),
+      removeContextAttachment: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to remove context attachment"
+          )
+        ),
+      renderAttachmentContext: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to render attachment context"
+          )
+        ),
       forkConversation: () =>
         Promise.reject(
           new Error("Rust native bridge is required to fork conversation")

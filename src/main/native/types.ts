@@ -715,6 +715,16 @@ export type ChatMessagePage = {
   checkpointIds: string[];
 };
 
+/** 会话上下文附件：B 在开头附带 A 作为背景上下文（按 sortOrder 升序注入）。 */
+export type ContextAttachmentRecord = {
+  conversationId: string;
+  sourceConversationId: string;
+  title: string;
+  emoji: string;
+  sortOrder: number;
+  createdAt: string;
+};
+
 /** 图像管理系统（生成图片图库）记录 */
 export type ImageLibraryRecord = {
   id: string;
@@ -1479,6 +1489,19 @@ export type NativeBridge = {
     conversationId: string,
     toolName: string
   ) => Promise<string | null>;
+  /** 列出会话 B 挂载的附带会话（上下文附件）。 */
+  listContextAttachments: (
+    conversationId: string
+  ) => Promise<ContextAttachmentRecord[]>;
+  /** 建立「B 附带 A」引用（校验：同目录 / 非自引用 / 非子代理 / 幂等）。 */
+  addContextAttachment: (
+    targetId: string,
+    sourceId: string
+  ) => Promise<ContextAttachmentRecord>;
+  /** 移除「B 附带 A」引用（纯关系删除）。 */
+  removeContextAttachment: (targetId: string, sourceId: string) => Promise<void>;
+  /** 智能精简渲染会话为上下文块文本（注入与预览共用）。 */
+  renderAttachmentContext: (sourceId: string) => Promise<string>;
   forkConversation: (
     sourceConversationId: string,
     upToResponseId: string

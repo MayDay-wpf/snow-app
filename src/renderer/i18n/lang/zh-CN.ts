@@ -1159,8 +1159,8 @@ export const zhCN = {
   "settings.imagegenEditorInfo":
     "每个渠道完全独立：协议、Base URL、密钥、模型与默认参数。",
   "settings.imagegenSizePreset": "尺寸预设",
-  "settings.imagegenSizeTier": "档位",
-  "settings.imagegenModelSizeHint": "该模型支持档位：{sizes}",
+  "settings.imagegenSizeTier": "尺寸",
+  "settings.imagegenModelSizeHint": "该模型支持尺寸：{sizes}",
   "settings.imagegenSizeArbitraryHint":
     "该模型支持任意分辨率：宽高均须为 16 的倍数、比例 1:3~3:1，最大 3840x2160（超过 2560x1440 为实验性）。",
   "settings.imagegenModelPreviewBadge": "预览",
@@ -3191,4 +3191,9 @@ export const zhCN = {
   "settings.systemPromptListTitle": "提示词列表",
   "settings.themeBackgroundDeleteError": "删除背景图片失败",
   "settings.usageRefresh": "刷新用量数据",
+  "conversationContext.attachSuccess": "已附加为开头上下文",
+  "conversationContext.barLabel": "附带的历史会话",
+  "conversationContext.removeAttachment": "移除附带的会话",
+  "conversationContext.foldLabel": "附带的 {{count}} 个历史会话",
+  "conversationContext.foldLoading": "加载中…",
 } satisfies Record<string, string>;

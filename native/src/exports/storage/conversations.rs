@@ -1,6 +1,7 @@
 //! 会话与消息的 NAPI 转发（模式、归档、子代理、回滚等）。
 
 use super::*;
+use crate::storage::ContextAttachmentRecord;
 
 #[napi(object)]
 pub struct ConversationModesResult {
@@ -392,4 +393,45 @@ pub async fn export_conversation(conversation_id: String, format: String) -> nap
     })
     .await
     .map_err(map_spawn_error)?
+}
+
+// ============================================================================
+// Conversation context attachments — 会话上下文附件（拖拽会话到另一会话开头）
+// ============================================================================
+
+#[napi]
+pub async fn list_context_attachments(
+    conversation_id: String,
+) -> napi::Result<Vec<ContextAttachmentRecord>> {
+    tokio::task::spawn_blocking(move || crate::storage::list_context_attachments(conversation_id))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn add_context_attachment(
+    target_id: String,
+    source_id: String,
+) -> napi::Result<ContextAttachmentRecord> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::add_context_attachment(target_id, source_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn remove_context_attachment(target_id: String, source_id: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::remove_context_attachment(target_id, source_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn render_attachment_context(source_id: String) -> napi::Result<String> {
+    tokio::task::spawn_blocking(move || crate::storage::render_attachment_context(source_id))
+        .await
+        .map_err(map_spawn_error)?
 }

@@ -683,4 +683,48 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       return { success: true, canceled: false, filePath: result.filePath };
     }
   );
+  ipcMain.handle(
+    "chat-conversations:context-attachments-list",
+    (_event, conversationId: unknown) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error(
+          "Conversation ID is required to list context attachments"
+        );
+      }
+      return native.listContextAttachments(conversationId.trim());
+    }
+  );
+  ipcMain.handle(
+    "chat-conversations:context-attachments-add",
+    (_event, targetId: unknown, sourceId: unknown) => {
+      if (typeof targetId !== "string" || !targetId.trim()) {
+        throw new Error("Target conversation ID is required");
+      }
+      if (typeof sourceId !== "string" || !sourceId.trim()) {
+        throw new Error("Source conversation ID is required");
+      }
+      return native.addContextAttachment(targetId.trim(), sourceId.trim());
+    }
+  );
+  ipcMain.handle(
+    "chat-conversations:context-attachments-remove",
+    (_event, targetId: unknown, sourceId: unknown) => {
+      if (typeof targetId !== "string" || !targetId.trim()) {
+        throw new Error("Target conversation ID is required");
+      }
+      if (typeof sourceId !== "string" || !sourceId.trim()) {
+        throw new Error("Source conversation ID is required");
+      }
+      return native.removeContextAttachment(targetId.trim(), sourceId.trim());
+    }
+  );
+  ipcMain.handle(
+    "chat-conversations:context-attachments-preview",
+    (_event, sourceId: unknown) => {
+      if (typeof sourceId !== "string" || !sourceId.trim()) {
+        throw new Error("Source conversation ID is required");
+      }
+      return native.renderAttachmentContext(sourceId.trim());
+    }
+  );
 };

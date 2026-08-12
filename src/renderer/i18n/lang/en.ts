@@ -1195,7 +1195,7 @@ export const en = {
   "settings.imagegenEditorInfo":
     "Each channel is fully independent: provider, base URL, API key, model and defaults.",
   "settings.imagegenSizePreset": "Size preset",
-  "settings.imagegenSizeTier": "Size tier",
+  "settings.imagegenSizeTier": "Size",
   "settings.imagegenModelSizeHint": "This model supports: {sizes}",
   "settings.imagegenSizeArbitraryHint":
     "This model also accepts any WxH (divisible by 16, aspect 1:3–3:1, up to 3840x2160; above 2560x1440 is experimental).",
@@ -3356,4 +3356,9 @@ export const en = {
   "settings.systemPromptListTitle": "Prompt list",
   "settings.themeBackgroundDeleteError": "Failed to delete background image",
   "settings.usageRefresh": "Refresh usage data",
+  "conversationContext.attachSuccess": "Attached as prefix context",
+  "conversationContext.barLabel": "Attached conversations",
+  "conversationContext.removeAttachment": "Remove attached conversation",
+  "conversationContext.foldLabel": "{{count}} attached conversation(s)",
+  "conversationContext.foldLoading": "Loading…",
 } satisfies Record<string, string>;
