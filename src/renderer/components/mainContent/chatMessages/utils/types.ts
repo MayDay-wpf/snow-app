@@ -24,9 +24,6 @@ export type AiResponseProps = {
   sections?: AiResponseSection[];
   isStreaming?: boolean;
   isAborting?: boolean;
-  isRetrying?: boolean;
-  retryAttempt?: number;
-  retryError?: string;
   incompleteVariant?: IncompleteVariant;
   interruptionReason?: NormalizedInterruptionReason;
   recoveryOutcome?: NormalizedRecoveryOutcome;

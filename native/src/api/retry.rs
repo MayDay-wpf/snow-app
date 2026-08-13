@@ -164,11 +164,8 @@ impl StreamEndCause {
         }
     }
 
-    const fn is_retriable(self, read_error_retriable: bool) -> bool {
-        match self {
-            Self::UnexpectedEof | Self::IdleTimeout => true,
-            Self::ReadError => read_error_retriable,
-        }
+    const fn is_retriable(self) -> bool {
+        matches!(self, Self::UnexpectedEof | Self::IdleTimeout)
     }
 }
 
@@ -197,18 +194,9 @@ pub enum StreamRecoveryDecision {
 }
 
 impl StreamRecoveryDecision {
-    pub const fn recovery_outcome(
-        self,
-        cause: StreamEndCause,
-        read_error_retriable: bool,
-    ) -> Option<StreamRecoveryOutcome> {
+    pub const fn recovery_outcome(self) -> Option<StreamRecoveryOutcome> {
         match self {
             Self::KeepUsablePartial => Some(StreamRecoveryOutcome::PartialThreshold),
-            Self::SurfaceInterrupted
-                if matches!(cause, StreamEndCause::ReadError) && !read_error_retriable =>
-            {
-                Some(StreamRecoveryOutcome::NonRetriable)
-            }
             Self::SurfaceInterrupted => Some(StreamRecoveryOutcome::RetryExhausted),
             Self::FinishProviderResult | Self::Cancelled | Self::Retry => None,
         }
@@ -245,18 +233,10 @@ where
     }
 }
 
-/// Preserve the legacy distinction between a user cancellation and an
-/// upstream/middleware `aborted` read error. Cancellation is represented by the
-/// typed reader outcome; an uncancelled aborted read remains transport-retriable.
-pub fn is_retriable_stream_read_error(error: &Error) -> bool {
-    error.reason.to_lowercase().contains("aborted") || is_retriable_error(error)
-}
-
 pub fn decide_stream_recovery(
     cause: StreamEndCause,
     attempt: u32,
     options: &RetryOptions,
-    read_error_retriable: bool,
     progress: StreamAttemptProgress,
 ) -> StreamRecoveryDecision {
     if progress.user_cancelled {
@@ -265,13 +245,20 @@ pub fn decide_stream_recovery(
     if progress.provider_terminal {
         return StreamRecoveryDecision::FinishProviderResult;
     }
+    if matches!(cause, StreamEndCause::ReadError) {
+        return if attempt < options.max_retries {
+            StreamRecoveryDecision::Retry
+        } else {
+            StreamRecoveryDecision::SurfaceInterrupted
+        };
+    }
 
     let usable_partial = progress.visible_content_chars >= options.partial_retry_max_chars
         && !progress.has_any_tool_state();
     if usable_partial {
         return StreamRecoveryDecision::KeepUsablePartial;
     }
-    if cause.is_retriable(read_error_retriable) && attempt < options.max_retries {
+    if cause.is_retriable() && attempt < options.max_retries {
         return StreamRecoveryDecision::Retry;
     }
 
@@ -478,5 +465,182 @@ where
                 attempt += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options() -> RetryOptions {
+        RetryOptions {
+            max_retries: 2,
+            base_delay_ms: 1,
+            partial_retry_max_chars: 5,
+        }
+    }
+
+    #[test]
+    fn opaque_typed_read_error_retries_with_budget() {
+        let unknown_error = Error::from_reason("opaque provider body reader failure QUX-17");
+        assert!(!is_retriable_error(&unknown_error));
+
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                0,
+                &options(),
+                StreamAttemptProgress::default(),
+            ),
+            StreamRecoveryDecision::Retry
+        );
+    }
+
+    #[test]
+    fn read_error_retries_even_with_long_visible_content() {
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                0,
+                &options(),
+                StreamAttemptProgress {
+                    visible_content_chars: 50,
+                    ..StreamAttemptProgress::default()
+                },
+            ),
+            StreamRecoveryDecision::Retry
+        );
+    }
+
+    #[test]
+    fn read_error_retries_with_finalized_or_pending_tool_state() {
+        for progress in [
+            StreamAttemptProgress {
+                has_tool_state: true,
+                ..StreamAttemptProgress::default()
+            },
+            StreamAttemptProgress {
+                has_pending_tool_fragments: true,
+                ..StreamAttemptProgress::default()
+            },
+        ] {
+            assert_eq!(
+                decide_stream_recovery(StreamEndCause::ReadError, 0, &options(), progress),
+                StreamRecoveryDecision::Retry
+            );
+        }
+    }
+
+    #[test]
+    fn exhausted_read_error_surfaces_retry_exhausted_before_partial_threshold() {
+        let decision = decide_stream_recovery(
+            StreamEndCause::ReadError,
+            options().max_retries,
+            &options(),
+            StreamAttemptProgress {
+                visible_content_chars: 50,
+                ..StreamAttemptProgress::default()
+            },
+        );
+
+        assert_eq!(decision, StreamRecoveryDecision::SurfaceInterrupted);
+        assert_eq!(
+            decision.recovery_outcome(),
+            Some(StreamRecoveryOutcome::RetryExhausted)
+        );
+        assert_eq!(
+            StreamEndCause::ReadError.interruption_reason(),
+            StreamInterruptionReason::ReadError
+        );
+    }
+
+    #[test]
+    fn cancellation_and_provider_terminal_precede_read_error_retry() {
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                0,
+                &options(),
+                StreamAttemptProgress {
+                    provider_terminal: true,
+                    user_cancelled: true,
+                    ..StreamAttemptProgress::default()
+                },
+            ),
+            StreamRecoveryDecision::Cancelled
+        );
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                0,
+                &options(),
+                StreamAttemptProgress {
+                    provider_terminal: true,
+                    ..StreamAttemptProgress::default()
+                },
+            ),
+            StreamRecoveryDecision::FinishProviderResult
+        );
+    }
+
+    #[test]
+    fn eof_and_idle_keep_long_partial_but_retry_short_partial() {
+        for cause in [StreamEndCause::UnexpectedEof, StreamEndCause::IdleTimeout] {
+            assert_eq!(
+                decide_stream_recovery(
+                    cause,
+                    0,
+                    &options(),
+                    StreamAttemptProgress {
+                        visible_content_chars: options().partial_retry_max_chars,
+                        ..StreamAttemptProgress::default()
+                    },
+                ),
+                StreamRecoveryDecision::KeepUsablePartial
+            );
+            assert_eq!(
+                decide_stream_recovery(
+                    cause,
+                    0,
+                    &options(),
+                    StreamAttemptProgress {
+                        visible_content_chars: options().partial_retry_max_chars - 1,
+                        ..StreamAttemptProgress::default()
+                    },
+                ),
+                StreamRecoveryDecision::Retry
+            );
+        }
+    }
+
+    #[test]
+    fn attempt_equal_to_max_retries_is_exhausted_without_off_by_one() {
+        let options = options();
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                options.max_retries - 1,
+                &options,
+                StreamAttemptProgress::default(),
+            ),
+            StreamRecoveryDecision::Retry
+        );
+        assert_eq!(
+            decide_stream_recovery(
+                StreamEndCause::ReadError,
+                options.max_retries,
+                &options,
+                StreamAttemptProgress::default(),
+            ),
+            StreamRecoveryDecision::SurfaceInterrupted
+        );
+    }
+
+    #[test]
+    fn historical_non_retriable_code_remains_stable() {
+        assert_eq!(
+            StreamRecoveryOutcome::NonRetriable.as_code(),
+            "non_retriable"
+        );
     }
 }

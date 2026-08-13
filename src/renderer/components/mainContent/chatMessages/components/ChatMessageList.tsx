@@ -256,9 +256,6 @@ export const ChatMessageList = ({
           <AiResponse
             isStreaming={message.status === "sending"}
             isAborting={isLastAssistant && isAborting}
-            isRetrying={isLastAssistant && message.isRetrying}
-            retryAttempt={message.retryAttempt}
-            retryError={message.retryError}
             streamTokenCount={
               isLastAssistant && isStreaming ? streamTokenCount : undefined
             }

@@ -18,10 +18,9 @@ use tokio_util::sync::CancellationToken;
 use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, inject_custom_headers};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
 use crate::api::retry::{
-    decide_stream_recovery, is_retriable_stream_read_error, should_retry,
-    stream_idle_timeout_error, visible_content_char_count, wait_before_retry, RetryOptions,
-    StreamAttemptProgress, StreamEndCause, StreamInterruptionReason, StreamRecoveryDecision,
-    StreamRecoveryOutcome,
+    decide_stream_recovery, should_retry, stream_idle_timeout_error, visible_content_char_count,
+    wait_before_retry, RetryOptions, StreamAttemptProgress, StreamEndCause,
+    StreamInterruptionReason, StreamRecoveryDecision, StreamRecoveryOutcome,
 };
 use crate::api::sse::{read_sse_stream_until_terminal, SseStreamEnd};
 use crate::storage::services::chat_conversations::ChatTokenUsage;
@@ -207,7 +206,7 @@ pub(super) async fn collect_gemini_stream(
         let mut interruption_reason = None;
         let mut recovery_outcome = None;
         let mut stream = response.bytes_stream();
-        let mut end_cause: Option<(StreamEndCause, bool, String)> = None;
+        let mut end_cause: Option<(StreamEndCause, String)> = None;
 
         macro_rules! process_event_block {
             ($event_block:expr) => {{
@@ -265,25 +264,17 @@ pub(super) async fn collect_gemini_stream(
         match stream_end {
             SseStreamEnd::ProviderTerminal => {}
             SseStreamEnd::ReadError(error) => {
-                let stream_error = Error::from_reason(error.to_string());
-                let retriable = is_retriable_stream_read_error(&stream_error);
-                end_cause = Some((
-                    StreamEndCause::ReadError,
-                    retriable,
-                    stream_error.reason.clone(),
-                ));
+                end_cause = Some((StreamEndCause::ReadError, error.to_string()));
             }
             SseStreamEnd::UnexpectedEof => {
                 end_cause = Some((
                     StreamEndCause::UnexpectedEof,
-                    true,
                     "Stream ended before a Gemini terminal event".to_string(),
                 ));
             }
             SseStreamEnd::IdleTimeout => {
                 end_cause = Some((
                     StreamEndCause::IdleTimeout,
-                    true,
                     stream_idle_timeout_error().reason.clone(),
                 ));
             }
@@ -306,9 +297,8 @@ pub(super) async fn collect_gemini_stream(
             }
             recovery_outcome = None;
         } else {
-            let (cause, read_error_retriable, retry_error) = end_cause.unwrap_or((
+            let (cause, retry_error) = end_cause.unwrap_or((
                 StreamEndCause::UnexpectedEof,
-                true,
                 "Stream ended before a Gemini terminal event".to_string(),
             ));
             let progress = StreamAttemptProgress {
@@ -318,13 +308,7 @@ pub(super) async fn collect_gemini_stream(
                 provider_terminal: stream_finished,
                 user_cancelled: cancel_token.is_cancelled(),
             };
-            let decision = decide_stream_recovery(
-                cause,
-                attempt,
-                retry_options,
-                read_error_retriable,
-                progress,
-            );
+            let decision = decide_stream_recovery(cause, attempt, retry_options, progress);
 
             match decision {
                 StreamRecoveryDecision::Cancelled => {
@@ -370,7 +354,7 @@ pub(super) async fn collect_gemini_stream(
                 | StreamRecoveryDecision::SurfaceInterrupted => {
                     response_status = String::from("incomplete");
                     interruption_reason = Some(cause.interruption_reason());
-                    recovery_outcome = decision.recovery_outcome(cause, read_error_retriable);
+                    recovery_outcome = decision.recovery_outcome();
                     if matches!(decision, StreamRecoveryDecision::SurfaceInterrupted) {
                         tool_calls.clear();
                     }

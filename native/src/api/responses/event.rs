@@ -255,52 +255,6 @@ pub(super) fn read_stream_text_delta(value: Option<&Value>) -> String {
         .unwrap_or_default()
 }
 
-/// Extract a useful error message from a terminal Responses API payload.
-///
-/// OpenAI-compatible relays commonly return `response.error` as an object
-/// (`{ code, type, message }`), while some return a plain string. Preserve the
-/// type/code metadata so retry classification can distinguish transient server
-/// failures from permanent request errors.
-pub(super) fn extract_response_error(response: &Value) -> Option<String> {
-    let error = response.get("error")?;
-    match error {
-        Value::Null => None,
-        Value::String(message) => {
-            let message = message.trim();
-            (!message.is_empty()).then(|| message.to_string())
-        }
-        Value::Object(fields) => {
-            let message = fields
-                .get("message")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
-            let mut details = Vec::new();
-            for key in ["type", "code"] {
-                if let Some(value) = fields
-                    .get(key)
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                {
-                    details.push(format!("{key}={value}"));
-                }
-            }
-
-            if let Some(message) = message {
-                if details.is_empty() {
-                    Some(message.to_string())
-                } else {
-                    Some(format!("{message} ({})", details.join(", ")))
-                }
-            } else {
-                serde_json::to_string(error).ok()
-            }
-        }
-        _ => serde_json::to_string(error).ok(),
-    }
-}
-
 /// Extract token usage from a Responses API `response` JSON object.
 pub(super) fn extract_token_usage(response: &Value) -> ChatTokenUsage {
     let usage = response.get("usage").unwrap_or(response);

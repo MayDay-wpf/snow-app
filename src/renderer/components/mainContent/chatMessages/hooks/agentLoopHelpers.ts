@@ -1,6 +1,7 @@
 import type { ResponsesApiStreamChunk } from "../../../../../preload/types/api";
 import type {
   ConversationContextValue,
+  ChatConversationMessage,
   HookExecutionRecord,
   VisionAnalysisState,
 } from "../utils/conversationTypes";
@@ -150,6 +151,52 @@ export const beginStreamMetricsIteration = (
 };
 
 // ---------------------------------------------------------------------------
+// Streaming message transition
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies one backend stream chunk to the current assistant message. A retry
+ * chunk is an attempt boundary: discard the failed partial and normalize the
+ * message back to ordinary streaming without retaining transport diagnostics.
+ */
+export const applyStreamChunkToMessage = (
+  currentMessage: ChatConversationMessage,
+  chunk: ResponsesApiStreamChunk,
+  timestamp: string = formatMessageTime()
+): ChatConversationMessage => {
+  const {
+    isRetrying: _isRetrying,
+    retryAttempt: _retryAttempt,
+    retryError: _retryError,
+    ...ordinaryStreamingMessage
+  } = currentMessage;
+
+  if (chunk.retrying) {
+    return {
+      ...ordinaryStreamingMessage,
+      content: "",
+      thinking: undefined,
+      status: "sending",
+    };
+  }
+
+  const existingContent = ordinaryStreamingMessage.content;
+  const nextContent =
+    chunk.content || `${existingContent}${chunk.contentDelta}`;
+  const nextThinking =
+    chunk.thinking ||
+    `${ordinaryStreamingMessage.thinking ?? ""}${chunk.thinkingDelta}`;
+
+  return {
+    ...ordinaryStreamingMessage,
+    content: nextContent,
+    thinking: nextThinking || undefined,
+    timestamp,
+    status: "sending",
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Factory: stream chunk handler
 // ---------------------------------------------------------------------------
 
@@ -223,33 +270,7 @@ export const createStreamChunkHandler = (
           return currentMessage;
         }
 
-        if (chunk.retrying) {
-          return {
-            ...currentMessage,
-            content: "",
-            thinking: undefined,
-            isRetrying: true,
-            retryAttempt: chunk.retryAttempt ?? undefined,
-            retryError: chunk.retryError ?? undefined,
-            status: "sending",
-          };
-        }
-
-        const existingContent = currentMessage.content;
-        const nextContent =
-          chunk.content || `${existingContent}${chunk.contentDelta}`;
-        const nextThinking =
-          chunk.thinking ||
-          `${currentMessage.thinking ?? ""}${chunk.thinkingDelta}`;
-
-        return {
-          ...currentMessage,
-          content: nextContent,
-          thinking: nextThinking || undefined,
-          timestamp: formatMessageTime(),
-          status: "sending",
-          isRetrying: false,
-        };
+        return applyStreamChunkToMessage(currentMessage, chunk);
       })
     );
   };

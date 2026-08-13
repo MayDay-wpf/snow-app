@@ -15,10 +15,9 @@ use tokio_util::sync::CancellationToken;
 use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, inject_custom_headers};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
 use crate::api::retry::{
-    decide_stream_recovery, is_retriable_stream_read_error, should_retry,
-    stream_idle_timeout_error, visible_content_char_count, wait_before_retry, RetryOptions,
-    StreamAttemptProgress, StreamEndCause, StreamInterruptionReason, StreamRecoveryDecision,
-    StreamRecoveryOutcome,
+    decide_stream_recovery, should_retry, stream_idle_timeout_error, visible_content_char_count,
+    wait_before_retry, RetryOptions, StreamAttemptProgress, StreamEndCause,
+    StreamInterruptionReason, StreamRecoveryDecision, StreamRecoveryOutcome,
 };
 use crate::api::sse::{read_sse_stream_until_terminal, SseStreamEnd};
 use crate::storage::services::chat_conversations::ChatTokenUsage;
@@ -183,7 +182,11 @@ pub(super) async fn collect_anthropic_stream(
 
             let send_future = client
                 .post(endpoint)
-                .headers(build_header_map(api_key, custom_headers, enable_one_m_context)?)
+                .headers(build_header_map(
+                    api_key,
+                    custom_headers,
+                    enable_one_m_context,
+                )?)
                 .json(&payload)
                 .send();
 
@@ -335,29 +338,19 @@ pub(super) async fn collect_anthropic_stream(
             break 'attempt_loop;
         }
 
-        let (cause, read_error_retriable, retry_error) = match stream_end {
+        let (cause, retry_error) = match stream_end {
             SseStreamEnd::ProviderTerminal => {
                 debug_assert!(attempt_state.stream_finished);
                 attempt_state.finish_provider_terminal();
                 break 'attempt_loop;
             }
-            SseStreamEnd::ReadError(error) => {
-                let stream_error = Error::from_reason(error.to_string());
-                let retriable = is_retriable_stream_read_error(&stream_error);
-                (
-                    StreamEndCause::ReadError,
-                    retriable,
-                    stream_error.reason.clone(),
-                )
-            }
+            SseStreamEnd::ReadError(error) => (StreamEndCause::ReadError, error.to_string()),
             SseStreamEnd::UnexpectedEof => (
                 StreamEndCause::UnexpectedEof,
-                true,
                 "Stream ended before an Anthropic terminal event".to_string(),
             ),
             SseStreamEnd::IdleTimeout => (
                 StreamEndCause::IdleTimeout,
-                true,
                 stream_idle_timeout_error().reason.clone(),
             ),
             SseStreamEnd::Cancelled => {
@@ -371,13 +364,7 @@ pub(super) async fn collect_anthropic_stream(
             provider_terminal: attempt_state.stream_finished,
             user_cancelled: cancel_token.is_cancelled(),
         };
-        let decision = decide_stream_recovery(
-            cause,
-            attempt,
-            retry_options,
-            read_error_retriable,
-            progress,
-        );
+        let decision = decide_stream_recovery(cause, attempt, retry_options, progress);
 
         match decision {
             StreamRecoveryDecision::Cancelled => {
@@ -422,8 +409,7 @@ pub(super) async fn collect_anthropic_stream(
             | StreamRecoveryDecision::SurfaceInterrupted => {
                 attempt_state.response_status = String::from("incomplete");
                 attempt_state.interruption_reason = Some(cause.interruption_reason());
-                attempt_state.recovery_outcome =
-                    decision.recovery_outcome(cause, read_error_retriable);
+                attempt_state.recovery_outcome = decision.recovery_outcome();
                 if matches!(decision, StreamRecoveryDecision::SurfaceInterrupted) {
                     attempt_state.clear_tool_state();
                 } else {
