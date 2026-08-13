@@ -13,7 +13,8 @@ import { useI18n } from "../../../i18n";
 import type { ChatConversationRecord } from "../../../../preload";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import {
-  CONVERSATION_DRAG_MIME,
+  beginConversationDrag,
+  endConversationDrag,
   type ConversationDragPayload,
 } from "./conversationContextEvents";
 import { formatTimeLabel, parseDbTimestamp } from "./chatTimeGroup";
@@ -229,12 +230,12 @@ export function ChatItem({
       title: displayName,
       emoji: conversation.emoji,
     };
-    event.dataTransfer.setData(CONVERSATION_DRAG_MIME, JSON.stringify(payload));
-    event.dataTransfer.effectAllowed = "copy";
+    beginConversationDrag(event.dataTransfer, payload);
     setIsDragSource(true);
   };
 
   const handleDragEnd = (): void => {
+    endConversationDrag();
     setIsDragSource(false);
   };
 

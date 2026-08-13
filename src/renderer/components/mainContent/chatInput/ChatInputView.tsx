@@ -98,6 +98,7 @@ import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
 import {
   CONVERSATION_DRAG_MIME,
   conversationContextEvents,
+  endConversationDrag,
   readConversationDragPayload,
 } from "../../sidebar/mainSidebar/conversationContextEvents";
 import {
@@ -1078,16 +1079,16 @@ export const ChatInputView = ({
       }
 
       // 会话上下文注入：拖拽侧边栏会话到输入框 = 附加为当前会话的开头上下文。
-      // 拖拽源仅携带 CONVERSATION_DRAG_MIME（无文件 / json / text），需单独消费；
-      // 校验（同目录 / 非自引用 / 非子代理）在 dragOver 已做，此处兜底再读一次。
-      if (event.dataTransfer.getData(CONVERSATION_DRAG_MIME)) {
-        const payload = readConversationDragPayload(event.dataTransfer);
-        if (payload && activeConversationId) {
+      // drop 阶段 DataTransfer 可重新读取；若上游环境仍返回空，则回退 dragstart 缓存。
+      const conversationPayload = readConversationDragPayload(event.dataTransfer);
+      if (conversationPayload) {
+        endConversationDrag();
+        if (activeConversationId) {
           void (async () => {
             try {
               await window.snow.addContextAttachment(
                 activeConversationId,
-                payload.conversationId
+                conversationPayload.conversationId
               );
               conversationContextEvents.emit(
                 "attachments-changed",

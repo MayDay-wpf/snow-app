@@ -23,15 +23,12 @@ export type ConversationDragPayload = {
   emoji?: string;
 };
 
-/** 读取拖拽 payload；非法返回 null。 */
-export const readConversationDragPayload = (
-  dataTransfer: DataTransfer
+let activeConversationDragPayload: ConversationDragPayload | null = null;
+
+const parseConversationDragPayload = (
+  raw: string
 ): ConversationDragPayload | null => {
   try {
-    const raw = dataTransfer.getData(CONVERSATION_DRAG_MIME);
-    if (!raw) {
-      return null;
-    }
     const parsed = JSON.parse(raw) as Partial<ConversationDragPayload>;
     if (
       typeof parsed.conversationId === "string" &&
@@ -49,6 +46,40 @@ export const readConversationDragPayload = (
   } catch {
     return null;
   }
+};
+
+/** 开始应用内会话拖拽，并缓存 payload 供 dragover 阶段校验。 */
+export const beginConversationDrag = (
+  dataTransfer: DataTransfer,
+  payload: ConversationDragPayload
+): void => {
+  activeConversationDragPayload = payload;
+  dataTransfer.setData(CONVERSATION_DRAG_MIME, JSON.stringify(payload));
+  dataTransfer.effectAllowed = "copy";
+};
+
+/** 结束应用内会话拖拽，避免下一次拖拽误用旧 payload。 */
+export const endConversationDrag = (): void => {
+  activeConversationDragPayload = null;
+};
+
+/**
+ * 读取拖拽 payload；非法返回 null。
+ *
+ * Chromium 在 dragover 阶段会将 DataTransfer 置于保护模式：types 仍可见，
+ * 但 getData() 返回空字符串。此时回退到 dragstart 缓存的应用内 payload，
+ * 否则输入框无法完成前置校验、preventDefault()，浏览器也不会派发 drop。
+ */
+export const readConversationDragPayload = (
+  dataTransfer: DataTransfer
+): ConversationDragPayload | null => {
+  const raw = dataTransfer.getData(CONVERSATION_DRAG_MIME);
+  if (raw) {
+    return parseConversationDragPayload(raw);
+  }
+  return dataTransfer.types.includes(CONVERSATION_DRAG_MIME)
+    ? activeConversationDragPayload
+    : null;
 };
 
 type ListenerMap = {
