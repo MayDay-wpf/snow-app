@@ -229,10 +229,13 @@ pub fn add_context_attachment(
         return Ok(record);
     }
 
-    // 取当前最大 sort_order，追加到末尾
+    // 取当前最大 sort_order，追加到末尾。
+    // COALESCE 兜底：表为空（或该会话尚无附件）时 MAX(sort_order) 返回 NULL，
+    // 若直接 row.get::<i64> 会抛 InvalidColumnType（.optional() 只兜「无行」，
+    // 兜不住 NULL 值），导致首次附加永远失败。
     let max_order: Option<i64> = transaction
         .query_row(
-            "SELECT MAX(sort_order) FROM conversation_context_attachments
+            "SELECT COALESCE(MAX(sort_order), -1) FROM conversation_context_attachments
               WHERE conversation_id = ?1",
             params![target_id],
             |row| row.get(0),
