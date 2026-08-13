@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertCircle,
   Ban,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -29,7 +37,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { Model } from "../../../preload";
 import {
   filterImageModels,
   inferModelCapabilities,
@@ -46,10 +53,7 @@ import {
 import {
   OPENAI_SIZE_PRESETS,
   OPENAI_SIZE_TIERS,
-  GEMINI_SIZE_PRESETS,
-  GROK_SIZE_PRESETS,
   buildGeminiSize,
-  buildGrokSize,
   getGeminiSizePresets,
   matchGeminiSizePreset,
   matchGrokSizePreset,
@@ -205,30 +209,58 @@ const PERSON_OPTIONS = [
 
 const HISTORY_PAGE_SIZE = 20;
 
-/** 把图库相对路径解析为可展示的代理 URL（带缓存，避免重复构造）。 */
+/** 参考图数量上限（imagegen 工具契约：最多 5 张）。 */
+const MAX_REF_IMAGES = 5;
+
+/** 图片缓存（代理 URL / data URL）LRU 上限，避免长会话内存持续增长。 */
+const IMAGE_CACHE_MAX = 300;
+
+/** 工作台参数 + 草稿持久化键（localStorage，版本号便于未来迁移）。 */
+const DRAWING_PERSIST_KEY = "snow:drawing-workbench:v1";
+
+/**
+ * 带 LRU 上限的 Map 写入：Map 保持插入顺序，超限时删除最旧的条目。
+ */
+const cacheSet = <K, V>(map: Map<K, V>, key: K, value: V, max: number): void => {
+  if (map.has(key)) {
+    map.delete(key); // 更新访问顺序：删除后重新插入到末尾
+  }
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next();
+    if (oldest.done) {
+      break;
+    }
+    map.delete(oldest.value);
+  }
+};
+
+/** 把图库相对路径解析为可展示的代理 URL（带 LRU 缓存，避免重复构造）。 */
 const proxyForLibraryPath = (path: string): string => {
   const cached = libraryProxyCache.get(path);
   if (cached) {
+    cacheSet(libraryProxyCache, path, cached, IMAGE_CACHE_MAX); // LRU touch
     return cached;
   }
   const url = localImageProxyUrl(path);
-  libraryProxyCache.set(path, url);
+  cacheSet(libraryProxyCache, path, url, IMAGE_CACHE_MAX);
   return url;
 };
 
 /** 图库图片的 data URL 缓存（IPC resolveLibraryImage，删除图片时同步失效）。 */
 const libraryDataCache = new Map<string, string>();
 
-/** 异步读取图库图片为 data URL（带缓存；失败返回 null）。 */
+/** 异步读取图库图片为 data URL（带 LRU 缓存；失败返回 null）。 */
 const resolveLibraryDataUrl = async (path: string): Promise<string | null> => {
   const cached = libraryDataCache.get(path);
   if (cached) {
+    cacheSet(libraryDataCache, path, cached, IMAGE_CACHE_MAX); // LRU touch
     return cached;
   }
   try {
     const dataUrl = await window.snow.resolveLibraryImage(path);
     if (dataUrl) {
-      libraryDataCache.set(path, dataUrl);
+      cacheSet(libraryDataCache, path, dataUrl, IMAGE_CACHE_MAX);
     }
     return dataUrl;
   } catch {
@@ -239,16 +271,17 @@ const resolveLibraryDataUrl = async (path: string): Promise<string | null> => {
 /** 上传/任意本地路径图片的 data URL 缓存（绝对路径或 upload/...，参考图用）。 */
 const uploadDataCache = new Map<string, string>();
 
-/** 异步读取 upload/ 相对路径或绝对路径图片为 data URL（带缓存；失败返回 null）。 */
+/** 异步读取 upload/ 相对路径或绝对路径图片为 data URL（带 LRU 缓存；失败返回 null）。 */
 const resolveUploadDataUrl = async (path: string): Promise<string | null> => {
   const cached = uploadDataCache.get(path);
   if (cached) {
+    cacheSet(uploadDataCache, path, cached, IMAGE_CACHE_MAX); // LRU touch
     return cached;
   }
   try {
     const dataUrl = await window.snow.resolveUploadImage(path);
     if (dataUrl) {
-      uploadDataCache.set(path, dataUrl);
+      cacheSet(uploadDataCache, path, dataUrl, IMAGE_CACHE_MAX);
     }
     return dataUrl;
   } catch {
@@ -440,6 +473,100 @@ const errorHintKey = (kind: ImageGenErrorKind): string =>
  * - 图生图：选择历史图作为参考图，复用 images 参数走编辑/重绘链路
  * - 导出：单张/全部保存（原生保存对话框，回退浏览器下载）
  */
+/** 工作台可持久化参数（localStorage 草稿 + 参数；不含渠道/参考图等易失效数据）。 */
+type PersistedDrawingParams = {
+  prompt: string;
+  model: string;
+  ratio: string;
+  tier: string;
+  resolution: string;
+  quality: string;
+  count: number;
+  stream: boolean;
+  outputFormat: string;
+  outputCompression: string;
+  background: string;
+  inputFidelity: string;
+  thinkingLevel: string;
+  webSearch: boolean;
+  imageSearch: boolean;
+  personGeneration: string;
+  seed: string;
+  showAdvanced: boolean;
+};
+
+/** 从 localStorage 读取并净化持久化参数（脏数据/解析失败静默回退空对象）。 */
+const readPersistedParams = (): Partial<PersistedDrawingParams> => {
+  try {
+    const raw = localStorage.getItem(DRAWING_PERSIST_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof parsed !== "object" || parsed === null) {
+      return {};
+    }
+    const clean: Partial<PersistedDrawingParams> = {};
+    const str = (value: unknown): value is string => typeof value === "string";
+    if (str(parsed.prompt)) clean.prompt = parsed.prompt;
+    if (str(parsed.model)) clean.model = parsed.model;
+    if (str(parsed.ratio)) clean.ratio = parsed.ratio;
+    if (str(parsed.tier)) clean.tier = parsed.tier;
+    if (str(parsed.resolution)) clean.resolution = parsed.resolution;
+    if (str(parsed.quality)) clean.quality = parsed.quality;
+    if (
+      typeof parsed.count === "number" &&
+      Number.isInteger(parsed.count) &&
+      COUNT_OPTIONS.includes(parsed.count)
+    ) {
+      clean.count = parsed.count;
+    }
+    if (typeof parsed.stream === "boolean") clean.stream = parsed.stream;
+    if (str(parsed.outputFormat)) clean.outputFormat = parsed.outputFormat;
+    if (str(parsed.outputCompression)) clean.outputCompression = parsed.outputCompression;
+    if (str(parsed.background)) clean.background = parsed.background;
+    if (str(parsed.inputFidelity)) clean.inputFidelity = parsed.inputFidelity;
+    if (str(parsed.thinkingLevel)) clean.thinkingLevel = parsed.thinkingLevel;
+    if (typeof parsed.webSearch === "boolean") clean.webSearch = parsed.webSearch;
+    if (typeof parsed.imageSearch === "boolean") clean.imageSearch = parsed.imageSearch;
+    if (str(parsed.personGeneration)) clean.personGeneration = parsed.personGeneration;
+    if (str(parsed.seed)) clean.seed = parsed.seed;
+    if (typeof parsed.showAdvanced === "boolean") clean.showAdvanced = parsed.showAdvanced;
+    return clean;
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * 流式预览画廊（memo 隔离）：partial_image 高频更新时，
+ * 父组件其余子树（参数栏/历史区）不随每帧重渲染。
+ */
+const StreamingGallery = memo(function StreamingGallery({
+  items,
+}: {
+  items: StreamingImage[];
+}): React.JSX.Element {
+  const { t } = useI18n();
+  return (
+    <div className="ai-drawing-gallery">
+      {items.map((image) => (
+        <div
+          className="ai-drawing-gallery-item ai-drawing-gallery-item-streaming"
+          key={`stream-${image.index}`}
+        >
+          <img
+            src={`data:${image.mimeType};base64,${image.data}`}
+            alt={t("toolCall.imagegen.streamingPreview", {
+              defaultValue: "Generating… preview",
+            })}
+          />
+        </div>
+      ))}
+    </div>
+  );
+});
+
 export function DrawingPanelContent({
   isActive,
   onOpenImageGenSettings,
@@ -449,11 +576,14 @@ export function DrawingPanelContent({
   // ----------------------------------------------------------------
   // 参数区
   // ----------------------------------------------------------------
+  /** 持久化参数（localStorage，首次渲染读取一次；后续经 effect 写入）。 */
+  const [persisted] = useState(readPersistedParams);
+
   const [channels, setChannels] = useState<ImageGenChannelValue[]>([]);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(persisted.prompt ?? "");
   const [channelId, setChannelId] = useState("");
-  /** 当前选中的模型（来自聚合的渠道模型列表；加载完成后默认选中第一个）。 */
-  const [model, setModel] = useState("");
+  /** 当前选中的模型（聚合模型列表；优先恢复持久化值，加载完成后校验兜底）。 */
+  const [model, setModel] = useState(persisted.model ?? "");
   /** 当前模型的 ref 镜像（loadModels 内部读取，避免切换模型触发重复拉取）。 */
   const modelRef = useRef(model);
   modelRef.current = model;
@@ -463,30 +593,70 @@ export function DrawingPanelContent({
   /** 模型列表拉取失败（无任何渠道返回可用模型）。 */
   const [modelsLoadFailed, setModelsLoadFailed] = useState(false);
   /** 宽高比（空 = 渠道默认）。 */
-  const [ratio, setRatio] = useState("");
+  const [ratio, setRatio] = useState(persisted.ratio ?? "");
   /** 档位 1K/2K/4K（空 = 渠道默认）。 */
-  const [tier, setTier] = useState("");
+  const [tier, setTier] = useState(persisted.tier ?? "");
   /** 分辨率（ratio-resolution 体系，如 xAI Grok 的 1k/2k；空 = 渠道默认）。 */
-  const [resolution, setResolution] = useState("");
-  const [quality, setQuality] = useState("auto");
-  const [count, setCount] = useState(1);
-  const [stream, setStream] = useState(true);
+  const [resolution, setResolution] = useState(persisted.resolution ?? "");
+  const [quality, setQuality] = useState(persisted.quality ?? "auto");
+  const [count, setCount] = useState(persisted.count ?? 1);
+  const [stream, setStream] = useState(persisted.stream ?? true);
   // 高级参数（按渠道协议分别生效）
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [outputFormat, setOutputFormat] = useState("");
-  const [outputCompression, setOutputCompression] = useState("");
-  const [background, setBackground] = useState("");
-  const [inputFidelity, setInputFidelity] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState("");
-  const [webSearch, setWebSearch] = useState(false);
-  const [imageSearch, setImageSearch] = useState(false);
-  const [personGeneration, setPersonGeneration] = useState("");
-  const [seed, setSeed] = useState("");
-  /** 图生图参考图（图库相对路径 image/...）。 */
-  const [refImage, setRefImage] = useState<{
-    path: string;
-    mimeType: string;
-  } | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(
+    persisted.showAdvanced ?? false
+  );
+  const [outputFormat, setOutputFormat] = useState(persisted.outputFormat ?? "");
+  const [outputCompression, setOutputCompression] = useState(
+    persisted.outputCompression ?? ""
+  );
+  const [background, setBackground] = useState(persisted.background ?? "");
+  const [inputFidelity, setInputFidelity] = useState(persisted.inputFidelity ?? "");
+  const [thinkingLevel, setThinkingLevel] = useState(
+    persisted.thinkingLevel ?? ""
+  );
+  const [webSearch, setWebSearch] = useState(persisted.webSearch ?? false);
+  const [imageSearch, setImageSearch] = useState(persisted.imageSearch ?? false);
+  const [personGeneration, setPersonGeneration] = useState(
+    persisted.personGeneration ?? ""
+  );
+  const [seed, setSeed] = useState(persisted.seed ?? "");
+  /** 图生图参考图列表（最多 5 张；图库相对路径 image/... 或本地绝对路径）。 */
+  const [refImages, setRefImages] = useState<Array<{ path: string; mimeType: string }>>([]);
+  /** 参考图 ref 镜像（事件/拖拽追加时同步读取，避免闭包过期）。 */
+  const refImagesRef = useRef(refImages);
+  refImagesRef.current = refImages;
+  /** 提示词输入框 ref（示例 chip 点击后聚焦）。 */
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /** 追加参考图（去重 + 上限）；返回追加张数与跳过原因。 */
+  const appendRefImages = useCallback(
+    (
+      images: Array<{ path: string; mimeType: string }>
+    ): { added: number; duplicate: boolean; overLimit: boolean } => {
+      const current = refImagesRef.current;
+      const seen = new Set(current.map((item) => item.path));
+      const next = [...current];
+      let duplicate = false;
+      let overLimit = false;
+      for (const image of images) {
+        if (seen.has(image.path)) {
+          duplicate = true;
+          continue;
+        }
+        if (next.length >= MAX_REF_IMAGES) {
+          overLimit = true;
+          continue;
+        }
+        seen.add(image.path);
+        next.push(image);
+      }
+      if (next.length !== current.length) {
+        setRefImages(next);
+      }
+      return { added: next.length - current.length, duplicate, overLimit };
+    },
+    []
+  );
 
   // 图库面板「设为参考图」事件（跨组件联动；组件常驻渲染，挂载即监听）。
   useEffect(() => {
@@ -497,18 +667,31 @@ export function DrawingPanelContent({
       if (typeof detail?.path !== "string" || !detail.path) {
         return;
       }
-      setRefImage({
-        path: detail.path,
-        mimeType:
-          typeof detail.mimeType === "string" ? detail.mimeType : "image/png",
-      });
+      appendRefImages([
+        {
+          path: detail.path,
+          mimeType:
+            typeof detail.mimeType === "string" ? detail.mimeType : "image/png",
+        },
+      ]);
     };
     window.addEventListener("drawing:set-reference", handleSetReference);
     return () =>
       window.removeEventListener("drawing:set-reference", handleSetReference);
-  }, []);
+  }, [appendRefImages]);
 
   const [gen, setGen] = useState<GenerationState>({ status: "idle" });
+  /** 用户已取消当前生成：IPC 完成后丢弃结果（后端无中断通道，仅前端放弃）。 */
+  const cancelledRef = useRef(false);
+  /** 生成代际序号：取消/新生成后旧 IPC 的 chunk 与结果全部作废，防串台。 */
+  const genSeqRef = useRef(0);
+  /** 流式帧合并缓冲（rAF 每帧 flush 一次，降低高频 chunk 的重渲染开销）。 */
+  const pendingFramesRef = useRef<StreamingImage[]>([]);
+  const rafRef = useRef<number | null>(null);
+  /** 本次生成开始时刻（耗时统计）。 */
+  const genStartedAtRef = useRef(0);
+  /** 最近一次生成耗时（毫秒，结果标题栏展示）。 */
+  const [lastDurationMs, setLastDurationMs] = useState(0);
 
   // 图库历史（存储的生成图片索引）
   const [library, setLibrary] = useState<
@@ -521,6 +704,10 @@ export function DrawingPanelContent({
     }>
   >([]);
   const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
+  /** 图库历史是否折叠（仅标题行；瞬态不持久化）。 */
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  /** 图库历史搜索词（按提示词过滤）。 */
+  const [historyQuery, setHistoryQuery] = useState("");
   /** 待删除确认的图库图片（弹窗确认）。 */
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
@@ -870,6 +1057,12 @@ export function DrawingPanelContent({
   // ----------------------------------------------------------------
   const isGenerating = gen.status === "running";
 
+  /** 流式预览是否实际可用：数量>1 或存在参考图（图生图）时后端不支持（镜像其约束）。 */
+  const streamDisabled =
+    count > 1 ||
+    (refImages.length > 0 && capabilities?.supportsReference !== false);
+  const effectiveStream = streamDisabled ? false : stream;
+
   const handleGenerate = useCallback(async (): Promise<void> => {
     const text = prompt.trim();
     if (!text || isGenerating) {
@@ -877,8 +1070,8 @@ export function DrawingPanelContent({
     }
     const args: Record<string, unknown> = {
       prompt: text,
-      // 流式：模型不支持（如 xAI Grok）时强制关闭
-      stream: capabilities?.supportsStream === false ? false : stream,
+      // 流式：模型不支持（如 xAI Grok）或场景不支持（多图/图生图）时强制关闭
+      stream: capabilities?.supportsStream === false ? false : effectiveStream,
     };
     if (channelId) {
       args.provider = channelId;
@@ -938,22 +1131,35 @@ export function DrawingPanelContent({
       }
     }
     // 图生图：模型明确不支持参考图时忽略（如 dall-e-3 / imagen 仅文生图）。
-    if (refImage && capabilities?.supportsReference !== false) {
-      // 图库图片（image/...）不在 imagegen 相对路径白名单（仅 upload/ 或绝对路径），
-      // 先经 IPC 读为 data URL，再以内联 base64 传入。
-      if (refImage.path.startsWith("image/")) {
-        const dataUrl = await resolveLibraryDataUrl(refImage.path);
-        if (dataUrl) {
-          const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
-          if (match) {
-            args.images = [{ data: match[2], mimeType: match[1] }];
+    if (refImages.length > 0 && capabilities?.supportsReference !== false) {
+      const images: Array<{
+        data?: string;
+        mimeType: string;
+        path?: string;
+      }> = [];
+      for (const ref of refImages) {
+        // 图库图片（image/...）不在 imagegen 相对路径白名单（仅 upload/ 或绝对路径），
+        // 先经 IPC 读为 data URL，再以内联 base64 传入。
+        if (ref.path.startsWith("image/")) {
+          const dataUrl = await resolveLibraryDataUrl(ref.path);
+          if (dataUrl) {
+            const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
+            if (match) {
+              images.push({ data: match[2], mimeType: match[1] });
+            }
           }
+        } else {
+          images.push({ path: ref.path, mimeType: ref.mimeType });
         }
-      } else {
-        args.images = [{ path: refImage.path, mimeType: refImage.mimeType }];
+      }
+      if (images.length > 0) {
+        args.images = images;
       }
     }
 
+    cancelledRef.current = false;
+    genStartedAtRef.current = Date.now();
+    const mySeq = ++genSeqRef.current;
     setGen({ status: "running", streaming: [] });
     try {
       const result = await window.snow.callMcpTool(
@@ -964,7 +1170,11 @@ export function DrawingPanelContent({
         undefined, // checkpointWorkDir
         undefined, // sensitiveAuthorizationToken
         (chunk) => {
-          if (chunk.stream !== "imagegen") {
+          if (
+            chunk.stream !== "imagegen" ||
+            cancelledRef.current ||
+            genSeqRef.current !== mySeq
+          ) {
             return;
           }
           try {
@@ -984,20 +1194,51 @@ export function DrawingPanelContent({
                 mimeType: (parsed as { mimeType: string }).mimeType,
                 data: (parsed as { data: string }).data,
               };
-              setGen((prev) => {
-                if (prev.status !== "running") {
-                  return prev;
-                }
-                const list = prev.streaming;
-                const existing = list.findIndex(
-                  (item) => item.index === image.index
-                );
-                const next =
-                  existing >= 0
-                    ? list.map((item, i) => (i === existing ? image : item))
-                    : [...list, image].sort((a, b) => a.index - b.index);
-                return { status: "running", streaming: next };
-              });
+              // 帧合并缓冲：同 index 覆盖，rAF 每帧 flush 一次，
+              // 避免高频 partial_image 触发每 chunk 一次的全组件重渲染。
+              const pending = pendingFramesRef.current;
+              const existing = pending.findIndex(
+                (item) => item.index === image.index
+              );
+              if (existing >= 0) {
+                pending[existing] = image;
+              } else {
+                pending.push(image);
+              }
+              if (rafRef.current === null) {
+                rafRef.current = window.requestAnimationFrame(() => {
+                  rafRef.current = null;
+                  if (
+                    cancelledRef.current ||
+                    genSeqRef.current !== mySeq
+                  ) {
+                    return;
+                  }
+                  const frames = pendingFramesRef.current;
+                  pendingFramesRef.current = [];
+                  if (frames.length === 0) {
+                    return;
+                  }
+                  setGen((prev) => {
+                    if (prev.status !== "running") {
+                      return prev;
+                    }
+                    const merged = [...prev.streaming];
+                    for (const frame of frames) {
+                      const i = merged.findIndex(
+                        (item) => item.index === frame.index
+                      );
+                      if (i >= 0) {
+                        merged[i] = frame;
+                      } else {
+                        merged.push(frame);
+                      }
+                    }
+                    merged.sort((a, b) => a.index - b.index);
+                    return { status: "running", streaming: merged };
+                  });
+                });
+              }
             }
           } catch {
             // 忽略无法解析的 chunk
@@ -1008,10 +1249,17 @@ export function DrawingPanelContent({
         false, // planMode
         false // planApproved
       );
+      if (cancelledRef.current || genSeqRef.current !== mySeq) {
+        return; // 已取消或已被新生成取代：丢弃结果，不更新 UI
+      }
       setGen({ status: "done", result: parseImageGenResult(result) });
+      setLastDurationMs(Date.now() - genStartedAtRef.current);
       // 生成完成：Rust 侧已自动落盘图库，刷新历史列表。
       void loadLibrary();
     } catch (error) {
+      if (cancelledRef.current || genSeqRef.current !== mySeq) {
+        return; // 已取消或已被新生成取代：不弹错误
+      }
       setGen({
         status: "error",
         error: classifyImageGenError(getErrorMessage(error)),
@@ -1024,9 +1272,9 @@ export function DrawingPanelContent({
     model,
     effectiveSize,
     capabilities,
+    effectiveStream,
     quality,
     count,
-    stream,
     outputFormat,
     outputCompression,
     background,
@@ -1036,8 +1284,30 @@ export function DrawingPanelContent({
     imageSearch,
     personGeneration,
     seed,
-    refImage,
+    refImages,
   ]);
+
+  /** 取消生成：放弃等待并复位 UI（后端无中断通道，结果到达后被丢弃）。 */
+  const handleCancel = useCallback((): void => {
+    cancelledRef.current = true;
+    genSeqRef.current += 1; // 作废旧代际的 chunk/结果
+    pendingFramesRef.current = [];
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setGen({ status: "idle" });
+  }, []);
+
+  // 组件卸载时清理未 flush 的 rAF（组件常驻渲染，兜底严谨性）。
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, []);
 
   const handleKeyDownOnPrompt = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -1123,8 +1393,19 @@ export function DrawingPanelContent({
     }
   }, [isActive, loadSettings, loadLibrary]);
 
-  const visibleLibrary = library.slice(0, visibleCount);
-  const hasMoreLibrary = visibleCount < library.length;
+  /** 搜索过滤后的图库列表（按提示词包含匹配，内存过滤已加载数据）。 */
+  const filteredLibrary = useMemo(() => {
+    const query = historyQuery.trim().toLowerCase();
+    if (!query) {
+      return library;
+    }
+    return library.filter((record) =>
+      record.prompt.toLowerCase().includes(query)
+    );
+  }, [library, historyQuery]);
+
+  const visibleLibrary = filteredLibrary.slice(0, visibleCount);
+  const hasMoreLibrary = visibleCount < filteredLibrary.length;
 
   const handleLoadMore = useCallback((): void => {
     setVisibleCount((count) => count + HISTORY_PAGE_SIZE);
@@ -1149,7 +1430,9 @@ export function DrawingPanelContent({
         libraryDataCache.delete(record.relativePath);
         uploadDataCache.delete(record.relativePath);
         // 被删图片若正作为参考图，一并清除。
-        setRefImage((prev) => (prev?.path === record.relativePath ? null : prev));
+        setRefImages((prev) =>
+          prev.filter((item) => item.path !== record.relativePath)
+        );
         void loadLibrary();
         setImportNotice({ kind: "ok", text: t("rightPanel.aiDrawing.deleted") });
       } catch (error) {
@@ -1163,22 +1446,27 @@ export function DrawingPanelContent({
     [loadLibrary, t]
   );
 
-  /** 以图库历史图为参考（图生图）重新生成。 */
+  /** 以图库历史图为参考（图生图）：追加到参考图列表并回填提示词。 */
   const handleUseAsReference = useCallback(
     (record: {
       relativePath: string;
       mimeType: string;
       prompt: string;
     }) => {
-      setRefImage({
-        path: record.relativePath,
-        mimeType: record.mimeType,
-      });
+      const { added, duplicate } = appendRefImages([
+        { path: record.relativePath, mimeType: record.mimeType },
+      ]);
+      if (duplicate && added === 0) {
+        setImportNotice({
+          kind: "ok",
+          text: t("rightPanel.aiDrawing.refSkippedDuplicate"),
+        });
+      }
       if (record.prompt) {
         setPrompt(record.prompt);
       }
     },
-    []
+    [appendRefImages, t]
   );
 
   // ----------------------------------------------------------------
@@ -1210,7 +1498,7 @@ export function DrawingPanelContent({
     };
   }, [importNotice]);
 
-  /** 上传本地图片作为参考图：选择文件 → 直接以绝对路径设为参考图（不进入图库）。 */
+  /** 上传本地图片作为参考图：多选全部追加（绝对路径，不进入图库），去重 + 上限 5 张。 */
   const handleUploadImages = useCallback(async (): Promise<void> => {
     try {
       const selected = await window.snow.selectImageFiles(
@@ -1219,13 +1507,24 @@ export function DrawingPanelContent({
       if (!selected || selected.length === 0) {
         return;
       }
-      // 仅取第一张作为参考图；imagegen 支持绝对路径参考图，无需导入图库。
-      const first = selected[0];
-      setRefImage({ path: first, mimeType: inferMimeFromPath(first) });
-      setImportNotice({
-        kind: "ok",
-        text: t("rightPanel.aiDrawing.uploadRefDone"),
-      });
+      const { added, duplicate, overLimit } = appendRefImages(
+        selected.map((path) => ({ path, mimeType: inferMimeFromPath(path) }))
+      );
+      if (added > 0) {
+        setImportNotice({
+          kind: "ok",
+          text: overLimit
+            ? t("rightPanel.aiDrawing.refLimit")
+            : t("rightPanel.aiDrawing.refAdded"),
+        });
+      } else if (duplicate || overLimit) {
+        setImportNotice({
+          kind: "ok",
+          text: overLimit
+            ? t("rightPanel.aiDrawing.refLimit")
+            : t("rightPanel.aiDrawing.refSkippedDuplicate"),
+        });
+      }
     } catch (error) {
       console.warn("[ai-drawing] pick reference image failed", error);
       setImportNotice({
@@ -1233,7 +1532,7 @@ export function DrawingPanelContent({
         text: t("rightPanel.aiDrawing.importFailed"),
       });
     }
-  }, [t]);
+  }, [appendRefImages, t]);
 
   // ----------------------------------------------------------------
   // 拖拽（图库 → 聊天框 / 工作台参考图；本地文件 → 参考图或导入图库）
@@ -1280,44 +1579,48 @@ export function DrawingPanelContent({
 
       // 1) 应用内拖拽：图库图片 → 参考图（拖到图库区时保持原行为，仅导入）。
       //    协议：{ type: "library-image", path, mimeType? } 单张，
-      //    或 { type: "library-images", images: [{ path, mimeType? }] } 批量（取第一张）。
+      //    或 { type: "library-images", images: [{ path, mimeType? }] } 批量。
       const jsonData = event.dataTransfer.getData("application/json");
       if (jsonData) {
         try {
           const parsed = JSON.parse(jsonData) as Record<string, unknown>;
-          let image: { path: string; mimeType: string } | null = null;
+          const images: Array<{ path: string; mimeType: string }> = [];
           if (parsed.type === "library-image" && typeof parsed.path === "string") {
-            image = {
+            images.push({
               path: parsed.path,
               mimeType:
                 typeof parsed.mimeType === "string"
                   ? parsed.mimeType
                   : "image/png",
-            };
+            });
           } else if (
             parsed.type === "library-images" &&
-            Array.isArray(parsed.images) &&
-            parsed.images.length > 0
+            Array.isArray(parsed.images)
           ) {
-            const first = parsed.images[0] as {
+            for (const raw of parsed.images as Array<{
               path?: unknown;
               mimeType?: unknown;
-            };
-            if (typeof first?.path === "string") {
-              image = {
-                path: first.path,
-                mimeType:
-                  typeof first.mimeType === "string"
-                    ? first.mimeType
-                    : "image/png",
-              };
+            }>) {
+              if (typeof raw?.path === "string") {
+                images.push({
+                  path: raw.path,
+                  mimeType:
+                    typeof raw.mimeType === "string"
+                      ? raw.mimeType
+                      : "image/png",
+                });
+              }
             }
           }
-          if (image && !inLibrary) {
-            setRefImage(image);
+          if (images.length > 0 && !inLibrary) {
+            const { added, duplicate, overLimit } = appendRefImages(images);
             setImportNotice({
               kind: "ok",
-              text: t("rightPanel.aiDrawing.refSetDone"),
+              text: overLimit
+                ? t("rightPanel.aiDrawing.refLimit")
+                : duplicate && added === 0
+                  ? t("rightPanel.aiDrawing.refSkippedDuplicate")
+                  : t("rightPanel.aiDrawing.refSetDone"),
             });
             return;
           }
@@ -1368,18 +1671,24 @@ export function DrawingPanelContent({
           });
         }
       } else {
-        // 拖入其他区域：第一张设为参考图（绝对路径，不进入图库）。
-        setRefImage({
-          path: imagePaths[0].path,
-          mimeType: inferMimeFromPath(imagePaths[0].path),
-        });
+        // 拖入其他区域：全部追加为参考图（绝对路径，不进入图库），去重 + 上限。
+        const { added, duplicate, overLimit } = appendRefImages(
+          imagePaths.map((entry) => ({
+            path: entry.path,
+            mimeType: inferMimeFromPath(entry.path),
+          }))
+        );
         setImportNotice({
           kind: "ok",
-          text: t("rightPanel.aiDrawing.refSetDone"),
+          text: overLimit
+            ? t("rightPanel.aiDrawing.refLimit")
+            : duplicate && added === 0
+              ? t("rightPanel.aiDrawing.refSkippedDuplicate")
+              : t("rightPanel.aiDrawing.refSetDone"),
         });
       }
     },
-    [loadLibrary, t]
+    [loadLibrary, appendRefImages, t]
   );
 
   const saveItem = useCallback(async (item: GalleryItem): Promise<void> => {
@@ -1483,6 +1792,68 @@ export function DrawingPanelContent({
 
   const lightboxItem = lightbox ? lightbox.items[lightbox.index] : null;
 
+  // 工作台 tab 失去激活时自动关闭灯箱（组件常驻渲染，切走时全屏浮层应消失）。
+  useEffect(() => {
+    if (!isActive && lightbox) {
+      closeLightbox();
+    }
+  }, [isActive, lightbox, closeLightbox]);
+
+  // ----------------------------------------------------------------
+  // 参数持久化（localStorage）
+  // ----------------------------------------------------------------
+  const persistPayload = useMemo(
+    () =>
+      JSON.stringify({
+        prompt,
+        model,
+        ratio,
+        tier,
+        resolution,
+        quality,
+        count,
+        stream,
+        outputFormat,
+        outputCompression,
+        background,
+        inputFidelity,
+        thinkingLevel,
+        webSearch,
+        imageSearch,
+        personGeneration,
+        seed,
+        showAdvanced,
+      } satisfies PersistedDrawingParams),
+    [
+      prompt,
+      model,
+      ratio,
+      tier,
+      resolution,
+      quality,
+      count,
+      stream,
+      outputFormat,
+      outputCompression,
+      background,
+      inputFidelity,
+      thinkingLevel,
+      webSearch,
+      imageSearch,
+      personGeneration,
+      seed,
+      showAdvanced,
+    ]
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAWING_PERSIST_KEY, persistPayload);
+    } catch {
+      // 忽略（存储受限/隐私模式等）
+    }
+  }, [persistPayload]);
+
   // ----------------------------------------------------------------
   // 派生渲染数据
   // ----------------------------------------------------------------
@@ -1526,782 +1897,830 @@ export function DrawingPanelContent({
       onDragLeave={handleRootDragLeave}
       onDrop={(event) => void handleRootDrop(event)}
     >
-      {/* 提示词 + 生成 */}
-      <div className="ai-drawing-composer">
-        <textarea
-          className="ai-drawing-prompt"
-          value={prompt}
-          placeholder={t("rightPanel.aiDrawing.promptPlaceholder")}
-          rows={3}
-          onChange={(event) => setPrompt(event.target.value)}
-          onKeyDown={handleKeyDownOnPrompt}
-        />
-        <div className="ai-drawing-composer-footer">
-          <div className="ai-drawing-composer-actions">
-            <button
-              type="button"
-              className="ai-drawing-upload-btn"
-              title={t("rightPanel.aiDrawing.uploadHint")}
-              onClick={() => void handleUploadImages()}
-            >
-              <ImagePlus size={13} strokeWidth={1.8} />
-              <span>{t("rightPanel.aiDrawing.uploadImage")}</span>
-            </button>
-            <span className="ai-drawing-composer-hint">
-              {t("rightPanel.aiDrawing.promptHint")}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="ai-drawing-generate-btn"
-            disabled={!prompt.trim() || isGenerating}
-            onClick={() => void handleGenerate()}
-          >
+      {/* 内部布局包装层：container-type 放在这里，避免 layout containment
+          把全屏 fixed 浮层（灯箱/删除弹窗）捕获为面板级定位 */}
+      <div className="ai-drawing-body">
+          {/* 提示词 + 生成 */}
+          <div className="ai-drawing-composer">
+          <textarea
+            ref={textareaRef}
+            className="ai-drawing-prompt"
+            value={prompt}
+            placeholder={t("rightPanel.aiDrawing.promptPlaceholder")}
+            rows={3}
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={handleKeyDownOnPrompt}
+          />
+          <div className="ai-drawing-composer-footer">
+            <div className="ai-drawing-composer-actions">
+              <button
+                type="button"
+                className="ai-drawing-upload-btn"
+                title={t("rightPanel.aiDrawing.uploadHint")}
+                onClick={() => void handleUploadImages()}
+              >
+                <ImagePlus size={13} strokeWidth={1.8} />
+                <span>{t("rightPanel.aiDrawing.uploadImage")}</span>
+              </button>
+              <span className="ai-drawing-composer-hint">
+                {t("rightPanel.aiDrawing.promptHint")}
+              </span>
+            </div>
             {isGenerating ? (
-              <Loader2 size={14} strokeWidth={1.8} className="ai-drawing-spin" />
+              <button
+                type="button"
+                className="ai-drawing-cancel-btn"
+                title={t("rightPanel.aiDrawing.cancelHint")}
+                onClick={handleCancel}
+              >
+                <X size={14} strokeWidth={1.8} />
+                <span>{t("rightPanel.aiDrawing.cancel")}</span>
+              </button>
             ) : (
-              <Sparkles size={14} strokeWidth={1.8} />
+              <button
+                type="button"
+                className="ai-drawing-generate-btn"
+                disabled={!prompt.trim()}
+                onClick={() => void handleGenerate()}
+              >
+                <Sparkles size={14} strokeWidth={1.8} />
+                <span>{t("rightPanel.aiDrawing.generate")}</span>
+              </button>
             )}
-            <span>
-              {isGenerating
-                ? t("toolCall.imagegen.generating", {
-                    defaultValue: "Generating image...",
-                  })
-                : t("rightPanel.aiDrawing.generate")}
-            </span>
-          </button>
+          </div>
         </div>
-      </div>
-
-      {/* 参数栏（模型来自渠道模型 API 聚合，选择模型自动匹配服务商） */}
-      <div className="ai-drawing-params">
-        <label className="ai-drawing-param ai-drawing-param-model">
-          <span className="ai-drawing-param-label">
-            {t("rightPanel.aiDrawing.model")}
-          </span>
-          {channels.length === 0 ? (
-            <span className="ai-drawing-no-channel">
-              {t("rightPanel.aiDrawing.noChannel")}
-            </span>
-          ) : (
-            <select
-              value={model}
-              disabled={modelsLoading || modelsLoadFailed}
-              title={t("rightPanel.aiDrawing.modelHint")}
-              onChange={(event) => handleModelChange(event.target.value)}
-            >
-              {modelsLoading ? (
-                <option value="">
-                  {t("rightPanel.aiDrawing.modelsLoading")}
-                </option>
-              ) : modelsLoadFailed || modelList.length === 0 ? (
-                <option value="">
-                  {t("rightPanel.aiDrawing.modelsLoadFailed")}
-                </option>
-              ) : (
-                modelList.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id}
-                  </option>
-                ))
-              )}
-            </select>
-          )}
-        </label>
-
-        <label className="ai-drawing-param">
-          <span className="ai-drawing-param-label">
-            {t("rightPanel.aiDrawing.ratio")}
-          </span>
-          <select
-            value={ratio}
-            onChange={(event) => setRatio(event.target.value)}
-          >
-            <option value="">
-              {defaultRatioLabel ||
-                channelDefaultSize ||
-                t("rightPanel.aiDrawing.sizeDefault")}
-            </option>
-            {(capabilities?.sizeSystem === "ratio-resolution" ||
-            capabilities?.sizeSystem === "gemini-tier"
-              ? capabilities.ratios
-              : showTier
-                ? Object.keys(OPENAI_SIZE_PRESETS)
-                : fixedSizePresets.map((preset) => preset.ratio)
-            ).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* 分辨率（ratio-resolution 体系，如 xAI Grok 的 1k/2k） */}
-        {capabilities?.sizeSystem === "ratio-resolution" && (
-          <label className="ai-drawing-param">
+  
+        {/* 参数栏（模型来自渠道模型 API 聚合，选择模型自动匹配服务商） */}
+        <div className="ai-drawing-params">
+          <label className="ai-drawing-param ai-drawing-param-model">
             <span className="ai-drawing-param-label">
-              {t("rightPanel.aiDrawing.resolution")}
+              {t("rightPanel.aiDrawing.model")}
             </span>
-            <select
-              value={resolution}
-              onChange={(event) => setResolution(event.target.value)}
-            >
-              {capabilities.resolutions.map((value) => (
-                <option key={value} value={value}>
-                  {value === ""
-                    ? defaultTierLabel ||
-                      channelDefaultSize ||
-                      t("rightPanel.aiDrawing.sizeDefault")
-                    : value}
-                </option>
-              ))}
-            </select>
+            {channels.length === 0 ? (
+              <span className="ai-drawing-no-channel">
+                {t("rightPanel.aiDrawing.noChannel")}
+              </span>
+            ) : (
+              <>
+                <select
+                  value={model}
+                  disabled={modelsLoading || modelsLoadFailed}
+                  title={t("rightPanel.aiDrawing.modelHint")}
+                  onChange={(event) => handleModelChange(event.target.value)}
+                >
+                  {modelsLoading ? (
+                    <option value="">
+                      {t("rightPanel.aiDrawing.modelsLoading")}
+                    </option>
+                  ) : modelsLoadFailed || modelList.length === 0 ? (
+                    <option value="">
+                      {t("rightPanel.aiDrawing.modelsLoadFailed")}
+                    </option>
+                  ) : (
+                    modelList.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.id}
+                      </option>
+                    ))
+                  )}
+                </select>
+                {modelsLoadFailed && (
+                  <button
+                    type="button"
+                    className="ai-drawing-retry-models"
+                    title={t("rightPanel.aiDrawing.retryModels")}
+                    onClick={() => void loadModels()}
+                  >
+                    <RefreshCw size={12} strokeWidth={1.8} />
+                  </button>
+                )}
+              </>
+            )}
           </label>
-        )}
-
-        {/* 档位（像素规格 1K/2K/4K）：仅支持档位的模型显示（gpt-image-2 + Gemini） */}
-        {showTier && (
+  
           <label className="ai-drawing-param">
             <span className="ai-drawing-param-label">
-              {t("rightPanel.aiDrawing.tier")}
+              {t("rightPanel.aiDrawing.ratio")}
             </span>
             <select
-              value={tier}
-              onChange={(event) => setTier(event.target.value)}
-              title={
-                isGemini || !ratio
-                  ? undefined
-                  : ratio && tier
-                    ? OPENAI_SIZE_PRESETS[ratio]?.[
-                        tier as "1K" | "2K" | "4K"
-                      ]
-                    : undefined
-              }
+              value={ratio}
+              onChange={(event) => setRatio(event.target.value)}
             >
               <option value="">
-                {defaultTierLabel ||
+                {defaultRatioLabel ||
                   channelDefaultSize ||
                   t("rightPanel.aiDrawing.sizeDefault")}
               </option>
-              {(isGemini
-                ? geminiTierOptions
-                : OPENAI_SIZE_TIERS
+              {(capabilities?.sizeSystem === "ratio-resolution" ||
+              capabilities?.sizeSystem === "gemini-tier"
+                ? capabilities.ratios
+                : showTier
+                  ? Object.keys(OPENAI_SIZE_PRESETS)
+                  : fixedSizePresets.map((preset) => preset.ratio)
               ).map((value) => (
                 <option key={value} value={value}>
                   {value}
-                  {!isGemini &&
-                    ratio &&
-                    OPENAI_SIZE_PRESETS[ratio]?.[
-                      value as "1K" | "2K" | "4K"
-                    ] &&
-                    ` (${OPENAI_SIZE_PRESETS[ratio][
-                      value as "1K" | "2K" | "4K"
-                    ]})`}
                 </option>
               ))}
             </select>
           </label>
-        )}
-
-        {/* 质量：按模型能力裁剪选项；无质量参数的模型（dall-e-2 / grok-quality）隐藏 */}
-        {qualityOptions.length > 0 && (
-          <label className="ai-drawing-param">
-            <span className="ai-drawing-param-label">
-              {t("toolCall.imagegen.quality", { defaultValue: "Quality" })}
-            </span>
-            <select
-              value={quality}
-              onChange={(event) => setQuality(event.target.value)}
-            >
-              {qualityOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {(option.value === "" || option.value === "auto") &&
-                  channelDefaultQuality
-                    ? `${t(option.labelKey)} (${channelDefaultQuality})`
-                    : t(option.labelKey)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <label className="ai-drawing-param">
-          <span className="ai-drawing-param-label">
-            {t("rightPanel.aiDrawing.count")}
-          </span>
-          <select
-            value={count}
-            disabled={capabilities ? !capabilities.supportsMultiCount : false}
-            title={
-              capabilities && !capabilities.supportsMultiCount
-                ? t("rightPanel.aiDrawing.modelSingleCount")
-                : undefined
-            }
-            onChange={(event) => setCount(Number(event.target.value))}
-          >
-            {COUNT_OPTIONS.map((value) => (
-              <option key={value} value={value}>
-                {t("toolCall.imagegen.countParam", {
-                  defaultValue: "{{count}} images",
-                  values: { count: value },
-                })}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* 流式预览：模型不支持时隐藏（如 xAI Grok） */}
-        {capabilities?.supportsStream !== false && (
-          <label className="ai-drawing-param ai-drawing-param-stream">
-            <input
-              type="checkbox"
-              checked={stream}
-              onChange={(event) => setStream(event.target.checked)}
-            />
-            <span className="ai-drawing-param-label">
-              {t("rightPanel.aiDrawing.stream")}
-            </span>
-          </label>
-        )}
-
-        <button
-          type="button"
-          className={`ai-drawing-advanced-toggle${
-            showAdvanced ? " open" : ""
-          }`}
-          onClick={() => setShowAdvanced((open) => !open)}
-        >
-          <span>{t("rightPanel.aiDrawing.advanced")}</span>
-          <ChevronRight
-            size={12}
-            strokeWidth={1.8}
-            className={showAdvanced ? "rotate-90" : ""}
-          />
-        </button>
-      </div>
-
-      {/* 高级参数（按渠道协议 + 模型能力分别显示） */}
-      {showAdvanced && (
-        <div className="ai-drawing-advanced">
-          {isGemini ? (
-            <>
-              {capabilities?.supportsThinking ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.thinkingLevel")}
-                  </span>
-                  <select
-                    value={thinkingLevel}
-                    onChange={(event) => setThinkingLevel(event.target.value)}
-                  >
-                    {THINKING_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.labelKey)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label className="ai-drawing-param">
-                <span className="ai-drawing-param-label">
-                  {t("rightPanel.aiDrawing.personGeneration")}
-                </span>
-                <select
-                  value={personGeneration}
-                  onChange={(event) => setPersonGeneration(event.target.value)}
-                >
-                  {PERSON_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {t(option.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {/* Google 搜索 grounding：仅 3.1 Flash + 3 Pro 支持（Lite / 2.5 隐藏） */}
-              {capabilities?.supportsWebSearch !== false ? (
-                <label className="ai-drawing-param ai-drawing-param-stream">
-                  <input
-                    type="checkbox"
-                    checked={webSearch}
-                    onChange={(event) => setWebSearch(event.target.checked)}
-                  />
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.webSearch")}
-                  </span>
-                </label>
-              ) : null}
-              {/* Gemini 3 系列输出格式（response_format mime_type：png/jpeg） */}
-              {capabilities?.supportsOutputFormat !== false ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.outputFormat")}
-                  </span>
-                  <select
-                    value={outputFormat}
-                    onChange={(event) => setOutputFormat(event.target.value)}
-                  >
-                    <option value="">
-                      {t("rightPanel.aiDrawing.formatDefault")}
-                    </option>
-                    <option value="png">
-                      {t("rightPanel.aiDrawing.formatPng")}
-                    </option>
-                    <option value="jpeg">
-                      {t("rightPanel.aiDrawing.formatJpeg")}
-                    </option>
-                  </select>
-                </label>
-              ) : null}
-              {capabilities?.supportsImageSearch ? (
-                <label className="ai-drawing-param ai-drawing-param-stream">
-                  <input
-                    type="checkbox"
-                    checked={imageSearch}
-                    onChange={(event) => setImageSearch(event.target.checked)}
-                  />
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.imageSearch")}
-                  </span>
-                </label>
-              ) : null}
-            </>
-          ) : (
-            <>
-              {/* OpenAI 系高级参数：按模型能力逐项裁剪（dall-e 家族 / grok 等不支持项自动隐藏） */}
-              {capabilities?.supportsOutputFormat !== false ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.outputFormat")}
-                  </span>
-                  <select
-                    value={outputFormat}
-                    onChange={(event) => setOutputFormat(event.target.value)}
-                  >
-                    {OPENAI_FORMAT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.labelKey)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {capabilities?.supportsCompression !== false ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.compression")}
-                  </span>
-                  <select
-                    value={outputCompression}
-                    onChange={(event) =>
-                      setOutputCompression(event.target.value)
-                    }
-                  >
-                    {COMPRESSION_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.labelKey)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {capabilities?.supportsBackground !== false ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.background")}
-                  </span>
-                  <select
-                    value={background}
-                    onChange={(event) => setBackground(event.target.value)}
-                  >
-                    {BACKGROUND_OPTIONS.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        disabled={
-                          option.value === "transparent" &&
-                          (capabilities
-                            ? !capabilities.supportsTransparent
-                            : false)
-                        }
-                      >
-                        {t(option.labelKey)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {capabilities?.supportsFidelity !== false ? (
-                <label className="ai-drawing-param">
-                  <span className="ai-drawing-param-label">
-                    {t("rightPanel.aiDrawing.fidelity")}
-                  </span>
-                  <select
-                    value={inputFidelity}
-                    onChange={(event) => setInputFidelity(event.target.value)}
-                  >
-                    {FIDELITY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.labelKey)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </>
-          )}
-          {/* 种子：按模型能力显示（dall-e 家族 / grok 不支持，隐藏） */}
-          {capabilities?.supportsSeed !== false && (
+  
+          {/* 分辨率（ratio-resolution 体系，如 xAI Grok 的 1k/2k） */}
+          {capabilities?.sizeSystem === "ratio-resolution" && (
             <label className="ai-drawing-param">
               <span className="ai-drawing-param-label">
-                {t("rightPanel.aiDrawing.seed")}
+                {t("rightPanel.aiDrawing.resolution")}
               </span>
-              <input
-                type="number"
-                className="ai-drawing-seed-input"
-                value={seed}
-                placeholder={t("rightPanel.aiDrawing.seedPlaceholder")}
-                title={t("rightPanel.aiDrawing.seedHint")}
-                onChange={(event) => setSeed(event.target.value)}
-              />
+              <select
+                value={resolution}
+                onChange={(event) => setResolution(event.target.value)}
+              >
+                {capabilities.resolutions.map((value) => (
+                  <option key={value} value={value}>
+                    {value === ""
+                      ? defaultTierLabel ||
+                        channelDefaultSize ||
+                        t("rightPanel.aiDrawing.sizeDefault")
+                      : value}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
-        </div>
-      )}
-
-      {/* 参考图（图生图） */}
-      {refImage && (
-        <div className="ai-drawing-ref">
-          <LibraryImage
-            path={refImage.path}
-            alt={t("toolCall.imagegen.refImage", {
-              defaultValue: "Reference image",
-            })}
-            className="ai-drawing-ref-thumb"
-          />
-          <span className="ai-drawing-ref-label">
-            {t("rightPanel.aiDrawing.reference")}
-          </span>
+  
+          {/* 档位（像素规格 1K/2K/4K）：仅支持档位的模型显示（gpt-image-2 + Gemini） */}
+          {showTier && (
+            <label className="ai-drawing-param">
+              <span className="ai-drawing-param-label">
+                {t("rightPanel.aiDrawing.tier")}
+              </span>
+              <select
+                value={tier}
+                onChange={(event) => setTier(event.target.value)}
+                title={
+                  isGemini || !ratio
+                    ? undefined
+                    : ratio && tier
+                      ? OPENAI_SIZE_PRESETS[ratio]?.[
+                          tier as "1K" | "2K" | "4K"
+                        ]
+                      : undefined
+                }
+              >
+                <option value="">
+                  {defaultTierLabel ||
+                    channelDefaultSize ||
+                    t("rightPanel.aiDrawing.sizeDefault")}
+                </option>
+                {(isGemini
+                  ? geminiTierOptions
+                  : OPENAI_SIZE_TIERS
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                    {!isGemini &&
+                      ratio &&
+                      OPENAI_SIZE_PRESETS[ratio]?.[
+                        value as "1K" | "2K" | "4K"
+                      ] &&
+                      ` (${OPENAI_SIZE_PRESETS[ratio][
+                        value as "1K" | "2K" | "4K"
+                      ]})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+  
+          {/* 质量：按模型能力裁剪选项；无质量参数的模型（dall-e-2 / grok-quality）隐藏 */}
+          {qualityOptions.length > 0 && (
+            <label className="ai-drawing-param">
+              <span className="ai-drawing-param-label">
+                {t("toolCall.imagegen.quality", { defaultValue: "Quality" })}
+              </span>
+              <select
+                value={quality}
+                onChange={(event) => setQuality(event.target.value)}
+              >
+                {qualityOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {(option.value === "" || option.value === "auto") &&
+                    channelDefaultQuality
+                      ? `${t(option.labelKey)} (${channelDefaultQuality})`
+                      : t(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+  
+          <label className="ai-drawing-param">
+            <span className="ai-drawing-param-label">
+              {t("rightPanel.aiDrawing.count")}
+            </span>
+            <select
+              value={count}
+              disabled={capabilities ? !capabilities.supportsMultiCount : false}
+              title={
+                capabilities && !capabilities.supportsMultiCount
+                  ? t("rightPanel.aiDrawing.modelSingleCount")
+                  : undefined
+              }
+              onChange={(event) => setCount(Number(event.target.value))}
+            >
+              {COUNT_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {t("toolCall.imagegen.countParam", {
+                    defaultValue: "{{count}} images",
+                    values: { count: value },
+                  })}
+                </option>
+              ))}
+            </select>
+          </label>
+  
+          {/* 流式预览：模型不支持时隐藏（如 xAI Grok） */}
+          {capabilities?.supportsStream !== false && (
+            <label className="ai-drawing-param ai-drawing-param-stream">
+              <input
+                type="checkbox"
+                checked={effectiveStream}
+                disabled={streamDisabled}
+                title={
+                  streamDisabled
+                    ? count > 1
+                      ? t("rightPanel.aiDrawing.streamOffCount")
+                      : t("rightPanel.aiDrawing.streamOffRef")
+                    : undefined
+                }
+                onChange={(event) => setStream(event.target.checked)}
+              />
+              <span className="ai-drawing-param-label">
+                {t("rightPanel.aiDrawing.stream")}
+              </span>
+            </label>
+          )}
+  
           <button
             type="button"
-            className="ai-drawing-ref-remove"
-            title={t("rightPanel.aiDrawing.removeReference")}
-            onClick={() => setRefImage(null)}
+            className={`ai-drawing-advanced-toggle${
+              showAdvanced ? " open" : ""
+            }`}
+            onClick={() => setShowAdvanced((open) => !open)}
           >
-            <X size={13} strokeWidth={1.8} />
+            <span>{t("rightPanel.aiDrawing.advanced")}</span>
+            <ChevronRight
+              size={12}
+              strokeWidth={1.8}
+              className={showAdvanced ? "rotate-90" : ""}
+            />
           </button>
         </div>
-      )}
-
-      {/* 模型不支持参考图时提示（如 dall-e-3 / imagen 仅文生图） */}
-      {refImage && capabilities && !capabilities.supportsReference && (
-        <div className="ai-drawing-model-warn">
-          <AlertCircle size={13} strokeWidth={1.8} />
-          <span>{t("rightPanel.aiDrawing.modelUnsupportedRef")}</span>
-        </div>
-      )}
-
-      {/* 上传导入提示（成功/失败，自动消失） */}
-      {importNotice && (
-        <div
-          className={`ai-drawing-import-notice ai-drawing-import-notice-${importNotice.kind}`}
-        >
-          {importNotice.kind === "ok" ? (
-            <CheckCircle2 size={13} strokeWidth={1.8} />
-          ) : (
-            <AlertCircle size={13} strokeWidth={1.8} />
-          )}
-          <span>{importNotice.text}</span>
-        </div>
-      )}
-
-      {/* 本次生成结果（画布区：占据剩余空间） */}
-      <div className="ai-drawing-section ai-drawing-canvas">
-        {isGenerating ? (
-          <>
-            <div className="ai-drawing-status ai-drawing-status-generating">
-              <Loader2 size={16} strokeWidth={1.8} className="ai-drawing-spin" />
-              <span>
-                {streamingItems.length > 0
-                  ? t("toolCall.imagegen.streamingPreview", {
-                      defaultValue: "Generating… preview",
-                    })
-                  : t("rightPanel.aiDrawing.generatingDetail")}
-              </span>
-              {streamingItems.length > 0 && count > 1 && (
-                <span className="ai-drawing-streaming-count">
-                  {streamingItems.length} / {count}
-                </span>
-              )}
-            </div>
-            {streamingItems.length > 0 && (
-              <div className="ai-drawing-gallery">
-                {streamingItems.map((image) => (
-                  <div
-                    className="ai-drawing-gallery-item ai-drawing-gallery-item-streaming"
-                    key={`stream-${image.index}`}
+  
+        {/* 高级参数（按渠道协议 + 模型能力分别显示） */}
+        {showAdvanced && (
+          <div className="ai-drawing-advanced">
+            {isGemini ? (
+              <>
+                {capabilities?.supportsThinking ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.thinkingLevel")}
+                    </span>
+                    <select
+                      value={thinkingLevel}
+                      onChange={(event) => setThinkingLevel(event.target.value)}
+                    >
+                      {THINKING_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <label className="ai-drawing-param">
+                  <span className="ai-drawing-param-label">
+                    {t("rightPanel.aiDrawing.personGeneration")}
+                  </span>
+                  <select
+                    value={personGeneration}
+                    onChange={(event) => setPersonGeneration(event.target.value)}
                   >
-                    <img
-                      src={`data:${image.mimeType};base64,${image.data}`}
-                      alt={t("toolCall.imagegen.streamingPreview", {
-                        defaultValue: "Generating… preview",
-                      })}
+                    {PERSON_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(option.labelKey)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {/* Google 搜索 grounding：仅 3.1 Flash + 3 Pro 支持（Lite / 2.5 隐藏） */}
+                {capabilities?.supportsWebSearch !== false ? (
+                  <label className="ai-drawing-param ai-drawing-param-stream">
+                    <input
+                      type="checkbox"
+                      checked={webSearch}
+                      onChange={(event) => setWebSearch(event.target.checked)}
                     />
-                  </div>
-                ))}
-              </div>
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.webSearch")}
+                    </span>
+                  </label>
+                ) : null}
+                {/* Gemini 3 系列输出格式（response_format mime_type：png/jpeg） */}
+                {capabilities?.supportsOutputFormat !== false ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.outputFormat")}
+                    </span>
+                    <select
+                      value={outputFormat}
+                      onChange={(event) => setOutputFormat(event.target.value)}
+                    >
+                      <option value="">
+                        {t("rightPanel.aiDrawing.formatDefault")}
+                      </option>
+                      <option value="png">
+                        {t("rightPanel.aiDrawing.formatPng")}
+                      </option>
+                      <option value="jpeg">
+                        {t("rightPanel.aiDrawing.formatJpeg")}
+                      </option>
+                    </select>
+                  </label>
+                ) : null}
+                {capabilities?.supportsImageSearch ? (
+                  <label className="ai-drawing-param ai-drawing-param-stream">
+                    <input
+                      type="checkbox"
+                      checked={imageSearch}
+                      onChange={(event) => setImageSearch(event.target.checked)}
+                    />
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.imageSearch")}
+                    </span>
+                  </label>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {/* OpenAI 系高级参数：按模型能力逐项裁剪（dall-e 家族 / grok 等不支持项自动隐藏） */}
+                {capabilities?.supportsOutputFormat !== false ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.outputFormat")}
+                    </span>
+                    <select
+                      value={outputFormat}
+                      onChange={(event) => setOutputFormat(event.target.value)}
+                    >
+                      {OPENAI_FORMAT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {capabilities?.supportsCompression !== false ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.compression")}
+                    </span>
+                    <select
+                      value={outputCompression}
+                      onChange={(event) =>
+                        setOutputCompression(event.target.value)
+                      }
+                    >
+                      {COMPRESSION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {capabilities?.supportsBackground !== false ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.background")}
+                    </span>
+                    <select
+                      value={background}
+                      onChange={(event) => setBackground(event.target.value)}
+                    >
+                      {BACKGROUND_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          disabled={
+                            option.value === "transparent" &&
+                            (capabilities
+                              ? !capabilities.supportsTransparent
+                              : false)
+                          }
+                        >
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {capabilities?.supportsFidelity !== false ? (
+                  <label className="ai-drawing-param">
+                    <span className="ai-drawing-param-label">
+                      {t("rightPanel.aiDrawing.fidelity")}
+                    </span>
+                    <select
+                      value={inputFidelity}
+                      onChange={(event) => setInputFidelity(event.target.value)}
+                    >
+                      {FIDELITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </>
             )}
-          </>
-        ) : hasError && errorInfo && errorIconComponent ? (
-          <div className="ai-drawing-error">
-            <div className="ai-drawing-error-icon" aria-hidden="true">
-              {(() => {
-                const Icon = errorIconComponent;
-                return <Icon size={18} strokeWidth={1.8} />;
-              })()}
-            </div>
-            <div className="ai-drawing-error-body">
-              <span className="ai-drawing-error-title">
-                {t(imageGenErrorTitleKey(errorInfo.kind))}
-              </span>
-              <span className="ai-drawing-error-hint">
-                {t(errorHintKey(errorInfo.kind))}
-              </span>
-              <span className="ai-drawing-error-detail">
-                {errorInfo.detail}
-              </span>
-              <div className="ai-drawing-error-actions">
+            {/* 种子：按模型能力显示（dall-e 家族 / grok 不支持，隐藏） */}
+            {capabilities?.supportsSeed !== false && (
+              <label className="ai-drawing-param">
+                <span className="ai-drawing-param-label">
+                  {t("rightPanel.aiDrawing.seed")}
+                </span>
+                <input
+                  type="number"
+                  className="ai-drawing-seed-input"
+                  value={seed}
+                  placeholder={t("rightPanel.aiDrawing.seedPlaceholder")}
+                  title={t("rightPanel.aiDrawing.seedHint")}
+                  onChange={(event) => setSeed(event.target.value)}
+                />
+              </label>
+            )}
+          </div>
+        )}
+  
+        {/* 参考图（图生图，最多 5 张，逐张可移除） */}
+        {refImages.length > 0 && (
+          <div className="ai-drawing-refs">
+            {refImages.map((ref) => (
+              <div className="ai-drawing-ref" key={ref.path}>
+                <LibraryImage
+                  path={ref.path}
+                  alt={t("toolCall.imagegen.refImage", {
+                    defaultValue: "Reference image",
+                  })}
+                  className="ai-drawing-ref-thumb"
+                />
                 <button
                   type="button"
-                  className="ai-drawing-error-btn ai-drawing-error-btn-retry"
-                  onClick={() => void handleGenerate()}
+                  className="ai-drawing-ref-remove"
+                  title={t("rightPanel.aiDrawing.removeReference")}
+                  onClick={() =>
+                    setRefImages((prev) =>
+                      prev.filter((item) => item.path !== ref.path)
+                    )
+                  }
                 >
-                  <RefreshCw size={12} strokeWidth={1.8} />
-                  <span>{t("rightPanel.aiDrawing.retry")}</span>
+                  <X size={13} strokeWidth={1.8} />
                 </button>
-                {showErrorSettingsButton && (
-                  <button
-                    type="button"
-                    className="ai-drawing-error-btn"
-                    onClick={onOpenImageGenSettings}
-                  >
-                    <Settings size={12} strokeWidth={1.8} />
-                    <span>{t("rightPanel.aiDrawing.openSettings")}</span>
-                  </button>
+              </div>
+            ))}
+          </div>
+        )}
+  
+        {/* 模型不支持参考图时提示（如 dall-e-3 / imagen 仅文生图） */}
+        {refImages.length > 0 && capabilities && !capabilities.supportsReference && (
+          <div className="ai-drawing-model-warn">
+            <AlertCircle size={13} strokeWidth={1.8} />
+            <span>{t("rightPanel.aiDrawing.modelUnsupportedRef")}</span>
+          </div>
+        )}
+  
+        {/* 上传导入提示（成功/失败，自动消失） */}
+        {importNotice && (
+          <div
+            className={`ai-drawing-import-notice ai-drawing-import-notice-${importNotice.kind}`}
+          >
+            {importNotice.kind === "ok" ? (
+              <CheckCircle2 size={13} strokeWidth={1.8} />
+            ) : (
+              <AlertCircle size={13} strokeWidth={1.8} />
+            )}
+            <span>{importNotice.text}</span>
+          </div>
+        )}
+  
+        {/* 本次生成结果（画布区：占据剩余空间） */}
+        <div className="ai-drawing-section ai-drawing-canvas">
+          {isGenerating ? (
+            <>
+              <div className="ai-drawing-status ai-drawing-status-generating">
+                <Loader2 size={16} strokeWidth={1.8} className="ai-drawing-spin" />
+                <span>
+                  {streamingItems.length > 0
+                    ? t("toolCall.imagegen.streamingPreview", {
+                        defaultValue: "Generating… preview",
+                      })
+                    : t("rightPanel.aiDrawing.generatingDetail")}
+                </span>
+                {streamingItems.length > 0 && count > 1 && (
+                  <span className="ai-drawing-streaming-count">
+                    {streamingItems.length} / {count}
+                  </span>
                 )}
               </div>
-            </div>
-          </div>
-        ) : resultRawText ? (
-          <div className="ai-drawing-error">
-            <div className="ai-drawing-error-icon" aria-hidden="true">
-              <XCircle size={18} strokeWidth={1.8} />
-            </div>
-            <div className="ai-drawing-error-body">
-              <span className="ai-drawing-error-title">
-                {t("toolCall.imagegen.error.fallback", {
-                  defaultValue: "Image generation failed",
-                })}
-              </span>
-              <span className="ai-drawing-error-hint">
-                {t(errorHintKey("fallback"))}
-              </span>
-              <span className="ai-drawing-error-detail">
-                {resultRawText.slice(0, 600)}
-              </span>
-            </div>
-          </div>
-        ) : resultItems.length > 0 ? (
-          <div className="ai-drawing-result-header">
-            <span className="ai-drawing-result-title">
-              <Sparkles size={13} strokeWidth={1.8} />
-              <span>
-                {t("toolCall.imagegen.result", { defaultValue: "Result" })}
-              </span>
-              <span className="ai-drawing-history-count">
-                {t("rightPanel.aiDrawing.resultCount", {
-                  values: { count: resultItems.length },
-                })}
-              </span>
-            </span>
-            <button
-              type="button"
-              className="ai-drawing-save-all-btn"
-              disabled={saving}
-              title={t("toolCall.imagegen.downloadAll", {
-                defaultValue: "Save all",
-              })}
-              onClick={() => void handleSaveAll()}
-            >
-              {saving ? (
-                <Loader2 size={13} strokeWidth={1.8} className="ai-drawing-spin" />
-              ) : (
-                <Download size={13} strokeWidth={1.8} />
+              {streamingItems.length > 0 && (
+                <StreamingGallery items={streamingItems} />
               )}
-              <span>
-                {t("toolCall.imagegen.downloadAll", {
-                  defaultValue: "Save all",
-                })}
-              </span>
-            </button>
-          </div>
-        ) : showEmptyHint ? (
-          <div className="ai-drawing-status ai-drawing-status-empty">
-            <div className="ai-drawing-empty-icon" aria-hidden="true">
-              <Sparkles size={22} strokeWidth={1.6} />
-            </div>
-            <span className="ai-drawing-empty-title">
-              {t("rightPanel.aiDrawing.emptyHint")}
-            </span>
-            <span className="ai-drawing-empty-sub">
-              {t("rightPanel.aiDrawing.emptyHintSub")}
-            </span>
-          </div>
-        ) : null}
-
-        {!isGenerating &&
-          !hasError &&
-          !resultRawText &&
-          resultItems.length > 0 && (
-            <div className="ai-drawing-gallery">
-              {resultItems.map((item) => (
-                <div className="ai-drawing-gallery-item" key={item.key}>
-                  <LibraryImage
-                    path={item.image?.path}
-                    src={item.image?.path ? undefined : item.src}
-                    alt={t("toolCall.imagegen.generatedImage", {
-                      defaultValue: "Generated image",
-                    })}
-                    loading="lazy"
-                    onClick={() =>
-                      openLightbox(
-                        resultItems,
-                        resultItems.findIndex((it) => it.key === item.key)
-                      )
-                    }
-                  />
-                  <div className="ai-drawing-gallery-actions">
+            </>
+          ) : hasError && errorInfo && errorIconComponent ? (
+            <div className="ai-drawing-error">
+              <div className="ai-drawing-error-icon" aria-hidden="true">
+                {(() => {
+                  const Icon = errorIconComponent;
+                  return <Icon size={18} strokeWidth={1.8} />;
+                })()}
+              </div>
+              <div className="ai-drawing-error-body">
+                <span className="ai-drawing-error-title">
+                  {t(imageGenErrorTitleKey(errorInfo.kind))}
+                </span>
+                <span className="ai-drawing-error-hint">
+                  {t(errorHintKey(errorInfo.kind))}
+                </span>
+                <span className="ai-drawing-error-detail">
+                  {errorInfo.detail}
+                </span>
+                <div className="ai-drawing-error-actions">
+                  <button
+                    type="button"
+                    className="ai-drawing-error-btn ai-drawing-error-btn-retry"
+                    onClick={() => void handleGenerate()}
+                  >
+                    <RefreshCw size={12} strokeWidth={1.8} />
+                    <span>{t("rightPanel.aiDrawing.retry")}</span>
+                  </button>
+                  {showErrorSettingsButton && (
                     <button
                       type="button"
-                      className="ai-drawing-img-action"
-                      title={t("toolCall.imagegen.zoom", {
-                        defaultValue: "Zoom image",
+                      className="ai-drawing-error-btn"
+                      onClick={onOpenImageGenSettings}
+                    >
+                      <Settings size={12} strokeWidth={1.8} />
+                      <span>{t("rightPanel.aiDrawing.openSettings")}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : resultRawText ? (
+            <div className="ai-drawing-error">
+              <div className="ai-drawing-error-icon" aria-hidden="true">
+                <XCircle size={18} strokeWidth={1.8} />
+              </div>
+              <div className="ai-drawing-error-body">
+                <span className="ai-drawing-error-title">
+                  {t("toolCall.imagegen.error.fallback", {
+                    defaultValue: "Image generation failed",
+                  })}
+                </span>
+                <span className="ai-drawing-error-hint">
+                  {t(errorHintKey("fallback"))}
+                </span>
+                <span className="ai-drawing-error-detail">
+                  {resultRawText.slice(0, 600)}
+                </span>
+              </div>
+            </div>
+          ) : resultItems.length > 0 ? (
+            <div className="ai-drawing-result-header">
+              <span className="ai-drawing-result-title">
+                <Sparkles size={13} strokeWidth={1.8} />
+                <span>
+                  {t("toolCall.imagegen.result", { defaultValue: "Result" })}
+                </span>
+                <span className="ai-drawing-history-count">
+                  {t("rightPanel.aiDrawing.resultCount", {
+                    values: { count: resultItems.length },
+                  })}
+                </span>
+                {lastDurationMs > 0 && (
+                  <span className="ai-drawing-result-duration">
+                    {t("rightPanel.aiDrawing.duration", {
+                      values: { seconds: (lastDurationMs / 1000).toFixed(1) },
+                    })}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                className="ai-drawing-save-all-btn"
+                disabled={saving}
+                title={t("toolCall.imagegen.downloadAll", {
+                  defaultValue: "Save all",
+                })}
+                onClick={() => void handleSaveAll()}
+              >
+                {saving ? (
+                  <Loader2 size={13} strokeWidth={1.8} className="ai-drawing-spin" />
+                ) : (
+                  <Download size={13} strokeWidth={1.8} />
+                )}
+                <span>
+                  {t("toolCall.imagegen.downloadAll", {
+                    defaultValue: "Save all",
+                  })}
+                </span>
+              </button>
+            </div>
+          ) : showEmptyHint ? (
+            <div className="ai-drawing-status ai-drawing-status-empty">
+              <div className="ai-drawing-empty-icon" aria-hidden="true">
+                <Sparkles size={22} strokeWidth={1.6} />
+              </div>
+              <span className="ai-drawing-empty-title">
+                {t("rightPanel.aiDrawing.emptyHint")}
+              </span>
+              <span className="ai-drawing-empty-sub">
+                {t("rightPanel.aiDrawing.emptyHintSub")}
+              </span>
+              {/* 示例提示词：点击一键填入并聚焦输入框 */}
+              <div className="ai-drawing-examples">
+                <span className="ai-drawing-examples-title">
+                  {t("rightPanel.aiDrawing.examplesTitle")}
+                </span>
+                {["example1", "example2", "example3", "example4"].map((key) => (
+                  <button
+                    type="button"
+                    className="ai-drawing-example-chip"
+                    key={key}
+                    onClick={() => {
+                      setPrompt(t(`rightPanel.aiDrawing.${key}`));
+                      textareaRef.current?.focus();
+                    }}
+                  >
+                    {t(`rightPanel.aiDrawing.${key}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+  
+          {!isGenerating &&
+            !hasError &&
+            !resultRawText &&
+            resultItems.length > 0 && (
+              <div className="ai-drawing-gallery">
+                {resultItems.map((item) => (
+                  <div className="ai-drawing-gallery-item" key={item.key}>
+                    <LibraryImage
+                      path={item.image?.path}
+                      src={item.image?.path ? undefined : item.src}
+                      alt={t("toolCall.imagegen.generatedImage", {
+                        defaultValue: "Generated image",
                       })}
+                      loading="lazy"
                       onClick={() =>
                         openLightbox(
                           resultItems,
                           resultItems.findIndex((it) => it.key === item.key)
                         )
                       }
-                    >
-                      <ImageIcon size={13} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-drawing-img-action"
-                      title={t("toolCall.imagegen.download", {
-                        defaultValue: "Save image",
-                      })}
-                      onClick={() => void handleSaveOne(item)}
-                    >
-                      <Download size={13} strokeWidth={1.8} />
-                    </button>
+                    />
+                    <div className="ai-drawing-gallery-actions">
+                      <button
+                        type="button"
+                        className="ai-drawing-img-action"
+                        title={t("toolCall.imagegen.zoom", {
+                          defaultValue: "Zoom image",
+                        })}
+                        onClick={() =>
+                          openLightbox(
+                            resultItems,
+                            resultItems.findIndex((it) => it.key === item.key)
+                          )
+                        }
+                      >
+                        <ImageIcon size={13} strokeWidth={1.8} />
+                      </button>
+                      <button
+                        type="button"
+                        className="ai-drawing-img-action"
+                        title={t("toolCall.imagegen.download", {
+                          defaultValue: "Save image",
+                        })}
+                        onClick={() => void handleSaveOne(item)}
+                      >
+                        <Download size={13} strokeWidth={1.8} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-
-      {/* 图库历史（存储） */}
-      <div
-        className="ai-drawing-section ai-drawing-history"
-        title={t("rightPanel.aiDrawing.libraryDragHint")}
-      >
-        <div className="ai-drawing-result-header">
-          <span className="ai-drawing-result-title">
-            <Images size={13} strokeWidth={1.8} />
-            <span>{t("rightPanel.aiDrawing.history")}</span>
-            {library.length > 0 && (
-              <span className="ai-drawing-history-count">
-                {library.length}
-              </span>
+                ))}
+              </div>
             )}
-          </span>
-          <button
-            type="button"
-            className="ai-drawing-refresh-btn"
-            title={t("rightPanel.aiDrawing.refresh")}
-            onClick={() => void loadLibrary()}
-          >
-            <RefreshCw size={13} strokeWidth={1.8} />
-          </button>
         </div>
-
-        {library.length === 0 ? (
-          <div className="ai-drawing-status ai-drawing-status-empty">
-            <Images size={18} strokeWidth={1.8} />
-            <span>{t("rightPanel.aiDrawing.historyEmpty")}</span>
+  
+        {/* 图库历史（存储） */}
+        <div
+          className={`ai-drawing-section ai-drawing-history${
+            historyCollapsed ? " collapsed" : ""
+          }`}
+          title={t("rightPanel.aiDrawing.libraryDragHint")}
+        >
+          <div className="ai-drawing-result-header">
+            <span className="ai-drawing-result-title">
+              <button
+                type="button"
+                className="ai-drawing-history-collapse"
+                title={
+                  historyCollapsed
+                    ? t("rightPanel.aiDrawing.expand")
+                    : t("rightPanel.aiDrawing.collapse")
+                }
+                aria-expanded={!historyCollapsed}
+                onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
+              >
+                <ChevronDown size={13} strokeWidth={1.8} />
+              </button>
+              <Images size={13} strokeWidth={1.8} />
+              <span>{t("rightPanel.aiDrawing.history")}</span>
+              {library.length > 0 && (
+                <span className="ai-drawing-history-count">
+                  {historyQuery.trim()
+                    ? `${filteredLibrary.length} / ${library.length}`
+                    : library.length}
+                </span>
+              )}
+            </span>
+            <div className="ai-drawing-history-tools">
+              {!historyCollapsed && library.length > 0 && (
+                <input
+                  type="text"
+                  className="ai-drawing-history-search"
+                  value={historyQuery}
+                  placeholder={t("rightPanel.aiDrawing.searchHistory")}
+                  onChange={(event) => setHistoryQuery(event.target.value)}
+                />
+              )}
+              <button
+                type="button"
+                className="ai-drawing-refresh-btn"
+                title={t("rightPanel.aiDrawing.refresh")}
+                onClick={() => void loadLibrary()}
+              >
+                <RefreshCw size={13} strokeWidth={1.8} />
+              </button>
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="ai-drawing-library-grid">
-              {visibleLibrary.map((record, index) => (
-                <div
-                  className="ai-drawing-library-item"
-                  key={record.id}
-                  draggable
-                  onDragStart={(event) => {
-                    // 拖拽协议：application/json（与 file-tags/web-tag 同通道），
-                    // 可拖到聊天输入框（发图）或工作台其他区域（设为参考图）。
-                    event.dataTransfer.setData(
-                      "application/json",
-                      JSON.stringify({
-                        type: "library-image",
-                        path: record.relativePath,
-                        mimeType: record.mimeType,
-                        name:
-                          record.relativePath.split("/").pop() ??
-                          record.relativePath,
-                      })
-                    );
-                    event.dataTransfer.effectAllowed = "copy";
-                  }}
-                >
-                  <LibraryImage
-                    path={record.relativePath}
-                    alt={record.prompt || record.relativePath}
-                    title={`${record.prompt || record.relativePath}\n${formatTime(
-                      record.createdAt
-                    )}`}
-                    loading="lazy"
-                    onClick={() =>
-                      openLightbox(
-                        visibleLibrary.map((item) => ({
-                          key: item.id,
-                          src: proxyForLibraryPath(item.relativePath),
-                          record: item,
-                        })),
-                        index
-                      )
-                    }
-                  />
-                  <div className="ai-drawing-library-actions">
-                    <button
-                      type="button"
-                      className="ai-drawing-img-action"
-                      title={t("toolCall.imagegen.refEditTitle", {
-                        defaultValue: "Regenerate using this image",
-                      })}
-                      onClick={() => handleUseAsReference(record)}
-                    >
-                      <Sparkles size={13} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-drawing-img-action"
-                      title={t("toolCall.imagegen.zoom", {
-                        defaultValue: "Zoom image",
-                      })}
+  
+          {historyCollapsed ? null : library.length === 0 ? (
+            <div className="ai-drawing-status ai-drawing-status-empty">
+              <Images size={18} strokeWidth={1.8} />
+              <span>{t("rightPanel.aiDrawing.historyEmpty")}</span>
+            </div>
+          ) : filteredLibrary.length === 0 ? (
+            <div className="ai-drawing-status ai-drawing-status-empty">
+              <Images size={18} strokeWidth={1.8} />
+              <span>{t("rightPanel.aiDrawing.historyNoMatch")}</span>
+            </div>
+          ) : (
+            <>
+              <div className="ai-drawing-library-grid">
+                {visibleLibrary.map((record, index) => (
+                  <div
+                    className="ai-drawing-library-item"
+                    key={record.id}
+                    draggable
+                    onDragStart={(event) => {
+                      // 拖拽协议：application/json（与 file-tags/web-tag 同通道），
+                      // 可拖到聊天输入框（发图）或工作台其他区域（设为参考图）。
+                      event.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({
+                          type: "library-image",
+                          path: record.relativePath,
+                          mimeType: record.mimeType,
+                          name:
+                            record.relativePath.split("/").pop() ??
+                            record.relativePath,
+                        })
+                      );
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                  >
+                    <LibraryImage
+                      path={record.relativePath}
+                      alt={record.prompt || record.relativePath}
+                      title={`${record.prompt || record.relativePath}\n${formatTime(
+                        record.createdAt
+                      )}`}
+                      loading="lazy"
                       onClick={() =>
                         openLightbox(
                           visibleLibrary.map((item) => ({
@@ -2312,35 +2731,64 @@ export function DrawingPanelContent({
                           index
                         )
                       }
-                    >
-                      <ImageIcon size={13} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-drawing-img-action ai-drawing-delete-btn"
-                      title={t("rightPanel.aiDrawing.delete")}
-                      onClick={() => handleDelete(record)}
-                    >
-                      <Trash2 size={13} strokeWidth={1.8} />
-                    </button>
+                    />
+                    <div className="ai-drawing-library-actions">
+                      <button
+                        type="button"
+                        className="ai-drawing-img-action"
+                        title={t("toolCall.imagegen.refEditTitle", {
+                          defaultValue: "Regenerate using this image",
+                        })}
+                        onClick={() => handleUseAsReference(record)}
+                      >
+                        <Sparkles size={13} strokeWidth={1.8} />
+                      </button>
+                      <button
+                        type="button"
+                        className="ai-drawing-img-action"
+                        title={t("toolCall.imagegen.zoom", {
+                          defaultValue: "Zoom image",
+                        })}
+                        onClick={() =>
+                          openLightbox(
+                            visibleLibrary.map((item) => ({
+                              key: item.id,
+                              src: proxyForLibraryPath(item.relativePath),
+                              record: item,
+                            })),
+                            index
+                          )
+                        }
+                      >
+                        <ImageIcon size={13} strokeWidth={1.8} />
+                      </button>
+                      <button
+                        type="button"
+                        className="ai-drawing-img-action ai-drawing-delete-btn"
+                        title={t("rightPanel.aiDrawing.delete")}
+                        onClick={() => handleDelete(record)}
+                      >
+                        <Trash2 size={13} strokeWidth={1.8} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-            {hasMoreLibrary && (
-              <button
-                type="button"
-                className="ai-drawing-load-more"
-                onClick={handleLoadMore}
-              >
-                {t("rightPanel.aiDrawing.loadMore")}
-              </button>
-            )}
-          </>
-        )}
+                ))}
+              </div>
+              {hasMoreLibrary && (
+                <button
+                  type="button"
+                  className="ai-drawing-load-more"
+                  onClick={handleLoadMore}
+                >
+                  {t("rightPanel.aiDrawing.loadMore")}
+                </button>
+              )}
+            </>
+          )}
+      </div>
       </div>
 
-      {/* 删除确认弹窗 */}
+      {/* 删除确认弹窗（fixed 全屏浮层，保持在 container-type 容器之外） */}
       {deleteTarget && (
         <div
           className="ai-drawing-delete-dialog"
