@@ -138,7 +138,7 @@ pub fn ensure_database(database_path: &Path) -> Result<()> {
 
 /// Returns true when a rusqlite error indicates the database file is
 /// physically corrupted (b-tree page corruption, invalid page numbers, etc.).
-fn is_corruption_error(error: &rusqlite::Error) -> bool {
+pub(crate) fn is_corruption_error(error: &rusqlite::Error) -> bool {
     // Check SQLite primary error code first — more reliable than string matching.
     if let rusqlite::Error::SqliteFailure(err_code, _) = error {
         match err_code.code {

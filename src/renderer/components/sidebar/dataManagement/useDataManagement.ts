@@ -21,7 +21,7 @@ export type UseDataManagementResult = {
   previewImport: (password?: string) => Promise<DataManagementImportPreview | null>;
   exportConfig: (request: DataManagementExportRequest) => Promise<DataManagementImportPreview | null>;
   importConfig: (request: DataManagementImportRequest) => Promise<DataManagementImportPreview | null>;
-  createBackup: (reason?: string) => Promise<unknown | null>;
+  createBackup: (reason?: string, includeArchive?: boolean) => Promise<unknown | null>;
   restoreBackup: (path: string) => Promise<boolean>;
   deleteBackup: (path: string) => Promise<boolean>;
   testSync: () => Promise<{ weakConflictProtection: boolean }>;
@@ -112,7 +112,8 @@ export const useDataManagement = (): UseDataManagementResult => {
     previewImport: (password) => action(() => window.snow.previewDataManagementImport(password)),
     exportConfig: (request) => action(() => window.snow.exportDataManagementConfig(request)),
     importConfig: (request) => action(() => window.snow.importDataManagementConfig(request)),
-    createBackup: (reason) => action(() => window.snow.createDataManagementBackup(reason)),
+    createBackup: (reason, includeArchive) =>
+      action(() => window.snow.createDataManagementBackup(reason, includeArchive)),
     restoreBackup: (path) => action(() => window.snow.restoreDataManagementBackup(path)),
     deleteBackup: (path) => action(() => window.snow.deleteDataManagementBackup(path)),
     testSync: () => action(() => window.snow.testDataManagementSyncConnection()),

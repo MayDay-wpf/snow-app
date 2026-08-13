@@ -1,6 +1,8 @@
 import { FileDown, FileUp, LockKeyhole, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { FormDialog } from "../../common/FormDialog";
 import {
   DATA_MANAGEMENT_FORMAT_VERSION,
   DATA_SECTIONS,
@@ -17,6 +19,13 @@ type ImportExportTabProps = {
   onPreviewImport: (password?: string) => Promise<DataManagementImportPreview | null>;
   onExport: (request: DataManagementExportRequest) => Promise<DataManagementImportPreview | null>;
   onImport: (request: DataManagementImportRequest) => Promise<DataManagementImportPreview | null>;
+};
+
+type PasswordDialogMode = "export" | "import" | null;
+
+type PendingImport = {
+  preview: DataManagementImportPreview;
+  password?: string;
 };
 
 const SECTION_KEYS: Record<string, string> = {
@@ -45,18 +54,18 @@ export function ImportExportTab({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<DataManagementImportPreview | null>(null);
+  const [passwordDialogMode, setPasswordDialogMode] = useState<PasswordDialogMode>(null);
+  const [password, setPassword] = useState("");
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
-  const handleExport = async (): Promise<void> => {
-    const password = includeSecrets
-      ? window.prompt(t("settings.dataManagementExportPasswordPrompt", { defaultValue: "Set an encryption password for this export" })) ?? ""
-      : undefined;
-    if (includeSecrets && !password) return;
+  const exportPackage = async (exportPassword?: string): Promise<void> => {
     setBusy(true);
     try {
       const result = await onExport({
         sections: [...DATA_SECTIONS],
         includeSecrets,
-        password,
+        password: exportPassword,
       });
       if (result)
         setMessage(
@@ -72,52 +81,120 @@ export function ImportExportTab({
     }
   };
 
+  const handleExport = async (): Promise<void> => {
+    if (includeSecrets) {
+      setPassword("");
+      setPasswordDialogMode("export");
+      return;
+    }
+    await exportPackage();
+  };
+
+  const openImportConfirmation = (nextPendingImport: PendingImport): void => {
+    setPendingImport(nextPendingImport);
+    setPreview(nextPendingImport.preview);
+  };
+
   const handleImport = async (): Promise<void> => {
     setBusy(true);
     try {
-      let nextPreview = await onPreviewImport();
-      if (!nextPreview) return;
-      const password = nextPreview.encrypted
-        ? window.prompt(t("settings.dataManagementImportPasswordPrompt", { defaultValue: "Enter the package encryption password" })) ?? ""
-        : undefined;
-      if (nextPreview.encrypted && !password) return;
-      if (password) {
-        const decryptedPreview = await onPreviewImport(password);
-        if (!decryptedPreview) return;
-        nextPreview = decryptedPreview;
-      }
-      setPreview(nextPreview);
-      const description = t("settings.dataManagementImportDescription", {
-        values: { rows: nextPreview.rows, sections: nextPreview.sections.length },
-        defaultValue: "{{rows}} rows, {{sections}} sections",
-      });
-      if (
-        !window.confirm(
-          t("settings.dataManagementImportConfirm", {
-            values: { description },
-            defaultValue: "Import this configuration package ({{description}})?",
-          })
-        )
-      )
+      const nextPreview = await onPreviewImport();
+      if (!nextPreview) {
         return;
-      const result = await onImport({
-        sections: [...DATA_SECTIONS],
-        password,
-        replaceSelected,
-      });
-      if (result)
-        setMessage(
-          t("settings.dataManagementImportedRows", {
-            values: { rows: result.rows },
-            defaultValue: "Imported {{rows}} configuration rows",
-          })
-        );
+      }
+      if (nextPreview.encrypted) {
+        setPassword("");
+        setPendingImport({ preview: nextPreview });
+        setPasswordDialogMode("import");
+      } else {
+        openImportConfirmation({ preview: nextPreview });
+      }
     } catch {
       // The shared panel displays the error from useDataManagement.
     } finally {
       setBusy(false);
     }
   };
+
+  const submitPassword = async (): Promise<void> => {
+    if (!password || !passwordDialogMode) {
+      return;
+    }
+    const mode = passwordDialogMode;
+    const enteredPassword = password;
+    setPassword("");
+    setPasswordDialogMode(null);
+
+    if (mode === "export") {
+      await exportPackage(enteredPassword);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const decryptedPreview = await onPreviewImport(enteredPassword);
+      if (decryptedPreview) {
+        openImportConfirmation({
+          preview: decryptedPreview,
+          password: enteredPassword,
+        });
+      }
+    } catch {
+      // The shared panel displays the error from useDataManagement.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelPasswordDialog = (): void => {
+    setPassword("");
+    setPasswordDialogMode(null);
+    if (passwordDialogMode === "import") {
+      setPendingImport(null);
+    }
+  };
+
+  const cancelImportConfirmation = (): void => {
+    setPendingImport(null);
+  };
+
+  const confirmImport = async (): Promise<void> => {
+    if (!pendingImport) {
+      return;
+    }
+    const importRequest = pendingImport;
+    setPendingImport(null);
+    setBusy(true);
+    try {
+      const result = await onImport({
+        sections: [...DATA_SECTIONS],
+        password: importRequest.password,
+        replaceSelected,
+      });
+      if (result) {
+        setMessage(
+          t("settings.dataManagementImportedRows", {
+            values: { rows: result.rows },
+            defaultValue: "Imported {{rows}} configuration rows",
+          })
+        );
+      }
+    } catch {
+      // The shared panel displays the error from useDataManagement.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importDescription = pendingImport
+    ? t("settings.dataManagementImportDescription", {
+        values: {
+          rows: pendingImport.preview.rows,
+          sections: pendingImport.preview.sections.length,
+        },
+        defaultValue: "{{rows}} rows, {{sections}} sections",
+      })
+    : "";
 
   return (
     <div className="data-management-tab-content">
@@ -229,6 +306,67 @@ export function ImportExportTab({
           </p>
         </section>
       )}
+
+      <FormDialog
+        open={passwordDialogMode !== null}
+        title={
+          passwordDialogMode === "export"
+            ? t("settings.dataManagementExportPasswordPrompt", {
+                defaultValue: "Set an encryption password for this export",
+              })
+            : t("settings.dataManagementImportPasswordPrompt", {
+                defaultValue: "Enter the package encryption password",
+              })
+        }
+        confirmLabel={t("common.confirm", { defaultValue: "Confirm" })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        closeLabel={t("common.close", { defaultValue: "Close" })}
+        confirmDisabled={!password}
+        isSubmitting={busy}
+        initialFocusRef={passwordInputRef}
+        onConfirm={() => void submitPassword()}
+        onCancel={cancelPasswordDialog}
+      >
+        <label className="form-dialog-field">
+          <span className="form-dialog-label">
+            {passwordDialogMode === "export"
+              ? t("settings.dataManagementExportPasswordPrompt", {
+                  defaultValue: "Encryption password",
+                })
+              : t("settings.dataManagementImportPasswordPrompt", {
+                  defaultValue: "Package encryption password",
+                })}
+          </span>
+          <input
+            ref={passwordInputRef}
+            className="form-dialog-input"
+            type="password"
+            value={password}
+            maxLength={4096}
+            autoComplete="new-password"
+            onChange={(event) => setPassword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && password) {
+                event.preventDefault();
+                void submitPassword();
+              }
+            }}
+          />
+        </label>
+      </FormDialog>
+
+      <ConfirmDialog
+        open={pendingImport !== null && passwordDialogMode === null}
+        title={t("settings.dataManagementImport", { defaultValue: "Import configuration" })}
+        message={t("settings.dataManagementImportConfirm", {
+          values: { description: importDescription },
+          defaultValue: "Import this configuration package ({{description}})?",
+        })}
+        confirmLabel={t("common.confirm", { defaultValue: "Confirm" })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => void confirmImport()}
+        onCancel={cancelImportConfirmation}
+      />
 
       <section className="data-management-card data-management-security-card">
         <div className="data-management-card-heading">

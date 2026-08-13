@@ -1,6 +1,7 @@
 use std::collections::HashSet;
-use std::path::Path;
-use std::time::Duration;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use napi::bindgen_prelude::*;
 use rusqlite::{params, params_from_iter, Connection, TransactionBehavior};
@@ -51,6 +52,48 @@ fn open_archive_connection(archive_path: &Path) -> rusqlite::Result<Connection> 
     connection.pragma_update(None, "journal_mode", "DELETE")?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     Ok(connection)
+}
+
+fn initialize_archive_database(archive_path: &Path) -> rusqlite::Result<()> {
+    let connection = open_archive_connection(archive_path)?;
+    create_archive_schema(&connection)?;
+    connection.pragma_update(None, "user_version", 1)?;
+    Ok(())
+}
+
+fn archive_quarantine_path(archive_path: &Path) -> PathBuf {
+    let file_name = archive_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive.db");
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    archive_path.with_file_name(format!(
+        "{file_name}.corrupt.{timestamp}.{}.bak",
+        std::process::id()
+    ))
+}
+
+fn quarantine_invalid_archive_database(archive_path: &Path) -> std::io::Result<Option<PathBuf>> {
+    if !archive_path.exists() {
+        return Ok(None);
+    }
+
+    let quarantine_path = archive_quarantine_path(archive_path);
+    fs::rename(archive_path, &quarantine_path)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", archive_path.display()));
+        if sidecar.exists() {
+            let sidecar_quarantine = PathBuf::from(format!(
+                "{}{suffix}",
+                quarantine_path.display()
+            ));
+            fs::rename(sidecar, sidecar_quarantine)?;
+        }
+    }
+    Ok(Some(quarantine_path))
 }
 
 /// 生成 `IN (?, ?, ...)` 子句占位符。
@@ -163,15 +206,32 @@ fn create_archive_schema(connection: &Connection) -> rusqlite::Result<()> {
 
 /// 确保归档冷数据库存在且结构就绪。
 pub fn ensure_archive_database(archive_path: &Path) -> Result<()> {
-    let connection = open_archive_connection(archive_path).map_err(|error| {
-        database::database_error(archive_path, "initialize archive database", error)
-    })?;
-    create_archive_schema(&connection)
-        .map_err(|error| database::database_error(archive_path, "initialize archive database", error))?;
-    connection
-        .pragma_update(None, "user_version", 1)
-        .map_err(|error| database::database_error(archive_path, "initialize archive database", error))?;
-    Ok(())
+    match initialize_archive_database(archive_path) {
+        Ok(()) => Ok(()),
+        Err(error) if database::is_corruption_error(&error) => {
+            let quarantine_path = quarantine_invalid_archive_database(archive_path)
+                .map_err(|quarantine_error| {
+                    Error::from_reason(format!(
+                        "Failed to preserve invalid archive database at '{}': {quarantine_error}; original error: {error}",
+                        archive_path.display()
+                    ))
+                })?;
+            if let Some(path) = quarantine_path {
+                eprintln!(
+                    "Snow App archive database was invalid; preserved it at '{}' and created a new archive database.",
+                    path.display()
+                );
+            }
+            initialize_archive_database(archive_path).map_err(|retry_error| {
+                database::database_error(archive_path, "initialize archive database", retry_error)
+            })
+        }
+        Err(error) => Err(database::database_error(
+            archive_path,
+            "initialize archive database",
+            error,
+        )),
+    }
 }
 
 /// 归档会话：从运行库搬移到归档冷库（含子代理级联），并清理运行库中的
@@ -915,4 +975,56 @@ pub fn delete_archived_conversations(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temporary_archive_path() -> (PathBuf, PathBuf) {
+        let directory = std::env::temp_dir().join(format!(
+            "snow-app-archive-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos()
+        ));
+        (directory.clone(), directory.join("archive.db"))
+    }
+
+    #[test]
+    fn quarantines_non_sqlite_archive_and_recreates_schema() {
+        let (directory, archive_path) = temporary_archive_path();
+        fs::create_dir_all(&directory).expect("temporary archive directory should be created");
+        fs::write(&archive_path, b"this is not a sqlite database")
+            .expect("invalid archive fixture should be written");
+
+        ensure_archive_database(&archive_path)
+            .expect("invalid archive should be quarantined and rebuilt");
+
+        let connection = Connection::open(&archive_path).expect("rebuilt archive should open");
+        let table_count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'chat_conversations'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("rebuilt archive schema should be queryable");
+        assert_eq!(table_count, 1);
+        drop(connection);
+
+        let quarantined = fs::read_dir(&directory)
+            .expect("temporary archive directory should be readable")
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("archive.db.corrupt.")
+            });
+        assert!(quarantined, "the invalid archive should be preserved");
+
+        fs::remove_dir_all(directory).expect("temporary archive directory should be removed");
+    }
 }

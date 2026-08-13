@@ -121,9 +121,23 @@ const parseManifest = (entries: Map<string, Buffer>): BackupManifest => {
     typeof value.id !== "string" ||
     typeof value.createdAt !== "string" ||
     !Array.isArray(value.files) ||
+    value.files.length < 1 ||
     typeof value.includesArchive !== "boolean"
   ) {
     throw new Error("Unsupported or incomplete backup manifest");
+  }
+  for (const file of value.files) {
+    if (
+      !file ||
+      typeof file.path !== "string" ||
+      !file.path ||
+      REDACTED_FILE_NAME.test(file.path) ||
+      !/^[a-f0-9]{64}$/.test(file.sha256) ||
+      !Number.isSafeInteger(file.sizeBytes) ||
+      file.sizeBytes < 0
+    ) {
+      throw new Error("Backup manifest file metadata is invalid");
+    }
   }
   return value as BackupManifest;
 };
@@ -152,6 +166,16 @@ const readAndValidateBackup = (
   }
   if (!entries.has(MAIN_ENTRY)) {
     throw new Error("Backup does not contain the main database");
+  }
+  const manifestPaths = new Set(manifest.files.map((file) => file.path));
+  if (!manifestPaths.has(MAIN_ENTRY)) {
+    throw new Error("Backup manifest does not declare the main database");
+  }
+  if (
+    manifest.includesArchive !== manifestPaths.has(ARCHIVE_ENTRY) ||
+    manifest.includesArchive !== entries.has(ARCHIVE_ENTRY)
+  ) {
+    throw new Error("Backup archive scope does not match its entries");
   }
   return { manifest, entries };
 };
@@ -211,6 +235,7 @@ export const createDatabaseBackup = async (
   const archivePath = join(stagingDirectory, "archive.db");
   const id = randomUUID();
   const createdAt = new Date().toISOString();
+  let temporaryPath: string | null = null;
   try {
     const info = await native.createDatabaseOnlineBackup(
       mainPath,
@@ -245,12 +270,23 @@ export const createDatabaseBackup = async (
       data: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
     });
     const targetPath = join(directory, `${createdAt.replace(/[:.]/g, "-")}-${id}${BACKUP_EXTENSION}`);
-    const temporaryPath = `${targetPath}.${process.pid}.tmp`;
+    temporaryPath = `${targetPath}.${process.pid}.tmp`;
     writeFileSync(temporaryPath, createZipArchive(entries), { mode: 0o600 });
     renameSync(temporaryPath, targetPath);
+    temporaryPath = null;
+    let validatedManifest: BackupManifest;
+    try {
+      ({ manifest: validatedManifest } = readAndValidateBackup(targetPath));
+    } catch (error) {
+      rmSync(targetPath, { force: true });
+      throw new Error(
+        `Created backup package failed validation: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     pruneBackups(directory, backupSettings().retentionCount);
-    return recordFromManifest(targetPath, manifest, "valid");
+    return recordFromManifest(targetPath, validatedManifest, "valid");
   } finally {
+    if (temporaryPath) rmSync(temporaryPath, { force: true });
     rmSync(stagingDirectory, { recursive: true, force: true });
   }
 };

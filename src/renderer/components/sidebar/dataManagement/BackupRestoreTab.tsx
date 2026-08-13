@@ -14,7 +14,7 @@ type BackupRestoreTabProps = {
   state: DataManagementState | null;
   settings: DataManagementSettings | null;
   onUpdateSettings: (patch: DataManagementSettingsPatch) => Promise<void>;
-  onCreate: (reason?: string) => Promise<unknown | null>;
+  onCreate: (reason?: string, includeArchive?: boolean) => Promise<unknown | null>;
   onRestore: (path: string) => Promise<boolean>;
   onDelete: (path: string) => Promise<boolean>;
 };
@@ -114,7 +114,7 @@ export function BackupRestoreTab({
   const create = async (): Promise<void> => {
     setBusy(true);
     try {
-      await onCreate("manual");
+      await onCreate("manual", includeArchive);
     } finally {
       setBusy(false);
     }

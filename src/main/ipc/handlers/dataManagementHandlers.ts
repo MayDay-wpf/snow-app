@@ -328,17 +328,21 @@ export const registerDataManagementHandlers = (native: NativeBridge): void => {
     });
   });
 
-  ipcMain.handle("backup:create", async (_event, reason: unknown) =>
-    dataManagementCoordinator.run("backup-create", async ({ report }) => {
+  ipcMain.handle("backup:create", async (_event, reason: unknown, includeArchiveValue: unknown) => {
+    if (includeArchiveValue !== undefined && typeof includeArchiveValue !== "boolean") {
+      throw new Error("Backup archive option must be a boolean");
+    }
+    return dataManagementCoordinator.run("backup-create", async ({ report }) => {
       report({ phase: "creating SQLite online backup", total: 3, completed: 1 });
       const record = await createDatabaseBackup(
         native,
-        typeof reason === "string" ? reason : "manual"
+        typeof reason === "string" ? reason : "manual",
+        includeArchiveValue ?? getDataManagementSettings().backup.includeArchive
       );
       report({ phase: "backup validated", total: 3, completed: 3, currentItem: record.path });
       return record;
-    })
-  );
+    });
+  });
 
   ipcMain.handle("backup:delete", (_event, value: unknown) => {
     if (typeof value !== "string" || !value) throw new Error("Backup path is required");

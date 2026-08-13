@@ -53,8 +53,11 @@ export const dataManagementApi = {
   ): Promise<DataManagementImportPreview | null> =>
     ipcRenderer.invoke("data:apply-import", request),
 
-  createDataManagementBackup: (reason?: string): Promise<unknown | null> =>
-    ipcRenderer.invoke("backup:create", reason),
+  createDataManagementBackup: (
+    reason?: string,
+    includeArchive?: boolean
+  ): Promise<unknown | null> =>
+    ipcRenderer.invoke("backup:create", reason, includeArchive),
 
   deleteDataManagementBackup: (path: string): Promise<boolean> =>
     ipcRenderer.invoke("backup:delete", path),
