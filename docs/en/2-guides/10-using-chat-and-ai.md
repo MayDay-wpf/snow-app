@@ -215,7 +215,7 @@ Compaction is **not absolutely irreversible**. The compaction message is a `cont
 | Earlier context disappears after compaction | The model context now uses the summary; roll back from the compaction boundary if needed |
 | Images remain after deleting a conversation | Library images are kept by default; select **Delete images too** in the deletion dialog to remove them |
 | Work stops after closing the window | Choose **Minimize** in the close dialog to hide to tray; **Quit** ends the process and clears scheduled tasks that exist only in memory |
-| The response stream stops mid-way | It retries automatically: partial tool calls or short partial text retry immediately (the message shows a "retrying" state); if a large amount of text (roughly 1000+ characters) was already received, the incomplete result is kept (marked as incomplete) and you can regenerate it manually |
+| Reading an established response body fails | The Rust backend retries seamlessly within the API profile's `maxRetries` and existing cancellation-aware backoff. The message keeps showing the ordinary stream cursor during recovery, and content, reasoning, usage, response metadata, and tool fragments from the failed attempt are discarded. If retries are exhausted, Snow keeps an incomplete result and shows the existing interruption notice; explicit provider terminal states never enter transport retry. Unexpected EOF and idle timeout retain the existing partial-text threshold: a long partial result (roughly 1000+ characters with no tool state) may be kept as incomplete |
 
 ## 12. References
 

@@ -48,6 +48,7 @@
 
 - [功能文档覆盖审计 / Feature Documentation Coverage Audit](FEATURE_COVERAGE.md)：功能、21 个设置页、工具域、平台能力到代码和双语文档的覆盖矩阵。
 - [文档治理指南 / Documentation Governance Guide](DOCUMENTATION_GUIDE.md)：信息架构、双语同步、代码锚点、Mermaid 规范与功能变更完成标准。
+- [代码审查报告 2026-08-09 / Code Review Report](code-review/2026-08-09.md)：历史代码审查记录与当时的风险清单。
 - 任何产品功能变更都必须同步更新对应中英文文档、覆盖矩阵与本索引，并运行 `npm run check:docs`。
 
 ## 给 AI Agent 的说明
