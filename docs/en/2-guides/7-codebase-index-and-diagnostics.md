@@ -82,6 +82,19 @@ codelens-find_definition filePath=src/main/native/types.ts line=414 column=20
 - `find_definition`/`find_references` locate symbols by **line + column**:
   use `filesystem-read` to find the target position first.
 
+### 2.4 About LSP (lsp-config.json)
+
+Snow App does **not run a full LSP** today: `codelens` is built-in static
+analysis that spawns no external language-server process, so it works out of
+the box without installing any language server.
+
+`~/.snow/lsp-config.json` (scope: `lsp-config`) is a **reserved language-server
+config scope**: the `config` tools can read/write and validate the file (field
+structure and example in section 10 of
+[3-config-file-field-reference](../3-reference/3-config-file-field-reference.md)),
+but the current version does not wire up an LSP client runtime, so writing it
+**does not change any behavior**.
+
 ## 3. Typical workflow
 
 ```text

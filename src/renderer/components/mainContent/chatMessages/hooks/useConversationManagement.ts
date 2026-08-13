@@ -19,7 +19,7 @@ import {
   runHook,
   toNonBlockingRecord,
 } from "./hookOutcome";
-import { setPendingContextAttachment } from "../../../sidebar/mainSidebar/conversationContextEvents";
+import { clearPendingContextAttachments } from "../../../sidebar/mainSidebar/conversationContextEvents";
 
 export type UseConversationManagementParams = {
   ctx: ConversationContextValue;
@@ -496,7 +496,7 @@ export const useConversationManagement = (
 
     // 用户明确开始全新对话：丢弃未发送的「待附带」会话附件意图
     // （拖入后未发送即点新建，不应挂到新的新会话上）。
-    setPendingContextAttachment(null);
+    clearPendingContextAttachments();
 
     // Mark that the user explicitly requested a new chat. This prevents the
     // UI from falling back to the pending session (which may still be

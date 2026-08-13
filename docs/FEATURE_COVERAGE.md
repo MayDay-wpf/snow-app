@@ -8,7 +8,11 @@
 
 **中文。** 本矩阵声明的是**产品功能级**文档覆盖：用户能发现和操作的能力、21 个设置页、固定或按条件暴露的内置工具域，以及平台与基础设施均必须有源码锚点和中英文文档落点。它不声称逐函数、逐参数或逐行解释实现；内部辅助函数、纯样式细节和生成产物只在影响用户行为、兼容性、安全边界或运维方式时单列。表中的源码路径是审计入口，不是唯一实现文件。
 
+**中文。** 本矩阵声明的是**产品功能级**文档覆盖：用户能发现和操作的能力、25 个设置页、固定或按条件暴露的内置工具域，以及平台与基础设施均必须有源码锚点和中英文文档落点。它不声称逐函数、逐参数或逐行解释实现；内部辅助函数、纯样式细节和生成产物只在影响用户行为、兼容性、安全边界或运维方式时单列。表中的源码路径是审计入口，不是唯一实现文件。
+
 **English.** This matrix declares **product-capability-level** documentation coverage. Every discoverable user capability, all 21 settings pages, every fixed or conditionally exposed built-in tool domain, and platform/infrastructure concerns must have source anchors plus Chinese and English documentation destinations. It does not claim function-by-function, parameter-by-parameter, or line-by-line explanation. Internal helpers, styling details, and generated artifacts are listed separately only when they affect user behavior, compatibility, security boundaries, or operations. Source paths are audit entry points, not an exhaustive implementation file list.
+
+**English.** This matrix declares **product-capability-level** documentation coverage. Every discoverable user capability, all 25 settings pages, every fixed or conditionally exposed built-in tool domain, and platform/infrastructure concerns must have source anchors plus Chinese and English documentation destinations. It does not claim function-by-function, parameter-by-parameter, or line-by-line explanation. Internal helpers, styling details, and generated artifacts are listed separately only when they affect user behavior, compatibility, security boundaries, or operations. Source paths are audit entry points, not an exhaustive implementation file list.
 
 ### 覆盖状态 / Coverage status
 
@@ -67,7 +71,14 @@
 
 ## 3. 21 个设置页 / All 21 settings pages
 
+## 3. 25 个设置页 / All 25 settings pages
+
 此清单以 `src/renderer/components/sidebar/settingsItems.ts` 的 `SETTINGS_ITEMS` 为准；`MainContentView` 由 `src/renderer/components/mainContent/types.ts` 交叉核验。
+
+此清单以 `src/renderer/components/sidebar/settingsItems.ts` 的 `SETTINGS_ITEMS` 为准
+（现为 25 项）；`MainContentView` 由 `src/renderer/components/mainContent/types.ts`
+交叉核验。`app-control-openSettings` 仅暴露其中 21 个页面 id（不含
+data-management / general / git / pets），完整 id 表见 `3-参考手册/2-内置工具参考.md`。
 
 | # | 设置页 / Settings page | UI 源码 / UI source | 中文文档 | English docs | 状态 |
 | ---: | --- | --- | --- | --- | --- |
@@ -92,6 +103,10 @@
 | 19 | 隐私设置 / Privacy settings | `src/renderer/components/sidebar/PrivacySettingsPanel.tsx` | [安全、隐私与工具授权](zh-CN/2-使用指南/16-安全隐私与工具授权.md) | [Security, privacy, and tool authorization](en/2-guides/16-security-privacy-and-tool-authorization.md) | C |
 | 20 | 用量统计 / Usage statistics | `src/renderer/components/sidebar/usageSettings/UsageSettingsPanel.tsx` | [用量统计与系统日志](zh-CN/2-使用指南/20-用量统计与系统日志.md) | [Usage statistics and system logs](en/2-guides/20-usage-statistics-and-system-logs.md) | C |
 | 21 | 系统日志 / System logs | `src/renderer/components/sidebar/systemLogs/SystemLogsPanel.tsx` | [用量统计与系统日志](zh-CN/2-使用指南/20-用量统计与系统日志.md) | [Usage statistics and system logs](en/2-guides/20-usage-statistics-and-system-logs.md) | C |
+| 22 | 数据管理 / Data management | `src/renderer/components/sidebar/dataManagement/DataManagementPanel.tsx`; `src/main/dataManagement/` | [数据管理、备份与 WebDAV 同步](zh-CN/2-使用指南/22-数据管理备份与WebDAV同步.md) | [Data management, backup, and WebDAV sync](en/2-guides/22-data-management-backup-and-webdav-sync.md) | C |
+| 23 | 通用设置：检查点/上传/图片库存储目录 / General settings: checkpoint, upload, and image-library storage directories | `src/renderer/components/sidebar/GeneralSettingsPanel.tsx` | [数据存储位置](zh-CN/3-参考手册/4-数据存储位置.md) | [Data storage locations](en/3-reference/4-data-storage-locations.md) | R |
+| 24 | Git 仓库设置 / Git repository settings | `src/renderer/components/sidebar/GitSettingsPanel.tsx` | [Git 与代码浏览](zh-CN/2-使用指南/12-Git面板与代码浏览.md) | [Git and code browsing](en/2-guides/12-git-and-code-browsing.md) | A |
+| 25 | 桌面宠物：安装、唤醒/关闭与大小 / Desktop pet: install, wake/dismiss, and size | `src/renderer/components/sidebar/PetsSettingsPanel.tsx` | [个性化、主题与快捷键](zh-CN/2-使用指南/19-个性化主题与快捷键.md) | [Personalization, theme, and shortcuts](en/2-guides/19-personalization-theme-and-shortcuts.md) | A |
 
 ## 4. 内置工具域 / Built-in tool domains
 

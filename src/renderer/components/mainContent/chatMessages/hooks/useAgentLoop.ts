@@ -8,7 +8,7 @@ import type {
 } from "../utils/conversationTypes";
 import { PENDING_SESSION_KEY } from "../utils/conversationTypes";
 import {
-  consumePendingContextAttachment,
+  consumePendingContextAttachments,
   conversationContextEvents,
 } from "../../../sidebar/mainSidebar/conversationContextEvents";
 import {
@@ -483,10 +483,10 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               );
             }
             // 新会话拖入的历史会话：PENDING → 真实 id 迁移完成，会话记录已由
-            // store_chat_exchange 创建，此时挂载「待附带」开头上下文。
-            // 目录不匹配（用户切换项目后残留）则丢弃，避免跨项目附件。
-            const pendingAttachment = consumePendingContextAttachment();
-            if (pendingAttachment) {
+            // store_chat_exchange 创建，此时挂载「待附带」开头上下文（支持
+            // 多个）。目录不匹配（用户切换项目后残留）则丢弃，避免跨项目附件。
+            const pendingAttachments = consumePendingContextAttachments();
+            for (const pendingAttachment of pendingAttachments) {
               if (pendingAttachment.directoryId === sessionDirId) {
                 void window.snow
                   .addContextAttachment(

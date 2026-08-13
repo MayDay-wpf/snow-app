@@ -14,7 +14,6 @@ import {
   File,
   Folder,
   Keyboard,
-  Link2,
   Loader2,
   Plug,
   Radio,
@@ -83,6 +82,7 @@ import { ProjectSensitiveCommandsPanel } from "./ProjectSensitiveCommandsPanel";
 import { ProjectSkillsPanel } from "./ProjectSkillsPanel";
 import { RoleEditorPanel } from "./RoleEditorPanel";
 import { StreamMetrics } from "./StreamMetrics";
+import { ConversationAttachmentBar } from "../conversationContext/ConversationAttachmentBar";
 import { useChatConversationContext } from "../chatMessages";
 import { directoryIdToPath } from "../chatMessages/utils/conversationHelpers";
 import { collectConversationFileChanges } from "../chatMessages/hooks/fileChangeTracking";
@@ -98,11 +98,12 @@ import {
 import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
 import {
   CONVERSATION_DRAG_MIME,
+  addPendingContextAttachment,
   conversationContextEvents,
   endConversationDrag,
   onPendingContextAttachmentChange,
   readConversationDragPayload,
-  setPendingContextAttachment,
+  removePendingContextAttachment,
   type ConversationDragPayload,
 } from "../../sidebar/mainSidebar/conversationContextEvents";
 import {
@@ -157,6 +158,7 @@ export const ChatInputView = ({
   projectId,
   projectName,
   onNavigateToView,
+  onOpenConversation,
   value,
   textareaRef,
   apiConfigs,
@@ -296,37 +298,63 @@ export const ChatInputView = ({
     },
     []
   );
-  // 新会话拖入的「待挂载」会话附件：首条消息发送、会话创建后自动挂载为
-  // 开头上下文。期间输入框上方显示可见提示条（方案 B），可手动取消。
-  const [pendingAttachment, setPendingAttachment] = useState<ConversationDragPayload | null>(
-    null
-  );
-  // 同步 ref：renderAttachmentContext 异步返回后校验是否仍是当前附件，
+  // 新会话拖入的「待挂载」会话附件（支持多个）：首条消息发送、会话创建后
+  // 自动挂载为开头上下文。期间输入框上方显示可见提示条，可逐个取消。
+  const [pendingAttachments, setPendingAttachments] = useState<
+    ConversationDragPayload[]
+  >([]);
+  // 同步 ref：renderAttachmentContext 异步返回后校验附件是否仍存在，
   // 避免拖拽期间被取消/覆盖时旧请求的结果污染新附件的字符数。
-  const pendingAttachmentRef = useRef<ConversationDragPayload | null>(null);
-  // 待挂载会话的注入字符数（清洗思考链/工具细节 + 预算裁剪后的实际注入
-  // 长度，与消息流折叠块预览一致）；异步获取，未就绪为 null。
-  const [pendingAttachmentChars, setPendingAttachmentChars] = useState<number | null>(null);
+  const pendingAttachmentsRef = useRef<ConversationDragPayload[]>([]);
+  // 各待挂载会话的注入字符数（清洗思考链/工具细节 + 预算裁剪后的实际注入
+  // 长度，与消息流折叠块预览一致）；异步获取，未就绪缺省。
+  const [pendingCharsById, setPendingCharsById] = useState<
+    Record<string, number>
+  >({});
   useEffect(() => {
-    return onPendingContextAttachmentChange((payload) => {
-      pendingAttachmentRef.current = payload;
-      setPendingAttachment(payload);
-      if (payload) {
-        setPendingAttachmentChars(null);
+    return onPendingContextAttachmentChange((payloads) => {
+      pendingAttachmentsRef.current = payloads;
+      setPendingAttachments(payloads);
+      setPendingCharsById((prev) => {
+        const next: Record<string, number> = {};
+        for (const id of Object.keys(prev)) {
+          if (payloads.some((item) => item.conversationId === id)) {
+            next[id] = prev[id];
+          }
+        }
+        return next;
+      });
+      for (const payload of payloads) {
         void window.snow
           .renderAttachmentContext(payload.conversationId)
           .then((rendered) => {
-            if (pendingAttachmentRef.current?.conversationId === payload.conversationId) {
-              setPendingAttachmentChars(rendered.length);
+            if (
+              pendingAttachmentsRef.current.some(
+                (item) => item.conversationId === payload.conversationId
+              )
+            ) {
+              setPendingCharsById((prev) => ({
+                ...prev,
+                [payload.conversationId]: rendered.length,
+              }));
             }
           })
           .catch(() => {
-            if (pendingAttachmentRef.current?.conversationId === payload.conversationId) {
-              setPendingAttachmentChars(null);
+            if (
+              pendingAttachmentsRef.current.some(
+                (item) => item.conversationId === payload.conversationId
+              )
+            ) {
+              setPendingCharsById((prev) => {
+                if (!(payload.conversationId in prev)) {
+                  return prev;
+                }
+                const next = { ...prev };
+                delete next[payload.conversationId];
+                return next;
+              });
             }
           });
-      } else {
-        setPendingAttachmentChars(null);
       }
     });
   }, []);
@@ -1147,8 +1175,8 @@ export const ChatInputView = ({
         } else {
           // 新会话：会话记录尚未创建，先暂存待挂载附件（输入框上方显示
           // 可见提示条）；首条消息发送、PENDING 迁移到真实会话 id 后由
-          // useAgentLoop 自动挂载为开头上下文。
-          setPendingContextAttachment(conversationPayload);
+          // useAgentLoop 自动挂载为开头上下文。支持连续拖入多个会话。
+          addPendingContextAttachment(conversationPayload);
           showDragFeedback({
             type: "success",
             text: t("conversationContext.pendingAttach", {
@@ -2632,46 +2660,17 @@ export const ChatInputView = ({
             ) : null}
           </div>
         ) : null}
-        {/* 新会话拖入的历史会话：发送首条消息前显示「待附带」提示条 */}
-        {pendingAttachment && !activeConversationId ? (
-          <div className="conversation-pending-attachment" role="status">
-            <Link2 size={12} className="conversation-pending-attachment-icon" aria-hidden="true" />
-            {pendingAttachment.emoji ? (
-              <span className="conversation-pending-attachment-emoji">
-                {pendingAttachment.emoji}
-              </span>
-            ) : null}
-            <span className="conversation-pending-attachment-title">
-              {pendingAttachment.title || t("sidebar.untitledChat", { defaultValue: "Untitled" })}
-            </span>
-            {pendingAttachmentChars !== null ? (
-              <span className="conversation-pending-attachment-chars">
-                {t("conversationContext.pendingAttachChars", {
-                  defaultValue: "约 {{count}} 字符",
-                  values: { count: pendingAttachmentChars.toLocaleString() },
-                })}
-              </span>
-            ) : null}
-            <span className="conversation-pending-attachment-hint">
-              {t("conversationContext.pendingAttachHint", {
-                defaultValue: "将作为开头上下文随首条消息发送",
-              })}
-            </span>
-            <button
-              type="button"
-              className="conversation-pending-attachment-remove"
-              onClick={() => setPendingContextAttachment(null)}
-              aria-label={t("conversationContext.pendingAttachRemove", {
-                defaultValue: "取消附带",
-              })}
-              title={t("conversationContext.pendingAttachRemove", {
-                defaultValue: "取消附带",
-              })}
-            >
-              <X size={12} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </div>
-        ) : null}
+        {/* 附加的历史会话提示条(统一组件):已有会话显示已挂载附件,
+            空会话显示待挂载附件(pending),同一视觉风格 */}
+        <ConversationAttachmentBar
+          conversationId={activeConversationId ?? null}
+          pendingAttachments={pendingAttachments}
+          pendingCharsById={pendingCharsById}
+          onRemovePending={(conversationId) =>
+            removePendingContextAttachment(conversationId)
+          }
+          onOpenConversation={onOpenConversation ?? (() => undefined)}
+        />
         <div className="input-box">
           <div
             ref={textareaRef}

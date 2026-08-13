@@ -33495,10 +33495,15 @@ body.ctrl-held [data-path] {
   padding: 14px 16px 16px;
 }
 /* 拖拽会话到输入框：成功/失败反馈徽标（悬浮于输入框右上角） */
+
+/* 拖拽会话到输入框：成功/失败反馈徽标（悬浮于输入框右上角外侧，
+   不再骑在输入框边框上——旧值 top: -13px 会让徽标底部侵入输入框内部，
+   文字被边框线穿过，视觉上像嵌在输入框里） */
 .chat-input-drag-feedback {
   position: absolute;
   right: 10px;
-  top: -13px;
+  top: -6px;
+  transform: translateY(-100%);
   z-index: 30;
   display: inline-flex;
   align-items: center;
@@ -33537,8 +33542,13 @@ body.ctrl-held [data-path] {
 .update-dialog-progress-info {
 /* 新会话拖入历史会话后的「待附带」提示条（输入框上方，发送首条消息时挂载） */
 .conversation-pending-attachment {
+
+/* --- 输入框上方附件提示条（统一组件：已有会话已挂载附件 + 空会话
+      待挂载附件共用同一视觉风格，替代旧的「顶部引用条 + 待附带条」两套） --- */
+.conversation-attachment-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
   padding: 6px 10px;
@@ -33612,6 +33622,45 @@ body.ctrl-held [data-path] {
   align-items: center;
   gap: 7px;
   color: var(--text-secondary);
+
+.conversation-attachment-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-right: 2px;
+  font-size: 11px;
+  color: var(--accent-color, #4a9eff);
+  white-space: nowrap;
+}
+.conversation-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 260px;
+  border: 1px solid color-mix(in srgb, var(--accent-color, #4a9eff) 34%, transparent);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--accent-color, #4a9eff) 14%, transparent);
+}
+.conversation-attachment-chip.is-pending {
+  border-style: dashed;
+}
+.conversation-attachment-chip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 4px 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.conversation-attachment-chip-open:hover {
+  color: var(--accent-color, #4a9eff);
+}
+.conversation-attachment-chip-emoji {
+  flex-shrink: 0;
   font-size: 12px;
 }
 
@@ -33624,7 +33673,13 @@ body.ctrl-held [data-path] {
   height: 5px;
   border-radius: 999px;
   background: var(--bg-active);
+
+.conversation-attachment-chip-title {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  max-width: 220px;
 }
 
 .update-dialog-progress-fill {
@@ -33660,6 +33715,27 @@ body.ctrl-held [data-path] {
 }
 
 .update-dialog-lang-switch {
+
+.conversation-attachment-chip-chars {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--accent-color, #4a9eff) 20%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-color, #4a9eff);
+  white-space: nowrap;
+}
+.conversation-attachment-chip-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+  font-size: 11px;
+}
+.conversation-attachment-chip-remove {
   display: inline-flex;
   align-items: center;
   padding: 2px;
@@ -33679,6 +33755,15 @@ body.ctrl-held [data-path] {
   letter-spacing: 0;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
+
+}
+.conversation-attachment-chip-remove:hover {
+  color: var(--error-text, #ef6d6d);
+  background: var(--error-bg, rgba(239, 109, 109, 0.14));
+}
+.conversation-attachment-chip-remove:focus-visible {
+  outline: 1px solid var(--accent-color, #4a9eff);
+  outline-offset: 1px;
 }
 
 .update-dialog-lang-switch button:hover {

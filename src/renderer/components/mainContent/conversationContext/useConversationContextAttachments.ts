@@ -3,8 +3,9 @@
  *
  * - 按 activeConversationId 加载 `window.snow.listContextAttachments`
  * - 订阅 `attachments-changed` 事件：attach / detach 后自动刷新
- * - 引用条（ConversationContextBar）与消息流折叠块（ConversationContextFold）
- *   各自独立使用本 hook（list 调用很轻量，解耦优于共享状态）
+ * - 输入框上方附件提示条（ConversationAttachmentBar）与消息流折叠块
+ *   （ConversationContextFold）各自独立使用本 hook（list 调用很轻量，
+ *   解耦优于共享状态）
  */
 
 import { useCallback, useEffect, useState } from "react";

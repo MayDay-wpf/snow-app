@@ -48,7 +48,8 @@ allowed-tools:
 ## 1. 先读文档（Read the docs first）
 
 文档随应用安装到 `~/.snow/docs/`（Windows 为 `C:\Users\<用户名>\.snow\docs\`）。
-**先执行 `config-list scope=language` 读取界面语言**（`zh-CN`/`en`/`zh-TW`），
+**先执行 `config-list scope=language` 读取界面语言**（支持 `en`/`zh-CN`/`zh-TW`；
+旧安装可能存兼容值 `zh`，等同简体中文；无法读取时默认中文分支），
 再选择对应文档分支（无法读取时默认中文分支）：
 
 - 中文界面 → 读 `~/.snow/docs/zh-CN/`
@@ -88,8 +89,10 @@ allowed-tools:
 
 **通用流程**：先 `config-list scope=<域>` 查看现状（DB 型域响应附 guidance
 使用规则），再按文档步骤执行；查看已安装 skill 的元数据（id/path/状态）用
-`config-list scope=skills`，文档正文用 `filesystem-read` 读取 `~/.snow/docs/`；需要 `projectId` 时在 `~/.snow/projects/index.json`
-按项目路径查 `directoryId`（即 projectId）。读取文档时可用
+`config-list scope=skills`，文档正文用 `filesystem-read` 读取 `~/.snow/docs/`；
+需要 `projectId` 时优先读取任意 `config-list` 响应附带的 `currentProjectId`
+字段（即当前会话绑定的项目），项目档案 `~/.snow/projects/index.json` 中按
+`knownPaths` 匹配路径后取对应记录的 `projectId` 字段。读取文档时可用
 `filesystem-read` 的 `startLine`/`endLine` **只读相关章节**（锚点见第 1 节表格）。
 
 **各域操作要点**（完整命令示例见对应文档）：
@@ -125,8 +128,9 @@ allowed-tools:
 - **全局规则**：`personalization` 域 `key=role`（`~/.snow/ROLE.md` 纯文本非
   JSON；get 全文/set 整体替换/delete 需确认，写后下一对话生效）。
   → `19-个性化主题与快捷键.md`
-- **代理/主题等文件域**：`proxy`/`custom-headers`/`system-prompt`/`theme`/
-  `language`/`permissions`/`lsp-config`/`buddy`，写后**可能需重启或 UI 重存生效**。
+- **代理/主题等文件域**：`snowcfg`/`proxy`/`app`/`custom-headers`/`system-prompt`/
+  `theme`/`language`/`permissions`/`lsp-config`/`buddy`，写后**可能需重启或 UI
+  重存生效**（`settings.mcpServers` 除外——自动同步应用数据库立即生效）。
   → `3-参考手册/3-配置文件字段参考.md`
 - **日志（只读）**：`logs` 域（list 列文件、get 读尾部 `limit` 默认 200 最大
   2000、delete 仅接受精确文件名）。→ `20-用量统计与系统日志.md`

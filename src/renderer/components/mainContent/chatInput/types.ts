@@ -23,6 +23,8 @@ export type ChatInputProps = {
   onSend?: (message: string, options: ChatInputSendOptions) => void;
   /** 未配置 API 时引导跳转到 API 设置页。 */
   onNavigateToView?: (view: MainContentView) => void;
+  /** 跳转到被附加的历史会话(输入框上方附件提示条点击)。 */
+  onOpenConversation?: (conversationId: string) => void;
   isStreaming?: boolean;
   isAborting?: boolean;
   onAbort?: () => void;
@@ -158,6 +160,8 @@ export type ChatInputViewProps = ChatInputState &
     projectName?: string;
     /** 未配置 API 时引导跳转到 API 设置页。 */
     onNavigateToView?: (view: MainContentView) => void;
+    /** 跳转到被附加的历史会话(输入框上方附件提示条点击)。 */
+    onOpenConversation?: (conversationId: string) => void;
     tokenUsage: TokenUsage | null;
     pendingMessages: string[];
     onWithdrawPendingMessage?: (index: number) => string | null;

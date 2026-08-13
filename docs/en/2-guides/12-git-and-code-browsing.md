@@ -95,6 +95,8 @@ Global search combines three kinds of objects:
 2. **Projects/workspaces**, matched by display name or path and activated when selected;
 3. **All 21 settings pages**, matched by localized page name or settings-page id and opened directly when selected.
 
+3. **All 25 settings pages**, matched by localized page name or settings-page id and opened directly when selected.
+
 Results are grouped as conversations, projects, and settings. Use `Up` / `Down` to cycle through items and `Enter` to open the current result. Hovering or clicking with the mouse also updates/selects the current item.
 
 ## 5. Codebase Panel and Semantic Search

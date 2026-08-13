@@ -47,6 +47,8 @@
 ## 文档覆盖与维护 / Coverage & Maintenance
 
 - [功能文档覆盖审计 / Feature Documentation Coverage Audit](FEATURE_COVERAGE.md)：功能、21 个设置页、工具域、平台能力到代码和双语文档的覆盖矩阵。
+
+- [功能文档覆盖审计 / Feature Documentation Coverage Audit](FEATURE_COVERAGE.md)：功能、25 个设置页、工具域、平台能力到代码和双语文档的覆盖矩阵。
 - [文档治理指南 / Documentation Governance Guide](DOCUMENTATION_GUIDE.md)：信息架构、双语同步、代码锚点、Mermaid 规范与功能变更完成标准。
 - 任何产品功能变更都必须同步更新对应中英文文档、覆盖矩阵与本索引，并运行 `npm run check:docs`。
 
