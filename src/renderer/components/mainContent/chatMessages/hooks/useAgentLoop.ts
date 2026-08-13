@@ -8,6 +8,10 @@ import type {
 } from "../utils/conversationTypes";
 import { PENDING_SESSION_KEY } from "../utils/conversationTypes";
 import {
+  consumePendingContextAttachment,
+  conversationContextEvents,
+} from "../../../sidebar/mainSidebar/conversationContextEvents";
+import {
   createMessageId,
   deleteCheckpoints,
   directoryIdToPath,
@@ -477,6 +481,28 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                 migratedRef.goalMode,
                 migratedRef.goalModeTokenBudget
               );
+            }
+            // 新会话拖入的历史会话：PENDING → 真实 id 迁移完成，会话记录已由
+            // store_chat_exchange 创建，此时挂载「待附带」开头上下文。
+            // 目录不匹配（用户切换项目后残留）则丢弃，避免跨项目附件。
+            const pendingAttachment = consumePendingContextAttachment();
+            if (pendingAttachment) {
+              if (pendingAttachment.directoryId === sessionDirId) {
+                void window.snow
+                  .addContextAttachment(
+                    response.conversationId,
+                    pendingAttachment.conversationId
+                  )
+                  .then(() => {
+                    conversationContextEvents.emit(
+                      "attachments-changed",
+                      response.conversationId
+                    );
+                  })
+                  .catch(() => {
+                    // 挂载失败（如源会话已被删除）不影响消息发送，静默丢弃。
+                  });
+              }
             }
             // Only set active conversation on the first iteration when
             // migrating from pending. Subsequent tool iterations must NOT

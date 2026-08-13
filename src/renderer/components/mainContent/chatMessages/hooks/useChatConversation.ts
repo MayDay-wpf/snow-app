@@ -13,6 +13,7 @@ import type {
   UseChatConversationResult,
 } from "../utils/conversationTypes";
 import { PENDING_SESSION_KEY } from "../utils/conversationTypes";
+import { setPendingContextAttachment } from "../../../sidebar/mainSidebar/conversationContextEvents";
 
 import { useConversationSession } from "./useConversationSession";
 import { useToolAuthorization } from "./useToolAuthorization";
@@ -255,6 +256,10 @@ export const useChatConversation = (
   useEffect(() => {
     if (lastDirectoryIdRef.current === directoryId) return;
     lastDirectoryIdRef.current = directoryId;
+
+    // 跨项目切换：丢弃未发送的「待附带」会话附件意图（属于旧项目，
+    // 迁移挂载时的目录校验会拒绝，这里提前清理避免 UI 残留提示条）。
+    setPendingContextAttachment(null);
 
     const pendingRef = sessionsRefData.current.get(PENDING_SESSION_KEY);
     const pendingStreaming = pendingRef?.isSending === true;

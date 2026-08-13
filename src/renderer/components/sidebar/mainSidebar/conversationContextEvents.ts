@@ -82,6 +82,52 @@ export const readConversationDragPayload = (
     : null;
 };
 
+// ---------------------------------------------------------------------------
+// 新会话（尚未创建 conversationId）拖入的「待挂载」附件暂存。
+// 新会话没有数据库记录，无法立即 addContextAttachment；先把意图暂存在这里，
+// 输入框上方显示可见提示条；首条消息发送、PENDING 会话迁移到真实 id 时，
+// useAgentLoop 调用 consumePendingContextAttachment() 消费并真正挂载。
+// ---------------------------------------------------------------------------
+
+let pendingContextAttachment: ConversationDragPayload | null = null;
+
+/** 暂存（或清除）待挂载的会话附件；写入时广播 `pending-changed` 供 UI 刷新。 */
+export const setPendingContextAttachment = (
+  payload: ConversationDragPayload | null
+): void => {
+  pendingContextAttachment = payload;
+  for (const listener of pendingContextAttachmentListeners) {
+    listener(payload);
+  }
+};
+
+/** 读取当前待挂载附件（不消费）。 */
+export const getPendingContextAttachment = (): ConversationDragPayload | null =>
+  pendingContextAttachment;
+
+/** 读取并消费待挂载附件（置空并广播），供会话迁移完成后真正挂载。 */
+export const consumePendingContextAttachment = (): ConversationDragPayload | null => {
+  const payload = pendingContextAttachment;
+  if (payload) {
+    setPendingContextAttachment(null);
+  }
+  return payload;
+};
+
+const pendingContextAttachmentListeners = new Set<
+  (payload: ConversationDragPayload | null) => void
+>();
+
+/** 订阅「待挂载附件」变化（新增 / 取消 / 消费），返回取消订阅函数。 */
+export const onPendingContextAttachmentChange = (
+  listener: (payload: ConversationDragPayload | null) => void
+): (() => void) => {
+  pendingContextAttachmentListeners.add(listener);
+  return () => {
+    pendingContextAttachmentListeners.delete(listener);
+  };
+};
+
 type ListenerMap = {
   "attachments-changed": Set<(conversationId: string) => void>;
 };

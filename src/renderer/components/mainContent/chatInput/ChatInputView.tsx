@@ -14,6 +14,7 @@ import {
   File,
   Folder,
   Keyboard,
+  Link2,
   Loader2,
   Plug,
   Radio,
@@ -99,7 +100,10 @@ import {
   CONVERSATION_DRAG_MIME,
   conversationContextEvents,
   endConversationDrag,
+  onPendingContextAttachmentChange,
   readConversationDragPayload,
+  setPendingContextAttachment,
+  type ConversationDragPayload,
 } from "../../sidebar/mainSidebar/conversationContextEvents";
 import {
   WEB_SNAPSHOT_REQUEST_EVENT,
@@ -292,6 +296,40 @@ export const ChatInputView = ({
     },
     []
   );
+  // 新会话拖入的「待挂载」会话附件：首条消息发送、会话创建后自动挂载为
+  // 开头上下文。期间输入框上方显示可见提示条（方案 B），可手动取消。
+  const [pendingAttachment, setPendingAttachment] = useState<ConversationDragPayload | null>(
+    null
+  );
+  // 同步 ref：renderAttachmentContext 异步返回后校验是否仍是当前附件，
+  // 避免拖拽期间被取消/覆盖时旧请求的结果污染新附件的字符数。
+  const pendingAttachmentRef = useRef<ConversationDragPayload | null>(null);
+  // 待挂载会话的注入字符数（清洗思考链/工具细节 + 预算裁剪后的实际注入
+  // 长度，与消息流折叠块预览一致）；异步获取，未就绪为 null。
+  const [pendingAttachmentChars, setPendingAttachmentChars] = useState<number | null>(null);
+  useEffect(() => {
+    return onPendingContextAttachmentChange((payload) => {
+      pendingAttachmentRef.current = payload;
+      setPendingAttachment(payload);
+      if (payload) {
+        setPendingAttachmentChars(null);
+        void window.snow
+          .renderAttachmentContext(payload.conversationId)
+          .then((rendered) => {
+            if (pendingAttachmentRef.current?.conversationId === payload.conversationId) {
+              setPendingAttachmentChars(rendered.length);
+            }
+          })
+          .catch(() => {
+            if (pendingAttachmentRef.current?.conversationId === payload.conversationId) {
+              setPendingAttachmentChars(null);
+            }
+          });
+      } else {
+        setPendingAttachmentChars(null);
+      }
+    });
+  }, []);
   // F4 网页快照：待处理请求表（requestId → web chip 定位信息）。拖入标签页
   // 后登记，快照结果按 requestId 匹配取出定位信息，再在编辑区 DOM 中按
   // URL/标题找到对应 web chip 回填（chip 可能已被删除/消息已发送，找不到
@@ -1106,6 +1144,17 @@ export const ChatInputView = ({
               showDragFeedback({ type: "error", text: message });
             }
           })();
+        } else {
+          // 新会话：会话记录尚未创建，先暂存待挂载附件（输入框上方显示
+          // 可见提示条）；首条消息发送、PENDING 迁移到真实会话 id 后由
+          // useAgentLoop 自动挂载为开头上下文。
+          setPendingContextAttachment(conversationPayload);
+          showDragFeedback({
+            type: "success",
+            text: t("conversationContext.pendingAttach", {
+              defaultValue: "将在发送后附带为开头上下文",
+            }),
+          });
         }
         return;
       }
@@ -1340,17 +1389,22 @@ export const ChatInputView = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       const types = event.dataTransfer.types;
       // 会话上下文注入：拖拽侧边栏会话到输入框（CONVERSATION_DRAG_MIME）。
-      // 前置校验：当前会话存在、非自引用、同工作区目录、当前会话非子代理会话，
+      // 前置校验：同工作区目录、当前会话非子代理会话；已有会话时另需
+      // 非自引用。新会话（activeConversationId 为空）同样允许拖入——附件
+      // 先暂存为 pending，待首条消息发送、会话创建后自动挂载。
       // 不满足则保持禁止光标（不 preventDefault），由 native 侧幂等兜底。
       const hasConversationDrag = types.includes(CONVERSATION_DRAG_MIME);
       if (hasConversationDrag) {
         const payload = readConversationDragPayload(event.dataTransfer);
+        // 新会话没有会话记录，目录取当前项目目录兜底（发送时新会话同样
+        // 落入当前目录，见 handleSendMessage 的 sessionDirId 计算）。
+        const effectiveDirectoryId = conversationDirectoryId ?? projectId;
+        const hasTarget = !!activeConversationId;
         const conversationAllowed =
           !!payload &&
-          !!activeConversationId &&
-          payload.conversationId !== activeConversationId &&
-          payload.directoryId === conversationDirectoryId &&
-          !isSubAgentConversation;
+          !isSubAgentConversation &&
+          payload.directoryId === effectiveDirectoryId &&
+          (!hasTarget || payload.conversationId !== activeConversationId);
         if (!conversationAllowed) {
           return;
         }
@@ -1383,6 +1437,7 @@ export const ChatInputView = ({
       activeConversationId,
       conversationDirectoryId,
       isSubAgentConversation,
+      projectId,
     ]
   );
 
@@ -2575,6 +2630,46 @@ export const ChatInputView = ({
                 {t("chat.configureApi", { defaultValue: "前往设置" })}
               </button>
             ) : null}
+          </div>
+        ) : null}
+        {/* 新会话拖入的历史会话：发送首条消息前显示「待附带」提示条 */}
+        {pendingAttachment && !activeConversationId ? (
+          <div className="conversation-pending-attachment" role="status">
+            <Link2 size={12} className="conversation-pending-attachment-icon" aria-hidden="true" />
+            {pendingAttachment.emoji ? (
+              <span className="conversation-pending-attachment-emoji">
+                {pendingAttachment.emoji}
+              </span>
+            ) : null}
+            <span className="conversation-pending-attachment-title">
+              {pendingAttachment.title || t("sidebar.untitledChat", { defaultValue: "Untitled" })}
+            </span>
+            {pendingAttachmentChars !== null ? (
+              <span className="conversation-pending-attachment-chars">
+                {t("conversationContext.pendingAttachChars", {
+                  defaultValue: "约 {{count}} 字符",
+                  values: { count: pendingAttachmentChars.toLocaleString() },
+                })}
+              </span>
+            ) : null}
+            <span className="conversation-pending-attachment-hint">
+              {t("conversationContext.pendingAttachHint", {
+                defaultValue: "将作为开头上下文随首条消息发送",
+              })}
+            </span>
+            <button
+              type="button"
+              className="conversation-pending-attachment-remove"
+              onClick={() => setPendingContextAttachment(null)}
+              aria-label={t("conversationContext.pendingAttachRemove", {
+                defaultValue: "取消附带",
+              })}
+              title={t("conversationContext.pendingAttachRemove", {
+                defaultValue: "取消附带",
+              })}
+            >
+              <X size={12} strokeWidth={2} aria-hidden="true" />
+            </button>
           </div>
         ) : null}
         <div className="input-box">

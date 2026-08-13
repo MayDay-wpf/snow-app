@@ -33484,7 +33484,6 @@ body.ctrl-held [data-path] {
 /* --- 会话项拖拽状态（拖拽源） --- */
 .chat-item.dragging {
   opacity: 0.45;
->>>>>>> 3ac38825 (feat: 拖拽会话到输入框注入上下文，支持注入预算配置)
 }
 
 .update-dialog .app-modal-body {
@@ -33494,6 +33493,7 @@ body.ctrl-held [data-path] {
   flex-direction: column;
   gap: 12px;
   padding: 14px 16px 16px;
+}
 /* 拖拽会话到输入框：成功/失败反馈徽标（悬浮于输入框右上角） */
 .chat-input-drag-feedback {
   position: absolute;
@@ -33519,7 +33519,6 @@ body.ctrl-held [data-path] {
   background: var(--error-bg, rgba(239, 109, 109, 0.14));
 }
 .chat-input-drag-feedback-text {
->>>>>>> 3ac38825 (feat: 拖拽会话到输入框注入上下文，支持注入预算配置)
   overflow: hidden;
 }
 
@@ -33536,6 +33535,79 @@ body.ctrl-held [data-path] {
 }
 
 .update-dialog-progress-info {
+/* 新会话拖入历史会话后的「待附带」提示条（输入框上方，发送首条消息时挂载） */
+.conversation-pending-attachment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent-color, #4a9eff) 30%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-color, #4a9eff) 10%, transparent);
+  font-size: 12px;
+  color: var(--text-primary);
+  position: relative;
+  z-index: 1;
+}
+.conversation-pending-attachment-icon {
+  flex-shrink: 0;
+  color: var(--accent-color, #4a9eff);
+}
+.conversation-pending-attachment-emoji {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.conversation-pending-attachment-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  max-width: 240px;
+}
+.conversation-pending-attachment-chars {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--accent-color, #4a9eff) 14%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-color, #4a9eff);
+  white-space: nowrap;
+}
+.conversation-pending-attachment-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+.conversation-pending-attachment-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+  cursor: pointer;
+}
+.conversation-pending-attachment-remove:hover {
+  color: var(--error-text, #ef6d6d);
+  background: var(--error-bg, rgba(239, 109, 109, 0.14));
+}
+.conversation-pending-attachment-remove:focus-visible {
+  outline: 1px solid var(--accent-color, #4a9eff);
+  outline-offset: 1px;
+}
+
+/* --- 顶部引用条（会话详情头部） --- */
+.conversation-context-bar {
   display: flex;
   align-items: center;
   gap: 7px;
