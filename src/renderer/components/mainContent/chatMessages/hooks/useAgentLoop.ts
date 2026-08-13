@@ -1354,25 +1354,29 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             // previous run cannot accidentally unblock a future iteration.
             ctx.pauseControllerRef.current.delete(finalSessionKey);
             ctx.removeStreamingId(finalSessionKey);
+          }
 
-            // AI 流程完全结束后，增量同步侧边栏列表中该会话的最新记录
-            // （更新时间/消息数/预览等）。只 upsert 单条，不触发列表全量重拉
-            // —— 每次响应迭代的 conversationVersion bump 仅用于消息区。
-            if (finalSessionKey !== PENDING_SESSION_KEY) {
-              void window.snow
-                .getChatConversation(finalSessionKey)
-                .then((conv) => {
-                  if (conv) {
-                    ctx.setUpsertedConversation({
-                      record: conv,
-                      timestamp: Date.now(),
-                    });
-                  }
-                })
-                .catch(() => {
-                  // Upsert failure should not block cleanup
-                });
-            }
+          // AI 流程完全结束后，增量同步侧边栏列表中该会话的最新记录
+          // （更新时间/消息数/预览等）。只 upsert 单条，不触发列表全量重拉
+          // —— 每次响应迭代的 conversationVersion bump 仅用于消息区。
+          // 与下方"已完成"徽标保持一致：不依赖 ownsSession 守卫——即使本次
+          // run 已被更新的 run 顶替（守卫内的运行态清理被跳过），侧边栏
+          // 记录也必须刷新，否则长跑会话会带着过期的 updatedAt 留在列表
+          // 里，把同一个时间分组切成多个重复组头（两个"昨天"）。
+          if (finalSessionKey !== PENDING_SESSION_KEY) {
+            void window.snow
+              .getChatConversation(finalSessionKey)
+              .then((conv) => {
+                if (conv) {
+                  ctx.setUpsertedConversation({
+                    record: conv,
+                    timestamp: Date.now(),
+                  });
+                }
+              })
+              .catch(() => {
+                // Upsert failure should not block cleanup
+              });
           }
 
           // Flush pending messages queued while this session was busy.

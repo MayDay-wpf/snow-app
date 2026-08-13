@@ -102,60 +102,59 @@ export const formatTimeLabel = (
 };
 
 /**
- * Group a list of conversations (already sorted by updatedAt DESC)
- * into time-based sections. Consecutive items in the same group
- * are merged into a single group entry.
+ * Group a list of conversations into time-based sections.
  *
  * 运行中的会话（streamingIds）会被独立分组为 "running"，
  * 显示在所有时间分组的顶部。该分组只包含运行中的会话，
  * 其余会话按 today/yesterday/last7days/earlier 分组。
+ *
+ * 采用「先按 key 聚合成 Map，再按固定顺序输出」的方式，而不是依赖
+ * "相邻同组项合并"。侧边栏列表在运行中会话置顶、记录刷新失效时可能
+ * 不满足严格的时间倒序，相邻合并会把同一个时间分组切成多个重复的
+ * 组头（例如两个"昨天"）；聚合方式保证每个分组只出现一次，
+ * 组内再按 updatedAt 倒序输出，渲染顺序不受输入乱序影响。
  */
 export const groupConversationsByTime = (
   conversations: ChatConversationRecord[],
   now: Date = new Date(),
   streamingIds?: Set<string>
 ): TimeGroup[] => {
-  const groups: TimeGroup[] = [];
-
-  // 运行中会话独立分组，置顶显示
-  if (streamingIds && streamingIds.size > 0) {
-    const running: ChatConversationRecord[] = [];
-    const rest: ChatConversationRecord[] = [];
-    for (const conv of conversations) {
-      if (streamingIds.has(conv.conversationId)) {
-        running.push(conv);
-      } else {
-        rest.push(conv);
-      }
-    }
-    if (running.length > 0) {
-      groups.push({ key: "running", conversations: running });
-    }
-    // 分组剩余会话
-    for (const conversation of rest) {
-      const date = parseDbTimestamp(conversation.updatedAt);
-      const key = getTimeGroup(date, now);
-
-      const lastGroup = groups[groups.length - 1];
-      if (lastGroup && lastGroup.key === key) {
-        lastGroup.conversations.push(conversation);
-      } else {
-        groups.push({ key, conversations: [conversation] });
-      }
-    }
-    return groups;
-  }
+  const buckets = new Map<TimeGroupKey, ChatConversationRecord[]>();
 
   for (const conversation of conversations) {
-    const date = parseDbTimestamp(conversation.updatedAt);
-    const key = getTimeGroup(date, now);
+    const key =
+      streamingIds && streamingIds.has(conversation.conversationId)
+        ? "running"
+        : getTimeGroup(parseDbTimestamp(conversation.updatedAt), now);
 
-    const lastGroup = groups[groups.length - 1];
-    if (lastGroup && lastGroup.key === key) {
-      lastGroup.conversations.push(conversation);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.push(conversation);
     } else {
-      groups.push({ key, conversations: [conversation] });
+      buckets.set(key, [conversation]);
     }
+  }
+
+  const orderedKeys: TimeGroupKey[] = [
+    "running",
+    "today",
+    "yesterday",
+    "last7days",
+    "earlier",
+  ];
+
+  const groups: TimeGroup[] = [];
+  for (const key of orderedKeys) {
+    const bucket = buckets.get(key);
+    if (!bucket || bucket.length === 0) {
+      continue;
+    }
+    bucket.sort(
+      (a, b) =>
+        parseDbTimestamp(b.updatedAt).getTime() -
+        parseDbTimestamp(a.updatedAt).getTime()
+    );
+    groups.push({ key, conversations: bucket });
   }
 
   return groups;
