@@ -61,6 +61,8 @@ export type ModelCapabilities = {
   supportsFidelity: boolean;
   /** 是否支持种子（seed）。 */
   supportsSeed: boolean;
+  /** 是否支持反向提示词（negativePrompt；仅 Gemini Imagen 系）。 */
+  supportsNegativePrompt: boolean;
   /** 是否支持流式预览（SSE partial images）。 */
   supportsStream: boolean;
   /** 质量选项（空数组 = 隐藏质量控件）。 */
@@ -194,6 +196,9 @@ export const inferModelCapabilities = (
       supportsBackground: false,
       supportsFidelity: false,
       supportsSeed: true,
+      // 反向提示词：仅 Imagen 系（generateContent 的 generationConfig.negativePrompt
+      // 官方支持字段）；Nano Banana（2.5 / 3 系列）官方建议用语义化正向描述，不支持。
+      supportsNegativePrompt: id.startsWith("imagen"),
       supportsStream: true,
       // Gemini 仅接受 low/medium/high（auto 会被忽略）；「默认」（空值）=
       // 不发送 quality，由 Rust 侧应用渠道配置的 defaultQuality，
@@ -232,6 +237,7 @@ export const inferModelCapabilities = (
       supportsBackground: false,
       supportsFidelity: false,
       supportsSeed: false,
+      supportsNegativePrompt: false,
       supportsStream: false,
       qualityOptions: supportsQuality
         ? [
@@ -266,6 +272,7 @@ export const inferModelCapabilities = (
     supportsBackground: !isDalle,
     supportsFidelity: !isDalle && !isGptImage2,
     supportsSeed: !isDalle,
+    supportsNegativePrompt: false,
     supportsStream: !isDalle,
     qualityOptions: isDalle3
       ? [

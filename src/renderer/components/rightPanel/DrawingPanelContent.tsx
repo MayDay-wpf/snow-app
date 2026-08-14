@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   AlertCircle,
+  AtSign,
   Ban,
   CheckCircle2,
   ChevronDown,
@@ -476,6 +477,7 @@ const errorHintKey = (kind: ImageGenErrorKind): string =>
 /** 工作台可持久化参数（localStorage 草稿 + 参数；不含渠道/参考图等易失效数据）。 */
 type PersistedDrawingParams = {
   prompt: string;
+  negativePrompt: string;
   model: string;
   ratio: string;
   tier: string;
@@ -509,6 +511,7 @@ const readPersistedParams = (): Partial<PersistedDrawingParams> => {
     const clean: Partial<PersistedDrawingParams> = {};
     const str = (value: unknown): value is string => typeof value === "string";
     if (str(parsed.prompt)) clean.prompt = parsed.prompt;
+    if (str(parsed.negativePrompt)) clean.negativePrompt = parsed.negativePrompt;
     if (str(parsed.model)) clean.model = parsed.model;
     if (str(parsed.ratio)) clean.ratio = parsed.ratio;
     if (str(parsed.tier)) clean.tier = parsed.tier;
@@ -536,6 +539,44 @@ const readPersistedParams = (): Partial<PersistedDrawingParams> => {
   } catch {
     return {};
   }
+};
+
+/** 提示词中的参考图占位符：`{{Image N}}` / `{{image N}}`（大小写不敏感）。 */
+const IMAGE_PLACEHOLDER_RE = /\{\{\s*[Ii]mage\s+(\d+)\s*\}\}/g;
+
+/**
+ * 默认反向提示词（自动预填；剥离 SD 权重语法，仅 Gemini Imagen 生效）。
+ * 面向写实人物/服装类生成场景的通用负面词。
+ */
+const DEFAULT_NEGATIVE_PROMPT =
+  "五官变形, 五官错位, 网红脸, 过度磨皮, 皮肤失真, 瘦身变形, 身材走形, " +
+  "服装款式篡改, 面料变形, 纹理拉伸, AI感, 卡通感, 3D建模感, 低画质";
+
+/**
+ * 解析提示词中的 `{{Image N}}` 占位符（变量引用注入参考图）。
+ *
+ * 语义：`{{Image N}}` 引用上传的第 N 张参考图（1 起，与参考图缩略图编号
+ * 角标一致）。替换为 `[Image N]`——OpenAI / Gemini 生图模型通用的图片
+ * 引用惯例（prompt 中 "image 1" / "image 2" 指代第 1/2 张输入图）。
+ *
+ * @param refCount 已上传参考图数量（0..MAX_REF_IMAGES）
+ * @returns expanded 替换后的提示词；unresolved 越界引用编号列表（N <= 0
+ *   或 N > refCount），调用方应拦截生成并提示
+ */
+const resolveImagePlaceholders = (
+  prompt: string,
+  refCount: number
+): { expanded: string; unresolved: number[] } => {
+  const unresolved: number[] = [];
+  const expanded = prompt.replace(IMAGE_PLACEHOLDER_RE, (match, rawIndex: string) => {
+    const n = Number(rawIndex);
+    if (n >= 1 && n <= refCount) {
+      return `[Image ${n}]`;
+    }
+    unresolved.push(n);
+    return match;
+  });
+  return { expanded, unresolved };
 };
 
 /**
@@ -581,6 +622,10 @@ export function DrawingPanelContent({
 
   const [channels, setChannels] = useState<ImageGenChannelValue[]>([]);
   const [prompt, setPrompt] = useState(persisted.prompt ?? "");
+  /** 反向提示词（仅 Gemini Imagen 生效；默认自动填充通用负面词，可编辑/清空）。 */
+  const [negativePrompt, setNegativePrompt] = useState(
+    persisted.negativePrompt ?? DEFAULT_NEGATIVE_PROMPT
+  );
   const [channelId, setChannelId] = useState("");
   /** 当前选中的模型（聚合模型列表；优先恢复持久化值，加载完成后校验兜底）。 */
   const [model, setModel] = useState(persisted.model ?? "");
@@ -1064,10 +1109,29 @@ export function DrawingPanelContent({
   const effectiveStream = streamDisabled ? false : stream;
 
   const handleGenerate = useCallback(async (): Promise<void> => {
-    const text = prompt.trim();
-    if (!text || isGenerating) {
+    const rawText = prompt.trim();
+    if (!rawText || isGenerating) {
       return;
     }
+    // 变量引用注入：提示词中 `{{Image N}}` → `[Image N]`（模型图片引用惯例），
+    // 对应第 N 张参考图；越界/无参考图引用则拦截并提示（不静默丢弃）。
+    const { expanded, unresolved } = resolveImagePlaceholders(
+      rawText,
+      refImages.length
+    );
+    if (unresolved.length > 0) {
+      setImportNotice({
+        kind: "error",
+        text: t("rightPanel.aiDrawing.refPlaceholderOutOfRange", {
+          values: {
+            refs: unresolved.map((n) => `{{Image ${n}}}`).join("、"),
+            count: refImages.length,
+          },
+        }),
+      });
+      return;
+    }
+    const text = expanded;
     const args: Record<string, unknown> = {
       prompt: text,
       // 流式：模型不支持（如 xAI Grok）或场景不支持（多图/图生图）时强制关闭
@@ -1122,6 +1186,14 @@ export function DrawingPanelContent({
     }
     if (personGeneration) {
       args.personGeneration = personGeneration;
+    }
+    // 反向提示词：仅 Gemini Imagen（supportsNegativePrompt）生效，
+    // 由后端写入 generationConfig.negativePrompt；其他模型忽略不发送。
+    if (
+      capabilities?.supportsNegativePrompt &&
+      negativePrompt.trim() !== ""
+    ) {
+      args.negativePrompt = negativePrompt.trim();
     }
     // 种子（可复现；留空随机；模型不支持时忽略）
     if (capabilities?.supportsSeed !== false && seed.trim() !== "") {
@@ -1267,6 +1339,7 @@ export function DrawingPanelContent({
     }
   }, [
     prompt,
+    negativePrompt,
     isGenerating,
     channelId,
     model,
@@ -1285,6 +1358,7 @@ export function DrawingPanelContent({
     personGeneration,
     seed,
     refImages,
+    t,
   ]);
 
   /** 取消生成：放弃等待并复位 UI（后端无中断通道，结果到达后被丢弃）。 */
@@ -1318,6 +1392,26 @@ export function DrawingPanelContent({
     },
     [handleGenerate]
   );
+
+  /** 在提示词光标处插入 `{{Image N}}`（点击参考图缩略图调用）。 */
+  const insertRefPlaceholder = useCallback((n: number): void => {
+    const el = textareaRef.current;
+    const token = `{{Image ${n}}}`;
+    if (!el) {
+      setPrompt((prev) => (prev ? `${prev} ${token}` : token));
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + token + el.value.slice(end);
+    setPrompt(next);
+    // 焦点回到输入框，光标移到插入的 token 之后，便于连续插入多张引用
+    window.requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }, []);
 
   // ----------------------------------------------------------------
   // 本次生成结果 → 画廊项
@@ -1806,6 +1900,7 @@ export function DrawingPanelContent({
     () =>
       JSON.stringify({
         prompt,
+        negativePrompt,
         model,
         ratio,
         tier,
@@ -1826,6 +1921,7 @@ export function DrawingPanelContent({
       } satisfies PersistedDrawingParams),
     [
       prompt,
+      negativePrompt,
       model,
       ratio,
       tier,
@@ -1911,6 +2007,35 @@ export function DrawingPanelContent({
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handleKeyDownOnPrompt}
           />
+          {/* 反向提示词（仅 Gemini Imagen 生效；默认自动填充通用负面词） */}
+          {capabilities?.supportsNegativePrompt && (
+            <div className="ai-drawing-negative">
+              <textarea
+                className="ai-drawing-negative-input"
+                value={negativePrompt}
+                placeholder={t("rightPanel.aiDrawing.negativePromptPlaceholder")}
+                rows={2}
+                onChange={(event) => setNegativePrompt(event.target.value)}
+              />
+              <div className="ai-drawing-negative-footer">
+                <span className="ai-drawing-negative-hint">
+                  <Ban size={11} strokeWidth={1.8} />
+                  {t("rightPanel.aiDrawing.negativePromptHint")}
+                </span>
+                {negativePrompt.trim() !== "" && (
+                  <button
+                    type="button"
+                    className="ai-drawing-negative-clear"
+                    title={t("rightPanel.aiDrawing.negativePromptClear")}
+                    onClick={() => setNegativePrompt("")}
+                  >
+                    <X size={11} strokeWidth={1.8} />
+                    <span>{t("rightPanel.aiDrawing.negativePromptClear")}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <div className="ai-drawing-composer-footer">
             <div className="ai-drawing-composer-actions">
               <button
@@ -2365,11 +2490,18 @@ export function DrawingPanelContent({
           </div>
         )}
   
-        {/* 参考图（图生图，最多 5 张，逐张可移除） */}
+        {/* 参考图（图生图，最多 5 张，逐张可移除；编号角标 = {{Image N}} 引用号） */}
         {refImages.length > 0 && (
           <div className="ai-drawing-refs">
-            {refImages.map((ref) => (
-              <div className="ai-drawing-ref" key={ref.path}>
+            {refImages.map((ref, index) => (
+              <div
+                className="ai-drawing-ref"
+                key={ref.path}
+                title={t("rightPanel.aiDrawing.refInsert", {
+                  values: { n: index + 1 },
+                })}
+                onClick={() => insertRefPlaceholder(index + 1)}
+              >
                 <LibraryImage
                   path={ref.path}
                   alt={t("toolCall.imagegen.refImage", {
@@ -2377,20 +2509,30 @@ export function DrawingPanelContent({
                   })}
                   className="ai-drawing-ref-thumb"
                 />
+                <span className="ai-drawing-ref-badge">{index + 1}</span>
                 <button
                   type="button"
                   className="ai-drawing-ref-remove"
                   title={t("rightPanel.aiDrawing.removeReference")}
-                  onClick={() =>
+                  onClick={(event) => {
+                    event.stopPropagation();
                     setRefImages((prev) =>
                       prev.filter((item) => item.path !== ref.path)
-                    )
-                  }
+                    );
+                  }}
                 >
                   <X size={13} strokeWidth={1.8} />
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 参考图变量引用提示：{{Image N}} 注入提示词 */}
+        {refImages.length > 0 && (
+          <div className="ai-drawing-ref-hint">
+            <AtSign size={12} strokeWidth={1.8} />
+            <span>{t("rightPanel.aiDrawing.refPlaceholderHint")}</span>
           </div>
         )}
   

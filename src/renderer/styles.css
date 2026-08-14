@@ -26443,6 +26443,75 @@ input {
   color: var(--text-tertiary);
 }
 
+/* 反向提示词（仅 Gemini Imagen 显示；默认自动填充通用负面词） */
+.ai-drawing-negative {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.ai-drawing-negative-input {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: inherit;
+  padding: 6px 8px;
+  min-height: 36px;
+  max-height: 140px;
+  transition: border-color 0.15s;
+}
+
+.ai-drawing-negative-input:focus {
+  border-color: color-mix(in srgb, var(--accent-color) 55%, transparent);
+}
+
+.ai-drawing-negative-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.ai-drawing-negative-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+
+.ai-drawing-negative-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.ai-drawing-negative-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.ai-drawing-negative-clear:hover {
+  background: var(--bg-hover-strong);
+  color: var(--text-primary);
+}
+
 .ai-drawing-composer-footer {
   display: flex;
   align-items: center;
@@ -26743,6 +26812,7 @@ input {
 }
 
 .ai-drawing-ref {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -26752,6 +26822,53 @@ input {
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ai-drawing-ref:hover {
+  border-color: var(--accent-color, #4f8cff);
+  background: var(--bg-hover-strong);
+}
+
+/* 参考图编号角标（= 提示词中 {{Image N}} 的引用号） */
+.ai-drawing-ref-badge {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent-color, #4f8cff);
+  color: var(--text-on-accent, #fff);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* 参考图变量引用提示行（{{Image N}} 注入提示词） */
+.ai-drawing-ref-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.ai-drawing-ref-hint code {
+  font-family: var(--font-mono, ui-monospace, "Cascadia Code", Consolas, monospace);
+  background: var(--bg-hover-strong);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 
 .ai-drawing-ref-thumb {
