@@ -290,6 +290,12 @@ sequenceDiagram
 
 If `beforeSubAgentStart` Hook execution itself throws, the current caller continues activation. A security gate must therefore be reliable, tested, and return an explicit `2+` exit code when blocking.
 
+### 2.6 Sub-agent session resume and same-session communication
+
+- **Resume after restart**: sub-agent sessions survive an app restart — `sub-agents-listSubAgents` lists the current session's sub-agents (including ones already finished during this app run) with their `status`/`resumable` state, and `sub-agents-continue` reactivates a finished sub-agent with its **original configuration (model, tools, system prompt) and full conversation history**;
+- **Same-session communication**: `sub-agents-listTeammates` queries sub-agents still running in the current session, and `sub-agents-sendMessage` delivers a message to them (as a Pending message at the end of the target's current round, prefixed with the sender's identity). Parallel sub-agents can coordinate directly without routing through the main session;
+- **Session isolation**: the tools above only apply to the **current session** — `listTeammates` does not expose other sessions' sub-agents, and cross-session `sendMessage`/`continue` calls are rejected.
+
 ## 3. Validation and troubleshooting
 
 | Symptom | Check |

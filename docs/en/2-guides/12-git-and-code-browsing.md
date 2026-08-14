@@ -37,6 +37,7 @@ A manual refresh reloads both status and the graph when Graph is active.
 - **Commit prerequisites**: at least one file must be staged and the commit message must be non-empty; otherwise the commit button is disabled;
 - **AI commit message**: staged files are also required. The sparkle button reads the **staged diff** and uses the current active API profile's `basicModel` to stream a proposed message directly into the input. While generation runs, the button becomes a stop control. Stopping or cancelling the stream preserves text already received so you can edit it manually;
 - **Synchronization**: the toolbar provides pull, push, and manual status refresh. When the panel opens it also runs a background fetch immediately and repeats it every 60 seconds while the window is visible. Successful fetches refresh ahead/behind counts for both local and SSH repositories; unattended errors such as offline, authentication, or no remote are ignored;
+- **Commit mode**: a drop-down next to the commit button switches between **Commit only** and **Commit and push**. The choice is persisted and restored after restart. In commit-and-push mode, push runs automatically after a successful commit and push failures are surfaced as errors while the commit stays intact;
 - **Feedback**: ahead/behind counts appear at the top and a behind badge decorates pull. Pull/push failures are shown to the user, while background fetch never interrupts the panel.
 
 ```mermaid
@@ -52,11 +53,23 @@ flowchart TD
 
 > **AI collaboration**: after the AI changes files, use `/file-changes` in chat or the Git panel to inspect and stage them. Asking the AI to execute Git commands in a terminal is separate from using these panel controls and remains subject to tool authorization and sensitive-command policy.
 
+### 1.5 Git Repository Settings
+
+**Settings → Git Repository Settings** (settings page id: `git-settings`) configures repository status scanning and refresh behavior:
+
+- **Scan depth**: directory depth for status scanning (default `1`, mirroring VSCode);
+- **Ignored folders**: directories skipped by the change watcher;
+- **Change-watcher debounce**: how long file changes are coalesced before refreshing status;
+- **SSH poll interval**: status polling period for SSH repositories;
+- **Status change limit**: local Git status is truncated at the configured limit with a warning shown in the Git panel, keeping huge repositories responsive;
+- **Auto refresh**: whether repository status refreshes automatically.
+
 ## 2. Project Explorer and Workspace Search
 
 Choose **Details** from a workspace's ellipsis/context menu to open that workspace in the project explorer:
 
 - **Local and SSH trees**: both expand directories on demand, refresh, open text files in the right-panel reader, and rename or delete files/directories from the context menu. SSH operations run through the current remote session;
+- **Multi-select in the file tree**: the local file tree supports `Ctrl/Cmd`-click toggling, `Shift` range selection, and `Ctrl+A` select-all for batch operations across multiple entries;
 - **File/directory context menu**: local entries additionally support **Open in Terminal** (for a file, its containing directory), **Reveal in system file manager**, **Copy Path**, and an **Open with** submenu (open the directory with an installed IDE; detection matches the workspace-directory menu). SSH remote entries do not offer the file manager or IDE open actions;
 - **Deletion boundary**: deleting in the explorer changes the real local or remote filesystem. It is different from removing a workspace registration from the project list, so verify the target first;
 - **Local workspace search**: local workspaces show **Search files and content**, matching both file names and text contents. Click a result's file name to open the whole file, or click a matching line to open and briefly highlight that line. `Ctrl/Cmd` and `Shift` can select matching lines before dragging them into chat;

@@ -84,6 +84,8 @@ Some advanced parameters can be configured in the Runtime area of the UI (such a
 
 > **Tip**: after editing `config.json` directly, restart the app for the changes to take effect.
 
+> **DeepSeek thinking-mode compatibility**: in DeepSeek V4 thinking mode, stream processing fills in the `reasoning_content` field for every assistant message to avoid 400 errors from providers that reject a missing field; the `showThinking` toggle and `chatThinking.reasoning_effort` setting apply in this mode too.
+
 ## 5. AI / CLI Configuration (config tool)
 
 Snow App ships a built-in `config` tool; AI agents can read/write the same

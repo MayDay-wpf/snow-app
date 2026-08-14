@@ -50,6 +50,15 @@ Single and batch deletion both require confirmation. Deleting a conversation als
 - Physical image files and SQLite index rows are removed only when you explicitly select the option;
 - Deleting an individual item in the image library is a separate action that removes its file and index entry and rewrites conversation messages that reference it.
 
+#### Dragging a history conversation onto the composer as prefix context
+
+**Drag a history conversation from the sidebar onto the chat composer** to attach it as **prefix context**, injected together with your **next message**:
+
+- An **attachment bar** appears above the composer showing the attached conversations with an estimated character count; each attachment can be removed individually or folded into a summary row;
+- Multiple attached conversations are concatenated in drag order before your current message;
+- Injection budgets are configurable in settings: single-conversation budget defaults to `40000` characters, total budget to `60000` characters (range `1000–200000`); overflow is truncated;
+- Dragging onto a composer that already has a draft works the same way; after a successful send the attachments are consumed and do not linger into later messages.
+
 ### 2.2 Cross-Project Notification Aggregation
 
 The sidebar **Conversations** section normally shows only the **current project's** conversations. When conversations in **other projects** become active, they are aggregated into a **cross-project notification** block below the list, so background session state is not lost after switching projects:
@@ -68,7 +77,7 @@ The sidebar **Conversations** section normally shows only the **current project'
 
 ## 3. Complete Slash Command List
 
-Type `/` to open the command palette. The current version has exactly nine commands:
+Type `/` to open the command palette. The current version has exactly ten commands:
 
 | Command | Behavior and availability |
 | --- | --- |
@@ -77,6 +86,7 @@ Type `/` to open the command palette. The current version has exactly nine comma
 | `/mcp` | Manages MCP servers for the current project; requires a selected project |
 | `/role` | Edits the current project's `ROLE.md`; requires a selected project |
 | `/sensitive-commands` | Configures sensitive-command rules for the current project; requires a selected project |
+| `/permissions` | Views/deletes the permanently authorized tools of the current project; requires a selected project, disabled in YOLO mode |
 | `/skills` | Manages Skills for the current project; requires a selected project |
 | `/codebase` | Manages the current project's codebase index; requires a selected project |
 | `/review` | Asks the AI to review Git changes in the current project; available only in a new conversation with a project directory |
@@ -98,7 +108,7 @@ Plan Mode separates investigation and planning from execution:
 
 ### 4.2 Goal Mode
 
-Goal Mode runs a continuing, goal-driven autonomous loop within its token budget and stop conditions. Adjust the per-conversation token budget from the plus menu. Goal is mutually exclusive with Plan, and both the enabled state and budget are saved per conversation. The exact number of iterations is not fixed; execution also depends on the budget, model output, tool state, and user stop actions.
+Goal Mode runs a continuing, goal-driven autonomous loop within its token budget and stop conditions. Adjust the per-conversation token budget from the plus menu (including an **Unlimited** option). Goal is mutually exclusive with Plan, and both the enabled state and budget are saved per conversation. The exact number of iterations is not fixed; execution also depends on the budget, model output, tool state, and user stop actions.
 
 ### 4.3 YOLO Mode
 
@@ -199,7 +209,7 @@ Compaction is **not absolutely irreversible**. The compaction message is a `cont
 
 ## 10. Background Notifications, Tray, and Windows
 
-- When no Snow window is focused in the foreground, **AI completion**, a **sensitive command awaiting confirmation**, or **`askUserQuestion` awaiting an answer** triggers a system notification. A focused app does not show a duplicate notification. Clicking a notification with a conversation target restores and focuses the window, validates that the target still exists, then switches to its workspace and conversation. If the platform does not support system notifications, Snow falls back to taskbar flashing or a macOS Dock bounce;
+- When no Snow window is focused in the foreground, **AI completion**, a **sensitive command awaiting confirmation**, or **`askUserQuestion` awaiting an answer** triggers a system notification. A focused app does not show a duplicate notification. Clicking a notification with a conversation target restores and focuses the window, validates that the target still exists, then switches to its workspace and conversation. If the original window was destroyed or its renderer refreshed, clicking the notification falls back to the main window or recreates it, buffers the activation target, and re-dispatches it after loading completes so the activation is not silently lost. If the platform does not support system notifications, Snow falls back to taskbar flashing or a macOS Dock bounce;
 - Every platform's window-close path opens a confirmation dialog first. Cancel, choose **Minimize** to hide the app to the system tray without exiting, or confirm a full exit. Conversations, terminals, and in-process scheduled tasks continue while the window is hidden. On macOS, hiding also temporarily removes the Dock icon;
 - Click the tray icon or choose **Open Snow App** to restore, show, and focus the main window. **Quit** in the tray menu exits the application directly. The tray tooltip periodically summarizes running conversations, active terminals, projects, pending memos, and today's token usage; the icon gains an activity indicator while conversations are running;
 - The top bar can collapse the sidebar, collapse the right panel, or make the right panel full-screen. Drag either separator to resize its panel. Snow persists the main window's size, position, and maximized state for the next launch; a saved position that no longer lies on a visible display falls back to a safe location.

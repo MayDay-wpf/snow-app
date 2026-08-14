@@ -79,6 +79,8 @@ flowchart TD
 
 Permanently approve only narrow, auditable, recoverable capabilities. Terminal execution, file writes, browser-state restoration, and external MCP tools are generally better kept behind per-call review.
 
+The **project authorization panel** next to the composer (or the `/permissions` command) lists the tools permanently authorized for the current project and lets you **delete** approvals no longer needed; the command is disabled in YOLO mode.
+
 ## 5. YOLO mode
 
 YOLO is a persistent global setting. When enabled, ordinary tools can skip per-call authorization, and non-sensitive items already waiting in the authorization queue are approved. It is intended for controlled, recoverable, pre-reviewed environments—not conversations containing production credentials, personal data, or shared workspaces.
@@ -90,7 +92,7 @@ YOLO **does not bypass every security control**:
 - the Rust Plan Mode write boundary still runs;
 - tool argument validation, project enablement, and sub-agent tool allowlists remain effective.
 
-Interactive terminal commands skip the separate sensitive-command dialog because the user is expected to confirm input in the interactive terminal. This does not mean the command has been judged safe.
+Interactive terminal commands are **checked by the sensitive-command gate too**: the `isInteractive` flag only controls how the terminal session is presented (input box, no timeout) and is no longer a bypass channel; legitimate interactive commands such as `npm init` or `git add -i` that match no rule are unaffected.
 
 ## 6. Sensitive-command rules
 
@@ -103,7 +105,7 @@ Important limitations:
 - rules catch only the textual patterns they cover; a dangerous unmatched command can still run;
 - an invalid skipped regex provides no protection;
 - argument composition, encoding, and indirect script calls can exceed the rule author's intent;
-- interactive commands use interactive-terminal confirmation rather than this token flow;
+- interactive commands require the same authorization token (`isInteractive` is a presentation hint and never bypasses the check);
 - the sensitive-command gate is an additional control, not proof that a shell command is safe.
 
 ## 7. Enforced Plan Mode boundary

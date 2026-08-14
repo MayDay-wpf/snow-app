@@ -32,6 +32,7 @@ mod gemini_stream;
 mod openai_stream;
 mod reference_image;
 
+use openai_stream::collect_openai_result;
 use reference_image::ReferenceImage;
 
 const SERVER_ID: &str = "imagegen";
@@ -380,6 +381,15 @@ impl ImageGenService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        // 反向提示词（negativePrompt）：仅 Gemini Imagen 系生效（写入
+        // generationConfig.negativePrompt）；Nano Banana / OpenAI 不支持，
+        // 在 generate_gemini 内按模型判断丢弃。
+        let negative_prompt = args
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let image_search = args
             .get("imageSearch")
             .and_then(Value::as_bool)
@@ -402,6 +412,7 @@ impl ImageGenService {
                     per_request_images.as_slice(),
                     seed,
                     thinking_level.as_deref(),
+                    negative_prompt.as_deref(),
                     image_search,
                     &channel_label,
                     timeout_secs,
@@ -851,6 +862,7 @@ impl ImageGenService {
         images: &[&[ReferenceImage]],
         seed: Option<u64>,
         thinking_level: Option<&str>,
+        negative_prompt: Option<&str>,
         image_search: bool,
         channel_label: &str,
         timeout_secs: Option<u64>,
@@ -992,6 +1004,14 @@ impl ImageGenService {
                 "dont_allow" | "allow_all" | "allow_adult"
             ) {
                 legacy_generation_config["personGeneration"] = json!(person_generation);
+            }
+        }
+        // 反向提示词：仅 Imagen 系（generateContent 官方支持
+        // generationConfig.negativePrompt）；Nano Banana 2.5 / 3 系列忽略
+        // （官方建议用语义化正向描述，无独立 negative prompt 概念）。
+        if let Some(value) = negative_prompt {
+            if model.to_ascii_lowercase().starts_with("imagen") {
+                legacy_generation_config["negativePrompt"] = json!(value);
             }
         }
 
@@ -1282,6 +1302,10 @@ impl McpService for ImageGenService {
                     "imageSearch": {
                         "type": "boolean",
                         "description": "Gemini 3.1 Flash Image only: enable Google Image Search grounding so the model can use real web images as visual context (search_types: [\"web_search\", \"image_search\"]). Requires displaying search suggestions. Other models ignore it."
+                    },
+                    "negativePrompt": {
+                        "type": "string",
+                        "description": "Gemini Imagen only: negative prompt — comma-separated visual attributes to avoid (e.g. \"blurry, low quality, distorted hands\"). Written into generationConfig.negativePrompt of the Imagen generateContent request. Nano Banana (gemini 2.5 / 3 image models) and OpenAI do NOT support negative prompts (their guidance is to describe the desired result positively) — the value is ignored for those models."
                     }
                 },
                 "required": ["prompt"]

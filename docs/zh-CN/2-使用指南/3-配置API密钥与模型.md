@@ -105,6 +105,8 @@ token、流式空闲超时、重试次数与延迟），其余参数可直接编
 
 > **提示**：直接编辑 `config.json` 后需重启应用使改动生效。
 
+> **DeepSeek 思考模式兼容**：DeepSeek V4 思考模式下，流式处理会为每条助手消息补齐 `reasoning_content` 字段，避免部分供应商接口因该字段缺失返回 400 错误；`showThinking` 开关与 `reasoning_effort` 设置同样适用于该模式。
+
 ## 5. AI / 命令行配置（config 工具）
 
 Snow App 内置 `config` 工具，AI Agent 可读写与 UI 同源的配置。API 档案相关：

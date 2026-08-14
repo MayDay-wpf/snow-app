@@ -3062,7 +3062,6 @@ export const zhTW = {
   "rightPanel.aiDrawing.negativePromptPlaceholder": "輸入需要避免的內容，逗號分隔（留空停用）",
   "rightPanel.aiDrawing.negativePromptHint": "反向提示詞 · 僅 Gemini Imagen 生效",
   "rightPanel.aiDrawing.negativePromptClear": "清空",
-  "rightPanel.openInNewWindow": "在新視窗中開啟",
   "rightPanel.closeDiff": "關閉差異",
   "rightPanel.selectFileToViewDiff": "選擇檔案以檢視差異",
   "rightPanel.noRepositorySelected": "未選擇儲存庫",

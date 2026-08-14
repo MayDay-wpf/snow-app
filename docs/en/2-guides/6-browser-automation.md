@@ -227,7 +227,6 @@ browser-devtools action=dialog dialogResponse={accept:true, promptText:"input"} 
 
 ## 6. Related config
 
-Proxy and browser paths are configured in **Settings → Proxy & Browser**
-(`app-control-openSettings page=proxy-browser-settings`); fields are
-documented in [3-config-file-field-reference](../3-reference/3-config-file-field-reference.md)
-under `proxy-config.json` (`browserPath`, `browserDebugPort`).
+- Browser tools can pop the current page out into a **standalone window**; standalone windows support full **tab migration and restoration** — tabs can be moved between the standalone window and the main panel, and reopening a standalone window restores its tabs and session state;
+- Proxy and browser paths are configured in **Settings → Proxy & Browser** (`app-control-openSettings page=proxy-browser-settings`); fields are documented in [3-config-file-field-reference](../3-reference/3-config-file-field-reference.md) under `proxy-config.json` (`browserPath`, `browserDebugPort`);
+- Other browser settings are covered in [17-browser-settings-passwords-and-import](17-browser-settings-passwords-and-import.md).

@@ -290,6 +290,12 @@ sequenceDiagram
 
 注意：`beforeSubAgentStart` Hook 执行自身发生异常时，当前调用方会继续激活子代理；因此安全阻断脚本必须可靠、可测试，并用明确的 `2+` 退出码返回阻断。
 
+### 2.6 子代理会话恢复与同会话通信
+
+- **重启后恢复**：子代理会话在应用重启后仍可恢复——`sub-agents-listSubAgents` 列出当前会话的子代理（含本次运行期间已结束的）及其 `status`/`resumable` 状态；`sub-agents-continue` 对已结束的子代理按**原配置（模型、工具、系统提示词）与完整会话历史**重新激活继续执行；
+- **同会话通信**：`sub-agents-listTeammates` 查询当前会话中仍在运行的子代理，`sub-agents-sendMessage` 向其投递消息（以 Pending 消息在对方当前轮次结束时送达，并带发送者身份前缀）；并行子代理之间可直接协作，无需经主会话中转；
+- **会话隔离**：以上工具只对**当前会话**生效——`listTeammates` 不暴露其他会话的子代理，`sendMessage`/`continue` 跨会话调用会被拒绝。
+
 ## 3. 验证与排错
 
 | 症状 | 检查 |

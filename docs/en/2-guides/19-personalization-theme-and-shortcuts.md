@@ -147,7 +147,7 @@ All seven shortcuts are enabled by default with `foregroundOnly=true`. Their JSO
 
 ### Rebinding, Conflicts, and Scope
 
-Each shortcut can be enabled independently, rebound, and reset. The page can also restore all default keys. While recording a normal action, `Esc` cancels recording; while recording “Cancel the current session,” `Esc` is a valid binding.
+Each shortcut can be enabled independently, rebound, and reset. The page can also restore all default keys. While recording a normal action, `Esc` cancels recording; while recording “Cancel the current session,” `Esc` is a valid binding. Recording supports the **Shift modifier key** (for example `Cmd/Ctrl+Shift+P`), which is recognized and saved through event conversion, display, and matching logic.
 
 The page reports binding conflicts but does not choose a resolution for you. At runtime, only the first matching action in action order is triggered. A local component may intercept an action—for example, a focused file viewer can use the search shortcut for in-file search.
 
