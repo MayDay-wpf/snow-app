@@ -1,5 +1,6 @@
 import { ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  BatchWorkspaceDeleteResult,
   FileContentResult,
   FileSearchResult,
   ParsedSshUrl,
@@ -137,6 +138,11 @@ export const sshApi = {
     ),
   sshDeleteEntry: (sessionId: string, remotePath: string): Promise<void> =>
     ipcRenderer.invoke("ssh:delete-entry", sessionId, remotePath),
+  sshDeleteEntries: (
+    sessionId: string,
+    remotePaths: string[]
+  ): Promise<BatchWorkspaceDeleteResult> =>
+    ipcRenderer.invoke("ssh:delete-entries", sessionId, remotePaths),
   sshRenameEntry: (
     sessionId: string,
     remotePath: string,

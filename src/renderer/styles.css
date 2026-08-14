@@ -2928,6 +2928,66 @@ input {
   flex-shrink: 0;
 }
 
+/* ===== Explorer multi-select bulk bar ===== */
+
+.explorer-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.explorer-bulk-count {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.explorer-bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.explorer-bulk-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.explorer-bulk-btn.danger {
+  color: var(--accent-red, #e5484d);
+}
+
+.explorer-bulk-btn.danger:hover {
+  background: var(--danger-soft-bg, rgba(229, 72, 77, 0.12));
+  color: var(--accent-red, #e5484d);
+}
+
+.explorer-entry-context-menu-heading {
+  padding: 6px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .explorer-root-path {
   color: var(--text-tertiary);
   font-size: 10.5px;

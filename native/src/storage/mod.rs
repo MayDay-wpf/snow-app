@@ -560,6 +560,13 @@ pub fn delete_workspace_entry(root_path: String, entry_path: String) -> Result<(
     services::fs_explorer::delete_workspace_entry(&root_path, &entry_path)
 }
 
+pub fn delete_workspace_entries(
+    root_path: String,
+    entry_paths: Vec<String>,
+) -> Result<services::fs_explorer::BatchWorkspaceDeleteResult> {
+    services::fs_explorer::delete_workspace_entries(&root_path, entry_paths)
+}
+
 pub fn search_files(
     root_dir: String,
     query: String,

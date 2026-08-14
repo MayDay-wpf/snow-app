@@ -22,6 +22,17 @@ export type DirectoryEntry = {
   size: number;
 };
 
+export type FailedWorkspaceDelete = {
+  path: string;
+  error: string;
+};
+
+/** 批量删除结果：deleted 为成功删除的路径，failed 为失败的条目及原因。 */
+export type BatchWorkspaceDeleteResult = {
+  deleted: string[];
+  failed: FailedWorkspaceDelete[];
+};
+
 export type FileSearchResult = {
   path: string;
   relativePath: string;

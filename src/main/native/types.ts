@@ -477,6 +477,16 @@ export type FileContentResult = {
   size: number;
 };
 
+export type FailedWorkspaceDelete = {
+  path: string;
+  error: string;
+};
+
+export type BatchWorkspaceDeleteResult = {
+  deleted: string[];
+  failed: FailedWorkspaceDelete[];
+};
+
 export type McpServerConfigInput = {
   serverId: string;
   name: string;
@@ -1307,6 +1317,11 @@ export type NativeBridge = {
     newName: string
   ) => Promise<void>;
   deleteWorkspaceEntry: (rootPath: string, entryPath: string) => Promise<void>;
+  /** 批量删除工作区条目：单次调用，返回每个条目的删除结果（部分失败不中断）。 */
+  deleteWorkspaceEntries: (
+    rootPath: string,
+    entryPaths: string[]
+  ) => Promise<BatchWorkspaceDeleteResult>;
   readFileContent: (filePath: string) => Promise<FileContentResult>;
   writeFileContent: (filePath: string, content: string) => Promise<void>;
   searchFiles: (rootDir: string, query: string) => Promise<FileSearchResult[]>;

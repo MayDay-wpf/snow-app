@@ -176,6 +176,29 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
+    "workspace-directories:delete-entries",
+    (_event, rootPath: unknown, entryPaths: unknown) => {
+      if (typeof rootPath !== "string" || !rootPath.trim()) {
+        throw new Error("Workspace root path is required");
+      }
+      if (
+        !Array.isArray(entryPaths) ||
+        entryPaths.length === 0 ||
+        !entryPaths.every(
+          (p) => typeof p === "string" && p.trim().length > 0
+        )
+      ) {
+        throw new Error("Workspace entry paths are required");
+      }
+
+      return native.deleteWorkspaceEntries(
+        rootPath.trim(),
+        entryPaths.map((p) => (p as string).trim())
+      );
+    }
+  );
+
+  ipcMain.handle(
     "workspace-directories:read-file",
     (_event, filePath: unknown) => {
       if (typeof filePath !== "string" || !filePath.trim()) {

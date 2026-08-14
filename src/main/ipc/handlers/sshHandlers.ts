@@ -670,6 +670,63 @@ export const registerSshHandlers = (_native: NativeBridge): void => {
     }
   );
 
+  // 批量删除远程条目：单次 IPC，主进程内部逐个执行（SSH 协议无批量删除），
+  // 部分失败不中断，逐条收集结果。
+  ipcMain.handle(
+    "ssh:delete-entries",
+    async (_event, sessionId: unknown, remotePaths: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId.trim()) {
+        throw new Error("SSH session ID is required");
+      }
+      if (
+        !Array.isArray(remotePaths) ||
+        remotePaths.length === 0 ||
+        !remotePaths.every(
+          (p) => typeof p === "string" && p.trim().length > 0
+        )
+      ) {
+        throw new Error("Remote paths are required");
+      }
+
+      const trimmedSessionId = sessionId.trim();
+      const paths = Array.from(
+        new Set(remotePaths.map((p) => (p as string).trim()))
+      );
+
+      // 父子合并：被另一选中路径包含的后代路径跳过（父级删除后自动消失）。
+      const topLevel = paths.filter(
+        (p) =>
+          !paths.some(
+            (other) => other !== p && p.startsWith(`${other}/`)
+          )
+      );
+
+      const deleted: string[] = [];
+      const failed: { path: string; error: string }[] = [];
+      for (const remotePath of topLevel) {
+        try {
+          const stats = await statSshEntry(trimmedSessionId, remotePath);
+          if (!stats) {
+            throw new Error("Remote path does not exist");
+          }
+          if (stats.isDirectory()) {
+            await deleteSshDirectory(trimmedSessionId, remotePath);
+          } else {
+            await deleteSshFile(trimmedSessionId, remotePath);
+          }
+          deleted.push(remotePath);
+        } catch (error) {
+          failed.push({
+            path: remotePath,
+            error:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return { deleted, failed };
+    }
+  );
+
   ipcMain.handle(
     "ssh:rename-entry",
     async (

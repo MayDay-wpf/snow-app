@@ -1,5 +1,6 @@
 import { ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type {
+  BatchWorkspaceDeleteResult,
   DirectoryEntry,
   DroppedPathEntry,
   FileContentResult,
@@ -91,6 +92,15 @@ export const workspaceApi = {
       "workspace-directories:delete-entry",
       rootPath,
       entryPath
+    ),
+  deleteWorkspaceEntries: (
+    rootPath: string,
+    entryPaths: string[]
+  ): Promise<BatchWorkspaceDeleteResult> =>
+    ipcRenderer.invoke(
+      "workspace-directories:delete-entries",
+      rootPath,
+      entryPaths
     ),
   readFileContent: (filePath: string): Promise<FileContentResult> =>
     ipcRenderer.invoke("workspace-directories:read-file", filePath),

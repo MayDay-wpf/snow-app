@@ -24,28 +24,41 @@ type ExplorerEntryContextMenuProps = {
   isDirectory: boolean;
   /** SSH 远程条目不支持系统文件管理器与 IDE 打开方式。 */
   isSsh: boolean;
+  /** 当前选中条目数；>1 时菜单切换为批量操作模式。 */
+  selectedCount: number;
+  /** 初始模式（批量工具栏的删除按钮直接进入确认态）。 */
+  initialMode?: MenuMode;
   onClose: () => void;
   onDelete: () => Promise<void>;
+  /** 批量删除选中条目（selectedCount > 1 时使用）。 */
+  onDeleteSelected?: () => Promise<void>;
+  /** 批量复制选中路径（selectedCount > 1 时使用）。 */
+  onCopySelectedPaths?: () => void;
   onOpenTerminal?: (cwd: string) => void;
   onRename: (newName: string) => Promise<void>;
   position: { x: number; y: number };
 };
 
-type MenuMode = "actions" | "delete" | "rename";
+export type MenuMode = "actions" | "delete" | "rename";
 
 export function ExplorerEntryContextMenu({
   entryName,
   entryPath,
   isDirectory,
   isSsh,
+  selectedCount,
+  initialMode = "actions",
   onClose,
   onDelete,
+  onDeleteSelected,
+  onCopySelectedPaths,
   onOpenTerminal,
   onRename,
   position,
 }: ExplorerEntryContextMenuProps): React.JSX.Element {
   const { t } = useI18n();
-  const [mode, setMode] = useState<MenuMode>("actions");
+  const isMultiSelect = selectedCount > 1;
+  const [mode, setMode] = useState<MenuMode>(initialMode);
   const [newName, setNewName] = useState(entryName);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -203,7 +216,11 @@ export function ExplorerEntryContextMenu({
 
     setIsSubmitting(true);
     try {
-      await onDelete();
+      if (isMultiSelect && onDeleteSelected) {
+        await onDeleteSelected();
+      } else {
+        await onDelete();
+      }
       onClose();
     } catch {
       // The explorer surfaces operation errors in its content area.
@@ -238,6 +255,11 @@ export function ExplorerEntryContextMenu({
     void window.snow.writeClipboardText(entryPath).catch(() => {
       // 剪贴板写入失败时静默忽略。
     });
+  };
+
+  const handleCopySelectedPaths = (): void => {
+    onClose();
+    onCopySelectedPaths?.();
   };
 
   const handleOpenInIde = (ide: IdeInfo): void => {
@@ -318,125 +340,165 @@ export function ExplorerEntryContextMenu({
       style={{ left: Math.max(8, left), top: Math.max(8, top) }}
     >
       {mode === "actions" ? (
-        <>
-          <button
-            className="explorer-entry-context-menu-item"
-            onClick={handleOpenTerminalClick}
-            role="menuitem"
-            type="button"
-          >
-            <Terminal size={13} />
-            <span>
-              {t("sidebar.explorerOpenInTerminal", {
-                defaultValue: "Open in Terminal",
+        isMultiSelect ? (
+          <>
+            <div className="explorer-entry-context-menu-heading">
+              {t("sidebar.explorerMultiSelectCount", {
+                defaultValue: "{{count}} selected",
+                values: { count: selectedCount },
               })}
-            </span>
-          </button>
-          {!isSsh ? (
+            </div>
             <button
               className="explorer-entry-context-menu-item"
-              onClick={handleShowInFolder}
+              onClick={handleCopySelectedPaths}
               role="menuitem"
               type="button"
             >
-              <FolderOpen size={13} />
+              <Copy size={13} />
               <span>
-                {t("sidebar.explorerShowInFolder", {
-                  defaultValue: "Show in System File Manager",
+                {t("sidebar.explorerMultiSelectCopyPaths", {
+                  defaultValue: "Copy {{count}} paths",
+                  values: { count: selectedCount },
                 })}
               </span>
             </button>
-          ) : null}
-          <button
-            className="explorer-entry-context-menu-item"
-            onClick={handleCopyPath}
-            role="menuitem"
-            type="button"
-          >
-            <Copy size={13} />
-            <span>
-              {t("sidebar.explorerCopyPath", { defaultValue: "Copy Path" })}
-            </span>
-          </button>
-          {canOpenWith ? (
-            <span
-              className="explorer-entry-context-menu-submenu-trigger"
-              onMouseEnter={() => {
-                cancelOpenWithClose();
-                setIsOpenWithOpen(true);
-              }}
-              onMouseLeave={scheduleOpenWithClose}
+            <div className="explorer-entry-context-menu-separator" />
+            <button
+              className="explorer-entry-context-menu-item danger"
+              onClick={() => setMode("delete")}
+              role="menuitem"
+              type="button"
             >
+              <Trash2 size={13} />
+              <span>
+                {t("sidebar.explorerMultiSelectDelete", {
+                  defaultValue: "Delete {{count}} items",
+                  values: { count: selectedCount },
+                })}
+              </span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="explorer-entry-context-menu-item"
+              onClick={handleOpenTerminalClick}
+              role="menuitem"
+              type="button"
+            >
+              <Terminal size={13} />
+              <span>
+                {t("sidebar.explorerOpenInTerminal", {
+                  defaultValue: "Open in Terminal",
+                })}
+              </span>
+            </button>
+            {!isSsh ? (
               <button
-                ref={openWithItemRef}
-                type="button"
                 className="explorer-entry-context-menu-item"
-                aria-expanded={isOpenWithOpen}
-                aria-haspopup="menu"
-                onClick={handleOpenWithToggle}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    handleOpenWithToggle(event);
-                  }
-                }}
+                onClick={handleShowInFolder}
                 role="menuitem"
+                type="button"
               >
-                <Code2 size={13} />
+                <FolderOpen size={13} />
                 <span>
-                  {t("sidebar.openWith", { defaultValue: "Open with" })}
+                  {t("sidebar.explorerShowInFolder", {
+                    defaultValue: "Show in System File Manager",
+                  })}
                 </span>
-                <ChevronRight
-                  size={12}
-                  className="explorer-entry-context-menu-item-chevron"
-                />
               </button>
-              {isOpenWithOpen
-                ? createPortal(
-                    <div
-                      ref={openWithPanelRef}
-                      className="explorer-entry-context-menu explorer-entry-context-menu-submenu"
-                      style={
-                        openWithPosition
-                          ? {
-                              top: openWithPosition.top,
-                              left: openWithPosition.left,
-                            }
-                          : undefined
-                      }
-                      role="menu"
-                      onMouseEnter={() => {
-                        cancelOpenWithClose();
-                        setIsOpenWithOpen(true);
-                      }}
-                      onMouseLeave={scheduleOpenWithClose}
-                    >
-                      {renderOpenWithItems()}
-                    </div>,
-                    document.body
-                  )
-                : null}
-            </span>
-          ) : null}
-          <div className="explorer-entry-context-menu-separator" />
-          <button
-            className="explorer-entry-context-menu-item"
-            onClick={() => setMode("rename")}
-            role="menuitem"
-            type="button"
-          >
-            <Pencil size={13} />
-            <span>{t("sidebar.explorerRename", { defaultValue: "Rename" })}</span>
-          </button>
-          <button
-            className="explorer-entry-context-menu-item danger"
-            onClick={() => setMode("delete")}
-            role="menuitem"
-            type="button"
-          >
-            <Trash2 size={13} />
-            <span>{t("sidebar.explorerDelete", { defaultValue: "Delete" })}</span>
-          </button>
-        </>
+            ) : null}
+            <button
+              className="explorer-entry-context-menu-item"
+              onClick={handleCopyPath}
+              role="menuitem"
+              type="button"
+            >
+              <Copy size={13} />
+              <span>
+                {t("sidebar.explorerCopyPath", { defaultValue: "Copy Path" })}
+              </span>
+            </button>
+            {canOpenWith ? (
+              <span
+                className="explorer-entry-context-menu-submenu-trigger"
+                onMouseEnter={() => {
+                  cancelOpenWithClose();
+                  setIsOpenWithOpen(true);
+                }}
+                onMouseLeave={scheduleOpenWithClose}
+              >
+                <button
+                  ref={openWithItemRef}
+                  type="button"
+                  className="explorer-entry-context-menu-item"
+                  aria-expanded={isOpenWithOpen}
+                  aria-haspopup="menu"
+                  onClick={handleOpenWithToggle}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      handleOpenWithToggle(event);
+                    }
+                  }}
+                  role="menuitem"
+                >
+                  <Code2 size={13} />
+                  <span>
+                    {t("sidebar.openWith", { defaultValue: "Open with" })}
+                  </span>
+                  <ChevronRight
+                    size={12}
+                    className="explorer-entry-context-menu-item-chevron"
+                  />
+                </button>
+                {isOpenWithOpen
+                  ? createPortal(
+                      <div
+                        ref={openWithPanelRef}
+                        className="explorer-entry-context-menu explorer-entry-context-menu-submenu"
+                        style={
+                          openWithPosition
+                            ? {
+                                top: openWithPosition.top,
+                                left: openWithPosition.left,
+                              }
+                            : undefined
+                        }
+                        role="menu"
+                        onMouseEnter={() => {
+                          cancelOpenWithClose();
+                          setIsOpenWithOpen(true);
+                        }}
+                        onMouseLeave={scheduleOpenWithClose}
+                      >
+                        {renderOpenWithItems()}
+                      </div>,
+                      document.body
+                    )
+                  : null}
+              </span>
+            ) : null}
+            <div className="explorer-entry-context-menu-separator" />
+            <button
+              className="explorer-entry-context-menu-item"
+              onClick={() => setMode("rename")}
+              role="menuitem"
+              type="button"
+            >
+              <Pencil size={13} />
+              <span>{t("sidebar.explorerRename", { defaultValue: "Rename" })}</span>
+            </button>
+            <button
+              className="explorer-entry-context-menu-item danger"
+              onClick={() => setMode("delete")}
+              role="menuitem"
+              type="button"
+            >
+              <Trash2 size={13} />
+              <span>{t("sidebar.explorerDelete", { defaultValue: "Delete" })}</span>
+            </button>
+          </>
+        )
       ) : mode === "rename" ? (
         <form className="explorer-entry-context-menu-form" onSubmit={handleRenameSubmit}>
           <label htmlFor="explorer-entry-rename-input">
@@ -466,10 +528,16 @@ export function ExplorerEntryContextMenu({
           <div className="explorer-entry-context-menu-confirm-message">
             <AlertTriangle size={14} />
             <span>
-              {t("sidebar.explorerDeleteConfirm", {
-                defaultValue: "Delete '{{name}}'? This cannot be undone.",
-                values: { name: entryName },
-              })}
+              {isMultiSelect
+                ? t("sidebar.explorerMultiSelectDeleteConfirm", {
+                    defaultValue:
+                      "Delete {{count}} selected items? This cannot be undone.",
+                    values: { count: selectedCount },
+                  })
+                : t("sidebar.explorerDeleteConfirm", {
+                    defaultValue: "Delete '{{name}}'? This cannot be undone.",
+                    values: { name: entryName },
+                  })}
             </span>
           </div>
           <div className="explorer-entry-context-menu-actions">
@@ -486,7 +554,12 @@ export function ExplorerEntryContextMenu({
               onClick={() => void handleDelete()}
               type="button"
             >
-              {t("sidebar.explorerDelete", { defaultValue: "Delete" })}
+              {isMultiSelect
+                ? t("sidebar.explorerMultiSelectDelete", {
+                    defaultValue: "Delete",
+                    values: { count: selectedCount },
+                  })
+                : t("sidebar.explorerDelete", { defaultValue: "Delete" })}
             </button>
           </div>
         </div>

@@ -192,6 +192,18 @@ pub async fn delete_workspace_entry(root_path: String, entry_path: String) -> na
 }
 
 #[napi]
+pub async fn delete_workspace_entries(
+    root_path: String,
+    entry_paths: Vec<String>,
+) -> napi::Result<crate::storage::services::fs_explorer::BatchWorkspaceDeleteResult> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_workspace_entries(root_path, entry_paths)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn search_files(root_dir: String, query: String) -> napi::Result<Vec<FileSearchResult>> {
     tokio::task::spawn_blocking(move || crate::storage::search_files(root_dir, query))
         .await

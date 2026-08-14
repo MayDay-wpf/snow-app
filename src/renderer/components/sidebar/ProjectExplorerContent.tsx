@@ -1,11 +1,15 @@
 import {
   AlertCircle,
   ArrowLeft,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
+  Copy,
   Loader2,
   RefreshCw,
   Search,
+  Square,
+  Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -47,6 +51,10 @@ type ExplorerEntryContextMenuState = {
   path: string;
   isDirectory: boolean;
   position: { x: number; y: number };
+  /** 当前选中条目数；>1 时右键菜单切换为批量操作模式。 */
+  selectedCount: number;
+  /** 初始模式（批量工具栏的删除按钮直接进入确认态）。 */
+  initialMode?: "actions" | "delete";
 };
 
 const flattenTree = (
@@ -524,21 +532,22 @@ export function ProjectExplorerContent({
     ): void => {
       event.preventDefault();
       // 右键多选区域中的条目时保留整个选中集合；右键未选中条目则单选它。
-      setSelectedPaths((prev) => {
-        if (prev.has(entry.path)) {
-          return prev;
-        }
-        return new Set([entry.path]);
-      });
+      const selectedCount = selectedPaths.has(entry.path)
+        ? selectedPaths.size
+        : 1;
+      setSelectedPaths((prev) =>
+        selectedCount > 1 ? prev : new Set([entry.path])
+      );
       selectionAnchorRef.current = entry.path;
       setEntryContextMenu({
         name: entry.name,
         path: entry.path,
         isDirectory: entry.isDirectory,
         position: { x: event.clientX, y: event.clientY },
+        selectedCount,
       });
     },
-    []
+    [selectedPaths]
   );
 
   const handleRenameEntry = useCallback(
@@ -696,6 +705,117 @@ export function ProjectExplorerContent({
     },
     [isSsh, rootPath, t]
   );
+
+  // 批量复制选中路径（换行分隔写入剪贴板）。
+  const handleCopySelectedPaths = useCallback((): void => {
+    if (selectedPaths.size === 0) {
+      return;
+    }
+    void window.snow
+      .writeClipboardText(Array.from(selectedPaths).join("\n"))
+      .catch(() => {
+        // 剪贴板写入失败时静默忽略（与单文件复制路径行为一致）。
+      });
+  }, [selectedPaths]);
+
+  // 退出多选：清空选中集合。
+  const handleClearSelection = useCallback((): void => {
+    setSelectedPaths(new Set());
+    selectionAnchorRef.current = null;
+  }, []);
+
+  // 批量删除选中条目：单次 IPC 调用后端批量 API（不做 N+1 次往返），
+  // 按返回结果更新树与选中集合；部分失败时在内容区提示。
+  const handleDeleteSelected = useCallback(async (): Promise<void> => {
+    if (!rootPath || selectedPaths.size === 0) {
+      return;
+    }
+
+    setError(null);
+    const paths = Array.from(selectedPaths);
+
+    try {
+      const result = isSsh && sshProfileIdRef.current
+        ? await window.snow.sshDeleteEntries(
+            sshProfileIdRef.current,
+            paths
+          )
+        : await window.snow.deleteWorkspaceEntries(rootPath, paths);
+
+      const deletedPaths = result.deleted;
+
+      if (deletedPaths.length > 0) {
+        setTree((prev) =>
+          deletedPaths.reduce(
+            (acc, p) => removeNodeByPath(acc, p),
+            prev
+          )
+        );
+
+        setExpandedPaths((prev) => {
+          const next = new Set<string>();
+          for (const p of prev) {
+            const isDeleted = deletedPaths.some(
+              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\")
+            );
+            if (!isDeleted) {
+              next.add(p);
+            }
+          }
+          return next;
+        });
+
+        setSelectedPaths((prev) => {
+          const next = new Set<string>();
+          for (const p of prev) {
+            const isDeleted = deletedPaths.some(
+              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\")
+            );
+            if (!isDeleted) {
+              next.add(p);
+            }
+          }
+          return next;
+        });
+
+        const anchor = selectionAnchorRef.current;
+        if (
+          anchor !== null &&
+          deletedPaths.some(
+            (d) => anchor === d || anchor.startsWith(d + "/") || anchor.startsWith(d + "\\")
+          )
+        ) {
+          selectionAnchorRef.current = null;
+        }
+      }
+
+      if (result.failed.length > 0) {
+        setError(
+          t("sidebar.explorerBatchDeleteError", {
+            defaultValue:
+              "{{count}} item(s) failed to delete — see details in the explorer",
+            values: { count: result.failed.length },
+          })
+        );
+        throw new Error("Batch delete had partial failures");
+      }
+    } catch (operationError) {
+      if (
+        operationError instanceof Error &&
+        operationError.message === "Batch delete had partial failures"
+      ) {
+        throw operationError;
+      }
+      setError(
+        operationError instanceof Error
+          ? toExplorerErrorMessage(operationError)
+          : t("sidebar.explorerDeleteError", {
+              defaultValue: "Failed to delete workspace entry",
+            })
+      );
+      throw operationError;
+    }
+  }, [isSsh, rootPath, selectedPaths, t]);
 
   const handleSearchChange = useCallback((value: string): void => {
     setSearchQuery(value);
@@ -906,6 +1026,22 @@ export function ProjectExplorerContent({
     [tree, expandedPaths]
   );
 
+  // 全选当前可见条目；已全部选中时切换为清空。
+  const handleToggleSelectAll = useCallback((): void => {
+    const visible = flatNodes.map((f) => f.node.path);
+    if (visible.length === 0) {
+      return;
+    }
+    const allVisibleSelected = visible.every((p) => selectedPaths.has(p));
+    if (allVisibleSelected) {
+      setSelectedPaths(new Set());
+      selectionAnchorRef.current = null;
+    } else {
+      setSelectedPaths(new Set(visible));
+      selectionAnchorRef.current = visible[visible.length - 1];
+    }
+  }, [flatNodes, selectedPaths]);
+
   // 树行点击：ctrl/cmd 切换选中、shift 范围选择；普通点击单选并打开/展开。
   const handleTreeRowClick = useCallback(
     (
@@ -981,7 +1117,7 @@ export function ProjectExplorerContent({
     ]
   );
 
-  // 树容器键盘：Ctrl/Cmd + A 全选当前可见条目。
+  // 树容器键盘：Ctrl/Cmd + A 全选当前可见条目，Escape 清空选择。
   const handleTreeKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
@@ -992,6 +1128,11 @@ export function ProjectExplorerContent({
           selectionAnchorRef.current =
             flatNodes[flatNodes.length - 1].node.path;
         }
+        return;
+      }
+      if (event.key === "Escape") {
+        setSelectedPaths(new Set());
+        selectionAnchorRef.current = null;
       }
     },
     [flatNodes]
@@ -1232,6 +1373,102 @@ export function ProjectExplorerContent({
           </div>
         ) : null}
 
+        {!isSearchMode && selectedPaths.size > 0 ? (
+          <div className="explorer-bulk-bar" role="toolbar">
+            <span className="explorer-bulk-count">
+              {t("sidebar.explorerMultiSelectCount", {
+                defaultValue: "{{count}} selected",
+                values: { count: selectedPaths.size },
+              })}
+            </span>
+            <button
+              className="explorer-bulk-btn"
+              onClick={handleToggleSelectAll}
+              title={t("sidebar.explorerMultiSelectSelectAll", {
+                defaultValue: "Select all visible",
+              })}
+              type="button"
+            >
+              {flatNodes.length > 0 &&
+              flatNodes.every((f) => selectedPaths.has(f.node.path)) ? (
+                <CheckSquare size={12} />
+              ) : (
+                <Square size={12} />
+              )}
+              <span>
+                {flatNodes.length > 0 &&
+                flatNodes.every((f) => selectedPaths.has(f.node.path))
+                  ? t("sidebar.explorerMultiSelectDeselectAll", {
+                      defaultValue: "Deselect all",
+                    })
+                  : t("sidebar.explorerMultiSelectSelectAll", {
+                      defaultValue: "Select all",
+                    })}
+              </span>
+            </button>
+            <button
+              className="explorer-bulk-btn"
+              onClick={handleCopySelectedPaths}
+              title={t("sidebar.explorerMultiSelectCopyPaths", {
+                defaultValue: "Copy selected paths",
+              })}
+              type="button"
+            >
+              <Copy size={12} />
+              <span>
+                {t("sidebar.explorerMultiSelectCopyPaths", {
+                  defaultValue: "Copy paths",
+                })}
+              </span>
+            </button>
+            <button
+              className="explorer-bulk-btn danger"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setEntryContextMenu({
+                  name: "",
+                  path: "",
+                  isDirectory: false,
+                  position: {
+                    x: rect.left,
+                    y: rect.bottom + 4,
+                  },
+                  selectedCount: selectedPaths.size,
+                  initialMode: "delete",
+                });
+              }}
+              title={t("sidebar.explorerMultiSelectDelete", {
+                defaultValue: "Delete selected items",
+                values: { count: selectedPaths.size },
+              })}
+              type="button"
+            >
+              <Trash2 size={12} />
+              <span>
+                {t("sidebar.explorerMultiSelectDelete", {
+                  defaultValue: "Delete",
+                  values: { count: selectedPaths.size },
+                })}
+              </span>
+            </button>
+            <button
+              className="explorer-bulk-btn"
+              onClick={handleClearSelection}
+              title={t("sidebar.explorerMultiSelectExit", {
+                defaultValue: "Exit multi-select",
+              })}
+              type="button"
+            >
+              <X size={12} />
+              <span>
+                {t("sidebar.explorerMultiSelectExit", {
+                  defaultValue: "Exit",
+                })}
+              </span>
+            </button>
+          </div>
+        ) : null}
+
         {error ? (
           <span className={`explorer-error${isStale ? " stale" : ""}`}>
             {isStale ? <AlertCircle size={13} /> : null}
@@ -1400,8 +1637,12 @@ export function ProjectExplorerContent({
           entryPath={entryContextMenu.path}
           isDirectory={entryContextMenu.isDirectory}
           isSsh={isSsh}
+          selectedCount={entryContextMenu.selectedCount}
+          initialMode={entryContextMenu.initialMode}
           onClose={() => setEntryContextMenu(null)}
           onDelete={() => handleDeleteEntry(entryContextMenu.path)}
+          onDeleteSelected={() => handleDeleteSelected()}
+          onCopySelectedPaths={() => handleCopySelectedPaths()}
           onOpenTerminal={onOpenTerminal}
           onRename={(newName) =>
             handleRenameEntry(entryContextMenu.path, newName)
