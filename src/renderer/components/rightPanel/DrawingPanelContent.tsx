@@ -1383,16 +1383,6 @@ export function DrawingPanelContent({
     };
   }, []);
 
-  const handleKeyDownOnPrompt = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault();
-        void handleGenerate();
-      }
-    },
-    [handleGenerate]
-  );
-
   /** 在提示词光标处插入 `{{Image N}}`（点击参考图缩略图调用）。 */
   const insertRefPlaceholder = useCallback((n: number): void => {
     const el = textareaRef.current;
@@ -1412,6 +1402,82 @@ export function DrawingPanelContent({
       el.setSelectionRange(pos, pos);
     });
   }, []);
+
+  /** 提示词中所有 `{{Image N}}` 变量引用（按出现顺序，含重复）。 */
+  const promptRefMatches = useMemo<Array<{ n: number }>>(() => {
+    const matches: Array<{ n: number }> = [];
+    const refPattern = /\{\{\s*Image\s+(\d+)\s*\}\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = refPattern.exec(prompt)) !== null) {
+      matches.push({ n: Number.parseInt(match[1], 10) });
+    }
+    return matches;
+  }, [prompt]);
+
+  /** 参考图 → 灯箱 GalleryItem（chip 点击打开图片，复用 openLightbox）。 */
+  const refGalleryItems = useMemo<GalleryItem[]>(
+    () =>
+      refImages.map((ref, index) => ({
+        key: `ref-${index}-${ref.path}`,
+        src: ref.path,
+      })),
+    [refImages]
+  );
+
+  /** `@` 唤起参考图选择弹窗是否打开（光标前为 `@` 时自动弹出）。 */
+  const [refPickerOpen, setRefPickerOpen] = useState(false);
+
+  /** 提示词输入：检测光标前的 `@` 唤起参考图选择弹窗。 */
+  const handlePromptChange = (event: React.ChangeEvent<HTMLTextAreaElement>): void => {
+    const value = event.target.value;
+    setPrompt(value);
+    const pos = event.target.selectionStart ?? value.length;
+    // 光标前（忽略空白）以 `@` 结尾 → 打开选择弹窗；否则关闭
+    setRefPickerOpen(/@\s*$/.test(value.slice(0, pos)));
+  };
+
+  /** 从弹窗选择参考图：移除已输入的 `@` 并插入 `{{Image N}}`。 */
+  const handlePickRefImage = (n: number): void => {
+    setRefPickerOpen(false);
+    const el = textareaRef.current;
+    const token = `{{Image ${n}}}`;
+    if (!el) {
+      setPrompt((prev) => {
+        const cleaned = prev.replace(/@\s*$/, "").trim();
+        return cleaned ? `${cleaned} ${token}` : token;
+      });
+      return;
+    }
+    const value = el.value;
+    const pos = el.selectionStart ?? value.length;
+    // 从光标向前回退：去掉 `@` 及其后的空白
+    let start = pos;
+    while (start > 0 && /\s/.test(value[start - 1])) start -= 1;
+    if (start > 0 && value[start - 1] === "@") start -= 1;
+    const next = value.slice(0, start) + token + value.slice(pos);
+    setPrompt(next);
+    window.requestAnimationFrame(() => {
+      el.focus();
+      const cursor = start + token.length;
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  /** 提示词按键：Esc 关闭参考图选择弹窗。 */
+  const handleKeyDownOnPrompt = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        void handleGenerate();
+        return;
+      }
+      if (event.key === "Escape" && refPickerOpen) {
+        event.preventDefault();
+        setRefPickerOpen(false);
+      }
+    },
+    [handleGenerate, refPickerOpen]
+  );
 
   // ----------------------------------------------------------------
   // 本次生成结果 → 画廊项
@@ -1998,15 +2064,111 @@ export function DrawingPanelContent({
       <div className="ai-drawing-body">
           {/* 提示词 + 生成 */}
           <div className="ai-drawing-composer">
-          <textarea
-            ref={textareaRef}
-            className="ai-drawing-prompt"
-            value={prompt}
-            placeholder={t("rightPanel.aiDrawing.promptPlaceholder")}
-            rows={3}
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={handleKeyDownOnPrompt}
-          />
+          <div className="ai-drawing-prompt-wrap">
+            <textarea
+              ref={textareaRef}
+              className="ai-drawing-prompt"
+              value={prompt}
+              placeholder={t("rightPanel.aiDrawing.promptPlaceholder")}
+              rows={3}
+              onChange={handlePromptChange}
+              onKeyDown={handleKeyDownOnPrompt}
+            />
+            {/* `@` 唤起参考图选择弹窗：选择即插入 {{Image N}} 并关闭 */}
+            {refPickerOpen && (
+              <div className="ai-drawing-ref-picker">
+                <div className="ai-drawing-ref-picker-header">
+                  <Images size={12} strokeWidth={1.8} />
+                  <span>
+                    {t("rightPanel.aiDrawing.refPickerTitle", {
+                      defaultValue: "Insert reference image",
+                    })}
+                  </span>
+                </div>
+                {refImages.length === 0 ? (
+                  <div className="ai-drawing-ref-picker-empty">
+                    {t("rightPanel.aiDrawing.refPickerEmpty", {
+                      defaultValue: "Add reference images first",
+                    })}
+                  </div>
+                ) : (
+                  <div className="ai-drawing-ref-picker-grid">
+                    {refImages.map((ref, index) => (
+                      <button
+                        type="button"
+                        key={ref.path}
+                        className="ai-drawing-ref-picker-item"
+                        title={t("rightPanel.aiDrawing.refInsert", {
+                          values: { n: index + 1 },
+                        })}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => handlePickRefImage(index + 1)}
+                      >
+                        <LibraryImage
+                          path={ref.path}
+                          alt=""
+                          className="ai-drawing-ref-picker-thumb"
+                        />
+                        <span className="ai-drawing-ref-picker-badge">
+                          {index + 1}
+                        </span>
+                        <span className="ai-drawing-ref-picker-name">
+                          {ref.path.split("/").pop()}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* 提示词中的 {{Image N}} 引用 chip：点击打开对应参考图（复用灯箱） */}
+          {promptRefMatches.length > 0 && (
+            <div className="ai-drawing-ref-chips">
+              {promptRefMatches.map(({ n }, chipIndex) => {
+                const ref = refImages[n - 1];
+                const outOfRange = !ref;
+                return (
+                  <button
+                    type="button"
+                    key={`${n}-${chipIndex}`}
+                    className={`ai-drawing-ref-chip${
+                      outOfRange ? " is-out-of-range" : ""
+                    }`}
+                    title={
+                      outOfRange
+                        ? t("rightPanel.aiDrawing.refPlaceholderOutOfRange", {
+                            values: {
+                              refs: `{{Image ${n}}}`,
+                              count: refImages.length,
+                            },
+                          })
+                        : t("rightPanel.aiDrawing.refOpenImage", {
+                            defaultValue: "Open reference image",
+                          })
+                    }
+                    disabled={outOfRange}
+                    onClick={() => {
+                      if (ref) {
+                        openLightbox(refGalleryItems, n - 1);
+                      }
+                    }}
+                  >
+                    {ref ? (
+                      <LibraryImage
+                        path={ref.path}
+                        alt=""
+                        className="ai-drawing-ref-chip-thumb"
+                      />
+                    ) : (
+                      <ImageOff size={12} strokeWidth={1.8} />
+                    )}
+                    <span>{`{{Image ${n}}}`}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {/* 反向提示词（仅 Gemini Imagen 生效；默认自动填充通用负面词） */}
           {capabilities?.supportsNegativePrompt && (
             <div className="ai-drawing-negative">

@@ -27115,6 +27115,156 @@ input {
   border-color: color-mix(in srgb, var(--accent-color) 40%, var(--border-color));
 }
 
+/* 提示词中 {{Image N}} 引用的 chip：缩略图 + 引用号，点击打开参考图（灯箱） */
+.ai-drawing-ref-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-drawing-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.ai-drawing-ref-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-tertiary));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-color) 40%, var(--border-color));
+}
+
+.ai-drawing-ref-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  border-color: color-mix(in srgb, var(--error-text, #ef6d6d) 45%, var(--border-color));
+  color: var(--error-text, #ef6d6d);
+}
+
+.ai-drawing-ref-chip-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.ai-drawing-ref-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `@` 唤起的参考图选择弹窗：贴住提示词输入框宽度，窄容器自动降列 */
+.ai-drawing-prompt-wrap {
+  position: relative;
+}
+
+.ai-drawing-ref-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(280px, 50vh);
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-island-strong);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+}
+
+.ai-drawing-ref-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.ai-drawing-ref-picker-empty {
+  padding: 12px 8px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* 网格：minmax 自适应列数，右侧面板窄容器自动降列（无需容器查询） */
+.ai-drawing-ref-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+}
+
+.ai-drawing-ref-picker-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.ai-drawing-ref-picker-item:hover {
+  border-color: color-mix(in srgb, var(--accent-color) 55%, var(--border-color));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.ai-drawing-ref-picker-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+}
+
+.ai-drawing-ref-picker-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 82%, #000);
+  color: var(--on-solid);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.ai-drawing-ref-picker-name {
+  padding: 0 6px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 .ai-drawing-spin {
   animation: ai-drawing-rotate 0.9s linear infinite;
 }
