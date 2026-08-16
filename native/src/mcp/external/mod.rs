@@ -2,6 +2,8 @@ mod http;
 mod stdio;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use futures::{stream, StreamExt};
 
@@ -17,6 +19,47 @@ use super::tools::McpTool;
 const DISCOVERY_CONCURRENCY: usize = 4;
 const SERVER_NAME_MAX_LEN: usize = 18;
 const TOOL_NAME_MAX_LEN: usize = 24;
+
+/// 外部 MCP 服务器工具发现的进程内 TTL 缓存。
+///
+/// 子代理编辑器、项目 MCP 面板、会话上下文收集等场景会频繁请求
+/// 外部服务器的工具列表，而每次发现都要 spawn 子进程或建立 HTTP
+/// 连接并完成握手，成本很高（慢服务器可达数秒乃至超时）。缓存使
+/// 重复请求直接命中，避免反复连接。
+///
+/// 约定：
+/// - 仅缓存**成功**结果；失败不缓存，下次调用自动重试（避免把
+///   瞬时故障（网络抖动、进程启动失败）缓存成固定错误）。
+/// - 配置写入路径（MCP 服务器增删改、启停服务器/工具）会主动
+///   调用 `invalidate_discovery_cache` 清空缓存，保证下次读取
+///   拿到最新列表；TTL 作为兜底保证最长 60 秒内自然刷新。
+/// - `force` 请求（MCP 设置页手动「刷新工具」）绕过缓存直接
+///   实时发现，并刷新缓存条目。
+const DISCOVERY_CACHE_TTL: Duration = Duration::from_secs(60);
+/// 缓存条目数上限，超过后整体清空（与项目内其他 TTL 缓存一致）。
+const DISCOVERY_CACHE_MAX_ENTRIES: usize = 256;
+
+struct CachedDiscovery {
+    fetched_at: Instant,
+    tools: Vec<McpTool>,
+}
+
+static DISCOVERY_CACHE: OnceLock<Mutex<HashMap<String, CachedDiscovery>>> = OnceLock::new();
+
+fn discovery_cache() -> &'static Mutex<HashMap<String, CachedDiscovery>> {
+    DISCOVERY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 使外部 MCP 工具发现缓存全部失效。MCP 配置写入路径
+/// （新增/修改/删除服务器、启停服务器/工具）成功后调用，
+/// 保证后续读取立即拿到最新工具列表。
+pub(crate) fn invalidate_discovery_cache() {
+    if let Some(cache) = DISCOVERY_CACHE.get() {
+        if let Ok(mut guard) = cache.lock() {
+            guard.clear();
+        }
+    }
+}
 
 /// 外部 MCP 服务器工具获取的默认超时（毫秒）：120 秒。
 /// 服务器配置中显式设置了 timeout_ms（>0）时优先使用配置值。
@@ -55,6 +98,8 @@ pub async fn discover_tools(
     let disabled_tool_names = scope
         .map(|settings| settings.disabled_tool_names.clone())
         .unwrap_or_default();
+    // async 块内使用，避免借用与 stream::iter 的迭代器生命周期冲突。
+    let project_id = project_id.map(str::to_string);
     let discoveries = stream::iter(
         configs
             .into_iter()
@@ -65,6 +110,7 @@ pub async fn discover_tools(
                             .contains(&project_scope_server_id(&config.server_id)))
             })
             .map(|config| {
+                let project_id = project_id.clone();
                 let server_name =
                     server_names
                         .get(&config.server_id)
@@ -72,7 +118,9 @@ pub async fn discover_tools(
                         .unwrap_or_else(|| {
                             sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external")
                         });
-                async move { discover_config_tools(config, server_name).await }
+                async move {
+                    discover_config_tools(project_id.as_deref(), config, server_name, false).await
+                }
             }),
     )
     .buffered(DISCOVERY_CONCURRENCY)
@@ -122,6 +170,7 @@ pub async fn discover_project_servers(project_id: &str) -> Result<Vec<ExternalMc
 pub async fn discover_server_tools(
     project_id: Option<&str>,
     config_server_id: &str,
+    force: bool,
 ) -> Result<Vec<McpTool>> {
     let configs = load_configs(project_id).await?;
     let server_names = public_server_names(&configs);
@@ -138,7 +187,7 @@ pub async fn discover_server_tools(
         .cloned()
         .unwrap_or_else(|| sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external"));
 
-    discover_config_tools(config, server_name).await
+    discover_config_tools(project_id, config, server_name, force).await
 }
 
 pub async fn resolve_project_scope_server(
@@ -251,7 +300,54 @@ fn is_transport_closed(error: &napi::Error) -> bool {
     error.reason.contains("Transport closed")
 }
 
+/// 带 TTL 缓存的外部 MCP 服务器工具发现。
+///
+/// - 命中且未过期：直接返回缓存工具列表（避免重复 spawn 子进程 /
+///   建立 HTTP 连接，这是子代理编辑器等场景加载慢的主因）。
+/// - miss / 过期 / `force`：实时连接发现；成功结果写入缓存，
+///   失败不缓存（下次自动重试）。
+/// - 配置写入路径通过 `invalidate_discovery_cache` 主动失效。
 async fn discover_config_tools(
+    project_id: Option<&str>,
+    config: McpServerConfigRecord,
+    server_name: String,
+    force: bool,
+) -> Result<Vec<McpTool>> {
+    let cache_key = format!("{}:{}", project_id.unwrap_or(""), config.server_id);
+
+    if !force {
+        if let Ok(guard) = discovery_cache().lock() {
+            if let Some(entry) = guard.get(&cache_key) {
+                if entry.fetched_at.elapsed() < DISCOVERY_CACHE_TTL {
+                    return Ok(entry.tools.clone());
+                }
+            }
+        }
+    }
+
+    let tools = discover_config_tools_inner(config, server_name).await?;
+
+    if !force {
+        if let Ok(mut guard) = discovery_cache().lock() {
+            if guard.len() >= DISCOVERY_CACHE_MAX_ENTRIES {
+                guard.clear();
+            }
+            guard.insert(
+                cache_key,
+                CachedDiscovery {
+                    fetched_at: Instant::now(),
+                    tools: tools.clone(),
+                },
+            );
+        }
+    }
+
+    Ok(tools)
+}
+
+/// 无缓存的实时发现：连接服务器、握手、列出工具后关闭连接。
+/// 由 `discover_config_tools` 包装缓存。
+async fn discover_config_tools_inner(
     config: McpServerConfigRecord,
     server_name: String,
 ) -> Result<Vec<McpTool>> {

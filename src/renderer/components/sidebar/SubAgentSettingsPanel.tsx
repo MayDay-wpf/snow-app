@@ -97,21 +97,13 @@ export function SubAgentSettingsPanel({
       const availableServers = servers.filter(
         (server) => server.globalEnabled && server.enabled && !server.error
       );
-      const toolsByServer = await Promise.all(
-        availableServers.map(async (server) => ({
-          server,
-          tools:
-            server.source === "system"
-              ? server.tools
-              : await window.snow.listMcpProjectServerTools(
-                  projectId,
-                  server.id
-                ),
-        }))
-      );
+      // Rust 侧 listMcpProjectServers 已并发发现各启用外部服务器的
+      // 工具并随列表返回（进程内 TTL 缓存，重复打开面板直接命中），
+      // 无需再逐个服务器发起 IPC；单个服务器发现失败仅被过滤，
+      // 不再拖垮整个列表。
       const uniqueTools = new Map<string, SubAgentToolOption>();
-      for (const { server, tools } of toolsByServer) {
-        for (const tool of tools) {
+      for (const server of availableServers) {
+        for (const tool of server.tools) {
           if (!tool.enabled || uniqueTools.has(tool.name)) {
             continue;
           }

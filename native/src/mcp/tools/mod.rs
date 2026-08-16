@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use futures::{stream, StreamExt};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value;
@@ -114,6 +115,10 @@ impl McpTool {
 /// requestApproval 工具全名（隶属于 app-control 服务器，仅 Plan Mode 下暴露）。
 const REQUEST_APPROVAL_FULL_NAME: &str = "app-control-requestApproval";
 
+/// 项目 MCP 服务器工具发现的并发度：外部服务器并行连接发现，
+/// 避免串行等待（与 external 模块的 DISCOVERY_CONCURRENCY 一致）。
+const PROJECT_SERVER_DISCOVERY_CONCURRENCY: usize = 4;
+
 /// 所有内置 MCP 服务器 ID（含动态注册的 skills），按长度降序排列，
 /// 用于工具名最长前缀匹配。新格式 `{server_id}-{tool_name}` 中，server_id
 /// 可能含 `-`（如 `user-interaction`），需通过此列表消除歧义；外部工具的
@@ -126,7 +131,6 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "websearch",
     "imagegen",
     "codebase",
-    "codelens",
     "browser",
     "config",
     "skills",
@@ -164,7 +168,7 @@ pub async fn list_mcp_tools() -> napi::Result<Vec<McpToolDefinition>> {
 pub async fn list_mcp_server_tools(
     config_server_id: String,
 ) -> napi::Result<Vec<McpToolStatus>> {
-    let tools = super::external::discover_server_tools(None, &config_server_id).await?;
+    let tools = super::external::discover_server_tools(None, &config_server_id, true).await?;
     let global_scope = load_global_scope().await?;
     Ok(to_tool_statuses(&tools, global_scope.as_ref()))
 }
@@ -223,22 +227,56 @@ pub async fn list_mcp_project_servers(
         })
         .collect::<Vec<_>>();
 
-    for external_server in super::external::discover_project_servers(&project_id).await? {
-        let scope_server_id =
-            super::external::project_scope_server_id(&external_server.config_server_id);
-        let project_owned = external_server.source == "project";
-        let enabled =
-            external_server.enabled && (project_owned || scope.is_server_enabled(&scope_server_id));
-        servers.push(McpProjectServerStatus {
-            id: scope_server_id,
-            name: external_server.name,
-            source: external_server.source,
-            global_enabled: external_server.global_enabled,
-            enabled,
-            tools: Vec::new(),
-            error: None,
-        });
-    }
+    // 外部服务器：并发发现已启用服务器的工具并随列表一并返回
+    // （进程内 TTL 缓存，重复请求直接命中，无需前端逐个 IPC）。
+    // 单个服务器发现失败只记录 error、工具留空，不影响其他服务器
+    // 与整体列表——避免「一个服务器连不上，全部工具加载失败」。
+    let discovered = stream::iter(
+        super::external::discover_project_servers(&project_id)
+            .await?
+            .into_iter()
+            .map(|external_server| {
+                let project_id = project_id.clone();
+                let scope = scope.clone();
+                let scope_server_id =
+                    super::external::project_scope_server_id(&external_server.config_server_id);
+                let project_owned = external_server.source == "project";
+                let enabled = external_server.enabled
+                    && (project_owned || scope.is_server_enabled(&scope_server_id));
+                let global_enabled = external_server.global_enabled;
+                async move {
+                    let (tools, error) = if enabled && global_enabled {
+                        match super::external::discover_server_tools(
+                            Some(&project_id),
+                            &external_server.config_server_id,
+                            false,
+                        )
+                        .await
+                        {
+                            Ok(found) => (to_project_tool_statuses(&found, &scope), None),
+                            Err(discovery_error) => {
+                                (Vec::new(), Some(discovery_error.reason.clone()))
+                            }
+                        }
+                    } else {
+                        (Vec::new(), None)
+                    };
+                    McpProjectServerStatus {
+                        id: scope_server_id,
+                        name: external_server.name,
+                        source: external_server.source,
+                        global_enabled,
+                        enabled,
+                        tools,
+                        error,
+                    }
+                }
+            }),
+    )
+    .buffered(PROJECT_SERVER_DISCOVERY_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    servers.extend(discovered);
 
     Ok(servers)
 }
@@ -279,7 +317,8 @@ pub async fn list_mcp_project_server_tools(
         )
     })?;
     let tools =
-        super::external::discover_server_tools(Some(&project_id), external_server_id).await?;
+        super::external::discover_server_tools(Some(&project_id), external_server_id, false)
+            .await?;
     Ok(to_project_tool_statuses(&tools, &scope))
 }
 
@@ -315,7 +354,7 @@ pub async fn set_mcp_project_server_enabled(
             server.config_server_id == external_server_id && server.source == "project"
         }) {
             let external_server_id = external_server_id.to_string();
-            return with_database_path(move |database_path| {
+            let result = with_database_path(move |database_path| {
                 crate::storage::services::project_mcp_server_configs::set_project_mcp_server_enabled(
                     &database_path,
                     &project_id,
@@ -324,10 +363,12 @@ pub async fn set_mcp_project_server_enabled(
                 )
             })
             .await;
+            super::external::invalidate_discovery_cache();
+            return result;
         }
     }
 
-    with_database_path(move |database_path| {
+    let result = with_database_path(move |database_path| {
         crate::storage::services::system_settings::set_mcp_project_server_enabled(
             &database_path,
             &project_id,
@@ -335,7 +376,9 @@ pub async fn set_mcp_project_server_enabled(
             enabled,
         )
     })
-    .await
+    .await;
+    super::external::invalidate_discovery_cache();
+    result
 }
 
 pub async fn set_mcp_project_tool_enabled(
@@ -368,7 +411,7 @@ pub async fn set_mcp_project_tool_enabled(
         ));
     }
 
-    with_database_path(move |database_path| {
+    let result = with_database_path(move |database_path| {
         crate::storage::services::system_settings::set_mcp_project_tool_enabled(
             &database_path,
             &project_id,
@@ -376,7 +419,9 @@ pub async fn set_mcp_project_tool_enabled(
             enabled,
         )
     })
-    .await
+    .await;
+    super::external::invalidate_discovery_cache();
+    result
 }
 
 /// 全局启停单个工具：校验工具存在于全局可见的工具集（内置或全局外部服务器）。
@@ -384,14 +429,16 @@ pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Res
     let tool_name = required_value(tool_name, "MCP tool name")?;
     ensure_global_tool_exists(&tool_name).await?;
 
-    with_database_path(move |database_path| {
+    let result = with_database_path(move |database_path| {
         crate::storage::services::system_settings::set_mcp_global_tool_enabled(
             &database_path,
             &tool_name,
             enabled,
         )
     })
-    .await
+    .await;
+    super::external::invalidate_discovery_cache();
+    result
 }
 
 /// 全局批量启停工具：逐个校验存在性，全部通过后一次写入存储。
@@ -401,14 +448,16 @@ pub async fn set_mcp_tools_enabled(tool_names: Vec<String>, enabled: bool) -> na
         ensure_global_tool_exists(&tool_name).await?;
     }
 
-    with_database_path(move |database_path| {
+    let result = with_database_path(move |database_path| {
         crate::storage::services::system_settings::set_mcp_global_tools_enabled(
             &database_path,
             &tool_names,
             enabled,
         )
     })
-    .await
+    .await;
+    super::external::invalidate_discovery_cache();
+    result
 }
 
 /// 项目批量启停工具：逐个校验存在性（builtin/external 分支），全部通过后一次写入存储。
@@ -444,7 +493,7 @@ pub async fn set_mcp_project_tools_enabled(
         }
     }
 
-    with_database_path(move |database_path| {
+    let result = with_database_path(move |database_path| {
         crate::storage::services::system_settings::set_mcp_project_tools_enabled(
             &database_path,
             &project_id,
@@ -452,7 +501,9 @@ pub async fn set_mcp_project_tools_enabled(
             enabled,
         )
     })
-    .await
+    .await;
+    super::external::invalidate_discovery_cache();
+    result
 }
 
 /// 校验工具存在于全局可见的工具集（内置工具或已配置的全局外部服务器）中。

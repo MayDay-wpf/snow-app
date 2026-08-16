@@ -582,12 +582,22 @@ pub fn list_mcp_server_configs() -> Result<Vec<McpServerConfigRecord>> {
 
 pub fn upsert_mcp_server_config(item: McpServerConfigInput) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::mcp_server_configs::upsert_mcp_server_config(&database_path, &item)
+    let result =
+        services::mcp_server_configs::upsert_mcp_server_config(&database_path, &item);
+    if result.is_ok() {
+        crate::mcp::external::invalidate_discovery_cache();
+    }
+    result
 }
 
 pub fn delete_mcp_server_config(server_id: String) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::mcp_server_configs::delete_mcp_server_config(&database_path, &server_id)
+    let result =
+        services::mcp_server_configs::delete_mcp_server_config(&database_path, &server_id);
+    if result.is_ok() {
+        crate::mcp::external::invalidate_discovery_cache();
+    }
+    result
 }
 
 pub fn list_project_mcp_server_configs(
@@ -605,20 +615,28 @@ pub fn upsert_project_mcp_server_config(
     item: McpServerConfigInput,
 ) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::project_mcp_server_configs::upsert_project_mcp_server_config(
+    let result = services::project_mcp_server_configs::upsert_project_mcp_server_config(
         &database_path,
         &project_id,
         &item,
-    )
+    );
+    if result.is_ok() {
+        crate::mcp::external::invalidate_discovery_cache();
+    }
+    result
 }
 
 pub fn delete_project_mcp_server_config(project_id: String, server_id: String) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::project_mcp_server_configs::delete_project_mcp_server_config(
+    let result = services::project_mcp_server_configs::delete_project_mcp_server_config(
         &database_path,
         &project_id,
         &server_id,
-    )
+    );
+    if result.is_ok() {
+        crate::mcp::external::invalidate_discovery_cache();
+    }
+    result
 }
 
 pub fn list_import_resources() -> Result<Vec<ImportResourceRecord>> {
