@@ -9,6 +9,7 @@ use crate::api::config::{
     resolve_advanced_model,
 };
 use crate::api::gemini::create_gemini_response_stream;
+use crate::api::interactions::create_interactions_response_stream;
 use crate::api::responses::{
     create_response_stream_with_context, ResponsesApiRequest, ResponsesApiResult,
     ResponsesApiStreamCallback,
@@ -295,8 +296,19 @@ pub async fn create_response_stream(
             )
             .await
         }
+        "interactions" => {
+            create_interactions_response_stream(
+                request,
+                context.database_path,
+                api_config,
+                context.custom_headers,
+                on_chunk,
+                cancel_token.clone(),
+            )
+            .await
+        }
         request_method => Err(Error::from_reason(format!(
-            "Unsupported chat request method '{}'. Please switch the active API request method to Chat, Responses, Anthropic or Gemini.",
+            "Unsupported chat request method '{}'. Please switch the active API request method to Chat, Responses, Anthropic, Gemini, or Interactions.",
             request_method
         ))),
     };

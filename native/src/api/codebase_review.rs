@@ -287,7 +287,7 @@ async fn review_results(query: &str, results: &[SearchResult]) -> Result<ReviewO
             )
             .await?
         }
-        "gemini" => {
+        "gemini" | "interactions" => {
             review_via_gemini(
                 &api_config,
                 &api_key,

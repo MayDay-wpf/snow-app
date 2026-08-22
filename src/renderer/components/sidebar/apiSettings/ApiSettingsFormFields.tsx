@@ -403,7 +403,8 @@ export function ApiSettingsFormFields({
               )}
             </div>
           </label>
-          {data.requestMethod === "gemini" && (
+          {(data.requestMethod === "gemini" ||
+            data.requestMethod === "interactions") && (
             <div className="api-settings-field">
               <span>
                 {t("settings.apiGoogleSearch", {

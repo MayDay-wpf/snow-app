@@ -45,17 +45,24 @@ pub(crate) async fn describe_image(
     }
 
     let result = match vision_config.request_method.as_str() {
-        "chat" => describe_image_via_chat(client, vision_config, image, user_prompt, cancel_token).await?,
+        "chat" => {
+            describe_image_via_chat(client, vision_config, image, user_prompt, cancel_token).await?
+        }
         "responses" => {
-            describe_image_via_responses(client, vision_config, image, user_prompt, cancel_token).await?
+            describe_image_via_responses(client, vision_config, image, user_prompt, cancel_token)
+                .await?
         }
         "anthropic" => {
-            describe_image_via_anthropic(client, vision_config, image, user_prompt, cancel_token).await?
+            describe_image_via_anthropic(client, vision_config, image, user_prompt, cancel_token)
+                .await?
         }
-        "gemini" => describe_image_via_gemini(client, vision_config, image, user_prompt, cancel_token).await?,
+        "gemini" | "interactions" => {
+            describe_image_via_gemini(client, vision_config, image, user_prompt, cancel_token)
+                .await?
+        }
         method => {
             return Err(Error::from_reason(format!(
-                "Unsupported vision request method: {method}. Supported: chat, responses, anthropic, gemini."
+                "Unsupported vision request method: {method}. Supported: chat, responses, anthropic, gemini, interactions."
             )));
         }
     };
@@ -245,12 +252,14 @@ async fn describe_image_via_gemini(
         }],
         "generationConfig": {
             "maxOutputTokens": vision_config.max_tokens,
-            // 思考开关：默认关闭（thinkingBudget=0），开启时给 1024 预算
-            "thinkingConfig": {
-                "thinkingBudget": if vision_config.thinking_enabled { 1024 } else { 0 },
-            },
         },
     });
+
+    if vision_config.thinking_enabled {
+        payload["generationConfig"]["thinkingConfig"] = json!({
+            "thinkingBudget": 1024
+        });
+    }
 
     // 谷歌搜索联网（Gemini 原生 grounding）：配置开启时注入 google_search 工具
     if vision_config.google_search {
@@ -449,11 +458,7 @@ async fn send_vision_stream(
     use futures::StreamExt;
 
     let response = {
-        let send_future = client
-            .post(endpoint)
-            .headers(headers)
-            .json(payload)
-            .send();
+        let send_future = client.post(endpoint).headers(headers).json(payload).send();
         match cancel_token {
             Some(token) => tokio::select! {
                 biased;

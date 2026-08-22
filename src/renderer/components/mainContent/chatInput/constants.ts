@@ -38,6 +38,13 @@ export const THINKING_OPTIONS_BY_METHOD: Record<
     { value: "medium", label: "Medium", icon: Activity },
     { value: "high", label: "High", icon: BrainCircuit },
   ],
+  interactions: [
+    { value: "none", label: "None", icon: CircleOff },
+    { value: "minimal", label: "Minimal", icon: CircleDot },
+    { value: "low", label: "Low", icon: Gauge },
+    { value: "medium", label: "Medium", icon: Activity },
+    { value: "high", label: "High", icon: BrainCircuit },
+  ],
   responses: [
     { value: "none", label: "None", icon: CircleOff },
     { value: "low", label: "Low", icon: Gauge },

@@ -5,16 +5,16 @@ use napi::bindgen_prelude::*;
 
 use crate::prompt::goal_mode_system_prompt::build_goal_mode_system_prompt;
 use crate::prompt::plan_mode_system_prompt::build_plan_mode_system_prompt;
-use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_prompt;
 use crate::prompt::system_prompt::build_system_prompt;
+use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_prompt;
 use crate::storage::services::chat_conversations::{
     get_conversation_modes, load_context_messages, resolve_conversation_id, ChatContextMessage,
 };
 use crate::storage::services::sub_agent_configs::list_sub_agent_configs;
-use crate::storage::SubAgentConfigRecord;
 use crate::storage::services::system_prompts::resolve_active_system_prompt_contents;
 use crate::storage::services::system_settings::get_system_setting_value;
 use crate::storage::services::workspace_directories::get_workspace_directory_path;
+use crate::storage::SubAgentConfigRecord;
 
 use super::tool_messages::ensure_tool_pairing;
 use super::{images::persist_inline_images_to_disk, ConversationContextRequest};
@@ -101,11 +101,7 @@ fn build_sub_agents_section(database_path: &Path, directory_id: Option<&str>) ->
                 if !seen.insert(config.agent_id.as_str()) {
                     continue;
                 }
-                let mut line = format!(
-                    "- `{}` — {}",
-                    config.agent_id.trim(),
-                    config.name.trim()
-                );
+                let mut line = format!("- `{}` — {}", config.agent_id.trim(), config.name.trim());
                 if !config.description.trim().is_empty() {
                     line.push_str(&format!(": {}", config.description.trim()));
                 }
@@ -348,12 +344,24 @@ fn normalize_messages(messages: &[ChatContextMessage]) -> Vec<ChatContextMessage
         .iter()
         .filter_map(|message| {
             let content = message.content.trim();
-            if content.is_empty() {
+            let role = message.role.trim();
+            let has_structured_tool_data = match role {
+                "assistant" => message
+                    .tool_calls_json
+                    .as_deref()
+                    .is_some_and(has_json_entries),
+                "tool" => message
+                    .tool_results_json
+                    .as_deref()
+                    .is_some_and(has_json_entries),
+                _ => false,
+            };
+            if content.is_empty() && !has_structured_tool_data {
                 return None;
             }
 
             Some(ChatContextMessage {
-                role: message.role.trim().to_string(),
+                role: role.to_string(),
                 content: content.to_string(),
                 tool_calls_json: message.tool_calls_json.clone(),
                 tool_results_json: message.tool_results_json.clone(),
@@ -362,6 +370,13 @@ fn normalize_messages(messages: &[ChatContextMessage]) -> Vec<ChatContextMessage
             })
         })
         .collect()
+}
+
+fn has_json_entries(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| value.as_array().map(|entries| !entries.is_empty()))
+        .unwrap_or(false)
 }
 
 /// Read the user's configured default shell type from the terminal settings
@@ -393,3 +408,46 @@ fn resolve_default_shell(database_path: &std::path::Path) -> String {
     crate::exports::terminal::detect_shell_family(&shell_path)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(
+        role: &str,
+        content: &str,
+        tool_calls_json: Option<&str>,
+        tool_results_json: Option<&str>,
+    ) -> ChatContextMessage {
+        ChatContextMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+            tool_calls_json: tool_calls_json.map(str::to_string),
+            tool_results_json: tool_results_json.map(str::to_string),
+            thinking: None,
+            thinking_blocks_json: None,
+        }
+    }
+
+    #[test]
+    fn normalize_messages_keeps_empty_structured_tool_messages() {
+        let normalized = normalize_messages(&[
+            message("assistant", "", Some(r#"[{"id":"call-1"}]"#), None),
+            message("tool", "", None, Some(r#"[{"callId":"call-1"}]"#)),
+        ]);
+
+        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized[0].role, "assistant");
+        assert_eq!(normalized[1].role, "tool");
+    }
+
+    #[test]
+    fn normalize_messages_drops_empty_or_malformed_structured_messages() {
+        let normalized = normalize_messages(&[
+            message("assistant", "", Some("[]"), None),
+            message("tool", "", None, Some("not-json")),
+            message("user", "", None, None),
+        ]);
+
+        assert!(normalized.is_empty());
+    }
+}

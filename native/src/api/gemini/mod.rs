@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use napi::bindgen_prelude::*;
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::config::resolve_advanced_model;
@@ -31,6 +32,77 @@ use crate::storage::services::chat_conversations::{
     store_chat_exchange, ChatContextMessage, StoreChatExchangeInput,
 };
 use crate::storage::ApiConfigRecord;
+
+/// Produce a recovery-only protocol audit without persisting prompts, tool
+/// arguments/results, credentials, or opaque Gemini thought signatures.
+fn gemini_recovery_outbound_audit(payload: &Value) -> String {
+    let contents = payload
+        .get("contents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let (function_calls, function_responses) = contents
+        .iter()
+        .flat_map(|content| {
+            content
+                .get("parts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .fold((0usize, 0usize), |(calls, responses), part| {
+            (
+                calls + usize::from(part.get("functionCall").is_some()),
+                responses + usize::from(part.get("functionResponse").is_some()),
+            )
+        });
+    let tool_entries = payload.get("tools").and_then(Value::as_array);
+    let function_declarations = tool_entries
+        .into_iter()
+        .flatten()
+        .map(|tool| {
+            tool.get("functionDeclarations")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        })
+        .sum::<usize>();
+    let google_search_entries = tool_entries
+        .into_iter()
+        .flatten()
+        .filter(|tool| tool.get("googleSearch").is_some())
+        .count();
+    json!({
+        "contents": contents.len(),
+        "functionCallParts": function_calls,
+        "functionResponseParts": function_responses,
+        "toolsField": if tool_entries.is_some() { "present" } else { "absent" },
+        "functionDeclarations": function_declarations,
+        "googleSearchEntries": google_search_entries,
+        "systemInstructionParts": payload
+            .pointer("/systemInstruction/parts")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
+    })
+    .to_string()
+}
+
+fn gemini_recovery_inbound_audit(streamed_response: &stream::GeminiStreamResult) -> String {
+    let tool_calls =
+        serde_json::from_str::<Vec<Value>>(&streamed_response.tool_calls_json).unwrap_or_default();
+    let tool_names = tool_calls
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    json!({
+        "status": streamed_response.status,
+        "contentChars": streamed_response.content.chars().count(),
+        "thinkingChars": streamed_response.thinking.chars().count(),
+        "toolCallCount": tool_calls.len(),
+        "toolNames": tool_names,
+        "durationMs": streamed_response.total_duration_ms,
+    })
+    .to_string()
+}
 
 /// Public entry point — create a Gemini streaming response.
 pub async fn create_gemini_response_stream(
@@ -129,7 +201,10 @@ async fn create_gemini_response_async(
     )
     .await?;
 
-    let tools = if request.context_compaction.unwrap_or(false) || skip_context {
+    let tools = if request.context_compaction.unwrap_or(false)
+        || skip_context
+        || request.disable_tools.unwrap_or(false)
+    {
         None
     } else {
         match resolve_sub_agent_tools(&request).await {
@@ -148,6 +223,15 @@ async fn create_gemini_response_async(
         tools,
         &prepared_request.user_system_prompts,
     )?;
+    let is_duplicate_recovery = request.disable_tools.unwrap_or(false);
+    if is_duplicate_recovery {
+        log_api_warning(
+            &database_path,
+            "gemini_duplicate_recovery_outbound",
+            "Gemini duplicate recovery protocol audit",
+            &gemini_recovery_outbound_audit(&payload),
+        );
+    }
     let retry_options = RetryOptions::from_config(
         api_config.max_retries,
         api_config.retry_base_delay_ms,
@@ -187,6 +271,14 @@ async fn create_gemini_response_async(
             return Err(error);
         }
     };
+    if is_duplicate_recovery {
+        log_api_warning(
+            &database_path,
+            "gemini_duplicate_recovery_inbound",
+            "Gemini duplicate recovery protocol audit",
+            &gemini_recovery_inbound_audit(&streamed_response),
+        );
+    }
     // See chat/mod.rs: assistant raw_events are not needed for replay, so we
     // skip serializing the full SSE chunk array to avoid DB bloat.
     let raw_response_json = "{}";
@@ -261,7 +353,7 @@ async fn create_gemini_response_async(
                 raw_response_json: &raw_response_json,
                 token_usage: streamed_response.token_usage,
                 response_thinking: &streamed_response.thinking,
-                response_thinking_blocks_json: "[]",
+                response_thinking_blocks_json: &streamed_response.thinking_blocks_json,
                 tool_calls_json: &streamed_response.tool_calls_json,
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),

@@ -50,7 +50,11 @@ scripts/e2e-verify-config.cjs
 
 # Local AI workflow tooling (excluded per user request)
 .trellis/
+.codex/
+.agents/
+.agent/
 AGENTS.md
+GEMINI.md
 .ace-tool/
 .codex-user-data/
 design-qa.md

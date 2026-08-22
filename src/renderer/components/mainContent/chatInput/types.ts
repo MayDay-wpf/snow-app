@@ -102,7 +102,7 @@ export type ChatInputProps = {
   isCompacting?: boolean;
 };
 
-export type RequestMethod = "chat" | "responses" | "gemini" | "anthropic";
+export type RequestMethod = "chat" | "responses" | "gemini" | "anthropic" | "interactions";
 
 /** 模型选择菜单的二级视图。 */
 export type ModelMenuView = "root" | "model" | "thinking" | "apiProfile";

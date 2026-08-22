@@ -9,11 +9,11 @@ use crate::api::config::{
 };
 use crate::api::responses::payload::build_responses_reasoning;
 use crate::api::retry::{should_retry, RetryOptions};
+use crate::storage::initialize_app_storage;
 use crate::storage::services::app_logs::maybe_log_api_request;
 use crate::storage::services::chat_conversations::{
     get_conversation_api_profile, load_context_messages, update_conversation_summary,
 };
-use crate::storage::initialize_app_storage;
 use napi::bindgen_prelude::*;
 use reqwest::header::{
     HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE,
@@ -121,7 +121,7 @@ pub async fn generate_conversation_summary(
                     &messages,
                     &retry_options,
                 ).await,
-                "gemini" => generate_summary_via_gemini(
+                "gemini" | "interactions" => generate_summary_via_gemini(
                     &database_path,
                     &api_config,
                     &api_key,
@@ -360,8 +360,7 @@ async fn generate_summary_via_gemini(
             "parts": [{"text": user_content}]
         }],
         "generationConfig": {
-            "maxOutputTokens": 4096,
-            "thinkingConfig": {"thinkingBudget": 0}
+            "maxOutputTokens": 4096
         }
     });
 

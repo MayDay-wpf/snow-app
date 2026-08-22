@@ -356,7 +356,7 @@ pub fn fetch_available_models(
     let is_default_base_url = base_url == DEFAULT_OPENAI_BASE_URL;
 
     let mut models = match config.request_method.as_str() {
-        "gemini" => {
+        "gemini" | "interactions" => {
             let gemini_base_url = if is_default_base_url {
                 DEFAULT_GEMINI_BASE_URL.to_string()
             } else {

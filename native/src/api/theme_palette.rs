@@ -85,6 +85,8 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         // tag into their native multimodal payloads. An empty conversation_id
         // ensures no chat history is loaded.
         skip_context: None,
+        disable_tools: None,
+        internal_recovery_prompt: None,
         plan_mode: None,
         goal_mode: None,
         worktree_mode: None,
@@ -270,8 +272,19 @@ pub async fn generate_theme_palette_stream(
             )
             .await
         }
+        "interactions" => {
+            crate::api::interactions::create_interactions_response_stream(
+                request,
+                database_path,
+                api_config,
+                custom_headers,
+                on_chunk,
+                cancel_token,
+            )
+            .await
+        }
         request_method => Err(Error::from_reason(format!(
-            "Unsupported request method '{}'. Please switch the selected API request method to Chat, Responses, Anthropic or Gemini.",
+            "Unsupported request method '{}'. Please switch the selected API request method to Chat, Responses, Anthropic, Gemini, or Interactions.",
             request_method
         ))),
     };

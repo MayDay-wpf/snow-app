@@ -293,6 +293,7 @@ export function createToolExecutor(
     const startParallelTool = async (idx: number): Promise<boolean> => {
       const parallelToolCall = toolCalls[idx];
       const isSubAgent = parallelToolCall.name === "sub-agents-activate";
+      const isImageGen = parallelToolCall.name === "imagegen-generate";
 
       // Mark running immediately so each card shows live progress while
       // the others are still working.
@@ -471,7 +472,7 @@ export function createToolExecutor(
             })
           );
 
-          if (!isSubAgent) {
+          if (isImageGen) {
             activeImageGenCount--;
             // 腾出的并发槽位立即补位：启动等待队列中的下一个生图请求。
             while (pendingImageGenQueue.length > 0) {
@@ -491,15 +492,39 @@ export function createToolExecutor(
       return true;
     };
 
+    // The native registry is the source of truth for side-effect-free tools.
+    // Keep todo/config mutations out even if a future registry entry is too
+    // broad: only todo "get" and config get/list are safe to overlap.
+    let readonlyToolNames = new Set<string>();
+    try {
+      readonlyToolNames = new Set(await window.snow.listReadonlyTools());
+    } catch {
+      // Preserve the existing specialized parallel paths if the registry is
+      // unavailable during startup or native bridge recovery.
+    }
+    const isTodoReadAction = (toolCall: ToolCallInfo): boolean => {
+      try {
+        return (
+          (JSON.parse(toolCall.arguments || "{}") as { action?: unknown })
+            .action === "get"
+        );
+      } catch {
+        return false;
+      }
+    };
+
     const parallelIndices: number[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       const name = toolCalls[i].name;
       const isParallelizable =
         name === "sub-agents-activate" || name === "imagegen-generate";
+      const isReadonlyTool =
+        readonlyToolNames.has(name) &&
+        (name !== "todo-todo-manage" || isTodoReadAction(toolCalls[i]));
       const skipPendingSubAgent =
         name === "sub-agents-activate" && isPendingSessionKey(effectiveKey);
       if (
-        isParallelizable &&
+        (isParallelizable || isReadonlyTool) &&
         !skipPendingSubAgent &&
         authorizationDecisions[i].status !== "rejected" &&
         !validateToolCall(toolCalls[i])
@@ -526,11 +551,15 @@ export function createToolExecutor(
       // 启动 maxConcurrentImageGen 个，其余排队，完成一个补一个。
       for (const idx of parallelIndices) {
         const isSubAgent = toolCalls[idx].name === "sub-agents-activate";
-        if (isSubAgent || activeImageGenCount < maxConcurrentImageGen) {
+        if (
+          isSubAgent ||
+          toolCalls[idx].name !== "imagegen-generate" ||
+          activeImageGenCount < maxConcurrentImageGen
+        ) {
           if (!(await startParallelTool(idx))) {
             break;
           }
-          if (!isSubAgent) {
+          if (toolCalls[idx].name === "imagegen-generate") {
             activeImageGenCount++;
           }
         } else {

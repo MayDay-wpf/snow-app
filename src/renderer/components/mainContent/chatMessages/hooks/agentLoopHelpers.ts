@@ -143,18 +143,10 @@ export const resetRunStreamMetrics = (
   ctx.updateSessionField(sessionKey, "runTokenUsage", null);
   const refSession = ctx.sessionsRefData.current.get(sessionKey);
   if (refSession) {
+    refSession.iterationTokenCount = 0;
+    refSession.iterationElapsedMs = 0;
     refSession.runTokenUsage = null;
   }
-};
-
-/** Finalize the previous iteration and prepare counters for the next request. */
-export const beginStreamMetricsIteration = (
-  ctx: ConversationContextValue,
-  sessionKey: string
-): void => {
-  ctx.updateSessionField(sessionKey, "streamTokenCount", 0);
-  ctx.updateSessionField(sessionKey, "streamElapsedMs", 0);
-  ctx.updateSessionField(sessionKey, "streamTtftMs", 0);
 };
 
 /** Accumulate a single-request usage into the run-level totals. Each
@@ -280,6 +272,10 @@ export const createStreamChunkHandler = (
   assistantMessageId: string,
   isCancelled: () => boolean
 ) => {
+  const refSession = ctx.sessionsRefData.current.get(sessionKey);
+  const iterationTokenBase = refSession?.iterationTokenCount ?? 0;
+  const iterationElapsedBase = refSession?.iterationElapsedMs ?? 0;
+
   return (chunk: ResponsesApiStreamChunk): void => {
     // External-vision textify progress event: update the session-level
     // visionAnalysis field only, never touch message content. The backend
@@ -319,13 +315,20 @@ export const createStreamChunkHandler = (
       return;
     }
 
-    ctx.updateSessionField(
-      sessionKey,
-      "streamTokenCount",
-      chunk.streamTokenCount
-    );
-    ctx.updateSessionField(sessionKey, "streamElapsedMs", chunk.elapsedMs);
-    ctx.updateSessionField(sessionKey, "streamTtftMs", chunk.ttftMs);
+    const runTokenCount = iterationTokenBase + chunk.streamTokenCount;
+    const runElapsedMs = iterationElapsedBase + chunk.elapsedMs;
+    ctx.updateSessionField(sessionKey, "streamTokenCount", runTokenCount);
+    ctx.updateSessionField(sessionKey, "streamElapsedMs", runElapsedMs);
+    if (refSession) {
+      refSession.iterationTokenCount = runTokenCount;
+      refSession.iterationElapsedMs = runElapsedMs;
+    }
+    if (
+      chunk.ttftMs > 0 &&
+      (ctx.sessionsRef.current[sessionKey]?.streamTtftMs ?? 0) === 0
+    ) {
+      ctx.updateSessionField(sessionKey, "streamTtftMs", chunk.ttftMs);
+    }
     if (
       chunk.ttftMs > 0 &&
       (ctx.sessionsRef.current[sessionKey]?.runTtftMs ?? 0) === 0

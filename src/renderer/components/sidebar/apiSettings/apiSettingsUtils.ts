@@ -18,10 +18,15 @@ import {
 } from "../../mainContent/chatInput/constants";
 import type { ApiConfigFormData } from "./types";
 
-type RequestMethod = "chat" | "responses" | "gemini" | "anthropic";
+type RequestMethod = "chat" | "responses" | "gemini" | "anthropic" | "interactions";
 
 const normalizeRequestMethod = (value: string): RequestMethod => {
-  if (value === "responses" || value === "gemini" || value === "anthropic") {
+  if (
+    value === "responses" ||
+    value === "gemini" ||
+    value === "anthropic" ||
+    value === "interactions"
+  ) {
     return value;
   }
   return "chat";
@@ -169,7 +174,7 @@ const buildConfigJsonWithThinking = (
       enabled: isThinkingEnabled,
       effort: thinkingValue,
     };
-  } else if (method === "gemini") {
+  } else if (method === "gemini" || method === "interactions") {
     snowcfg.geminiThinking = {
       enabled: isThinkingEnabled,
       thinkingLevel: thinkingValue,
@@ -213,7 +218,7 @@ export const extractThinkingValueFromConfigJson = (
 
     if (method === "anthropic") {
       section = snowcfg.thinking;
-    } else if (method === "gemini") {
+    } else if (method === "gemini" || method === "interactions") {
       section = snowcfg.geminiThinking;
     } else if (method === "responses") {
       section = snowcfg.responsesReasoning;
@@ -232,7 +237,7 @@ export const extractThinkingValueFromConfigJson = (
     const valueKey =
       method === "anthropic"
         ? "effort"
-        : method === "gemini"
+        : method === "gemini" || method === "interactions"
         ? "thinkingLevel"
         : method === "responses"
         ? "effort"

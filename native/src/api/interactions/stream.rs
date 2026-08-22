@@ -1,10 +1,4 @@
-//! Gemini streaming response collection — HTTP request, retry loop, and
-//! SSE event dispatch.
-//!
-//! The whole request+stream cycle lives in a single retry loop (matching
-//! Anthropic/Chat). Non-SSE responses (HTTP 200 with a JSON error envelope
-//! instead of a valid SSE stream) are retried in Rust so transient relay
-//! failures can recover without bouncing back to the JS agent loop.
+//! Google Interactions streaming response collection.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -25,11 +19,10 @@ use crate::api::retry::{
 use crate::api::sse::{read_sse_stream_until_terminal, SseStreamEnd};
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
-pub(super) struct GeminiStreamResult {
+pub(super) struct InteractionsStreamResult {
     pub id: String,
     pub content: String,
     pub thinking: String,
-    pub thinking_blocks_json: String,
     pub model: String,
     pub status: String,
     pub interruption_reason: Option<StreamInterruptionReason>,
@@ -40,7 +33,7 @@ pub(super) struct GeminiStreamResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn collect_gemini_stream(
+pub(super) async fn collect_interactions_stream(
     client: &reqwest::Client,
     endpoint: &str,
     custom_headers: &HashMap<String, String>,
@@ -49,7 +42,7 @@ pub(super) async fn collect_gemini_stream(
     cancel_token: &CancellationToken,
     retry_options: &RetryOptions,
     stream_idle_timeout_sec: u64,
-) -> Result<GeminiStreamResult> {
+) -> Result<InteractionsStreamResult> {
     let mut attempt: u32 = 0;
     let mut stream_token_count: usize = 0;
     let stream_start = std::time::Instant::now();
@@ -58,11 +51,10 @@ pub(super) async fn collect_gemini_stream(
 
     'attempt_loop: loop {
         if cancel_token.is_cancelled() {
-            return Ok(GeminiStreamResult {
+            return Ok(InteractionsStreamResult {
                 id: String::new(),
                 content: String::new(),
                 thinking: String::new(),
-                thinking_blocks_json: "[]".to_string(),
                 model: String::new(),
                 status: String::from("cancelled"),
                 interruption_reason: None,
@@ -75,11 +67,10 @@ pub(super) async fn collect_gemini_stream(
 
         let response = loop {
             if cancel_token.is_cancelled() {
-                return Ok(GeminiStreamResult {
+                return Ok(InteractionsStreamResult {
                     id: String::new(),
                     content: String::new(),
                     thinking: String::new(),
-                    thinking_blocks_json: "[]".to_string(),
                     model: String::new(),
                     status: String::from("cancelled"),
                     interruption_reason: None,
@@ -99,11 +90,10 @@ pub(super) async fn collect_gemini_stream(
             let result = tokio::select! {
                 biased;
                 _ = cancel_token.cancelled() => {
-                    return Ok(GeminiStreamResult {
+                    return Ok(InteractionsStreamResult {
                         id: String::new(),
                         content: String::new(),
                         thinking: String::new(),
-                        thinking_blocks_json: "[]".to_string(),
                         model: String::new(),
                         status: String::from("cancelled"),
                         interruption_reason: None,
@@ -114,7 +104,16 @@ pub(super) async fn collect_gemini_stream(
                     });
                 }
                 result = send_future => {
-                    result.map_err(|error| Error::from_reason(format!("Failed to create Gemini stream: {error}")))
+                    result.map_err(|error| {
+                        let category = if error.is_timeout() {
+                            "network timeout"
+                        } else if error.is_connect() {
+                            "network connection error"
+                        } else {
+                            "network request error"
+                        };
+                        Error::from_reason(format!("Failed to create Interactions stream: {category}"))
+                    })
                 }
             };
 
@@ -122,17 +121,19 @@ pub(super) async fn collect_gemini_stream(
                 Ok(response) => {
                     let status = response.status();
                     if !status.is_success() {
-                        let error_body = response.text().await.unwrap_or_default();
+                        let error_text = response
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to read response body".to_string());
+                        let error_text = super::event::bounded_provider_error_response(&error_text);
                         let error = Error::from_reason(format!(
-                            "Gemini streamGenerateContent request failed: {} {}",
-                            status, error_body
+                            "Interactions stream request failed: {status} {error_text}"
                         ));
 
                         if !should_retry(&error, attempt, retry_options) {
                             return Err(error);
                         }
 
-                        // Emit retry status to frontend
                         on_chunk.call(
                             ResponsesApiStreamChunk {
                                 content_delta: String::new(),
@@ -155,7 +156,7 @@ pub(super) async fn collect_gemini_stream(
                                 attempt += 1;
                                 continue;
                             }
-                            Err(e) => return Err(e),
+                            Err(err) => return Err(err),
                         }
                     }
                     break response;
@@ -165,7 +166,6 @@ pub(super) async fn collect_gemini_stream(
                         return Err(error);
                     }
 
-                    // Emit retry status to frontend
                     on_chunk.call(
                         ResponsesApiStreamChunk {
                             content_delta: String::new(),
@@ -188,23 +188,20 @@ pub(super) async fn collect_gemini_stream(
                             attempt += 1;
                             continue;
                         }
-                        Err(e) => return Err(e),
+                        Err(err) => return Err(err),
                     }
                 }
             }
         };
 
-        // ---- Phase 2: read one complete Provider attempt ----
-        // All accumulators are local to this attempt, so retrying cannot mix
-        // content, thinking, tools, usage, or terminal state.
-        let mut raw_events = Vec::new();
-        let mut content_chunks = Vec::new();
-        let mut thinking_chunks = Vec::new();
-        let mut tool_calls = Vec::new();
-        let mut signature_parts = Vec::new();
+        let mut content_chunks: Vec<String> = Vec::new();
+        let mut thinking_chunks: Vec<String> = Vec::new();
+        let mut raw_events: Vec<Value> = Vec::new();
+        let mut tool_calls = super::event::InteractionsToolCallState::default();
         let mut response_id = String::new();
         let mut response_model = String::new();
-        let mut response_status = String::from("completed");
+        let mut response_status = String::from("in_progress");
+        let mut provider_failure = None;
         let mut token_usage = ChatTokenUsage::default();
         let mut byte_buffer: Vec<u8> = Vec::new();
         let mut stream_finished = false;
@@ -218,19 +215,19 @@ pub(super) async fn collect_gemini_stream(
                 let content_start_index = content_chunks.len();
                 let thinking_start_index = thinking_chunks.len();
                 let mut tool_args_delta = String::new();
-                super::event::process_gemini_sse_event_block(
+                super::event::process_interactions_sse_event_block(
                     $event_block,
                     &mut raw_events,
                     &mut content_chunks,
                     &mut thinking_chunks,
                     &mut tool_calls,
-                    &mut signature_parts,
                     &mut response_id,
                     &mut response_model,
                     &mut response_status,
                     &mut token_usage,
                     &mut tool_args_delta,
                     &mut stream_finished,
+                    &mut provider_failure,
                 );
                 let content_delta = content_chunks[content_start_index..].join("");
                 let thinking_delta = thinking_chunks[thinking_start_index..].join("");
@@ -268,14 +265,16 @@ pub(super) async fn collect_gemini_stream(
         .await;
 
         match stream_end {
-            SseStreamEnd::ProviderTerminal => {}
+            SseStreamEnd::ProviderTerminal => {
+                stream_finished = true;
+            }
             SseStreamEnd::ReadError(error) => {
                 end_cause = Some((StreamEndCause::ReadError, error.to_string()));
             }
             SseStreamEnd::UnexpectedEof => {
                 end_cause = Some((
                     StreamEndCause::UnexpectedEof,
-                    "Stream ended before a Gemini terminal event".to_string(),
+                    "Stream ended before an Interactions terminal event".to_string(),
                 ));
             }
             SseStreamEnd::IdleTimeout => {
@@ -292,26 +291,22 @@ pub(super) async fn collect_gemini_stream(
         if response_status == "cancelled" || cancel_token.is_cancelled() {
             response_status = String::from("cancelled");
             tool_calls.clear();
-            signature_parts.clear();
             interruption_reason = None;
             recovery_outcome = None;
+        } else if let Some(failure) = provider_failure {
+            tool_calls.clear();
+            return Err(Error::from_reason(failure.reason()));
         } else if stream_finished {
-            // finishReason is an authoritative Provider terminal. In
-            // particular, MAX_TOKENS is output-limit metadata, not a transport
-            // retry trigger.
-            if response_status == "max_tokens" {
-                interruption_reason = Some(StreamInterruptionReason::OutputLimit);
-            }
             recovery_outcome = None;
         } else {
             let (cause, retry_error) = end_cause.unwrap_or((
                 StreamEndCause::UnexpectedEof,
-                "Stream ended before a Gemini terminal event".to_string(),
+                "Stream ended before an Interactions terminal event".to_string(),
             ));
             let progress = StreamAttemptProgress {
                 visible_content_chars: visible_content_char_count(&content_chunks),
-                has_tool_state: !tool_calls.is_empty(),
-                has_pending_tool_fragments: false,
+                has_tool_state: tool_calls.has_tool_state(),
+                has_pending_tool_fragments: tool_calls.has_pending_tool_fragments(),
                 provider_terminal: stream_finished,
                 user_cancelled: cancel_token.is_cancelled(),
             };
@@ -321,7 +316,6 @@ pub(super) async fn collect_gemini_stream(
                 StreamRecoveryDecision::Cancelled => {
                     response_status = String::from("cancelled");
                     tool_calls.clear();
-                    signature_parts.clear();
                     interruption_reason = None;
                     recovery_outcome = None;
                 }
@@ -352,7 +346,6 @@ pub(super) async fn collect_gemini_stream(
                         Err(_wait_error) if cancel_token.is_cancelled() => {
                             response_status = String::from("cancelled");
                             tool_calls.clear();
-                            signature_parts.clear();
                             interruption_reason = None;
                             recovery_outcome = None;
                         }
@@ -366,7 +359,6 @@ pub(super) async fn collect_gemini_stream(
                     recovery_outcome = decision.recovery_outcome();
                     if matches!(decision, StreamRecoveryDecision::SurfaceInterrupted) {
                         tool_calls.clear();
-                        signature_parts.clear();
                     }
                 }
             }
@@ -374,16 +366,14 @@ pub(super) async fn collect_gemini_stream(
 
         let content = content_chunks.join("").trim().to_string();
         let thinking = thinking_chunks.join("").trim().to_string();
+        let finalized_tool_calls = tool_calls.finalized_tool_calls();
         let tool_calls_json =
-            serde_json::to_string(&tool_calls).unwrap_or_else(|_| "[]".to_string());
-        let thinking_blocks_json =
-            serde_json::to_string(&signature_parts).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&finalized_tool_calls).unwrap_or_else(|_| "[]".to_string());
 
-        return Ok(GeminiStreamResult {
+        return Ok(InteractionsStreamResult {
             id: response_id,
             content,
             thinking,
-            thinking_blocks_json,
             model: response_model,
             status: response_status,
             interruption_reason,
@@ -395,22 +385,14 @@ pub(super) async fn collect_gemini_stream(
     }
 }
 
-/// Build the HTTP header map for a Gemini request.
-///
-/// Gemini authenticates via the API key in the URL query string, so no
-/// `Authorization` header is needed. User-supplied custom headers are
-/// injected afterwards, except `content-type` and `accept-encoding` which
-/// are reserved.
-pub(super) fn build_header_map(custom_headers: &HashMap<String, String>) -> Result<HeaderMap> {
+fn build_header_map(custom_headers: &HashMap<String, String>) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("identity"));
-
     inject_custom_headers(
         &mut headers,
         custom_headers,
-        &["content-type", "accept-encoding"],
+        &["authorization", "x-goog-api-key"],
     )?;
-
     Ok(headers)
 }

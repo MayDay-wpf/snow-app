@@ -200,6 +200,20 @@ const normalizeToolCallName = (tc: Record<string, unknown>): string => {
     }
   }
   if (!name) {
+    const functionCall = tc.functionCall ?? tc.function_call;
+    if (
+      typeof functionCall === "object" &&
+      functionCall !== null &&
+      !Array.isArray(functionCall)
+    ) {
+      const functionCallRecord = functionCall as Record<string, unknown>;
+      name =
+        typeof functionCallRecord.name === "string"
+          ? functionCallRecord.name.trim()
+          : "";
+    }
+  }
+  if (!name) {
     return "";
   }
 
@@ -223,39 +237,115 @@ const normalizeToolCallName = (tc: Record<string, unknown>): string => {
 const normalizeToolCallArgumentsFromTc = (
   tc: Record<string, unknown>,
 ): string => {
-  // OpenAI Chat Completions: arguments in tc.function.arguments (string)
-  // OpenAI Responses API: arguments in tc.arguments (object)
-  // Anthropic: input in tc.input (object)
-  // Gemini: args in tc.args (object)
-  if (typeof tc.arguments === "string" || typeof tc.arguments === "object") {
-    return normalizeToolCallArguments(tc.arguments);
+  const candidates = [
+    tc.arguments,
+    tc.args,
+    tc.input,
+    (tc.function as Record<string, unknown> | undefined)?.arguments,
+    (tc.function as Record<string, unknown> | undefined)?.args,
+    (tc.functionCall as Record<string, unknown> | undefined)?.args,
+    (tc.functionCall as Record<string, unknown> | undefined)?.arguments,
+    (tc.function_call as Record<string, unknown> | undefined)?.args,
+    (tc.function_call as Record<string, unknown> | undefined)?.arguments,
+  ];
+
+  const normalizeCandidate = (candidate: unknown): string | undefined => {
+    if (typeof candidate === "string") {
+      let current: unknown = candidate.trim();
+      // Some relays serialize functionCall/arguments twice. Unwrap only JSON
+      // objects so ordinary string arguments retain their original value.
+      for (let depth = 0; depth < 2 && typeof current === "string"; depth++) {
+        if (!current || current === "{}") break;
+        try {
+          const parsed: unknown = JSON.parse(current);
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            break;
+          }
+          current = parsed;
+        } catch {
+          break;
+        }
+      }
+      if (typeof current === "string") {
+        return current.length > 0 ? current : undefined;
+      }
+      if (typeof current === "object" && current !== null && !Array.isArray(current)) {
+        return Object.keys(current).length > 0 ? JSON.stringify(current) : undefined;
+      }
+      return undefined;
+    }
+    if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
+      return Object.keys(candidate).length > 0 ? JSON.stringify(candidate) : undefined;
+    }
+    return undefined;
+  };
+
+  for (const cand of candidates) {
+    const normalized = normalizeCandidate(cand);
+    if (normalized && normalized !== "{}") {
+      return normalized;
+    }
   }
-  if (typeof tc.input === "string" || typeof tc.input === "object") {
-    return normalizeToolCallArguments(tc.input);
+
+  for (const cand of candidates) {
+    const normalized = normalizeCandidate(cand);
+    if (normalized) {
+      return normalized;
+    }
   }
-  if (typeof tc.args === "string" || typeof tc.args === "object") {
-    return normalizeToolCallArguments(tc.args);
+
+  /*
+   * A few Gemini relays wrap the actual call one level below `call` or
+   * `functionCall`. Keep this fallback deliberately narrow: it only unwraps
+   * known provider keys and never guesses arbitrary object fields.
+   */
+  for (const wrapperKey of ["call", "functionCall", "function_call"]) {
+    const wrapper = tc[wrapperKey];
+    if (typeof wrapper === "string") {
+      try {
+        const parsed = JSON.parse(wrapper) as Record<string, unknown>;
+        const nested = normalizeToolCallArgumentsFromTc(parsed);
+        if (nested !== "{}") return nested;
+      } catch {
+        // Keep the empty-argument fallback below.
+      }
+    }
   }
-  const func = tc.function;
-  if (typeof func === "object" && func !== null && !Array.isArray(func)) {
-    const funcRecord = func as Record<string, unknown>;
-    return normalizeToolCallArguments(funcRecord.arguments);
-  }
+
   return "{}";
 };
 
 const normalizeToolCallId = (
   tc: Record<string, unknown>,
 ): string | undefined => {
-  if (typeof tc.call_id === "string") {
-    return tc.call_id;
+  const readCallId = (record: Record<string, unknown>): string | undefined => {
+    for (const key of ["call_id", "callId", "id"]) {
+      if (typeof record[key] === "string") {
+        return record[key];
+      }
+    }
+    return undefined;
+  };
+
+  const topLevelCallId = readCallId(tc);
+  if (topLevelCallId) {
+    return topLevelCallId;
   }
-  if (typeof tc.callId === "string") {
-    return tc.callId;
+
+  for (const key of ["functionCall", "function_call"]) {
+    const functionCall = tc[key];
+    if (
+      typeof functionCall === "object" &&
+      functionCall !== null &&
+      !Array.isArray(functionCall)
+    ) {
+      const nestedCallId = readCallId(functionCall as Record<string, unknown>);
+      if (nestedCallId) {
+        return nestedCallId;
+      }
+    }
   }
-  if (typeof tc.id === "string") {
-    return tc.id;
-  }
+
   return undefined;
 };
 
@@ -481,9 +571,10 @@ export const validateToolCall = (toolCall: ToolCallInfo): string | null => {
   }
 
   // Validate that arguments is parseable JSON
+  let parsedArguments: unknown = {};
   if (toolCall.arguments) {
     try {
-      JSON.parse(toolCall.arguments);
+      parsedArguments = JSON.parse(toolCall.arguments);
     } catch {
       return JSON.stringify({
         error: `Arguments for tool "${
@@ -494,6 +585,44 @@ export const validateToolCall = (toolCall: ToolCallInfo): string | null => {
         )}. Please provide arguments as a valid JSON object.`,
       });
     }
+  }
+
+  if (
+    typeof parsedArguments !== "object" ||
+    parsedArguments === null ||
+    Array.isArray(parsedArguments)
+  ) {
+    return JSON.stringify({
+      error: `Arguments for tool "${toolCall.name}" must be a JSON object.`,
+    });
+  }
+
+  // Providers may emit a syntactically valid empty object for an incomplete
+  // function call. Do not forward those calls to MCP: its parameter error can
+  // otherwise be replayed to the model and form a retry loop.
+  const requiredStringArguments: Record<string, readonly string[]> = {
+    "filesystem-read": ["filePath"],
+    "filesystem-create": ["filePath", "content"],
+    "filesystem-replace_edit": ["filePath", "searchContent", "replaceContent"],
+    "bash-terminal-execute": ["command"],
+  };
+  const requiredBooleanArguments: Record<string, readonly string[]> = {
+    "filesystem-create": ["overwrite"],
+  };
+  const args = parsedArguments as Record<string, unknown>;
+  const missing = [
+    ...(requiredStringArguments[toolCall.name] ?? []).filter(
+      (key) => typeof args[key] !== "string" || args[key].trim().length === 0,
+    ),
+    ...(requiredBooleanArguments[toolCall.name] ?? []).filter(
+      (key) => typeof args[key] !== "boolean",
+    ),
+  ];
+  if (missing.length > 0) {
+    return JSON.stringify({
+      error: "INVALID_MODEL_TOOL_CALL",
+      message: `Model returned an incomplete call for tool "${toolCall.name}". Missing required arguments: ${missing.join(", ")}. The call was not executed.`,
+    });
   }
 
   return null;
