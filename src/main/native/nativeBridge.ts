@@ -67,6 +67,14 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to write YOLO mode"),
         ),
+      getLiteMode: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to read Lite mode"),
+        ),
+      setLiteMode: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to write Lite mode"),
+        ),
       getAutoFormat: () =>
         Promise.reject(
           new Error("Rust native bridge is required to read Auto format"),

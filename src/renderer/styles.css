@@ -17557,6 +17557,10 @@ input {
   color: var(--warning, #f59e0b);
 }
 
+.lite-mode-badge {
+  color: var(--success, #22c55e);
+}
+
 /* ---- LSP 会话状态徽章（输入框工具栏，实时轮询 native 快照） ---- */
 .lsp-status-badge {
   cursor: pointer;
@@ -17694,7 +17698,8 @@ input {
   left: 50%;
   bottom: calc(100% + 8px);
   transform: translateX(-50%);
-  max-width: 280px;
+  max-width: min(280px, 70vw);
+  width: max-content;
   padding: 6px 10px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
@@ -17705,7 +17710,7 @@ input {
   line-height: 1.5;
   color: var(--text-secondary);
   pointer-events: none;
-  white-space: nowrap;
+  white-space: normal;
   animation: tooltip-in 0.14s ease-out;
 }
 
@@ -20866,9 +20871,14 @@ input {
   position: absolute;
   min-width: 200px;
   max-width: 280px;
+  max-height: min(520px, 70vh);
   display: flex;
   flex-direction: column;
   padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
@@ -20891,6 +20901,15 @@ input {
 .plus-menu-dropdown.drop-up {
   bottom: calc(100% + 6px);
   left: 0;
+}
+
+.plus-menu-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.plus-menu-dropdown::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
 }
 
 .plus-menu-dropdown.drop-down {

@@ -144,6 +144,13 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "terminal",
 ];
 
+/// 精简模式（Lite Mode）禁用的内置服务器 ID。启用精简模式后，这些服务器的
+/// 工具整体从模型请求上下文移除（节约 token，适用于上下文窗口较短的模型）；
+/// 用户在 MCP 面板手动重新启用任一服务器时，精简模式自动关闭
+/// （见 set_mcp_project_server_enabled）。
+pub const LITE_MODE_DISABLED_SERVER_IDS: &[&str] =
+    &["browser", "app-control", "terminal"];
+
 /// 将工具全名 `{server_id}-{tool_name}` 拆分为 `(server_id, tool_name)`。
 /// 先匹配已知内置 server_id 前缀（最长优先），再回退到首个 `-` 分割
 /// （适用于外部工具，其 server_name 不含 `-`）。
@@ -199,15 +206,30 @@ pub async fn list_mcp_project_servers(
             .map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
-                    format!("Failed to check image generation configuration: {error}"),
+                "Failed to check image generation configuration: {error}",
                 )
             })??;
+
+    // 精简模式（全局）：启用后 LITE_MODE_DISABLED_SERVER_IDS 中的内置
+    // 服务器（browser / app-control / terminal）在所有项目中视为禁用，
+    // 前端开关据此显示为关闭。
+    let lite_mode =
+        with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
 
     let mut servers = get_builtin_servers_with_tools()
         .into_iter()
         .map(|(server_id, tools)| {
             let scope_server_id = builtin_scope_server_id(&server_id);
-            let enabled = scope.is_server_enabled(&scope_server_id);
+            let mut enabled = scope.is_server_enabled(&scope_server_id);
+            // 精简模式生效：相关服务器全局禁用（前端据此显示为关闭状态；
+            // 手动重新启用任一服务器会自动关闭精简模式，见
+            // set_mcp_project_server_enabled）。
+            if lite_mode && LITE_MODE_DISABLED_SERVER_IDS.contains(&server_id.as_str()) {
+                enabled = false;
+            }
             // Reflect imagegen configuration state in global_enabled / error
             // so the front-end toggle stays in sync with collect_all_mcp_tools.
             // The error field uses a stable code (not a localized string) that
@@ -348,6 +370,27 @@ pub async fn set_mcp_project_server_enabled(
             Status::InvalidArg,
             format!("Unknown MCP project server: {server_id}"),
         ));
+    }
+
+    // 精简模式自动关闭：用户在 MCP 面板手动重新启用被精简模式禁用的
+    // 服务器（browser / app-control / terminal）时，立即关闭精简模式
+    // ——用户显式选择优先于模式限制。
+    if enabled
+        && server_id
+            .strip_prefix("builtin:")
+            .is_some_and(|id| LITE_MODE_DISABLED_SERVER_IDS.contains(&id))
+    {
+        let lite_mode =
+            with_database_path(|database_path| {
+                crate::storage::services::system_settings::get_lite_mode(&database_path)
+            })
+            .await?;
+        if lite_mode {
+            with_database_path(|database_path| {
+                crate::storage::services::system_settings::set_lite_mode(&database_path, false)
+            })
+            .await?;
+        }
     }
 
     if let Some(external_server_id) = server_id.strip_prefix("external:") {

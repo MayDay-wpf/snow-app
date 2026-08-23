@@ -61,6 +61,20 @@ pub async fn set_yolo_mode(enabled: bool) -> napi::Result<()> {
 }
 
 #[napi]
+pub async fn get_lite_mode() -> napi::Result<bool> {
+    tokio::task::spawn_blocking(crate::storage::get_lite_mode)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn set_lite_mode(enabled: bool) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::set_lite_mode(enabled))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn get_always_approved_tools() -> napi::Result<Vec<String>> {
     tokio::task::spawn_blocking(crate::storage::get_always_approved_tools)
         .await

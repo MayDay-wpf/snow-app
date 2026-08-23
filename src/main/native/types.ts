@@ -1288,6 +1288,8 @@ export type NativeBridge = {
   deleteSystemSetting: (settingCode: string) => Promise<void>;
   getYoloMode: () => Promise<boolean>;
   setYoloMode: (enabled: boolean) => Promise<void>;
+  getLiteMode: () => Promise<boolean>;
+  setLiteMode: (enabled: boolean) => Promise<void>;
   getAutoFormat: () => Promise<boolean>;
   setAutoFormat: (enabled: boolean) => Promise<void>;
   getConversationModes: (

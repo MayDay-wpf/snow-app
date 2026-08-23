@@ -2643,6 +2643,11 @@ export const zhTW = {
   "plusMenu.yoloModeEnabled": "已啟用，不需逐次授權",
   "plusMenu.yoloModeDisabled": "已關閉，每次工具執行前確認",
   "plusMenu.yoloModeActive": "YOLO 模式已啟用，工具執行不需逐次授權",
+  "plusMenu.liteMode": "精簡模式",
+  "plusMenu.liteModeDescription":
+    "停用 Browser、App Control 與 Terminal Control 服務，節省上下文，適用於上下文較短的模型",
+  "plusMenu.liteModeActive":
+    "精簡模式已啟用，Browser、App Control 與 Terminal Control 服務已停用",
   "plusMenu.planMode": "Plan 模式",
   "plusMenu.planModeDescription": "先分析並制定計畫，再執行變更",
   "plusMenu.planModeActive": "Plan 模式已啟用",

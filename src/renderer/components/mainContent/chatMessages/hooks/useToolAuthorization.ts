@@ -15,6 +15,10 @@ import { APP_CONTROL_MODE_CHANGED_EVENT } from "../../../../hooks/useAppControl"
 /** 权限面板增删项目级免审批工具后派发，授权流程据此重新加载合并列表。 */
 export const TOOL_APPROVALS_CHANGED_EVENT = "tool-approvals:changed";
 
+/** MCP 面板手动启用 Browser / App Control / Terminal Control 服务（精简模式
+ *  自动关闭）后派发，会话层据此重新读取精简模式状态。 */
+export const LITE_MODE_CHANGED_EVENT = "lite-mode:changed";
+
 /**
  * 工具授权逻辑：YOLO 模式、敏感命令检查、批量授权闸门等。
  * 同轮工具调用分别显示为对话内卡片，所有授权完成前不执行。
@@ -78,6 +82,41 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       return false;
     }
   }, [applyYoloMode]);
+
+  const applyLiteMode = useCallback(
+    (enabled: boolean): void => {
+      ctx.setLiteModeState(enabled);
+    },
+    [ctx.setLiteModeState],
+  );
+
+  const refreshLiteMode = useCallback(async (): Promise<boolean> => {
+    try {
+      const enabled = await window.snow.getLiteMode();
+      applyLiteMode(enabled);
+      return enabled;
+    } catch {
+      applyLiteMode(false);
+      return false;
+    }
+  }, [applyLiteMode]);
+
+  const setLiteMode = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      if (ctx.isUpdatingLiteMode) {
+        return;
+      }
+
+      ctx.setIsUpdatingLiteMode(true);
+      try {
+        await window.snow.setLiteMode(enabled);
+        applyLiteMode(enabled);
+      } finally {
+        ctx.setIsUpdatingLiteMode(false);
+      }
+    },
+    [applyLiteMode, ctx.isUpdatingLiteMode, ctx.setIsUpdatingLiteMode],
+  );
 
   // Persist the session's current mode overrides to the per-conversation
   // record. Fire-and-forget: the in-memory session ref is authoritative for
@@ -262,6 +301,19 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         }
       });
 
+    void window.snow
+      .getLiteMode()
+      .then((enabled) => {
+        if (!disposed) {
+          applyLiteMode(enabled);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          applyLiteMode(false);
+        }
+      });
+
     // Plan/Goal Mode 是严格按会话隔离的：开关只写当前会话的 ref 和
     // 会话级 DB 记录，从不读写全局设置。因此这里无需（也不应）从
     // 磁盘加载全局模式——冷会话一律使用中性默认值（Plan/Goal 关、
@@ -304,14 +356,28 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       onToolApprovalsChanged,
     );
 
+    // 用户在 MCP 面板手动重新启用 Browser / App Control 服务时，Rust 侧
+    // 会自动关闭精简模式；这里重新读取持久化状态以保持 UI 同步。
+    const onLiteModeChanged = (): void => {
+      void refreshLiteMode();
+    };
+    window.addEventListener(LITE_MODE_CHANGED_EVENT, onLiteModeChanged);
+
     return () => {
       disposed = true;
       window.removeEventListener(
         TOOL_APPROVALS_CHANGED_EVENT,
         onToolApprovalsChanged,
       );
+      window.removeEventListener(LITE_MODE_CHANGED_EVENT, onLiteModeChanged);
     };
-  }, [applyYoloMode, ctx.directoryId, ctx.alwaysApprovedToolsRef]);
+  }, [
+    applyYoloMode,
+    applyLiteMode,
+    refreshLiteMode,
+    ctx.directoryId,
+    ctx.alwaysApprovedToolsRef,
+  ]);
 
   const setYoloMode = useCallback(
     async (enabled: boolean): Promise<void> => {
@@ -808,6 +874,9 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     applyYoloMode,
     refreshYoloMode,
     setYoloMode,
+    applyLiteMode,
+    refreshLiteMode,
+    setLiteMode,
     applyPlanMode,
     refreshPlanMode,
     setPlanMode,

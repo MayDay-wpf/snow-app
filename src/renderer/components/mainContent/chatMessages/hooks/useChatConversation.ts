@@ -152,6 +152,8 @@ export const useChatConversation = (
   const [newChatGeneration, setNewChatGeneration] = useState(0);
   const [yoloMode, setYoloModeState] = useState(false);
   const [isUpdatingYoloMode, setIsUpdatingYoloMode] = useState(false);
+  const [liteMode, setLiteModeState] = useState(false);
+  const [isUpdatingLiteMode, setIsUpdatingLiteMode] = useState(false);
   const [planMode, setPlanModeState] = useState(false);
   const [isUpdatingPlanMode, setIsUpdatingPlanMode] = useState(false);
   const [goalMode, setGoalModeState] = useState(false);
@@ -452,6 +454,8 @@ export const useChatConversation = (
     newChatGeneration,
     yoloMode,
     isUpdatingYoloMode,
+    liteMode,
+    isUpdatingLiteMode,
     planMode,
     isUpdatingPlanMode,
     goalMode,
@@ -514,6 +518,8 @@ export const useChatConversation = (
     setNewChatGeneration,
     setYoloModeState,
     setIsUpdatingYoloMode,
+    setLiteModeState,
+    setIsUpdatingLiteMode,
     setPlanModeState,
     setIsUpdatingPlanMode,
     setGoalModeState,
@@ -786,6 +792,10 @@ export const useChatConversation = (
     isUpdatingYoloMode,
     setYoloMode: toolAuthApi.setYoloMode,
     refreshYoloMode: toolAuthApi.refreshYoloMode,
+    liteMode,
+    isUpdatingLiteMode,
+    setLiteMode: toolAuthApi.setLiteMode,
+    refreshLiteMode: toolAuthApi.refreshLiteMode,
     planMode,
     isUpdatingPlanMode,
     setPlanMode: toolAuthApi.setPlanMode,

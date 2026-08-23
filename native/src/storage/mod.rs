@@ -146,6 +146,16 @@ pub fn set_yolo_mode(enabled: bool) -> Result<()> {
     services::yolo_settings::set_yolo_mode(&database_path, enabled)
 }
 
+pub fn get_lite_mode() -> Result<bool> {
+    let database_path = ensure_database_file()?;
+    services::system_settings::get_lite_mode(&database_path)
+}
+
+pub fn set_lite_mode(enabled: bool) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::system_settings::set_lite_mode(&database_path, enabled)
+}
+
 pub fn get_auto_format() -> Result<bool> {
     let database_path = ensure_database_file()?;
     services::system_settings::get_auto_format(&database_path)

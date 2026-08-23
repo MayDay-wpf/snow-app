@@ -533,6 +533,10 @@ export type ConversationContextValue = {
   newChatGeneration: number;
   yoloMode: boolean;
   isUpdatingYoloMode: boolean;
+  /** 精简模式（全局开关）：启用后禁用 Browser / App Control / Terminal Control
+   *  MCP 服务以节约上下文。 */
+  liteMode: boolean;
+  isUpdatingLiteMode: boolean;
   planMode: boolean;
   isUpdatingPlanMode: boolean;
   goalMode: boolean;
@@ -665,6 +669,8 @@ export type ConversationContextValue = {
   setNewChatGeneration: Dispatch<SetStateAction<number>>;
   setYoloModeState: Dispatch<SetStateAction<boolean>>;
   setIsUpdatingYoloMode: Dispatch<SetStateAction<boolean>>;
+  setLiteModeState: Dispatch<SetStateAction<boolean>>;
+  setIsUpdatingLiteMode: Dispatch<SetStateAction<boolean>>;
   setPlanModeState: Dispatch<SetStateAction<boolean>>;
   setIsUpdatingPlanMode: Dispatch<SetStateAction<boolean>>;
   setGoalModeState: Dispatch<SetStateAction<boolean>>;
@@ -852,6 +858,10 @@ export type UseChatConversationResult = {
   isUpdatingYoloMode: boolean;
   setYoloMode: (enabled: boolean) => Promise<void>;
   refreshYoloMode: () => Promise<boolean>;
+  liteMode: boolean;
+  isUpdatingLiteMode: boolean;
+  setLiteMode: (enabled: boolean) => Promise<void>;
+  refreshLiteMode: () => Promise<boolean>;
   planMode: boolean;
   isUpdatingPlanMode: boolean;
   setPlanMode: (enabled: boolean) => Promise<void>;

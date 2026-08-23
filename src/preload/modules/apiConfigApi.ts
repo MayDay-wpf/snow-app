@@ -80,6 +80,10 @@ export const apiConfigApi = {
     ipcRenderer.invoke("settings:get-yolo-mode"),
   setYoloMode: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke("settings:set-yolo-mode", enabled),
+  getLiteMode: (): Promise<boolean> =>
+    ipcRenderer.invoke("settings:get-lite-mode"),
+  setLiteMode: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke("settings:set-lite-mode", enabled),
   getAutoFormat: (): Promise<boolean> =>
     ipcRenderer.invoke("settings:get-auto-format"),
   setAutoFormat: (enabled: boolean): Promise<void> =>

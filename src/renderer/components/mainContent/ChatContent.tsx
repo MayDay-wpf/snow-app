@@ -55,7 +55,7 @@ const STICK_TO_BOTTOM_THRESHOLD = 48;
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
   target: EventTarget | null,
-  deltaY: number
+  deltaY: number,
 ): boolean => {
   let node = target instanceof HTMLElement ? target : null;
   while (node && node !== container) {
@@ -120,6 +120,10 @@ const ChatContentBody = ({
     isUpdatingYoloMode,
     setYoloMode,
     refreshYoloMode,
+    liteMode,
+    isUpdatingLiteMode,
+    setLiteMode,
+    refreshLiteMode,
     planMode,
     isUpdatingPlanMode,
     setPlanMode,
@@ -141,10 +145,12 @@ const ChatContentBody = ({
   } = useChatConversationContext();
   const { t } = useI18n();
   const handleRuntimeInputStateChange = useCallback(
-    (state: import("./chatInput/types").ConversationInputRuntimeState): void => {
+    (
+      state: import("./chatInput/types").ConversationInputRuntimeState,
+    ): void => {
       updateRuntimeInputState(activeConversationId, state);
     },
-    [activeConversationId, updateRuntimeInputState]
+    [activeConversationId, updateRuntimeInputState],
   );
   const { autoScrollEnabled, setAutoScrollEnabled } = useAutoScrollPreference();
   // 「编辑后自动格式化」开关持久化在 Rust 侧设置（默认开启），
@@ -229,9 +235,7 @@ const ChatContentBody = ({
     Boolean(liveSubAgentEvent) ||
     activeConversationMeta?.conversationType === "sub_agent";
   const subAgentRunStatus =
-    liveSubAgentEvent?.status ??
-    activeConversationMeta?.subAgentStatus ??
-    "";
+    liveSubAgentEvent?.status ?? activeConversationMeta?.subAgentStatus ?? "";
   // Once its run ends the sub-agent conversation becomes read-only: the
   // input box disappears and only a status notice remains. While the run is
   // live the input stays visible so the user can insert pending messages.
@@ -294,7 +298,7 @@ const ChatContentBody = ({
   // 覆盖整个中间输出区：文件变更统计、消息正文、Thinking、工具调用和压缩输出。
   const pathClickOpenProps = usePathClickOpen(
     directoryIdToPath(conversationDirectoryId) ?? activeDirectory?.path,
-    conversationDirectoryId ?? activeDirectory?.directoryId
+    conversationDirectoryId ?? activeDirectory?.directoryId,
   );
   const activeConversationIdRef = useRef(activeConversationId);
   const previousActiveConversationIdRef = useRef(activeConversationId);
@@ -339,10 +343,10 @@ const ChatContentBody = ({
         container.scrollHeight - container.scrollTop - container.clientHeight;
       setShowScrollToBottom(
         hasMessagesRef.current &&
-          distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD
+          distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD,
       );
     },
-    []
+    [],
   );
 
   // scroll 事件路径（用户滚动与程序化钉底都会触发）：从视口位置推导跟随
@@ -371,10 +375,10 @@ const ChatContentBody = ({
         distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
       setShowScrollToBottom(
         hasMessagesRef.current &&
-          distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD
+          distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD,
       );
     },
-    []
+    [],
   );
 
   useLayoutEffect(() => {
@@ -611,7 +615,7 @@ const ChatContentBody = ({
 
     const visibleAuthorizations = pendingToolAuthorizations.filter(
       (toolCall) =>
-        toolCall.authorizationConversationId === activeConversationId
+        toolCall.authorizationConversationId === activeConversationId,
     );
     if (visibleAuthorizations.length === 0) {
       scrolledAuthorizationSignatureRef.current = "";
@@ -622,7 +626,7 @@ const ChatContentBody = ({
       .map(
         (toolCall) =>
           toolCall.authorizationId ??
-          `${toolCall.name}-${toolCall.callId ?? toolCall.arguments}`
+          `${toolCall.name}-${toolCall.callId ?? toolCall.arguments}`,
       )
       .join("|");
     if (signature === scrolledAuthorizationSignatureRef.current) {
@@ -765,7 +769,7 @@ const ChatContentBody = ({
         setShowScrollToBottom(false);
       }
     },
-    [markUserScrollIntent, syncScrollButtonVisibility]
+    [markUserScrollIntent, syncScrollButtonVisibility],
   );
 
   const handleChatPointerDown = useCallback(
@@ -789,7 +793,7 @@ const ChatContentBody = ({
       markUserScrollIntent();
       shouldStickToBottomRef.current = false;
     },
-    [markUserScrollIntent]
+    [markUserScrollIntent],
   );
 
   const handleChatKeyDown = useCallback(
@@ -817,7 +821,7 @@ const ChatContentBody = ({
         shouldStickToBottomRef.current = false;
       }
     },
-    [markUserScrollIntent]
+    [markUserScrollIntent],
   );
 
   const handleChatScroll = useCallback((): void => {
@@ -905,8 +909,7 @@ const ChatContentBody = ({
         return;
       }
 
-      const maxScrollTop =
-        container.scrollHeight - container.clientHeight;
+      const maxScrollTop = container.scrollHeight - container.clientHeight;
 
       // The user took over the wheel / keyboard and moved away from the
       // tween's last position: stop the animation and let the live geometry
@@ -927,8 +930,7 @@ const ChatContentBody = ({
       const progress = Math.min(1, elapsed / durationMs);
       // easeOutCubic — decelerates to the target, feels native.
       const eased = 1 - Math.pow(1 - progress, 3);
-      const currentTarget =
-        startTop + (maxScrollTop - startTop) * eased;
+      const currentTarget = startTop + (maxScrollTop - startTop) * eased;
       const nextTop = Math.min(currentTarget, maxScrollTop);
       container.scrollTop = nextTop;
       lastTop = nextTop;
@@ -960,7 +962,7 @@ const ChatContentBody = ({
         }
       });
     },
-    [handleSendMessage]
+    [handleSendMessage],
   );
 
   // 开启自动滚动偏好是显式的“我要跟随”动作：立即平滑吸底并恢复跟随，
@@ -972,7 +974,7 @@ const ChatContentBody = ({
         handleScrollToBottom();
       }
     },
-    [setAutoScrollEnabled, handleScrollToBottom]
+    [setAutoScrollEnabled, handleScrollToBottom],
   );
 
   // 切换自动格式化：乐观更新 UI，写入失败时回读真实状态。
@@ -983,7 +985,7 @@ const ChatContentBody = ({
         void refreshAutoFormat();
       });
     },
-    [refreshAutoFormat]
+    [refreshAutoFormat],
   );
 
   const handleConfirmRollback = useCallback(
@@ -992,7 +994,7 @@ const ChatContentBody = ({
       // 回滚期间（含 SSH 文件恢复）保持 loading，完成后再关闭弹窗。
       await confirmRollback(mode);
     },
-    [confirmRollback]
+    [confirmRollback],
   );
 
   // Cancel any pending scroll-throttle and scroll-to-bottom animation frames
@@ -1162,6 +1164,10 @@ const ChatContentBody = ({
             isUpdatingYoloMode={isUpdatingYoloMode}
             onYoloModeChange={setYoloMode}
             onRefreshYoloMode={refreshYoloMode}
+            liteMode={liteMode}
+            isUpdatingLiteMode={isUpdatingLiteMode}
+            onLiteModeChange={setLiteMode}
+            onRefreshLiteMode={refreshLiteMode}
             planMode={planMode}
             isUpdatingPlanMode={isUpdatingPlanMode}
             onPlanModeChange={setPlanMode}

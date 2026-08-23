@@ -32,6 +32,10 @@ export const ChatInput = ({
   isUpdatingYoloMode = false,
   onYoloModeChange,
   onRefreshYoloMode,
+  liteMode = false,
+  isUpdatingLiteMode = false,
+  onLiteModeChange,
+  onRefreshLiteMode,
   planMode = false,
   isUpdatingPlanMode = false,
   onPlanModeChange,
@@ -89,6 +93,10 @@ export const ChatInput = ({
       isUpdatingYoloMode={isUpdatingYoloMode}
       onYoloModeChange={onYoloModeChange}
       onRefreshYoloMode={onRefreshYoloMode}
+      liteMode={liteMode}
+      isUpdatingLiteMode={isUpdatingLiteMode}
+      onLiteModeChange={onLiteModeChange}
+      onRefreshLiteMode={onRefreshLiteMode}
       planMode={planMode}
       isUpdatingPlanMode={isUpdatingPlanMode}
       onPlanModeChange={onPlanModeChange}

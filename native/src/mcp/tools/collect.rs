@@ -59,6 +59,18 @@ pub async fn collect_all_mcp_tools(
     let lsp_exposure = super::super::servers::lsp::tool_exposure(project_id).await?;
     let lsp_available_tools = lsp_exposure.tools;
 
+    // 精简模式（全局开关）：启用后 LITE_MODE_DISABLED_SERVER_IDS 中的
+    // 内置服务器（browser / app-control / terminal）整体排除在请求上下文
+    // 之外，为上下文窗口较短的模型节约 token。用户在 MCP 面板手动重新
+    // 启用任一服务器时会自动关闭该模式（见 set_mcp_project_server_enabled）。
+    // app-control-requestApproval 豁免此限制（Plan Mode 审批必需，仅
+    // Plan Mode 请求中暴露，见下方判定）。
+    let lite_mode =
+        with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
+
     let builtin_tools = get_builtin_tools();
     // 预计算「LSP 是否实际暴露」（可用能力集合 + scope 双重判定通过），供
     // codelens 互斥判定使用。lsp 是默认关闭服务器：仅凭「配置了可用服务器」
@@ -77,6 +89,13 @@ pub async fn collect_all_mcp_tools(
             // exposed to the model while the current request is in Plan Mode.
             if tool.full_name() == REQUEST_APPROVAL_FULL_NAME {
                 return include_plan_mode_tool;
+            }
+            // 精简模式：LITE_MODE_DISABLED_SERVER_IDS 中的服务器整体禁用
+            // （requestApproval 已在上方先行处理，保持 Plan Mode 审批可用）。
+            if lite_mode
+                && LITE_MODE_DISABLED_SERVER_IDS.contains(&tool.server_id.as_str())
+            {
+                return false;
             }
             // Sub-agent teammate communication tools are only exposed inside
             // sub-agent contexts (collect_allowed_mcp_tools appends them);
@@ -333,6 +352,33 @@ pub(crate) async fn ensure_project_tool_enabled(
     project_id: Option<&str>,
     tool_name: &str,
 ) -> Result<()> {
+    // 精简模式执行层（与 collect 阶段排除保持一致）：Lite Mode 禁用的
+    // browser / app-control / terminal 工具即使出现在陈旧工具列表中也
+    // 拒绝执行。app-control-requestApproval 豁免——Plan Mode 审批必须
+    // 始终可用，且 call_mcp_tool 已用 plan_mode 前置条件守卫该工具。
+    if tool_name != REQUEST_APPROVAL_FULL_NAME {
+        let lite_mode =
+            with_database_path(|database_path| {
+                crate::storage::services::system_settings::get_lite_mode(&database_path)
+            })
+            .await?;
+        if lite_mode {
+            let Some(server_id) = server_id_from_tool_name(tool_name) else {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    format!("Invalid MCP tool name: {tool_name}"),
+                ));
+            };
+            if LITE_MODE_DISABLED_SERVER_IDS.contains(&server_id) {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "MCP server \"{server_id}\" is disabled by Lite mode: {tool_name}"
+                    ),
+                ));
+            }
+        }
+    }
     let global_scope = load_global_scope().await?;
     if global_scope.is_some_and(|scope| scope.disabled_tool_names.contains(tool_name)) {
         return Err(Error::new(

@@ -74,6 +74,10 @@ export const ChatInputView = ({
   isUpdatingYoloMode,
   onYoloModeChange,
   onRefreshYoloMode,
+  liteMode,
+  isUpdatingLiteMode,
+  onLiteModeChange,
+  onRefreshLiteMode,
   planMode,
   isUpdatingPlanMode,
   onPlanModeChange,
@@ -662,6 +666,10 @@ export const ChatInputView = ({
             isUpdatingYoloMode={isUpdatingYoloMode}
             onYoloModeChange={onYoloModeChange}
             onRefreshYoloMode={onRefreshYoloMode}
+            liteMode={liteMode}
+            isUpdatingLiteMode={isUpdatingLiteMode}
+            onLiteModeChange={onLiteModeChange}
+            onRefreshLiteMode={onRefreshLiteMode}
             planMode={planMode}
             isUpdatingPlanMode={isUpdatingPlanMode}
             onPlanModeChange={onPlanModeChange}

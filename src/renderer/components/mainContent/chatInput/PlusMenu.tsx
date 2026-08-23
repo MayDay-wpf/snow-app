@@ -1,6 +1,7 @@
 import {
   ArrowDownToLine,
   ClipboardList,
+  Feather,
   GitBranch,
   Plus,
   ShieldAlert,
@@ -32,6 +33,10 @@ export type PlusMenuProps = {
   isUpdatingYoloMode: boolean;
   onYoloModeChange?: (enabled: boolean) => void;
   onRefreshYoloMode?: () => void | Promise<boolean | void>;
+  liteMode: boolean;
+  isUpdatingLiteMode: boolean;
+  onLiteModeChange?: (enabled: boolean) => void;
+  onRefreshLiteMode?: () => void | Promise<boolean | void>;
   planMode: boolean;
   isUpdatingPlanMode: boolean;
   onPlanModeChange?: (enabled: boolean) => void;
@@ -59,6 +64,10 @@ export const PlusMenu = ({
   isUpdatingYoloMode,
   onYoloModeChange,
   onRefreshYoloMode,
+  liteMode,
+  isUpdatingLiteMode,
+  onLiteModeChange,
+  onRefreshLiteMode,
   planMode,
   isUpdatingPlanMode,
   onPlanModeChange,
@@ -101,6 +110,7 @@ export const PlusMenu = ({
       if (next) {
         // Re-read the persisted app setting whenever the menu opens.
         void onRefreshYoloMode?.();
+        void onRefreshLiteMode?.();
         void onRefreshPlanMode?.();
         void onRefreshGoalMode?.();
         void onRefreshWorktreeMode?.();
@@ -110,6 +120,7 @@ export const PlusMenu = ({
     });
   }, [
     onRefreshYoloMode,
+    onRefreshLiteMode,
     onRefreshPlanMode,
     onRefreshGoalMode,
     onRefreshWorktreeMode,
@@ -121,7 +132,7 @@ export const PlusMenu = ({
       item.onSelect();
       handleClose();
     },
-    [handleClose]
+    [handleClose],
   );
 
   useEffect(() => {
@@ -154,9 +165,7 @@ export const PlusMenu = ({
         <Plus size={16} />
       </button>
       {isOpen && (
-          <div
-            className={`plus-menu-dropdown drop-${dropdownDir}`}
-          >
+        <div className={`plus-menu-dropdown drop-${dropdownDir}`}>
           {sections.map((section, sectionIndex) => (
             <div key={section.id} className="plus-menu-section">
               <div className="plus-menu-section-title">{section.label}</div>
@@ -261,6 +270,29 @@ export const PlusMenu = ({
               </label>
             </div>
             <div className="plus-menu-item plus-menu-yolo-item">
+              <Feather size={14} className="plus-menu-item-icon" />
+              <div className="plus-menu-item-content">
+                <span className="plus-menu-item-label">
+                  {t("plusMenu.liteMode")}
+                </span>
+                <span className="plus-menu-item-description">
+                  {t("plusMenu.liteModeDescription")}
+                </span>
+              </div>
+              <label className="toggle-switch plus-menu-yolo-switch">
+                <input
+                  aria-label={t("plusMenu.liteMode")}
+                  checked={liteMode}
+                  disabled={isUpdatingLiteMode || !onLiteModeChange}
+                  onChange={() => {
+                    void onLiteModeChange?.(!liteMode);
+                  }}
+                  type="checkbox"
+                />
+                <span className="toggle-slider" />
+              </label>
+            </div>
+            <div className="plus-menu-item plus-menu-yolo-item">
               <ClipboardList size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -297,9 +329,7 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.worktreeMode")}
                   checked={worktreeMode}
-                  disabled={
-                    isUpdatingWorktreeMode || !onWorktreeModeChange
-                  }
+                  disabled={isUpdatingWorktreeMode || !onWorktreeModeChange}
                   onChange={() => {
                     void onWorktreeModeChange?.(!worktreeMode);
                   }}
@@ -362,7 +392,9 @@ export const PlusMenu = ({
                       // 0 = unlimited (no budget section is injected into the
                       // Goal Mode system prompt); unchecking restores the
                       // built-in default budget.
-                      onGoalModeTokenBudgetChange?.(e.target.checked ? 0 : 2000000);
+                      onGoalModeTokenBudgetChange?.(
+                        e.target.checked ? 0 : 2000000,
+                      );
                     }}
                     aria-label={t("plusMenu.goalBudgetUnlimited")}
                   />
@@ -371,8 +403,8 @@ export const PlusMenu = ({
               </div>
             )}
           </div>
-          </div>
-        )}
+        </div>
+      )}
     </div>
   );
 };

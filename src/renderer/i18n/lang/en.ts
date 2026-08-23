@@ -2800,6 +2800,11 @@ export const en = {
   "plusMenu.yoloModeEnabled": "Enabled, no per-tool approval required",
   "plusMenu.yoloModeDisabled": "Disabled, approve each tool execution",
   "plusMenu.yoloModeActive": "YOLO Mode active, no per-tool approval required",
+  "plusMenu.liteMode": "Lite Mode",
+  "plusMenu.liteModeDescription":
+    "Disables the Browser, App Control and Terminal Control MCP servers to save context; recommended for models with shorter context windows",
+  "plusMenu.liteModeActive":
+    "Lite Mode active, Browser, App Control and Terminal Control MCP servers are disabled",
   "plusMenu.planMode": "Plan Mode",
   "plusMenu.planModeDescription": "Analyze and plan before executing changes",
   "plusMenu.planModeActive": "Plan Mode active",

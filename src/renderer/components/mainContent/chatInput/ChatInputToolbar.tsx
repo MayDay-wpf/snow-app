@@ -1,6 +1,7 @@
 import {
   ClipboardList,
   Command,
+  Feather,
   GitBranch,
   ShieldAlert,
   Target,
@@ -29,6 +30,10 @@ type ChatInputToolbarProps = ComponentProps<typeof ModelSelector> &
     | "isUpdatingYoloMode"
     | "onYoloModeChange"
     | "onRefreshYoloMode"
+    | "liteMode"
+    | "isUpdatingLiteMode"
+    | "onLiteModeChange"
+    | "onRefreshLiteMode"
     | "planMode"
     | "isUpdatingPlanMode"
     | "onPlanModeChange"
@@ -76,6 +81,10 @@ export const ChatInputToolbar = ({
     isUpdatingYoloMode,
     onYoloModeChange,
     onRefreshYoloMode,
+    liteMode,
+    isUpdatingLiteMode,
+    onLiteModeChange,
+    onRefreshLiteMode,
     planMode,
     isUpdatingPlanMode,
     onPlanModeChange,
@@ -110,6 +119,10 @@ export const ChatInputToolbar = ({
           isUpdatingYoloMode={isUpdatingYoloMode}
           onYoloModeChange={onYoloModeChange}
           onRefreshYoloMode={onRefreshYoloMode}
+          liteMode={liteMode}
+          isUpdatingLiteMode={isUpdatingLiteMode}
+          onLiteModeChange={onLiteModeChange}
+          onRefreshLiteMode={onRefreshLiteMode}
           planMode={planMode}
           isUpdatingPlanMode={isUpdatingPlanMode}
           onPlanModeChange={
@@ -195,6 +208,19 @@ export const ChatInputToolbar = ({
                 aria-label={t("plusMenu.yoloModeActive")}
               >
                 <ShieldAlert size={14} />
+              </span>
+            </Tooltip>
+          </>
+        )}
+        {liteMode && (
+          <>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <Tooltip content={t("plusMenu.liteModeActive")}>
+              <span
+                className="plan-mode-badge lite-mode-badge"
+                aria-label={t("plusMenu.liteModeActive")}
+              >
+                <Feather size={14} />
               </span>
             </Tooltip>
           </>

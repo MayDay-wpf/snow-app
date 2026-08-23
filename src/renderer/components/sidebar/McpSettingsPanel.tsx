@@ -19,7 +19,11 @@ import { useI18n } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
-import { McpSettingsEditor, McpSettingsEditorActions } from "./mcpSettings/McpSettingsEditor";
+import { LITE_MODE_CHANGED_EVENT } from "../mainContent/chatMessages/hooks/useToolAuthorization";
+import {
+  McpSettingsEditor,
+  McpSettingsEditorActions,
+} from "./mcpSettings/McpSettingsEditor";
 import {
   McpSettingsList,
   type McpSettingsListItem,
@@ -67,7 +71,9 @@ export function McpSettingsPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
-  const [importResources, setImportResources] = useState<ImportResourceRecord[]>([]);
+  const [importResources, setImportResources] = useState<
+    ImportResourceRecord[]
+  >([]);
   const [pendingRelease, setPendingRelease] = useState<{
     resource: ImportResourceRecord;
     source: ImportResourceSource;
@@ -97,20 +103,19 @@ export function McpSettingsPanel({
     setError("");
 
     try {
-      const [globalItems, projectItems, projectConfigItems, managedResources] = await Promise.all(
-        [
+      const [globalItems, projectItems, projectConfigItems, managedResources] =
+        await Promise.all([
           window.snow.listMcpServerConfigs(),
           activeDirectory
             ? window.snow.listMcpProjectServers(activeDirectory.directoryId)
             : Promise.resolve([]),
           activeDirectory
             ? window.snow.listProjectMcpServerConfigs(
-                activeDirectory.directoryId
+                activeDirectory.directoryId,
               )
             : Promise.resolve([]),
           window.snow.listManagedImportResources(),
-        ]
-      );
+        ]);
       if (loadGenerationRef.current !== generation) {
         return;
       }
@@ -135,7 +140,7 @@ export function McpSettingsPanel({
             ? loadError.message
             : t("settings.mcpLoadError", {
                 defaultValue: "Failed to load MCP servers",
-              })
+              }),
         );
       }
     } finally {
@@ -177,7 +182,7 @@ export function McpSettingsPanel({
       setStatus(
         t("settings.mcpImportSuccess", {
           defaultValue: "Synced MCP servers from Snow CLI.",
-        })
+        }),
       );
     } catch (e) {
       setError(
@@ -185,7 +190,7 @@ export function McpSettingsPanel({
           ? e.message
           : t("settings.mcpImportError", {
               defaultValue: "Failed to sync Snow CLI MCP settings",
-            })
+            }),
       );
     } finally {
       setIsLoading(false);
@@ -197,7 +202,7 @@ export function McpSettingsPanel({
       activeScope === "global" ? servers : projectServerConfigs;
     const maxSortOrder = scopedServers.reduce(
       (max, server) => Math.max(max, server.sortOrder),
-      -1
+      -1,
     );
     setDraft({
       ...EMPTY_MCP_SERVER_DRAFT,
@@ -220,7 +225,7 @@ export function McpSettingsPanel({
   };
 
   const adoptImportedResource = async (
-    resource: ImportResourceRecord | undefined
+    resource: ImportResourceRecord | undefined,
   ): Promise<void> => {
     const source = resource?.sources[0];
     if (!resource || !source) {
@@ -241,17 +246,17 @@ export function McpSettingsPanel({
     group: "env" | "headers",
     pairId: string,
     field: "key" | "value",
-    value: string
+    value: string,
   ) => {
     setDraft((previous) =>
       previous
         ? {
             ...previous,
             [group]: previous[group].map((pair) =>
-              pair.id === pairId ? { ...pair, [field]: value } : pair
+              pair.id === pairId ? { ...pair, [field]: value } : pair,
             ),
           }
-        : null
+        : null,
     );
   };
 
@@ -259,7 +264,7 @@ export function McpSettingsPanel({
     setDraft((previous) =>
       previous
         ? { ...previous, [group]: [...previous[group], createMcpPair()] }
-        : null
+        : null,
     );
   };
 
@@ -270,7 +275,7 @@ export function McpSettingsPanel({
             ...previous,
             [group]: previous[group].filter((pair) => pair.id !== pairId),
           }
-        : null
+        : null,
     );
   };
 
@@ -280,10 +285,10 @@ export function McpSettingsPanel({
         ? {
             ...previous,
             args: previous.args.map((arg) =>
-              arg.id === argId ? { ...arg, value } : arg
+              arg.id === argId ? { ...arg, value } : arg,
             ),
           }
-        : null
+        : null,
     );
   };
 
@@ -291,7 +296,7 @@ export function McpSettingsPanel({
     setDraft((previous) =>
       previous
         ? { ...previous, args: [...previous.args, createMcpStringItem()] }
-        : null
+        : null,
     );
   };
 
@@ -299,7 +304,7 @@ export function McpSettingsPanel({
     setDraft((previous) =>
       previous
         ? { ...previous, args: previous.args.filter((arg) => arg.id !== argId) }
-        : null
+        : null,
     );
   };
 
@@ -310,7 +315,7 @@ export function McpSettingsPanel({
       setError(
         t("settings.mcpNameRequired", {
           defaultValue: "MCP server name is required.",
-        })
+        }),
       );
       setStatus("");
       return;
@@ -318,7 +323,7 @@ export function McpSettingsPanel({
 
     if (draft.transportType === "http" && !draft.url.trim()) {
       setError(
-        t("settings.mcpUrlRequired", { defaultValue: "URL is required." })
+        t("settings.mcpUrlRequired", { defaultValue: "URL is required." }),
       );
       setStatus("");
       return;
@@ -328,7 +333,7 @@ export function McpSettingsPanel({
       setError(
         t("settings.mcpCommandRequired", {
           defaultValue: "Command is required.",
-        })
+        }),
       );
       setStatus("");
       return;
@@ -338,7 +343,7 @@ export function McpSettingsPanel({
       setError(
         t("settings.mcpDuplicateKey", {
           defaultValue: "Environment and header names must be unique.",
-        })
+        }),
       );
       setStatus("");
       return;
@@ -352,7 +357,7 @@ export function McpSettingsPanel({
       setError(
         t("settings.mcpTimeoutInvalid", {
           defaultValue: "Timeout must be a positive integer.",
-        })
+        }),
       );
       setStatus("");
       return;
@@ -365,16 +370,18 @@ export function McpSettingsPanel({
       setError(
         t("settings.mcpProjectRequired", {
           defaultValue: "Select a project before saving a project MCP server.",
-        })
+        }),
       );
       return;
     }
     const importResource = draft.serverId
-      ? importResources.find((resource) =>
-          resource.resourceType === "mcp" &&
-          resource.scope === operationScope &&
-          resource.projectId === (operationScope === "project" ? operationProjectId : undefined) &&
-          resource.targetId === draft.serverId
+      ? importResources.find(
+          (resource) =>
+            resource.resourceType === "mcp" &&
+            resource.scope === operationScope &&
+            resource.projectId ===
+              (operationScope === "project" ? operationProjectId : undefined) &&
+            resource.targetId === draft.serverId,
         )
       : undefined;
 
@@ -386,28 +393,27 @@ export function McpSettingsPanel({
       if (operationScope === "global") {
         const maxSortOrder = servers.reduce(
           (max, server) => Math.max(max, server.sortOrder),
-          -1
+          -1,
         );
         const items = await window.snow.upsertMcpServerConfig(
-          toInput(draft, maxSortOrder + 1)
+          toInput(draft, maxSortOrder + 1),
         );
         setServers(items);
       } else if (operationProjectId) {
         const maxSortOrder = projectServerConfigs.reduce(
           (max, server) => Math.max(max, server.sortOrder),
-          -1
+          -1,
         );
         const items = await window.snow.upsertProjectMcpServerConfig(
           operationProjectId,
-          toProjectInput(draft, maxSortOrder + 1)
+          toProjectInput(draft, maxSortOrder + 1),
         );
         if (loadGenerationRef.current !== generation) {
           return;
         }
         setProjectServerConfigs(items);
-        const nextProjectServers = await window.snow.listMcpProjectServers(
-          operationProjectId
-        );
+        const nextProjectServers =
+          await window.snow.listMcpProjectServers(operationProjectId);
         if (loadGenerationRef.current !== generation) {
           return;
         }
@@ -424,7 +430,7 @@ export function McpSettingsPanel({
             })
           : t("settings.mcpAddSuccess", {
               defaultValue: "Added MCP server.",
-            })
+            }),
       );
     } catch (e) {
       if (
@@ -436,7 +442,7 @@ export function McpSettingsPanel({
             ? e.message
             : t("settings.mcpSaveError", {
                 defaultValue: "Failed to save MCP server",
-              })
+              }),
         );
       }
     } finally {
@@ -469,18 +475,21 @@ export function McpSettingsPanel({
         source: server.source,
       });
       setServers(items);
-      await adoptImportedResource(importResources.find((resource) =>
-        resource.resourceType === "mcp" &&
-        resource.scope === "global" &&
-        resource.targetId === server.serverId
-      ));
+      await adoptImportedResource(
+        importResources.find(
+          (resource) =>
+            resource.resourceType === "mcp" &&
+            resource.scope === "global" &&
+            resource.targetId === server.serverId,
+        ),
+      );
     } catch (e) {
       setError(
         e instanceof Error
           ? e.message
           : t("settings.mcpSaveError", {
               defaultValue: "Failed to update MCP server",
-            })
+            }),
       );
     }
   };
@@ -504,7 +513,7 @@ export function McpSettingsPanel({
         t("settings.mcpFetchToolsSuccess", {
           defaultValue: "Fetched {{count}} tool(s) from {{name}}.",
           values: { count: tools.length, name: server.name },
-        })
+        }),
       );
     } catch (e) {
       setError(formatMcpError(e, t));
@@ -520,7 +529,7 @@ export function McpSettingsPanel({
   const handleToggleTool = async (
     server: McpSettingsListItem,
     tool: McpServerTool,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (isBusy || !server.globalEnabled || !server.enabled) {
       return;
@@ -540,7 +549,7 @@ export function McpSettingsPanel({
         return {
           ...previous,
           [server.serverId]: current.map((item) =>
-            item.name === tool.name ? { ...item, enabled: nextEnabled } : item
+            item.name === tool.name ? { ...item, enabled: nextEnabled } : item,
           ),
         };
       });
@@ -554,7 +563,7 @@ export function McpSettingsPanel({
         await window.snow.setMcpProjectToolEnabled(
           activeDirectory.directoryId,
           tool.name,
-          enabled
+          enabled,
         );
       }
     } catch (e) {
@@ -564,14 +573,14 @@ export function McpSettingsPanel({
           ? formatMcpError(e, t)
           : t("settings.mcpToolToggleError", {
               defaultValue: "Failed to update MCP tool",
-            })
+            }),
       );
     }
   };
 
   const handleToggleAllTools = async (
     server: McpSettingsListItem,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (isBusy || !server.globalEnabled || !server.enabled) {
       return;
@@ -611,7 +620,7 @@ export function McpSettingsPanel({
         await window.snow.setMcpProjectToolsEnabled(
           activeDirectory.directoryId,
           toolNames,
-          enabled
+          enabled,
         );
       }
     } catch (e) {
@@ -621,7 +630,7 @@ export function McpSettingsPanel({
           ? formatMcpError(e, t)
           : t("settings.mcpToolToggleError", {
               defaultValue: "Failed to update MCP tool",
-            })
+            }),
       );
     }
   };
@@ -641,7 +650,7 @@ export function McpSettingsPanel({
       setStatus(
         t("settings.mcpDeleteSuccess", {
           defaultValue: "Deleted MCP server.",
-        })
+        }),
       );
     } catch (e) {
       setError(
@@ -649,7 +658,7 @@ export function McpSettingsPanel({
           ? e.message
           : t("settings.mcpDeleteError", {
               defaultValue: "Failed to delete MCP server",
-            })
+            }),
       );
     }
   };
@@ -661,17 +670,18 @@ export function McpSettingsPanel({
     globalEnabled: true,
     detail: `${server.transportType} · ${getMcpServerEndpoint(server) || "-"}`,
     canManage: true,
-    importResource: importResources.find((resource) =>
-      resource.resourceType === "mcp" &&
-      resource.scope === "global" &&
-      resource.targetId === server.serverId
+    importResource: importResources.find(
+      (resource) =>
+        resource.resourceType === "mcp" &&
+        resource.scope === "global" &&
+        resource.targetId === server.serverId,
     ),
   }));
   const projectListItems: McpSettingsListItem[] = projectServers.map(
     (server) => {
       const configServerId = server.id.replace(/^external:/, "");
       const projectConfig = projectServerConfigs.find(
-        (item) => item.serverId === configServerId
+        (item) => item.serverId === configServerId,
       );
       return {
         serverId: server.id,
@@ -684,34 +694,35 @@ export function McpSettingsPanel({
                 defaultValue: "Built-in system MCP server",
               })
             : server.source === "project"
-            ? `${t("settings.mcpProjectOwnedServer", {
-                defaultValue: "Project MCP server",
-              })} · ${
-                projectConfig
-                  ? `${projectConfig.transportType} · ${
-                      getMcpServerEndpoint(projectConfig) || "-"
-                    }`
-                  : "-"
-              }`
-            : t("settings.mcpProjectExternalServer", {
-                defaultValue: "Global external MCP server",
-              }),
+              ? `${t("settings.mcpProjectOwnedServer", {
+                  defaultValue: "Project MCP server",
+                })} · ${
+                  projectConfig
+                    ? `${projectConfig.transportType} · ${
+                        getMcpServerEndpoint(projectConfig) || "-"
+                      }`
+                    : "-"
+                }`
+              : t("settings.mcpProjectExternalServer", {
+                  defaultValue: "Global external MCP server",
+                }),
         canManage: server.source === "project",
         importResource: projectConfig
-          ? importResources.find((resource) =>
-              resource.resourceType === "mcp" &&
-              resource.scope === "project" &&
-              resource.projectId === activeDirectory?.directoryId &&
-              resource.targetId === projectConfig.serverId
+          ? importResources.find(
+              (resource) =>
+                resource.resourceType === "mcp" &&
+                resource.scope === "project" &&
+                resource.projectId === activeDirectory?.directoryId &&
+                resource.targetId === projectConfig.serverId,
             )
           : undefined,
       };
-    }
+    },
   );
   const isGlobalScope = activeScope === "global";
   const activeServers = isGlobalScope ? globalListItems : projectListItems;
   const enabledCount = activeServers.filter(
-    (server) => server.enabled && server.globalEnabled
+    (server) => server.enabled && server.globalEnabled,
   ).length;
   const listTitle = isGlobalScope
     ? t("settings.mcpGlobalListTitle", { defaultValue: "Global MCP servers" })
@@ -728,7 +739,7 @@ export function McpSettingsPanel({
       });
 
   const handleProjectToggle = async (
-    server: McpSettingsListItem
+    server: McpSettingsListItem,
   ): Promise<void> => {
     if (!activeDirectory || !server.globalEnabled || isBusy) {
       return;
@@ -738,7 +749,7 @@ export function McpSettingsPanel({
     const generation = loadGenerationRef.current;
     const configServerId = server.serverId.replace(/^external:/, "");
     const projectConfig = projectServerConfigs.find(
-      (item) => item.serverId === configServerId
+      (item) => item.serverId === configServerId,
     );
     setIsSaving(true);
     setError("");
@@ -765,17 +776,30 @@ export function McpSettingsPanel({
         await window.snow.setMcpProjectServerEnabled(
           operationProjectId,
           server.serverId,
-          !server.enabled
+          !server.enabled,
         );
+        // 手动启用被精简模式禁用的内置服务器（browser / app-control /
+        // terminal）时，Rust 侧会自动关闭精简模式；派发事件让会话层重新读取状态。
+        if (
+          !server.enabled &&
+          (server.serverId === "builtin:browser" ||
+            server.serverId === "builtin:app-control" ||
+            server.serverId === "builtin:terminal")
+        ) {
+          window.dispatchEvent(new CustomEvent(LITE_MODE_CHANGED_EVENT));
+        }
       }
-      await adoptImportedResource(projectConfig
-        ? importResources.find((resource) =>
-            resource.resourceType === "mcp" &&
-            resource.scope === "project" &&
-            resource.projectId === operationProjectId &&
-            resource.targetId === projectConfig.serverId
-          )
-        : undefined);
+      await adoptImportedResource(
+        projectConfig
+          ? importResources.find(
+              (resource) =>
+                resource.resourceType === "mcp" &&
+                resource.scope === "project" &&
+                resource.projectId === operationProjectId &&
+                resource.targetId === projectConfig.serverId,
+            )
+          : undefined,
+      );
       if (loadGenerationRef.current !== generation) {
         return;
       }
@@ -796,7 +820,7 @@ export function McpSettingsPanel({
             ? updateError.message
             : t("settings.mcpSaveError", {
                 defaultValue: "Failed to update MCP server",
-              })
+              }),
         );
       }
     } finally {
@@ -807,7 +831,7 @@ export function McpSettingsPanel({
   };
 
   const handleProjectFetchTools = async (
-    server: McpSettingsListItem
+    server: McpSettingsListItem,
   ): Promise<void> => {
     if (!activeDirectory) {
       return;
@@ -816,14 +840,14 @@ export function McpSettingsPanel({
     const operationProjectId = activeDirectory.directoryId;
     const generation = loadGenerationRef.current;
     setFetchingToolServerIds((previous) =>
-      new Set(previous).add(server.serverId)
+      new Set(previous).add(server.serverId),
     );
     setError("");
     setStatus("");
     try {
       const tools = await window.snow.listMcpProjectServerTools(
         operationProjectId,
-        server.serverId
+        server.serverId,
       );
       if (loadGenerationRef.current !== generation) {
         return;
@@ -836,7 +860,7 @@ export function McpSettingsPanel({
         t("settings.mcpFetchToolsSuccess", {
           defaultValue: "Fetched {{count}} tool(s) from {{name}}.",
           values: { count: tools.length, name: server.name },
-        })
+        }),
       );
     } catch (fetchError) {
       if (loadGenerationRef.current === generation) {
@@ -856,14 +880,14 @@ export function McpSettingsPanel({
   const findGlobalServer = (serverId: string): McpServerConfig | undefined =>
     servers.find((server) => server.serverId === serverId);
   const findProjectServer = (
-    scopeServerId: string
+    scopeServerId: string,
   ): ProjectMcpServerConfig | undefined => {
     const serverId = scopeServerId.replace(/^external:/, "");
     return projectServerConfigs.find((server) => server.serverId === serverId);
   };
 
   const handleProjectDelete = async (
-    server: ProjectMcpServerConfig
+    server: ProjectMcpServerConfig,
   ): Promise<void> => {
     if (!activeDirectory) {
       return;
@@ -876,7 +900,7 @@ export function McpSettingsPanel({
     try {
       const items = await window.snow.deleteProjectMcpServerConfig(
         operationProjectId,
-        server.serverId
+        server.serverId,
       );
       if (loadGenerationRef.current !== generation) {
         return;
@@ -887,9 +911,8 @@ export function McpSettingsPanel({
         delete next[`external:${server.serverId}`];
         return next;
       });
-      const nextProjectServers = await window.snow.listMcpProjectServers(
-        operationProjectId
-      );
+      const nextProjectServers =
+        await window.snow.listMcpProjectServers(operationProjectId);
       if (loadGenerationRef.current !== generation) {
         return;
       }
@@ -897,7 +920,7 @@ export function McpSettingsPanel({
       setStatus(
         t("settings.mcpDeleteSuccess", {
           defaultValue: "Deleted MCP server.",
-        })
+        }),
       );
     } catch (deleteError) {
       if (loadGenerationRef.current === generation) {
@@ -906,7 +929,7 @@ export function McpSettingsPanel({
             ? deleteError.message
             : t("settings.mcpDeleteError", {
                 defaultValue: "Failed to delete MCP server",
-              })
+              }),
         );
       }
     } finally {
@@ -941,14 +964,14 @@ export function McpSettingsPanel({
   const handleListToggleTool = (
     server: McpSettingsListItem,
     tool: McpServerTool,
-    enabled: boolean
+    enabled: boolean,
   ): void => {
     void handleToggleTool(server, tool, enabled);
   };
 
   const handleListToggleAllTools = (
     server: McpSettingsListItem,
-    enabled: boolean
+    enabled: boolean,
   ): void => {
     void handleToggleAllTools(server, enabled);
   };
@@ -1000,7 +1023,7 @@ export function McpSettingsPanel({
   const requestRelease = (
     resource: ImportResourceRecord,
     source: ImportResourceSource,
-    disposition: ImportResourceReleaseDisposition
+    disposition: ImportResourceReleaseDisposition,
   ): void => setPendingRelease({ resource, source, disposition });
 
   const confirmRelease = async (): Promise<void> => {
@@ -1026,7 +1049,7 @@ export function McpSettingsPanel({
             })
           : t("settings.importResourceRemoveSuccess", {
               defaultValue: "Removed the imported resource association.",
-            })
+            }),
       );
     } catch (releaseError) {
       setError(
@@ -1034,7 +1057,7 @@ export function McpSettingsPanel({
           ? releaseError.message
           : t("settings.importResourceRemoveError", {
               defaultValue: "Failed to remove imported resource.",
-            })
+            }),
       );
     } finally {
       setIsReleasing(false);
@@ -1265,13 +1288,13 @@ export function McpSettingsPanel({
             isFetchingTools={
               Boolean(draft.serverId) &&
               fetchingToolServerIds.has(
-                isGlobalScope ? draft.serverId : `external:${draft.serverId}`
+                isGlobalScope ? draft.serverId : `external:${draft.serverId}`,
               )
             }
             onFetchTools={() => {
               if (isGlobalScope) {
                 const server = servers.find(
-                  (item) => item.serverId === draft.serverId
+                  (item) => item.serverId === draft.serverId,
                 );
                 if (server) {
                   void handleFetchTools(server);
@@ -1279,7 +1302,7 @@ export function McpSettingsPanel({
                 return;
               }
               const server = projectListItems.find(
-                (item) => item.serverId === `external:${draft.serverId}`
+                (item) => item.serverId === `external:${draft.serverId}`,
               );
               if (server) {
                 void handleProjectFetchTools(server);
@@ -1303,15 +1326,18 @@ export function McpSettingsPanel({
         title={t("settings.mcpDeleteConfirmTitle", {
           defaultValue: "Delete MCP server",
         })}
-        message={pendingDeleteIsSnowCli
-          ? t("settings.mcpDeleteSnowCliConfirm", {
-              defaultValue: "Delete {{name}} from Snow App and its Snow CLI settings file? This prevents it from returning after the next sync.",
-              values: { name: pendingDelete?.server.name ?? "" },
-            })
-          : t("settings.mcpDeleteConfirm", {
-              defaultValue: "Delete the MCP server {{name}}?",
-              values: { name: pendingDelete?.server.name ?? "" },
-            })}
+        message={
+          pendingDeleteIsSnowCli
+            ? t("settings.mcpDeleteSnowCliConfirm", {
+                defaultValue:
+                  "Delete {{name}} from Snow App and its Snow CLI settings file? This prevents it from returning after the next sync.",
+                values: { name: pendingDelete?.server.name ?? "" },
+              })
+            : t("settings.mcpDeleteConfirm", {
+                defaultValue: "Delete the MCP server {{name}}?",
+                values: { name: pendingDelete?.server.name ?? "" },
+              })
+        }
         confirmLabel={t("settings.delete", { defaultValue: "Delete" })}
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
         variant="danger"
@@ -1321,23 +1347,38 @@ export function McpSettingsPanel({
 
       <ConfirmDialog
         open={Boolean(pendingRelease)}
-        title={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopy", { defaultValue: "Keep local copy" })
-          : t("settings.importResourceRemove", { defaultValue: "Remove imported resource" })}
-        message={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopyConfirm", {
-              defaultValue: "Keep this local copy and remove its import association?",
-            })
-          : pendingRelease && pendingRelease.resource.sourceCount > 1
-            ? t("settings.importResourceUnlinkConfirm", {
-                defaultValue: "Remove this source association? Other sources will keep the resource available.",
+        title={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopy", {
+                defaultValue: "Keep local copy",
               })
-            : t("settings.importResourceRemoveConfirm", {
-                defaultValue: "Remove this import association and delete the Snow-managed resource?",
-              })}
-        confirmLabel={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopy", { defaultValue: "Keep copy" })
-          : t("settings.remove", { defaultValue: "Remove" })}
+            : t("settings.importResourceRemove", {
+                defaultValue: "Remove imported resource",
+              })
+        }
+        message={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopyConfirm", {
+                defaultValue:
+                  "Keep this local copy and remove its import association?",
+              })
+            : pendingRelease && pendingRelease.resource.sourceCount > 1
+              ? t("settings.importResourceUnlinkConfirm", {
+                  defaultValue:
+                    "Remove this source association? Other sources will keep the resource available.",
+                })
+              : t("settings.importResourceRemoveConfirm", {
+                  defaultValue:
+                    "Remove this import association and delete the Snow-managed resource?",
+                })
+        }
+        confirmLabel={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopy", {
+                defaultValue: "Keep copy",
+              })
+            : t("settings.remove", { defaultValue: "Remove" })
+        }
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
         variant={pendingRelease?.disposition === "adopt" ? "default" : "danger"}
         onConfirm={() => void confirmRelease()}

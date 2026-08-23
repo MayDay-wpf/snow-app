@@ -15,6 +15,7 @@ import type {
 import { useI18n } from "../../../i18n";
 import { formatMcpError } from "../../sidebar/mcpSettings/mcpErrorMessages";
 import { Modal } from "../../common/Modal";
+import { LITE_MODE_CHANGED_EVENT } from "../chatMessages/hooks/useToolAuthorization";
 
 type ProjectMcpPanelProps = {
   open: boolean;
@@ -33,12 +34,12 @@ const toolDisplayName = (fullName: string): string => {
 
 const hasOwnTools = (
   toolsByServerId: ExternalToolsByServerId,
-  serverId: string
+  serverId: string,
 ): boolean => Object.prototype.hasOwnProperty.call(toolsByServerId, serverId);
 
 const formatServerError = (
   error: string,
-  t: (key: string, options?: { defaultValue?: string }) => string
+  t: (key: string, options?: { defaultValue?: string }) => string,
 ): string => {
   if (error === "imagegen:not_configured") {
     return t("projectMcp.serverErrorImagegenNotConfigured", {
@@ -58,12 +59,12 @@ export const ProjectMcpPanel = ({
   const { t } = useI18n();
   const [servers, setServers] = useState<McpProjectServerStatus[]>([]);
   const [expandedServerIds, setExpandedServerIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const [externalToolsByServerId, setExternalToolsByServerId] =
     useState<ExternalToolsByServerId>({});
   const [loadingToolServerIds, setLoadingToolServerIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const [toolErrorsByServerId, setToolErrorsByServerId] =
     useState<ToolErrorsByServerId>({});
@@ -139,7 +140,7 @@ export const ProjectMcpPanel = ({
       try {
         const tools = await window.snow.listMcpProjectServerTools(
           projectId,
-          server.id
+          server.id,
         );
         if (catalogGenerationRef.current === generation) {
           setExternalToolsByServerId((current) => ({
@@ -165,7 +166,7 @@ export const ProjectMcpPanel = ({
         }
       }
     },
-    [externalToolsByServerId, projectId]
+    [externalToolsByServerId, projectId],
   );
 
   const toggleExpanded = (server: McpProjectServerStatus): void => {
@@ -187,7 +188,7 @@ export const ProjectMcpPanel = ({
 
   const updateServer = async (
     server: McpProjectServerStatus,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (
       !projectId ||
@@ -203,22 +204,34 @@ export const ProjectMcpPanel = ({
     setLoadError(null);
     setServers((current) =>
       current.map((item) =>
-        item.id === server.id ? { ...item, enabled } : item
-      )
+        item.id === server.id ? { ...item, enabled } : item,
+      ),
     );
 
     try {
       await window.snow.setMcpProjectServerEnabled(
         projectId,
         server.id,
-        enabled
+        enabled,
       );
+      // 手动启用被精简模式禁用的内置服务器（browser / app-control /
+      // terminal）时，Rust 侧会自动关闭精简模式；派发事件让会话层重新读取状态。
+      if (
+        enabled &&
+        (server.id === "builtin:browser" ||
+          server.id === "builtin:app-control" ||
+          server.id === "builtin:terminal")
+      ) {
+        window.dispatchEvent(new CustomEvent(LITE_MODE_CHANGED_EVENT));
+      }
     } catch (error) {
       if (catalogGenerationRef.current === generation) {
         setServers((current) =>
           current.map((item) =>
-            item.id === server.id ? { ...item, enabled: previousEnabled } : item
-          )
+            item.id === server.id
+              ? { ...item, enabled: previousEnabled }
+              : item,
+          ),
         );
         setLoadError(error instanceof Error ? error.message : String(error));
       }
@@ -230,7 +243,7 @@ export const ProjectMcpPanel = ({
   const setToolEnabled = (
     serverId: string,
     toolName: string,
-    enabled: boolean
+    enabled: boolean,
   ): void => {
     setServers((current) =>
       current.map((item) =>
@@ -238,11 +251,11 @@ export const ProjectMcpPanel = ({
           ? {
               ...item,
               tools: item.tools.map((tool) =>
-                tool.name === toolName ? { ...tool, enabled } : tool
+                tool.name === toolName ? { ...tool, enabled } : tool,
               ),
             }
-          : item
-      )
+          : item,
+      ),
     );
     setExternalToolsByServerId((current) => {
       const tools = current[serverId];
@@ -252,7 +265,7 @@ export const ProjectMcpPanel = ({
       return {
         ...current,
         [serverId]: tools.map((tool) =>
-          tool.name === toolName ? { ...tool, enabled } : tool
+          tool.name === toolName ? { ...tool, enabled } : tool,
         ),
       };
     });
@@ -261,7 +274,7 @@ export const ProjectMcpPanel = ({
   const updateTool = async (
     server: McpProjectServerStatus,
     tool: McpProjectToolStatus,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (
       !projectId ||
@@ -291,12 +304,12 @@ export const ProjectMcpPanel = ({
 
   const systemServers = servers.filter((server) => server.source === "system");
   const externalServers = servers.filter(
-    (server) => server.source === "external"
+    (server) => server.source === "external",
   );
 
   const renderServerGroup = (
     title: string,
-    groupServers: McpProjectServerStatus[]
+    groupServers: McpProjectServerStatus[],
   ): React.JSX.Element => (
     <section className="project-mcp-group">
       <div className="project-mcp-group-title">
@@ -352,10 +365,10 @@ export const ProjectMcpPanel = ({
                     {toolsLoading
                       ? t("projectMcp.loadingToolsShort")
                       : toolsLoaded
-                      ? t("projectMcp.toolCount", {
-                          values: { count: tools.length },
-                        })
-                      : t("projectMcp.toolsOnDemand")}
+                        ? t("projectMcp.toolCount", {
+                            values: { count: tools.length },
+                          })
+                        : t("projectMcp.toolsOnDemand")}
                   </span>
                 </button>
                 <label className="toggle-switch">
@@ -430,7 +443,7 @@ export const ProjectMcpPanel = ({
                               void updateTool(
                                 server,
                                 tool,
-                                event.target.checked
+                                event.target.checked,
                               )
                             }
                             type="checkbox"
@@ -499,7 +512,7 @@ export const ProjectMcpPanel = ({
             {renderServerGroup(t("projectMcp.systemServers"), systemServers)}
             {renderServerGroup(
               t("projectMcp.externalServers"),
-              externalServers
+              externalServers,
             )}
           </div>
         </>

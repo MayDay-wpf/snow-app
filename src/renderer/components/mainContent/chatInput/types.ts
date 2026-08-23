@@ -80,6 +80,10 @@ export type ChatInputProps = {
   isUpdatingYoloMode?: boolean;
   onYoloModeChange?: (enabled: boolean) => void;
   onRefreshYoloMode?: () => Promise<boolean | void>;
+  liteMode?: boolean;
+  isUpdatingLiteMode?: boolean;
+  onLiteModeChange?: (enabled: boolean) => void;
+  onRefreshLiteMode?: () => Promise<boolean | void>;
   planMode?: boolean;
   isUpdatingPlanMode?: boolean;
   onPlanModeChange?: (enabled: boolean) => void;
@@ -214,6 +218,10 @@ export type ChatInputViewProps = ChatInputState &
     isUpdatingYoloMode: boolean;
     onYoloModeChange?: (enabled: boolean) => void;
     onRefreshYoloMode?: () => Promise<boolean | void>;
+    liteMode: boolean;
+    isUpdatingLiteMode: boolean;
+    onLiteModeChange?: (enabled: boolean) => void;
+    onRefreshLiteMode?: () => Promise<boolean | void>;
     planMode: boolean;
     isUpdatingPlanMode: boolean;
     onPlanModeChange?: (enabled: boolean) => void;

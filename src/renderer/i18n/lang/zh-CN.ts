@@ -2664,6 +2664,11 @@ export const zhCN = {
   "plusMenu.yoloModeEnabled": "已启用，无需逐次授权",
   "plusMenu.yoloModeDisabled": "已关闭，每次工具执行前确认",
   "plusMenu.yoloModeActive": "YOLO 模式已启用，工具执行无需逐次授权",
+  "plusMenu.liteMode": "精简模式",
+  "plusMenu.liteModeDescription":
+    "禁用 Browser、App Control 与 Terminal Control 服务，节约上下文，适用于上下文较短的模型",
+  "plusMenu.liteModeActive":
+    "精简模式已启用，Browser、App Control 与 Terminal Control 服务已禁用",
   "plusMenu.planMode": "Plan 模式",
   "plusMenu.planModeDescription": "先分析并制定计划，再执行变更",
   "plusMenu.planModeActive": "Plan 模式已启用",
