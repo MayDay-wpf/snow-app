@@ -321,20 +321,3 @@ pub fn stop_codebase_watch(project_id: String) -> napi::Result<()> {
 
     Ok(())
 }
-
-/// Stop all active codebase watchers. Called during app shutdown to ensure
-/// no dangling watch threads remain.
-#[allow(dead_code)]
-pub fn stop_all_codebase_watches() {
-    if let Some(map) = WATCHERS.get() {
-        if let Ok(mut guard) = map.lock() {
-            for (_, handle) in guard.drain() {
-                if let Ok(mut state) = handle.debounce_state.lock() {
-                    state.stopped = true;
-                }
-                // Dropping handle stops the watcher and detaches the thread.
-                drop(handle);
-            }
-        }
-    }
-}

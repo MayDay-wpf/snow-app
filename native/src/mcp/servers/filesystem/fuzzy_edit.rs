@@ -1,9 +1,11 @@
 use super::*;
 
+use std::path::Path;
+
 use serde_json::{json, Value};
 
 /// 将所有空白字符（含 \r、\n、\t、BOM 等）压缩为单个空格并 trim 首尾。
-/// 仅用于比较两段文本是否"内容等价"，不修改原始文件。
+/// 仅用于比较两段文本是否“内容等价”，不修改原始文件。
 /// 这天然解决了 CRLF/LF 行尾差异、多余空格/制表符差异等问题。
 pub(crate) fn normalize_whitespace(content: &str) -> String {
     let mut normalized = String::with_capacity(content.len());
@@ -22,6 +24,121 @@ pub(crate) fn normalize_whitespace(content: &str) -> String {
     }
 
     normalized.trim_end().to_owned()
+}
+
+/// 判断文件是否使用缩进表达语义，不能在模糊匹配时忽略行首空白。
+pub(crate) fn is_indentation_sensitive_path(file_path: &str) -> bool {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_path)
+        .to_ascii_lowercase();
+
+    matches!(
+        file_name.as_str(),
+        "makefile" | "gnumakefile" | "snakefile"
+    ) || file_name.ends_with(".mk")
+        || file_name.ends_with(".py")
+        || file_name.ends_with(".pyw")
+        || file_name.ends_with(".pyi")
+        || file_name.ends_with(".yaml")
+        || file_name.ends_with(".yml")
+}
+
+/// 仅忽略 CRLF/LF 行尾差异，保留行首和行中的全部空白。
+pub(crate) fn normalize_line_endings_for_match(content: &str) -> String {
+    content.replace("\r\n", "\n").replace('\r', "")
+}
+
+fn normalize_for_match(content: &str, preserve_indentation: bool) -> String {
+    if preserve_indentation {
+        normalize_line_endings_for_match(content)
+    } else {
+        normalize_whitespace(content)
+    }
+}
+
+fn leading_horizontal_whitespace(line: &str) -> &str {
+    let end = line
+        .char_indices()
+        .find(|(_, character)| *character != ' ' && *character != '\t')
+        .map(|(index, _)| index)
+        .unwrap_or(line.len());
+    &line[..end]
+}
+
+fn first_non_empty_line<'a>(mut lines: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    lines.find(|line| {
+        !line
+            .trim_matches(|character: char| {
+                matches!(character, ' ' | '\t' | '\r' | '\u{feff}')
+            })
+            .is_empty()
+    })
+}
+
+fn validate_candidate_indentation(
+    file_path: &str,
+    matched_line: &str,
+    candidate_line: &str,
+    candidate_name: &str,
+) -> std::result::Result<(), String> {
+    let matched_indent = leading_horizontal_whitespace(matched_line);
+    let candidate_indent = leading_horizontal_whitespace(candidate_line);
+    if matched_indent == candidate_indent {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Edit rejected: leading indentation mismatch in indentation-sensitive file `{file_path}`. The matched region starts with {:?} ({} characters), but {candidate_name} starts with {:?} ({} characters). Copy the leading spaces/tabs from the matched region exactly; filesystem-replace_edit refuses to apply this edit to avoid silently breaking Python/YAML/Makefile structure.",
+        matched_indent,
+        matched_indent.chars().count(),
+        candidate_indent,
+        candidate_indent.chars().count()
+    ))
+}
+
+/// 拒绝 searchContent 丢失命中行首缩进，避免子串匹配绕过缩进保护。
+pub(crate) fn validate_search_indentation(
+    file_path: &str,
+    search_content: &str,
+    matched_content: &str,
+) -> std::result::Result<(), String> {
+    if !is_indentation_sensitive_path(file_path) {
+        return Ok(());
+    }
+
+    let Some(search_line) = first_non_empty_line(search_content.split('\n')) else {
+        return Ok(());
+    };
+    let Some(matched_line) = first_non_empty_line(matched_content.split('\n')) else {
+        return Ok(());
+    };
+
+    validate_candidate_indentation(file_path, matched_line, search_line, "searchContent")
+}
+
+/// 拒绝会改变缩进敏感文件块级缩进的替换，避免首行前导空格丢失后静默破坏源码。
+pub(crate) fn validate_replacement_indentation(
+    file_path: &str,
+    file_lines: &[&str],
+    matched_start: usize,
+    matched_end: usize,
+    replacement: &str,
+) -> std::result::Result<(), String> {
+    if !is_indentation_sensitive_path(file_path) {
+        return Ok(());
+    }
+
+    let matched_lines: &[&str] = file_lines.get(matched_start..matched_end).unwrap_or(&[]);
+    let Some(matched_line) = first_non_empty_line(matched_lines.iter().copied()) else {
+        return Ok(());
+    };
+    let Some(replacement_line) = first_non_empty_line(replacement.split('\n')) else {
+        return Ok(());
+    };
+
+    validate_candidate_indentation(file_path, matched_line, replacement_line, "replaceContent")
 }
 
 /// 计算两个字符串之间的 Levenshtein 相似度（0.0 ~ 1.0），带提前剪枝优化。
@@ -44,7 +161,6 @@ fn compute_levenshtein_similarity(left: &str, right: &str, threshold: f64) -> f6
 
     let max_distance = (max_length as f64 * (1.0 - threshold)).ceil() as usize;
 
-    // 带提前终止的 Levenshtein 距离
     if left_u16 == right_u16 {
         return 1.0;
     }
@@ -88,7 +204,6 @@ pub(crate) fn adapt_line_endings(text: &str, file_content: &str) -> String {
     let crlf_count = file_content.matches("\r\n").count();
     let lf_count = file_content.matches('\n').count();
     let lf_only = lf_count.saturating_sub(crlf_count);
-
     let use_crlf = crlf_count > lf_only;
 
     if use_crlf {
@@ -118,27 +233,23 @@ pub(crate) fn replacement_line_count(content: &str) -> usize {
 
 /// 如果 searchContent 的每一行都以行号前缀开头（如 "42: " 或 "  10| "），
 /// 则剥离所有行号前缀，返回纯内容。否则返回 None。
-/// 这处理 AI 从 read 输出中复制了行号前缀的情况。
 pub(crate) fn try_strip_line_prefixes(text: &str) -> Option<String> {
     let re = regex::Regex::new(LINE_PREFIX_REGEX).ok()?;
-
     let lines: Vec<&str> = text.lines().collect();
     if lines.is_empty() {
         return None;
     }
 
-    let non_empty_count = lines.iter().filter(|l| !l.trim().is_empty()).count();
+    let non_empty_count = lines.iter().filter(|line| !line.trim().is_empty()).count();
     if non_empty_count == 0 {
         return None;
     }
 
     let prefixed_count = lines
         .iter()
-        .filter(|l| !l.trim().is_empty() && re.is_match(l))
+        .filter(|line| !line.trim().is_empty() && re.is_match(line))
         .count();
-
-    let ratio = prefixed_count as f64 / non_empty_count as f64;
-    if ratio < 0.6 {
+    if (prefixed_count as f64 / non_empty_count as f64) < 0.6 {
         return None;
     }
 
@@ -152,55 +263,71 @@ pub(crate) fn try_strip_line_prefixes(text: &str) -> Option<String> {
             }
         })
         .collect();
-
     let result = stripped_lines.join("\n");
 
-    if result != text {
-        Some(result)
-    } else {
-        None
-    }
+    (result != text).then_some(result)
 }
 
-/// 尝试把 search_content 作为字面子串在完整文件内容中匹配并替换。
-/// 覆盖 search_content 只是某一行片段（例如超长单行字符串中的一段）或跨行
-/// 片段的场景，这是整行精确/模糊匹配无法命中的情况。先把 search_content 的
-/// 行尾适配为文件的行尾风格再做字面查找。成功时返回
-/// (新内容, 编辑起始行 0-based, 编辑结束行 0-based inclusive, 总匹配数)。
+/// 尝试把 searchContent 作为字面子串在完整文件内容中匹配并替换。
+/// 对缩进敏感文件，如果命中位置是某行的第一个非空白字符，则同时校验
+/// replaceContent 首行缩进，防止缺少缩进时绕过整行匹配保护。
 pub(crate) fn try_substring_replace(
+    file_path: &str,
     content: &str,
     search_content: &str,
     replace_content: &str,
     occurrence: usize,
-) -> Option<(String, usize, usize, usize)> {
+    preserve_indentation: bool,
+) -> std::result::Result<Option<(String, usize, usize, usize)>, String> {
     if search_content.is_empty() {
-        return None;
-    }
-    let adapted_search = adapt_line_endings(search_content, content);
-    if adapted_search.is_empty() {
-        return None;
+        return Ok(None);
     }
 
-    // 收集所有非重叠出现位置（字节索引）。
+    let adapted_search = adapt_line_endings(search_content, content);
+    if adapted_search.is_empty() {
+        return Ok(None);
+    }
+
     let mut positions: Vec<usize> = Vec::new();
     let mut cursor = 0usize;
     while cursor <= content.len() {
         match content[cursor..].find(&adapted_search) {
-            Some(rel) => {
-                let abs = cursor + rel;
-                positions.push(abs);
-                cursor = abs + adapted_search.len();
+            Some(relative) => {
+                let absolute = cursor + relative;
+                positions.push(absolute);
+                cursor = absolute + adapted_search.len();
             }
             None => break,
         }
     }
-    if positions.is_empty() {
-        return None;
+    let Some(&target) = positions.get(occurrence.saturating_sub(1)) else {
+        return Ok(None);
+    };
+
+    if preserve_indentation {
+        let line_start = content[..target]
+            .rfind('\n')
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let line_end = content[target..]
+            .find('\n')
+            .map(|relative| target + relative)
+            .unwrap_or(content.len());
+        let matched_line = &content[line_start..line_end];
+        let before_match = &content[line_start..target];
+        if before_match.chars().all(|character| character == ' ' || character == '\t') {
+            validate_search_indentation(file_path, search_content, matched_line)?;
+            validate_replacement_indentation(
+                file_path,
+                &[matched_line],
+                0,
+                1,
+                replace_content,
+            )?;
+        }
     }
 
-    let target = *positions.get(occurrence.saturating_sub(1))?;
     let end = target + adapted_search.len();
-
     let mut new_content = String::with_capacity(content.len() + replace_content.len());
     new_content.push_str(&content[..target]);
     new_content.push_str(replace_content);
@@ -208,16 +335,59 @@ pub(crate) fn try_substring_replace(
 
     let edit_start_line = content[..target].matches('\n').count();
     let edit_end_line = edit_start_line + replace_content.split('\n').count().saturating_sub(1);
+    Ok(Some((
+        new_content,
+        edit_start_line,
+        edit_end_line,
+        positions.len(),
+    )))
+}
 
-    Some((new_content, edit_start_line, edit_end_line, positions.len()))
+fn indentation_matches(search_content: &str, candidate_lines: &[&str]) -> bool {
+    let search_lines: Vec<&str> = search_content.split('\n').collect();
+    if search_lines.len() != candidate_lines.len() {
+        return false;
+    }
+
+    search_lines
+        .iter()
+        .zip(candidate_lines.iter())
+        .all(|(search_line, candidate_line)| {
+            leading_horizontal_whitespace(search_line)
+                == leading_horizontal_whitespace(candidate_line)
+        })
+}
+
+fn score_candidate(
+    search_content: &str,
+    candidate_lines: &[&str],
+    preserve_indentation: bool,
+    threshold: f64,
+) -> f64 {
+    if preserve_indentation && !indentation_matches(search_content, candidate_lines) {
+        return 0.0;
+    }
+
+    let candidate = candidate_lines.join("\n");
+    let normalized_search = normalize_for_match(search_content, preserve_indentation);
+    let normalized_candidate = normalize_for_match(&candidate, preserve_indentation);
+    if normalized_search == normalized_candidate {
+        return 1.0;
+    }
+    compute_levenshtein_similarity(
+        &normalized_search,
+        &normalized_candidate,
+        threshold,
+    )
 }
 
 /// 在文件行数组中，按行滑动窗口查找与 searchContent 最相似的区间。
-/// 基于 normalize_whitespace + Levenshtein 距离 + 变窗口 + 首行预过滤。
+/// 缩进敏感文件的相似度计算保留所有行首空白，仅忽略 CRLF/LF 差异。
 /// 返回 (起始行号, 结束行号(不含), 相似度)，均为 0-indexed。
 pub(crate) fn find_best_line_match_v2(
     search_content: &str,
     file_lines: &[&str],
+    preserve_indentation: bool,
 ) -> Option<(usize, usize, f64)> {
     let search_lines: Vec<&str> = search_content.split('\n').collect();
     if search_lines.is_empty() || file_lines.is_empty() {
@@ -230,42 +400,33 @@ pub(crate) fn find_best_line_match_v2(
     }
 
     let threshold = FUZZY_MATCH_THRESHOLD;
-    let normalized_search = normalize_whitespace(search_content);
-    let normalized_first_line =
-        normalize_whitespace(search_lines.first().copied().unwrap_or_default());
-
-    // 变窗口：大代码块允许窗口大小浮动以改善边界对齐
+    let normalized_first_line = normalize_for_match(
+        search_lines.first().copied().unwrap_or_default(),
+        preserve_indentation,
+    );
     let window_delta = if base_window >= 10 {
         (base_window / 5).clamp(3, 15)
     } else {
         0
     };
 
-    let mut best_similarity: f64 = 0.0;
-    let mut best_start: usize = 0;
-    let mut best_end: usize = 0;
+    let mut best_similarity = 0.0;
+    let mut best_start = 0usize;
+    let mut best_end = 0usize;
 
     for start_index in 0..=(file_lines.len() - base_window) {
-        // 首行预过滤：首行相似度低于阈值则跳过
-        let normalized_candidate_first = normalize_whitespace(file_lines[start_index]);
-        if compute_levenshtein_similarity(&normalized_first_line, &normalized_candidate_first, 0.5)
-            < 0.5
-        {
+        let candidate_first = normalize_for_match(file_lines[start_index], preserve_indentation);
+        if compute_levenshtein_similarity(&normalized_first_line, &candidate_first, 0.5) < 0.5 {
             continue;
         }
 
-        // 尝试精确窗口大小
-        let exact_candidate = file_lines[start_index..start_index + base_window].join("\n");
-        let exact_score = if exact_candidate == search_content {
-            1.0
-        } else {
-            compute_levenshtein_similarity(
-                &normalized_search,
-                &normalize_whitespace(&exact_candidate),
-                threshold,
-            )
-        };
-
+        let exact_lines = &file_lines[start_index..start_index + base_window];
+        let exact_score = score_candidate(
+            search_content,
+            exact_lines,
+            preserve_indentation,
+            threshold,
+        );
         if exact_score >= 0.9 {
             if exact_score > best_similarity {
                 best_similarity = exact_score;
@@ -278,46 +439,36 @@ pub(crate) fn find_best_line_match_v2(
             continue;
         }
 
-        // 大块：尝试变窗口
         if window_delta > 0 {
             let mut score = exact_score;
             let mut end = start_index + base_window;
-
             for delta in 1..=window_delta {
-                // 更小窗口
                 if base_window > delta {
                     let smaller = base_window - delta;
-                    let candidate = file_lines[start_index..start_index + smaller].join("\n");
-                    let s = if candidate == search_content {
-                        1.0
-                    } else {
-                        compute_levenshtein_similarity(
-                            &normalized_search,
-                            &normalize_whitespace(&candidate),
-                            threshold,
-                        )
-                    };
-                    if s > score {
-                        score = s;
+                    let candidate = &file_lines[start_index..start_index + smaller];
+                    let candidate_score = score_candidate(
+                        search_content,
+                        candidate,
+                        preserve_indentation,
+                        threshold,
+                    );
+                    if candidate_score > score {
+                        score = candidate_score;
                         end = start_index + smaller;
                     }
                 }
 
-                // 更大窗口
                 let larger = base_window + delta;
                 if start_index + larger <= file_lines.len() {
-                    let candidate = file_lines[start_index..start_index + larger].join("\n");
-                    let s = if candidate == search_content {
-                        1.0
-                    } else {
-                        compute_levenshtein_similarity(
-                            &normalized_search,
-                            &normalize_whitespace(&candidate),
-                            threshold,
-                        )
-                    };
-                    if s > score {
-                        score = s;
+                    let candidate = &file_lines[start_index..start_index + larger];
+                    let candidate_score = score_candidate(
+                        search_content,
+                        candidate,
+                        preserve_indentation,
+                        threshold,
+                    );
+                    if candidate_score > score {
+                        score = candidate_score;
                         end = start_index + larger;
                     }
                 }
@@ -345,18 +496,11 @@ pub(crate) fn find_best_line_match_v2(
         }
     }
 
-    if best_similarity > 0.0 {
-        Some((best_start, best_end, best_similarity))
-    } else {
-        None
-    }
+    (best_similarity > 0.0).then_some((best_start, best_end, best_similarity))
 }
 
 /// 构建编辑成功后的复核上下文：返回编辑区域前后各 EDIT_REVIEW_CONTEXT_LINES 行
 /// 的带行号代码块（编辑行以 ">>>" 标记），供 AI 复核编辑结果是否正确。
-///
-/// edit_start_line 是 0-indexed 的编辑起始行。
-/// edit_end_line 为 None 时表示删除，没有编辑后的标记行。
 pub(crate) fn build_edit_review_context_lines(
     new_content: &str,
     edit_start_line: usize,
@@ -379,18 +523,17 @@ pub(crate) fn build_edit_review_context_lines(
     let edit_end = edit_end_line
         .unwrap_or(edit_start_line)
         .min(total_lines.saturating_sub(1));
-
     let context_start = edit_start_line.saturating_sub(EDIT_REVIEW_CONTEXT_LINES);
     let context_end = (edit_end + 1 + EDIT_REVIEW_CONTEXT_LINES).min(total_lines);
 
     let block: Vec<String> = (context_start..context_end)
-        .map(|i| {
-            let marker = if has_edited_lines && i >= edit_start_line && i <= edit_end {
+        .map(|index| {
+            let marker = if has_edited_lines && index >= edit_start_line && index <= edit_end {
                 ">>>"
             } else {
                 "   "
             };
-            format!("{} {:>6}: {}", marker, i + 1, lines[i])
+            format!("{} {:>6}: {}", marker, index + 1, lines[index])
         })
         .collect();
 
@@ -404,7 +547,7 @@ pub(crate) fn build_edit_review_context_lines(
     })
 }
 
-/// 构建 "searchContent not found" 的详细错误信息，包含最相似区间的上下文。
+/// 构建 searchContent not found 的详细错误信息，包含最相似区间的上下文。
 pub(crate) fn build_search_not_found_error_v2(
     search_content: &str,
     file_lines: &[&str],
@@ -417,36 +560,36 @@ pub(crate) fn build_search_not_found_error_v2(
         .take(200)
         .collect::<String>()
         .replace('\n', "\\n");
+    let preserve_indentation = is_indentation_sensitive_path(file_path);
 
     if let Some((start_line, end_line, similarity)) =
-        find_best_line_match_v2(search_content, file_lines)
+        find_best_line_match_v2(search_content, file_lines, preserve_indentation)
     {
         let context_start = start_line.saturating_sub(2);
         let context_end = (end_line + 2).min(file_lines.len());
-
         let context: Vec<String> = (context_start..context_end)
-            .map(|i| {
-                let marker = if i >= start_line && i < end_line {
+            .map(|index| {
+                let marker = if index >= start_line && index < end_line {
                     ">>>"
                 } else {
                     "   "
                 };
-                format!("{} {:>6}: {}", marker, i + 1, file_lines[i])
+                format!("{} {:>6}: {}", marker, index + 1, file_lines[index])
             })
             .collect();
-
         let similarity_percent = (similarity * 100.0) as u32;
 
         return format!(
             "searchContent not found in file (exact match failed).\n\n\
-             File: {} ({} lines total)\n\
+             File: {} ({} lines total)\n\n\
              searchContent: {} lines, preview: \"{}\"\n\n\
-             Closest matching region (similarity: {}%, lines {}-{}):\n\
+             Closest matching region (similarity: {}%, lines {}-{}):\n\n\
              {}\n\n\
-             The searchContent does not match any part of the file exactly. Common causes:\n\
-              1. searchContent was copied from read output and includes line number prefixes (e.g. \"42:...\") - remove them.\n\
-              2. searchContent has been paraphrased or retyped instead of copied verbatim.\n\
-              3. The file was modified since it was last read.\n\
+             The searchContent does not match any part of the file exactly. Common causes:\n\n\
+              1. searchContent was copied from read output and includes line number prefixes (e.g. \"42:...\") - remove them.\n\n\
+              2. searchContent has been paraphrased or retyped instead of copied verbatim.\n\n\
+              3. The file was modified since it was last read.\n\n\
+              4. For Python/YAML/Makefile files, leading indentation is significant and must be copied exactly.\n\n\
              Please re-read the file with filesystem-read and copy the EXACT raw source text as searchContent.",
             file_path,
             total_lines,
@@ -456,28 +599,24 @@ pub(crate) fn build_search_not_found_error_v2(
             start_line + 1,
             end_line,
             context.join("\n")
-        );
+        )
+    } else {
+        format!(
+            "searchContent not found in file (exact match failed).\n\n\
+             File: {} ({} lines total)\n\n\
+             searchContent: {} lines, preview: \"{}\"\n\n\
+             No similar content found in the file. The file may have been modified since it was last read.\n\n\
+             For Python/YAML/Makefile files, copy leading indentation exactly; indentation is not ignored.\n\n\
+             Please re-read the file with filesystem-read and copy the EXACT raw source text as searchContent.",
+            file_path,
+            total_lines,
+            search_lines,
+            search_preview
+        )
     }
-
-    format!(
-        "searchContent not found in file (exact match failed).\n\n\
-         File: {} ({} lines total)\n\
-         searchContent: {} lines, preview: \"{}\"\n\n\
-         No similar content found in the file. The file may have been modified since it was last read.\n\
-         Please re-read the file with filesystem-read and copy the EXACT raw source text as searchContent.",
-        file_path,
-        total_lines,
-        search_lines,
-        search_preview
-    )
 }
 
-/// 构造"编辑会产生 0 修改"的详细错误信息。
-///
-/// 当替换后的完整文件内容与原文完全一致时调用：此时无论如何写盘都不会改变任何字节。
-/// 典型原因是 searchContent 与 replaceContent 内容等价（完全相同，或仅空白/缩进差异，
-/// 而模糊匹配会忽略空白差异），例如 AI 想调整缩进却把两个字段写成了相同文本。
-/// 错误信息中包含最相似区间的上下文及缩进调整指引，帮助 AI 下次给出真正不同的 replaceContent。
+/// 构造编辑会产生 0 修改的详细错误信息。
 pub(crate) fn build_noop_edit_error(
     file_path: &str,
     search_content: &str,
@@ -495,37 +634,30 @@ pub(crate) fn build_noop_edit_error(
         .take(200)
         .collect::<String>()
         .replace('\n', "\\n");
-
+    let preserve_indentation = is_indentation_sensitive_path(file_path);
     let mut message = format!(
-        "Edit rejected: replacement would produce zero changes (no-op). The matched region in the \
-         file is already byte-identical to replaceContent, so writing it would modify nothing.\n\n\
-         File: {} ({} lines total)\n\
-         searchContent preview: \"{}\"\n\
-         replaceContent preview: \"{}\"",
-        file_path, total_lines, search_preview, replace_preview,
+        "Edit rejected: replacement would produce zero changes (no-op). The matched region in the file is already byte-identical to replaceContent, so writing it would modify nothing.\n\nFile: {} ({} lines total)\nsearchContent preview: \"{}\"\nreplaceContent preview: \"{}\"",
+        file_path, total_lines, search_preview, replace_preview
     );
 
     if let Some((start_line, end_line, similarity)) =
-        find_best_line_match_v2(search_content, file_lines)
+        find_best_line_match_v2(search_content, file_lines, preserve_indentation)
     {
         let context_start = start_line.saturating_sub(2);
         let context_end = (end_line + 2).min(file_lines.len());
-
         let context: Vec<String> = (context_start..context_end)
-            .map(|i| {
-                let marker = if i >= start_line && i < end_line {
+            .map(|index| {
+                let marker = if index >= start_line && index < end_line {
                     ">>>"
                 } else {
                     "   "
                 };
-                format!("{} {:>6}: {}", marker, i + 1, file_lines[i])
+                format!("{} {:>6}: {}", marker, index + 1, file_lines[index])
             })
             .collect();
-
-        let similarity_percent = (similarity * 100.0) as u32;
         message.push_str(&format!(
             "\n\nMatched region (similarity: {}%, lines {}-{}):\n{}",
-            similarity_percent,
+            (similarity * 100.0) as u32,
             start_line + 1,
             end_line,
             context.join("\n")
@@ -533,16 +665,7 @@ pub(crate) fn build_noop_edit_error(
     }
 
     message.push_str(
-        "\n\nCommon cause: searchContent and replaceContent are content-identical - the same \
-         characters, or differing only in whitespace/indentation (which fuzzy matching ignores). \
-         This usually happens when trying to adjust indentation but emitting the same text for both \
-         fields.\n\
-         If your intent was to change indentation/whitespace:\n\
-           1. Re-read the file with filesystem-read and copy the CURRENT indentation verbatim as searchContent.\n\
-           2. Provide replaceContent with NEW indentation that actually differs from the current text.\n\
-         If this edit is genuinely already applied (the target text already has the desired content \
-         and indentation), skip it instead of re-emitting an identical replace.\n",
+        "\n\nCommon cause: searchContent and replaceContent are content-identical - the same characters, or differing only in whitespace/indentation (which fuzzy matching ignores for ordinary files). For Python/YAML/Makefile files, indentation is significant and must be copied exactly. If the intent was to change indentation, provide replaceContent with indentation that actually differs from the current text.",
     );
-
     message
 }

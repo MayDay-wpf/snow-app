@@ -74,7 +74,7 @@ impl McpService for FilesystemService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "replace_edit".to_string(),
-                description: "Fuzzy search-and-replace editing. Finds searchContent in the file and replaces it with replaceContent. The file's original text encoding is auto-detected and preserved on write-back (the edited file keeps its original encoding and BOM). IMPORTANT: searchContent must be COPIED EXACTLY from the file - do NOT include line number prefixes (like \\\"42:\\\") that appear in read output, do NOT retype or paraphrase. Copy the raw source text verbatim. If the exact text is not found, a fuzzy match is attempted; on failure the error includes the closest matching region to help you correct your searchContent. On success the response includes a \\\"review\\\" field with the edited region plus surrounding context lines (edited lines marked with \\\">>>\\\") - always verify the edit landed correctly. When the auto-format setting is enabled (default), the edited file is automatically formatted with Prettier afterwards and the response marks \\\"formatted\\\": true. ESCAPE SEQUENCES: text inside string literals (e.g. Rust/Python/JSON source) stores escapes like \\\\n, \\\\t, \\\\\\\", \\\\\\\\ as literal backslash + character pairs in the file. When searchContent or replaceContent touches such text, keep the escapes in their literal form exactly as shown by filesystem-read output - never convert a literal backslash-n into a real newline, and never convert a real newline into a literal \\\\n. Use a real newline only when the file actually contains one; use a literal escape sequence only when the file text shows that escape.".to_string(),
+                description: "Fuzzy search-and-replace editing. Finds searchContent in the file and replaces it with replaceContent. The file's original text encoding is auto-detected and preserved on write-back (the edited file keeps its original encoding and BOM). IMPORTANT: searchContent and replaceContent must be COPIED EXACTLY from the file's raw content. Do NOT include line number prefixes (like \\\"42:\\\") from read output, do NOT retype or paraphrase, and preserve every leading space/tab. For indentation-sensitive Python/YAML/Makefile files, indentation is syntax: exact and fuzzy matching retain line indentation, and the edit is rejected with an explicit error if replaceContent's leading indentation differs from the matched region. This tool never silently changes indentation. If the exact text is not found, a fuzzy match is attempted only without discarding indentation; on failure the error includes the closest matching region. On success the response includes a \\\"review\\\" field with the edited region plus surrounding context lines (edited lines marked with \\\">>>\\\") - always verify the edit landed correctly. When the auto-format setting is enabled (default), the edited file is automatically formatted with Prettier afterwards and the response marks \\\"formatted\\\": true. ESCAPE SEQUENCES: text inside string literals (e.g. Rust/Python/JSON source) stores escapes like \\\\n, \\\\t, \\\\\\\", \\\\\\\\ as literal backslash + character pairs in the file. When searchContent or replaceContent touches such text, keep the escapes in their literal form exactly as shown by filesystem-read output - never convert a literal backslash-n into a real newline, and never convert a real newline into a literal \\\\n. Use a real newline only when the file actually contains one; use a literal escape sequence only when the file text shows that escape.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -88,7 +88,7 @@ impl McpService for FilesystemService {
                         },
                         "replaceContent": {
                             "type": "string",
-                            "description": "New content to replace with. Match the file's escape style: write a literal backslash-n (two characters) when the file should keep an escape sequence like \\n; write a real newline only when the file actually uses real newlines."
+                            "description": "New content to replace with. Preserve every required leading space/tab, especially for Python/YAML/Makefile. If its first non-empty line's indentation differs from the matched region, the edit is rejected to prevent silent syntax damage. Match the file's escape style: write a literal backslash-n (two characters) when the file should keep an escape sequence like \\n; write a real newline only when the file actually uses real newlines."
                         },
                         "occurrence": {
                             "type": "number",
@@ -163,49 +163,60 @@ impl FilesystemService {
             .await;
         }
 
-        match tool_name {
-            "read" => self.execute_read(args),
-            "replace_edit" => {
-                let mut result = self.execute_replace_edit(args)?;
+        // 本地文件系统读写、编码转换和模糊匹配都是同步操作，必须放进
+        // Tokio blocking pool，不能占用承载 Electron N-API Promise 的异步线程。
+        let local_file_path = file_path.map(str::to_owned);
+        let tool_name_owned = tool_name.to_owned();
+        let args_owned = args.clone();
+        let mut result = tokio::task::spawn_blocking(move || {
+            FilesystemService::new().execute(&tool_name_owned, &args_owned)
+        })
+        .await
+        .map_err(|error| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Filesystem tool task failed: {error}"),
+            )
+        })??;
 
-                // 编辑成功后按全局开关（默认开启）自动用 Prettier 格式化。
-                // 格式化失败（未安装 prettier / 无 node / 不支持的类型等）静默
-                // 跳过，绝不回退已成功的编辑结果。SSH 远程路径无法本地格式化。
-                if let Some(file_path) = file_path {
-                    let auto_format = tokio::task::spawn_blocking(crate::storage::get_auto_format)
-                        .await
-                        .ok()
-                        .and_then(|result| result.ok())
-                        .unwrap_or(true);
-                    if auto_format {
-                        if let Some(formatted_content) =
-                            format_file_with_prettier(Path::new(file_path)).await
-                        {
-                            // 用格式化后的文件内容重建编辑复核上下文（编辑行号
-                            // 沿用编辑结果，格式化后行号可能轻微漂移，可接受）。
-                            if let (Some(start), Some(end)) = (
-                                result.get("matchedLineStart").and_then(Value::as_u64),
-                                result.get("matchedLineEnd").and_then(Value::as_u64),
-                            ) {
-                                let review = fuzzy_edit::build_edit_review_context_lines(
-                                    &formatted_content,
-                                    start.saturating_sub(1) as usize,
-                                    Some(end.saturating_sub(1) as usize),
-                                );
-                                if let Some(object) = result.as_object_mut() {
-                                    object.insert("review".to_string(), review);
-                                    object.insert("formatted".to_string(), json!(true));
-                                }
-                            }
+        if tool_name != "replace_edit" {
+            return Ok(result);
+        }
+
+        // 编辑成功后按全局开关（默认开启）自动用 Prettier 格式化。
+        // 格式化失败（未安装 prettier / 无 node / 不支持的类型等）静默
+        // 跳过，绝不回退已成功的编辑结果。SSH 远程路径无法本地格式化。
+        if let Some(file_path) = local_file_path.as_deref() {
+            let auto_format = tokio::task::spawn_blocking(crate::storage::get_auto_format)
+                .await
+                .ok()
+                .and_then(|result| result.ok())
+                .unwrap_or(true);
+            if auto_format {
+                if let Some(formatted_content) =
+                    format_file_with_prettier(Path::new(file_path)).await
+                {
+                    // 用格式化后的文件内容重建编辑复核上下文（编辑行号
+                    // 沿用编辑结果，格式化后行号可能轻微漂移，可接受）。
+                    if let (Some(start), Some(end)) = (
+                        result.get("matchedLineStart").and_then(Value::as_u64),
+                        result.get("matchedLineEnd").and_then(Value::as_u64),
+                    ) {
+                        let review = fuzzy_edit::build_edit_review_context_lines(
+                            &formatted_content,
+                            start.saturating_sub(1) as usize,
+                            Some(end.saturating_sub(1) as usize),
+                        );
+                        if let Some(object) = result.as_object_mut() {
+                            object.insert("review".to_string(), review);
+                            object.insert("formatted".to_string(), json!(true));
                         }
                     }
                 }
-
-                Ok(result)
             }
-            "create" => self.execute_create(args),
-            _ => self.execute(tool_name, args),
         }
+
+        Ok(result)
     }
 
     fn execute_read(&self, args: &Value) -> napi::Result<Value> {
@@ -309,9 +320,15 @@ impl FilesystemService {
         // 替换时用 splice 在行数组上操作，天然保持文件原有行尾风格。
         let file_lines: Vec<&str> = content.split('\n').collect();
         let total_lines = file_lines.len();
+        let preserve_indentation = fuzzy_edit::is_indentation_sensitive_path(&file_path);
 
-        // search_lines_variants: 每个元素是 (变体名, 行数组)
-        let search_content_stripped = fuzzy_edit::try_strip_line_prefixes(search_content);
+        // 缩进敏感文件只允许逐字保留行首空白的匹配；行号前缀变体会吞掉
+        // 前导空格，不能参与 Python/YAML/Makefile 的匹配。
+        let search_content_stripped = if preserve_indentation {
+            None
+        } else {
+            fuzzy_edit::try_strip_line_prefixes(search_content)
+        };
         let variants: Vec<(&str, Vec<&str>)> =
             vec![("exact", search_content.split('\n').collect())]
                 .into_iter()
@@ -330,12 +347,18 @@ impl FilesystemService {
                 continue;
             }
 
-            // 收集所有匹配位置
+            // 收集所有匹配位置。缩进敏感文件只忽略 CRLF/LF 差异，
+            // 不能把行首空格压平后再比较。
             let mut match_positions: Vec<usize> = Vec::new();
             for start in 0..=(file_lines.len() - search_line_count) {
                 let all_match = search_lines.iter().enumerate().all(|(i, &sline)| {
-                    fuzzy_edit::normalize_whitespace(&file_lines[start + i])
-                        == fuzzy_edit::normalize_whitespace(sline)
+                    if preserve_indentation {
+                        fuzzy_edit::normalize_line_endings_for_match(&file_lines[start + i])
+                            == fuzzy_edit::normalize_line_endings_for_match(sline)
+                    } else {
+                        fuzzy_edit::normalize_whitespace(&file_lines[start + i])
+                            == fuzzy_edit::normalize_whitespace(sline)
+                    }
                 });
                 if all_match {
                     match_positions.push(start);
@@ -344,6 +367,15 @@ impl FilesystemService {
 
             if let Some(&target_start) = match_positions.get(occurrence.saturating_sub(1)) {
                 let end_line = target_start + search_line_count;
+
+                fuzzy_edit::validate_replacement_indentation(
+                    &file_path,
+                    &file_lines,
+                    target_start,
+                    end_line,
+                    &replace_content,
+                )
+                .map_err(|message| Error::new(Status::InvalidArg, message))?;
 
                 let replacement_lines = fuzzy_edit::split_replacement_lines(&replace_content);
                 let replacement_line_count = replacement_lines.len();
@@ -404,7 +436,15 @@ impl FilesystemService {
         // 覆盖 search_content 只是某一行片段（例如超长单行字符串中的一段）或
         // 跨行片段的场景，这是整行精确/模糊匹配无法命中的情况。
         if let Some((new_content, edit_start_line, edit_end_line, total_matches)) =
-            fuzzy_edit::try_substring_replace(&content, search_content, &replace_content, occurrence)
+            fuzzy_edit::try_substring_replace(
+                &file_path,
+                &content,
+                search_content,
+                &replace_content,
+                occurrence,
+                preserve_indentation,
+            )
+            .map_err(|message| Error::new(Status::InvalidArg, message))?
         {
             // 0 修改检测：子串替换后内容与原文一致同样拒绝写盘。
             if new_content == content {
@@ -456,9 +496,22 @@ impl FilesystemService {
 
         // Step 2: 模糊行匹配（基于 Levenshtein 距离 + 变窗口 + 预过滤）
         if let Some((start_line, end_line, similarity)) =
-            fuzzy_edit::find_best_line_match_v2(search_content, &file_lines)
+            fuzzy_edit::find_best_line_match_v2(
+                search_content,
+                &file_lines,
+                preserve_indentation,
+            )
         {
             if similarity >= FUZZY_MATCH_THRESHOLD {
+                fuzzy_edit::validate_replacement_indentation(
+                    &file_path,
+                    &file_lines,
+                    start_line,
+                    end_line,
+                    &replace_content,
+                )
+                .map_err(|message| Error::new(Status::InvalidArg, message))?;
+
                 let replacement_lines = fuzzy_edit::split_replacement_lines(&replace_content);
                 let replacement_line_count = replacement_lines.len();
                 let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
@@ -664,17 +717,17 @@ fn find_prettier_bin(file_path: &Path) -> Option<std::path::PathBuf> {
     }
 }
 
-/// 对已编辑写入的文件执行 Prettier 格式化，成功后返回格式化后的内容
-/// （用于重建编辑复核上下文）。整个子进程调用放在 spawn_blocking 中，
-/// 不会阻塞 Node.js 主线程；任何一步失败都返回 None，不影响编辑结果。
+/// 对已编辑写入的文件执行 Prettier 格式化，成功后返回格式化后的内容。
+/// 所有文件查找、子进程调用和回读都放在 spawn_blocking 中，避免阻塞
+/// Node.js 主线程；任何一步失败都返回 None，不影响编辑结果。
 async fn format_file_with_prettier(file_path: &Path) -> Option<String> {
     if !is_prettier_supported_extension(file_path) {
         return None;
     }
-    let prettier_bin = find_prettier_bin(file_path)?;
     let file_path_owned = file_path.to_path_buf();
 
     tokio::task::spawn_blocking(move || {
+        let prettier_bin = find_prettier_bin(&file_path_owned)?;
         let mut command = std::process::Command::new("node");
         command
             .arg(&prettier_bin)

@@ -1,10 +1,7 @@
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
-use rusqlite::params;
-use serde_json::json;
 
-use super::super::database;
 use super::super::{ChatConversationRecord};
 use super::chat_conversations;
 
@@ -57,18 +54,6 @@ pub fn export_conversation(
     Ok(content)
 }
 
-/// 返回指定格式的文件扩展名（不含点号）。
-#[allow(dead_code)]
-pub fn extension_for_format(format: &str) -> &'static str {
-    match format {
-        FORMAT_MARKDOWN => "md",
-        FORMAT_HTML => "html",
-        FORMAT_JSON => "json",
-        FORMAT_CSV => "csv",
-        _ => "txt",
-    }
-}
-
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -118,32 +103,4 @@ fn html_escape(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-#[allow(dead_code)]
-fn count_messages(database_path: &Path, conversation_id: &str) -> Result<i64> {
-    database::open_connection(database_path)
-        .and_then(|connection| {
-            connection.query_row(
-                "SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ?1",
-                params![conversation_id],
-                |row| row.get(0),
-            )
-        })
-        .map_err(|error| database::database_error(database_path, "count chat messages", error))
-}
-
-#[allow(dead_code)]
-fn conversation_summary_json(
-    conversation: &ChatConversationRecord,
-    message_count: usize,
-) -> serde_json::Value {
-    json!({
-        "conversationId": conversation.conversation_id,
-        "title": display_title(conversation),
-        "model": conversation.model,
-        "createdAt": conversation.created_at,
-        "updatedAt": conversation.updated_at,
-        "messageCount": message_count,
-    })
 }

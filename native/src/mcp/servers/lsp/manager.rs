@@ -323,16 +323,6 @@ impl ServerManager {
         to_reclaim
     }
 
-    /// 关闭全部会话（应用退出兜底；Phase 3 接入应用退出钩子）。
-    #[allow(dead_code)]
-    pub async fn shutdown_all(&self) {
-        let mut sessions = self.sessions.lock().await;
-        for (_, session) in sessions.drain() {
-            let mut guard = session.lock().await;
-            guard.shutdown().await;
-        }
-    }
-
     /// 会话状态快照（供前端状态徽章实时展示，§10）：遍历全部 (语言 × 项目根)
     /// 会话，动态检测进程退出状态；按 (lang, project_root) 排序保证输出稳定。
     ///

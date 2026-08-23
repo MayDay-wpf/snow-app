@@ -467,7 +467,113 @@ const ensureOptionalPositiveInteger = (value: unknown): number | undefined => {
   return Math.max(1, Math.floor(value));
 };
 
+const isIndentationSensitivePath = (filePath: string): boolean => {
+  const fileName =
+    filePath.split(/[\\/]/).pop()?.toLowerCase() ?? filePath.toLowerCase();
+  return (
+    ["makefile", "gnumakefile", "snakefile"].includes(fileName) ||
+    [".mk", ".py", ".pyw", ".pyi", ".yaml", ".yml"].some((suffix) =>
+      fileName.endsWith(suffix)
+    )
+  );
+};
+
+const normalizeLineEndingsForMatch = (content: string): string =>
+  content.replace(/\r\n/g, "\n").replace(/\r/g, "");
+
+const adaptLineEndings = (text: string, fileContent: string): string => {
+  if (!text || !fileContent) {
+    return text;
+  }
+  const crlfCount = (fileContent.match(/\r\n/g) ?? []).length;
+  const lfCount = (fileContent.match(/\n/g) ?? []).length;
+  if (crlfCount > lfCount - crlfCount) {
+    return normalizeLineEndingsForMatch(text).replace(/\n/g, "\r\n");
+  }
+  return normalizeLineEndingsForMatch(text);
+};
+
+const getLeadingHorizontalWhitespace = (line: string): string =>
+  line.match(/^[ \t]*/)?.[0] ?? "";
+
+const getFirstNonEmptyLine = (content: string): string | undefined =>
+  content
+    .split("\n")
+    .find((line) => line.replace(/[ \t\r\ufeff]/g, "").length > 0);
+
+const validateCandidateIndentation = (
+  filePath: string,
+  matchedLine: string,
+  candidateLine: string,
+  candidateName: string
+): void => {
+  const matchedIndent = getLeadingHorizontalWhitespace(matchedLine);
+  const candidateIndent = getLeadingHorizontalWhitespace(candidateLine);
+  if (matchedIndent === candidateIndent) {
+    return;
+  }
+
+  throw new Error(
+    `Edit rejected: leading indentation mismatch in indentation-sensitive file '${filePath}'. The matched region starts with ${JSON.stringify(
+      matchedIndent
+    )} (${
+      [...matchedIndent].length
+    } characters), but ${candidateName} starts with ${JSON.stringify(
+      candidateIndent
+    )} (${
+      [...candidateIndent].length
+    } characters). Copy the leading spaces/tabs from the matched region exactly; remote filesystem-replace_edit refuses to apply this edit to avoid silently breaking Python/YAML/Makefile structure.`
+  );
+};
+
+const validateSearchIndentation = (
+  filePath: string,
+  searchContent: string,
+  matchedContent: string
+): void => {
+  if (!isIndentationSensitivePath(filePath)) {
+    return;
+  }
+
+  const matchedLine = getFirstNonEmptyLine(matchedContent);
+  const searchLine = getFirstNonEmptyLine(searchContent);
+  if (!matchedLine || !searchLine) {
+    return;
+  }
+
+  validateCandidateIndentation(
+    filePath,
+    matchedLine,
+    searchLine,
+    "searchContent"
+  );
+};
+
+const validateReplacementIndentation = (
+  filePath: string,
+  matchedContent: string,
+  replacement: string
+): void => {
+  if (!isIndentationSensitivePath(filePath)) {
+    return;
+  }
+
+  const matchedLine = getFirstNonEmptyLine(matchedContent);
+  const replacementLine = getFirstNonEmptyLine(replacement);
+  if (!matchedLine || !replacementLine) {
+    return;
+  }
+
+  validateCandidateIndentation(
+    filePath,
+    matchedLine,
+    replacementLine,
+    "replaceContent"
+  );
+};
+
 const replaceContent = (
+  filePath: string,
   content: string,
   searchContent: string,
   replacement: string,
@@ -477,23 +583,40 @@ const replaceContent = (
     throw new Error("occurrence must be greater than zero");
   }
 
+  const adaptedSearch = adaptLineEndings(searchContent, content);
+  const adaptedReplacement = adaptLineEndings(replacement, content);
   let offset = 0;
   let foundIndex = -1;
   for (let index = 0; index < occurrence; index += 1) {
-    foundIndex = content.indexOf(searchContent, offset);
+    foundIndex = content.indexOf(adaptedSearch, offset);
     if (foundIndex < 0) {
-      throw new Error("searchContent not found in remote file");
+      throw new Error(
+        "searchContent not found in remote file. For Python/YAML/Makefile files, leading indentation is significant and must be copied exactly."
+      );
     }
-    offset = foundIndex + Math.max(1, searchContent.length);
+    offset = foundIndex + Math.max(1, adaptedSearch.length);
   }
 
   const prefix = content.slice(0, foundIndex);
+  if (isIndentationSensitivePath(filePath)) {
+    const lineStart = content.lastIndexOf("\n", foundIndex - 1) + 1;
+    const lineEnd = content.indexOf("\n", foundIndex);
+    const matchedLine = content.slice(
+      lineStart,
+      lineEnd < 0 ? content.length : lineEnd
+    );
+    const beforeMatch = content.slice(lineStart, foundIndex);
+    if (/^[ \t]*$/.test(beforeMatch)) {
+      validateSearchIndentation(filePath, searchContent, matchedLine);
+      validateReplacementIndentation(filePath, matchedLine, adaptedReplacement);
+    }
+  }
   const matchedLineStart = prefix.split("\n").length;
   const matchedLineEnd =
-    matchedLineStart + searchContent.split("\n").length - 1;
+    matchedLineStart + adaptedSearch.split("\n").length - 1;
   return {
-    content: `${prefix}${replacement}${content.slice(
-      foundIndex + searchContent.length
+    content: `${prefix}${adaptedReplacement}${content.slice(
+      foundIndex + adaptedSearch.length
     )}`,
     matchedLineStart,
     matchedLineEnd,
@@ -545,7 +668,9 @@ const buildRemoteGrepCommand = (
     // and `|| true` absorbs the resulting SIGPIPE exit code.
     `find "$root" \\( -type d -name .git -o -type d -name node_modules -o -type d -name target \\) -prune -o -type f -path "$pathpat" -exec grep ${flags
       .map(shellQuote)
-      .join(" ")} -- "$pattern" {} + < /dev/null 2>/dev/null | head -n "$limit" || true`,
+      .join(
+        " "
+      )} -- "$pattern" {} + < /dev/null 2>/dev/null | head -n "$limit" || true`,
   ].join("\n");
 
   return `sh -lc ${shellQuote(script)}`;
@@ -664,6 +789,7 @@ const executeFilesystemReplaceEdit = async (
       : 1;
   const loaded = await readRemoteText(workspacePath, signal);
   const result = replaceContent(
+    workspacePath,
     loaded.content,
     searchContent,
     replacement,
@@ -948,8 +1074,7 @@ const tryParseCheckpointTreeRecord = (
   record: string
 ): CheckpointTreeEntry | undefined => {
   const firstTab = record.indexOf("\t");
-  const secondTab =
-    firstTab >= 0 ? record.indexOf("\t", firstTab + 1) : -1;
+  const secondTab = firstTab >= 0 ? record.indexOf("\t", firstTab + 1) : -1;
   if (firstTab < 0 || secondTab < 0) {
     return undefined;
   }
@@ -1007,8 +1132,7 @@ const parseCheckpointTreeOutput = (
   mtimeIsFloat: boolean
 ): CheckpointTreeResult => {
   const markerIndex = output.indexOf(CHECKPOINT_GITIGNORE_MARKER);
-  const fileSection =
-    markerIndex >= 0 ? output.slice(0, markerIndex) : output;
+  const fileSection = markerIndex >= 0 ? output.slice(0, markerIndex) : output;
   const gitignoreSection =
     markerIndex >= 0
       ? output.slice(markerIndex + CHECKPOINT_GITIGNORE_MARKER.length)
@@ -1030,7 +1154,10 @@ const parseCheckpointTreeOutput = (
     }
   }
   entries.sort((a, b) => a.path.localeCompare(b.path));
-  return { entries, gitignores: parseCheckpointTreeGitignores(gitignoreSection) };
+  return {
+    entries,
+    gitignores: parseCheckpointTreeGitignores(gitignoreSection),
+  };
 };
 
 // 兜底遍历（远程 shell 不支持 find/stat，如 Windows OpenSSH 默认 shell）：
@@ -1058,9 +1185,7 @@ const listCheckpointTreeViaSftpWalk = async (
       if (entry.isSymbolicLink) {
         continue;
       }
-      const entryRelative = relative
-        ? `${relative}/${entry.name}`
-        : entry.name;
+      const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
         if (!CHECKPOINT_SKIP_DIRS.has(entry.name)) {
           directories.push({ absolute: entry.path, relative: entryRelative });
@@ -1168,7 +1293,13 @@ const executeCheckpointReadFileWithStat = async (
           throw error;
         }
         // The file may have been removed between stat and read.
-        return { exists: false, isDirectory: false, size: 0, mtimeMs: 0, content: null };
+        return {
+          exists: false,
+          isDirectory: false,
+          size: 0,
+          mtimeMs: 0,
+          content: null,
+        };
       }
       return {
         exists: true,
