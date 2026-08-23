@@ -58,7 +58,7 @@ pub fn should_textify_images(api_config: &ApiConfigRecord) -> bool {
 
     matches!(
         request_method,
-        "chat" | "responses" | "anthropic" | "gemini"
+        "chat" | "responses" | "anthropic" | "gemini" | "interactions"
     )
 }
 

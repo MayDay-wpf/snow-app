@@ -134,7 +134,10 @@ async fn create_chat_completion_response_async(
     let client = crate::api::http_client::build_proxied_client()
         .await
         .map_err(|error| Error::from_reason(format!("Failed to create HTTP client: {}", error)))?;
-    let tools = if request.context_compaction.unwrap_or(false) || skip_context {
+    let tools = if request.context_compaction.unwrap_or(false)
+        || skip_context
+        || request.disable_tools.unwrap_or(false)
+    {
         None
     } else {
         match resolve_sub_agent_tools(&request).await {

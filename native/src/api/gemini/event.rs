@@ -15,6 +15,7 @@ pub(super) fn process_gemini_sse_event_block(
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
     tool_calls: &mut Vec<Value>,
+    signature_parts: &mut Vec<Value>,
     response_id: &mut String,
     response_model: &mut String,
     response_status: &mut String,
@@ -54,6 +55,7 @@ pub(super) fn process_gemini_sse_event_block(
             content_chunks,
             thinking_chunks,
             tool_calls,
+            signature_parts,
             response_id,
             response_model,
             response_status,
@@ -102,6 +104,7 @@ pub(super) fn process_gemini_sse_event_block(
                 content_chunks,
                 thinking_chunks,
                 tool_calls,
+                signature_parts,
                 response_id,
                 response_model,
                 response_status,
@@ -140,6 +143,7 @@ fn process_gemini_event(
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
     tool_calls: &mut Vec<Value>,
+    signature_parts: &mut Vec<Value>,
     response_id: &mut String,
     response_model: &mut String,
     response_status: &mut String,
@@ -161,12 +165,48 @@ fn process_gemini_event(
         *response_model = model;
     }
 
-    if let Some(usage) = event.get("usageMetadata").filter(|value| !value.is_null()) {
-        token_usage.input_tokens = read_first_i64(usage, &[&["promptTokenCount"]]);
-        token_usage.output_tokens =
-            read_first_i64(usage, &[&["candidatesTokenCount"], &["totalTokenCount"]]);
-        token_usage.cache_read_input_tokens =
-            read_first_i64(usage, &[&["cachedContentTokenCount"]]);
+    if let Some(usage) = event
+        .get("usageMetadata")
+        .or_else(|| event.get("usage"))
+        .filter(|value| !value.is_null())
+    {
+        token_usage.input_tokens = read_first_i64(
+            usage,
+            &[
+                &["promptTokenCount"],
+                &["prompt_tokens"],
+                &["input_tokens"],
+                &["total_input_tokens"],
+            ],
+        );
+        let has_cpa_output = usage.get("total_output_tokens").is_some();
+        let mut output_tokens = read_first_i64(
+            usage,
+            &[
+                &["candidatesTokenCount"],
+                &["completion_tokens"],
+                &["output_tokens"],
+                &["total_output_tokens"],
+                &["totalTokenCount"],
+            ],
+        );
+        // CLIProxyAPI reports thinking/tool-use tokens separately. Include
+        // them in Snow's output total when the CPA total is present, matching
+        // the Interactions usage mapping and preventing under-counted runs.
+        if has_cpa_output {
+            output_tokens += read_first_i64(usage, &[&["total_thought_tokens"]]);
+            output_tokens += read_first_i64(usage, &[&["total_tool_use_tokens"]]);
+        }
+        token_usage.output_tokens = output_tokens;
+        token_usage.cache_read_input_tokens = read_first_i64(
+            usage,
+            &[
+                &["cachedContentTokenCount"],
+                &["cache_read_input_tokens"],
+                &["cached_tokens"],
+                &["total_cached_tokens"],
+            ],
+        );
     }
 
     if let Some(prompt_feedback) = event.get("promptFeedback") {
@@ -185,6 +225,17 @@ fn process_gemini_event(
             if let Some(content) = candidate.get("content") {
                 if let Some(parts) = content.get("parts").and_then(Value::as_array) {
                     for part in parts {
+                        // Gemini thoughtSignature is opaque continuation data,
+                        // not displayable thought text. Preserve the complete
+                        // Part so a later functionResponse can continue the
+                        // same reasoning chain without exposing the signature.
+                        if part
+                            .get("thoughtSignature")
+                            .and_then(Value::as_str)
+                            .is_some_and(|signature| !signature.is_empty())
+                        {
+                            signature_parts.push(part.clone());
+                        }
                         let is_thought = part
                             .get("thought")
                             .and_then(Value::as_bool)
@@ -241,10 +292,23 @@ fn process_gemini_event(
 }
 
 /// 将一条 functionCall 合并进工具调用列表，兼容流式 relay 的增量返回：
-/// - 有 name 且已存在同名调用 → 合并 args（增量续传，name 以首个为准）
-/// - 有 name 且无同名调用 → 作为新调用追加
+/// - 有 id 时按 id 合并，保留同名并行调用各自的参数
+/// - 无 id 且有 name 时按名称合并（旧版原生 Gemini 的增量兼容）
+/// - 有 name 且无匹配调用 → 作为新调用追加
 /// - 无 name（纯增量 chunk）→ 合并进最后一个调用
 fn merge_function_call(tool_calls: &mut Vec<Value>, incoming: &Value) {
+    if let Some(id) = incoming.get("id").and_then(Value::as_str) {
+        if let Some(existing) = tool_calls
+            .iter_mut()
+            .rev()
+            .find(|call| call.get("id").and_then(Value::as_str) == Some(id))
+        {
+            merge_function_call_args(existing, incoming);
+            return;
+        }
+        tool_calls.push(incoming.clone());
+        return;
+    }
     let incoming_name = incoming.get("name").and_then(Value::as_str);
     if let Some(name) = incoming_name {
         if let Some(existing) = tool_calls
@@ -268,10 +332,21 @@ fn merge_function_call(tool_calls: &mut Vec<Value>, incoming: &Value) {
 /// 将 incoming 的 args 深合并进 target（后者覆盖前者），并补齐 target
 /// 缺失的其他字段（如 thoughtSignature）。
 fn merge_function_call_args(target: &mut Value, incoming: &Value) {
-    if let Some(incoming_args) = incoming.get("args").filter(|args| args.is_object()) {
+    let incoming_args = incoming
+        .get("args")
+        .or_else(|| incoming.get("arguments"))
+        .filter(|args| args.is_object());
+    if let Some(incoming_args) = incoming_args {
         let incoming_map = incoming_args.as_object().cloned().unwrap_or_default();
         if !incoming_map.is_empty() {
-            match target.get_mut("args") {
+            let target_args_key = if target.get("args").is_some() {
+                "args"
+            } else if target.get("arguments").is_some() {
+                "arguments"
+            } else {
+                "args"
+            };
+            match target.get_mut(target_args_key) {
                 Some(existing) if existing.is_object() => {
                     if let Some(target_map) = existing.as_object_mut() {
                         for (key, value) in incoming_map {
@@ -280,7 +355,7 @@ fn merge_function_call_args(target: &mut Value, incoming: &Value) {
                     }
                 }
                 _ => {
-                    target["args"] = Value::Object(incoming_map);
+                    target[target_args_key] = Value::Object(incoming_map);
                 }
             }
         }
@@ -288,10 +363,159 @@ fn merge_function_call_args(target: &mut Value, incoming: &Value) {
     if let Some(incoming_map) = incoming.as_object() {
         if let Some(target_map) = target.as_object_mut() {
             for (key, value) in incoming_map {
-                if key != "args" && !target_map.contains_key(key) {
+                if key != "args" && key != "arguments" && !target_map.contains_key(key) {
                     target_map.insert(key.clone(), value.clone());
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_function_call, process_gemini_sse_event_block};
+    use crate::storage::services::chat_conversations::ChatTokenUsage;
+    use serde_json::json;
+
+    #[test]
+    fn parses_cli_proxy_usage_aliases_from_gemini_events() {
+        let mut raw_events = Vec::new();
+        let mut content_chunks = Vec::new();
+        let mut thinking_chunks = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut signature_parts = Vec::new();
+        let mut response_id = String::new();
+        let mut response_model = String::new();
+        let mut response_status = String::new();
+        let mut token_usage = ChatTokenUsage::default();
+        let mut tool_args_delta = String::new();
+        let mut stream_finished = false;
+
+        process_gemini_sse_event_block(
+            r#"data: {"usage":{"total_input_tokens":6,"total_output_tokens":1,"total_thought_tokens":95,"total_tool_use_tokens":2,"total_cached_tokens":2}}"#,
+            &mut raw_events,
+            &mut content_chunks,
+            &mut thinking_chunks,
+            &mut tool_calls,
+            &mut signature_parts,
+            &mut response_id,
+            &mut response_model,
+            &mut response_status,
+            &mut token_usage,
+            &mut tool_args_delta,
+            &mut stream_finished,
+        );
+
+        assert_eq!(token_usage.input_tokens, 6);
+        assert_eq!(token_usage.output_tokens, 98);
+        assert_eq!(token_usage.cache_read_input_tokens, 2);
+    }
+
+    #[test]
+    fn preserves_function_call_and_signature_as_opaque_part() {
+        let mut raw_events = Vec::new();
+        let mut content_chunks = Vec::new();
+        let mut thinking_chunks = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut signature_parts = Vec::new();
+        let mut response_id = String::new();
+        let mut response_model = String::new();
+        let mut response_status = String::new();
+        let mut token_usage = ChatTokenUsage::default();
+        let mut tool_args_delta = String::new();
+        let mut stream_finished = false;
+
+        process_gemini_sse_event_block(
+            r#"data: {"candidates":[{"content":{"parts":[{"functionCall":{"id":"call-1","name":"filesystem-read","args":{"filePath":"README.md"}},"thoughtSignature":"opaque-signature"}]}}]}"#,
+            &mut raw_events,
+            &mut content_chunks,
+            &mut thinking_chunks,
+            &mut tool_calls,
+            &mut signature_parts,
+            &mut response_id,
+            &mut response_model,
+            &mut response_status,
+            &mut token_usage,
+            &mut tool_args_delta,
+            &mut stream_finished,
+        );
+
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(
+            signature_parts,
+            vec![json!({
+                "functionCall": { "id": "call-1", "name": "filesystem-read", "args": { "filePath": "README.md" } },
+                "thoughtSignature": "opaque-signature",
+            })]
+        );
+        assert!(thinking_chunks.is_empty());
+    }
+
+    #[test]
+    fn ignores_empty_or_malformed_signatures() {
+        let mut raw_events = Vec::new();
+        let mut content_chunks = Vec::new();
+        let mut thinking_chunks = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut signature_parts = Vec::new();
+        let mut response_id = String::new();
+        let mut response_model = String::new();
+        let mut response_status = String::new();
+        let mut token_usage = ChatTokenUsage::default();
+        let mut tool_args_delta = String::new();
+        let mut stream_finished = false;
+
+        process_gemini_sse_event_block(
+            r#"data: {"candidates":[{"content":{"parts":[{"thoughtSignature":""},{"thoughtSignature":42}]}}]}"#,
+            &mut raw_events,
+            &mut content_chunks,
+            &mut thinking_chunks,
+            &mut tool_calls,
+            &mut signature_parts,
+            &mut response_id,
+            &mut response_model,
+            &mut response_status,
+            &mut token_usage,
+            &mut tool_args_delta,
+            &mut stream_finished,
+        );
+        assert!(signature_parts.is_empty());
+    }
+
+    #[test]
+    fn keeps_same_name_parallel_function_calls_separate_by_id() {
+        let mut tool_calls = Vec::new();
+        merge_function_call(
+            &mut tool_calls,
+            &json!({
+                "id": "call-package",
+                "name": "filesystem-read",
+                "args": { "filePath": "package.json" },
+            }),
+        );
+        merge_function_call(
+            &mut tool_calls,
+            &json!({
+                "id": "call-readme",
+                "name": "filesystem-read",
+                "args": { "filePath": "README.md" },
+            }),
+        );
+
+        assert_eq!(
+            tool_calls,
+            vec![
+                json!({
+                    "id": "call-package",
+                    "name": "filesystem-read",
+                    "args": { "filePath": "package.json" },
+                }),
+                json!({
+                    "id": "call-readme",
+                    "name": "filesystem-read",
+                    "args": { "filePath": "README.md" },
+                }),
+            ]
+        );
     }
 }

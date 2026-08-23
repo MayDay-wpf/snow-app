@@ -17,7 +17,9 @@ pub(crate) use crate::api::config::{
     get_active_api_request_context, normalize_base_url, resolve_basic_model,
     resolve_sdk_api_base_url,
 };
-pub(crate) use crate::api::gemini::payload::{build_gemini_thinking_config, resolve_gemini_endpoint};
+pub(crate) use crate::api::gemini::payload::{
+    build_gemini_thinking_config, resolve_gemini_endpoint,
+};
 pub(crate) use crate::api::responses::payload::build_responses_reasoning;
 pub(crate) use crate::api::retry::{non_sse_response_error, should_retry, RetryOptions};
 pub(crate) use crate::api::sse::find_sse_separator;
@@ -37,7 +39,9 @@ pub(crate) use crate::storage::services::fs_explorer::{FileSearchLineMatch, File
 
 mod providers;
 
-pub(crate) use providers::{run_anthropic_round, run_chat_round, run_gemini_round, run_responses_round};
+pub(crate) use providers::{
+    run_anthropic_round, run_chat_round, run_gemini_round, run_responses_round,
+};
 
 /// 文件搜索 agent 最多执行的工具调用轮数（模型每次返回工具调用算一轮）。
 const MAX_AGENT_ROUNDS: usize = 10;
@@ -132,7 +136,9 @@ pub async fn run_file_search_agent(
             "content": [{"type": "input_text", "text": user_prompt}],
         })],
         "anthropic" => vec![json!({"role": "user", "content": user_prompt})],
-        "gemini" => vec![json!({"role": "user", "parts": [{"text": user_prompt}]})],
+        "gemini" | "interactions" => {
+            vec![json!({"role": "user", "parts": [{"text": user_prompt}]})]
+        }
         _ => vec![json!({"role": "user", "content": user_prompt})],
     };
 
@@ -153,7 +159,7 @@ pub async fn run_file_search_agent(
                         &messages, &tools, &retry_options, &workspace_root,
                         round, on_progress.as_ref(),
                     ).await,
-                    "gemini" => run_gemini_round(
+                    "gemini" | "interactions" => run_gemini_round(
                         &api_config, &api_key, &custom_headers, &model, &system_prompt,
                         &messages, &tools, &retry_options, &workspace_root,
                         round, on_progress.as_ref(),
@@ -198,7 +204,7 @@ fn push_no_tool_follow_up(messages: &mut Vec<Value>, request_method: &str, text:
             "role": "assistant",
             "content": [{"type": "text", "text": text}],
         }),
-        "gemini" => json!({"role": "model", "parts": [{"text": text}]}),
+        "gemini" | "interactions" => json!({"role": "model", "parts": [{"text": text}]}),
         _ => json!({"role": "assistant", "content": text}),
     };
     let follow_up = match request_method {
@@ -207,7 +213,9 @@ fn push_no_tool_follow_up(messages: &mut Vec<Value>, request_method: &str, text:
             "role": "user",
             "content": [{"type": "input_text", "text": NO_TOOL_FOLLOW_UP_PROMPT}],
         }),
-        "gemini" => json!({"role": "user", "parts": [{"text": NO_TOOL_FOLLOW_UP_PROMPT}]}),
+        "gemini" | "interactions" => {
+            json!({"role": "user", "parts": [{"text": NO_TOOL_FOLLOW_UP_PROMPT}]})
+        }
         _ => json!({"role": "user", "content": NO_TOOL_FOLLOW_UP_PROMPT}),
     };
     messages.push(assistant_message);

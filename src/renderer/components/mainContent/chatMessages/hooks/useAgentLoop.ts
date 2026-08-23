@@ -18,6 +18,7 @@ import {
   formatToolResultsContent,
   getErrorMessage,
   parseToolCalls,
+  updateFirstMatchingToolCall,
 } from "../utils/conversationHelpers";
 import { resolveResponseDisposition } from "../utils/responseDisposition";
 import {
@@ -30,7 +31,6 @@ import {
 import {
   accumulateConversationRunStats,
   accumulateRunTokenUsage,
-  beginStreamMetricsIteration,
   createAwaitHookDecision,
   createIsRunCancelled,
   createStreamChunkHandler,
@@ -44,6 +44,18 @@ import {
 import { createToolExecutor } from "./toolExecution";
 
 type CapturedChatInputSendOptions = ChatInputSendOptions;
+
+// A completed read can only become stale when a tool may have changed the
+// workspace. Session bookkeeping (for example todo updates) must not make a
+// previously completed filesystem read executable again.
+const WORKSPACE_MUTATING_TOOL_NAMES = new Set([
+  "filesystem-create",
+  "filesystem-replace_edit",
+  "bash-terminal-execute",
+]);
+
+const mayMutateWorkspace = (toolCall: ToolCallInfo): boolean =>
+  WORKSPACE_MUTATING_TOOL_NAMES.has(toolCall.name);
 
 const captureChatInputSendOptions = (
   options: ChatInputSendOptions,
@@ -95,6 +107,81 @@ const persistPendingConversationRuntimeConfig = (
       .catch(recordFailure);
   } catch (error) {
     recordFailure(error);
+  }
+};
+
+const normalizeWorkspacePath = (
+  filePath: string,
+  workspacePath?: string,
+): string => {
+  const normalizedPath = filePath.replace(/\\/g, "/").replace(/\/+$/, "") || ".";
+  const normalizedWorkspace = workspacePath
+    ?.replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  if (!normalizedWorkspace) {
+    return normalizedPath;
+  }
+
+  const isWindowsPath = /^[a-z]:\//i.test(normalizedWorkspace);
+  const comparablePath = isWindowsPath
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+  const comparableWorkspace = isWindowsPath
+    ? normalizedWorkspace.toLowerCase()
+    : normalizedWorkspace;
+  if (normalizedPath === ".") {
+    return "<workspace>";
+  }
+  if (normalizedPath.startsWith("./")) {
+    return `<workspace>/${normalizedPath.slice(2)}`;
+  }
+  if (comparablePath === comparableWorkspace) {
+    return "<workspace>";
+  }
+  if (comparablePath.startsWith(`${comparableWorkspace}/`)) {
+    return `<workspace>/${normalizedPath.slice(normalizedWorkspace.length + 1)}`;
+  }
+  return normalizedPath;
+};
+
+const canonicalizeToolArguments = (
+  argumentsJson: string,
+  toolName?: string,
+  workspacePath?: string,
+): string | null => {
+  try {
+    const sortJson = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map(sortJson);
+      }
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, child]) => [key, sortJson(child)]),
+        );
+      }
+      return value;
+    };
+    const parsed = JSON.parse(argumentsJson || "{}") as Record<string, unknown>;
+    if (
+      toolName === "filesystem-read" &&
+      typeof parsed.filePath === "string"
+    ) {
+      parsed.filePath = normalizeWorkspacePath(parsed.filePath, workspacePath);
+    }
+    return JSON.stringify(sortJson(parsed));
+  } catch {
+    return null;
+  }
+};
+
+const isFailedToolResult = (result: string): boolean => {
+  try {
+    const parsed = JSON.parse(result) as Record<string, unknown>;
+    return parsed.success === false || typeof parsed.error === "string";
+  } catch {
+    return false;
   }
 };
 
@@ -396,6 +483,51 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
 
       const awaitHookDecision = createAwaitHookDecision(ctx);
 
+      // A provider can resend a successful read with a fresh call ID. Keep
+      // this state scoped to one agent run, so a later user message starts
+      // clean while a write within this run deliberately permits a re-read.
+      const completedReadonlyCalls = new Set<string>();
+      let duplicateRecoveryAttempted = false;
+      const workspacePath =
+        directoryIdToPath(sessionDirId) ?? ctx.directoryPath;
+      let readonlyToolNamesPromise: Promise<Set<string>> | undefined;
+      const getReadonlyToolNames = (): Promise<Set<string>> => {
+        readonlyToolNamesPromise ??= window.snow
+          .listReadonlyTools()
+          .then((names) => new Set(names))
+          .catch(() => new Set<string>());
+        return readonlyToolNamesPromise;
+      };
+      const isReadonlyCall = (
+        toolCall: ToolCallInfo,
+        readonlyToolNames: Set<string>,
+      ): boolean => {
+        if (!readonlyToolNames.has(toolCall.name)) {
+          return false;
+        }
+        if (toolCall.name !== "todo-todo-manage") {
+          return true;
+        }
+        try {
+          return (
+            (JSON.parse(toolCall.arguments || "{}") as { action?: unknown })
+              .action === "get"
+          );
+        } catch {
+          return false;
+        }
+      };
+      const readonlyCallKey = (toolCall: ToolCallInfo): string | null => {
+        const argumentsJson = canonicalizeToolArguments(
+          toolCall.arguments,
+          toolCall.name,
+          workspacePath,
+        );
+        return argumentsJson === null
+          ? null
+          : `${toolCall.name}:${argumentsJson}`;
+      };
+
       const executeSubAgentActivation = createSubAgentActivation({
         ctx,
         requestToolAuthorizations,
@@ -429,6 +561,12 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         // backend builds the request context from the database and treats
         // requestMessages as a placeholder (never sent nor persisted).
         resumeAfterCompaction?: boolean,
+        // A one-shot recovery continuation preserves history and tool results,
+        // but asks every provider to omit its outbound tools array.
+        disableTools = false,
+        // Request-local system-level recovery instruction. This deliberately
+        // does not become a conversation message or persisted user content.
+        internalRecoveryPrompt?: string,
       ): Promise<void> => {
         const iterSessionKey = currentConversationId ?? sessionKey;
         let effectiveKey = iterSessionKey;
@@ -452,10 +590,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           }
         }
 
-        // Carry the completed iteration into the run totals, then reset the
-        // per-request probes before starting the next model stream.
-        beginStreamMetricsIteration(ctx, effectiveKey);
-
         // Capture the stream promise so rollback can await it before issuing
         // delete/truncate. Without this, the Rust store_chat_exchange write
         // transaction races with the delete/truncate write transaction and
@@ -476,6 +610,8 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             directoryId: sessionDirId,
             checkpointId,
             resumeAfterCompaction,
+            disableTools,
+            internalRecoveryPrompt,
             planMode: iterRef?.planMode ?? ctx.planModeRef.current,
             goalMode: iterRef?.goalMode ?? ctx.goalModeRef.current,
             worktreeMode: iterRef?.worktreeMode ?? ctx.worktreeModeRef.current,
@@ -995,11 +1131,105 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           return;
         }
 
-        // A tool-call response must always be processed into tool results and
-        // followed by another model request. The loop naturally finishes only
-        // when a later response contains no tool calls, or when the user cancels.
+        // A provider that returns calls after tools were deliberately omitted
+        // has violated the request contract. Record the calls for auditability
+        // but do not authorize, execute, or recurse into another loop.
+        if (disableTools) {
+          const ignoredResult = JSON.stringify({
+            success: false,
+            error: "TOOLS_DISABLED_FOR_DUPLICATE_RECOVERY",
+            message:
+              "Tools were disabled for this recovery request because equivalent read-only calls already completed. No tool was executed.",
+          });
+          ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
+            currentMessages.map((currentMessage) =>
+              currentMessage.id === currentAssistantMessageId
+                ? {
+                    ...currentMessage,
+                    toolCalls: toolCalls.map((toolCall) => ({
+                      ...toolCall,
+                      status: "completed" as const,
+                      result: ignoredResult,
+                    })),
+                  }
+                : currentMessage,
+            ),
+          );
+          if (response.conversationId) {
+            await window.snow.appendToolMessage(
+              response.conversationId,
+              formatToolResultsContent(
+                toolCalls.map((toolCall) => ({
+                  name: toolCall.name,
+                  callId: toolCall.callId || "",
+                  result: ignoredResult,
+                })),
+              ),
+            );
+          }
+          ctx.pendingQueueRef.current.delete(effectiveKey);
+          ctx.setActivePendingMessages([]);
+          return;
+        }
+
+        // Tool calls are normally processed into results and followed by
+        // another model request. A batch made entirely of repeated successful
+        // readonly calls is terminal: its duplicate results are persisted, but
+        // sending them back to a provider that already ignored the prior result
+        // would only create an unbounded request loop.
+        const readonlyToolNames = await getReadonlyToolNames();
+        const duplicateReadonlyResults = new Map<ToolCallInfo, string>();
+        const executableToolCalls = toolCalls.filter((toolCall) => {
+          const key = readonlyCallKey(toolCall);
+          if (
+            key === null ||
+            !isReadonlyCall(toolCall, readonlyToolNames) ||
+            !completedReadonlyCalls.has(key)
+          ) {
+            return true;
+          }
+
+          const result = JSON.stringify({
+            success: false,
+            error: "DUPLICATE_READONLY_TOOL_CALL",
+            message:
+              "This read-only tool call already completed with identical arguments during this agent run, and no mutating tool has executed since. Use the prior tool result and finish the task without repeating the call.",
+            toolName: toolCall.name,
+          });
+          duplicateReadonlyResults.set(toolCall, result);
+          return false;
+        });
+
+        // Keep the duplicate visible as a completed tool card while ensuring
+        // it never reaches the MCP bridge.
+        if (duplicateReadonlyResults.size > 0) {
+          ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
+            currentMessages.map((currentMessage) =>
+              currentMessage.id === currentAssistantMessageId
+                ? {
+                    ...currentMessage,
+                    toolCalls: [...duplicateReadonlyResults.entries()].reduce(
+                      (currentToolCalls, [toolCall, result]) =>
+                        updateFirstMatchingToolCall(
+                          currentToolCalls,
+                          toolCall,
+                          ["pending", "running"],
+                          (currentToolCall) => ({
+                            ...currentToolCall,
+                            status: "completed" as const,
+                            result,
+                          }),
+                        ),
+                      currentMessage.toolCalls,
+                    ),
+                  }
+                : currentMessage,
+            ),
+          );
+        }
+
         const authorizationDecisions = await requestToolAuthorizations(
-          toolCalls,
+          executableToolCalls,
           effectiveKey,
           sessionDirId,
         );
@@ -1011,9 +1241,11 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         //   AI，Loop 继续，让 AI 根据理由调整后续行动。
         // - 部分拒绝：已拒绝的工具返回拒绝结果给 AI，已批准的工具
         //   正常执行，Loop 继续。
-        const allToolsRejected = authorizationDecisions.every(
-          (decision) => decision.status === "rejected",
-        );
+        const allToolsRejected =
+          executableToolCalls.length > 0 &&
+          authorizationDecisions.every(
+            (decision) => decision.status === "rejected",
+          );
         const hasUserProvidedRejectionReason = authorizationDecisions.some(
           (decision) =>
             decision.status === "rejected" &&
@@ -1036,19 +1268,62 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           planModeRef: ctx.planModeRef,
         });
         const toolExecResult = await toolExecutor(
-          toolCalls,
+          executableToolCalls,
           authorizationDecisions,
         );
         if (!toolExecResult) {
           return;
         }
         const {
-          structuredToolResults,
+          structuredToolResults: executedToolResults,
           hookAborted,
           hookAbortMessage,
           userQuestionCancelled,
           pendingHookWarnings,
         } = toolExecResult;
+
+        const structuredToolResults: {
+          name: string;
+          callId: string;
+          result: string;
+        }[] = [];
+        let executedResultIndex = 0;
+        for (const toolCall of toolCalls) {
+          const duplicateResult = duplicateReadonlyResults.get(toolCall);
+          if (duplicateResult !== undefined) {
+            structuredToolResults.push({
+              name: toolCall.name,
+              callId: toolCall.callId || "",
+              result: duplicateResult,
+            });
+            continue;
+          }
+
+          const executedResult = executedToolResults[executedResultIndex++];
+          if (executedResult) {
+            structuredToolResults.push(executedResult);
+          }
+        }
+
+        // Only successful read results are cacheable. Any approved non-read
+        // tool is conservatively treated as a potential state change, which
+        // permits the model to read the same path again after that boundary.
+        for (let index = 0; index < executableToolCalls.length; index++) {
+          const toolCall = executableToolCalls[index];
+          const decision = authorizationDecisions[index];
+          const result = executedToolResults[index]?.result;
+          if (decision?.status !== "approved") {
+            continue;
+          }
+          if (mayMutateWorkspace(toolCall)) {
+            completedReadonlyCalls.clear();
+            continue;
+          }
+          const key = readonlyCallKey(toolCall);
+          if (key && result && !isFailedToolResult(result)) {
+            completedReadonlyCalls.add(key);
+          }
+        }
 
         // Hook abort (exit code 2+): fully interrupt the AI loop and surface
         // the hook's error message. No tool results are sent to the model.
@@ -1101,6 +1376,55 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           ...currentMessages,
           toolResultMessage,
         ]);
+        const toolResultsJson = JSON.stringify(structuredToolResults);
+
+        // A duplicate-only batch has no new work to execute. Preserve its
+        // structured results and request one tool-free continuation so the
+        // provider can summarize the already available evidence. The recovery
+        // instruction is request-local and never enters chat history.
+        if (
+          duplicateReadonlyResults.size > 0 &&
+          executableToolCalls.length === 0
+        ) {
+          if (duplicateRecoveryAttempted) {
+            ctx.pendingQueueRef.current.delete(effectiveKey);
+            ctx.setActivePendingMessages([]);
+            if (response.conversationId) {
+              await window.snow.appendToolMessage(
+                response.conversationId,
+                toolResultContent,
+              );
+            }
+            return;
+          }
+          duplicateRecoveryAttempted = true;
+          const recoveryInstruction =
+            "The requested read-only calls have already completed and their results are in the conversation. Do not call tools in this turn. Use the existing results to provide the best final answer.";
+          const recoveryAssistantMessageId = createMessageId("assistant");
+          ctx.updateSessionMessages(effectiveKey, (currentMessages) => [
+            ...currentMessages,
+            {
+              id: recoveryAssistantMessageId,
+              role: "assistant",
+              content: "",
+              timestamp: formatMessageTime(),
+              status: "sending",
+              model: capturedOptions.model,
+            },
+          ]);
+          await runAgentLoop(
+            recoveryAssistantMessageId,
+            [
+              { role: "tool", content: toolResultContent, toolResultsJson },
+            ],
+            response.conversationId,
+            checkpointId,
+            undefined,
+            true,
+            recoveryInstruction,
+          );
+          return;
+        }
 
         if (userQuestionCancelled) {
           ctx.pendingQueueRef.current.delete(effectiveKey);
@@ -1131,7 +1455,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
 
         const pendingQueueForTools =
           ctx.pendingQueueRef.current.get(effectiveKey) ?? [];
-        const toolResultsJson = JSON.stringify(structuredToolResults);
         const nextMessages: {
           role: "user" | "assistant" | "system" | "developer" | "tool";
           content: string;

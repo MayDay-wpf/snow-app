@@ -33,7 +33,6 @@ import {
   PARENT_PLAN_APPROVAL_REQUIRED,
   accumulateConversationRunStats,
   accumulateRunTokenUsage,
-  beginStreamMetricsIteration,
   createStreamChunkHandler,
   createStreamIdHandler,
   resetRunStreamMetrics,
@@ -273,7 +272,6 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       subAssistantMessage,
     ]);
 
-    beginStreamMetricsIteration(ctx, subConvId);
     const subStreamPromise = window.snow.createResponseStream(
       {
         messages: subMessages,

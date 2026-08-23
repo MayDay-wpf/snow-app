@@ -56,6 +56,18 @@ const extractEntries = (data: Record<string, unknown>): unknown[] => {
   return [];
 };
 
+const extractConfigValue = (
+  data: Record<string, unknown>
+): { present: boolean; value: unknown } => {
+  if ("value" in data) {
+    return { present: true, value: data.value };
+  }
+  if ("content" in data) {
+    return { present: true, value: data.content };
+  }
+  return { present: false, value: undefined };
+};
+
 /** get / set 成功后对 value 字段的美化展示（字符串转义解码见 shared/JsonTreeView）。 */
 const ValuePreview = ({ value }: { value: unknown }): React.JSX.Element | null => {
   const { t } = useI18n();
@@ -169,9 +181,9 @@ export const ConfigToolCall = ({
         );
       }
     } else if (operation === "get") {
-      const value = data.value;
+      const { present, value } = extractConfigValue(data);
       meta =
-        value === null ? (
+        !present || value === null || data.exists === false ? (
           <span className="tool-call-config-meta tool-call-config-meta-missing">
             {t("toolCall.config.notConfigured")}
           </span>
@@ -216,6 +228,11 @@ export const ConfigToolCall = ({
     parsedResult.type === "raw"
       ? parsedResult.text
       : "";
+  const configValue =
+    parsedResult.type === "success" &&
+    (operation === "set" || operation === "get")
+      ? extractConfigValue(parsedResult.data)
+      : null;
 
   return (
     <ToolCallNode
@@ -256,10 +273,8 @@ export const ConfigToolCall = ({
           </div>
         ) : null}
 
-        {(parsedResult.type === "success" &&
-        (operation === "set" || operation === "get") &&
-        "value" in parsedResult.data) ? (
-          <ValuePreview value={parsedResult.data.value} />
+        {configValue?.present ? (
+          <ValuePreview value={configValue.value} />
         ) : parsedResult.type === "success" ? (
           <section className="tool-call-section">
             <span className="tool-call-section-label">

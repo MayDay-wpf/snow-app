@@ -1,9 +1,4 @@
-//! Anthropic Messages API entry point.
-//!
-//! This module orchestrates the full request lifecycle: context
-//! preparation, payload construction, streaming collection, and result
-//! persistence. Heavy logic lives in the sibling `payload`, `event`, and
-//! `stream` modules so that this file stays focused on orchestration.
+//! Google Interactions API entry point.
 
 mod event;
 pub(crate) mod payload;
@@ -13,7 +8,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use napi::bindgen_prelude::*;
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::config::resolve_advanced_model;
@@ -33,8 +27,8 @@ use crate::storage::services::chat_conversations::{
 };
 use crate::storage::ApiConfigRecord;
 
-/// Public entry point — create an Anthropic streaming response.
-pub async fn create_anthropic_response_stream(
+/// Public entry point — create a Google Interactions streaming response.
+pub async fn create_interactions_response_stream(
     request: ResponsesApiRequest,
     database_path: PathBuf,
     api_config: ApiConfigRecord,
@@ -42,7 +36,7 @@ pub async fn create_anthropic_response_stream(
     on_chunk: ResponsesApiStreamCallback,
     cancel_token: CancellationToken,
 ) -> Result<ResponsesApiResult> {
-    create_anthropic_response_async(
+    create_interactions_response_async(
         request,
         database_path,
         api_config,
@@ -53,7 +47,7 @@ pub async fn create_anthropic_response_stream(
     .await
 }
 
-async fn create_anthropic_response_async(
+async fn create_interactions_response_async(
     request: ResponsesApiRequest,
     database_path: PathBuf,
     api_config: ApiConfigRecord,
@@ -72,15 +66,9 @@ async fn create_anthropic_response_async(
         ));
     }
 
-    // Resolve the requested model up front so conversation/message persistence
-    // and the stream result use the model the user asked for, never the model
-    // echoed back by the API response body (some providers return aliased or
-    // date-stamped names, e.g. `deepseek-flash-0731`, which would otherwise
-    // overwrite the chat input's displayed model).
-    let model =
-        resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
+    let model = resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
 
-    let endpoint = payload::resolve_anthropic_endpoint(&api_config);
+    let endpoint = payload::resolve_interactions_endpoint(&api_config, api_key);
     if endpoint.is_empty() {
         return Err(Error::from_reason(
             "Base URL not configured. Please configure API settings first.",
@@ -99,6 +87,7 @@ async fn create_anthropic_response_async(
             thinking_blocks_json: message.thinking_blocks_json.clone(),
         })
         .collect::<Vec<_>>();
+
     let prepared_request = prepare_context_request(ConversationContextRequest {
         database_path: &database_path,
         conversation_id: request.conversation_id.as_deref(),
@@ -117,7 +106,8 @@ async fn create_anthropic_response_async(
         system_prompt_ids_json: &api_config.system_prompt_ids_json,
         remote_role_content: request.remote_role_content.as_deref(),
         remote_include_global_rules: request.remote_include_global_rules,
-    }).await?;
+    })
+    .await?;
 
     let client = crate::api::http_client::build_proxied_client()
         .await
@@ -142,11 +132,15 @@ async fn create_anthropic_response_async(
         None
     } else {
         match resolve_sub_agent_tools(&request).await {
-            Ok(tools) => Some(crate::mcp::tools::tools_as_anthropic_json(&tools)),
-            Err(_) => None,
+            Ok(tools) => Some(crate::mcp::tools::tools_as_interactions_json(&tools)),
+            Err(error) => {
+                eprintln!("Failed to prepare MCP tools for Interactions API: {error}");
+                None
+            }
         }
     };
-    let payload: Value = payload::build_anthropic_payload(
+
+    let payload = payload::build_interactions_payload(
         &prepared_messages,
         &database_path,
         &request,
@@ -154,6 +148,7 @@ async fn create_anthropic_response_async(
         tools,
         &prepared_request.user_system_prompts,
     )?;
+
     let retry_options = RetryOptions::from_config(
         api_config.max_retries,
         api_config.retry_base_delay_ms,
@@ -161,30 +156,24 @@ async fn create_anthropic_response_async(
     );
     let stream_idle_timeout_sec =
         resolve_stream_idle_timeout_sec(api_config.stream_idle_timeout_sec);
-
     let request_payload_json = serde_json::to_string(&payload).unwrap_or_default();
     maybe_log_api_request(
         database_path.clone(),
-        "anthropic".to_string(),
+        "interactions".to_string(),
         endpoint.clone(),
         request_payload_json,
     )
     .await;
 
-    let streamed_response = match stream::collect_anthropic_stream(
+    let streamed_response = match stream::collect_interactions_stream(
         &client,
         &endpoint,
-        api_key,
         &custom_headers,
         payload,
         on_chunk,
         &cancel_token,
         &retry_options,
         stream_idle_timeout_sec,
-        // 1M 上下文：模型名带 [1M] 标记，或档案开关 snowcfg.enable1mContext
-        // 开启，任一成立即注入 context-1m beta 头（开关兜底模型名标记）。
-        payload::has_one_m_context_marker(&model)
-            || payload::config_json_enables_one_m_context(&api_config.config_json),
     )
     .await
     {
@@ -192,36 +181,21 @@ async fn create_anthropic_response_async(
         Err(error) => {
             log_api_error(
                 &database_path,
-                "create_anthropic_response_stream",
-                "Anthropic API call failed",
+                "create_interactions_response_stream",
+                "Google Interactions API call failed",
                 &error.reason,
             );
             return Err(error);
         }
     };
-    // See chat/mod.rs: assistant raw_events are not needed for replay, so we
-    // skip serializing the full SSE chunk array to avoid DB bloat.
+
     let raw_response_json = "{}";
-    let transport_interruption_reason = streamed_response
-        .interruption_reason
-        .filter(|reason| reason.is_transport());
     let interruption_reason = streamed_response
         .interruption_reason
         .map(|reason| reason.as_code().to_string());
     let recovery_outcome = streamed_response
         .recovery_outcome
         .map(|outcome| outcome.as_code().to_string());
-
-    if transport_interruption_reason.is_none() {
-        for parse_error in &streamed_response.tool_parse_errors {
-            log_api_warning(
-                &database_path,
-                "create_anthropic_response_stream",
-                "Tool call JSON parse failed after streaming",
-                parse_error,
-            );
-        }
-    }
 
     let has_response_payload = !streamed_response.content.is_empty()
         || !streamed_response.thinking.is_empty()
@@ -234,10 +208,10 @@ async fn create_anthropic_response_async(
         FinalStreamWarningDisposition::TransportInterrupted(reason) => {
             log_api_warning(
                 &database_path,
-                "create_anthropic_response_stream",
+                "create_interactions_response_stream",
                 "AI response stream interrupted",
                 &format!(
-                    "provider=anthropic, request_method=anthropic, reason={}, outcome={}, model={}, status={}, conversation_id={}, response_id={}, content_chars={}, thinking_chars={}, duration_ms={}",
+                    "provider=interactions, request_method=interactions, reason={}, outcome={}, model={}, status={}, conversation_id={}, response_id={}, content_chars={}, thinking_chars={}, duration_ms={}",
                     reason.as_code(),
                     recovery_outcome.as_deref().unwrap_or(""),
                     model,
@@ -253,7 +227,7 @@ async fn create_anthropic_response_async(
         FinalStreamWarningDisposition::EmptyResponse => {
             log_api_warning(
                 &database_path,
-                "create_anthropic_response_stream",
+                "create_interactions_response_stream",
                 "AI returned empty response",
                 &format!(
                     "model={}, status={}",
@@ -281,7 +255,7 @@ async fn create_anthropic_response_async(
                 raw_response_json: &raw_response_json,
                 token_usage: streamed_response.token_usage,
                 response_thinking: &streamed_response.thinking,
-                response_thinking_blocks_json: &streamed_response.thinking_blocks_json,
+                response_thinking_blocks_json: "[]",
                 tool_calls_json: &streamed_response.tool_calls_json,
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),
@@ -297,9 +271,6 @@ async fn create_anthropic_response_async(
         conversation_id: prepared_request.conversation_id,
         content: streamed_response.content,
         thinking: streamed_response.thinking,
-        // Return the requested model so the renderer's assistant message
-        // records match what was persisted (the response body's model is
-        // unreliable across providers and may carry date-stamped aliases).
         model: model.to_string(),
         status: streamed_response.status,
         interruption_reason,

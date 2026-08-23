@@ -240,7 +240,7 @@ impl McpService for BrowserService {
                             "maximum": 200
                         },
                         "requestId": {
-                            "type": ["string", "number"],
+                            "type": "string",
                             "description": "Network request reference. For networkDetails: CDP request id from the network list (string). For network_detail: the numeric id of the request to retrieve full details for (use network action first to obtain ids)."
                         },
                         "maxBodyBytes": {
@@ -279,6 +279,7 @@ impl McpService for BrowserService {
                             "additionalProperties": { "type": "string" }
                         },
                         "dialogResponse": {
+                            "type": "object",
                             "description": "Response for the dialog action: { accept: boolean, promptText?: string }. When provided, the most recent pending dialog is answered instead of listing dialogs.",
                             "properties": {
                                 "accept": {

@@ -342,11 +342,19 @@ pub(super) fn build_anthropic_payload(
     // cache_control on the last block). Otherwise the built-in system
     // prompt parts are used. A plain string system field cannot carry
     // cache_control, so we always emit an array of text blocks.
-    let system_parts: Vec<&String> = if has_user_system_prompts {
-        user_system_prompts.iter().collect()
+    let mut system_parts: Vec<String> = if has_user_system_prompts {
+        user_system_prompts.to_vec()
     } else {
-        builtin_system_parts.iter().collect()
+        builtin_system_parts
     };
+    if let Some(prompt) = request
+        .internal_recovery_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        system_parts.push(prompt.to_string());
+    }
 
     if !system_parts.is_empty() {
         let system_blocks: Vec<Value> = system_parts

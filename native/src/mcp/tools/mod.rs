@@ -10,9 +10,7 @@ use crate::mcp::servers::bash::stream_io::emit_stream_chunk;
 use crate::mcp::servers::bash::BashStreamCallback;
 use crate::storage::services::checkpoint::remote::RemoteCheckpointClient;
 use crate::storage::services::checkpoint::CheckpointWorktreeCapture;
-use crate::storage::services::system_settings::{
-    McpGlobalScopeSettings, McpProjectScopeSettings,
-};
+use crate::storage::services::system_settings::{McpGlobalScopeSettings, McpProjectScopeSettings};
 
 enum ToolCheckpointCapture {
     None,
@@ -44,8 +42,8 @@ enum ToolCheckpointOperationGuard {
 
 use super::builtin::{get_builtin_servers_with_tools, get_builtin_tools};
 use super::servers::remote_workspace::{
-    is_ssh_path, is_windows_absolute_path, RemoteWorkspaceCallback, resolve_remote_project_workspace,
-    resolve_remote_workspace_path,
+    is_ssh_path, is_windows_absolute_path, resolve_remote_project_workspace,
+    resolve_remote_workspace_path, RemoteWorkspaceCallback,
 };
 
 mod call;
@@ -54,16 +52,16 @@ mod plan_write;
 mod result_limit;
 mod serialize;
 
-pub use call::call_mcp_tool;
-pub use collect::{collect_all_mcp_tools, collect_allowed_mcp_tools};
-pub use serialize::{
-    tools_as_anthropic_json, tools_as_gemini_json, tools_as_openai_chat_json,
-    tools_as_openai_responses_json,
-};
 pub use super::servers::sub_agents::SUB_AGENT_COMMS_TOOL_FULL_NAMES;
+pub use call::call_mcp_tool;
 pub(crate) use collect::{
     builtin_scope_server_id, builtin_server_name, load_global_scope, load_project_scope,
     server_id_from_tool_name, with_database_path,
+};
+pub use collect::{collect_all_mcp_tools, collect_allowed_mcp_tools};
+pub use serialize::{
+    tools_as_anthropic_json, tools_as_gemini_json, tools_as_interactions_json,
+    tools_as_openai_chat_json, tools_as_openai_responses_json,
 };
 
 // NOTE: list_mcp_tools 和 call_mcp_tool 的 #[napi] 导出在 exports/api.rs 中，
@@ -171,9 +169,7 @@ pub async fn list_mcp_tools() -> napi::Result<Vec<McpToolDefinition>> {
     Ok(to_tool_definitions(&tools))
 }
 
-pub async fn list_mcp_server_tools(
-    config_server_id: String,
-) -> napi::Result<Vec<McpToolStatus>> {
+pub async fn list_mcp_server_tools(config_server_id: String) -> napi::Result<Vec<McpToolStatus>> {
     let tools = super::external::discover_server_tools(None, &config_server_id, true).await?;
     let global_scope = load_global_scope().await?;
     Ok(to_tool_statuses(&tools, global_scope.as_ref()))
@@ -666,9 +662,7 @@ fn remote_workspace_path_field(tool_full_name: &str) -> Option<&'static str> {
         "filesystem-read" | "filesystem-replace_edit" | "filesystem-create" => Some("filePath"),
         name if name.starts_with("codelens-") => Some("filePath"),
         "grep-search" => Some("path"),
-        "bash-terminal-execute" => {
-            Some("workingDirectory")
-        }
+        "bash-terminal-execute" => Some("workingDirectory"),
         _ => None,
     }
 }
@@ -812,10 +806,9 @@ async fn acquire_tool_checkpoint_operation_guard(
                 })?;
             // 先等同文件锁，再进入目录共享锁：等待同文件的调用不会长期占住
             // 目录读锁，回滚可在两次文件编辑之间公平取得独占锁。
-            let file_lock =
-                crate::storage::services::checkpoint::checkpoint_file_operation_lock(
-                    work_dir, file_path,
-                )?;
+            let file_lock = crate::storage::services::checkpoint::checkpoint_file_operation_lock(
+                work_dir, file_path,
+            )?;
             let file_guard = file_lock.lock_owned().await;
             let work_dir_lock =
                 crate::storage::services::checkpoint::checkpoint_operation_lock(work_dir)?;
@@ -866,9 +859,7 @@ fn capture_checkpoint_before_tool(
     }
     // 先定范围再校验 work_dir，Skill / 外部 MCP 不被前置阶段阻断。
     match tool_checkpoint_scope(tool_full_name) {
-        ToolCheckpointScope::None | ToolCheckpointScope::Unknown => {
-            Ok(ToolCheckpointCapture::None)
-        }
+        ToolCheckpointScope::None | ToolCheckpointScope::Unknown => Ok(ToolCheckpointCapture::None),
         ToolCheckpointScope::File => {
             let work_dir = require_checkpoint_work_dir(checkpoint_work_dir)?;
             let file_path = args
@@ -944,9 +935,7 @@ async fn capture_checkpoint_before_tool_remote(
     }
     // 先定范围再校验 work_dir（与本地版本一致），Skill / 外部 MCP 不阻断。
     match tool_checkpoint_scope(tool_full_name) {
-        ToolCheckpointScope::None | ToolCheckpointScope::Unknown => {
-            Ok(ToolCheckpointCapture::None)
-        }
+        ToolCheckpointScope::None | ToolCheckpointScope::Unknown => Ok(ToolCheckpointCapture::None),
         ToolCheckpointScope::File => {
             // 单文件回滚语义保持不变：记录失败按工具错误上抛。
             let work_dir = require_checkpoint_work_dir(checkpoint_work_dir)?;
@@ -1007,8 +996,7 @@ async fn capture_checkpoint_before_tool_remote(
             // SFTP 遍历可能很慢：使用独立超时上限（不与命令 timeout 挂钩），
             // 超时/失败软失败降级，并通知 Electron 中止仍在进行的扫描。
             let scan_id = uuid::Uuid::new_v4().to_string();
-            let client =
-                RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
+            let client = RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
             let started = Instant::now();
             emit_stream_chunk(
                 on_chunk,
@@ -1104,8 +1092,7 @@ async fn capture_checkpoint_after_tool_remote(
             // 命令已结束：after 失败只意味着变更记录不完整，软失败降级，
             // 不能把已成功的命令结果覆盖为失败（避免模型重试）。
             let scan_id = uuid::Uuid::new_v4().to_string();
-            let client =
-                RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
+            let client = RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
             let started = Instant::now();
             if on_chunk.is_some() {
                 warn(crate::i18n::fill(
@@ -1164,8 +1151,7 @@ fn capture_checkpoint_after_tool(capture: ToolCheckpointCapture) -> napi::Result
         ToolCheckpointCapture::Worktree(Some(capture)) => {
             // 软失败：after 记录失败只意味着回滚保护可能不完整，不能把
             // 已经成功的工具结果覆盖为失败（避免模型重试已执行的命令）。
-            match crate::storage::services::checkpoint::record_checkpoint_worktree_after(capture)
-            {
+            match crate::storage::services::checkpoint::record_checkpoint_worktree_after(capture) {
                 Ok(()) => Ok(()),
                 Err(error) => {
                     eprintln!(
@@ -1250,19 +1236,72 @@ fn is_readonly_single_statement(statement: &str) -> bool {
     // 任意命令，无法静态判定），均保守保留 checkpoint。
     const READONLY_PATTERNS: &[&str] = &[
         // 纯读命令（可带参数）
-        "echo", "ls", "pwd", "grep", "rg", "cat", "head", "tail", "wc",
-        "sort", "uniq", "find", "which", "type", "date", "printf",
-        "dirname", "basename", "readlink", "realpath", "stat", "file",
-        "tree", "du", "df", "nproc", "uname", "hostname", "ps", "top",
-        "ping", "nslookup", "dig", "history", "jobs", "true", "false",
-        "sleep", "test", "[", "exit", "cd", "export", "unset", "set",
+        "echo",
+        "ls",
+        "pwd",
+        "grep",
+        "rg",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "find",
+        "which",
+        "type",
+        "date",
+        "printf",
+        "dirname",
+        "basename",
+        "readlink",
+        "realpath",
+        "stat",
+        "file",
+        "tree",
+        "du",
+        "df",
+        "nproc",
+        "uname",
+        "hostname",
+        "ps",
+        "top",
+        "ping",
+        "nslookup",
+        "dig",
+        "history",
+        "jobs",
+        "true",
+        "false",
+        "sleep",
+        "test",
+        "[",
+        "exit",
+        "cd",
+        "export",
+        "unset",
+        "set",
         // git 只读子命令（写类子命令 add/commit/push/pull/checkout 等不在列）
-        "git status", "git log", "git diff", "git branch", "git rev-parse",
-        "git remote", "git show", "git ls-files", "git tag", "git blame",
-        "git reflog", "git describe", "git shortlog", "git config --get",
+        "git status",
+        "git log",
+        "git diff",
+        "git branch",
+        "git rev-parse",
+        "git remote",
+        "git show",
+        "git ls-files",
+        "git tag",
+        "git blame",
+        "git reflog",
+        "git describe",
+        "git shortlog",
+        "git config --get",
         "git help",
         // 只读网络探测
-        "curl -I", "curl -i", "curl -sI", "wget --spider",
+        "curl -I",
+        "curl -i",
+        "curl -sI",
+        "wget --spider",
     ];
 
     READONLY_PATTERNS.iter().any(|pattern| {
@@ -1382,7 +1421,11 @@ fn split_shell_statements(command: &str) -> Option<Vec<&str>> {
                 start = i + 1;
             }
             b'&' => {
-                let sep_len = if bytes.get(i + 1) == Some(&b'&') { 2 } else { 1 };
+                let sep_len = if bytes.get(i + 1) == Some(&b'&') {
+                    2
+                } else {
+                    1
+                };
                 statements.push(&command[start..i]);
                 start = i + sep_len;
                 i += sep_len - 1;
@@ -1495,8 +1538,7 @@ fn remote_bash_checkpoint_skip_reason(
                 dir: working_directory.to_string(),
             });
         }
-        let Some((authority, segments)) = plan_write::normalize_ssh_path(working_directory)
-        else {
+        let Some((authority, segments)) = plan_write::normalize_ssh_path(working_directory) else {
             return None; // 无法解析时保守保留扫描
         };
         if authority != workspace_authority
@@ -1551,9 +1593,7 @@ fn command_targets_outside_workspace(
         // 可能写入的语句：按 cwd 位置与绝对路径证据判断写入位置。
         let cwd_inside_or_uncertain = match &cwd {
             None => true,
-            Some(segments) => {
-                plan_write::remote_segments_start_with(segments, workspace_segments)
-            }
+            Some(segments) => plan_write::remote_segments_start_with(segments, workspace_segments),
         };
         let Some(tokens) = tokenize_shell_tokens(statement) else {
             return false; // 无法解析 → 保守保留扫描

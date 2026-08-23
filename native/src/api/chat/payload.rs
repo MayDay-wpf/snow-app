@@ -222,11 +222,24 @@ pub(super) fn build_chat_completions_payload(
     // When user system prompts are present, emit them as a single `system`
     // message with multiple content blocks and demote the built-in prompt
     // to a leading `user` message (Snow CLI PR #127).
-    if has_user_system_prompts {
-        let user_prompt_blocks: Vec<Value> = user_system_prompts
+    if has_user_system_prompts
+        || request
+            .internal_recovery_prompt
+            .as_deref()
+            .is_some_and(|prompt| !prompt.trim().is_empty())
+    {
+        let mut user_prompt_blocks: Vec<Value> = user_system_prompts
             .iter()
             .map(|text| json!({ "type": "text", "text": text }))
             .collect();
+        if let Some(prompt) = request
+            .internal_recovery_prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
+        {
+            user_prompt_blocks.push(json!({ "type": "text", "text": prompt }));
+        }
         let system_message = json!({
             "role": "system",
             "content": user_prompt_blocks,

@@ -80,6 +80,13 @@ export type ResponsesApiRequest = {
   subAgentSystemPrompt?: string | null;
   subAgentConfigProfile?: string | null;
   skipContext?: boolean | null;
+  /** Preserve normal conversation context but omit MCP tools for this request. */
+  disableTools?: boolean | null;
+  /**
+   * Request-local instruction used for internal recovery. It is included with
+   * provider system instructions, never persisted as a conversation message.
+   */
+  internalRecoveryPrompt?: string | null;
   planMode?: boolean | null;
   goalMode?: boolean | null;
   worktreeMode?: boolean | null;

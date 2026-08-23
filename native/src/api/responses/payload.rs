@@ -307,6 +307,17 @@ pub(super) fn build_responses_payload(
     } else if !builtin_system_parts.is_empty() {
         instructions = Some(builtin_system_parts.join("\n\n"));
     }
+    if let Some(prompt) = request
+        .internal_recovery_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        instructions = Some(match instructions {
+            Some(existing) => format!("{existing}\n\n{prompt}"),
+            None => prompt.to_string(),
+        });
+    }
 
     if input.is_empty() {
         return Err(Error::from_reason("Chat message content is required"));

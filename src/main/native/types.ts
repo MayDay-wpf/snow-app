@@ -964,6 +964,10 @@ export type ResponsesApiRequest = {
   subAgentSystemPrompt?: string;
   subAgentConfigProfile?: string;
   skipContext?: boolean;
+  /** Preserve normal conversation context but omit MCP tools for this request. */
+  disableTools?: boolean;
+  /** Request-local recovery instruction. Never persisted as a chat message. */
+  internalRecoveryPrompt?: string;
   planMode?: boolean;
   goalMode?: boolean;
   worktreeMode?: boolean;

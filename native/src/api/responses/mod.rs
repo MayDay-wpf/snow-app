@@ -88,6 +88,13 @@ pub struct ResponsesApiRequest {
     /// system prompt. Used by lightweight single-shot completions (e.g. AI
     /// commit-message generation).
     pub skip_context: Option<bool>,
+    /// Preserve normal context while omitting MCP tools for this request.
+    /// Used to recover from a provider that repeated completed readonly calls.
+    pub disable_tools: Option<bool>,
+    /// Request-local instruction used only to recover a repeated-tool turn.
+    /// It is applied as a provider system instruction and is never persisted
+    /// as a conversation message or reused for sub-agent semantics.
+    pub internal_recovery_prompt: Option<String>,
     /// When true, replace the built-in system prompt with the Plan Mode prompt
     /// that instructs the AI to plan and get user approval before executing.
     pub plan_mode: Option<bool>,
@@ -309,7 +316,10 @@ async fn create_response_async(
     )
     .await?;
 
-    let tools = if request.context_compaction.unwrap_or(false) || skip_context {
+    let tools = if request.context_compaction.unwrap_or(false)
+        || skip_context
+        || request.disable_tools.unwrap_or(false)
+    {
         None
     } else {
         match resolve_sub_agent_tools(&request).await {
