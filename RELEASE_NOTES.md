@@ -1,5 +1,29 @@
 # Release Notes
 
+## v0.2.12
+
+## New Features
+
+- **Lite Mode**: A new Lite Mode lets you disable heavy MCP servers to save context.
+- **Configurable Send Key**: Chat input now supports choosing between Enter and Ctrl+Enter to send.
+- **Parallel New Sessions**: Multiple new sessions can be created in parallel, each with an independent pending slot and target session location.
+- **Delete Usage Records by Date Range**: Usage records can be deleted by date range.
+
+## Improvements
+
+- **Readonly MCP Tools in Parallel**: Side-effect-free readonly MCP tools are now executed in parallel.
+- **Gemini Interactions Protocol**: Added Google Interactions protocol support with improved tool-call streaming, name resolution, and tool result recovery.
+- **Indentation-Safe Fuzzy Edit**: Fuzzy edit now protects leading indentation in Python/YAML/Makefile files, rejecting edits that would silently change it.
+- **API Settings Entry**: The model selector gains an API settings entry.
+- **Misc**: Right-click menu (Cut/Copy/Paste/Select All) for the address input, "Open in File Manager" on the directory context menu, average output speed in the conversation summary, terminal key-sequence sending with input-wait detection, and tool cancel reasons with partial bash output preserved.
+- **Log Redaction**: Sensitive credentials are redacted in API request logs, with log filtering fixed.
+
+## Bug Fixes
+
+- **Windows Process-Wait Stall**: Fixed a process-wait stall on Windows by polling `try_wait` instead of `Child::wait`.
+- **Sub-Agent Activation Errors**: Improved sub-agent activation error handling, with failures now surfaced in the UI.
+- **MCP Tool Schemas for Gemini**: Tool schemas now declare `type: object` and scalar types for Gemini compatibility.
+
 ## v0.2.11
 
 ## Bug Fixes
