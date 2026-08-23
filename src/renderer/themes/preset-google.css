@@ -50,8 +50,8 @@
   --surface-island: #ffffff;
   --surface-island-strong: #ffffff;
   --surface-island-muted: #f8fafd;
-  --island-shadow: 0 1px 3px rgba(60, 64, 67, 0.12),
-    0 1px 2px rgba(60, 64, 67, 0.08);
+  --island-shadow:
+    0 1px 3px rgba(60, 64, 67, 0.12), 0 1px 2px rgba(60, 64, 67, 0.08);
 }
 
 :root[data-theme-preset="google"][data-theme="dark"] {
@@ -76,8 +76,14 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.sidebar-content-title, .header-title, .section-title,
-    .settings-item-title, .chat-empty-quick-card-title, strong) {
+  :is(
+    .sidebar-content-title,
+    .header-title,
+    .section-title,
+    .settings-item-title,
+    .chat-empty-quick-card-title,
+    strong
+  ) {
   font-family: var(--font-sans);
 }
 
@@ -101,8 +107,14 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-left, .top-bar-main, .top-bar-right, .sidebar,
-    .main-content, .right-panel) {
+  :is(
+    .top-bar-left,
+    .top-bar-main,
+    .top-bar-right,
+    .sidebar,
+    .main-content,
+    .right-panel
+  ) {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--island-shadow);
@@ -114,8 +126,7 @@
   background: var(--surface-island-muted);
 }
 
-:root[data-theme-preset="google"]
-  :is(.top-bar-main, .main-content) {
+:root[data-theme-preset="google"] :is(.top-bar-main, .main-content) {
   background: var(--surface-island-strong);
 }
 
@@ -126,9 +137,20 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.icon-btn, .nav-item, .list-item, .settings-item, .panel-tab,
-    .panel-tab-btn, .toolbar-btn, .chat-item, .codebase-panel-view-btn,
-    .file-viewer-action-btn, .git-action-btn, .browser-nav-btn):hover {
+  :is(
+    .icon-btn,
+    .nav-item,
+    .list-item,
+    .settings-item,
+    .panel-tab,
+    .panel-tab-btn,
+    .toolbar-btn,
+    .chat-item,
+    .codebase-panel-view-btn,
+    .file-viewer-action-btn,
+    .git-action-btn,
+    .browser-nav-btn
+  ):hover {
   background: var(--accent-blue-bg);
   color: var(--text-primary);
 }
@@ -146,10 +168,19 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select, textarea, .custom-select-trigger, .model-manual-field,
-    .search-modal-input, .browser-address-input, .browser-find-input,
-    .git-commit-input, .file-viewer-search-input, .branch-create-input) {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .browser-address-input,
+    .browser-find-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input
+  ) {
   border-color: var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
@@ -157,48 +188,87 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select, textarea, .custom-select-trigger, .model-manual-field,
-    .search-modal-input, .browser-address-input, .browser-find-input,
-    .git-commit-input, .file-viewer-search-input, .branch-create-input):focus {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .browser-address-input,
+    .browser-find-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input
+  ):focus {
   border-color: var(--google-blue);
   box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
 }
 
-:root[data-theme-preset="google"] .toggle-switch input:checked + .toggle-slider {
+:root[data-theme-preset="google"]
+  .toggle-switch
+  input:checked
+  + .toggle-slider {
   background: var(--google-blue);
   border-color: var(--google-blue);
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.primary, .api-settings-form-btn.primary,
-    .model-manual-btn.primary, .project-codebase-embed-btn.primary,
-    .confirm-dialog-btn.confirm, .tool-call-user-question-submit,
-    .tool-call-plan-approval-approve, .project-sensitive-command-save,
-    .personalization-save-btn, .branch-create-submit-btn, .git-commit-btn.primary,
-    .mcp-editor-mode-btn.active) {
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .confirm-dialog-btn.confirm,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn.primary,
+    .mcp-editor-mode-btn.active
+  ) {
   border-color: var(--google-blue);
   background: var(--google-blue);
   color: #ffffff;
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.primary, .api-settings-form-btn.primary,
-    .model-manual-btn.primary, .project-codebase-embed-btn.primary,
-    .confirm-dialog-btn.confirm, .tool-call-user-question-submit,
-    .tool-call-plan-approval-approve, .project-sensitive-command-save,
-    .personalization-save-btn, .branch-create-submit-btn, .git-commit-btn.primary,
-    .mcp-editor-mode-btn.active):hover:not(:disabled) {
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .confirm-dialog-btn.confirm,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn.primary,
+    .mcp-editor-mode-btn.active
+  ):hover:not(:disabled) {
   background: color-mix(in srgb, var(--google-blue) 88%, var(--text-primary));
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown, .top-bar-todo-dropdown, .plus-menu-dropdown,
-    .model-dropdown, .file-mention-popup, .chat-command-panel,
-    .custom-select-dropdown, .custom-select-dropdown-portal,
-    .browser-menu-dropdown, .branch-dropdown, .app-modal-dialog,
-    .confirm-dialog, .search-modal, .explorer-entry-context-menu) {
+  :is(
+    .top-bar-plus-dropdown,
+    .top-bar-todo-dropdown,
+    .plus-menu-dropdown,
+    .model-dropdown,
+    .file-mention-popup,
+    .chat-command-panel,
+    .custom-select-dropdown,
+    .custom-select-dropdown-portal,
+    .browser-menu-dropdown,
+    .branch-dropdown,
+    .app-modal-dialog,
+    .confirm-dialog,
+    .search-modal,
+    .explorer-entry-context-menu
+  ) {
   border-color: var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--surface-island-strong);
@@ -207,15 +277,31 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown-item, .top-bar-todo-item, .plus-menu-item,
-    .model-dropdown-item, .custom-select-item, .browser-menu-item,
-    .branch-dropdown-item, .chat-command-item, .mention-entry,
-    .explorer-entry-context-menu-item):hover,
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item
+  ):hover,
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown-item, .top-bar-todo-item, .plus-menu-item,
-    .model-dropdown-item, .custom-select-item, .browser-menu-item,
-    .branch-dropdown-item, .chat-command-item, .mention-entry,
-    .explorer-entry-context-menu-item).highlighted {
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item
+  ).highlighted {
   background: var(--accent-blue-bg);
   color: var(--text-primary);
 }
@@ -240,7 +326,8 @@
   box-shadow: var(--shadow-sm);
 }
 
-:root[data-theme-preset="google"] .chat-empty-quick-card:not(.is-api):not(.is-theme) {
+:root[data-theme-preset="google"]
+  .chat-empty-quick-card:not(.is-api):not(.is-theme) {
   border-top: 2px solid var(--google-blue);
 }
 
@@ -252,10 +339,8 @@
   border-top: 2px solid var(--google-green);
 }
 
-:root[data-theme-preset="google"]
-  .chat-empty-quick-card:hover:not(:disabled),
-:root[data-theme-preset="google"]
-  .chat-empty-quick-card:focus-visible {
+:root[data-theme-preset="google"] .chat-empty-quick-card:hover:not(:disabled),
+:root[data-theme-preset="google"] .chat-empty-quick-card:focus-visible {
   border-color: var(--google-blue);
   background: var(--accent-blue-bg);
   box-shadow: var(--shadow-sm);
@@ -265,16 +350,21 @@
   color: var(--google-blue);
 }
 
-:root[data-theme-preset="google"] .chat-empty-quick-card.is-api .chat-empty-quick-card-icon {
+:root[data-theme-preset="google"]
+  .chat-empty-quick-card.is-api
+  .chat-empty-quick-card-icon {
   color: var(--google-red);
 }
 
-:root[data-theme-preset="google"] .chat-empty-quick-card.is-theme .chat-empty-quick-card-icon {
+:root[data-theme-preset="google"]
+  .chat-empty-quick-card.is-theme
+  .chat-empty-quick-card-icon {
   color: var(--google-green);
 }
 
 :root[data-theme-preset="google"] .user-message-bubble {
-  border: 1px solid color-mix(in srgb, var(--google-blue) 26%, var(--border-color));
+  border: 1px solid
+    color-mix(in srgb, var(--google-blue) 26%, var(--border-color));
   background: var(--accent-blue-bg);
 }
 
@@ -291,12 +381,19 @@
 
 :root[data-theme-preset="google"] .input-box:focus-within {
   border-color: var(--google-blue);
-  box-shadow: 0 0 0 3px var(--accent-blue-bg), var(--shadow-sm);
+  box-shadow:
+    0 0 0 3px var(--accent-blue-bg),
+    var(--shadow-sm);
 }
 
 :root[data-theme-preset="google"]
-  :is(.chat-message-tool, .context-compaction-message,
-    .context-compaction-stream, .file-changes-card, .tool-call-bash-terminal) {
+  :is(
+    .chat-message-tool,
+    .context-compaction-message,
+    .context-compaction-stream,
+    .file-changes-card,
+    .tool-call-bash-terminal
+  ) {
   border-color: var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--surface-island-muted);
@@ -304,16 +401,27 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.ai-message .code-block-wrapper, .context-compaction-markdown .code-block-wrapper,
-    .file-viewer, .diff-viewer, .git-diff-view, .terminal-container,
-    .browser-panel, .codebase-panel-table-wrap) {
+  :is(
+    .ai-message .code-block-wrapper,
+    .context-compaction-markdown .code-block-wrapper,
+    .file-viewer,
+    .diff-viewer,
+    .git-diff-view,
+    .terminal-container,
+    .browser-panel,
+    .codebase-panel-table-wrap
+  ) {
   border-color: var(--border-color);
   background: var(--bg-primary);
 }
 
 :root[data-theme-preset="google"]
-  :is(.ai-message a, .context-compaction-markdown a, .chat-fork-divider-link,
-    .codebase-sphere-tooltip-neighbor span:last-child) {
+  :is(
+    .ai-message a,
+    .context-compaction-markdown a,
+    .chat-fork-divider-link,
+    .codebase-sphere-tooltip-neighbor span:last-child
+  ) {
   color: var(--accent-blue-text);
 }
 
@@ -347,10 +455,10 @@
   --google-green-container: #e6f4ea;
   --google-outline: #dadce0;
   --google-outline-variant: #e8eaed;
-  --google-elevation-1: 0 1px 2px rgba(60, 64, 67, 0.14),
-    0 1px 3px rgba(60, 64, 67, 0.08);
-  --google-elevation-2: 0 4px 10px rgba(60, 64, 67, 0.16),
-    0 1px 3px rgba(60, 64, 67, 0.1);
+  --google-elevation-1:
+    0 1px 2px rgba(60, 64, 67, 0.14), 0 1px 3px rgba(60, 64, 67, 0.08);
+  --google-elevation-2:
+    0 4px 10px rgba(60, 64, 67, 0.16), 0 1px 3px rgba(60, 64, 67, 0.1);
   --accent: var(--google-blue);
   --accent-primary: var(--google-blue);
   --accent-secondary: var(--google-green);
@@ -425,8 +533,8 @@
   --google-outline: #5f6368;
   --google-outline-variant: #3c4043;
   --google-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.34);
-  --google-elevation-2: 0 6px 18px rgba(0, 0, 0, 0.38),
-    0 2px 6px rgba(0, 0, 0, 0.24);
+  --google-elevation-2:
+    0 6px 18px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.24);
   --surface-hover: rgba(168, 199, 250, 0.14);
   --google-surface-0: #202124;
   --google-surface-1: #292a2d;
@@ -510,8 +618,14 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-left, .top-bar-main, .top-bar-right, .sidebar,
-    .main-content, .right-panel) {
+  :is(
+    .top-bar-left,
+    .top-bar-main,
+    .top-bar-right,
+    .sidebar,
+    .main-content,
+    .right-panel
+  ) {
   border-color: var(--google-outline);
   border-radius: var(--radius-xl);
   box-shadow: var(--google-elevation-1);
@@ -523,8 +637,7 @@
   background: var(--surface-island-muted);
 }
 
-:root[data-theme-preset="google"]
-  :is(.top-bar-main, .main-content) {
+:root[data-theme-preset="google"] :is(.top-bar-main, .main-content) {
   background: var(--surface-island-strong);
 }
 
@@ -533,9 +646,21 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.icon-btn, .nav-item, .list-item, .settings-item, .chat-item,
-    .panel-tab, .panel-tab-btn, .toolbar-btn, .browser-nav-btn) {
-  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease,
+  :is(
+    .icon-btn,
+    .nav-item,
+    .list-item,
+    .settings-item,
+    .chat-item,
+    .panel-tab,
+    .panel-tab-btn,
+    .toolbar-btn,
+    .browser-nav-btn
+  ) {
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
     box-shadow 0.16s ease;
 }
 
@@ -628,8 +753,14 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.main-header, .panel-tabs, .browser-toolbar, .git-control-header,
-    .codebase-panel-header, .file-viewer-header) {
+  :is(
+    .main-header,
+    .panel-tabs,
+    .browser-toolbar,
+    .git-control-header,
+    .codebase-panel-header,
+    .file-viewer-header
+  ) {
   border-bottom: 1px solid var(--google-outline-variant);
   background: transparent;
 }
@@ -655,9 +786,16 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn, .api-settings-form-btn, .confirm-dialog-btn,
-    .btn-commit, .project-codebase-embed-btn, .model-manual-btn.primary,
-    .git-commit-btn.primary, .scheduled-tasks-create-btn) {
+  :is(
+    .api-settings-action-btn,
+    .api-settings-form-btn,
+    .confirm-dialog-btn,
+    .btn-commit,
+    .project-codebase-embed-btn,
+    .model-manual-btn.primary,
+    .git-commit-btn.primary,
+    .scheduled-tasks-create-btn
+  ) {
   min-height: 36px;
   border-radius: 18px;
   padding: 8px 16px;
@@ -666,12 +804,22 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.primary, .api-settings-form-btn.primary,
-    .model-manual-btn.primary, .project-codebase-embed-btn.primary,
-    .tool-call-user-question-submit, .tool-call-plan-approval-approve,
-    .project-sensitive-command-save, .personalization-save-btn,
-    .branch-create-submit-btn, .git-commit-btn, .git-commit-btn.primary,
-    .memo-new-btn, .scheduled-tasks-create-btn, .mcp-editor-mode-btn.active) {
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn,
+    .git-commit-btn.primary,
+    .memo-new-btn,
+    .scheduled-tasks-create-btn,
+    .mcp-editor-mode-btn.active
+  ) {
   border-color: var(--google-blue);
   background: var(--google-blue);
   color: var(--google-on-primary);
@@ -679,28 +827,45 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.primary, .api-settings-form-btn.primary,
-    .model-manual-btn.primary, .project-codebase-embed-btn.primary,
-    .tool-call-user-question-submit, .tool-call-plan-approval-approve,
-    .project-sensitive-command-save, .personalization-save-btn,
-    .branch-create-submit-btn, .git-commit-btn, .git-commit-btn.primary,
-    .memo-new-btn, .scheduled-tasks-create-btn,
-    .mcp-editor-mode-btn.active):hover:not(:disabled) {
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn,
+    .git-commit-btn.primary,
+    .memo-new-btn,
+    .scheduled-tasks-create-btn,
+    .mcp-editor-mode-btn.active
+  ):hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--google-blue) 88%, #000000);
   background: color-mix(in srgb, var(--google-blue) 88%, #000000);
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.secondary, .api-settings-form-btn.secondary,
-    .confirm-dialog-btn.cancel, .btn-commit) {
+  :is(
+    .api-settings-action-btn.secondary,
+    .api-settings-form-btn.secondary,
+    .confirm-dialog-btn.cancel,
+    .btn-commit
+  ) {
   border-color: var(--google-outline);
   background: transparent;
   color: var(--text-secondary);
 }
 
 :root[data-theme-preset="google"]
-  :is(.api-settings-action-btn.secondary, .api-settings-form-btn.secondary,
-    .confirm-dialog-btn.cancel, .btn-commit):hover:not(:disabled) {
+  :is(
+    .api-settings-action-btn.secondary,
+    .api-settings-form-btn.secondary,
+    .confirm-dialog-btn.cancel,
+    .btn-commit
+  ):hover:not(:disabled) {
   border-color: var(--google-blue);
   background: var(--accent-blue-bg);
   color: var(--google-blue);
@@ -721,24 +886,35 @@
 }
 
 :root[data-theme-preset="google"]
-  .confirm-dialog-warning .confirm-dialog-btn.confirm {
+  .confirm-dialog-warning
+  .confirm-dialog-btn.confirm {
   border: 1px solid var(--google-yellow);
   background: var(--google-yellow-container);
   color: var(--accent-orange-text);
 }
 
 :root[data-theme-preset="google"]
-  .confirm-dialog-danger .confirm-dialog-btn.confirm {
+  .confirm-dialog-danger
+  .confirm-dialog-btn.confirm {
   border: 1px solid var(--google-red);
   background: var(--google-red-container);
   color: var(--google-red);
 }
 
 :root[data-theme-preset="google"]
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select, textarea, .custom-select-trigger, .model-manual-field,
-    .search-modal-input, .browser-address-input, .browser-find-input,
-    .git-commit-input, .file-viewer-search-input, .branch-create-input) {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .browser-address-input,
+    .browser-find-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input
+  ) {
   border: 1px solid var(--google-outline);
   border-radius: var(--radius-md);
   background: var(--google-surface-0);
@@ -746,18 +922,36 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select, textarea, .custom-select-trigger, .model-manual-field,
-    .search-modal-input, .browser-address-input, .browser-find-input,
-    .git-commit-input, .file-viewer-search-input, .branch-create-input):hover {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .browser-address-input,
+    .browser-find-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input
+  ):hover {
   border-color: var(--google-blue);
 }
 
 :root[data-theme-preset="google"]
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select, textarea, .custom-select-trigger, .model-manual-field,
-    .search-modal-input, .browser-address-input, .browser-find-input,
-    .git-commit-input, .file-viewer-search-input, .branch-create-input):focus {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .browser-address-input,
+    .browser-find-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input
+  ):focus {
   border-color: var(--google-blue);
   box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
@@ -778,23 +972,39 @@
   background: var(--text-tertiary);
 }
 
-:root[data-theme-preset="google"] .toggle-switch input:checked + .toggle-slider {
+:root[data-theme-preset="google"]
+  .toggle-switch
+  input:checked
+  + .toggle-slider {
   border-color: var(--google-blue);
   background: var(--google-blue);
 }
 
 :root[data-theme-preset="google"]
-  .toggle-switch input:checked + .toggle-slider::after {
+  .toggle-switch
+  input:checked
+  + .toggle-slider::after {
   transform: translateX(16px);
   background: #ffffff;
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown, .top-bar-todo-dropdown, .plus-menu-dropdown,
-    .model-dropdown, .file-mention-popup, .chat-command-panel,
-    .custom-select-dropdown, .custom-select-dropdown-portal,
-    .browser-menu-dropdown, .branch-dropdown, .app-modal-dialog,
-    .confirm-dialog, .search-modal, .explorer-entry-context-menu) {
+  :is(
+    .top-bar-plus-dropdown,
+    .top-bar-todo-dropdown,
+    .plus-menu-dropdown,
+    .model-dropdown,
+    .file-mention-popup,
+    .chat-command-panel,
+    .custom-select-dropdown,
+    .custom-select-dropdown-portal,
+    .browser-menu-dropdown,
+    .branch-dropdown,
+    .app-modal-dialog,
+    .confirm-dialog,
+    .search-modal,
+    .explorer-entry-context-menu
+  ) {
   border-color: var(--google-outline);
   border-radius: var(--radius-lg);
   background: var(--google-surface-0);
@@ -803,15 +1013,31 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown-item, .top-bar-todo-item, .plus-menu-item,
-    .model-dropdown-item, .custom-select-item, .browser-menu-item,
-    .branch-dropdown-item, .chat-command-item, .mention-entry,
-    .explorer-entry-context-menu-item):hover,
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item
+  ):hover,
 :root[data-theme-preset="google"]
-  :is(.top-bar-plus-dropdown-item, .top-bar-todo-item, .plus-menu-item,
-    .model-dropdown-item, .custom-select-item, .browser-menu-item,
-    .branch-dropdown-item, .chat-command-item, .mention-entry,
-    .explorer-entry-context-menu-item).highlighted {
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item
+  ).highlighted {
   border-radius: var(--radius-md);
   background: var(--accent-blue-bg);
   color: var(--text-primary);
@@ -858,8 +1084,11 @@
   border-radius: var(--radius-lg);
   background: var(--google-surface-0);
   box-shadow: var(--google-elevation-1);
-  transition: border-color 0.16s ease, background 0.16s ease,
-    box-shadow 0.16s ease, transform 0.16s ease;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
 :root[data-theme-preset="google"] .chat-empty-quick-card:hover:not(:disabled),
@@ -871,7 +1100,8 @@
 }
 
 :root[data-theme-preset="google"] .user-message-bubble {
-  border: 1px solid color-mix(in srgb, var(--google-blue) 24%, var(--google-outline));
+  border: 1px solid
+    color-mix(in srgb, var(--google-blue) 24%, var(--google-outline));
   border-radius: 18px;
   background: var(--accent-blue-bg);
 }
@@ -885,16 +1115,24 @@
 
 :root[data-theme-preset="google"] .input-box:focus-within {
   border-color: var(--google-blue);
-  box-shadow: 0 0 0 3px var(--accent-blue-bg), var(--google-elevation-1);
+  box-shadow:
+    0 0 0 3px var(--accent-blue-bg),
+    var(--google-elevation-1);
+}
+
+:root[data-theme-preset="google"] .send-btn,
+:root[data-theme-preset="google"] .send-key-menu-toggle {
+  background: var(--google-blue);
+  color: var(--google-on-primary);
 }
 
 :root[data-theme-preset="google"] .send-btn {
-  background: var(--google-blue);
-  color: var(--google-on-primary);
   box-shadow: 0 1px 3px rgba(11, 87, 208, 0.24);
 }
 
-:root[data-theme-preset="google"] .send-btn:hover:not(:disabled) {
+:root[data-theme-preset="google"] .send-btn:hover:not(:disabled),
+:root[data-theme-preset="google"] .send-key-menu-toggle:hover,
+:root[data-theme-preset="google"] .send-key-menu-toggle.is-open {
   background: color-mix(in srgb, var(--google-blue) 88%, #000000);
   opacity: 1;
 }
@@ -932,8 +1170,13 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.chat-message-tool, .context-compaction-message,
-    .context-compaction-stream, .file-changes-card, .tool-call-bash-terminal) {
+  :is(
+    .chat-message-tool,
+    .context-compaction-message,
+    .context-compaction-stream,
+    .file-changes-card,
+    .tool-call-bash-terminal
+  ) {
   border-color: var(--google-outline-variant);
   border-radius: var(--radius-lg);
   background: var(--google-surface-1);
@@ -941,9 +1184,13 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.tool-call-pending, .tool-call-codebase-pending,
-    .tool-call-browser-pending-running, .tool-call-grep-pending-running,
-    .tool-call-codelens-pending) {
+  :is(
+    .tool-call-pending,
+    .tool-call-codebase-pending,
+    .tool-call-browser-pending-running,
+    .tool-call-grep-pending-running,
+    .tool-call-codelens-pending
+  ) {
   border-left: 3px solid var(--google-blue);
   background: var(--accent-blue-bg);
 }
@@ -959,22 +1206,41 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.ai-message .code-block-wrapper, .context-compaction-markdown .code-block-wrapper,
-    .file-viewer, .diff-viewer, .git-diff-view, .terminal-container,
-    .browser-panel, .codebase-panel-table-wrap) {
+  :is(
+    .ai-message .code-block-wrapper,
+    .context-compaction-markdown .code-block-wrapper,
+    .file-viewer,
+    .diff-viewer,
+    .git-diff-view,
+    .terminal-container,
+    .browser-panel,
+    .codebase-panel-table-wrap
+  ) {
   border-color: var(--google-outline-variant);
   background: var(--google-surface-0);
 }
 
 :root[data-theme-preset="google"]
-  :is(.ai-message a, .context-compaction-markdown a, .chat-fork-divider-link,
-    .codebase-sphere-tooltip-neighbor span:last-child) {
+  :is(
+    .ai-message a,
+    .context-compaction-markdown a,
+    .chat-fork-divider-link,
+    .codebase-sphere-tooltip-neighbor span:last-child
+  ) {
   color: var(--google-blue);
-  text-decoration-color: color-mix(in srgb, var(--google-blue) 42%, transparent);
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--google-blue) 42%,
+    transparent
+  );
 }
 
 :root[data-theme-preset="google"] .theme-preset-card-google {
-  border-color: color-mix(in srgb, var(--google-blue) 48%, var(--google-outline));
+  border-color: color-mix(
+    in srgb,
+    var(--google-blue) 48%,
+    var(--google-outline)
+  );
   background: var(--google-surface-1);
 }
 
@@ -1031,7 +1297,9 @@
   color: inherit;
 }
 
-:root[data-theme-preset="google"] .git-commit-split-btn .git-commit-mode-toggle {
+:root[data-theme-preset="google"]
+  .git-commit-split-btn
+  .git-commit-mode-toggle {
   border-left-color: color-mix(
     in srgb,
     var(--google-on-primary) 28%,
@@ -1041,8 +1309,10 @@
 }
 
 :root[data-theme-preset="google"]
-  :is(.git-commit-split-btn .git-commit-btn,
-    .git-commit-split-btn .git-commit-mode-toggle):hover:not(:disabled) {
+  :is(
+    .git-commit-split-btn .git-commit-btn,
+    .git-commit-split-btn .git-commit-mode-toggle
+  ):hover:not(:disabled) {
   background: color-mix(in srgb, var(--google-on-primary) 12%, transparent);
 }
 

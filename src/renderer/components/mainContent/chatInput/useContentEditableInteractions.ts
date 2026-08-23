@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { TEXT_SNIPPET_THRESHOLD } from "./constants";
 import {
@@ -41,6 +36,7 @@ import {
   readConversationDragPayload,
 } from "../../sidebar/mainSidebar/conversationDrag";
 import type { InputFileOperationsResult } from "./useInputFileOperations";
+import type { SendKeyMode } from "./types";
 
 type HistoryMessage = {
   content: string;
@@ -51,6 +47,7 @@ type UseContentEditableInteractionsOptions = {
   value: string;
   restoreContent: (content: string) => void;
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  sendKeyMode: SendKeyMode;
   userHistoryMessages: HistoryMessage[];
   activeConversationId?: string | null;
   conversationDirectoryId?: string | null;
@@ -81,7 +78,7 @@ export type ContentEditableInteractionsResult = {
   handleMentionSelectBatch: (tags: FileTag[]) => void;
   handleMentionDragStart: (
     event: React.DragEvent<HTMLDivElement>,
-    tag: FileTag
+    tag: FileTag,
   ) => void;
   handleMentionNavigateTo: (relPath: string) => void;
   commandPanelRef: RefObject<CommandPanelHandle | null>;
@@ -106,6 +103,7 @@ export const useContentEditableInteractions = ({
   value,
   restoreContent,
   handleKeyDown,
+  sendKeyMode,
   userHistoryMessages,
   activeConversationId,
   conversationDirectoryId,
@@ -170,7 +168,7 @@ export const useContentEditableInteractions = ({
       deleteMentionQuery();
       insertFileTag(tag);
     },
-    [deleteMentionQuery, insertFileTag]
+    [deleteMentionQuery, insertFileTag],
   );
 
   const handleMentionSelectBatch = useCallback(
@@ -178,7 +176,7 @@ export const useContentEditableInteractions = ({
       deleteMentionQuery();
       insertFileTags(tags);
     },
-    [deleteMentionQuery, insertFileTags]
+    [deleteMentionQuery, insertFileTags],
   );
 
   const handleCloseMention = useCallback(() => {
@@ -235,7 +233,7 @@ export const useContentEditableInteractions = ({
       restoreContent("");
       command.execute();
     },
-    [handleCloseCommand, restoreContent]
+    [handleCloseCommand, restoreContent],
   );
 
   const handleMentionDragStart = useCallback(
@@ -243,7 +241,7 @@ export const useContentEditableInteractions = ({
       event.dataTransfer.setData("application/json", JSON.stringify(tag));
       event.dataTransfer.effectAllowed = "copy";
     },
-    []
+    [],
   );
 
   const handleDrop = useCallback(
@@ -265,7 +263,9 @@ export const useContentEditableInteractions = ({
         return;
       }
 
-      const conversationPayload = readConversationDragPayload(event.dataTransfer);
+      const conversationPayload = readConversationDragPayload(
+        event.dataTransfer,
+      );
       if (conversationPayload) {
         endConversationDrag();
         // 会话引用统一作为 chip 插入编辑区（与文件/提交等标签同一套机制），
@@ -284,7 +284,7 @@ export const useContentEditableInteractions = ({
 
       const droppedFiles = Array.from(event.dataTransfer.files);
       const imageFiles = droppedFiles.filter((file) =>
-        file.type.startsWith("image/")
+        file.type.startsWith("image/"),
       );
       if (imageFiles.length > 0) {
         insertImageFiles(imageFiles);
@@ -328,7 +328,8 @@ export const useContentEditableInteractions = ({
           };
           insertWebTag(tag, {
             instanceId:
-              typeof parsed.instanceId === "string" && parsed.instanceId.length > 0
+              typeof parsed.instanceId === "string" &&
+              parsed.instanceId.length > 0
                 ? parsed.instanceId
                 : undefined,
             tabId: typeof parsed.tabId === "string" ? parsed.tabId : "",
@@ -343,7 +344,7 @@ export const useContentEditableInteractions = ({
                 item &&
                 typeof item === "object" &&
                 typeof (item as Record<string, unknown>).path === "string" &&
-                typeof (item as Record<string, unknown>).name === "string"
+                typeof (item as Record<string, unknown>).name === "string",
             )
             .map((item) => {
               const data = item as Record<string, unknown>;
@@ -353,7 +354,7 @@ export const useContentEditableInteractions = ({
                     .map((line) =>
                       typeof line === "number"
                         ? line
-                        : Number.parseInt(String(line), 10)
+                        : Number.parseInt(String(line), 10),
                     )
                     .filter((line) => Number.isFinite(line) && line > 0)
                 : undefined;
@@ -380,8 +381,7 @@ export const useContentEditableInteractions = ({
             shortHash: parsed.shortHash,
             author: typeof parsed.author === "string" ? parsed.author : "",
             date: typeof parsed.date === "string" ? parsed.date : "",
-            message:
-              typeof parsed.message === "string" ? parsed.message : "",
+            message: typeof parsed.message === "string" ? parsed.message : "",
             repoPath: parsed.repoPath,
           };
           textareaRef.current?.focus();
@@ -419,7 +419,7 @@ export const useContentEditableInteractions = ({
                 .map((line) =>
                   typeof line === "number"
                     ? line
-                    : Number.parseInt(String(line), 10)
+                    : Number.parseInt(String(line), 10),
                 )
                 .filter((line) => Number.isFinite(line) && line > 0)
             : undefined;
@@ -448,7 +448,7 @@ export const useContentEditableInteractions = ({
       readConversationDragPayload,
       syncContent,
       textareaRef,
-    ]
+    ],
   );
 
   const handleDragOver = useCallback(
@@ -492,7 +492,7 @@ export const useContentEditableInteractions = ({
       isSubAgentConversation,
       projectId,
       textareaRef,
-    ]
+    ],
   );
 
   const handleDragLeave = useCallback(
@@ -502,7 +502,7 @@ export const useContentEditableInteractions = ({
         textareaRef.current?.classList.remove("drag-over");
       }
     },
-    [textareaRef]
+    [textareaRef],
   );
 
   const checkInputTriggers = useCallback(() => {
@@ -582,14 +582,14 @@ export const useContentEditableInteractions = ({
       event.clipboardData.setData("text/html", data.html);
       return true;
     },
-    [serializeSelectionForClipboard]
+    [serializeSelectionForClipboard],
   );
 
   const handleCopy = useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
       writeSelectionToClipboard(event);
     },
-    [writeSelectionToClipboard]
+    [writeSelectionToClipboard],
   );
 
   const handleCut = useCallback(
@@ -600,7 +600,7 @@ export const useContentEditableInteractions = ({
       document.execCommand("delete");
       syncContent();
     },
-    [writeSelectionToClipboard, syncContent]
+    [writeSelectionToClipboard, syncContent],
   );
 
   const handlePaste = useCallback(
@@ -700,7 +700,7 @@ export const useContentEditableInteractions = ({
       insertImageFromFile,
       syncContent,
       textareaRef,
-    ]
+    ],
   );
 
   const replaceMentionQuery = useCallback(
@@ -735,14 +735,14 @@ export const useContentEditableInteractions = ({
       }
       checkInputTriggers();
     },
-    [checkInputTriggers, textareaRef]
+    [checkInputTriggers, textareaRef],
   );
 
   const handleMentionNavigateTo = useCallback(
     (relPath: string) => {
       replaceMentionQuery(relPath);
     },
-    [replaceMentionQuery]
+    [replaceMentionQuery],
   );
 
   const handleInput = useCallback(() => {
@@ -779,7 +779,7 @@ export const useContentEditableInteractions = ({
       restoreContent(userHistoryMessages[count - 1 - next].content);
       return true;
     },
-    [restoreContent, userHistoryMessages, value]
+    [restoreContent, userHistoryMessages, value],
   );
 
   useEffect(() => {
@@ -815,20 +815,21 @@ export const useContentEditableInteractions = ({
       if (isComposing) {
         return;
       }
-      if (
-        event.key === "Enter" &&
-        !event.shiftKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.altKey
-      ) {
-        historyIndexRef.current = -1;
-      }
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault();
-        insertLineBreak();
-        syncContent();
-        return;
+      if (event.key === "Enter") {
+        const hasMod = event.ctrlKey || event.metaKey;
+        const isSendCombo =
+          sendKeyMode === "ctrlEnter"
+            ? hasMod && !event.shiftKey && !event.altKey
+            : !hasMod && !event.shiftKey && !event.altKey;
+        if (isSendCombo) {
+          historyIndexRef.current = -1;
+        } else if (hasMod) {
+          // 不构成发送组合键的修饰回车（如 Enter 模式下的 Ctrl+Enter）换行。
+          event.preventDefault();
+          insertLineBreak();
+          syncContent();
+          return;
+        }
       }
       if (isCommandOpen && commandPanelRef.current) {
         const handled = commandPanelRef.current.handleKeyDown(event);
@@ -848,6 +849,20 @@ export const useContentEditableInteractions = ({
           return;
         }
       }
+      if (
+        event.key === "Enter" &&
+        sendKeyMode === "ctrlEnter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        // Ctrl+Enter 模式下的裸 Enter：插入换行而不是发送。
+        event.preventDefault();
+        insertLineBreak();
+        syncContent();
+        return;
+      }
       handleKeyDown(event);
     },
     [
@@ -855,8 +870,9 @@ export const useContentEditableInteractions = ({
       isCommandOpen,
       isMentionOpen,
       recallHistory,
+      sendKeyMode,
       syncContent,
-    ]
+    ],
   );
 
   return {

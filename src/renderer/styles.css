@@ -21073,13 +21073,23 @@ input {
   pointer-events: none;
 }
 
+/* 发送按钮组：椭圆形药丸，左侧发送 + 右侧快捷键切换下拉。 */
+.send-key-group {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 28px;
+  border-radius: 999px;
+}
+
 .send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 34px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 999px 0 0 999px;
   background: var(--text-primary);
   color: var(--on-solid);
   transition: opacity 0.12s;
@@ -21097,6 +21107,76 @@ input {
 
 .send-btn:disabled {
   opacity: 0.4;
+}
+
+.send-key-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border-radius: 0 999px 999px 0;
+  background: var(--text-primary);
+  color: var(--on-solid);
+  border: none;
+  cursor: pointer;
+  transition:
+    opacity 0.12s,
+    background 0.12s;
+}
+
+.send-key-menu-toggle:hover,
+.send-key-menu-toggle.is-open {
+  opacity: 0.85;
+}
+
+.send-key-menu-toggle:focus-visible {
+  outline: none;
+}
+
+.send-key-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 200px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated, var(--bg-primary, #fff));
+  box-shadow: var(--shadow-md);
+  z-index: 1000;
+}
+
+.send-key-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.send-key-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.send-key-menu-item.is-active {
+  color: var(--accent, var(--text-primary));
+}
+
+.send-key-menu-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
 }
 
 .input-action-buttons {

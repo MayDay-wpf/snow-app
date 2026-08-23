@@ -63,6 +63,8 @@ export const ChatInputView = ({
   labels,
   isStreaming,
   isAborting,
+  sendKeyMode,
+  setSendKeyMode,
   tokenUsage,
   pendingMessages,
   onWithdrawPendingMessage,
@@ -389,6 +391,7 @@ export const ChatInputView = ({
     value,
     restoreContent,
     handleKeyDown,
+    sendKeyMode,
     userHistoryMessages,
     activeConversationId,
     conversationDirectoryId,
@@ -707,6 +710,8 @@ export const ChatInputView = ({
             fastModeError={fastModeError}
             labels={labels}
             isStreaming={isStreaming}
+            sendKeyMode={sendKeyMode}
+            setSendKeyMode={setSendKeyMode}
             setManualValue={setManualValue}
             setIsManualMode={setIsManualMode}
             setModelMenuView={setModelMenuView}

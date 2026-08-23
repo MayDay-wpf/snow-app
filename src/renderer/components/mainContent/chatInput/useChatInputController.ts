@@ -7,7 +7,11 @@ import {
   useState,
 } from "react";
 import { BrainCircuit } from "lucide-react";
-import type { ApiConfigRecord, Model, ScheduledTaskRunOptions } from "../../../../preload";
+import type {
+  ApiConfigRecord,
+  Model,
+  ScheduledTaskRunOptions,
+} from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { shortcutEvents } from "../../shortcutEvents";
 import {
@@ -22,6 +26,7 @@ import {
   normalizeRequestMethod,
 } from "./configThinking";
 import { resolveAutoSendOptions } from "./autoSendOptions";
+import { useSendKeyMode } from "./useSendKeyMode";
 import type {
   ChatInputActions,
   ChatInputSendOptions,
@@ -47,19 +52,20 @@ type UseChatInputControllerParams = {
   onDraftRestored?: () => void;
   autoSendOverride?: ScheduledTaskRunOptions | null;
   onAutoSendOverrideConsumed?: () => void;
-  saveInputDraft?: (conversationId: string | undefined, content: string) => void;
+  saveInputDraft?: (
+    conversationId: string | undefined,
+    content: string,
+  ) => void;
   getInputDraft?: (conversationId: string | undefined) => string | undefined;
   clearInputDraft?: (conversationId: string | undefined) => void;
   rollbackInputState?: ConversationInputRuntimeState | null;
-  onRuntimeInputStateChange?: (
-    state: ConversationInputRuntimeState
-  ) => void;
+  onRuntimeInputStateChange?: (state: ConversationInputRuntimeState) => void;
 };
 
 type UseChatInputControllerResult = ChatInputState & ChatInputActions;
 
 const isComposingKeyboardEvent = (
-  event: React.KeyboardEvent<HTMLElement>
+  event: React.KeyboardEvent<HTMLElement>,
 ): boolean => {
   const nativeEvent = event.nativeEvent;
   const nativeEventWithKeyCode = nativeEvent as unknown as { keyCode?: number };
@@ -86,6 +92,7 @@ export const useChatInputController = ({
   onRuntimeInputStateChange,
 }: UseChatInputControllerParams): UseChatInputControllerResult => {
   const { t } = useI18n();
+  const { sendKeyMode, setSendKeyMode } = useSendKeyMode();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLDivElement>(null);
   // Mirrors `value` so unmount cleanup can save the latest draft without
@@ -115,8 +122,9 @@ export const useChatInputController = ({
   const [thinkingOverride, setThinkingOverride] = useState("");
   const [isSavingThinking, setIsSavingThinking] = useState(false);
   const [thinkingError, setThinkingError] = useState<string | null>(null);
-  const [responsesFastModeOverride, setResponsesFastModeOverride] =
-    useState<boolean | null>(null);
+  const [responsesFastModeOverride, setResponsesFastModeOverride] = useState<
+    boolean | null
+  >(null);
   const [isSavingFastMode, setIsSavingFastMode] = useState(false);
   const [fastModeError, setFastModeError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -135,7 +143,7 @@ export const useChatInputController = ({
     (
       targetConversationId: string,
       thinkingStrength: string | null,
-      responsesFastMode: boolean | null
+      responsesFastMode: boolean | null,
     ): Promise<void> => {
       const write = runtimeWriteChainRef.current
         .catch(() => {})
@@ -143,13 +151,13 @@ export const useChatInputController = ({
           window.snow.setConversationRuntimeConfig(
             targetConversationId,
             thinkingStrength,
-            responsesFastMode
-          )
+            responsesFastMode,
+          ),
         );
       runtimeWriteChainRef.current = write.catch(() => {});
       return write;
     },
-    []
+    [],
   );
   // Profile binding writes are serialized separately from runtime snapshot
   // writes so two rapid profile selections cannot restore an older binding.
@@ -161,13 +169,13 @@ export const useChatInputController = ({
         .then(() =>
           window.snow.updateConversationApiProfile(
             targetConversationId,
-            profileName
-          )
+            profileName,
+          ),
         );
       profileWriteChainRef.current = write.catch(() => {});
       return write;
     },
-    []
+    [],
   );
 
   const labels = useMemo(
@@ -210,10 +218,11 @@ export const useChatInputController = ({
       confirm: t("common.confirm", { defaultValue: "Confirm" }),
       retry: t("common.retry", { defaultValue: "Retry" }),
       noApiConfig: t("chat.noApiConfig", {
-        defaultValue: "No API configuration found. Please configure one in Settings first.",
+        defaultValue:
+          "No API configuration found. Please configure one in Settings first.",
       }),
     }),
-    [t]
+    [t],
   );
 
   useEffect(() => {
@@ -275,9 +284,8 @@ export const useChatInputController = ({
         let runtimeConfig: ApiConfigRecord | null = null;
         if (requestedProfile) {
           runtimeConfig =
-            configs.find(
-              (config) => config.profileName === requestedProfile
-            ) ?? null;
+            configs.find((config) => config.profileName === requestedProfile) ??
+            null;
           if (!runtimeConfig && !subAgentConversation) {
             runtimeConfig =
               configs.find((config) => config.isActive) ?? configs[0] ?? null;
@@ -294,7 +302,7 @@ export const useChatInputController = ({
           throw new Error(
             requestedProfile
               ? `API profile is not available: ${requestedProfile}`
-              : "No API configuration found"
+              : "No API configuration found",
           );
         }
 
@@ -302,10 +310,10 @@ export const useChatInputController = ({
           rollbackState?.model?.trim() || conversation?.model?.trim() || "";
         const persistedThinkingOverride = rollbackState
           ? rollbackState.thinkingStrength
-          : runtimeOverride?.thinkingStrength ?? null;
+          : (runtimeOverride?.thinkingStrength ?? null);
         const persistedFastModeOverride = rollbackState
           ? rollbackState.responsesFastMode
-          : runtimeOverride?.responsesFastMode ?? null;
+          : (runtimeOverride?.responsesFastMode ?? null);
 
         setApiConfigs(configs);
         setIsSubAgentConversation(subAgentConversation);
@@ -388,21 +396,26 @@ export const useChatInputController = ({
           throw new Error("API configuration is not available");
         }
 
-        const availableModels = await window.snow.fetchAvailableModelsForConfig({
-          baseUrl: configAtRequest.baseUrl,
-          baseUrlMode: configAtRequest.baseUrlMode,
-          apiKey: configAtRequest.apiKey,
-          requestMethod: configAtRequest.requestMethod,
-          customHeaderSchemeId: configAtRequest.customHeaderSchemeId,
-        });
+        const availableModels = await window.snow.fetchAvailableModelsForConfig(
+          {
+            baseUrl: configAtRequest.baseUrl,
+            baseUrlMode: configAtRequest.baseUrlMode,
+            apiKey: configAtRequest.apiKey,
+            requestMethod: configAtRequest.requestMethod,
+            customHeaderSchemeId: configAtRequest.customHeaderSchemeId,
+          },
+        );
         if (hydrationRequestTokenRef.current !== requestToken) {
           return;
         }
 
         setModels(availableModels);
         if (availableModels.length > 0) {
-          setSelectedModel((currentModel) =>
-            currentModel || configAtRequest.advancedModel || availableModels[0].id
+          setSelectedModel(
+            (currentModel) =>
+              currentModel ||
+              configAtRequest.advancedModel ||
+              availableModels[0].id,
           );
         }
       } catch (error) {
@@ -410,7 +423,7 @@ export const useChatInputController = ({
           return;
         }
         setModelError(
-          error instanceof Error ? error.message : labels.loadModelsError
+          error instanceof Error ? error.message : labels.loadModelsError,
         );
       } finally {
         if (hydrationRequestTokenRef.current === requestToken) {
@@ -424,7 +437,7 @@ export const useChatInputController = ({
       labels.loadModelsError,
       modelError,
       models.length,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -476,7 +489,7 @@ export const useChatInputController = ({
     const maxHeight = lineHeight * MAX_TEXTAREA_ROWS;
     textarea.style.height = `${Math.min(
       Math.max(textarea.scrollHeight, minHeight),
-      maxHeight
+      maxHeight,
     )}px`;
   }, []);
 
@@ -530,7 +543,7 @@ export const useChatInputController = ({
                 apiConfigs,
                 selectedModel,
                 selectedApiProfile,
-              })
+              }),
             );
           }
           setValue("");
@@ -546,7 +559,20 @@ export const useChatInputController = ({
     }
 
     onDraftRestored?.();
-  }, [draftToRestore, onDraftRestored, adjustHeight, autoSendToken, onSend, apiConfigs, selectedModel, selectedApiProfile, autoSendOverride, onAutoSendOverrideConsumed, conversationId, clearInputDraft]);
+  }, [
+    draftToRestore,
+    onDraftRestored,
+    adjustHeight,
+    autoSendToken,
+    onSend,
+    apiConfigs,
+    selectedModel,
+    selectedApiProfile,
+    autoSendOverride,
+    onAutoSendOverrideConsumed,
+    conversationId,
+    clearInputDraft,
+  ]);
 
   const handleChange = useCallback(
     (nextValue: string) => {
@@ -556,7 +582,7 @@ export const useChatInputController = ({
       saveInputDraft?.(conversationId, nextValue);
       adjustHeight();
     },
-    [adjustHeight, conversationId, saveInputDraft]
+    [adjustHeight, conversationId, saveInputDraft],
   );
 
   const restoreContent = useCallback(
@@ -577,7 +603,7 @@ export const useChatInputController = ({
         });
       }
     },
-    [adjustHeight, textareaRef]
+    [adjustHeight, textareaRef],
   );
 
   // --- Per-conversation draft persistence ---
@@ -611,7 +637,7 @@ export const useChatInputController = ({
   const effectiveThinkingValue =
     thinkingOverride === "" ? profileThinkingValue : thinkingOverride;
   const profileThinkingOption = thinkingOptions.find(
-    (option) => option.value === profileThinkingValue
+    (option) => option.value === profileThinkingValue,
   );
   const thinkingDefaultLabel =
     profileThinkingOption?.label ?? profileThinkingValue;
@@ -651,8 +677,7 @@ export const useChatInputController = ({
       responsesFastMode:
         requestMethod === "responses" ? responsesFastModeEnabled : null,
       conversationRuntimeConfigOverride: {
-        thinkingStrength:
-          thinkingOverride === "" ? null : thinkingOverride,
+        thinkingStrength: thinkingOverride === "" ? null : thinkingOverride,
         responsesFastMode: responsesFastModeOverride,
       },
     });
@@ -686,35 +711,34 @@ export const useChatInputController = ({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (
-        event.key !== "Enter" ||
-        event.shiftKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        isComposingKeyboardEvent(event)
-      ) {
+      if (event.key !== "Enter" || isComposingKeyboardEvent(event)) {
+        return;
+      }
+      const hasMod = event.ctrlKey || event.metaKey;
+      // 按当前快捷键模式判断本次回车是否为发送组合键。
+      const isSendCombo =
+        sendKeyMode === "ctrlEnter"
+          ? hasMod && !event.shiftKey && !event.altKey
+          : !hasMod && !event.shiftKey && !event.altKey;
+      if (!isSendCombo) {
         return;
       }
 
       event.preventDefault();
       handleSend();
     },
-    [handleSend]
+    [handleSend, sendKeyMode],
   );
 
-  const handleSelectModel = useCallback(
-    async (modelId: string) => {
-      setSelectedModel(modelId);
-      setIsModelMenuOpen(false);
-      setIsManualMode(false);
-      // Conversation-scoped model selection: the model is remembered on the
-      // conversation row by the backend on the next exchange. It intentionally
-      // does NOT mutate the profile's global advanced_model — that default
-      // stays editable in the API settings panel.
-    },
-    []
-  );
+  const handleSelectModel = useCallback(async (modelId: string) => {
+    setSelectedModel(modelId);
+    setIsModelMenuOpen(false);
+    setIsManualMode(false);
+    // Conversation-scoped model selection: the model is remembered on the
+    // conversation row by the backend on the next exchange. It intentionally
+    // does NOT mutate the profile's global advanced_model — that default
+    // stays editable in the API settings panel.
+  }, []);
 
   const handleOpenManualMode = useCallback(() => {
     setIsManualMode(true);
@@ -743,7 +767,7 @@ export const useChatInputController = ({
         setIsManualMode(false);
       }
     },
-    [handleConfirmManualModel]
+    [handleConfirmManualModel],
   );
 
   const handleRetryFetchModels = useCallback(async () => {
@@ -765,7 +789,7 @@ export const useChatInputController = ({
   const handleSelectApiProfile = useCallback(
     async (profileName: string) => {
       const nextConfig = apiConfigs.find(
-        (config) => config.profileName === profileName
+        (config) => config.profileName === profileName,
       );
       if (!nextConfig) {
         return;
@@ -803,16 +827,9 @@ export const useChatInputController = ({
 
       if (conversationId && !isSubAgentConversation) {
         try {
-          await enqueueConversationProfileWrite(
-            conversationId,
-            profileName
-          );
+          await enqueueConversationProfileWrite(conversationId, profileName);
           profileUpdated = true;
-          await enqueueRuntimeConfigWrite(
-            conversationId,
-            null,
-            null
-          );
+          await enqueueRuntimeConfigWrite(conversationId, null, null);
           if (runtimeMutationTokenRef.current !== mutationToken) {
             return;
           }
@@ -827,7 +844,7 @@ export const useChatInputController = ({
             try {
               await enqueueConversationProfileWrite(
                 conversationId,
-                previousState.apiProfile
+                previousState.apiProfile,
               );
             } catch {
               // The original error remains the actionable message.
@@ -838,7 +855,7 @@ export const useChatInputController = ({
                 previousState.thinkingOverride === ""
                   ? null
                   : previousState.thinkingOverride,
-                previousState.responsesFastModeOverride
+                previousState.responsesFastModeOverride,
               );
             } catch {
               // The original error remains the actionable message.
@@ -855,7 +872,7 @@ export const useChatInputController = ({
           setModelError(
             error instanceof Error
               ? error.message
-              : "Failed to update conversation API profile"
+              : "Failed to update conversation API profile",
           );
         }
       }
@@ -871,7 +888,7 @@ export const useChatInputController = ({
       selectedApiProfile,
       selectedModel,
       thinkingOverride,
-    ]
+    ],
   );
 
   // Open the API profile picker (a sub-view of the model menu). Driven by the
@@ -887,15 +904,12 @@ export const useChatInputController = ({
   }, [apiConfigs.length, isStreaming, isSubAgentConversation]);
 
   useEffect(() => {
-    return shortcutEvents.on(
-      "open-api-profile-menu",
-      handleOpenApiProfileMenu
-    );
+    return shortcutEvents.on("open-api-profile-menu", handleOpenApiProfileMenu);
   }, [handleOpenApiProfileMenu]);
 
   const activeThinkingOption = useMemo(() => {
     const matchingOption = thinkingOptions.find(
-      (option) => option.value === effectiveThinkingValue
+      (option) => option.value === effectiveThinkingValue,
     );
 
     return {
@@ -928,7 +942,7 @@ export const useChatInputController = ({
         await enqueueRuntimeConfigWrite(
           conversationId,
           persistedThinkingValue,
-          previousFastModeOverride
+          previousFastModeOverride,
         );
         if (runtimeMutationTokenRef.current !== mutationToken) {
           return;
@@ -942,7 +956,7 @@ export const useChatInputController = ({
         setThinkingError(
           error instanceof Error
             ? error.message
-            : t("chat.saveThinkingStrengthError")
+            : t("chat.saveThinkingStrengthError"),
         );
       } finally {
         if (runtimeMutationTokenRef.current === mutationToken) {
@@ -957,7 +971,7 @@ export const useChatInputController = ({
       runtimeApiConfig,
       t,
       thinkingOverride,
-    ]
+    ],
   );
 
   const handleToggleResponsesFastMode = useCallback(async (): Promise<void> => {
@@ -990,7 +1004,7 @@ export const useChatInputController = ({
       await enqueueRuntimeConfigWrite(
         conversationId,
         previousThinkingOverride === "" ? null : previousThinkingOverride,
-        nextEnabled
+        nextEnabled,
       );
       if (runtimeMutationTokenRef.current !== mutationToken) {
         return;
@@ -1001,7 +1015,7 @@ export const useChatInputController = ({
       }
       setResponsesFastModeOverride(previousFastModeOverride);
       setFastModeError(
-        error instanceof Error ? error.message : t("chat.saveFastModeError")
+        error instanceof Error ? error.message : t("chat.saveFastModeError"),
       );
     } finally {
       if (runtimeMutationTokenRef.current === mutationToken) {
@@ -1050,7 +1064,7 @@ export const useChatInputController = ({
       await enqueueRuntimeConfigWrite(
         conversationId,
         previousThinkingOverride === "" ? null : previousThinkingOverride,
-        null
+        null,
       );
       if (runtimeMutationTokenRef.current !== mutationToken) {
         return;
@@ -1061,7 +1075,7 @@ export const useChatInputController = ({
       }
       setResponsesFastModeOverride(previousFastModeOverride);
       setFastModeError(
-        error instanceof Error ? error.message : t("chat.saveFastModeError")
+        error instanceof Error ? error.message : t("chat.saveFastModeError"),
       );
     } finally {
       if (runtimeMutationTokenRef.current === mutationToken) {
@@ -1080,7 +1094,6 @@ export const useChatInputController = ({
     t,
     thinkingOverride,
   ]);
-
 
   useLayoutEffect(() => {
     adjustHeight();
@@ -1121,6 +1134,7 @@ export const useChatInputController = ({
     labels,
     isStreaming,
     isAborting,
+    sendKeyMode,
     setManualValue,
     setIsManualMode,
     handleChange,
@@ -1139,6 +1153,7 @@ export const useChatInputController = ({
     handleSelectThinking,
     handleToggleResponsesFastMode,
     handleResetResponsesFastMode,
+    setSendKeyMode,
     restoreContent,
   };
 };

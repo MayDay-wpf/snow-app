@@ -23,6 +23,8 @@ type ChatInputToolbarProps = ComponentProps<typeof ModelSelector> &
     | "isCompacting"
     | "handleAbort"
     | "handleSend"
+    | "sendKeyMode"
+    | "setSendKeyMode"
     | "yoloMode"
     | "isUpdatingYoloMode"
     | "onYoloModeChange"
@@ -64,6 +66,8 @@ export const ChatInputToolbar = ({
   isCompacting,
   handleAbort,
   handleSend,
+  sendKeyMode,
+  setSendKeyMode,
   ...modelSelectorProps
 }: ChatInputToolbarProps): React.JSX.Element => {
   const { t } = useI18n();
@@ -212,6 +216,8 @@ export const ChatInputToolbar = ({
           runtimeApiConfig={runtimeApiConfig}
           handleAbort={handleAbort}
           handleSend={handleSend}
+          sendKeyMode={sendKeyMode}
+          setSendKeyMode={setSendKeyMode}
         />
       </div>
     </div>

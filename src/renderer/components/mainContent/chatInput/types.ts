@@ -102,7 +102,11 @@ export type ChatInputProps = {
   isCompacting?: boolean;
 };
 
-export type RequestMethod = "chat" | "responses" | "gemini" | "anthropic" | "interactions";
+export type RequestMethod =
+  "chat" | "responses" | "gemini" | "anthropic" | "interactions";
+
+/** 发送消息的快捷键模式："enter" = Enter 发送；"ctrlEnter" = Ctrl+Enter 发送。 */
+export type SendKeyMode = "enter" | "ctrlEnter";
 
 /** 模型选择菜单的二级视图。 */
 export type ModelMenuView = "root" | "model" | "thinking" | "apiProfile";
@@ -146,6 +150,7 @@ export type ChatInputState = {
   labels: ChatInputLabels;
   isStreaming: boolean;
   isAborting: boolean;
+  sendKeyMode: SendKeyMode;
 };
 
 export type ChatInputLabels = {
@@ -186,6 +191,7 @@ export type ChatInputActions = {
   handleSelectThinking: (nextValue: string) => Promise<void>;
   handleToggleResponsesFastMode: () => Promise<void>;
   handleResetResponsesFastMode: () => Promise<void>;
+  setSendKeyMode: (mode: SendKeyMode) => void;
   restoreContent: (content: string) => void;
 };
 
