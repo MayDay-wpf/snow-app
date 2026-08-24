@@ -588,6 +588,10 @@ export const useChatInputController = ({
   const restoreContent = useCallback(
     (content: string) => {
       setValue(content);
+      // 同步镜像：/clear 会令 ChatInput 因 key 变化重建，重建前若只靠
+      // setValue 的异步更新，卸载清理会用旧值（如过滤词 /clear）把残留
+      // 写回草稿池并在重建后恢复出来。这里立即同步 latestValueRef。
+      latestValueRef.current = content;
 
       if (textareaRef.current) {
         const html = buildSegmentsHtml(parseContentSegments(content));
@@ -628,6 +632,18 @@ export const useChatInputController = ({
       saveInputDraft?.(conversationId, latestValueRef.current);
     };
   }, [conversationId, saveInputDraft]);
+
+  // 新会话视图挂载后聚焦输入框：/clear 或点击新建对话都会使 ChatInput
+  // 因 key 变化重建，重建后需主动把焦点还给输入框，否则用户要再点一次。
+  useEffect(() => {
+    if (conversationId == null) {
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    }
+    // 仅挂载时执行一次；conversationId 在同一实例生命周期内稳定（key 含其值）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const requestMethod = normalizeRequestMethod(runtimeApiConfig?.requestMethod);
   const thinkingOptions = THINKING_OPTIONS_BY_METHOD[requestMethod];
