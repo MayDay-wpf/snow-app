@@ -166,64 +166,52 @@ export const ChatInputToolbar = ({
             <Command size={15} />
           </button>
         )}
+        {(planMode || goalMode || worktreeMode || yoloMode || liteMode) && (
+          <span className="toolbar-divider" aria-hidden="true" />
+        )}
         {planMode && (
-          <>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <span
-              className="plan-mode-badge"
-              title={t("plusMenu.planModeActive")}
-            >
-              <ClipboardList size={14} />
-            </span>
-          </>
+          <span
+            className="plan-mode-badge"
+            title={t("plusMenu.planModeActive")}
+          >
+            <ClipboardList size={14} />
+          </span>
         )}
         {goalMode && (
-          <>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <span
-              className="plan-mode-badge"
-              title={t("plusMenu.goalModeActive")}
-            >
-              <Target size={14} />
-            </span>
-          </>
+          <span
+            className="plan-mode-badge"
+            title={t("plusMenu.goalModeActive")}
+          >
+            <Target size={14} />
+          </span>
         )}
         {worktreeMode && (
-          <>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <span
-              className="plan-mode-badge"
-              title={t("plusMenu.worktreeModeActive")}
-            >
-              <GitBranch size={14} />
-            </span>
-          </>
+          <span
+            className="plan-mode-badge"
+            title={t("plusMenu.worktreeModeActive")}
+          >
+            <GitBranch size={14} />
+          </span>
         )}
         {yoloMode && (
-          <>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <Tooltip content={t("plusMenu.yoloModeActive")}>
-              <span
-                className="plan-mode-badge yolo-mode-badge"
-                aria-label={t("plusMenu.yoloModeActive")}
-              >
-                <ShieldAlert size={14} />
-              </span>
-            </Tooltip>
-          </>
+          <Tooltip content={t("plusMenu.yoloModeActive")}>
+            <span
+              className="plan-mode-badge yolo-mode-badge"
+              aria-label={t("plusMenu.yoloModeActive")}
+            >
+              <ShieldAlert size={14} />
+            </span>
+          </Tooltip>
         )}
         {liteMode && (
-          <>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <Tooltip content={t("plusMenu.liteModeActive")}>
-              <span
-                className="plan-mode-badge lite-mode-badge"
-                aria-label={t("plusMenu.liteModeActive")}
-              >
-                <Feather size={14} />
-              </span>
-            </Tooltip>
-          </>
+          <Tooltip content={t("plusMenu.liteModeActive")}>
+            <span
+              className="plan-mode-badge lite-mode-badge"
+              aria-label={t("plusMenu.liteModeActive")}
+            >
+              <Feather size={14} />
+            </span>
+          </Tooltip>
         )}
       </div>
       <div className="toolbar-right">
