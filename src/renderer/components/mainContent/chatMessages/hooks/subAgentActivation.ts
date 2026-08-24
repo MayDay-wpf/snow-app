@@ -35,6 +35,7 @@ import {
   accumulateRunTokenUsage,
   createStreamChunkHandler,
   createStreamIdHandler,
+  resetIterationStreamMetrics,
   resetRunStreamMetrics,
 } from "./agentLoopHelpers";
 
@@ -65,7 +66,7 @@ export type SubAgentResumer = {
   agentName: string;
   resume: (
     messages: { role: "user"; content: string }[],
-    checkpointIds?: string[]
+    checkpointIds?: string[],
   ) => Promise<string>;
 };
 
@@ -81,7 +82,7 @@ export type SubAgentActivationDeps = {
   requestToolAuthorizations: (
     toolCalls: ToolCallInfo[],
     conversationId: string,
-    projectId?: string
+    projectId?: string,
   ) => Promise<ToolAuthorizationDecision[]>;
   parentApiProfile: string | undefined;
   parentModel: string | undefined;
@@ -100,7 +101,7 @@ export type SubAgentRunLoop = (
     role: "user" | "assistant" | "system" | "developer" | "tool";
     content: string;
   }[],
-  resumeAfterCompaction?: boolean
+  resumeAfterCompaction?: boolean,
 ) => Promise<string>;
 
 type SubAgentRunLoopDeps = {
@@ -146,7 +147,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
     toolName: string,
     argsJson: string,
     senderConvId: string,
-    senderAgentName: string
+    senderAgentName: string,
   ): Promise<string> => {
     let args: Record<string, unknown>;
     try {
@@ -168,7 +169,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
             event.conversationId !== senderConvId &&
             event.status === "running" &&
             !ctx.sessionsRefData.current.get(event.conversationId)
-              ?.subAgentTerminated
+              ?.subAgentTerminated,
         )
         .map((event) => ({
           conversationId: event.conversationId,
@@ -252,11 +253,16 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
 
   const subAgentRunLoop: SubAgentRunLoop = async (
     subMessages,
-    resumeAfterCompaction = false
+    resumeAfterCompaction = false,
   ): Promise<string> => {
     if (ctx.sessionsRefData.current.get(subConvId)?.isAbortRequested) {
       return "Sub-agent interrupted by user";
     }
+
+    // 迭代级瞬态指标归零：token / tok/s / 首字每次 sub-agent loop 重新
+    // 计算。run 级指标（runTtftMs / runTokenUsage / streamStartedAt）保持
+    // 整个 run 累计，不受影响。
+    resetIterationStreamMetrics(ctx, subConvId);
 
     const subAssistantMessageId = createMessageId("assistant");
     const subAssistantMessage: ChatConversationMessage = {
@@ -295,9 +301,9 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         ctx,
         subConvId,
         subAssistantMessageId,
-        isSubCancelled
+        isSubCancelled,
       ),
-      createStreamIdHandler(ctx, subConvId, isSubCancelled)
+      createStreamIdHandler(ctx, subConvId, isSubCancelled),
     );
     const subStreamRefBefore = ctx.sessionsRefData.current.get(subConvId);
     if (subStreamRefBefore) {
@@ -348,12 +354,12 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       const subIdRemap = new Map<string, string>();
       const subRemapCount = Math.min(
         pendingSubUserIds.length,
-        subResponse.persistedUserMessageIds.length
+        subResponse.persistedUserMessageIds.length,
       );
       for (let i = 0; i < subRemapCount; i++) {
         subIdRemap.set(
           pendingSubUserIds[i],
-          subResponse.persistedUserMessageIds[i]
+          subResponse.persistedUserMessageIds[i],
         );
       }
 
@@ -362,7 +368,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           msgs.map((m) => {
             const newId = subIdRemap.get(m.id);
             return newId ? { ...m, id: newId } : m;
-          })
+          }),
         );
       }
     }
@@ -381,8 +387,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                   : currentMessage.content || "Sub-agent interrupted by user",
                 isRetrying: false,
               }
-            : currentMessage
-        )
+            : currentMessage,
+        ),
       );
       return forceSendAbort ? "" : "Sub-agent interrupted by user";
     }
@@ -425,8 +431,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                 retryAttempt: undefined,
                 retryError: undefined,
               }
-            : currentMessage
-        )
+            : currentMessage,
+        ),
       );
       return safeIncompleteResult;
     }
@@ -452,8 +458,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                 model: subResponse.model || undefined,
                 isRetrying: false,
               }
-            : currentMessage
-        )
+            : currentMessage,
+        ),
       );
       return failureContent;
     }
@@ -477,7 +483,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       !subResponseFailed
     ) {
       const subApiConfig = (await window.snow.listApiConfigs()).find(
-        (item) => item.profileName.trim() === runtimeConfig.apiProfile
+        (item) => item.profileName.trim() === runtimeConfig.apiProfile,
       );
       if (subApiConfig?.enableAutoCompress) {
         // autoCompressThreshold is stored in TOKENS — compare directly (see
@@ -511,8 +517,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                       model: subResponse.model || undefined,
                       isRetrying: false,
                     }
-                  : currentMessage
-              )
+                  : currentMessage,
+              ),
             );
 
             const subCompactionResult = await ctx.performCompactionRef.current(
@@ -524,7 +530,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
               runtimeConfig.toolsJson,
               runtimeConfig.systemPrompt || undefined,
               runtimeConfig.effectiveThinkingStrength,
-              runtimeConfig.responsesFastMode
+              runtimeConfig.responsesFastMode,
             );
 
             if (subCompactionResult) {
@@ -554,7 +560,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                   { role: "user", content: subCompactionResult.content },
                   ...(subCompactionResult.protectedMessages ?? []),
                 ],
-                true
+                true,
               );
             }
           }
@@ -577,8 +583,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                 model: subResponse.model || undefined,
                 isRetrying: false,
               }
-            : currentMessage
-        )
+            : currentMessage,
+        ),
       );
 
       return subResponse.content || "Sub-agent completed with no output.";
@@ -600,24 +606,24 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
               model: subResponse.model || undefined,
               isRetrying: false,
             }
-          : currentMessage
-      )
+          : currentMessage,
+      ),
     );
 
     const subAuthorizationDecisions = await requestToolAuthorizations(
       subToolCalls,
       subConvId,
-      dirId
+      dirId,
     );
 
     const subAllToolsRejected = subAuthorizationDecisions.every(
-      (decision) => decision.status === "rejected"
+      (decision) => decision.status === "rejected",
     );
     // 用户填写了拒绝理由时，拒绝理由作为工具结果回传子代理 AI，
     // 子代理 Loop 继续；仅当全部拒绝且没有用户理由时才终止。
     const subHasUserProvidedRejectionReason = subAuthorizationDecisions.some(
       (decision) =>
-        decision.status === "rejected" && decision.userProvidedReason === true
+        decision.status === "rejected" && decision.userProvidedReason === true,
     );
 
     const subToolResults: string[] = [];
@@ -669,10 +675,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                   ...currentToolCall,
                   status: "completed" as const,
                   result: subRejectResult,
-                })
+                }),
               ),
             };
-          })
+          }),
         );
         continue;
       }
@@ -680,7 +686,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       const subToolArgs = injectSessionIdIntoToolArgs(
         subToolCall.name,
         subToolCall.arguments,
-        subConvId
+        subConvId,
       );
       let subSensitiveAuthorizationToken: string | undefined;
       if (
@@ -698,7 +704,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           }
           subSensitiveAuthorizationToken =
             await window.snow.issueSensitiveCommandAuthorization(
-              subParsedArgs.command
+              subParsedArgs.command,
             );
         } catch {
           // If authorization fails, let the tool fail naturally.
@@ -720,10 +726,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                 ...currentToolCall,
                 status: "running" as const,
                 startedAt: Date.now(),
-              })
+              }),
             ),
           };
-        })
+        }),
       );
 
       let subResult: string;
@@ -736,7 +742,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
             subToolCall.name,
             subToolArgs,
             subConvId,
-            agentName
+            agentName,
           );
         } else {
           subResult = await window.snow.callMcpTool(
@@ -775,10 +781,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                             chunk.stream === "tool_execution"
                               ? chunk.data
                               : currentToolCall.toolExecutionId,
-                        })
+                        }),
                       ),
                     };
-                  })
+                  }),
                 );
                 return;
               }
@@ -807,10 +813,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                                 chunk.data
                               }`
                             : currentToolCall.streamingStderr,
-                      })
+                      }),
                     ),
                   };
-                })
+                }),
               );
             },
             subToolCall.interactionId,
@@ -821,7 +827,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
             // keeps its gate even after the user switches conversations.
             ctx.sessionsRefData.current.get(parentConversationId)?.planMode ??
               ctx.planModeRef.current,
-            planApprovedSessionKeysRef.current.has(parentConversationId)
+            planApprovedSessionKeysRef.current.has(parentConversationId),
           );
         }
       } catch (err) {
@@ -838,12 +844,12 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           const subSessionMessages =
             ctx.sessionsRef.current?.[subConvId]?.messages ?? [];
           const subAssistantMsg = subSessionMessages.find(
-            (m) => m.id === subAssistantMessageId
+            (m) => m.id === subAssistantMessageId,
           );
           const liveSubToolCall = subAssistantMsg?.toolCalls?.find(
             (tc) =>
               tc.interactionId === subToolCall.interactionId &&
-              tc.name === subToolCall.name
+              tc.name === subToolCall.name,
           );
           const partialStdout = liveSubToolCall?.streamingStdout ?? "";
           const partialStderr = liveSubToolCall?.streamingStderr ?? "";
@@ -878,10 +884,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                   ? ("error" as const)
                   : ("completed" as const),
                 result: subResult,
-              })
+              }),
             ),
           };
-        })
+        }),
       );
 
       // Record successful file modifications made by this sub-agent under
@@ -893,7 +899,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         const subFileChange = extractFileChangeFromTool(
           subToolCall.name,
           subToolArgs,
-          subResult
+          subResult,
         );
         if (subFileChange) {
           const subChangeRecord = {
@@ -999,7 +1005,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
 const createRunForceSendLoop = (
   ctx: ConversationContextValue,
   subConvId: string,
-  subAgentRunLoop: SubAgentRunLoop
+  subAgentRunLoop: SubAgentRunLoop,
 ): (() => Promise<string>) => {
   return async (): Promise<string> => {
     let lastSummary = "";
@@ -1047,7 +1053,7 @@ const createRunForceSendLoop = (
  * 个迭代边界（或用户下次发送）消费。 */
 const createForwardSubPendingQueue = (
   ctx: ConversationContextValue,
-  parentConversationId: string
+  parentConversationId: string,
 ): ((finishedSubConvId: string) => void) => {
   return (finishedSubConvId: string): void => {
     const subQueue = ctx.pendingQueueRef.current.get(finishedSubConvId) ?? [];
@@ -1062,7 +1068,7 @@ const createForwardSubPendingQueue = (
     ctx.setActivePendingMessages(
       ctx.activeConversationIdRef.current === parentConversationId
         ? parentQueue.map((item) => item.text)
-        : []
+        : [],
     );
   };
 };
@@ -1082,14 +1088,14 @@ type SubAgentFinalizerDeps = {
 type SubAgentFinalizeFn = (
   convId: string,
   summary: string,
-  status: "completed" | "failed"
+  status: "completed" | "failed",
 ) => Promise<string>;
 
 /** 子代理回合统一收尾工厂：标记只读、清理运行状态、广播终止事件、持久化
  * 状态、转交 Pending 队列，最后执行 onSubAgentComplete hooks。激活与
  * 重新激活（sub-agents-continue，含重启后恢复）共用，保证收尾行为一致。 */
 const createSubAgentFinalizer = (
-  deps: SubAgentFinalizerDeps
+  deps: SubAgentFinalizerDeps,
 ): SubAgentFinalizeFn => {
   const {
     ctx,
@@ -1141,7 +1147,7 @@ const createSubAgentFinalizer = (
           runUsage?.outputTokens ?? 0,
           runUsage?.cacheCreationInputTokens ?? 0,
           runUsage?.cacheReadInputTokens ?? 0,
-          finalizeDurationMs
+          finalizeDurationMs,
         )
         .catch(() => {
           // 持久化失败不阻塞收尾
@@ -1169,7 +1175,7 @@ const createSubAgentFinalizer = (
       .updateSubAgentSessionStatus(
         convId,
         status,
-        status === "failed" ? summary : ""
+        status === "failed" ? summary : "",
       )
       .catch(() => {});
 
@@ -1201,7 +1207,7 @@ const createSubAgentFinalizer = (
       const onCompleteResult = await runHook(
         "onSubAgentComplete",
         dirId || undefined,
-        onCompleteContext
+        onCompleteContext,
       );
       if (onCompleteResult) {
         ctx.updateSessionMessages(parentConversationId, (currentMessages) =>
@@ -1210,7 +1216,7 @@ const createSubAgentFinalizer = (
             // Bind to the sub-agent tool call so the hook renders attached
             // to the sub-agent card ("完成" step), not the message footer.
             toolCallInteractionId,
-          })
+          }),
         );
         if (onCompleteResult.outcome.kind === "abort") {
           effectiveSummary = onCompleteResult.outcome.message;
@@ -1252,7 +1258,7 @@ type SubAgentResumeDeps = {
  * 与激活完全相同的统一收尾。会话隔离在调用方（createSubAgentMainToolExecutor
  * / restoreSubAgentResumer）强制校验，此处只负责运行。 */
 const createSubAgentResume = (
-  deps: SubAgentResumeDeps
+  deps: SubAgentResumeDeps,
 ): SubAgentResumer["resume"] => {
   const {
     ctx,
@@ -1267,7 +1273,7 @@ const createSubAgentResume = (
 
   return async (
     messages: { role: "user"; content: string }[],
-    checkpointIds?: string[]
+    checkpointIds?: string[],
   ): Promise<string> => {
     if (checkpointIds) {
       parentCheckpointIdsRef.current = checkpointIds;
@@ -1350,7 +1356,7 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
     parentConversationId: string,
     dirId: string,
     toolCallInteractionId: string | undefined,
-    activeCheckpointIds: string[]
+    activeCheckpointIds: string[],
   ): Promise<string> => {
     // 当前主会话回合的所有子代理文件工具共享同一个 active checkpoint，
     // 但不会触碰更早消息的 checkpoint expected 状态。
@@ -1359,7 +1365,7 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
     };
     const subCheckpointWorkDir =
       activeCheckpointIds.length > 0
-        ? directoryIdToPath(dirId) ?? ctx.directoryPath
+        ? (directoryIdToPath(dirId) ?? ctx.directoryPath)
         : undefined;
 
     const parsedArgs = JSON.parse(argsJson) as Record<string, unknown>;
@@ -1391,8 +1397,8 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
     try {
       // 项目级子代理优先：先查当前项目（dirId）下的配置，未命中再回退全局。
       config = dirId
-        ? (await window.snow.getSubAgentConfig(agentId, dirId)) ??
-          (await window.snow.getSubAgentConfig(agentId))
+        ? ((await window.snow.getSubAgentConfig(agentId, dirId)) ??
+          (await window.snow.getSubAgentConfig(agentId)))
         : await window.snow.getSubAgentConfig(agentId);
       if (!config) {
         return JSON.stringify({
@@ -1429,7 +1435,7 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
         const subHookResult = await runHook(
           "beforeSubAgentStart",
           dirId || undefined,
-          beforeSubAgentContext
+          beforeSubAgentContext,
         );
         if (subHookResult) {
           ctx.updateSessionMessages(parentConversationId, (currentMessages) =>
@@ -1438,7 +1444,7 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
               // Bind to the sub-agent tool call so the hook renders attached
               // to the sub-agent card ("启动前" step), not the message footer.
               toolCallInteractionId,
-            })
+            }),
           );
           if (subHookResult.outcome.kind === "abort") {
             return JSON.stringify({
@@ -1461,14 +1467,14 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
         runtimeConfig.model,
         title,
         runtimeConfig.effectiveThinkingStrength || null,
-        runtimeConfig.effectiveResponsesFastMode
+        runtimeConfig.effectiveResponsesFastMode,
       );
       subAgentSessionCreated = true;
 
       await window.snow.updateSubAgentSessionStatus(
         subConversationId,
         "running",
-        ""
+        "",
       );
 
       ctx.setSubAgentSessionEvent({
@@ -1504,11 +1510,11 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
       runForceSendLoop = createRunForceSendLoop(
         ctx,
         subConvId,
-        subAgentRunLoop
+        subAgentRunLoop,
       );
       forwardSubPendingQueue = createForwardSubPendingQueue(
         ctx,
-        parentConversationId
+        parentConversationId,
       );
       const subAgentFinalizer = createSubAgentFinalizer({
         ctx,
@@ -1599,7 +1605,7 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
             return JSON.stringify({
               success: false,
               error: `${errorMessage}; failed to finalize sub-agent session: ${getErrorMessage(
-                finalizeError
+                finalizeError,
               )}`,
             });
           }
@@ -1608,13 +1614,13 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
           await window.snow.updateSubAgentSessionStatus(
             subConversationId,
             "failed",
-            errorMessage
+            errorMessage,
           );
         } catch (persistError) {
           return JSON.stringify({
             success: false,
             error: `${errorMessage}; failed to persist sub-agent failure: ${getErrorMessage(
-              persistError
+              persistError,
             )}`,
           });
         }
@@ -1645,7 +1651,7 @@ const restoreSubAgentResumer = async (
   parentResponsesFastMode: boolean | null | undefined,
   parentConversationId: string,
   targetConvId: string,
-  activeCheckpointIds: string[]
+  activeCheckpointIds: string[],
 ): Promise<SubAgentResumer | null> => {
   // 1. DB 查询：仅当前父会话下的子代理可见（会话隔离）。
   let grouped: Record<string, ChatConversationRecord[]>;
@@ -1657,7 +1663,7 @@ const restoreSubAgentResumer = async (
     return null;
   }
   const record = grouped[parentConversationId]?.find(
-    (item) => item.conversationId === targetConvId
+    (item) => item.conversationId === targetConvId,
   );
   if (!record) {
     return null;
@@ -1674,8 +1680,8 @@ const restoreSubAgentResumer = async (
   let config: Awaited<ReturnType<typeof window.snow.getSubAgentConfig>> = null;
   try {
     config = dirId
-      ? (await window.snow.getSubAgentConfig(agentId, dirId)) ??
-        (await window.snow.getSubAgentConfig(agentId))
+      ? ((await window.snow.getSubAgentConfig(agentId, dirId)) ??
+        (await window.snow.getSubAgentConfig(agentId)))
       : await window.snow.getSubAgentConfig(agentId);
   } catch {
     config = null;
@@ -1706,7 +1712,7 @@ const restoreSubAgentResumer = async (
       record.apiProfileName.trim() || parentRecord?.apiProfileName.trim();
     const fallbackApiConfig = fallbackProfileName
       ? apiConfigs.find(
-          (item) => item.profileName.trim() === fallbackProfileName
+          (item) => item.profileName.trim() === fallbackProfileName,
         )
       : undefined;
     const restoredThinkingStrength =
@@ -1736,7 +1742,7 @@ const restoreSubAgentResumer = async (
       const apiConfigs = await window.snow.listApiConfigs();
       if (
         apiConfigs.some(
-          (item) => item.profileName.trim() === record.apiProfileName
+          (item) => item.profileName.trim() === record.apiProfileName,
         )
       ) {
         runtimeConfig = { ...runtimeConfig, apiProfile: record.apiProfileName };
@@ -1776,7 +1782,7 @@ const restoreSubAgentResumer = async (
   };
   const subCheckpointWorkDir =
     activeCheckpointIds.length > 0
-      ? directoryIdToPath(dirId) ?? ctx.directoryPath
+      ? (directoryIdToPath(dirId) ?? ctx.directoryPath)
       : undefined;
   const subAgentRunLoop = createSubAgentRunLoop({
     ctx,
@@ -1794,11 +1800,11 @@ const restoreSubAgentResumer = async (
   const runForceSendLoop = createRunForceSendLoop(
     ctx,
     targetConvId,
-    subAgentRunLoop
+    subAgentRunLoop,
   );
   const forwardSubPendingQueue = createForwardSubPendingQueue(
     ctx,
-    parentConversationId
+    parentConversationId,
   );
   const finalizeSubAgentSession = createSubAgentFinalizer({
     ctx,
@@ -1841,7 +1847,7 @@ export const createSubAgentMainToolExecutor = (
   > & {
     parentThinkingStrength?: string;
     parentResponsesFastMode?: boolean | null;
-  }
+  },
 ) => {
   const {
     requestToolAuthorizations,
@@ -1854,7 +1860,7 @@ export const createSubAgentMainToolExecutor = (
     toolName: string,
     argsJson: string,
     parentConversationId: string,
-    checkpointIds: string[]
+    checkpointIds: string[],
   ): Promise<string> => {
     if (toolName === "sub-agents-listSubAgents") {
       const eventMap = ctx.subAgentSessionEventsRef.current;
@@ -1879,7 +1885,7 @@ export const createSubAgentMainToolExecutor = (
           agentId: record.subAgentId,
           agentName: record.subAgentName,
           status: (["running", "completed", "failed", "cancelled"].includes(
-            record.subAgentStatus
+            record.subAgentStatus,
           )
             ? record.subAgentStatus
             : "completed") as SubAgentSessionEvent["status"],
@@ -1946,7 +1952,7 @@ export const createSubAgentMainToolExecutor = (
           parentResponsesFastMode,
           parentConversationId,
           targetConvId,
-          checkpointIds
+          checkpointIds,
         );
       }
       if (!resumer || resumer.parentConversationId !== parentConversationId) {
@@ -1959,7 +1965,7 @@ export const createSubAgentMainToolExecutor = (
 
       return resumer.resume(
         [{ role: "user", content: queuedText }],
-        checkpointIds
+        checkpointIds,
       );
     }
 

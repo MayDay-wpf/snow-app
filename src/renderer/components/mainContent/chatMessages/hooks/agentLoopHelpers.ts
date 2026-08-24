@@ -1,4 +1,7 @@
-import type { ResponsesApiStreamChunk, TokenUsage } from "../../../../../preload/types/api";
+import type {
+  ResponsesApiStreamChunk,
+  TokenUsage,
+} from "../../../../../preload/types/api";
 import type {
   ConversationContextValue,
   ChatConversationMessage,
@@ -21,7 +24,7 @@ export const PARENT_PLAN_APPROVAL_REQUIRED = "PARENT_PLAN_APPROVAL_REQUIRED";
 
 export const isStructuredPlanApproval = (
   toolName: string,
-  result: string
+  result: string,
 ): boolean => {
   if (toolName !== PLAN_APPROVAL_TOOL_NAME) {
     return false;
@@ -46,7 +49,7 @@ export const isStructuredPlanApproval = (
  */
 export const createIsRunCancelled = (
   ctx: ConversationContextValue,
-  currentRunId: number
+  currentRunId: number,
 ) => {
   return (key: string): boolean => {
     const r = ctx.sessionsRefData.current.get(key);
@@ -68,7 +71,7 @@ export const createAwaitHookDecision = (ctx: ConversationContextValue) => {
   return async (
     key: string,
     messageId: string,
-    record: HookExecutionRecord
+    record: HookExecutionRecord,
   ): Promise<boolean> => {
     const decisionId = `${messageId}-${
       record.hookType
@@ -96,8 +99,8 @@ export const createAwaitHookDecision = (ctx: ConversationContextValue) => {
             _decisionId: decisionId,
             _resolveDecision: settle,
           },
-          messageId
-        )
+          messageId,
+        ),
       );
     });
 
@@ -115,11 +118,11 @@ export const createAwaitHookDecision = (ctx: ConversationContextValue) => {
                         status: approved ? "pass" : "abort",
                         _resolveDecision: undefined,
                       }
-                    : execution
+                    : execution,
               ),
             }
-          : currentMessage
-      )
+          : currentMessage,
+      ),
     );
     return approved;
   };
@@ -134,7 +137,7 @@ export const createAwaitHookDecision = (ctx: ConversationContextValue) => {
  *  reset: they accumulate across every run of the conversation. */
 export const resetRunStreamMetrics = (
   ctx: ConversationContextValue,
-  sessionKey: string
+  sessionKey: string,
 ): void => {
   ctx.updateSessionField(sessionKey, "streamTokenCount", 0);
   ctx.updateSessionField(sessionKey, "streamElapsedMs", 0);
@@ -149,13 +152,33 @@ export const resetRunStreamMetrics = (
   }
 };
 
+/** Reset per-iteration transient probes before each agent-loop iteration
+ *  (every `createResponseStream` call). Unlike `resetRunStreamMetrics` this
+ *  must NOT touch run-level metrics (`runTtftMs` / `runTokenUsage`), which
+ *  accumulate across the whole run and feed the run summary. Called at the
+ *  top of the main loop and the sub-agent loop so StreamMetrics' token
+ *  count, tok/s and TTFT restart from zero on every iteration. */
+export const resetIterationStreamMetrics = (
+  ctx: ConversationContextValue,
+  sessionKey: string,
+): void => {
+  ctx.updateSessionField(sessionKey, "streamTokenCount", 0);
+  ctx.updateSessionField(sessionKey, "streamElapsedMs", 0);
+  ctx.updateSessionField(sessionKey, "streamTtftMs", 0);
+  const refSession = ctx.sessionsRefData.current.get(sessionKey);
+  if (refSession) {
+    refSession.iterationTokenCount = 0;
+    refSession.iterationElapsedMs = 0;
+  }
+};
+
 /** Accumulate a single-request usage into the run-level totals. Each
  *  response.tokenUsage covers one request only, so the run summary needs
  *  the sum across every iteration of the agent loop. */
 export const accumulateRunTokenUsage = (
   ctx: ConversationContextValue,
   sessionKey: string,
-  usage: TokenUsage | null | undefined
+  usage: TokenUsage | null | undefined,
 ): void => {
   if (!usage) {
     return;
@@ -187,14 +210,12 @@ export const accumulateConversationRunStats = (
   ctx: ConversationContextValue,
   sessionKey: string,
   runUsage: TokenUsage | null | undefined,
-  runDurationMs: number
+  runDurationMs: number,
 ): void => {
   const current = ctx.sessionsRef.current?.[sessionKey]?.conversationTokenUsage;
   ctx.updateSessionField(sessionKey, "conversationTokenUsage", {
-    inputTokens:
-      (current?.inputTokens ?? 0) + (runUsage?.inputTokens ?? 0),
-    outputTokens:
-      (current?.outputTokens ?? 0) + (runUsage?.outputTokens ?? 0),
+    inputTokens: (current?.inputTokens ?? 0) + (runUsage?.inputTokens ?? 0),
+    outputTokens: (current?.outputTokens ?? 0) + (runUsage?.outputTokens ?? 0),
     cacheCreationInputTokens:
       (current?.cacheCreationInputTokens ?? 0) +
       (runUsage?.cacheCreationInputTokens ?? 0),
@@ -207,7 +228,7 @@ export const accumulateConversationRunStats = (
   ctx.updateSessionField(
     sessionKey,
     "lastRunDurationMs",
-    currentDuration + Math.max(0, runDurationMs)
+    currentDuration + Math.max(0, runDurationMs),
   );
 };
 
@@ -223,7 +244,7 @@ export const accumulateConversationRunStats = (
 export const applyStreamChunkToMessage = (
   currentMessage: ChatConversationMessage,
   chunk: ResponsesApiStreamChunk,
-  timestamp: string = formatMessageTime()
+  timestamp: string = formatMessageTime(),
 ): ChatConversationMessage => {
   const {
     isRetrying: _isRetrying,
@@ -270,7 +291,7 @@ export const createStreamChunkHandler = (
   ctx: ConversationContextValue,
   sessionKey: string,
   assistantMessageId: string,
-  isCancelled: () => boolean
+  isCancelled: () => boolean,
 ) => {
   const refSession = ctx.sessionsRefData.current.get(sessionKey);
   const iterationTokenBase = refSession?.iterationTokenCount ?? 0;
@@ -302,7 +323,7 @@ export const createStreamChunkHandler = (
           ctx.updateSessionField(
             sessionKey,
             "visionAnalysis",
-            keep ? parsed : undefined
+            keep ? parsed : undefined,
           );
         }
       } catch {
@@ -343,7 +364,7 @@ export const createStreamChunkHandler = (
         }
 
         return applyStreamChunkToMessage(currentMessage, chunk);
-      })
+      }),
     );
   };
 };
@@ -360,7 +381,7 @@ export const createStreamChunkHandler = (
 export const createStreamIdHandler = (
   ctx: ConversationContextValue,
   sessionKey: string,
-  isCancelled: () => boolean
+  isCancelled: () => boolean,
 ) => {
   return (streamId: string): void => {
     const ref = ctx.sessionsRefData.current.get(sessionKey);

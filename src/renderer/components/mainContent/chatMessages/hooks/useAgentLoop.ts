@@ -35,6 +35,7 @@ import {
   createIsRunCancelled,
   createStreamChunkHandler,
   createStreamIdHandler,
+  resetIterationStreamMetrics,
   resetRunStreamMetrics,
 } from "./agentLoopHelpers";
 import {
@@ -114,7 +115,8 @@ const normalizeWorkspacePath = (
   filePath: string,
   workspacePath?: string,
 ): string => {
-  const normalizedPath = filePath.replace(/\\/g, "/").replace(/\/+$/, "") || ".";
+  const normalizedPath =
+    filePath.replace(/\\/g, "/").replace(/\/+$/, "") || ".";
   const normalizedWorkspace = workspacePath
     ?.replace(/\\/g, "/")
     .replace(/\/+$/, "");
@@ -164,10 +166,7 @@ const canonicalizeToolArguments = (
       return value;
     };
     const parsed = JSON.parse(argumentsJson || "{}") as Record<string, unknown>;
-    if (
-      toolName === "filesystem-read" &&
-      typeof parsed.filePath === "string"
-    ) {
+    if (toolName === "filesystem-read" && typeof parsed.filePath === "string") {
       parsed.filePath = normalizeWorkspacePath(parsed.filePath, workspacePath);
     }
     return JSON.stringify(sortJson(parsed));
@@ -589,6 +588,12 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             return;
           }
         }
+
+        // 迭代级瞬态指标归零：token / tok/s / 首字每次 agent loop 重新
+        // 计算（放在 pause 之后，暂停期间保留上一迭代的最终显示值）。
+        // run 级指标（runTtftMs / runTokenUsage / streamStartedAt）保持
+        // 整个 run 累计，不受影响。
+        resetIterationStreamMetrics(ctx, effectiveKey);
 
         // Capture the stream promise so rollback can await it before issuing
         // delete/truncate. Without this, the Rust store_chat_exchange write
@@ -1414,9 +1419,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           ]);
           await runAgentLoop(
             recoveryAssistantMessageId,
-            [
-              { role: "tool", content: toolResultContent, toolResultsJson },
-            ],
+            [{ role: "tool", content: toolResultContent, toolResultsJson }],
             response.conversationId,
             checkpointId,
             undefined,
