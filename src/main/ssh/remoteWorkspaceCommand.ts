@@ -120,7 +120,7 @@ const getRemoteRelativePath = (path: string, rootPath: string): string => {
 export const buildRemoteWorkspaceUri = (
   workspacePath: string,
   remotePath: string,
-  remoteRootPath: string
+  remoteRootPath: string,
 ): string => {
   const relativePath = getRemoteRelativePath(remotePath, remoteRootPath);
   const normalizedWorkspacePath = workspacePath.replace(/\/+$/, "");
@@ -131,13 +131,13 @@ export const buildRemoteWorkspaceUri = (
 };
 
 export const buildSshConnectParams = (
-  workspacePath: string
+  workspacePath: string,
 ): SshConnectParams => {
   const parsed = parseSshUrl(workspacePath);
   const credential = getSshCredential(
     parsed.host,
     parsed.port,
-    parsed.username
+    parsed.username,
   );
   const connectParams: SshConnectParams = {
     host: parsed.host,
@@ -204,7 +204,7 @@ const releaseCommandSession = (profileKey: string): void => {
 
 const acquireCommandSession = async (
   params: SshConnectParams,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<{ profileKey: string; sessionId: string }> => {
   const profileKey = getSshProfileKey(params);
   let entry = commandSessionPool.get(profileKey);
@@ -243,14 +243,14 @@ export const withSshSession = async <T>(
   action: (
     sessionId: string,
     remotePath: string,
-    parsedPath: ReturnType<typeof parseSshUrl>
+    parsedPath: ReturnType<typeof parseSshUrl>,
   ) => Promise<T>,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<T> => {
   const parsedPath = parseSshUrl(workspacePath);
   const { profileKey, sessionId } = await acquireCommandSession(
     buildSshConnectParams(workspacePath),
-    options
+    options,
   );
   try {
     return await action(sessionId, parsedPath.remotePath, parsedPath);
@@ -264,7 +264,7 @@ export const withSshSession = async <T>(
 const mapWithConcurrency = async <T, R>(
   items: readonly T[],
   limit: number,
-  fn: (item: T, index: number) => Promise<R>
+  fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> => {
   const results = new Array<R>(items.length);
   let cursor = 0;
@@ -284,18 +284,18 @@ const readTextFile = async (
   workspacePath: string,
   startLine: number | undefined,
   endLine: number | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   return withSshSession(
     workspacePath,
     async (sessionId, remotePath) => {
       const file = processFileContent(
         remotePath,
-        await readSshFile(sessionId, remotePath, { signal })
+        await readSshFile(sessionId, remotePath, { signal }),
       );
       if (file.isBinary || file.isImage) {
         throw new Error(
-          "Remote filesystem edit operations require a text file"
+          "Remote filesystem edit operations require a text file",
         );
       }
 
@@ -304,7 +304,7 @@ const readTextFile = async (
       const requestedStart = Math.max(1, Math.floor(startLine ?? 1));
       const requestedEnd = Math.max(
         requestedStart,
-        Math.floor(endLine ?? totalLines)
+        Math.floor(endLine ?? totalLines),
       );
       const selected = lines.slice(requestedStart - 1, requestedEnd);
 
@@ -312,7 +312,7 @@ const readTextFile = async (
         content: selected
           .map(
             (line, index) =>
-              `${String(requestedStart + index).padStart(6, " ")}: ${line}`
+              `${String(requestedStart + index).padStart(6, " ")}: ${line}`,
           )
           .join("\n"),
         totalLines,
@@ -320,13 +320,13 @@ const readTextFile = async (
         endLine: Math.min(requestedEnd, totalLines),
       };
     },
-    { signal }
+    { signal },
   );
 };
 
 const resolveAuthorizedWorkspaceRoot = (
   workspacePath: string,
-  workspaceRoot: unknown
+  workspaceRoot: unknown,
 ): string => {
   const root = validateSshWorkspacePath(workspaceRoot, "workspaceRoot");
   const target = parseSshUrl(workspacePath);
@@ -337,7 +337,7 @@ const resolveAuthorizedWorkspaceRoot = (
     target.username !== authorized.username
   ) {
     throw new Error(
-      "workspaceRoot must use the same SSH authority as filePath"
+      "workspaceRoot must use the same SSH authority as filePath",
     );
   }
   return authorized.remotePath;
@@ -345,7 +345,7 @@ const resolveAuthorizedWorkspaceRoot = (
 
 const readRemoteText = async (
   workspacePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ content: string; version: SshFileVersion }> =>
   withSshSession(
     workspacePath,
@@ -356,12 +356,12 @@ const readRemoteText = async (
       const file = processFileContent(remotePath, loaded.content);
       if (file.isBinary || file.isImage) {
         throw new Error(
-          "Remote filesystem edit operations require a text file"
+          "Remote filesystem edit operations require a text file",
         );
       }
       return { content: file.content, version: loaded.version };
     },
-    { signal }
+    { signal },
   );
 
 const writeRemoteText = async (
@@ -369,7 +369,7 @@ const writeRemoteText = async (
   workspaceRoot: string,
   content: string,
   expectedVersion: SshFileVersion,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SshFileWriteResult> =>
   withSshSession(
     workspacePath,
@@ -379,7 +379,7 @@ const writeRemoteText = async (
         workspaceRoot,
         expectedVersion,
       }),
-    { signal }
+    { signal },
   );
 
 /**
@@ -396,7 +396,7 @@ export type RemoteRoleContext = {
 };
 
 export const readRemoteRoleContext = async (
-  workspacePath: string
+  workspacePath: string,
 ): Promise<RemoteRoleContext> => {
   try {
     return await withSshSession(
@@ -408,7 +408,7 @@ export const readRemoteRoleContext = async (
         try {
           const file = processFileContent(
             rolePath,
-            await readSshFile(sessionId, rolePath)
+            await readSshFile(sessionId, rolePath),
           );
           if (!file.isBinary && !file.isImage) {
             content = file.content.trim() || null;
@@ -422,7 +422,7 @@ export const readRemoteRoleContext = async (
           const settingsPath = `${projectRoot}/.snow/settings.json`;
           const settingsFile = processFileContent(
             settingsPath,
-            await readSshFile(sessionId, settingsPath)
+            await readSshFile(sessionId, settingsPath),
           );
           if (!settingsFile.isBinary && !settingsFile.isImage) {
             const settings = JSON.parse(settingsFile.content) as {
@@ -437,7 +437,7 @@ export const readRemoteRoleContext = async (
         }
 
         return { content, includeGlobalRules };
-      }
+      },
     );
   } catch {
     return { content: null, includeGlobalRules: true };
@@ -473,7 +473,7 @@ const isIndentationSensitivePath = (filePath: string): boolean => {
   return (
     ["makefile", "gnumakefile", "snakefile"].includes(fileName) ||
     [".mk", ".py", ".pyw", ".pyi", ".yaml", ".yml"].some((suffix) =>
-      fileName.endsWith(suffix)
+      fileName.endsWith(suffix),
     )
   );
 };
@@ -501,11 +501,79 @@ const getFirstNonEmptyLine = (content: string): string | undefined =>
     .split("\n")
     .find((line) => line.replace(/[ \t\r\ufeff]/g, "").length > 0);
 
+const autoPadFirstLineToReference = (
+  referenceLine: string,
+  text: string,
+): string | null => {
+  const indent = getLeadingHorizontalWhitespace(referenceLine);
+  if (!indent) {
+    return null;
+  }
+
+  const lines = text.split("\n");
+  const paddedLines = [...lines];
+  const firstIndex = lines.findIndex(
+    (line) => line.replace(/[ \t]/g, "").length > 0,
+  );
+  if (firstIndex < 0) {
+    return null;
+  }
+  const firstLine = lines[firstIndex];
+  if (getLeadingHorizontalWhitespace(firstLine) !== "") {
+    return null;
+  }
+  paddedLines[firstIndex] = indent + firstLine;
+  const padded = paddedLines.join("\n");
+  return padded === text ? null : padded;
+};
+
+const autoPadSearchIndentation = (
+  content: string,
+  searchContent: string,
+): string | null => {
+  const fileLines = content.split("\n");
+  const paddedLines: string[] = [];
+  let changed = false;
+
+  for (const searchLine of searchContent.split("\n")) {
+    const trimmed = searchLine.replace(/^[ \t]+/, "");
+    if (!trimmed) {
+      paddedLines.push(searchLine);
+      continue;
+    }
+
+    let matchedIndent: string | undefined;
+    let found = false;
+    for (const fileLine of fileLines) {
+      if (fileLine.replace(/^[ \t]+/, "") !== trimmed) {
+        continue;
+      }
+      found = true;
+      const indent = getLeadingHorizontalWhitespace(fileLine);
+      if (matchedIndent !== undefined && matchedIndent !== indent) {
+        return null;
+      }
+      matchedIndent = indent;
+    }
+    if (!found) {
+      return null;
+    }
+
+    const indent = matchedIndent ?? "";
+    if (getLeadingHorizontalWhitespace(searchLine) !== indent) {
+      changed = true;
+    }
+    paddedLines.push(indent + trimmed);
+  }
+
+  return changed ? paddedLines.join("\n") : null;
+};
+
 const validateCandidateIndentation = (
   filePath: string,
   matchedLine: string,
   candidateLine: string,
-  candidateName: string
+  candidateName: string,
 ): void => {
   const matchedIndent = getLeadingHorizontalWhitespace(matchedLine);
   const candidateIndent = getLeadingHorizontalWhitespace(candidateLine);
@@ -515,21 +583,21 @@ const validateCandidateIndentation = (
 
   throw new Error(
     `Edit rejected: leading indentation mismatch in indentation-sensitive file '${filePath}'. The matched region starts with ${JSON.stringify(
-      matchedIndent
+      matchedIndent,
     )} (${
       [...matchedIndent].length
     } characters), but ${candidateName} starts with ${JSON.stringify(
-      candidateIndent
+      candidateIndent,
     )} (${
       [...candidateIndent].length
-    } characters). Copy the leading spaces/tabs from the matched region exactly; remote filesystem-replace_edit refuses to apply this edit to avoid silently breaking Python/YAML/Makefile structure.`
+    } characters). Copy the leading spaces/tabs from the matched region exactly; remote filesystem-replace_edit refuses to apply this edit to avoid silently breaking Python/YAML/Makefile structure.`,
   );
 };
 
 const validateSearchIndentation = (
   filePath: string,
   searchContent: string,
-  matchedContent: string
+  matchedContent: string,
 ): void => {
   if (!isIndentationSensitivePath(filePath)) {
     return;
@@ -545,14 +613,14 @@ const validateSearchIndentation = (
     filePath,
     matchedLine,
     searchLine,
-    "searchContent"
+    "searchContent",
   );
 };
 
 const validateReplacementIndentation = (
   filePath: string,
   matchedContent: string,
-  replacement: string
+  replacement: string,
 ): void => {
   if (!isIndentationSensitivePath(filePath)) {
     return;
@@ -568,7 +636,7 @@ const validateReplacementIndentation = (
     filePath,
     matchedLine,
     replacementLine,
-    "replaceContent"
+    "replaceContent",
   );
 };
 
@@ -577,13 +645,21 @@ const replaceContent = (
   content: string,
   searchContent: string,
   replacement: string,
-  occurrence: number
+  occurrence: number,
 ): { content: string; matchedLineStart: number; matchedLineEnd: number } => {
   if (occurrence < 1) {
     throw new Error("occurrence must be greater than zero");
   }
 
-  const adaptedSearch = adaptLineEndings(searchContent, content);
+  let effectiveSearch = searchContent;
+  if (isIndentationSensitivePath(filePath)) {
+    const paddedSearch = autoPadSearchIndentation(content, searchContent);
+    if (paddedSearch) {
+      effectiveSearch = paddedSearch;
+    }
+  }
+
+  const adaptedSearch = adaptLineEndings(effectiveSearch, content);
   const adaptedReplacement = adaptLineEndings(replacement, content);
   let offset = 0;
   let foundIndex = -1;
@@ -591,32 +667,49 @@ const replaceContent = (
     foundIndex = content.indexOf(adaptedSearch, offset);
     if (foundIndex < 0) {
       throw new Error(
-        "searchContent not found in remote file. For Python/YAML/Makefile files, leading indentation is significant and must be copied exactly."
+        "searchContent not found in remote file. For Python/YAML/Makefile files, leading indentation is significant and must be copied exactly.",
       );
     }
     offset = foundIndex + Math.max(1, adaptedSearch.length);
   }
 
   const prefix = content.slice(0, foundIndex);
+  let effectiveReplacement = adaptedReplacement;
   if (isIndentationSensitivePath(filePath)) {
     const lineStart = content.lastIndexOf("\n", foundIndex - 1) + 1;
     const lineEnd = content.indexOf("\n", foundIndex);
     const matchedLine = content.slice(
       lineStart,
-      lineEnd < 0 ? content.length : lineEnd
+      lineEnd < 0 ? content.length : lineEnd,
     );
     const beforeMatch = content.slice(lineStart, foundIndex);
     if (/^[ \t]*$/.test(beforeMatch)) {
-      validateSearchIndentation(filePath, searchContent, matchedLine);
-      validateReplacementIndentation(filePath, matchedLine, adaptedReplacement);
+      validateSearchIndentation(filePath, effectiveSearch, matchedLine);
+      try {
+        validateReplacementIndentation(
+          filePath,
+          matchedLine,
+          adaptedReplacement,
+        );
+      } catch (error) {
+        const padded = autoPadFirstLineToReference(
+          matchedLine,
+          adaptedReplacement,
+        );
+        if (!padded) {
+          throw error;
+        }
+        validateReplacementIndentation(filePath, matchedLine, padded);
+        effectiveReplacement = padded;
+      }
     }
   }
   const matchedLineStart = prefix.split("\n").length;
   const matchedLineEnd =
     matchedLineStart + adaptedSearch.split("\n").length - 1;
   return {
-    content: `${prefix}${adaptedReplacement}${content.slice(
-      foundIndex + adaptedSearch.length
+    content: `${prefix}${effectiveReplacement}${content.slice(
+      foundIndex + adaptedSearch.length,
     )}`,
     matchedLineStart,
     matchedLineEnd,
@@ -636,7 +729,7 @@ const buildRemoteGrepCommand = (
   fileGlob: string | undefined,
   isRegex: boolean,
   caseSensitive: boolean,
-  maxResults: number
+  maxResults: number,
 ): string => {
   const flags = ["-nH"];
   if (!isRegex) {
@@ -669,7 +762,7 @@ const buildRemoteGrepCommand = (
     `find "$root" \\( -type d -name .git -o -type d -name node_modules -o -type d -name target \\) -prune -o -type f -path "$pathpat" -exec grep ${flags
       .map(shellQuote)
       .join(
-        " "
+        " ",
       )} -- "$pattern" {} + < /dev/null 2>/dev/null | head -n "$limit" || true`,
   ].join("\n");
 
@@ -679,7 +772,7 @@ const buildRemoteGrepCommand = (
 const parseGrepLines = (
   output: string,
   workspacePath: string,
-  remoteRootPath: string
+  remoteRootPath: string,
 ): RemoteWorkspaceSearchMatch[] =>
   output.split("\n").flatMap((line) => {
     // Parse from the LEFT: `path:line:content` with the FIRST `:<digits>:`
@@ -707,7 +800,7 @@ const parseGrepLines = (
 
 const executeFilesystemRead = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.filePath, "filePath");
   const startLine = ensureOptionalPositiveInteger(args.startLine);
@@ -732,13 +825,13 @@ const executeFilesystemRead = async (
         return readTextFile(workspacePath, startLine, endLine, signal);
       }
     },
-    { signal }
+    { signal },
   );
 };
 
 const executeCodeLensReadSource = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.filePath, "filePath");
   // Rust performs the workspace containment check before dispatch. Electron
@@ -752,7 +845,7 @@ const executeCodeLensReadSource = async (
       const buffer = await readSshFile(sessionId, remotePath, { signal });
       if (buffer.length > CODELENS_MAX_SOURCE_BYTES) {
         throw new Error(
-          `CodeLens source file is too large (${buffer.length} bytes, max ${CODELENS_MAX_SOURCE_BYTES} bytes)`
+          `CodeLens source file is too large (${buffer.length} bytes, max ${CODELENS_MAX_SOURCE_BYTES} bytes)`,
         );
       }
 
@@ -768,18 +861,18 @@ const executeCodeLensReadSource = async (
         bytes: buffer.length,
       };
     },
-    { signal }
+    { signal },
   );
 };
 
 const executeFilesystemReplaceEdit = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.filePath, "filePath");
   const workspaceRoot = resolveAuthorizedWorkspaceRoot(
     workspacePath,
-    args.workspaceRoot
+    args.workspaceRoot,
   );
   const searchContent = ensureString(args.searchContent, "searchContent");
   const replacement = ensureString(args.replaceContent, "replaceContent");
@@ -793,14 +886,14 @@ const executeFilesystemReplaceEdit = async (
     loaded.content,
     searchContent,
     replacement,
-    occurrence
+    occurrence,
   );
   const save = await writeRemoteText(
     workspacePath,
     workspaceRoot,
     result.content,
     loaded.version,
-    signal
+    signal,
   );
 
   return {
@@ -816,12 +909,12 @@ const executeFilesystemReplaceEdit = async (
 
 const executeFilesystemCreate = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.filePath, "filePath");
   const workspaceRoot = resolveAuthorizedWorkspaceRoot(
     workspacePath,
-    args.workspaceRoot
+    args.workspaceRoot,
   );
   const content = ensureString(args.content, "content");
   const overwrite = args.overwrite === true;
@@ -836,7 +929,7 @@ const executeFilesystemCreate = async (
       ).trim();
       if (exists && !overwrite) {
         throw new Error(
-          "Remote file already exists. To overwrite this file, set overwrite=true."
+          "Remote file already exists. To overwrite this file, set overwrite=true.",
         );
       }
       const parentPath = dirname(remotePath);
@@ -846,7 +939,7 @@ const executeFilesystemCreate = async (
           buildRemoteMkdirCommand(parentPath),
           {
             signal,
-          }
+          },
         );
       }
       const expectedVersion: SshFileVersion = exists
@@ -859,7 +952,7 @@ const executeFilesystemCreate = async (
         expectedVersion,
       });
     },
-    { signal }
+    { signal },
   );
 
   return {
@@ -874,7 +967,7 @@ const executeFilesystemCreate = async (
 
 const executeGrepSearch = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   const pattern = ensureString(args.pattern, "pattern");
@@ -900,9 +993,9 @@ const executeGrepSearch = async (
           fileGlob,
           isRegex,
           caseSensitive,
-          maxResults
+          maxResults,
         ),
-        { timeoutMs: REMOTE_GREP_TIMEOUT_MS, signal }
+        { timeoutMs: REMOTE_GREP_TIMEOUT_MS, signal },
       );
       const matches = parseGrepLines(output, workspacePath, remotePath);
       return {
@@ -916,17 +1009,17 @@ const executeGrepSearch = async (
         rawOutput: output.slice(0, 50_000),
       };
     },
-    { signal }
+    { signal },
   );
 };
 
 const executeBashCommand = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(
     args.workingDirectory,
-    "workingDirectory"
+    "workingDirectory",
   );
   const command = ensureString(args.command, "command");
   const timeout =
@@ -954,7 +1047,7 @@ const executeBashCommand = async (
         executedAt: new Date().toISOString(),
       };
     },
-    { signal }
+    { signal },
   );
 };
 
@@ -991,7 +1084,7 @@ const CHECKPOINT_SKIP_DIRS = new Set([
 
 const executeCheckpointStat = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   return withSshSession(
@@ -1008,7 +1101,7 @@ const executeCheckpointStat = async (
         mtimeMs: stats.mtime * 1000,
       };
     },
-    { signal }
+    { signal },
   );
 };
 
@@ -1053,7 +1146,7 @@ const CHECKPOINT_GITIGNORE_DUMP_EXEC =
 // bsd 变体（macOS 等）用 stat -f，换行分隔且 mtime 为整秒。
 const buildCheckpointTreeFindCommand = (
   remotePath: string,
-  variant: "gnu" | "bsd"
+  variant: "gnu" | "bsd",
 ): string => {
   const listFiles =
     variant === "gnu"
@@ -1071,7 +1164,7 @@ const stripDotSlash = (path: string): string =>
   path.startsWith("./") ? path.slice(2) : path;
 
 const tryParseCheckpointTreeRecord = (
-  record: string
+  record: string,
 ): CheckpointTreeEntry | undefined => {
   const firstTab = record.indexOf("\t");
   const secondTab = firstTab >= 0 ? record.indexOf("\t", firstTab + 1) : -1;
@@ -1095,7 +1188,7 @@ const tryParseCheckpointTreeRecord = (
 };
 
 const parseCheckpointTreeGitignores = (
-  section: string
+  section: string,
 ): Array<{ dir: string; content: string }> => {
   const gitignores: Array<{ dir: string; content: string }> = [];
   let current: { dir: string; lines: string[] } | undefined;
@@ -1103,7 +1196,7 @@ const parseCheckpointTreeGitignores = (
     const line = rawLine.replace(/\r$/, "");
     if (line.startsWith(CHECKPOINT_GITIGNORE_START)) {
       const path = stripDotSlash(
-        line.slice(CHECKPOINT_GITIGNORE_START.length).trim()
+        line.slice(CHECKPOINT_GITIGNORE_START.length).trim(),
       );
       const lastSlash = path.lastIndexOf("/");
       current = {
@@ -1129,7 +1222,7 @@ const parseCheckpointTreeGitignores = (
 
 const parseCheckpointTreeOutput = (
   output: string,
-  mtimeIsFloat: boolean
+  mtimeIsFloat: boolean,
 ): CheckpointTreeResult => {
   const markerIndex = output.indexOf(CHECKPOINT_GITIGNORE_MARKER);
   const fileSection = markerIndex >= 0 ? output.slice(0, markerIndex) : output;
@@ -1165,7 +1258,7 @@ const parseCheckpointTreeOutput = (
 const listCheckpointTreeViaSftpWalk = async (
   sessionId: string,
   remotePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<CheckpointTreeResult> => {
   const entries: CheckpointTreeEntry[] = [];
   // 每个目录的 .gitignore 内容（dir 为相对根目录的 POSIX 路径，
@@ -1218,7 +1311,7 @@ const listCheckpointTreeViaSftpWalk = async (
 
 const executeCheckpointListTree = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   return withSshSession(
@@ -1252,7 +1345,7 @@ const executeCheckpointListTree = async (
       }
       return listCheckpointTreeViaSftpWalk(sessionId, remotePath, signal);
     },
-    { signal }
+    { signal },
   );
 };
 
@@ -1260,7 +1353,7 @@ const executeCheckpointListTree = async (
 // 两次往返（stat 判存在性/目录、read 取内容），合并后一次往返完成。
 const executeCheckpointReadFileWithStat = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   return withSshSession(
@@ -1309,7 +1402,7 @@ const executeCheckpointReadFileWithStat = async (
         content: content.toString("base64"),
       };
     },
-    { signal }
+    { signal },
   );
 };
 
@@ -1319,14 +1412,14 @@ const ensureSshPathList = (value: unknown, fieldName: string): string[] => {
     throw new Error(`${fieldName} must be a non-empty array of SSH paths`);
   }
   return value.map((item, index) =>
-    validateSshWorkspacePath(item, `${fieldName}[${index}]`)
+    validateSshWorkspacePath(item, `${fieldName}[${index}]`),
   );
 };
 
 // 按 SSH authority 分组路径：checkpoint 条目可能经绝对路径标记指向工作区根
 // 之外的位置，每个 authority 独立走连接池会话。
 const groupSshPathsByAuthority = (
-  paths: readonly string[]
+  paths: readonly string[],
 ): Map<string, Array<{ original: string; remotePath: string }>> => {
   const groups = new Map<
     string,
@@ -1352,7 +1445,7 @@ const CHECKPOINT_READ_CONCURRENCY = 8;
 // 替代逐文件 checkpoint-stat 的 N 次往返。
 const executeCheckpointStatPaths = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const paths = ensureSshPathList(args.paths, "paths");
   const stats: Record<string, unknown> = {};
@@ -1373,10 +1466,10 @@ const executeCheckpointStatPaths = async (
                   mtimeMs: entry.mtime * 1000,
                 }
               : { exists: false, isDirectory: false, size: 0, mtimeMs: 0 };
-          }
+          },
         );
       },
-      { signal }
+      { signal },
     );
   }
   return { stats };
@@ -1386,7 +1479,7 @@ const executeCheckpointStatPaths = async (
 // checkpoint-read-file 的 N 次往返；stat 后消失的文件返回 null。
 const executeCheckpointReadFiles = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const paths = ensureSshPathList(args.paths, "paths");
   const contents: Record<string, string | null> = {};
@@ -1410,10 +1503,10 @@ const executeCheckpointReadFiles = async (
               // The file may have been removed between stat and read.
               contents[item.original] = null;
             }
-          }
+          },
         );
       },
-      { signal }
+      { signal },
     );
   }
   return { contents };
@@ -1421,7 +1514,7 @@ const executeCheckpointReadFiles = async (
 
 const executeCheckpointWriteFile = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   const contentBase64 = ensureString(args.contentBase64, "contentBase64");
@@ -1434,7 +1527,7 @@ const executeCheckpointWriteFile = async (
         await executeSshCommand(
           sessionId,
           buildRemoteMkdirCommand(parentPath),
-          { signal }
+          { signal },
         );
       }
       const save = await writeInternalSshFile(sessionId, remotePath, data, {
@@ -1442,13 +1535,13 @@ const executeCheckpointWriteFile = async (
       });
       return { bytes: save.bytes };
     },
-    { signal }
+    { signal },
   );
 };
 
 const executeCheckpointDeleteFile = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   return withSshSession(
@@ -1461,13 +1554,13 @@ const executeCheckpointDeleteFile = async (
         return { deleted: false };
       }
     },
-    { signal }
+    { signal },
   );
 };
 
 const executeCheckpointRemoveDir = async (
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const workspacePath = validateSshWorkspacePath(args.path, "path");
   return withSshSession(
@@ -1476,7 +1569,7 @@ const executeCheckpointRemoveDir = async (
       const removed = await removeEmptySshDirectory(sessionId, remotePath);
       return { removed };
     },
-    { signal }
+    { signal },
   );
 };
 
@@ -1484,7 +1577,7 @@ const executeCheckpointRemoveDir = async (
 // 通过 scanId 找到仍在进行的 SFTP/exec 遍历并真正终止它（仅靠 Rust 侧
 // 丢弃 future 无法停掉 Electron 侧仍在运行的扫描）。
 const executeCheckpointAbortScan = (
-  args: RemoteWorkspaceCommandArgs
+  args: RemoteWorkspaceCommandArgs,
 ): Record<string, unknown> => {
   const scanId =
     typeof args.scanId === "string" && args.scanId.trim()
@@ -1499,7 +1592,7 @@ const executeCheckpointAbortScan = (
 const dispatchRemoteWorkspaceOperation = async (
   operation: string,
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   switch (operation) {
     case "filesystem-read":
@@ -1539,7 +1632,7 @@ const dispatchRemoteWorkspaceOperation = async (
 
 export const dispatchRemoteWorkspaceCommand = async (
   command: RemoteWorkspaceCommand,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<string> => {
   const outerSignal = options?.signal;
   let args: RemoteWorkspaceCommandArgs;
@@ -1561,7 +1654,7 @@ export const dispatchRemoteWorkspaceCommand = async (
     runRemoteWorkspaceOperationWithSshErrorHandling(
       command.operation,
       args,
-      signal
+      signal,
     );
   if (!scanId || command.operation === "checkpoint-abort-scan") {
     return runOperation(outerSignal);
@@ -1582,13 +1675,13 @@ export const dispatchRemoteWorkspaceCommand = async (
 const runRemoteWorkspaceOperationWithSshErrorHandling = async (
   operation: string,
   args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<string> => {
   try {
     const result = await dispatchRemoteWorkspaceOperation(
       operation,
       args,
-      signal
+      signal,
     );
     return JSON.stringify(result);
   } catch (error) {

@@ -368,7 +368,7 @@ impl FilesystemService {
             if let Some(&target_start) = match_positions.get(occurrence.saturating_sub(1)) {
                 let end_line = target_start + search_line_count;
 
-                fuzzy_edit::validate_replacement_indentation(
+                let effective_replacement = fuzzy_edit::pad_replacement_to_match(
                     &file_path,
                     &file_lines,
                     target_start,
@@ -377,7 +377,8 @@ impl FilesystemService {
                 )
                 .map_err(|message| Error::new(Status::InvalidArg, message))?;
 
-                let replacement_lines = fuzzy_edit::split_replacement_lines(&replace_content);
+                let replacement_lines =
+                    fuzzy_edit::split_replacement_lines(&effective_replacement);
                 let replacement_line_count = replacement_lines.len();
                 let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
                 new_lines.splice(target_start..end_line, replacement_lines);
@@ -389,7 +390,7 @@ impl FilesystemService {
                     let error_msg = fuzzy_edit::build_noop_edit_error(
                         &file_path,
                         search_content,
-                        &replace_content,
+                        &effective_replacement,
                         &file_lines,
                         total_lines,
                     );
@@ -503,7 +504,7 @@ impl FilesystemService {
             )
         {
             if similarity >= FUZZY_MATCH_THRESHOLD {
-                fuzzy_edit::validate_replacement_indentation(
+                let effective_replacement = fuzzy_edit::pad_replacement_to_match(
                     &file_path,
                     &file_lines,
                     start_line,
@@ -512,7 +513,8 @@ impl FilesystemService {
                 )
                 .map_err(|message| Error::new(Status::InvalidArg, message))?;
 
-                let replacement_lines = fuzzy_edit::split_replacement_lines(&replace_content);
+                let replacement_lines =
+                    fuzzy_edit::split_replacement_lines(&effective_replacement);
                 let replacement_line_count = replacement_lines.len();
                 let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
                 new_lines.splice(start_line..end_line, replacement_lines);
@@ -523,7 +525,7 @@ impl FilesystemService {
                     let error_msg = fuzzy_edit::build_noop_edit_error(
                         &file_path,
                         search_content,
-                        &replace_content,
+                        &effective_replacement,
                         &file_lines,
                         total_lines,
                     );

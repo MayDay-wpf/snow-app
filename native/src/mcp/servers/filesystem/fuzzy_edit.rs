@@ -77,6 +77,72 @@ fn first_non_empty_line<'a>(mut lines: impl Iterator<Item = &'a str>) -> Option<
     })
 }
 
+fn auto_pad_first_line_to_reference(reference_line: &str, text: &str) -> Option<String> {
+    let indent = leading_horizontal_whitespace(reference_line);
+    if indent.is_empty() {
+        return None;
+    }
+
+    let mut found_first = false;
+    let mut padded_lines: Vec<String> = Vec::new();
+    for line in text.split('\n') {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if !found_first && !trimmed.is_empty() {
+            if leading_horizontal_whitespace(line).is_empty() {
+                padded_lines.push(format!("{indent}{trimmed}"));
+            } else {
+                padded_lines.push(line.to_string());
+            }
+            found_first = true;
+        } else {
+            padded_lines.push(line.to_string());
+        }
+    }
+
+    found_first
+        .then_some(padded_lines.join("\n"))
+        .filter(|padded| padded != text)
+}
+
+fn auto_pad_search_indentation(content: &str, search_content: &str) -> Option<String> {
+    let file_lines: Vec<&str> = content.split('\n').collect();
+    let mut padded_lines: Vec<String> = Vec::new();
+    let mut changed = false;
+
+    for search_line in search_content.split('\n') {
+        let trimmed = search_line.trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() {
+            padded_lines.push(search_line.to_string());
+            continue;
+        }
+
+        let mut matched_indent: Option<&str> = None;
+        let mut found = false;
+        for file_line in &file_lines {
+            if file_line.trim_start_matches([' ', '\t']) != trimmed {
+                continue;
+            }
+            found = true;
+            let indent = leading_horizontal_whitespace(file_line);
+            if matched_indent.is_some_and(|existing| existing != indent) {
+                return None;
+            }
+            matched_indent = Some(indent);
+        }
+        if !found {
+            return None;
+        }
+
+        let indent = matched_indent.unwrap_or("");
+        if leading_horizontal_whitespace(search_line) != indent {
+            changed = true;
+        }
+        padded_lines.push(format!("{indent}{trimmed}"));
+    }
+
+    changed.then_some(padded_lines.join("\n"))
+}
+
 fn validate_candidate_indentation(
     file_path: &str,
     matched_line: &str,
@@ -139,6 +205,45 @@ pub(crate) fn validate_replacement_indentation(
     };
 
     validate_candidate_indentation(file_path, matched_line, replacement_line, "replaceContent")
+}
+
+/// 校验 replaceContent 缩进；缺失首行缩进时用匹配区域的首行缩进自动补全。
+/// 补全后的内容重新走完整校验，无法补全时返回原始校验错误。
+pub(crate) fn pad_replacement_to_match(
+    file_path: &str,
+    file_lines: &[&str],
+    matched_start: usize,
+    matched_end: usize,
+    replacement: &str,
+) -> std::result::Result<String, String> {
+    if !is_indentation_sensitive_path(file_path) {
+        return Ok(replacement.to_string());
+    }
+
+    let matched_lines: &[&str] = file_lines.get(matched_start..matched_end).unwrap_or(&[]);
+    let Some(matched_line) = first_non_empty_line(matched_lines.iter().copied()) else {
+        return Ok(replacement.to_string());
+    };
+    let Some(replacement_line) = first_non_empty_line(replacement.split('\n')) else {
+        return Ok(replacement.to_string());
+    };
+
+    if leading_horizontal_whitespace(matched_line)
+        == leading_horizontal_whitespace(replacement_line)
+    {
+        return Ok(replacement.to_string());
+    }
+
+    match auto_pad_first_line_to_reference(matched_line, replacement) {
+        Some(padded) => {
+            validate_replacement_indentation(file_path, file_lines, matched_start, matched_end, &padded)?;
+            Ok(padded)
+        }
+        None => {
+            validate_replacement_indentation(file_path, file_lines, matched_start, matched_end, replacement)?;
+            Ok(replacement.to_string())
+        }
+    }
 }
 
 /// 计算两个字符串之间的 Levenshtein 相似度（0.0 ~ 1.0），带提前剪枝优化。
@@ -271,7 +376,40 @@ pub(crate) fn try_strip_line_prefixes(text: &str) -> Option<String> {
 /// 尝试把 searchContent 作为字面子串在完整文件内容中匹配并替换。
 /// 对缩进敏感文件，如果命中位置是某行的第一个非空白字符，则同时校验
 /// replaceContent 首行缩进，防止缺少缩进时绕过整行匹配保护。
+/// 当 searchContent / replaceContent 缺失前导缩进时自动补全后重试。
 pub(crate) fn try_substring_replace(
+    file_path: &str,
+    content: &str,
+    search_content: &str,
+    replace_content: &str,
+    occurrence: usize,
+    preserve_indentation: bool,
+) -> std::result::Result<Option<(String, usize, usize, usize)>, String> {
+    let attempt = |search: &str, replacement: &str| {
+        try_substring_replace_once(
+            file_path,
+            content,
+            search,
+            replacement,
+            occurrence,
+            preserve_indentation,
+        )
+    };
+
+    match attempt(search_content, replace_content) {
+        Err(first_error) if preserve_indentation => {
+            if let Some(padded_search) = auto_pad_search_indentation(content, search_content) {
+                if let Ok(Some(result)) = attempt(&padded_search, replace_content) {
+                    return Ok(Some(result));
+                }
+            }
+            Err(first_error)
+        }
+        result => result,
+    }
+}
+
+fn try_substring_replace_once(
     file_path: &str,
     content: &str,
     search_content: &str,
@@ -304,6 +442,7 @@ pub(crate) fn try_substring_replace(
         return Ok(None);
     };
 
+    let mut padded_replacement: Option<String> = None;
     if preserve_indentation {
         let line_start = content[..target]
             .rfind('\n')
@@ -317,24 +456,34 @@ pub(crate) fn try_substring_replace(
         let before_match = &content[line_start..target];
         if before_match.chars().all(|character| character == ' ' || character == '\t') {
             validate_search_indentation(file_path, search_content, matched_line)?;
-            validate_replacement_indentation(
+            if let Err(error) = validate_replacement_indentation(
                 file_path,
                 &[matched_line],
                 0,
                 1,
                 replace_content,
-            )?;
+            ) {
+                match auto_pad_first_line_to_reference(matched_line, replace_content) {
+                    Some(padded) => {
+                        validate_replacement_indentation(file_path, &[matched_line], 0, 1, &padded)?;
+                        padded_replacement = Some(padded);
+                    }
+                    None => return Err(error),
+                }
+            }
         }
     }
+    let effective_replacement = padded_replacement.as_deref().unwrap_or(replace_content);
 
     let end = target + adapted_search.len();
-    let mut new_content = String::with_capacity(content.len() + replace_content.len());
+    let mut new_content = String::with_capacity(content.len() + effective_replacement.len());
     new_content.push_str(&content[..target]);
-    new_content.push_str(replace_content);
+    new_content.push_str(effective_replacement);
     new_content.push_str(&content[end..]);
 
     let edit_start_line = content[..target].matches('\n').count();
-    let edit_end_line = edit_start_line + replace_content.split('\n').count().saturating_sub(1);
+    let edit_end_line =
+        edit_start_line + effective_replacement.split('\n').count().saturating_sub(1);
     Ok(Some((
         new_content,
         edit_start_line,
