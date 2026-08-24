@@ -206,7 +206,7 @@ pub async fn list_mcp_project_servers(
             .map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
-                "Failed to check image generation configuration: {error}",
+                    format!("Failed to check image generation configuration: {error}"),
                 )
             })??;
 
