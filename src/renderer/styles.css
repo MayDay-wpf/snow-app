@@ -2551,6 +2551,12 @@ input {
   gap: 8px;
 }
 
+/* 行内输入框与按钮统一高度，避免上下边框错位 */
+.form-dialog-input-row .form-dialog-input {
+  height: 34px;
+  padding: 0 10px;
+}
+
 .form-dialog-input {
   width: 100%;
   min-width: 0;
@@ -2666,6 +2672,7 @@ input {
 }
 
 .form-dialog-browse-button {
+  height: 34px;
   flex-shrink: 0;
   white-space: nowrap;
 }

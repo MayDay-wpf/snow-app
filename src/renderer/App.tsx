@@ -151,7 +151,7 @@ export const App = (): React.JSX.Element => {
   const [isRightPanelFullscreen, setIsRightPanelFullscreen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [rightPanelWidth, setRightPanelWidth] = useState(
-    RIGHT_PANEL_DEFAULT_WIDTH
+    RIGHT_PANEL_DEFAULT_WIDTH,
   );
   const [activeResizeTarget, setActiveResizeTarget] =
     useState<ResizeTarget | null>(null);
@@ -178,12 +178,9 @@ export const App = (): React.JSX.Element => {
   // 用户手动收起/展开会清除标记，手动收起的面板不会被自动展开。
   const lastContentWidthRef = useRef(window.innerWidth);
   const autoCollapsedRef = useRef({ sidebar: false, rightPanel: false });
-  const clearAutoCollapsed = useCallback(
-    (target: "sidebar" | "rightPanel") => {
-      autoCollapsedRef.current[target] = false;
-    },
-    []
-  );
+  const clearAutoCollapsed = useCallback((target: "sidebar" | "rightPanel") => {
+    autoCollapsedRef.current[target] = false;
+  }, []);
 
   // 监听右侧面板的展开请求：工具调用组件打开 diff 预览时，
   // 若面板处于折叠状态则自动展开，保证用户能看到新 tab。
@@ -283,7 +280,10 @@ export const App = (): React.JSX.Element => {
         const otherPanelWidth = isSidebarCollapsed ? 0 : sidebarWidth;
         if (
           contentWidth <
-          RIGHT_PANEL_MIN_WIDTH + MAIN_CONTENT_MIN_WIDTH + otherPanelWidth + chrome
+          RIGHT_PANEL_MIN_WIDTH +
+            MAIN_CONTENT_MIN_WIDTH +
+            otherPanelWidth +
+            chrome
         ) {
           autoCollapsedRef.current.rightPanel = true;
           setIsRightPanelCollapsed(true);
@@ -339,7 +339,7 @@ export const App = (): React.JSX.Element => {
         rightPanelRef.current?.openTerminal(targetCwd);
       });
     },
-    [activeDirectory, isRightPanelCollapsed, clearAutoCollapsed]
+    [activeDirectory, isRightPanelCollapsed, clearAutoCollapsed],
   );
 
   const handleOpenBrowser = useCallback(() => {
@@ -371,7 +371,7 @@ export const App = (): React.JSX.Element => {
         rightPanelRef.current?.openCodebase(projectId, projectName);
       });
     },
-    [isRightPanelCollapsed, clearAutoCollapsed]
+    [isRightPanelCollapsed, clearAutoCollapsed],
   );
 
   const handleOpenFile = useCallback(
@@ -382,7 +382,7 @@ export const App = (): React.JSX.Element => {
       sshSessionId?: string | null,
       focusLine?: number,
       sshWorkspaceRoot?: string,
-      sshWorkspaceId?: string
+      sshWorkspaceId?: string,
     ) => {
       if (isRightPanelCollapsed) {
         clearAutoCollapsed("rightPanel");
@@ -396,11 +396,11 @@ export const App = (): React.JSX.Element => {
           sshSessionId,
           focusLine,
           sshWorkspaceRoot,
-          sshWorkspaceId
+          sshWorkspaceId,
         );
       });
     },
-    [isRightPanelCollapsed, clearAutoCollapsed]
+    [isRightPanelCollapsed, clearAutoCollapsed],
   );
 
   const handleOpenSshWizard = useCallback((): void => {
@@ -422,7 +422,7 @@ export const App = (): React.JSX.Element => {
         source: "manual",
       });
     },
-    []
+    [],
   );
 
   const handleSshWizardCancel = useCallback((): void => {
@@ -459,7 +459,7 @@ export const App = (): React.JSX.Element => {
     // capped at a fixed pixel value. The original max is kept as a floor so
     // small-screen behaviour is unchanged.
     const ratioMax =
-      target === "sidebar" ? availableWidth * 0.3 : availableWidth * 0.45;
+      target === "sidebar" ? availableWidth * 0.3 : availableWidth * 0.6;
     const absoluteMax =
       target === "sidebar"
         ? Math.max(SIDEBAR_MAX_WIDTH, ratioMax)
@@ -470,7 +470,7 @@ export const App = (): React.JSX.Element => {
 
   const startPanelResize = (
     target: ResizeTarget,
-    event: ReactPointerEvent<HTMLDivElement>
+    event: ReactPointerEvent<HTMLDivElement>,
   ): void => {
     event.preventDefault();
 
@@ -499,7 +499,7 @@ export const App = (): React.JSX.Element => {
       if (shellElement) {
         shellElement.style.setProperty(
           target === "sidebar" ? "--sidebar-width" : "--right-panel-width",
-          `${clampedWidth}px`
+          `${clampedWidth}px`,
         );
       }
     };
@@ -622,7 +622,7 @@ export const App = (): React.JSX.Element => {
             confirmLabel={t("app.closeConfirm")}
             cancelLabel={t("app.closeCancel")}
             extraLabel={t(
-              isMacOS ? "app.closeMinimizeMac" : "app.closeMinimize"
+              isMacOS ? "app.closeMinimizeMac" : "app.closeMinimize",
             )}
             onExtra={handleMinimizeClose}
             onConfirm={handleConfirmClose}
