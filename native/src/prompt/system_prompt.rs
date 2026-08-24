@@ -136,13 +136,11 @@ The chat UI auto-renders Mermaid diagrams from fenced code blocks. When a diagra
 
 - Use a fenced code block with the `mermaid` language tag, e.g.
 
-```
 ```mermaid
 graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action]
     B -->|No| D[End]
-```
 ```
 
 - Supported diagram types: flowchart (`graph`/`flowchart`), sequence, class, state, ER, gantt, pie, journey, mindmap, and timeline.
