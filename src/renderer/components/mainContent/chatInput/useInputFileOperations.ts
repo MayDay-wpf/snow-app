@@ -63,7 +63,7 @@ export type InputFileOperationsResult = {
 const findWebChipByUrl = (
   root: HTMLElement,
   url: string,
-  title?: string
+  title?: string,
 ): HTMLElement | null => {
   const chips = root.querySelectorAll<HTMLElement>("[data-web-tag='true']");
   let fallback: HTMLElement | null = null;
@@ -93,6 +93,44 @@ export const useInputFileOperations = ({
   const pendingWebSnapshotRef = useRef<
     Map<number, { url: string; title?: string }>
   >(new Map());
+  // 记住编辑区最后一次有效光标位置：焦点被浏览器元素选择器/终端等
+  // 外部交互夺走后，外部事件插入 chip 前需还原到此位置，否则
+  // focus() 会把光标钉在行首，chip 永远插到输入框开头。
+  const lastCaretRangeRef = useRef<Range | null>(null);
+
+  useEffect(() => {
+    const updateLastCaret = (): void => {
+      const el = textareaRef.current;
+      const selection = window.getSelection();
+      if (!el || !selection || selection.rangeCount === 0) {
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (el.contains(range.commonAncestorContainer)) {
+        lastCaretRangeRef.current = range.cloneRange();
+      }
+    };
+    document.addEventListener("selectionchange", updateLastCaret);
+    return () =>
+      document.removeEventListener("selectionchange", updateLastCaret);
+  }, [textareaRef]);
+
+  // 外部插入前优先还原最后记住的光标。不能先看当前选区再决定是否
+  // 还原：focus() 后 Chromium 会在行首新建一个光标，该"新"选区也
+  // 在编辑区内，若据此早退就会退回行首插入的老毛病。
+  // selectionchange 会实时同步 saved range，因此直接覆盖是安全的。
+  const restoreCaret = useCallback((): void => {
+    const selection = window.getSelection();
+    const saved = lastCaretRangeRef.current;
+    if (!selection || !saved) {
+      return;
+    }
+    if (!saved.startContainer.isConnected || !saved.endContainer.isConnected) {
+      return;
+    }
+    selection.removeAllRanges();
+    selection.addRange(saved);
+  }, []);
 
   const renumberImageChips = useCallback(() => {
     const el = textareaRef.current;
@@ -120,7 +158,7 @@ export const useInputFileOperations = ({
       insertHtmlAtSelection(createChipHtml(tag));
       syncContent();
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const insertFileTags = useCallback(
@@ -131,18 +169,19 @@ export const useInputFileOperations = ({
       insertHtmlAtSelection(tags.map((tag) => createChipHtml(tag)).join(" "));
       syncContent();
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const insertElementTag = useCallback(
     (tag: ElementTag) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
+        restoreCaret();
       }
       insertHtmlAtSelection(createElementChipHtml(tag));
       syncContent();
     },
-    [syncContent, textareaRef]
+    [restoreCaret, syncContent, textareaRef],
   );
 
   useEffect(() => {
@@ -152,6 +191,7 @@ export const useInputFileOperations = ({
         return;
       }
       textareaRef.current.focus();
+      restoreCaret();
       const tag: TextSnippetTag = {
         content: detail.text,
         summary: buildTextSnippetSummary(detail.text, 36),
@@ -163,7 +203,7 @@ export const useInputFileOperations = ({
     window.addEventListener(TERMINAL_INSERT_TEXT_EVENT, onInsertText);
     return () =>
       window.removeEventListener(TERMINAL_INSERT_TEXT_EVENT, onInsertText);
-  }, [syncContent, textareaRef]);
+  }, [restoreCaret, syncContent, textareaRef]);
 
   useEffect(() => {
     const handleInsertElementTag = (event: Event): void => {
@@ -174,7 +214,10 @@ export const useInputFileOperations = ({
     };
     window.addEventListener(INSERT_ELEMENT_TAG_EVENT, handleInsertElementTag);
     return () => {
-      window.removeEventListener(INSERT_ELEMENT_TAG_EVENT, handleInsertElementTag);
+      window.removeEventListener(
+        INSERT_ELEMENT_TAG_EVENT,
+        handleInsertElementTag,
+      );
     };
   }, [insertElementTag]);
 
@@ -215,7 +258,7 @@ export const useInputFileOperations = ({
       }
       try {
         const prev = JSON.parse(
-          webChip.dataset.webData || "{}"
+          webChip.dataset.webData || "{}",
         ) as Partial<WebTag>;
         webChip.dataset.webData = JSON.stringify({
           url: typeof prev.url === "string" ? prev.url : pending.url,
@@ -242,7 +285,10 @@ export const useInputFileOperations = ({
     };
     window.addEventListener(WEB_SNAPSHOT_RESULT_EVENT, handleSnapshotResult);
     return () => {
-      window.removeEventListener(WEB_SNAPSHOT_RESULT_EVENT, handleSnapshotResult);
+      window.removeEventListener(
+        WEB_SNAPSHOT_RESULT_EVENT,
+        handleSnapshotResult,
+      );
     };
   }, [syncContent, textareaRef]);
 
@@ -267,7 +313,7 @@ export const useInputFileOperations = ({
       };
       reader.readAsDataURL(file);
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const insertExternalFiles = useCallback(
@@ -312,7 +358,7 @@ export const useInputFileOperations = ({
           // Ignore path resolution failures
         });
     },
-    [insertFileTags, insertImageFromFile]
+    [insertFileTags, insertImageFromFile],
   );
 
   const insertImageFiles = useCallback(
@@ -341,7 +387,7 @@ export const useInputFileOperations = ({
         reader.readAsDataURL(file);
       }
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const insertDroppedPlainText = useCallback(
@@ -362,7 +408,7 @@ export const useInputFileOperations = ({
       document.execCommand("insertText", false, text);
       syncContent();
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const insertWebTag = useCallback(
@@ -391,15 +437,17 @@ export const useInputFileOperations = ({
             tabId: options.tabId ?? "",
             url: tag.url,
           },
-        })
+        }),
       );
     },
-    [syncContent, textareaRef]
+    [syncContent, textareaRef],
   );
 
   const handleSelectFiles = useCallback(async () => {
     try {
-      const selected = await window.snow.selectFiles(t("plusMenu.selectFilesTitle"));
+      const selected = await window.snow.selectFiles(
+        t("plusMenu.selectFilesTitle"),
+      );
       if (!selected || selected.length === 0) {
         return;
       }
@@ -417,7 +465,7 @@ export const useInputFileOperations = ({
   const handleSelectFolders = useCallback(async () => {
     try {
       const selected = await window.snow.selectDirectories(
-        t("plusMenu.selectFoldersTitle")
+        t("plusMenu.selectFoldersTitle"),
       );
       if (!selected || selected.length === 0) {
         return;
@@ -454,7 +502,7 @@ export const useInputFileOperations = ({
         ],
       },
     ],
-    [t, handleSelectFiles, handleSelectFolders]
+    [t, handleSelectFiles, handleSelectFolders],
   );
 
   return {
