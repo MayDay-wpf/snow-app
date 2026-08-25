@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.2.13
+
+## New Features
+
+- **Project Collections**: New project collections with drag-and-drop support.
+
+## Improvements
+
+- **Interaction State Management**: Enhanced reasoning text handling and state management in interactions, with per-iteration stream metrics reset on each loop.
+- **Fuzzy Edit Auto-Indent**: Fuzzy edit now auto-pads missing indentation in search and replacement content.
+- **UI Polish**: New session view syncs draft content and focuses the input box on mount; toolbar dividers consolidated; right panel max ratio increased; form dialog input alignment fixed.
+
+## Bug Fixes
+
+- **Chip Insertion Position**: Fixed chip insertion position after external focus loss.
+- **Mermaid Code Block**: Fixed the Mermaid code block example format by removing extra code block tags.
+- **Image Gen Error Message**: Fixed a missing `format!()` in the image generation configuration error message.
+
 ## v0.2.12
 
 ## New Features
