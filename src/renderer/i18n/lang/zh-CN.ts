@@ -23,7 +23,7 @@ export const zhCN = {
   "sidebar.createCollectionDescription": "创建合集收纳项目（可将项目拖入合集）",
   "sidebar.createCollectionTitle": "新建合集",
   "sidebar.createCollectionDialogDescription":
-    "合集用于将项目收纳成组。把项目拖到合集上即可加入——项目本身不会被改动。",
+    "合集用于将项目收纳成组。把项目拖到合集上即可加入——加入后项目只在合集中显示，不再出现在外层列表。项目本身不会被改动。",
   "sidebar.createCollectionNameLabel": "合集名称",
   "sidebar.createCollectionNamePlaceholder": "合集名称",
   "sidebar.createCollectionConfirm": "创建",

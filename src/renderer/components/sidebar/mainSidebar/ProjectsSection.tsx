@@ -287,23 +287,42 @@ export function ProjectsSection({
     })();
   }, [externalActiveDirectory, updateSwitchingDirectory, t]);
 
+  // 已收纳进合集的项目：顶层列表不再展示，仅显示在合集中
+  const collectionMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const collection of collections) {
+      for (const id of collection.memberDirectoryIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [collections]);
+
+  // 顶层（合集外）可见项目 = 全部项目 - 已入合集项目
+  const topLevelDirectories = useMemo(
+    () =>
+      workspaceDirectories.filter(
+        (directory) => !collectionMemberIds.has(directory.directoryId),
+      ),
+    [collectionMemberIds, workspaceDirectories],
+  );
+
   const visibleDirectoryCount = directoryPage * DIRECTORY_PAGE_SIZE;
   const visibleDirectories = useMemo(
-    () => workspaceDirectories.slice(0, visibleDirectoryCount),
-    [visibleDirectoryCount, workspaceDirectories],
+    () => topLevelDirectories.slice(0, visibleDirectoryCount),
+    [topLevelDirectories, visibleDirectoryCount],
   );
-  const hasMoreDirectories =
-    visibleDirectoryCount < workspaceDirectories.length;
+  const hasMoreDirectories = visibleDirectoryCount < topLevelDirectories.length;
 
   const loadNextDirectoryPage = useCallback((): void => {
     setDirectoryPage((currentPage) => {
       const maxPage = Math.ceil(
-        workspaceDirectories.length / DIRECTORY_PAGE_SIZE,
+        topLevelDirectories.length / DIRECTORY_PAGE_SIZE,
       );
 
       return Math.min(currentPage + 1, Math.max(maxPage, 1));
     });
-  }, [workspaceDirectories.length]);
+  }, [topLevelDirectories.length]);
 
   const loadWorkspaceDirectories = useCallback(async (): Promise<void> => {
     setDirectoryError(null);
@@ -359,7 +378,7 @@ export function ProjectsSection({
 
   useEffect(() => {
     setDirectoryPage(1);
-  }, [workspaceDirectories.length]);
+  }, [topLevelDirectories.length]);
 
   useEffect(() => {
     if (!hasMoreDirectories) {
@@ -1322,7 +1341,7 @@ export function ProjectsSection({
         <p className="form-dialog-description">
           {t("sidebar.createCollectionDialogDescription", {
             defaultValue:
-              "A collection organizes projects into a group. Drag a project onto the collection to add it — the project itself is untouched.",
+              "A collection organizes projects into a group. Drag a project onto the collection to add it — it then appears only inside the collection, not in the list above it. The project itself is untouched.",
           })}
         </p>
         <label className="form-dialog-field">
@@ -1633,7 +1652,7 @@ export function ProjectsSection({
             onRenameCollection={handleRenameCollectionOpen}
             onShowDetails={handleShowDetails}
             onToggleCollection={handleToggleCollectionExpanded}
-            totalCount={workspaceDirectories.length}
+            totalCount={topLevelDirectories.length}
             visibleDirectories={visibleDirectories}
             workspaceDirectories={workspaceDirectories}
           />

@@ -23,7 +23,7 @@ export const zhTW = {
   "sidebar.createCollectionDescription": "建立合集收納專案（可將專案拖入合集）",
   "sidebar.createCollectionTitle": "新增合集",
   "sidebar.createCollectionDialogDescription":
-    "合集用於將專案收納成群組。把專案拖到合集上即可加入——專案本身不會被更動。",
+    "合集用於將專案收納成群組。把專案拖到合集上即可加入——加入後專案只在合集中顯示，不再出現在外層列表。專案本身不會被更動。",
   "sidebar.createCollectionNameLabel": "合集名稱",
   "sidebar.createCollectionNamePlaceholder": "合集名稱",
   "sidebar.createCollectionConfirm": "建立",

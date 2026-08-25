@@ -26,7 +26,7 @@ export const en = {
     "Create a collection to organize projects (drag projects into it)",
   "sidebar.createCollectionTitle": "Create a new collection",
   "sidebar.createCollectionDialogDescription":
-    "A collection organizes projects into a group. Drag a project onto the collection to add it — the project itself is untouched.",
+    "A collection organizes projects into a group. Drag a project onto the collection to add it — it then appears only inside the collection, not in the list above it. The project itself is untouched.",
   "sidebar.createCollectionNameLabel": "Collection name",
   "sidebar.createCollectionNamePlaceholder": "Collection name",
   "sidebar.createCollectionConfirm": "Create",
