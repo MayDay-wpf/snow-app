@@ -162,7 +162,7 @@ const ensureSpawnHelperExecutable = (): void => {
       ptyDir,
       "..",
       "prebuilds",
-      `${process.platform}-${process.arch}`
+      `${process.platform}-${process.arch}`,
     );
     const spawnHelperPath = join(prebuildDir, "spawn-helper");
     if (existsSync(spawnHelperPath)) {
@@ -198,7 +198,7 @@ type SshSpawnConfig = {
 const buildSshConnectParams = (
   host: string,
   port: number,
-  username: string
+  username: string,
 ): SshConnectParams | null => {
   const credential = getSshCredential(host, port, username);
   if (!credential) {
@@ -242,11 +242,11 @@ const resolveVerifiedSshHostKey = async (params: {
   const connectParams = buildSshConnectParams(
     params.host,
     params.port,
-    params.username
+    params.username,
   );
   if (!connectParams) {
     throw new Error(
-      "SSH terminal blocked: connect to this workspace first to verify its host key"
+      "SSH terminal blocked: connect to this workspace first to verify its host key",
     );
   }
 
@@ -263,7 +263,7 @@ const resolveVerifiedSshHostKey = async (params: {
 };
 
 const createKnownHostsFile = (
-  record: SshHostKeyRecord
+  record: SshHostKeyRecord,
 ): {
   path: string;
   dispose: () => void;
@@ -299,7 +299,7 @@ const createKnownHostsFile = (
 
 const buildSshSpawnConfig = async (
   cwd: string,
-  remoteCommand?: string
+  remoteCommand?: string,
 ): Promise<SshSpawnConfig | null> => {
   if (!isSshPath(cwd)) {
     return null;
@@ -314,7 +314,7 @@ const buildSshSpawnConfig = async (
 
   const { host, port, username, remotePath } = parsed;
   const knownHosts = createKnownHostsFile(
-    await resolveVerifiedSshHostKey({ host, port, username })
+    await resolveVerifiedSshHostKey({ host, port, username }),
   );
   const sshArgs: string[] = [];
 
@@ -369,7 +369,7 @@ const buildSshSpawnConfig = async (
 
 export const createPtySession = async (
   webContents: WebContents,
-  options: PtySessionOptions
+  options: PtySessionOptions,
 ): Promise<string> => {
   const id = generatePtyId();
   const customShell = options.shellPath?.trim();
@@ -377,7 +377,7 @@ export const createPtySession = async (
 
   const sshConfig = await buildSshSpawnConfig(
     options.cwd,
-    options.remoteCommand
+    options.remoteCommand,
   );
 
   let shell: string;
@@ -420,6 +420,20 @@ export const createPtySession = async (
     spawnCwd = options.cwd || undefined;
   }
 
+  // Windows 下刷新 PATH（注册表 + 继承的合并值，是继承环境的严格超集），
+  // 补齐应用启动后新增的条目；WSL 不注入，Windows PATH 会破坏 Linux PATH。
+  const ptyEnv = sanitizeEnv(options);
+  if (isWindows && !isWslShell(shell)) {
+    try {
+      const refreshedPath = await native.resolveLoginPathForTerminal();
+      if (refreshedPath) {
+        ptyEnv.PATH = refreshedPath;
+      }
+    } catch {
+      // 刷新失败时沿用继承环境，不影响终端创建
+    }
+  }
+
   let pty: IPty;
   try {
     pty = getNodePty().spawn(shell, shellArgs, {
@@ -427,7 +441,7 @@ export const createPtySession = async (
       cols: options.cols,
       rows: options.rows,
       cwd: spawnCwd,
-      env: sanitizeEnv(options),
+      env: ptyEnv,
       // Electron already has a console attached, so the default ConPTY kill path
       // (which forks conpty_console_list_agent.js and calls AttachConsole) throws
       // "AttachConsole failed". Setting useConptyDll routes kill() through a

@@ -3,7 +3,7 @@ import type {
   AppNotificationOptions,
   NotificationConversationTarget,
 } from "../../shared/notification";
-import { APP_ICON_PATH, isMacOS } from "../app/constants";
+import { APP_ICON_PATH, isMacOS, isWindows } from "../app/constants";
 import { createWindow, getMainWindow } from "../app/mainWindow";
 import { safeSend } from "../utils/safeSend";
 
@@ -74,13 +74,25 @@ const showAndFocusWindow = (window: BrowserWindow): void => {
   if (window.isDestroyed()) {
     return;
   }
-  if (!window.isVisible()) {
-    window.show();
-  }
   if (window.isMinimized()) {
     window.restore();
   }
-  window.focus();
+  if (!window.isVisible()) {
+    window.show();
+  }
+
+  if (isWindows) {
+    // 绕过 Windows 前台锁定：临时置顶强制聚焦，再延迟恢复
+    window.setAlwaysOnTop(true);
+    window.focus();
+    setTimeout(() => {
+      if (!window.isDestroyed()) {
+        window.setAlwaysOnTop(false);
+      }
+    }, 1000);
+  } else {
+    window.focus();
+  }
 };
 
 const deliverPendingActivation = (window: BrowserWindow): void => {
@@ -111,11 +123,7 @@ const sendOrDeferActivation = (
     });
     return;
   }
-  const sent = safeSend(
-    window.webContents,
-    "notification:activated",
-    target
-  );
+  const sent = safeSend(window.webContents, "notification:activated", target);
   if (!sent) {
     pendingActivationTarget = target;
     window.webContents.once("did-finish-load", () => {
@@ -152,10 +160,7 @@ const activateSourceWindow = async (
     try {
       rebuilt = createWindow();
     } catch (error) {
-      console.error(
-        "[notification] Failed to recreate the main window",
-        error
-      );
+      console.error("[notification] Failed to recreate the main window", error);
       return;
     }
     if (target) {

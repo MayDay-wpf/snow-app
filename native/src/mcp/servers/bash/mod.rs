@@ -542,10 +542,10 @@ impl BashService {
         //（cwd 仅通过 --cd 传递，spawnCwd = undefined）。
         let host_cwd_supported = !is_windows_wsl_shell(&shell_family);
 
-        // resolve_login_path 在 Windows 上返回注册表中的 Windows PATH（分号分隔的
-        // Windows 路径）。这对 powershell/cmd 有用，但注入给 WSL 会破坏 Linux 的 PATH
-        //（Linux 用冒号分隔）。WSL 通过 `bash -lc` 自行从 .profile 加载 Linux PATH，
-        // 因此跳过注入。
+        // resolve_login_path 在 Windows 上返回注册表 + 继承 PATH 的合并值
+        //（分号分隔）。这对 powershell/cmd 有用，但注入给 WSL 会破坏 Linux 的
+        // PATH（Linux 用冒号分隔）。WSL 通过 `bash -lc` 自行从 .profile 加载
+        // Linux PATH，因此跳过注入。
         let login_path_started = Instant::now();
         let login_path = if shell_family == "wsl" {
             None
@@ -564,7 +564,12 @@ impl BashService {
             })
             .kill_on_drop(!detach)
             .env("LANG", "en_US.UTF-8")
-            .env("LC_ALL", "en_US.UTF-8");
+            .env("LC_ALL", "en_US.UTF-8")
+            // Electron 运行时会把自身模式注入主进程（NODE_ENV=production/
+            // development），泄漏给用户 shell 后 npm 会默认 omit devDependencies
+            //（NODE_ENV=production 时跳过 dev 依赖，vite 等本地命令装不上）。
+            // 剥离该变量，与用户自己开的普通终端行为保持一致。
+            .env_remove("NODE_ENV");
         if host_cwd_supported {
             process.current_dir(&working_directory);
         }

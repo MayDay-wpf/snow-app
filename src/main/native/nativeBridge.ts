@@ -810,6 +810,7 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to detect terminals"),
         ),
+      resolveLoginPathForTerminal: () => Promise.resolve(null),
       getGitStatus: () => {
         throw new Error("Rust native bridge is required for git status");
       },

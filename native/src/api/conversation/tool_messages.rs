@@ -148,7 +148,7 @@ pub fn parse_tool_results_with_images(
                 result,
                 has_valid_shape,
             } = record;
-            if skip_image_parsing || !result.contains("@@image:") {
+            if skip_image_parsing || !has_image_tags(&result) {
                 return ParsedToolResult {
                     name,
                     call_id,
@@ -175,6 +175,39 @@ pub fn parse_tool_results_with_images(
             }
         })
         .collect()
+}
+
+/// 判断工具结果是否携带图片标签，识别两种格式：
+/// 1. 前端 `formatMcpToolResultForModel` 追加的尾部标签行：`JSON\n@@image:...@@`；
+/// 2. filesystem-read 读取图片的 `{"content":"@@image:...@@","isImage":true}`。
+///
+/// 不能用 `contains("@@image:")`——grep 等搜索结果 JSON 内嵌的匹配行文本可能
+/// 恰好含该字样，会误把非图片 base64 发给视觉模型。
+fn has_image_tags(result: &str) -> bool {
+    // Case 1: 标签行紧跟在序列化 JSON 之后
+    let mut trailing_tag_len = 0usize;
+    for line in result.lines().rev() {
+        if line.trim_start().starts_with("@@image:") {
+            trailing_tag_len += line.len() + 1;
+        } else {
+            break;
+        }
+    }
+    if trailing_tag_len > 0 {
+        let json_part = &result[..result.len().saturating_sub(trailing_tag_len)];
+        if serde_json::from_str::<Value>(json_part.trim()).is_ok() {
+            return true;
+        }
+    }
+
+    // Case 2: filesystem-read 图片结果（isImage 为可信标志）
+    serde_json::from_str::<Value>(result).ok().is_some_and(|value| {
+        value.get("isImage").and_then(Value::as_bool).unwrap_or(false)
+            && value
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| content.starts_with("@@image:"))
+    })
 }
 
 /// A provider-agnostic representation of a single tool call extracted from

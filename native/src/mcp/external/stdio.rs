@@ -167,8 +167,8 @@ async fn spawn_transport(
     // GUI 启动的 Electron（macOS Finder / Windows 资源管理器）进程 PATH 不完整，
     // 不含 Homebrew/nvm 等路径，导致 npx 等命令无法解析。注入 login shell
     // （Unix 上冒号分隔）或注册表（Windows 上分号分隔）的 PATH。
-    // WSL 命令跳过：resolve_login_path 在 Windows 上返回的是 Windows 注册表
-    // PATH（分号分隔），注入会覆盖 WSL 内有效的 Linux PATH（冒号分隔）；
+    // WSL 命令跳过：resolve_login_path 在 Windows 上返回的是注册表 + 继承的
+    // 合并 PATH（分号分隔），注入会覆盖 WSL 内有效的 Linux PATH（冒号分隔）；
     // WSL 通过 bash -l 自行从 .profile 加载正确的 Linux PATH。
     let login_path = if detect_shell_family(command_name) != "wsl" {
         resolve_login_path().await

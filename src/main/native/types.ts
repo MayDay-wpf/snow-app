@@ -1774,6 +1774,8 @@ export type NativeBridge = {
   engineInfo: () => string;
   sum: (a: number, b: number) => number;
   detectTerminals: () => Promise<DetectedTerminal[]>;
+  /** 解析登录 PATH（注册表 + 继承的合并值），PTY 创建时刷新用 */
+  resolveLoginPathForTerminal: () => Promise<string | null>;
   getGitStatus: (
     repoPath: string,
     statusLimit: number,

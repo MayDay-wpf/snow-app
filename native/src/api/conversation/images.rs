@@ -365,6 +365,11 @@ fn parse_image_tag_value(value: &str, database_path: &Path) -> Result<Option<Cha
     }
 
     let media_type = extension_to_media_type(&file_path);
+    // 仅接受真实图片文件（扩展名 image/* 且内容魔数匹配）；文本文件被引用时
+    // 保留原文，避免上游视觉模型报 "cannot identify image file" 400。
+    if !media_type.starts_with("image/") || !is_supported_image_bytes(&bytes, &media_type) {
+        return Ok(None);
+    }
     let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let data_url = format!("data:{};base64,{}", media_type, data);
 
@@ -386,13 +391,11 @@ fn parse_base64_image_data_url(data_url: &str) -> Option<ChatImage> {
         return None;
     }
 
-    // 校验 base64 内容合法性。非法的 base64 会导致上游 API 直接拒绝请求
-    // （例如 "Invalid 'input[0].content[1].image_url' ... invalid base64-encoded value"）。
-    // 这里与上游使用相同的标准解码器提前拦截，避免把脏数据发到视觉模型。
-    if base64::engine::general_purpose::STANDARD
-        .decode(data)
-        .is_err()
-    {
+    // 先与上游用相同标准解码器拦截非法 base64，再校验魔数确为真实图片；
+    // 仅可解码不足以证明是图片（如文本中的伪标签 `@@image:data:image/png;base64,YQ==@@`），
+    // 否则上游视觉模型报 "cannot identify image file" 400。
+    let decoded = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
+    if !is_supported_image_bytes(&decoded, media_type) {
         return None;
     }
 
@@ -402,6 +405,36 @@ fn parse_base64_image_data_url(data_url: &str) -> Option<ChatImage> {
         data_url: value.to_string(),
         source: None,
     })
+}
+
+/// 校验字节确为 media_type 声明的真实图片（魔数 / 文本头）；非图片数据
+/// 不应以 image_url 形式发给视觉模型。
+fn is_supported_image_bytes(bytes: &[u8], media_type: &str) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    match media_type {
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg" | "image/jpg" => bytes.starts_with(b"\xFF\xD8\xFF"),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => {
+            bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP"
+        }
+        "image/bmp" => bytes.starts_with(b"BM"),
+        "image/x-icon" => bytes.starts_with(b"\x00\x00\x01\x00"),
+        "image/tiff" => bytes.starts_with(b"II*\x00") || bytes.starts_with(b"MM\x00*"),
+        "image/avif" | "image/heic" | "image/heif" => {
+            bytes.len() >= 12 && &bytes[4..8] == b"ftyp"
+        }
+        // SVG 是 XML 文本，检查头部标签即可（try_extract_svg_source 已先处理）。
+        "image/svg+xml" => {
+            let head_len = bytes.len().min(512);
+            String::from_utf8_lossy(&bytes[..head_len])
+                .trim_start()
+                .starts_with('<')
+        }
+        _ => false,
+    }
 }
 
 /// If the image tag value refers to an SVG (either inline data URL or file path),
@@ -503,7 +536,8 @@ fn persist_base64_image(data_url: &str, date_dir: &Path) -> Result<Option<String
         Ok(bytes) => bytes,
         Err(_) => return Ok(None),
     };
-    if decoded.is_empty() {
+    // 仅持久化真实图片，避免文本中的伪标签（可解码但非图片）写成垃圾文件。
+    if !is_supported_image_bytes(&decoded, media_type) {
         return Ok(None);
     }
 

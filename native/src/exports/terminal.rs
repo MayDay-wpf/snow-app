@@ -442,10 +442,29 @@ fn expand_env_vars(input: &str) -> String {
     result
 }
 
-/// 从 Windows 注册表读取 User PATH 和 System PATH 并合并。
-/// 注册表是 Windows PATH 的权威来源，比进程继承的 PATH 更可靠。
-/// Electron GUI 应用有时会继承到不完整的 PATH（如从 explorer.exe 启动），
-/// 读取注册表可以确保拿到完整的系统 PATH。
+/// 合并两个分号分隔的 PATH 值：base 在前，extra 中缺失的条目追加在后
+/// （大小写不敏感去重，丢弃空条目）。
+#[cfg(target_os = "windows")]
+fn merge_path_values(base: &str, extra: &str) -> String {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut entries: Vec<&str> = Vec::new();
+    for entry in base.split(';').chain(extra.split(';')) {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.insert(trimmed.to_ascii_lowercase()) {
+            entries.push(trimmed);
+        }
+    }
+    entries.join(";")
+}
+
+/// 从 Windows 注册表读取 User PATH 和 System PATH 并合并，再追加进程
+/// 继承 PATH 中注册表缺失的条目（conda、nvm 等只存在于 IDE/终端会话
+/// 环境里的扩展路径）。不能只取注册表值，否则会丢掉继承条目。
 #[cfg(target_os = "windows")]
 fn read_registry_path() -> Option<String> {
     use winreg::enums::*;
@@ -479,6 +498,10 @@ fn read_registry_path() -> Option<String> {
         (false, true) => system_path,
         (false, false) => format!("{};{}", system_path, user_path),
     };
+
+    // 追加注册表缺失的继承 PATH 条目（IDE/终端会话扩展的路径）。
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let combined = merge_path_values(&combined, &inherited);
 
     if combined.trim().is_empty() {
         None
@@ -553,4 +576,11 @@ pub(crate) async fn resolve_login_path() -> Option<String> {
         let _ = LOGIN_PATH_CACHE.set(path.clone());
         Some(path)
     }
+}
+
+/// NAPI 导出：解析登录 PATH（Windows = 注册表 + 继承 PATH 的合并值），
+/// 供 PTY 终端创建时刷新 PATH。
+#[napi]
+pub async fn resolve_login_path_for_terminal() -> Option<String> {
+    resolve_login_path().await
 }

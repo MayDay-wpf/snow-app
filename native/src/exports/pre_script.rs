@@ -44,8 +44,8 @@ pub async fn run_pre_script(
 
     let shell_family = detect_shell_family(&shell);
 
-    // login PATH 对 Windows 注入注册表 PATH（powershell/cmd 需要）；WSL 跳过，
-    // 由 `bash -lc` 自行从 .profile 加载 Linux PATH（冒号分隔，注入会破坏）。
+    // login PATH 对 Windows 注入注册表 + 继承的合并 PATH（powershell/cmd 需要）；
+    // WSL 跳过，由 `bash -lc` 自行从 .profile 加载 Linux PATH（冒号分隔，注入会破坏）。
     let login_path = if shell_family == "wsl" {
         None
     } else {
@@ -62,7 +62,10 @@ pub async fn run_pre_script(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .env("LANG", "en_US.UTF-8")
-        .env("LC_ALL", "en_US.UTF-8");
+        .env("LC_ALL", "en_US.UTF-8")
+        // 同 bash 工具：剥离 Electron 注入的 NODE_ENV，避免 npm 误判
+        // production 模式而跳过 devDependencies。
+        .env_remove("NODE_ENV");
     // Windows 宿主 + WSL shell 时，工作目录只能通过 `--cd` 参数传递：
     // 把 Linux 路径（/home/...）或 WSL UNC 路径设置为 Windows 子进程的
     // current_dir，会在启动 wsl.exe 前被 Windows 拒绝（os error 267）。
