@@ -380,37 +380,36 @@ export function ProjectsSection({
     setDirectoryPage(1);
   }, [topLevelDirectories.length]);
 
+  // 距底部该像素范围内触发加载下一页（纯前端切片，无异步，直接滚动即可）
+  const LOAD_MORE_DISTANCE = 40;
+
   useEffect(() => {
     if (!hasMoreDirectories) {
       return;
     }
 
-    const sentinel = directoryLoadMoreRef.current;
     const scrollRoot = directoryListRef.current;
-
-    if (!sentinel || !scrollRoot) {
+    if (!scrollRoot) {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          loadNextDirectoryPage();
-        }
-      },
-      {
-        root: scrollRoot,
-        rootMargin: "0px 0px 32px",
-        threshold: 0.1,
-      },
-    );
+    const check = (): void => {
+      const distance =
+        scrollRoot.scrollHeight -
+        scrollRoot.scrollTop -
+        scrollRoot.clientHeight;
+      if (distance <= LOAD_MORE_DISTANCE) {
+        loadNextDirectoryPage();
+      }
+    };
 
-    observer.observe(sentinel);
+    check();
+    scrollRoot.addEventListener("scroll", check, { passive: true });
 
     return () => {
-      observer.disconnect();
+      scrollRoot.removeEventListener("scroll", check);
     };
-  }, [hasMoreDirectories, loadNextDirectoryPage, visibleDirectories.length]);
+  }, [hasMoreDirectories, loadNextDirectoryPage, isProjectsCollapsed]);
 
   const persistWorkspaceDirectory = async (
     item: WorkspaceDirectoryInput,
