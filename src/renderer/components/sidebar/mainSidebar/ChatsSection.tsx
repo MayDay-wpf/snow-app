@@ -109,6 +109,8 @@ type ChatsSectionProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
   /** 跨项目通知（其他项目的运行中/需关注/已完成会话分组） */
   crossProjectNotifications: CrossProjectNotificationGroup[];
+  /** 收起状态变化时上报父组件（收起后剩余高度让给项目区域） */
+  onCollapsedChange?: (collapsed: boolean) => void;
 };
 
 type SubAgentMap = Record<string, ChatConversationRecord[]>;
@@ -117,6 +119,7 @@ export function ChatsSection({
   isSwitchingDirectory,
   activeDirectory,
   crossProjectNotifications,
+  onCollapsedChange,
 }: ChatsSectionProps): React.JSX.Element {
   const { t } = useI18n();
   const {
@@ -228,6 +231,10 @@ export function ChatsSection({
       return false;
     }
   });
+  // 向父组件同步收起状态：会话收起后剩余高度应让给上方项目区域
+  useEffect(() => {
+    onCollapsedChange?.(isCollapsed);
+  }, [isCollapsed, onCollapsedChange]);
   // 会话拖拽悬停中：高亮提示可放置
   const [isChatDragOver, setIsChatDragOver] = useState(false);
   // 时间分组（运行中/今天/昨天/近7天/更早）收起状态（localStorage 持久化）

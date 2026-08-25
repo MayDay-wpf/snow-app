@@ -36,6 +36,8 @@ type ProjectsSectionProps = {
   onSwitchContent?: (content: "main" | "explorer") => void;
   onSwitchToExplorer?: (directoryId: string) => void;
   onOpenSshWizard?: () => void;
+  /** 会话区域是否已收起：收起时项目列表撑满剩余高度 */
+  isChatsCollapsed: boolean;
 };
 
 const DIRECTORY_PAGE_SIZE = 12;
@@ -117,6 +119,7 @@ export function ProjectsSection({
   onSwitchContent,
   onSwitchToExplorer,
   onOpenSshWizard,
+  isChatsCollapsed,
 }: ProjectsSectionProps): React.JSX.Element {
   const { t } = useI18n();
   const [workspaceDirectories, setWorkspaceDirectories] = useState<
@@ -409,7 +412,12 @@ export function ProjectsSection({
     return () => {
       scrollRoot.removeEventListener("scroll", check);
     };
-  }, [hasMoreDirectories, loadNextDirectoryPage, isProjectsCollapsed]);
+  }, [
+    hasMoreDirectories,
+    loadNextDirectoryPage,
+    isProjectsCollapsed,
+    isChatsCollapsed,
+  ]);
 
   const persistWorkspaceDirectory = async (
     item: WorkspaceDirectoryInput,
@@ -1120,7 +1128,11 @@ export function ProjectsSection({
   }, [handleCycleProject]);
 
   return (
-    <div className="sidebar-section">
+    <div
+      className={`sidebar-section projects-section${
+        isProjectsCollapsed ? " collapsed" : ""
+      }${isChatsCollapsed ? " chats-collapsed" : ""}`}
+    >
       <div className="section-header">
         <button
           aria-expanded={!isProjectsCollapsed}

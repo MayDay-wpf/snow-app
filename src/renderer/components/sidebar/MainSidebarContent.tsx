@@ -57,9 +57,10 @@ export function MainSidebarContent({
   const [isMemoOpen, setIsMemoOpen] = useState(false);
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [isChatsCollapsed, setIsChatsCollapsed] = useState(false);
   const [pendingMemoCount, setPendingMemoCount] = useState(0);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(
-    INITIAL_UPDATE_STATUS
+    INITIAL_UPDATE_STATUS,
   );
 
   const activeDirectoryId = activeDirectory?.directoryId ?? "";
@@ -77,7 +78,7 @@ export function MainSidebarContent({
   // the memo project-isolation model.
   const { tasks: scheduledTasks } = useScheduledTasks(
     activeDirectoryId,
-    activeDirectory?.path ?? ""
+    activeDirectory?.path ?? "",
   );
 
   // Load the pending memo count for the sidebar badge. It is refreshed
@@ -151,7 +152,7 @@ export function MainSidebarContent({
   }, []);
 
   const handleSearchSelectConversation = (
-    conversation: ConversationSearchResult
+    conversation: ConversationSearchResult,
   ): void => {
     void handleSelectConversation(
       conversation.conversationId,
@@ -162,7 +163,7 @@ export function MainSidebarContent({
         cacheCreationInputTokens: conversation.cacheCreationInputTokens,
         cacheReadInputTokens: conversation.cacheReadInputTokens,
       },
-      conversation.directoryId
+      conversation.directoryId,
     );
   };
 
@@ -171,7 +172,7 @@ export function MainSidebarContent({
       onActiveDirectoryChange?.(directory);
       onSwitchContent?.("main");
     },
-    [onActiveDirectoryChange, onSwitchContent]
+    [onActiveDirectoryChange, onSwitchContent],
   );
 
   const handleSearchSelectSetting = useCallback(
@@ -179,7 +180,7 @@ export function MainSidebarContent({
       onSwitchContent?.("settings");
       onSelectMainView(view);
     },
-    [onSwitchContent, onSelectMainView]
+    [onSwitchContent, onSelectMainView],
   );
 
   return (
@@ -222,12 +223,16 @@ export function MainSidebarContent({
         <button
           className="nav-item sidebar-scheduled-tasks-btn"
           onClick={() => setIsScheduledTasksOpen(true)}
-          title={t("scheduledTask.sidebarEntry", { defaultValue: "Scheduled Tasks" })}
+          title={t("scheduledTask.sidebarEntry", {
+            defaultValue: "Scheduled Tasks",
+          })}
           type="button"
         >
           <CalendarClock size={16} strokeWidth={1.8} />
           <span>
-            {t("scheduledTask.sidebarEntry", { defaultValue: "Scheduled Tasks" })}
+            {t("scheduledTask.sidebarEntry", {
+              defaultValue: "Scheduled Tasks",
+            })}
           </span>
           {scheduledTasks.length > 0 && (
             <span className="sidebar-memo-badge">{scheduledTasks.length}</span>
@@ -246,11 +251,13 @@ export function MainSidebarContent({
         onSwitchContent={onSwitchContent}
         onSwitchToExplorer={onSwitchToExplorer}
         onOpenSshWizard={onOpenSshWizard}
+        isChatsCollapsed={isChatsCollapsed}
       />
       <ChatsSection
         activeDirectory={activeDirectory}
         crossProjectNotifications={crossProjectNotifications}
         isSwitchingDirectory={isSwitchingDirectory}
+        onCollapsedChange={setIsChatsCollapsed}
       />
 
       <div className="sidebar-footer">

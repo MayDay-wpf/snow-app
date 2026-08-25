@@ -1567,6 +1567,26 @@ input {
   min-height: 0;
 }
 
+/* 会话区域收起后，剩余高度让给项目区域：项目列表解除 236px 高度上限，
+   跟随区域撑满可用空间（项目自身收起时不撑开，避免空出一大片） */
+.sidebar-section.projects-section.chats-collapsed:not(.collapsed) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section.projects-section.chats-collapsed .workspace-directory-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-section.projects-section.chats-collapsed .workspace-directory-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
 /* ============================================================
  * Emoji Picker 面板（会话列表 icon 更换）
  * 通过 createPortal 渲染到 document.body，position: fixed 定位。
