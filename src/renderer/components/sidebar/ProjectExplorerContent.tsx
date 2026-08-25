@@ -8,7 +8,15 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useI18n } from "../../i18n";
 import { getFileTypeIcon } from "../../utils/fileIcons";
@@ -19,6 +27,11 @@ import type {
   SshConnectionStatus,
 } from "../../../preload";
 import { ExplorerEntryContextMenu } from "./ExplorerEntryContextMenu";
+// 快速编辑弹窗按需加载（与 RightPanel 的 FileViewerContent 共用 chunk），
+// 避免把 highlight.js 等编辑器依赖打包进侧边栏主包。
+const FileEditModal = lazy(() =>
+  import("./FileEditModal").then((m) => ({ default: m.FileEditModal })),
+);
 import type { FileTag } from "../mainContent/chatInput/fileTagUtils";
 import { buildSshConnectParams } from "./personalization/roleFileUtils";
 import type { SidebarContentProps } from "./types";
@@ -54,7 +67,7 @@ type ExplorerEntryContextMenuState = {
 const flattenTree = (
   nodes: TreeNode[],
   expandedPaths: Set<string>,
-  depth = 0
+  depth = 0,
 ): FlatNode[] => {
   const result: FlatNode[] = [];
 
@@ -75,22 +88,19 @@ const flattenTree = (
   return result;
 };
 
-const removeNodeByPath = (
-  nodes: TreeNode[],
-  targetPath: string
-): TreeNode[] =>
+const removeNodeByPath = (nodes: TreeNode[], targetPath: string): TreeNode[] =>
   nodes
     .filter((node) => node.path !== targetPath)
     .map((node) =>
       node.children
         ? { ...node, children: removeNodeByPath(node.children, targetPath) }
-        : node
+        : node,
     );
 
 const replacePathPrefix = (
   nodes: TreeNode[],
   oldPrefix: string,
-  newPrefix: string
+  newPrefix: string,
 ): TreeNode[] =>
   nodes.map((node) => {
     const updated: TreeNode = {
@@ -107,7 +117,7 @@ const renameNodeByPath = (
   nodes: TreeNode[],
   oldPath: string,
   newPath: string,
-  newName: string
+  newName: string,
 ): TreeNode[] =>
   nodes.map((node) => {
     if (node.path === oldPath) {
@@ -128,7 +138,7 @@ const renameNodeByPath = (
 
 const getFileIcon = (
   node: TreeNode,
-  isExpanded: boolean
+  isExpanded: boolean,
 ): React.JSX.Element => {
   return getFileTypeIcon(node.name, node.isDirectory, isExpanded, {
     className: "tree-icon",
@@ -162,7 +172,7 @@ const toTreeNodes = (entries: DirectoryEntry[]): TreeNode[] =>
 // attached so a reconnect can restore every visible branch without flicker.
 const mergeTreeNodes = (
   freshNodes: TreeNode[],
-  previousNodes: TreeNode[]
+  previousNodes: TreeNode[],
 ): TreeNode[] =>
   freshNodes.map((node) => {
     const previous = previousNodes.find((item) => item.path === node.path);
@@ -193,7 +203,7 @@ export function ProjectExplorerContent({
         ? `${localized.message} (${localized.detail})`
         : localized.message;
     },
-    [t]
+    [t],
   );
 
   const [rootPath, setRootPath] = useState<string | null>(null);
@@ -212,6 +222,14 @@ export function ProjectExplorerContent({
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   // shift 范围选择锚点：最近一次普通/ctrl 点击（或右键）的路径。
   const selectionAnchorRef = useRef<string | null>(null);
+  // 双击检测时间戳：双击序列中的第二次单击跳过"打开文件"，交由
+  // onDoubleClick 打开快速编辑弹窗，避免重复打开右侧文件 tab。
+  const lastRowClickRef = useRef(0);
+  // 双击文件时打开的快速编辑弹窗。
+  const [editingEntry, setEditingEntry] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
   const [entryContextMenu, setEntryContextMenu] =
     useState<ExplorerEntryContextMenuState | null>(null);
   const treeRef = useRef<HTMLDivElement | null>(null);
@@ -232,24 +250,25 @@ export function ProjectExplorerContent({
 
   // 搜索结果行多选状态：path -> 选中的行号集合。
   // 支持跨文件累加，拖拽时按文件聚合为多个 FileTag。
-  const [selectedLines, setSelectedLines] = useState<
-    Map<string, Set<number>>
-  >(new Map());
+  const [selectedLines, setSelectedLines] = useState<Map<string, Set<number>>>(
+    new Map(),
+  );
   // shift 范围选择锚点：上次点击（非 shift）的文件路径与行号。
   const lineSelectAnchorRef = useRef<{ path: string; line: number } | null>(
-    null
+    null,
   );
 
   const loadRootDirectory = useCallback(async (): Promise<void> => {
     const request = rootLoadRequestRef.current + 1;
     rootLoadRequestRef.current = request;
-    const isCurrentRequest = (): boolean => rootLoadRequestRef.current === request;
+    const isCurrentRequest = (): boolean =>
+      rootLoadRequestRef.current === request;
 
     if (!explorerDirectoryId) {
       setError(
         t("sidebar.explorerNoActiveDirectory", {
           defaultValue: "No active workspace directory",
-        })
+        }),
       );
       setTree([]);
       setRootPath(null);
@@ -263,14 +282,14 @@ export function ProjectExplorerContent({
       const directories = await window.snow.listWorkspaceDirectories();
       if (!isCurrentRequest()) return;
       const targetDir = directories.find(
-        (directory) => directory.directoryId === explorerDirectoryId
+        (directory) => directory.directoryId === explorerDirectoryId,
       );
 
       if (!targetDir) {
         setError(
           t("sidebar.explorerNoActiveDirectory", {
             defaultValue: "No active workspace directory",
-          })
+          }),
         );
         setTree([]);
         setRootPath(null);
@@ -300,11 +319,15 @@ export function ProjectExplorerContent({
         if (!sameRoot || !profile) {
           const params = await buildSshConnectParams(targetDir.path);
           if (!params) {
-            throw new Error("SSH credentials are unavailable for this workspace");
+            throw new Error(
+              "SSH credentials are unavailable for this workspace",
+            );
           }
           const nextProfile = await window.snow.sshConnectProfile(params);
           if (!isCurrentRequest()) {
-            window.snow.sshReleaseProfile(nextProfile.profileId).catch(() => undefined);
+            window.snow
+              .sshReleaseProfile(nextProfile.profileId)
+              .catch(() => undefined);
             return;
           }
           const previousProfileId = sshProfileIdRef.current;
@@ -326,7 +349,7 @@ export function ProjectExplorerContent({
 
         entries = await window.snow.sshListDirectory(
           profile.profileId,
-          parsed.remotePath
+          parsed.remotePath,
         );
       } else {
         if (sshProfileIdRef.current) {
@@ -340,7 +363,7 @@ export function ProjectExplorerContent({
       if (!isCurrentRequest()) return;
       const nodes = toTreeNodes(entries);
       setTree((previous) =>
-        sameRoot ? mergeTreeNodes(nodes, previous) : nodes
+        sameRoot ? mergeTreeNodes(nodes, previous) : nodes,
       );
       setIsStale(false);
     } catch (loadError) {
@@ -351,7 +374,7 @@ export function ProjectExplorerContent({
           ? toExplorerErrorMessage(loadError)
           : t("sidebar.explorerLoadError", {
               defaultValue: "Failed to load directory contents",
-            })
+            }),
       );
     } finally {
       if (isCurrentRequest()) {
@@ -385,7 +408,7 @@ export function ProjectExplorerContent({
 
       const findAndUpdateNode = (
         nodes: TreeNode[],
-        targetPath: string
+        targetPath: string,
       ): TreeNode[] => {
         return nodes.map((node) => {
           if (node.path === targetPath) {
@@ -410,7 +433,7 @@ export function ProjectExplorerContent({
 
       setTree((prev) => findAndUpdateNode(prev, nodePath));
     },
-    [expandedPaths]
+    [expandedPaths],
   );
 
   const loadChildren = useCallback(
@@ -424,7 +447,7 @@ export function ProjectExplorerContent({
           }
           const sshEntries = await window.snow.sshListDirectory(
             sshProfileIdRef.current,
-            parentPath
+            parentPath,
           );
           entries = sshEntries;
         } else {
@@ -498,7 +521,7 @@ export function ProjectExplorerContent({
         });
       }
     },
-    [isSsh]
+    [isSsh],
   );
 
   // Keep loadChildrenRef in sync so handleToggle always calls the latest
@@ -522,7 +545,7 @@ export function ProjectExplorerContent({
   const handleEntryContextMenu = useCallback(
     (
       event: React.MouseEvent<HTMLDivElement>,
-      entry: { name: string; path: string; isDirectory: boolean }
+      entry: { name: string; path: string; isDirectory: boolean },
     ): void => {
       event.preventDefault();
       // 右键多选区域中的条目时保留整个选中集合；右键未选中条目则单选它。
@@ -530,7 +553,7 @@ export function ProjectExplorerContent({
         ? selectedPaths.size
         : 1;
       setSelectedPaths((prev) =>
-        selectedCount > 1 ? prev : new Set([entry.path])
+        selectedCount > 1 ? prev : new Set([entry.path]),
       );
       selectionAnchorRef.current = entry.path;
       setEntryContextMenu({
@@ -541,7 +564,7 @@ export function ProjectExplorerContent({
         selectedCount,
       });
     },
-    [selectedPaths]
+    [selectedPaths],
   );
 
   const handleRenameEntry = useCallback(
@@ -556,7 +579,7 @@ export function ProjectExplorerContent({
           await window.snow.sshRenameEntry(
             sshProfileIdRef.current,
             entryPath,
-            newName
+            newName,
           );
         } else {
           await window.snow.renameWorkspaceEntry(rootPath, entryPath, newName);
@@ -564,14 +587,14 @@ export function ProjectExplorerContent({
 
         const lastSep = Math.max(
           entryPath.lastIndexOf("/"),
-          entryPath.lastIndexOf("\\")
+          entryPath.lastIndexOf("\\"),
         );
         const newPath =
-          lastSep >= 0 ? entryPath.substring(0, lastSep + 1) + newName : newName;
+          lastSep >= 0
+            ? entryPath.substring(0, lastSep + 1) + newName
+            : newName;
 
-        setTree((prev) =>
-          renameNodeByPath(prev, entryPath, newPath, newName)
-        );
+        setTree((prev) => renameNodeByPath(prev, entryPath, newPath, newName));
 
         setExpandedPaths((prev) => {
           const next = new Set<string>();
@@ -626,12 +649,12 @@ export function ProjectExplorerContent({
             ? toExplorerErrorMessage(operationError)
             : t("sidebar.explorerRenameError", {
                 defaultValue: "Failed to rename workspace entry",
-              })
+              }),
         );
         throw operationError;
       }
     },
-    [isSsh, rootPath, t]
+    [isSsh, rootPath, t],
   );
 
   const handleDeleteEntry = useCallback(
@@ -692,12 +715,12 @@ export function ProjectExplorerContent({
             ? toExplorerErrorMessage(operationError)
             : t("sidebar.explorerDeleteError", {
                 defaultValue: "Failed to delete workspace entry",
-              })
+              }),
         );
         throw operationError;
       }
     },
-    [isSsh, rootPath, t]
+    [isSsh, rootPath, t],
   );
 
   // 批量复制选中路径（换行分隔写入剪贴板）。
@@ -723,28 +746,23 @@ export function ProjectExplorerContent({
     const paths = Array.from(selectedPaths);
 
     try {
-      const result = isSsh && sshProfileIdRef.current
-        ? await window.snow.sshDeleteEntries(
-            sshProfileIdRef.current,
-            paths
-          )
-        : await window.snow.deleteWorkspaceEntries(rootPath, paths);
+      const result =
+        isSsh && sshProfileIdRef.current
+          ? await window.snow.sshDeleteEntries(sshProfileIdRef.current, paths)
+          : await window.snow.deleteWorkspaceEntries(rootPath, paths);
 
       const deletedPaths = result.deleted;
 
       if (deletedPaths.length > 0) {
         setTree((prev) =>
-          deletedPaths.reduce(
-            (acc, p) => removeNodeByPath(acc, p),
-            prev
-          )
+          deletedPaths.reduce((acc, p) => removeNodeByPath(acc, p), prev),
         );
 
         setExpandedPaths((prev) => {
           const next = new Set<string>();
           for (const p of prev) {
             const isDeleted = deletedPaths.some(
-              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\")
+              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\"),
             );
             if (!isDeleted) {
               next.add(p);
@@ -757,7 +775,7 @@ export function ProjectExplorerContent({
           const next = new Set<string>();
           for (const p of prev) {
             const isDeleted = deletedPaths.some(
-              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\")
+              (d) => p === d || p.startsWith(d + "/") || p.startsWith(d + "\\"),
             );
             if (!isDeleted) {
               next.add(p);
@@ -770,7 +788,10 @@ export function ProjectExplorerContent({
         if (
           anchor !== null &&
           deletedPaths.some(
-            (d) => anchor === d || anchor.startsWith(d + "/") || anchor.startsWith(d + "\\")
+            (d) =>
+              anchor === d ||
+              anchor.startsWith(d + "/") ||
+              anchor.startsWith(d + "\\"),
           )
         ) {
           selectionAnchorRef.current = null;
@@ -783,7 +804,7 @@ export function ProjectExplorerContent({
             defaultValue:
               "{{count}} item(s) failed to delete — see details in the explorer",
             values: { count: result.failed.length },
-          })
+          }),
         );
         throw new Error("Batch delete had partial failures");
       }
@@ -799,7 +820,7 @@ export function ProjectExplorerContent({
           ? toExplorerErrorMessage(operationError)
           : t("sidebar.explorerDeleteError", {
               defaultValue: "Failed to delete workspace entry",
-            })
+            }),
       );
       throw operationError;
     }
@@ -828,7 +849,7 @@ export function ProjectExplorerContent({
       try {
         const results = await window.snow.searchFiles(
           rootPathRef.current ?? "",
-          trimmed
+          trimmed,
         );
         // Only apply results from the latest search
         if (seq === searchSeqRef.current) {
@@ -892,7 +913,7 @@ export function ProjectExplorerContent({
                   ...node,
                   children: childNodes.map((child) => {
                     const existing = oldChildren.find(
-                      (old) => old.path === child.path
+                      (old) => old.path === child.path,
                     );
                     if (existing) {
                       return {
@@ -926,7 +947,7 @@ export function ProjectExplorerContent({
         // Silently ignore refresh errors
       }
     },
-    []
+    [],
   );
 
   const collectLoadedPaths = useCallback(
@@ -941,7 +962,7 @@ export function ProjectExplorerContent({
       }
       return current;
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -1011,7 +1032,7 @@ export function ProjectExplorerContent({
 
   const flatNodes = useMemo(
     () => flattenTree(tree, expandedPaths),
-    [tree, expandedPaths]
+    [tree, expandedPaths],
   );
 
   // 树行点击：ctrl/cmd 切换选中、shift 范围选择；普通点击单选并打开/展开。
@@ -1019,7 +1040,7 @@ export function ProjectExplorerContent({
     (
       event: React.MouseEvent<HTMLDivElement>,
       node: TreeNode,
-      hasChildren: boolean
+      hasChildren: boolean,
     ): void => {
       // 让树容器获得焦点，保证 Ctrl+A 全选与键盘操作可用。
       treeRef.current?.focus();
@@ -1068,25 +1089,25 @@ export function ProjectExplorerContent({
       if (hasChildren) {
         void handleToggle(node.path);
       } else {
-        onOpenFile?.(
-          node.path,
-          node.name,
-          isSsh,
-          sshProfileIdRef.current,
-          undefined,
-          rootPath ?? undefined,
-          explorerDirectoryId ?? undefined
-        );
+        // 双击序列中的第二次单击不重复打开右侧 tab，交由 onDoubleClick
+        // 打开快速编辑弹窗接管。
+        const now = Date.now();
+        const isSecondClickOfDoubleClick = now - lastRowClickRef.current < 300;
+        lastRowClickRef.current = now;
+        if (!isSecondClickOfDoubleClick) {
+          onOpenFile?.(
+            node.path,
+            node.name,
+            isSsh,
+            sshProfileIdRef.current,
+            undefined,
+            rootPath ?? undefined,
+            explorerDirectoryId ?? undefined,
+          );
+        }
       }
     },
-    [
-      flatNodes,
-      handleToggle,
-      onOpenFile,
-      isSsh,
-      rootPath,
-      explorerDirectoryId,
-    ]
+    [flatNodes, handleToggle, onOpenFile, isSsh, rootPath, explorerDirectoryId],
   );
 
   // 树容器键盘：Ctrl/Cmd + A 全选当前可见条目，Escape 清空选择。
@@ -1107,7 +1128,7 @@ export function ProjectExplorerContent({
         selectionAnchorRef.current = null;
       }
     },
-    [flatNodes]
+    [flatNodes],
   );
 
   // 树条目拖拽：若拖拽的是已选中的条目且存在多个选中项，则携带整个选中
@@ -1124,7 +1145,7 @@ export function ProjectExplorerContent({
           }));
         event.dataTransfer.setData(
           "application/json",
-          JSON.stringify({ type: "file-tags", tags })
+          JSON.stringify({ type: "file-tags", tags }),
         );
       } else {
         event.dataTransfer.setData(
@@ -1133,12 +1154,12 @@ export function ProjectExplorerContent({
             path: node.path,
             name: node.name,
             isDirectory: node.isDirectory,
-          })
+          }),
         );
       }
       event.dataTransfer.effectAllowed = "copy";
     },
-    [flatNodes, selectedPaths]
+    [flatNodes, selectedPaths],
   );
 
   // 将当前选中行按文件聚合成 FileTag 列表。拖拽时统一发送。
@@ -1156,23 +1177,29 @@ export function ProjectExplorerContent({
     return tags;
   }, [searchResults, selectedLines]);
 
-  // 点击文件名：清空行选择，打开文件（不带行号）。
+  // 点击文件名：清空行选择，打开文件（不带行号）。双击序列中的第二次
+  // 点击不重复打开 tab，交由 onDoubleClick 打开快速编辑弹窗。
   const handleSearchFileNameClick = useCallback(
     (result: FileSearchResult) => {
       setSelectedPaths(new Set([result.path]));
       setSelectedLines(new Map());
       lineSelectAnchorRef.current = null;
-      onOpenFile?.(
-        result.path,
-        result.name,
-        isSsh,
-        sshProfileIdRef.current,
-        undefined,
-        rootPath ?? undefined,
-        explorerDirectoryId ?? undefined
-      );
+      const now = Date.now();
+      const isSecondClickOfDoubleClick = now - lastRowClickRef.current < 300;
+      lastRowClickRef.current = now;
+      if (!isSecondClickOfDoubleClick) {
+        onOpenFile?.(
+          result.path,
+          result.name,
+          isSsh,
+          sshProfileIdRef.current,
+          undefined,
+          rootPath ?? undefined,
+          explorerDirectoryId ?? undefined,
+        );
+      }
     },
-    [onOpenFile]
+    [onOpenFile],
   );
 
   // 点击某行：普通点击选中该行并打开文件定位；ctrl/shift 进行多选。
@@ -1235,10 +1262,10 @@ export function ProjectExplorerContent({
         sshProfileIdRef.current,
         line,
         rootPath ?? undefined,
-        explorerDirectoryId ?? undefined
+        explorerDirectoryId ?? undefined,
       );
     },
-    [onOpenFile]
+    [onOpenFile],
   );
 
   // 拖拽搜索结果（从文件名区域触发）：若有选中行则发送选中行的
@@ -1249,18 +1276,21 @@ export function ProjectExplorerContent({
       if (selectedTags.length > 0) {
         event.dataTransfer.setData(
           "application/json",
-          JSON.stringify({ type: "file-tags", tags: selectedTags })
+          JSON.stringify({ type: "file-tags", tags: selectedTags }),
         );
         event.dataTransfer.effectAllowed = "copy";
         return;
       }
       event.dataTransfer.setData(
         "application/json",
-        JSON.stringify({ type: "file-tags", tags: [{ path: result.path, name: result.name, isDirectory: false }] })
+        JSON.stringify({
+          type: "file-tags",
+          tags: [{ path: result.path, name: result.name, isDirectory: false }],
+        }),
       );
       event.dataTransfer.effectAllowed = "copy";
     },
-    [buildSelectedFileTags]
+    [buildSelectedFileTags],
   );
 
   return (
@@ -1385,6 +1415,12 @@ export function ProjectExplorerContent({
                         handleSearchResultDragStart(event, result)
                       }
                       onClick={() => handleSearchFileNameClick(result)}
+                      onDoubleClick={() => {
+                        setEditingEntry({
+                          path: result.path,
+                          name: result.name,
+                        });
+                      }}
                       onContextMenu={(event) =>
                         handleEntryContextMenu(event, result)
                       }
@@ -1465,6 +1501,11 @@ export function ProjectExplorerContent({
                     onClick={(event) =>
                       handleTreeRowClick(event, node, hasChildren)
                     }
+                    onDoubleClick={() => {
+                      if (!node.isDirectory) {
+                        setEditingEntry({ path: node.path, name: node.name });
+                      }
+                    }}
                     onContextMenu={(event) =>
                       handleEntryContextMenu(event, node)
                     }
@@ -1525,6 +1566,19 @@ export function ProjectExplorerContent({
           position={entryContextMenu.position}
         />
       ) : null}
+      <Suspense fallback={null}>
+        <FileEditModal
+          open={editingEntry !== null}
+          filePath={editingEntry?.path ?? ""}
+          fileName={editingEntry?.name ?? ""}
+          isSsh={isSsh}
+          sshSessionId={sshProfileIdRef.current}
+          sshWorkspaceRoot={rootPath ?? undefined}
+          sshWorkspaceId={explorerDirectoryId ?? undefined}
+          onClose={() => setEditingEntry(null)}
+          onOpenTerminal={onOpenTerminal}
+        />
+      </Suspense>
     </>
   );
 }

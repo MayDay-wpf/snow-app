@@ -20,6 +20,7 @@ import Editor from "react-simple-code-editor";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -44,9 +45,9 @@ type FileViewerContentProps = {
   onDirtyChange?: (dirty: boolean) => void;
   /** 在文件所在目录打开终端。 */
   onOpenTerminal?: (cwd: string) => void;
+  /** 加载完成后自动进入编辑模式（供资源管理器双击快速编辑弹窗使用）。 */
+  initialEditMode?: boolean;
 };
-
-const EDITOR_TEXTAREA_ID = "file-viewer-editor-textarea";
 
 /** 文内搜索匹配数上限，避免超大文件单字符查询卡死。 */
 const SEARCH_MATCH_LIMIT = 10000;
@@ -73,7 +74,7 @@ type SearchMarkRect = {
 const makeTextRange = (
   root: HTMLElement,
   start: number,
-  end: number
+  end: number,
 ): Range | null => {
   const range = document.createRange();
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -167,12 +168,12 @@ const isEditable = (content: FileContentResult): boolean =>
   !content.isBinary && !content.isImage;
 
 const serializeRemoteVersion = (
-  version: FileContentResult["remoteVersion"] | undefined
+  version: FileContentResult["remoteVersion"] | undefined,
 ): string => JSON.stringify(version ?? { exists: false });
 
 /** 解析 markdown 链接路径：支持 `path:line` 与 `path#Lline` 行号定位。 */
 const parseHrefPathWithLine = (
-  raw: string
+  raw: string,
 ): { path: string; line?: number } => {
   // 冒号后必须为纯数字，避免误伤 Windows 盘符（C:\foo）。
   const hashMatch = raw.match(/^(.+?)#L(\d+)$/i);
@@ -192,7 +193,7 @@ const parseHrefPathWithLine = (
  */
 const resolveHrefPath = (
   baseFilePath: string,
-  raw: string
+  raw: string,
 ): { path: string; line?: number } | null => {
   const { path: hrefPath, line } = parseHrefPathWithLine(raw);
   if (!hrefPath) {
@@ -223,7 +224,10 @@ const resolveHrefPath = (
   }
   const joined = stack.join(normSep);
   const resolved = `${root}${joined}`;
-  return { path: sep === "\\" ? resolved.replace(/\//g, "\\") : resolved, line };
+  return {
+    path: sep === "\\" ? resolved.replace(/\//g, "\\") : resolved,
+    line,
+  };
 };
 
 export function FileViewerContent({
@@ -236,9 +240,13 @@ export function FileViewerContent({
   focusLine,
   onDirtyChange,
   onOpenTerminal,
+  initialEditMode = false,
 }: FileViewerContentProps): React.JSX.Element {
   const { t } = useI18n();
   const { registerScopedHandler } = useKeyboardShortcutsSettings();
+  // 编辑器 textarea 的实例级 id：同一时刻可能存在多个 FileViewerContent
+  // （右侧面板 tab 与快速编辑弹窗并存），固定 id 会导致焦点/选区互相串扰。
+  const editTextareaId = useId();
   const [content, setContent] = useState<FileContentResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +265,7 @@ export function FileViewerContent({
   /** 获取当前选中的文本（编辑模式读 textarea 选区，否则读浏览器选区）。 */
   const getSelectedText = (): string => {
     if (editMode) {
-      const textarea = document.getElementById(EDITOR_TEXTAREA_ID);
+      const textarea = document.getElementById(editTextareaId);
       if (textarea instanceof HTMLTextAreaElement) {
         const start = textarea.selectionStart ?? 0;
         const end = textarea.selectionEnd ?? 0;
@@ -279,7 +287,7 @@ export function FileViewerContent({
     "strong_atomic" | "atomic_best_effort" | "compatibility" | null
   >(null);
   const [draftStatus, setDraftStatus] = useState<"pending" | "conflict" | null>(
-    null
+    null,
   );
 
   const originalContentRef = useRef("");
@@ -355,16 +363,29 @@ export function FileViewerContent({
       }
       setContent(result);
       originalContentRef.current = result.content;
+      // 快速编辑弹窗：加载完成后直接进入编辑模式（markdown 同步切到源码视图）。
+      if (initialEditMode && isEditable(result)) {
+        setEditMode(true);
+        setEditedContent(result.content);
+        setDirty(false);
+        setSaveError(null);
+        setSavedAt(false);
+        setSaveGuarantee(null);
+        if (isMarkdown) {
+          setMdMode("code");
+        }
+      }
       if (canPersistRemoteDraft && sshSessionId && sshWorkspaceId) {
         try {
           const drafts = await window.snow.sshListRemoteDrafts(
             sshWorkspaceId,
-            sshSessionId
+            sshSessionId,
           );
           const draft = drafts.find((item) => item.remotePath === filePath);
           if (draft) {
             const isCurrentBaseVersion =
-              draft.baseVersionJson === serializeRemoteVersion(result.remoteVersion);
+              draft.baseVersionJson ===
+              serializeRemoteVersion(result.remoteVersion);
             setEditMode(true);
             setEditedContent(draft.content);
             setDirty(draft.content !== result.content);
@@ -374,7 +395,7 @@ export function FileViewerContent({
                 t("rightPanel.fileViewerSaveConflict", {
                   defaultValue:
                     "The remote file changed. Reload it before saving your changes.",
-                })
+                }),
               );
               void window.snow.sshUpsertRemoteDraft({
                 ...draft,
@@ -392,7 +413,7 @@ export function FileViewerContent({
           ? err.message
           : t("rightPanel.fileViewerLoadError", {
               defaultValue: "Failed to load file",
-            })
+            }),
       );
     } finally {
       setLoading(false);
@@ -400,6 +421,7 @@ export function FileViewerContent({
   }, [
     canPersistRemoteDraft,
     filePath,
+    initialEditMode,
     isSsh,
     sshSessionId,
     sshWorkspaceId,
@@ -476,7 +498,7 @@ export function FileViewerContent({
       }
       return escapeHtml(code);
     },
-    [fileName]
+    [fileName],
   );
 
   const highlightedCode = useMemo(() => {
@@ -491,19 +513,19 @@ export function FileViewerContent({
   const viewLineNumbers = useMemo(
     () =>
       Array.from({ length: highlightedCode.lineCount }, (_, i) => i + 1).join(
-        "\n"
+        "\n",
       ),
-    [highlightedCode.lineCount]
+    [highlightedCode.lineCount],
   );
 
   const editLineCount = useMemo(
     () => (editMode ? editedContent.split("\n").length : 0),
-    [editMode, editedContent]
+    [editMode, editedContent],
   );
 
   const editLineNumbers = useMemo(
     () => Array.from({ length: editLineCount }, (_, i) => i + 1).join("\n"),
-    [editLineCount]
+    [editLineCount],
   );
 
   const handleCopy = useCallback(() => {
@@ -534,20 +556,18 @@ export function FileViewerContent({
         t("rightPanel.fileViewerDiscardConfirm", {
           defaultValue:
             "You have unsaved changes. Discard them and leave edit mode?",
-        })
+        }),
       );
       if (!confirmed) {
         return;
       }
     }
     if (canPersistRemoteDraft && sshSessionId && sshWorkspaceId) {
-      void window.snow.sshDeleteRemoteDraft(
-        sshSessionId,
-        sshWorkspaceId,
-        filePath
-      ).catch(() => {
-        // Keep an undeleted draft recoverable if SQLite is unavailable.
-      });
+      void window.snow
+        .sshDeleteRemoteDraft(sshSessionId, sshWorkspaceId, filePath)
+        .catch(() => {
+          // Keep an undeleted draft recoverable if SQLite is unavailable.
+        });
     }
     if (draftSnapshotRef.current) {
       draftSnapshotRef.current.dirty = false;
@@ -557,14 +577,7 @@ export function FileViewerContent({
     setSaveError(null);
     setSavedAt(false);
     setEditedContent("");
-  }, [
-    canPersistRemoteDraft,
-    dirty,
-    filePath,
-    sshSessionId,
-    sshWorkspaceId,
-    t,
-  ]);
+  }, [canPersistRemoteDraft, dirty, filePath, sshSessionId, sshWorkspaceId, t]);
 
   const handleValueChange = useCallback((next: string) => {
     setEditedContent(next);
@@ -604,7 +617,7 @@ export function FileViewerContent({
       filePath,
       sshSessionId,
       sshWorkspaceId,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -671,7 +684,9 @@ export function FileViewerContent({
         | undefined;
       if (isSsh) {
         if (!sshSessionId || !sshWorkspaceId || !content?.remoteVersion) {
-          throw new Error("Remote file save is missing its verified workspace or version");
+          throw new Error(
+            "Remote file save is missing its verified workspace or version",
+          );
         }
         remoteSave = await window.snow.sshWriteFile(
           sshSessionId,
@@ -680,7 +695,7 @@ export function FileViewerContent({
           {
             workspaceId: sshWorkspaceId,
             expectedVersion: content.remoteVersion,
-          }
+          },
         );
       } else {
         await window.snow.writeFileContent(filePath, editedContent);
@@ -706,7 +721,7 @@ export function FileViewerContent({
           await window.snow.sshDeleteRemoteDraft(
             sshSessionId,
             sshWorkspaceId,
-            filePath
+            filePath,
           );
         } catch {
           // The remote write is already durable. A stale local draft is
@@ -725,7 +740,7 @@ export function FileViewerContent({
           : message ||
               t("rightPanel.fileViewerSaveError", {
                 defaultValue: "Failed to save file",
-              })
+              }),
       );
       if (/\[SSH_FILE_CONFLICT\]/.test(message)) {
         void persistRemoteDraft("conflict").catch(() => {
@@ -762,11 +777,7 @@ export function FileViewerContent({
         sawSshDisconnectRef.current = true;
         return;
       }
-      if (
-        sawSshDisconnectRef.current &&
-        dirty &&
-        draftStatus === "pending"
-      ) {
+      if (sawSshDisconnectRef.current && dirty && draftStatus === "pending") {
         sawSshDisconnectRef.current = false;
         void handleSave();
       } else if (connection.status === "connected") {
@@ -803,7 +814,7 @@ export function FileViewerContent({
         focusLine: resolved.line,
       });
     },
-    [filePath, isSsh, sshSessionId]
+    [filePath, isSsh, sshSessionId],
   );
 
   // Keyboard shortcuts handled inside the editor's onKeyDown (which runs before
@@ -824,7 +835,7 @@ export function FileViewerContent({
         handleExitEditMode();
       }
     },
-    [dirty, saving, handleSave, handleExitEditMode]
+    [dirty, saving, handleSave, handleExitEditMode],
   );
 
   // Focus the editor when entering edit mode. No scroll syncing is needed for
@@ -832,7 +843,7 @@ export function FileViewerContent({
   // so both scroll together as one piece of content.
   useEffect(() => {
     if (!editMode) return;
-    const textarea = document.getElementById(EDITOR_TEXTAREA_ID);
+    const textarea = document.getElementById(editTextareaId);
     if (textarea instanceof HTMLTextAreaElement) {
       textarea.focus();
     }
@@ -920,7 +931,7 @@ export function FileViewerContent({
       setMdMode("code");
     }
     if (editMode) {
-      const textarea = document.getElementById(EDITOR_TEXTAREA_ID);
+      const textarea = document.getElementById(editTextareaId);
       if (textarea instanceof HTMLTextAreaElement) {
         const start = textarea.selectionStart ?? 0;
         const end = textarea.selectionEnd ?? 0;
@@ -951,7 +962,7 @@ export function FileViewerContent({
     return registerScopedHandler(
       "openSearch",
       openLocalSearch,
-      shouldInterceptOpenSearch
+      shouldInterceptOpenSearch,
     );
   }, [registerScopedHandler, openLocalSearch, shouldInterceptOpenSearch]);
 
@@ -960,7 +971,7 @@ export function FileViewerContent({
     setSearchMarkRects([]);
     if (editMode) {
       requestAnimationFrame(() => {
-        const textarea = document.getElementById(EDITOR_TEXTAREA_ID);
+        const textarea = document.getElementById(editTextareaId);
         if (textarea instanceof HTMLTextAreaElement) {
           textarea.focus();
         }
@@ -977,7 +988,7 @@ export function FileViewerContent({
         return (prev + delta + total) % total;
       });
     },
-    [searchMatches.length]
+    [searchMatches.length],
   );
 
   // 搜索栏按键：容器带 data-local-shortcuts，全局快捷键引擎不介入。
@@ -1000,7 +1011,7 @@ export function FileViewerContent({
         searchInputRef.current?.select();
       }
     },
-    [closeSearch, goRelative]
+    [closeSearch, goRelative],
   );
 
   // 当前匹配滚动入视。编辑模式仅在显式导航时重设选区（避免覆盖用户
@@ -1018,16 +1029,16 @@ export function FileViewerContent({
 
     if (editMode) {
       if (!navigated) return;
-      const textarea = document.getElementById(EDITOR_TEXTAREA_ID);
+      const textarea = document.getElementById(editTextareaId);
       if (!(textarea instanceof HTMLTextAreaElement)) return;
       textarea.setSelectionRange(match.start, match.end);
       const lineHeight = parseFloat(
-        window.getComputedStyle(textarea).lineHeight
+        window.getComputedStyle(textarea).lineHeight,
       );
       if (Number.isFinite(lineHeight) && lineHeight > 0) {
         textarea.scrollTop = Math.max(
           0,
-          (match.line - 1) * lineHeight - textarea.clientHeight / 3
+          (match.line - 1) * lineHeight - textarea.clientHeight / 3,
         );
       }
       return;
@@ -1129,7 +1140,7 @@ export function FileViewerContent({
         layer.style.transform = `translateX(${-scrollLeft}px)`;
       }
     },
-    []
+    [],
   );
 
   const buildMenuItems = (): ContextMenuItem[] => {
@@ -1170,7 +1181,7 @@ export function FileViewerContent({
           setContextMenu(null);
           const lastSep = Math.max(
             filePath.lastIndexOf("/"),
-            filePath.lastIndexOf("\\")
+            filePath.lastIndexOf("\\"),
           );
           const dir = lastSep === -1 ? filePath : filePath.slice(0, lastSep);
           onOpenTerminal(dir);
@@ -1260,7 +1271,7 @@ export function FileViewerContent({
             onValueChange={handleValueChange}
             highlight={highlightCode}
             onKeyDown={handleEditorKeyDown}
-            textareaId={EDITOR_TEXTAREA_ID}
+            textareaId={editTextareaId}
             textareaClassName="file-viewer-edit-textarea"
             preClassName="hljs"
             padding={{ top: 0, right: 14, bottom: 0, left: 10 }}
@@ -1362,24 +1373,24 @@ export function FileViewerContent({
                   defaultValue: "Unsaved",
                 })
               : savedAt
-              ? saveGuarantee === "strong_atomic"
-                ? t("rightPanel.fileViewerSavedStrongAtomic", {
-                    defaultValue: "Saved (strong atomic)",
-                  })
-                : saveGuarantee === "atomic_best_effort"
-                ? t("rightPanel.fileViewerSavedAtomicBestEffort", {
-                    defaultValue: "Saved (atomic best effort)",
-                  })
-                : saveGuarantee === "compatibility"
-                ? t("rightPanel.fileViewerSavedCompatibility", {
-                    defaultValue: "Saved (compatibility mode)",
-                  })
-                : t("rightPanel.fileViewerSaved", {
-                    defaultValue: "Saved",
-                  })
-              : t("rightPanel.fileViewerEditing", {
-                  defaultValue: "Editing",
-                })}
+                ? saveGuarantee === "strong_atomic"
+                  ? t("rightPanel.fileViewerSavedStrongAtomic", {
+                      defaultValue: "Saved (strong atomic)",
+                    })
+                  : saveGuarantee === "atomic_best_effort"
+                    ? t("rightPanel.fileViewerSavedAtomicBestEffort", {
+                        defaultValue: "Saved (atomic best effort)",
+                      })
+                    : saveGuarantee === "compatibility"
+                      ? t("rightPanel.fileViewerSavedCompatibility", {
+                          defaultValue: "Saved (compatibility mode)",
+                        })
+                      : t("rightPanel.fileViewerSaved", {
+                          defaultValue: "Saved",
+                        })
+                : t("rightPanel.fileViewerEditing", {
+                    defaultValue: "Editing",
+                  })}
           </span>
         ) : null}
         {isSvg && (
@@ -1604,7 +1615,7 @@ export function FileViewerContent({
           <div className="file-viewer-image-container">
             <img
               src={`data:image/svg+xml;utf8,${encodeURIComponent(
-                content.content
+                content.content,
               )}`}
               alt={fileName}
               className="file-viewer-image"

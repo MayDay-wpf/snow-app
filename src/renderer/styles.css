@@ -24842,6 +24842,21 @@ input {
   width: 840px;
 }
 
+/* 快速文件编辑弹窗（资源管理器双击打开）：大尺寸 + 内容区撑满。 */
+.file-edit-modal {
+  width: min(1200px, calc(100vw - 48px));
+  height: min(88vh, calc(100vh - 48px));
+}
+
+.file-edit-modal .app-modal-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
 @keyframes app-modal-dialog-in {
   from {
     opacity: 0;
