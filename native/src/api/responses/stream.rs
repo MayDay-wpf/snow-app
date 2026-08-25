@@ -64,7 +64,7 @@ struct ResponsesAttemptState {
     token_usage: ChatTokenUsage,
     completed_response: Option<Value>,
     stream_completed_normally: bool,
-    reasoning_text_streamed: bool,
+    reasoning_stream_mode: HashMap<u64, crate::api::responses::event::ReasoningStreamMode>,
 }
 
 impl Default for ResponsesAttemptState {
@@ -83,7 +83,7 @@ impl Default for ResponsesAttemptState {
             token_usage: ChatTokenUsage::default(),
             completed_response: None,
             stream_completed_normally: false,
-            reasoning_text_streamed: false,
+            reasoning_stream_mode: HashMap::new(),
         }
     }
 }
@@ -104,7 +104,7 @@ impl ResponsesAttemptState {
             &mut self.token_usage,
             &mut self.completed_response,
             &mut self.stream_completed_normally,
-            &mut self.reasoning_text_streamed,
+            &mut self.reasoning_stream_mode,
         )
     }
 

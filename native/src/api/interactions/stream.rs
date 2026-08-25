@@ -198,6 +198,7 @@ pub(super) async fn collect_interactions_stream(
         let mut thinking_chunks: Vec<String> = Vec::new();
         let mut raw_events: Vec<Value> = Vec::new();
         let mut tool_calls = super::event::InteractionsToolCallState::default();
+        let mut step_text = super::event::InteractionsStepTextState::default();
         let mut response_id = String::new();
         let mut response_model = String::new();
         let mut response_status = String::from("in_progress");
@@ -226,6 +227,7 @@ pub(super) async fn collect_interactions_stream(
                     &mut response_status,
                     &mut token_usage,
                     &mut tool_args_delta,
+                    &mut step_text,
                     &mut stream_finished,
                     &mut provider_failure,
                 );

@@ -1,6 +1,6 @@
 //! Google Interactions API SSE event parsing and stream processing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -277,6 +277,61 @@ impl InteractionsToolCallState {
     }
 }
 
+/// Tracks the text length already counted per step, so that a terminal or
+/// echo event re-sending a step's cumulative text is merged idempotently
+/// instead of duplicating the whole answer.
+#[derive(Default)]
+pub(super) struct InteractionsStepTextState {
+    content_len: HashMap<String, usize>,
+    thought_len: HashMap<String, usize>,
+}
+
+impl InteractionsStepTextState {
+    /// Record an incremental fragment (a delta) that was pushed as-is.
+    fn record_delta(&mut self, step_id: &str, is_thought: bool, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let map = if is_thought {
+            &mut self.thought_len
+        } else {
+            &mut self.content_len
+        };
+        *map.entry(step_id.to_string()).or_insert(0) += len;
+    }
+
+    /// True when a payload equals what was already counted for this step,
+    /// i.e. the terminal event is echoing the streamed text.
+    fn is_echo(&self, step_id: &str, is_thought: bool, len: usize) -> bool {
+        let map = if is_thought {
+            &self.thought_len
+        } else {
+            &self.content_len
+        };
+        map.get(step_id) == Some(&len)
+    }
+
+    /// Record a full-text payload that was accepted.
+    fn record_full(&mut self, step_id: &str, is_thought: bool, len: usize) {
+        let map = if is_thought {
+            &mut self.thought_len
+        } else {
+            &mut self.content_len
+        };
+        map.insert(step_id.to_string(), len);
+    }
+}
+
+fn step_id_from(index: Option<u64>, step: &Value) -> String {
+    match step.get("id").and_then(Value::as_str) {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => match index {
+            Some(index) => index.to_string(),
+            None => "default".to_string(),
+        },
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn process_interactions_sse_event_block(
     event_block: &str,
@@ -289,6 +344,7 @@ pub(super) fn process_interactions_sse_event_block(
     response_status: &mut String,
     token_usage: &mut ChatTokenUsage,
     tool_args_delta: &mut String,
+    step_text: &mut InteractionsStepTextState,
     stream_finished: &mut bool,
     provider_failure: &mut Option<InteractionsProviderFailure>,
 ) {
@@ -340,6 +396,7 @@ pub(super) fn process_interactions_sse_event_block(
             response_status,
             token_usage,
             tool_args_delta,
+            step_text,
             stream_finished,
         );
         if let Err(failure) = result {
@@ -374,6 +431,7 @@ pub(super) fn process_interactions_sse_event_block(
             response_status,
             token_usage,
             tool_args_delta,
+            step_text,
             stream_finished,
         );
         if let Err(failure) = result {
@@ -399,6 +457,7 @@ fn process_interactions_event(
     response_status: &mut String,
     token_usage: &mut ChatTokenUsage,
     tool_args_delta: &mut String,
+    step_text: &mut InteractionsStepTextState,
     stream_finished: &mut bool,
 ) -> std::result::Result<(), InteractionsProviderFailure> {
     let interaction = event.get("interaction").unwrap_or(event);
@@ -424,7 +483,7 @@ fn process_interactions_event(
     match event_type {
         Some("step.start") => {
             if let Some(step) = event.get("step") {
-                process_step_content(step, content_chunks, thinking_chunks);
+                process_step_content(step, &step_id_from(index, step), step_text, content_chunks, thinking_chunks);
                 if let Some(index) = index {
                     tool_calls.register_step(index, step, false);
                 }
@@ -433,6 +492,7 @@ fn process_interactions_event(
         Some("step.delta") => process_top_level_delta(
             event,
             index,
+            step_text,
             content_chunks,
             thinking_chunks,
             tool_calls,
@@ -440,7 +500,7 @@ fn process_interactions_event(
         ),
         Some("step.stop") | Some("step.completed") => {
             if let Some(step) = event.get("step") {
-                process_step_content(step, content_chunks, thinking_chunks);
+                process_step_content(step, &step_id_from(index, step), step_text, content_chunks, thinking_chunks);
                 if let Some(index) = index {
                     tool_calls.register_step(index, step, true);
                 } else {
@@ -453,6 +513,8 @@ fn process_interactions_event(
         _ => process_compatibility_event(
             event,
             interaction,
+            index,
+            step_text,
             content_chunks,
             thinking_chunks,
             tool_calls,
@@ -589,6 +651,7 @@ fn capture_metadata(
 fn process_top_level_delta(
     event: &Value,
     index: Option<u64>,
+    step_text: &mut InteractionsStepTextState,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
     tool_calls: &mut InteractionsToolCallState,
@@ -598,13 +661,17 @@ fn process_top_level_delta(
     // compatibility envelopes with the same delta nested below `step`.
     // Treat both shapes identically; otherwise the step.start placeholder is
     // finalized with `{}` while the real arguments fragment is discarded.
+    let step = event.get("step").filter(|step| step.is_object());
     let delta = event
         .get("delta")
         .or_else(|| event.get("step").and_then(|step| step.get("delta")));
     let Some(delta) = delta else {
         return;
     };
-    process_delta_content(delta, "", content_chunks, thinking_chunks);
+    let step_id = step
+        .map(|step| step_id_from(index, step))
+        .unwrap_or_else(|| "default".to_string());
+    process_delta_content(delta, "", &step_id, step_text, content_chunks, thinking_chunks);
 
     let fragment = match delta.get("type").and_then(Value::as_str).unwrap_or("") {
         "arguments_delta" => delta.get("arguments").and_then(Value::as_str),
@@ -629,13 +696,15 @@ fn process_top_level_delta(
 fn process_compatibility_event(
     event: &Value,
     interaction: &Value,
+    index: Option<u64>,
+    step_text: &mut InteractionsStepTextState,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
     tool_calls: &mut InteractionsToolCallState,
     tool_args_delta: &mut String,
 ) {
     if let Some(step) = event.get("step") {
-        process_step_content(step, content_chunks, thinking_chunks);
+        process_step_content(step, &step_id_from(index, step), step_text, content_chunks, thinking_chunks);
         if let Some(index) = event.get("index").and_then(Value::as_u64) {
             if let Some(fragment) = step
                 .get("delta")
@@ -656,16 +725,16 @@ fn process_compatibility_event(
             process_complete_calls(step, tool_calls);
         }
     } else if let Some(delta) = event.get("delta") {
-        process_delta_content(delta, "", content_chunks, thinking_chunks);
+        process_delta_content(delta, "", "default", step_text, content_chunks, thinking_chunks);
     } else if let Some(text) = event.get("text").and_then(Value::as_str) {
         if !text.is_empty() {
             content_chunks.push(text.to_string());
         }
     }
 
-    process_steps_array(event, content_chunks, thinking_chunks, tool_calls);
+    process_steps_array(event, step_text, content_chunks, thinking_chunks, tool_calls);
     if event.get("interaction").is_some() {
-        process_steps_array(interaction, content_chunks, thinking_chunks, tool_calls);
+        process_steps_array(interaction, step_text, content_chunks, thinking_chunks, tool_calls);
     }
     process_complete_calls(event, tool_calls);
 }
@@ -683,6 +752,7 @@ fn step_is_complete(step: &Value) -> bool {
 
 fn process_steps_array(
     value: &Value,
+    step_text: &mut InteractionsStepTextState,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
     tool_calls: &mut InteractionsToolCallState,
@@ -691,7 +761,8 @@ fn process_steps_array(
         return;
     };
     for (position, step) in steps.iter().enumerate() {
-        process_step_content(step, content_chunks, thinking_chunks);
+        let step_id = step_id_from(step.get("index").and_then(Value::as_u64), step);
+        process_step_content(step, &step_id, step_text, content_chunks, thinking_chunks);
         if is_function_call(step) {
             let index = step
                 .get("index")
@@ -704,19 +775,27 @@ fn process_steps_array(
 
 fn process_step_content(
     step: &Value,
+    step_id: &str,
+    step_text: &mut InteractionsStepTextState,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
 ) {
     let step_type = step.get("type").and_then(Value::as_str).unwrap_or("");
     if let Some(delta) = step.get("delta") {
-        process_delta_content(delta, step_type, content_chunks, thinking_chunks);
+        process_delta_content(delta, step_type, step_id, step_text, content_chunks, thinking_chunks);
     }
+    // `step.text` / `step.thought` carry the step's FULL cumulative text.
+    // Skip them when they merely echo what the deltas already produced, so
+    // a terminal event re-sending the steps does not duplicate the answer.
     if let Some(text) = step.get("text").and_then(Value::as_str) {
-        push_text(text, step_type, content_chunks, thinking_chunks);
+        push_text(text, step_type, step_text, step_id, content_chunks, thinking_chunks);
     }
     if let Some(thought) = step.get("thought").and_then(Value::as_str) {
         if !thought.is_empty() {
-            thinking_chunks.push(thought.to_string());
+            if !step_text.is_echo(step_id, true, thought.len()) {
+                step_text.record_full(step_id, true, thought.len());
+                thinking_chunks.push(thought.to_string());
+            }
         }
     }
 }
@@ -724,6 +803,8 @@ fn process_step_content(
 fn process_delta_content(
     delta: &Value,
     step_type: &str,
+    step_id: &str,
+    step_text: &mut InteractionsStepTextState,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
 ) {
@@ -739,11 +820,14 @@ fn process_delta_content(
             .and_then(|content| content.get("text"))
             .and_then(Value::as_str)
     }) {
-        push_text(text, effective_step_type, content_chunks, thinking_chunks);
+        push_text(text, effective_step_type, step_text, step_id, content_chunks, thinking_chunks);
     }
     if let Some(thought) = delta.get("thought").and_then(Value::as_str) {
         if !thought.is_empty() {
-            thinking_chunks.push(thought.to_string());
+            if !step_text.is_echo(step_id, true, thought.len()) {
+                step_text.record_delta(step_id, true, thought.len());
+                thinking_chunks.push(thought.to_string());
+            }
         }
     }
 }
@@ -751,16 +835,26 @@ fn process_delta_content(
 fn push_text(
     text: &str,
     step_type: &str,
+    step_text: &mut InteractionsStepTextState,
+    step_id: &str,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
 ) {
     if text.is_empty() {
         return;
     }
-    if matches!(step_type, "thought" | "thinking") {
-        thinking_chunks.push(text.to_string());
-    } else {
-        content_chunks.push(text.to_string());
+    let is_thought = matches!(step_type, "thought" | "thinking");
+    // Treat the payload as a step-level echo when it equals the accumulated
+    // length (same length = same cumulative text; terminal events re-send it).
+    if !step_text.is_echo(step_id, is_thought, text.len()) {
+        let len = text.len();
+        if is_thought {
+            thinking_chunks.push(text.to_string());
+            step_text.record_delta(step_id, true, len);
+        } else {
+            content_chunks.push(text.to_string());
+            step_text.record_delta(step_id, false, len);
+        }
     }
 }
 
@@ -1049,6 +1143,7 @@ mod tests {
         content: Vec<String>,
         thinking: Vec<String>,
         calls: InteractionsToolCallState,
+        step_text: InteractionsStepTextState,
         id: String,
         model: String,
         status: String,
@@ -1065,6 +1160,7 @@ mod tests {
                 content: Vec::new(),
                 thinking: Vec::new(),
                 calls: InteractionsToolCallState::default(),
+                step_text: InteractionsStepTextState::default(),
                 id: String::new(),
                 model: String::new(),
                 status: String::from("in_progress"),
@@ -1090,6 +1186,7 @@ mod tests {
                 &mut self.status,
                 &mut self.usage,
                 &mut self.args_delta,
+                &mut self.step_text,
                 &mut self.finished,
                 &mut self.failure,
             );

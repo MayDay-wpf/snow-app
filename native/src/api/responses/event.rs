@@ -9,6 +9,17 @@ use serde_json::{json, Value};
 use crate::api::common::read_first_i64;
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
+/// Which representation of a reasoning item's text has been seen for one
+/// `output_index`. The full-text stream and the summary stream are two
+/// representations of the SAME text, so at most one may be counted; tracking
+/// the mode per index (instead of one global flag) keeps multiple reasoning
+/// items in a single response independent.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReasoningStreamMode {
+    FullText,
+    Summary,
+}
+
 // ---------------------------------------------------------------------------
 // SSE block parsing
 // ---------------------------------------------------------------------------
@@ -39,7 +50,7 @@ pub(super) fn process_responses_sse_event_block(
     token_usage: &mut ChatTokenUsage,
     completed_response: &mut Option<Value>,
     stream_completed_normally: &mut bool,
-    reasoning_text_streamed: &mut bool,
+    reasoning_stream_mode: &mut HashMap<u64, ReasoningStreamMode>,
 ) -> (String, String) {
     let mut content_delta_out = String::new();
     let mut thinking_delta_out = String::new();
@@ -81,19 +92,14 @@ pub(super) fn process_responses_sse_event_block(
             // thinking block only appears after the entire response has
             // finished rendering.
             "response.reasoning_text.delta" => {
-                *reasoning_text_streamed = true;
-                let thinking_delta = read_stream_text_delta(event.get("delta"));
-                if !thinking_delta.is_empty() {
-                    thinking_chunks.push(thinking_delta.clone());
-                    thinking_delta_out.push_str(&thinking_delta);
-                }
-            }
-            "response.reasoning_summary_text.delta" => {
-                // The summary is a condensed re-statement of the full
-                // reasoning text. If the full text was already streamed via
-                // `response.reasoning_text.delta`, appending the summary
-                // would duplicate the thinking block, so suppress it.
-                if !*reasoning_text_streamed {
+                let index = event.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+                // The summary is a re-statement of the full text. If a summary
+                // was already counted for this index, counting the full text
+                // too would duplicate the thinking block regardless of the
+                // order in which the two arrive.
+                if reasoning_stream_mode.insert(index, ReasoningStreamMode::FullText)
+                    != Some(ReasoningStreamMode::Summary)
+                {
                     let thinking_delta = read_stream_text_delta(event.get("delta"));
                     if !thinking_delta.is_empty() {
                         thinking_chunks.push(thinking_delta.clone());
@@ -101,18 +107,30 @@ pub(super) fn process_responses_sse_event_block(
                     }
                 }
             }
-            "response.reasoning_summary.delta" => {
-                // See reasoning_summary_text.delta above: skip the summary
-                // when the full reasoning text is streamed.
-                if !*reasoning_text_streamed {
-                    if let Some(delta) = event.get("delta") {
-                        let mut delta_chunks = Vec::new();
-                        collect_text_values(delta, &mut delta_chunks);
-                        let thinking_delta = delta_chunks.join("");
-                        if !thinking_delta.is_empty() {
-                            thinking_chunks.push(thinking_delta.clone());
-                            thinking_delta_out.push_str(&thinking_delta);
+            "response.reasoning_summary_text.delta"
+            | "response.reasoning_summary.delta" => {
+                let index = event.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+                // Mutual exclusion with the full-text stream (and, for the two
+                // summary event names, with each other): only the first
+                // representation wins for a given output index.
+                if reasoning_stream_mode.insert(index, ReasoningStreamMode::Summary)
+                    != Some(ReasoningStreamMode::FullText)
+                {
+                    let thinking_delta = match event_type {
+                        "response.reasoning_summary_text.delta" => {
+                            read_stream_text_delta(event.get("delta"))
                         }
+                        _ => {
+                            let mut delta_chunks = Vec::new();
+                            if let Some(delta) = event.get("delta") {
+                                collect_text_values(delta, &mut delta_chunks);
+                            }
+                            delta_chunks.join("")
+                        }
+                    };
+                    if !thinking_delta.is_empty() {
+                        thinking_chunks.push(thinking_delta.clone());
+                        thinking_delta_out.push_str(&thinking_delta);
                     }
                 }
             }

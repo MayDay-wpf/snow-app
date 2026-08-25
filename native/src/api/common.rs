@@ -180,17 +180,25 @@ pub(crate) fn push_reasoning_text(value: Option<&Value>, chunks: &mut Vec<String
     };
 
     // 1. DeepSeek official field (also used as an alias by some relays).
+    let before = chunks.len();
     push_trimmed_string(object.get("reasoning_content"), chunks);
 
-    // 2. OpenRouter normalised field. Checked after reasoning_content so that,
-    //    if a provider emits both, the canonical DeepSeek value wins ordering
-    //    (the two are semantically identical anyway).
-    push_trimmed_string(object.get("reasoning"), chunks);
+    // 2. OpenRouter flat alias. Per the OpenRouter convention the flat field
+    //    and `reasoning_details` are two representations of the SAME text, so
+    //    only fall back to this when the canonical field carried nothing.
+    if chunks.len() == before {
+        push_trimmed_string(object.get("reasoning"), chunks);
+    }
 
-    // 3. OpenRouter structured reasoning_details array. Each item is one of:
+    // 3. OpenRouter structured reasoning_details array. Only used when no flat
+    //    field was present, otherwise providers emitting both would be read
+    //    twice and every streamed chunk duplicated. Each item is one of:
     //    { "type": "reasoning.text",    "text": "..." }
     //    { "type": "reasoning.summary", "summary": "..." }
     //    { "type": "reasoning.encrypted", "data": "..." }  (ignored — opaque)
+    if chunks.len() != before {
+        return;
+    }
     if let Some(details) = object.get("reasoning_details").and_then(Value::as_array) {
         for detail in details {
             let detail_obj = match detail.as_object() {
@@ -202,8 +210,12 @@ pub(crate) fn push_reasoning_text(value: Option<&Value>, chunks: &mut Vec<String
             if item_type == "reasoning.encrypted" {
                 continue;
             }
+            // A single item carries either `text` or `summary`, never both.
+            let before_detail = chunks.len();
             push_trimmed_string(detail_obj.get("text"), chunks);
-            push_trimmed_string(detail_obj.get("summary"), chunks);
+            if chunks.len() == before_detail {
+                push_trimmed_string(detail_obj.get("summary"), chunks);
+            }
         }
     }
 }
