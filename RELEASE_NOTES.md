@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.2.14
+
+## Improvements
+
+- **Collection Projects Hidden from Top Level**: Projects added to a collection no longer appear in the top-level project list, removing the duplication between the collection view and the main list.
+- **Project List Pagination**: Project list pagination is now driven by the scroll event instead of IntersectionObserver, making incremental loading more reliable.
+
+## Bug Fixes
+
+- **Archived Conversation Restore Statistics**: The archived conversation restore query was missing the run-level token statistics columns, so restored conversations lost their run statistics; the missing columns are now selected.
+
 ## v0.2.13
 
 ## New Features
