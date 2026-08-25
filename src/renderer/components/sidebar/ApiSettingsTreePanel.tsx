@@ -9,29 +9,14 @@ import {
   ApiSettingsFormActions,
   ApiSettingsFormPanel,
 } from "./apiSettings/ApiSettingsFormPanel";
+import { ApiSettingsEditModal } from "./apiSettings/ApiSettingsEditModal";
 import { ApiSettingsSummary } from "./apiSettings/ApiSettingsSummary";
 import { ApiSettingsTable } from "./apiSettings/ApiSettingsTable";
 import { buildDuplicateName } from "./duplicateName";
 import {
-  DEFAULT_API_BASE_URL,
-  DEFAULT_REQUEST_METHOD,
-} from "./apiSettings/apiSettingsConstants";
-import {
   emptyApiConfigForm,
-  extractGoogleSearchFromConfigJson,
-  extractOneMContextFromConfigJson,
-  extractResponsesFastModeFromConfigJson,
-  extractResponsesVerbosityFromConfigJson,
-  extractThinkingValueFromConfigJson,
-  extractToolResultTokenLimitFromConfigJson,
-  extractVisionGoogleSearchFromConfigJson,
-  extractVisionMaxConcurrencyFromConfigJson,
-  extractVisionMaxTokensFromConfigJson,
-  extractVisionThinkingEffortFromConfigJson,
-  extractVisionThinkingEnabledFromConfigJson,
   toApiConfigPayload,
 } from "./apiSettings/apiSettingsUtils";
-import { calculateAutoCompressThresholdPercent } from "./apiSettings/autoCompressThreshold";
 import type {
   ApiConfigFormData,
   ApiSettingsPanelProps,
@@ -46,12 +31,11 @@ export function ApiSettingsTreePanel({
   const [isSaving, setIsSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<ApiConfigFormData>(() =>
-    emptyApiConfigForm(1, true)
+    emptyApiConfigForm(1, true),
   );
-  const [editingProfileName, setEditingProfileName] = useState<string | null>(
-    null
+  const [editingConfig, setEditingConfig] = useState<ApiConfigRecord | null>(
+    null,
   );
-  const [editForm, setEditForm] = useState<ApiConfigFormData | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -71,7 +55,7 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiLoadError", {
               defaultValue: "Failed to load API configs",
-            })
+            }),
       );
     } finally {
       setIsLoading(false);
@@ -82,44 +66,35 @@ export function ApiSettingsTreePanel({
     void load();
   }, [load]);
 
-  const onFieldChange =
-    (form: "add" | "edit") =>
-    (field: keyof ApiConfigFormData, value: string | boolean) => {
-      if (field === "isActive" && value === false) {
-        const currentForm = form === "add" ? addForm : editForm;
-        const profileName = currentForm?.profileName;
-        const willKeepAnotherActive = configs.some(
-          (config) => config.isActive && config.profileName !== profileName
-        );
+  const onFieldChange = (
+    field: keyof ApiConfigFormData,
+    value: string | boolean,
+  ): void => {
+    if (field === "isActive" && value === false) {
+      const willKeepAnotherActive = configs.some(
+        (config) =>
+          config.isActive && config.profileName !== addForm.profileName,
+      );
 
-        if (!willKeepAnotherActive) {
-          setError(
-            t("settings.apiAtLeastOneActive", {
-              defaultValue: "At least one API profile must be enabled.",
-            })
-          );
-          return;
-        }
-      }
-
-      if (form === "add") {
-        setAddForm((previous) => ({ ...previous, [field]: value }));
-      } else if (editForm) {
-        // 函数式更新：单次交互可能连续触发多个字段的 onChange
-        // （如 1M 上下文开关同时更新 oneMContext 与两个模型名），
-        // 非函数式展开会基于同一旧快照互相覆盖，导致部分字段丢失。
-        setEditForm((previous) =>
-          previous ? { ...previous, [field]: value } : previous
+      if (!willKeepAnotherActive) {
+        setError(
+          t("settings.apiAtLeastOneActive", {
+            defaultValue: "At least one API profile must be enabled.",
+          }),
         );
+        return;
       }
-    };
+    }
+
+    setAddForm((previous) => ({ ...previous, [field]: value }));
+  };
 
   const handleAddSubmit = async () => {
     if (!addForm.profileName.trim()) {
       setError(
         t("settings.apiManualProfileRequired", {
           defaultValue: "Profile name is required.",
-        })
+        }),
       );
       return;
     }
@@ -130,7 +105,7 @@ export function ApiSettingsTreePanel({
 
     try {
       const list = await window.snow.upsertApiConfig(
-        toApiConfigPayload(addForm, addForm.isActive, configs.length)
+        toApiConfigPayload(addForm, addForm.isActive, configs.length),
       );
       setConfigs(list);
       setAddForm(emptyApiConfigForm(list.length + 1, false));
@@ -138,7 +113,7 @@ export function ApiSettingsTreePanel({
       setStatus(
         t("settings.apiManualAddSuccess", {
           defaultValue: "Added API profile {name}.",
-        }).replace("{name}", addForm.profileName.trim())
+        }).replace("{name}", addForm.profileName.trim()),
       );
     } catch (e) {
       setError(
@@ -146,7 +121,7 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiAddError", {
               defaultValue: "Failed to add API config",
-            })
+            }),
       );
     } finally {
       setIsSaving(false);
@@ -159,7 +134,7 @@ export function ApiSettingsTreePanel({
     setShowAddForm((value) => {
       if (!value) {
         setAddForm(
-          emptyApiConfigForm(configs.length + 1, configs.length === 0)
+          emptyApiConfigForm(configs.length + 1, configs.length === 0),
         );
       }
       return !value;
@@ -177,13 +152,13 @@ export function ApiSettingsTreePanel({
       setAddForm(
         emptyApiConfigForm(
           result.configs.length + 1,
-          result.configs.length === 0
-        )
+          result.configs.length === 0,
+        ),
       );
       setStatus(
         t("settings.apiImportSuccess", {
           defaultValue: "Imported {count} Snow CLI profiles.",
-        }).replace("{count}", result.importedCount.toString())
+        }).replace("{count}", result.importedCount.toString()),
       );
     } catch (e) {
       setError(
@@ -191,7 +166,7 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiImportError", {
               defaultValue: "Failed to import Snow CLI configs",
-            })
+            }),
       );
     } finally {
       setIsLoading(false);
@@ -205,12 +180,11 @@ export function ApiSettingsTreePanel({
     try {
       const list = await window.snow.deleteApiConfig(profileName);
       setConfigs(list);
-      setEditingProfileName(null);
-      setEditForm(null);
+      setEditingConfig(null);
       setStatus(
         t("settings.apiDeleteSuccess", {
           defaultValue: "Deleted API profile {name}.",
-        }).replace("{name}", displayName)
+        }).replace("{name}", displayName),
       );
     } catch (e) {
       setError(
@@ -218,136 +192,9 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiDeleteError", {
               defaultValue: "Failed to delete API config",
-            })
+            }),
       );
     }
-  };
-
-  const handleStartEdit = (config: ApiConfigRecord) => {
-    setEditingProfileName(config.profileName);
-    setShowAddForm(false);
-    setError("");
-    setStatus("");
-    setEditForm({
-      profileName: config.profileName,
-      displayName: config.displayName,
-      baseUrl: config.baseUrl || DEFAULT_API_BASE_URL,
-      baseUrlMode: config.baseUrlMode || "auto",
-      apiKey: config.apiKey || "",
-      requestMethod: config.requestMethod || DEFAULT_REQUEST_METHOD,
-      advancedModel: config.advancedModel || "",
-      basicModel: config.basicModel || "",
-      isActive: config.isActive,
-      supportsVision: config.supportsVision,
-      visionBaseUrl: config.visionBaseUrl || "",
-      visionApiKey: config.visionApiKey || "",
-      visionRequestMethod: config.visionRequestMethod || DEFAULT_REQUEST_METHOD,
-      visionModel: config.visionModel || "",
-      maxContextTokens:
-        config.maxContextTokens != null ? String(config.maxContextTokens) : "",
-      maxTokens: config.maxTokens != null ? String(config.maxTokens) : "",
-      streamIdleTimeoutSec:
-        config.streamIdleTimeoutSec != null
-          ? String(config.streamIdleTimeoutSec)
-          : "",
-       enableAutoCompress: config.enableAutoCompress ?? true,
-       autoCompressThreshold: calculateAutoCompressThresholdPercent(
-         config.maxContextTokens,
-         config.autoCompressThreshold
-       ),
-       toolResultTokenLimit: extractToolResultTokenLimitFromConfigJson(
-         config.configJson
-       ),
-      maxRetries: config.maxRetries != null ? String(config.maxRetries) : "",
-      retryBaseDelayMs:
-        config.retryBaseDelayMs != null ? String(config.retryBaseDelayMs) : "",
-      partialRetryMaxChars:
-        config.partialRetryMaxChars != null ? String(config.partialRetryMaxChars) : "",
-      systemPromptIdsJson: config.systemPromptIdsJson ?? "",
-      customHeaderSchemeId: config.customHeaderSchemeId ?? "",
-      thinkingValue: extractThinkingValueFromConfigJson(
-        config.configJson,
-        config.requestMethod || DEFAULT_REQUEST_METHOD
-      ),
-      responsesVerbosity: extractResponsesVerbosityFromConfigJson(
-        config.configJson
-      ),
-      responsesFastMode: extractResponsesFastModeFromConfigJson(
-        config.configJson
-      ),
-      googleSearch: extractGoogleSearchFromConfigJson(config.configJson),
-      oneMContext: extractOneMContextFromConfigJson(config.configJson),
-      visionGoogleSearch: extractVisionGoogleSearchFromConfigJson(
-        config.configJson
-      ),
-      visionThinkingEnabled: extractVisionThinkingEnabledFromConfigJson(
-        config.configJson
-      ),
-      visionThinkingEffort: extractVisionThinkingEffortFromConfigJson(
-        config.configJson
-      ),
-      visionMaxTokens: extractVisionMaxTokensFromConfigJson(config.configJson),
-      visionMaxConcurrency: extractVisionMaxConcurrencyFromConfigJson(
-        config.configJson
-      ),
-      configJson: config.configJson,
-    });
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editForm) return;
-
-    const profileName = editForm.profileName.trim();
-    if (!profileName) {
-      setError(
-        t("settings.apiManualProfileRequired", {
-          defaultValue: "Profile name is required.",
-        })
-      );
-      return;
-    }
-
-    setIsSaving(true);
-    setError("");
-    setStatus("");
-
-    try {
-      const payload = toApiConfigPayload(
-        editForm,
-        editForm.isActive,
-        configs.length
-      );
-      // 配置名变化时携带原配置名,由后端在同一事务内完成原子重命名
-      const previousProfileName = editingProfileName;
-      const list = await window.snow.upsertApiConfig(
-        previousProfileName && previousProfileName !== profileName
-          ? { ...payload, previousProfileName }
-          : payload
-      );
-      setConfigs(list);
-      setEditingProfileName(null);
-      setEditForm(null);
-      setStatus(
-        t("settings.apiEditSuccess", {
-          defaultValue: "Updated API profile {name}.",
-        }).replace("{name}", profileName)
-      );
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : t("settings.apiUpdateError", {
-              defaultValue: "Failed to update API config",
-            })
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingProfileName(null);
-    setEditForm(null);
   };
 
   const handleDuplicate = async (config: ApiConfigRecord) => {
@@ -357,11 +204,11 @@ export function ApiSettingsTreePanel({
     // 命名规则：*-Copy-n（n 为递增数字，避免与既有 profileName/displayName 冲突）。
     const profileName = buildDuplicateName(
       config.profileName,
-      configs.map((item) => item.profileName)
+      configs.map((item) => item.profileName),
     );
     const displayName = buildDuplicateName(
       config.displayName || config.profileName,
-      configs.map((item) => item.displayName)
+      configs.map((item) => item.displayName),
     );
 
     setIsSaving(true);
@@ -400,7 +247,7 @@ export function ApiSettingsTreePanel({
       setStatus(
         t("settings.apiDuplicateSuccess", {
           defaultValue: "Duplicated API profile {name}.",
-        }).replace("{name}", displayName)
+        }).replace("{name}", displayName),
       );
     } catch (e) {
       setError(
@@ -408,7 +255,7 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiDuplicateError", {
               defaultValue: "Failed to duplicate API config",
-            })
+            }),
       );
     } finally {
       setIsSaving(false);
@@ -455,7 +302,7 @@ export function ApiSettingsTreePanel({
       setStatus(
         t("settings.apiActivateSuccess", {
           defaultValue: "Activated {name}.",
-        }).replace("{name}", config.displayName)
+        }).replace("{name}", config.displayName),
       );
     } catch (e) {
       setError(
@@ -463,7 +310,7 @@ export function ApiSettingsTreePanel({
           ? e.message
           : t("settings.apiActivateError", {
               defaultValue: "Failed to activate API config",
-            })
+            }),
       );
     }
   };
@@ -520,7 +367,7 @@ export function ApiSettingsTreePanel({
         configs={configs}
         isLoading={isLoading}
         onDuplicate={(config) => void handleDuplicate(config)}
-        onEdit={handleStartEdit}
+        onEdit={setEditingConfig}
         onDelete={(profileName, displayName) =>
           void handleDelete(profileName, displayName)
         }
@@ -555,7 +402,7 @@ export function ApiSettingsTreePanel({
         <ApiSettingsFormPanel
           data={addForm}
           isSaving={isSaving}
-          onChange={onFieldChange("add")}
+          onChange={onFieldChange}
           onCancel={toggleAddForm}
           onSave={() => void handleAddSubmit()}
           saveLabel={t("settings.saveApiConfig", {
@@ -565,45 +412,19 @@ export function ApiSettingsTreePanel({
         />
       </Modal>
 
-      <Modal
-        open={Boolean(editingProfileName && editForm)}
-        title={`${t("settings.apiEditTitle", {
-          defaultValue: "Edit profile",
-        })}: ${editForm?.profileName ?? ""}`}
-        description={t("settings.apiEditInfo", {
-          defaultValue: "Leave API key blank to keep the existing value.",
-        })}
-        closeLabel={t("settings.cancel", { defaultValue: "Cancel" })}
-        onClose={handleCancelEdit}
-        closeDisabled={isBusy}
-        size="large"
-        className="api-settings-editor-modal"
-        footer={
-          editForm && (
-            <ApiSettingsFormActions
-              isSaving={isSaving}
-              onCancel={handleCancelEdit}
-              onSave={() => void handleSaveEdit()}
-              saveLabel={t("settings.saveApiConfig", {
-                defaultValue: "Save API profile",
-              })}
-            />
-          )
-        }
-      >
-        {editForm && (
-          <ApiSettingsFormPanel
-            data={editForm}
-            isSaving={isSaving}
-            onChange={onFieldChange("edit")}
-            onCancel={handleCancelEdit}
-            onSave={() => void handleSaveEdit()}
-            saveLabel={t("settings.saveApiConfig", {
-              defaultValue: "Save API profile",
-            })}
-          />
-        )}
-      </Modal>
+      <ApiSettingsEditModal
+        config={editingConfig}
+        onClose={() => setEditingConfig(null)}
+        onSaved={(list, profileName) => {
+          setConfigs(list);
+          setEditingConfig(null);
+          setStatus(
+            t("settings.apiEditSuccess", {
+              defaultValue: "Updated API profile {name}.",
+            }).replace("{name}", profileName),
+          );
+        }}
+      />
     </div>
   );
 }

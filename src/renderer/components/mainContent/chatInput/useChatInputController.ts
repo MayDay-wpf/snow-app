@@ -460,9 +460,14 @@ export const useChatInputController = ({
     }
 
     const handleClickOutside = (event: MouseEvent) => {
+      // 编辑弹窗等 Modal 打开时，点击 Modal 内部不应关闭背后的模型菜单
+      const isInModal =
+        event.target instanceof Element &&
+        event.target.closest(".app-modal-overlay") != null;
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
+        !dropdownRef.current.contains(event.target as Node) &&
+        !isInModal
       ) {
         setIsModelMenuOpen(false);
         setIsManualMode(false);

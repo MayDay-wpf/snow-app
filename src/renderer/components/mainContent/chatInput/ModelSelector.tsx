@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Keyboard,
   Loader2,
+  Pencil,
   RefreshCw,
   Search,
   Settings,
@@ -20,6 +21,8 @@ import { ThinkingStrengthMenu } from "./ThinkingStrengthMenu";
 import { useDropdownDirection } from "./useDropdownDirection";
 import type { MainContentView } from "../types";
 import type { ChatInputActions, ChatInputState } from "./types";
+import { ApiSettingsEditModal } from "../../sidebar/apiSettings/ApiSettingsEditModal";
+import type { ApiConfigRecord } from "../../../../preload";
 
 type ModelSelectorProps = Pick<
   ChatInputState,
@@ -120,6 +123,16 @@ export const ModelSelector = ({
   const modelListRef = useRef<HTMLDivElement | null>(null);
   const apiProfileListRef = useRef<HTMLDivElement | null>(null);
   const modelDropdownDir = useDropdownDirection(dropdownRef, isModelMenuOpen);
+  // 在渠道菜单内直接编辑配置后，用最新列表覆盖 props（props 仅在会话切换时刷新）
+  const [apiConfigsOverride, setApiConfigsOverride] = useState<
+    ApiConfigRecord[] | null
+  >(null);
+  const [editingApiConfig, setEditingApiConfig] =
+    useState<ApiConfigRecord | null>(null);
+  useEffect(() => {
+    setApiConfigsOverride(null);
+  }, [apiConfigs]);
+  const effectiveApiConfigs = apiConfigsOverride ?? apiConfigs;
 
   useEffect(() => {
     if (!isModelMenuOpen || modelMenuView !== "model") {
@@ -145,11 +158,11 @@ export const ModelSelector = ({
     if (!isModelMenuOpen || modelMenuView !== "apiProfile") {
       return;
     }
-    const index = apiConfigs.findIndex(
+    const index = effectiveApiConfigs.findIndex(
       (config) => config.profileName === selectedApiProfile,
     );
     setApiProfileActiveIndex(index >= 0 ? index : 0);
-  }, [isModelMenuOpen, modelMenuView, apiConfigs, selectedApiProfile]);
+  }, [isModelMenuOpen, modelMenuView, effectiveApiConfigs, selectedApiProfile]);
 
   // 键盘导航：↑↓/Home/End 移动高亮，Enter 选中高亮项
   const handleDropdownKeyDown = (
@@ -175,7 +188,7 @@ export const ModelSelector = ({
 
     // 焦点在返回/刷新/手动输入等操作按钮上时，Enter 交给原生按钮行为
     const isActionButton = !!(event.target as HTMLElement).closest(
-      ".model-menu-back, .model-dropdown-action, .model-dropdown-retry",
+      ".model-menu-back, .model-dropdown-action, .model-dropdown-retry, .model-dropdown-edit-btn",
     );
 
     switch (event.key) {
@@ -234,16 +247,16 @@ export const ModelSelector = ({
   const filteredApiConfigs = useMemo(() => {
     const query = apiProfileSearchQuery.trim().toLowerCase();
     if (!query) {
-      return apiConfigs;
+      return effectiveApiConfigs;
     }
-    return apiConfigs.filter(
+    return effectiveApiConfigs.filter(
       (config) =>
         config.displayName.toLowerCase().includes(query) ||
         config.profileName.toLowerCase().includes(query) ||
         (config.advancedModel || "").toLowerCase().includes(query) ||
         (config.basicModel || "").toLowerCase().includes(query),
     );
-  }, [apiConfigs, apiProfileSearchQuery]);
+  }, [effectiveApiConfigs, apiProfileSearchQuery]);
 
   // 过滤结果变化时收敛索引，避免越界
   useEffect(() => {
@@ -296,13 +309,13 @@ export const ModelSelector = ({
         disabled={
           isStreaming ||
           isSubAgentConversation ||
-          apiConfigs.length === 0 ||
+          effectiveApiConfigs.length === 0 ||
           !runtimeApiConfig
         }
         title={
           isSubAgentConversation
             ? t("chat.subAgentModelFixed")
-            : apiConfigs.length === 0 || !runtimeApiConfig
+            : effectiveApiConfigs.length === 0 || !runtimeApiConfig
               ? labels.noApiConfig
               : labels.selectModel
         }
@@ -432,7 +445,7 @@ export const ModelSelector = ({
                   </span>
                 </button>
               )}
-              {!isSubAgentConversation && apiConfigs.length > 0 && (
+              {!isSubAgentConversation && effectiveApiConfigs.length > 0 && (
                 <button
                   className="model-dropdown-item"
                   onClick={() => setModelMenuView("apiProfile")}
@@ -496,13 +509,14 @@ export const ModelSelector = ({
                 )}
               </div>
               <div className="model-dropdown-list" ref={apiProfileListRef}>
-                {apiConfigs.length > 0 && filteredApiConfigs.length === 0 && (
-                  <div className="model-dropdown-empty">
-                    {labels.noMatchingApiProfiles}
-                  </div>
-                )}
+                {effectiveApiConfigs.length > 0 &&
+                  filteredApiConfigs.length === 0 && (
+                    <div className="model-dropdown-empty">
+                      {labels.noMatchingApiProfiles}
+                    </div>
+                  )}
                 {filteredApiConfigs.map((config, index) => (
-                  <button
+                  <div
                     key={config.profileName}
                     className={`model-dropdown-item ${
                       config.profileName === selectedApiProfile ? "active" : ""
@@ -511,7 +525,14 @@ export const ModelSelector = ({
                       void handleSelectApiProfile(config.profileName);
                     }}
                     onMouseEnter={() => setApiProfileActiveIndex(index)}
-                    type="button"
+                    onKeyDown={(event) => {
+                      if (event.key === " ") {
+                        event.preventDefault();
+                        void handleSelectApiProfile(config.profileName);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={-1}
                     title={config.displayName}
                   >
                     <span className="model-dropdown-item-name">
@@ -523,7 +544,23 @@ export const ModelSelector = ({
                     {config.profileName === selectedApiProfile && (
                       <Check size={14} className="model-dropdown-check" />
                     )}
-                  </button>
+                    <button
+                      className="model-dropdown-edit-btn"
+                      aria-label={t("settings.apiEditTitle", {
+                        defaultValue: "Edit profile",
+                      })}
+                      title={t("settings.apiEditTitle", {
+                        defaultValue: "Edit profile",
+                      })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingApiConfig(config);
+                      }}
+                      type="button"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </div>
                 ))}
               </div>
               <div className="model-dropdown-footer">
@@ -712,6 +749,14 @@ export const ModelSelector = ({
           )}
         </div>
       )}
+      <ApiSettingsEditModal
+        config={editingApiConfig}
+        onClose={() => setEditingApiConfig(null)}
+        onSaved={(list) => {
+          setApiConfigsOverride(list);
+          setEditingApiConfig(null);
+        }}
+      />
     </div>
   );
 };

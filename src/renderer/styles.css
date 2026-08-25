@@ -6389,6 +6389,15 @@ input {
   gap: 14px;
 }
 
+.api-settings-form-error {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--text-danger, #ef4444);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .api-settings-form-section {
   display: flex;
   flex-direction: column;
@@ -22305,6 +22314,42 @@ input {
 .model-dropdown-check {
   flex-shrink: 0;
   color: var(--text-link, #3b82f6);
+}
+
+.model-dropdown-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* 默认不占布局空间（宽度 0 + 负 margin 抵消行内 gap），hover 时展开挤压内容 */
+  width: 0;
+  padding: 0;
+  margin-left: -8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    width 0.12s ease,
+    padding 0.12s ease,
+    margin-left 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.model-dropdown-item:hover .model-dropdown-edit-btn,
+.model-dropdown-edit-btn:focus-visible {
+  width: 18px;
+  padding: 3px;
+  margin-left: 0;
+  opacity: 1;
+}
+
+.model-dropdown-edit-btn:hover {
+  color: var(--text-link, #3b82f6);
+  background: var(--bg-hover);
 }
 
 .model-dropdown-footer {
