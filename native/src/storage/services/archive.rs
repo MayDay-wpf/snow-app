@@ -717,7 +717,10 @@ pub fn restore_archived_conversations(
                             message_count, model, api_profile_name, thinking_strength,
                             responses_fast_mode, last_response_id, status,
                             input_tokens, output_tokens, cache_creation_input_tokens,
-                            cache_read_input_tokens, total_duration_ms, directory_id,
+                            cache_read_input_tokens, total_duration_ms,
+                            run_input_tokens, run_output_tokens,
+                            run_cache_creation_input_tokens, run_cache_read_input_tokens,
+                            last_run_duration_ms, directory_id,
                             forked_from_conversation_id, fork_message_count, emoji,
                             plan_mode, goal_mode, worktree_mode, goal_mode_token_budget, created_at,
                             datetime('now', 'localtime')
