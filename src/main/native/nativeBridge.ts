@@ -293,6 +293,42 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete workspace directories",
           ),
         ),
+      listProjectCollections: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list project collections",
+          ),
+        ),
+      createProjectCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to create project collections",
+          ),
+        ),
+      renameProjectCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to rename project collections",
+          ),
+        ),
+      deleteProjectCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to delete project collections",
+          ),
+        ),
+      addProjectToCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to add projects to collections",
+          ),
+        ),
+      removeProjectFromCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to remove projects from collections",
+          ),
+        ),
       listRemoteDrafts: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list remote drafts"),

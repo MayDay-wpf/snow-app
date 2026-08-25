@@ -1,9 +1,4 @@
-import {
-  Folder,
-  FolderOpen,
-  GripVertical,
-  Server,
-} from "lucide-react";
+import { Folder, FolderOpen, GripVertical, Server } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 
@@ -23,6 +18,12 @@ type WorkspaceDirectoryRowProps = {
   isEditing: boolean;
   /** 该项目的跨项目通知会话数（>0 时显示徽标） */
   notificationCount?: number;
+  /** 合集成员行不可拖拽（避免与「拖入合集」语义冲突） */
+  draggable?: boolean;
+  /** 合集成员行不显示序号 */
+  showIndex?: boolean;
+  /** 从所属合集移除（合集成员行专用，非成员行不传） */
+  onRemoveFromCollection?: () => void;
   editingValue: string;
   onEditingValueChange: (value: string) => void;
   onRenameSubmit: () => void;
@@ -33,12 +34,12 @@ type WorkspaceDirectoryRowProps = {
   onDragOver: (directoryId: string) => void;
   onDragStart: (directoryId: string) => void;
   onDrop: (directoryId: string) => void;
-  onRenameStart: (directory: WorkspaceDirectoryRecord) => void;
+  onRenameStart?: (directory: WorkspaceDirectoryRecord) => void;
   onShowDetails?: (directoryId: string) => void;
 };
 
 const getDirectoryIcon = (
-  directory: WorkspaceDirectoryRecord
+  directory: WorkspaceDirectoryRecord,
 ): React.JSX.Element => {
   if (directory.isActive) {
     return <FolderOpen className="list-icon" size={15} />;
@@ -66,6 +67,9 @@ export function WorkspaceDirectoryRow({
   dragOverDirectoryId,
   isEditing,
   notificationCount,
+  draggable = true,
+  showIndex = true,
+  onRemoveFromCollection,
   editingValue,
   onEditingValueChange,
   onRenameSubmit,
@@ -102,16 +106,18 @@ export function WorkspaceDirectoryRow({
 
   const handleDragStart = (
     event: DragEvent<HTMLDivElement>,
-    directoryId: string
+    directoryId: string,
   ): void => {
-    event.dataTransfer.effectAllowed = "move";
+    // copyMove：项目行间排序用 move，拖入合集用 copy（add 光标），
+    // 仅允许 move 时 dragover 中的 dropEffect="copy" 会被浏览器忽略。
+    event.dataTransfer.effectAllowed = "copyMove";
     event.dataTransfer.setData("text/plain", directoryId);
     onDragStart(directoryId);
   };
 
   const handleDragOver = (
     event: DragEvent<HTMLDivElement>,
-    directoryId: string
+    directoryId: string,
   ): void => {
     if (isActionLocked || draggedDirectoryId === directoryId) {
       return;
@@ -123,7 +129,7 @@ export function WorkspaceDirectoryRow({
 
   const handleDrop = (
     event: DragEvent<HTMLDivElement>,
-    directoryId: string
+    directoryId: string,
   ): void => {
     event.preventDefault();
     onDrop(directoryId);
@@ -147,7 +153,7 @@ export function WorkspaceDirectoryRow({
       }${isDragOver ? " drag-over" : ""}${
         isMenuOpen ? " menu-open" : ""
       }${isEditing ? " editing" : ""}`}
-      draggable={!isActionLocked && !isEditing}
+      draggable={draggable && !isActionLocked && !isEditing}
       key={directory.directoryId}
       onContextMenu={handleContextMenu}
       onDragEnd={onDragEnd}
@@ -234,9 +240,11 @@ export function WorkspaceDirectoryRow({
               {notificationCount}
             </span>
           ) : null}
-          <span className="workspace-directory-index">
-            {index + 1}/{totalCount}
-          </span>
+          {showIndex ? (
+            <span className="workspace-directory-index">
+              {index + 1}/{totalCount}
+            </span>
+          ) : null}
         </button>
       )}
       <WorkspaceDirectoryMenu
@@ -250,7 +258,10 @@ export function WorkspaceDirectoryRow({
         onContextMenuClose={() => setContextMenuAnchor(null)}
         onDelete={() => onDelete(directory.directoryId)}
         onOpenChange={setIsMenuOpen}
-        onRename={() => onRenameStart(directory)}
+        onRemoveFromCollection={
+          onRemoveFromCollection ? onRemoveFromCollection : undefined
+        }
+        onRename={onRenameStart ? () => onRenameStart(directory) : undefined}
         onShowDetails={
           onShowDetails ? () => onShowDetails(directory.directoryId) : undefined
         }

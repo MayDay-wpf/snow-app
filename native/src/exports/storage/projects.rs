@@ -119,6 +119,57 @@ pub async fn delete_workspace_directory(directory_id: String) -> napi::Result<()
 }
 
 #[napi]
+pub async fn list_project_collections() -> napi::Result<Vec<ProjectCollectionRecord>> {
+    tokio::task::spawn_blocking(crate::storage::list_project_collections)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn create_project_collection(name: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::create_project_collection(name))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn rename_project_collection(collection_id: String, name: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::rename_project_collection(collection_id, name)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn delete_project_collection(collection_id: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::delete_project_collection(collection_id))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn add_project_to_collection(collection_id: String, directory_id: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::add_project_to_collection(collection_id, directory_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn remove_project_from_collection(
+    collection_id: String,
+    directory_id: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::remove_project_from_collection(collection_id, directory_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn list_remote_drafts(
     workspace_id: String,
     profile_id: Option<String>,

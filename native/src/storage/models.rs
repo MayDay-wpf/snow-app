@@ -153,6 +153,18 @@ pub struct WorkspaceDirectoryRecord {
 }
 
 #[napi(object)]
+pub struct ProjectCollectionRecord {
+    pub id: String,
+    pub collection_id: String,
+    pub name: String,
+    pub sort_order: i32,
+    /// 收纳的项目 directory_id 列表（按加入顺序）。
+    pub member_directory_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[napi(object)]
 pub struct RemoteDraftInput {
     pub profile_id: String,
     pub workspace_id: String,

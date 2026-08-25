@@ -21,6 +21,32 @@ export const en = {
     "Select or drop an existing local folder",
   "sidebar.addSshDirectoryActionDescription":
     "Connect and add a remote server directory",
+  "sidebar.createCollection": "Create collection",
+  "sidebar.createCollectionDescription":
+    "Create a collection to organize projects (drag projects into it)",
+  "sidebar.createCollectionTitle": "Create a new collection",
+  "sidebar.createCollectionDialogDescription":
+    "A collection organizes projects into a group. Drag a project onto the collection to add it — the project itself is untouched.",
+  "sidebar.createCollectionNameLabel": "Collection name",
+  "sidebar.createCollectionNamePlaceholder": "Collection name",
+  "sidebar.createCollectionConfirm": "Create",
+  "sidebar.createCollectionError": "Failed to create collection",
+  "sidebar.renameCollection": "Rename collection",
+  "sidebar.renameCollectionTitle": "Rename collection",
+  "sidebar.renameCollectionConfirm": "Rename",
+  "sidebar.renameCollectionError": "Failed to rename collection",
+  "sidebar.deleteCollection": "Delete collection",
+  "sidebar.deleteCollectionTitle": "Delete collection",
+  "sidebar.deleteCollectionConfirm":
+    "Are you sure you want to delete this collection? Projects inside it are not affected.",
+  "sidebar.deleteCollectionError": "Failed to delete collection",
+  "sidebar.addToCollectionError": "Failed to add project to collection",
+  "sidebar.removeFromCollection": "Remove from collection",
+  "sidebar.removeFromCollectionError":
+    "Failed to remove project from collection",
+  "sidebar.collectionEmpty": "No projects yet — drag one here to add it",
+  "sidebar.collectionMemberCount": "{{count}} project(s)",
+  "sidebar.loadCollectionsError": "Failed to load project collections",
   "sidebar.createProjectTitle": "Create a new project",
   "sidebar.createProjectNamePlaceholder": "Project name",
   "sidebar.createProjectNameLabel": "Project name",

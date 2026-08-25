@@ -753,6 +753,44 @@ pub fn delete_workspace_directory(directory_id: String) -> Result<()> {
     services::workspace_directories::delete_workspace_directory(&database_path, &directory_id)
 }
 
+pub fn list_project_collections() -> Result<Vec<ProjectCollectionRecord>> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::list_project_collections(&database_path)
+}
+
+pub fn create_project_collection(name: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::create_project_collection(&database_path, &name)
+}
+
+pub fn rename_project_collection(collection_id: String, name: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::rename_project_collection(&database_path, &collection_id, &name)
+}
+
+pub fn delete_project_collection(collection_id: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::delete_project_collection(&database_path, &collection_id)
+}
+
+pub fn add_project_to_collection(collection_id: String, directory_id: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::add_project_to_collection(
+        &database_path,
+        &collection_id,
+        &directory_id,
+    )
+}
+
+pub fn remove_project_from_collection(collection_id: String, directory_id: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::remove_project_from_collection(
+        &database_path,
+        &collection_id,
+        &directory_id,
+    )
+}
+
 pub fn list_remote_drafts(
     workspace_id: String,
     profile_id: Option<String>,

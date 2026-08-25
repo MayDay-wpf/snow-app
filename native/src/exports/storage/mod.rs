@@ -17,7 +17,7 @@ pub(crate) use crate::storage::{
     ImportResourceRelease, ImportResourceReleaseInput, LspServerConfigInput, LspServerConfigRecord,
     McpServerConfigInput, McpServerConfigRecord,
     MemoCountSummary, MemoPage, MemoRecord, PluginInput, PluginMarketplaceInput,
-    PluginMarketplaceRecord, PluginRecord, ProjectMcpServerConfigRecord,
+    PluginMarketplaceRecord, PluginRecord, ProjectCollectionRecord, ProjectMcpServerConfigRecord,
     ProjectSensitiveCommandConfigInput, ProjectSensitiveCommandConfigRecord,
     RemoteDraftInput, RemoteDraftRecord,
     ScheduledTaskRecord, ScheduledTaskRecordInput,

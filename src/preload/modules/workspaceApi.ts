@@ -7,6 +7,7 @@ import type {
   FileSearchAgentProgress,
   FileSearchResult,
   GitCloneProgress,
+  ProjectCollectionRecord,
   WorkspaceDirectoryInput,
   WorkspaceDirectoryRecord,
 } from "../types";
@@ -28,18 +29,15 @@ const ensureAgentSearchProgressListener = (): void => {
     return;
   }
   agentSearchProgressListenerRegistered = true;
-  ipcRenderer.on(
-    AGENT_SEARCH_PROGRESS_CHANNEL,
-    (_event, payload: unknown) => {
-      const record = payload as Record<string, unknown> | null;
-      const streamId = record?.streamId;
-      const chunk = record?.chunk as FileSearchAgentProgress | undefined;
-      if (typeof streamId !== "string" || !chunk) {
-        return;
-      }
-      agentSearchProgressCallbacks.get(streamId)?.(chunk);
+  ipcRenderer.on(AGENT_SEARCH_PROGRESS_CHANNEL, (_event, payload: unknown) => {
+    const record = payload as Record<string, unknown> | null;
+    const streamId = record?.streamId;
+    const chunk = record?.chunk as FileSearchAgentProgress | undefined;
+    if (typeof streamId !== "string" || !chunk) {
+      return;
     }
-  );
+    agentSearchProgressCallbacks.get(streamId)?.(chunk);
+  });
 };
 
 const cloneProgressCallbacks = new Map<
@@ -74,29 +72,60 @@ export const workspaceApi = {
   listWorkspaceDirectories: (): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:list"),
   upsertWorkspaceDirectory: (
-    item: WorkspaceDirectoryInput
+    item: WorkspaceDirectoryInput,
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:upsert", item),
   activateWorkspaceDirectory: (
-    directoryId: string
+    directoryId: string,
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:activate", directoryId),
   reorderWorkspaceDirectories: (
-    items: WorkspaceDirectoryInput[]
+    items: WorkspaceDirectoryInput[],
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:reorder", items),
   deleteWorkspaceDirectory: (
-    directoryId: string
+    directoryId: string,
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:delete", directoryId),
+  listProjectCollections: (): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke("project-collections:list"),
+  createProjectCollection: (name: string): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke("project-collections:create", name),
+  renameProjectCollection: (
+    collectionId: string,
+    name: string,
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke("project-collections:rename", collectionId, name),
+  deleteProjectCollection: (
+    collectionId: string,
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke("project-collections:delete", collectionId),
+  addProjectToCollection: (
+    collectionId: string,
+    directoryId: string,
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke(
+      "project-collections:add-member",
+      collectionId,
+      directoryId,
+    ),
+  removeProjectFromCollection: (
+    collectionId: string,
+    directoryId: string,
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke(
+      "project-collections:remove-member",
+      collectionId,
+      directoryId,
+    ),
   createWorkspaceProject: (
     parentPath: string,
-    projectName: string
+    projectName: string,
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke(
       "workspace-directories:create-project",
       parentPath,
-      projectName
+      projectName,
     ),
   /**
    * 克隆 Git 仓库：在 `parentPath` 下按 git 惯例以项目名新建子目录
@@ -106,7 +135,7 @@ export const workspaceApi = {
   cloneWorkspaceRepository: (
     repoUrl: string,
     parentPath: string,
-    onProgress?: (chunk: GitCloneProgress) => void
+    onProgress?: (chunk: GitCloneProgress) => void,
   ): Promise<WorkspaceDirectoryRecord[]> => {
     const streamId = createCloneStreamId();
     ensureCloneProgressListener();
@@ -120,7 +149,7 @@ export const workspaceApi = {
         "workspace-directories:clone-repository",
         repoUrl,
         parentPath,
-        streamId
+        streamId,
       )
       .finally(() => {
         cloneProgressCallbacks.delete(streamId);
@@ -129,35 +158,35 @@ export const workspaceApi = {
   selectWorkspaceDirectory: (dialogTitle?: string): Promise<string | null> =>
     ipcRenderer.invoke(
       "workspace-directories:select-local-directory",
-      dialogTitle
+      dialogTitle,
     ),
   readDirectoryEntries: (dirPath: string): Promise<DirectoryEntry[]> =>
     ipcRenderer.invoke("workspace-directories:read-entries", dirPath),
   renameWorkspaceEntry: (
     rootPath: string,
     entryPath: string,
-    newName: string
+    newName: string,
   ): Promise<void> =>
     ipcRenderer.invoke(
       "workspace-directories:rename-entry",
       rootPath,
       entryPath,
-      newName
+      newName,
     ),
   deleteWorkspaceEntry: (rootPath: string, entryPath: string): Promise<void> =>
     ipcRenderer.invoke(
       "workspace-directories:delete-entry",
       rootPath,
-      entryPath
+      entryPath,
     ),
   deleteWorkspaceEntries: (
     rootPath: string,
-    entryPaths: string[]
+    entryPaths: string[],
   ): Promise<BatchWorkspaceDeleteResult> =>
     ipcRenderer.invoke(
       "workspace-directories:delete-entries",
       rootPath,
-      entryPaths
+      entryPaths,
     ),
   readFileContent: (filePath: string): Promise<FileContentResult> =>
     ipcRenderer.invoke("workspace-directories:read-file", filePath),
@@ -194,7 +223,7 @@ export const workspaceApi = {
   searchFilesByAgent: (
     query: string,
     workspacePath: string,
-    onProgress?: (chunk: FileSearchAgentProgress) => void
+    onProgress?: (chunk: FileSearchAgentProgress) => void,
   ): Promise<FileSearchResult[]> => {
     const streamId = createAgentSearchStreamId();
     ensureAgentSearchProgressListener();
@@ -208,18 +237,18 @@ export const workspaceApi = {
         "workspace-directories:search-files-by-agent",
         query,
         workspacePath,
-        streamId
+        streamId,
       )
       .finally(() => {
         agentSearchProgressCallbacks.delete(streamId);
       });
   },
   selectFiles: (
-    dialogTitle?: string
+    dialogTitle?: string,
   ): Promise<{ path: string; isDirectory: boolean }[] | null> =>
     ipcRenderer.invoke("workspace-directories:select-files", dialogTitle),
   selectDirectories: (
-    dialogTitle?: string
+    dialogTitle?: string,
   ): Promise<{ path: string; isDirectory: boolean }[] | null> =>
     ipcRenderer.invoke("workspace-directories:select-directories", dialogTitle),
   /**
@@ -229,9 +258,7 @@ export const workspaceApi = {
    * 由 preload 通过该函数将 File 对象逐一解析为绝对路径，再交由主进程
    * 异步查询每个路径是否为目录，返回统一的结构供渲染层生成对应 chip。
    */
-  resolveDroppedFiles: async (
-    files: File[]
-  ): Promise<DroppedPathEntry[]> => {
+  resolveDroppedFiles: async (files: File[]): Promise<DroppedPathEntry[]> => {
     const paths = files
       .map((file) => {
         try {
@@ -240,10 +267,15 @@ export const workspaceApi = {
           return null;
         }
       })
-      .filter((path): path is string => typeof path === "string" && path.length > 0);
+      .filter(
+        (path): path is string => typeof path === "string" && path.length > 0,
+      );
     if (paths.length === 0) {
       return [];
     }
-    return ipcRenderer.invoke("workspace-directories:resolve-dropped-paths", paths);
+    return ipcRenderer.invoke(
+      "workspace-directories:resolve-dropped-paths",
+      paths,
+    );
   },
 };

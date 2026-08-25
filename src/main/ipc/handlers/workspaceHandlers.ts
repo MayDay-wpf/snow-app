@@ -29,19 +29,19 @@ const broadcastDirectoryListChanged = (): void => {
 
 export const registerWorkspaceHandlers = (native: NativeBridge): void => {
   ipcMain.handle("workspace-directories:list", () =>
-    native.listWorkspaceDirectories()
+    native.listWorkspaceDirectories(),
   );
   ipcMain.handle(
     "workspace-directories:upsert",
     async (_event, item: unknown) => {
       const existingCount = (await native.listWorkspaceDirectories()).length;
       await native.upsertWorkspaceDirectory(
-        normalizeWorkspaceDirectory(item, existingCount)
+        normalizeWorkspaceDirectory(item, existingCount),
       );
       const directories = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return directories;
-    }
+    },
   );
   ipcMain.handle(
     "workspace-directories:activate",
@@ -54,7 +54,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       const directories = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return directories;
-    }
+    },
   );
   ipcMain.handle(
     "workspace-directories:reorder",
@@ -73,7 +73,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       const result = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return result;
-    }
+    },
   );
   ipcMain.handle(
     "workspace-directories:delete",
@@ -86,7 +86,79 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       const directories = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return directories;
+    },
+  );
+
+  // ===== Project collections（项目合集） =====
+  // 合集是收纳项目的纯元数据容器，变更后广播 workspace-directory-list:changed，
+  // 让侧边栏与合集列表一起刷新。
+  const requireText = (value: unknown, label: string): string => {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`${label} is required`);
     }
+    return value.trim();
+  };
+
+  ipcMain.handle("project-collections:list", () =>
+    native.listProjectCollections(),
+  );
+  ipcMain.handle(
+    "project-collections:create",
+    async (_event, name: unknown) => {
+      await native.createProjectCollection(
+        requireText(name, "Collection name"),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:rename",
+    async (_event, collectionId: unknown, name: unknown) => {
+      await native.renameProjectCollection(
+        requireText(collectionId, "Collection ID"),
+        requireText(name, "Collection name"),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:delete",
+    async (_event, collectionId: unknown) => {
+      await native.deleteProjectCollection(
+        requireText(collectionId, "Collection ID"),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:add-member",
+    async (_event, collectionId: unknown, directoryId: unknown) => {
+      await native.addProjectToCollection(
+        requireText(collectionId, "Collection ID"),
+        requireText(directoryId, "Workspace directory ID"),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:remove-member",
+    async (_event, collectionId: unknown, directoryId: unknown) => {
+      await native.removeProjectFromCollection(
+        requireText(collectionId, "Collection ID"),
+        requireText(directoryId, "Workspace directory ID"),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
   );
   ipcMain.handle(
     "workspace-directories:select-local-directory",
@@ -104,8 +176,8 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
   ipcMain.handle(
     "workspace-directories:create-project",
@@ -120,16 +192,16 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       // 在 Rust 后端创建项目目录，随后作为活动本地工作区目录持久化。
       const createdPath = await native.createProjectDirectory(
         parentPath.trim(),
-        projectName.trim()
+        projectName.trim(),
       );
       const existingCount = (await native.listWorkspaceDirectories()).length;
       await native.upsertWorkspaceDirectory(
-        createWorkspaceDirectoryInput(createdPath, "local", existingCount)
+        createWorkspaceDirectoryInput(createdPath, "local", existingCount),
       );
       const directories = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return directories;
-    }
+    },
   );
   ipcMain.handle(
     "workspace-directories:clone-repository",
@@ -157,16 +229,16 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
             streamId: normalizedStreamId,
             chunk,
           });
-        }
+        },
       );
       const existingCount = (await native.listWorkspaceDirectories()).length;
       await native.upsertWorkspaceDirectory(
-        createWorkspaceDirectoryInput(clonedPath, "local", existingCount)
+        createWorkspaceDirectoryInput(clonedPath, "local", existingCount),
       );
       const directories = await native.listWorkspaceDirectories();
       broadcastDirectoryListChanged();
       return directories;
-    }
+    },
   );
 
   // ===== Directory entries / watch / search =====
@@ -178,7 +250,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       return native.readDirectoryEntries(dirPath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -197,9 +269,9 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       return native.renameWorkspaceEntry(
         rootPath.trim(),
         entryPath.trim(),
-        newName.trim()
+        newName.trim(),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -213,7 +285,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       return native.deleteWorkspaceEntry(rootPath.trim(), entryPath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -225,18 +297,16 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       if (
         !Array.isArray(entryPaths) ||
         entryPaths.length === 0 ||
-        !entryPaths.every(
-          (p) => typeof p === "string" && p.trim().length > 0
-        )
+        !entryPaths.every((p) => typeof p === "string" && p.trim().length > 0)
       ) {
         throw new Error("Workspace entry paths are required");
       }
 
       return native.deleteWorkspaceEntries(
         rootPath.trim(),
-        entryPaths.map((p) => (p as string).trim())
+        entryPaths.map((p) => (p as string).trim()),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -246,7 +316,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         throw new Error("File path is required");
       }
       return native.readFileContent(filePath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -259,7 +329,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         throw new Error("File content must be a string");
       }
       return native.writeFileContent(filePath.trim(), content);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -270,7 +340,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       startDirectoryWatch(dirPath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -281,7 +351,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       stopDirectoryWatch(dirPath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -295,7 +365,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       return native.searchFiles(dirPath.trim(), query.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -320,9 +390,9 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
             streamId: normalizedStreamId,
             chunk,
           });
-        }
+        },
       );
-    }
+    },
   );
 
   // ===== File picker dialogs (multi-select) =====
@@ -333,7 +403,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
     event: Electron.IpcMainInvokeEvent,
     dialogTitle: unknown,
     properties: Array<"openFile" | "openDirectory" | "multiSelections">,
-    fallbackTitle: string
+    fallbackTitle: string,
   ): Promise<{ path: string; isDirectory: boolean }[] | null> => {
     const browserWindow = BrowserWindow.fromWebContents(event.sender);
     const title =
@@ -360,7 +430,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         } catch {
           return { path, isDirectory: false };
         }
-      })
+      }),
     );
 
     return entries;
@@ -369,7 +439,12 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
   ipcMain.handle(
     "workspace-directories:select-files",
     (event, dialogTitle: unknown) =>
-      showPickDialog(event, dialogTitle, ["openFile", "multiSelections"], "Select files")
+      showPickDialog(
+        event,
+        dialogTitle,
+        ["openFile", "multiSelections"],
+        "Select files",
+      ),
   );
 
   ipcMain.handle(
@@ -379,8 +454,8 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         event,
         dialogTitle,
         ["openDirectory", "multiSelections"],
-        "Select folders"
-      )
+        "Select folders",
+      ),
   );
 
   // ===== Resolve dropped external file paths =====
@@ -394,7 +469,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         return [];
       }
       const safePaths = paths.filter(
-        (p): p is string => typeof p === "string" && p.length > 0
+        (p): p is string => typeof p === "string" && p.length > 0,
       );
       const entries = await Promise.all(
         safePaths.map(async (path) => {
@@ -404,10 +479,10 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
           } catch {
             return { path, isDirectory: false };
           }
-        })
+        }),
       );
       return entries;
-    }
+    },
   );
 
   // ===== Dialog handlers (browser executable, terminal executable) =====
@@ -434,8 +509,8 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
   ipcMain.handle(
     "terminal-settings:validate-shell-path",
@@ -456,7 +531,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       } catch {
         return { valid: false, reason: `Shell executable not found: ${path}` };
       }
-    }
+    },
   );
   ipcMain.handle(
     "terminal-settings:select-executable",
@@ -481,8 +556,8 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
   ipcMain.handle(
     "theme:select-background-image",
@@ -507,8 +582,8 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
   ipcMain.handle(
     "theme:select-stream-cursor-svg",
@@ -530,7 +605,7 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
 
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
 };

@@ -2342,9 +2342,10 @@ input {
   opacity: 0.55;
 }
 
+/* 拖拽排序指示：显示插入横线（行顶部），区别于拖入合集时的整行 add 高亮 */
 .workspace-directory-row.drag-over .list-item {
   background: var(--bg-hover);
-  box-shadow: inset 0 0 0 1px var(--border-color);
+  box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
 .workspace-directory-list .list-item {
@@ -2421,6 +2422,142 @@ input {
   color: var(--text-tertiary);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ===== 项目合集（project collections） ===== */
+
+.project-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 4px;
+}
+
+.project-collection-group.expanded {
+  margin-bottom: 2px;
+}
+
+.project-collection-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+  transition: background 0.12s ease;
+}
+
+.project-collection-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 拖拽悬停：整行 add 高亮 + add 光标（copy），区别于项目行间的排序横线 */
+.project-collection-row.drag-over {
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  cursor: copy;
+}
+
+.project-collection-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-collection-toggle:disabled {
+  cursor: default;
+}
+
+.project-collection-toggle .list-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.project-collection-toggle .list-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-collection-toggle svg {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.project-collection-chevron--open {
+  transform: rotate(90deg);
+}
+
+.project-collection-badge {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+.project-collection-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.project-collection-row:hover .project-collection-actions,
+.project-collection-row:focus-within .project-collection-actions {
+  opacity: 1;
+}
+
+/* 合集成员项目列表：缩进 + 左侧引导线 */
+.project-collection-members {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin-left: 14px;
+  padding-left: 8px;
+}
+
+.project-collection-members::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--border-color) 10px,
+    var(--border-color) calc(100% - 10px),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.project-collection-empty {
+  padding: 4px 8px 6px 18px;
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 /* 项目条目通知徽标：该项目的跨项目通知会话数 */

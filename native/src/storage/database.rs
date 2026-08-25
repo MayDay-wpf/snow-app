@@ -13,11 +13,12 @@ use super::{migrations, models::DatabaseRepairResult, services};
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 34: project_collections / collection_members tables (project collections).
 /// 33: combines the upstream API config JSON migration with fork runtime/context migrations;
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 33;
+const CURRENT_SCHEMA_VERSION: i64 = 34;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -474,6 +475,25 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
            ON workspace_directories(is_active);
          CREATE INDEX IF NOT EXISTS idx_workspace_directories_kind
            ON workspace_directories(kind);
+
+         CREATE TABLE IF NOT EXISTS project_collections (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE TABLE IF NOT EXISTS collection_members (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL,
+           directory_id TEXT NOT NULL,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(collection_id, directory_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_collection_members_collection
+           ON collection_members(collection_id, sort_order);
 
          CREATE TABLE IF NOT EXISTS mcp_server_configs (
            id TEXT PRIMARY KEY NOT NULL,

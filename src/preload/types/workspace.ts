@@ -15,6 +15,18 @@ export type WorkspaceDirectoryRecord = WorkspaceDirectoryInput & {
   updatedAt: string;
 };
 
+/** 项目合集：收纳项目的纯元数据容器（不对应磁盘目录）。 */
+export type ProjectCollectionRecord = {
+  id: string;
+  collectionId: string;
+  name: string;
+  sortOrder: number;
+  /** 收纳的项目 directory_id 列表（按加入顺序） */
+  memberDirectoryIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DirectoryEntry = {
   name: string;
   path: string;

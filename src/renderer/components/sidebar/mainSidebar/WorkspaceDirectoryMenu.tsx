@@ -4,6 +4,7 @@ import {
   Code2,
   Ellipsis,
   FileSearch,
+  FolderMinus,
   Loader2,
   Pencil,
   Trash2,
@@ -29,6 +30,8 @@ type WorkspaceDirectoryMenuProps = {
   kind?: WorkspaceDirectoryKind;
   onDelete: () => void;
   onOpenChange?: (isOpen: boolean) => void;
+  /** 从所属合集移除（合集成员行菜单项，非成员行不传） */
+  onRemoveFromCollection?: () => void;
   onRename?: () => void;
   onShowDetails?: () => void;
   /** 右键菜单锚点（光标位置）：非空时菜单以该点定位并保持打开 */
@@ -50,6 +53,7 @@ export function WorkspaceDirectoryMenu({
   kind,
   onDelete,
   onOpenChange,
+  onRemoveFromCollection,
   onRename,
   onShowDetails,
   contextMenuAnchor = null,
@@ -512,6 +516,27 @@ export function WorkspaceDirectoryMenu({
                     <span>
                       {t("sidebar.directoryActionRename", {
                         defaultValue: "Rename",
+                      })}
+                    </span>
+                  </button>
+                ) : null}
+                {onRemoveFromCollection ? (
+                  <button
+                    type="button"
+                    className="workspace-directory-menu-item"
+                    onClick={() => {
+                      setIsButtonOpen(false);
+                      onContextMenuCloseRef.current?.();
+                      setShowConfirm(false);
+                      setIsOpenWithOpen(false);
+                      onRemoveFromCollection();
+                    }}
+                    role="menuitem"
+                  >
+                    <FolderMinus size={13} />
+                    <span>
+                      {t("sidebar.removeFromCollection", {
+                        defaultValue: "Remove from collection",
                       })}
                     </span>
                   </button>

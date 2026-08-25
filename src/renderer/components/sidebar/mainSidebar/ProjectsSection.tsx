@@ -3,6 +3,7 @@ import {
   Folder,
   FolderPlus,
   GitFork,
+  Library,
   Loader2,
   Plus,
   Server,
@@ -13,10 +14,12 @@ import { useI18n } from "../../../i18n";
 import { shortcutEvents } from "../../shortcutEvents";
 import type {
   GitCloneProgress,
+  ProjectCollectionRecord,
   WorkspaceDirectoryInput,
   WorkspaceDirectoryKind,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { FormDialog } from "../../common/FormDialog";
 import { WorkspaceDirectoryList } from "./WorkspaceDirectoryList";
 import type { CrossProjectNotificationGroup } from "./useCrossProjectNotifications";
@@ -27,7 +30,7 @@ type ProjectsSectionProps = {
   /** 跨项目通知（其他项目的运行中/需关注/已完成会话分组），用于项目条目徽标 */
   notificationGroups?: CrossProjectNotificationGroup[];
   onActiveDirectoryChange?: (
-    directory: WorkspaceDirectoryRecord | null
+    directory: WorkspaceDirectoryRecord | null,
   ) => void;
   onSwitchingDirectoryChange: (isSwitchingDirectory: boolean) => void;
   onSwitchContent?: (content: "main" | "explorer") => void;
@@ -39,12 +42,12 @@ const DIRECTORY_PAGE_SIZE = 12;
 
 const createDirectoryId = (
   kind: WorkspaceDirectoryKind,
-  path: string
+  path: string,
 ): string => `${kind}:${path.trim()}`;
 
 const getDirectoryName = (
   kind: WorkspaceDirectoryKind,
-  path: string
+  path: string,
 ): string => {
   const trimmedPath = path.trim();
 
@@ -58,7 +61,7 @@ const getDirectoryName = (
 const toWorkspaceDirectoryInput = (
   path: string,
   kind: WorkspaceDirectoryKind,
-  existingCount: number
+  existingCount: number,
 ): WorkspaceDirectoryInput => {
   const trimmedPath = path.trim();
 
@@ -75,7 +78,7 @@ const toWorkspaceDirectoryInput = (
 
 const toPersistableDirectoryInput = (
   directory: WorkspaceDirectoryRecord,
-  sortOrder: number
+  sortOrder: number,
 ): WorkspaceDirectoryInput => ({
   directoryId: directory.directoryId,
   name: directory.name,
@@ -129,10 +132,10 @@ export function ProjectsSection({
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryPage, setDirectoryPage] = useState(1);
   const [draggedDirectoryId, setDraggedDirectoryId] = useState<string | null>(
-    null
+    null,
   );
   const [dragOverDirectoryId, setDragOverDirectoryId] = useState<string | null>(
-    null
+    null,
   );
   const directoryListRef = useRef<HTMLDivElement | null>(null);
   const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -141,15 +144,32 @@ export function ProjectsSection({
   const createProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [isAddLocalDialogOpen, setIsAddLocalDialogOpen] = useState(false);
   const [selectedLocalPath, setSelectedLocalPath] = useState("");
-  const [isDraggingLocalDirectory, setIsDraggingLocalDirectory] = useState(false);
+  const [isDraggingLocalDirectory, setIsDraggingLocalDirectory] =
+    useState(false);
   const localPathInputRef = useRef<HTMLInputElement | null>(null);
   const [isCloneRepoOpen, setIsCloneRepoOpen] = useState(false);
   const [cloneRepoUrl, setCloneRepoUrl] = useState("");
   const [cloneParentPath, setCloneParentPath] = useState("");
   const [cloneProgress, setCloneProgress] = useState<GitCloneProgress | null>(
-    null
+    null,
   );
   const cloneRepoInputRef = useRef<HTMLInputElement | null>(null);
+  const [collections, setCollections] = useState<ProjectCollectionRecord[]>([]);
+  const [isCreateCollectionOpen, setIsCreateCollectionOpen] = useState(false);
+  const [collectionNameInput, setCollectionNameInput] = useState("");
+  const createCollectionInputRef = useRef<HTMLInputElement | null>(null);
+  const [isRenameCollectionOpen, setIsRenameCollectionOpen] = useState(false);
+  const [editingCollection, setEditingCollection] =
+    useState<ProjectCollectionRecord | null>(null);
+  const renameCollectionInputRef = useRef<HTMLInputElement | null>(null);
+  const [deleteCollectionTarget, setDeleteCollectionTarget] =
+    useState<ProjectCollectionRecord | null>(null);
+  const [expandedCollectionIds, setExpandedCollectionIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [dragOverCollectionId, setDragOverCollectionId] = useState<
+    string | null
+  >(null);
 
   // 克隆的最终目录预览：所选保存位置 + 从仓库地址推导出的项目名。
   const cloneTargetPreview = useMemo(() => {
@@ -188,7 +208,7 @@ export function ProjectsSection({
 
   const activeDirectory = useMemo(
     () => workspaceDirectories.find((directory) => directory.isActive),
-    [workspaceDirectories]
+    [workspaceDirectories],
   );
 
   // 各项目通知计数：directoryId → 通知会话数（需关注/运行中/已完成）。
@@ -210,7 +230,7 @@ export function ProjectsSection({
       setIsSwitchingDirectory(nextIsSwitching);
       onSwitchingDirectoryChange(nextIsSwitching);
     },
-    [onSwitchingDirectoryChange]
+    [onSwitchingDirectoryChange],
   );
 
   // Mirror values into refs so the external-sync effect can read the latest
@@ -250,9 +270,8 @@ export function ProjectsSection({
       updateSwitchingDirectory(true);
       setDirectoryError(null);
       try {
-        const directories = await window.snow.activateWorkspaceDirectory(
-          externalId
-        );
+        const directories =
+          await window.snow.activateWorkspaceDirectory(externalId);
         setWorkspaceDirectories(directories);
       } catch (error) {
         setDirectoryError(
@@ -260,7 +279,7 @@ export function ProjectsSection({
             ? error.message
             : t("sidebar.activateDirectoryError", {
                 defaultValue: "Failed to activate workspace directory",
-              })
+              }),
         );
       } finally {
         updateSwitchingDirectory(false);
@@ -271,7 +290,7 @@ export function ProjectsSection({
   const visibleDirectoryCount = directoryPage * DIRECTORY_PAGE_SIZE;
   const visibleDirectories = useMemo(
     () => workspaceDirectories.slice(0, visibleDirectoryCount),
-    [visibleDirectoryCount, workspaceDirectories]
+    [visibleDirectoryCount, workspaceDirectories],
   );
   const hasMoreDirectories =
     visibleDirectoryCount < workspaceDirectories.length;
@@ -279,7 +298,7 @@ export function ProjectsSection({
   const loadNextDirectoryPage = useCallback((): void => {
     setDirectoryPage((currentPage) => {
       const maxPage = Math.ceil(
-        workspaceDirectories.length / DIRECTORY_PAGE_SIZE
+        workspaceDirectories.length / DIRECTORY_PAGE_SIZE,
       );
 
       return Math.min(currentPage + 1, Math.max(maxPage, 1));
@@ -298,16 +317,32 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.loadDirectoriesError", {
               defaultValue: "Failed to load workspace directories",
-            })
+            }),
       );
     } finally {
       setIsLoadingDirectories(false);
     }
   }, [t]);
 
+  const loadProjectCollections = useCallback(async (): Promise<void> => {
+    try {
+      const items = await window.snow.listProjectCollections();
+      setCollections(items);
+    } catch (error) {
+      setDirectoryError(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.loadCollectionsError", {
+              defaultValue: "Failed to load project collections",
+            }),
+      );
+    }
+  }, [t]);
+
   useEffect(() => {
     void loadWorkspaceDirectories();
-  }, [loadWorkspaceDirectories]);
+    void loadProjectCollections();
+  }, [loadWorkspaceDirectories, loadProjectCollections]);
 
   // Refresh the directory list whenever another part of the app (e.g. the
   // empty-chat greeting card or the SSH wizard) adds/activates/deletes a
@@ -317,9 +352,10 @@ export function ProjectsSection({
   useEffect(() => {
     const unsubscribe = window.snow.onWorkspaceDirectoryListChanged(() => {
       void loadWorkspaceDirectories();
+      void loadProjectCollections();
     });
     return unsubscribe;
-  }, [loadWorkspaceDirectories]);
+  }, [loadWorkspaceDirectories, loadProjectCollections]);
 
   useEffect(() => {
     setDirectoryPage(1);
@@ -347,7 +383,7 @@ export function ProjectsSection({
         root: scrollRoot,
         rootMargin: "0px 0px 32px",
         threshold: 0.1,
-      }
+      },
     );
 
     observer.observe(sentinel);
@@ -358,7 +394,7 @@ export function ProjectsSection({
   }, [hasMoreDirectories, loadNextDirectoryPage, visibleDirectories.length]);
 
   const persistWorkspaceDirectory = async (
-    item: WorkspaceDirectoryInput
+    item: WorkspaceDirectoryInput,
   ): Promise<boolean> => {
     setIsSavingDirectory(true);
     setDirectoryError(null);
@@ -375,7 +411,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.addDirectoryError", {
               defaultValue: "Failed to add workspace directory",
-            })
+            }),
       );
       return false;
     } finally {
@@ -383,9 +419,7 @@ export function ProjectsSection({
     }
   };
 
-  const handleAddDirectoryModeSelect = (
-    mode: WorkspaceDirectoryKind
-  ): void => {
+  const handleAddDirectoryModeSelect = (mode: WorkspaceDirectoryKind): void => {
     setAddDirectoryMode(mode);
     setDirectoryError(null);
     setIsAddMenuOpen(false);
@@ -407,7 +441,7 @@ export function ProjectsSection({
       const selectedPath = await window.snow.selectWorkspaceDirectory(
         t("sidebar.selectLocalDirectoryTitle", {
           defaultValue: "Select local workspace directory",
-        })
+        }),
       );
       if (selectedPath) setSelectedLocalPath(selectedPath);
     } catch (error) {
@@ -416,7 +450,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.selectLocalDirectoryError", {
               defaultValue: "Failed to select local directory",
-            })
+            }),
       );
     }
   };
@@ -433,7 +467,7 @@ export function ProjectsSection({
   };
 
   const handleLocalDirectoryDrop = async (
-    event: React.DragEvent<HTMLDivElement>
+    event: React.DragEvent<HTMLDivElement>,
   ): Promise<void> => {
     event.preventDefault();
     setIsDraggingLocalDirectory(false);
@@ -444,7 +478,7 @@ export function ProjectsSection({
       setDirectoryError(
         t("sidebar.localDirectoryDropSingleError", {
           defaultValue: "Drop exactly one folder.",
-        })
+        }),
       );
       return;
     }
@@ -456,7 +490,7 @@ export function ProjectsSection({
         setDirectoryError(
           t("sidebar.localDirectoryDropTypeError", {
             defaultValue: "Only folders can be added here.",
-          })
+          }),
         );
         return;
       }
@@ -467,7 +501,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.selectLocalDirectoryError", {
               defaultValue: "Failed to select local directory",
-            })
+            }),
       );
     }
   };
@@ -480,8 +514,8 @@ export function ProjectsSection({
       toWorkspaceDirectoryInput(
         selectedPath,
         "local",
-        workspaceDirectories.length
-      )
+        workspaceDirectories.length,
+      ),
     );
     if (didSave) {
       setIsAddLocalDialogOpen(false);
@@ -527,7 +561,7 @@ export function ProjectsSection({
       const parentPath = await window.snow.selectWorkspaceDirectory(
         t("sidebar.selectCreateProjectParentTitle", {
           defaultValue: "Choose a folder to save the new project",
-        })
+        }),
       );
 
       if (!parentPath) {
@@ -536,7 +570,7 @@ export function ProjectsSection({
 
       const directories = await window.snow.createWorkspaceProject(
         parentPath,
-        projectName
+        projectName,
       );
       setWorkspaceDirectories(directories);
       setIsCreateProjectOpen(false);
@@ -547,7 +581,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.createProjectError", {
               defaultValue: "Failed to create project",
-            })
+            }),
       );
     } finally {
       setIsSavingDirectory(false);
@@ -587,7 +621,7 @@ export function ProjectsSection({
       const selectedPath = await window.snow.selectWorkspaceDirectory(
         t("sidebar.selectCloneDirectoryTitle", {
           defaultValue: "Choose a folder to save the repository",
-        })
+        }),
       );
       if (selectedPath) setCloneParentPath(selectedPath);
     } catch (error) {
@@ -596,7 +630,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.selectLocalDirectoryError", {
               defaultValue: "Failed to select local directory",
-            })
+            }),
       );
     }
   };
@@ -620,7 +654,7 @@ export function ProjectsSection({
       const directories = await window.snow.cloneWorkspaceRepository(
         repoUrl,
         parentPath,
-        setCloneProgress
+        setCloneProgress,
       );
       setWorkspaceDirectories(directories);
       setIsCloneRepoOpen(false);
@@ -632,7 +666,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.cloneRepositoryError", {
               defaultValue: "Failed to clone repository",
-            })
+            }),
       );
     } finally {
       setIsSavingDirectory(false);
@@ -641,7 +675,7 @@ export function ProjectsSection({
   };
 
   const handleActivateDirectory = async (
-    directoryId: string
+    directoryId: string,
   ): Promise<void> => {
     if (!directoryId || directoryId === activeDirectory?.directoryId) {
       return;
@@ -651,9 +685,8 @@ export function ProjectsSection({
     setDirectoryError(null);
 
     try {
-      const directories = await window.snow.activateWorkspaceDirectory(
-        directoryId
-      );
+      const directories =
+        await window.snow.activateWorkspaceDirectory(directoryId);
       setWorkspaceDirectories(directories);
     } catch (error) {
       setDirectoryError(
@@ -661,7 +694,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.activateDirectoryError", {
               defaultValue: "Failed to activate workspace directory",
-            })
+            }),
       );
     } finally {
       updateSwitchingDirectory(false);
@@ -669,18 +702,17 @@ export function ProjectsSection({
   };
 
   const persistWorkspaceDirectoryOrder = async (
-    orderedDirectories: WorkspaceDirectoryRecord[]
+    orderedDirectories: WorkspaceDirectoryRecord[],
   ): Promise<void> => {
     setIsReorderingDirectories(true);
     setDirectoryError(null);
 
     try {
       const nextInputs = orderedDirectories.map((directory, index) =>
-        toPersistableDirectoryInput(directory, index)
+        toPersistableDirectoryInput(directory, index),
       );
-      const directories = await window.snow.reorderWorkspaceDirectories(
-        nextInputs
-      );
+      const directories =
+        await window.snow.reorderWorkspaceDirectories(nextInputs);
       setWorkspaceDirectories(directories);
     } catch (error) {
       setDirectoryError(
@@ -688,7 +720,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.reorderDirectoryError", {
               defaultValue: "Failed to reorder workspace directories",
-            })
+            }),
       );
     } finally {
       setIsReorderingDirectories(false);
@@ -707,6 +739,7 @@ export function ProjectsSection({
   const handleDirectoryDragEnd = (): void => {
     setDraggedDirectoryId(null);
     setDragOverDirectoryId(null);
+    setDragOverCollectionId(null);
   };
 
   const handleDirectoryDrop = (targetDirectoryId: string): void => {
@@ -716,10 +749,10 @@ export function ProjectsSection({
     }
 
     const sourceIndex = workspaceDirectories.findIndex(
-      (directory) => directory.directoryId === draggedDirectoryId
+      (directory) => directory.directoryId === draggedDirectoryId,
     );
     const targetIndex = workspaceDirectories.findIndex(
-      (directory) => directory.directoryId === targetDirectoryId
+      (directory) => directory.directoryId === targetDirectoryId,
     );
 
     if (sourceIndex < 0 || targetIndex < 0) {
@@ -744,9 +777,8 @@ export function ProjectsSection({
     setDirectoryError(null);
 
     try {
-      const directories = await window.snow.deleteWorkspaceDirectory(
-        directoryId
-      );
+      const directories =
+        await window.snow.deleteWorkspaceDirectory(directoryId);
       setWorkspaceDirectories(directories);
     } catch (error) {
       setDirectoryError(
@@ -754,21 +786,230 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.deleteDirectoryError", {
               defaultValue: "Failed to delete workspace directory",
-            })
+            }),
       );
     } finally {
       setIsSavingDirectory(false);
     }
   };
 
+  // ===== Project collections（项目合集） =====
+
+  const handleCreateCollectionModeOpen = (): void => {
+    setDirectoryError(null);
+    setAddDirectoryMode("");
+    setIsAddMenuOpen(false);
+    setCollectionNameInput("");
+    setIsCreateCollectionOpen(true);
+    // 表单渲染后聚焦输入框
+    requestAnimationFrame(() => {
+      createCollectionInputRef.current?.focus();
+    });
+  };
+
+  const handleCreateCollectionCancel = (): void => {
+    if (isSavingDirectory) {
+      return;
+    }
+    // 取消时返回上一级（选择添加方式），而不是直接关闭整个模态框
+    setIsCreateCollectionOpen(false);
+    setCollectionNameInput("");
+    setDirectoryError(null);
+    setIsAddMenuOpen(true);
+  };
+
+  const handleCreateCollectionConfirm = async (): Promise<void> => {
+    const name = collectionNameInput.trim();
+    if (!name || isSavingDirectory) {
+      return;
+    }
+
+    setIsSavingDirectory(true);
+    setDirectoryError(null);
+
+    try {
+      const nextCollections = await window.snow.createProjectCollection(name);
+      setCollections(nextCollections);
+      setIsCreateCollectionOpen(false);
+      setCollectionNameInput("");
+    } catch (error) {
+      setDirectoryError(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.createCollectionError", {
+              defaultValue: "Failed to create collection",
+            }),
+      );
+    } finally {
+      setIsSavingDirectory(false);
+    }
+  };
+
+  const handleRenameCollectionOpen = (
+    collection: ProjectCollectionRecord,
+  ): void => {
+    setDirectoryError(null);
+    setEditingCollection(collection);
+    setCollectionNameInput(collection.name);
+    setIsRenameCollectionOpen(true);
+    requestAnimationFrame(() => {
+      renameCollectionInputRef.current?.focus();
+    });
+  };
+
+  const handleRenameCollectionCancel = (): void => {
+    if (isSavingDirectory) {
+      return;
+    }
+    setIsRenameCollectionOpen(false);
+    setEditingCollection(null);
+    setCollectionNameInput("");
+    setDirectoryError(null);
+  };
+
+  const handleRenameCollectionConfirm = async (): Promise<void> => {
+    const name = collectionNameInput.trim();
+    if (!name || isSavingDirectory || !editingCollection) {
+      return;
+    }
+
+    setIsSavingDirectory(true);
+    setDirectoryError(null);
+
+    try {
+      const nextCollections = await window.snow.renameProjectCollection(
+        editingCollection.collectionId,
+        name,
+      );
+      setCollections(nextCollections);
+      setIsRenameCollectionOpen(false);
+      setEditingCollection(null);
+      setCollectionNameInput("");
+    } catch (error) {
+      setDirectoryError(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.renameCollectionError", {
+              defaultValue: "Failed to rename collection",
+            }),
+      );
+    } finally {
+      setIsSavingDirectory(false);
+    }
+  };
+
+  const handleDeleteCollectionConfirm = async (): Promise<void> => {
+    if (!deleteCollectionTarget || isSavingDirectory) {
+      return;
+    }
+
+    setIsSavingDirectory(true);
+    setDirectoryError(null);
+
+    try {
+      const nextCollections = await window.snow.deleteProjectCollection(
+        deleteCollectionTarget.collectionId,
+      );
+      setCollections(nextCollections);
+      setDeleteCollectionTarget(null);
+    } catch (error) {
+      setDirectoryError(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.deleteCollectionError", {
+              defaultValue: "Failed to delete collection",
+            }),
+      );
+    } finally {
+      setIsSavingDirectory(false);
+    }
+  };
+
+  const handleToggleCollectionExpanded = (collectionId: string): void => {
+    setExpandedCollectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(collectionId)) {
+        next.delete(collectionId);
+      } else {
+        next.add(collectionId);
+      }
+      return next;
+    });
+  };
+
+  const handleCollectionDragOver = (collectionId: string): void => {
+    setDragOverCollectionId(collectionId);
+  };
+
+  const handleCollectionDrop = (
+    collectionId: string,
+    fallbackDirectoryId?: string,
+  ): void => {
+    // fallbackDirectoryId 来自 dataTransfer（React 状态可能未及时同步）
+    const targetDirectoryId = draggedDirectoryId ?? fallbackDirectoryId;
+    if (!targetDirectoryId) {
+      handleDirectoryDragEnd();
+      return;
+    }
+
+    setIsSavingDirectory(true);
+    setDirectoryError(null);
+
+    void (async (): Promise<void> => {
+      try {
+        const nextCollections = await window.snow.addProjectToCollection(
+          collectionId,
+          targetDirectoryId,
+        );
+        setCollections(nextCollections);
+      } catch (error) {
+        setDirectoryError(
+          error instanceof Error
+            ? error.message
+            : t("sidebar.addToCollectionError", {
+                defaultValue: "Failed to add project to collection",
+              }),
+        );
+      } finally {
+        setIsSavingDirectory(false);
+        handleDirectoryDragEnd();
+      }
+    })();
+  };
+
+  const handleRemoveFromCollection = async (
+    collectionId: string,
+    directoryId: string,
+  ): Promise<void> => {
+    setIsSavingDirectory(true);
+    setDirectoryError(null);
+
+    try {
+      const nextCollections = await window.snow.removeProjectFromCollection(
+        collectionId,
+        directoryId,
+      );
+      setCollections(nextCollections);
+    } catch (error) {
+      setDirectoryError(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.removeFromCollectionError", {
+              defaultValue: "Failed to remove project from collection",
+            }),
+      );
+    } finally {
+      setIsSavingDirectory(false);
+    }
+  };
   // 重命名目录显示名：保留其余字段（directoryId/path/kind/isActive/
   // sortOrder/source），仅更新 name，不影响磁盘路径与排序。
   const handleRenameDirectory = async (
     directoryId: string,
-    newName: string
+    newName: string,
   ): Promise<void> => {
     const directory = workspaceDirectories.find(
-      (d) => d.directoryId === directoryId
+      (d) => d.directoryId === directoryId,
     );
     if (!directory) {
       return;
@@ -794,7 +1035,7 @@ export function ProjectsSection({
           ? error.message
           : t("sidebar.renameDirectoryError", {
               defaultValue: "Failed to rename workspace directory",
-            })
+            }),
       );
       // 向上抛出，让行内编辑保持错误可见（由列表在 finally 中退出编辑态）
       throw error;
@@ -805,7 +1046,7 @@ export function ProjectsSection({
 
   const handleShowDetails = (directoryId: string): void => {
     const directory = workspaceDirectories.find(
-      (d) => d.directoryId === directoryId
+      (d) => d.directoryId === directoryId,
     );
 
     if (!directory) {
@@ -826,7 +1067,7 @@ export function ProjectsSection({
 
     const currentIndex = activeDirectory
       ? workspaceDirectories.findIndex(
-          (d) => d.directoryId === activeDirectory.directoryId
+          (d) => d.directoryId === activeDirectory.directoryId,
         )
       : -1;
 
@@ -838,7 +1079,10 @@ export function ProjectsSection({
 
     const nextIndex = (currentIndex + 1) % workspaceDirectories.length;
     const nextDirectory = workspaceDirectories[nextIndex];
-    if (nextDirectory && nextDirectory.directoryId !== activeDirectory?.directoryId) {
+    if (
+      nextDirectory &&
+      nextDirectory.directoryId !== activeDirectory?.directoryId
+    ) {
       void handleActivateDirectory(nextDirectory.directoryId);
     }
   }, [
@@ -868,9 +1112,7 @@ export function ProjectsSection({
         >
           <ChevronRight
             className={
-              isProjectsCollapsed
-                ? ""
-                : "section-toggle-chevron--open"
+              isProjectsCollapsed ? "" : "section-toggle-chevron--open"
             }
             size={12}
           />
@@ -967,8 +1209,7 @@ export function ProjectsSection({
               </strong>
               <span>
                 {t("sidebar.cloneGitRepositoryDescription", {
-                  defaultValue:
-                    "Clone a remote repository into a local folder",
+                  defaultValue: "Clone a remote repository into a local folder",
                 })}
               </span>
             </span>
@@ -990,6 +1231,28 @@ export function ProjectsSection({
               <span>
                 {t("sidebar.addSshDirectoryActionDescription", {
                   defaultValue: "Connect and add a remote server directory",
+                })}
+              </span>
+            </span>
+          </button>
+          <button
+            className="project-action-card"
+            onClick={handleCreateCollectionModeOpen}
+            type="button"
+          >
+            <span className="project-action-card-icon">
+              <Library size={20} />
+            </span>
+            <span className="project-action-card-content">
+              <strong>
+                {t("sidebar.createCollection", {
+                  defaultValue: "Create collection",
+                })}
+              </strong>
+              <span>
+                {t("sidebar.createCollectionDescription", {
+                  defaultValue:
+                    "Create a collection to organize projects (drag projects into it)",
                 })}
               </span>
             </span>
@@ -1043,6 +1306,117 @@ export function ProjectsSection({
       <FormDialog
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
         closeLabel={t("sidebar.close", { defaultValue: "Close" })}
+        confirmDisabled={!collectionNameInput.trim()}
+        confirmLabel={t("sidebar.createCollectionConfirm", {
+          defaultValue: "Create",
+        })}
+        initialFocusRef={createCollectionInputRef}
+        isSubmitting={isSavingDirectory}
+        onCancel={handleCreateCollectionCancel}
+        onConfirm={() => void handleCreateCollectionConfirm()}
+        open={isCreateCollectionOpen}
+        title={t("sidebar.createCollectionTitle", {
+          defaultValue: "Create a new collection",
+        })}
+      >
+        <p className="form-dialog-description">
+          {t("sidebar.createCollectionDialogDescription", {
+            defaultValue:
+              "A collection organizes projects into a group. Drag a project onto the collection to add it — the project itself is untouched.",
+          })}
+        </p>
+        <label className="form-dialog-field">
+          <span className="form-dialog-label">
+            {t("sidebar.createCollectionNameLabel", {
+              defaultValue: "Collection name",
+            })}
+          </span>
+          <input
+            ref={createCollectionInputRef}
+            className="form-dialog-input"
+            disabled={isSavingDirectory}
+            maxLength={60}
+            onChange={(event) => setCollectionNameInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleCreateCollectionConfirm();
+              }
+            }}
+            placeholder={t("sidebar.createCollectionNamePlaceholder", {
+              defaultValue: "Collection name",
+            })}
+            value={collectionNameInput}
+          />
+        </label>
+        {directoryError ? (
+          <span className="form-dialog-error">{directoryError}</span>
+        ) : null}
+      </FormDialog>
+      <FormDialog
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        closeLabel={t("sidebar.close", { defaultValue: "Close" })}
+        confirmDisabled={!collectionNameInput.trim()}
+        confirmLabel={t("sidebar.renameCollectionConfirm", {
+          defaultValue: "Rename",
+        })}
+        initialFocusRef={renameCollectionInputRef}
+        isSubmitting={isSavingDirectory}
+        onCancel={handleRenameCollectionCancel}
+        onConfirm={() => void handleRenameCollectionConfirm()}
+        open={isRenameCollectionOpen}
+        title={t("sidebar.renameCollectionTitle", {
+          defaultValue: "Rename collection",
+        })}
+      >
+        <label className="form-dialog-field">
+          <span className="form-dialog-label">
+            {t("sidebar.createCollectionNameLabel", {
+              defaultValue: "Collection name",
+            })}
+          </span>
+          <input
+            ref={renameCollectionInputRef}
+            className="form-dialog-input"
+            disabled={isSavingDirectory}
+            maxLength={60}
+            onChange={(event) => setCollectionNameInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleRenameCollectionConfirm();
+              }
+            }}
+            placeholder={t("sidebar.createCollectionNamePlaceholder", {
+              defaultValue: "Collection name",
+            })}
+            value={collectionNameInput}
+          />
+        </label>
+        {directoryError ? (
+          <span className="form-dialog-error">{directoryError}</span>
+        ) : null}
+      </FormDialog>
+      <ConfirmDialog
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        confirmLabel={t("sidebar.deleteCollection", {
+          defaultValue: "Delete",
+        })}
+        message={t("sidebar.deleteCollectionConfirm", {
+          defaultValue:
+            "Are you sure you want to delete this collection? Projects inside it are not affected.",
+        })}
+        onCancel={() => setDeleteCollectionTarget(null)}
+        onConfirm={() => void handleDeleteCollectionConfirm()}
+        open={deleteCollectionTarget !== null}
+        title={t("sidebar.deleteCollectionTitle", {
+          defaultValue: "Delete collection",
+        })}
+        variant="danger"
+      />
+      <FormDialog
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        closeLabel={t("sidebar.close", { defaultValue: "Close" })}
         confirmDisabled={!selectedLocalPath.trim()}
         confirmLabel={t("sidebar.add", { defaultValue: "Add" })}
         initialFocusRef={localPathInputRef}
@@ -1056,7 +1430,8 @@ export function ProjectsSection({
       >
         <p className="form-dialog-description">
           {t("sidebar.addLocalDirectoryDescription", {
-            defaultValue: "Select a local folder to add as a workspace directory.",
+            defaultValue:
+              "Select a local folder to add as a workspace directory.",
           })}
         </p>
         <div
@@ -1068,7 +1443,9 @@ export function ProjectsSection({
             setIsDraggingLocalDirectory(true);
           }}
           onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            if (
+              !event.currentTarget.contains(event.relatedTarget as Node | null)
+            ) {
               setIsDraggingLocalDirectory(false);
             }
           }}
@@ -1221,12 +1598,17 @@ export function ProjectsSection({
           </span>
           <WorkspaceDirectoryList
             activeDirectoryId={activeDirectory?.directoryId}
+            collections={collections}
             directoryListRef={directoryListRef}
             draggedDirectoryId={draggedDirectoryId}
+            dragOverCollectionId={dragOverCollectionId}
             dragOverDirectoryId={dragOverDirectoryId}
+            expandedCollectionIds={expandedCollectionIds}
             hasMoreDirectories={hasMoreDirectories}
             isActionLocked={
-              isSavingDirectory || isReorderingDirectories || isSwitchingDirectory
+              isSavingDirectory ||
+              isReorderingDirectories ||
+              isSwitchingDirectory
             }
             isLoadingDirectories={isLoadingDirectories}
             loadMoreRef={directoryLoadMoreRef}
@@ -1234,13 +1616,23 @@ export function ProjectsSection({
             onActivate={(directoryId) =>
               void handleActivateDirectory(directoryId)
             }
+            onCollectionDragOver={handleCollectionDragOver}
+            onCollectionDrop={handleCollectionDrop}
             onDelete={(directoryId) => void handleDeleteDirectory(directoryId)}
+            onDeleteCollection={(collection) =>
+              setDeleteCollectionTarget(collection)
+            }
             onDragEnd={handleDirectoryDragEnd}
             onDragOver={handleDirectoryDragOver}
             onDragStart={handleDirectoryDragStart}
             onDrop={handleDirectoryDrop}
+            onRemoveFromCollection={(collectionId, directoryId) =>
+              void handleRemoveFromCollection(collectionId, directoryId)
+            }
             onRename={handleRenameDirectory}
+            onRenameCollection={handleRenameCollectionOpen}
             onShowDetails={handleShowDetails}
+            onToggleCollection={handleToggleCollectionExpanded}
             totalCount={workspaceDirectories.length}
             visibleDirectories={visibleDirectories}
             workspaceDirectories={workspaceDirectories}
@@ -1248,7 +1640,9 @@ export function ProjectsSection({
           {directoryError &&
           !isCreateProjectOpen &&
           !isAddLocalDialogOpen &&
-          !isCloneRepoOpen ? (
+          !isCloneRepoOpen &&
+          !isCreateCollectionOpen &&
+          !isRenameCollectionOpen ? (
             <span className="workspace-directory-error">{directoryError}</span>
           ) : null}
         </div>

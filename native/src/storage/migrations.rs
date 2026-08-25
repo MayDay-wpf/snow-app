@@ -86,6 +86,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_chat_messages_interruption_metadata(connection)?;
     purge_assistant_raw_json_blobs(connection)?;
     drop_tables_referencing_sub_agent_configs_legacy(connection)?;
+    migrate_project_collections(connection)?;
     Ok(())
 }
 
@@ -864,4 +865,34 @@ fn purge_assistant_raw_json_blobs(connection: &Connection) -> rusqlite::Result<(
         connection.execute_batch("VACUUM")?;
     }
     Ok(())
+}
+
+/// Creates the project collection tables (`project_collections` +
+/// `collection_members`) on databases created by older app versions.
+///
+/// Collections are pure metadata (name + member `directory_id`s) and do not
+/// exist on disk, so a fresh install gets them from `create_schema` and this
+/// migration only matters for existing databases. Idempotent: `CREATE TABLE
+/// IF NOT EXISTS` makes re-runs a safe no-op.
+fn migrate_project_collections(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_collections (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE TABLE IF NOT EXISTS collection_members (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL,
+           directory_id TEXT NOT NULL,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(collection_id, directory_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_collection_members_collection
+           ON collection_members(collection_id, sort_order);",
+    )
 }
