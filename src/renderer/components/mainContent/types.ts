@@ -1,5 +1,6 @@
 export type MainContentView =
   | "chat"
+  | "team"
   | "api-settings"
   | "imagegen-settings"
   | "image-library"

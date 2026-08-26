@@ -1270,6 +1270,29 @@ export type GitRepoInfo = {
   currentBranch: string;
 };
 
+// ===== 团队协作（基于 Git 的共享数据平面） =====
+
+export type TeamIdentity = {
+  isRepo: boolean;
+  /** 解析出的真实仓库根路径（团队操作都应使用它）。 */
+  repoPath: string;
+  name: string;
+  email: string;
+  remoteUrl: string;
+  hasIdentity: boolean;
+  error: string | null;
+};
+
+export type TeamSyncResult = {
+  ok: boolean;
+  initialized: boolean;
+  pulled: boolean;
+  pushed: boolean;
+  localAhead: number;
+  localBehind: number;
+  error: string | null;
+};
+
 export type DetectedTerminal = {
   name: string;
   path: string;
@@ -1843,6 +1866,33 @@ export type NativeBridge = {
     onChange: (repoPath: string) => void,
   ) => void;
   stopGitWatch: (repoPath: string) => void;
+  teamGetIdentity: (repoPath: string) => Promise<TeamIdentity>;
+  /** 定位真实仓库路径：向上找 .git，找不到再扫子目录；空串表示非仓库。 */
+  teamResolveRepo: (path: string) => Promise<string>;
+  teamConfigureIdentity: (
+    repoPath: string,
+    name: string,
+    email: string,
+  ) => Promise<TeamIdentity>;
+  teamSync: (repoPath: string) => Promise<TeamSyncResult>;
+  /** 列出某类团队记录，返回原始 JSON 字符串数组。 */
+  teamList: (repoPath: string, kind: string) => Promise<string[]>;
+  teamUpsert: (
+    repoPath: string,
+    kind: string,
+    id: string,
+    json: string,
+  ) => Promise<string>;
+  teamDelete: (repoPath: string, kind: string, id: string) => Promise<boolean>;
+  /** 保存团队笔记媒体文件（图片），返回 `snow-team/media/...` 相对路径。 */
+  teamMediaSave: (
+    repoPath: string,
+    noteId: string,
+    fileName: string,
+    base64Data: string,
+  ) => Promise<string>;
+  /** 读取团队笔记媒体文件，返回 data URL。 */
+  teamMediaRead: (repoPath: string, rel: string) => Promise<string>;
   generateCommitMessage: (
     repoPath: string,
     onChunk: (chunk: ResponsesApiStreamChunk) => void,

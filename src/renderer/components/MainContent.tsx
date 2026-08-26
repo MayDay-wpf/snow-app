@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import { ChatContent } from "./mainContent/ChatContent";
+import { TeamPanel } from "./mainContent/team/TeamPanel";
 import { useI18n } from "../i18n";
 import type { MainContentView } from "./mainContent/types";
 import type { WorkspaceDirectoryRecord } from "../../preload";
@@ -10,129 +11,129 @@ import type { WorkspaceDirectoryRecord } from "../../preload";
 const ApiSettingsTreePanel = lazy(() =>
   import("./sidebar/ApiSettingsTreePanel").then((m) => ({
     default: m.ApiSettingsTreePanel,
-  }))
+  })),
 );
 const CodebaseSettingsPanel = lazy(() =>
   import("./sidebar/CodebaseSettingsPanel").then((m) => ({
     default: m.CodebaseSettingsPanel,
-  }))
+  })),
 );
 const CustomHeadersSettingsPanel = lazy(() =>
   import("./sidebar/CustomHeadersSettingsPanel").then((m) => ({
     default: m.CustomHeadersSettingsPanel,
-  }))
+  })),
 );
 const HooksSettingsPanel = lazy(() =>
   import("./sidebar/HooksSettingsPanel").then((m) => ({
     default: m.HooksSettingsPanel,
-  }))
+  })),
 );
 const McpSettingsPanel = lazy(() =>
   import("./sidebar/McpSettingsPanel").then((m) => ({
     default: m.McpSettingsPanel,
-  }))
+  })),
 );
 const LspSettingsPanel = lazy(() =>
   import("./sidebar/LspSettingsPanel").then((m) => ({
     default: m.LspSettingsPanel,
-  }))
+  })),
 );
 const ImportSettingsPanel = lazy(() =>
   import("./sidebar/ImportSettingsPanel").then((m) => ({
     default: m.ImportSettingsPanel,
-  }))
+  })),
 );
 const ImageGenSettingsPanel = lazy(() =>
   import("./sidebar/ImageGenSettingsPanel").then((m) => ({
     default: m.ImageGenSettingsPanel,
-  }))
+  })),
 );
 const ImageLibraryPanel = lazy(() =>
   import("./sidebar/ImageLibraryPanel").then((m) => ({
     default: m.ImageLibraryPanel,
-  }))
+  })),
 );
 const PrivacySettingsPanel = lazy(() =>
   import("./sidebar/PrivacySettingsPanel").then((m) => ({
     default: m.PrivacySettingsPanel,
-  }))
+  })),
 );
 const ProxyBrowserSettingsPanel = lazy(() =>
   import("./sidebar/ProxyBrowserSettingsPanel").then((m) => ({
     default: m.ProxyBrowserSettingsPanel,
-  }))
+  })),
 );
 const SensitiveCommandsPanel = lazy(() =>
   import("./sidebar/SensitiveCommandsPanel").then((m) => ({
     default: m.SensitiveCommandsPanel,
-  }))
+  })),
 );
 const SkillsSettingsPanel = lazy(() =>
   import("./sidebar/SkillsSettingsPanel").then((m) => ({
     default: m.SkillsSettingsPanel,
-  }))
+  })),
 );
 const SubAgentSettingsPanel = lazy(() =>
   import("./sidebar/SubAgentSettingsPanel").then((m) => ({
     default: m.SubAgentSettingsPanel,
-  }))
+  })),
 );
 const SystemPromptSettingsPanel = lazy(() =>
   import("./sidebar/SystemPromptSettingsPanel").then((m) => ({
     default: m.SystemPromptSettingsPanel,
-  }))
+  })),
 );
 const PersonalizationSettingsPanel = lazy(() =>
   import("./sidebar/personalization/PersonalizationSettingsPanel").then(
     (m) => ({
       default: m.PersonalizationSettingsPanel,
-    })
-  )
+    }),
+  ),
 );
 const TerminalSettingsPanel = lazy(() =>
   import("./sidebar/TerminalSettingsPanel").then((m) => ({
     default: m.TerminalSettingsPanel,
-  }))
+  })),
 );
 const ThemeSettingsPanel = lazy(() =>
   import("./sidebar/ThemeSettingsPanel").then((m) => ({
     default: m.ThemeSettingsPanel,
-  }))
+  })),
 );
 const KeyboardShortcutsSettingsPanel = lazy(() =>
   import("./sidebar/KeyboardShortcutsSettingsPanel").then((m) => ({
     default: m.KeyboardShortcutsSettingsPanel,
-  }))
+  })),
 );
 const PetsSettingsPanel = lazy(() =>
   import("./sidebar/PetsSettingsPanel").then((m) => ({
     default: m.PetsSettingsPanel,
-  }))
+  })),
 );
 const UsageSettingsPanel = lazy(() =>
   import("./sidebar/usageSettings/UsageSettingsPanel").then((m) => ({
     default: m.UsageSettingsPanel,
-  }))
+  })),
 );
 const SystemLogsPanel = lazy(() =>
   import("./sidebar/systemLogs/SystemLogsPanel").then((m) => ({
     default: m.SystemLogsPanel,
-  }))
+  })),
 );
 const BrowserSettingsPanel = lazy(() =>
   import("./sidebar/browserSettings/BrowserSettingsPanel").then((m) => ({
     default: m.BrowserSettingsPanel,
-  }))
+  })),
 );
 const GeneralSettingsPanel = lazy(() =>
   import("./sidebar/GeneralSettingsPanel").then((m) => ({
     default: m.GeneralSettingsPanel,
-  }))
+  })),
 );
 const GitSettingsPanel = lazy(() =>
   import("./sidebar/GitSettingsPanel").then((m) => ({
     default: m.GitSettingsPanel,
-  }))
+  })),
 );
 
 type MainContentProps = {
@@ -164,6 +165,11 @@ export const MainContent = ({
     <main className="main-content">
       {activeView === "chat" ? (
         <ChatContent
+          activeDirectory={activeDirectory}
+          onNavigateToView={onSelectView}
+        />
+      ) : activeView === "team" ? (
+        <TeamPanel
           activeDirectory={activeDirectory}
           onNavigateToView={onSelectView}
         />

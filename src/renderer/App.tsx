@@ -26,6 +26,7 @@ import {
 } from "./components/KeyboardShortcutsProvider";
 import { shortcutEvents } from "./components/shortcutEvents";
 import { useAppControl } from "./hooks/useAppControl";
+import { CONVERSATION_SELECTED_EVENT } from "./components/mainContent/chatMessages/hooks/useConversationManagement";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useI18n } from "./i18n";
 import { useTheme } from "./hooks/useTheme";
@@ -162,6 +163,17 @@ export const App = (): React.JSX.Element => {
   const { t } = useI18n();
   useTheme();
   useAppControl({ activeDirectory, setActiveMainView });
+
+  // 切换会话时退出非聊天主视图（如团队协作），让主界面跟随会话回到聊天。
+  useEffect(() => {
+    const handler = (): void => {
+      setActiveMainView("chat");
+    };
+    window.addEventListener(CONVERSATION_SELECTED_EVENT, handler);
+    return () => {
+      window.removeEventListener(CONVERSATION_SELECTED_EVENT, handler);
+    };
+  }, []);
 
   // 监听主进程的关闭请求：所有关闭路径（标题栏按钮、Alt+F4、任务栏）
   // 都会在主进程被拦截并回推 window:close-requested，此处弹出二次确认。

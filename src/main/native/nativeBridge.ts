@@ -900,6 +900,42 @@ export const loadNativeBridge = (): NativeBridge => {
       stopGitWatch: () => {
         throw new Error("Rust native bridge is required to stop git watch");
       },
+      teamGetIdentity: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required for team identity"),
+        ),
+      teamResolveRepo: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to resolve team repo"),
+        ),
+      teamConfigureIdentity: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required for team identity"),
+        ),
+      teamSync: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required for team sync"),
+        ),
+      teamList: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to list team records"),
+        ),
+      teamUpsert: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to write team records"),
+        ),
+      teamDelete: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete team records"),
+        ),
+      teamMediaSave: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to save team media"),
+        ),
+      teamMediaRead: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to read team media"),
+        ),
       listMcpTools: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list MCP tools"),

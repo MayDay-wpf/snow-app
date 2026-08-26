@@ -18,6 +18,8 @@ import type { MainContentView } from "../mainContent/types";
 import { ChatsSection } from "./mainSidebar/ChatsSection";
 import { PinnedSection } from "./mainSidebar/PinnedSection";
 import { ProjectsSection } from "./mainSidebar/ProjectsSection";
+import { TeamEntry } from "./mainSidebar/TeamEntry";
+import { useTeamSummary } from "../mainContent/team/useTeamData";
 import { useCrossProjectNotifications } from "./mainSidebar/useCrossProjectNotifications";
 import { GlobalSearchModal } from "./GlobalSearchModal";
 import { MemoModal } from "./MemoModal";
@@ -64,6 +66,10 @@ export function MainSidebarContent({
   );
 
   const activeDirectoryId = activeDirectory?.directoryId ?? "";
+
+  // 团队协作入口：仅在当前目录为 Git 仓库时展示（identity.isRepo 由 Rust 判定）
+  const { identity: teamIdentity, pendingCount: teamPendingCount } =
+    useTeamSummary(activeDirectory?.path ?? "");
 
   // 跨项目通知：聚合其他项目运行中/需关注/已完成的会话，供项目列表
   // 徽标与对话区域「跨项目通知」区块共同消费（单次查询、共享数据）。
@@ -185,6 +191,20 @@ export function MainSidebarContent({
 
   return (
     <>
+      {/* 团队协作入口（基于 Git 的身份系统，置于侧边栏顶部）；非 Git 目录不显示 */}
+      {teamIdentity?.isRepo ? (
+        <div className="sidebar-team-entry">
+          <TeamEntry
+            repoPath={activeDirectory?.path ?? ""}
+            identity={teamIdentity}
+            pendingCount={teamPendingCount}
+            onClick={() => {
+              onSwitchContent?.("main");
+              onSelectMainView?.("team");
+            }}
+          />
+        </div>
+      ) : null}
       <div className="sidebar-search-bar">
         <button
           className="nav-item sidebar-search-btn"

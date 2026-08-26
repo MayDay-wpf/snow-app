@@ -40,6 +40,7 @@ pub mod sub_agent_configs;
 pub mod storage_locations;
 pub mod system_prompts;
 pub mod system_settings;
+pub mod team;
 pub mod theme_settings;
 pub mod usage_records;
 pub mod workspace_directories;

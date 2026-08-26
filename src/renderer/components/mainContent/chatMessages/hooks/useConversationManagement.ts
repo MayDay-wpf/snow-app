@@ -20,6 +20,10 @@ import {
   runHook,
   toNonBlockingRecord,
 } from "./hookOutcome";
+
+/** 会话被选中（切换会话）时派发的全局事件：主视图应回到聊天界面。 */
+export const CONVERSATION_SELECTED_EVENT = "app:conversation-selected";
+
 export type UseConversationManagementParams = {
   ctx: ConversationContextValue;
   rejectToolAuthorizations: (sessionKey?: string) => void;
@@ -60,6 +64,7 @@ export const useConversationManagement = (
       if (!trimmedId) {
         return;
       }
+      window.dispatchEvent(new CustomEvent(CONVERSATION_SELECTED_EVENT));
       const selectionRequestId = ++ctx.selectionRequestIdRef.current;
       const cachedSession = ctx.sessionsRef.current[trimmedId];
       const hasLoadedCachedHistory =

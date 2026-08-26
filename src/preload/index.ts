@@ -5,6 +5,7 @@ import { conversationApi } from "./modules/conversationApi";
 import { workspaceApi } from "./modules/workspaceApi";
 import { sshApi } from "./modules/sshApi";
 import { gitApi } from "./modules/gitApi";
+import { teamApi } from "./modules/teamApi";
 import { systemApi, ptyApi, windowApi } from "./modules/systemApi";
 import { memoApi } from "./modules/memoApi";
 import { scheduledTaskApi } from "./modules/scheduledTaskApi";
@@ -26,6 +27,7 @@ const api = {
   ...workspaceApi,
   ...sshApi,
   ...gitApi,
+  ...teamApi,
   ...systemApi,
   ...ptyApi,
   ...windowApi,
