@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.2.15
+
+## New Features
+
+- **Team Collaboration**: A new team collaboration panel with tasks, notes, reviews, activity, and member management, built-in Markdown editor, persisted by the Rust backend.
+- **`@!` Skill Reference**: The chat input now supports searching and referencing skills with `@!`, with matching chips in user messages and scheduled tasks.
+
+## Improvements
+
+- **Inline API Settings Edit**: The model dropdown can open the API settings edit modal directly; the editor is extracted into a standalone component.
+- **Explorer Quick Edit**: Double-clicking a file in the project explorer opens a quick edit modal.
+- **Sidebar Layout**: The projects section now fills the remaining height when the chats section is collapsed.
+- **Image Data Validation**: Image data in tool results and messages is validated with magic-byte checks, rejecting invalid content.
+
+## Bug Fixes
+
+- **SQLite Lock Contention**: A global write lock with retry logic prevents lock conflicts under concurrent writes.
+- **Windows Env Leakage**: Fixed host `PATH` / `NODE_ENV` leaking into bash / MCP / terminal child processes.
+
 ## v0.2.14
 
 ## Improvements
