@@ -4,16 +4,18 @@ Skill 是一个以 `SKILL.md` 为入口的指令包。Snow App 会扫描技能�
 
 本文介绍扫描规则、安装、开关、Agent 管理和卸载。若要从零编写 Skill，请继续阅读[创建与编写 Skills](21-创建与编写Skills.md)。
 
+聊天输入框中输入 `@!<关键词>` 可搜索**已启用的 Skill**，选中后以技能 chip 插入输入框，随消息原样发送给 AI；AI 读取技能名称与描述后，按需加载 `SKILL.md` 正文并执行。技能引用见[使用聊天与 AI 助手](10-使用聊天与AI助手.md)。
+
 ## 1. 扫描目录与覆盖优先级
 
 当存在项目上下文时，Snow App 按下列顺序扫描；**后扫描的同 ID Skill 覆盖先扫描的 Skill**：
 
-| 扫描顺序 | 目录 | 作用域 | 同 ID 优先级 |
-| --- | --- | --- | --- |
-| 1 | `~/.agents/skills/` | 全局用户级 | 最低 |
-| 2 | `~/.snow/skills/` | 全局用户级；GitHub 全局安装位置 | 高于 1 |
-| 3 | `<项目>/.agents/skills/` | 项目级 | 高于全局目录 |
-| 4 | `<项目>/.snow/skills/` | 项目级；GitHub 项目安装位置 | 最高 |
+| 扫描顺序 | 目录                     | 作用域                          | 同 ID 优先级 |
+| -------- | ------------------------ | ------------------------------- | ------------ |
+| 1        | `~/.agents/skills/`      | 全局用户级                      | 最低         |
+| 2        | `~/.snow/skills/`        | 全局用户级；GitHub 全局安装位置 | 高于 1       |
+| 3        | `<项目>/.agents/skills/` | 项目级                          | 高于全局目录 |
+| 4        | `<项目>/.snow/skills/`   | 项目级；GitHub 项目安装位置     | 最高         |
 
 ```mermaid
 flowchart LR
@@ -85,12 +87,12 @@ Follow the repository release policy, inspect the requested artifacts, and repor
 blocking problems before suggestions.
 ```
 
-| 字段 | 必填 | 解析语义 |
-| --- | --- | --- |
-| `name` | 否 | 展示名称；缺省时使用技能 ID 的最后一段。GitHub 安装时也用于派生安装 ID。 |
-| `description` | 否 | 注册到技能工具描述中，帮助 Agent 判断何时加载。建议写清触发场景与产出。 |
-| `enable` | 否 | 布尔值，默认 `true`。`false` 时默认不注册和不可执行。 |
-| `allowed-tools` | 否 | YAML 字符串数组或逗号分隔字符串。非空时，加载正文会附加“只能使用这些工具”的限制；空列表等同未限制。 |
+| 字段            | 必填 | 解析语义                                                                                            |
+| --------------- | ---- | --------------------------------------------------------------------------------------------------- |
+| `name`          | 否   | 展示名称；缺省时使用技能 ID 的最后一段。GitHub 安装时也用于派生安装 ID。                            |
+| `description`   | 否   | 注册到技能工具描述中，帮助 Agent 判断何时加载。建议写清触发场景与产出。                             |
+| `enable`        | 否   | 布尔值，默认 `true`。`false` 时默认不注册和不可执行。                                               |
+| `allowed-tools` | 否   | YAML 字符串数组或逗号分隔字符串。非空时，加载正文会附加“只能使用这些工具”的限制；空列表等同未限制。 |
 
 `enabled` 和 `allowed_tools` **不是 Skill frontmatter 字段**，不会产生预期效果。注意：下文 config API 的 `value.enabled` 是合法 API 参数，它最终写回的 frontmatter 字段仍是 `enable`。
 
@@ -151,12 +153,12 @@ config-delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
 
 ## 6. 常见问题
 
-| 症状 | 原因与处理 |
-| --- | --- |
-| Skill 未出现 | 确认文件名严格为 `SKILL.md`；检查目录是否被跳过；修复未闭合的 `---` 或非法 YAML。 |
-| 开关看似无效 | frontmatter 应为 `enable`；再检查是否存在项目数据库覆盖或更高优先级同 ID Skill。 |
-| Agent 选不中 Skill | 补充具体 `description`，确认 `enable: true`，并刷新技能列表。 |
-| 工具被拒绝 | 检查 `allowed-tools` 是否包含精确完整工具名；下划线字段 `allowed_tools` 无效。 |
-| GitHub 仓库提示找不到 Skill | 根目录没有 `SKILL.md` 且直接子目录也没有；用带子目录的 URL 指向正确层级。 |
-| 卸载返回“not installed from GitHub” | 该 Skill 没有注册记录；核对来源后按手动目录流程处理。 |
-| 修改的 Skill 没有生效 | 从 `config-list` 查看实际 `path`，排除同 ID 覆盖，再在下一轮重新加载。 |
+| 症状                                | 原因与处理                                                                        |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| Skill 未出现                        | 确认文件名严格为 `SKILL.md`；检查目录是否被跳过；修复未闭合的 `---` 或非法 YAML。 |
+| 开关看似无效                        | frontmatter 应为 `enable`；再检查是否存在项目数据库覆盖或更高优先级同 ID Skill。  |
+| Agent 选不中 Skill                  | 补充具体 `description`，确认 `enable: true`，并刷新技能列表。                     |
+| 工具被拒绝                          | 检查 `allowed-tools` 是否包含精确完整工具名；下划线字段 `allowed_tools` 无效。    |
+| GitHub 仓库提示找不到 Skill         | 根目录没有 `SKILL.md` 且直接子目录也没有；用带子目录的 URL 指向正确层级。         |
+| 卸载返回“not installed from GitHub” | 该 Skill 没有注册记录；核对来源后按手动目录流程处理。                             |
+| 修改的 Skill 没有生效               | 从 `config-list` 查看实际 `path`，排除同 ID 覆盖，再在下一轮重新加载。            |

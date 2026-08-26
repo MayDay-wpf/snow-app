@@ -20664,6 +20664,12 @@ input {
   line-height: 1;
 }
 
+/* ===== Skill Chip（技能引用） ===== */
+.skill-chip:hover {
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
 /* ===== 拖拽预览卡片（C1：浏览器标签页拖拽时替代默认整 tab 拖影） =====
    元素经 setDragImage 截取为拖影位图：定位在视口外但保持渲染，
    不可见仍可被正常截图。若个别平台对 off-screen 元素截图空白，

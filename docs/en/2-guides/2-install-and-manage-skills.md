@@ -4,16 +4,18 @@ A Skill is an instruction package whose entry point is `SKILL.md`. Snow App scan
 
 This guide covers scanning, installation, toggles, agent-based management, and uninstallation. To author a Skill from scratch, continue with [Create and Author Skills](21-create-and-author-skills.md).
 
+Type `@!<query>` in the chat input to search **enabled Skills**; selecting one inserts a Skill chip into the composer that is sent to the AI as-is. The AI reads the Skill's name and description, then loads the `SKILL.md` body on demand. See [Using Chat and the AI Assistant](10-using-chat-and-ai.md) for Skill references.
+
 ## 1. Scan directories and override precedence
 
 With a project context, Snow App scans in the following order. **A later Skill with the same ID replaces an earlier one**:
 
-| Scan order | Directory | Scope | Same-ID precedence |
-| --- | --- | --- | --- |
-| 1 | `~/.agents/skills/` | Global user | Lowest |
-| 2 | `~/.snow/skills/` | Global user; global GitHub install target | Higher than 1 |
-| 3 | `<project>/.agents/skills/` | Project | Higher than global directories |
-| 4 | `<project>/.snow/skills/` | Project; project GitHub install target | Highest |
+| Scan order | Directory                   | Scope                                     | Same-ID precedence             |
+| ---------- | --------------------------- | ----------------------------------------- | ------------------------------ |
+| 1          | `~/.agents/skills/`         | Global user                               | Lowest                         |
+| 2          | `~/.snow/skills/`           | Global user; global GitHub install target | Higher than 1                  |
+| 3          | `<project>/.agents/skills/` | Project                                   | Higher than global directories |
+| 4          | `<project>/.snow/skills/`   | Project; project GitHub install target    | Highest                        |
 
 ```mermaid
 flowchart LR
@@ -85,12 +87,12 @@ Follow the repository release policy, inspect the requested artifacts, and repor
 blocking problems before suggestions.
 ```
 
-| Field | Required | Parsing semantics |
-| --- | --- | --- |
-| `name` | No | Display name; defaults to the final segment of the Skill ID. It also contributes to the installation ID for GitHub installs. |
-| `description` | No | Registered in the Skill tool description so the agent can decide when to load it. State the trigger and expected output clearly. |
-| `enable` | No | Boolean, default `true`. With `false`, the Skill is not registered or executable by default. |
-| `allowed-tools` | No | A YAML string array or comma-separated string. When non-empty, loading the Skill adds an “only these tools” restriction; an empty list means unrestricted. |
+| Field           | Required | Parsing semantics                                                                                                                                          |
+| --------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | No       | Display name; defaults to the final segment of the Skill ID. It also contributes to the installation ID for GitHub installs.                               |
+| `description`   | No       | Registered in the Skill tool description so the agent can decide when to load it. State the trigger and expected output clearly.                           |
+| `enable`        | No       | Boolean, default `true`. With `false`, the Skill is not registered or executable by default.                                                               |
+| `allowed-tools` | No       | A YAML string array or comma-separated string. When non-empty, loading the Skill adds an “only these tools” restriction; an empty list means unrestricted. |
 
 `enabled` and `allowed_tools` are **not Skill frontmatter fields** and do not have the intended effect. The config API's `value.enabled` below is valid; that API parameter ultimately writes the frontmatter field named `enable`.
 
@@ -151,12 +153,12 @@ Directory deletion is destructive. An agent must confirm the exact path, source,
 
 ## 6. Troubleshooting
 
-| Symptom | Cause and fix |
-| --- | --- |
-| Skill does not appear | Ensure the filename is exactly `SKILL.md`; check skipped directories; fix an unclosed `---` marker or invalid YAML. |
-| Toggle appears ineffective | Use frontmatter `enable`; then check for a project database override or a higher-precedence same-ID Skill. |
-| Agent does not select the Skill | Add a specific `description`, confirm `enable: true`, and refresh the Skill list. |
-| A tool is rejected | Ensure `allowed-tools` contains the exact full tool name; `allowed_tools` is invalid. |
-| GitHub source reports no Skill | Neither the root nor an immediate child has `SKILL.md`; point a subdirectory URL at the correct level. |
-| Uninstall returns “not installed from GitHub” | The Skill has no registry record; verify its source and use the manual-directory workflow. |
-| Edits do not take effect | Inspect the effective `path` through `config-list`, rule out same-ID shadowing, then load it again on the next turn. |
+| Symptom                                       | Cause and fix                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Skill does not appear                         | Ensure the filename is exactly `SKILL.md`; check skipped directories; fix an unclosed `---` marker or invalid YAML.  |
+| Toggle appears ineffective                    | Use frontmatter `enable`; then check for a project database override or a higher-precedence same-ID Skill.           |
+| Agent does not select the Skill               | Add a specific `description`, confirm `enable: true`, and refresh the Skill list.                                    |
+| A tool is rejected                            | Ensure `allowed-tools` contains the exact full tool name; `allowed_tools` is invalid.                                |
+| GitHub source reports no Skill                | Neither the root nor an immediate child has `SKILL.md`; point a subdirectory URL at the correct level.               |
+| Uninstall returns “not installed from GitHub” | The Skill has no registry record; verify its source and use the manual-directory workflow.                           |
+| Edits do not take effect                      | Inspect the effective `path` through `config-list`, rule out same-ID shadowing, then load it again on the next turn. |

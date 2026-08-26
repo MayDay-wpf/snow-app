@@ -4,11 +4,11 @@ Snow App uses conversation as the main entry point for AI collaboration. In addi
 
 ## 1. Interface and First Conversation
 
-| Area | Contents |
-| --- | --- |
-| Sidebar | Local/SSH projects, conversations, memos, scheduled tasks, and settings |
-| Main area | AI chat, terminal, Git, browser, codebase, image library, and other views |
-| Right panel | File reader, Markdown/Office/image previews, diffs, and Git panels in multiple tabs |
+| Area              | Contents                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Sidebar           | Local/SSH projects, conversations, memos, scheduled tasks, and settings                                                 |
+| Main area         | AI chat, terminal, Git, browser, codebase, image library, and other views                                               |
+| Right panel       | File reader, Markdown/Office/image previews, diffs, and Git panels in multiple tabs                                     |
 | Top bar and input | Switch views/API profiles, choose a model and reasoning effort, enter `/` commands, mention `@` files, or attach images |
 
 1. Select a project, then create or open a conversation;
@@ -71,6 +71,8 @@ The sidebar **Conversations** section normally shows only the **current project'
 ### 2.3 Files and Images
 
 - Type `@` to search workspace files. Browse into folders, use breadcrumbs to jump to a parent, or press the left arrow to go up one level;
+- Type `@?<query>` for a **natural-language file search** (see [Git and Code Browsing](12-git-and-code-browsing.md));
+- Type `@!<query>` to search and reference **enabled Skills**: selecting one inserts a Skill chip into the composer that is sent to the AI as-is, letting the AI read the Skill's name and description and load it on demand;
 - Select or drag a whole directory when the AI should inspect its contents;
 - Paste or drag one or more images into the input. If the main model has no vision support, the auxiliary vision model produces a text description while retaining a safe `upload/...` reference to the original for later image editing;
 - See [Image Generation](9-image-generation.md) for generation and reference-image rules.
@@ -79,18 +81,18 @@ The sidebar **Conversations** section normally shows only the **current project'
 
 Type `/` to open the command palette. The current version has exactly ten commands:
 
-| Command | Behavior and availability |
-| --- | --- |
-| `/clear` | Creates a new conversation; it is not `/new` and does not erase history inside the existing conversation |
-| `/file-changes` | Shows file changes and diffs for the current conversation; disabled until the conversation has been persisted |
-| `/mcp` | Manages MCP servers for the current project; requires a selected project |
-| `/role` | Edits the current project's `ROLE.md`; requires a selected project |
-| `/sensitive-commands` | Configures sensitive-command rules for the current project; requires a selected project |
-| `/permissions` | Views/deletes the permanently authorized tools of the current project; requires a selected project, disabled in YOLO mode |
-| `/skills` | Manages Skills for the current project; requires a selected project |
-| `/codebase` | Manages the current project's codebase index; requires a selected project |
-| `/review` | Asks the AI to review Git changes in the current project; available only in a new conversation with a project directory |
-| `/compact` | Compacts the current conversation; disabled when there are no messages or compaction is already running |
+| Command               | Behavior and availability                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `/clear`              | Creates a new conversation; it is not `/new` and does not erase history inside the existing conversation                  |
+| `/file-changes`       | Shows file changes and diffs for the current conversation; disabled until the conversation has been persisted             |
+| `/mcp`                | Manages MCP servers for the current project; requires a selected project                                                  |
+| `/role`               | Edits the current project's `ROLE.md`; requires a selected project                                                        |
+| `/sensitive-commands` | Configures sensitive-command rules for the current project; requires a selected project                                   |
+| `/permissions`        | Views/deletes the permanently authorized tools of the current project; requires a selected project, disabled in YOLO mode |
+| `/skills`             | Manages Skills for the current project; requires a selected project                                                       |
+| `/codebase`           | Manages the current project's codebase index; requires a selected project                                                 |
+| `/review`             | Asks the AI to review Git changes in the current project; available only in a new conversation with a project directory   |
+| `/compact`            | Compacts the current conversation; disabled when there are no messages or compaction is already running                   |
 
 While the AI is running, `/compact`, `/role`, `/sensitive-commands`, `/skills`, `/codebase`, `/mcp`, and `/review` are disabled. `/file-changes` and `/clear` are not in that running-disabled set, but their own conditions still apply.
 
@@ -217,16 +219,16 @@ Compaction is **not absolutely irreversible**. The compaction message is a `cont
 
 ## 11. Troubleshooting
 
-| Symptom | Resolution |
-| --- | --- |
-| The AI has no tools | Check the API profile, model, and tool-specific configuration; image generation requires a separate channel |
-| Tools never start | Check for another pending approval in the same batch or a Plan write gate waiting for explicit approval |
-| YOLO still asks about a command | The command matched a sensitive-command rule; this is expected safety behavior |
-| `/review` is unavailable | It requires a new conversation and a project directory |
-| Earlier context disappears after compaction | The model context now uses the summary; roll back from the compaction boundary if needed |
-| Images remain after deleting a conversation | Library images are kept by default; select **Delete images too** in the deletion dialog to remove them |
-| Work stops after closing the window | Choose **Minimize** in the close dialog to hide to tray; **Quit** ends the process and clears scheduled tasks that exist only in memory |
-| Reading an established response body fails | The Rust backend retries seamlessly within the API profile's `maxRetries` and existing cancellation-aware backoff. The message keeps showing the ordinary stream cursor during recovery, and content, reasoning, usage, response metadata, and tool fragments from the failed attempt are discarded. If retries are exhausted, Snow keeps an incomplete result and shows the existing interruption notice; explicit provider terminal states never enter transport retry. Unexpected EOF and idle timeout retain the existing partial-text threshold: a long partial result (roughly 1000+ characters with no tool state) may be kept as incomplete |
+| Symptom                                     | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The AI has no tools                         | Check the API profile, model, and tool-specific configuration; image generation requires a separate channel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Tools never start                           | Check for another pending approval in the same batch or a Plan write gate waiting for explicit approval                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| YOLO still asks about a command             | The command matched a sensitive-command rule; this is expected safety behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `/review` is unavailable                    | It requires a new conversation and a project directory                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Earlier context disappears after compaction | The model context now uses the summary; roll back from the compaction boundary if needed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Images remain after deleting a conversation | Library images are kept by default; select **Delete images too** in the deletion dialog to remove them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Work stops after closing the window         | Choose **Minimize** in the close dialog to hide to tray; **Quit** ends the process and clears scheduled tasks that exist only in memory                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Reading an established response body fails  | The Rust backend retries seamlessly within the API profile's `maxRetries` and existing cancellation-aware backoff. The message keeps showing the ordinary stream cursor during recovery, and content, reasoning, usage, response metadata, and tool fragments from the failed attempt are discarded. If retries are exhausted, Snow keeps an incomplete result and shows the existing interruption notice; explicit provider terminal states never enter transport retry. Unexpected EOF and idle timeout retain the existing partial-text threshold: a long partial result (roughly 1000+ characters with no tool state) may be kept as incomplete |
 
 ## 12. References
 

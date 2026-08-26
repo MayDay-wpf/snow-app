@@ -20,13 +20,7 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "../../i18n";
 import { useScheduledTasks } from "../../hooks/useScheduledTasks";
@@ -45,12 +39,14 @@ import { THINKING_OPTIONS_BY_METHOD } from "../mainContent/chatInput/constants";
 import {
   createChipHtml,
   createImageChipHtml,
+  createSkillChipHtml,
   insertHtmlAtSelection,
   isEditableContentEmpty,
   readEditableContent,
   renumberImageChips,
   type FileTag,
   type ImageTag,
+  type SkillTag,
 } from "../mainContent/chatInput/fileTagUtils";
 import {
   FileMentionPopup,
@@ -73,7 +69,7 @@ type Translate = (
   options?: {
     defaultValue?: string;
     values?: Record<string, string | number>;
-  }
+  },
 ) => string;
 
 type ScheduledTasksModalProps = {
@@ -102,9 +98,7 @@ const formatRunTime = (iso: string | undefined): string => {
   const absMin = Math.abs(Math.round(diffMs / 60000));
   if (absMin < 1) return date.toLocaleTimeString();
   if (absMin < 60) {
-    return diffMs >= 0
-      ? `in ${absMin}m`
-      : `${absMin}m ago`;
+    return diffMs >= 0 ? `in ${absMin}m` : `${absMin}m ago`;
   }
   const absHr = Math.round(absMin / 60);
   if (absHr < 24) {
@@ -121,7 +115,7 @@ const parseTimestamp = (value: string | undefined): Date | null => {
 
 const formatAbsoluteTime = (
   value: string | undefined,
-  locale: string
+  locale: string,
 ): string | null => {
   const date = parseTimestamp(value);
   if (!date) return null;
@@ -136,7 +130,7 @@ const formatAbsoluteTime = (
 
 const formatRelativeTime = (
   value: string | undefined,
-  locale: string
+  locale: string,
 ): string | null => {
   const date = parseTimestamp(value);
   if (!date) return null;
@@ -197,7 +191,7 @@ const formatDuration = (durationMs: number, locale: string): string => {
 const formatSchedule = (
   schedule: ScheduledTaskSchedule,
   t: Translate,
-  locale: string
+  locale: string,
 ): string => {
   if (schedule.type === "once") {
     return (
@@ -252,7 +246,7 @@ const getTaskStatusKey = (task: ScheduledTaskRecord): TaskStatusKey => {
 
 const getTasksForFilter = (
   tasks: ScheduledTaskRecord[],
-  filter: TaskFilter
+  filter: TaskFilter,
 ): ScheduledTaskRecord[] => {
   if (filter === "global") {
     return tasks.filter((task) => task.directoryId === "");
@@ -268,7 +262,7 @@ const pad2 = (value: number): string => value.toString().padStart(2, "0");
 const toLocalDateTimeInput = (timestamp: number): string => {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(
-    date.getDate()
+    date.getDate(),
   )}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 };
 
@@ -299,20 +293,19 @@ export function ScheduledTasksModal({
   const [prompt, setPrompt] = useState("");
   const [isMentionOpen, setIsMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
-  const [mentionPopupStyle, setMentionPopupStyle] = useState<React.CSSProperties>(
-    {}
-  );
+  const [mentionPopupStyle, setMentionPopupStyle] =
+    useState<React.CSSProperties>({});
   const [taskType, setTaskType] = useState<ScheduledTaskType>("once");
   const [taskScope, setTaskScope] = useState<"project" | "global">(
-    directoryId ? "project" : "global"
+    directoryId ? "project" : "global",
   );
   const [recurringMode, setRecurringMode] = useState<RecurringMode>("interval");
   const [executeAtLocal, setExecuteAtLocal] = useState(() =>
-    toLocalDateTimeInput(Date.now() + 60_000)
+    toLocalDateTimeInput(Date.now() + 60_000),
   );
   const [intervalValue, setIntervalValue] = useState("5");
   const [intervalUnit, setIntervalUnit] = useState<"minutes" | "hours">(
-    "minutes"
+    "minutes",
   );
   const [dailyHour, setDailyHour] = useState("9");
   const [dailyMinute, setDailyMinute] = useState("0");
@@ -330,14 +323,16 @@ export function ScheduledTasksModal({
   const [isThinkingMenuOpen, setIsThinkingMenuOpen] = useState(false);
   const [modelOptions, setModelOptions] = useState<Model[]>([]);
   const [isLoadingModelOptions, setIsLoadingModelOptions] = useState(false);
-  const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
+  const [modelOptionsError, setModelOptionsError] = useState<string | null>(
+    null,
+  );
   const [loadedModelsFor, setLoadedModelsFor] = useState<string | null>(null);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   /** 详情视图「运行配置」编辑模式：正在编辑运行配置的任务 id（null = 只读）。 */
   const [editingConfigTaskId, setEditingConfigTaskId] = useState<string | null>(
-    null
+    null,
   );
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
@@ -356,34 +351,35 @@ export function ScheduledTasksModal({
 
   const globalTasks = useMemo(
     () => tasks.filter((task) => task.directoryId === ""),
-    [tasks]
+    [tasks],
   );
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.directoryId !== ""),
-    [tasks]
+    [tasks],
   );
   const visibleTasks = useMemo(
     () => getTasksForFilter(tasks, filter),
-    [filter, tasks]
+    [filter, tasks],
   );
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [selectedTaskId, tasks]
+    [selectedTaskId, tasks],
   );
   const deleteTarget = useMemo(
     () => tasks.find((task) => task.id === deleteTargetId) ?? null,
-    [deleteTargetId, tasks]
+    [deleteTargetId, tasks],
   );
 
   const activeConfig = useMemo(
     () => apiConfigs.find((config) => config.isActive) ?? null,
-    [apiConfigs]
+    [apiConfigs],
   );
   const selectedConfig = useMemo((): ApiConfigRecord | null => {
     if (selectedApiProfile) {
       return (
-        apiConfigs.find((config) => config.profileName === selectedApiProfile) ??
-        null
+        apiConfigs.find(
+          (config) => config.profileName === selectedApiProfile,
+        ) ?? null
       );
     }
     return activeConfig;
@@ -393,7 +389,7 @@ export function ScheduledTasksModal({
   const thinkingOptions = THINKING_OPTIONS_BY_METHOD[requestMethod];
   const profileThinkingValue = useMemo(
     () => (selectedConfig ? getThinkingValueFromConfig(selectedConfig) : null),
-    [selectedConfig]
+    [selectedConfig],
   );
   const profileThinkingLabel = useMemo(() => {
     if (!profileThinkingValue) return null;
@@ -467,7 +463,7 @@ export function ScheduledTasksModal({
       setPreScriptTimeout(
         task.preScriptTimeoutMs
           ? String(Math.round(task.preScriptTimeoutMs / 1000))
-          : "60"
+          : "60",
       );
       setRunOnScriptError(task.runOnScriptError ?? false);
       setPreScriptOpen(Boolean(task.preScript));
@@ -475,7 +471,7 @@ export function ScheduledTasksModal({
       setFormError(null);
       setEditingConfigTaskId(task.id);
     },
-    [resetModelOptions]
+    [resetModelOptions],
   );
 
   /** 保存运行配置：空字符串 = 清除覆盖（回到继承语义）。 */
@@ -488,7 +484,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorInvalidTimeout", {
           defaultValue: "Pre-script timeout must be a number",
-        })
+        }),
       );
       return;
     }
@@ -509,7 +505,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorSaveFailed", {
           defaultValue: "Failed to save changes",
-        })
+        }),
       );
     }
   }, [
@@ -570,11 +566,11 @@ export function ScheduledTasksModal({
 
     setFormError(null);
     const selectedIsVisible = visibleTasks.some(
-      (task) => task.id === selectedTaskId
+      (task) => task.id === selectedTaskId,
     );
     if (visibleTasks.length > 0) {
       setSelectedTaskId(
-        selectedIsVisible ? selectedTaskId : visibleTasks[0].id
+        selectedIsVisible ? selectedTaskId : visibleTasks[0].id,
       );
       setPanelMode("details");
       return;
@@ -635,15 +631,19 @@ export function ScheduledTasksModal({
     updateMentionPopupPosition();
     window.addEventListener("resize", updateMentionPopupPosition);
     const scrollContainer = promptInputRef.current?.closest(
-      ".scheduled-tasks-form-scroll"
+      ".scheduled-tasks-form-scroll",
     );
-    scrollContainer?.addEventListener("scroll", updateMentionPopupPosition, true);
+    scrollContainer?.addEventListener(
+      "scroll",
+      updateMentionPopupPosition,
+      true,
+    );
     return () => {
       window.removeEventListener("resize", updateMentionPopupPosition);
       scrollContainer?.removeEventListener(
         "scroll",
         updateMentionPopupPosition,
-        true
+        true,
       );
     };
   }, [isMentionOpen]);
@@ -671,7 +671,7 @@ export function ScheduledTasksModal({
       }
       modelRequestIdRef.current += 1;
     },
-    []
+    [],
   );
 
   const handleCopyPrompt = useCallback(
@@ -686,7 +686,7 @@ export function ScheduledTasksModal({
         copyPromptTimerRef.current = null;
       }, 1_500);
     },
-    []
+    [],
   );
 
   const handleCloseMention = useCallback((): void => {
@@ -760,12 +760,14 @@ export function ScheduledTasksModal({
   }, []);
 
   const insertPromptFileTag = useCallback(
-    (tag: FileTag): void => {
+    (tag: FileTag | SkillTag): void => {
       promptInputRef.current?.focus();
-      insertHtmlAtSelection(createChipHtml(tag));
+      insertHtmlAtSelection(
+        "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
+      );
       syncPromptContent();
     },
-    [syncPromptContent]
+    [syncPromptContent],
   );
 
   const insertPromptImageFile = useCallback(
@@ -777,9 +779,7 @@ export function ScheduledTasksModal({
           return;
         }
         const mimeMatch = file.type.match(/^image\/([a-z0-9+.-]+)$/i);
-        const extension = mimeMatch
-          ? mimeMatch[1].split("+")[0]
-          : "png";
+        const extension = mimeMatch ? mimeMatch[1].split("+")[0] : "png";
         const imageTag: ImageTag = {
           name: `image.${extension}`,
           dataUrl,
@@ -790,7 +790,7 @@ export function ScheduledTasksModal({
       };
       reader.readAsDataURL(file);
     },
-    [syncPromptContent]
+    [syncPromptContent],
   );
 
   const handlePromptPaste = useCallback(
@@ -818,7 +818,7 @@ export function ScheduledTasksModal({
       syncPromptContent();
       checkPromptInputTriggers();
     },
-    [checkPromptInputTriggers, insertPromptImageFile, syncPromptContent]
+    [checkPromptInputTriggers, insertPromptImageFile, syncPromptContent],
   );
 
   const insertPromptExternalFiles = useCallback(
@@ -859,7 +859,7 @@ export function ScheduledTasksModal({
           // 解析失败时静默处理
         });
     },
-    [insertPromptFileTag, insertPromptImageFile]
+    [insertPromptFileTag, insertPromptImageFile],
   );
 
   const handlePromptDrop = useCallback(
@@ -883,10 +883,7 @@ export function ScheduledTasksModal({
               return null;
             }
             const raw = value as Record<string, unknown>;
-            if (
-              typeof raw.path !== "string" ||
-              typeof raw.name !== "string"
-            ) {
+            if (typeof raw.path !== "string" || typeof raw.name !== "string") {
               return null;
             }
             const rawLines = raw.lines;
@@ -895,7 +892,7 @@ export function ScheduledTasksModal({
                   .map((line) =>
                     typeof line === "number"
                       ? line
-                      : Number.parseInt(String(line), 10)
+                      : Number.parseInt(String(line), 10),
                   )
                   .filter((line) => Number.isFinite(line) && line > 0)
               : undefined;
@@ -931,7 +928,7 @@ export function ScheduledTasksModal({
         syncPromptContent();
       }
     },
-    [insertPromptExternalFiles, insertPromptFileTag, syncPromptContent]
+    [insertPromptExternalFiles, insertPromptFileTag, syncPromptContent],
   );
 
   const handlePromptDragOver = useCallback(
@@ -951,7 +948,7 @@ export function ScheduledTasksModal({
         promptInputRef.current?.classList.add("drag-over");
       }
     },
-    []
+    [],
   );
 
   const handlePromptDragLeave = useCallback(
@@ -962,23 +959,23 @@ export function ScheduledTasksModal({
       promptDraggingRef.current = false;
       promptInputRef.current?.classList.remove("drag-over");
     },
-    []
+    [],
   );
 
   const handleMentionSelect = useCallback(
-    (tag: FileTag): void => {
+    (tag: FileTag | SkillTag): void => {
       deleteMentionQuery();
       insertPromptFileTag(tag);
     },
-    [deleteMentionQuery, insertPromptFileTag]
+    [deleteMentionQuery, insertPromptFileTag],
   );
 
   const handleMentionSelectBatch = useCallback(
-    (tags: FileTag[]): void => {
+    (tags: (FileTag | SkillTag)[]): void => {
       deleteMentionQuery();
       tags.forEach(insertPromptFileTag);
     },
-    [deleteMentionQuery, insertPromptFileTag]
+    [deleteMentionQuery, insertPromptFileTag],
   );
 
   const replaceMentionQuery = useCallback(
@@ -1011,7 +1008,7 @@ export function ScheduledTasksModal({
       }
       checkPromptInputTriggers();
     },
-    [checkPromptInputTriggers]
+    [checkPromptInputTriggers],
   );
 
   const handlePromptInput = useCallback((): void => {
@@ -1025,7 +1022,7 @@ export function ScheduledTasksModal({
         return;
       }
     },
-    [isMentionOpen]
+    [isMentionOpen],
   );
 
   const handlePromptClick = useCallback(
@@ -1035,7 +1032,7 @@ export function ScheduledTasksModal({
         return;
       }
       const removeButton = target.closest<HTMLElement>(
-        "[data-chip-remove='true']"
+        "[data-chip-remove='true']",
       );
       if (!removeButton) {
         return;
@@ -1043,17 +1040,14 @@ export function ScheduledTasksModal({
       removeButton.parentElement?.remove();
       syncPromptContent();
     },
-    [syncPromptContent]
+    [syncPromptContent],
   );
 
   const loadModelOptions = useCallback(
     async (force = false): Promise<void> => {
       if (!selectedConfig) return;
       const cacheKey = selectedConfig.profileName;
-      if (
-        isLoadingModelOptions ||
-        (!force && loadedModelsFor === cacheKey)
-      ) {
+      if (isLoadingModelOptions || (!force && loadedModelsFor === cacheKey)) {
         return;
       }
 
@@ -1078,7 +1072,7 @@ export function ScheduledTasksModal({
             ? error.message
             : t("chat.loadModelsError", {
                 defaultValue: "Failed to load models",
-              })
+              }),
         );
         setLoadedModelsFor(null);
       } finally {
@@ -1086,7 +1080,8 @@ export function ScheduledTasksModal({
           setIsLoadingModelOptions(false);
         }
       }
-    }, [isLoadingModelOptions, loadedModelsFor, selectedConfig, t]
+    },
+    [isLoadingModelOptions, loadedModelsFor, selectedConfig, t],
   );
 
   const handleApiProfileChange = useCallback(
@@ -1097,7 +1092,7 @@ export function ScheduledTasksModal({
       setThinkingStrength("");
       resetModelOptions();
     },
-    [resetModelOptions]
+    [resetModelOptions],
   );
 
   const buildSchedule = useCallback((): ScheduledTaskSchedule => {
@@ -1143,7 +1138,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.scopeProjectDisabled", {
           defaultValue: "No active project",
-        })
+        }),
       );
       return;
     }
@@ -1154,7 +1149,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorNameRequired", {
           defaultValue: "Name is required",
-        })
+        }),
       );
       return;
     }
@@ -1162,7 +1157,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorPromptRequired", {
           defaultValue: "Prompt is required",
-        })
+        }),
       );
       return;
     }
@@ -1174,7 +1169,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorInvalidSchedule", {
           defaultValue: "Invalid schedule",
-        })
+        }),
       );
       return;
     }
@@ -1185,7 +1180,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorInvalidTimeout", {
           defaultValue: "Pre-script timeout must be a number",
-        })
+        }),
       );
       return;
     }
@@ -1214,7 +1209,7 @@ export function ScheduledTasksModal({
       setFormError(
         t("scheduledTask.errorCreateFailed", {
           defaultValue: "Failed to create task",
-        })
+        }),
       );
     } finally {
       setIsCreating(false);
@@ -1243,7 +1238,7 @@ export function ScheduledTasksModal({
   const closeCreatePanel = useCallback((): void => {
     setFormError(null);
     const selectedIsVisible = visibleTasks.some(
-      (task) => task.id === selectedTaskId
+      (task) => task.id === selectedTaskId,
     );
     if (!selectedIsVisible) {
       setSelectedTaskId(visibleTasks[0]?.id ?? null);
@@ -1270,24 +1265,17 @@ export function ScheduledTasksModal({
 
     const nextIndex = Math.min(
       Math.max(targetIndex, 0),
-      remainingVisibleTasks.length - 1
+      remainingVisibleTasks.length - 1,
     );
     setSelectedTaskId(remainingVisibleTasks[nextIndex].id);
     setPanelMode("details");
-  }, [
-    deleteTargetId,
-    filter,
-    removeTask,
-    selectedTaskId,
-    tasks,
-    visibleTasks,
-  ]);
+  }, [deleteTargetId, filter, removeTask, selectedTaskId, tasks, visibleTasks]);
 
   const reconcileAfterScopeClear = useCallback(
     (remainingTasks: ScheduledTaskRecord[]): void => {
       const remainingVisibleTasks = getTasksForFilter(remainingTasks, filter);
       const selectedStillVisible = remainingVisibleTasks.some(
-        (task) => task.id === selectedTaskId
+        (task) => task.id === selectedTaskId,
       );
       if (!selectedStillVisible) {
         setSelectedTaskId(remainingVisibleTasks[0]?.id ?? null);
@@ -1296,13 +1284,13 @@ export function ScheduledTasksModal({
         setPanelMode("create");
       }
     },
-    [filter, selectedTaskId]
+    [filter, selectedTaskId],
   );
 
   const confirmClear = useCallback((): void => {
     setClearOpen(false);
     const remainingTasks = tasks.filter(
-      (task) => task.directoryId !== directoryId
+      (task) => task.directoryId !== directoryId,
     );
     reconcileAfterScopeClear(remainingTasks);
     clearTasks();
@@ -1318,24 +1306,24 @@ export function ScheduledTasksModal({
   const resolveApiProfileName = useCallback(
     (profileName: string): string => {
       const config = apiConfigs.find(
-        (candidate) => candidate.profileName === profileName
+        (candidate) => candidate.profileName === profileName,
       );
       return config?.displayName?.trim() || config?.profileName || profileName;
     },
-    [apiConfigs]
+    [apiConfigs],
   );
 
   const renderHistoryEntry = (
     run: ScheduledTaskRunRecord,
-    index: number
+    index: number,
   ): React.JSX.Element => {
     const runStatusLabel = t(
       run.status === "completed"
         ? "scheduledTask.runCompleted"
         : run.status === "error"
-        ? "scheduledTask.runFailed"
-        : "scheduledTask.runRunning",
-      { defaultValue: run.status }
+          ? "scheduledTask.runFailed"
+          : "scheduledTask.runRunning",
+      { defaultValue: run.status },
     );
     const runTime =
       formatAbsoluteTime(run.runAt, locale) ??
@@ -1367,9 +1355,7 @@ export function ScheduledTasksModal({
     );
   };
 
-  const renderTaskItem = (
-    task: ScheduledTaskRecord
-  ): React.JSX.Element => {
+  const renderTaskItem = (task: ScheduledTaskRecord): React.JSX.Element => {
     const statusKey = getTaskStatusKey(task);
     const statusLabel = t(`scheduledTask.status_${statusKey}`, {
       defaultValue: statusKey,
@@ -1380,11 +1366,11 @@ export function ScheduledTasksModal({
       : t("scheduledTask.scopeGlobal", { defaultValue: "Global" });
     const scheduleLabel = formatSchedule(task.schedule, t, locale);
     const nextRunLabel = task.nextRunAt
-      ? formatRelativeTime(task.nextRunAt, locale) ??
-        t("scheduledTask.invalidSchedule", { defaultValue: "Invalid" })
+      ? (formatRelativeTime(task.nextRunAt, locale) ??
+        t("scheduledTask.invalidSchedule", { defaultValue: "Invalid" }))
       : t("scheduledTask.noNextRun", { defaultValue: "No upcoming run" });
     const absoluteNextRun = task.nextRunAt
-      ? formatAbsoluteTime(task.nextRunAt, locale) ?? nextRunLabel
+      ? (formatAbsoluteTime(task.nextRunAt, locale) ?? nextRunLabel)
       : nextRunLabel;
 
     return (
@@ -1409,9 +1395,7 @@ export function ScheduledTasksModal({
         >
           <span className="scheduled-task-item-header">
             <span className="scheduled-task-item-name">{task.name}</span>
-            <span
-              className={`scheduled-task-item-status-badge ${statusKey}`}
-            >
+            <span className={`scheduled-task-item-status-badge ${statusKey}`}>
               {statusLabel}
             </span>
           </span>
@@ -1419,10 +1403,7 @@ export function ScheduledTasksModal({
             {previewPrompt(task.prompt)}
           </div>
           {task.preScript && (
-            <div
-              className="scheduled-task-item-script"
-              title={task.preScript}
-            >
+            <div className="scheduled-task-item-script" title={task.preScript}>
               <FileCode2 size={12} strokeWidth={1.8} />
               {previewPrompt(task.preScript)}
             </div>
@@ -1436,7 +1417,10 @@ export function ScheduledTasksModal({
               )}
               {scopeLabel}
             </span>
-            <span className="scheduled-task-item-schedule" title={scheduleLabel}>
+            <span
+              className="scheduled-task-item-schedule"
+              title={scheduleLabel}
+            >
               {task.schedule.type === "once" ? (
                 <CalendarClock size={12} strokeWidth={1.8} />
               ) : task.schedule.mode === "daily" ? (
@@ -1533,10 +1517,10 @@ export function ScheduledTasksModal({
     const createdAtLabel =
       formatAbsoluteTime(selectedTask.createdAt, locale) ?? invalidTimeLabel;
     const nextRunLabel = selectedTask.nextRunAt
-      ? formatAbsoluteTime(selectedTask.nextRunAt, locale) ?? invalidTimeLabel
+      ? (formatAbsoluteTime(selectedTask.nextRunAt, locale) ?? invalidTimeLabel)
       : t("scheduledTask.noNextRun", { defaultValue: "No upcoming run" });
     const lastRunLabel = selectedTask.lastRunAt
-      ? formatAbsoluteTime(selectedTask.lastRunAt, locale) ?? invalidTimeLabel
+      ? (formatAbsoluteTime(selectedTask.lastRunAt, locale) ?? invalidTimeLabel)
       : t("scheduledTask.neverRun", { defaultValue: "Never run" });
     const apiProfileLabel = selectedTask.apiProfile
       ? resolveApiProfileName(selectedTask.apiProfile)
@@ -1560,9 +1544,7 @@ export function ScheduledTasksModal({
             </span>
             <div className="scheduled-task-details-title-row">
               <h2>{selectedTask.name}</h2>
-              <span
-                className={`scheduled-task-item-status-badge ${statusKey}`}
-              >
+              <span className={`scheduled-task-item-status-badge ${statusKey}`}>
                 {statusLabel}
               </span>
             </div>
@@ -2056,7 +2038,7 @@ export function ScheduledTasksModal({
             <div className="scheduled-tasks-pre-script-hint">
               {t("scheduledTask.preScriptHint", {
                 defaultValue:
-                  "Exit 0 = run AI, exit 1 = skip. Or print a JSON line: {\"run\":false,\"reason\":\"...\",\"output\":\"...\"} — \"output\" fills the {{SCRIPT_OUTPUT}} placeholder in the prompt.",
+                  'Exit 0 = run AI, exit 1 = skip. Or print a JSON line: {"run":false,"reason":"...","output":"..."} — "output" fills the {{SCRIPT_OUTPUT}} placeholder in the prompt.',
               })}
             </div>
             <div className="scheduled-tasks-field-row">
@@ -2077,7 +2059,9 @@ export function ScheduledTasksModal({
               <label className="toggle-switch scheduled-tasks-switch-field">
                 <input
                   checked={runOnScriptError}
-                  onChange={(event) => setRunOnScriptError(event.target.checked)}
+                  onChange={(event) =>
+                    setRunOnScriptError(event.target.checked)
+                  }
                   type="checkbox"
                 />
                 <span className="toggle-slider" />
@@ -2160,7 +2144,9 @@ export function ScheduledTasksModal({
                 portal
               />
               <div
-                aria-label={t("scheduledTask.prompt", { defaultValue: "Prompt" })}
+                aria-label={t("scheduledTask.prompt", {
+                  defaultValue: "Prompt",
+                })}
                 aria-multiline="true"
                 className="scheduled-tasks-prompt-textarea input-field-editable"
                 contentEditable
@@ -2347,7 +2333,7 @@ export function ScheduledTasksModal({
                     <select
                       onChange={(event) =>
                         setIntervalUnit(
-                          event.target.value as "minutes" | "hours"
+                          event.target.value as "minutes" | "hours",
                         )
                       }
                       value={intervalUnit}
@@ -2380,7 +2366,7 @@ export function ScheduledTasksModal({
                           <option key={hour} value={hour.toString()}>
                             {pad2(hour)}
                           </option>
-                        )
+                        ),
                       )}
                     </select>
                   </label>
@@ -2438,9 +2424,7 @@ export function ScheduledTasksModal({
           )}
           <button
             className="scheduled-tasks-create-btn"
-            disabled={
-              isCreating || (taskScope === "project" && !directoryId)
-            }
+            disabled={isCreating || (taskScope === "project" && !directoryId)}
             type="submit"
           >
             {isCreating ? (
@@ -2572,9 +2556,7 @@ export function ScheduledTasksModal({
                 </span>
               </div>
             )}
-            {(filter !== "global" &&
-              directoryId &&
-              projectTasks.length > 0) ||
+            {(filter !== "global" && directoryId && projectTasks.length > 0) ||
             (filter !== "project" && globalTasks.length > 0) ? (
               <div className="scheduled-tasks-scope-actions">
                 {filter !== "global" &&

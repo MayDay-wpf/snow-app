@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  BookOpen,
   FileText,
   GitCommitHorizontal,
   GitCompare,
@@ -63,7 +64,7 @@ const buildPlainTextSummary = (content: string): string => {
     if (segment.type === "text") {
       const text = segment.content.replace(
         /data:image\/[^;]+;base64,[^\s)]+/g,
-        "[image]"
+        "[image]",
       );
       const trimmed = text.trim();
       if (trimmed) {
@@ -76,9 +77,11 @@ const buildPlainTextSummary = (content: string): string => {
     } else if (segment.type === "change") {
       const lastSep = Math.max(
         segment.tag.path.lastIndexOf("/"),
-        segment.tag.path.lastIndexOf("\\")
+        segment.tag.path.lastIndexOf("\\"),
       );
-      parts.push(lastSep === -1 ? segment.tag.path : segment.tag.path.slice(lastSep + 1));
+      parts.push(
+        lastSep === -1 ? segment.tag.path : segment.tag.path.slice(lastSep + 1),
+      );
     } else if (segment.type === "text-snippet") {
       parts.push(segment.tag.summary);
     } else if (segment.type === "review") {
@@ -87,16 +90,18 @@ const buildPlainTextSummary = (content: string): string => {
       parts.push(
         segment.tag.note
           ? `${segment.tag.label}: ${segment.tag.note}`
-          : segment.tag.label
+          : segment.tag.label,
       );
     } else if (segment.type === "web") {
       parts.push(
         segment.tag.title
           ? `${segment.tag.title} ${segment.tag.url}`
-          : segment.tag.url
+          : segment.tag.url,
       );
     } else if (segment.type === "conversation") {
       parts.push(segment.tag.title);
+    } else if (segment.type === "skill") {
+      parts.push(segment.tag.name);
     } else {
       const { tag } = segment;
       const linesStr =
@@ -162,12 +167,10 @@ const renderRailSegments = (content: string): React.ReactNode => {
     if (segment.type === "change") {
       const lastSep = Math.max(
         segment.tag.path.lastIndexOf("/"),
-        segment.tag.path.lastIndexOf("\\")
+        segment.tag.path.lastIndexOf("\\"),
       );
       const changeName =
-        lastSep === -1
-          ? segment.tag.path
-          : segment.tag.path.slice(lastSep + 1);
+        lastSep === -1 ? segment.tag.path : segment.tag.path.slice(lastSep + 1);
       const chipTitle = `${
         segment.tag.section === "staged" ? "Staged" : "Unstaged"
       } ${segment.tag.status} ${segment.tag.path}`;
@@ -299,6 +302,28 @@ const renderRailSegments = (content: string): React.ReactNode => {
       );
     }
 
+    if (segment.type === "skill") {
+      const skillTitle = segment.tag.description
+        ? `${segment.tag.name} - ${segment.tag.description}`
+        : segment.tag.name;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip skill-chip"
+          title={skillTitle}
+        >
+          <BookOpen
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "#a855f7" }}
+          />
+          <span className="user-message-file-chip-name">
+            {segment.tag.name}
+          </span>
+        </span>
+      );
+    }
+
     const { tag } = segment;
     const linesStr =
       !tag.isDirectory && tag.lines && tag.lines.length > 0
@@ -327,10 +352,10 @@ const renderRailSegments = (content: string): React.ReactNode => {
  *  works even when the message is virtualized out to a placeholder. */
 const findMessageElement = (
   container: HTMLElement,
-  messageId: string
+  messageId: string,
 ): HTMLElement | null => {
   return container.querySelector<HTMLElement>(
-    `[data-message-id="${CSS.escape(messageId)}"]`
+    `[data-message-id="${CSS.escape(messageId)}"]`,
   );
 };
 
@@ -354,11 +379,14 @@ export const UserMessageRail = memo(
     const [userMessages, setUserMessages] = useState<UserMessageSummary[]>([]);
     const [hovered, setHovered] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(
-      null
-    );
+    const [popoverPos, setPopoverPos] = useState<{
+      top: number;
+      left: number;
+    } | null>(null);
     const [popoverHeight, setPopoverHeight] = useState<number>(0);
-    const [visibleUserIndices, setVisibleUserIndices] = useState<Set<number>>(new Set());
+    const [visibleUserIndices, setVisibleUserIndices] = useState<Set<number>>(
+      new Set(),
+    );
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const railRef = useRef<HTMLDivElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -545,12 +573,10 @@ export const UserMessageRail = memo(
         const POPOVER_GAP = 8;
         const VIEWPORT_MARGIN = 8;
 
-        const effectiveH = el?.offsetHeight && el.offsetHeight > 0
-          ? el.offsetHeight
-          : 400;
+        const effectiveH =
+          el?.offsetHeight && el.offsetHeight > 0 ? el.offsetHeight : 400;
 
-        const desiredTop =
-          railRect.top + railRect.height / 2 - effectiveH / 2;
+        const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
         const minTop = VIEWPORT_MARGIN;
         const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
         const top = Math.max(minTop, Math.min(desiredTop, maxTop));
@@ -587,8 +613,7 @@ export const UserMessageRail = memo(
             : popoverHeight > 0
               ? popoverHeight
               : 400;
-        const desiredTop =
-          railRect.top + railRect.height / 2 - effectiveH / 2;
+        const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
         const minTop = VIEWPORT_MARGIN;
         const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
         const top = Math.max(minTop, Math.min(desiredTop, maxTop));
@@ -681,7 +706,7 @@ export const UserMessageRail = memo(
         shouldStickToBottomRef,
         isInitialBottomPositioningRef,
         isUserScrollIntentRef,
-      ]
+      ],
     );
 
     if (userMessages.length === 0 && !loading) {
@@ -694,7 +719,10 @@ export const UserMessageRail = memo(
             <div
               ref={popoverRef}
               className="user-message-rail-popover"
-              style={{ top: `${popoverPos.top}px`, left: `${popoverPos.left}px` }}
+              style={{
+                top: `${popoverPos.top}px`,
+                left: `${popoverPos.left}px`,
+              }}
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}
             >
@@ -721,7 +749,8 @@ export const UserMessageRail = memo(
                     msg.content.includes("@@review:") ||
                     msg.content.includes("@@element:") ||
                     msg.content.includes("@@web:") ||
-                    msg.content.includes("@@conversation:");
+                    msg.content.includes("@@conversation:") ||
+                    msg.content.includes("@@skill:");
                   const isVisible = visibleUserIndices.has(index);
                   return (
                     <button
@@ -748,7 +777,7 @@ export const UserMessageRail = memo(
                 })}
               </div>
             </div>,
-            document.body
+            document.body,
           )
         : null;
 
@@ -776,7 +805,7 @@ export const UserMessageRail = memo(
         {popover}
       </>
     );
-  }
+  },
 );
 
 UserMessageRail.displayName = "UserMessageRail";

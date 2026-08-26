@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  BookOpen,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -51,7 +52,7 @@ export const UserMessage = memo(
     } | null>(null);
     const [imageLightbox, setImageLightbox] = useState<string | null>(null);
     const imagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null
+      null,
     );
     const [textSnippetPreview, setTextSnippetPreview] = useState<{
       content: string;
@@ -59,9 +60,9 @@ export const UserMessage = memo(
       y: number;
       placement: "up" | "down";
     } | null>(null);
-    const textSnippetPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null
-    );
+    const textSnippetPreviewTimerRef = useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
 
     const cancelHideImagePreview = useCallback(() => {
       if (imagePreviewTimerRef.current) {
@@ -89,7 +90,7 @@ export const UserMessage = memo(
         const halfW = PREVIEW_MAX_W / 2;
         const clampedX = Math.max(
           halfW + 4,
-          Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4)
+          Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4),
         );
         // User 消息可能位于窗口任意位置，预览不能无脑朝上：
         // 上方空间不足时改为朝下显示，避免预览被窗口顶部裁切。
@@ -106,7 +107,7 @@ export const UserMessage = memo(
           placement,
         });
       },
-      []
+      [],
     );
 
     const handleImageChipClick = useCallback((dataUrl: string) => {
@@ -140,7 +141,7 @@ export const UserMessage = memo(
         const halfW = PREVIEW_MAX_W / 2;
         const clampedX = Math.max(
           halfW + 4,
-          Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4)
+          Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4),
         );
         const spaceAbove = rect.top;
         const spaceBelow = window.innerHeight - rect.bottom;
@@ -155,7 +156,7 @@ export const UserMessage = memo(
           placement,
         });
       },
-      []
+      [],
     );
 
     useEffect(() => {
@@ -181,7 +182,7 @@ export const UserMessage = memo(
             ? computedLineHeight
             : 21;
         const wasCollapsed = el.classList.contains(
-          "user-message-text-collapsed"
+          "user-message-text-collapsed",
         );
         if (wasCollapsed) {
           el.classList.remove("user-message-text-collapsed");
@@ -270,7 +271,7 @@ export const UserMessage = memo(
               if (segment.type === "change") {
                 const lastSep = Math.max(
                   segment.tag.path.lastIndexOf("/"),
-                  segment.tag.path.lastIndexOf("\\")
+                  segment.tag.path.lastIndexOf("\\"),
                 );
                 const changeName =
                   lastSep === -1
@@ -305,10 +306,7 @@ export const UserMessage = memo(
                     key={index}
                     title={snippetTitle}
                     onMouseMove={(event) =>
-                      handleTextSnippetChipMouseMove(
-                        event,
-                        segment.tag.content
-                      )
+                      handleTextSnippetChipMouseMove(event, segment.tag.content)
                     }
                     onMouseLeave={scheduleHideTextSnippetPreview}
                   >
@@ -426,6 +424,28 @@ export const UserMessage = memo(
                 );
               }
 
+              if (segment.type === "skill") {
+                const skillTitle = segment.tag.description
+                  ? `${segment.tag.name} - ${segment.tag.description}`
+                  : segment.tag.name;
+                return (
+                  <span
+                    className="user-message-file-chip skill-chip"
+                    key={index}
+                    title={skillTitle}
+                  >
+                    <BookOpen
+                      size={12}
+                      className="user-message-file-chip-icon"
+                      style={{ color: "#a855f7" }}
+                    />
+                    <span className="user-message-file-chip-name">
+                      {segment.tag.name}
+                    </span>
+                  </span>
+                );
+              }
+
               const { tag } = segment;
               const linesStr =
                 !tag.isDirectory && tag.lines && tag.lines.length > 0
@@ -497,7 +517,7 @@ export const UserMessage = memo(
             >
               <img src={imagePreview.url} alt="preview" />
             </div>,
-            document.body
+            document.body,
           )}
         {imageLightbox &&
           createPortal(
@@ -507,7 +527,7 @@ export const UserMessage = memo(
             >
               <img src={imageLightbox} alt="fullscreen" />
             </div>,
-            document.body
+            document.body,
           )}
         {textSnippetPreview &&
           createPortal(
@@ -528,11 +548,11 @@ export const UserMessage = memo(
                 {textSnippetPreview.content}
               </pre>
             </div>,
-            document.body
+            document.body,
           )}
       </div>
     );
-  }
+  },
 );
 
 UserMessage.displayName = "UserMessage";

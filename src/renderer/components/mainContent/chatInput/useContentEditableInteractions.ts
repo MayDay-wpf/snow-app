@@ -20,6 +20,7 @@ import {
   type ContentSegment,
   type ConversationTag,
   type FileTag,
+  type SkillTag,
   type TextSnippetTag,
   type WebTag,
 } from "./fileTagUtils";
@@ -74,8 +75,8 @@ export type ContentEditableInteractionsResult = {
   isMentionOpen: boolean;
   mentionQuery: string;
   handleCloseMention: () => void;
-  handleMentionSelect: (tag: FileTag) => void;
-  handleMentionSelectBatch: (tags: FileTag[]) => void;
+  handleMentionSelect: (tag: FileTag | SkillTag) => void;
+  handleMentionSelectBatch: (tags: (FileTag | SkillTag)[]) => void;
   handleMentionDragStart: (
     event: React.DragEvent<HTMLDivElement>,
     tag: FileTag,
@@ -164,7 +165,7 @@ export const useContentEditableInteractions = ({
   }, [textareaRef]);
 
   const handleMentionSelect = useCallback(
-    (tag: FileTag) => {
+    (tag: FileTag | SkillTag) => {
       deleteMentionQuery();
       insertFileTag(tag);
     },
@@ -172,7 +173,7 @@ export const useContentEditableInteractions = ({
   );
 
   const handleMentionSelectBatch = useCallback(
-    (tags: FileTag[]) => {
+    (tags: (FileTag | SkillTag)[]) => {
       deleteMentionQuery();
       insertFileTags(tags);
     },

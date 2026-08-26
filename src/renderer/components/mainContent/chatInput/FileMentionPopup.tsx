@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  BookOpen,
   Check,
   ChevronRight,
   Folder,
@@ -22,11 +23,12 @@ import { createPortal } from "react-dom";
 import type {
   FileSearchAgentProgress,
   FileSearchResult,
+  SkillDefinition,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
-import type { FileTag } from "./fileTagUtils";
+import type { FileTag, SkillTag } from "./fileTagUtils";
 
 export type FileMentionPopupHandle = {
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => boolean;
@@ -36,10 +38,15 @@ export type FileMentionPopupProps = {
   visible: boolean;
   query: string;
   onClose: () => void;
-  onSelect: (tag: FileTag) => void;
-  onSelectBatch: (tags: FileTag[]) => void;
+  onSelect: (tag: FileTag | SkillTag) => void;
+  onSelectBatch: (tags: (FileTag | SkillTag)[]) => void;
   textareaRef: RefObject<HTMLDivElement | null>;
   onDragStart?: (event: React.DragEvent<HTMLDivElement>, tag: FileTag) => void;
+  /**
+   * 当前会话所属项目 id（可选）。用于 `@!` 技能搜索模式时
+   * 获取项目级可用 Skills 列表。
+   */
+  projectId?: string;
   /**
    * 路径导航回调：将 @ 后的查询文本替换为相对路径并进入该目录浏览。
    * 传空字符串表示回到工作区根目录。
@@ -91,10 +98,17 @@ const toFileTag = (entry: FileSearchResult): FileTag => ({
   isDirectory: entry.isDirectory,
 });
 
+const toSkillTag = (skill: SkillDefinition): SkillTag => ({
+  skillId: skill.id,
+  name: skill.name,
+  description: skill.description,
+  location: skill.location,
+});
+
 const sortResults = (
   results: FileSearchResult[],
   queryLower: string,
-  endsWithSlash: boolean
+  endsWithSlash: boolean,
 ): FileSearchResult[] => {
   return results.sort((a, b) => {
     if (a.isDirectory !== b.isDirectory) {
@@ -135,24 +149,29 @@ export const FileMentionPopup = forwardRef<
     textareaRef,
     onDragStart,
     onNavigateTo,
+    projectId,
     style,
     portal,
   },
-  ref
+  ref,
 ): React.JSX.Element | null {
   const { t } = useI18n();
   const [activeDirectory, setActiveDirectory] =
     useState<WorkspaceDirectoryRecord | null>(null);
   const [entries, setEntries] = useState<FileSearchResult[]>([]);
+  const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [checkedPaths, setCheckedPaths] = useState<Set<string>>(new Set());
   // 自然语言搜索的 agent 执行过程（每次工具调用一条）。
   const [agentProgress, setAgentProgress] = useState<FileSearchAgentProgress[]>(
-    []
+    [],
   );
   const [agentError, setAgentError] = useState(false);
+  // `@!技能关键词`：感叹号前缀表示 Skills 搜索模式。
+  const isSkillMode = query.trim().startsWith("!");
+  const skillQuery = isSkillMode ? query.trim().slice(1).trim() : "";
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeqRef = useRef(0);
@@ -201,7 +220,7 @@ export const FileMentionPopup = forwardRef<
         }
       }
     },
-    []
+    [],
   );
 
   const loadDirectories = useCallback(async () => {
@@ -260,9 +279,62 @@ export const FileMentionPopup = forwardRef<
     const trimmed = query.trim();
     // `@?自然语言搜索词`：问号前缀表示自然语言搜索模式，交由 AI agent 查找。
     const isNaturalLanguage = trimmed.startsWith("?");
+    // `@!技能关键词`：感叹号前缀表示 Skills 搜索模式，列出已启用的技能。
+    const isSkillMode = trimmed.startsWith("!");
 
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
+    }
+
+    if (isSkillMode) {
+      // 取消进行中的根目录预加载，避免预加载结果干扰技能列表。
+      ++loadSeqRef.current;
+      setIsLoadingInitial(false);
+      const skillQuery = trimmed.slice(1).trim();
+
+      if (trimmed === lastQueryRef.current) {
+        return;
+      }
+      lastQueryRef.current = trimmed;
+
+      setIsSearching(true);
+      const seq = ++searchSeqRef.current;
+
+      searchTimerRef.current = setTimeout(async () => {
+        if (seq !== searchSeqRef.current) {
+          return;
+        }
+        try {
+          const all = await window.snow.listAvailableSkills(projectId);
+          if (seq !== searchSeqRef.current) {
+            return;
+          }
+          const enabled = all.filter((s) => s.enabled);
+          const q = skillQuery.toLowerCase();
+          const filtered = q
+            ? enabled.filter(
+                (s) =>
+                  s.name.toLowerCase().includes(q) ||
+                  s.description.toLowerCase().includes(q) ||
+                  s.id.toLowerCase().includes(q),
+              )
+            : enabled;
+          setSkills(filtered);
+          setIsSearching(false);
+          setSelectedIndex(0);
+        } catch {
+          if (seq === searchSeqRef.current) {
+            setSkills([]);
+            setIsSearching(false);
+          }
+        }
+      }, 150);
+
+      return () => {
+        if (searchTimerRef.current) {
+          clearTimeout(searchTimerRef.current);
+        }
+      };
     }
 
     if (isNaturalLanguage) {
@@ -308,7 +380,7 @@ export const FileMentionPopup = forwardRef<
               }
               // 只保留最近若干条，避免进度区溢出。
               setAgentProgress((prev) => [...prev.slice(-7), chunk]);
-            }
+            },
           );
 
           if (seq !== searchSeqRef.current) {
@@ -453,10 +525,19 @@ export const FileMentionPopup = forwardRef<
       onClose,
       onNavigateTo,
       activeDirectory,
-    ]
+    ],
   );
 
   const handleConfirmSelection = useCallback(() => {
+    if (isSkillMode) {
+      const skill = skills[selectedIndex];
+      if (!skill) {
+        return;
+      }
+      onSelect(toSkillTag(skill));
+      onClose();
+      return;
+    }
     const checkedEntries = entries.filter((e) => checkedPaths.has(e.path));
     if (checkedEntries.length > 0) {
       onSelectBatch(checkedEntries.map(toFileTag));
@@ -475,6 +556,8 @@ export const FileMentionPopup = forwardRef<
     entries,
     checkedPaths,
     selectedIndex,
+    isSkillMode,
+    skills,
     onSelect,
     onSelectBatch,
     onClose,
@@ -500,6 +583,31 @@ export const FileMentionPopup = forwardRef<
           return true;
         }
 
+        // Skills 模式：仅支持上下选择与 Enter 确认。
+        if (isSkillMode) {
+          if (skills.length === 0) {
+            return false;
+          }
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setSelectedIndex((prev) =>
+              prev < skills.length - 1 ? prev + 1 : prev,
+            );
+            return true;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+            return true;
+          }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            handleConfirmSelection();
+            return true;
+          }
+          return false;
+        }
+
         if (displayEntries.length === 0) {
           return false;
         }
@@ -507,7 +615,7 @@ export const FileMentionPopup = forwardRef<
         if (event.key === "ArrowDown") {
           event.preventDefault();
           setSelectedIndex((prev) =>
-            prev < displayEntries.length - 1 ? prev + 1 : prev
+            prev < displayEntries.length - 1 ? prev + 1 : prev,
           );
           return true;
         }
@@ -568,7 +676,9 @@ export const FileMentionPopup = forwardRef<
       pathSegments,
       onNavigateTo,
       activeDirectory,
-    ]
+      isSkillMode,
+      skills,
+    ],
   );
 
   useEffect(() => {
@@ -580,7 +690,7 @@ export const FileMentionPopup = forwardRef<
       return;
     }
     const selected = container.querySelector<HTMLElement>(
-      `[data-mention-index="${selectedIndex}"]`
+      `[data-mention-index="${selectedIndex}"]`,
     );
     if (selected) {
       selected.scrollIntoView({ block: "nearest" });
@@ -617,7 +727,7 @@ export const FileMentionPopup = forwardRef<
         event.dataTransfer.effectAllowed = "copy";
       }
     },
-    [onDragStart]
+    [onDragStart],
   );
 
   const isNaturalLanguage = query.trim().startsWith("?");
@@ -693,8 +803,65 @@ export const FileMentionPopup = forwardRef<
           ))}
         </div>
       )}
+      {(isSearching || displayEntries.length > 0 || skills.length > 0) && (
+        <span className="file-mention-count">
+          {isSearching && <Loader2 className="spin" size={11} />}
+          {displayEntries.length > 0 &&
+            t("fileMention.results", {
+              values: { count: displayEntries.length },
+            })}
+          {isSkillMode &&
+            skills.length > 0 &&
+            t("fileMention.results", {
+              values: { count: skills.length },
+            })}
+          {displayEntries.length > 0 &&
+            checkedPaths.size > 0 &&
+            ` | ${t("fileMention.selected", {
+              values: { count: checkedPaths.size },
+            })}`}
+        </span>
+      )}
       <div className="file-mention-list" ref={listRef}>
-        {isLoadingInitial ? (
+        {isSkillMode ? (
+          isSearching && skills.length === 0 ? (
+            <div className="file-mention-empty">
+              <Loader2 className="spin" size={14} />
+              <span>{t("fileMention.skillSearching")}</span>
+            </div>
+          ) : skills.length === 0 ? (
+            <div className="file-mention-empty">
+              <span>
+                {skillQuery
+                  ? t("fileMention.skillNoResults")
+                  : t("fileMention.skillHint")}
+              </span>
+            </div>
+          ) : (
+            skills.map((skill, index) => {
+              const isSelected = selectedIndex === index;
+              return (
+                <div
+                  key={skill.id}
+                  data-mention-index={index}
+                  className={`mention-entry ${isSelected ? "selected" : ""}`}
+                  onClick={() => {
+                    onSelect(toSkillTag(skill));
+                    onClose();
+                  }}
+                  title={skill.description}
+                >
+                  <span className="mention-entry-check" />
+                  <BookOpen size={14} className="mention-entry-icon" />
+                  <span className="mention-entry-name">{skill.name}</span>
+                  <span className="mention-entry-path">
+                    {skill.description || skill.id}
+                  </span>
+                </div>
+              );
+            })
+          )
+        ) : isLoadingInitial ? (
           <div className="file-mention-skeleton">
             {Array.from({ length: 6 }, (_, i) => (
               <div className="mention-skeleton-item" key={i}>
@@ -722,10 +889,9 @@ export const FileMentionPopup = forwardRef<
                         {step.round}/{MAX_AGENT_ROUNDS}
                       </span>
                       <span className="agent-step-tool">
-                        {step.tool.replace("grep-search", "grep").replace(
-                          "filesystem-read",
-                          "read"
-                        )}
+                        {step.tool
+                          .replace("grep-search", "grep")
+                          .replace("filesystem-read", "read")}
                       </span>
                       <span className="agent-step-detail">
                         {step.resultPreview}
@@ -747,20 +913,6 @@ export const FileMentionPopup = forwardRef<
           </div>
         ) : (
           <>
-            {(isSearching || displayEntries.length > 0) && (
-              <span className="file-mention-count">
-                {isSearching && <Loader2 className="spin" size={11} />}
-                {displayEntries.length > 0 &&
-                  t("fileMention.results", {
-                    values: { count: displayEntries.length },
-                  })}
-                {displayEntries.length > 0 &&
-                  checkedPaths.size > 0 &&
-                  ` | ${t("fileMention.selected", {
-                    values: { count: checkedPaths.size },
-                  })}`}
-              </span>
-            )}
             {displayEntries.map((entry, index) => {
               const isChecked = checkedPaths.has(entry.path);
               const isSelected = selectedIndex === index;
@@ -813,21 +965,25 @@ export const FileMentionPopup = forwardRef<
           </kbd>{" "}
           {t("fileMention.navigate")}
         </span>
-        <span className="file-mention-hint">
-          <kbd className="mention-kbd-icon">
-            <ArrowRight size={10} />
-          </kbd>{" "}
-          {t("fileMention.enter")}
-        </span>
-        <span className="file-mention-hint">
-          <kbd className="mention-kbd-icon">
-            <ArrowLeft size={10} />
-          </kbd>{" "}
-          {t("fileMention.back")}
-        </span>
-        <span className="file-mention-hint">
-          <kbd>Space</kbd> {t("fileMention.check")}
-        </span>
+        {!isSkillMode && (
+          <>
+            <span className="file-mention-hint">
+              <kbd className="mention-kbd-icon">
+                <ArrowRight size={10} />
+              </kbd>{" "}
+              {t("fileMention.enter")}
+            </span>
+            <span className="file-mention-hint">
+              <kbd className="mention-kbd-icon">
+                <ArrowLeft size={10} />
+              </kbd>{" "}
+              {t("fileMention.back")}
+            </span>
+            <span className="file-mention-hint">
+              <kbd>Space</kbd> {t("fileMention.check")}
+            </span>
+          </>
+        )}
         <span className="file-mention-hint">
           <kbd>Enter</kbd> {t("fileMention.confirm")}
         </span>

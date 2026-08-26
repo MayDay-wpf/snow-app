@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  BookOpen,
   Clock,
   FileText,
   GitCommitHorizontal,
@@ -78,7 +79,7 @@ const renderSegments = (content: string): React.ReactNode => {
       const { tag } = segment;
       const lastSep = Math.max(
         tag.path.lastIndexOf("/"),
-        tag.path.lastIndexOf("\\")
+        tag.path.lastIndexOf("\\"),
       );
       const changeName =
         lastSep === -1 ? tag.path : tag.path.slice(lastSep + 1);
@@ -203,6 +204,28 @@ const renderSegments = (content: string): React.ReactNode => {
             />
           )}
           <span className="user-message-file-chip-name">{tag.title}</span>
+        </span>
+      );
+    }
+
+    if (segment.type === "skill") {
+      const skillTitle = segment.tag.description
+        ? `${segment.tag.name} - ${segment.tag.description}`
+        : segment.tag.name;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip skill-chip"
+          title={skillTitle}
+        >
+          <BookOpen
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "#a855f7" }}
+          />
+          <span className="user-message-file-chip-name">
+            {segment.tag.name}
+          </span>
         </span>
       );
     }

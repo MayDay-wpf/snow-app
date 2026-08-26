@@ -16,6 +16,17 @@ export type FileTag = {
   lines?: number[];
 };
 
+export type SkillTag = {
+  /** 技能唯一标识（SkillDefinition.id） */
+  skillId: string;
+  /** 技能显示名 */
+  name: string;
+  /** 技能描述 */
+  description: string;
+  /** 技能作用域 */
+  location: "project" | "global";
+};
+
 export type ImageTag = {
   name: string;
   dataUrl: string;
@@ -121,7 +132,8 @@ export type ContentSegment =
   | { type: "review"; tag: ReviewTag }
   | { type: "element"; tag: ElementTag }
   | { type: "web"; tag: WebTag }
-  | { type: "conversation"; tag: ConversationTag };
+  | { type: "conversation"; tag: ConversationTag }
+  | { type: "skill"; tag: SkillTag };
 
 /**
  * 将行号数组格式化为紧凑的字符串表示，连续区间合并为范围。
@@ -278,6 +290,19 @@ export const encodeConversationTag = (tag: ConversationTag): string =>
   })}@@`;
 
 /**
+ * 将技能引用编码为 skill 标签。
+ * 与 commit/change 等结构化标签一致：description 直接 JSON 内嵌明文，
+ * 原样发送给 AI 时可直接读取技能名称与描述。
+ */
+export const encodeSkillTag = (tag: SkillTag): string =>
+  `@@skill:${JSON.stringify({
+    skillId: tag.skillId,
+    name: tag.name,
+    description: tag.description,
+    location: tag.location,
+  })}@@`;
+
+/**
  * 将浏览器元素选择器选取的元素编码为 element 标签。
  * text / note 为用户或页面自由文本（可能含 `@@`），以 base64 承载，
  * 避免破坏标签终止符；url / tag / label 为结构化字段，直接 JSON 内嵌。
@@ -350,20 +375,17 @@ export const buildTextSnippetSummary = (text: string, maxLen = 30): string => {
   }
   if (meaningfulLines.length === 0) {
     // 所有行都太短时，退回取第一个非空行
-    const fallback = lines
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
+    const fallback = lines.map((l) => l.trim()).find((l) => l.length > 0);
     return fallback || "text";
   }
   const summary = meaningfulLines.join(" ");
-  return summary.length > maxLen
-    ? `${summary.slice(0, maxLen)}...`
-    : summary;
+  return summary.length > maxLen ? `${summary.slice(0, maxLen)}...` : summary;
 };
 
 export const parseContentSegments = (content: string): ContentSegment[] => {
   const segments: ContentSegment[] = [];
-  const regex = /@@(file|dir|image|commit|change|text-snippet|review|element|web|conversation):(.+?)@@/g;
+  const regex =
+    /@@(file|dir|image|commit|change|text-snippet|review|element|web|conversation|skill):(.+?)@@/g;
   let lastIndex = 0;
   let imageCounter = 0;
   let match: RegExpExecArray | null;
@@ -386,7 +408,10 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
           tag: {
             content: data.content ?? "",
             summary: data.summary ?? "text",
-            charCount: typeof data.charCount === "number" ? data.charCount : (data.content ?? "").length,
+            charCount:
+              typeof data.charCount === "number"
+                ? data.charCount
+                : (data.content ?? "").length,
           },
         });
       } catch {
@@ -477,6 +502,28 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
                   : undefined,
             },
           });
+        }
+      } catch {
+        segments.push({ type: "text", content: match[0] });
+      }
+    } else if (kind === "skill") {
+      try {
+        const data = JSON.parse(value) as Partial<SkillTag>;
+        if (
+          typeof data.skillId === "string" &&
+          data.skillId.trim().length > 0
+        ) {
+          segments.push({
+            type: "skill",
+            tag: {
+              skillId: data.skillId,
+              name: data.name || data.skillId,
+              description: data.description ?? "",
+              location: data.location === "project" ? "project" : "global",
+            },
+          });
+        } else {
+          segments.push({ type: "text", content: match[0] });
         }
       } catch {
         segments.push({ type: "text", content: match[0] });
@@ -585,11 +632,11 @@ export const createChipHtml = (tag: FileTag): string => {
     : "";
   const displayName = linesStr ? `${tag.name}:${linesStr}` : tag.name;
   return `<span class="file-chip" contenteditable="false" data-file-tag="true" data-file-path="${escapeHtml(
-    tag.path
+    tag.path,
   )}" data-file-name="${escapeHtml(tag.name)}" data-file-is-dir="${
     tag.isDirectory
   }"${linesAttr}><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
-    displayName
+    displayName,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -598,11 +645,11 @@ export const createImageChipHtml = (tag: ImageTag): string => {
   const indexSuffix =
     typeof tag.index === "number" && tag.index > 0 ? ` #${tag.index}` : "";
   return `<span class="file-chip image-chip" contenteditable="false" data-image-tag="true" data-image-name="${escapeHtml(
-    tag.name
+    tag.name,
   )}" data-image-data-url="${escapeHtml(
-    tag.dataUrl
+    tag.dataUrl,
   )}"><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
-    `${tag.name}${indexSuffix}`
+    `${tag.name}${indexSuffix}`,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -616,10 +663,10 @@ export const createCommitChipHtml = (tag: CommitTag): string => {
       date: tag.date,
       message: tag.message,
       repoPath: tag.repoPath,
-    })
+    }),
   );
   return `<span class="file-chip commit-chip" contenteditable="false" data-commit-tag="true" data-commit-data="${commitData}"><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
-    tag.shortHash
+    tag.shortHash,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -627,7 +674,7 @@ export const createChangeChipHtml = (tag: ChangeTag): string => {
   const icon = getChangeIconHtml(12);
   const lastSep = Math.max(
     tag.path.lastIndexOf("/"),
-    tag.path.lastIndexOf("\\")
+    tag.path.lastIndexOf("\\"),
   );
   const name = lastSep === -1 ? tag.path : tag.path.slice(lastSep + 1);
   const changeData = escapeHtml(
@@ -636,10 +683,10 @@ export const createChangeChipHtml = (tag: ChangeTag): string => {
       path: tag.path,
       section: tag.section,
       status: tag.status,
-    })
+    }),
   );
   return `<span class="file-chip change-chip" contenteditable="false" data-change-tag="true" data-change-data="${changeData}"><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
-    name
+    name,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -649,13 +696,13 @@ export const createTextSnippetChipHtml = (tag: TextSnippetTag): string => {
       content: tag.content,
       summary: tag.summary,
       charCount: tag.charCount,
-    })
+    }),
   );
   const displayName = `${tag.summary} (${tag.charCount} chars)`;
   return `<span class="file-chip text-snippet-chip" contenteditable="false" data-text-snippet-tag="true" data-text-snippet-data="${snippetData}" title="${escapeHtml(
-    displayName
+    displayName,
   )}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z"/><path d="M15 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg></span><span class="file-chip-name">${escapeHtml(
-    tag.summary
+    tag.summary,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -667,10 +714,10 @@ export const createReviewChipHtml = (tag: ReviewTag): string => {
       charCount: tag.charCount,
       branch: tag.branch,
       repoPath: tag.repoPath,
-    })
+    }),
   );
   return `<span class="file-chip review-chip" contenteditable="false" data-review-tag="true" data-review-data="${reviewData}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></svg></span><span class="file-chip-name">${escapeHtml(
-    tag.summary
+    tag.summary,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -682,11 +729,11 @@ export const createElementChipHtml = (tag: ElementTag): string => {
       label: tag.label,
       text: utf8ToBase64(tag.text),
       note: utf8ToBase64(tag.note),
-    })
+    }),
   );
   const displayName = tag.note ? `${tag.label} · ${tag.note}` : tag.label;
   return `<span class="file-chip element-chip" contenteditable="false" data-element-tag="true" data-element-data="${elementData}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg></span><span class="file-chip-name">${escapeHtml(
-    displayName
+    displayName,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -703,14 +750,14 @@ export const createWebTagChipHtml = (tag: WebTag): string => {
       text: tag.text,
       elementText: tag.elementText,
       elementSelector: tag.elementSelector,
-    })
+    }),
   );
   const host = extractUrlHost(tag.url);
   const displayName = tag.title ? `${tag.title} · ${host}` : host;
   return `<span class="file-chip web-chip" contenteditable="false" data-web-tag="true" data-web-data="${webData}" title="${escapeHtml(
-    `${displayName} (${tag.url})`
+    `${displayName} (${tag.url})`,
   )}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span><span class="file-chip-name">${escapeHtml(
-    displayName
+    displayName,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -727,13 +774,36 @@ export const createConversationChipHtml = (tag: ConversationTag): string => {
       directoryId: tag.directoryId,
       title: utf8ToBase64(tag.title),
       emoji: tag.emoji,
-    })
+    }),
   );
   const icon = tag.emoji
     ? `<span class="conversation-chip-emoji">${escapeHtml(tag.emoji)}</span>`
     : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>';
   return `<span class="file-chip conversation-chip" contenteditable="false" data-conversation-tag="true" data-conversation-data="${conversationData}"><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
-    tag.title
+    tag.title,
+  )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
+};
+
+/**
+ * 生成技能引用 chip HTML。显示技能名，悬停提示完整描述；
+ * 完整技能信息存放在 data-skill-data 中，供序列化与剪贴板还原。
+ */
+export const createSkillChipHtml = (tag: SkillTag): string => {
+  const skillData = escapeHtml(
+    JSON.stringify({
+      skillId: tag.skillId,
+      name: tag.name,
+      description: tag.description,
+      location: tag.location,
+    }),
+  );
+  const icon =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
+  const title = tag.description ? `${tag.name} - ${tag.description}` : tag.name;
+  return `<span class="file-chip skill-chip" contenteditable="false" data-skill-tag="true" data-skill-data="${skillData}" title="${escapeHtml(
+    title,
+  )}"><span class="file-chip-icon">${icon}</span><span class="file-chip-name">${escapeHtml(
+    tag.name,
   )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
 };
 
@@ -772,6 +842,9 @@ export const buildSegmentsHtml = (segments: ContentSegment[]): string =>
       if (segment.type === "conversation") {
         return createConversationChipHtml(segment.tag);
       }
+      if (segment.type === "skill") {
+        return createSkillChipHtml(segment.tag);
+      }
       return createChipHtml(segment.tag);
     })
     .join("");
@@ -786,11 +859,12 @@ type ChipSerializers = {
   element: (tag: ElementTag) => string;
   web: (tag: WebTag) => string;
   conversation: (tag: ConversationTag) => string;
+  skill: (tag: SkillTag) => string;
 };
 
 const readEditableContentWith = (
   el: HTMLElement,
-  serializers: ChipSerializers
+  serializers: ChipSerializers,
 ): string => {
   let result = "";
   const walk = (node: Node): void => {
@@ -816,7 +890,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.commitTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.commitData || "{}"
+            elem.dataset.commitData || "{}",
           ) as Partial<CommitTag>;
           result += serializers.commit({
             hash: data.hash ?? "",
@@ -832,7 +906,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.changeTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.changeData || "{}"
+            elem.dataset.changeData || "{}",
           ) as Partial<ChangeTag>;
           result += serializers.change({
             repoPath: data.repoPath ?? "",
@@ -846,7 +920,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.textSnippetTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.textSnippetData || "{}"
+            elem.dataset.textSnippetData || "{}",
           ) as Partial<TextSnippetTag>;
           const textContent = data.content ?? "";
           result += serializers.textSnippet({
@@ -863,7 +937,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.reviewTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.reviewData || "{}"
+            elem.dataset.reviewData || "{}",
           ) as Partial<ReviewTag>;
           const prompt = data.prompt ? base64ToUtf8(data.prompt) : "";
           result += serializers.review({
@@ -882,7 +956,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.elementTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.elementData || "{}"
+            elem.dataset.elementData || "{}",
           ) as Partial<ElementTag>;
           result += serializers.element({
             url: data.url ?? "",
@@ -897,14 +971,13 @@ const readEditableContentWith = (
       } else if (elem.dataset.webTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.webData || "{}"
+            elem.dataset.webData || "{}",
           ) as Partial<WebTag>;
           const url = data.url ?? "";
           if (url) {
             result += serializers.web({
               url,
-              title:
-                typeof data.title === "string" ? data.title : undefined,
+              title: typeof data.title === "string" ? data.title : undefined,
               text: typeof data.text === "string" ? data.text : undefined,
               elementText:
                 typeof data.elementText === "string"
@@ -922,7 +995,7 @@ const readEditableContentWith = (
       } else if (elem.dataset.conversationTag === "true") {
         try {
           const data = JSON.parse(
-            elem.dataset.conversationData || "{}"
+            elem.dataset.conversationData || "{}",
           ) as Partial<ConversationTag>;
           if (
             typeof data.conversationId === "string" &&
@@ -941,6 +1014,23 @@ const readEditableContentWith = (
           }
         } catch {
           // Ignore malformed conversation data
+        }
+      } else if (elem.dataset.skillTag === "true") {
+        try {
+          const data = JSON.parse(
+            elem.dataset.skillData || "{}",
+          ) as Partial<SkillTag>;
+          const skillId = data.skillId ?? "";
+          if (skillId) {
+            result += serializers.skill({
+              skillId,
+              name: data.name || skillId,
+              description: data.description ?? "",
+              location: data.location === "project" ? "project" : "global",
+            });
+          }
+        } catch {
+          // Ignore malformed skill data
         }
       } else if (elem.tagName === "BR") {
         result += "\n";
@@ -972,6 +1062,7 @@ export const readEditableContent = (el: HTMLElement): string =>
     element: encodeElementTag,
     web: encodeWebTag,
     conversation: encodeConversationTag,
+    skill: encodeSkillTag,
   });
 
 /**
@@ -1011,6 +1102,7 @@ export const readEditableContentAsPlainText = (el: HTMLElement): string =>
     // 复制到应用外时输出「标题 URL」，保留可读性与可点击性
     web: (tag) => (tag.title ? `${tag.title} ${tag.url}` : tag.url),
     conversation: (tag) => tag.title,
+    skill: (tag) => tag.name,
   });
 
 export const insertHtmlAtSelection = (html: string): void => {

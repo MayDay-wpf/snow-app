@@ -527,6 +527,7 @@ export const ChatInputView = ({
           textareaRef={textareaRef}
           onDragStart={handleMentionDragStart}
           onNavigateTo={handleMentionNavigateTo}
+          projectId={projectId}
         />
         <CommandPanel
           ref={commandPanelRef}

@@ -8,6 +8,7 @@ import {
   createChipHtml,
   createElementChipHtml,
   createImageChipHtml,
+  createSkillChipHtml,
   createTextSnippetChipHtml,
   createWebTagChipHtml,
   insertHtmlAtSelection,
@@ -17,6 +18,7 @@ import {
   type ElementTag,
   type FileTag,
   type ImageTag,
+  type SkillTag,
   type TextSnippetTag,
   type WebTag,
 } from "./fileTagUtils";
@@ -47,8 +49,8 @@ type WebTagInsertOptions = {
 
 export type InputFileOperationsResult = {
   syncContent: () => void;
-  insertFileTag: (tag: FileTag) => void;
-  insertFileTags: (tags: FileTag[]) => void;
+  insertFileTag: (tag: FileTag | SkillTag) => void;
+  insertFileTags: (tags: (FileTag | SkillTag)[]) => void;
   insertElementTag: (tag: ElementTag) => void;
   insertImageFromFile: (file: File) => void;
   insertImageFiles: (files: File[]) => void;
@@ -151,22 +153,30 @@ export const useInputFileOperations = ({
   }, [handleChange, renumberImageChips, textareaRef]);
 
   const insertFileTag = useCallback(
-    (tag: FileTag) => {
+    (tag: FileTag | SkillTag) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
-      insertHtmlAtSelection(createChipHtml(tag));
+      insertHtmlAtSelection(
+        "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
+      );
       syncContent();
     },
     [syncContent, textareaRef],
   );
 
   const insertFileTags = useCallback(
-    (tags: FileTag[]) => {
+    (tags: (FileTag | SkillTag)[]) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
-      insertHtmlAtSelection(tags.map((tag) => createChipHtml(tag)).join(" "));
+      insertHtmlAtSelection(
+        tags
+          .map((tag) =>
+            "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
+          )
+          .join(" "),
+      );
       syncContent();
     },
     [syncContent, textareaRef],
