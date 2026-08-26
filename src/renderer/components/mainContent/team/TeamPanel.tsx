@@ -116,11 +116,11 @@ export const TeamPanel = ({
   if (team.identityResolving) {
     return (
       <div className="team-panel team-setup">
-        <div className="team-setup-card">
-          <Loader2 size={26} className="spin" />
-          <p className="team-setup-desc">
+        <div className="team-panel-loading">
+          <Loader2 size={22} className="spin" />
+          <div className="team-setup-desc">
             {t("team.loading", { defaultValue: "正在加载团队信息…" })}
-          </p>
+          </div>
         </div>
       </div>
     );

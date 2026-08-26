@@ -87,8 +87,9 @@ fn wait_next_millis(last_timestamp_ms: u64) -> u64 {
 ///
 /// WAL (Write-Ahead Logging) allows readers and a writer to operate
 /// simultaneously, eliminating most reader-writer contention. The busy
-/// timeout (5 seconds) makes writers wait instead of failing immediately
-/// when another writer holds the lock.
+/// timeout (30 seconds) makes writers wait instead of failing immediately
+/// when another writer holds the lock. Long waits happen entirely on the
+/// Rust blocking thread pool, so the Electron main process is never blocked.
 ///
 /// Every service function should call this instead of `Connection::open`
 /// to ensure consistent concurrency behaviour across the codebase.
@@ -100,10 +101,70 @@ pub fn open_connection(database_path: impl AsRef<Path>) -> rusqlite::Result<Conn
     // busy_timeout MUST be set before any pragma that acquires a write lock
     // (e.g. journal_mode=WAL). Otherwise concurrent connections will get
     // "database is locked" immediately instead of waiting.
-    connection.busy_timeout(Duration::from_secs(5))?;
+    connection.busy_timeout(Duration::from_secs(30))?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     Ok(connection)
+}
+
+/// 全局写锁：串行化同进程内的所有 SQLite 写事务。
+///
+/// WAL 模式允许读与写并发，但同一时刻只允许**一个写者**。切换工作区时
+/// 渲染进程会并发触发大量写操作（activate、会话保存、usage、日志等），
+/// 多个 `spawn_blocking` 写任务同时争抢写锁时，等待方超过 busy_timeout
+/// 就会报 "database is locked" 并冒泡到前端。写锁让同进程写操作严格
+/// 排队，从根源上消除这类冲突；读操作不受影响（WAL 下读与写可并发）。
+static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// 在全局写锁内执行闭包，串行化同进程写操作。
+pub fn with_write_lock<T>(operation: impl FnOnce() -> T) -> T {
+    let guard = WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let result = operation();
+    drop(guard);
+    result
+}
+
+/// 是否为 SQLite 写锁竞争错误（"database is locked" / "database table is locked"）。
+fn is_lock_contention(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(ffi_error, _)
+            if matches!(
+                ffi_error.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
+    )
+}
+
+/// 对写操作执行忙等重试：当 busy_timeout 被耗尽（外部进程如杀毒/备份
+/// 软件短暂持锁，或极端并发下锁等待超时）时，按递增间隔重试有限次数，
+/// 避免 "database is locked" 直接冒泡到前端。操作全部运行在 Rust 的
+/// blocking 线程池上，重试等待不会阻塞 Electron 主进程。
+pub fn with_write_retry<T>(
+    operation: impl Fn() -> rusqlite::Result<T>,
+    context: &str,
+) -> rusqlite::Result<T> {
+    const MAX_ATTEMPTS: u32 = 4;
+    const RETRY_DELAYS_MS: [u64; 3] = [250, 500, 1000];
+
+    for attempt in 0..MAX_ATTEMPTS {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) if is_lock_contention(&error) && attempt + 1 < MAX_ATTEMPTS => {
+                eprintln!(
+                    "Snow App database write contention ({context}), attempt {}/{}: {error}",
+                    attempt + 1,
+                    MAX_ATTEMPTS
+                );
+                std::thread::sleep(Duration::from_millis(RETRY_DELAYS_MS[attempt as usize]));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("with_write_retry: the loop always returns")
 }
 
 pub fn ensure_database(database_path: &Path) -> Result<()> {

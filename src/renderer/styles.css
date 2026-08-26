@@ -38570,12 +38570,13 @@ body.ctrl-held [data-path] {
 }
 
 /* ---- 面板布局 ---- */
+/* 背景透传 .main-content 的 --surface-island-strong（与聊天/设置等视图一致），
+   避免深色模式下用 --bg-primary 导致与主内容区背景色差突兀 */
 .team-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
 }
 
 /* ---- 设置视图 ---- */
@@ -38583,6 +38584,12 @@ body.ctrl-held [data-path] {
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+.team-panel-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 .team-setup-card {
   max-width: 420px;

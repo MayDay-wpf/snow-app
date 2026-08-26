@@ -81,26 +81,34 @@ pub fn upsert_workspace_directory(
     database_path: &Path,
     item: &WorkspaceDirectoryInput,
 ) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            let transaction = connection.transaction()?;
+    // 写锁串行化同进程写事务，忙等重试兜底外部进程短暂持锁，
+    // 避免并发写操作触发 "database is locked"。
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
 
-            if item.is_active {
-                transaction.execute(
-                    "UPDATE workspace_directories
-                        SET is_active = 0,
-                            updated_at = datetime('now', 'localtime')
-                      WHERE is_active = 1",
-                    [],
-                )?;
-            }
+                    if item.is_active {
+                        transaction.execute(
+                            "UPDATE workspace_directories
+                                SET is_active = 0,
+                                    updated_at = datetime('now', 'localtime')
+                              WHERE is_active = 1",
+                            [],
+                        )?;
+                    }
 
-            upsert_workspace_directory_with_connection(&transaction, item)?;
-            transaction.commit()
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "upsert workspace directory", error)
-        })
+                    upsert_workspace_directory_with_connection(&transaction, item)?;
+                    transaction.commit()
+                })
+            },
+            "upsert workspace directory",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "upsert workspace directory", error)
+    })
 }
 
 /// Look up the kind of a workspace directory by its `directory_id`.
@@ -156,86 +164,106 @@ pub fn get_workspace_directory_path(
 }
 
 pub fn activate_workspace_directory(database_path: &Path, directory_id: &str) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            let transaction = connection.transaction()?;
-            transaction.execute(
-                "UPDATE workspace_directories
-                    SET is_active = 0,
-                        updated_at = datetime('now', 'localtime')
-                  WHERE is_active = 1",
-                [],
-            )?;
-            transaction.execute(
-                "UPDATE workspace_directories
-                    SET is_active = 1,
-                        updated_at = datetime('now', 'localtime')
-                  WHERE directory_id = ?1",
-                [directory_id],
-            )?;
-            transaction.commit()
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "activate workspace directory", error)
-        })
+    // 写锁串行化同进程写事务，忙等重试兜底外部进程短暂持锁，
+    // 避免切换工作区时与其他写操作竞争触发 "database is locked"。
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
+                    transaction.execute(
+                        "UPDATE workspace_directories
+                            SET is_active = 0,
+                                updated_at = datetime('now', 'localtime')
+                          WHERE is_active = 1",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE workspace_directories
+                            SET is_active = 1,
+                                updated_at = datetime('now', 'localtime')
+                          WHERE directory_id = ?1",
+                        [directory_id],
+                    )?;
+                    transaction.commit()
+                })
+            },
+            "activate workspace directory",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "activate workspace directory", error)
+    })
 }
 
 pub fn reorder_workspace_directories(
     database_path: &Path,
     items: &[WorkspaceDirectoryInput],
 ) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            let transaction = connection.transaction()?;
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
 
-            for (index, item) in items.iter().enumerate() {
-                transaction.execute(
-                    "UPDATE workspace_directories
-                        SET sort_order = ?1,
-                            updated_at = datetime('now', 'localtime')
-                      WHERE directory_id = ?2",
-                    params![index as i32, &item.directory_id],
-                )?;
-            }
+                    for (index, item) in items.iter().enumerate() {
+                        transaction.execute(
+                            "UPDATE workspace_directories
+                                SET sort_order = ?1,
+                                    updated_at = datetime('now', 'localtime')
+                              WHERE directory_id = ?2",
+                            params![index as i32, &item.directory_id],
+                        )?;
+                    }
 
-            transaction.commit()
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "reorder workspace directories", error)
-        })
+                    transaction.commit()
+                })
+            },
+            "reorder workspace directories",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "reorder workspace directories", error)
+    })
 }
 
 pub fn delete_workspace_directory(database_path: &Path, directory_id: &str) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            // 内置默认工作目录（source = "builtin"）不允许删除，
-            // 保证系统始终至少有一个可用目录供会话记录挂载。
-            let source: Option<String> = connection
-                .query_row(
-                    "SELECT source FROM workspace_directories WHERE directory_id = ?1",
-                    [directory_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    // 内置默认工作目录（source = "builtin"）不允许删除，
+                    // 保证系统始终至少有一个可用目录供会话记录挂载。
+                    let source: Option<String> = connection
+                        .query_row(
+                            "SELECT source FROM workspace_directories WHERE directory_id = ?1",
+                            [directory_id],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
 
-            if source.as_deref() == Some(DEFAULT_WORKSPACE_SOURCE) {
-                return Err(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                    Some("Cannot delete the built-in default workspace directory".to_string()),
-                ));
-            }
+                    if source.as_deref() == Some(DEFAULT_WORKSPACE_SOURCE) {
+                        return Err(rusqlite::Error::SqliteFailure(
+                            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                            Some("Cannot delete the built-in default workspace directory".to_string()),
+                        ));
+                    }
 
-            let transaction = connection.transaction()?;
-            transaction.execute(
-                "DELETE FROM workspace_directories WHERE directory_id = ?1",
-                [directory_id],
-            )?;
-            normalize_workspace_directory_state(&transaction)?;
-            transaction.commit()
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "delete workspace directory", error)
-        })
+                    let transaction = connection.transaction()?;
+                    transaction.execute(
+                        "DELETE FROM workspace_directories WHERE directory_id = ?1",
+                        [directory_id],
+                    )?;
+                    normalize_workspace_directory_state(&transaction)?;
+                    transaction.commit()
+                })
+            },
+            "delete workspace directory",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "delete workspace directory", error)
+    })
 }
 
 fn normalize_workspace_directory_state(connection: &Connection) -> rusqlite::Result<()> {
@@ -378,17 +406,23 @@ pub fn seed_default_workspace_directory(database_path: &Path) -> Result<()> {
     let default_path_str = default_workspace_path.to_string_lossy().to_string();
     let directory_id = format!("local:{}", default_path_str);
 
-    database::open_connection(database_path)
-        .and_then(|connection| {
-            seed_default_workspace_directory_with_connection(
-                &connection,
-                &directory_id,
-                &default_path_str,
-            )
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "seed default workspace directory", error)
-        })
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|connection| {
+                    seed_default_workspace_directory_with_connection(
+                        &connection,
+                        &directory_id,
+                        &default_path_str,
+                    )
+                })
+            },
+            "seed default workspace directory",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "seed default workspace directory", error)
+    })
 }
 
 fn seed_default_workspace_directory_with_connection(
