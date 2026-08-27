@@ -69,12 +69,16 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   ipcMain.handle("settings:get-process-memory", () =>
     native.getProcessMemoryBytes(),
   );
-  // 「优化占用」的内存部分：先触发主进程 V8 full GC 回收 JS 堆，再由 Rust
-  // 按平台释放 native 堆空闲页 / 收缩工作集（Windows / macOS / Linux 各有
-  // 原生实现），避免 JS 堆与不活跃页长期虚高常驻内存。
+  // 「优化占用」的内存部分（仅 Windows 支持）：先触发主进程 V8 full GC 回收
+  // JS 堆，再由 Rust 收缩 OS 工作集，避免 JS 堆与不活跃页长期虚高常驻内存。
+  // macOS / Linux 的堆整理接口在多线程 GUI 进程中存在崩溃风险，快速失败，
+  // 前端据此仅展示磁盘释放结果。
   ipcMain.handle(
     "settings:optimize-memory",
     async (): Promise<MemoryOptimizeResult> => {
+      if (process.platform !== "win32") {
+        throw new Error("Memory optimization is only supported on Windows");
+      }
       const bytesBefore = await native.getProcessMemoryBytes();
       try {
         // Electron 主进程默认未暴露 gc；运行时注入 --expose_gc 标志后启用。

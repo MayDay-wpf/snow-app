@@ -24,17 +24,15 @@ pub fn get_process_memory_bytes() -> Result<i64> {
 }
 
 /// 本进程内存整理（「设置 → 资源占用」的优化占用触发的内存部分）：
-/// Node 侧先完成 V8 full GC 回收 JS 堆，随后调用本函数把 native 堆中
-/// 的空闲页归还操作系统，降低常驻内存：
-/// - Windows：`SetProcessWorkingSetSizeEx(-1, -1)` 收缩工作集；
-/// - macOS：`malloc_zone_pressure_relief` 释放 malloc zone 空闲页；
-/// - Linux (glibc)：`malloc_trim(0)` 归还堆顶与 arena 空闲页；
-/// - musl 等其它平台：无稳定公开接口，不支持整理。
-/// 各分支整理失败时由调用方回退为不整理，保证「释放量」永不为负。
+/// 仅 Windows 支持整理（收缩工作集把不活跃页换出物理内存，纯内核层
+/// 操作、不触碰堆内部结构）。Node 侧的 V8 full GC 在调用前完成。
+/// macOS 的 `malloc_zone_pressure_relief` 在 Electron 多线程进程中存在
+/// 段错误崩溃风险（实测 SIGSEGV），为稳定性不在非 Windows 平台提供
+/// 内存整理；调用方（IPC handler）在非 Windows 平台快速失败。
 /// 系统调用极快，调用方仍需置于 spawn_blocking 中执行。
 pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
     let bytes_before = get_process_memory_bytes()?;
-    // 整理失败（平台不支持 / 系统调用失败 / 测量失败）时回退为不整理
+    // 非 Windows 平台不支持整理：回退为不整理（bytes_after = bytes_before）
     let bytes_after = trim_working_set().unwrap_or(bytes_before);
     Ok(MemoryOptimizeResult {
         bytes_before,
@@ -43,6 +41,8 @@ pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
 }
 
 /// Windows：向系统申请尽可能收缩本进程工作集，成功后重新测量常驻内存。
+/// 该调用仅请求内核把暂不使用的页移出工作集（转入 standby 列表），不触碰
+/// 堆内部结构，多线程下安全。
 #[cfg(target_os = "windows")]
 fn trim_working_set() -> Result<i64> {
     use windows_sys::Win32::Foundation::HANDLE;
@@ -68,43 +68,13 @@ fn trim_working_set() -> Result<i64> {
     unsafe { windows_resident_memory() }
 }
 
-/// macOS：对默认 malloc zone 施加压力释放（libmalloc 官方公开 API），
-/// 将 zone 内空闲页经 MADV_REUSABLE 归还内核（含默认启用的 nano zone）。
-#[cfg(target_os = "macos")]
-fn trim_working_set() -> Result<i64> {
-    extern "C" {
-        // malloc_zone_t 为不透明结构体，指针传参下以 c_void 声明 ABI 兼容
-        fn malloc_default_zone() -> *mut libc::c_void;
-        fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
-    }
-    unsafe {
-        malloc_zone_pressure_relief(malloc_default_zone(), 0);
-    }
-    unsafe { macos_resident_memory() }
-}
-
-/// Linux (glibc)：malloc_trim(0) 将堆顶与各 arena 中的空闲页经
-/// MADV_DONTNEED 归还内核（线程安全）。Rust / Node 的默认分配器即为
-/// glibc malloc，因此作用于同一进程堆。
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn trim_working_set() -> Result<i64> {
-    unsafe {
-        libc::malloc_trim(0);
-    }
-    linux_resident_memory()
-}
-
-/// 其余平台（musl Linux 等）：mallocng 无稳定的公开整理接口，不支持整理。
-/// 由调用方回退为不整理（bytes_after = bytes_before）。
-#[cfg(not(any(
-    target_os = "windows",
-    target_os = "macos",
-    all(target_os = "linux", target_env = "gnu")
-)))]
+/// 非 Windows 平台：不支持内存整理（macOS / Linux 的堆整理接口在多线程
+/// GUI 进程中风险过高，见 [optimize_memory] 文档），由调用方回退为不整理。
+#[cfg(not(target_os = "windows"))]
 fn trim_working_set() -> Result<i64> {
     Err(Error::new(
         Status::GenericFailure,
-        "Memory trimming is not supported on this platform",
+        "Memory trimming is only supported on Windows",
     ))
 }
 

@@ -2093,7 +2093,7 @@ export type NativeBridge = {
   getPathSize: (path: string) => Promise<number>;
   /** 当前进程常驻内存占用（字节；用于设置页展示资源占用） */
   getProcessMemoryBytes: () => Promise<number>;
-  /** 整理本进程内存：配合主进程 V8 GC 使用，Rust 侧按平台释放堆空闲页 / 收缩工作集 */
+  /** 整理本进程内存（仅 Windows 支持）：配合主进程 V8 GC 收缩 OS 工作集 */
   optimizeMemory: () => Promise<MemoryOptimizeResult>;
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */
   repairDatabase: (kind: DatabaseKind) => Promise<DatabaseRepairResult>;
