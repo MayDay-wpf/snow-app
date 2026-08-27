@@ -10,6 +10,8 @@ type ChatDeleteConfirmDialogProps = {
   onDeleteImagesChange: (deleteImages: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 删除进行中（含 VACUUM 收缩文件阶段）：确认按钮显示 loading */
+  isConfirming?: boolean;
 };
 
 /** 单条与批量会话删除共用的确认弹窗。 */
@@ -22,6 +24,7 @@ export function ChatDeleteConfirmDialog({
   onDeleteImagesChange,
   onConfirm,
   onCancel,
+  isConfirming = false,
 }: ChatDeleteConfirmDialogProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -31,6 +34,7 @@ export function ChatDeleteConfirmDialog({
       confirmLabel={t("sidebar.chatActionDelete", {
         defaultValue: "Delete",
       })}
+      isConfirming={isConfirming}
       message={
         isBatch
           ? t("sidebar.chatMultiSelectDeleteConfirm", {
@@ -38,7 +42,8 @@ export function ChatDeleteConfirmDialog({
               values: { count: conversationCount },
             })
           : t("sidebar.chatDeleteConfirm", {
-              defaultValue: "Are you sure you want to delete this conversation?",
+              defaultValue:
+                "Are you sure you want to delete this conversation?",
             })
       }
       onCancel={onCancel}
@@ -53,6 +58,7 @@ export function ChatDeleteConfirmDialog({
         <label className="chat-item-menu-delete-images">
           <input
             checked={deleteImages}
+            disabled={isConfirming}
             onChange={(event) => onDeleteImagesChange(event.target.checked)}
             type="checkbox"
           />

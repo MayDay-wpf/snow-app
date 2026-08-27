@@ -31,6 +31,8 @@ type ChatItemMenuProps = {
   onSetEmoji: (emoji: string) => void | Promise<void>;
   /** 确认删除；deleteImages=true 表示同时级联删除图库图片 */
   onDelete: (deleteImages: boolean) => void;
+  /** 删除进行中（含 VACUUM 收缩文件阶段）：确认框保持打开并显示 loading */
+  isDeleting?: boolean;
   onExport: (format: ExportFormat) => void;
   /** 创建分支会话（复制整个会话到新的分支） */
   onFork?: () => void;
@@ -55,6 +57,7 @@ export function ChatItemMenu({
   onExport,
   onFork,
   onArchive,
+  isDeleting = false,
   onEnterMultiSelect,
   onOpenChange,
   contextMenuAnchor = null,
@@ -69,6 +72,8 @@ export function ChatItemMenu({
   // 以及用户是否选择级联删除图片
   const [imagesCount, setImagesCount] = useState<number | null>(null);
   const [deleteImages, setDeleteImages] = useState(false);
+  // 已点击确认删除：确认框保持打开，删除完成（isDeleting 回到 false）后自动关闭
+  const [hasConfirmed, setHasConfirmed] = useState(false);
   // 右键锚点存在时菜单即为打开状态
   const isOpen = isButtonOpen || contextMenuAnchor !== null;
   const containerRef = useRef<HTMLSpanElement>(null);
@@ -243,12 +248,22 @@ export function ChatItemMenu({
     onDelete(deleteImages);
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
-    setShowConfirm(false);
+    // 确认框保持打开：删除期间显示 loading，完成（isDeleting 回到 false）后由 effect 关闭
+    setHasConfirmed(true);
   };
 
   const handleDeleteCancel = (): void => {
+    setHasConfirmed(false);
     setShowConfirm(false);
   };
+
+  // 已确认删除且删除流程结束（含 VACUUM 收缩文件）后自动关闭确认框
+  useEffect(() => {
+    if (hasConfirmed && !isDeleting) {
+      setHasConfirmed(false);
+      setShowConfirm(false);
+    }
+  }, [hasConfirmed, isDeleting]);
 
   const handleFork = (): void => {
     onFork?.();
@@ -296,35 +311,35 @@ export function ChatItemMenu({
   return (
     <>
       <span className="chat-item-actions-wrapper" ref={containerRef}>
-      <span
-        ref={triggerRef}
-        className="chat-item-actions"
-        role="button"
-        tabIndex={0}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={handleToggle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            handleToggle(event);
-          }
-        }}
-      >
-        <Ellipsis size={14} />
-      </span>
-      {isOpen
-        ? createPortal(
-            <div
-              ref={menuRef}
-              className="chat-item-menu"
-              style={
-                menuPosition
-                  ? { top: menuPosition.top, left: menuPosition.left }
-                  : undefined
-              }
-              role="menu"
-            >
-              <>
+        <span
+          ref={triggerRef}
+          className="chat-item-actions"
+          role="button"
+          tabIndex={0}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onClick={handleToggle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              handleToggle(event);
+            }
+          }}
+        >
+          <Ellipsis size={14} />
+        </span>
+        {isOpen
+          ? createPortal(
+              <div
+                ref={menuRef}
+                className="chat-item-menu"
+                style={
+                  menuPosition
+                    ? { top: menuPosition.top, left: menuPosition.left }
+                    : undefined
+                }
+                role="menu"
+              >
+                <>
                   <button
                     type="button"
                     className="chat-item-menu-item"
@@ -454,67 +469,73 @@ export function ChatItemMenu({
                     </span>
                   </button>
                 </>
-            </div>,
-            document.body
-          )
-        : null}
-      {isOpen && showExport
-        ? createPortal(
-            <div
-              ref={exportPanelRef}
-              className="chat-item-menu chat-item-export-panel"
-              style={
-                exportPosition
-                  ? { top: exportPosition.top, left: exportPosition.left }
-                  : undefined
-              }
-              role="menu"
-            >
-              <div className="chat-item-export-panel-header">
-                <ChevronLeft size={11} className="chat-item-export-back-icon" />
-                <span>
-                  {t("sidebar.chatActionExport", {
-                    defaultValue: "Export",
-                  })}
-                </span>
-              </div>
-              {(
-                [
-                  { format: "markdown" as const, label: "Markdown" },
-                  { format: "html" as const, label: "HTML" },
-                  { format: "json" as const, label: "JSON" },
-                  { format: "csv" as const, label: "CSV" },
-                ] satisfies Array<{ format: ExportFormat; label: string }>
-              ).map(({ format, label }) => (
-                <button
-                  key={format}
-                  type="button"
-                  className="chat-item-menu-item"
-                  onClick={() => handleExportSelect(format)}
-                  role="menuitem"
-                >
-                  <span className="chat-item-export-format-label">{label}</span>
-                </button>
-              ))}
-            </div>,
-            document.body
-          )
-        : null}
-      {isOpen && showEmoji && (
-        <EmojiPicker
-          triggerRef={emojiTriggerRef}
-          currentEmoji={emoji}
-          onSelect={handleEmojiSelect}
-          onClose={handleEmojiClose}
-          focusOutKeepRef={menuRef}
-        />
-      )}
+              </div>,
+              document.body,
+            )
+          : null}
+        {isOpen && showExport
+          ? createPortal(
+              <div
+                ref={exportPanelRef}
+                className="chat-item-menu chat-item-export-panel"
+                style={
+                  exportPosition
+                    ? { top: exportPosition.top, left: exportPosition.left }
+                    : undefined
+                }
+                role="menu"
+              >
+                <div className="chat-item-export-panel-header">
+                  <ChevronLeft
+                    size={11}
+                    className="chat-item-export-back-icon"
+                  />
+                  <span>
+                    {t("sidebar.chatActionExport", {
+                      defaultValue: "Export",
+                    })}
+                  </span>
+                </div>
+                {(
+                  [
+                    { format: "markdown" as const, label: "Markdown" },
+                    { format: "html" as const, label: "HTML" },
+                    { format: "json" as const, label: "JSON" },
+                    { format: "csv" as const, label: "CSV" },
+                  ] satisfies Array<{ format: ExportFormat; label: string }>
+                ).map(({ format, label }) => (
+                  <button
+                    key={format}
+                    type="button"
+                    className="chat-item-menu-item"
+                    onClick={() => handleExportSelect(format)}
+                    role="menuitem"
+                  >
+                    <span className="chat-item-export-format-label">
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>,
+              document.body,
+            )
+          : null}
+        {isOpen && showEmoji && (
+          <EmojiPicker
+            triggerRef={emojiTriggerRef}
+            currentEmoji={emoji}
+            onSelect={handleEmojiSelect}
+            onClose={handleEmojiClose}
+            focusOutKeepRef={menuRef}
+          />
+        )}
       </span>
       <ChatDeleteConfirmDialog
         conversationCount={1}
         deleteImages={deleteImages}
         imagesCount={imagesCount}
         isBatch={false}
+        isConfirming={isDeleting}
         onCancel={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
         onDeleteImagesChange={setDeleteImages}

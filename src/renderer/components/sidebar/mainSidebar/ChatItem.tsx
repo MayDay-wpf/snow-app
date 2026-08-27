@@ -49,6 +49,8 @@ type ChatItemProps = {
   onArchive?: () => void;
   /** 归档进行中（含 VACUUM 收缩文件阶段）：菜单按钮显示 loading，防止重复操作 */
   isArchiving?: boolean;
+  /** 删除进行中（含 VACUUM 收缩文件阶段）：菜单按钮显示 loading，防止重复操作 */
+  isDeleting?: boolean;
   onEnterMultiSelect?: () => void;
   onToggleSelect?: () => void;
   onSelect?: () => void;
@@ -76,6 +78,7 @@ export function ChatItem({
   onFork,
   onArchive,
   isArchiving = false,
+  isDeleting = false,
   onEnterMultiSelect,
   onToggleSelect,
   onSelect,
@@ -146,7 +149,7 @@ export function ChatItem({
   };
 
   const handleRenameKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
+    event: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
     // 输入法组合输入中（如中文候选区上屏的 Enter）不触发保存/取消
     if (event.nativeEvent.isComposing || event.keyCode === 229) {
@@ -164,10 +167,9 @@ export function ChatItem({
   const isPinned = conversation.status === "pin";
   // 运行中的会话（流式输出中或等待输入）不提供操作菜单，
   // 避免运行中的会话被删除造成数据混乱；子代理待确认同样暂停了整体流程
-  const hasAttentionRequiredSubAgent =
-    subAgentConversations.some((sub) =>
-      subAgentAttentionRequiredIds.has(sub.conversationId)
-    );
+  const hasAttentionRequiredSubAgent = subAgentConversations.some((sub) =>
+    subAgentAttentionRequiredIds.has(sub.conversationId),
+  );
   const isRunning =
     isStreaming || isAttentionRequired || hasAttentionRequiredSubAgent;
   const isForked = conversation.forkedFromConversationId !== "";
@@ -190,13 +192,13 @@ export function ChatItem({
   const statusLabel = showAttentionStatus
     ? t("sidebar.chatStatusNeedsAction", { defaultValue: "Needs action" })
     : showCompletedStatus
-    ? t("sidebar.chatStatusCompleted", { defaultValue: "Completed" })
-    : null;
+      ? t("sidebar.chatStatusCompleted", { defaultValue: "Completed" })
+      : null;
   const statusDescription = showAttentionStatus
     ? t("sidebar.chatStatusWaitingForReviewOrInput", {
         defaultValue: "Waiting for review or input",
       })
-    : statusLabel ?? "";
+    : (statusLabel ?? "");
 
   const now = new Date();
   const parsedDate = parseDbTimestamp(conversation.updatedAt);
@@ -265,12 +267,12 @@ export function ChatItem({
   };
 
   const attentionRequiredSubAgentCount = subAgentConversations.filter((sub) =>
-    subAgentAttentionRequiredIds.has(sub.conversationId)
+    subAgentAttentionRequiredIds.has(sub.conversationId),
   ).length;
   const runningSubAgentCount = subAgentConversations.filter(
     (sub) =>
       sub.subAgentStatus === "running" &&
-      !subAgentAttentionRequiredIds.has(sub.conversationId)
+      !subAgentAttentionRequiredIds.has(sub.conversationId),
   ).length;
 
   return (
@@ -321,12 +323,12 @@ export function ChatItem({
             showAttentionStatus
               ? " attention-required"
               : showStreamingStatus
-              ? isPaused
-                ? " streaming paused"
-                : " streaming"
-              : showCompletedStatus
-              ? " completed"
-              : ""
+                ? isPaused
+                  ? " streaming paused"
+                  : " streaming"
+                : showCompletedStatus
+                  ? " completed"
+                  : ""
           }${showDefaultIcon && isForked ? " forked" : ""}${
             showDefaultIcon && hasSubAgents ? " has-sub-agents" : ""
           }${showDefaultIcon && hasEmoji ? " has-emoji" : ""}`}
@@ -446,6 +448,7 @@ export function ChatItem({
               onRename={handleRenameStart}
               onSetEmoji={onSetEmoji}
               onDelete={onDelete}
+              isDeleting={isDeleting}
               onExport={onExport}
               onFork={onFork}
               onArchive={onArchive}

@@ -194,6 +194,8 @@ export function ChatsSection({
   const [batchImagesCount, setBatchImagesCount] = useState<number | null>(null);
   const [batchDeleteImages, setBatchDeleteImages] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  /** 单条删除进行中（含 VACUUM 收缩文件阶段）的会话 id 集合 */
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   // 归档模式：true 时侧边栏展示归档会话列表（还原后才能继续使用）
   const [isArchiveMode, setIsArchiveMode] = useState(false);
   const [archivedConversations, setArchivedConversations] = useState<
@@ -681,6 +683,10 @@ export function ChatsSection({
     conversation: ChatConversationRecord,
     deleteImages: boolean,
   ): Promise<void> => {
+    if (deletingIds.size > 0) {
+      return;
+    }
+    setDeletingIds(new Set([conversation.conversationId]));
     try {
       // 用户选择不保留图片时，先级联删除图库图片（物理 + 索引），
       // 再执行会话删除；删除失败不阻断会话删除
@@ -718,6 +724,8 @@ export function ChatsSection({
       refreshConversations();
     } catch {
       // Silent fail
+    } finally {
+      setDeletingIds(new Set());
     }
   };
 
@@ -877,7 +885,6 @@ export function ChatsSection({
     }
 
     setIsBatchDeleting(true);
-    setShowBatchConfirm(false);
 
     try {
       // 用户选择不保留图片时，先级联删除所选会话引用的图库图片
@@ -918,7 +925,9 @@ export function ChatsSection({
     } catch {
       // Silent fail
     } finally {
+      // 删除完成（含 VACUUM 收缩文件）后才关闭确认弹窗，期间显示 loading
       setIsBatchDeleting(false);
+      setShowBatchConfirm(false);
     }
   };
 
@@ -1040,7 +1049,6 @@ export function ChatsSection({
 
     setDeletingArchivedIds(new Set(archivedDeleteTargetIds));
     const targetIds = archivedDeleteTargetIds;
-    setArchivedDeleteTargetIds(null);
 
     try {
       await window.snow.deleteArchivedConversations(targetIds);
@@ -1050,7 +1058,9 @@ export function ChatsSection({
     } catch {
       // Silent fail
     } finally {
+      // 删除完成（含 VACUUM 收缩文件）后才关闭确认弹窗，期间显示 loading
       setDeletingArchivedIds(new Set());
+      setArchivedDeleteTargetIds(null);
     }
   };
 
@@ -2017,6 +2027,9 @@ export function ChatsSection({
                               isArchiving={archivingIds.has(
                                 conversation.conversationId,
                               )}
+                              isDeleting={deletingIds.has(
+                                conversation.conversationId,
+                              )}
                               onArchive={
                                 conversation.status === "pin"
                                   ? undefined
@@ -2109,6 +2122,7 @@ export function ChatsSection({
         deleteImages={batchDeleteImages}
         imagesCount={batchImagesCount}
         isBatch
+        isConfirming={isBatchDeleting}
         onCancel={() => setShowBatchConfirm(false)}
         onConfirm={() => void handleBatchDelete()}
         onDeleteImagesChange={setBatchDeleteImages}
@@ -2120,6 +2134,7 @@ export function ChatsSection({
         confirmLabel={t("sidebar.chatActionDelete", {
           defaultValue: "Delete",
         })}
+        isConfirming={deletingArchivedIds.size > 0}
         message={
           (archivedDeleteTargetIds?.length ?? 0) > 1
             ? t("sidebar.archivedChatMultiSelectDeleteConfirm", {

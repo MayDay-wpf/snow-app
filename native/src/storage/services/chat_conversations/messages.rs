@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
@@ -117,8 +118,15 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
     };
     conversation_ids.extend(child_ids);
 
+    // 删除前收集消息中内联图片标签路径（`@@image:upload/...@@`），
+    // 供提交后清理不再被任何消息引用的孤儿文件
+    let upload_paths = collect_inline_upload_paths(&transaction, &conversation_ids).map_err(
+        |error| database::database_error(database_path, "scan inline upload images", error),
+    )?;
+    let mut deleted_rows: usize = 0;
+
     for target_id in &conversation_ids {
-        transaction
+        deleted_rows += transaction
             .execute(
                 "DELETE FROM chat_messages WHERE conversation_id = ?1",
                 params![target_id],
@@ -126,7 +134,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| {
                 database::database_error(database_path, "delete chat messages", error)
             })?;
-        transaction
+        deleted_rows += transaction
             .execute(
                 "DELETE FROM todo_items WHERE session_id = ?1",
                 params![target_id],
@@ -134,7 +142,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| database::database_error(database_path, "delete todo items", error))?;
     }
 
-    transaction
+    deleted_rows += transaction
         .execute(
             "DELETE FROM sub_agent_sessions
               WHERE parent_conversation_id = ?1 OR conversation_id = ?1",
@@ -145,7 +153,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
         })?;
 
     for target_id in conversation_ids.iter().rev() {
-        transaction
+        deleted_rows += transaction
             .execute(
                 "DELETE FROM chat_conversations WHERE conversation_id = ?1",
                 params![target_id],
@@ -158,6 +166,20 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
     transaction
         .commit()
         .map_err(|error| database::database_error(database_path, "delete conversation", error))?;
+
+    // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
+    cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+
+    // 与归档库对称：删除后 VACUUM 重建文件，立即回收空闲页；
+    // 仅当确实删除了行时执行，失败记录日志后忽略
+    if deleted_rows > 0 {
+        if let Err(error) = connection.execute_batch("VACUUM") {
+            eprintln!(
+                "Snow App delete conversation VACUUM failed (conversations already deleted): {}",
+                error
+            );
+        }
+    }
 
     Ok(())
 }
@@ -220,11 +242,17 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
         }
     }
 
+    // 删除前收集消息中内联图片标签路径，供提交后清理孤儿文件
+    let upload_paths = collect_inline_upload_paths(&transaction, &all_target_ids).map_err(
+        |error| database::database_error(database_path, "scan inline upload images", error),
+    )?;
+    let mut deleted_rows: usize = 0;
+
     // SQLite 默认变量数上限为 999，分块执行避免超出
     const MAX_VARIABLES: usize = 400;
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
-        transaction
+        deleted_rows += transaction
             .execute(
                 &format!("DELETE FROM chat_messages WHERE conversation_id IN ({placeholders})"),
                 params_from_iter(chunk.iter()),
@@ -232,7 +260,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
             .map_err(|error| {
                 database::database_error(database_path, "delete chat messages", error)
             })?;
-        transaction
+        deleted_rows += transaction
             .execute(
                 &format!("DELETE FROM todo_items WHERE session_id IN ({placeholders})"),
                 params_from_iter(chunk.iter()),
@@ -250,7 +278,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
         for id in chunk {
             params.push(id);
         }
-        transaction
+        deleted_rows += transaction
             .execute(
                 &format!(
                     "DELETE FROM sub_agent_sessions
@@ -266,7 +294,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
-        transaction
+        deleted_rows += transaction
             .execute(
                 &format!(
                     "DELETE FROM chat_conversations WHERE conversation_id IN ({placeholders})"
@@ -281,6 +309,20 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
     transaction
         .commit()
         .map_err(|error| database::database_error(database_path, "delete conversations", error))?;
+
+    // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
+    cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+
+    // 与归档库对称：删除后 VACUUM 重建文件，立即回收空闲页；
+    // 仅当确实删除了行时执行，失败记录日志后忽略
+    if deleted_rows > 0 {
+        if let Err(error) = connection.execute_batch("VACUUM") {
+            eprintln!(
+                "Snow App delete conversations VACUUM failed (conversations already deleted): {}",
+                error
+            );
+        }
+    }
 
     Ok(())
 }
@@ -573,4 +615,84 @@ pub fn get_conversation_api_profile(
         .map_err(|error| {
             database::database_error(database_path, "get conversation API profile", error)
         })
+}
+
+/// 收集消息中的内联图片标签路径（`@@image:upload/...@@`），去重。
+/// 仅匹配 `upload/` 前缀标签；图库图片标签（`@@image:image/...@@`）由
+/// image_library 的级联删除单独处理。
+fn collect_inline_upload_paths(
+    connection: &rusqlite::Connection,
+    conversation_ids: &[String],
+) -> rusqlite::Result<Vec<String>> {
+    const TAG_PREFIX: &str = "@@image:upload/";
+    let mut paths: Vec<String> = Vec::new();
+    for conversation_id in conversation_ids {
+        let mut statement = connection.prepare(
+            "SELECT content
+               FROM chat_messages
+              WHERE conversation_id = ?1
+                AND content LIKE '%@@image:upload/%@@%'",
+        )?;
+        let rows = statement.query_map(params![conversation_id], |row| {
+            row.get::<_, String>(0)
+        })?;
+        for row in rows {
+            let content = row?;
+            let mut rest = content.as_str();
+            while let Some(tag_start) = rest.find(TAG_PREFIX) {
+                let value_start = tag_start + TAG_PREFIX.len();
+                let value_and_rest = &rest[value_start..];
+                let Some(tag_end) = value_and_rest.find("@@") else {
+                    break;
+                };
+                let relative = format!("upload/{}", &value_and_rest[..tag_end]);
+                if !paths.contains(&relative) {
+                    paths.push(relative);
+                }
+                rest = &value_and_rest[tag_end + 2..];
+            }
+        }
+    }
+    Ok(paths)
+}
+
+/// 删除不再被任何消息引用的内联图片文件（孤儿清理）。
+/// 引用检查与物理删除失败仅记录日志，不阻断会话删除。
+fn cleanup_orphan_upload_files(
+    connection: &rusqlite::Connection,
+    database_path: &Path,
+    relative_paths: &[String],
+) {
+    if relative_paths.is_empty() {
+        return;
+    }
+    let Some(parent) = database_path.parent() else {
+        return;
+    };
+    let upload_root = parent.join("upload");
+    let Ok(canonical_root) = upload_root.canonicalize() else {
+        return;
+    };
+    for relative in relative_paths {
+        // 仍被其他会话消息引用则保留
+        let like_pattern = format!("%@@image:{}@@%", relative);
+        let referenced: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE content LIKE ?1)",
+                params![like_pattern],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if referenced {
+            continue;
+        }
+        // 防路径穿越：解析后必须仍位于 upload 根目录内
+        let file_path = parent.join(relative);
+        let Ok(canonical_file) = file_path.canonicalize() else {
+            continue;
+        };
+        if canonical_file.starts_with(&canonical_root) {
+            let _ = fs::remove_file(&canonical_file);
+        }
+    }
 }
