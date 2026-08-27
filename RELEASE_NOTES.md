@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.2.16
+
+## Improvements
+
+- **Team Collaboration Toggle**: New toggle for the team collaboration feature, off by default.
+- **Model List Sync**: The model list now syncs automatically after an API settings edit is saved.
+
 ## v0.2.15
 
 ## New Features
