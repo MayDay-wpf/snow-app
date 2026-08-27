@@ -19,7 +19,10 @@ import { ChatsSection } from "./mainSidebar/ChatsSection";
 import { PinnedSection } from "./mainSidebar/PinnedSection";
 import { ProjectsSection } from "./mainSidebar/ProjectsSection";
 import { TeamEntry } from "./mainSidebar/TeamEntry";
-import { useTeamSummary } from "../mainContent/team/useTeamData";
+import {
+  TEAM_ENABLED_CHANGED_EVENT,
+  useTeamSummary,
+} from "../mainContent/team/useTeamData";
 import { useCrossProjectNotifications } from "./mainSidebar/useCrossProjectNotifications";
 import { GlobalSearchModal } from "./GlobalSearchModal";
 import { MemoModal } from "./MemoModal";
@@ -67,9 +70,20 @@ export function MainSidebarContent({
 
   const activeDirectoryId = activeDirectory?.directoryId ?? "";
 
-  // 团队协作入口：仅在当前目录为 Git 仓库时展示（identity.isRepo 由 Rust 判定）
+  // 团队协作入口：仅在当前目录为 Git 仓库且团队协作开关开启时展示
+  // （identity.isRepo 由 Rust 判定，开关关闭时恒为 false）
+  const [teamRefreshKey, setTeamRefreshKey] = useState(0);
   const { identity: teamIdentity, pendingCount: teamPendingCount } =
-    useTeamSummary(activeDirectory?.path ?? "");
+    useTeamSummary(activeDirectory?.path ?? "", teamRefreshKey);
+
+  // 团队协作开关变化（通用设置面板）：立即重新解析身份，入口即时显隐
+  useEffect(() => {
+    const handler = () => setTeamRefreshKey((key) => key + 1);
+    window.addEventListener(TEAM_ENABLED_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(TEAM_ENABLED_CHANGED_EVENT, handler);
+    };
+  }, []);
 
   // 跨项目通知：聚合其他项目运行中/需关注/已完成的会话，供项目列表
   // 徽标与对话区域「跨项目通知」区块共同消费（单次查询、共享数据）。

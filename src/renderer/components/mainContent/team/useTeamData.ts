@@ -13,6 +13,12 @@ import { parseRecords } from "./teamUtils";
 
 const SYNC_INTERVAL_MS = 30_000;
 
+/** 团队协作启停开关变化事件：设置面板切换后派发，侧边栏监听并刷新入口。 */
+export const TEAM_ENABLED_CHANGED_EVENT = "snow:team-enabled-changed";
+
+/** 团队协作开关的系统设置 code（与 Rust 侧 team::TEAM_ENABLED_SETTING 一致）。 */
+export const TEAM_ENABLED_SETTING = "team_collaboration_enabled";
+
 /** 团队功能诊断日志：内联 JSON 输出到控制台（不折叠），并尝试写入 app 日志。 */
 export const teamLog = (message: string, context?: unknown): void => {
   const inline =
@@ -307,9 +313,11 @@ export const useTeamData = (workspacePath: string): TeamData => {
   };
 };
 
-/** 侧边栏入口用的轻量摘要：身份 + 待办数量。 */
+/** 侧边栏入口用的轻量摘要：身份 + 待办数量。refreshKey 变化时强制重新解析身份
+ * （团队协作开关切换后由侧边栏传入递增计数，实现入口即时显隐）。 */
 export const useTeamSummary = (
   workspacePath: string,
+  refreshKey = 0,
 ): {
   identity: TeamIdentity | null;
   pendingCount: number;
@@ -372,7 +380,7 @@ export const useTeamSummary = (
     })();
     const timer = window.setInterval(() => void load(), 45_000);
     return () => window.clearInterval(timer);
-  }, [workspacePath, load]);
+  }, [workspacePath, load, refreshKey]);
 
   return { identity, pendingCount, loading };
 };

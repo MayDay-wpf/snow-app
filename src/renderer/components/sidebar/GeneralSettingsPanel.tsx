@@ -18,6 +18,10 @@ import { localeLabels, useI18n, type Locale } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { OPEN_UPDATE_DIALOG_EVENT } from "./UpdateDialog";
+import {
+  TEAM_ENABLED_CHANGED_EVENT,
+  TEAM_ENABLED_SETTING,
+} from "../mainContent/team/useTeamData";
 import type { UpdateStatus } from "../../../preload";
 import type {
   DatabaseKind,
@@ -43,7 +47,8 @@ type CheckHint = "up-to-date" | "error" | null;
 const STORAGE_KINDS: StorageLocationKind[] = ["checkpoint", "upload"];
 
 // 会话上下文注入预算（与 Rust native 侧 context_attachments.rs 保持一致）
-const ATTACH_CONTEXT_SINGLE_BUDGET_SETTING = "attach_context_single_budget_chars";
+const ATTACH_CONTEXT_SINGLE_BUDGET_SETTING =
+  "attach_context_single_budget_chars";
 const ATTACH_CONTEXT_TOTAL_BUDGET_SETTING = "attach_context_total_budget_chars";
 const ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT = 40000;
 const ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT = 60000;
@@ -107,7 +112,7 @@ export function GeneralSettingsPanel({
   const [appVersion, setAppVersion] = useState<string>("");
   const [isChecking, setIsChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(
-    INITIAL_UPDATE_STATUS
+    INITIAL_UPDATE_STATUS,
   );
   const [checkHint, setCheckHint] = useState<CheckHint>(null);
 
@@ -116,7 +121,7 @@ export function GeneralSettingsPanel({
   /** 各存储路径的占用字节数（按路径索引；-1 表示读取失败） */
   const [pathSizes, setPathSizes] = useState<Record<string, number>>({});
   const [storageBusy, setStorageBusy] = useState<StorageLocationKind | null>(
-    null
+    null,
   );
   const [pendingMigration, setPendingMigration] =
     useState<PendingMigration | null>(null);
@@ -137,15 +142,36 @@ export function GeneralSettingsPanel({
 
   // 会话上下文注入预算（单附件 / 全部附件合计，字符数）
   const [attachSingleBudget, setAttachSingleBudget] = useState<string>(
-    String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+    String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT),
   );
   const [attachTotalBudget, setAttachTotalBudget] = useState<string>(
-    String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
+    String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT),
   );
   const [attachBudgetSaved, setAttachBudgetSaved] = useState(false);
   const attachBudgetSavedTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+
+  // 团队协作启停开关（默认关闭；写入 system_settings，Rust 侧据此放行）
+  const [teamEnabled, setTeamEnabled] = useState(false);
+
+  useEffect(() => {
+    window.snow
+      .getSystemSettingValue(TEAM_ENABLED_SETTING)
+      .then((value) => setTeamEnabled(value === "1"))
+      .catch(() => undefined);
+  }, []);
+
+  /** 切换团队协作开关：写系统设置后派发事件，侧边栏据此即时刷新入口。 */
+  const handleTeamEnabledChange = (checked: boolean): void => {
+    setTeamEnabled(checked);
+    void window.snow
+      .setSystemSetting("团队协作", TEAM_ENABLED_SETTING, checked ? "1" : "0")
+      .then(() => {
+        window.dispatchEvent(new CustomEvent(TEAM_ENABLED_CHANGED_EVENT));
+      })
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     void (async () => {
@@ -154,10 +180,10 @@ export function GeneralSettingsPanel({
         window.snow.getSystemSettingValue(ATTACH_CONTEXT_TOTAL_BUDGET_SETTING),
       ]);
       setAttachSingleBudget(
-        single ?? String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+        single ?? String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT),
       );
       setAttachTotalBudget(
-        total ?? String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
+        total ?? String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT),
       );
     })().catch(() => undefined);
     return () => {
@@ -204,14 +230,14 @@ export function GeneralSettingsPanel({
       .setSystemSetting(
         "会话上下文注入预算",
         ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
-        String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT)
+        String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT),
       )
       .then(() =>
         window.snow.setSystemSetting(
           "会话上下文注入预算",
           ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
-          String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT)
-        )
+          String(ATTACH_CONTEXT_TOTAL_BUDGET_DEFAULT),
+        ),
       )
       .then(() => {
         setAttachBudgetSaved(true);
@@ -237,8 +263,7 @@ export function GeneralSettingsPanel({
   /** 图库目录迁移进度（null 表示未在迁移） */
   const [imageLibraryMigration, setImageLibraryMigration] =
     useState<ImageLibraryMigrationState | null>(null);
-  const [imageLibraryRollingBack, setImageLibraryRollingBack] =
-    useState(false);
+  const [imageLibraryRollingBack, setImageLibraryRollingBack] = useState(false);
   /** 用户请求取消图库迁移（chunk 循环之间检查） */
   const imageLibraryCancelledRef = useRef(false);
   /** 组件卸载时若图库迁移仍进行中，触发回滚 */
@@ -309,11 +334,11 @@ export function GeneralSettingsPanel({
           } catch {
             return [target, -1] as const;
           }
-        })
+        }),
       );
       setPathSizes(Object.fromEntries(entries));
     },
-    []
+    [],
   );
 
   const loadLocations = useCallback(async (): Promise<void> => {
@@ -328,9 +353,7 @@ export function GeneralSettingsPanel({
       setImageLibraryCustomDir(libDir);
       void refreshPathSizes(value, libRoot);
     } catch (error) {
-      setStorageError(
-        error instanceof Error ? error.message : String(error)
-      );
+      setStorageError(error instanceof Error ? error.message : String(error));
     }
   }, [refreshPathSizes]);
 
@@ -357,7 +380,9 @@ export function GeneralSettingsPanel({
 
   const isMigrating = migration !== null || rollingBack;
   const isImageLibraryBusy =
-    imageLibraryMigration !== null || imageLibraryRollingBack || imageLibraryBusy;
+    imageLibraryMigration !== null ||
+    imageLibraryRollingBack ||
+    imageLibraryBusy;
 
   const handleOpenDir = async (dirPath: string): Promise<void> => {
     const errorMessage = await window.snow.openStorageDirectory(dirPath);
@@ -374,7 +399,7 @@ export function GeneralSettingsPanel({
           })
         : t("settings.storageSelectUploadDir", {
             defaultValue: "Select upload folder",
-          })
+          }),
     );
     if (!selected) {
       return;
@@ -407,7 +432,7 @@ export function GeneralSettingsPanel({
     try {
       const total = await window.snow.prepareStorageMigration(
         pending.kind,
-        pending.target
+        pending.target,
       );
       if (total === 0) {
         // 无需迁移（目标与当前相同或目录为空）：直接切换
@@ -447,7 +472,7 @@ export function GeneralSettingsPanel({
       setStorageError(
         migrationError instanceof Error
           ? migrationError.message
-          : String(migrationError)
+          : String(migrationError),
       );
     } finally {
       setRollingBack(false);
@@ -467,7 +492,7 @@ export function GeneralSettingsPanel({
     const selected = await window.snow.selectImageDirectory(
       t("settings.storageSelectImageLibraryDir", {
         defaultValue: "Select image library folder",
-      })
+      }),
     );
     if (!selected) {
       return;
@@ -499,7 +524,7 @@ export function GeneralSettingsPanel({
     setStorageError("");
     try {
       const total = await window.snow.prepareImageLibraryMigration(
-        pending.target
+        pending.target,
       );
       if (total === 0) {
         // 无需迁移（目标与当前相同或图库为空）：直接切换
@@ -538,7 +563,7 @@ export function GeneralSettingsPanel({
       setStorageError(
         migrationError instanceof Error
           ? migrationError.message
-          : String(migrationError)
+          : String(migrationError),
       );
     } finally {
       setImageLibraryRollingBack(false);
@@ -570,7 +595,7 @@ export function GeneralSettingsPanel({
             })
           : t("settings.storageRepairOk", {
               defaultValue: "Database is healthy and has been optimized.",
-            })
+            }),
       );
       // 修复可能改变数据库文件大小，刷新占用统计
       if (locations) {
@@ -714,6 +739,48 @@ export function GeneralSettingsPanel({
                 {localeLabels[supportedLocale]}
               </button>
             ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="api-settings-manual-form">
+        <div className="api-settings-manual-header">
+          <strong>
+            {t("settings.teamCollaboration", {
+              defaultValue: "团队协作",
+            })}
+          </strong>
+          <span>
+            {t("settings.teamCollaborationInfo", {
+              defaultValue:
+                "基于 Git 的共享数据平面：团队成员共同维护任务、评审与笔记，无需后端服务。默认关闭。",
+            })}
+          </span>
+        </div>
+
+        <div className="api-settings-form-body">
+          <div className="settings-about-row">
+            <span className="settings-item-description">
+              {t("settings.teamCollaborationEnabled", {
+                defaultValue: "启用团队协作",
+              })}
+            </span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={teamEnabled}
+                onChange={(event) =>
+                  handleTeamEnabledChange(event.target.checked)
+                }
+                hidden
+              />
+              <span className="toggle-slider" aria-hidden="true" />
+              <span>
+                {teamEnabled
+                  ? t("settings.enabled", { defaultValue: "已启用" })
+                  : t("settings.disabled", { defaultValue: "已关闭" })}
+              </span>
+            </label>
           </div>
         </div>
       </div>
@@ -973,8 +1040,8 @@ export function GeneralSettingsPanel({
                         ? Math.min(
                             100,
                             Math.round(
-                              (migration.copied / migration.total) * 100
-                            )
+                              (migration.copied / migration.total) * 100,
+                            ),
                           )
                         : 0
                     }%`,
@@ -999,10 +1066,7 @@ export function GeneralSettingsPanel({
                     defaultValue: "Image library",
                   })}
                 </span>
-                <span
-                  className="general-storage-path"
-                  title={imageLibraryRoot}
-                >
+                <span className="general-storage-path" title={imageLibraryRoot}>
                   {imageLibraryRoot || "—"}
                 </span>
                 {renderSize(imageLibraryRoot)}
@@ -1013,8 +1077,7 @@ export function GeneralSettingsPanel({
                 type="button"
                 className="general-storage-action"
                 onClick={() =>
-                  imageLibraryRoot &&
-                  void handleOpenDir(imageLibraryRoot)
+                  imageLibraryRoot && void handleOpenDir(imageLibraryRoot)
                 }
                 disabled={!imageLibraryRoot || isImageLibraryBusy}
                 title={t("settings.storageOpenDir", {
@@ -1106,8 +1169,8 @@ export function GeneralSettingsPanel({
                             Math.round(
                               (imageLibraryMigration.copied /
                                 imageLibraryMigration.total) *
-                                100
-                            )
+                                100,
+                            ),
                           )
                         : 0
                     }%`,
@@ -1152,7 +1215,7 @@ export function GeneralSettingsPanel({
               onBlur={() =>
                 saveAttachBudget(
                   ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
-                  attachSingleBudget
+                  attachSingleBudget,
                 )
               }
               title={t("settings.attachContextBudgetHint", {
@@ -1177,7 +1240,7 @@ export function GeneralSettingsPanel({
               onBlur={() =>
                 saveAttachBudget(
                   ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
-                  attachTotalBudget
+                  attachTotalBudget,
                 )
               }
               title={t("settings.attachContextBudgetHint", {
@@ -1213,9 +1276,7 @@ export function GeneralSettingsPanel({
 
       <div className="api-settings-manual-form">
         <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.about", { defaultValue: "About" })}
-          </strong>
+          <strong>{t("settings.about", { defaultValue: "About" })}</strong>
           <span>
             {t("settings.aboutInfo", {
               defaultValue: "Version and update management for Snow App.",

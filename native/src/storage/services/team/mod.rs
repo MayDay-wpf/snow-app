@@ -21,6 +21,23 @@ pub const TEAM_DIR: &str = "snow-team";
 const WORKTREE_REL: &str = ".snow/team-worktree";
 const MEMBER_HEARTBEAT_SECS: i64 = 600;
 
+/// 团队协作总开关的系统设置 code（DB 持久化）。默认关闭，显式写入 "1" 才启用。
+pub const TEAM_ENABLED_SETTING: &str = "team_collaboration_enabled";
+
+/// 团队协作是否启用：未写入或非 "1" 一律视为关闭。
+pub fn is_team_enabled() -> bool {
+    crate::storage::get_system_setting_value(TEAM_ENABLED_SETTING.to_string())
+        .ok()
+        .flatten()
+        .map(|value| value == "1")
+        .unwrap_or(false)
+}
+
+/// 团队协作关闭时的统一错误。
+fn team_disabled_err() -> Error {
+    Error::from_reason("team collaboration is disabled")
+}
+
 /// 串行化所有团队数据层操作（同一进程内），避免 sync/upsert 交错。
 fn team_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -254,6 +271,9 @@ fn ensure_team_worktree(repo_path: &str) -> Result<PathBuf> {
 /// 2. 否则扫描直接子目录（父目录包含仓库的场景，与 Git 面板一致）；
 /// 3. 都找不到则返回空串（渲染层据此提示"不是 Git 仓库"）。
 pub fn resolve_team_repo(path: &str) -> Result<String> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let mut current = PathBuf::from(path);
     loop {
         if current.join(".git").exists() {
@@ -292,6 +312,18 @@ fn resolve_repo_path_or_err(repo_path: &str) -> Result<String> {
 /// 渲染层传入什么路径，只要它位于某个 git 仓库内/上方都能命中，并返回
 /// 解析出的 `repo_path` 供渲染层后续操作使用。
 pub fn get_team_identity(repo_path: &str) -> Result<TeamIdentity> {
+    // 总开关：默认关闭，未启用时直接返回非仓库身份（侧边栏入口与团队面板均隐藏）
+    if !is_team_enabled() {
+        return Ok(TeamIdentity {
+            is_repo: false,
+            repo_path: String::new(),
+            name: String::new(),
+            email: String::new(),
+            remote_url: String::new(),
+            has_identity: false,
+            error: Some("team collaboration disabled".into()),
+        });
+    }
     let resolved = if is_git_repo(repo_path) {
         repo_path.to_string()
     } else {
@@ -333,6 +365,9 @@ pub fn get_team_identity(repo_path: &str) -> Result<TeamIdentity> {
 
 /// 配置仓库本地身份（git config user.name/user.email）。返回更新后的身份。
 pub fn configure_team_identity(repo_path: &str, name: &str, email: &str) -> Result<TeamIdentity> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -349,6 +384,9 @@ pub fn configure_team_identity(repo_path: &str, name: &str, email: &str) -> Resu
 
 /// 全量同步：确保 worktree → fetch origin → 合并/变基 → 推送本地提交。
 pub fn sync_team(repo_path: &str) -> Result<TeamSyncResult> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -562,6 +600,9 @@ fn bump_member_last_seen(repo_path: &str, worktree: &Path) -> Option<String> {
 
 /// 列出某类记录，返回原始 JSON 字符串数组（未格式化，便于直接透传）。
 pub fn list_team_records(repo_path: &str, kind: &str) -> Result<Vec<String>> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -597,6 +638,9 @@ pub fn list_team_records(repo_path: &str, kind: &str) -> Result<Vec<String>> {
 
 /// 写入或更新一条记录：写文件 → 提交（使用用户 git 身份）。
 pub fn upsert_team_record(repo_path: &str, kind: &str, id: &str, json: &str) -> Result<String> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -651,6 +695,9 @@ pub fn upsert_team_record(repo_path: &str, kind: &str, id: &str, json: &str) -> 
 
 /// 删除一条记录（git rm + 提交）。
 pub fn delete_team_record(repo_path: &str, kind: &str, id: &str) -> Result<bool> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -702,6 +749,9 @@ pub fn save_team_media(
     file_name: &str,
     base64_data: &str,
 ) -> Result<String> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
@@ -795,6 +845,9 @@ pub fn save_team_media(
 
 /// 读取团队笔记媒体文件，返回 data URL（`data:<mime>;base64,...`）。
 pub fn read_team_media(repo_path: &str, rel: &str) -> Result<String> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
     let _guard = team_lock()
         .lock()
         .map_err(|_| Error::from_reason("team lock poisoned"))?;
