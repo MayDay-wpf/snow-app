@@ -3,7 +3,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -137,6 +136,26 @@ const renderMarkdown = async (content: string): Promise<string> => {
   const html = await dispatchRender(content);
   cacheSet(content, html);
   return html;
+};
+
+/**
+ * 流式柔和渐显使用的 CSS 类：每帧新增的文本被包进带该类名的 span，
+ * 通过 opacity 动画从透明柔和浮现，替代打字机式的整块跳变。
+ */
+const MD_STREAM_FADE_CLASS = "md-stream-fade-in";
+
+/** 深度优先找到 DOM 树中最后一个非空文本节点（流式新增内容的锚点）。 */
+const findLastNonEmptyTextNode = (root: Node): Text | null => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null;
+  let current: Node | null;
+  while ((current = walker.nextNode())) {
+    const text = current as Text;
+    if (text.nodeValue && text.nodeValue.trim().length > 0) {
+      last = text;
+    }
+  }
+  return last;
 };
 
 /**
@@ -350,11 +369,6 @@ export const MarkdownBlock = memo(
   }): React.JSX.Element => {
     const html = useMarkdownRender(content, minRenderIntervalMs);
 
-    // 稳定 dangerouslySetInnerHTML 对象引用：React 按引用比较该 prop，
-    // 每次渲染都新建对象会让 hover 等重渲染重设 innerHTML 重建整个 DOM
-    // （img 重新加载 → 来源徽章图标闪烁）。html 不变则引用不变。
-    const htmlContent = useMemo(() => ({ __html: html }), [html]);
-
     const containerRef = useRef<HTMLDivElement | null>(null);
 
     // Markdown 图片灯箱：点击图片在放大视图中查看（复用生图工具灯箱样式）。
@@ -419,6 +433,72 @@ export const MarkdownBlock = memo(
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [lightboxSrc]);
+
+    // 流式柔和渐显：接管 innerHTML，把每帧新增的文本包进淡入 span。
+    // 与整块替换（打字机式跳变）不同，旧文字保持原 DOM 稳定不动，只有
+    // 新增部分做 opacity 动画从透明浮现。
+    //
+    // 文本层面前缀匹配：流式内容几乎总是"最后一个文本节点持续增长"
+    // （段落/代码块内），命中后只增量插入 span；markdown 结构变化
+    // （新标题、代码块开始、标记闭合等）时回退整块重建，新最后文本
+    // 整体淡入。streaming 结束时内容已完整渲染，不重建 DOM，让最后一
+    // 段动画自然完成（停止/结束时文字不会突然跳成正色）。
+    const lastStreamTextRef = useRef("");
+    const lastHtmlRef = useRef("");
+    useLayoutEffect(() => {
+      const node = containerRef.current;
+      if (!node || !html) {
+        return;
+      }
+
+      if (!streaming) {
+        lastStreamTextRef.current = "";
+        if (html !== lastHtmlRef.current) {
+          node.innerHTML = html;
+          lastHtmlRef.current = html;
+        }
+        return;
+      }
+
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const newLastText = findLastNonEmptyTextNode(doc.body);
+      if (!newLastText) {
+        node.innerHTML = html;
+        lastHtmlRef.current = html;
+        return;
+      }
+      const fullText = newLastText.nodeValue ?? "";
+      const prevText = lastStreamTextRef.current;
+
+      // 首帧或结构变化：整块重建，并让新最后文本整体淡入。
+      if (!prevText || !fullText.startsWith(prevText)) {
+        node.innerHTML = html;
+        lastHtmlRef.current = html;
+        lastStreamTextRef.current = fullText;
+        const domLastText = findLastNonEmptyTextNode(node);
+        if (domLastText) {
+          const span = document.createElement("span");
+          span.className = MD_STREAM_FADE_CLASS;
+          span.textContent = domLastText.nodeValue ?? "";
+          domLastText.parentNode?.replaceChild(span, domLastText);
+        }
+        return;
+      }
+
+      // 尾部持续增长：在容器当前最后一个文本节点后追加淡入 span。
+      const newPart = fullText.slice(prevText.length);
+      lastStreamTextRef.current = fullText;
+      if (newPart.trim().length === 0) {
+        return;
+      }
+      const domLastText = findLastNonEmptyTextNode(node);
+      if (domLastText?.parentNode) {
+        const span = document.createElement("span");
+        span.className = MD_STREAM_FADE_CLASS;
+        span.textContent = newPart;
+        domLastText.parentNode.insertBefore(span, domLastText.nextSibling);
+      }
+    }, [html, streaming]);
 
     // During streaming, skip all mermaid operations entirely — only the code
     // view is shown. Once streaming ends (`streaming` flips to false), both
@@ -591,7 +671,6 @@ export const MarkdownBlock = memo(
       <>
         <div
           className={className}
-          dangerouslySetInnerHTML={htmlContent}
           onClick={handleClick}
           onAuxClick={handleClick}
           onMouseOver={handleBadgeMouseOver}

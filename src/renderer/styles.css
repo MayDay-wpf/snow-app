@@ -9155,14 +9155,6 @@ input {
   display: none;
 }
 
-.chat-message-group.is-sending .ai-message {
-  color: var(--text-secondary);
-}
-
-.chat-message-group.is-sending .ai-message-summary p {
-  color: var(--text-tertiary);
-}
-
 .ai-message-summary.is-streaming::after,
 .stream-cursor-dot {
   display: inline-block;
@@ -9173,6 +9165,21 @@ input {
   vertical-align: 0.05em;
   animation: stream-dot-pulse 1s ease-in-out infinite;
   content: "";
+}
+
+/* 流式输出新文字柔和渐显：每帧新增文本包进该 span，从透明浮现，
+   替代打字机式的整块跳变。旧文字保持原 DOM 稳定不动。 */
+.md-stream-fade-in {
+  animation: md-stream-fade-in 0.3s ease-out both;
+}
+
+@keyframes md-stream-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .stream-cursor {
