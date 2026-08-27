@@ -39067,6 +39067,209 @@ body.ctrl-held [data-path] {
   cursor: not-allowed;
 }
 
+/* ---- 消息附件 ---- */
+.team-feed-composer {
+  flex-shrink: 0;
+}
+.team-feed-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--accent-red, #e5484d);
+  background: var(--bg-hover);
+  border-radius: var(--radius-md);
+}
+.team-feed-notice span {
+  flex: 1;
+}
+.team-feed-notice button {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 2px;
+}
+.team-feed-notice button:hover {
+  opacity: 1;
+}
+.team-feed-pending {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+.team-feed-pending-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 6px 3px 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--surface-island);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.team-feed-pending-item img {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+.team-feed-pending-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+}
+.team-feed-pending-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-feed-pending-item button {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+}
+.team-feed-pending-item button:hover {
+  color: var(--accent-red, #e5484d);
+}
+.team-feed-uploading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.team-feed-uploading svg {
+  animation: spin 0.9s linear infinite;
+}
+.team-feed-tools {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.team-feed-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+.team-feed-tool-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.team-feed-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 气泡内附件区 */
+.team-feed-message-bubble .team-feed-message-text + .team-feed-attachments,
+.team-feed-message-bubble .team-feed-attachments:not(:first-child) {
+  margin-top: 6px;
+}
+.team-feed-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.team-feed-attach-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.team-feed-attach-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 116px;
+  height: 86px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  overflow: hidden;
+}
+.team-feed-attach-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.15s ease;
+}
+.team-feed-attach-thumb:hover img {
+  transform: scale(1.04);
+}
+.team-feed-attach-thumb.is-loading svg {
+  animation: spin 0.9s linear infinite;
+}
+.team-feed-attach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.team-feed-attach-file:hover {
+  background: var(--border-subtle);
+}
+.team-feed-attach-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-feed-attach-file-size {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+/* 图片预览灯箱 */
+.team-feed-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+.team-feed-lightbox img {
+  max-width: 90vw;
+  max-height: 90vh;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.4);
+}
+
 /* ---- 任务 / 评审列表 ---- */
 .team-task-groups {
   flex: 1;

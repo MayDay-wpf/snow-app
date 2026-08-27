@@ -159,11 +159,24 @@ pub struct TeamMember {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TeamMessageAttachment {
+    pub name: String,
+    /// `snow-team/media/<message_id>/<file>` 相对路径。
+    pub path: String,
+    pub size: i64,
+    pub is_image: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamMessage {
     pub id: String,
     pub channel: String,
     pub author_email: String,
     pub content: String,
+    #[serde(default)]
+    pub attachments: Vec<TeamMessageAttachment>,
     pub created_at: String,
 }
 
@@ -764,14 +777,59 @@ pub fn delete_team_record(repo_path: &str, kind: &str, id: &str) -> Result<bool>
 const TEAM_MEDIA_MAX_BYTES: usize = 5 * 1024 * 1024;
 const TEAM_MEDIA_REL_PREFIX: &str = "snow-team/media/";
 
-/// 保存团队笔记媒体文件（图片）到 snow/team 分支的 `snow-team/media/<note_id>/`
-/// 目录，随笔记一起经 git 同步。`base64_data` 支持 `data:image/*;base64,...`
-/// 或裸 base64，返回相对路径 `snow-team/media/<note_id>/<file_name>`。
-pub fn save_team_media(
+/// 团队媒体文件所有者 id（笔记/消息 id）校验。
+fn validate_owner_id(owner_id: &str) -> Result<()> {
+    if owner_id.is_empty()
+        || owner_id.len() > 128
+        || !owner_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(Error::from_reason("invalid owner id"));
+    }
+    Ok(())
+}
+
+/// 黑名单扩展名：禁止可执行/脚本类文件随仓库分发。
+const BLOCKED_FILE_EXTS: &[&str] = &[
+    "exe", "dll", "so", "dylib", "bat", "cmd", "com", "msi", "scr", "vbs",
+    "vbe", "ps1", "psm1", "app", "deb", "rpm", "pkg", "dmg", "reg", "inf",
+];
+
+/// 文件名安全化：保留原名（含中文），剥掉路径成分与危险字符。
+fn sanitize_file_name(file_name: &str) -> Result<String> {
+    let base = Path::new(file_name.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').to_string();
+    if cleaned.is_empty() || cleaned.len() > 160 {
+        return Err(Error::from_reason("invalid file name"));
+    }
+    Ok(cleaned)
+}
+
+fn image_ext_ok(ext: &str) -> bool {
+    matches!(
+        ext,
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "svg"
+    )
+}
+
+/// 保存团队媒体文件（图片或通用附件）到 snow/team 分支的
+/// `snow-team/media/<owner_id>/` 目录，随后经 git 同步共享。
+/// `base64_data` 支持 `data:*/*;base64,...` 或裸 base64，
+/// 返回相对路径 `snow-team/media/<owner_id>/<file_name>`。
+pub fn save_media_file(
     repo_path: &str,
-    note_id: &str,
+    owner_id: &str,
     file_name: &str,
     base64_data: &str,
+    image_only: bool,
 ) -> Result<String> {
     if !is_team_enabled() {
         return Err(team_disabled_err());
@@ -783,31 +841,20 @@ pub fn save_team_media(
         return Err(Error::from_reason("not a git repository"));
     }
     let repo_path = resolve_repo_path_or_err(repo_path)?;
-    let note_id = note_id.trim();
-    if note_id.is_empty()
-        || note_id.len() > 128
-        || !note_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(Error::from_reason("invalid note id"));
-    }
-    let file_name = file_name.trim();
-    if file_name.is_empty()
-        || file_name.len() > 80
-        || !file_name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
-    {
-        return Err(Error::from_reason("invalid file name"));
-    }
-    let ext = Path::new(file_name)
+    let owner_id = owner_id.trim();
+    validate_owner_id(owner_id)?;
+    let file_name = sanitize_file_name(file_name)?;
+    let ext = Path::new(&file_name)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp") {
-        return Err(Error::from_reason("unsupported image extension"));
+    if image_only {
+        if !image_ext_ok(&ext) {
+            return Err(Error::from_reason("unsupported image extension"));
+        }
+    } else if BLOCKED_FILE_EXTS.contains(&ext.as_str()) {
+        return Err(Error::from_reason("file type not allowed"));
     }
 
     // 解析 data URL 或裸 base64
@@ -818,7 +865,7 @@ pub fn save_team_media(
                 .split_once(',')
                 .ok_or_else(|| Error::from_reason("invalid data url"))?;
             let mime = meta.split(';').next().unwrap_or("").trim().to_lowercase();
-            if !mime.starts_with("image/") {
+            if image_only && !mime.starts_with("image/") {
                 return Err(Error::from_reason("only image data urls allowed"));
             }
             data
@@ -831,26 +878,26 @@ pub fn save_team_media(
         .decode(b64)
         .map_err(|e| Error::from_reason(format!("invalid base64: {e}")))?;
     if bytes.is_empty() {
-        return Err(Error::from_reason("empty image data"));
+        return Err(Error::from_reason("empty media data"));
     }
     if bytes.len() > TEAM_MEDIA_MAX_BYTES {
         return Err(Error::from_reason(format!(
-            "image exceeds {} bytes",
+            "file exceeds {} bytes",
             TEAM_MEDIA_MAX_BYTES
         )));
     }
 
     let worktree = ensure_team_worktree(&repo_path)?;
-    let dir = worktree.join(TEAM_DIR).join("media").join(note_id);
+    let dir = worktree.join(TEAM_DIR).join("media").join(owner_id);
     fs::create_dir_all(&dir).map_err(io_err)?;
-    let path = dir.join(file_name);
+    let path = dir.join(&file_name);
     fs::write(&path, &bytes).map_err(io_err)?;
-    let rel = format!("{TEAM_DIR}/media/{note_id}/{file_name}");
+    let rel = format!("{TEAM_DIR}/media/{owner_id}/{file_name}");
     let wt = worktree
         .to_str()
         .ok_or_else(|| Error::from_reason("invalid worktree path"))?;
     run_git(wt, &["add", "--", &rel])?;
-    let msg = format!("team: media {note_id} {file_name}");
+    let msg = format!("team: media {owner_id} {file_name}");
     match run_git(wt, &["commit", "-m", &msg]) {
         Ok(_) => Ok(rel),
         Err(e) => {
@@ -867,7 +914,63 @@ pub fn save_team_media(
     }
 }
 
-/// 读取团队笔记媒体文件，返回 data URL（`data:<mime>;base64,...`）。
+/// 保存团队笔记媒体文件（图片），供笔记编辑器使用。
+pub fn save_team_media(
+    repo_path: &str,
+    note_id: &str,
+    file_name: &str,
+    base64_data: &str,
+) -> Result<String> {
+    save_media_file(repo_path, note_id, file_name, base64_data, true)
+}
+
+/// 保存团队消息附件（图片或普通文件）。
+pub fn save_team_file(
+    repo_path: &str,
+    message_id: &str,
+    file_name: &str,
+    base64_data: &str,
+) -> Result<String> {
+    save_media_file(repo_path, message_id, file_name, base64_data, false)
+}
+
+/// 删除某条记录（笔记/消息）的整个媒体目录（git rm -r + 提交）。
+pub fn delete_team_media(repo_path: &str, owner_id: &str) -> Result<bool> {
+    if !is_team_enabled() {
+        return Err(team_disabled_err());
+    }
+    let _guard = team_lock()
+        .lock()
+        .map_err(|_| Error::from_reason("team lock poisoned"))?;
+    if !is_git_repo(repo_path) {
+        return Ok(false);
+    }
+    let repo_path = resolve_repo_path_or_err(repo_path)?;
+    let owner_id = owner_id.trim();
+    validate_owner_id(owner_id)?;
+    let worktree = ensure_team_worktree(&repo_path)?;
+    let dir_rel = format!("{TEAM_DIR}/media/{owner_id}");
+    if !worktree.join(&dir_rel).exists() {
+        return Ok(false);
+    }
+    let wt = worktree
+        .to_str()
+        .ok_or_else(|| Error::from_reason("invalid worktree path"))?;
+    run_git(wt, &["rm", "-r", "--quiet", "--", &dir_rel])?;
+    let msg = format!("team: media delete {owner_id}");
+    match run_git(wt, &["commit", "-m", &msg]) {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            let msg_lower = e.to_string();
+            if msg_lower.contains("nothing to commit") || msg_lower.contains("no changes added") {
+                return Ok(true);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// 读取团队媒体文件，返回 data URL（`data:<mime>;base64,...`）。
 pub fn read_team_media(repo_path: &str, rel: &str) -> Result<String> {
     if !is_team_enabled() {
         return Err(team_disabled_err());
@@ -895,7 +998,22 @@ pub fn read_team_media(repo_path: &str, rel: &str) -> Result<String> {
         "webp" => "image/webp",
         "gif" => "image/gif",
         "bmp" => "image/bmp",
-        _ => "image/png",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "pdf" => "application/pdf",
+        "json" => "application/json",
+        "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip",
+        "tar" => "application/x-tar",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "txt" | "md" | "log" => "text/plain; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "xml" | "html" | "htm" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
     };
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
     Ok(format!(

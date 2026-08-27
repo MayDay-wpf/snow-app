@@ -3729,8 +3729,7 @@ export const zhTW = {
   "team.header.editIdentity": "修改身分",
   "team.activity.empty":
     "還沒有團隊動態。建立任務、發起評審或發一則訊息開始協作吧。",
-  "team.activity.placeholder":
-    "發一則團隊訊息…（Enter 送出，Shift+Enter 換行）",
+  "team.activity.placeholder": "發一則團隊訊息…",
   "team.activity.send": "送出",
   "team.activity.created": "建立了「{{title}}」",
   "team.activity.assigned": "把任務「{{title}}」指派給 {{assignee}}",
@@ -3747,6 +3746,14 @@ export const zhTW = {
   "team.activity.deleteTitle": "刪除動態",
   "team.activity.deleteMessage":
     "刪除後會同步給團隊其他成員，且無法復原。確定刪除嗎？",
+  "team.activity.attachFile": "傳送附件",
+  "team.activity.uploading": "上傳中…",
+  "team.activity.fileTooLarge": "{{name}} 超過 5MB，無法傳送",
+  "team.activity.fileReadFailed": "檔案讀取失敗",
+  "team.activity.fileUploadFailed": "附件上傳失敗，請重試",
+  "team.activity.tooManyFiles": "一則訊息最多 {{count}} 個附件",
+  "team.activity.removeFile": "移除",
+  "team.activity.fileBlocked": "{{name}} 類型不支援傳送",
   "team.tasks.title": "任務",
   "team.tasks.new": "新增任務",
   "team.tasks.empty": "還沒有任務。建立一個任務，指派給隊友，讓 AI 接力執行。",

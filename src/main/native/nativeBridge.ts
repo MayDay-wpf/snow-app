@@ -936,6 +936,14 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to read team media"),
         ),
+      teamFileSave: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to save team files"),
+        ),
+      teamMediaDelete: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete team media"),
+        ),
       listMcpTools: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list MCP tools"),

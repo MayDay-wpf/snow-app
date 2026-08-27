@@ -3928,8 +3928,7 @@ export const en = {
   "team.header.editIdentity": "Edit identity",
   "team.activity.empty":
     "No team activity yet. Create a task, request a review, or send a message to start collaborating.",
-  "team.activity.placeholder":
-    "Send a team message... (Enter to send, Shift+Enter for newline)",
+  "team.activity.placeholder": "Send a team message...",
   "team.activity.send": "Send",
   "team.activity.created": 'created "{{title}}"',
   "team.activity.assigned": 'assigned "{{title}}" to {{assignee}}',
@@ -3946,6 +3945,14 @@ export const en = {
   "team.activity.deleteTitle": "Delete activity",
   "team.activity.deleteMessage":
     "This will sync to other members and cannot be undone. Delete it?",
+  "team.activity.attachFile": "Attach file",
+  "team.activity.uploading": "Uploading…",
+  "team.activity.fileTooLarge": "{{name}} exceeds 5MB and cannot be sent",
+  "team.activity.fileReadFailed": "Failed to read file",
+  "team.activity.fileUploadFailed": "Failed to upload attachment, try again",
+  "team.activity.tooManyFiles": "At most {{count}} attachments per message",
+  "team.activity.removeFile": "Remove",
+  "team.activity.fileBlocked": "{{name}} file type is not allowed",
   "team.tasks.title": "Tasks",
   "team.tasks.new": "New task",
   "team.tasks.empty":

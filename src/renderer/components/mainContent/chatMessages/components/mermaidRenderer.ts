@@ -33,6 +33,36 @@ const isDarkTheme = (): boolean =>
 
 const currentThemeKey = (): string => (isDarkTheme() ? "dark" : "light");
 
+const RENDER_TIMEOUT_MS = 10000;
+const IMPORT_TIMEOUT_MS = 15000;
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+
+const delay = (ms = 200): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const safeDecode = (value: string | null): string => {
+  if (!value) return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // SVG render cache
 // ---------------------------------------------------------------------------
@@ -69,24 +99,26 @@ let initializedTheme: string | null = null;
 
 const getMermaid = async (): Promise<typeof import("mermaid").default> => {
   if (!mermaidPromise) {
-    mermaidPromise = import("mermaid").then((mod) => {
-      const mermaid = mod.default;
-      const theme = currentThemeKey();
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: theme === "dark" ? "dark" : "default",
-        securityLevel: "strict",
-        fontFamily: "inherit",
-      });
-      initializedTheme = theme;
-      return mermaid;
-    });
+    mermaidPromise = withTimeout(import("mermaid"), IMPORT_TIMEOUT_MS).then(
+      (mod) => {
+        const mermaid = mod.default;
+        const theme = currentThemeKey();
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: theme === "dark" ? "dark" : "default",
+          securityLevel: "strict",
+          fontFamily: "inherit",
+        });
+        initializedTheme = theme;
+        return mermaid;
+      },
+    );
   }
   return mermaidPromise;
 };
 
 const ensureTheme = async (
-  mermaid: typeof import("mermaid").default
+  mermaid: typeof import("mermaid").default,
 ): Promise<void> => {
   const theme = currentThemeKey();
   if (initializedTheme !== theme) {
@@ -115,6 +147,17 @@ const enqueueMermaidRender = (task: () => Promise<void>): Promise<void> => {
   return next;
 };
 
+let catchUpScheduled = false;
+
+const scheduleCatchUpScan = (): void => {
+  if (catchUpScheduled) return;
+  catchUpScheduled = true;
+  window.setTimeout(() => {
+    catchUpScheduled = false;
+    void renderMermaidBlocks(document);
+  }, 300);
+};
+
 /**
  * Apply the cached SVG (if any) to a single block and set the view mode.
  * Returns true if a cache hit was applied.
@@ -122,15 +165,14 @@ const enqueueMermaidRender = (task: () => Promise<void>): Promise<void> => {
 const applyCache = (
   block: HTMLElement,
   source: string,
-  themeKey: string
+  themeKey: string,
 ): boolean => {
   const entry = svgCache.get(source);
   if (!entry || entry.theme !== themeKey) return false;
 
   const diagramView = block.querySelector<HTMLElement>(".mermaid-view-diagram");
-  if (diagramView) {
-    diagramView.innerHTML = entry.svg;
-  }
+  if (!diagramView) return false;
+  diagramView.innerHTML = entry.svg;
   block.setAttribute(RENDERED_ATTR, themeKey);
 
   const pref = viewPreferences.get(source) ?? "diagram";
@@ -150,7 +192,7 @@ export const injectCachedDiagrams = (root: ParentNode): void => {
 
   const themeKey = currentThemeKey();
   blocks.forEach((block) => {
-    const source = decodeURIComponent(block.getAttribute("data-mermaid") ?? "");
+    const source = safeDecode(block.getAttribute("data-mermaid"));
     applyCache(block, source, themeKey);
   });
 };
@@ -164,22 +206,23 @@ export const injectCachedDiagrams = (root: ParentNode): void => {
  */
 const renderMermaidWithRetry = async (
   mermaid: typeof import("mermaid").default,
-  source: string
+  source: string,
 ): Promise<{ svg: string; id: string }> => {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const id = `mmd-${renderIdCounter++}`;
     try {
-      const result = await mermaid.render(id, source);
+      const result = await withTimeout(
+        mermaid.render(id, source),
+        RENDER_TIMEOUT_MS,
+      );
       return { svg: result.svg, id };
     } catch (error) {
       document.getElementById(id)?.remove();
       lastError = error;
       if (attempt === 0) {
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve())
-        );
+        await delay();
       }
     }
   }
@@ -209,7 +252,7 @@ export const renderMermaidBlocks = (root: ParentNode): Promise<void> =>
     blocks.forEach((block) => {
       if (block.getAttribute(RENDERED_ATTR) === themeKey) return;
 
-      const source = decodeURIComponent(block.getAttribute("data-mermaid") ?? "");
+      const source = safeDecode(block.getAttribute("data-mermaid"));
       if (applyCache(block, source, themeKey)) return;
       pending.push({ block, source });
     });
@@ -220,14 +263,16 @@ export const renderMermaidBlocks = (root: ParentNode): Promise<void> =>
       try {
         const { svg, id } = await renderMermaidWithRetry(mermaid, source);
 
+        cacheSet(source, { svg, theme: themeKey });
+
         if (!block.isConnected) {
           document.getElementById(id)?.remove();
+          scheduleCatchUpScan();
           continue;
         }
 
-        cacheSet(source, { svg, theme: themeKey });
         const diagramView = block.querySelector<HTMLElement>(
-          ".mermaid-view-diagram"
+          ".mermaid-view-diagram",
         );
         if (diagramView) {
           diagramView.innerHTML = svg;
@@ -255,11 +300,11 @@ export const renderMermaidBlocks = (root: ParentNode): Promise<void> =>
  */
 export const setMermaidView = (
   block: HTMLElement,
-  view: "code" | "diagram"
+  view: "code" | "diagram",
 ): void => {
   if (view === "diagram" && !block.hasAttribute(RENDERED_ATTR)) return;
 
-  const source = decodeURIComponent(block.getAttribute("data-mermaid") ?? "");
+  const source = safeDecode(block.getAttribute("data-mermaid"));
   viewPreferences.set(source, view);
   block.setAttribute(VIEW_ATTR, view);
 };
@@ -294,7 +339,7 @@ const serializeSvg = (svg: SVGSVGElement): string => {
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(
-    clone
+    clone,
   )}`;
 };
 
@@ -315,7 +360,7 @@ const downloadBlob = (blob: Blob, filename: string): void => {
 const saveFile = async (
   blob: Blob,
   filename: string,
-  mimeTypes: string[]
+  mimeTypes: string[],
 ): Promise<void> => {
   // showSaveFilePicker is available in Electron (Chromium-based) and modern browsers.
   const picker = (
@@ -360,7 +405,7 @@ const saveFile = async (
  * aspect ratio and full resolution.
  */
 const getSvgDimensions = (
-  svg: SVGSVGElement
+  svg: SVGSVGElement,
 ): { width: number; height: number } => {
   const viewBox = svg.viewBox.baseVal;
   if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
@@ -399,7 +444,7 @@ const serializeSvgForRaster = (svg: SVGSVGElement): string => {
 const rasterizeSvg = (
   svg: SVGSVGElement,
   format: "png" | "jpg",
-  scale: number
+  scale: number,
 ): Promise<HTMLCanvasElement> => {
   const { width, height } = getSvgDimensions(svg);
   const canvas = document.createElement("canvas");
@@ -418,7 +463,7 @@ const rasterizeSvg = (
   // data: but not blob:. Encoding the SVG as base64 keeps it CSP-compliant.
   const svgString = serializeSvgForRaster(svg);
   const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-    svgString
+    svgString,
   )}`;
 
   return new Promise<HTMLCanvasElement>((resolve, reject) => {
@@ -444,7 +489,7 @@ const rasterizeSvg = (
 export const exportMermaid = async (
   block: HTMLElement,
   format: MermaidExportFormat,
-  baseName = "mermaid-diagram"
+  baseName = "mermaid-diagram",
 ): Promise<void> => {
   const svg = getBlockSvg(block);
   if (!svg) return;
@@ -459,7 +504,7 @@ export const exportMermaid = async (
   const canvas = await rasterizeSvg(svg, format, EXPORT_SCALE);
   const mime = format === "png" ? "image/png" : "image/jpeg";
   const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, mime, 0.95)
+    canvas.toBlob(resolve, mime, 0.95),
   );
   if (!blob) return;
   await saveFile(blob, `${baseName}.${format}`, [mime]);
@@ -478,7 +523,7 @@ export const exportMermaid = async (
  */
 export const openExportMenu = (
   anchorEl: HTMLElement,
-  block: HTMLElement
+  block: HTMLElement,
 ): void => {
   // Remove any existing export menu first.
   document
@@ -706,19 +751,19 @@ export const openMermaidImageViewer = (block: HTMLElement): void => {
 
   const zoomInBtn = makeBtn(
     "Zoom in",
-    '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/>'
+    '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/>',
   );
   const zoomOutBtn = makeBtn(
     "Zoom out",
-    '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="8" x2="14" y1="11" y2="11"/>'
+    '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="8" x2="14" y1="11" y2="11"/>',
   );
   const resetBtn = makeBtn(
     "Reset",
-    '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'
+    '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
   );
   const closeBtn = makeBtn(
     "Close",
-    '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+    '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   );
 
   zoomInBtn.addEventListener("click", () => zoomBy(1.25));
@@ -745,7 +790,7 @@ export const openMermaidImageViewer = (block: HTMLElement): void => {
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       zoomBy(factor, cx, cy);
     },
-    { passive: false }
+    { passive: false },
   );
 
   // --- Drag pan -----------------------------------------------------------

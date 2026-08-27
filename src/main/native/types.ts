@@ -1891,8 +1891,17 @@ export type NativeBridge = {
     fileName: string,
     base64Data: string,
   ) => Promise<string>;
-  /** 读取团队笔记媒体文件，返回 data URL。 */
+  /** 读取团队媒体文件，返回 data URL。 */
   teamMediaRead: (repoPath: string, rel: string) => Promise<string>;
+  /** 保存团队消息附件（图片或普通文件），返回 `snow-team/media/...` 相对路径。 */
+  teamFileSave: (
+    repoPath: string,
+    messageId: string,
+    fileName: string,
+    base64Data: string,
+  ) => Promise<string>;
+  /** 删除某条记录（消息/笔记）的整个媒体目录。 */
+  teamMediaDelete: (repoPath: string, ownerId: string) => Promise<boolean>;
   generateCommitMessage: (
     repoPath: string,
     onChunk: (chunk: ResponsesApiStreamChunk) => void,

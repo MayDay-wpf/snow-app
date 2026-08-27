@@ -1,16 +1,21 @@
 import {
   BookOpen,
   CircleAlert,
+  Download,
+  FileText,
   GitPullRequest,
   ListTodo,
   LoaderCircle,
+  Paperclip,
   Send,
   Trash2,
   UserPlus,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TeamMessage } from "../../../../preload";
+import type { TeamMessage, TeamMessageAttachment } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { dataUrlToBlob, saveBlobToFile } from "../../../utils/imageDownload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import type { TeamData } from "./useTeamData";
 import { TeamAvatar } from "./TeamShared";
@@ -33,6 +38,54 @@ const EVENT_ICON: Record<string, React.JSX.Element> = {
 /** 本地待确认的消息发送态（IM 风格：立即上屏 + 推送结果反馈）。 */
 type OutboxItem = { record: TeamMessage; state: "sending" | "failed" };
 
+/** 草稿区待发送附件（dataUrl 在内存中，点发送才落盘上传）。 */
+type PendingFile = {
+  name: string;
+  size: number;
+  isImage: boolean;
+  dataUrl: string;
+};
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_PENDING_FILES = 9;
+
+/** 与 Rust 侧图片白名单保持一致 */
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"];
+/** 与 Rust 侧附件黑名单保持一致 */
+const BLOCKED_EXTS = [
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "bat",
+  "cmd",
+  "com",
+  "msi",
+  "scr",
+  "vbs",
+  "vbe",
+  "ps1",
+  "psm1",
+  "app",
+  "deb",
+  "rpm",
+  "pkg",
+  "dmg",
+  "reg",
+  "inf",
+];
+
+const extOf = (name: string): string =>
+  (/\.([^.]+)$/.exec(name)?.[1] ?? "").toLowerCase();
+
+const readAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
 /**
  * 团队动态：以聊天会话的形式展示团队的全部协作事件（消息、任务、评审、
  * 知识、成员加入），底部输入框可发送团队消息。视觉与主聊天面板保持一致。
@@ -49,6 +102,82 @@ export const TeamActivity = ({
   const [deletingKeys, setDeletingKeys] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(Date.now());
+  // 附件：选择后在草稿区预览，点发送才写入仓库媒体目录
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 消息附件 data URL 缓存（气泡缩略图与 lightbox 共用）
+  const mediaCacheRef = useRef(new Map<string, string>());
+
+  const loadMediaUrl = async (rel: string): Promise<string> => {
+    const cached = mediaCacheRef.current.get(rel);
+    if (cached) {
+      return cached;
+    }
+    const url = await window.snow.teamMediaRead(team.repoPath, rel);
+    mediaCacheRef.current.set(rel, url);
+    return url;
+  };
+
+  const pickFiles = async (files: FileList | null): Promise<void> => {
+    if (!files || files.length === 0 || !team.identity?.hasIdentity) {
+      return;
+    }
+    for (const file of Array.from(files)) {
+      if (pendingFiles.length + 1 > MAX_PENDING_FILES) {
+        setNotice(
+          t("team.activity.tooManyFiles", {
+            defaultValue: "一条消息最多 {{count}} 个附件",
+            values: { count: MAX_PENDING_FILES },
+          }),
+        );
+        break;
+      }
+      const ext = extOf(file.name);
+      if (BLOCKED_EXTS.includes(ext)) {
+        setNotice(
+          t("team.activity.fileBlocked", {
+            defaultValue: "{{name}} 类型不支持发送",
+            values: { name: file.name },
+          }),
+        );
+        continue;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        setNotice(
+          t("team.activity.fileTooLarge", {
+            defaultValue: "{{name}} 超过 5MB，无法发送",
+            values: { name: file.name },
+          }),
+        );
+        continue;
+      }
+      try {
+        const dataUrl = await readAsDataUrl(file);
+        setPendingFiles((prev) =>
+          prev.length >= MAX_PENDING_FILES
+            ? prev
+            : [
+                ...prev,
+                {
+                  name: file.name,
+                  size: file.size,
+                  isImage: IMAGE_EXTS.includes(ext),
+                  dataUrl,
+                },
+              ],
+        );
+      } catch {
+        setNotice(
+          t("team.activity.fileReadFailed", {
+            defaultValue: "文件读取失败",
+          }),
+        );
+      }
+    }
+  };
 
   const events = useMemo(
     () =>
@@ -79,6 +208,7 @@ export const TeamActivity = ({
       authorEmail: item.record.authorEmail,
       action: "message",
       content: item.record.content,
+      attachments: item.record.attachments ?? [],
       refKind: "message",
       refId: item.record.id,
     }));
@@ -136,21 +266,86 @@ export const TeamActivity = ({
     );
   };
 
-  const handleSend = (): void => {
+  // 发送：先把草稿附件写入仓库媒体目录，再发布消息记录
+  const handleSend = async (): Promise<void> => {
     const content = draft.trim();
-    if (!content || !team.identity?.hasIdentity) {
+    if ((!content && pendingFiles.length === 0) || uploading) {
       return;
     }
+    if (!team.identity?.hasIdentity || !team.repoPath) {
+      return;
+    }
+    const msgId = newId("msg");
+    let attachments: TeamMessageAttachment[] = [];
+    if (pendingFiles.length > 0) {
+      setUploading(true);
+      try {
+        attachments = await Promise.all(
+          pendingFiles.map(async (file) => {
+            const rel = file.isImage
+              ? await window.snow.teamMediaSave(
+                  team.repoPath,
+                  msgId,
+                  file.name,
+                  file.dataUrl,
+                )
+              : await window.snow.teamFileSave(
+                  team.repoPath,
+                  msgId,
+                  file.name,
+                  file.dataUrl,
+                );
+            return {
+              name: file.name,
+              path: rel,
+              size: file.size,
+              isImage: file.isImage,
+            };
+          }),
+        );
+      } catch {
+        setNotice(
+          t("team.activity.fileUploadFailed", {
+            defaultValue: "附件上传失败，请重试",
+          }),
+        );
+        // 清掉本次部分上传成功的文件，避免仓库残留无主媒体
+        void window.snow
+          .teamMediaDelete(team.repoPath, msgId)
+          .catch(() => undefined);
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
     const record: TeamMessage = {
-      id: newId("msg"),
+      id: msgId,
       channel: "general",
       authorEmail: myEmail,
       content,
       createdAt: nowIso(),
     };
+    if (attachments.length > 0) {
+      record.attachments = attachments;
+    }
     setDraft("");
+    setPendingFiles([]);
     void pushMessage(record);
   };
+
+  // Esc 关闭图片预览
+  useEffect(() => {
+    if (!previewSrc) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        setPreviewSrc(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewSrc]);
 
   const retrySend = (messageId: string): void => {
     const target = outbox.find((item) => item.record.id === messageId);
@@ -172,6 +367,10 @@ export const TeamActivity = ({
           prev.filter((item) => item.record.id !== event.refId),
         );
         await team.remove("message", event.refId);
+        // 顺带清理该消息的附件媒体目录（无目录时 Rust 侧幂等返回）
+        void window.snow
+          .teamMediaDelete(team.repoPath, event.refId)
+          .catch(() => undefined);
       } else if (event.type === "note" && event.refId) {
         await team.remove("note", event.refId);
       } else if (
@@ -351,7 +550,19 @@ export const TeamActivity = ({
                           </button>
                         ) : null}
                         <div className="team-feed-message-bubble">
-                          {eventText(event)}
+                          {(event.content ?? "").trim() ? (
+                            <div className="team-feed-message-text">
+                              {eventText(event)}
+                            </div>
+                          ) : null}
+                          {event.attachments && event.attachments.length > 0 ? (
+                            <MessageAttachments
+                              repoPath={team.repoPath}
+                              attachments={event.attachments}
+                              cache={mediaCacheRef.current}
+                              onPreview={(src) => setPreviewSrc(src)}
+                            />
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -376,35 +587,129 @@ export const TeamActivity = ({
           })
         )}
       </div>
-      <div className="team-feed-input">
-        <textarea
-          value={draft}
-          rows={1}
-          placeholder={t("team.activity.placeholder", {
-            defaultValue: "发一条团队消息…（Enter 发送，Shift+Enter 换行）",
-          })}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (
-              e.key === "Enter" &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing
-            ) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="team-feed-send"
-          disabled={!draft.trim()}
-          onClick={handleSend}
-          title={t("team.activity.send", { defaultValue: "发送" })}
-        >
-          <Send size={15} />
-        </button>
+      <div className="team-feed-composer">
+        {notice ? (
+          <div className="team-feed-notice">
+            <span>{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              title={t("common.close", { defaultValue: "关闭" })}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : null}
+        {pendingFiles.length > 0 ? (
+          <div className="team-feed-pending">
+            {pendingFiles.map((file, index) => (
+              <div
+                key={`${file.name}-${index}`}
+                className="team-feed-pending-item"
+              >
+                {file.isImage ? (
+                  <img src={file.dataUrl} alt={file.name} />
+                ) : (
+                  <span className="team-feed-pending-icon">
+                    <FileText size={16} />
+                  </span>
+                )}
+                <span className="team-feed-pending-name" title={file.name}>
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingFiles((prev) =>
+                      prev.filter((_, i) => i !== index),
+                    )
+                  }
+                  title={t("team.activity.removeFile", {
+                    defaultValue: "移除",
+                  })}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            {uploading ? (
+              <span className="team-feed-uploading">
+                <LoaderCircle size={13} />
+                {t("team.activity.uploading", { defaultValue: "上传中…" })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="team-feed-input">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              void pickFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <div className="team-feed-tools">
+            <button
+              type="button"
+              className="team-feed-tool-btn"
+              disabled={!team.identity?.hasIdentity || uploading}
+              onClick={() => fileInputRef.current?.click()}
+              title={t("team.activity.attachFile", {
+                defaultValue: "发送附件",
+              })}
+            >
+              <Paperclip size={16} />
+            </button>
+          </div>
+          <textarea
+            value={draft}
+            rows={1}
+            placeholder={t("team.activity.placeholder", {
+              defaultValue: "发一条团队消息…",
+            })}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => {
+              // 截图/复制的文件直接进附件，文本仍走默认粘贴
+              const files = e.clipboardData?.files;
+              if (files && files.length > 0) {
+                e.preventDefault();
+                void pickFiles(files);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="team-feed-send"
+            disabled={(!draft.trim() && pendingFiles.length === 0) || uploading}
+            onClick={() => void handleSend()}
+            title={t("team.activity.send", { defaultValue: "发送" })}
+          >
+            {uploading ? <LoaderCircle size={15} /> : <Send size={15} />}
+          </button>
+        </div>
       </div>
+      {previewSrc ? (
+        <div
+          className="team-feed-lightbox"
+          onClick={() => setPreviewSrc(null)}
+          role="presentation"
+        >
+          <img src={previewSrc} alt="" />
+        </div>
+      ) : null}
       <ConfirmDialog
         open={confirmTarget !== null}
         variant="danger"
@@ -423,6 +728,121 @@ export const TeamActivity = ({
         }}
         onCancel={() => setConfirmTarget(null)}
       />
+    </div>
+  );
+};
+
+/** 附件体积的友好描述（KB/MB）。 */
+const formatSize = (size: number): string =>
+  size >= 1024 * 1024
+    ? `${(size / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(size / 1024))} KB`;
+
+/**
+ * 消息附件渲染：图片懒加载缩略图（点击预览），普通文件显示可下载卡片。
+ */
+const MessageAttachments = ({
+  repoPath,
+  attachments,
+  cache,
+  onPreview,
+}: {
+  repoPath: string;
+  attachments: TeamMessageAttachment[];
+  cache: Map<string, string>;
+  onPreview: (src: string) => void;
+}): React.JSX.Element | null => {
+  const images = attachments.filter((a) => a.isImage);
+  const files = attachments.filter((a) => !a.isImage);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    for (const item of images) {
+      if (imageUrls[item.path]) {
+        continue;
+      }
+      const cached = cache.get(item.path);
+      if (cached) {
+        setImageUrls((prev) => ({ ...prev, [item.path]: cached }));
+        continue;
+      }
+      void window.snow
+        .teamMediaRead(repoPath, item.path)
+        .then((url) => {
+          if (cancelled) {
+            return;
+          }
+          cache.set(item.path, url);
+          setImageUrls((prev) => ({ ...prev, [item.path]: url }));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoPath, attachments]);
+
+  const downloadFile = async (item: TeamMessageAttachment): Promise<void> => {
+    try {
+      const url =
+        cache.get(item.path) ??
+        (await window.snow.teamMediaRead(repoPath, item.path));
+      if (!cache.has(item.path)) {
+        cache.set(item.path, url);
+      }
+      await saveBlobToFile(dataUrlToBlob(url), item.name);
+    } catch {
+      // 读取失败静默
+    }
+  };
+
+  if (images.length === 0 && files.length === 0) {
+    return null;
+  }
+  return (
+    <div className="team-feed-attachments">
+      {images.length > 0 ? (
+        <div className="team-feed-attach-images">
+          {images.map((item) =>
+            imageUrls[item.path] ? (
+              <button
+                key={item.path}
+                type="button"
+                className="team-feed-attach-thumb"
+                onClick={() => onPreview(imageUrls[item.path])}
+                title={item.name}
+              >
+                <img src={imageUrls[item.path]} alt={item.name} />
+              </button>
+            ) : (
+              <span
+                key={item.path}
+                className="team-feed-attach-thumb is-loading"
+              >
+                <LoaderCircle size={14} />
+              </span>
+            ),
+          )}
+        </div>
+      ) : null}
+      {files.map((item) => (
+        <button
+          key={item.path}
+          type="button"
+          className="team-feed-attach-file"
+          onClick={() => void downloadFile(item)}
+          title={item.name}
+        >
+          <FileText size={15} />
+          <span className="team-feed-attach-file-name">{item.name}</span>
+          <span className="team-feed-attach-file-size">
+            {formatSize(item.size)}
+          </span>
+          <Download size={13} />
+        </button>
+      ))}
     </div>
   );
 };

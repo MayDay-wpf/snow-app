@@ -147,4 +147,50 @@ export const registerTeamHandlers = (native: NativeBridge): void => {
       return native.teamMediaRead(trimmed, rel.trim());
     },
   );
+
+  ipcMain.handle(
+    "team:file-save",
+    async (
+      _event,
+      repoPath: unknown,
+      messageId: unknown,
+      fileName: unknown,
+      base64Data: unknown,
+    ) => {
+      const trimmed = typeof repoPath === "string" ? repoPath.trim() : "";
+      if (!trimmed) {
+        throw new Error("Repository path is required");
+      }
+      if (
+        typeof messageId !== "string" ||
+        typeof fileName !== "string" ||
+        typeof base64Data !== "string" ||
+        !messageId.trim() ||
+        !fileName.trim() ||
+        !base64Data.trim()
+      ) {
+        throw new Error("Message id, file name and file data are required");
+      }
+      return native.teamFileSave(
+        trimmed,
+        messageId.trim(),
+        fileName.trim(),
+        base64Data,
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "team:media-delete",
+    async (_event, repoPath: unknown, ownerId: unknown) => {
+      const trimmed = typeof repoPath === "string" ? repoPath.trim() : "";
+      if (!trimmed) {
+        throw new Error("Repository path is required");
+      }
+      if (typeof ownerId !== "string" || !ownerId.trim()) {
+        throw new Error("Owner id is required");
+      }
+      return native.teamMediaDelete(trimmed, ownerId.trim());
+    },
+  );
 };

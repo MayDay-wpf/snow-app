@@ -85,11 +85,21 @@ export type TeamMember = {
   lastSeen: string;
 };
 
+export type TeamMessageAttachment = {
+  /** 原文件名。 */
+  name: string;
+  /** `snow-team/media/<message_id>/<file>` 相对路径。 */
+  path: string;
+  size: number;
+  isImage: boolean;
+};
+
 export type TeamMessage = {
   id: string;
   channel: string;
   authorEmail: string;
   content: string;
+  attachments?: TeamMessageAttachment[];
   createdAt: string;
 };
 

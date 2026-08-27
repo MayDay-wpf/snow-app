@@ -1,6 +1,7 @@
 import type {
   TeamMember,
   TeamMessage,
+  TeamMessageAttachment,
   TeamNote,
   TeamReview,
   TeamTask,
@@ -130,6 +131,7 @@ export type TeamEvent = {
   title?: string;
   detail?: string;
   content?: string;
+  attachments?: TeamMessageAttachment[];
   refKind?: "task" | "review" | "note" | "message";
   refId?: string;
 };
@@ -169,6 +171,7 @@ export const buildTeamEvents = (team: {
       authorEmail: msg.authorEmail,
       action: "message",
       content: msg.content,
+      attachments: msg.attachments ?? [],
       refKind: "message",
       refId: msg.id,
     });

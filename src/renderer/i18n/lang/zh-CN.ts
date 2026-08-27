@@ -3724,8 +3724,7 @@ export const zhCN = {
   "team.header.editIdentity": "修改身份",
   "team.activity.empty":
     "还没有团队动态。创建任务、发起评审或发一条消息开始协作吧。",
-  "team.activity.placeholder":
-    "发一条团队消息…（Enter 发送，Shift+Enter 换行）",
+  "team.activity.placeholder": "发一条团队消息…",
   "team.activity.send": "发送",
   "team.activity.created": "创建了「{{title}}」",
   "team.activity.assigned": "把任务「{{title}}」指派给 {{assignee}}",
@@ -3742,6 +3741,14 @@ export const zhCN = {
   "team.activity.deleteTitle": "删除动态",
   "team.activity.deleteMessage":
     "删除后会同步给团队其他成员，且无法恢复。确定删除吗？",
+  "team.activity.attachFile": "发送附件",
+  "team.activity.uploading": "上传中…",
+  "team.activity.fileTooLarge": "{{name}} 超过 5MB，无法发送",
+  "team.activity.fileReadFailed": "文件读取失败",
+  "team.activity.fileUploadFailed": "附件上传失败，请重试",
+  "team.activity.tooManyFiles": "一条消息最多 {{count}} 个附件",
+  "team.activity.removeFile": "移除",
+  "team.activity.fileBlocked": "{{name}} 类型不支持发送",
   "team.tasks.title": "任务",
   "team.tasks.new": "新建任务",
   "team.tasks.empty": "还没有任务。创建一个任务，指派给队友，让 AI 接力执行。",

@@ -5,8 +5,9 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::storage::services::team::{
-    configure_team_identity, delete_team_record, get_team_identity, list_team_records,
-    read_team_media, resolve_team_repo, save_team_media, sync_team, upsert_team_record,
+    configure_team_identity, delete_team_media, delete_team_record, get_team_identity,
+    list_team_records, read_team_media, resolve_team_repo, save_team_file, save_team_media,
+    sync_team, upsert_team_record,
 };
 
 fn map_spawn_error(e: tokio::task::JoinError) -> Error {
@@ -102,10 +103,33 @@ pub async fn team_media_save(
     .map_err(map_spawn_error)?
 }
 
-/// 读取团队笔记媒体文件，返回 data URL。
+/// 读取团队媒体文件，返回 data URL。
 #[napi]
 pub async fn team_media_read(repo_path: String, rel: String) -> napi::Result<String> {
     tokio::task::spawn_blocking(move || read_team_media(&repo_path, &rel))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 保存团队消息附件（图片或普通文件），返回 `snow-team/media/...` 相对路径。
+#[napi]
+pub async fn team_file_save(
+    repo_path: String,
+    message_id: String,
+    file_name: String,
+    base64_data: String,
+) -> napi::Result<String> {
+    tokio::task::spawn_blocking(move || {
+        save_team_file(&repo_path, &message_id, &file_name, &base64_data)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+/// 删除某条记录（消息/笔记）的整个媒体目录。
+#[napi]
+pub async fn team_media_delete(repo_path: String, owner_id: String) -> napi::Result<bool> {
+    tokio::task::spawn_blocking(move || delete_team_media(&repo_path, &owner_id))
         .await
         .map_err(map_spawn_error)?
 }
