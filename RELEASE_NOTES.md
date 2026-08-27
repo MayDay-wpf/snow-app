@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.2.19
+
+## New Features
+
+- **Optimize Usage**: A new manual "Optimize usage" action in the resource usage section of general settings runs VACUUM + WAL checkpoint on both runtime and archive databases, triggers a full V8 GC, and shrinks the process working set on Windows to reclaim idle disk and memory, reporting the freed amounts.
+
+## Improvements
+
+- **Storage Module Split**: The monolithic Rust storage module (~2,400 lines) is split into 16 domain-specific submodules with an unchanged public API.
+- **Session Delete Cleanup**: Orphaned upload files are removed when a session is deleted; disk reclamation is now handled exclusively by the explicit optimize action, avoiding VACUUM IO on every delete.
+
+## Bug Fixes
+
+- **Terminal Line Overlap**: Fixed ConPTY abnormal sizes / high-frequency resizes causing overlapping terminal lines — clamped minimum sizes and skipped no-op resizes, added a 120ms trailing-edge debounce to resize notifications, froze auto-fit while the container is hidden, and forced a visible-area refresh after tab reactivation.
+
 ## v0.2.18
 
 ## Improvements
