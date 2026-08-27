@@ -19,11 +19,31 @@ pub async fn repair_database(kind: String) -> napi::Result<DatabaseRepairResult>
         .map_err(map_spawn_error)?
 }
 
+/// 优化数据库磁盘占用（"runtime" = 运行库 | "archive" = 归档库）：
+/// VACUUM 回收空闲页并截断 WAL，返回释放的字节数。全程在 spawn_blocking 中执行，
+/// 不阻塞 Node.js 主线程。
+#[napi]
+pub async fn optimize_database(kind: String) -> napi::Result<DatabaseOptimizeResult> {
+    tokio::task::spawn_blocking(move || crate::storage::optimize_database(kind))
+        .await
+        .map_err(map_spawn_error)?
+}
+
 /// 当前进程常驻内存占用（字节）；用于设置页展示资源占用。
 /// 系统调用极快但仍置于 spawn_blocking，避免阻塞 Node.js 主线程。
 #[napi]
 pub async fn get_process_memory_bytes() -> napi::Result<i64> {
     tokio::task::spawn_blocking(crate::storage::get_process_memory_bytes)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 本进程内存整理（「优化占用」的内存部分）：Rust 侧把不活跃页换出物理内存
+/// （仅 Windows 生效；Node 侧的 V8 GC 在调用前完成）。全程在 spawn_blocking
+/// 中执行，不阻塞 Node.js 主线程。
+#[napi]
+pub async fn optimize_memory() -> napi::Result<MemoryOptimizeResult> {
+    tokio::task::spawn_blocking(crate::storage::optimize_memory)
         .await
         .map_err(map_spawn_error)?
 }

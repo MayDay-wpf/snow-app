@@ -123,10 +123,9 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
     let upload_paths = collect_inline_upload_paths(&transaction, &conversation_ids).map_err(
         |error| database::database_error(database_path, "scan inline upload images", error),
     )?;
-    let mut deleted_rows: usize = 0;
 
     for target_id in &conversation_ids {
-        deleted_rows += transaction
+        transaction
             .execute(
                 "DELETE FROM chat_messages WHERE conversation_id = ?1",
                 params![target_id],
@@ -134,7 +133,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| {
                 database::database_error(database_path, "delete chat messages", error)
             })?;
-        deleted_rows += transaction
+        transaction
             .execute(
                 "DELETE FROM todo_items WHERE session_id = ?1",
                 params![target_id],
@@ -142,7 +141,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| database::database_error(database_path, "delete todo items", error))?;
     }
 
-    deleted_rows += transaction
+    transaction
         .execute(
             "DELETE FROM sub_agent_sessions
               WHERE parent_conversation_id = ?1 OR conversation_id = ?1",
@@ -153,7 +152,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
         })?;
 
     for target_id in conversation_ids.iter().rev() {
-        deleted_rows += transaction
+        transaction
             .execute(
                 "DELETE FROM chat_conversations WHERE conversation_id = ?1",
                 params![target_id],
@@ -169,17 +168,6 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
     cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
-
-    // 与归档库对称：删除后 VACUUM 重建文件，立即回收空闲页；
-    // 仅当确实删除了行时执行，失败记录日志后忽略
-    if deleted_rows > 0 {
-        if let Err(error) = connection.execute_batch("VACUUM") {
-            eprintln!(
-                "Snow App delete conversation VACUUM failed (conversations already deleted): {}",
-                error
-            );
-        }
-    }
 
     Ok(())
 }
@@ -246,13 +234,12 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
     let upload_paths = collect_inline_upload_paths(&transaction, &all_target_ids).map_err(
         |error| database::database_error(database_path, "scan inline upload images", error),
     )?;
-    let mut deleted_rows: usize = 0;
 
     // SQLite 默认变量数上限为 999，分块执行避免超出
     const MAX_VARIABLES: usize = 400;
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
-        deleted_rows += transaction
+        transaction
             .execute(
                 &format!("DELETE FROM chat_messages WHERE conversation_id IN ({placeholders})"),
                 params_from_iter(chunk.iter()),
@@ -260,7 +247,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
             .map_err(|error| {
                 database::database_error(database_path, "delete chat messages", error)
             })?;
-        deleted_rows += transaction
+        transaction
             .execute(
                 &format!("DELETE FROM todo_items WHERE session_id IN ({placeholders})"),
                 params_from_iter(chunk.iter()),
@@ -278,7 +265,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
         for id in chunk {
             params.push(id);
         }
-        deleted_rows += transaction
+        transaction
             .execute(
                 &format!(
                     "DELETE FROM sub_agent_sessions
@@ -294,7 +281,7 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
-        deleted_rows += transaction
+        transaction
             .execute(
                 &format!(
                     "DELETE FROM chat_conversations WHERE conversation_id IN ({placeholders})"
@@ -312,17 +299,6 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
     cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
-
-    // 与归档库对称：删除后 VACUUM 重建文件，立即回收空闲页；
-    // 仅当确实删除了行时执行，失败记录日志后忽略
-    if deleted_rows > 0 {
-        if let Err(error) = connection.execute_batch("VACUUM") {
-            eprintln!(
-                "Snow App delete conversations VACUUM failed (conversations already deleted): {}",
-                error
-            );
-        }
-    }
 
     Ok(())
 }

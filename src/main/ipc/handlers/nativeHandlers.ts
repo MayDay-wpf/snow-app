@@ -1,11 +1,13 @@
 import { ipcMain, nativeTheme } from "electron";
 import { randomUUID } from "node:crypto";
+import { setFlagsFromString } from "node:v8";
 import type {
   AppControlCommand,
   BashStreamChunk,
   BrowserCommand,
   BrowserCommandResponse,
   CodebaseEmbedProgress,
+  MemoryOptimizeResult,
   NativeBridge,
   TerminalCommand,
   TerminalCommandResponse,
@@ -66,6 +68,29 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   // 应用进程常驻内存（设置页「资源占用」展示）；Rust 侧已在 spawn_blocking 执行
   ipcMain.handle("settings:get-process-memory", () =>
     native.getProcessMemoryBytes(),
+  );
+  // 「优化占用」的内存部分：先触发主进程 V8 full GC 回收 JS 堆，再由 Rust
+  // 收缩 OS 工作集（仅 Windows 生效），避免 JS 堆与不活跃页长期虚高常驻内存。
+  ipcMain.handle(
+    "settings:optimize-memory",
+    async (): Promise<MemoryOptimizeResult> => {
+      const bytesBefore = await native.getProcessMemoryBytes();
+      try {
+        // Electron 主进程默认未暴露 gc；运行时注入 --expose_gc 标志后启用。
+        // 注入失败或 global.gc 不存在时静默跳过，后续仍执行 Rust 工作集收缩。
+        setFlagsFromString("--expose_gc");
+        (globalThis as unknown as { gc?: () => void }).gc?.();
+      } catch {
+        // Ignore: GC 能力不可用不影响流程
+      }
+      const result = await native.optimizeMemory();
+      // V8 GC 只会减少常驻内存；取 max 抵御两次测量的统计噪声，
+      // 保证渲染层计算出的“释放量”永不为负。
+      return {
+        bytesBefore: Math.max(bytesBefore, result.bytesBefore),
+        bytesAfter: result.bytesAfter,
+      };
+    },
   );
   ipcMain.handle(
     "settings:get-system-setting-value",

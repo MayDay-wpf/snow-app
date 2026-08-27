@@ -31,7 +31,7 @@ type ChatItemMenuProps = {
   onSetEmoji: (emoji: string) => void | Promise<void>;
   /** 确认删除；deleteImages=true 表示同时级联删除图库图片 */
   onDelete: (deleteImages: boolean) => void;
-  /** 删除进行中（含 VACUUM 收缩文件阶段）：确认框保持打开并显示 loading */
+  /** 删除进行中：确认框保持打开并显示 loading */
   isDeleting?: boolean;
   onExport: (format: ExportFormat) => void;
   /** 创建分支会话（复制整个会话到新的分支） */
@@ -257,7 +257,7 @@ export function ChatItemMenu({
     setShowConfirm(false);
   };
 
-  // 已确认删除且删除流程结束（含 VACUUM 收缩文件）后自动关闭确认框
+  // 已确认删除且删除流程结束后自动关闭确认框
   useEffect(() => {
     if (hasConfirmed && !isDeleting) {
       setHasConfirmed(false);

@@ -2393,6 +2393,13 @@ export const zhCN = {
   "settings.resourceMemory": "内存占用",
   "settings.resourceDataDisk": "数据盘占用",
   "settings.resourceRefresh": "刷新",
+  "settings.resourceOptimize": "优化占用",
+  "settings.resourceOptimizeInfo":
+    "重建数据库文件回收磁盘空间，并整理进程内存。",
+  "settings.resourceOptimizeWorking": "正在优化…",
+  "settings.resourceOptimizeDone":
+    "优化完成，磁盘已释放 {{disk}}，内存已释放 {{memory}}",
+  "settings.resourceOptimizeDoneDiskOnly": "优化完成，磁盘已释放 {{disk}}",
   "settings.generalSettingsClosePanel": "关闭通用设置",
   "settings.attachContextTitle": "会话上下文注入",
   "settings.attachContextInfo":

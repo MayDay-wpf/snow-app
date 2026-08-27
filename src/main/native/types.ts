@@ -872,6 +872,20 @@ export type DatabaseRepairResult = {
   message: string;
 };
 
+/** 数据库空间优化结果 */
+export type DatabaseOptimizeResult = {
+  /** 本次 VACUUM + WAL 截断释放的磁盘字节数（无可回收空间时为 0） */
+  bytesFreed: number;
+};
+
+/** 进程内存整理结果 */
+export type MemoryOptimizeResult = {
+  /** 本次优化前的常驻内存（字节；含 GC 前的测量值） */
+  bytesBefore: number;
+  /** 本次优化后的常驻内存（字节） */
+  bytesAfter: number;
+};
+
 export type UserMessageSummary = {
   id: string;
   content: string;
@@ -2079,8 +2093,12 @@ export type NativeBridge = {
   getPathSize: (path: string) => Promise<number>;
   /** 当前进程常驻内存占用（字节；用于设置页展示资源占用） */
   getProcessMemoryBytes: () => Promise<number>;
+  /** 整理本进程内存：配合主进程 V8 GC 使用，Rust 侧收缩 OS 工作集（仅 Windows 生效） */
+  optimizeMemory: () => Promise<MemoryOptimizeResult>;
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */
   repairDatabase: (kind: DatabaseKind) => Promise<DatabaseRepairResult>;
+  /** 优化数据库磁盘占用（runtime=运行库 / archive=归档库）：VACUUM 回收空闲页并截断 WAL */
+  optimizeDatabase: (kind: DatabaseKind) => Promise<DatabaseOptimizeResult>;
   /** 探测本机浏览器（Chrome/Edge/Chromium/Firefox）及其配置文件与数据量 */
   browserImportListSources: () => Promise<BrowserImportSource[]>;
   /** 解密并导出指定浏览器配置文件的已保存密码（明文，仅供主进程加密落盘） */

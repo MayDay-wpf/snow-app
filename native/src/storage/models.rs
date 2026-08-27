@@ -17,6 +17,23 @@ pub struct DatabaseRepairResult {
     pub message: String,
 }
 
+/// 数据库空间优化结果（由「设置 → 资源占用」的优化占用按钮触发）。
+#[napi(object)]
+pub struct DatabaseOptimizeResult {
+    /// 本次 VACUUM + WAL 截断释放的磁盘字节数（无可回收空间时为 0）
+    pub bytes_freed: i64,
+}
+
+/// 进程内存整理结果（由「设置 → 资源占用」的优化占用按钮触发；
+/// bytes_before 由 Node 侧在 V8 GC 之前测量后透传回来）。
+#[napi(object)]
+pub struct MemoryOptimizeResult {
+    /// 本次优化前的常驻内存（字节）
+    pub bytes_before: i64,
+    /// 本次优化后的常驻内存（字节）
+    pub bytes_after: i64,
+}
+
 #[napi(object)]
 pub struct ApiConfigInput {
     pub profile_name: String,

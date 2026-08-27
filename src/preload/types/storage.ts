@@ -34,3 +34,17 @@ export type DatabaseRepairResult = {
   /** 修复过程描述（英文，供日志与诊断） */
   message: string;
 };
+
+/** 数据库空间优化结果 */
+export type DatabaseOptimizeResult = {
+  /** 本次 VACUUM + WAL 截断释放的磁盘字节数（无可回收空间时为 0） */
+  bytesFreed: number;
+};
+
+/** 进程内存整理结果 */
+export type MemoryOptimizeResult = {
+  /** 本次优化前的常驻内存（字节；含 GC 前的测量值） */
+  bytesBefore: number;
+  /** 本次优化后的常驻内存（字节） */
+  bytesAfter: number;
+};

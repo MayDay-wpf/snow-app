@@ -2253,6 +2253,47 @@ pub fn get_process_memory_bytes() -> Result<i64> {
     }
 }
 
+/// 本进程内存整理（「设置 → 资源占用」的优化占用触发的内存部分）：
+/// Node 侧先完成 V8 full GC，随后调用本函数把不活跃页移出物理内存。
+/// - Windows：`SetProcessWorkingSetSize(-1, -1)` 收缩工作集；
+/// - macOS/Linux：没有等价的单进程轻量系统接口，保持现状原样返回。
+/// 系统调用极快，调用方仍需置于 spawn_blocking 中执行。
+pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
+    let bytes_before = get_process_memory_bytes()?;
+    let bytes_after = trim_working_set(bytes_before)?;
+    Ok(MemoryOptimizeResult {
+        bytes_before,
+        bytes_after,
+    })
+}
+
+/// Windows：向系统申请尽可能收缩本进程工作集，成功后重新测量常驻内存。
+/// 失败仅说明本次未能收缩，不影响调用流程，原样返回 bytes_before。
+#[cfg(target_os = "windows")]
+fn trim_working_set(bytes_before: i64) -> Result<i64> {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    // 最小 / 最大工作集同时传入 SIZE_T::MAX（即 -1）为系统约定语义：
+    // 尽可能清空本进程工作集，把暂不使用的页换出物理内存。
+    // 对自身进程始终持有 PROCESS_SET_QUOTA 权限，正常路径不会失败。
+    let handle = unsafe { GetCurrentProcess() } as HANDLE;
+    let succeeded = unsafe {
+        SetProcessWorkingSetSizeEx(handle, usize::MAX, usize::MAX, 0)
+    } != 0;
+    if !succeeded {
+        return Ok(bytes_before);
+    }
+    unsafe { windows_resident_memory() }
+}
+
+/// 非 Windows 平台：无等价的轻量单进程整理接口，保持占位原样返回。
+#[cfg(not(target_os = "windows"))]
+fn trim_working_set(bytes_before: i64) -> Result<i64> {
+    Ok(bytes_before)
+}
+
 /// macOS：mach task_info(MACH_TASK_BASIC_INFO) 查询常驻内存。
 #[cfg(target_os = "macos")]
 unsafe fn macos_resident_memory() -> Result<i64> {
@@ -2382,6 +2423,22 @@ pub fn repair_database(kind: String) -> Result<DatabaseRepairResult> {
             format!("Unknown database kind: {other}"),
         )),
     }
+}
+
+/// 数据库空间优化（kind: "runtime" = 运行数据库 | "archive" = 归档数据库）：
+/// `VACUUM` 重建文件回收空闲页并截断 WAL，返回释放的磁盘字节数。
+pub fn optimize_database(kind: String) -> Result<DatabaseOptimizeResult> {
+    let result = match kind.trim() {
+        "runtime" => database::optimize_database(&ensure_database_file()?)?,
+        "archive" => database::optimize_database(&ensure_archive_database_file()?)?,
+        other => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("Unknown database kind: {other}"),
+            ));
+        }
+    };
+    Ok(result)
 }
 
 /// 准备存储目录迁移（kind: "checkpoint" | "upload"）：校验目标目录并写入

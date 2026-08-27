@@ -49,7 +49,7 @@ type ChatItemProps = {
   onArchive?: () => void;
   /** 归档进行中（含 VACUUM 收缩文件阶段）：菜单按钮显示 loading，防止重复操作 */
   isArchiving?: boolean;
-  /** 删除进行中（含 VACUUM 收缩文件阶段）：菜单按钮显示 loading，防止重复操作 */
+  /** 删除进行中：菜单按钮显示 loading，防止重复操作 */
   isDeleting?: boolean;
   onEnterMultiSelect?: () => void;
   onToggleSelect?: () => void;

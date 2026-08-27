@@ -2396,6 +2396,13 @@ export const zhTW = {
   "settings.resourceMemory": "記憶體佔用",
   "settings.resourceDataDisk": "資料磁碟佔用",
   "settings.resourceRefresh": "重新整理",
+  "settings.resourceOptimize": "最佳化佔用",
+  "settings.resourceOptimizeInfo":
+    "重建資料庫檔案回收磁碟空間，並整理行程記憶體。",
+  "settings.resourceOptimizeWorking": "正在最佳化…",
+  "settings.resourceOptimizeDone":
+    "最佳化完成，磁碟已釋放 {{disk}}，記憶體已釋放 {{memory}}",
+  "settings.resourceOptimizeDoneDiskOnly": "最佳化完成，磁碟已釋放 {{disk}}",
   "settings.generalSettingsClosePanel": "關閉通用設定",
   "settings.attachContextTitle": "會話上下文注入",
   "settings.attachContextInfo":

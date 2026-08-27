@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
   DatabaseKind,
+  DatabaseOptimizeResult,
   DatabaseRepairResult,
   NativeBridge,
   StorageLocationKind,
@@ -52,7 +53,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
       // Linux 文件管理器；失败时返回错误信息字符串，成功返回空字符串。
       const errorMessage = await shell.openPath(dirPath.trim());
       return errorMessage || null;
-    }
+    },
   );
 
   ipcMain.handle(
@@ -70,8 +71,8 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
       const result = browserWindow
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
 
   ipcMain.handle(
@@ -88,7 +89,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
       } else {
         await native.setUploadDir(dir.trim());
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -101,7 +102,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid storage target directory");
       }
       return native.prepareStorageMigration(kind, targetDir.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -111,7 +112,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid storage location kind");
       }
       return native.migrateStorageChunk(kind);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -121,7 +122,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid storage location kind");
       }
       await native.commitStorageMigration(kind);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -131,7 +132,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid storage location kind");
       }
       await native.rollbackStorageMigration(kind);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -141,7 +142,7 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
         throw new Error("Path is required");
       }
       return native.getPathSize(path.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -153,6 +154,18 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
       // Rust 端在 spawn_blocking 中执行完整性检查 / 恢复 / 压缩，
       // 不会阻塞主进程；参数校验后直接转发。
       return native.repairDatabase(kind as DatabaseKind);
-    }
+    },
+  );
+
+  ipcMain.handle(
+    "storage:optimize-database",
+    async (_event, kind: unknown): Promise<DatabaseOptimizeResult> => {
+      if (kind !== "runtime" && kind !== "archive") {
+        throw new Error("Invalid database kind");
+      }
+      // Rust 端在 spawn_blocking 中执行 VACUUM + WAL 截断，
+      // 不会阻塞主进程；参数校验后直接转发。
+      return native.optimizeDatabase(kind as DatabaseKind);
+    },
   );
 };

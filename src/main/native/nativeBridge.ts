@@ -1445,9 +1445,17 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to read process memory"),
         ),
+      optimizeMemory: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to optimize memory"),
+        ),
       repairDatabase: () =>
         Promise.reject(
           new Error("Rust native bridge is required to repair databases"),
+        ),
+      optimizeDatabase: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to optimize databases"),
         ),
       browserImportListSources: () =>
         Promise.reject(

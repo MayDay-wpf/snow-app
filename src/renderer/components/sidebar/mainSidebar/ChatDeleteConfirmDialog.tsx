@@ -10,7 +10,7 @@ type ChatDeleteConfirmDialogProps = {
   onDeleteImagesChange: (deleteImages: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
-  /** 删除进行中（含 VACUUM 收缩文件阶段）：确认按钮显示 loading */
+  /** 删除进行中：确认按钮显示 loading */
   isConfirming?: boolean;
 };
 

@@ -194,7 +194,7 @@ export function ChatsSection({
   const [batchImagesCount, setBatchImagesCount] = useState<number | null>(null);
   const [batchDeleteImages, setBatchDeleteImages] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
-  /** 单条删除进行中（含 VACUUM 收缩文件阶段）的会话 id 集合 */
+  /** 单条删除进行中的会话 id 集合 */
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   // 归档模式：true 时侧边栏展示归档会话列表（还原后才能继续使用）
   const [isArchiveMode, setIsArchiveMode] = useState(false);
@@ -925,7 +925,7 @@ export function ChatsSection({
     } catch {
       // Silent fail
     } finally {
-      // 删除完成（含 VACUUM 收缩文件）后才关闭确认弹窗，期间显示 loading
+      // 删除完成后才关闭确认弹窗，期间显示 loading
       setIsBatchDeleting(false);
       setShowBatchConfirm(false);
     }

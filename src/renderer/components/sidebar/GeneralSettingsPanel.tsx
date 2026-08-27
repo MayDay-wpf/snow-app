@@ -10,6 +10,7 @@ import {
   Images,
   LoaderCircle,
   MemoryStick,
+  Recycle,
   RefreshCw,
   RotateCcw,
   Wrench,
@@ -139,6 +140,10 @@ export function GeneralSettingsPanel({
   const [repairingDb, setRepairingDb] = useState<DatabaseKind | null>(null);
   /** 最近一次修复成功的提示（空字符串表示无） */
   const [repairHint, setRepairHint] = useState("");
+  /** 磁盘空间优化进行中（依次 VACUUM 运行库与归档库） */
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  /** 最近一次优化占用的提示（空字符串表示无） */
+  const [optimizeHint, setOptimizeHint] = useState("");
   /** 用户请求取消迁移（chunk 循环之间检查） */
   const migrationCancelledRef = useRef(false);
   /** 组件卸载时若迁移仍进行中，触发回滚 */
@@ -631,6 +636,59 @@ export function GeneralSettingsPanel({
     }
   };
 
+  /** 优化磁盘与内存占用：VACUUM 回收磁盘空间，并整理本进程内存。 */
+  const handleOptimizeUsage = async (): Promise<void> => {
+    if (isOptimizing) {
+      return;
+    }
+    setIsOptimizing(true);
+    setStorageError("");
+    setRepairHint("");
+    setOptimizeHint("");
+    try {
+      // 两个库文件相互独立；串行执行避免同时压缩造成磁盘 IO 峰值
+      const runtimeResult = await window.snow.optimizeDatabase("runtime");
+      const archiveResult = await window.snow.optimizeDatabase("archive");
+      const freedBytes = runtimeResult.bytesFreed + archiveResult.bytesFreed;
+      // 内存整理失败（如平台不支持工作集收缩）不影响磁盘优化结果
+      let freedMemoryBytes = 0;
+      try {
+        const memoryResult = await window.snow.optimizeMemory();
+        freedMemoryBytes = Math.max(
+          0,
+          memoryResult.bytesBefore - memoryResult.bytesAfter,
+        );
+      } catch {
+        // Ignore: 内存整理失败时仅提示磁盘释放量
+      }
+      setOptimizeHint(
+        freedMemoryBytes > 0
+          ? t("settings.resourceOptimizeDone", {
+              values: {
+                disk: formatBytes(freedBytes),
+                memory: formatBytes(freedMemoryBytes),
+              },
+              defaultValue:
+                `Done. Reclaimed ${formatBytes(freedBytes)} on disk and ` +
+                `${formatBytes(freedMemoryBytes)} of memory`,
+            })
+          : t("settings.resourceOptimizeDoneDiskOnly", {
+              values: { disk: formatBytes(Math.max(0, freedBytes)) },
+              defaultValue: `Done. Reclaimed ${formatBytes(freedBytes)} on disk`,
+            }),
+      );
+      // VACUUM 与内存整理都会改变占用数字，刷新统计
+      void fetchMemory();
+      if (locations) {
+        void refreshPathSizes(locations, imageLibraryRoot);
+      }
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
   /** 渲染某个数据库的「修复」按钮（kind 区分运行库 / 归档库）。 */
   const renderRepairButton = (kind: DatabaseKind): React.JSX.Element => {
     const isRepairing = repairingDb === kind;
@@ -736,6 +794,7 @@ export function GeneralSettingsPanel({
         message={
           storageError ||
           repairHint ||
+          optimizeHint ||
           (checkHint === "up-to-date"
             ? t("settings.upToDate", { defaultValue: "You're up to date" })
             : checkHint === "error"
@@ -748,6 +807,7 @@ export function GeneralSettingsPanel({
         onDismiss={() => {
           setStorageError("");
           setRepairHint("");
+          setOptimizeHint("");
           setCheckHint(null);
         }}
       />
@@ -867,6 +927,63 @@ export function GeneralSettingsPanel({
                   {dataDiskBytes > 0 ? formatBytes(dataDiskBytes) : "—"}
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* 磁盘空间优化：手动触发 VACUUM 回收已删除数据的空闲页 */}
+          <div className="general-storage-row">
+            <div className="general-storage-info">
+              <Recycle
+                size={14}
+                strokeWidth={1.8}
+                className="general-storage-icon"
+                aria-hidden="true"
+              />
+              <div className="general-storage-text">
+                <span className="general-storage-label">
+                  {t("settings.resourceOptimize", {
+                    defaultValue: "Optimize disk usage",
+                  })}
+                </span>
+                <span className="settings-item-description">
+                  {t("settings.resourceOptimizeInfo", {
+                    defaultValue:
+                      "Rebuild database files to reclaim disk space and compact process memory.",
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="general-storage-actions">
+              <button
+                type="button"
+                className="general-storage-action"
+                onClick={() => void handleOptimizeUsage()}
+                disabled={isOptimizing || isMigrating || isImageLibraryBusy}
+                title={t("settings.resourceOptimizeInfo", {
+                  defaultValue:
+                    "Rebuild database files to reclaim disk space and compact process memory.",
+                })}
+              >
+                {isOptimizing ? (
+                  <LoaderCircle
+                    size={11}
+                    strokeWidth={1.8}
+                    className="tool-call-icon-spinning"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Recycle size={11} strokeWidth={1.8} aria-hidden="true" />
+                )}
+                <span>
+                  {isOptimizing
+                    ? t("settings.resourceOptimizeWorking", {
+                        defaultValue: "Optimizing...",
+                      })
+                    : t("settings.resourceOptimize", {
+                        defaultValue: "Optimize disk usage",
+                      })}
+                </span>
+              </button>
             </div>
           </div>
         </div>

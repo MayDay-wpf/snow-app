@@ -9,7 +9,11 @@ use std::{
 use napi::bindgen_prelude::*;
 use rusqlite::Connection;
 
-use super::{migrations, models::DatabaseRepairResult, services};
+use super::{
+    migrations,
+    models::{DatabaseOptimizeResult, DatabaseRepairResult},
+    services,
+};
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
@@ -1007,6 +1011,54 @@ pub(crate) fn repair_database(
         repaired: true,
         message: format!("Database was damaged and has been recovered. Detected issues: {detail}"),
     })
+}
+
+/// 对数据库执行「空间优化」：`VACUUM` 重建文件回收已删除数据占用的空闲页，
+/// 再对 WAL 库执行 `wal_checkpoint(TRUNCATE)` 把 `-wal` 文件截断为零，
+/// 确保空间真正归还磁盘。返回释放的字节数（永不为负）。
+///
+/// 注意：与 [repair_database] 一致，刻意不切换 journal_mode
+/// （`open_connection` 会强制 WAL，而归档库必须保持 rollback journal 模式）。
+/// 调用方负责将本函数置于 spawn_blocking 中执行，避免阻塞 Node.js 主线程。
+pub(crate) fn optimize_database(database_path: &Path) -> Result<DatabaseOptimizeResult> {
+    let bytes_before = database_disk_usage_bytes(database_path);
+
+    {
+        let connection = Connection::open(database_path)
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+
+        connection
+            .execute_batch("VACUUM")
+            .map_err(|error| database_error(database_path, "vacuum during optimize", error))?;
+        // WAL 库：截断 -wal 文件；若其它连接正在读取可能临时失败，
+        // 仅影响本次回收精度，不应视为错误
+        let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+    }
+
+    let bytes_after = database_disk_usage_bytes(database_path);
+    Ok(DatabaseOptimizeResult {
+        bytes_freed: i64::try_from(bytes_before.saturating_sub(bytes_after)).unwrap_or(i64::MAX),
+    })
+}
+
+/// 统计数据库的磁盘总占用：主文件 + `-wal` + `-shm`（不存在的侧文件按 0 计）。
+fn database_disk_usage_bytes(database_path: &Path) -> u64 {
+    ["", "-wal", "-shm"]
+        .into_iter()
+        .filter_map(|suffix| {
+            let mut file_name = database_path.as_os_str().to_os_string();
+            file_name.push(suffix);
+            fs::metadata(PathBuf::from(file_name))
+                .ok()
+                .map(|metadata| metadata.len())
+        })
+        .sum()
 }
 
 pub fn database_error(database_path: &Path, action: &str, error: rusqlite::Error) -> Error {

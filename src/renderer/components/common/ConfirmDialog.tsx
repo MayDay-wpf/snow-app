@@ -14,7 +14,7 @@ type ConfirmDialogProps = {
   onExtra?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
-  /** 确认操作进行中（如删除后 VACUUM 收缩文件）：禁用按钮并显示 loading */
+  /** 确认操作进行中（如删除会话）：禁用按钮并显示 loading */
   isConfirming?: boolean;
   variant?: "default" | "warning" | "danger";
   className?: string;

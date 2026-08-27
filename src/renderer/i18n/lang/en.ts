@@ -2509,6 +2509,13 @@ export const en = {
   "settings.resourceMemory": "Memory usage",
   "settings.resourceDataDisk": "Data on disk",
   "settings.resourceRefresh": "Refresh",
+  "settings.resourceOptimize": "Optimize usage",
+  "settings.resourceOptimizeInfo":
+    "Rebuild database files to reclaim disk space and compact process memory.",
+  "settings.resourceOptimizeWorking": "Optimizing...",
+  "settings.resourceOptimizeDone":
+    "Done — reclaimed {{disk}} on disk and {{memory}} of memory",
+  "settings.resourceOptimizeDoneDiskOnly": "Done — reclaimed {{disk}} on disk",
   "settings.generalSettingsClosePanel": "Close general settings",
   "settings.attachContextTitle": "Conversation context injection",
   "settings.attachContextInfo":

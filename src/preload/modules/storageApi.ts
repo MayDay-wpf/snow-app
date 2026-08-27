@@ -1,6 +1,7 @@
 import { ipcRenderer } from "electron";
 import type {
   DatabaseKind,
+  DatabaseOptimizeResult,
   DatabaseRepairResult,
   StorageLocationKind,
   StorageLocations,
@@ -28,12 +29,13 @@ export const storageApi = {
   /** 准备存储目录迁移：校验目标目录并写入迁移日志；返回待迁移文件数量（0 表示无需迁移） */
   prepareStorageMigration: (
     kind: StorageLocationKind,
-    targetDir: string
-  ): Promise<number> => ipcRenderer.invoke("storage:migrate-prepare", kind, targetDir),
+    targetDir: string,
+  ): Promise<number> =>
+    ipcRenderer.invoke("storage:migrate-prepare", kind, targetDir),
 
   /** 复制下一批存储目录文件并返回迁移进度（copied/total/done） */
   migrateStorageChunk: (
-    kind: StorageLocationKind
+    kind: StorageLocationKind,
   ): Promise<StorageMigrationProgress> =>
     ipcRenderer.invoke("storage:migrate-chunk", kind),
 
@@ -52,4 +54,8 @@ export const storageApi = {
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */
   repairDatabase: (kind: DatabaseKind): Promise<DatabaseRepairResult> =>
     ipcRenderer.invoke("storage:repair-database", kind),
+
+  /** 优化数据库磁盘占用（runtime=运行库 / archive=归档库）：VACUUM 回收空闲页并截断 WAL */
+  optimizeDatabase: (kind: DatabaseKind): Promise<DatabaseOptimizeResult> =>
+    ipcRenderer.invoke("storage:optimize-database", kind),
 };
