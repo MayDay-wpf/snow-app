@@ -23,7 +23,7 @@ type ToolCallRenderItem =
  *  避免并行生图结果纵向堆叠为多个单张卡片；其余调用保持单卡渲染。 */
 const groupToolCalls = (toolCalls: ToolCallInfo[]): ToolCallRenderItem[] => {
   const groups: ToolCallRenderItem[] = [];
-  for (let i = 0; i < toolCalls.length; ) {
+  for (let i = 0; i < toolCalls.length;) {
     if (toolCalls[i].name === "imagegen-generate") {
       let j = i;
       while (
@@ -121,24 +121,24 @@ export const AiResponse = memo(
       () =>
         pendingToolAuthorizations.filter(
           (tc) =>
-            tc.sensitiveCommandMatches && tc.sensitiveCommandMatches.length > 0
+            tc.sensitiveCommandMatches && tc.sensitiveCommandMatches.length > 0,
         ),
-      [pendingToolAuthorizations]
+      [pendingToolAuthorizations],
     );
     const normalAuthorizations = useMemo(
       () =>
         pendingToolAuthorizations.filter(
           (tc) =>
             !tc.sensitiveCommandMatches ||
-            tc.sensitiveCommandMatches.length === 0
+            tc.sensitiveCommandMatches.length === 0,
         ),
-      [pendingToolAuthorizations]
+      [pendingToolAuthorizations],
     );
 
     // 相邻的并行 imagegen 调用合并为统一画廊（生成中占位 → 逐个填充）
     const groupedToolCalls = useMemo(
       () => groupToolCalls(toolCalls),
-      [toolCalls]
+      [toolCalls],
     );
 
     // Records bound to a specific tool call (toolCallInteractionId) are
@@ -162,7 +162,8 @@ export const AiResponse = memo(
 
     return (
       <article className="ai-message" aria-label="AI response">
-        <div className="ai-message-content">
+        {/* data-quote-source：划词引用的有效区域（AI 正文 / 思考块） */}
+        <div className="ai-message-content" data-quote-source="true">
           {title ? <h2>{title}</h2> : null}
 
           {/* 1. Thinking */}
@@ -210,19 +211,16 @@ export const AiResponse = memo(
             >
               {groupedToolCalls.map((item) =>
                 item.type === "gallery" ? (
-                  <ImageGenGallery
-                    key={item.key}
-                    toolCalls={item.toolCalls}
-                  />
+                  <ImageGenGallery key={item.key} toolCalls={item.toolCalls} />
                 ) : (
                   <ToolCallItem
                     key={item.key}
                     toolCall={item.toolCall}
                     hookExecutions={hooksByInteractionId.get(
-                      item.toolCall.interactionId
+                      item.toolCall.interactionId,
                     )}
                   />
-                )
+                ),
               )}
             </ToolCallGroup>
           ) : null}
@@ -297,7 +295,7 @@ export const AiResponse = memo(
         ) : null}
       </article>
     );
-  }
+  },
 );
 
 AiResponse.displayName = "AiResponse";

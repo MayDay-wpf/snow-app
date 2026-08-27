@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   CheckCircle2,
+  MessageSquareQuote,
   XCircle,
 } from "lucide-react";
 import {
@@ -13,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { WorkspaceDirectoryRecord } from "../../../preload";
 import { useAutoScrollPreference } from "../../hooks/useAutoScrollPreference";
 import { useI18n } from "../../i18n";
@@ -26,6 +28,12 @@ import type { ChatInputSendOptions } from "./chatInput/types";
 import type { MainContentView } from "./types";
 import type { RollbackMode } from "./chatMessages/utils/conversationTypes";
 import { usePathClickOpen } from "./chatMessages/hooks/usePathClickOpen";
+import {
+  buildTextSnippetSummary,
+  INSERT_QUOTE_TAG_EVENT,
+  type QuoteTag,
+} from "./chatInput/fileTagUtils";
+import { useTextSelectionQuote } from "./chatMessages/hooks/useTextSelectionQuote";
 import { directoryIdToPath } from "./chatMessages/utils/conversationHelpers";
 
 type ChatContentProps = {
@@ -300,6 +308,26 @@ const ChatContentBody = ({
     directoryIdToPath(conversationDirectoryId) ?? activeDirectory?.path,
     conversationDirectoryId ?? activeDirectory?.directoryId,
   );
+  // 划词引用：AI 正文 / 思考块内选中文本后浮现「添加到输入框」按钮。
+  const { quoteState, dismissQuote } = useTextSelectionQuote(scrollRef);
+  const handleAddQuoteToInput = useCallback((): void => {
+    if (!quoteState) {
+      return;
+    }
+    const tag: QuoteTag = {
+      content: quoteState.text,
+      summary: buildTextSnippetSummary(quoteState.text),
+      charCount: quoteState.text.length,
+    };
+    window.dispatchEvent(
+      new CustomEvent<QuoteTag>(INSERT_QUOTE_TAG_EVENT, { detail: tag }),
+    );
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) {
+      selection.removeAllRanges();
+    }
+    dismissQuote();
+  }, [quoteState, dismissQuote]);
   const activeConversationIdRef = useRef(activeConversationId);
   const previousActiveConversationIdRef = useRef(activeConversationId);
   const positionedConversationIdsRef = useRef(new Set<string>());
@@ -1205,6 +1233,34 @@ const ChatContentBody = ({
           onCancel={cancelRollback}
         />
       ) : null}
+
+      {/* portal 到 body：.main-content 的 backdrop-filter 会成为 fixed
+          后代的包含块并裁切内容，挂到 body 才能按视口坐标正确定位 */}
+      {quoteState
+        ? createPortal(
+            <div
+              className="text-selection-quote-popup"
+              data-quote-popup="true"
+              style={{ left: quoteState.x, top: quoteState.y }}
+            >
+              <button
+                type="button"
+                className="text-selection-quote-btn"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={handleAddQuoteToInput}
+                title={t("chat.quote.addToInput")}
+              >
+                <MessageSquareQuote
+                  size={14}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+                <span>{t("chat.quote.addToInput")}</span>
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 };

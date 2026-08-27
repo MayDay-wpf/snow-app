@@ -429,6 +429,7 @@ export const zhCN = {
   "sidebar.emojiGroupTech": "科技",
   "chat.greetingWithProject": "想在 {{name}} 中做些什么？",
   "chat.greetingNoProject": "请选择一个工作区项目以开始对话。",
+  "chat.quote.addToInput": "添加到输入框",
   "chat.scrollToBottom": "滚动到底部",
   "chat.userMessageRail.title": "用户消息",
   "chat.subAgentModelFixed": "子代理使用启动时确定的 API 配置和模型",

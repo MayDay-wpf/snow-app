@@ -16,6 +16,7 @@ import {
   GitCompare,
   Globe,
   Link2,
+  MessageSquareQuote,
   MousePointer2,
   ScanSearch,
 } from "lucide-react";
@@ -314,6 +315,30 @@ export const UserMessage = memo(
                       size={12}
                       className="user-message-file-chip-icon"
                       style={{ color: "#6c757d" }}
+                    />
+                    <span className="user-message-file-chip-name">
+                      {segment.tag.summary}
+                    </span>
+                  </span>
+                );
+              }
+
+              if (segment.type === "quote") {
+                const quoteTitle = `${segment.tag.summary} (${segment.tag.charCount} chars)`;
+                return (
+                  <span
+                    className="user-message-file-chip quote-chip"
+                    key={index}
+                    title={quoteTitle}
+                    onMouseMove={(event) =>
+                      handleTextSnippetChipMouseMove(event, segment.tag.content)
+                    }
+                    onMouseLeave={scheduleHideTextSnippetPreview}
+                  >
+                    <MessageSquareQuote
+                      size={12}
+                      className="user-message-file-chip-icon"
+                      style={{ color: "var(--accent-color, #4a9eff)" }}
                     />
                     <span className="user-message-file-chip-name">
                       {segment.tag.summary}

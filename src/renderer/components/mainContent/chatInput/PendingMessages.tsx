@@ -7,6 +7,7 @@ import {
   GitCompare,
   Globe,
   Link2,
+  MessageSquareQuote,
   MousePointer2,
   ScanSearch,
   Trash2,
@@ -115,6 +116,25 @@ const renderSegments = (content: string): React.ReactNode => {
             size={12}
             className="user-message-file-chip-icon"
             style={{ color: "#6c757d" }}
+          />
+          <span className="user-message-file-chip-name">{tag.summary}</span>
+        </span>
+      );
+    }
+
+    if (segment.type === "quote") {
+      const { tag } = segment;
+      const quoteTitle = `${tag.summary} (${tag.charCount} chars)`;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip quote-chip"
+          title={quoteTitle}
+        >
+          <MessageSquareQuote
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "var(--accent-color, #4a9eff)" }}
           />
           <span className="user-message-file-chip-name">{tag.summary}</span>
         </span>

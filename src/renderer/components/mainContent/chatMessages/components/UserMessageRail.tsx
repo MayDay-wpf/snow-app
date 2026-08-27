@@ -8,6 +8,7 @@ import {
   Globe,
   Link2,
   MessageSquare,
+  MessageSquareQuote,
   MousePointer2,
   ScanSearch,
 } from "lucide-react";
@@ -83,6 +84,8 @@ const buildPlainTextSummary = (content: string): string => {
         lastSep === -1 ? segment.tag.path : segment.tag.path.slice(lastSep + 1),
       );
     } else if (segment.type === "text-snippet") {
+      parts.push(segment.tag.summary);
+    } else if (segment.type === "quote") {
       parts.push(segment.tag.summary);
     } else if (segment.type === "review") {
       parts.push(segment.tag.summary);
@@ -202,6 +205,26 @@ const renderRailSegments = (content: string): React.ReactNode => {
             size={12}
             className="user-message-file-chip-icon"
             style={{ color: "#6c757d" }}
+          />
+          <span className="user-message-file-chip-name">
+            {segment.tag.summary}
+          </span>
+        </span>
+      );
+    }
+
+    if (segment.type === "quote") {
+      const quoteTitle = `${segment.tag.summary} (${segment.tag.charCount} chars)`;
+      return (
+        <span
+          key={index}
+          className="user-message-file-chip quote-chip"
+          title={quoteTitle}
+        >
+          <MessageSquareQuote
+            size={12}
+            className="user-message-file-chip-icon"
+            style={{ color: "var(--accent-color, #4a9eff)" }}
           />
           <span className="user-message-file-chip-name">
             {segment.tag.summary}

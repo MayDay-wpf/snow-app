@@ -109,11 +109,26 @@ export type ConversationTag = {
   emoji?: string;
 };
 
+export type QuoteTag = {
+  /** 划词原文（随消息发送给 AI） */
+  content: string;
+  /** 摘要标签，用于 chip 显示 */
+  summary: string;
+  /** 字符数 */
+  charCount: number;
+};
+
 /**
  * 浏览器面板元素选择器完成选取后，通过该全局事件将 ElementTag 派发给
  * 聊天输入框（ChatInputView）插入为 element chip。
  */
 export const INSERT_ELEMENT_TAG_EVENT = "snow:insert-element-tag";
+
+/**
+ * 消息内容区划词引用完成后，通过该全局事件将 QuoteTag 派发给
+ * 聊天输入框插入为 quote chip。
+ */
+export const INSERT_QUOTE_TAG_EVENT = "snow:insert-quote-tag";
 
 /**
  * 自定义剪贴板 MIME 类型：应用内复制/剪切选区时携带编辑区的完整
@@ -133,6 +148,7 @@ export type ContentSegment =
   | { type: "element"; tag: ElementTag }
   | { type: "web"; tag: WebTag }
   | { type: "conversation"; tag: ConversationTag }
+  | { type: "quote"; tag: QuoteTag }
   | { type: "skill"; tag: SkillTag };
 
 /**
@@ -303,6 +319,17 @@ export const encodeSkillTag = (tag: SkillTag): string =>
   })}@@`;
 
 /**
+ * 将划词引用编码为 quote 标签。
+ * 与 text-snippet 一致以 JSON 明文承载，AI 可直接读取被引用的原文。
+ */
+export const encodeQuoteTag = (tag: QuoteTag): string =>
+  `@@quote:${JSON.stringify({
+    content: tag.content,
+    summary: tag.summary,
+    charCount: tag.charCount,
+  })}@@`;
+
+/**
  * 将浏览器元素选择器选取的元素编码为 element 标签。
  * text / note 为用户或页面自由文本（可能含 `@@`），以 base64 承载，
  * 避免破坏标签终止符；url / tag / label 为结构化字段，直接 JSON 内嵌。
@@ -385,7 +412,7 @@ export const buildTextSnippetSummary = (text: string, maxLen = 30): string => {
 export const parseContentSegments = (content: string): ContentSegment[] => {
   const segments: ContentSegment[] = [];
   const regex =
-    /@@(file|dir|image|commit|change|text-snippet|review|element|web|conversation|skill):(.+?)@@/g;
+    /@@(file|dir|image|commit|change|text-snippet|review|element|web|conversation|quote|skill):(.+?)@@/g;
   let lastIndex = 0;
   let imageCounter = 0;
   let match: RegExpExecArray | null;
@@ -412,6 +439,24 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
               typeof data.charCount === "number"
                 ? data.charCount
                 : (data.content ?? "").length,
+          },
+        });
+      } catch {
+        segments.push({ type: "text", content: match[0] });
+      }
+    } else if (kind === "quote") {
+      try {
+        const data = JSON.parse(value) as Partial<QuoteTag>;
+        const quoteContent = data.content ?? "";
+        segments.push({
+          type: "quote",
+          tag: {
+            content: quoteContent,
+            summary: data.summary ?? buildTextSnippetSummary(quoteContent),
+            charCount:
+              typeof data.charCount === "number"
+                ? data.charCount
+                : quoteContent.length,
           },
         });
       } catch {
@@ -808,6 +853,25 @@ export const createSkillChipHtml = (tag: SkillTag): string => {
 };
 
 /**
+ * 生成划词引用 chip HTML。显示摘要，悬停提示字符数；
+ * 原文存放在 data-quote-data 中，供序列化与剪贴板还原。
+ */
+export const createQuoteChipHtml = (tag: QuoteTag): string => {
+  const quoteData = escapeHtml(
+    JSON.stringify({
+      content: tag.content,
+      summary: tag.summary,
+      charCount: tag.charCount,
+    }),
+  );
+  return `<span class="file-chip quote-chip" contenteditable="false" data-quote-tag="true" data-quote-data="${quoteData}" title="${escapeHtml(
+    `${tag.summary} (${tag.charCount} chars)`,
+  )}"><span class="file-chip-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/></svg></span><span class="file-chip-name">${escapeHtml(
+    tag.summary,
+  )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
+};
+
+/**
  * 将内容片段列表渲染为可插入编辑区的 HTML：纯文本做 HTML 转义
  * （换行转为 <br>），各类标签转换为对应 chip。用于剪贴板粘贴、
  * 草稿还原等场景重建 chip。
@@ -842,6 +906,9 @@ export const buildSegmentsHtml = (segments: ContentSegment[]): string =>
       if (segment.type === "conversation") {
         return createConversationChipHtml(segment.tag);
       }
+      if (segment.type === "quote") {
+        return createQuoteChipHtml(segment.tag);
+      }
       if (segment.type === "skill") {
         return createSkillChipHtml(segment.tag);
       }
@@ -859,6 +926,7 @@ type ChipSerializers = {
   element: (tag: ElementTag) => string;
   web: (tag: WebTag) => string;
   conversation: (tag: ConversationTag) => string;
+  quote: (tag: QuoteTag) => string;
   skill: (tag: SkillTag) => string;
 };
 
@@ -1015,6 +1083,23 @@ const readEditableContentWith = (
         } catch {
           // Ignore malformed conversation data
         }
+      } else if (elem.dataset.quoteTag === "true") {
+        try {
+          const data = JSON.parse(
+            elem.dataset.quoteData || "{}",
+          ) as Partial<QuoteTag>;
+          const quoteContent = data.content ?? "";
+          result += serializers.quote({
+            content: quoteContent,
+            summary: data.summary ?? buildTextSnippetSummary(quoteContent),
+            charCount:
+              typeof data.charCount === "number"
+                ? data.charCount
+                : quoteContent.length,
+          });
+        } catch {
+          // Ignore malformed quote data
+        }
       } else if (elem.dataset.skillTag === "true") {
         try {
           const data = JSON.parse(
@@ -1062,6 +1147,7 @@ export const readEditableContent = (el: HTMLElement): string =>
     element: encodeElementTag,
     web: encodeWebTag,
     conversation: encodeConversationTag,
+    quote: encodeQuoteTag,
     skill: encodeSkillTag,
   });
 
@@ -1102,6 +1188,7 @@ export const readEditableContentAsPlainText = (el: HTMLElement): string =>
     // 复制到应用外时输出「标题 URL」，保留可读性与可点击性
     web: (tag) => (tag.title ? `${tag.title} ${tag.url}` : tag.url),
     conversation: (tag) => tag.title,
+    quote: (tag) => tag.content,
     skill: (tag) => tag.name,
   });
 

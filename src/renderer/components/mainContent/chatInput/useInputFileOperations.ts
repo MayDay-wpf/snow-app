@@ -4,10 +4,12 @@ import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import {
   INSERT_ELEMENT_TAG_EVENT,
+  INSERT_QUOTE_TAG_EVENT,
   buildTextSnippetSummary,
   createChipHtml,
   createElementChipHtml,
   createImageChipHtml,
+  createQuoteChipHtml,
   createSkillChipHtml,
   createTextSnippetChipHtml,
   createWebTagChipHtml,
@@ -18,6 +20,7 @@ import {
   type ElementTag,
   type FileTag,
   type ImageTag,
+  type QuoteTag,
   type SkillTag,
   type TextSnippetTag,
   type WebTag,
@@ -194,6 +197,18 @@ export const useInputFileOperations = ({
     [restoreCaret, syncContent, textareaRef],
   );
 
+  const insertQuoteTag = useCallback(
+    (tag: QuoteTag) => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        restoreCaret();
+      }
+      insertHtmlAtSelection(createQuoteChipHtml(tag));
+      syncContent();
+    },
+    [restoreCaret, syncContent, textareaRef],
+  );
+
   useEffect(() => {
     const onInsertText = (event: Event): void => {
       const detail = (event as CustomEvent<TerminalInsertTextPayload>).detail;
@@ -230,6 +245,19 @@ export const useInputFileOperations = ({
       );
     };
   }, [insertElementTag]);
+
+  useEffect(() => {
+    const handleInsertQuoteTag = (event: Event): void => {
+      const tag = (event as CustomEvent<QuoteTag>).detail;
+      if (tag) {
+        insertQuoteTag(tag);
+      }
+    };
+    window.addEventListener(INSERT_QUOTE_TAG_EVENT, handleInsertQuoteTag);
+    return () => {
+      window.removeEventListener(INSERT_QUOTE_TAG_EVENT, handleInsertQuoteTag);
+    };
+  }, [insertQuoteTag]);
 
   useEffect(() => {
     return window.snow.onElementTagInserted((tag) => {

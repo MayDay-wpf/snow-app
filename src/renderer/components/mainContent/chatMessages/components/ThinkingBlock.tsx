@@ -152,7 +152,8 @@ export const ThinkingBlock = ({
             ref={scrollRef}
             onScroll={handleScroll}
           >
-            <div ref={bodyRef}>
+            {/* data-quote-source：思考过程文本同样支持划词引用 */}
+            <div ref={bodyRef} data-quote-source="true">
               <MarkdownBlock
                 className="thinking-block-body"
                 content={content}

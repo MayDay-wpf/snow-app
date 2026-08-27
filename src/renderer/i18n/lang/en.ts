@@ -446,6 +446,7 @@ export const en = {
   "sidebar.emojiGroupTech": "Tech",
   "chat.greetingWithProject": "What would you like to work on in {{name}}?",
   "chat.greetingNoProject": "Select a workspace project to get started.",
+  "chat.quote.addToInput": "Add to input",
   "chat.scrollToBottom": "Scroll to bottom",
   "chat.userMessageRail.title": "User messages",
   "chat.subAgentModelFixed":
