@@ -7,7 +7,7 @@ export const resourceApi = {
   getProcessMemoryBytes: (): Promise<number> =>
     ipcRenderer.invoke("settings:get-process-memory"),
 
-  /** 整理本进程内存（主进程 V8 GC + Rust 收缩 OS 工作集），返回整理前后常驻内存 */
+  /** 整理本进程内存（主进程 V8 GC + Rust 释放堆空闲页），返回整理前后常驻内存 */
   optimizeMemory: (): Promise<MemoryOptimizeResult> =>
     ipcRenderer.invoke("settings:optimize-memory"),
 };

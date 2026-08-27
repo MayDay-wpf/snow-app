@@ -24,9 +24,12 @@ pub fn get_process_memory_bytes() -> Result<i64> {
 }
 
 /// 本进程内存整理（「设置 → 资源占用」的优化占用触发的内存部分）：
-/// Node 侧先完成 V8 full GC，随后调用本函数把不活跃页移出物理内存。
-/// - Windows：`SetProcessWorkingSetSize(-1, -1)` 收缩工作集；
-/// - macOS/Linux：没有等价的单进程轻量系统接口，保持现状原样返回。
+/// Node 侧先完成 V8 full GC 回收 JS 堆，随后调用本函数把 native 堆中
+/// 的空闲页归还操作系统，降低常驻内存：
+/// - Windows：`SetProcessWorkingSetSizeEx(-1, -1)` 收缩工作集；
+/// - macOS：`malloc_zone_pressure_relief` 释放 malloc zone 空闲页；
+/// - Linux (glibc)：`malloc_trim(0)` 归还堆顶与 arena 空闲页；
+/// - musl 等其它平台：无稳定公开接口，保持现状原样返回。
 /// 系统调用极快，调用方仍需置于 spawn_blocking 中执行。
 pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
     let bytes_before = get_process_memory_bytes()?;
@@ -58,8 +61,39 @@ fn trim_working_set(bytes_before: i64) -> Result<i64> {
     unsafe { windows_resident_memory() }
 }
 
-/// 非 Windows 平台：无等价的轻量单进程整理接口，保持占位原样返回。
-#[cfg(not(target_os = "windows"))]
+/// macOS：对默认 malloc zone 施加压力释放（libmalloc 官方公开 API），
+/// 将 zone 内空闲页经 MADV_REUSABLE 归还内核（含默认启用的 nano zone）。
+#[cfg(target_os = "macos")]
+fn trim_working_set(bytes_before: i64) -> Result<i64> {
+    extern "C" {
+        // malloc_zone_t 为不透明结构体，指针传参下以 c_void 声明 ABI 兼容
+        fn malloc_default_zone() -> *mut libc::c_void;
+        fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+    }
+    unsafe {
+        malloc_zone_pressure_relief(malloc_default_zone(), 0);
+    }
+    unsafe { macos_resident_memory() }
+}
+
+/// Linux (glibc)：malloc_trim(0) 将堆顶与各 arena 中的空闲页经
+/// MADV_DONTNEED 归还内核（线程安全）。Rust / Node 的默认分配器即为
+/// glibc malloc，因此作用于同一进程堆。
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn trim_working_set(bytes_before: i64) -> Result<i64> {
+    unsafe {
+        libc::malloc_trim(0);
+    }
+    linux_resident_memory()
+}
+
+/// 其余平台（musl Linux 等）：mallocng 无稳定的公开整理接口，
+/// 保持占位原样返回。
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", target_env = "gnu")
+)))]
 fn trim_working_set(bytes_before: i64) -> Result<i64> {
     Ok(bytes_before)
 }

@@ -650,7 +650,7 @@ export function GeneralSettingsPanel({
       const runtimeResult = await window.snow.optimizeDatabase("runtime");
       const archiveResult = await window.snow.optimizeDatabase("archive");
       const freedBytes = runtimeResult.bytesFreed + archiveResult.bytesFreed;
-      // 内存整理失败（如平台不支持工作集收缩）不影响磁盘优化结果
+      // 内存整理失败（如平台不支持内存整理）不影响磁盘优化结果
       let freedMemoryBytes = 0;
       try {
         const memoryResult = await window.snow.optimizeMemory();

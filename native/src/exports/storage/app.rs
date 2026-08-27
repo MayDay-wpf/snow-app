@@ -38,9 +38,9 @@ pub async fn get_process_memory_bytes() -> napi::Result<i64> {
         .map_err(map_spawn_error)?
 }
 
-/// 本进程内存整理（「优化占用」的内存部分）：Rust 侧把不活跃页换出物理内存
-/// （仅 Windows 生效；Node 侧的 V8 GC 在调用前完成）。全程在 spawn_blocking
-/// 中执行，不阻塞 Node.js 主线程。
+/// 本进程内存整理（「优化占用」的内存部分）：Node 侧的 V8 GC 在调用前完成，
+/// Rust 侧按平台释放 native 堆空闲页 / 收缩工作集（Windows / macOS / Linux
+/// 各有原生实现）。全程在 spawn_blocking 中执行，不阻塞 Node.js 主线程。
 #[napi]
 pub async fn optimize_memory() -> napi::Result<MemoryOptimizeResult> {
     tokio::task::spawn_blocking(crate::storage::optimize_memory)
