@@ -29,11 +29,13 @@ pub fn get_process_memory_bytes() -> Result<i64> {
 /// - Windows：`SetProcessWorkingSetSizeEx(-1, -1)` 收缩工作集；
 /// - macOS：`malloc_zone_pressure_relief` 释放 malloc zone 空闲页；
 /// - Linux (glibc)：`malloc_trim(0)` 归还堆顶与 arena 空闲页；
-/// - musl 等其它平台：无稳定公开接口，保持现状原样返回。
+/// - musl 等其它平台：无稳定公开接口，不支持整理。
+/// 各分支整理失败时由调用方回退为不整理，保证「释放量」永不为负。
 /// 系统调用极快，调用方仍需置于 spawn_blocking 中执行。
 pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
     let bytes_before = get_process_memory_bytes()?;
-    let bytes_after = trim_working_set(bytes_before)?;
+    // 整理失败（平台不支持 / 系统调用失败 / 测量失败）时回退为不整理
+    let bytes_after = trim_working_set().unwrap_or(bytes_before);
     Ok(MemoryOptimizeResult {
         bytes_before,
         bytes_after,
@@ -41,9 +43,8 @@ pub fn optimize_memory() -> Result<MemoryOptimizeResult> {
 }
 
 /// Windows：向系统申请尽可能收缩本进程工作集，成功后重新测量常驻内存。
-/// 失败仅说明本次未能收缩，不影响调用流程，原样返回 bytes_before。
 #[cfg(target_os = "windows")]
-fn trim_working_set(bytes_before: i64) -> Result<i64> {
+fn trim_working_set() -> Result<i64> {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
@@ -56,7 +57,13 @@ fn trim_working_set(bytes_before: i64) -> Result<i64> {
         SetProcessWorkingSetSizeEx(handle, usize::MAX, usize::MAX, 0)
     } != 0;
     if !succeeded {
-        return Ok(bytes_before);
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!(
+                "SetProcessWorkingSetSizeEx failed: {}",
+                std::io::Error::last_os_error()
+            ),
+        ));
     }
     unsafe { windows_resident_memory() }
 }
@@ -64,7 +71,7 @@ fn trim_working_set(bytes_before: i64) -> Result<i64> {
 /// macOS：对默认 malloc zone 施加压力释放（libmalloc 官方公开 API），
 /// 将 zone 内空闲页经 MADV_REUSABLE 归还内核（含默认启用的 nano zone）。
 #[cfg(target_os = "macos")]
-fn trim_working_set(bytes_before: i64) -> Result<i64> {
+fn trim_working_set() -> Result<i64> {
     extern "C" {
         // malloc_zone_t 为不透明结构体，指针传参下以 c_void 声明 ABI 兼容
         fn malloc_default_zone() -> *mut libc::c_void;
@@ -80,22 +87,25 @@ fn trim_working_set(bytes_before: i64) -> Result<i64> {
 /// MADV_DONTNEED 归还内核（线程安全）。Rust / Node 的默认分配器即为
 /// glibc malloc，因此作用于同一进程堆。
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn trim_working_set(bytes_before: i64) -> Result<i64> {
+fn trim_working_set() -> Result<i64> {
     unsafe {
         libc::malloc_trim(0);
     }
     linux_resident_memory()
 }
 
-/// 其余平台（musl Linux 等）：mallocng 无稳定的公开整理接口，
-/// 保持占位原样返回。
+/// 其余平台（musl Linux 等）：mallocng 无稳定的公开整理接口，不支持整理。
+/// 由调用方回退为不整理（bytes_after = bytes_before）。
 #[cfg(not(any(
     target_os = "windows",
     target_os = "macos",
     all(target_os = "linux", target_env = "gnu")
 )))]
-fn trim_working_set(bytes_before: i64) -> Result<i64> {
-    Ok(bytes_before)
+fn trim_working_set() -> Result<i64> {
+    Err(Error::new(
+        Status::GenericFailure,
+        "Memory trimming is not supported on this platform",
+    ))
 }
 
 /// macOS：mach task_info(MACH_TASK_BASIC_INFO) 查询常驻内存。
