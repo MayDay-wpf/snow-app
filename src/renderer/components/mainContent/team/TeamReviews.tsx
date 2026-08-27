@@ -64,6 +64,7 @@ export const TeamReviews = ({
   const [draft, setDraft] = useState<ReviewDraft>(EMPTY_DRAFT);
   const [commentDraft, setCommentDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const myEmail = team.identity?.email ?? "";
@@ -225,8 +226,15 @@ export const TeamReviews = ({
   };
 
   const deleteReview = async (review: TeamReview): Promise<void> => {
-    await team.remove("review", review.id);
-    setDetail(null);
+    setDeleting(true);
+    try {
+      await team.remove("review", review.id);
+      setDetail(null);
+    } catch {
+      // 删除失败静默
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const { pending, mine, history } = useMemo(() => {
@@ -479,7 +487,7 @@ export const TeamReviews = ({
               <button
                 type="button"
                 className="team-btn team-btn-success"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void setStatus(detail, "approved")}
               >
                 <CheckCircle2 size={15} />
@@ -488,7 +496,7 @@ export const TeamReviews = ({
               <button
                 type="button"
                 className="team-btn team-btn-danger"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void setStatus(detail, "rejected")}
               >
                 <XCircle size={15} />
@@ -497,7 +505,7 @@ export const TeamReviews = ({
               <button
                 type="button"
                 className="team-btn"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void setStatus(detail, "merged")}
               >
                 {t("team.reviews.merged", { defaultValue: "已合并" })}
@@ -505,11 +513,15 @@ export const TeamReviews = ({
               <button
                 type="button"
                 className="team-btn team-btn-danger"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void deleteReview(detail)}
                 title={t("team.reviews.delete", { defaultValue: "删除评审" })}
               >
-                <Trash2 size={15} />
+                {deleting ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
               </button>
             </div>
           ) : null
@@ -544,7 +556,7 @@ export const TeamReviews = ({
                     className={`team-status-step is-${status}${
                       active ? " is-active" : ""
                     }${done ? " is-done" : ""}`}
-                    disabled={busy}
+                    disabled={busy || deleting}
                     onClick={() => void setStatus(detail, status)}
                   >
                     {active || done ? (
@@ -598,7 +610,7 @@ export const TeamReviews = ({
                         <button
                           type="button"
                           className="team-comment-delete"
-                          disabled={busy}
+                          disabled={busy || deleting}
                           onClick={() => void deleteComment(detail, comment.id)}
                           title={t("team.reviews.deleteComment", {
                             defaultValue: "删除评论",
@@ -624,7 +636,7 @@ export const TeamReviews = ({
                 <button
                   type="button"
                   className="team-btn team-btn-primary"
-                  disabled={busy || !commentDraft.trim()}
+                  disabled={busy || deleting || !commentDraft.trim()}
                   onClick={() => void addComment(detail)}
                 >
                   <MessageSquarePlus size={15} />

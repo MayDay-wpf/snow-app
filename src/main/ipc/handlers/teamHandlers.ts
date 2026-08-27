@@ -1,29 +1,6 @@
 import { ipcMain } from "electron";
 import type { NativeBridge } from "../../native/types";
 
-/** 团队诊断日志：控制台 + app 日志文件（~/.snow/log）。 */
-const teamLog = (
-  native: NativeBridge,
-  message: string,
-  context?: unknown,
-): void => {
-  void native
-    .writeAppLog({
-      level: "INFO",
-      module: "team",
-      func: "teamHandlers",
-      message,
-      context:
-        context === undefined
-          ? undefined
-          : typeof context === "string"
-            ? context
-            : JSON.stringify(context),
-      source: "main",
-    })
-    .catch(() => undefined);
-};
-
 /**
  * 团队协作 IPC 桥：把渲染层的团队调用转发给 Rust 原生模块。
  * 所有团队数据操作（身份读取、同步、记录 CRUD）都在 Rust 侧以
@@ -32,25 +9,19 @@ const teamLog = (
 export const registerTeamHandlers = (native: NativeBridge): void => {
   ipcMain.handle("team:get-identity", async (_event, repoPath: unknown) => {
     const trimmed = typeof repoPath === "string" ? repoPath.trim() : "";
-    teamLog(native, "IPC team:get-identity", { repoPath: trimmed });
     if (!trimmed) {
       throw new Error("Repository path is required");
     }
     try {
       const result = await native.teamGetIdentity(trimmed);
-      teamLog(native, "IPC team:get-identity result", result);
       return result;
     } catch (e) {
-      teamLog(native, "IPC team:get-identity ERROR", {
-        error: e instanceof Error ? e.message : String(e),
-      });
       throw e;
     }
   });
 
   ipcMain.handle("team:resolve-repo", async (_event, path: unknown) => {
     const trimmed = typeof path === "string" ? path.trim() : "";
-    teamLog(native, "IPC team:resolve-repo", { path: trimmed });
     if (!trimmed) {
       throw new Error("Workspace path is required");
     }
@@ -77,7 +48,6 @@ export const registerTeamHandlers = (native: NativeBridge): void => {
       throw new Error("Repository path is required");
     }
     const result = await native.teamSync(trimmed);
-    teamLog(native, "IPC team:sync result", result);
     return result;
   });
 

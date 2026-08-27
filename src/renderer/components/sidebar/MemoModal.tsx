@@ -7,13 +7,7 @@ import {
   Trash2,
   Sparkles,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "../../i18n";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -89,7 +83,10 @@ const memoHtmlToChatContent = (html: string): string => {
   };
 
   Array.from(container.childNodes).forEach(walk);
-  return result.join("").replace(/\n{3,}/g, "\n\n").trim();
+  return result
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 };
 
 export function MemoModal({
@@ -146,7 +143,7 @@ export function MemoModal({
 
   const selectedMemo = useMemo(
     () => memos.find((memo) => memo.memoId === selectedMemoId) ?? null,
-    [memos, selectedMemoId]
+    [memos, selectedMemoId],
   );
 
   const loadFirstPage = useCallback(
@@ -154,13 +151,12 @@ export function MemoModal({
       const currentRequestId = ++requestIdRef.current;
       setIsLoading(true);
       try {
-        const statusParam =
-          currentFilter === "all" ? undefined : currentFilter;
+        const statusParam = currentFilter === "all" ? undefined : currentFilter;
         const page = await window.snow.listMemos(
           directoryId,
           PAGE_SIZE,
           0,
-          statusParam
+          statusParam,
         );
         if (currentRequestId !== requestIdRef.current) return;
         setMemos(page.items);
@@ -178,7 +174,7 @@ export function MemoModal({
         }
       }
     },
-    [directoryId]
+    [directoryId],
   );
 
   const refreshPendingCount = useCallback(async () => {
@@ -222,17 +218,23 @@ export function MemoModal({
     }
   }, [open, memos, selectedMemoId]);
 
-  // Sync editor content when selection changes
+  // 仅依赖 memoId 同步编辑器:自动保存会把同 id 的新对象刷进 memos,
+  // 若依赖整个对象会重写 DOM 导致光标跳回文档开头
+  const selectedMemoKey = selectedMemo?.memoId ?? null;
   useEffect(() => {
-    if (!selectedMemo) return;
-    const content = selectedMemo.content;
+    if (!selectedMemoKey) return;
+    const current = memosRef.current.find(
+      (memo) => memo.memoId === selectedMemoKey,
+    );
+    if (!current) return;
+    const content = current.content;
     lastSavedContentRef.current = content;
     editorHtmlRef.current = content;
     setEditorContent(content);
     if (editorRef.current && editorRef.current.innerHTML !== content) {
       editorRef.current.innerHTML = content;
     }
-  }, [selectedMemo]);
+  }, [selectedMemoKey]);
 
   // Stop the close-triggered flushSave effect from running after the editor
   // has already been unmounted. The actual flush happens synchronously inside
@@ -266,11 +268,11 @@ export function MemoModal({
     try {
       const updated = await window.snow.updateMemoContent(
         currentMemoId,
-        content
+        content,
       );
       lastSavedContentRef.current = content;
       setMemos((prev) =>
-        prev.map((memo) => (memo.memoId === currentMemoId ? updated : memo))
+        prev.map((memo) => (memo.memoId === currentMemoId ? updated : memo)),
       );
       void refreshPendingCount();
     } catch {
@@ -287,7 +289,8 @@ export function MemoModal({
   // editor (Modal returns null when open=false) and wiping the DB content
   // with an empty string.
   const handleClose = useCallback(() => {
-    editorHtmlRef.current = editorRef.current?.innerHTML ?? editorHtmlRef.current;
+    editorHtmlRef.current =
+      editorRef.current?.innerHTML ?? editorHtmlRef.current;
     void flushSave();
     onClose();
   }, [flushSave, onClose]);
@@ -387,10 +390,10 @@ export function MemoModal({
     try {
       const updated = await window.snow.updateMemoStatus(
         memo.memoId,
-        nextStatus
+        nextStatus,
       );
       setMemos((prev) =>
-        prev.map((m) => (m.memoId === memo.memoId ? updated : m))
+        prev.map((m) => (m.memoId === memo.memoId ? updated : m)),
       );
       void refreshPendingCount();
     } catch {
@@ -443,7 +446,9 @@ export function MemoModal({
     }
     const html =
       memo.memoId === selectedMemoId
-        ? (editorRef.current?.innerHTML ?? editorHtmlRef.current ?? memo.content)
+        ? (editorRef.current?.innerHTML ??
+          editorHtmlRef.current ??
+          memo.content)
         : memo.content;
     const chatContent = memoHtmlToChatContent(html);
     if (!chatContent.trim()) return;
@@ -456,8 +461,7 @@ export function MemoModal({
   const handleListScroll = () => {
     const el = listScrollRef.current;
     if (!el || !hasMore || isLoadingMore || loadingMoreRef.current) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     if (!nearBottom) return;
     loadingMoreRef.current = true;
     setIsLoadingMore(true);
@@ -532,11 +536,7 @@ export function MemoModal({
         </div>
         <div className="memo-list-item-actions">
           <button
-            aria-label={
-              isDone
-                ? t("memo.togglePending")
-                : t("memo.toggleDone")
-            }
+            aria-label={isDone ? t("memo.togglePending") : t("memo.toggleDone")}
             className={`memo-icon-btn${isDone ? " done-toggle" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
@@ -632,7 +632,7 @@ export function MemoModal({
               {formatTimeLabel(
                 parseDbTimestamp(selectedMemo.updatedAt),
                 new Date(),
-                t
+                t,
               )}
             </span>
           </div>
@@ -724,8 +724,8 @@ export function MemoModal({
                   {key === "all"
                     ? t("memo.filterAll")
                     : key === "pending"
-                    ? t("memo.filterPending")
-                    : t("memo.filterDone")}
+                      ? t("memo.filterPending")
+                      : t("memo.filterDone")}
                 </button>
               ))}
             </div>

@@ -88,6 +88,7 @@ export const TeamTasks = ({
   const [detail, setDetail] = useState<TeamTask | null>(null);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const myEmail = team.identity?.email ?? "";
@@ -259,8 +260,15 @@ export const TeamTasks = ({
   };
 
   const deleteTask = async (task: TeamTask): Promise<void> => {
-    await team.remove("task", task.id);
-    setDetail(null);
+    setDeleting(true);
+    try {
+      await team.remove("task", task.id);
+      setDetail(null);
+    } catch {
+      // 删除失败静默
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const selectOptions = (): (
@@ -462,7 +470,7 @@ export const TeamTasks = ({
               <button
                 type="button"
                 className="team-btn"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void takeTask(detail)}
                 title={t("team.tasks.assignMe", { defaultValue: "认领此任务" })}
               >
@@ -472,7 +480,7 @@ export const TeamTasks = ({
               <button
                 type="button"
                 className="team-btn team-btn-primary"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void aiTakeTask(detail)}
                 title={t("team.tasks.aiExecute", {
                   defaultValue: "交给当前 AI 会话执行",
@@ -484,7 +492,7 @@ export const TeamTasks = ({
               <button
                 type="button"
                 className="team-btn team-btn-accent"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => onRequestReview(detail)}
                 title={t("team.tasks.requestReview", {
                   defaultValue: "为当前改动发起代码评审",
@@ -496,11 +504,15 @@ export const TeamTasks = ({
               <button
                 type="button"
                 className="team-btn team-btn-danger"
-                disabled={busy}
+                disabled={busy || deleting}
                 onClick={() => void deleteTask(detail)}
                 title={t("team.tasks.delete", { defaultValue: "删除任务" })}
               >
-                <Trash2 size={15} />
+                {deleting ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
               </button>
             </div>
           ) : null
@@ -536,7 +548,7 @@ export const TeamTasks = ({
                     className={`team-status-step is-${status}${
                       active ? " is-active" : ""
                     }${done ? " is-done" : ""}`}
-                    disabled={busy}
+                    disabled={busy || deleting}
                     onClick={() => void setStatus(detail, status)}
                     title={t("team.tasks.setStatus", {
                       defaultValue: "切换状态",

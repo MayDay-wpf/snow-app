@@ -105,12 +105,6 @@ export const useTeamData = (workspacePath: string): TeamData => {
 
   // 解析身份与真实仓库路径（Rust 自动定位）
   useEffect(() => {
-    teamLog(`useTeamData.mount#${instanceId.current}`, {
-      workspacePath,
-      isRepoState: identity?.isRepo,
-      repoPathState: repoPath,
-      ts: new Date().toISOString(),
-    });
     if (!workspacePath) {
       setIdentity(null);
       setIdentityWorkspace("");
@@ -121,24 +115,12 @@ export const useTeamData = (workspacePath: string): TeamData => {
     void (async () => {
       try {
         const current = await window.snow.teamGetIdentity(workspacePath);
-        teamLog(`useTeamData.identity#${instanceId.current}`, current);
         if (cancelled) {
-          teamLog(`useTeamData.identityCANCELLED#${instanceId.current}`, {
-            workspacePath,
-          });
           return;
         }
-        teamLog(`useTeamData.beforeSetState#${instanceId.current}`, {
-          isRepo: current.isRepo,
-          repoPath: current.repoPath,
-        });
         setIdentity(current);
         setIdentityWorkspace(workspacePath);
         setRepoPath(current.isRepo ? current.repoPath : "");
-        teamLog(`useTeamData.afterSetState#${instanceId.current}`, {
-          isRepo: current.isRepo,
-          repoPath: current.repoPath,
-        });
       } catch (e) {
         teamLog(`useTeamData.identityError#${instanceId.current}`, {
           error: e instanceof Error ? e.message : String(e),

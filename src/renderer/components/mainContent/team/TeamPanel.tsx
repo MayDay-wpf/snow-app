@@ -99,18 +99,6 @@ export const TeamPanel = ({
   const panelInstanceRef = useRef(
     `tp-${Math.random().toString(36).slice(2, 7)}`,
   );
-  teamLog(`TeamPanel.render#${panelInstanceRef.current}`, {
-    workspacePath,
-    repoPath: team.repoPath,
-    identity: identity
-      ? {
-          isRepo: identity.isRepo,
-          hasIdentity: identity.hasIdentity,
-          repoPath: identity.repoPath,
-          name: identity.name,
-        }
-      : null,
-  });
 
   // 身份尚未解析完成：先显示加载，避免闪回设置视图/工作台
   if (team.identityResolving) {

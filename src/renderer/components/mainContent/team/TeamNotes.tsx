@@ -1,4 +1,4 @@
-import { BookOpen, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { BookOpen, Loader2, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { TeamNote } from "../../../../preload";
 import { useI18n } from "../../../i18n";
@@ -28,6 +28,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
   const [content, setContent] = useState("");
   const [tags, setTags] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const myEmail = team.identity?.email ?? "";
@@ -91,9 +92,16 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
   };
 
   const deleteNote = async (note: TeamNote): Promise<void> => {
-    await team.remove("note", note.id);
-    if (detail?.id === note.id) {
-      setDetail(null);
+    setDeleting(true);
+    try {
+      await team.remove("note", note.id);
+      if (detail?.id === note.id) {
+        setDetail(null);
+      }
+    } catch {
+      // 删除失败静默
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -102,6 +110,17 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
       <div className="team-tab-toolbar">
         <span className="team-tab-title">
           {t("team.notes.title", { defaultValue: "知识沉淀" })}
+          {sorted.length > 0 ? (
+            <span
+              className="team-task-group-count"
+              title={t("team.notes.skillHint", {
+                defaultValue:
+                  "团队知识已自动沉淀为项目级 Skills（team-knowledge），AI 会话可自动使用",
+              })}
+            >
+              <Sparkles size={11} />
+            </span>
+          ) : null}
         </span>
         <button
           type="button"
@@ -240,6 +259,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
               <button
                 type="button"
                 className="team-btn"
+                disabled={deleting}
                 onClick={() => openEdit(detail)}
               >
                 {t("team.notes.edit", { defaultValue: "编辑" })}
@@ -247,9 +267,14 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
               <button
                 type="button"
                 className="team-btn team-btn-danger"
+                disabled={deleting}
                 onClick={() => void deleteNote(detail)}
               >
-                <Trash2 size={15} />
+                {deleting ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
               </button>
             </div>
           ) : null

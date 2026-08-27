@@ -24,18 +24,12 @@ type ProjectMcpPanelProps = {
   onClose: () => void;
 };
 
-type ExternalToolsByServerId = Record<string, McpProjectToolStatus[]>;
 type ToolErrorsByServerId = Record<string, string>;
 
 const toolDisplayName = (fullName: string): string => {
   const parts = fullName.split("__");
   return parts.length === 3 ? parts[2] : fullName;
 };
-
-const hasOwnTools = (
-  toolsByServerId: ExternalToolsByServerId,
-  serverId: string,
-): boolean => Object.prototype.hasOwnProperty.call(toolsByServerId, serverId);
 
 const formatServerError = (
   error: string,
@@ -61,8 +55,6 @@ export const ProjectMcpPanel = ({
   const [expandedServerIds, setExpandedServerIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [externalToolsByServerId, setExternalToolsByServerId] =
-    useState<ExternalToolsByServerId>({});
   const [loadingToolServerIds, setLoadingToolServerIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -83,7 +75,6 @@ export const ProjectMcpPanel = ({
     pendingToolNamesRef.current.clear();
     setServers([]);
     setExpandedServerIds(new Set());
-    setExternalToolsByServerId({});
     setLoadingToolServerIds(new Set());
     setToolErrorsByServerId({});
     setLoadError(null);
@@ -117,12 +108,15 @@ export const ProjectMcpPanel = ({
     void loadServers();
   }, [loadServers, open]);
 
-  const loadExternalTools = useCallback(
+  // 局部重试单个项目/全局服务器的工具发现：list_mcp_project_servers 已
+  // 并发返回全部工具（与设置页共用同一份数据），仅在发现失败时手动刷新。
+  // 注意：此处 server.source === "external" 表示来自全局配置的 MCP，
+  // 界面上显示为「全局 MCP」分组。
+  const retryServerTools = useCallback(
     async (server: McpProjectServerStatus): Promise<void> => {
       if (
         !projectId ||
-        server.source !== "external" ||
-        hasOwnTools(externalToolsByServerId, server.id) ||
+        server.source === "system" ||
         loadingToolServerIdsRef.current.has(server.id)
       ) {
         return;
@@ -143,10 +137,14 @@ export const ProjectMcpPanel = ({
           server.id,
         );
         if (catalogGenerationRef.current === generation) {
-          setExternalToolsByServerId((current) => ({
-            ...current,
-            [server.id]: tools,
-          }));
+          // 直接写回列表状态，渲染统一从 server.tools 读取
+          setServers((current) =>
+            current.map((item) =>
+              item.id === server.id
+                ? { ...item, tools, error: undefined }
+                : item,
+            ),
+          );
         }
       } catch (error) {
         if (catalogGenerationRef.current === generation) {
@@ -166,11 +164,10 @@ export const ProjectMcpPanel = ({
         }
       }
     },
-    [externalToolsByServerId, projectId],
+    [projectId, t],
   );
 
   const toggleExpanded = (server: McpProjectServerStatus): void => {
-    const shouldExpand = !expandedServerIds.has(server.id);
     setExpandedServerIds((current) => {
       const next = new Set(current);
       if (next.has(server.id)) {
@@ -180,10 +177,6 @@ export const ProjectMcpPanel = ({
       }
       return next;
     });
-
-    if (shouldExpand && server.source === "external") {
-      void loadExternalTools(server);
-    }
   };
 
   const updateServer = async (
@@ -257,18 +250,6 @@ export const ProjectMcpPanel = ({
           : item,
       ),
     );
-    setExternalToolsByServerId((current) => {
-      const tools = current[serverId];
-      if (!tools) {
-        return current;
-      }
-      return {
-        ...current,
-        [serverId]: tools.map((tool) =>
-          tool.name === toolName ? { ...tool, enabled } : tool,
-        ),
-      };
-    });
   };
 
   const updateTool = async (
@@ -303,6 +284,9 @@ export const ProjectMcpPanel = ({
   };
 
   const systemServers = servers.filter((server) => server.source === "system");
+  const projectOwnedServers = servers.filter(
+    (server) => server.source === "project",
+  );
   const externalServers = servers.filter(
     (server) => server.source === "external",
   );
@@ -321,15 +305,14 @@ export const ProjectMcpPanel = ({
       ) : (
         groupServers.map((server) => {
           const expanded = expandedServerIds.has(server.id);
-          const toolsLoaded =
-            server.source === "system" ||
-            hasOwnTools(externalToolsByServerId, server.id);
-          const tools =
-            server.source === "system"
-              ? server.tools
-              : externalToolsByServerId[server.id] || [];
-          const toolsLoading = loadingToolServerIds.has(server.id);
+          // 工具直接来自 list_mcp_project_servers 的返回值（Rust 已并发发现），
+          // 与设置页项目 MCP 列表共用同一份数据。
+          const tools = server.tools;
+          const toolsRetrying = loadingToolServerIds.has(server.id);
           const toolError = toolErrorsByServerId[server.id];
+          const discoveryError =
+            toolError ?? (server.error as string | null | undefined);
+          const canRetry = server.source !== "system";
           const serverDisabled = !server.globalEnabled;
           const serverClassName = [
             "project-mcp-server",
@@ -362,13 +345,11 @@ export const ProjectMcpPanel = ({
                   />
                   <span className="project-mcp-server-name">{server.name}</span>
                   <span className="project-mcp-tool-count">
-                    {toolsLoading
+                    {toolsRetrying
                       ? t("projectMcp.loadingToolsShort")
-                      : toolsLoaded
-                        ? t("projectMcp.toolCount", {
-                            values: { count: tools.length },
-                          })
-                        : t("projectMcp.toolsOnDemand")}
+                      : t("projectMcp.toolCount", {
+                          values: { count: tools.length },
+                        })}
                   </span>
                 </button>
                 <label className="toggle-switch">
@@ -389,15 +370,26 @@ export const ProjectMcpPanel = ({
                   {t("projectMcp.globalDisabled")}
                 </div>
               ) : null}
-              {server.error ? (
+              {discoveryError ? (
                 <div className="project-mcp-server-error">
                   <AlertCircle size={14} />
-                  <span>{formatServerError(server.error, t)}</span>
+                  <span>{formatServerError(discoveryError, t)}</span>
+                  {canRetry && !serverDisabled ? (
+                    <button
+                      className="project-mcp-tool-retry"
+                      disabled={toolsRetrying}
+                      onClick={() => void retryServerTools(server)}
+                      type="button"
+                    >
+                      <RefreshCw size={13} />
+                      <span>{t("projectMcp.retryTools")}</span>
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
               {expanded ? (
                 <div className="project-mcp-tools">
-                  {toolsLoading ? (
+                  {toolsRetrying ? (
                     <div className="project-mcp-tools-state">
                       <Loader2 className="spin" size={15} />
                       <span>{t("projectMcp.loadingTools")}</span>
@@ -411,21 +403,19 @@ export const ProjectMcpPanel = ({
                       </div>
                       <button
                         className="project-mcp-tool-retry"
-                        onClick={() => void loadExternalTools(server)}
+                        onClick={() => void retryServerTools(server)}
                         type="button"
                       >
                         <RefreshCw size={13} />
                         <span>{t("projectMcp.retryTools")}</span>
                       </button>
                     </div>
-                  ) : !toolsLoaded ? (
-                    <div className="project-mcp-tools-state">
-                      <span>{t("projectMcp.toolsOnDemand")}</span>
-                    </div>
                   ) : tools.length === 0 ? (
-                    <div className="project-mcp-empty">
-                      {t("projectMcp.noTools")}
-                    </div>
+                    discoveryError ? null : (
+                      <div className="project-mcp-empty">
+                        {t("projectMcp.noTools")}
+                      </div>
+                    )
                   ) : (
                     tools.map((tool) => (
                       <div className="project-mcp-tool-row" key={tool.name}>
@@ -511,9 +501,10 @@ export const ProjectMcpPanel = ({
           <div className="project-mcp-list">
             {renderServerGroup(t("projectMcp.systemServers"), systemServers)}
             {renderServerGroup(
-              t("projectMcp.externalServers"),
-              externalServers,
+              t("projectMcp.projectServers"),
+              projectOwnedServers,
             )}
+            {renderServerGroup(t("projectMcp.globalServers"), externalServers)}
           </div>
         </>
       )}

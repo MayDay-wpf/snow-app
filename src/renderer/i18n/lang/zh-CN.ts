@@ -2925,11 +2925,11 @@ export const zhCN = {
   "projectMcp.scopeNote":
     "此处修改仅作用于当前项目，不会更改设置页中的全局 MCP 状态。",
   "projectMcp.systemServers": "系统内置 MCP",
-  "projectMcp.externalServers": "外部 MCP",
+  "projectMcp.projectServers": "项目 MCP",
+  "projectMcp.globalServers": "全局 MCP",
   "projectMcp.emptyGroup": "此分组暂无 MCP 服务",
   "projectMcp.noTools": "未发现工具",
   "projectMcp.toolCount": "{{count}} 个工具",
-  "projectMcp.toolsOnDemand": "展开后加载工具",
   "projectMcp.loadingToolsShort": "加载中...",
   "projectMcp.loadingTools": "正在连接并加载工具...",
   "projectMcp.loadToolsFailed": "工具加载失败",
@@ -3781,6 +3781,8 @@ export const zhCN = {
   "team.reviews.comment": "评论",
   "team.notes.title": "知识沉淀",
   "team.notes.new": "新建知识",
+  "team.notes.skillHint":
+    "团队知识已自动沉淀为项目级 Skills（team-knowledge），AI 会话可自动使用",
   "team.notes.empty": "还没有共享知识。把团队的技术决策、踩坑记录沉淀到这里。",
   "team.notes.edit": "编辑知识",
   "team.notes.save": "保存",

@@ -39076,7 +39076,8 @@ body.ctrl-held [data-path] {
   flex-direction: column;
   gap: 8px;
 }
-.team-task-card {
+.team-task-card,
+.team-review-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -39086,13 +39087,11 @@ body.ctrl-held [data-path] {
   padding: 10px 12px;
   text-align: left;
   cursor: pointer;
-  transition:
-    border-color 0.12s,
-    box-shadow 0.12s;
+  transition: border-color 0.12s;
 }
-.team-task-card:hover {
+.team-task-card:hover,
+.team-review-card:hover {
   border-color: var(--border-color);
-  box-shadow: var(--island-shadow);
 }
 .team-task-card-top {
   display: flex;
@@ -39498,13 +39497,10 @@ body.ctrl-held [data-path] {
   padding: 12px;
   text-align: left;
   cursor: pointer;
-  transition:
-    border-color 0.12s,
-    box-shadow 0.12s;
+  transition: border-color 0.12s;
 }
 .team-note-card:hover {
   border-color: var(--border-color);
-  box-shadow: var(--island-shadow);
 }
 .team-note-card-title {
   font-size: 13.5px;

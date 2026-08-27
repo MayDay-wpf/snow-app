@@ -18,6 +18,9 @@ use crate::storage::services::git::{is_git_repo, run_git, run_git_raw};
 
 pub const TEAM_BRANCH: &str = "snow/team";
 pub const TEAM_DIR: &str = "snow-team";
+mod knowledge_skill;
+use knowledge_skill::sync_knowledge_skill;
+
 const WORKTREE_REL: &str = ".snow/team-worktree";
 const MEMBER_HEARTBEAT_SECS: i64 = 600;
 
@@ -475,6 +478,11 @@ pub fn sync_team(repo_path: &str) -> Result<TeamSyncResult> {
         touch_member(&repo_path, &worktree);
     }
 
+    // 团队知识自动沉淀为项目级 Skill（幂等，覆盖初始化与 pull 场景）
+    if result.initialized || result.pulled {
+        sync_knowledge_skill(&repo_path, &worktree);
+    }
+
     if has_remote {
         let local_rev = run_git_raw(&repo_path, &["rev-parse", TEAM_BRANCH]).unwrap_or_default();
         let remote_rev =
@@ -679,10 +687,18 @@ pub fn upsert_team_record(repo_path: &str, kind: &str, id: &str, json: &str) -> 
     }
     let msg = format!("team: {kind} update {id}");
     match run_git(wt, &["commit", "-m", &msg]) {
-        Ok(_) => Ok(json.to_string()),
+        Ok(_) => {
+            if kind == "note" {
+                sync_knowledge_skill(&repo_path, &worktree);
+            }
+            Ok(json.to_string())
+        }
         Err(e) => {
             let msg_lower = e.to_string();
             if msg_lower.contains("nothing to commit") || msg_lower.contains("no changes added") {
+                if kind == "note" {
+                    sync_knowledge_skill(&repo_path, &worktree);
+                }
                 return Ok(json.to_string());
             }
             if msg_lower.contains("Please tell me who you are") || msg_lower.contains("user.email") {
@@ -726,10 +742,18 @@ pub fn delete_team_record(repo_path: &str, kind: &str, id: &str) -> Result<bool>
     }
     let msg = format!("team: {kind} delete {id}");
     match run_git(wt, &["commit", "-m", &msg]) {
-        Ok(_) => Ok(true),
+        Ok(_) => {
+            if kind == "note" {
+                sync_knowledge_skill(&repo_path, &worktree);
+            }
+            Ok(true)
+        }
         Err(e) => {
             let msg_lower = e.to_string();
             if msg_lower.contains("nothing to commit") || msg_lower.contains("no changes added") {
+                if kind == "note" {
+                    sync_knowledge_skill(&repo_path, &worktree);
+                }
                 return Ok(true);
             }
             Err(e)

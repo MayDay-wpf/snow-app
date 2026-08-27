@@ -2905,11 +2905,11 @@ export const zhTW = {
   "projectMcp.scopeNote":
     "此處修改只作用於目前專案，不會變更設定頁中的全域 MCP 狀態。",
   "projectMcp.systemServers": "系統內建 MCP",
-  "projectMcp.externalServers": "外部 MCP",
+  "projectMcp.projectServers": "專案 MCP",
+  "projectMcp.globalServers": "全域 MCP",
   "projectMcp.emptyGroup": "此群組暫無 MCP 服務",
   "projectMcp.noTools": "未發現工具",
   "projectMcp.toolCount": "{{count}} 個工具",
-  "projectMcp.toolsOnDemand": "展開後載入工具",
   "projectMcp.loadingToolsShort": "載入中...",
   "projectMcp.loadingTools": "正在連線並載入工具...",
   "projectMcp.loadToolsFailed": "工具載入失敗",
@@ -3786,6 +3786,8 @@ export const zhTW = {
   "team.reviews.comment": "評論",
   "team.notes.title": "知識沉澱",
   "team.notes.new": "新增知識",
+  "team.notes.skillHint":
+    "團隊知識已自動沉澱為專案級 Skills（team-knowledge），AI 會話可自動使用",
   "team.notes.empty": "還沒有共享知識。把團隊的技術決策、踩坑記錄沉澱到這裡。",
   "team.notes.edit": "編輯知識",
   "team.notes.save": "儲存",

@@ -3095,11 +3095,11 @@ export const en = {
   "projectMcp.scopeNote":
     "Changes apply only to this project and do not change global MCP settings.",
   "projectMcp.systemServers": "System MCP",
-  "projectMcp.externalServers": "External MCP",
+  "projectMcp.projectServers": "Project MCP",
+  "projectMcp.globalServers": "Global MCP",
   "projectMcp.emptyGroup": "No MCP services in this group",
   "projectMcp.noTools": "No tools discovered",
   "projectMcp.toolCount": "{{count}} tools",
-  "projectMcp.toolsOnDemand": "Expand to load tools",
   "projectMcp.loadingToolsShort": "Loading...",
   "projectMcp.loadingTools": "Connecting and loading tools...",
   "projectMcp.loadToolsFailed": "Could not load tools",
@@ -3986,6 +3986,8 @@ export const en = {
   "team.reviews.comment": "Comment",
   "team.notes.title": "Knowledge",
   "team.notes.new": "New note",
+  "team.notes.skillHint":
+    "Team notes are auto-synced as a project skill (team-knowledge) and become available to AI sessions.",
   "team.notes.empty":
     "No shared notes yet. Distill team technical decisions and pitfalls here.",
   "team.notes.edit": "Edit note",
