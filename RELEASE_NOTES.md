@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.2.18
+
+## Improvements
+
+- **Streaming Rendering CPU**: Significantly reduced main-process and renderer CPU usage during streaming rendering — markdown streaming renders are throttled to ~10fps (3fps for very long text over 100KB), stream metrics (token count / elapsed time) are batched every 250ms instead of per chunk, user-message-rail scroll computation is coalesced with requestAnimationFrame, and large-surface backdrop blur is removed (kept only on small elements).
+- **Background Throttling Restored**: The global `disable-background-timer-throttling` / `disable-renderer-backgrounding` switches were removed, so hidden or minimized windows no longer run rAF and animations at full speed (and no longer block App Nap on macOS). Streaming IPC events still arrive in real time, so background AI sessions are unaffected.
+- **System Settings Read Cache**: A 200ms TTL cache was added to the Rust layer for system-setting reads, so high-frequency polling paths (team identity, YOLO mode checks) no longer open a SQLite connection and re-parse the schema on every read.
+
+## Bug Fixes
+
+- **Team Identity Polling Loop**: Fixed a dependency loop in the team summary hook where the identity reference rebuilt the load callback and re-triggered identity IPC 7–28 times per second, keeping the main process CPU persistently high.
+
 ## v0.2.17
 
 ## New Features
