@@ -110,6 +110,7 @@ export const ChatInputView = ({
   handleConfirmManualModel,
   handleManualKeyDown,
   handleRetryFetchModels,
+  handleApiConfigSaved,
   handleToggleModelMenu,
   handleSelectApiProfile,
   handleSelectThinking,
@@ -729,6 +730,7 @@ export const ChatInputView = ({
             handleConfirmManualModel={handleConfirmManualModel}
             handleManualKeyDown={handleManualKeyDown}
             handleRetryFetchModels={handleRetryFetchModels}
+            handleApiConfigSaved={handleApiConfigSaved}
             handleToggleModelMenu={handleToggleModelMenu}
             handleSelectApiProfile={handleSelectApiProfile}
             handleSelectThinking={handleSelectThinking}

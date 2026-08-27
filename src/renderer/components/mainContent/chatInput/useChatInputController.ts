@@ -381,13 +381,13 @@ export const useChatInputController = ({
   ]);
 
   const loadModels = useCallback(
-    async (force = false) => {
+    async (force = false, configOverride?: ApiConfigRecord | null) => {
       if (isLoadingModels || (!force && (models.length > 0 || modelError))) {
         return;
       }
 
       const requestToken = hydrationRequestTokenRef.current;
-      const configAtRequest = runtimeApiConfig;
+      const configAtRequest = configOverride ?? runtimeApiConfig;
       setIsLoadingModels(true);
       setModelError(null);
 
@@ -795,6 +795,52 @@ export const useChatInputController = ({
     await loadModels(true);
   }, [loadModels]);
 
+  // 渠道编辑弹窗保存后同步最新配置：刷新列表，若命中当前渠道则强制重拉模型
+  const handleApiConfigSaved = useCallback(
+    (
+      configs: ApiConfigRecord[],
+      previousProfileName: string | null,
+      savedProfileName: string,
+    ) => {
+      setApiConfigs(configs);
+      const renamedSelected =
+        previousProfileName !== null &&
+        previousProfileName === selectedApiProfile &&
+        previousProfileName !== savedProfileName;
+      if (renamedSelected) {
+        setSelectedApiProfile(savedProfileName);
+        if (conversationId && !isSubAgentConversation) {
+          void enqueueConversationProfileWrite(
+            conversationId,
+            savedProfileName,
+          );
+        }
+      }
+      if (savedProfileName !== selectedApiProfile && !renamedSelected) {
+        return;
+      }
+      const record = configs.find(
+        (config) => config.profileName === savedProfileName,
+      );
+      if (!record) {
+        return;
+      }
+      // 让仍在飞行中的旧 key 模型请求作废，避免其晚到后覆盖新结果
+      hydrationRequestTokenRef.current += 1;
+      setRuntimeApiConfig(record);
+      setModels([]);
+      setModelError(null);
+      void loadModels(true, record);
+    },
+    [
+      selectedApiProfile,
+      conversationId,
+      isSubAgentConversation,
+      enqueueConversationProfileWrite,
+      loadModels,
+    ],
+  );
+
   const handleToggleModelMenu = useCallback(() => {
     setIsModelMenuOpen((open) => {
       const nextOpen = !open;
@@ -1167,6 +1213,7 @@ export const useChatInputController = ({
     handleConfirmManualModel,
     handleManualKeyDown,
     handleRetryFetchModels,
+    handleApiConfigSaved,
     handleToggleModelMenu,
     setModelMenuView,
     handleOpenApiProfileMenu,

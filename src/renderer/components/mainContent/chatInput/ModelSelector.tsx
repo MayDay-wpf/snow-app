@@ -63,6 +63,7 @@ type ModelSelectorProps = Pick<
     | "handleConfirmManualModel"
     | "handleManualKeyDown"
     | "handleRetryFetchModels"
+    | "handleApiConfigSaved"
     | "handleToggleModelMenu"
     | "handleSelectApiProfile"
     | "handleSelectThinking"
@@ -108,6 +109,7 @@ export const ModelSelector = ({
   handleConfirmManualModel,
   handleManualKeyDown,
   handleRetryFetchModels,
+  handleApiConfigSaved,
   handleToggleModelMenu,
   handleSelectApiProfile,
   handleSelectThinking,
@@ -752,9 +754,11 @@ export const ModelSelector = ({
       <ApiSettingsEditModal
         config={editingApiConfig}
         onClose={() => setEditingApiConfig(null)}
-        onSaved={(list) => {
+        onSaved={(list, savedProfileName) => {
+          const previousProfileName = editingApiConfig?.profileName ?? null;
           setApiConfigsOverride(list);
           setEditingApiConfig(null);
+          handleApiConfigSaved(list, previousProfileName, savedProfileName);
         }}
       />
     </div>

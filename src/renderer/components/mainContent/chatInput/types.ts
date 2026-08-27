@@ -188,6 +188,11 @@ export type ChatInputActions = {
   handleConfirmManualModel: () => Promise<void>;
   handleManualKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   handleRetryFetchModels: () => Promise<void>;
+  handleApiConfigSaved: (
+    configs: ApiConfigRecord[],
+    previousProfileName: string | null,
+    savedProfileName: string,
+  ) => void;
   handleToggleModelMenu: () => void;
   setModelMenuView: (view: ModelMenuView) => void;
   handleOpenApiProfileMenu: () => void;
