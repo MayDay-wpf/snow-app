@@ -531,8 +531,16 @@ export const resizePty = (id: string, cols: number, rows: number): void => {
   if (!session) {
     return;
   }
+  // ConPTY 对每次 resize(即使尺寸相同)都会全屏重绘,与正在输出的内容
+  // 交错会造成行重叠;极小尺寸(隐藏 tab / 未布局完成的容器算出的
+  // 2 列)的 reflow 更是破坏性的。钳制最小值并跳过无变化的 resize。
+  const safeCols = Math.max(2, Math.floor(cols));
+  const safeRows = Math.max(1, Math.floor(rows));
+  if (session.pty.cols === safeCols && session.pty.rows === safeRows) {
+    return;
+  }
   try {
-    session.pty.resize(cols, rows);
+    session.pty.resize(safeCols, safeRows);
   } catch {
     // Ignore
   }

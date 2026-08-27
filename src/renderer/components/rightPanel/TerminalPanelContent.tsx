@@ -122,8 +122,10 @@ export const TerminalPanelContent = ({
   } | null>(null);
   /** 终端当前等待输入时屏幕上的提示文本（null = 无等待输入提示） */
   const [awaitingInput, setAwaitingInput] = useState<string | null>(null);
-  /** 等待输入检测的防抖 timer（输出停止片刻后才判定，避免刷屏闪烁） */
+  /** 等待输入检测的防抖 timer(输出停止片刻后才判定,避免刷屏闪烁) */
   const awaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** PTY resize 通知的尾沿防抖 timer(动画/拖拽期间的连续 resize 只发最终值) */
+  const ptyResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ------------------------------------------------------------------
   // 终端日志流：按行切分后实时推送给监控方（输入框「监控终端」模式）
@@ -288,12 +290,25 @@ export const TerminalPanelContent = ({
     fitRef.current = fit;
 
     resizeObserver = new ResizeObserver(() => {
-      if (!disposed) {
-        try {
-          fit.fit();
-        } catch {
-          // ignore
-        }
+      if (disposed) {
+        return;
+      }
+      const container = containerRef.current;
+      // 容器不可见(display:none 的非激活 tab、width:0 的折叠面板、宽度
+      // 过渡动画的中间态)时 fit 会算出 2 列之类的极小合法尺寸并 resize
+      // PTY,触发 ConPTY 破坏性全屏重绘——隐藏期间冻结 fit,恢复激活时
+      // 由 isActive effect 统一按真实尺寸修正。
+      if (
+        !container ||
+        container.clientWidth === 0 ||
+        container.clientHeight === 0
+      ) {
+        return;
+      }
+      try {
+        fit.fit();
+      } catch {
+        // ignore
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -363,10 +378,22 @@ export const TerminalPanelContent = ({
           }
         });
 
+        // PTY resize 尾沿防抖:面板宽度过渡动画 / 拖拽分割条期间 fit 每帧
+        // 触发,连续 resize 会令 ConPTY 每次都全屏重绘,重绘与正在输出的
+        // 内容交错造成行重叠;只在尺寸停止变化后发送最终值。
         term.onResize(({ cols, rows }) => {
-          if (!exited && ptyIdRef.current) {
-            void window.snow.ptyResize(id, cols, rows);
+          if (exited || !ptyIdRef.current) {
+            return;
           }
+          if (ptyResizeTimerRef.current) {
+            clearTimeout(ptyResizeTimerRef.current);
+          }
+          ptyResizeTimerRef.current = setTimeout(() => {
+            ptyResizeTimerRef.current = null;
+            if (!disposed && !exited && ptyIdRef.current === id) {
+              void window.snow.ptyResize(id, cols, rows);
+            }
+          }, 120);
         });
 
         term.onTitleChange((title) => {
@@ -393,6 +420,10 @@ export const TerminalPanelContent = ({
       if (awaitingTimerRef.current) {
         clearTimeout(awaitingTimerRef.current);
         awaitingTimerRef.current = null;
+      }
+      if (ptyResizeTimerRef.current) {
+        clearTimeout(ptyResizeTimerRef.current);
+        ptyResizeTimerRef.current = null;
       }
       resizeObserver?.disconnect();
       themeObserver?.disconnect();
@@ -424,6 +455,16 @@ export const TerminalPanelContent = ({
     term.options.fontSize = settings.fontSize;
     term.options.fontWeight = settings.fontWeight as "normal" | "bold" | number;
     term.options.lineHeight = settings.lineHeight;
+    const container = containerRef.current;
+    // 终端不可见(非激活 tab / 折叠面板)时跳过 fit——极小尺寸会触发
+    // ConPTY 破坏性重绘;重新激活时 isActive effect 会按新字体重新 fit。
+    if (
+      !container ||
+      container.clientWidth === 0 ||
+      container.clientHeight === 0
+    ) {
+      return;
+    }
     try {
       fitRef.current?.fit();
     } catch {
@@ -442,8 +483,21 @@ export const TerminalPanelContent = ({
     }
     const raf = requestAnimationFrame(() => {
       try {
-        fitRef.current?.fit();
-        termRef.current?.focus();
+        const term = termRef.current;
+        const fit = fitRef.current;
+        if (!term || !fit) {
+          return;
+        }
+        const prevCols = term.cols;
+        const prevRows = term.rows;
+        fit.fit();
+        // 隐藏期间渲染器处于陈旧状态(fit 被冻结、渲染暂停),尺寸未变时
+        // onResize 不会触发,这里强制重绘可见区,修复切回 tab 后的
+        // 内容残留/重叠;尺寸变化时 term.resize 内部会全量重绘。
+        if (term.cols === prevCols && term.rows === prevRows) {
+          term.refresh(0, term.rows - 1);
+        }
+        term.focus();
       } catch {
         // ignore
       }
