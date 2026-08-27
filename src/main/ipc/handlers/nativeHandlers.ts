@@ -63,6 +63,10 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
     dispatchRemoteWorkspaceCommand(command),
   );
   ipcMain.handle("native:engine-info", () => native.engineInfo());
+  // 应用进程常驻内存（设置页「资源占用」展示）；Rust 侧已在 spawn_blocking 执行
+  ipcMain.handle("settings:get-process-memory", () =>
+    native.getProcessMemoryBytes(),
+  );
   ipcMain.handle(
     "settings:get-system-setting-value",
     async (_event, settingCode: string) =>

@@ -2236,6 +2236,134 @@ pub fn get_path_size(path: String) -> Result<i64> {
     Ok(total)
 }
 
+/// 读取当前进程的常驻内存占用（字节）；用于设置页展示资源占用。
+/// 仅做系统调用查询，调用方需置于 spawn_blocking 中执行。
+pub fn get_process_memory_bytes() -> Result<i64> {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { macos_resident_memory() }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_resident_memory()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        unsafe { windows_resident_memory() }
+    }
+}
+
+/// macOS：mach task_info(MACH_TASK_BASIC_INFO) 查询常驻内存。
+#[cfg(target_os = "macos")]
+unsafe fn macos_resident_memory() -> Result<i64> {
+    // flavor 20 = MACH_TASK_BASIC_INFO，结构与 mach/task_info.h 保持一致
+    const MACH_TASK_BASIC_INFO_FLAVOR: u32 = 20;
+    // 结构体 48 字节，count 以 natural_t(u32) 为单位
+    const MACH_TASK_BASIC_INFO_COUNT: u32 = 12;
+
+    #[repr(C)]
+    struct MachTaskBasicInfo {
+        virtual_size: u64,
+        resident_size: u64,
+        resident_size_max: u64,
+        // time_value_t：seconds(i32) + microseconds(i32)
+        user_time: u64,
+        system_time: u64,
+        policy: i32,
+        suspend_count: i32,
+        thread_count: i32,
+    }
+
+    extern "C" {
+        fn mach_task_self() -> u32;
+        fn task_info(
+            target: u32,
+            flavor: u32,
+            info: *mut std::ffi::c_void,
+            count: *mut u32,
+        ) -> i32;
+    }
+
+    let mut info = MachTaskBasicInfo {
+        virtual_size: 0,
+        resident_size: 0,
+        resident_size_max: 0,
+        user_time: 0,
+        system_time: 0,
+        policy: 0,
+        suspend_count: 0,
+        thread_count: 0,
+    };
+    let mut count = MACH_TASK_BASIC_INFO_COUNT;
+    let status = task_info(
+        mach_task_self(),
+        MACH_TASK_BASIC_INFO_FLAVOR,
+        &mut info as *mut _ as *mut std::ffi::c_void,
+        &mut count,
+    );
+    if status != 0 {
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!("task_info failed with kern status {status}"),
+        ));
+    }
+    Ok(info.resident_size as i64)
+}
+
+/// Linux：读取 /proc/self/status 的 VmRSS 行（单位 kB）。
+#[cfg(target_os = "linux")]
+fn linux_resident_memory() -> Result<i64> {
+    let status = fs::read_to_string("/proc/self/status").map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to read process memory: {error}"),
+        )
+    })?;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmRSS:") {
+            let kb: i64 = rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            return Ok(kb.saturating_mul(1024));
+        }
+    }
+    Err(Error::new(
+        Status::GenericFailure,
+        "VmRSS not found in /proc/self/status",
+    ))
+}
+
+/// Windows：GetProcessMemoryInfo 查询工作集大小。
+#[cfg(target_os = "windows")]
+unsafe fn windows_resident_memory() -> Result<i64> {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    if GetProcessMemoryInfo(
+        GetCurrentProcess() as HANDLE,
+        &mut counters,
+        counters.cb,
+    ) == 0
+    {
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!(
+                "GetProcessMemoryInfo failed: {}",
+                std::io::Error::last_os_error()
+            ),
+        ));
+    }
+    Ok(counters.WorkingSetSize as i64)
+}
+
 /// 修复数据库（kind: "runtime" = 运行数据库 | "archive" = 归档数据库）：
 /// 完整性检查 → 损坏则恢复数据（原文件保留 `.corrupt.*.bak` 备份），
 /// 完好则 VACUUM 压缩优化。所有文件 I/O 均在调用方的 spawn_blocking 中执行。

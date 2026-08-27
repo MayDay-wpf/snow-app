@@ -1433,6 +1433,10 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to compute path size"),
         ),
+      getProcessMemoryBytes: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to read process memory"),
+        ),
       repairDatabase: () =>
         Promise.reject(
           new Error("Rust native bridge is required to repair databases"),

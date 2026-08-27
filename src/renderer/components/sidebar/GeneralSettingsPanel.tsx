@@ -5,9 +5,11 @@ import {
   Download,
   FolderCog,
   FolderOpen,
+  HardDrive,
   Image as ImageIcon,
   Images,
   LoaderCircle,
+  MemoryStick,
   RefreshCw,
   RotateCcw,
   Wrench,
@@ -128,6 +130,9 @@ export function GeneralSettingsPanel({
   const [migration, setMigration] = useState<MigrationState | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const [storageError, setStorageError] = useState("");
+  // 资源占用（进入设置页时查询一次，不做后台轮询）
+  const [memoryBytes, setMemoryBytes] = useState<number | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(false);
   /** 待确认修复的数据库（null 表示无） */
   const [pendingRepair, setPendingRepair] = useState<DatabaseKind | null>(null);
   /** 正在修复的数据库（非 null 表示修复进行中） */
@@ -340,6 +345,24 @@ export function GeneralSettingsPanel({
     },
     [],
   );
+
+  /** 查询当前进程内存占用；仅在面板打开或用户手动刷新时调用。 */
+  const fetchMemory = useCallback(async (): Promise<void> => {
+    setMemoryLoading(true);
+    try {
+      const bytes = await window.snow.getProcessMemoryBytes();
+      setMemoryBytes(bytes);
+    } catch {
+      setMemoryBytes(-1);
+    } finally {
+      setMemoryLoading(false);
+    }
+  }, []);
+
+  // 仅在面板打开时拉取一次资源占用
+  useEffect(() => {
+    void fetchMemory();
+  }, [fetchMemory]);
 
   const loadLocations = useCallback(async (): Promise<void> => {
     try {
@@ -642,6 +665,22 @@ export function GeneralSettingsPanel({
     );
   };
 
+  /** 数据盘占用合计（各存储路径之和，忽略读取失败的项） */
+  const dataDiskBytes = Object.values(pathSizes)
+    .filter((bytes) => bytes >= 0)
+    .reduce((sum, bytes) => sum + bytes, 0);
+
+  /** 手动刷新资源占用：重新查询内存并重新统计各路径占用。 */
+  const handleRefreshResources = (): void => {
+    if (memoryLoading) {
+      return;
+    }
+    void fetchMemory();
+    if (locations) {
+      void refreshPathSizes(locations, imageLibraryRoot);
+    }
+  };
+
   /** 渲染某存储路径的占用大小（未加载或读取失败时不显示）。 */
   const renderSize = (path: string | undefined): React.JSX.Element | null => {
     if (!path) {
@@ -739,6 +778,96 @@ export function GeneralSettingsPanel({
                 {localeLabels[supportedLocale]}
               </button>
             ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="api-settings-manual-form">
+        <div className="api-settings-manual-header">
+          <strong>
+            {t("settings.resourceUsage", {
+              defaultValue: "Resource usage",
+            })}
+          </strong>
+          <span>
+            {t("settings.resourceUsageInfo", {
+              defaultValue: "App process memory and local data usage.",
+            })}
+          </span>
+        </div>
+
+        <div className="api-settings-form-body">
+          {/* 内存占用：进入面板时查询一次，支持手动刷新，不做后台轮询 */}
+          <div className="general-storage-row">
+            <div className="general-storage-info">
+              <MemoryStick
+                size={14}
+                strokeWidth={1.8}
+                className="general-storage-icon"
+                aria-hidden="true"
+              />
+              <div className="general-storage-text">
+                <span className="general-storage-label">
+                  {t("settings.resourceMemory", {
+                    defaultValue: "Memory usage",
+                  })}
+                </span>
+                <span className="general-storage-size">
+                  {memoryBytes !== null && memoryBytes >= 0
+                    ? formatBytes(memoryBytes)
+                    : "—"}
+                </span>
+              </div>
+            </div>
+            <div className="general-storage-actions">
+              <button
+                type="button"
+                className="general-storage-action"
+                onClick={handleRefreshResources}
+                disabled={memoryLoading || isMigrating}
+                title={t("settings.resourceRefresh", {
+                  defaultValue: "Refresh",
+                })}
+              >
+                {memoryLoading ? (
+                  <LoaderCircle
+                    size={11}
+                    strokeWidth={1.8}
+                    className="tool-call-icon-spinning"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <RefreshCw size={11} aria-hidden="true" />
+                )}
+                <span>
+                  {t("settings.resourceRefresh", {
+                    defaultValue: "Refresh",
+                  })}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* 数据盘占用：下方各存储路径之和，随存储统计自动更新 */}
+          <div className="general-storage-row">
+            <div className="general-storage-info">
+              <HardDrive
+                size={14}
+                strokeWidth={1.8}
+                className="general-storage-icon"
+                aria-hidden="true"
+              />
+              <div className="general-storage-text">
+                <span className="general-storage-label">
+                  {t("settings.resourceDataDisk", {
+                    defaultValue: "Data on disk",
+                  })}
+                </span>
+                <span className="general-storage-size">
+                  {dataDiskBytes > 0 ? formatBytes(dataDiskBytes) : "—"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

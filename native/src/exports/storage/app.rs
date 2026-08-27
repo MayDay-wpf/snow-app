@@ -19,6 +19,15 @@ pub async fn repair_database(kind: String) -> napi::Result<DatabaseRepairResult>
         .map_err(map_spawn_error)?
 }
 
+/// 当前进程常驻内存占用（字节）；用于设置页展示资源占用。
+/// 系统调用极快但仍置于 spawn_blocking，避免阻塞 Node.js 主线程。
+#[napi]
+pub async fn get_process_memory_bytes() -> napi::Result<i64> {
+    tokio::task::spawn_blocking(crate::storage::get_process_memory_bytes)
+        .await
+        .map_err(map_spawn_error)?
+}
+
 #[napi]
 pub async fn get_system_setting_value(setting_code: String) -> napi::Result<Option<String>> {
     tokio::task::spawn_blocking(move || crate::storage::get_system_setting_value(setting_code))

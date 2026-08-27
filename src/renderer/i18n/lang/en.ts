@@ -2503,6 +2503,11 @@ export const en = {
     "Database was damaged and has been repaired.",
   "settings.generalSettings": "General settings",
   "settings.generalSettingsInfo": "Language, version and update management.",
+  "settings.resourceUsage": "Resource usage",
+  "settings.resourceUsageInfo": "App process memory and local data usage.",
+  "settings.resourceMemory": "Memory usage",
+  "settings.resourceDataDisk": "Data on disk",
+  "settings.resourceRefresh": "Refresh",
   "settings.generalSettingsClosePanel": "Close general settings",
   "settings.attachContextTitle": "Conversation context injection",
   "settings.attachContextInfo":

@@ -2068,6 +2068,8 @@ export type NativeBridge = {
   rollbackStorageMigration: (kind: StorageLocationKind) => Promise<void>;
   /** 计算文件或目录的占用字节数（目录递归统计，用于展示存储占用） */
   getPathSize: (path: string) => Promise<number>;
+  /** 当前进程常驻内存占用（字节；用于设置页展示资源占用） */
+  getProcessMemoryBytes: () => Promise<number>;
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */
   repairDatabase: (kind: DatabaseKind) => Promise<DatabaseRepairResult>;
   /** 探测本机浏览器（Chrome/Edge/Chromium/Firefox）及其配置文件与数据量 */

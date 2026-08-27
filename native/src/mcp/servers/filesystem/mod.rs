@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 use base64::Engine;
 use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
 
 use super::super::service::McpService;
@@ -30,6 +33,24 @@ const EDIT_REVIEW_CONTEXT_LINES: usize = 5;
 /// 当 searchContent 不含行号前缀但文件内容含行号前缀（或反之）时，
 /// 逐行剥离前缀后重试匹配。
 const LINE_PREFIX_REGEX: &str = r"^\s*\d+[\s\|:]*";
+
+/// 写文件类工具按完整路径持有的互斥锁表，
+/// 保证同一文件「读取 -> 计算 -> 写盘 -> 格式化」全程串行。
+type FileWriteLockMap = HashMap<String, Arc<AsyncMutex<()>>>;
+
+static FILE_WRITE_LOCKS: OnceLock<std::sync::Mutex<FileWriteLockMap>> = OnceLock::new();
+
+fn file_write_lock(file_path: &str) -> Arc<AsyncMutex<()>> {
+    let locks = FILE_WRITE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let mut map = locks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.entry(file_path.to_string())
+        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
+/// Prettier 会整体改变行数，格式化后需在结果中重新定位编辑区。
+/// 仅用于行号对齐，低于编辑替换阈值属正常现象。
+const FORMATTED_ALIGN_THRESHOLD: f64 = 0.6;
 
 pub struct FilesystemService;
 
@@ -163,9 +184,32 @@ impl FilesystemService {
             .await;
         }
 
+        // 写文件类工具对同一文件全程加锁：并行调用若各自基于同一份旧
+        // 内容计算再先后写盘，会互相覆盖或与格式化交错导致误报 not found。
+        let write_guard = if matches!(tool_name, "replace_edit" | "create") {
+            file_path.map(|path| file_write_lock(path))
+        } else {
+            None
+        };
+        // 锁须覆盖整个「读取 -> 计算 -> 写盘 -> 格式化」生命周期。
+        let _write_permit = match write_guard.as_deref() {
+            Some(lock) => Some(lock.lock().await),
+            None => None,
+        };
+
+        self.execute_local(tool_name, args, file_path).await
+    }
+
+    /// 本地执行：同步 IO 与模糊匹配放入 blocking pool；replace_edit 成功
+    /// 后按全局开关自动 Prettier 格式化并重建反馈结果。
+    async fn execute_local(
+        &self,
+        tool_name: &str,
+        args: &Value,
+        local_file_path: Option<&str>,
+    ) -> napi::Result<Value> {
         // 本地文件系统读写、编码转换和模糊匹配都是同步操作，必须放进
         // Tokio blocking pool，不能占用承载 Electron N-API Promise 的异步线程。
-        let local_file_path = file_path.map(str::to_owned);
         let tool_name_owned = tool_name.to_owned();
         let args_owned = args.clone();
         let mut result = tokio::task::spawn_blocking(move || {
@@ -185,8 +229,8 @@ impl FilesystemService {
 
         // 编辑成功后按全局开关（默认开启）自动用 Prettier 格式化。
         // 格式化失败（未安装 prettier / 无 node / 不支持的类型等）静默
-        // 跳过，绝不回退已成功的编辑结果。SSH 远程路径无法本地格式化。
-        if let Some(file_path) = local_file_path.as_deref() {
+        // 跳过，绝不回退已成功的编辑结果。
+        if let Some(file_path) = local_file_path {
             let auto_format = tokio::task::spawn_blocking(crate::storage::get_auto_format)
                 .await
                 .ok()
@@ -196,22 +240,7 @@ impl FilesystemService {
                 if let Some(formatted_content) =
                     format_file_with_prettier(Path::new(file_path)).await
                 {
-                    // 用格式化后的文件内容重建编辑复核上下文（编辑行号
-                    // 沿用编辑结果，格式化后行号可能轻微漂移，可接受）。
-                    if let (Some(start), Some(end)) = (
-                        result.get("matchedLineStart").and_then(Value::as_u64),
-                        result.get("matchedLineEnd").and_then(Value::as_u64),
-                    ) {
-                        let review = fuzzy_edit::build_edit_review_context_lines(
-                            &formatted_content,
-                            start.saturating_sub(1) as usize,
-                            Some(end.saturating_sub(1) as usize),
-                        );
-                        if let Some(object) = result.as_object_mut() {
-                            object.insert("review".to_string(), review);
-                            object.insert("formatted".to_string(), json!(true));
-                        }
-                    }
+                    rebuild_result_after_format(&mut result, file_path, &formatted_content);
                 }
             }
         }
@@ -428,6 +457,7 @@ impl FilesystemService {
                     "matchType": match_type,
                     "matchedLineStart": target_start + 1,
                     "matchedLineEnd": end_line,
+                    "editedContent": effective_replacement,
                     "review": review
                 }));
             }
@@ -491,6 +521,7 @@ impl FilesystemService {
                 "matchType": "substring",
                 "matchedLineStart": edit_start_line + 1,
                 "matchedLineEnd": edit_end_line + 1,
+                "editedContent": replace_content,
                 "review": review
             }));
         }
@@ -563,6 +594,7 @@ impl FilesystemService {
                     "matchedLineStart": start_line + 1,
                     "matchedLineEnd": end_line,
                     "totalLines": total_lines,
+                    "editedContent": effective_replacement,
                     "review": review
                 }));
             }
@@ -684,6 +716,78 @@ impl FilesystemService {
             "lines": line_count
         }))
     }
+}
+
+/// 格式化会整体改变行数，需在格式化结果中按实际写入片段重新定位编辑区，
+/// 再用新行号重建 review，保证反馈给 AI 和前端 Diff 的都是格式化后的
+/// 真实布局；定位失败时回退格式化前的旧行号。
+fn locate_formatted_edit(
+    file_path: &str,
+    formatted_content: &str,
+    edited_content: Option<&str>,
+    old_start: usize,
+    old_end: usize,
+) -> (usize, Option<usize>) {
+    let Some(edited) = edited_content.filter(|content| !content.trim().is_empty()) else {
+        return (old_start, Some(old_end));
+    };
+    let formatted_lines: Vec<&str> = formatted_content.split('\n').collect();
+    let preserve_indentation = fuzzy_edit::is_indentation_sensitive_path(file_path);
+    if let Some((start, end, similarity)) =
+        fuzzy_edit::find_best_line_match_v2(edited, &formatted_lines, preserve_indentation)
+    {
+        if similarity >= FORMATTED_ALIGN_THRESHOLD {
+            return (start, Some(end.saturating_sub(1)));
+        }
+    }
+    (old_start, Some(old_end))
+}
+
+/// 用格式化后的文件内容重建 replace_edit 的反馈：review、matched 行号和
+/// totalLines 全部对齐格式化后的布局，并移除仅供定位的 editedContent。
+fn rebuild_result_after_format(result: &mut Value, file_path: &str, formatted_content: &str) {
+    let Some(object) = result.as_object_mut() else {
+        return;
+    };
+
+    let edited_content = object
+        .get("editedContent")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let old_start = object
+        .get("matchedLineStart")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .saturating_sub(1) as usize;
+    let old_end = object
+        .get("matchedLineEnd")
+        .and_then(Value::as_u64)
+        .unwrap_or(old_start as u64 + 1)
+        .saturating_sub(1) as usize;
+
+    object.remove("editedContent");
+    object.insert("formatted".to_string(), json!(true));
+
+    let (edit_start, edit_end) = locate_formatted_edit(
+        file_path,
+        formatted_content,
+        edited_content.as_deref(),
+        old_start,
+        old_end,
+    );
+
+    if object.contains_key("totalLines") {
+        let total_lines = formatted_content.split('\n').count();
+        object.insert("totalLines".to_string(), json!(total_lines));
+    }
+
+    if let Some(edit_end) = edit_end {
+        object.insert("matchedLineStart".to_string(), json!(edit_start + 1));
+        object.insert("matchedLineEnd".to_string(), json!(edit_end + 1));
+    }
+
+    let review = fuzzy_edit::build_edit_review_context_lines(formatted_content, edit_start, edit_end);
+    object.insert("review".to_string(), review);
 }
 
 /// Prettier 3 内置支持（无需额外插件）的文件扩展名。
