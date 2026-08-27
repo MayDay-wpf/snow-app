@@ -507,13 +507,27 @@ export const UserMessageRail = memo(
 
       // Initial compute after a frame so layout is ready.
       const raf = requestAnimationFrame(computeVisible);
-      container.addEventListener("scroll", computeVisible, { passive: true });
-      window.addEventListener("resize", computeVisible);
+      // 流式滚动时 scroll 事件高频触发（每秒几十次），且每次都要遍历
+      // 全部用户消息做 DOM 查询 + rect 读取；用 rAF 合并到每帧最多一次，
+      // 避免高频重复计算。
+      let pendingRaf = 0;
+      const scheduleCompute = (): void => {
+        if (pendingRaf !== 0) return;
+        pendingRaf = requestAnimationFrame(() => {
+          pendingRaf = 0;
+          computeVisible();
+        });
+      };
+      container.addEventListener("scroll", scheduleCompute, { passive: true });
+      window.addEventListener("resize", scheduleCompute);
 
       return () => {
         cancelAnimationFrame(raf);
-        container.removeEventListener("scroll", computeVisible);
-        window.removeEventListener("resize", computeVisible);
+        if (pendingRaf !== 0) {
+          cancelAnimationFrame(pendingRaf);
+        }
+        container.removeEventListener("scroll", scheduleCompute);
+        window.removeEventListener("resize", scheduleCompute);
       };
     }, [scrollContainerRef, conversationId, conversationVersion]);
 

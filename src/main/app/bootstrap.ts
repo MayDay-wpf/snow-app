@@ -31,13 +31,16 @@ export const bootstrapApplication = (): void => {
   // 禁用不必要的 GPU 光栅化和合成特性检测，减少内核初始化耗时。
   app.commandLine.appendSwitch(
     "disable-features",
-    "CalculateNativeWinOcclusion"
+    "CalculateNativeWinOcclusion",
   );
   // 跳过 GPU 沙箱预热（部分显卡驱动初始化极慢）。
   app.commandLine.appendSwitch("disable-gpu-sandbox");
-  // 禁用后台节流，确保启动阶段渲染不被降频。
-  app.commandLine.appendSwitch("disable-background-timer-throttling");
-  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+  // 注意：不能禁用 renderer-backgrounding / timer-throttling。
+  // 这两个开关是全局永久的：窗口被遮挡/最小化/隐藏到托盘后渲染进程
+  // 依然全速跑 rAF 与动画（macOS 上还阻止 App Nap），空闲 CPU 占用
+  // 远高于 QQ 等同类 Electron 应用。恢复默认节流后，隐藏窗口的定时器
+  // 降频、rAF 暂停，但 IPC 事件（流式 chunk、任务执行）实时到达，
+  // 恢复可见时渲染自动补上，后台 AI 会话不受影响。
 
   snowLog.info({
     module: "app/bootstrap",
@@ -152,7 +155,7 @@ export const bootstrapApplication = (): void => {
 
     // 渲染进程保存代理设置后通知主进程重新应用会话代理。
     ipcMain.handle("proxy-browser-settings:apply", () =>
-      applySessionProxy(native)
+      applySessionProxy(native),
     );
 
     // ─── 重型原生模块延迟到页面首帧绘制完成后加载 ─────────────────────────

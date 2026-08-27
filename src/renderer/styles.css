@@ -7453,7 +7453,8 @@ input {
   border-radius: var(--radius-lg);
   color: var(--text-secondary);
   font-size: 12.5px;
-  backdrop-filter: var(--backdrop-blur-lg);
+  /* 小面积元素保留毛玻璃（--backdrop-blur-lg 已置 none 以消除大面开销） */
+  backdrop-filter: blur(18px) saturate(1.16);
 }
 
 .sub-agent-finished-bar-status {
@@ -7517,7 +7518,8 @@ input {
   color: var(--text-tertiary);
   cursor: pointer;
   box-shadow: var(--island-shadow);
-  backdrop-filter: var(--backdrop-blur-lg);
+  /* 小面积元素保留毛玻璃（--backdrop-blur-lg 已置 none 以消除大面开销） */
+  backdrop-filter: blur(18px) saturate(1.16);
   transition:
     opacity 0.15s ease,
     background 0.15s ease,
@@ -7560,7 +7562,8 @@ input {
   background: var(--surface-island-strong);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--island-shadow);
-  backdrop-filter: var(--backdrop-blur-lg);
+  /* 小面积元素保留毛玻璃（--backdrop-blur-lg 已置 none 以消除大面开销） */
+  backdrop-filter: blur(18px) saturate(1.16);
   overflow: hidden;
   animation: user-message-rail-popover-in 0.14s ease-out;
   -webkit-app-region: no-drag;

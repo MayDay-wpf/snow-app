@@ -51,7 +51,10 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
     "Courier New", monospace;
-  --backdrop-blur-lg: blur(18px) saturate(1.16);
+  /* 大面毛玻璃在 macOS 合成器上无法缓存采样结果，持续重采样导致高 CPU；
+     而窗口不透明、背景为纯色（背景图是顶层 overlay，毛玻璃采样不到），
+     视觉上无效果，故置为 none 消除常驻开销。 */
+  --backdrop-blur-lg: none;
 }
 
 :root[data-theme="dark"] {

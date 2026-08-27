@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use napi::bindgen_prelude::*;
 use rusqlite::{Connection, OptionalExtension};
@@ -254,11 +256,36 @@ pub fn seed_default_settings(database_path: &Path) -> Result<()> {
         .map_err(|error| database::database_error(database_path, "seed default settings", error))
 }
 
+/// 系统设置读取 TTL 缓存。设置项极少变更，而读取路径会被高频调用
+/// （team 身份轮询、yolo 模式检查等）；每次读取都 open_connection 会
+/// 反复执行 PRAGMA 初始化并解析全库 schema，主进程 CPU 持续高位。
+/// 短 TTL 让设置变更最多延迟 200ms 感知，且天然兼容绕过 set/delete
+/// 的直接 SQL 写入路径（keyboard_shortcuts 等）。
+const SETTINGS_CACHE_TTL: Duration = Duration::from_millis(200);
+
+static SETTINGS_CACHE: OnceLock<Mutex<HashMap<String, (Instant, Option<String>)>>> =
+    OnceLock::new();
+
+fn settings_cache() -> &'static Mutex<HashMap<String, (Instant, Option<String>)>> {
+    SETTINGS_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 pub fn get_system_setting_value(
     database_path: &Path,
     setting_code: &str,
 ) -> Result<Option<String>> {
-    database::open_connection(database_path)
+    {
+        let cache = settings_cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((inserted_at, value)) = cache.get(setting_code) {
+            if inserted_at.elapsed() < SETTINGS_CACHE_TTL {
+                return Ok(value.clone());
+            }
+        }
+    }
+
+    let value = database::open_connection(database_path)
         .and_then(|connection| {
             connection
                 .query_row(
@@ -268,7 +295,13 @@ pub fn get_system_setting_value(
                 )
                 .optional()
         })
-        .map_err(|error| database::database_error(database_path, "read system setting", error))
+        .map_err(|error| database::database_error(database_path, "read system setting", error))?;
+
+    let mut cache = settings_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.insert(setting_code.to_string(), (Instant::now(), value.clone()));
+    Ok(value)
 }
 
 pub fn set_system_setting(

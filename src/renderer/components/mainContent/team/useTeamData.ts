@@ -309,9 +309,15 @@ export const useTeamSummary = (
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const inFlightRef = useRef(false);
+  // identity 通过 ref 提供给 load，避免 load 随 identity 重建 → effect
+  // 重跑 → 立即再次 teamGetIdentity → setIdentity 新引用 → 无限循环
+  // （此前每秒触发 7-28 次 IPC，Rust 侧每次 open_connection 读 schema，
+  // 主进程 CPU 持续高位）。
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
 
   const load = useCallback(async () => {
-    const repoPath = identity?.repoPath ?? "";
+    const repoPath = identityRef.current?.repoPath ?? "";
     if (!repoPath || inFlightRef.current) {
       return;
     }
@@ -344,7 +350,7 @@ export const useTeamSummary = (
       inFlightRef.current = false;
       setLoading(false);
     }
-  }, [identity]);
+  }, []);
 
   useEffect(() => {
     if (!workspacePath) {

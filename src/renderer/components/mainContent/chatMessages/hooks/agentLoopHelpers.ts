@@ -297,6 +297,12 @@ export const createStreamChunkHandler = (
   const iterationTokenBase = refSession?.iterationTokenCount ?? 0;
   const iterationElapsedBase = refSession?.iterationElapsedMs ?? 0;
 
+  // 流式指标（token 数/耗时）降频更新：它们只驱动 StreamMetrics 显示，
+  // 每 chunk 更新会连带触发 context 消费方重渲染；250ms 合并一次对显示
+  // 精度无感，但把每 chunk 的 setState 次数从 3 次降到 1 次（消息更新）。
+  let lastMetricsAt = 0;
+  const METRICS_UPDATE_INTERVAL_MS = 250;
+
   return (chunk: ResponsesApiStreamChunk): void => {
     // External-vision textify progress event: update the session-level
     // visionAnalysis field only, never touch message content. The backend
@@ -338,11 +344,16 @@ export const createStreamChunkHandler = (
 
     const runTokenCount = iterationTokenBase + chunk.streamTokenCount;
     const runElapsedMs = iterationElapsedBase + chunk.elapsedMs;
-    ctx.updateSessionField(sessionKey, "streamTokenCount", runTokenCount);
-    ctx.updateSessionField(sessionKey, "streamElapsedMs", runElapsedMs);
+    // ref 同步累加（后续迭代依赖），context 字段走降频。
     if (refSession) {
       refSession.iterationTokenCount = runTokenCount;
       refSession.iterationElapsedMs = runElapsedMs;
+    }
+    const now = Date.now();
+    if (now - lastMetricsAt >= METRICS_UPDATE_INTERVAL_MS) {
+      lastMetricsAt = now;
+      ctx.updateSessionField(sessionKey, "streamTokenCount", runTokenCount);
+      ctx.updateSessionField(sessionKey, "streamElapsedMs", runElapsedMs);
     }
     if (
       chunk.ttftMs > 0 &&

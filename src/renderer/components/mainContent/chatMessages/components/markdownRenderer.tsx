@@ -1,4 +1,12 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Download } from "lucide-react";
 import "katex/dist/katex.min.css";
@@ -65,7 +73,7 @@ type PendingEntry = {
 const pendingRequests = new Map<number, PendingEntry>();
 
 const handleWorkerMessage = (
-  event: MessageEvent<MarkdownRenderResponse>
+  event: MessageEvent<MarkdownRenderResponse>,
 ): void => {
   const { id, html } = event.data;
   const entry = pendingRequests.get(id);
@@ -132,6 +140,20 @@ const renderMarkdown = async (content: string): Promise<string> => {
 };
 
 /**
+ * 流式渲染最小间隔（ms）。
+ *
+ * 流式期间 content 每 chunk 都在变，长文本的 markdown 全量解析 + DOM 整块
+ * 替换是流式高 CPU 的主因：若每帧（60fps）渲染一次，几万字内容每秒解析
+ * 60 次，worker 与合成器双双打满。降到 10fps 后视觉无感（流式文本本身
+ * 就在滚动），解析/布局/合成开销降低约 6 倍。
+ */
+const MIN_RENDER_INTERVAL_MS = 100;
+/** 超长文本（>= 100KB）的流式渲染间隔：一次 markdown-it 全量解析可达
+ *  200ms+，10fps 时 worker 依然吃满；3fps 对滚动中的流式文本无感。 */
+const LONG_TEXT_THRESHOLD = 100_000;
+const LONG_TEXT_INTERVAL_MS = 300;
+
+/**
  * Render streaming markdown with frame-aligned throttling.
  *
  * During the AI loop, `content` mutates on every streamed chunk (potentially
@@ -141,11 +163,21 @@ const renderMarkdown = async (content: string): Promise<string> => {
  * dropped. This keeps the visible output responsive without queueing a
  * backlog of stale renders.
  *
+ * 在帧合并之上叠加最小间隔节流：距上次实际渲染不足
+ * MIN_RENDER_INTERVAL_MS 时继续推迟到下一帧检查（内容持续变化时自然合并
+ * 到 10fps），内容稳定后最多多等一个间隔即输出最终结果。
+ *
  * The hook also tracks the latest in-flight request id so that out-of-order
  * worker responses (a slow render for chunk N completing after the fast cached
  * render for chunk N+1) never overwrite newer HTML.
  */
-const useMarkdownRender = (content: string): string => {
+const useMarkdownRender = (content: string, minIntervalMs?: number): string => {
+  // 未显式指定时按内容长度自适应：超长文本自动降频，避免 worker 打满。
+  const effectiveIntervalMs =
+    minIntervalMs ??
+    (content.length >= LONG_TEXT_THRESHOLD
+      ? LONG_TEXT_INTERVAL_MS
+      : MIN_RENDER_INTERVAL_MS);
   const [html, setHtml] = useState<string>(() => {
     // Warm the state synchronously from the cache when possible so that the
     // first paint after mount is not blank while the worker warms up.
@@ -162,6 +194,8 @@ const useMarkdownRender = (content: string): string => {
   const latestRequestIdRef = useRef(0);
   // Non-null while a frame is scheduled; used to dedupe rAF requests.
   const scheduledFrameRef = useRef<number | null>(null);
+  // Timestamp of the last time a render result was committed to state.
+  const lastRenderAtRef = useRef(0);
 
   useEffect(() => {
     // Fast path: synchronous cache hit — no frame scheduling needed.
@@ -176,8 +210,15 @@ const useMarkdownRender = (content: string): string => {
       return;
     }
 
-    scheduledFrameRef.current = requestAnimationFrame(() => {
-      scheduledFrameRef.current = null;
+    const runRender = (): void => {
+      // Throttle: if the minimum interval has not elapsed since the last
+      // commit, defer to the next frame and re-check. While content keeps
+      // changing (streaming), this naturally coalesces to ~10fps; once it
+      // stabilizes, the final render fires within one interval.
+      if (performance.now() - lastRenderAtRef.current < effectiveIntervalMs) {
+        scheduledFrameRef.current = requestAnimationFrame(runRender);
+        return;
+      }
       const currentContent = contentRef.current;
       const requestId = nextRequestId();
       latestRequestIdRef.current = requestId;
@@ -187,9 +228,12 @@ const useMarkdownRender = (content: string): string => {
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
+        lastRenderAtRef.current = performance.now();
         setHtml(rendered);
       });
-    });
+    };
+
+    scheduledFrameRef.current = requestAnimationFrame(runRender);
 
     return () => {
       if (scheduledFrameRef.current !== null) {
@@ -266,7 +310,7 @@ const bindFaviconFallback = (root: HTMLElement): void => {
         () => {
           faviconStatusCache.set(img.src, "fail");
         },
-        { once: true }
+        { once: true },
       );
     });
 };
@@ -284,8 +328,7 @@ const isFileLinkHref = (href: string): boolean => {
     return false;
   }
   return (
-    /[\\/]/.test(href) ||
-    /(?:^|[\\/])[^\\/]+\.[a-zA-Z0-9]{1,12}$/.test(href)
+    /[\\/]/.test(href) || /(?:^|[\\/])[^\\/]+\.[a-zA-Z0-9]{1,12}$/.test(href)
   );
 };
 
@@ -295,14 +338,17 @@ export const MarkdownBlock = memo(
     content,
     streaming = false,
     onFileLinkClick,
+    minRenderIntervalMs,
   }: {
     className: string;
     content: string;
     streaming?: boolean;
     /** 非 http(s) 文件链接点击回调：宿主（如右侧文件阅读器）用它打开新阅读器 tab。 */
     onFileLinkClick?: (href: string) => void;
+    /** 流式渲染最小间隔（ms），覆盖默认 100ms。思考过程等幕后内容可传更大值。 */
+    minRenderIntervalMs?: number;
   }): React.JSX.Element => {
-    const html = useMarkdownRender(content);
+    const html = useMarkdownRender(content, minRenderIntervalMs);
 
     // 稳定 dangerouslySetInnerHTML 对象引用：React 按引用比较该 prop，
     // 每次渲染都新建对象会让 hover 等重渲染重设 innerHTML 重建整个 DOM
@@ -321,7 +367,7 @@ export const MarkdownBlock = memo(
     const handleBadgeMouseOver = useCallback(
       (e: React.MouseEvent<HTMLDivElement>) => {
         const badge = (e.target as HTMLElement).closest(
-          ".md-source-badge"
+          ".md-source-badge",
         ) as HTMLElement | null;
         if (!badge) {
           return;
@@ -345,7 +391,7 @@ export const MarkdownBlock = memo(
           host,
         });
       },
-      []
+      [],
     );
 
     // 离开徽章（含徽章内部移动）时关闭。
@@ -357,7 +403,7 @@ export const MarkdownBlock = memo(
         }
         setHoverBadge(null);
       },
-      []
+      [],
     );
 
     // Esc 关闭灯箱
@@ -413,126 +459,133 @@ export const MarkdownBlock = memo(
       }
     }, [html]);
 
-    const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement;
+    const handleClick = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement;
 
-      // --- 来源徽章点击：在右侧面板的应用内浏览器打开来源页面 ---
-      const badge = target.closest(".md-source-badge") as HTMLElement | null;
-      if (badge) {
-        const url = badge.dataset.url ?? "";
-        if (/^https?:\/\//i.test(url)) {
-          e.preventDefault();
-          rightPanelEvents.emit("open-browser-tab", { url });
-        }
-        return;
-      }
-
-      // --- 普通链接拦截 ---
-      // markdown-it 默认渲染出的 <a> 没有 target，点击会走 Electron 默认行为
-      // （主进程 setWindowOpenHandler 转交系统浏览器）。这里统一拦截，改为在
-      // 右侧面板的应用内浏览器中新建 tab 打开，与 WebSearchToolCall 行为一致。
-      // 仅处理 http(s) 链接，非 http(s) 的（如 mailto:）保持默认行为。
-      const anchor = target.closest("a") as HTMLAnchorElement | null;
-      if (anchor) {
-        const href = anchor.getAttribute("href") ?? "";
-        if (/^https?:\/\//i.test(href)) {
-          e.preventDefault();
-          rightPanelEvents.emit("open-browser-tab", { url: href });
+        // --- 来源徽章点击：在右侧面板的应用内浏览器打开来源页面 ---
+        const badge = target.closest(".md-source-badge") as HTMLElement | null;
+        if (badge) {
+          const url = badge.dataset.url ?? "";
+          if (/^https?:\/\//i.test(url)) {
+            e.preventDefault();
+            rightPanelEvents.emit("open-browser-tab", { url });
+          }
           return;
         }
-        // 非 http(s) 链接：若像本地文件路径且宿主提供了回调（右侧文件阅读器），
-        // 拦截默认导航（渲染进程导航到相对 URL 会直接黑屏），
-        // 改为在右侧面板新建文件阅读器 tab。
-        if (onFileLinkClick && isFileLinkHref(href)) {
-          e.preventDefault();
-          onFileLinkClick(href);
+
+        // --- 普通链接拦截 ---
+        // markdown-it 默认渲染出的 <a> 没有 target，点击会走 Electron 默认行为
+        // （主进程 setWindowOpenHandler 转交系统浏览器）。这里统一拦截，改为在
+        // 右侧面板的应用内浏览器中新建 tab 打开，与 WebSearchToolCall 行为一致。
+        // 仅处理 http(s) 链接，非 http(s) 的（如 mailto:）保持默认行为。
+        const anchor = target.closest("a") as HTMLAnchorElement | null;
+        if (anchor) {
+          const href = anchor.getAttribute("href") ?? "";
+          if (/^https?:\/\//i.test(href)) {
+            e.preventDefault();
+            rightPanelEvents.emit("open-browser-tab", { url: href });
+            return;
+          }
+          // 非 http(s) 链接：若像本地文件路径且宿主提供了回调（右侧文件阅读器），
+          // 拦截默认导航（渲染进程导航到相对 URL 会直接黑屏），
+          // 改为在右侧面板新建文件阅读器 tab。
+          if (onFileLinkClick && isFileLinkHref(href)) {
+            e.preventDefault();
+            onFileLinkClick(href);
+            return;
+          }
+        }
+
+        // --- Markdown 图片点击放大 ---
+        // 复用生图工具灯箱体验：点击图片在放大视图中查看（本地/远程图均已是
+        // img-proxy:// URL）。在链接处理之后执行，保证 a 内的图片仍优先走链接逻辑。
+        const image = target.closest("img") as HTMLImageElement | null;
+        if (image) {
+          const src = image.currentSrc || image.src;
+          if (src) {
+            e.preventDefault();
+            setLightboxSrc(src);
+            return;
+          }
+        }
+
+        // --- Mermaid block interactions ---
+        const mermaidBlock = target.closest(
+          ".mermaid-block",
+        ) as HTMLElement | null;
+
+        // Copy mermaid source
+        if (mermaidBlock) {
+          const copyBtn = target.closest(
+            ".mermaid-btn-copy",
+          ) as HTMLElement | null;
+          if (copyBtn) {
+            const raw = copyBtn.dataset.code;
+            if (raw) {
+              const code = decodeURIComponent(raw);
+              navigator.clipboard.writeText(code).then(() => {
+                copyBtn.classList.add("copied");
+                window.setTimeout(
+                  () => copyBtn.classList.remove("copied"),
+                  2000,
+                );
+              });
+            }
+            return;
+          }
+
+          // Toggle code / diagram view, or open export menu
+          const actionBtn = target.closest(
+            "[data-mermaid-action]",
+          ) as HTMLElement | null;
+          if (actionBtn) {
+            const action = actionBtn.dataset.mermaidAction;
+            if (action === "code" || action === "diagram") {
+              setMermaidView(mermaidBlock, action);
+            } else if (action === "download") {
+              openExportMenu(actionBtn, mermaidBlock);
+            }
+            return;
+          }
+
+          // Click on the rendered diagram opens the full-size viewer.
+          if (target.closest(".mermaid-view-diagram svg")) {
+            openMermaidImageViewer(mermaidBlock);
+            return;
+          }
+        }
+
+        // --- Regular code block interactions ---
+        // Handle collapse / expand toggle
+        const langBtn = target.closest(
+          ".code-block-lang",
+        ) as HTMLElement | null;
+        if (langBtn) {
+          const wrapper = langBtn.closest(".code-block-wrapper");
+          if (wrapper) {
+            wrapper.classList.toggle("collapsed");
+          }
           return;
         }
-      }
 
-      // --- Markdown 图片点击放大 ---
-      // 复用生图工具灯箱体验：点击图片在放大视图中查看（本地/远程图均已是
-      // img-proxy:// URL）。在链接处理之后执行，保证 a 内的图片仍优先走链接逻辑。
-      const image = target.closest("img") as HTMLImageElement | null;
-      if (image) {
-        const src = image.currentSrc || image.src;
-        if (src) {
-          e.preventDefault();
-          setLightboxSrc(src);
-          return;
-        }
-      }
-
-      // --- Mermaid block interactions ---
-      const mermaidBlock = target.closest(
-        ".mermaid-block"
-      ) as HTMLElement | null;
-
-      // Copy mermaid source
-      if (mermaidBlock) {
+        // Handle copy button
         const copyBtn = target.closest(
-          ".mermaid-btn-copy"
+          ".code-block-copy",
         ) as HTMLElement | null;
-        if (copyBtn) {
-          const raw = copyBtn.dataset.code;
-          if (raw) {
-            const code = decodeURIComponent(raw);
-            navigator.clipboard.writeText(code).then(() => {
-              copyBtn.classList.add("copied");
-              window.setTimeout(
-                () => copyBtn.classList.remove("copied"),
-                2000
-              );
-            });
-          }
-          return;
-        }
+        if (!copyBtn) return;
 
-        // Toggle code / diagram view, or open export menu
-        const actionBtn = target.closest(
-          "[data-mermaid-action]"
-        ) as HTMLElement | null;
-        if (actionBtn) {
-          const action = actionBtn.dataset.mermaidAction;
-          if (action === "code" || action === "diagram") {
-            setMermaidView(mermaidBlock, action);
-          } else if (action === "download") {
-            openExportMenu(actionBtn, mermaidBlock);
-          }
-          return;
-        }
+        const raw = copyBtn.dataset.code;
+        if (!raw) return;
 
-        // Click on the rendered diagram opens the full-size viewer.
-        if (target.closest(".mermaid-view-diagram svg")) {
-          openMermaidImageViewer(mermaidBlock);
-          return;
-        }
-      }
-
-      // --- Regular code block interactions ---
-      // Handle collapse / expand toggle
-      const langBtn = target.closest(".code-block-lang") as HTMLElement | null;
-      if (langBtn) {
-        const wrapper = langBtn.closest(".code-block-wrapper");
-        if (wrapper) {
-          wrapper.classList.toggle("collapsed");
-        }
-        return;
-      }
-
-      // Handle copy button
-      const copyBtn = target.closest(".code-block-copy") as HTMLElement | null;
-      if (!copyBtn) return;
-
-      const raw = copyBtn.dataset.code;
-      if (!raw) return;
-
-      const code = decodeURIComponent(raw);
-      navigator.clipboard.writeText(code).then(() => {
-        copyBtn.classList.add("copied");
-        window.setTimeout(() => copyBtn.classList.remove("copied"), 2000);
-      });
-    }, [onFileLinkClick]);
+        const code = decodeURIComponent(raw);
+        navigator.clipboard.writeText(code).then(() => {
+          copyBtn.classList.add("copied");
+          window.setTimeout(() => copyBtn.classList.remove("copied"), 2000);
+        });
+      },
+      [onFileLinkClick],
+    );
 
     return (
       <>
@@ -586,7 +639,7 @@ export const MarkdownBlock = memo(
                   </button>
                 </div>
               </div>,
-              document.body
+              document.body,
             )
           : null}
 
@@ -618,12 +671,12 @@ export const MarkdownBlock = memo(
                   <span className="md-source-badge-anchor" aria-hidden="true" />
                 </Tooltip>
               </span>,
-              document.body
+              document.body,
             )
           : null}
       </>
     );
-  }
+  },
 );
 
 MarkdownBlock.displayName = "MarkdownBlock";
