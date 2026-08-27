@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.2.17
+
+## New Features
+
+- **Team Message Attachments**: Team messages support sending pictures and files — the chat input accepts selecting or pasting attachments with draft previews persisted along with the message; message bubbles render picture thumbnails (click for lightbox) and file download cards, and media is cleaned up on message deletion or upload failure.
+- **Chat Text Quote**: Selected text in the chat area can be quoted into the input box with one click.
+- **Team Knowledge Skill Sync**: Team knowledge is now synchronized as a skill.
+- **Resource Usage Display**: The general settings page shows storage/resource usage, backed by the Rust layer.
+- **Filesystem MCP Hardening**: Strengthened the built-in filesystem server's editing and concurrency.
+
+## Bug Fixes
+
+- **Mermaid Rendering**: Import/render timeouts with retry avoid long hangs or lost diagrams.
+
 ## v0.2.16
 
 ## Improvements
