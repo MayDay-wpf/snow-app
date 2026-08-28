@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.2.20
+
+## New Features
+
+- **WorkFlow Mode**: A new visual multi-node workflow orchestration mode — the AI decomposes requirements into an executable acyclic workflow graph via the `workflow-generate` tool, rendered interactively with React Flow, with per-node API profile / model / prompt editing before you confirm execution; each node runs in its own conversation receiving the previous node's handoff document. Full lifecycle support: archive/restore/delete, a sidebar node tree (main session → node → sub-agent), and canvas connection editing, integrated with rollback, abort, and conversation deletion.
+- **Model Brand Icons**: The model dropdown now shows model brand icons.
+- **Usage Statistics Charts**: Usage settings add a daily trend line chart, a model-share donut chart, and a success-rate card, with collapsible usage records.
+
+## Improvements
+
+- **Indentation-Sensitive Editing**: Fuzzy edits on indentation-sensitive files now support auto-realignment and relaxed matching.
+- **Plus Menu Redesign**: Replaced with a compact inline layout.
+- **Tool Card Polish**: Lazy body rendering for ToolCallNode and a precise drop indicator for directory reordering.
+- Sub-agent thinking strength no longer inherits the parent's per-send override; it always follows the resolved API profile config.
+
+## Bug Fixes
+
+- Fixed the quote popup reappearing when single-clicking over an existing selection.
+
 ## v0.2.19
 
 ## New Features
