@@ -5,6 +5,7 @@ import {
   GitBranch,
   ShieldAlert,
   Target,
+  Workflow,
 } from "lucide-react";
 import type { ComponentProps, RefObject } from "react";
 import { useI18n } from "../../../i18n";
@@ -46,6 +47,10 @@ type ChatInputToolbarProps = ComponentProps<typeof ModelSelector> &
     | "isUpdatingWorktreeMode"
     | "onWorktreeModeChange"
     | "onRefreshWorktreeMode"
+    | "workflowMode"
+    | "isUpdatingWorkflowMode"
+    | "onWorkflowModeChange"
+    | "onRefreshWorkflowMode"
     | "goalModeTokenBudget"
     | "onGoalModeTokenBudgetChange"
     | "autoScrollEnabled"
@@ -97,6 +102,10 @@ export const ChatInputToolbar = ({
     isUpdatingWorktreeMode,
     onWorktreeModeChange,
     onRefreshWorktreeMode,
+    workflowMode,
+    isUpdatingWorkflowMode,
+    onWorkflowModeChange,
+    onRefreshWorkflowMode,
     goalModeTokenBudget,
     onGoalModeTokenBudgetChange,
     autoScrollEnabled,
@@ -141,6 +150,12 @@ export const ChatInputToolbar = ({
             isSubAgentConversation ? undefined : onWorktreeModeChange
           }
           onRefreshWorktreeMode={onRefreshWorktreeMode}
+          workflowMode={workflowMode}
+          isUpdatingWorkflowMode={isUpdatingWorkflowMode}
+          onWorkflowModeChange={
+            isSubAgentConversation ? undefined : onWorkflowModeChange
+          }
+          onRefreshWorkflowMode={onRefreshWorkflowMode}
           goalModeTokenBudget={goalModeTokenBudget}
           onGoalModeTokenBudgetChange={
             isSubAgentConversation ? undefined : onGoalModeTokenBudgetChange
@@ -166,7 +181,12 @@ export const ChatInputToolbar = ({
             <Command size={15} />
           </button>
         )}
-        {(planMode || goalMode || worktreeMode || yoloMode || liteMode) && (
+        {(planMode ||
+          goalMode ||
+          worktreeMode ||
+          yoloMode ||
+          liteMode ||
+          workflowMode) && (
           <span className="toolbar-divider" aria-hidden="true" />
         )}
         {planMode && (
@@ -191,6 +211,14 @@ export const ChatInputToolbar = ({
             title={t("plusMenu.worktreeModeActive")}
           >
             <GitBranch size={14} />
+          </span>
+        )}
+        {workflowMode && (
+          <span
+            className="plan-mode-badge"
+            title={t("plusMenu.workflowModeActive")}
+          >
+            <Workflow size={14} />
           </span>
         )}
         {yoloMode && (

@@ -22,6 +22,7 @@ pub fn set_conversation_modes(
     plan_mode: Option<bool>,
     goal_mode: Option<bool>,
     worktree_mode: Option<bool>,
+    workflow_mode: Option<bool>,
     goal_mode_token_budget: Option<i64>,
 ) -> Result<()> {
     let database_path = ensure_database_file()?;
@@ -31,8 +32,80 @@ pub fn set_conversation_modes(
         plan_mode,
         goal_mode,
         worktree_mode,
+        workflow_mode,
         goal_mode_token_budget,
     )
+}
+
+pub fn create_workflow_node_session(
+    conversation_id: &str,
+    parent_conversation_id: &str,
+    flow_id: &str,
+    flow_checkpoint_id: &str,
+    node_id: &str,
+    node_name: &str,
+    directory_id: &str,
+    api_profile_name: &str,
+    model: &str,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::create_workflow_node_session(
+        &database_path,
+        conversation_id,
+        parent_conversation_id,
+        flow_id,
+        flow_checkpoint_id,
+        node_id,
+        node_name,
+        directory_id,
+        api_profile_name,
+        model,
+    )
+}
+
+pub fn update_workflow_node_session(
+    conversation_id: &str,
+    run_status: &str,
+    error_message: &str,
+    handoff_content: &str,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::update_workflow_node_session(
+        &database_path,
+        conversation_id,
+        run_status,
+        error_message,
+        handoff_content,
+    )
+}
+
+pub fn update_workflow_node_handoff(
+    conversation_id: &str,
+    handoff_content: &str,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::update_workflow_node_handoff(
+        &database_path,
+        conversation_id,
+        handoff_content,
+    )
+}
+
+pub fn list_workflow_node_sessions(
+    parent_conversation_id: &str,
+) -> Result<Vec<WorkflowNodeSessionRecord>> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::list_workflow_node_sessions(
+        &database_path,
+        parent_conversation_id,
+    )
+}
+
+pub fn get_workflow_node_session(
+    conversation_id: &str,
+) -> Result<Option<WorkflowNodeSessionRecord>> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::get_workflow_node_session(&database_path, conversation_id)
 }
 
 pub fn get_conversation_runtime_config(

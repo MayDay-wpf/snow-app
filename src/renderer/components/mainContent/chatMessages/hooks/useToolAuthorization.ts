@@ -29,6 +29,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
   ctx.planModeRef.current = ctx.planMode;
   ctx.goalModeRef.current = ctx.goalMode;
   ctx.worktreeModeRef.current = ctx.worktreeMode;
+  ctx.workflowModeRef.current = ctx.workflowMode;
 
   const approveAllPendingToolAuthorizations = useCallback((): void => {
     const pendingEntries = ctx.pendingToolAuthorizationRef.current;
@@ -137,6 +138,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         ref.planMode,
         ref.goalMode,
         ref.worktreeMode,
+        ref.workflowMode,
         ref.goalModeTokenBudget,
       );
     },
@@ -221,6 +223,28 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     return effective;
   }, [
     applyWorktreeMode,
+    ctx.globalModeDefaultsRef,
+    ctx.activeConversationIdRef,
+    ctx.sessionsRefData,
+  ]);
+
+  const applyWorkflowMode = useCallback(
+    (enabled: boolean): void => {
+      ctx.workflowModeRef.current = enabled;
+      ctx.setWorkflowModeState(enabled);
+    },
+    [ctx.workflowModeRef, ctx.setWorkflowModeState],
+  );
+
+  const refreshWorkflowMode = useCallback(async (): Promise<boolean> => {
+    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+    const ref = ctx.sessionsRefData.current.get(key);
+    const effective =
+      ref?.workflowMode ?? ctx.globalModeDefaultsRef.current.workflowMode;
+    applyWorkflowMode(effective);
+    return effective;
+  }, [
+    applyWorkflowMode,
     ctx.globalModeDefaultsRef,
     ctx.activeConversationIdRef,
     ctx.sessionsRefData,
@@ -416,8 +440,10 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.goalMode = false;
             ref.worktreeMode = false;
+            ref.workflowMode = false;
             applyGoalMode(false);
             applyWorktreeMode(false);
+            applyWorkflowMode(false);
           }
           persistSessionModes(key);
         }
@@ -429,6 +455,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyPlanMode,
       applyGoalMode,
       applyWorktreeMode,
+      applyWorkflowMode,
       ctx.isUpdatingPlanMode,
       ctx.setIsUpdatingPlanMode,
       ctx.ensureSession,
@@ -459,8 +486,10 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.planMode = false;
             ref.worktreeMode = false;
+            ref.workflowMode = false;
             applyPlanMode(false);
             applyWorktreeMode(false);
+            applyWorkflowMode(false);
           }
           persistSessionModes(key);
         }
@@ -472,6 +501,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyGoalMode,
       applyPlanMode,
       applyWorktreeMode,
+      applyWorkflowMode,
       ctx.isUpdatingGoalMode,
       ctx.setIsUpdatingGoalMode,
       ctx.ensureSession,
@@ -502,8 +532,10 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.planMode = false;
             ref.goalMode = false;
+            ref.workflowMode = false;
             applyPlanMode(false);
             applyGoalMode(false);
+            applyWorkflowMode(false);
           }
           persistSessionModes(key);
         }
@@ -515,8 +547,56 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyWorktreeMode,
       applyPlanMode,
       applyGoalMode,
+      applyWorkflowMode,
       ctx.isUpdatingWorktreeMode,
       ctx.setIsUpdatingWorktreeMode,
+      ctx.ensureSession,
+      ctx.directoryId,
+      ctx.activeConversationIdRef,
+      ctx.sessionsRefData,
+      persistSessionModes,
+    ],
+  );
+
+  const setWorkflowMode = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      if (ctx.isUpdatingWorkflowMode) {
+        return;
+      }
+
+      ctx.setIsUpdatingWorkflowMode(true);
+      try {
+        applyWorkflowMode(enabled);
+        const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+        let ref = ctx.sessionsRefData.current.get(key);
+        if (!ref) {
+          ctx.ensureSession(key, ctx.directoryId);
+          ref = ctx.sessionsRefData.current.get(key);
+        }
+        if (ref) {
+          ref.workflowMode = enabled;
+          // WorkFlow Mode is mutually exclusive with Plan / Goal / WorkTree.
+          if (enabled) {
+            ref.planMode = false;
+            ref.goalMode = false;
+            ref.worktreeMode = false;
+            applyPlanMode(false);
+            applyGoalMode(false);
+            applyWorktreeMode(false);
+          }
+          persistSessionModes(key);
+        }
+      } finally {
+        ctx.setIsUpdatingWorkflowMode(false);
+      }
+    },
+    [
+      applyWorkflowMode,
+      applyPlanMode,
+      applyGoalMode,
+      applyWorktreeMode,
+      ctx.isUpdatingWorkflowMode,
+      ctx.setIsUpdatingWorkflowMode,
       ctx.ensureSession,
       ctx.directoryId,
       ctx.activeConversationIdRef,
@@ -886,6 +966,9 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     applyWorktreeMode,
     refreshWorktreeMode,
     setWorktreeMode,
+    applyWorkflowMode,
+    refreshWorkflowMode,
+    setWorkflowMode,
     applyGoalModeTokenBudget,
     refreshGoalModeTokenBudget,
     setGoalModeTokenBudget,

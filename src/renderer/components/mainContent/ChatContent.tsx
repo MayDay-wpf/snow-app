@@ -144,6 +144,10 @@ const ChatContentBody = ({
     isUpdatingWorktreeMode,
     setWorktreeMode,
     refreshWorktreeMode,
+    workflowMode,
+    isUpdatingWorkflowMode,
+    setWorkflowMode,
+    refreshWorkflowMode,
     goalModeTokenBudget,
     setGoalModeTokenBudget,
     pendingToolAuthorizations,
@@ -1208,6 +1212,10 @@ const ChatContentBody = ({
             isUpdatingWorktreeMode={isUpdatingWorktreeMode}
             onWorktreeModeChange={setWorktreeMode}
             onRefreshWorktreeMode={refreshWorktreeMode}
+            workflowMode={workflowMode}
+            isUpdatingWorkflowMode={isUpdatingWorkflowMode}
+            onWorkflowModeChange={setWorkflowMode}
+            onRefreshWorkflowMode={refreshWorkflowMode}
             goalModeTokenBudget={goalModeTokenBudget}
             onGoalModeTokenBudgetChange={setGoalModeTokenBudget}
             autoScrollEnabled={autoScrollEnabled}
@@ -1224,10 +1232,14 @@ const ChatContentBody = ({
         <RollbackConfirmDialog
           key={rollbackPreview.requestId}
           changes={rollbackPreview.changes}
-          checkpointIds={rollbackPreview.checkpointIds}
+          checkpointIds={[
+            ...rollbackPreview.checkpointIds,
+            ...rollbackPreview.flowCheckpointIds,
+          ]}
           workDir={rollbackPreview.workDir}
           isFirstMessage={rollbackPreview.isFirstMessage}
           todoItems={rollbackPreview.todoItems}
+          workflowFlowCount={rollbackPreview.workflowFlowCount}
           error={rollbackPreview.error}
           onConfirm={handleConfirmRollback}
           onCancel={cancelRollback}

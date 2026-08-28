@@ -172,7 +172,7 @@ pub fn split_tool_full_name(full_name: &str) -> Option<(&str, &str)> {
 }
 
 pub async fn list_mcp_tools() -> napi::Result<Vec<McpToolDefinition>> {
-    let tools = collect_all_mcp_tools(None, false).await?;
+    let tools = collect_all_mcp_tools(None, false, false).await?;
     Ok(to_tool_definitions(&tools))
 }
 

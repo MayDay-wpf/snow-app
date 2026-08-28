@@ -104,6 +104,9 @@ pub struct ResponsesApiRequest {
     /// When true, replace the built-in system prompt with the WorkTree prompt
     /// that instructs the AI to work on an isolated Git branch or worktree.
     pub worktree_mode: Option<bool>,
+    /// When true, replace the built-in system prompt with the WorkFlow prompt
+    /// that instructs the AI to design an executable workflow graph.
+    pub workflow_mode: Option<bool>,
     /// Per-request thinking strength override ("none" | "low" | "medium" |
     /// "high" | custom). Applied in-memory over the resolved profile's
     /// config_json; never mutates the stored profile.
@@ -285,6 +288,7 @@ async fn create_response_async(
         plan_mode: request.plan_mode.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
         worktree_mode: request.worktree_mode.unwrap_or(false),
+        workflow_mode: request.workflow_mode.unwrap_or(false),
         is_sub_agent: request.is_sub_agent_request(),
         sub_agent_system_prompt: request.sub_agent_system_prompt.as_deref(),
         system_prompt_ids_json: &api_config.system_prompt_ids_json,

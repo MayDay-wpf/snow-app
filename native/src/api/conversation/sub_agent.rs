@@ -18,6 +18,7 @@ pub async fn resolve_sub_agent_tools(request: &ResponsesApiRequest) -> Result<Ve
             collect_all_mcp_tools(
                 request.directory_id.as_deref(),
                 request.plan_mode.unwrap_or(false),
+                request.workflow_mode.unwrap_or(false),
             )
             .await
         }

@@ -15,11 +15,13 @@ mod fork_truncate;
 mod messages;
 mod query;
 mod sub_agent;
+mod workflow;
 
 pub use self::fork_truncate::*;
 pub use self::messages::*;
 pub use self::query::*;
 pub use self::sub_agent::*;
+pub use self::workflow::*;
 
 #[derive(Clone, Debug)]
 pub struct ChatContextMessage {
@@ -798,6 +800,7 @@ pub struct ConversationModes {
     pub plan_mode: Option<bool>,
     pub goal_mode: Option<bool>,
     pub worktree_mode: Option<bool>,
+    pub workflow_mode: Option<bool>,
     pub goal_mode_token_budget: Option<i64>,
 }
 
@@ -817,7 +820,7 @@ pub fn get_conversation_modes(
         .and_then(|connection| {
             connection
                 .query_row(
-                    "SELECT plan_mode, goal_mode, worktree_mode, goal_mode_token_budget
+                    "SELECT plan_mode, goal_mode, worktree_mode, workflow_mode, goal_mode_token_budget
                        FROM chat_conversations
                       WHERE conversation_id = ?1
                       LIMIT 1",
@@ -839,7 +842,12 @@ pub fn get_conversation_modes(
                                     .map(|v| v != 0)
                                     .unwrap_or(false),
                             ),
-                            goal_mode_token_budget: row.get::<_, Option<i64>>(3)?,
+                            workflow_mode: Some(
+                                row.get::<_, Option<i64>>(3)?
+                                    .map(|v| v != 0)
+                                    .unwrap_or(false),
+                            ),
+                            goal_mode_token_budget: row.get::<_, Option<i64>>(4)?,
                         })
                     },
                 )
@@ -864,19 +872,21 @@ pub fn set_conversation_modes(
     plan_mode: Option<bool>,
     goal_mode: Option<bool>,
     worktree_mode: Option<bool>,
+    workflow_mode: Option<bool>,
     goal_mode_token_budget: Option<i64>,
 ) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| {
             connection.execute(
                 "INSERT INTO chat_conversations (
-                   id, conversation_id, plan_mode, goal_mode, worktree_mode, goal_mode_token_budget
+                   id, conversation_id, plan_mode, goal_mode, worktree_mode, workflow_mode, goal_mode_token_budget
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(conversation_id) DO UPDATE SET
                    plan_mode = COALESCE(excluded.plan_mode, chat_conversations.plan_mode),
                    goal_mode = COALESCE(excluded.goal_mode, chat_conversations.goal_mode),
                    worktree_mode = COALESCE(excluded.worktree_mode, chat_conversations.worktree_mode),
+                   workflow_mode = COALESCE(excluded.workflow_mode, chat_conversations.workflow_mode),
                    goal_mode_token_budget = COALESCE(excluded.goal_mode_token_budget, chat_conversations.goal_mode_token_budget)",
                 params![
                     database::create_snowflake_id(),
@@ -884,6 +894,7 @@ pub fn set_conversation_modes(
                     plan_mode.map(|v| if v { 1 } else { 0 }),
                     goal_mode.map(|v| if v { 1 } else { 0 }),
                     worktree_mode.map(|v| if v { 1 } else { 0 }),
+                    workflow_mode.map(|v| if v { 1 } else { 0 }),
                     goal_mode_token_budget,
                 ],
             )?;

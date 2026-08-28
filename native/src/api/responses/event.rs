@@ -44,6 +44,7 @@ pub(super) fn process_responses_sse_event_block(
     tool_calls: &mut Vec<Value>,
     reasoning_items: &mut Vec<Value>,
     streaming_tool_items: &mut HashMap<u64, (Value, String)>,
+    tool_args_delta_out: &mut String,
     response_id: &mut String,
     response_model: &mut String,
     response_status: &mut String,
@@ -143,6 +144,10 @@ pub(super) fn process_responses_sse_event_block(
             "response.function_call_arguments.delta" => {
                 let args_delta = read_stream_text_delta(event.get("delta"));
                 if !args_delta.is_empty() {
+                    // 累积工具参数增量用于实时 token 计数（仅计数，不进入
+                    // 消息正文；与 chat/anthropic/gemini provider 的
+                    // tool_args_delta 行为一致）。
+                    tool_args_delta_out.push_str(&args_delta);
                     if let Some(index) = event
                         .get("output_index")
                         .and_then(Value::as_u64)

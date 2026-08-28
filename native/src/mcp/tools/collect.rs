@@ -14,6 +14,7 @@ use crate::storage::services::system_settings::{McpGlobalScopeSettings, McpProje
 pub async fn collect_all_mcp_tools(
     project_id: Option<&str>,
     include_plan_mode_tool: bool,
+    include_workflow_tool: bool,
 ) -> Result<Vec<McpTool>> {
     let scope = load_project_scope(project_id).await?;
     let global_scope = load_global_scope().await?;
@@ -89,6 +90,11 @@ pub async fn collect_all_mcp_tools(
             // exposed to the model while the current request is in Plan Mode.
             if tool.full_name() == REQUEST_APPROVAL_FULL_NAME {
                 return include_plan_mode_tool;
+            }
+            // The WorkFlow graph tool is request-scoped: it only exists while
+            // the current request is in WorkFlow Mode.
+            if tool.server_id == "workflow" {
+                return include_workflow_tool;
             }
             // 精简模式：LITE_MODE_DISABLED_SERVER_IDS 中的服务器整体禁用
             // （requestApproval 已在上方先行处理，保持 Plan Mode 审批可用）。
@@ -235,7 +241,7 @@ pub async fn collect_allowed_mcp_tools(
         ));
     }
 
-    let all_tools = collect_all_mcp_tools(project_id, false).await?;
+    let all_tools = collect_all_mcp_tools(project_id, false, false).await?;
     if wildcard_enabled {
         // Every sub-agent carries the teammate communication tools by default,
         // even with the wildcard configuration. The main-session management

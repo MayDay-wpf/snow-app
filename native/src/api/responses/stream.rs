@@ -15,7 +15,7 @@ use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::common::emit_stream_chunk;
+use crate::api::common::{emit_stream_chunk, emit_tool_args_probe};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
 use crate::api::retry::{
     decide_stream_recovery, should_retry, stream_idle_timeout_error, visible_content_char_count,
@@ -89,8 +89,9 @@ impl Default for ResponsesAttemptState {
 }
 
 impl ResponsesAttemptState {
-    fn process_event_block(&mut self, event_block: &str) -> (String, String) {
-        process_responses_sse_event_block(
+    fn process_event_block(&mut self, event_block: &str) -> (String, String, String) {
+        let mut tool_args_delta_out = String::new();
+        let (content_delta, thinking_delta) = process_responses_sse_event_block(
             event_block,
             &mut self.raw_events,
             &mut self.content_chunks,
@@ -98,6 +99,7 @@ impl ResponsesAttemptState {
             &mut self.tool_calls,
             &mut self.reasoning_items,
             &mut self.streaming_tool_items,
+            &mut tool_args_delta_out,
             &mut self.response_id,
             &mut self.response_model,
             &mut self.response_status,
@@ -105,7 +107,8 @@ impl ResponsesAttemptState {
             &mut self.completed_response,
             &mut self.stream_completed_normally,
             &mut self.reasoning_stream_mode,
-        )
+        );
+        (content_delta, thinking_delta, tool_args_delta_out)
     }
 
     fn progress(&self, user_cancelled: bool) -> StreamAttemptProgress {
@@ -400,7 +403,7 @@ pub(super) async fn collect_streaming_response(
             cancel_token,
             idle_timeout,
             |event_block| {
-                let (content_delta, thinking_delta) =
+                let (content_delta, thinking_delta, tool_args_delta) =
                     attempt_state.process_event_block(event_block);
                 if ttft_ms == 0 {
                     ttft_ms = stream_start.elapsed().as_millis() as i64;
@@ -410,6 +413,13 @@ pub(super) async fn collect_streaming_response(
                     content_delta,
                     thinking_delta,
                     &mut stream_token_count,
+                    stream_start.elapsed().as_millis() as i64,
+                    ttft_ms,
+                );
+                emit_tool_args_probe(
+                    on_chunk,
+                    &mut stream_token_count,
+                    &tool_args_delta,
                     stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
                 );

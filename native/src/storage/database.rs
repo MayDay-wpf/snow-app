@@ -17,12 +17,15 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 37: workflow_node_sessions.flow_checkpoint_id column (flow-level file checkpoint).
+/// 36: workflow_node_sessions.flow_id column (multi-flow isolation per parent).
+/// 35: chat_conversations.workflow_mode column + workflow_node_sessions table.
 /// 34: project_collections / collection_members tables (project collections).
 /// 33: combines the upstream API config JSON migration with fork runtime/context migrations;
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 34;
+const CURRENT_SCHEMA_VERSION: i64 = 37;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -767,6 +770,7 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
                plan_mode INTEGER,
               goal_mode INTEGER,
               worktree_mode INTEGER,
+              workflow_mode INTEGER,
               goal_mode_token_budget INTEGER,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -793,6 +797,29 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
            ON sub_agent_sessions(parent_conversation_id, created_at ASC, id ASC);
          CREATE INDEX IF NOT EXISTS idx_sub_agent_sessions_status
            ON sub_agent_sessions(run_status);
+
+         CREATE TABLE IF NOT EXISTS workflow_node_sessions (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL UNIQUE,
+           parent_conversation_id TEXT NOT NULL,
+           flow_id TEXT NOT NULL DEFAULT '',
+           flow_checkpoint_id TEXT NOT NULL DEFAULT '',
+           node_id TEXT NOT NULL,
+           node_name TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'pending',
+           error_message TEXT NOT NULL DEFAULT '',
+           handoff_content TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE,
+           FOREIGN KEY(parent_conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_flow
+           ON workflow_node_sessions(parent_conversation_id, flow_id);
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_parent
+           ON workflow_node_sessions(parent_conversation_id, created_at ASC, id ASC);
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_status
+           ON workflow_node_sessions(run_status);
 
          CREATE TABLE IF NOT EXISTS chat_messages (
            id TEXT PRIMARY KEY NOT NULL,

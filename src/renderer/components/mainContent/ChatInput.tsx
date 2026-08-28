@@ -48,6 +48,10 @@ export const ChatInput = ({
   isUpdatingWorktreeMode = false,
   onWorktreeModeChange,
   onRefreshWorktreeMode,
+  workflowMode = false,
+  isUpdatingWorkflowMode = false,
+  onWorkflowModeChange,
+  onRefreshWorkflowMode,
   goalModeTokenBudget = 2000000,
   onGoalModeTokenBudgetChange,
   autoScrollEnabled = false,
@@ -109,6 +113,10 @@ export const ChatInput = ({
       isUpdatingWorktreeMode={isUpdatingWorktreeMode}
       onWorktreeModeChange={onWorktreeModeChange}
       onRefreshWorktreeMode={onRefreshWorktreeMode}
+      workflowMode={workflowMode}
+      isUpdatingWorkflowMode={isUpdatingWorkflowMode}
+      onWorkflowModeChange={onWorkflowModeChange}
+      onRefreshWorkflowMode={onRefreshWorkflowMode}
       goalModeTokenBudget={goalModeTokenBudget}
       onGoalModeTokenBudgetChange={onGoalModeTokenBudgetChange}
       autoScrollEnabled={autoScrollEnabled}

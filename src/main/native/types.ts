@@ -223,6 +223,7 @@ export type ConversationModesResult = {
   planMode: boolean | null;
   goalMode: boolean | null;
   worktreeMode: boolean | null;
+  workflowMode: boolean | null;
   goalModeTokenBudget: number | null;
 };
 
@@ -231,6 +232,20 @@ export type ConversationRuntimeConfig = {
   responsesFastMode: boolean | null;
 };
 
+export type WorkflowNodeSessionRecord = {
+  conversationId: string;
+  parentConversationId: string;
+  flowId: string;
+  /** Flow 级文件检查点：flow 首节点执行前拍摄，回滚时恢复以撤销节点文件改动。 */
+  flowCheckpointId: string;
+  nodeId: string;
+  nodeName: string;
+  runStatus: string;
+  errorMessage: string;
+  handoffContent: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type ThemeMode = "system" | "light" | "dark";
 
 export type ThemePalette = {
@@ -997,6 +1012,7 @@ export type ResponsesApiRequest = {
   planMode?: boolean;
   goalMode?: boolean;
   worktreeMode?: boolean;
+  workflowMode?: boolean;
   /** Per-request thinking strength override ("none" | "low" | "medium" |
    *  "high" | custom). Applied in-memory over the resolved profile's
    *  config_json; never mutates the stored profile. */
@@ -1349,8 +1365,36 @@ export type NativeBridge = {
     planMode: boolean | null,
     goalMode: boolean | null,
     worktreeMode: boolean | null,
+    workflowMode: boolean | null,
     goalModeTokenBudget: number | null,
   ) => Promise<void>;
+  createWorkflowNodeSession: (
+    conversationId: string,
+    parentConversationId: string,
+    flowId: string,
+    flowCheckpointId: string,
+    nodeId: string,
+    nodeName: string,
+    directoryId: string,
+    apiProfileName: string,
+    model: string,
+  ) => Promise<void>;
+  updateWorkflowNodeSession: (
+    conversationId: string,
+    runStatus: string,
+    errorMessage: string,
+    handoffContent: string,
+  ) => Promise<void>;
+  updateWorkflowNodeHandoff: (
+    conversationId: string,
+    handoffContent: string,
+  ) => Promise<void>;
+  listWorkflowNodeSessions: (
+    parentConversationId: string,
+  ) => Promise<WorkflowNodeSessionRecord[]>;
+  getWorkflowNodeSession: (
+    conversationId: string,
+  ) => Promise<WorkflowNodeSessionRecord | null>;
   getConversationRuntimeConfig: (
     conversationId: string,
   ) => Promise<ConversationRuntimeConfig>;

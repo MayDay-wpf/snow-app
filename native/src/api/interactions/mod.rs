@@ -101,6 +101,7 @@ async fn create_interactions_response_async(
         plan_mode: request.plan_mode.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
         worktree_mode: request.worktree_mode.unwrap_or(false),
+        workflow_mode: request.workflow_mode.unwrap_or(false),
         is_sub_agent: request.is_sub_agent_request(),
         sub_agent_system_prompt: request.sub_agent_system_prompt.as_deref(),
         system_prompt_ids_json: &api_config.system_prompt_ids_json,

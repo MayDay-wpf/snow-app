@@ -17,3 +17,4 @@ pub mod terminal;
 pub mod todo;
 pub mod user_interaction;
 pub mod websearch;
+pub mod workflow;

@@ -13,14 +13,12 @@ export type SubAgentRuntimeConfig = {
   apiSource: "parent" | "agent";
   apiProfile: string;
   model: string;
-  /** Inherited from the parent conversation's per-send override (scheduled
-   *  tasks). Undefined = use the profile's configured thinking strength. */
-  thinkingStrength?: string;
   /** Inherited from the parent conversation's captured request. Undefined =
    *  let the selected profile use its own default. Explicit false is retained. */
   responsesFastMode?: boolean;
-  /** Effective thinking snapshot captured at sub-agent creation. This is
-   *  resolved from the parent run or selected profile; it is not a Profile write. */
+  /** Effective thinking snapshot captured at sub-agent creation. Resolved
+   *  from the thinking configured on the resolved API profile; the parent
+   *  run's per-send override never applies. Not a Profile write. */
   effectiveThinkingStrength: string;
   /** Effective Fast Mode snapshot captured at sub-agent creation. */
   effectiveResponsesFastMode: boolean;
@@ -33,7 +31,6 @@ export type ResolveSubAgentRuntimeConfigInput = {
   apiConfigs: readonly ApiConfigRecord[];
   parentApiProfile?: string;
   parentModel?: string;
-  parentThinkingStrength?: string;
   /** Effective Fast Mode captured by the parent run; false is meaningful. */
   parentResponsesFastMode?: boolean | null;
 };
@@ -53,7 +50,9 @@ export const parseSubAgentTools = (toolsJson: string): string[] => {
     !Array.isArray(parsed) ||
     parsed.some((tool) => typeof tool !== "string" || !tool.trim())
   ) {
-    throw new Error("Sub-agent toolsJson must be an array of non-empty strings");
+    throw new Error(
+      "Sub-agent toolsJson must be an array of non-empty strings",
+    );
   }
 
   return Array.from(new Set(parsed.map((tool) => tool.trim())));
@@ -64,7 +63,6 @@ export const resolveSubAgentRuntimeConfig = ({
   apiConfigs,
   parentApiProfile,
   parentModel,
-  parentThinkingStrength,
   parentResponsesFastMode,
 }: ResolveSubAgentRuntimeConfigInput): SubAgentRuntimeConfig => {
   const agentId = normalizeNonEmpty(config.agentId);
@@ -86,7 +84,7 @@ export const resolveSubAgentRuntimeConfig = ({
   if (!apiConfig) {
     if (configuredProfile) {
       throw new Error(
-        `Sub-agent API profile is unavailable: ${configuredProfile}`
+        `Sub-agent API profile is unavailable: ${configuredProfile}`,
       );
     }
     if (inheritedProfile) {
@@ -110,9 +108,9 @@ export const resolveSubAgentRuntimeConfig = ({
     throw new Error(`No model is configured for API profile: ${apiProfile}`);
   }
 
-  const inheritedThinkingStrength = normalizeNonEmpty(parentThinkingStrength);
-  const effectiveThinkingStrength =
-    inheritedThinkingStrength || getThinkingValueFromConfig(apiConfig);
+  // 思考强度始终跟随解析后 Profile 的配置值，不继承父会话的发送覆盖
+  //（父覆盖未必适用于该 Profile 的模型）。
+  const effectiveThinkingStrength = getThinkingValueFromConfig(apiConfig);
   // Resolve effective values exactly once when this sub-agent runtime is built.
   // These are request snapshots, never mutations of the API Profile.
   const effectiveResponsesFastMode =
@@ -124,7 +122,6 @@ export const resolveSubAgentRuntimeConfig = ({
     apiSource,
     apiProfile,
     model,
-    thinkingStrength: inheritedThinkingStrength || undefined,
     responsesFastMode: parentResponsesFastMode ?? undefined,
     effectiveThinkingStrength,
     effectiveResponsesFastMode,

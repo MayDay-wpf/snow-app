@@ -16,6 +16,8 @@ pub struct ConversationModesResult {
     pub goal_mode: Option<bool>,
     /// Whether WorkTree Mode is enabled for this conversation.
     pub worktree_mode: Option<bool>,
+    /// Whether WorkFlow Mode is enabled for this conversation.
+    pub workflow_mode: Option<bool>,
     /// Per-conversation Goal Mode token budget override (null → follow the
     /// global default budget).
     pub goal_mode_token_budget: Option<i64>,
@@ -37,6 +39,7 @@ pub async fn get_conversation_modes(
                 plan_mode: modes.plan_mode,
                 goal_mode: modes.goal_mode,
                 worktree_mode: modes.worktree_mode,
+                workflow_mode: modes.workflow_mode,
                 goal_mode_token_budget: modes.goal_mode_token_budget,
             }
         })
@@ -51,6 +54,7 @@ pub async fn set_conversation_modes(
     plan_mode: Option<bool>,
     goal_mode: Option<bool>,
     worktree_mode: Option<bool>,
+    workflow_mode: Option<bool>,
     goal_mode_token_budget: Option<i64>,
 ) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
@@ -59,6 +63,7 @@ pub async fn set_conversation_modes(
             plan_mode,
             goal_mode,
             worktree_mode,
+            workflow_mode,
             goal_mode_token_budget,
         )
     })
@@ -321,6 +326,88 @@ pub async fn cancel_running_sub_agent_sessions() -> napi::Result<u32> {
     tokio::task::spawn_blocking(crate::storage::cancel_running_sub_agent_sessions)
         .await
         .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn create_workflow_node_session(
+    conversation_id: String,
+    parent_conversation_id: String,
+    flow_id: String,
+    flow_checkpoint_id: String,
+    node_id: String,
+    node_name: String,
+    directory_id: String,
+    api_profile_name: String,
+    model: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::create_workflow_node_session(
+            &conversation_id,
+            &parent_conversation_id,
+            &flow_id,
+            &flow_checkpoint_id,
+            &node_id,
+            &node_name,
+            &directory_id,
+            &api_profile_name,
+            &model,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn update_workflow_node_session(
+    conversation_id: String,
+    run_status: String,
+    error_message: String,
+    handoff_content: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::update_workflow_node_session(
+            &conversation_id,
+            &run_status,
+            &error_message,
+            &handoff_content,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn update_workflow_node_handoff(
+    conversation_id: String,
+    handoff_content: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::update_workflow_node_handoff(&conversation_id, &handoff_content)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn list_workflow_node_sessions(
+    parent_conversation_id: String,
+) -> napi::Result<Vec<WorkflowNodeSessionRecord>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::list_workflow_node_sessions(&parent_conversation_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn get_workflow_node_session(
+    conversation_id: String,
+) -> napi::Result<Option<WorkflowNodeSessionRecord>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::get_workflow_node_session(&conversation_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]

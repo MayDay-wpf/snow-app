@@ -96,6 +96,10 @@ export type ChatInputProps = {
   isUpdatingWorktreeMode?: boolean;
   onWorktreeModeChange?: (enabled: boolean) => void;
   onRefreshWorktreeMode?: () => Promise<boolean | void>;
+  workflowMode?: boolean;
+  isUpdatingWorkflowMode?: boolean;
+  onWorkflowModeChange?: (enabled: boolean) => void;
+  onRefreshWorkflowMode?: () => Promise<boolean | void>;
   goalModeTokenBudget?: number;
   onGoalModeTokenBudgetChange?: (budget: number) => void;
   autoScrollEnabled?: boolean;
@@ -239,6 +243,10 @@ export type ChatInputViewProps = ChatInputState &
     isUpdatingWorktreeMode: boolean;
     onWorktreeModeChange?: (enabled: boolean) => void;
     onRefreshWorktreeMode?: () => Promise<boolean | void>;
+    workflowMode: boolean;
+    isUpdatingWorkflowMode: boolean;
+    onWorkflowModeChange?: (enabled: boolean) => void;
+    onRefreshWorkflowMode?: () => Promise<boolean | void>;
     goalModeTokenBudget: number;
     onGoalModeTokenBudgetChange?: (budget: number) => void;
     autoScrollEnabled: boolean;

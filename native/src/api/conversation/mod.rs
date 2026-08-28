@@ -42,6 +42,8 @@ pub struct ConversationContextRequest<'a> {
     pub goal_mode: bool,
     /// When true, replace the built-in system prompt with the WorkTree prompt.
     pub worktree_mode: bool,
+    /// When true, replace the built-in system prompt with the WorkFlow prompt.
+    pub workflow_mode: bool,
     /// True when the request belongs to a sub-agent runtime snapshot.
     pub is_sub_agent: bool,
     /// Sub-agent-specific system prompt captured at activation.

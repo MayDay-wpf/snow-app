@@ -42,6 +42,11 @@ import {
   createSubAgentActivation,
   createSubAgentMainToolExecutor,
 } from "./subAgentActivation";
+import {
+  createWorkflowRunner,
+  executeWorkflowGenerate as executeWorkflowGenerateTool,
+  registerWorkflowRunner,
+} from "../workflow/workflowRunner";
 import { createToolExecutor } from "./toolExecution";
 
 type CapturedChatInputSendOptions = ChatInputSendOptions;
@@ -532,17 +537,41 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         requestToolAuthorizations,
         parentApiProfile: capturedOptions.apiProfile,
         parentModel: capturedOptions.model,
-        parentThinkingStrength: capturedOptions.thinkingStrength,
         parentResponsesFastMode: capturedOptions.responsesFastMode,
         planApprovedSessionKeysRef,
       });
+      // 阻塞式工作流工具：工具调用挂起直到用户在 UI 上确认执行或输入修改
+      // 意见（与 sub-agents-activate 同语义）。注册时创建执行器：闭包持有
+      // 本轮新鲜的 ctx 与工具授权入口，供 WorkflowToolCall 执行按钮取用
+      // （主 loop await 挂起的工具结果，闭包在执行期间始终存活）。
+      const executeWorkflowGenerate = (
+        argsJson: string,
+        parentConversationId: string,
+        dirId: string,
+        toolCallInteractionId: string,
+      ): Promise<string> => {
+        registerWorkflowRunner(
+          parentConversationId,
+          toolCallInteractionId,
+          createWorkflowRunner({
+            ctx,
+            requestToolAuthorizations,
+            planApprovedSessionKeysRef,
+          }),
+        );
+        return executeWorkflowGenerateTool(
+          argsJson,
+          parentConversationId,
+          dirId,
+          toolCallInteractionId,
+        );
+      };
       // 主会话子代理管理工具（listSubAgents / continue）执行器：会话隔离
       // 在内部强制，只允许操作当前会话自己的子代理；continue 在内存无
       // 恢复器时（应用重启后）自动从 DB 重建。
       const executeSubAgentMainTool = createSubAgentMainToolExecutor(ctx, {
         requestToolAuthorizations,
         planApprovedSessionKeysRef,
-        parentThinkingStrength: capturedOptions.thinkingStrength,
         parentResponsesFastMode: capturedOptions.responsesFastMode,
       });
 
@@ -620,6 +649,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             planMode: iterRef?.planMode ?? ctx.planModeRef.current,
             goalMode: iterRef?.goalMode ?? ctx.goalModeRef.current,
             worktreeMode: iterRef?.worktreeMode ?? ctx.worktreeModeRef.current,
+            workflowMode: iterRef?.workflowMode ?? ctx.workflowModeRef.current,
           },
           createStreamChunkHandler(
             ctx,
@@ -740,6 +770,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                 migratedRef.planMode,
                 migratedRef.goalMode,
                 migratedRef.worktreeMode,
+                migratedRef.workflowMode,
                 migratedRef.goalModeTokenBudget,
               );
             }
@@ -1269,6 +1300,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           awaitHookDecision,
           executeSubAgentActivation,
           executeSubAgentMainTool,
+          executeWorkflowGenerate,
           planApprovedSessionKeysRef,
           planModeRef: ctx.planModeRef,
         });

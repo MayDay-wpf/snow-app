@@ -62,7 +62,10 @@ const LEGACY_INTEGER_PRIMARY_KEY_TABLES: &[&str] = &[
 /// (snowflake IDs). On databases already using TEXT primary keys this is a
 /// fast no-op.
 pub fn run_pre_schema_migrations(connection: &Connection) -> rusqlite::Result<()> {
-    reset_legacy_integer_primary_key_tables(connection)
+    reset_legacy_integer_primary_key_tables(connection)?;
+    // Must run before CREATE TABLE batch: the schema's idx_workflow_node_sessions_flow
+    // references flow_id, so old tables lacking the column must be patched first.
+    migrate_workflow_node_sessions_flow_id(connection)
 }
 
 /// Runs migrations that must execute **after** `CREATE TABLE IF NOT EXISTS`.
@@ -76,6 +79,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_plugins_desired_state(connection)?;
     migrate_system_prompt_scope(connection)?;
     migrate_chat_conversations_modes(connection)?;
+    migrate_chat_conversations_workflow_mode(connection)?;
     migrate_chat_conversations_runtime_config(connection)?;
     migrate_chat_conversations_run_stats(connection)?;
     migrate_sub_agent_configs_project_id(connection)?;
@@ -87,6 +91,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     purge_assistant_raw_json_blobs(connection)?;
     drop_tables_referencing_sub_agent_configs_legacy(connection)?;
     migrate_project_collections(connection)?;
+    migrate_workflow_node_sessions_flow_checkpoint_id(connection)?;
     Ok(())
 }
 
@@ -569,6 +574,7 @@ fn migrate_chat_conversations_modes(connection: &Connection) -> rusqlite::Result
         ("plan_mode", "INTEGER"),
         ("goal_mode", "INTEGER"),
         ("worktree_mode", "INTEGER"),
+        ("workflow_mode", "INTEGER"),
         ("goal_mode_token_budget", "INTEGER"),
     ]
     .into_iter()
@@ -581,6 +587,101 @@ fn migrate_chat_conversations_modes(connection: &Connection) -> rusqlite::Result
             [],
         )?;
     }
+
+    Ok(())
+}
+
+/// Adds the `workflow_mode` flag column to `chat_conversations` for databases
+/// created before WorkFlow Mode existed. NULL is read as disabled.
+///
+/// Idempotent: no-op when the column is already present (fresh databases get
+/// it from the `CREATE TABLE` statement in `create_schema`).
+fn migrate_chat_conversations_workflow_mode(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(chat_conversations)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if columns.iter().any(|column| column == "workflow_mode") {
+        return Ok(());
+    }
+    connection.execute(
+        "ALTER TABLE chat_conversations ADD COLUMN workflow_mode INTEGER",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Adds the `flow_id` column to `workflow_node_sessions` so node runs are
+/// keyed per workflow instance (interaction id), not just per parent
+/// conversation — multiple flows in one conversation must stay isolated.
+///
+/// Idempotent: no-op when the column is already present (fresh databases get
+/// it from the `CREATE TABLE` statement in `create_schema`).
+fn migrate_workflow_node_sessions_flow_id(connection: &Connection) -> rusqlite::Result<()> {
+    // No-op on fresh databases (table not yet created; create_schema adds flow_id).
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workflow_node_sessions')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(());
+    }
+
+    let mut statement = connection.prepare("PRAGMA table_info(workflow_node_sessions)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if columns.iter().any(|column| column == "flow_id") {
+        return Ok(());
+    }
+    connection.execute(
+        "ALTER TABLE workflow_node_sessions ADD COLUMN flow_id TEXT NOT NULL DEFAULT ''",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Adds the `flow_checkpoint_id` column to `workflow_node_sessions` so every
+/// node run records the flow-level file checkpoint taken before the flow's
+/// first node executes. Rollback restores it to undo file changes made by
+/// workflow nodes (nodes bypass the main agent loop, so without this column
+/// their file edits had no snapshot at all).
+///
+/// Idempotent: no-op when the column is already present (fresh databases get
+/// it from the `CREATE TABLE` statement in `create_schema`).
+fn migrate_workflow_node_sessions_flow_checkpoint_id(
+    connection: &Connection,
+) -> rusqlite::Result<()> {
+    // No-op on fresh databases (table not yet created; create_schema adds the column).
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workflow_node_sessions')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(());
+    }
+
+    let mut statement = connection.prepare("PRAGMA table_info(workflow_node_sessions)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if columns
+        .iter()
+        .any(|column| column == "flow_checkpoint_id")
+    {
+        return Ok(());
+    }
+    connection.execute(
+        "ALTER TABLE workflow_node_sessions ADD COLUMN flow_checkpoint_id TEXT NOT NULL DEFAULT ''",
+        [],
+    )?;
 
     Ok(())
 }

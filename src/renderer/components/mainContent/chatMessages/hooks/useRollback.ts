@@ -5,6 +5,7 @@ import type {
   RollbackMode,
   RollbackConversationState,
   RollbackTodoItem,
+  ToolCallInfo,
 } from "../utils/conversationTypes";
 import {
   PENDING_SESSION_KEY,
@@ -15,7 +16,37 @@ import {
   directoryIdToPath,
   getErrorMessage,
   killRunningToolExecutions,
+  parseToolCalls,
 } from "../utils/conversationHelpers";
+import { getActiveWorkflowNodeIds } from "../workflow/workflowRunner";
+
+/** 比较两个 checkpoint id 的快照时间（`cp-{secs}-{nanos}-{count}`）。
+ *  各段定宽补零后做字典序比较，等价于时间升序；无法解析时返回 0，
+ *  由 sort 的稳定性保持原相对顺序。 */
+const compareCheckpointIds = (a: string, b: string): number => {
+  const parse = (id: string): [string, string, string] | null => {
+    const match = id.match(/^cp-(\d+)-(\d+)-(\d+)$/);
+    return match
+      ? [
+          match[1].padStart(10, "0"),
+          match[2].padStart(9, "0"),
+          match[3].padStart(6, "0"),
+        ]
+      : null;
+  };
+  const parsedA = parse(a);
+  const parsedB = parse(b);
+  if (!parsedA || !parsedB) {
+    return 0;
+  }
+  for (let index = 0; index < parsedA.length; index++) {
+    const order = parsedA[index].localeCompare(parsedB[index]);
+    if (order !== 0) {
+      return order;
+    }
+  }
+  return 0;
+};
 
 /**
  * 回滚逻辑：中止流、预览文件变更、确认/取消回滚。
@@ -106,9 +137,15 @@ export const useRollback = (ctx: ConversationContextValue) => {
         capturedSessionRef?.worktreeMode ?? defaults.worktreeMode;
       let capturedPlanMode = capturedSessionRef?.planMode ?? defaults.planMode;
       let capturedGoalMode = capturedSessionRef?.goalMode ?? defaults.goalMode;
+      let capturedWorkflowMode =
+        capturedSessionRef?.workflowMode ?? defaults.workflowMode;
       const capturedGoalModeTokenBudget =
         capturedSessionRef?.goalModeTokenBudget ?? defaults.goalModeTokenBudget;
-      if (capturedWorktreeMode) {
+      if (capturedWorkflowMode) {
+        capturedWorktreeMode = false;
+        capturedPlanMode = false;
+        capturedGoalMode = false;
+      } else if (capturedWorktreeMode) {
         capturedPlanMode = false;
         capturedGoalMode = false;
       } else if (capturedPlanMode) {
@@ -161,6 +198,19 @@ export const useRollback = (ctx: ConversationContextValue) => {
       // we set the preview state once the diff is ready.
       const computeAndPreview = async (): Promise<void> => {
         try {
+          // WorkFlow 级联终止：中止运行中的节点（流/工具授权/子进程）并结算
+          // 挂起的 workflow-generate，随后等待节点 runLoop 退出。回滚的数据
+          // 删除与文件恢复绝不能与仍在写入工作区/数据库的节点并发执行。
+          if (convId) {
+            ctx.abortWorkflowNodes?.(convId);
+            const exitDeadline = Date.now() + 10_000;
+            while (
+              getActiveWorkflowNodeIds(convId).length > 0 &&
+              Date.now() < exitDeadline
+            ) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+          }
           let conversationRecord: Awaited<
             ReturnType<typeof window.snow.getChatConversation>
           > = null;
@@ -197,9 +247,15 @@ export const useRollback = (ctx: ConversationContextValue) => {
             planMode: capturedPlanMode,
             goalMode: capturedGoalMode,
             worktreeMode: capturedWorktreeMode,
+            workflowMode: capturedWorkflowMode,
             goalModeTokenBudget: capturedGoalModeTokenBudget,
           };
           let checkpointIds = initialCheckpointIds;
+          // 全量历史记录（分页窗口外也要覆盖）：目标消息未落库时保持 null，
+          // flow 收集回退到内存消息。
+          let truncatedHistoryRecords: Awaited<
+            ReturnType<typeof window.snow.listChatMessages>
+          > | null = null;
           if (convId) {
             try {
               const fullHistory = await window.snow.listChatMessages(convId);
@@ -213,6 +269,9 @@ export const useRollback = (ctx: ConversationContextValue) => {
                     (record) => record.role === "user" && record.checkpointId,
                   )
                   .map((record) => record.checkpointId as string);
+                // 只看截断边界之后的消息：目标之前的 flow 与本次回滚无关，
+                // 不能误删其节点会话。
+                truncatedHistoryRecords = fullHistory.slice(fullTargetIndex);
               }
             } catch {
               // 使用当前已加载消息作为回退，仍保持消息数组顺序。
@@ -220,11 +279,81 @@ export const useRollback = (ctx: ConversationContextValue) => {
           }
           checkpointIds = [...new Set(checkpointIds)];
 
+          // 被回滚轮次中的 workflow-generate 工具调用 → 对应 flow 的节点会话
+          // 与 flow 级 checkpoint。优先用截断边界后的持久化历史（分页窗口外
+          // 的 flow 卡片也要覆盖），目标消息未落库时回退到内存消息。
+          // 解析复用 parseToolCalls：tool_calls_json 的 name 可能嵌套在
+          // function/function_call 包装内，且 interactionId 的构造格式必须
+          // 与 createWorkflowNodeSession 写入的 flow_id 完全一致。
+          const collectWorkflowFlowIds = (): string[] => {
+            const flowIds: string[] = [];
+            const collectFromToolCalls = (toolCalls: ToolCallInfo[]): void => {
+              for (const toolCall of toolCalls) {
+                if (
+                  toolCall.name.endsWith("workflow-generate") &&
+                  toolCall.interactionId &&
+                  !flowIds.includes(toolCall.interactionId)
+                ) {
+                  flowIds.push(toolCall.interactionId);
+                }
+              }
+            };
+            if (truncatedHistoryRecords) {
+              for (const record of truncatedHistoryRecords) {
+                if (record.role !== "assistant") {
+                  continue;
+                }
+                collectFromToolCalls(parseToolCalls(record.toolCallsJson));
+              }
+            } else {
+              for (const message of messages.slice(targetIndex)) {
+                if (message.role !== "assistant") {
+                  continue;
+                }
+                collectFromToolCalls(message.toolCalls ?? []);
+              }
+            }
+            return flowIds;
+          };
+          let workflowFlowCount = 0;
+          let flowCheckpointIds: string[] = [];
+          let workflowNodeIds: string[] = [];
+          if (convId && collectWorkflowFlowIds().length > 0) {
+            try {
+              const flowIds = collectWorkflowFlowIds();
+              const nodeRecords =
+                await window.snow.listWorkflowNodeSessions(convId);
+              const affected = nodeRecords.filter((record) =>
+                flowIds.includes(record.flowId),
+              );
+              workflowNodeIds = [
+                ...new Set(affected.map((record) => record.conversationId)),
+              ];
+              flowCheckpointIds = [
+                ...new Set(
+                  affected
+                    .map((record) => record.flowCheckpointId)
+                    .filter(Boolean),
+                ),
+              ];
+              workflowFlowCount = new Set(
+                affected.map((record) => record.flowId),
+              ).size;
+            } catch {
+              // Best effort — 回滚在无 flow 元数据时仍照常进行
+            }
+          }
+
+          // 变更预览必须包含 flow checkpoint：节点（尤其 bash）对工作区的
+          // 改动只记录在 flow_checkpoint 里，父会话 checkpoint 看不到它们。
+          const previewCheckpointIds = [
+            ...new Set([...checkpointIds, ...flowCheckpointIds]),
+          ];
           let changes: CheckpointFileChange[] = [];
-          if (checkpointIds.length > 0 && sessionWorkDir) {
+          if (previewCheckpointIds.length > 0 && sessionWorkDir) {
             try {
               changes = await window.snow.listCheckpointChangesBatch(
-                checkpointIds,
+                previewCheckpointIds,
                 sessionWorkDir,
               );
             } catch {
@@ -301,6 +430,9 @@ export const useRollback = (ctx: ConversationContextValue) => {
             isFirstMessage,
             isContextCompaction: targetMessage.isContextCompaction === true,
             todoItems,
+            workflowFlowCount,
+            flowCheckpointIds,
+            workflowNodeIds,
             streamPromise:
               ctx.sessionsRefData.current.get(key)?.streamPromise ?? null,
             summaryPromise:
@@ -325,6 +457,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
       ctx.runtimeInputStateRef,
       ctx.globalModeDefaultsRef,
       ctx.setRollbackPreview,
+      ctx.abortWorkflowNodes,
     ],
   );
 
@@ -349,6 +482,8 @@ export const useRollback = (ctx: ConversationContextValue) => {
         directoryId,
         isFirstMessage,
         isContextCompaction,
+        flowCheckpointIds,
+        workflowNodeIds,
       } = preview;
 
       // Wait for any in-flight stream AND summary generation to fully settle
@@ -420,11 +555,14 @@ export const useRollback = (ctx: ConversationContextValue) => {
       // waiting, which feels broken. DB persistence already happened above, so
       // the UI state below cannot diverge from disk.
       // 文件检查点只作为临时清理集合使用，回滚顺序以预览阶段按消息
-      // 持久化顺序收集的 checkpointIds 为准。
-      if (checkpointIds.length > 0) {
+      // 持久化顺序收集的 checkpointIds 为准。flowCheckpointIds 是被回滚
+      // WorkFlow 的 flow 级检查点（flow 首节点执行前拍摄），与父会话
+      // checkpoint 按快照时间升序合并后交给 restore（restore 内部逆序
+      // 逐个恢复，最终工作区状态 = 最早的快照 = 回滚目标处理前状态）。
+      if (checkpointIds.length > 0 || flowCheckpointIds.length > 0) {
         const sessionRef = ctx.sessionsRefData.current.get(key);
         if (sessionRef) {
-          const discarded = new Set(checkpointIds);
+          const discarded = new Set([...checkpointIds, ...flowCheckpointIds]);
           sessionRef.checkpointIds = sessionRef.checkpointIds.filter(
             (id) => !discarded.has(id),
           );
@@ -438,17 +576,19 @@ export const useRollback = (ctx: ConversationContextValue) => {
           // 阻塞消息清理（best effort，与旧行为一致）。
           try {
             await window.snow.restoreCheckpoints(
-              checkpointIds,
+              [...checkpointIds, ...flowCheckpointIds].sort(
+                compareCheckpointIds,
+              ),
               preview.workDir,
             );
           } catch {
             // Best effort — file restore failure must not block rollback cleanup.
           } finally {
             ctx.setConversationVersion((version) => version + 1);
-            deleteCheckpoints(checkpointIds);
+            deleteCheckpoints([...checkpointIds, ...flowCheckpointIds]);
           }
         } else {
-          deleteCheckpoints(checkpointIds);
+          deleteCheckpoints([...checkpointIds, ...flowCheckpointIds]);
         }
       }
 
@@ -462,6 +602,17 @@ export const useRollback = (ctx: ConversationContextValue) => {
           ? currentMessages
           : currentMessages.slice(0, targetIndex);
       });
+
+      // WorkFlow 节点会话已随 truncate/delete 在 DB 级联删除：同步清掉
+      // 内存槽位，避免侧边栏点击残留会话出现空视图。
+      for (const nodeId of workflowNodeIds) {
+        ctx.sessionsRefData.current.delete(nodeId);
+        ctx.setSessions((prev) => {
+          const next = { ...prev };
+          delete next[nodeId];
+          return next;
+        });
+      }
 
       const targetWasActive = ctx.activeSessionKeyRef.current === key;
       if (isFirstMessage && !isContextCompaction && convId) {
@@ -488,6 +639,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
             pendingRef.planMode = rollbackState.planMode;
             pendingRef.goalMode = rollbackState.goalMode;
             pendingRef.worktreeMode = rollbackState.worktreeMode;
+            pendingRef.workflowMode = rollbackState.workflowMode;
             pendingRef.goalModeTokenBudget = rollbackState.goalModeTokenBudget;
           }
           ctx.runtimeInputStateRef.current[pendingKey] = {
@@ -499,9 +651,11 @@ export const useRollback = (ctx: ConversationContextValue) => {
           ctx.planModeRef.current = rollbackState.planMode;
           ctx.goalModeRef.current = rollbackState.goalMode;
           ctx.worktreeModeRef.current = rollbackState.worktreeMode;
+          ctx.workflowModeRef.current = rollbackState.workflowMode;
           ctx.setPlanModeState(rollbackState.planMode);
           ctx.setGoalModeState(rollbackState.goalMode);
           ctx.setWorktreeModeState(rollbackState.worktreeMode);
+          ctx.setWorkflowModeState(rollbackState.workflowMode);
           ctx.setGoalModeTokenBudgetState(rollbackState.goalModeTokenBudget);
           ctx.setRollbackNewChatState(rollbackState);
         }

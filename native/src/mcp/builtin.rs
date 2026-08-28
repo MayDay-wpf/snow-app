@@ -19,6 +19,7 @@ use super::servers::terminal::TerminalService;
 use super::servers::todo::TodoService;
 use super::servers::user_interaction::UserInteractionService;
 use super::servers::websearch::WebSearchService;
+use super::servers::workflow::WorkflowService;
 use super::service::McpService;
 use super::tools::McpTool;
 
@@ -44,6 +45,7 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         Arc::new(TerminalService::new()),
         Arc::new(ImageGenService::new()),
         Arc::new(LspService::new()),
+        Arc::new(WorkflowService::new()),
         // NOTE: new services must be appended to the END of this list to keep
         // the tool order stable (prompt cache); never insert in the middle.
         //

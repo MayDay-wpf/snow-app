@@ -10,6 +10,7 @@ import {
   FileX2,
   ListChecks,
   Loader2,
+  Workflow,
 } from "lucide-react";
 import type {
   CheckpointFileChange,
@@ -37,6 +38,8 @@ type RollbackConfirmDialogProps = {
   workDir?: string;
   isFirstMessage: boolean;
   todoItems: RollbackTodoItem[];
+  /** 被回滚轮次关联的 WorkFlow 数量：>0 时提示将级联中止并删除。 */
+  workflowFlowCount: number;
   /** 持久化截断失败时的错误信息，显示在对话框顶部提醒用户重试。 */
   error?: string;
   onConfirm: (mode: RollbackMode) => void | Promise<void>;
@@ -57,6 +60,7 @@ export const RollbackConfirmDialog = ({
   workDir,
   isFirstMessage,
   todoItems,
+  workflowFlowCount,
   error,
   onConfirm,
   onCancel,
@@ -71,7 +75,7 @@ export const RollbackConfirmDialog = ({
   /** 确认进行中的模式：文件恢复（SSH 下经 SFTP）可能较慢，期间禁用
    *  对话框交互并在确认按钮上显示 loading。 */
   const [confirmingMode, setConfirmingMode] = useState<RollbackMode | null>(
-    null
+    null,
   );
   /** 防重入标志：confirmingMode 是异步 setState，同帧内双击/Enter+点击
    *  连点会穿透 state 检查并发执行两次 confirmRollback，第二次在第一次
@@ -106,7 +110,7 @@ export const RollbackConfirmDialog = ({
 
   const visibleChanges = useMemo(
     () => changes.slice(0, MAX_VISIBLE_FILES),
-    [changes]
+    [changes],
   );
   const hiddenCount = changes.length - visibleChanges.length;
 
@@ -238,17 +242,22 @@ export const RollbackConfirmDialog = ({
                           {t(
                             CHANGE_LABEL_KEY[
                               change.changeType as keyof typeof CHANGE_LABEL_KEY
-                            ] ?? change.changeType
+                            ] ?? change.changeType,
                           )}
                         </span>
                         <span
                           className="rollback-change-path"
                           title={change.path}
                         >
-                          {getFileTypeIcon(getFileName(change.path), false, false, {
-                            size: 13,
-                            "aria-hidden": true,
-                          })}
+                          {getFileTypeIcon(
+                            getFileName(change.path),
+                            false,
+                            false,
+                            {
+                              size: 13,
+                              "aria-hidden": true,
+                            },
+                          )}
                           <span className="rollback-change-path-text">
                             {change.path}
                           </span>
@@ -267,6 +276,16 @@ export const RollbackConfirmDialog = ({
               </>
             ) : (
               <p>{t("chat.rollbackNoChangesNotice")}</p>
+            )}
+            {workflowFlowCount > 0 && (
+              <div className="rollback-workflow-notice">
+                <Workflow size={14} />
+                <span>
+                  {t("chat.rollbackWorkflowNotice", {
+                    values: { count: workflowFlowCount },
+                  })}
+                </span>
+              </div>
             )}
             {todoItems.length > 0 && (
               <div className="rollback-todo-notice">
@@ -309,17 +328,20 @@ export const RollbackConfirmDialog = ({
           </div>
         )}
         <div className="confirm-dialog-actions">
-          {!isPreviewOpen && changes.length > 0 && checkpointIds.length > 0 && workDir && (
-            <button
-              type="button"
-              className="confirm-dialog-btn preview"
-              disabled={confirmingMode !== null}
-              onClick={openPreview}
-            >
-              <Eye size={14} />
-              {t("chat.rollbackViewChanges")}
-            </button>
-          )}
+          {!isPreviewOpen &&
+            changes.length > 0 &&
+            checkpointIds.length > 0 &&
+            workDir && (
+              <button
+                type="button"
+                className="confirm-dialog-btn preview"
+                disabled={confirmingMode !== null}
+                onClick={openPreview}
+              >
+                <Eye size={14} />
+                {t("chat.rollbackViewChanges")}
+              </button>
+            )}
           <div className="rollback-dialog-primary-actions">
             <button
               type="button"
@@ -339,9 +361,7 @@ export const RollbackConfirmDialog = ({
                 {confirmingMode === "conversation-only" && (
                   <Loader2 size={15} className="spin" />
                 )}
-                {confirmingMode !== "conversation-only" && (
-                  <FileX2 size={14} />
-                )}
+                {confirmingMode !== "conversation-only" && <FileX2 size={14} />}
                 {confirmingMode === "conversation-only"
                   ? t("chat.rollbackInProgress")
                   : t("chat.rollbackConversationOnlyAction")}
@@ -366,6 +386,6 @@ export const RollbackConfirmDialog = ({
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 };

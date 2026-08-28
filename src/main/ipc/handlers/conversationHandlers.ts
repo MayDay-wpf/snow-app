@@ -46,9 +46,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       return native.listChatConversationsPaginated(
         directoryId.trim(),
         safeLimit,
-        safeOffset
+        safeOffset,
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-by-ids",
@@ -61,21 +61,21 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       return native.listChatConversationsByIds(
-        (conversationIds as string[]).map((id) => id.trim())
+        (conversationIds as string[]).map((id) => id.trim()),
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-pinned",
     (_event, directoryId: unknown) => {
       if (typeof directoryId !== "string" || !directoryId.trim()) {
         throw new Error(
-          "Directory ID is required to list pinned conversations"
+          "Directory ID is required to list pinned conversations",
         );
       }
 
       return native.listPinnedConversations(directoryId.trim());
-    }
+    },
   );
   ipcMain.handle("chat-conversations:search", (_event, query: unknown) => {
     if (typeof query !== "string" || !query.trim()) {
@@ -91,18 +91,18 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         throw new Error("Conversation ID is required to get conversation");
       }
       return native.getChatConversation(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:preview-attachment",
     (_event, conversationId: unknown) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error(
-          "Conversation ID is required to preview conversation attachment"
+          "Conversation ID is required to preview conversation attachment",
         );
       }
       return native.previewConversationAttachment(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:generate-summary",
@@ -120,9 +120,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
           : undefined;
       return native.generateConversationSummary(
         conversationId.trim(),
-        normalizedBasicModel
+        normalizedBasicModel,
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:cancel-summary",
@@ -131,7 +131,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         throw new Error("Conversation ID is required to cancel summary");
       }
       return native.cancelConversationSummary(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:append-tool-message",
@@ -144,7 +144,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       await native.appendToolMessage(conversationId.trim(), content);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-messages",
@@ -154,7 +154,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       return native.listChatMessages(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-user-messages",
@@ -164,7 +164,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       return native.listUserMessages(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-messages-paginated",
@@ -172,7 +172,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       _event,
       conversationId: unknown,
       beforeMessageId: unknown,
-      limit: unknown
+      limit: unknown,
     ) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error("Conversation ID is required to list chat messages");
@@ -186,9 +186,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       return native.listChatMessagesPaginated(
         conversationId.trim(),
         safeBeforeMessageId,
-        safeLimit
+        safeLimit,
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:find-latest-tool-result",
@@ -202,9 +202,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
 
       return native.findLatestToolResult(
         conversationId.trim(),
-        toolName.trim()
+        toolName.trim(),
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:fork",
@@ -228,7 +228,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         }`,
       });
       return native.forkConversation(sourceConversationId.trim(), responseId);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:truncate",
@@ -248,9 +248,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       });
       await native.truncateConversationFromResponse(
         conversationId.trim(),
-        responseId.trim()
+        responseId.trim(),
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:truncate-from-message",
@@ -270,9 +270,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       });
       await native.truncateConversationFromMessage(
         conversationId.trim(),
-        messageId.trim()
+        messageId.trim(),
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:count-todos",
@@ -284,7 +284,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         throw new Error("Response ID is required to count todos");
       }
       return native.listTodosForRollback(sessionId.trim(), responseId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:update-status",
@@ -298,9 +298,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
 
       await native.updateConversationStatus(
         conversationId.trim(),
-        status.trim()
+        status.trim(),
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:rename",
@@ -313,7 +313,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       await native.renameConversation(conversationId.trim(), title.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:update-emoji",
@@ -326,7 +326,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       await native.updateConversationEmoji(conversationId.trim(), emoji.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:update-api-profile",
@@ -341,7 +341,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       const normalizedProfileName = profileName.trim();
       await native.updateConversationApiProfile(
         conversationId.trim(),
-        normalizedProfileName
+        normalizedProfileName,
       );
       // Log only after the native update succeeded, so a failure is not
       // misreported as an applied change.
@@ -353,7 +353,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
           normalizedProfileName || "(unbound)"
         }`,
       });
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:delete",
@@ -369,7 +369,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `conversation=${conversationId.trim()}`,
       });
       await native.deleteConversation(conversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:batch-delete",
@@ -379,7 +379,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return;
@@ -392,7 +392,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `count=${safeIds.length}`,
       });
       await native.deleteConversations(safeIds);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:archive",
@@ -402,7 +402,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return;
@@ -415,14 +415,14 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `count=${safeIds.length}`,
       });
       await native.archiveConversations(safeIds);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-archived-paginated",
     (_event, directoryId: unknown, limit: unknown, offset: unknown) => {
       if (typeof directoryId !== "string" || !directoryId.trim()) {
         throw new Error(
-          "Directory ID is required to list archived conversations"
+          "Directory ID is required to list archived conversations",
         );
       }
 
@@ -434,9 +434,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       return native.listArchivedConversationsPaginated(
         directoryId.trim(),
         safeLimit,
-        safeOffset
+        safeOffset,
       );
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:restore-archived",
@@ -446,7 +446,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       }
 
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return;
@@ -459,19 +459,19 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `count=${safeIds.length}`,
       });
       await native.restoreArchivedConversations(safeIds);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:delete-archived",
     async (_event, conversationIds: unknown) => {
       if (!Array.isArray(conversationIds)) {
         throw new Error(
-          "Conversation IDs are required to delete archived conversations"
+          "Conversation IDs are required to delete archived conversations",
         );
       }
 
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return;
@@ -484,7 +484,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `count=${safeIds.length}`,
       });
       await native.deleteArchivedConversations(safeIds);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-sub-agent",
@@ -494,30 +494,30 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         !parentConversationId.trim()
       ) {
         throw new Error(
-          "Parent conversation ID is required to list sub-agent conversations"
+          "Parent conversation ID is required to list sub-agent conversations",
         );
       }
 
       return native.listSubAgentConversations(parentConversationId.trim());
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:list-sub-agents-by-parents",
     (_event, parentConversationIds: unknown) => {
       if (!Array.isArray(parentConversationIds)) {
         throw new Error(
-          "Parent conversation IDs are required to list sub-agent conversations"
+          "Parent conversation IDs are required to list sub-agent conversations",
         );
       }
 
       const safeIds = parentConversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return Promise.resolve({});
       }
       return native.listSubAgentConversationsByParents(safeIds);
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:create-sub-agent-session",
@@ -532,11 +532,11 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       model: unknown,
       title: unknown,
       thinkingStrength: unknown,
-      responsesFastMode: unknown
+      responsesFastMode: unknown,
     ) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error(
-          "Conversation ID is required to create sub-agent session"
+          "Conversation ID is required to create sub-agent session",
         );
       }
       if (
@@ -544,7 +544,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         !parentConversationId.trim()
       ) {
         throw new Error(
-          "Parent conversation ID is required to create sub-agent session"
+          "Parent conversation ID is required to create sub-agent session",
         );
       }
       if (typeof agentId !== "string" || !agentId.trim()) {
@@ -586,7 +586,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
           model.trim(),
           title.trim(),
           capturedThinkingStrength,
-          capturedResponsesFastMode
+          capturedResponsesFastMode,
         );
         snowLog.info({
           module: "ipc/conversation",
@@ -606,7 +606,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         });
         throw error;
       }
-    }
+    },
   );
   ipcMain.handle(
     "chat-conversations:update-sub-agent-status",
@@ -614,16 +614,16 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       _event,
       conversationId: unknown,
       runStatus: unknown,
-      errorMessage: unknown
+      errorMessage: unknown,
     ) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error(
-          "Conversation ID is required to update sub-agent session status"
+          "Conversation ID is required to update sub-agent session status",
         );
       }
       if (typeof runStatus !== "string" || !runStatus.trim()) {
         throw new Error(
-          "Run status is required to update sub-agent session status"
+          "Run status is required to update sub-agent session status",
         );
       }
 
@@ -649,9 +649,147 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       await native.updateSubAgentSessionStatus(
         conversationId.trim(),
         normalizedStatus,
-        normalizedError
+        normalizedError,
       );
-    }
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:create-workflow-node-session",
+    async (
+      _event,
+      conversationId: unknown,
+      parentConversationId: unknown,
+      flowId: unknown,
+      flowCheckpointId: unknown,
+      nodeId: unknown,
+      nodeName: unknown,
+      directoryId: unknown,
+      apiProfileName: unknown,
+      model: unknown,
+    ) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error(
+          "Conversation ID is required to create workflow node session",
+        );
+      }
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to create workflow node session",
+        );
+      }
+      if (typeof flowId !== "string") {
+        throw new Error("Flow ID is required to create workflow node session");
+      }
+      if (typeof flowCheckpointId !== "string") {
+        throw new Error(
+          "Flow checkpoint ID is required to create workflow node session",
+        );
+      }
+      if (typeof nodeId !== "string" || !nodeId.trim()) {
+        throw new Error("Node id is required to create workflow node session");
+      }
+      if (typeof nodeName !== "string" || !nodeName.trim()) {
+        throw new Error(
+          "Node name is required to create workflow node session",
+        );
+      }
+      if (typeof directoryId !== "string") {
+        throw new Error(
+          "Directory ID is required to create workflow node session",
+        );
+      }
+      if (typeof apiProfileName !== "string") {
+        throw new Error(
+          "API profile is required to create workflow node session",
+        );
+      }
+      if (typeof model !== "string") {
+        throw new Error("Model is required to create workflow node session");
+      }
+      await native.createWorkflowNodeSession(
+        conversationId.trim(),
+        parentConversationId.trim(),
+        flowId,
+        flowCheckpointId.trim(),
+        nodeId.trim(),
+        nodeName.trim(),
+        directoryId.trim(),
+        apiProfileName.trim(),
+        model.trim(),
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:update-workflow-node-session",
+    async (
+      _event,
+      conversationId: unknown,
+      runStatus: unknown,
+      errorMessage: unknown,
+      handoffContent: unknown,
+    ) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error(
+          "Conversation ID is required to update workflow node session",
+        );
+      }
+      if (typeof runStatus !== "string" || !runStatus.trim()) {
+        throw new Error(
+          "Run status is required to update workflow node session",
+        );
+      }
+      await native.updateWorkflowNodeSession(
+        conversationId.trim(),
+        runStatus.trim(),
+        typeof errorMessage === "string" ? errorMessage : "",
+        typeof handoffContent === "string" ? handoffContent : "",
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:update-workflow-node-handoff",
+    async (_event, conversationId: unknown, handoffContent: unknown) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error(
+          "Conversation ID is required to update workflow node handoff",
+        );
+      }
+      if (typeof handoffContent !== "string") {
+        throw new Error("Handoff content must be a string");
+      }
+      await native.updateWorkflowNodeHandoff(
+        conversationId.trim(),
+        handoffContent,
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:list-workflow-node-sessions",
+    async (_event, parentConversationId: unknown) => {
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to list workflow node sessions",
+        );
+      }
+      return native.listWorkflowNodeSessions(parentConversationId.trim());
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:get-workflow-node-session",
+    async (_event, conversationId: unknown) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error(
+          "Conversation ID is required to get workflow node session",
+        );
+      }
+      return native.getWorkflowNodeSession(conversationId.trim());
+    },
   );
   // ===== Conversation export =====
   // Rust 端负责从 SQLite 读取会话与消息并格式化为目标格式文本，
@@ -662,7 +800,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       event,
       conversationId: unknown,
       format: unknown,
-      defaultFileName: unknown
+      defaultFileName: unknown,
     ) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error("Conversation ID is required to export conversation");
@@ -670,8 +808,8 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       if (typeof format !== "string" || !isExportFormat(format)) {
         throw new Error(
           `Unsupported export format: ${String(
-            format
-          )}. Supported: ${EXPORT_FORMATS.join(", ")}`
+            format,
+          )}. Supported: ${EXPORT_FORMATS.join(", ")}`,
         );
       }
 
@@ -681,7 +819,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       // 1) 让 Rust 在 spawn_blocking 中读取数据库并生成导出内容
       const content = await native.exportConversation(
         conversationId.trim(),
-        normalizedFormat
+        normalizedFormat,
       );
 
       // 2) 弹出保存对话框，让用户选择保存路径
@@ -718,6 +856,6 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       });
 
       return { success: true, canceled: false, filePath: result.filePath };
-    }
+    },
   );
 };

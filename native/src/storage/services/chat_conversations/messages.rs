@@ -118,6 +118,30 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
     };
     conversation_ids.extend(child_ids);
 
+    // WorkFlow 节点会话与子代理会话同级：是绑定到父会话的真实主会话，
+    // 删除父会话时必须级联删除，否则侧边栏残留孤儿 wf- 会话。
+    let workflow_child_ids = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT conversation_id
+                   FROM workflow_node_sessions
+                  WHERE parent_conversation_id = ?1",
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?;
+        let rows = statement
+            .query_map(params![conversation_id], |row| row.get::<_, String>(0))
+            .map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?
+    };
+    conversation_ids.extend(workflow_child_ids);
+
     // 删除前收集消息中内联图片标签路径（`@@image:upload/...@@`），
     // 供提交后清理不再被任何消息引用的孤儿文件
     let upload_paths = collect_inline_upload_paths(&transaction, &conversation_ids).map_err(
@@ -149,6 +173,18 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
         )
         .map_err(|error| {
             database::database_error(database_path, "delete sub-agent sessions", error)
+        })?;
+
+    // 删除 workflow 节点 bookkeeping 行：父会话自身被删时按 parent 匹配，
+    // 被删目标本身是节点会话时按 conversation_id 匹配。
+    transaction
+        .execute(
+            "DELETE FROM workflow_node_sessions
+              WHERE parent_conversation_id = ?1 OR conversation_id = ?1",
+            params![conversation_id],
+        )
+        .map_err(|error| {
+            database::database_error(database_path, "delete workflow node sessions", error)
         })?;
 
     for target_id in conversation_ids.iter().rev() {
@@ -230,6 +266,35 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
         }
     }
 
+    // WorkFlow 节点会话与子代理会话同级，随父会话级联删除。
+    {
+        let placeholders = in_clause_placeholders(unique_ids.len());
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT conversation_id
+                   FROM workflow_node_sessions
+                  WHERE parent_conversation_id IN ({placeholders})"
+            ))
+            .map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?;
+        let rows = statement
+            .query_map(params_from_iter(unique_ids.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?;
+        for child_id in rows {
+            let child_id = child_id.map_err(|error| {
+                database::database_error(database_path, "list workflow node sessions", error)
+            })?;
+            if !all_target_ids.contains(&child_id) {
+                all_target_ids.push(child_id);
+            }
+        }
+    }
+
     // 删除前收集消息中内联图片标签路径，供提交后清理孤儿文件
     let upload_paths = collect_inline_upload_paths(&transaction, &all_target_ids).map_err(
         |error| database::database_error(database_path, "scan inline upload images", error),
@@ -276,6 +341,31 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
             )
             .map_err(|error| {
                 database::database_error(database_path, "delete sub-agent sessions", error)
+            })?;
+    }
+
+    // 删除 workflow 节点 bookkeeping 行：父会话按 parent 匹配，
+    // 被删目标本身是节点会话时按 conversation_id 匹配。
+    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        let mut params: Vec<&dyn ToSql> = Vec::with_capacity(chunk.len() * 2);
+        for id in chunk {
+            params.push(id);
+        }
+        for id in chunk {
+            params.push(id);
+        }
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_node_sessions
+                      WHERE parent_conversation_id IN ({placeholders})
+                         OR conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow node sessions", error)
             })?;
     }
 

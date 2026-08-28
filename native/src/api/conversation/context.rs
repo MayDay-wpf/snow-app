@@ -7,6 +7,7 @@ use crate::prompt::goal_mode_system_prompt::build_goal_mode_system_prompt;
 use crate::prompt::plan_mode_system_prompt::build_plan_mode_system_prompt;
 use crate::prompt::system_prompt::build_system_prompt;
 use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_prompt;
+use crate::prompt::workflow_mode_system_prompt::build_workflow_mode_system_prompt;
 use crate::storage::services::chat_conversations::{
     get_conversation_modes, load_context_messages, resolve_conversation_id, ChatContextMessage,
 };
@@ -218,6 +219,13 @@ pub async fn prepare_context_request(
             request.remote_role_content,
             request.remote_include_global_rules,
             &sub_agents_section,
+        )
+    } else if request.workflow_mode {
+        build_workflow_mode_system_prompt(
+            &working_directory,
+            &shell_type,
+            request.remote_role_content,
+            request.remote_include_global_rules,
         )
     } else if request.plan_mode {
         build_plan_mode_system_prompt(

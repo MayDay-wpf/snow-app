@@ -25,10 +25,7 @@ import {
   parseSubAgentTools,
   resolveSubAgentRuntimeConfig,
 } from "./subAgentRuntimeConfig";
-import {
-  getResponsesFastModeFromConfig,
-  getThinkingValueFromConfig,
-} from "../../chatInput/configThinking";
+import { getResponsesFastModeFromConfig } from "../../chatInput/configThinking";
 import {
   PARENT_PLAN_APPROVAL_REQUIRED,
   accumulateConversationRunStats,
@@ -86,7 +83,6 @@ export type SubAgentActivationDeps = {
   ) => Promise<ToolAuthorizationDecision[]>;
   parentApiProfile: string | undefined;
   parentModel: string | undefined;
-  parentThinkingStrength: string | undefined;
   /** Effective Fast Mode captured by the parent run; explicit false is valid. */
   parentResponsesFastMode?: boolean | null;
   planApprovedSessionKeysRef: { current: Set<string> };
@@ -1346,7 +1342,6 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
     requestToolAuthorizations,
     parentApiProfile,
     parentModel,
-    parentThinkingStrength,
     parentResponsesFastMode,
     planApprovedSessionKeysRef,
   } = deps;
@@ -1412,7 +1407,6 @@ export const createSubAgentActivation = (deps: SubAgentActivationDeps) => {
         apiConfigs: await window.snow.listApiConfigs(),
         parentApiProfile,
         parentModel,
-        parentThinkingStrength,
         parentResponsesFastMode,
       });
       const allowedTools = parseSubAgentTools(runtimeConfig.toolsJson);
@@ -1647,7 +1641,6 @@ const restoreSubAgentResumer = async (
   ctx: ConversationContextValue,
   requestToolAuthorizations: SubAgentActivationDeps["requestToolAuthorizations"],
   planApprovedSessionKeysRef: { current: Set<string> },
-  parentThinkingStrength: string | undefined,
   parentResponsesFastMode: boolean | null | undefined,
   parentConversationId: string,
   targetConvId: string,
@@ -1706,8 +1699,8 @@ const restoreSubAgentResumer = async (
     const persistedRuntimeConfig = await window.snow
       .getConversationRuntimeConfig(targetConvId)
       .catch(() => null);
-    // The parent run wins, then the child row's persisted effective snapshot,
-    // and only then the Profile config used by that persisted conversation.
+    // Fast mode 回退顺序：父运行捕获值 > 会话持久化快照 > 该持久化会话
+    // Profile 的配置值；思考强度则始终由解析后的 Profile 配置决定。
     const fallbackProfileName =
       record.apiProfileName.trim() || parentRecord?.apiProfileName.trim();
     const fallbackApiConfig = fallbackProfileName
@@ -1715,12 +1708,6 @@ const restoreSubAgentResumer = async (
           (item) => item.profileName.trim() === fallbackProfileName,
         )
       : undefined;
-    const restoredThinkingStrength =
-      parentThinkingStrength?.trim() ||
-      persistedRuntimeConfig?.thinkingStrength?.trim() ||
-      (fallbackApiConfig
-        ? getThinkingValueFromConfig(fallbackApiConfig)
-        : undefined);
     const restoredFastMode =
       parentResponsesFastMode ??
       persistedRuntimeConfig?.responsesFastMode ??
@@ -1730,9 +1717,8 @@ const restoreSubAgentResumer = async (
     runtimeConfig = resolveSubAgentRuntimeConfig({
       config,
       apiConfigs,
-      parentApiProfile: parentRecord?.apiProfileName || undefined,
+      parentApiProfile: fallbackProfileName || undefined,
       parentModel: parentRecord?.model || undefined,
-      parentThinkingStrength: restoredThinkingStrength,
       parentResponsesFastMode: restoredFastMode,
     });
     if (
@@ -1845,14 +1831,12 @@ export const createSubAgentMainToolExecutor = (
     SubAgentActivationDeps,
     "requestToolAuthorizations" | "planApprovedSessionKeysRef"
   > & {
-    parentThinkingStrength?: string;
     parentResponsesFastMode?: boolean | null;
   },
 ) => {
   const {
     requestToolAuthorizations,
     planApprovedSessionKeysRef,
-    parentThinkingStrength,
     parentResponsesFastMode,
   } = deps;
 
@@ -1948,7 +1932,6 @@ export const createSubAgentMainToolExecutor = (
           ctx,
           requestToolAuthorizations,
           planApprovedSessionKeysRef,
-          parentThinkingStrength,
           parentResponsesFastMode,
           parentConversationId,
           targetConvId,

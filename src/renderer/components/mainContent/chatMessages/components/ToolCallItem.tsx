@@ -24,12 +24,15 @@ import {
   ConfigToolCall,
   AppControlToolCall,
   DbxToolCall,
+  WorkflowToolCall,
 } from "../toolCalls";
 import { ToolCallNode } from "../toolCalls/shared/ToolCallNode";
 import { useI18n } from "../../../../i18n";
 
 type ToolCallItemProps = {
   toolCall: ToolCallInfo;
+  /** Conversation this tool call belongs to (used by workflow renderer). */
+  conversationId?: string;
   /** Hook execution records bound to this tool call (matched by
    *  toolCallInteractionId).  Forwarded to the sub-agent card renderer;
    *  other tool renderers ignore it. */
@@ -144,7 +147,7 @@ const getArgsSummary = (args: string): string | undefined => {
       const value = parsed[key];
       if (Array.isArray(value)) {
         const first = value.find(
-          (item): item is string => typeof item === "string"
+          (item): item is string => typeof item === "string",
         );
         if (first && first.trim() !== "") {
           return truncateSummary(first.trim());
@@ -224,7 +227,9 @@ const ResultSection = ({ raw }: { raw: string }): React.JSX.Element => {
         <span className="tool-call-section-label">
           {t("toolCall.common.result")}
         </span>
-        <pre className="tool-call-section-pre">{decodeEscapedNewlines(parsed)}</pre>
+        <pre className="tool-call-section-pre">
+          {decodeEscapedNewlines(parsed)}
+        </pre>
       </div>
     );
   }
@@ -255,13 +260,19 @@ const ResultSection = ({ raw }: { raw: string }): React.JSX.Element => {
       <span className="tool-call-section-label">
         {t("toolCall.common.result")}
       </span>
-      <pre className="tool-call-section-pre">{JSON.stringify(parsed, null, 2)}</pre>
+      <pre className="tool-call-section-pre">
+        {JSON.stringify(parsed, null, 2)}
+      </pre>
     </div>
   );
 };
 
 export const ToolCallItem = memo(
-  ({ toolCall, hookExecutions }: ToolCallItemProps): React.JSX.Element => {
+  ({
+    toolCall,
+    conversationId,
+    hookExecutions,
+  }: ToolCallItemProps): React.JSX.Element => {
     const { t } = useI18n();
     // Delegate to specialized renderers based on tool name
     if (toolCall.name === "user-interaction-askUserQuestion") {
@@ -270,6 +281,12 @@ export const ToolCallItem = memo(
 
     if (toolCall.name === "app-control-requestApproval") {
       return <PlanModeApprovalToolCall toolCall={toolCall} />;
+    }
+
+    if (toolCall.name === "workflow-workflow-generate") {
+      return (
+        <WorkflowToolCall toolCall={toolCall} conversationId={conversationId} />
+      );
     }
 
     if (toolCall.name === "filesystem-read") {
@@ -298,10 +315,7 @@ export const ToolCallItem = memo(
 
     if (toolCall.name === "sub-agents-activate") {
       return (
-        <SubAgentToolCall
-          toolCall={toolCall}
-          hookExecutions={hookExecutions}
-        />
+        <SubAgentToolCall toolCall={toolCall} hookExecutions={hookExecutions} />
       );
     }
 
@@ -365,10 +379,7 @@ export const ToolCallItem = memo(
       return <AppControlToolCall toolCall={toolCall} />;
     }
 
-    if (
-      toolCall.name.startsWith("dbx-") ||
-      toolCall.name.startsWith("dbx_")
-    ) {
+    if (toolCall.name.startsWith("dbx-") || toolCall.name.startsWith("dbx_")) {
       // 外部 MCP（DBX 桌面数据库应用）统一渲染，见 DbxToolCall 头部注释。
       // 注意：外部 MCP 工具名可能被规范化为下划线风格（dbx_execute_query），
       // 因此同时兼容连字符与下划线两种前缀。
@@ -403,14 +414,12 @@ export const ToolCallItem = memo(
                 <pre className="tool-call-section-pre">{formattedArgs}</pre>
               </div>
             ) : null}
-            {toolCall.result ? (
-              <ResultSection raw={toolCall.result} />
-            ) : null}
+            {toolCall.result ? <ResultSection raw={toolCall.result} /> : null}
           </>
         ) : null}
       </ToolCallNode>
     );
-  }
+  },
 );
 
 ToolCallItem.displayName = "ToolCallItem";

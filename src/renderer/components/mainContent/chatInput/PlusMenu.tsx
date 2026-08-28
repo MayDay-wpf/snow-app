@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   Target,
   Wand2,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -49,6 +50,10 @@ export type PlusMenuProps = {
   isUpdatingWorktreeMode: boolean;
   onWorktreeModeChange?: (enabled: boolean) => void;
   onRefreshWorktreeMode?: () => void | Promise<boolean | void>;
+  workflowMode: boolean;
+  isUpdatingWorkflowMode: boolean;
+  onWorkflowModeChange?: (enabled: boolean) => void;
+  onRefreshWorkflowMode?: () => void | Promise<boolean | void>;
   goalModeTokenBudget: number;
   onGoalModeTokenBudgetChange?: (budget: number) => void;
   autoScrollEnabled: boolean;
@@ -80,6 +85,10 @@ export const PlusMenu = ({
   isUpdatingWorktreeMode,
   onWorktreeModeChange,
   onRefreshWorktreeMode,
+  workflowMode,
+  isUpdatingWorkflowMode,
+  onWorkflowModeChange,
+  onRefreshWorkflowMode,
   goalModeTokenBudget,
   onGoalModeTokenBudgetChange,
   autoScrollEnabled,
@@ -114,6 +123,7 @@ export const PlusMenu = ({
         void onRefreshPlanMode?.();
         void onRefreshGoalMode?.();
         void onRefreshWorktreeMode?.();
+        void onRefreshWorkflowMode?.();
         void onRefreshAutoFormat?.();
       }
       return next;
@@ -124,6 +134,7 @@ export const PlusMenu = ({
     onRefreshPlanMode,
     onRefreshGoalMode,
     onRefreshWorktreeMode,
+    onRefreshWorkflowMode,
     onRefreshAutoFormat,
   ]);
 
@@ -332,6 +343,29 @@ export const PlusMenu = ({
                   disabled={isUpdatingWorktreeMode || !onWorktreeModeChange}
                   onChange={() => {
                     void onWorktreeModeChange?.(!worktreeMode);
+                  }}
+                  type="checkbox"
+                />
+                <span className="toggle-slider" />
+              </label>
+            </div>
+            <div className="plus-menu-item plus-menu-yolo-item">
+              <Workflow size={14} className="plus-menu-item-icon" />
+              <div className="plus-menu-item-content">
+                <span className="plus-menu-item-label">
+                  {t("plusMenu.workflowMode")}
+                </span>
+                <span className="plus-menu-item-description">
+                  {t("plusMenu.workflowModeDescription")}
+                </span>
+              </div>
+              <label className="toggle-switch plus-menu-yolo-switch">
+                <input
+                  aria-label={t("plusMenu.workflowMode")}
+                  checked={workflowMode}
+                  disabled={isUpdatingWorkflowMode || !onWorkflowModeChange}
+                  onChange={() => {
+                    void onWorkflowModeChange?.(!workflowMode);
                   }}
                   type="checkbox"
                 />

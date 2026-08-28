@@ -309,6 +309,8 @@ export type ConversationSessionRef = {
   lastRunDurationMs: number;
   /** Whether WorkTree Mode was active when this session was last used. */
   worktreeMode: boolean;
+  /** Whether WorkFlow Mode was active when this session was last used. */
+  workflowMode: boolean;
   /** Whether Goal Mode was active when this session was last used. */
   goalMode: boolean;
   /** Goal Mode token budget in effect for this session (per-conversation
@@ -337,6 +339,7 @@ export type GlobalModeDefaults = {
   planMode: boolean;
   goalMode: boolean;
   worktreeMode: boolean;
+  workflowMode: boolean;
   goalModeTokenBudget: number;
 };
 
@@ -360,6 +363,7 @@ export type RollbackConversationState = ConversationInputRuntimeState & {
   planMode: boolean;
   goalMode: boolean;
   worktreeMode: boolean;
+  workflowMode: boolean;
   goalModeTokenBudget: number;
 };
 
@@ -401,6 +405,13 @@ export type RollbackPreview = {
   isFirstMessage: boolean;
   isContextCompaction: boolean;
   todoItems: RollbackTodoItem[];
+  /** 被回滚轮次关联的 WorkFlow 数量（UI 提示用）。 */
+  workflowFlowCount: number;
+  /** WorkFlow flow 级文件检查点（flow 首节点执行前拍摄）。回滚时与
+   *  checkpointIds 合并恢复，撤销节点对工作区的文件改动。 */
+  flowCheckpointIds: string[];
+  /** 将随回滚级联删除的 WorkFlow 节点会话 id（内存槽位清理用）。 */
+  workflowNodeIds: string[];
   /** 持久化截断失败时的错误信息（界面消息保持原样并重新显示预览）。 */
   error?: string;
   /** Captured at handleRollback time so confirmRollback can await it. */
@@ -543,6 +554,8 @@ export type ConversationContextValue = {
   isUpdatingGoalMode: boolean;
   worktreeMode: boolean;
   isUpdatingWorktreeMode: boolean;
+  workflowMode: boolean;
+  isUpdatingWorkflowMode: boolean;
   goalModeTokenBudget: number;
   pendingToolAuthorizations: ToolCallInfo[];
   activePendingMessages: string[];
@@ -616,6 +629,7 @@ export type ConversationContextValue = {
   planModeRef: RefValue<boolean>;
   goalModeRef: RefValue<boolean>;
   worktreeModeRef: RefValue<boolean>;
+  workflowModeRef: RefValue<boolean>;
   /** Global Plan/Goal Mode defaults (persisted settings). New and
    *  never-configured conversations inherit these; switches never write them. */
   globalModeDefaultsRef: RefValue<GlobalModeDefaults>;
@@ -677,6 +691,8 @@ export type ConversationContextValue = {
   setIsUpdatingGoalMode: Dispatch<SetStateAction<boolean>>;
   setWorktreeModeState: Dispatch<SetStateAction<boolean>>;
   setIsUpdatingWorktreeMode: Dispatch<SetStateAction<boolean>>;
+  setWorkflowModeState: Dispatch<SetStateAction<boolean>>;
+  setIsUpdatingWorkflowMode: Dispatch<SetStateAction<boolean>>;
   setGoalModeTokenBudgetState: Dispatch<SetStateAction<number>>;
   setPendingToolAuthorizations: Dispatch<SetStateAction<ToolCallInfo[]>>;
   setActivePendingMessages: Dispatch<SetStateAction<string[]>>;
@@ -688,6 +704,9 @@ export type ConversationContextValue = {
   // Basic session callbacks
   setActiveId: (id: string | undefined) => void;
   ensureSession: (key: string, dirId?: string) => void;
+  /** 级联中止该会话运行中的 WorkFlow 节点并结算挂起的 workflow-generate。
+   *  可选：ctx 组装先于 useConversationManagement，创建后被回填。 */
+  abortWorkflowNodes?: (conversationId: string) => void;
   updateSessionMessages: (
     key: string,
     updater: (messages: ChatConversationMessage[]) => ChatConversationMessage[],
@@ -818,6 +837,8 @@ export type UseChatConversationResult = {
   handlePause: () => void;
   handleResume: () => void;
   abortConversation: (conversationId: string) => void;
+  /** 级联中止该会话运行中的 WorkFlow 节点并结算挂起的 workflow-generate。 */
+  abortWorkflowNodes: (conversationId: string) => void;
   handleForkConversation: (
     conversationId: string,
     upToResponseId: string,
@@ -874,6 +895,10 @@ export type UseChatConversationResult = {
   isUpdatingWorktreeMode: boolean;
   setWorktreeMode: (enabled: boolean) => Promise<void>;
   refreshWorktreeMode: () => Promise<boolean>;
+  workflowMode: boolean;
+  isUpdatingWorkflowMode: boolean;
+  setWorkflowMode: (enabled: boolean) => Promise<void>;
+  refreshWorkflowMode: () => Promise<boolean>;
   goalModeTokenBudget: number;
   setGoalModeTokenBudget: (budget: number) => Promise<void>;
   refreshGoalModeTokenBudget: () => Promise<void>;

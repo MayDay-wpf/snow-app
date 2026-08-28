@@ -331,6 +331,114 @@ pub fn truncate_conversation_from_message(
     Ok(())
 }
 
+/// Collect workflow node conversation ids whose flow's workflow-generate tool
+/// call lives in the truncated message range. The flow id persisted in
+/// `workflow_node_sessions.flow_id` is `tool-{callId}` (renderer derives it
+/// from the LLM tool call id), so the callId is extracted from the persisted
+/// `tool_calls_json` here — the JSON disappears together with the message,
+/// hence this must run before the message DELETE.
+fn collect_truncated_workflow_node_ids(
+    transaction: &rusqlite::Transaction<'_>,
+    conversation_id: &str,
+    delete_from: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let mut statement = transaction.prepare(
+        "SELECT tool_calls_json FROM chat_messages
+          WHERE conversation_id = ?1 AND id >= ?2
+            AND tool_calls_json LIKE '%workflow-generate%'",
+    )?;
+    let tool_calls_rows = statement
+        .query_map(params![conversation_id, delete_from], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut flow_ids: Vec<String> = Vec::new();
+    for tool_calls_json in tool_calls_rows {
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&tool_calls_json) else {
+            continue;
+        };
+        let Some(entries) = parsed.as_array() else {
+            continue;
+        };
+        for entry in entries {
+            let Some(entry_object) = entry.as_object() else {
+                continue;
+            };
+            // tool_calls_json 条目存在两种形态：顶层 {name, call_id|id} 与
+            // provider 包装 {function: {name, arguments}, id}（OpenAI Responses
+            // 持久化形态）。name 与 callId 都要同时兼容两种嵌套，否则提取
+            // 不到 flow id，节点会话将随截断残留为孤儿。
+            let name = ["name"]
+                .iter()
+                .find_map(|key| entry_object.get(*key).and_then(|value| value.as_str()))
+                .or_else(|| {
+                    ["function", "function_call", "functionCall"]
+                        .iter()
+                        .find_map(|wrapper| {
+                            entry_object
+                                .get(*wrapper)
+                                .and_then(|value| value.get("name"))
+                                .and_then(|value| value.as_str())
+                        })
+                })
+                .unwrap_or("");
+            if !name.ends_with("workflow-generate") {
+                continue;
+            }
+            let call_id = ["call_id", "callId", "id"]
+                .iter()
+                .find_map(|key| entry_object.get(*key).and_then(|value| value.as_str()))
+                .or_else(|| {
+                    ["function", "function_call", "functionCall"]
+                        .iter()
+                        .find_map(|wrapper| {
+                            entry_object
+                                .get(*wrapper)
+                                .and_then(|value| value.as_object())
+                                .and_then(|function| {
+                                    ["call_id", "callId", "id"]
+                                        .iter()
+                                        .find_map(|key| {
+                                            function.get(*key).and_then(|value| value.as_str())
+                                        })
+                                })
+                        })
+                })
+                .unwrap_or("");
+            if call_id.is_empty() {
+                continue;
+            }
+            let flow_id = format!("tool-{call_id}");
+            if !flow_ids.contains(&flow_id) {
+                flow_ids.push(flow_id);
+            }
+        }
+    }
+    if flow_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut node_ids: Vec<String> = Vec::new();
+    for flow_id in &flow_ids {
+        let mut statement = transaction.prepare(
+            "SELECT conversation_id FROM workflow_node_sessions
+              WHERE parent_conversation_id = ?1 AND flow_id = ?2",
+        )?;
+        let rows = statement
+            .query_map(params![conversation_id, flow_id], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for node_id in rows {
+            if !node_ids.contains(&node_id) {
+                node_ids.push(node_id);
+            }
+        }
+    }
+    Ok(node_ids)
+}
+
 /// Locate the request row (response_id = '') immediately before the given
 /// message id. Returns `None` when no such row exists.
 fn preceding_request_id(
@@ -360,6 +468,19 @@ fn truncate_conversation_from_id(
     conversation_id: &str,
     delete_from: &str,
 ) -> Result<()> {
+    // 被截断范围内的 workflow-generate 工具调用对应的 flow 节点会话随截断
+    // 级联删除：flow 卡片是节点会话的唯一入口，卡片删除后重新执行 flow 会
+    // 生成新的 flowId，旧节点会话将永远成为孤儿。必须在删除消息之前收集
+    // （tool_calls_json 随消息一起消失）。
+    let truncated_node_ids = collect_truncated_workflow_node_ids(
+        transaction,
+        conversation_id,
+        delete_from,
+    )
+    .map_err(|error| {
+        database::database_error(database_path, "collect truncated workflow nodes", error)
+    })?;
+
     // Delete linked TODO items before deleting their response rows, otherwise the
     // response-id subquery would no longer be able to locate the affected items.
     transaction
@@ -384,7 +505,43 @@ fn truncate_conversation_from_id(
               WHERE conversation_id = ?1 AND id >= ?2",
             params![conversation_id, delete_from],
         )
-        .map_err(|error| database::database_error(database_path, "truncate conversation", error))?;
+        .map_err(|error| database::database_error(database_path, "delete chat messages", error))?;
+
+    // 级联删除 flow 节点会话：真实主会话，消息/todo/bookkeeping/会话行一并清理。
+    for node_conversation_id in &truncated_node_ids {
+        transaction
+            .execute(
+                "DELETE FROM todo_items WHERE session_id = ?1",
+                params![node_conversation_id],
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow node todo items", error)
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM workflow_node_sessions WHERE conversation_id = ?1",
+                params![node_conversation_id],
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow node sessions", error)
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM chat_messages WHERE conversation_id = ?1",
+                params![node_conversation_id],
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow node messages", error)
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM chat_conversations WHERE conversation_id = ?1",
+                params![node_conversation_id],
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow node conversation", error)
+            })?;
+    }
 
     // Refresh conversation metadata so the sidebar stays consistent.
     transaction

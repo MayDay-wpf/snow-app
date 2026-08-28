@@ -699,6 +699,36 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to update sub-agent session status",
           ),
         ),
+      createWorkflowNodeSession: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to create workflow node session",
+          ),
+        ),
+      updateWorkflowNodeSession: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to update workflow node session",
+          ),
+        ),
+      updateWorkflowNodeHandoff: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to update workflow node handoff",
+          ),
+        ),
+      listWorkflowNodeSessions: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list workflow node sessions",
+          ),
+        ),
+      getWorkflowNodeSession: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to get workflow node session",
+          ),
+        ),
       cancelRunningSubAgentSessions: () =>
         Promise.reject(
           new Error(

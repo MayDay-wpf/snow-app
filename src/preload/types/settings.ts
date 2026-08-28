@@ -40,7 +40,23 @@ export type ConversationModesResult = {
   planMode: boolean | null;
   goalMode: boolean | null;
   worktreeMode: boolean | null;
+  workflowMode: boolean | null;
   goalModeTokenBudget: number | null;
+};
+
+export type WorkflowNodeSessionRecord = {
+  conversationId: string;
+  parentConversationId: string;
+  flowId: string;
+  /** Flow 级文件检查点：flow 首节点执行前拍摄，回滚时恢复以撤销节点文件改动。 */
+  flowCheckpointId: string;
+  nodeId: string;
+  nodeName: string;
+  runStatus: string;
+  errorMessage: string;
+  handoffContent: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ConversationRuntimeConfig = {

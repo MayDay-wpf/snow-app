@@ -11542,6 +11542,365 @@ input {
   outline-offset: 2px;
 }
 
+/* ===== WorkFlow tool call ===== */
+.tool-call-workflow-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workflow-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workflow-canvas-wrap {
+  position: relative;
+}
+
+/* 空图（JSON 截断/解析失败）收掉画布后的紧凑占位提示。 */
+.workflow-canvas-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.workflow-canvas {
+  height: 500px;
+  min-height: 380px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.workflow-node {
+  min-width: 130px;
+  max-width: 190px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.workflow-node.is-selected {
+  border-color: var(--text-primary);
+}
+
+.workflow-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+/* 节点状态 icon：完成绿色、失败红色（与错误文案色一致）。 */
+.workflow-node-icon-completed {
+  color: #3fb950;
+}
+
+.workflow-node-icon-failed {
+  color: #f85149;
+}
+
+.workflow-node-title {
+  font-weight: 600;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-description {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.workflow-node-error {
+  margin-top: 5px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(248, 81, 73, 0.12);
+  color: #f85149;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.workflow-context-menu {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.workflow-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workflow-context-menu button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workflow-execute-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.workflow-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.workflow-reply-label {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* 已提交的反馈内容：用户拒绝当前流程后的意见留痕。 */
+.workflow-reply-record {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.workflow-reply-record-label {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.workflow-reply-record-content {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workflow-reply textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.workflow-reply textarea:focus {
+  outline: 1px solid var(--text-primary);
+}
+
+.workflow-reply .tool-call-plan-approval-approve {
+  align-self: flex-end;
+}
+
+.workflow-reply .tool-call-plan-approval-approve:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.workflow-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-node-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-node-row-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-node-row-main:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-node-row-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.workflow-node-row-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.workflow-node-row-open:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.workflow-editor-overlay {
+  position: absolute;
+  z-index: 10;
+  width: 280px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.workflow-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workflow-editor-header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-editor-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.workflow-editor-close:hover {
+  color: var(--text-primary);
+}
+
+.workflow-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.workflow-editor-field input,
+.workflow-editor-field textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.workflow-editor-field input:focus,
+.workflow-editor-field textarea:focus {
+  outline: 1px solid var(--text-primary);
+}
+
+.workflow-editor-field input:disabled,
+.workflow-editor-field textarea:disabled {
+  opacity: 0.6;
+}
+
+/* 编辑浮层下拉的加载/错误提示。 */
+.workflow-editor-hint {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.workflow-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workflow-editor-footer .tool-call-plan-approval-continue:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .tool-call-file-path {
   font-size: 11px;
   font-family: var(--font-mono);
@@ -27285,6 +27644,24 @@ input {
   color: var(--text-secondary);
   background: var(--surface-island);
   border-radius: var(--radius-sm);
+}
+
+.rollback-workflow-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--surface-island);
+  border-radius: var(--radius-sm);
+}
+
+.rollback-workflow-notice svg {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .rollback-error-notice {

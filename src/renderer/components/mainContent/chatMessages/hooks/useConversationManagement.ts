@@ -20,6 +20,10 @@ import {
   runHook,
   toNonBlockingRecord,
 } from "./hookOutcome";
+import {
+  abandonWorkflowsForConversation,
+  getActiveWorkflowNodeIds,
+} from "../workflow/workflowRunner";
 
 /** 会话被选中（切换会话）时派发的全局事件：主视图应回到聊天界面。 */
 export const CONVERSATION_SELECTED_EVENT = "app:conversation-selected";
@@ -103,9 +107,14 @@ export const useConversationManagement = (
       let targetWorktreeMode = cachedRef?.worktreeMode ?? defaults.worktreeMode;
       let targetPlanMode = cachedRef?.planMode ?? defaults.planMode;
       let targetGoalMode = cachedRef?.goalMode ?? defaults.goalMode;
+      let targetWorkflowMode = cachedRef?.workflowMode ?? defaults.workflowMode;
       const targetBudget =
         cachedRef?.goalModeTokenBudget ?? defaults.goalModeTokenBudget;
-      if (targetWorktreeMode) {
+      if (targetWorkflowMode) {
+        targetWorktreeMode = false;
+        targetPlanMode = false;
+        targetGoalMode = false;
+      } else if (targetWorktreeMode) {
         targetPlanMode = false;
         targetGoalMode = false;
       } else if (targetPlanMode) {
@@ -115,6 +124,7 @@ export const useConversationManagement = (
         cachedRef.worktreeMode = targetWorktreeMode;
         cachedRef.planMode = targetPlanMode;
         cachedRef.goalMode = targetGoalMode;
+        cachedRef.workflowMode = targetWorkflowMode;
       }
       if (ctx.worktreeModeRef.current !== targetWorktreeMode) {
         ctx.worktreeModeRef.current = targetWorktreeMode;
@@ -127,6 +137,10 @@ export const useConversationManagement = (
       if (ctx.goalModeRef.current !== targetGoalMode) {
         ctx.goalModeRef.current = targetGoalMode;
         ctx.setGoalModeState(targetGoalMode);
+      }
+      if (ctx.workflowModeRef.current !== targetWorkflowMode) {
+        ctx.workflowModeRef.current = targetWorkflowMode;
+        ctx.setWorkflowModeState(targetWorkflowMode);
       }
       if (ctx.goalModeTokenBudget !== targetBudget) {
         ctx.setGoalModeTokenBudgetState(targetBudget);
@@ -177,18 +191,26 @@ export const useConversationManagement = (
             let baselineCheckpointId = checkpointIds[0];
 
             // Resolve effective modes with stable conflict priority:
-            // WorkTree > Plan > Goal. Repair a conflicting database row
+            // WorkFlow > WorkTree > Plan > Goal. Repair a conflicting database row
             // asynchronously after choosing the effective state.
             let storedWorktreeMode =
               storedModes?.worktreeMode ?? defaults.worktreeMode;
             let storedPlanMode = storedModes?.planMode ?? defaults.planMode;
             let storedGoalMode = storedModes?.goalMode ?? defaults.goalMode;
+            let storedWorkflowMode =
+              storedModes?.workflowMode ?? defaults.workflowMode;
             let storedBudget =
               storedModes?.goalModeTokenBudget ?? defaults.goalModeTokenBudget;
             const hasModeConflict =
+              (storedWorkflowMode &&
+                (storedWorktreeMode || storedPlanMode || storedGoalMode)) ||
               (storedWorktreeMode && (storedPlanMode || storedGoalMode)) ||
               (storedPlanMode && storedGoalMode);
-            if (storedWorktreeMode) {
+            if (storedWorkflowMode) {
+              storedWorktreeMode = false;
+              storedPlanMode = false;
+              storedGoalMode = false;
+            } else if (storedWorktreeMode) {
               storedPlanMode = false;
               storedGoalMode = false;
             } else if (storedPlanMode) {
@@ -200,6 +222,7 @@ export const useConversationManagement = (
                 storedPlanMode,
                 storedGoalMode,
                 storedWorktreeMode,
+                storedWorkflowMode,
                 storedBudget,
               );
             }
@@ -311,6 +334,7 @@ export const useConversationManagement = (
                   planMode: storedPlanMode,
                   worktreeMode: storedWorktreeMode,
                   goalMode: storedGoalMode,
+                  workflowMode: storedWorkflowMode,
                   goalModeTokenBudget: storedBudget,
                   subAgentTerminated: isTerminatedSubAgent || undefined,
                   runTokenUsage: null,
@@ -399,6 +423,10 @@ export const useConversationManagement = (
           if (ctx.goalModeRef.current !== settledRef.goalMode) {
             ctx.goalModeRef.current = settledRef.goalMode;
             ctx.setGoalModeState(settledRef.goalMode);
+          }
+          if (ctx.workflowModeRef.current !== settledRef.workflowMode) {
+            ctx.workflowModeRef.current = settledRef.workflowMode;
+            ctx.setWorkflowModeState(settledRef.workflowMode);
           }
           if (ctx.goalModeTokenBudget !== settledRef.goalModeTokenBudget) {
             ctx.setGoalModeTokenBudgetState(settledRef.goalModeTokenBudget);
@@ -568,6 +596,12 @@ export const useConversationManagement = (
         ctx.setWorktreeModeState(defaults.worktreeMode);
       }
 
+      // Reset WorkFlow Mode so a new chat starts with the global default.
+      if (ctx.workflowModeRef.current !== defaults.workflowMode) {
+        ctx.workflowModeRef.current = defaults.workflowMode;
+        ctx.setWorkflowModeState(defaults.workflowMode);
+      }
+
       // A new chat starts a brand-new task. Each pending slot's approval is
       // cleared ONLY when that slot's session is not running in the
       // background — a streaming pending conversation keeps its approved plan
@@ -585,6 +619,10 @@ export const useConversationManagement = (
       if (ctx.goalModeRef.current !== defaults.goalMode) {
         ctx.goalModeRef.current = defaults.goalMode;
         ctx.setGoalModeState(defaults.goalMode);
+      }
+      if (ctx.workflowModeRef.current !== defaults.workflowMode) {
+        ctx.workflowModeRef.current = defaults.workflowMode;
+        ctx.setWorkflowModeState(defaults.workflowMode);
       }
       if (ctx.goalModeTokenBudget !== defaults.goalModeTokenBudget) {
         ctx.setGoalModeTokenBudgetState(defaults.goalModeTokenBudget);
@@ -645,6 +683,63 @@ export const useConversationManagement = (
       ctx.sessionsRefData,
       ctx.pendingSessionSeqRef,
       ctx.pendingToRealConversationIdRef,
+    ],
+  );
+
+  /**
+   * 级联中止该会话正在执行的 WorkFlow 节点：节点是真实主会话（内存注册、
+   * 独立流与工具进程），父会话中断/删除时必须一并停止，否则节点会继续
+   * 流式请求并运行子进程。同时结算挂起的 workflow-generate，避免主
+   * agent loop 的阻塞 promise 变成僵尸。
+   */
+  const abortWorkflowNodes = useCallback(
+    (parentConversationId: string): void => {
+      abandonWorkflowsForConversation(parentConversationId);
+      for (const nodeId of getActiveWorkflowNodeIds(parentConversationId)) {
+        const nodeRef = ctx.sessionsRefData.current.get(nodeId);
+        if (!nodeRef || nodeRef.isAbortRequested) {
+          continue;
+        }
+        nodeRef.isAbortRequested = true;
+        nodeRef.isSending = false;
+        rejectToolAuthorizations(nodeId);
+        killRunningToolExecutions(
+          ctx.sessionsRef.current?.[nodeId]?.messages ?? [],
+        );
+        ctx.updateSessionMessages(nodeId, (currentMessages) =>
+          currentMessages.map((message) => ({
+            ...message,
+            status: message.status === "sending" ? "sent" : message.status,
+            isRetrying:
+              message.status === "sending" ? false : message.isRetrying,
+            toolCalls: message.toolCalls?.map((toolCall) =>
+              toolCall.status === "running" || toolCall.status === "pending"
+                ? {
+                    ...toolCall,
+                    status: "error",
+                    result: toolCall.result ?? "Interrupted by user",
+                  }
+                : toolCall,
+            ),
+          })),
+        );
+        ctx.updateSessionField(nodeId, "isStreaming", false);
+        ctx.updateSessionField(nodeId, "streamStartedAt", 0);
+        ctx.updateSessionField(nodeId, "isAborting", false);
+        ctx.updateSessionField(nodeId, "visionAnalysis", undefined);
+        ctx.removeStreamingId(nodeId);
+        if (nodeRef.streamId) {
+          void window.snow.abortResponseStream(nodeRef.streamId);
+        }
+      }
+    },
+    [
+      ctx.removeStreamingId,
+      rejectToolAuthorizations,
+      ctx.sessionsRefData,
+      ctx.sessionsRef,
+      ctx.updateSessionMessages,
+      ctx.updateSessionField,
     ],
   );
 
@@ -787,6 +882,10 @@ export const useConversationManagement = (
     for (const subAgentId of ref.childSubAgentIds) {
       abortSubAgentTree(subAgentId);
     }
+
+    // 级联中止运行中的 WorkFlow 节点（节点是独立主会话，不在
+    // childSubAgentIds 内），并结算挂起的 workflow-generate。
+    abortWorkflowNodes(key);
   }, [
     ctx.removeStreamingId,
     rejectToolAuthorizations,
@@ -794,6 +893,7 @@ export const useConversationManagement = (
     ctx.updateSessionMessages,
     ctx.updateSessionField,
     ctx.pauseControllerRef,
+    abortWorkflowNodes,
   ]);
 
   const abortConversation = useCallback(
@@ -805,6 +905,9 @@ export const useConversationManagement = (
       killRunningToolExecutions(
         ctx.sessionsRef.current?.[conversationId]?.messages ?? [],
       );
+      // 删除会话前先停止其运行中的 WorkFlow 节点（节点是独立主会话，
+      // 不随父会话删除，只停止执行并保留消息记录）。
+      abortWorkflowNodes(conversationId);
       if (ref?.streamId) {
         void window.snow.abortResponseStream(ref.streamId);
         ref.streamId = null;
@@ -840,6 +943,10 @@ export const useConversationManagement = (
           ctx.goalModeRef.current = defaults.goalMode;
           ctx.setGoalModeState(defaults.goalMode);
         }
+        if (ctx.workflowModeRef.current !== defaults.workflowMode) {
+          ctx.workflowModeRef.current = defaults.workflowMode;
+          ctx.setWorkflowModeState(defaults.workflowMode);
+        }
         if (ctx.goalModeTokenBudget !== defaults.goalModeTokenBudget) {
           ctx.setGoalModeTokenBudgetState(defaults.goalModeTokenBudget);
         }
@@ -861,6 +968,7 @@ export const useConversationManagement = (
       ctx.setWorktreeModeState,
       ctx.goalModeTokenBudget,
       ctx.setGoalModeTokenBudgetState,
+      abortWorkflowNodes,
     ],
   );
 
@@ -991,6 +1099,7 @@ export const useConversationManagement = (
     handleNewChat,
     handleAbort,
     abortConversation,
+    abortWorkflowNodes,
     refreshConversations,
     handleForkConversation,
   };

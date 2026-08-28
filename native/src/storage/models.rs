@@ -576,6 +576,23 @@ pub struct CodebaseProjectScopeSettings {
 }
 
 #[napi(object)]
+pub struct WorkflowNodeSessionRecord {
+    pub conversation_id: String,
+    pub parent_conversation_id: String,
+    pub flow_id: String,
+    /// Flow-level file checkpoint taken before the flow's first node runs;
+    /// rollback restores it to undo file changes made by workflow nodes.
+    pub flow_checkpoint_id: String,
+    pub node_id: String,
+    pub node_name: String,
+    pub run_status: String,
+    pub error_message: String,
+    pub handoff_content: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[napi(object)]
 pub struct ChatConversationRecord {
     pub conversation_id: String,
     pub title: String,

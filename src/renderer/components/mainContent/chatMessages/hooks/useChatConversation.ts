@@ -160,6 +160,8 @@ export const useChatConversation = (
   const [isUpdatingGoalMode, setIsUpdatingGoalMode] = useState(false);
   const [worktreeMode, setWorktreeModeState] = useState(false);
   const [isUpdatingWorktreeMode, setIsUpdatingWorktreeMode] = useState(false);
+  const [workflowMode, setWorkflowModeState] = useState(false);
+  const [isUpdatingWorkflowMode, setIsUpdatingWorkflowMode] = useState(false);
   const [goalModeTokenBudget, setGoalModeTokenBudgetState] = useState(2000000);
   const [pendingToolAuthorizations, setPendingToolAuthorizations] = useState<
     ConversationContextValue["pendingToolAuthorizations"]
@@ -273,6 +275,7 @@ export const useChatConversation = (
   const planModeRef = useRef(planMode);
   const goalModeRef = useRef(goalMode);
   const worktreeModeRef = useRef(worktreeMode);
+  const workflowModeRef = useRef(workflowMode);
   // Neutral Plan/Goal Mode defaults for cold (never-toggled) conversations.
   // Plan/Goal Mode is strictly per-conversation: toggles write only the
   // active session's ref and its per-conversation DB record, never this
@@ -282,6 +285,7 @@ export const useChatConversation = (
     planMode: false,
     goalMode: false,
     worktreeMode: false,
+    workflowMode: false,
     goalModeTokenBudget: 2000000,
   });
 
@@ -325,6 +329,8 @@ export const useChatConversation = (
       setGoalModeState(false);
       worktreeModeRef.current = false;
       setWorktreeModeState(false);
+      workflowModeRef.current = false;
+      setWorkflowModeState(false);
       setGoalModeTokenBudgetState(2000000);
     }
   }, [
@@ -390,6 +396,7 @@ export const useChatConversation = (
   planModeRef.current = planMode;
   goalModeRef.current = goalMode;
   worktreeModeRef.current = worktreeMode;
+  workflowModeRef.current = workflowMode;
 
   // --- Pause controller ---
   // Per-session pause flags. When paused, the agent loop awaits the
@@ -462,6 +469,8 @@ export const useChatConversation = (
     isUpdatingGoalMode,
     worktreeMode,
     isUpdatingWorktreeMode,
+    workflowMode,
+    isUpdatingWorkflowMode,
     goalModeTokenBudget,
     pendingToolAuthorizations,
     activePendingMessages,
@@ -491,6 +500,7 @@ export const useChatConversation = (
     planModeRef,
     goalModeRef,
     worktreeModeRef,
+    workflowModeRef,
     globalModeDefaultsRef,
     alwaysApprovedToolsRef,
     planApprovedSessionKeysRef,
@@ -526,6 +536,8 @@ export const useChatConversation = (
     setIsUpdatingGoalMode,
     setWorktreeModeState,
     setIsUpdatingWorktreeMode,
+    setWorkflowModeState,
+    setIsUpdatingWorkflowMode,
     setGoalModeTokenBudgetState,
     setPendingToolAuthorizations,
     setActivePendingMessages,
@@ -593,6 +605,9 @@ export const useChatConversation = (
     rejectToolAuthorizations: toolAuthApi.rejectToolAuthorizations,
     rejectPendingUserQuestions: userQuestionApi.rejectPendingUserQuestions,
   });
+  // ctx 组装早于 management hooks：WorkFlow 级联中止能力在此回填，
+  // 供 useRollback 等后续 hook 使用。
+  ctx.abortWorkflowNodes = conversationManagementApi.abortWorkflowNodes;
 
   // --- 7. Rollback ---
   const rollbackApi = useRollback(ctx);
@@ -753,6 +768,7 @@ export const useChatConversation = (
     handlePause,
     handleResume,
     abortConversation: conversationManagementApi.abortConversation,
+    abortWorkflowNodes: conversationManagementApi.abortWorkflowNodes,
     handleForkConversation: conversationManagementApi.handleForkConversation,
     draftToRestore,
     autoSendToken,
@@ -808,6 +824,10 @@ export const useChatConversation = (
     isUpdatingWorktreeMode,
     setWorktreeMode: toolAuthApi.setWorktreeMode,
     refreshWorktreeMode: toolAuthApi.refreshWorktreeMode,
+    workflowMode,
+    isUpdatingWorkflowMode,
+    setWorkflowMode: toolAuthApi.setWorkflowMode,
+    refreshWorkflowMode: toolAuthApi.refreshWorkflowMode,
     goalModeTokenBudget,
     setGoalModeTokenBudget: toolAuthApi.setGoalModeTokenBudget,
     refreshGoalModeTokenBudget: toolAuthApi.refreshGoalModeTokenBudget,

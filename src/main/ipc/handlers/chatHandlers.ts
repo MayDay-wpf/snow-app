@@ -59,12 +59,12 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       } as ResponsesApiMessage;
     })
     .filter((message): message is ResponsesApiMessage =>
-      Boolean(message && message.content.trim())
+      Boolean(message && message.content.trim()),
     );
 
   if (messages.length === 0) {
     throw new Error(
-      "Responses API request requires at least one non-empty message"
+      "Responses API request requires at least one non-empty message",
     );
   }
 
@@ -124,6 +124,10 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       typeof source.worktreeMode === "boolean"
         ? source.worktreeMode
         : undefined,
+    workflowMode:
+      typeof source.workflowMode === "boolean"
+        ? source.workflowMode
+        : undefined,
     thinkingStrength:
       typeof source.thinkingStrength === "string" &&
       source.thinkingStrength.trim()
@@ -153,7 +157,7 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
  */
 const resolveRemoteRoleContext = async (
   directoryId: string | undefined,
-  native: NativeBridge
+  native: NativeBridge,
 ): Promise<RemoteRoleContext | null> => {
   if (!directoryId) {
     return null;
@@ -161,7 +165,7 @@ const resolveRemoteRoleContext = async (
   try {
     const directories = await native.listWorkspaceDirectories();
     const matched = directories.find(
-      (directory) => directory.directoryId === directoryId
+      (directory) => directory.directoryId === directoryId,
     );
     if (!matched || !matched.path.startsWith("ssh://")) {
       return null;
@@ -182,7 +186,7 @@ export const registerChatHandlers = (native: NativeBridge): void => {
       try {
         const remoteRoleContext = await resolveRemoteRoleContext(
           normalizedRequest.directoryId,
-          native
+          native,
         );
         return await native.createResponseStream(
           {
@@ -203,7 +207,7 @@ export const registerChatHandlers = (native: NativeBridge): void => {
               chunk,
             });
           },
-          normalizedStreamId
+          normalizedStreamId,
         );
       } catch (error) {
         snowLog.error({
@@ -215,7 +219,7 @@ export const registerChatHandlers = (native: NativeBridge): void => {
         });
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle("chat:abort-response-stream", (_event, streamId: unknown) => {

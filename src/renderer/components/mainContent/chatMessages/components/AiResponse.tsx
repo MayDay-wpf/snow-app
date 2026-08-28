@@ -216,6 +216,7 @@ export const AiResponse = memo(
                   <ToolCallItem
                     key={item.key}
                     toolCall={item.toolCall}
+                    conversationId={conversationId}
                     hookExecutions={hooksByInteractionId.get(
                       item.toolCall.interactionId,
                     )}

@@ -136,6 +136,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       planMode: boolean | null,
       goalMode: boolean | null,
       worktreeMode: boolean | null,
+      workflowMode: boolean | null,
       goalModeTokenBudget: number | null,
     ) =>
       native.setConversationModes(
@@ -143,6 +144,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
         planMode,
         goalMode,
         worktreeMode,
+        workflowMode,
         goalModeTokenBudget,
       ),
   );

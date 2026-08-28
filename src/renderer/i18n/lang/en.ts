@@ -564,6 +564,8 @@ export const en = {
   "chat.rollbackConversationOnlyAction": "Rollback conversation only",
   "chat.rollbackConversationAndFilesAction": "Rollback conversation and files",
   "chat.rollbackTodoNotice": "Rollback will delete {{count}} TODO item(s)",
+  "chat.rollbackWorkflowNotice":
+    "Cancels (if still running) and deletes {{count}} WorkFlow(s) together with their node sessions; node file changes are restored along with the files",
   "chat.rollbackTodoToggle": "Expand/collapse TODO list",
   "chat.forkConversation": "Fork",
   "chat.forkedFromConversation": "Forked from conversation",
@@ -713,6 +715,47 @@ export const en = {
     "The plan was not approved; the AI will keep planning without modifying project files.",
   "toolCall.planApproval.continuePlanning": "Keep planning",
   "toolCall.planApproval.approve": "Approve and execute",
+  "toolCall.workflow.name": "workflow",
+  "toolCall.workflow.action": "Generate workflow",
+  "toolCall.workflow.status.idle": "Idle",
+  "toolCall.workflow.status.running": "Running",
+  "toolCall.workflow.status.completed": "Completed",
+  "toolCall.workflow.status.failed": "Failed",
+  "toolCall.workflow.execute": "Execute",
+  "toolCall.workflow.emptyCanvas":
+    "Workflow data is incomplete or empty. Regenerate again.",
+  "toolCall.workflow.idleHint":
+    "Right-click a node to configure API, model and prompt; drag nodes to rearrange, then confirm to execute in order.",
+  "toolCall.workflow.runningHint":
+    "Workflow running; click a running node to open its conversation.",
+  "toolCall.workflow.completedHint":
+    "Workflow completed; click a node to open its conversation.",
+  "toolCall.workflow.repliedHint":
+    "Feedback sent; the AI is redesigning the workflow.",
+  "toolCall.workflow.repliedFeedback": "Feedback sent",
+  "toolCall.workflow.replyLabel":
+    "Not happy with the workflow? Send feedback to redesign it:",
+  "toolCall.workflow.replyPlaceholder":
+    "e.g. reorder nodes / add a verification node / adjust prompts",
+  "toolCall.workflow.replySubmit": "Send feedback",
+  "toolCall.workflow.configureNode":
+    "Configure node (right-click the node or click here)",
+  "toolCall.workflow.openConversation": "Open node conversation",
+  "toolCall.workflow.closeEditor": "Close editor",
+  "toolCall.workflow.nodeName": "Node name",
+  "toolCall.workflow.nodeApiProfile": "API profile",
+  "toolCall.workflow.followSession": "Follow the parent conversation",
+  "toolCall.workflow.profileUnavailable": "No longer available",
+  "toolCall.workflow.modelsLoading": "Loading models...",
+  "toolCall.workflow.modelsLoadError":
+    "Failed to load models for this API profile; the profile's default model remains selectable.",
+  "toolCall.workflow.nodeModel": "Model",
+  "toolCall.workflow.nodePrompt": "Node prompt",
+  "toolCall.workflow.done": "Done",
+  "toolCall.workflow.addNode": "Add node",
+  "toolCall.workflow.editNode": "Edit node",
+  "toolCall.workflow.deleteNode": "Delete node",
+  "toolCall.workflow.newNodeName": "New node",
   "toolCall.grep.name": "grep",
   "toolCall.grep.pattern": "Pattern",
   "toolCall.grep.path": "Path",
@@ -2851,6 +2894,10 @@ export const en = {
   "plusMenu.worktreeMode": "WorkTree Mode",
   "plusMenu.worktreeModeDescription": "Develop in an isolated git branch",
   "plusMenu.worktreeModeActive": "WorkTree Mode active",
+  "plusMenu.workflowMode": "WorkFlow Mode",
+  "plusMenu.workflowModeDescription":
+    "Visually orchestrate multi-node workflows",
+  "plusMenu.workflowModeActive": "WorkFlow Mode active",
   "plusMenu.goalMode": "Goal Mode",
   "plusMenu.goalModeDescription": "Persistent goal-driven loop",
   "plusMenu.goalBudgetTitle": "Token Budget",

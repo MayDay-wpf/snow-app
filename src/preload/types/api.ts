@@ -90,6 +90,7 @@ export type ResponsesApiRequest = {
   planMode?: boolean | null;
   goalMode?: boolean | null;
   worktreeMode?: boolean | null;
+  workflowMode?: boolean | null;
   /** Per-request thinking strength override ("none" | "low" | "medium" |
    *  "high" | custom). Applied in-memory over the resolved profile's
    *  config_json; never mutates the stored profile. */
@@ -106,9 +107,7 @@ export type StreamInterruptionReason =
   | "output_limit";
 
 export type StreamRecoveryOutcome =
-  | "partial_threshold"
-  | "retry_exhausted"
-  | "non_retriable";
+  "partial_threshold" | "retry_exhausted" | "non_retriable";
 
 export type TokenUsage = {
   inputTokens: number;

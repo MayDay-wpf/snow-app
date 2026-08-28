@@ -87,6 +87,7 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
           planMode: defaults.planMode,
           worktreeMode: defaults.worktreeMode,
           goalMode: defaults.goalMode,
+          workflowMode: defaults.workflowMode,
           goalModeTokenBudget: defaults.goalModeTokenBudget,
           runTokenUsage: null,
           lastRunDurationMs: 0,
