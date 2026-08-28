@@ -2362,10 +2362,31 @@ input {
   opacity: 0.55;
 }
 
-/* 拖拽排序指示：显示插入横线（行顶部），区别于拖入合集时的整行 add 高亮 */
+/* 拖拽排序指示：目标行轻微高亮（区别于拖入合集时的整行 add 高亮） */
 .workspace-directory-row.drag-over .list-item {
   background: var(--bg-hover);
-  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+/* 拖拽排序插入横线：显示在目标行与相邻行的间隙中，指示实际插入位置
+   （top=插入目标行之前，bottom=插入目标行之后），颜色跟随主题强调色 */
+.workspace-directory-drop-line {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.workspace-directory-drop-line.top {
+  top: -1px;
+}
+
+.workspace-directory-drop-line.bottom {
+  bottom: -1px;
 }
 
 .workspace-directory-list .list-item {

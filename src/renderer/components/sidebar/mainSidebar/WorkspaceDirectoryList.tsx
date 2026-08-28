@@ -1,5 +1,5 @@
 import { ChevronRight, Library, Loader2, Pencil, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { DragEvent, RefObject } from "react";
 
 import { useI18n } from "../../../i18n";
@@ -143,6 +143,27 @@ export function WorkspaceDirectoryList({
     onCollectionDragOver(collectionId);
   };
 
+  // 拖拽排序插入位置：与 handleDirectoryDrop 的语义保持一致——向上拖
+  // （源在目标下方）插到目标行之前 → 顶部横线；向下拖插到目标行之后 → 底部横线。
+  const dropIndicatorSide = useMemo(() => {
+    if (!draggedDirectoryId || !dragOverDirectoryId) {
+      return null;
+    }
+    if (draggedDirectoryId === dragOverDirectoryId) {
+      return null;
+    }
+    const sourceIndex = workspaceDirectories.findIndex(
+      (directory) => directory.directoryId === draggedDirectoryId,
+    );
+    const targetIndex = workspaceDirectories.findIndex(
+      (directory) => directory.directoryId === dragOverDirectoryId,
+    );
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return null;
+    }
+    return sourceIndex < targetIndex ? "bottom" : "top";
+  }, [draggedDirectoryId, dragOverDirectoryId, workspaceDirectories]);
+
   const handleCollectionDrop = (
     event: DragEvent<HTMLDivElement>,
     collectionId: string,
@@ -188,6 +209,7 @@ export function WorkspaceDirectoryList({
             directory={directory}
             draggedDirectoryId={draggedDirectoryId}
             dragOverDirectoryId={dragOverDirectoryId}
+            dropIndicatorSide={dropIndicatorSide}
             editingValue={editingValue}
             index={0}
             isActionLocked={isActionLocked}
@@ -333,6 +355,7 @@ export function WorkspaceDirectoryList({
               directory={directory}
               draggedDirectoryId={draggedDirectoryId}
               dragOverDirectoryId={dragOverDirectoryId}
+              dropIndicatorSide={dropIndicatorSide}
               editingValue={editingValue}
               index={index}
               isActionLocked={isActionLocked}

@@ -79,11 +79,11 @@ export const FilesystemCreateToolCall = ({
 }: FilesystemCreateToolCallProps): React.JSX.Element => {
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const hasError = parsedResult.type === "error";
@@ -139,6 +139,7 @@ export const FilesystemCreateToolCall = ({
         ) : null
       }
       className="tool-call-filesystem-create"
+      lazyBody
     >
       <div className="tool-call-body">
         {parsedResult.type === "success" ? (

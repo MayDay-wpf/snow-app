@@ -14,6 +14,8 @@ type WorkspaceDirectoryRowProps = {
   isActionLocked: boolean;
   draggedDirectoryId: string | null;
   dragOverDirectoryId: string | null;
+  /** 拖拽排序插入指示线位置：目标行顶部/底部（null 不显示） */
+  dropIndicatorSide?: "top" | "bottom" | null;
   /** 行内重命名编辑态（由列表层单例管理，保证同时只编辑一行） */
   isEditing: boolean;
   /** 该项目的跨项目通知会话数（>0 时显示徽标） */
@@ -65,6 +67,7 @@ export function WorkspaceDirectoryRow({
   isActionLocked,
   draggedDirectoryId,
   dragOverDirectoryId,
+  dropIndicatorSide,
   isEditing,
   notificationCount,
   draggable = true,
@@ -266,6 +269,12 @@ export function WorkspaceDirectoryRow({
           onShowDetails ? () => onShowDetails(directory.directoryId) : undefined
         }
       />
+      {!isEditing && isDragOver && dropIndicatorSide ? (
+        <span
+          aria-hidden="true"
+          className={`workspace-directory-drop-line ${dropIndicatorSide}`}
+        />
+      ) : null}
     </div>
   );
 }

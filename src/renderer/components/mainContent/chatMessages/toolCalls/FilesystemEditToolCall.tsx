@@ -104,11 +104,11 @@ export const FilesystemEditToolCall = ({
 }: FilesystemEditToolCallProps): React.JSX.Element => {
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const hasError = parsedResult.type === "error";
@@ -122,7 +122,7 @@ export const FilesystemEditToolCall = ({
     if (!showDiff || !parsedArgs) return null;
     return getCompareDiffStats(
       parsedArgs.searchContent,
-      parsedArgs.replaceContent
+      parsedArgs.replaceContent,
     );
   }, [showDiff, parsedArgs]);
 
@@ -180,6 +180,7 @@ export const FilesystemEditToolCall = ({
         ) : null
       }
       className="tool-call-filesystem-edit"
+      lazyBody
     >
       <div className="tool-call-body">
         <div className="tool-call-file-path" data-path={filePath}>

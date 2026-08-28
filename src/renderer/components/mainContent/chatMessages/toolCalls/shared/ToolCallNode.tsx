@@ -25,6 +25,11 @@ type ToolCallNodeProps = {
   meta?: ReactNode;
   /** Additional CSS class on the outer <details>. */
   className?: string;
+  /**
+   * 收起时不渲染 body（展开时才挂载），用于昂贵的子内容（如 diff 视图），
+   * 节省资源；代价是收起会卸载 body 内部状态。
+   */
+  lazyBody?: boolean;
   /** Body content shown when expanded. */
   children?: ReactNode;
 };
@@ -46,6 +51,7 @@ export const ToolCallNode = ({
   defaultOpen = false,
   meta,
   className,
+  lazyBody,
   children,
 }: ToolCallNodeProps): React.JSX.Element => {
   const { t } = useI18n();
@@ -69,16 +75,16 @@ export const ToolCallNode = ({
   // 空字符串应视为"未提供"并继续走 fallback 链，避免徽章只显示图标没有文字。
   const localizedToolName = t(`toolNames.${toolName}`, { defaultValue: "" });
   const resolvedBadgeName =
-    badgeName || (localizedToolName || shortName(toolName));
+    badgeName || localizedToolName || shortName(toolName);
 
   const dotClass =
     status === "completed"
       ? "tcn-dot--completed"
       : status === "running"
-      ? "tcn-dot--running"
-      : status === "error"
-      ? "tcn-dot--error"
-      : "tcn-dot--pending";
+        ? "tcn-dot--running"
+        : status === "error"
+          ? "tcn-dot--error"
+          : "tcn-dot--pending";
 
   return (
     <details
@@ -139,7 +145,9 @@ export const ToolCallNode = ({
         {meta ? <span className="tcn-meta">{meta}</span> : null}
         <ChevronRight className="tcn-chevron" size={12} aria-hidden="true" />
       </summary>
-      {children ? <div className="tcn-body">{children}</div> : null}
+      {children && (lazyBody ? isOpen : true) ? (
+        <div className="tcn-body">{children}</div>
+      ) : null}
     </details>
   );
 };
