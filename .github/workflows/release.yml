@@ -85,6 +85,7 @@ jobs:
       - name: Build TypeScript + Vite + Rust native
         env:
           NATIVE_BUILD_ARCH: ${{ matrix.arch }}
+          NODE_OPTIONS: --max-old-space-size=8192
         run: npm run build
 
       - name: Build electron packages
