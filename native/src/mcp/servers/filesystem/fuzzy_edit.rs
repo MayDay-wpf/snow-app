@@ -104,43 +104,114 @@ fn auto_pad_first_line_to_reference(reference_line: &str, text: &str) -> Option<
         .filter(|padded| padded != text)
 }
 
-fn auto_pad_search_indentation(content: &str, search_content: &str) -> Option<String> {
-    let file_lines: Vec<&str> = content.split('\n').collect();
-    let mut padded_lines: Vec<String> = Vec::new();
-    let mut changed = false;
+/// 在 content 中查找 needle 第 occurrence 次出现的位置（1-indexed，occurrence 为 0 时视为第 1 次）。
+fn find_nth_occurrence(content: &str, needle: &str, occurrence: usize) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    let target = occurrence.max(1);
+    let mut count = 0usize;
+    let mut cursor = 0usize;
+    while let Some(relative) = content[cursor..].find(needle) {
+        let absolute = cursor + relative;
+        count += 1;
+        if count == target {
+            return Some(absolute);
+        }
+        cursor = absolute + needle.len();
+    }
+    None
+}
 
-    for search_line in search_content.split('\n') {
-        let trimmed = search_line.trim_start_matches([' ', '\t']);
-        if trimmed.is_empty() {
-            padded_lines.push(search_line.to_string());
-            continue;
-        }
+/// searchContent 首行缩进与实际命中行不一致时的定点矫正。
+/// substring 能命中意味着中间行是逐字匹配的，AI 的缩进基准只有首行失真：
+/// 用命中行的真实缩进重写 searchContent 首行，并把仍停留在旧缩进基准上的
+/// replaceContent 行迁移到真实缩进（多行 search 仅迁移首个非空行——中间行
+/// 已逐字命中即基准正确；单行 search 时 replaceContent 整体共享该行基准，
+/// 迁移全部非空行）。无法定位命中或首行并非失真来源时返回 None。
+fn realign_search_first_line_indentation(
+    content: &str,
+    search_content: &str,
+    replace_content: &str,
+    occurrence: usize,
+) -> Option<(String, String)> {
+    let adapted_search = adapt_line_endings(search_content, content);
+    let target = find_nth_occurrence(content, &adapted_search, occurrence)?;
+    let line_start = content[..target]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    // 仅当命中位置位于某行首个非空白字符处时，首行缩进才有意义。
+    let before_match = &content[line_start..target];
+    if !before_match.chars().all(|character| character == ' ' || character == '\t') {
+        return None;
+    }
+    let line_end = content[target..]
+        .find('\n')
+        .map(|relative| target + relative)
+        .unwrap_or(content.len());
+    let file_indent = leading_horizontal_whitespace(&content[line_start..line_end]);
 
-        let mut matched_indent: Option<&str> = None;
-        let mut found = false;
-        for file_line in &file_lines {
-            if file_line.trim_start_matches([' ', '\t']) != trimmed {
-                continue;
-            }
-            found = true;
-            let indent = leading_horizontal_whitespace(file_line);
-            if matched_indent.is_some_and(|existing| existing != indent) {
-                return None;
-            }
-            matched_indent = Some(indent);
-        }
-        if !found {
-            return None;
-        }
-
-        let indent = matched_indent.unwrap_or("");
-        if leading_horizontal_whitespace(search_line) != indent {
-            changed = true;
-        }
-        padded_lines.push(format!("{indent}{trimmed}"));
+    let (search_first_line, search_rest) = match search_content.split_once('\n') {
+        Some((first, rest)) => (first, Some(rest)),
+        None => (search_content, None),
+    };
+    let search_indent = leading_horizontal_whitespace(search_first_line);
+    let search_body = search_first_line.trim_start_matches([' ', '\t']);
+    // 首行去缩进后为空说明缩进基准不在首行；缩进一致则无需矫正。
+    if search_body.is_empty() || search_indent == file_indent {
+        return None;
     }
 
-    changed.then_some(padded_lines.join("\n"))
+    let realigned_search = match search_rest {
+        Some(rest) => format!("{file_indent}{search_body}\n{rest}"),
+        None => format!("{file_indent}{search_body}"),
+    };
+
+    let single_line_search = search_rest.is_none();
+    let replace_lines: Vec<&str> = replace_content.split('\n').collect();
+    let first_body_index = replace_lines.iter().position(|line| {
+        !line
+            .trim_matches(|character: char| matches!(character, ' ' | '\t' | '\r'))
+            .is_empty()
+    });
+    let Some(first_body_index) = first_body_index else {
+        // 空替换表示删除，不涉及缩进基准。
+        return Some((realigned_search, replace_content.to_string()));
+    };
+    let replace_indent = leading_horizontal_whitespace(replace_lines[first_body_index]);
+    // replaceContent 已按命中行缩进书写，或与旧缩进基准没有前缀关系
+    // （无法解释其缩进意图）时保持原样，交由内置缩进校验兜底。
+    if replace_indent == file_indent || !replace_indent.starts_with(search_indent) {
+        return Some((realigned_search, replace_content.to_string()));
+    }
+
+    let remap_line = |line: &str| -> String {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let indent = leading_horizontal_whitespace(line);
+        if trimmed.is_empty() || !indent.starts_with(search_indent) {
+            return line.to_string();
+        }
+        format!("{file_indent}{}", &line[indent.len()..])
+    };
+    let realigned_replace: Vec<String> = replace_lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if single_line_search || index == first_body_index {
+                remap_line(line)
+            } else {
+                (*line).to_string()
+            }
+        })
+        .collect();
+    let realigned_replace = realigned_replace.join("\n");
+    let realigned_replace = if realigned_replace == replace_content {
+        replace_content.to_string()
+    } else {
+        realigned_replace
+    };
+    Some((realigned_search, realigned_replace))
 }
 
 fn validate_candidate_indentation(
@@ -398,8 +469,12 @@ pub(crate) fn try_substring_replace(
 
     match attempt(search_content, replace_content) {
         Err(first_error) if preserve_indentation => {
-            if let Some(padded_search) = auto_pad_search_indentation(content, search_content) {
-                if let Ok(Some(result)) = attempt(&padded_search, replace_content) {
+            // 缩进敏感文件：searchContent 首行丢失/错配缩进是常见失误。
+            // 按实际命中位置定点重建缩进后重试，避免可直接恢复的编辑被拒绝。
+            if let Some((realigned_search, realigned_replace)) =
+                realign_search_first_line_indentation(content, search_content, replace_content, occurrence)
+            {
+                if let Ok(Some(result)) = attempt(&realigned_search, &realigned_replace) {
                     return Ok(Some(result));
                 }
             }
@@ -646,6 +721,155 @@ pub(crate) fn find_best_line_match_v2(
     }
 
     (best_similarity > 0.0).then_some((best_start, best_end, best_similarity))
+}
+
+/// 缩进宽松整行匹配的命中结果。
+pub(crate) struct IndentationRelaxedMatch {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub replacement: String,
+    pub total_matches: usize,
+}
+
+/// 缩进宽松匹配的行键：忽略行首空白与 CRLF/LF 差异后的行内容。
+fn relaxed_line_key(line: &str) -> String {
+    normalize_line_endings_for_match(line)
+        .trim_start_matches([' ', '\t'])
+        .to_owned()
+}
+
+/// 按宽度平移一行的行首空白（不改动行内容本身，最低压到 0）。
+fn shift_line_indent(line: &str, delta: isize) -> String {
+    let indent = leading_horizontal_whitespace(line);
+    let body = &line[indent.len()..];
+    let current = indent.chars().count() as isize;
+    let target = (current + delta).max(0) as usize;
+    let mut shifted: String = indent.chars().take(target).collect();
+    let kept = shifted.chars().count();
+    if kept < target {
+        shifted.push_str(&" ".repeat(target - kept));
+    }
+    format!("{shifted}{body}")
+}
+
+/// 把 replaceContent 重新定基到命中区域的首行缩进：
+/// - replaceContent 首个非空行已使用命中缩进 → 原样返回（AI 已按文件真实缩进书写）；
+/// - 仍停留在 searchContent 的（错误）缩进基准上 → 整体迁移到命中缩进并保留相对结构；
+/// - 两种基准都对不上 → 返回 None（保持拒绝语义，交由后续匹配策略或报错处理）。
+fn rebase_replacement_to_matched_indent(
+    search_first_indent: &str,
+    matched_first_indent: &str,
+    replace_content: &str,
+) -> Option<String> {
+    if search_first_indent == matched_first_indent {
+        return Some(replace_content.to_string());
+    }
+
+    let replace_lines: Vec<&str> = replace_content.split('\n').collect();
+    let Some(first_body_line) = first_non_empty_line(replace_lines.iter().copied()) else {
+        // 空替换表示删除，不涉及缩进基准。
+        return Some(replace_content.to_string());
+    };
+    let replace_indent = leading_horizontal_whitespace(first_body_line);
+    if replace_indent == matched_first_indent {
+        return Some(replace_content.to_string());
+    }
+    if !replace_indent.starts_with(search_first_indent) {
+        return None;
+    }
+
+    let delta = matched_first_indent.chars().count() as isize
+        - search_first_indent.chars().count() as isize;
+    let rebased: Vec<String> = replace_lines
+        .iter()
+        .map(|line| {
+            if line.trim_start_matches([' ', '\t']).is_empty() {
+                return (*line).to_string();
+            }
+            let indent = leading_horizontal_whitespace(line);
+            if indent.starts_with(search_first_indent) {
+                format!("{matched_first_indent}{}", &line[indent.len()..])
+            } else {
+                shift_line_indent(line, delta)
+            }
+        })
+        .collect();
+    Some(rebased.join("\n"))
+}
+
+/// 缩进敏感文件专用的缩进宽松整行匹配：searchContent 整块丢失/错配行首缩进
+/// （精确与子串匹配均无法命中）时，按「去行首空白后逐行相等」定位命中区域，
+/// 并把 replaceContent 重新定基到命中区域的首行缩进。
+/// 候选位置优先选择所有非空行缩进呈统一偏移的（整体平移，语义最明确）。
+pub(crate) fn find_indentation_relaxed_match(
+    search_content: &str,
+    replace_content: &str,
+    file_lines: &[&str],
+    occurrence: usize,
+) -> Option<IndentationRelaxedMatch> {
+    let search_lines: Vec<&str> = search_content.split('\n').collect();
+    if search_lines.is_empty() || search_lines.len() > file_lines.len() {
+        return None;
+    }
+    let search_keys: Vec<String> = search_lines.iter().map(|line| relaxed_line_key(line)).collect();
+
+    let mut candidates: Vec<(usize, bool)> = Vec::new();
+    for start in 0..=(file_lines.len() - search_lines.len()) {
+        let all_match = search_keys
+            .iter()
+            .enumerate()
+            .all(|(index, key)| relaxed_line_key(file_lines[start + index]) == *key);
+        if !all_match {
+            continue;
+        }
+        let mut uniform = true;
+        let mut expected_delta: Option<isize> = None;
+        for (index, search_line) in search_lines.iter().enumerate() {
+            if search_keys[index].is_empty() {
+                continue;
+            }
+            let delta = leading_horizontal_whitespace(file_lines[start + index]).chars().count() as isize
+                - leading_horizontal_whitespace(search_line).chars().count() as isize;
+            if expected_delta.is_some_and(|existing| existing != delta) {
+                uniform = false;
+                break;
+            }
+            expected_delta = Some(delta);
+        }
+        candidates.push((start, uniform));
+    }
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let preferred: Vec<usize> = if candidates.iter().any(|(_, uniform)| *uniform) {
+        candidates
+            .iter()
+            .filter(|(_, uniform)| *uniform)
+            .map(|(start, _)| *start)
+            .collect()
+    } else {
+        candidates.iter().map(|(start, _)| *start).collect()
+    };
+
+    let start = preferred.get(occurrence.saturating_sub(1)).copied()?;
+    let end = start + search_lines.len();
+    let matched_lines = &file_lines[start..end];
+    let search_first_indent = leading_horizontal_whitespace(
+        first_non_empty_line(search_lines.iter().copied())?,
+    );
+    let matched_first_indent = leading_horizontal_whitespace(
+        first_non_empty_line(matched_lines.iter().copied())?,
+    );
+    let replacement =
+        rebase_replacement_to_matched_indent(search_first_indent, matched_first_indent, replace_content)?;
+
+    Some(IndentationRelaxedMatch {
+        start_line: start,
+        end_line: end,
+        replacement,
+        total_matches: preferred.len(),
+    })
 }
 
 /// 构建编辑成功后的复核上下文：返回编辑区域前后各 EDIT_REVIEW_CONTEXT_LINES 行

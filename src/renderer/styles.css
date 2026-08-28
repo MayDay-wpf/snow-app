@@ -11577,6 +11577,30 @@ input {
   overflow: hidden;
 }
 
+/* React Flow 主题化：@xyflow/react 默认样式写死浅色（控制面板白底、
+   深色手柄/连线等），其自带 dark 变量只在容器加 .dark 类时生效，与项目
+   data-theme 机制不联动。这里按画布作用域覆盖 --xy-* 默认值并映射到
+   设计令牌，亮/暗及自定义主题预设自动跟随。 */
+.workflow-canvas .react-flow {
+  --xy-edge-stroke-default: var(--text-muted);
+  --xy-edge-stroke-selected-default: var(--text-secondary);
+  --xy-background-pattern-dots-color-default: var(--border-subtle);
+  --xy-handle-background-color-default: var(--text-tertiary);
+  --xy-handle-border-color-default: var(--bg-secondary);
+  --xy-controls-button-background-color-default: var(--bg-primary);
+  --xy-controls-button-background-color-hover-default: var(--bg-hover);
+  --xy-controls-button-color-default: var(--text-secondary);
+  --xy-controls-button-color-hover-default: var(--text-primary);
+  --xy-controls-button-border-color-default: var(--border-light);
+  --xy-controls-box-shadow-default: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.workflow-canvas .react-flow__controls {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
 .workflow-node {
   min-width: 130px;
   max-width: 190px;

@@ -527,46 +527,261 @@ const autoPadFirstLineToReference = (
   return padded === text ? null : padded;
 };
 
-const autoPadSearchIndentation = (
+const findNthOccurrence = (
   content: string,
-  searchContent: string,
-): string | null => {
-  const fileLines = content.split("\n");
-  const paddedLines: string[] = [];
-  let changed = false;
-
-  for (const searchLine of searchContent.split("\n")) {
-    const trimmed = searchLine.replace(/^[ \t]+/, "");
-    if (!trimmed) {
-      paddedLines.push(searchLine);
-      continue;
-    }
-
-    let matchedIndent: string | undefined;
-    let found = false;
-    for (const fileLine of fileLines) {
-      if (fileLine.replace(/^[ \t]+/, "") !== trimmed) {
-        continue;
-      }
-      found = true;
-      const indent = getLeadingHorizontalWhitespace(fileLine);
-      if (matchedIndent !== undefined && matchedIndent !== indent) {
-        return null;
-      }
-      matchedIndent = indent;
-    }
-    if (!found) {
+  needle: string,
+  occurrence: number,
+): number | null => {
+  if (!needle) {
+    return null;
+  }
+  const target = Math.max(1, occurrence);
+  let count = 0;
+  let offset = 0;
+  while (offset <= content.length) {
+    const relative = content.indexOf(needle, offset);
+    if (relative < 0) {
       return null;
     }
-
-    const indent = matchedIndent ?? "";
-    if (getLeadingHorizontalWhitespace(searchLine) !== indent) {
-      changed = true;
+    count += 1;
+    if (count === target) {
+      return relative;
     }
-    paddedLines.push(indent + trimmed);
+    offset = relative + needle.length;
+  }
+  return null;
+};
+
+const isBlankSourceLine = (line: string): boolean =>
+  line.replace(/^[ \t\r]+/, "").replace(/[ \t\r]+$/, "").length === 0;
+
+// searchContent 首行缩进与实际命中行不一致时的定点矫正。substring 能命中
+// 意味着中间行是逐字匹配的，AI 的缩进基准只有首行失真：用命中行的真实缩进
+// 重写 searchContent 首行，并把仍停留在旧缩进基准上的 replaceContent 行迁移
+// 到真实缩进（多行 search 仅迁移首个非空行；单行 search 迁移全部非空行）。
+const realignSearchFirstLineIndentation = (
+  content: string,
+  searchContent: string,
+  replacement: string,
+  occurrence: number,
+): { search: string; replacement: string } | null => {
+  const adaptedSearch = adaptLineEndings(searchContent, content);
+  const foundIndex = findNthOccurrence(content, adaptedSearch, occurrence);
+  if (foundIndex === null) {
+    return null;
+  }
+  const lineStart = content.lastIndexOf("\n", foundIndex - 1) + 1;
+  const beforeMatch = content.slice(lineStart, foundIndex);
+  if (!/^[ \t]*$/.test(beforeMatch)) {
+    return null;
+  }
+  const lineEnd = content.indexOf("\n", foundIndex);
+  const matchedLine = content.slice(
+    lineStart,
+    lineEnd < 0 ? content.length : lineEnd,
+  );
+  const fileIndent = getLeadingHorizontalWhitespace(matchedLine);
+
+  const newlineIndex = searchContent.indexOf("\n");
+  const searchFirstLine =
+    newlineIndex < 0 ? searchContent : searchContent.slice(0, newlineIndex);
+  const searchRest =
+    newlineIndex < 0 ? undefined : searchContent.slice(newlineIndex + 1);
+  const searchIndent = getLeadingHorizontalWhitespace(searchFirstLine);
+  const searchBody = searchFirstLine.replace(/^[ \t]+/, "");
+  // 首行去缩进后为空说明缩进基准不在首行；缩进一致则无需矫正。
+  if (!searchBody || searchIndent === fileIndent) {
+    return null;
   }
 
-  return changed ? paddedLines.join("\n") : null;
+  const realignedSearch =
+    searchRest === undefined
+      ? fileIndent + searchBody
+      : `${fileIndent}${searchBody}\n${searchRest}`;
+
+  const replaceLines = replacement.split("\n");
+  const firstBodyIndex = replaceLines.findIndex(
+    (line) => !isBlankSourceLine(line),
+  );
+  if (firstBodyIndex < 0) {
+    // 空替换表示删除，不涉及缩进基准。
+    return { search: realignedSearch, replacement };
+  }
+  const replaceIndent = getLeadingHorizontalWhitespace(
+    replaceLines[firstBodyIndex],
+  );
+  // replaceContent 已按命中行缩进书写，或与旧缩进基准没有前缀关系
+  // （无法解释其缩进意图）时保持原样，交由内置缩进校验兜底。
+  if (replaceIndent === fileIndent || !replaceIndent.startsWith(searchIndent)) {
+    return { search: realignedSearch, replacement };
+  }
+
+  const singleLineSearch = searchRest === undefined;
+  const remapLine = (line: string): string => {
+    const indent = getLeadingHorizontalWhitespace(line);
+    if (
+      line.replace(/^[ \t]+/, "").length === 0 ||
+      !indent.startsWith(searchIndent)
+    ) {
+      return line;
+    }
+    return fileIndent + line.slice(indent.length);
+  };
+  const realignedReplacement = replaceLines
+    .map((line, index) =>
+      singleLineSearch || index === firstBodyIndex ? remapLine(line) : line,
+    )
+    .join("\n");
+  return {
+    search: realignedSearch,
+    replacement:
+      realignedReplacement === replacement ? replacement : realignedReplacement,
+  };
+};
+
+// 缩进宽松匹配的行键：忽略行首空白与 CRLF/LF 差异后的行内容。
+const relaxedLineKey = (line: string): string =>
+  normalizeLineEndingsForMatch(line).replace(/^[ \t]+/, "");
+
+// 按宽度平移一行的行首空白（不改动行内容本身，最低压到 0）。
+const shiftLineIndent = (line: string, delta: number): string => {
+  const indent = getLeadingHorizontalWhitespace(line);
+  const body = line.slice(indent.length);
+  const target = Math.max(0, [...indent].length + delta);
+  let shifted = [...indent].slice(0, target).join("");
+  if ([...shifted].length < target) {
+    shifted += " ".repeat(target - [...shifted].length);
+  }
+  return shifted + body;
+};
+
+// 把 replaceContent 重新定基到命中区域的首行缩进：首个非空行已使用命中缩进
+// → 原样返回；仍停留在 searchContent 的（错误）缩进基准上 → 整体迁移到命中
+// 缩进并保留相对结构；两种基准都对不上 → 返回 null（保持拒绝语义）。
+const rebaseReplacementToMatchedIndent = (
+  searchFirstIndent: string,
+  matchedFirstIndent: string,
+  replacement: string,
+): string | null => {
+  if (searchFirstIndent === matchedFirstIndent) {
+    return replacement;
+  }
+  const firstBodyLine = getFirstNonEmptyLine(replacement);
+  if (!firstBodyLine) {
+    // 空替换表示删除，不涉及缩进基准。
+    return replacement;
+  }
+  const replaceIndent = getLeadingHorizontalWhitespace(firstBodyLine);
+  if (replaceIndent === matchedFirstIndent) {
+    return replacement;
+  }
+  if (!replaceIndent.startsWith(searchFirstIndent)) {
+    return null;
+  }
+  const delta = [...matchedFirstIndent].length - [...searchFirstIndent].length;
+  const rebased = replacement.split("\n").map((line) => {
+    if (line.replace(/^[ \t]+/, "").length === 0) {
+      return line;
+    }
+    const indent = getLeadingHorizontalWhitespace(line);
+    if (indent.startsWith(searchFirstIndent)) {
+      return matchedFirstIndent + line.slice(indent.length);
+    }
+    return shiftLineIndent(line, delta);
+  });
+  return rebased.join("\n");
+};
+
+interface IndentationRelaxedMatch {
+  startLine: number;
+  endLine: number;
+  replacement: string;
+  totalMatches: number;
+}
+
+// 缩进敏感文件专用的缩进宽松整行匹配：searchContent 整块丢失/错配行首缩进
+// （精确与子串匹配均无法命中）时，按「去行首空白后逐行相等」定位命中区域，
+// 并把 replaceContent 重新定基到命中区域的首行缩进。候选位置优先选择所有
+// 非空行缩进呈统一偏移的（整体平移，语义最明确）。
+const findIndentationRelaxedMatch = (
+  searchContent: string,
+  replacement: string,
+  content: string,
+  occurrence: number,
+): IndentationRelaxedMatch | null => {
+  const searchLines = searchContent.split("\n");
+  const fileLines = content.split("\n");
+  if (searchLines.length === 0 || searchLines.length > fileLines.length) {
+    return null;
+  }
+  const searchKeys = searchLines.map(relaxedLineKey);
+
+  const candidates: Array<{ start: number; uniform: boolean }> = [];
+  for (
+    let start = 0;
+    start + searchLines.length <= fileLines.length;
+    start += 1
+  ) {
+    const allMatch = searchKeys.every(
+      (key, index) => relaxedLineKey(fileLines[start + index]) === key,
+    );
+    if (!allMatch) {
+      continue;
+    }
+    let uniform = true;
+    let expectedDelta: number | undefined;
+    for (let index = 0; index < searchLines.length; index += 1) {
+      if (!searchKeys[index]) {
+        continue;
+      }
+      const delta =
+        [...getLeadingHorizontalWhitespace(fileLines[start + index])].length -
+        [...getLeadingHorizontalWhitespace(searchLines[index])].length;
+      if (expectedDelta !== undefined && expectedDelta !== delta) {
+        uniform = false;
+        break;
+      }
+      expectedDelta = delta;
+    }
+    candidates.push({ start, uniform });
+  }
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const preferred = candidates.some((candidate) => candidate.uniform)
+    ? candidates
+        .filter((candidate) => candidate.uniform)
+        .map((candidate) => candidate.start)
+    : candidates.map((candidate) => candidate.start);
+  const start = preferred[Math.max(1, occurrence) - 1];
+  if (start === undefined) {
+    return null;
+  }
+  const end = start + searchLines.length;
+
+  const searchFirstLine = getFirstNonEmptyLine(searchContent);
+  const matchedFirstLine = getFirstNonEmptyLine(
+    fileLines.slice(start, end).join("\n"),
+  );
+  if (!searchFirstLine || !matchedFirstLine) {
+    return null;
+  }
+  const rebasedReplacement = rebaseReplacementToMatchedIndent(
+    getLeadingHorizontalWhitespace(searchFirstLine),
+    getLeadingHorizontalWhitespace(matchedFirstLine),
+    replacement,
+  );
+  if (rebasedReplacement === null) {
+    return null;
+  }
+
+  return {
+    startLine: start,
+    endLine: end,
+    replacement: rebasedReplacement,
+    totalMatches: preferred.length,
+  };
 };
 
 const validateCandidateIndentation = (
@@ -640,7 +855,7 @@ const validateReplacementIndentation = (
   );
 };
 
-const replaceContent = (
+const replaceContentOnce = (
   filePath: string,
   content: string,
   searchContent: string,
@@ -651,15 +866,7 @@ const replaceContent = (
     throw new Error("occurrence must be greater than zero");
   }
 
-  let effectiveSearch = searchContent;
-  if (isIndentationSensitivePath(filePath)) {
-    const paddedSearch = autoPadSearchIndentation(content, searchContent);
-    if (paddedSearch) {
-      effectiveSearch = paddedSearch;
-    }
-  }
-
-  const adaptedSearch = adaptLineEndings(effectiveSearch, content);
+  const adaptedSearch = adaptLineEndings(searchContent, content);
   const adaptedReplacement = adaptLineEndings(replacement, content);
   let offset = 0;
   let foundIndex = -1;
@@ -684,7 +891,7 @@ const replaceContent = (
     );
     const beforeMatch = content.slice(lineStart, foundIndex);
     if (/^[ \t]*$/.test(beforeMatch)) {
-      validateSearchIndentation(filePath, effectiveSearch, matchedLine);
+      validateSearchIndentation(filePath, searchContent, matchedLine);
       try {
         validateReplacementIndentation(
           filePath,
@@ -714,6 +921,50 @@ const replaceContent = (
     matchedLineStart,
     matchedLineEnd,
   };
+};
+
+// 缩进敏感文件下 searchContent 首行丢失/错配缩进是常见失误：先按原文尝试，
+// 校验失败时按实际命中位置定点重建缩进后重试，避免可直接恢复的编辑被拒绝。
+const replaceContent = (
+  filePath: string,
+  content: string,
+  searchContent: string,
+  replacement: string,
+  occurrence: number,
+): { content: string; matchedLineStart: number; matchedLineEnd: number } => {
+  try {
+    return replaceContentOnce(
+      filePath,
+      content,
+      searchContent,
+      replacement,
+      occurrence,
+    );
+  } catch (firstError) {
+    if (!isIndentationSensitivePath(filePath)) {
+      throw firstError;
+    }
+    const realigned = realignSearchFirstLineIndentation(
+      content,
+      searchContent,
+      replacement,
+      occurrence,
+    );
+    if (!realigned) {
+      throw firstError;
+    }
+    try {
+      return replaceContentOnce(
+        filePath,
+        content,
+        realigned.search,
+        realigned.replacement,
+        occurrence,
+      );
+    } catch {
+      throw firstError;
+    }
+  }
 };
 
 const shellGlobExpression = (fileGlob: string | undefined): string => {
@@ -881,17 +1132,56 @@ const executeFilesystemReplaceEdit = async (
       ? Math.floor(args.occurrence)
       : 1;
   const loaded = await readRemoteText(workspacePath, signal);
-  const result = replaceContent(
-    workspacePath,
-    loaded.content,
-    searchContent,
-    replacement,
-    occurrence,
-  );
+  // 优先走精确子串匹配（含缩进定点矫正重试）；缩进敏感文件下若仍失败，
+  // 尝试缩进宽松整行匹配（整块丢失/错配行首缩进时的兜底恢复）。
+  let replaced: {
+    content: string;
+    matchedLineStart: number;
+    matchedLineEnd: number;
+  };
+  let matchType = "exact";
+  try {
+    replaced = replaceContent(
+      workspacePath,
+      loaded.content,
+      searchContent,
+      replacement,
+      occurrence,
+    );
+  } catch (error) {
+    if (!isIndentationSensitivePath(workspacePath)) {
+      throw error;
+    }
+    const relaxed = findIndentationRelaxedMatch(
+      searchContent,
+      replacement,
+      loaded.content,
+      occurrence,
+    );
+    if (!relaxed) {
+      throw error;
+    }
+    const fileLines = loaded.content.split("\n");
+    const newContent = [
+      ...fileLines.slice(0, relaxed.startLine),
+      ...relaxed.replacement.split("\n"),
+      ...fileLines.slice(relaxed.endLine),
+    ].join("\n");
+    // 0 修改检测：宽松匹配未能带来实际变化时保持原错误。
+    if (newContent === loaded.content) {
+      throw error;
+    }
+    replaced = {
+      content: newContent,
+      matchedLineStart: relaxed.startLine + 1,
+      matchedLineEnd: relaxed.endLine,
+    };
+    matchType = "indentation_relaxed";
+  }
   const save = await writeRemoteText(
     workspacePath,
     workspaceRoot,
-    result.content,
+    replaced.content,
     loaded.version,
     signal,
   );
@@ -899,9 +1189,9 @@ const executeFilesystemReplaceEdit = async (
   return {
     success: true,
     occurrence,
-    matchType: "exact",
-    matchedLineStart: result.matchedLineStart,
-    matchedLineEnd: result.matchedLineEnd,
+    matchType,
+    matchedLineStart: replaced.matchedLineStart,
+    matchedLineEnd: replaced.matchedLineEnd,
     saveGuarantee: save.guarantee,
     sideEffect: save.sideEffect,
   };

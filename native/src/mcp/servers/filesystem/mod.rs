@@ -95,7 +95,7 @@ impl McpService for FilesystemService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "replace_edit".to_string(),
-                description: "Fuzzy search-and-replace editing. Finds searchContent in the file and replaces it with replaceContent. The file's original text encoding is auto-detected and preserved on write-back (the edited file keeps its original encoding and BOM). IMPORTANT: searchContent and replaceContent must be COPIED EXACTLY from the file's raw content. Do NOT include line number prefixes (like \\\"42:\\\") from read output, do NOT retype or paraphrase, and preserve every leading space/tab. For indentation-sensitive Python/YAML/Makefile files, indentation is syntax: exact and fuzzy matching retain line indentation, and the edit is rejected with an explicit error if replaceContent's leading indentation differs from the matched region. This tool never silently changes indentation. If the exact text is not found, a fuzzy match is attempted only without discarding indentation; on failure the error includes the closest matching region. On success the response includes a \\\"review\\\" field with the edited region plus surrounding context lines (edited lines marked with \\\">>>\\\") - always verify the edit landed correctly. When the auto-format setting is enabled (default), the edited file is automatically formatted with Prettier afterwards and the response marks \\\"formatted\\\": true. ESCAPE SEQUENCES: text inside string literals (e.g. Rust/Python/JSON source) stores escapes like \\\\n, \\\\t, \\\\\\\", \\\\\\\\ as literal backslash + character pairs in the file. When searchContent or replaceContent touches such text, keep the escapes in their literal form exactly as shown by filesystem-read output - never convert a literal backslash-n into a real newline, and never convert a real newline into a literal \\\\n. Use a real newline only when the file actually contains one; use a literal escape sequence only when the file text shows that escape.".to_string(),
+                description: "Fuzzy search-and-replace editing. Finds searchContent in the file and replaces it with replaceContent. The file's original text encoding is auto-detected and preserved on write-back (the edited file keeps its original encoding and BOM). IMPORTANT: searchContent and replaceContent must be COPIED EXACTLY from the file's raw content. Do NOT include line number prefixes (like \\\"42:\\\") from read output, do NOT retype or paraphrase, and preserve every leading space/tab. For indentation-sensitive Python/YAML/Makefile files, indentation is syntax: exact and fuzzy matching retain line indentation. If searchContent is missing leading indentation on some lines, the tool automatically realigns it from the matched region and rebases replaceContent the same way; the edit is rejected with an explicit error only when the indentation intent is genuinely ambiguous. If the exact text is not found, a fuzzy match is attempted only without discarding indentation; on failure the error includes the closest matching region. On success the response includes a \\\"review\\\" field with the edited region plus surrounding context lines (edited lines marked with \\\">>>\\\") - always verify the edit landed correctly. When the auto-format setting is enabled (default), the edited file is automatically formatted with Prettier afterwards and the response marks \\\"formatted\\\": true. ESCAPE SEQUENCES: text inside string literals (e.g. Rust/Python/JSON source) stores escapes like \\\\n, \\\\t, \\\\\\\", \\\\\\\\ as literal backslash + character pairs in the file. When searchContent or replaceContent touches such text, keep the escapes in their literal form exactly as shown by filesystem-read output - never convert a literal backslash-n into a real newline, and never convert a real newline into a literal \\\\n. Use a real newline only when the file actually contains one; use a literal escape sequence only when the file text shows that escape.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -109,7 +109,7 @@ impl McpService for FilesystemService {
                         },
                         "replaceContent": {
                             "type": "string",
-                            "description": "New content to replace with. Preserve every required leading space/tab, especially for Python/YAML/Makefile. If its first non-empty line's indentation differs from the matched region, the edit is rejected to prevent silent syntax damage. Match the file's escape style: write a literal backslash-n (two characters) when the file should keep an escape sequence like \\n; write a real newline only when the file actually uses real newlines."
+"description": "New content to replace with. Preserve every required leading space/tab, especially for Python/YAML/Makefile. Missing leading indentation is auto-corrected from the matched region; the edit is rejected only when the indentation intent is ambiguous, to prevent silent syntax damage. Match the file's escape style: write a literal backslash-n (two characters) when the file should keep an escape sequence like \\n; write a real newline only when the file actually uses real newlines."
                         },
                         "occurrence": {
                             "type": "number",
@@ -524,6 +524,75 @@ impl FilesystemService {
                 "editedContent": replace_content,
                 "review": review
             }));
+        }
+
+        // Step 1.6: 缩进宽松整行匹配（仅缩进敏感文件）
+        // searchContent 整块丢失/错配行首缩进（精确与子串匹配均无法命中）时，
+        // 按「去行首空白后逐行相等」定位命中区域，并把 replaceContent 重新
+        // 定基到命中区域的首行缩进，避免可直接恢复的编辑被拒绝。
+        if preserve_indentation {
+            if let Some(relaxed) = fuzzy_edit::find_indentation_relaxed_match(
+                search_content,
+                &replace_content,
+                &file_lines,
+                occurrence,
+            ) {
+                let replacement_lines = fuzzy_edit::split_replacement_lines(&relaxed.replacement);
+                let replacement_line_count = replacement_lines.len();
+                let mut new_lines: Vec<String> = file_lines.iter().map(|s| s.to_string()).collect();
+                new_lines.splice(
+                    relaxed.start_line..relaxed.end_line,
+                    replacement_lines,
+                );
+                let new_content = new_lines.join("\n");
+
+                // 0 修改检测：缩进宽松匹配替换后内容与原文一致同样拒绝写盘。
+                if new_content == content {
+                    let error_msg = fuzzy_edit::build_noop_edit_error(
+                        &file_path,
+                        search_content,
+                        &relaxed.replacement,
+                        &file_lines,
+                        total_lines,
+                    );
+                    return Err(Error::new(Status::GenericFailure, error_msg));
+                }
+
+                let new_bytes =
+                    encode_text_back(&new_content, original_encoding, had_bom).map_err(|e| {
+                        Error::new(
+                            Status::GenericFailure,
+                            format!(
+                                "Failed to encode edited content back to original encoding: {} (path: {})",
+                                e, file_path
+                            ),
+                        )
+                    })?;
+                fs::write(&file_path, &new_bytes).map_err(|e| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to write file: {} (path: {})", e, file_path),
+                    )
+                })?;
+
+                let review = fuzzy_edit::build_edit_review_context_lines(
+                    &new_content,
+                    relaxed.start_line,
+                    (replacement_line_count > 0)
+                        .then_some(relaxed.start_line + replacement_line_count - 1),
+                );
+
+                return Ok(json!({
+                    "success": true,
+                    "totalMatches": relaxed.total_matches,
+                    "occurrence": occurrence,
+                    "matchType": "indentation_relaxed",
+                    "matchedLineStart": relaxed.start_line + 1,
+                    "matchedLineEnd": relaxed.end_line,
+                    "editedContent": relaxed.replacement,
+                    "review": review
+                }));
+            }
         }
 
         // Step 2: 模糊行匹配（基于 Levenshtein 距离 + 变窗口 + 预过滤）
