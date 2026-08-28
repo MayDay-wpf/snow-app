@@ -7,8 +7,11 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type Connection,
   type Edge,
+  type EdgeChange,
   type Node,
+  type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -37,6 +40,9 @@ import {
   subscribeWorkflowRunner,
   subscribeWorkflowReady,
   type NodeRunStatus,
+  type WorkflowEdgeItem,
+  type WorkflowGraph,
+  type WorkflowNodeData,
   type WorkflowNodeItem,
   type WorkflowRunnerStatus,
 } from "../workflow/workflowRunner";
@@ -93,6 +99,240 @@ const WorkflowCardNode = memo(function WorkflowCardNode({
 const WORKFLOW_NODE_TYPES = { workflowCard: WorkflowCardNode };
 
 // ---------------------------------------------------------------------------
+// 画布持久化（localStorage）与连线校验
+// ---------------------------------------------------------------------------
+
+/** 持久化 payload 中的节点：只含配置字段与位置。运行态字段
+ *  （runStatus/errorMessage/conversationId/handoffContent）绝不落盘，
+ *  由 restoreRuns 从 DB 恢复；字段缺省表示 payload 未提供（损坏数据）。 */
+type PersistedCanvasNode = {
+  id: string;
+  name?: string;
+  label?: string;
+  prompt?: string;
+  description?: string;
+  apiProfile?: string;
+  model?: string;
+  position?: { x: number; y: number };
+};
+
+type PersistedCanvasPayload = {
+  version: number;
+  nodes: PersistedCanvasNode[];
+  edges: { source: string; target: string }[];
+};
+
+/** 初始画布计算结果：flow 节点（含位置）+ 业务边列表。 */
+type InitialCanvas = {
+  nodes: WorkflowFlowNode[];
+  edges: WorkflowEdgeItem[];
+};
+
+// 持久化键按「父会话 + 工具调用」隔离：AI 重新生成的图是新 tool call
+// （新 interactionId），天然读不到旧画布数据，不会互相污染。
+const CANVAS_STORAGE_PREFIX = "snow.workflow.canvas";
+const CANVAS_STORAGE_VERSION = 1;
+
+function buildCanvasStorageKey(
+  parentConversationId: string,
+  interactionId: string,
+): string {
+  // parentConversationId 为空时退化为仅 interactionId（防御极端场景）。
+  return parentConversationId
+    ? `${CANVAS_STORAGE_PREFIX}.${parentConversationId}.${interactionId}`
+    : `${CANVAS_STORAGE_PREFIX}.${interactionId}`;
+}
+
+// 默认网格布局（3 列）：与无持久化数据时的初始布局保持一致。
+const defaultNodePosition = (index: number): { x: number; y: number } => ({
+  x: (index % 3) * 300,
+  y: Math.floor(index / 3) * 170,
+});
+
+function toFlowNode(
+  node: WorkflowNodeData,
+  position: { x: number; y: number },
+): WorkflowFlowNode {
+  return {
+    id: node.id,
+    type: "workflowCard",
+    position,
+    data: {
+      node: {
+        ...node,
+        runStatus: "pending",
+        errorMessage: "",
+        conversationId: "",
+        handoffContent: "",
+      },
+    },
+  };
+}
+
+/** 防御性解析持久化数据：任何异常（键不存在/JSON 损坏/结构不符）都静默
+ *  返回 null，让组件回退到 args 解析图，绝不能因坏数据崩溃。 */
+function readPersistedCanvas(
+  storageKey: string,
+): PersistedCanvasPayload | null {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as PersistedCanvasPayload | null;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      parsed.version !== CANVAS_STORAGE_VERSION ||
+      !Array.isArray(parsed.nodes) ||
+      !Array.isArray(parsed.edges)
+    ) {
+      return null;
+    }
+    const nodes = parsed.nodes
+      .filter(
+        (node): node is PersistedCanvasNode =>
+          Boolean(node) && typeof node.id === "string" && node.id.length > 0,
+      )
+      .map((node) => ({
+        id: node.id,
+        name: typeof node.name === "string" ? node.name : undefined,
+        label: typeof node.label === "string" ? node.label : undefined,
+        prompt: typeof node.prompt === "string" ? node.prompt : undefined,
+        description:
+          typeof node.description === "string" ? node.description : undefined,
+        apiProfile:
+          typeof node.apiProfile === "string" ? node.apiProfile : undefined,
+        model: typeof node.model === "string" ? node.model : undefined,
+        position:
+          node.position &&
+          typeof node.position.x === "number" &&
+          Number.isFinite(node.position.x) &&
+          typeof node.position.y === "number" &&
+          Number.isFinite(node.position.y)
+            ? { x: node.position.x, y: node.position.y }
+            : undefined,
+      }));
+    const edges = parsed.edges
+      .filter(
+        (edge): edge is { source: string; target: string } =>
+          Boolean(edge) &&
+          typeof edge.source === "string" &&
+          edge.source.length > 0 &&
+          typeof edge.target === "string" &&
+          edge.target.length > 0,
+      )
+      .map((edge) => ({ source: edge.source, target: edge.target }));
+    return { version: CANVAS_STORAGE_VERSION, nodes, edges };
+  } catch {
+    // localStorage 不可用 / JSON 损坏：静默回退，画布功能不受影响。
+    return null;
+  }
+}
+
+/** 挂载时一次性构建初始画布：先按 args 解析默认图，再叠加 localStorage
+ *  持久化的画布定制。持久化数据存在即权威：节点集合取持久化节点（用户
+ *  删过的节点不因 args 里仍存在而复活），共享 id 的节点先以解析结果补
+ *  默认字段、再被持久化字段覆盖；边取持久化边并过滤端点不存在的悬空边。
+ *  无合法持久化数据时直接使用解析图（默认网格布局）。 */
+function loadInitialCanvas(
+  graph: WorkflowGraph,
+  storageKey: string,
+): InitialCanvas {
+  const persisted = readPersistedCanvas(storageKey);
+  if (!persisted) {
+    return {
+      nodes: graph.nodes.map((node, index) =>
+        toFlowNode(node, defaultNodePosition(index)),
+      ),
+      edges: graph.edges,
+    };
+  }
+  const parsedNodeById = new Map(
+    graph.nodes.map((node) => [node.id, node] as const),
+  );
+  const nodes = persisted.nodes.map((persistedNode, index) => {
+    const base = parsedNodeById.get(persistedNode.id);
+    return toFlowNode(
+      {
+        id: persistedNode.id,
+        name: persistedNode.name ?? base?.name ?? "",
+        label: persistedNode.label ?? base?.label ?? base?.name ?? "",
+        prompt: persistedNode.prompt ?? base?.prompt ?? "",
+        description: persistedNode.description ?? base?.description ?? "",
+        apiProfile: persistedNode.apiProfile ?? base?.apiProfile ?? "",
+        model: persistedNode.model ?? base?.model ?? "",
+      },
+      persistedNode.position ?? defaultNodePosition(index),
+    );
+  });
+  const nodeIdSet = new Set(nodes.map((node) => node.id));
+  const seenEdgeIds = new Set<string>();
+  const edges = persisted.edges.filter((edge) => {
+    if (
+      edge.source === edge.target ||
+      !nodeIdSet.has(edge.source) ||
+      !nodeIdSet.has(edge.target)
+    ) {
+      return false;
+    }
+    // 去重：确定性 id 相同视为同一条边（重复边本就被禁止）。
+    const edgeId = buildEdgeId(edge);
+    if (seenEdgeIds.has(edgeId)) {
+      return false;
+    }
+    seenEdgeIds.add(edgeId);
+    return true;
+  });
+  return { nodes, edges };
+}
+
+/** 确定性边 id（重复边被禁止，端点即可唯一确定一条边）：派生/删除/过滤
+ *  全部按此 id 对齐，不会像旧版带 index 的 id 那样在删掉中间边后整体
+ *  漂移导致删除命中错误边。 */
+function buildEdgeId(edge: { source: string; target: string }): string {
+  return `wf-edge-${edge.source}->${edge.target}`;
+}
+
+/** 从 target 出发沿现有边 BFS，若能到达 source 则「加入 source→target」
+ *  会成环。runner 的 topologicalOrder 遇环会退化为原顺序执行，提前拒绝
+ *  成环连线可保证新边一定参与正确的执行拓扑。source === target（自环）
+ *  同样视为成环。 */
+function wouldCreateCycle(
+  edges: WorkflowEdgeItem[],
+  source: string,
+  target: string,
+): boolean {
+  if (source === target) {
+    return true;
+  }
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    const nexts = adjacency.get(edge.source);
+    if (nexts) {
+      nexts.push(edge.target);
+    } else {
+      adjacency.set(edge.source, [edge.target]);
+    }
+  }
+  const queue: string[] = [target];
+  const visited = new Set<string>([target]);
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    if (current === source) {
+      return true;
+    }
+    for (const next of adjacency.get(current) ?? []) {
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // 主组件
 // ---------------------------------------------------------------------------
 
@@ -104,6 +344,8 @@ type CanvasContextMenu = {
   clientX: number;
   clientY: number;
   nodeId: string | null;
+  /** 右键命中的连线 id（确定性边 id）；节点/画布右键时为 null。 */
+  edgeId: string | null;
 };
 
 const WorkflowToolCallInner = ({
@@ -117,34 +359,30 @@ const WorkflowToolCallInner = ({
     conversationDirectoryId: contextDirectoryId,
   } = useChatConversationContext();
   const { screenToFlowPosition } = useReactFlow();
+  const parentConversationId = conversationId ?? "";
+  const directoryId = contextDirectoryId ?? "";
   const graph = useMemo(
     () => parseWorkflowGraph(toolCall.arguments ?? "{}"),
     [toolCall],
   );
+  // 初始画布仅计算一次（useRef 兜住整个生命周期）：args 解析图与
+  // localStorage 持久化画布定制同步合并——localStorage 是同步 API，
+  // 禁止用异步 effect 二次渲染覆盖初始状态。
+  const canvasStorageKey = buildCanvasStorageKey(
+    parentConversationId,
+    toolCall.interactionId,
+  );
+  const initialCanvasRef = useRef<InitialCanvas | null>(null);
+  if (initialCanvasRef.current === null) {
+    initialCanvasRef.current = loadInitialCanvas(graph, canvasStorageKey);
+  }
+  const initialCanvas = initialCanvasRef.current;
   // React Flow 官方受控模式（useNodesState + onNodesChange）：拖拽由
   // applyNodeChanges 逐帧驱动，只替换被拖节点对象，其余节点引用稳定；
   // 业务数据挂在 data.node，更新时同样只替换目标节点。
   const [flowNodes, setFlowNodes, onFlowNodesChange] =
-    useNodesState<WorkflowFlowNode>(
-      graph.nodes.map((node, index) => ({
-        id: node.id,
-        type: "workflowCard",
-        position: {
-          x: (index % 3) * 300,
-          y: Math.floor(index / 3) * 170,
-        },
-        data: {
-          node: {
-            ...node,
-            runStatus: "pending",
-            errorMessage: "",
-            conversationId: "",
-            handoffContent: "",
-          },
-        },
-      })),
-    );
-  const [edges, setEdges] = useState(graph.edges);
+    useNodesState<WorkflowFlowNode>(initialCanvas.nodes);
+  const [edges, setEdges] = useState<WorkflowEdgeItem[]>(initialCanvas.edges);
   const [runnerStatus, setRunnerStatus] =
     useState<WorkflowRunnerStatus>("idle");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -153,9 +391,12 @@ const WorkflowToolCallInner = ({
   // 已提交的反馈内容：AI 收到 userResponse 重新设计流程，组件上同步
   // 展示这条反馈，让"流程为何重新生成"在卡片内可追溯。
   const [submittedReply, setSubmittedReply] = useState("");
-  const [isRestoring, setIsRestoring] = useState(false);
   const flowNodesRef = useRef(flowNodes);
   flowNodesRef.current = flowNodes;
+  // 连线校验（isValidConnection 在拖拽中高频触发）走 ref 读最新边，
+  // 避免回调闭包捕获过期的 edges。
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
   // 画布容器（右键菜单/编辑浮层的定位基准）。
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   // 画布右键菜单与节点编辑浮层锚点（相对画布容器）。
@@ -165,12 +406,18 @@ const WorkflowToolCallInner = ({
   const [editorAnchor, setEditorAnchor] = useState<{ x: number; y: number }>(
     () => ({ x: 16, y: 16 }),
   );
-  const parentConversationId = conversationId ?? "";
-  const directoryId = contextDirectoryId ?? "";
   const runnerStatusRef = useRef<WorkflowRunnerStatus>("idle");
   // 工具调用是否仍挂起等待用户操作（未结算）。历史 replay 的已完成
   // 工具调用初始即视为非挂起。
   const pendingRef = useRef<boolean>(toolCall.status !== "completed");
+
+  // 编辑类操作仅在工具挂起且未运行时开放（渲染期读 ref）。
+  const canEditCanvas =
+    pendingRef.current && runnerStatusRef.current !== "running";
+  // 事件回调内判断可编辑性走 ref：useCallback 缓存的回调若读渲染期值
+  // 会闭包过期（运行状态变化不一定触发相关回调重建）。
+  const canEditCanvasRef = useRef(canEditCanvas);
+  canEditCanvasRef.current = canEditCanvas;
 
   // 节点配置下拉数据源：API 配置列表 + 按所选配置拉取的模型目录
   // （对齐子代理编辑器：配置决定模型候选，切换配置清空模型）。
@@ -226,7 +473,6 @@ const WorkflowToolCallInner = ({
           parentConversationId,
           toolCall.interactionId,
         );
-        setIsRestoring(true);
         setFlowNodes((current) =>
           current.map((flowNode) => {
             const record = records.find((item) => item.nodeId === flowNode.id);
@@ -274,8 +520,6 @@ const WorkflowToolCallInner = ({
       }
     } catch {
       // 恢复失败不影响展示
-    } finally {
-      setIsRestoring(false);
     }
   }, [parentConversationId, toolCall.interactionId]);
 
@@ -364,8 +608,8 @@ const WorkflowToolCallInner = ({
               (flowNode) => flowNode.id === edge.target,
             ),
         )
-        .map((edge, index) => ({
-          id: `edge-${edge.source}-${edge.target}-${index}`,
+        .map((edge) => ({
+          id: buildEdgeId(edge),
           source: edge.source,
           target: edge.target,
           animated:
@@ -378,12 +622,50 @@ const WorkflowToolCallInner = ({
     [edges, runStatusKey],
   );
 
-  // 编辑类操作仅在工具挂起且未运行时开放。
-  const canEditCanvas =
-    pendingRef.current && runnerStatusRef.current !== "running";
+  // 画布定制持久化：防抖整体写回（拖拽/连线/输入逐帧变化时只落最后一次）。
+  // 运行态字段变化也会触发本 effect，但写入内容已剥离运行态字段，幂等无害；
+  // interactionId 缺失时不写（无法定位存储键）。
+  useEffect(() => {
+    if (!toolCall.interactionId) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      try {
+        const payload: PersistedCanvasPayload = {
+          version: CANVAS_STORAGE_VERSION,
+          nodes: flowNodes.map((flowNode) => ({
+            id: flowNode.id,
+            name: flowNode.data.node.name,
+            label: flowNode.data.node.label,
+            prompt: flowNode.data.node.prompt,
+            description: flowNode.data.node.description,
+            apiProfile: flowNode.data.node.apiProfile,
+            model: flowNode.data.node.model,
+            position: { x: flowNode.position.x, y: flowNode.position.y },
+          })),
+          edges: edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+          })),
+        };
+        window.localStorage.setItem(
+          buildCanvasStorageKey(parentConversationId, toolCall.interactionId),
+          JSON.stringify(payload),
+        );
+      } catch {
+        // localStorage 不可用/超限：静默失败，画布功能不受影响。
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [flowNodes, edges, parentConversationId, toolCall.interactionId]);
 
   const openCanvasContextMenu = useCallback(
-    (event: React.MouseEvent | MouseEvent, nodeId: string | null): void => {
+    (
+      event: React.MouseEvent | MouseEvent,
+      nodeId: string | null,
+      // 右键命中的连线 id（确定性边 id）；节点/画布右键时保持 null。
+      edgeId: string | null = null,
+    ): void => {
       event.preventDefault();
       if (runnerStatusRef.current === "running" || !pendingRef.current) {
         return;
@@ -395,6 +677,7 @@ const WorkflowToolCallInner = ({
         clientX: event.clientX,
         clientY: event.clientY,
         nodeId,
+        edgeId,
       });
     },
     [],
@@ -403,6 +686,14 @@ const WorkflowToolCallInner = ({
   const handleNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: WorkflowFlowNode): void => {
       openCanvasContextMenu(event, node.id);
+    },
+    [openCanvasContextMenu],
+  );
+
+  // 连线右键：与节点右键共用浮层定位，菜单项按 edgeId 区分。
+  const handleEdgeContextMenu = useCallback(
+    (event: React.MouseEvent, edge: Edge): void => {
+      openCanvasContextMenu(event, null, edge.id);
     },
     [openCanvasContextMenu],
   );
@@ -488,6 +779,108 @@ const WorkflowToolCallInner = ({
     setEditingNodeId((current) => (current === nodeId ? null : current));
     setContextMenu(null);
   }, []);
+
+  const handleDeleteEdge = useCallback((edgeId: string): void => {
+    // 按确定性 id 过滤：与 flowEdges 派生 id、右键命中的 edge.id 严格对齐。
+    setEdges((current) =>
+      current.filter((edge) => buildEdgeId(edge) !== edgeId),
+    );
+    setContextMenu(null);
+  }, []);
+
+  // 连线合法性统一入口（handleConnect 与 isValidConnection 同源复用）：
+  // 端点非空、非自环、不与现有边重复、加边不成环（wouldCreateCycle）。
+  const isConnectionAllowed = useCallback(
+    (
+      source: string | null | undefined,
+      target: string | null | undefined,
+    ): boolean => {
+      if (!source || !target) {
+        return false;
+      }
+      if (
+        edgesRef.current.some(
+          (edge) => edge.source === source && edge.target === target,
+        )
+      ) {
+        return false;
+      }
+      return !wouldCreateCycle(edgesRef.current, source, target);
+    },
+    [],
+  );
+
+  // 拖拽连线完成：校验通过后写入 edges state。runner 按 edges 做拓扑排序
+  // 消费，新边自动参与执行顺序，无需额外同步。
+  const handleConnect = useCallback(
+    (connection: Connection): void => {
+      const { source, target } = connection;
+      if (!source || !target || !canEditCanvasRef.current) {
+        return;
+      }
+      if (!isConnectionAllowed(source, target)) {
+        return;
+      }
+      setEdges((current) => [...current, { source, target }]);
+    },
+    [isConnectionAllowed],
+  );
+
+  // 拖拽过程中的即时可连性反馈（v12 签名：Edge | Connection）。
+  const handleIsValidConnection = useCallback(
+    (edge: Edge | Connection): boolean =>
+      isConnectionAllowed(edge.source, edge.target),
+    [isConnectionAllowed],
+  );
+
+  // React Flow 内置删除路径（键盘 Backspace 删选中等）通过 onEdgesChange
+  // 下发 remove change：按确定性 id 同步清理 edges state 兜底。不可编辑
+  // （运行中/已结算）时忽略 remove change，与 handleNodesChange 的节点
+  // remove 过滤同一口径——否则键盘删除选中节点时节点 remove change 被
+  // 过滤保留，而相连边会被级联 remove，出现「节点在、边被删」的不一致。
+  const handleEdgesChange = useCallback((changes: EdgeChange[]): void => {
+    if (!canEditCanvasRef.current) {
+      return;
+    }
+    const removedIds = new Set(
+      changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id),
+    );
+    if (removedIds.size === 0) {
+      return;
+    }
+    setEdges((current) =>
+      current.filter((edge) => !removedIds.has(buildEdgeId(edge))),
+    );
+  }, []);
+
+  // 包装节点变更：键盘删除选中节点（默认 Backspace）时同步清掉引用这些
+  // 节点的边，避免死边留在 state（并随之进入持久化数据）；canEditCanvas
+  // 为 false 时过滤 remove change 防运行中误删，其余 change（拖拽/
+  // select/dimensions）照常透传，不影响受控拖拽逐帧更新。
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<WorkflowFlowNode>[]): void => {
+      const next = canEditCanvasRef.current
+        ? changes
+        : changes.filter((change) => change.type !== "remove");
+      const removedIds = new Set(
+        next
+          .filter((change) => change.type === "remove")
+          .map((change) => change.id),
+      );
+      if (removedIds.size > 0) {
+        setEdges((current) =>
+          current.filter(
+            (edge) =>
+              !removedIds.has(edge.source) && !removedIds.has(edge.target),
+          ),
+        );
+      }
+      onFlowNodesChange(next);
+    },
+    [onFlowNodesChange],
+  );
 
   const editingNode =
     flowNodes.find((flowNode) => flowNode.id === editingNodeId)?.data.node ??
@@ -768,6 +1161,7 @@ const WorkflowToolCallInner = ({
         {hasCanvas && (
           <div className="workflow-canvas-wrap" ref={canvasWrapRef}>
             <div className="workflow-canvas">
+              {/* 仅挂起且未运行时开放连线，与右键编辑同一可编辑性口径。 */}
               <ReactFlow
                 nodes={flowNodes}
                 edges={flowEdges}
@@ -779,9 +1173,13 @@ const WorkflowToolCallInner = ({
                 onPaneClick={() => setContextMenu(null)}
                 onMoveStart={() => setContextMenu(null)}
                 onNodeClick={handleNodeClick}
-                onNodesChange={onFlowNodesChange}
+                onEdgeContextMenu={handleEdgeContextMenu}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                onConnect={handleConnect}
+                isValidConnection={handleIsValidConnection}
                 fitView
-                nodesConnectable={false}
+                nodesConnectable={canEditCanvas}
                 nodesDraggable
                 proOptions={{ hideAttribution: true }}
               >
@@ -795,7 +1193,15 @@ const WorkflowToolCallInner = ({
                 className="workflow-context-menu"
                 style={{ left: contextMenu.x, top: contextMenu.y }}
               >
-                {contextMenu.nodeId ? (
+                {contextMenu.edgeId ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEdge(contextMenu.edgeId ?? "")}
+                  >
+                    <Trash2 size={13} aria-hidden="true" />
+                    <span>{t("toolCall.workflow.deleteEdge")}</span>
+                  </button>
+                ) : contextMenu.nodeId ? (
                   <>
                     <button
                       type="button"

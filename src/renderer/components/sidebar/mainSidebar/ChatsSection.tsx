@@ -38,6 +38,7 @@ import { ChatItem } from "./ChatItem";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import { isChatDrag, readChatDragData } from "./chatDrag";
 import { SubAgentListPanel } from "./SubAgentListPanel";
+import { WorkflowNodeListPanel } from "./WorkflowNodeListPanel";
 import {
   formatTimeLabel,
   groupConversationsByTime,
@@ -166,6 +167,8 @@ export function ChatsSection({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subAgentMap, setSubAgentMap] = useState<SubAgentMap>({});
+  // Workflow 主会话 -> 其 workflow 节点会话（树形子层）
+  const [workflowNodeMap, setWorkflowNodeMap] = useState<SubAgentMap>({});
   // 含待确认子代理的父会话也视为需关注：与运行中会话一样置顶排序，
   // 保证会话较多时用户不会漏掉被暂停等待确认的子代理
   const surfacedConversationIds = useMemo(() => {
@@ -179,13 +182,43 @@ export function ChatsSection({
           attentionRequiredConversationIds.has(sub.conversationId),
         )
       ) {
+        // 子代理挂在 workflow 节点会话下时，需要继续提升到
+        // workflow 主会话（树形层级：Workflow → 节点 → 子代理）
+        const workflowParentId = Object.keys(workflowNodeMap).find(
+          (workflowId) =>
+            (workflowNodeMap[workflowId] ?? []).some(
+              (node) => node.conversationId === parentId,
+            ),
+        );
+        next.add(workflowParentId ?? parentId);
+      }
+    }
+    // workflow 节点本身需关注时提升其主会话置顶
+    for (const [parentId, nodes] of Object.entries(workflowNodeMap)) {
+      if (
+        nodes.some((node) =>
+          attentionRequiredConversationIds.has(node.conversationId),
+        )
+      ) {
         next.add(parentId);
       }
     }
     return next;
-  }, [runningConversationIds, attentionRequiredConversationIds, subAgentMap]);
+  }, [
+    runningConversationIds,
+    attentionRequiredConversationIds,
+    subAgentMap,
+    workflowNodeMap,
+  ]);
   const [expandedSubAgentConversationIds, setExpandedSubAgentConversationIds] =
     useState<Set<string>>(() => new Set());
+  // 已展开的 Workflow 主会话（显示节点树）与已展开的节点会话（显示其子代理）
+  const [expandedWorkflowConversationIds, setExpandedWorkflowConversationIds] =
+    useState<Set<string>>(() => new Set());
+  const [
+    expandedWorkflowNodeConversationIds,
+    setExpandedWorkflowNodeConversationIds,
+  ] = useState<Set<string>>(() => new Set());
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   // 批量删除确认：所选会话引用的图库图片数（null = 未查询），
@@ -267,6 +300,16 @@ export function ChatsSection({
   const conversationIdsKey = conversations
     .map((conv) => conv.conversationId)
     .join("\u0000");
+  // workflow 节点会话 id 集合的稳定 key：节点创建/更新时触发子代理重查
+  const workflowNodeIdsKey = useMemo(() => {
+    const ids: string[] = [];
+    for (const nodes of Object.values(workflowNodeMap)) {
+      for (const node of nodes) {
+        ids.push(node.conversationId);
+      }
+    }
+    return ids.join("\u0000");
+  }, [workflowNodeMap]);
 
   const directoryId = activeDirectory?.directoryId ?? "";
   const hasMore = conversations.length < total;
@@ -329,6 +372,11 @@ export function ChatsSection({
       return;
     }
     if (conv.status === "pin") {
+      return;
+    }
+    // workflow 节点会话不进入主会话列表（由 workflow 主会话的树形面板展示），
+    // 但节点状态变化仍需通过 conversationListVersion 触发树形数据重查
+    if (conv.conversationType === "workflow_node") {
       return;
     }
 
@@ -679,6 +727,25 @@ export function ChatsSection({
     }
   };
 
+  /** 收集会话及其全部树形子层（子代理、workflow 节点、节点派生的子代理）的 id，
+   *  用于删除/归档时中止流、清理草稿与判断活动会话。 */
+  const collectConversationTreeIds = useCallback(
+    (conversationId: string): string[] => {
+      const ids = [conversationId];
+      for (const sub of subAgentMap[conversationId] ?? []) {
+        ids.push(sub.conversationId);
+      }
+      for (const node of workflowNodeMap[conversationId] ?? []) {
+        ids.push(node.conversationId);
+        for (const sub of subAgentMap[node.conversationId] ?? []) {
+          ids.push(sub.conversationId);
+        }
+      }
+      return ids;
+    },
+    [subAgentMap, workflowNodeMap],
+  );
+
   const handleDelete = async (
     conversation: ChatConversationRecord,
     deleteImages: boolean,
@@ -696,14 +763,11 @@ export function ChatsSection({
         ]);
       }
 
-      // Rust 侧级联删除子代理会话：收集全部待删 ID，以便中止对应流，
-      // 并在当前正打开被删会话或其子代理时清空聊天区
-      const deleteTargetIds = [
+      // Rust 侧级联删除子代理与 workflow 节点会话：收集全部待删 ID，
+      // 以便中止对应流，并在当前正打开被删会话或其子层时清空聊天区
+      const deleteTargetIds = collectConversationTreeIds(
         conversation.conversationId,
-        ...(subAgentMap[conversation.conversationId] ?? []).map(
-          (sub) => sub.conversationId,
-        ),
-      ];
+      );
       for (const targetId of deleteTargetIds) {
         abortConversation(targetId);
       }
@@ -738,12 +802,7 @@ export function ChatsSection({
     }
     setArchivingIds(new Set([conversation.conversationId]));
     try {
-      const targetIds = [
-        conversation.conversationId,
-        ...(subAgentMap[conversation.conversationId] ?? []).map(
-          (sub) => sub.conversationId,
-        ),
-      ];
+      const targetIds = collectConversationTreeIds(conversation.conversationId);
       for (const targetId of targetIds) {
         abortConversation(targetId);
       }
@@ -893,13 +952,12 @@ export function ChatsSection({
         await window.snow.deleteConversationImages([...selectedIds]);
       }
 
-      // 收集所有受影响会话 ID（含子代理级联），用于中止流/清空聊天区
+      // 收集所有受影响会话 ID（含子代理、workflow 节点与节点子代理级联），
+      // 用于中止流/清空聊天区
       const targetIds = new Set<string>();
       for (const convId of selectedIds) {
-        targetIds.add(convId);
-        const subs = subAgentMap[convId] ?? [];
-        for (const sub of subs) {
-          targetIds.add(sub.conversationId);
+        for (const targetId of collectConversationTreeIds(convId)) {
+          targetIds.add(targetId);
         }
       }
 
@@ -939,13 +997,12 @@ export function ChatsSection({
 
     setArchivingIds(new Set(selectedIds));
     try {
-      // 收集所有受影响会话 ID（含子代理级联），用于中止流/清空聊天区
+      // 收集所有受影响会话 ID（含子代理、workflow 节点与节点子代理级联），
+      // 用于中止流/清空聊天区
       const targetIds = new Set<string>();
       for (const convId of selectedIds) {
-        targetIds.add(convId);
-        const subs = subAgentMap[convId] ?? [];
-        for (const sub of subs) {
-          targetIds.add(sub.conversationId);
+        for (const targetId of collectConversationTreeIds(convId)) {
+          targetIds.add(targetId);
         }
       }
 
@@ -1100,9 +1157,57 @@ export function ChatsSection({
     surfacedConversationIds,
   );
 
+  // 加载所有主会话的 workflow 节点会话（树形子层）。
+  // 依赖 conversationListVersion：workflow 节点创建/状态更新时会话记录
+  // upsert 使版本递增，从而刷新节点树；conversationIdsKey 负责列表切换。
   useEffect(() => {
     const current = conversationsRef.current;
     if (current.length === 0) {
+      setWorkflowNodeMap({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadWorkflowNodes = async (): Promise<void> => {
+      try {
+        const map = await window.snow.listWorkflowNodeSessionsByParents(
+          current.map((conv) => conv.conversationId),
+        );
+        if (!cancelled) {
+          setWorkflowNodeMap(map);
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkflowNodeMap({});
+        }
+      }
+    };
+
+    void loadWorkflowNodes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conversationIdsKey,
+    conversationListVersion,
+    // 节点会话创建/更新时主动 upsert（workflowRunner），据此重查节点树
+    upsertedConversation?.timestamp,
+  ]);
+
+  // 加载子代理：父级范围覆盖主会话与 workflow 节点会话（层级：
+  // Workflow 主会话 → 节点会话 → 子代理），单次批量查询避免 N+1。
+  useEffect(() => {
+    const current = conversationsRef.current;
+    const nodeIds = workflowNodeIdsKey
+      ? workflowNodeIdsKey.split("\u0000")
+      : [];
+    const parentIds = [
+      ...current.map((conv) => conv.conversationId),
+      ...nodeIds,
+    ];
+    if (parentIds.length === 0) {
       setSubAgentMap({});
       return;
     }
@@ -1110,11 +1215,9 @@ export function ChatsSection({
     let cancelled = false;
 
     const loadSubAgents = async (): Promise<void> => {
-      // 单次批量查询所有父会话的子代理，避免逐条 IPC（N+1）
       try {
-        const map = await window.snow.listSubAgentConversationsByParents(
-          current.map((conv) => conv.conversationId),
-        );
+        const map =
+          await window.snow.listSubAgentConversationsByParents(parentIds);
         if (!cancelled) {
           setSubAgentMap(map);
         }
@@ -1130,7 +1233,7 @@ export function ChatsSection({
     return () => {
       cancelled = true;
     };
-  }, [conversationIdsKey]);
+  }, [conversationIdsKey, workflowNodeIdsKey, conversationListVersion]);
 
   useEffect(() => {
     const events = Object.values(subAgentSessionEvents);
@@ -1201,7 +1304,9 @@ export function ChatsSection({
     });
   }, [subAgentSessionEvents]);
 
-  // 当激活的会话是某个父会话的子代理时，自动展开该父会话的面板
+  // 当激活的会话是某个父会话的子代理时，自动展开该父会话的面板；
+  // 激活的会话是 workflow 节点或其子代理时，自动展开对应 workflow 主会话
+  // 与节点面板，保证层级可见。
   useEffect(() => {
     if (!activeConversationId) {
       return;
@@ -1221,10 +1326,87 @@ export function ChatsSection({
       }
       return next;
     });
-  }, [subAgentMap, activeConversationId]);
+    setExpandedWorkflowConversationIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const [parentId, nodes] of Object.entries(workflowNodeMap)) {
+        const isNodeActive = nodes.some(
+          (node) => node.conversationId === activeConversationId,
+        );
+        const isNodeSubAgentActive = nodes.some((node) =>
+          (subAgentMap[node.conversationId] ?? []).some(
+            (sub) => sub.conversationId === activeConversationId,
+          ),
+        );
+        if (isNodeActive) {
+          if (!next.has(parentId)) {
+            next.add(parentId);
+            changed = true;
+          }
+          // 激活节点自身时也展开该节点的子代理面板
+          setExpandedWorkflowNodeConversationIds((nodePrev) => {
+            const nodeNext = new Set(nodePrev);
+            if (isNodeActive && !nodeNext.has(activeConversationId as string)) {
+              nodeNext.add(activeConversationId as string);
+              return nodeNext;
+            }
+            return nodePrev;
+          });
+        } else if (isNodeSubAgentActive) {
+          if (!next.has(parentId)) {
+            next.add(parentId);
+            changed = true;
+          }
+          for (const node of nodes) {
+            if (
+              (subAgentMap[node.conversationId] ?? []).some(
+                (sub) => sub.conversationId === activeConversationId,
+              )
+            ) {
+              setExpandedWorkflowNodeConversationIds((nodePrev) => {
+                const nodeNext = new Set(nodePrev);
+                if (!nodeNext.has(node.conversationId)) {
+                  nodeNext.add(node.conversationId);
+                  return nodeNext;
+                }
+                return nodePrev;
+              });
+            }
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [subAgentMap, workflowNodeMap, activeConversationId]);
 
   const handleToggleSubAgentPanel = (conversationId: string): void => {
     setExpandedSubAgentConversationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) {
+        next.delete(conversationId);
+      } else {
+        next.add(conversationId);
+      }
+      return next;
+    });
+  };
+
+  /** 展开/收起 Workflow 主会话的节点树 */
+  const handleToggleWorkflowPanel = (conversationId: string): void => {
+    setExpandedWorkflowConversationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) {
+        next.delete(conversationId);
+      } else {
+        next.add(conversationId);
+      }
+      return next;
+    });
+  };
+
+  /** 展开/收起 Workflow 节点会话的子代理列表 */
+  const handleToggleWorkflowNode = (conversationId: string): void => {
+    setExpandedWorkflowNodeConversationIds((prev) => {
       const next = new Set(prev);
       if (next.has(conversationId)) {
         next.delete(conversationId);
@@ -1967,6 +2149,13 @@ export function ChatsSection({
                           expandedSubAgentConversationIds.has(
                             conversation.conversationId,
                           );
+                        const workflowNodeConversations =
+                          workflowNodeMap[conversation.conversationId] ?? [];
+                        const isWorkflow = workflowNodeConversations.length > 0;
+                        const isWorkflowPanelExpanded =
+                          expandedWorkflowConversationIds.has(
+                            conversation.conversationId,
+                          );
                         return (
                           <Fragment key={conversation.conversationId}>
                             <ChatItem
@@ -1997,6 +2186,13 @@ export function ChatsSection({
                                 attentionRequiredConversationIds
                               }
                               isSubAgentExpanded={isSubAgentPanelExpanded}
+                              isWorkflow={isWorkflow}
+                              isWorkflowExpanded={isWorkflowPanelExpanded}
+                              onToggleWorkflowPanel={() =>
+                                handleToggleWorkflowPanel(
+                                  conversation.conversationId,
+                                )
+                              }
                               isMultiSelectMode={isMultiSelectMode}
                               isSelected={selectedIds.has(
                                 conversation.conversationId,
@@ -2053,6 +2249,33 @@ export function ChatsSection({
                             />
                             {/* 面板渲染在 ChatItem 外部，作为兄弟节点，
                           完全不继承父级会话项的背景色 */}
+                            {isWorkflow &&
+                              isWorkflowPanelExpanded &&
+                              !isMultiSelectMode && (
+                                <WorkflowNodeListPanel
+                                  conversations={workflowNodeConversations}
+                                  activeConversationId={activeConversationId}
+                                  attentionRequiredConversationIds={
+                                    attentionRequiredConversationIds
+                                  }
+                                  streamingConversationIds={
+                                    streamingConversationIds
+                                  }
+                                  subAgentMap={subAgentMap}
+                                  expandedNodeIds={
+                                    expandedWorkflowNodeConversationIds
+                                  }
+                                  onToggleNode={handleToggleWorkflowNode}
+                                  onSelect={(nodeConvId) =>
+                                    void handleSelectConversation(
+                                      nodeConvId,
+                                      undefined,
+                                      undefined,
+                                      conversation.directoryId,
+                                    )
+                                  }
+                                />
+                              )}
                             {subAgentConversations.length > 0 &&
                               isSubAgentPanelExpanded &&
                               !isMultiSelectMode && (

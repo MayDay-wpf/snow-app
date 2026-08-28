@@ -101,6 +101,16 @@ pub fn list_workflow_node_sessions(
     )
 }
 
+pub fn list_workflow_node_sessions_by_parents(
+    parent_conversation_ids: &[String],
+) -> Result<std::collections::HashMap<String, Vec<ChatConversationRecord>>> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::list_workflow_node_sessions_by_parents(
+        &database_path,
+        parent_conversation_ids,
+    )
+}
+
 pub fn get_workflow_node_session(
     conversation_id: &str,
 ) -> Result<Option<WorkflowNodeSessionRecord>> {

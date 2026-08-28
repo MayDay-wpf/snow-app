@@ -1392,6 +1392,9 @@ export type NativeBridge = {
   listWorkflowNodeSessions: (
     parentConversationId: string,
   ) => Promise<WorkflowNodeSessionRecord[]>;
+  listWorkflowNodeSessionsByParents: (
+    parentConversationIds: string[],
+  ) => Promise<Record<string, ChatConversationRecord[]>>;
   getWorkflowNodeSession: (
     conversationId: string,
   ) => Promise<WorkflowNodeSessionRecord | null>;

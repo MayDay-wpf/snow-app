@@ -687,6 +687,72 @@ export const useConversationManagement = (
   );
 
   /**
+   * 级联中止子代理树：从指定会话开始，连同其递归派生的所有子代理一并
+   * 停止（拒绝挂起授权、清理流状态与内存会话标记）。供主会话中止与
+   * WorkFlow 节点中止共用：节点运行期间派生的子代理挂在节点会话下，
+   * 中止节点时必须一并停止，否则子代理会在后台继续流式请求。
+   */
+  const abortSubAgentTree = useCallback(
+    (subKey: string): void => {
+      const subRef = ctx.sessionsRefData.current.get(subKey);
+      if (!subRef || subRef.isAbortRequested) {
+        return;
+      }
+      subRef.isAbortRequested = true;
+      subRef.isSending = false;
+      // Settle the sub-agent's own pending authorizations (scoped to its
+      // session key) so its agent loop cannot stay blocked awaiting a
+      // decision that will never arrive.
+      rejectToolAuthorizations(subKey);
+      killRunningToolExecutions(
+        ctx.sessionsRef.current?.[subKey]?.messages ?? [],
+      );
+
+      ctx.updateSessionMessages(subKey, (currentMessages) =>
+        currentMessages.map((message) => ({
+          ...message,
+          status: message.status === "sending" ? "sent" : message.status,
+          isRetrying: message.status === "sending" ? false : message.isRetrying,
+          toolCalls: message.toolCalls?.map((toolCall) =>
+            toolCall.status === "running" || toolCall.status === "pending"
+              ? {
+                  ...toolCall,
+                  status: "error",
+                  result: toolCall.result ?? "Interrupted by user",
+                }
+              : toolCall,
+          ),
+        })),
+      );
+      ctx.updateSessionField(subKey, "isStreaming", false);
+      ctx.updateSessionField(subKey, "streamStartedAt", 0);
+      ctx.updateSessionField(subKey, "isAborting", false);
+      ctx.updateSessionField(subKey, "isPaused", false);
+      // Same vision textify status card cleanup as the parent abort.
+      ctx.updateSessionField(subKey, "visionAnalysis", undefined);
+      ctx.pauseControllerRef.current.delete(subKey);
+      ctx.removeStreamingId(subKey);
+
+      if (subRef.streamId) {
+        void window.snow.abortResponseStream(subRef.streamId);
+      }
+
+      for (const grandChildId of subRef.childSubAgentIds) {
+        abortSubAgentTree(grandChildId);
+      }
+    },
+    [
+      ctx.removeStreamingId,
+      rejectToolAuthorizations,
+      ctx.updateSessionMessages,
+      ctx.updateSessionField,
+      ctx.pauseControllerRef,
+      ctx.sessionsRef,
+      ctx.sessionsRefData,
+    ],
+  );
+
+  /**
    * 级联中止该会话正在执行的 WorkFlow 节点：节点是真实主会话（内存注册、
    * 独立流与工具进程），父会话中断/删除时必须一并停止，否则节点会继续
    * 流式请求并运行子进程。同时结算挂起的 workflow-generate，避免主
@@ -696,51 +762,12 @@ export const useConversationManagement = (
     (parentConversationId: string): void => {
       abandonWorkflowsForConversation(parentConversationId);
       for (const nodeId of getActiveWorkflowNodeIds(parentConversationId)) {
-        const nodeRef = ctx.sessionsRefData.current.get(nodeId);
-        if (!nodeRef || nodeRef.isAbortRequested) {
-          continue;
-        }
-        nodeRef.isAbortRequested = true;
-        nodeRef.isSending = false;
-        rejectToolAuthorizations(nodeId);
-        killRunningToolExecutions(
-          ctx.sessionsRef.current?.[nodeId]?.messages ?? [],
-        );
-        ctx.updateSessionMessages(nodeId, (currentMessages) =>
-          currentMessages.map((message) => ({
-            ...message,
-            status: message.status === "sending" ? "sent" : message.status,
-            isRetrying:
-              message.status === "sending" ? false : message.isRetrying,
-            toolCalls: message.toolCalls?.map((toolCall) =>
-              toolCall.status === "running" || toolCall.status === "pending"
-                ? {
-                    ...toolCall,
-                    status: "error",
-                    result: toolCall.result ?? "Interrupted by user",
-                  }
-                : toolCall,
-            ),
-          })),
-        );
-        ctx.updateSessionField(nodeId, "isStreaming", false);
-        ctx.updateSessionField(nodeId, "streamStartedAt", 0);
-        ctx.updateSessionField(nodeId, "isAborting", false);
-        ctx.updateSessionField(nodeId, "visionAnalysis", undefined);
-        ctx.removeStreamingId(nodeId);
-        if (nodeRef.streamId) {
-          void window.snow.abortResponseStream(nodeRef.streamId);
-        }
+        // 节点及其在节点会话下递归派生的子代理一并中止：
+        // abortSubAgentTree 统一处理会话标记、授权、流与子进程清理。
+        abortSubAgentTree(nodeId);
       }
     },
-    [
-      ctx.removeStreamingId,
-      rejectToolAuthorizations,
-      ctx.sessionsRefData,
-      ctx.sessionsRef,
-      ctx.updateSessionMessages,
-      ctx.updateSessionField,
-    ],
+    [abortSubAgentTree],
   );
 
   const handleAbort = useCallback((): void => {
@@ -830,61 +857,13 @@ export const useConversationManagement = (
     // Cascade the abort to every sub-agent spawned by this conversation (and
     // recursively to their own sub-agents). Without this, stopping the main
     // flow would leave sub-agents streaming in the background.
-    const abortSubAgentTree = (subKey: string): void => {
-      const subRef = ctx.sessionsRefData.current.get(subKey);
-      if (!subRef || subRef.isAbortRequested) {
-        return;
-      }
-      subRef.isAbortRequested = true;
-      subRef.isSending = false;
-      // Settle the sub-agent's own pending authorizations (scoped to its
-      // session key) so its agent loop cannot stay blocked awaiting a
-      // decision that will never arrive.
-      rejectToolAuthorizations(subKey);
-      killRunningToolExecutions(
-        ctx.sessionsRef.current?.[subKey]?.messages ?? [],
-      );
-
-      ctx.updateSessionMessages(subKey, (currentMessages) =>
-        currentMessages.map((message) => ({
-          ...message,
-          status: message.status === "sending" ? "sent" : message.status,
-          isRetrying: message.status === "sending" ? false : message.isRetrying,
-          toolCalls: message.toolCalls?.map((toolCall) =>
-            toolCall.status === "running" || toolCall.status === "pending"
-              ? {
-                  ...toolCall,
-                  status: "error",
-                  result: toolCall.result ?? "Interrupted by user",
-                }
-              : toolCall,
-          ),
-        })),
-      );
-      ctx.updateSessionField(subKey, "isStreaming", false);
-      ctx.updateSessionField(subKey, "streamStartedAt", 0);
-      ctx.updateSessionField(subKey, "isAborting", false);
-      ctx.updateSessionField(subKey, "isPaused", false);
-      // Same vision textify status card cleanup as the parent abort.
-      ctx.updateSessionField(subKey, "visionAnalysis", undefined);
-      ctx.pauseControllerRef.current.delete(subKey);
-      ctx.removeStreamingId(subKey);
-
-      if (subRef.streamId) {
-        void window.snow.abortResponseStream(subRef.streamId);
-      }
-
-      for (const grandChildId of subRef.childSubAgentIds) {
-        abortSubAgentTree(grandChildId);
-      }
-    };
-
     for (const subAgentId of ref.childSubAgentIds) {
       abortSubAgentTree(subAgentId);
     }
 
     // 级联中止运行中的 WorkFlow 节点（节点是独立主会话，不在
-    // childSubAgentIds 内），并结算挂起的 workflow-generate。
+    // childSubAgentIds 内；节点及其子代理由 abortSubAgentTree 统一中止），
+    // 并结算挂起的 workflow-generate。
     abortWorkflowNodes(key);
   }, [
     ctx.removeStreamingId,
@@ -894,6 +873,7 @@ export const useConversationManagement = (
     ctx.updateSessionField,
     ctx.pauseControllerRef,
     abortWorkflowNodes,
+    abortSubAgentTree,
   ]);
 
   const abortConversation = useCallback(

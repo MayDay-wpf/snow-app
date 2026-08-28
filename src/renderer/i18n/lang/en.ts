@@ -428,6 +428,7 @@ export const en = {
   "sidebar.archivedChatMultiSelectDeleteConfirm":
     "Permanently delete {{count}} selected archived conversations? This cannot be undone.",
   "sidebar.subAgent": "Sub-agent",
+  "sidebar.workflowNode": "Workflow node",
   "sidebar.emojiPickerLabel": "Select an emoji",
   "sidebar.emojiPickerTitle": "Choose icon",
   "sidebar.emojiClear": "Clear emoji",
@@ -756,6 +757,19 @@ export const en = {
   "toolCall.workflow.editNode": "Edit node",
   "toolCall.workflow.deleteNode": "Delete node",
   "toolCall.workflow.newNodeName": "New node",
+  "toolCall.workflow.deleteEdge": "Delete connection",
+  // System notifications
+  "notification.aiComplete.title": "AI task completed",
+  "notification.aiComplete.bodyWithTitle":
+    'Conversation "{{title}}" has finished',
+  "notification.aiComplete.bodyDefault":
+    "The current conversation has finished. Return to review it.",
+  "notification.sensitiveCommand.title": "Sensitive command needs confirmation",
+  "notification.sensitiveCommand.body":
+    "Tool {{toolName}} triggered a sensitive command interception. Return to confirm.",
+  "notification.userInteraction.title": "Your input is needed",
+  "notification.workflow.defaultReason":
+    "Workflow generated. Return to the conversation to confirm execution.",
   "toolCall.grep.name": "grep",
   "toolCall.grep.pattern": "Pattern",
   "toolCall.grep.path": "Path",
@@ -3851,6 +3865,15 @@ export const en = {
   "settings.usagePresetLastMonth": "Last month",
   "settings.usagePresetAll": "All time",
   "settings.usagePresetCustom": "Custom",
+  "settings.usageTrendTitle": "Daily trend",
+  "settings.usageDonutTitle": "Model share",
+  "settings.usageSuccessRate": "Success rate",
+  "settings.usageShare": "Share",
+  "settings.usageOthers": "Others",
+  "settings.usageTrendEmpty": "No usage data for the selected period.",
+  "settings.usageDonutEmpty": "No model usage data.",
+  "settings.usageShowRecords": "Show usage records",
+  "settings.usageHideRecords": "Hide usage records",
   "settings.usageModelBreakdownTitle": "Usage by model",
   "settings.usageModelBreakdownInfo": "Token consumption grouped by model.",
   "settings.usageColRequests": "Requests",

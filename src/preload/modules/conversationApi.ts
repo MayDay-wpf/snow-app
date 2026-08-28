@@ -263,6 +263,13 @@ export const conversationApi = {
       "chat-conversations:list-workflow-node-sessions",
       parentConversationId,
     ),
+  listWorkflowNodeSessionsByParents: (
+    parentConversationIds: string[],
+  ): Promise<Record<string, ChatConversationRecord[]>> =>
+    ipcRenderer.invoke(
+      "chat-conversations:list-workflow-node-sessions-by-parents",
+      parentConversationIds,
+    ),
   getWorkflowNodeSession: (
     conversationId: string,
   ): Promise<WorkflowNodeSessionRecord | null> =>

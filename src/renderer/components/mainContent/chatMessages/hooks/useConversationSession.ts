@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useI18n } from "../../../../i18n";
 import type {
   AppNotificationOptions,
   NotificationConversationTarget,
@@ -47,6 +48,7 @@ const showConversationNotification = ({
  * 所有回调通过 ctx 访问共享状态，避免重复声明 ref / state。
  */
 export const useConversationSession = (ctx: ConversationContextValue) => {
+  const { t } = useI18n();
   const setActiveId = useCallback(
     (id: string | undefined): void => {
       ctx.activeConversationIdRef.current = id;
@@ -254,13 +256,17 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
           : conversationTitle
         : "";
       showConversationNotification({
-        title: "AI 任务已完成",
-        body: title ? `会话「${title}」已结束` : "当前会话已结束，请返回查看",
+        title: t("notification.aiComplete.title"),
+        body: title
+          ? t("notification.aiComplete.bodyWithTitle", {
+              values: { title },
+            })
+          : t("notification.aiComplete.bodyDefault"),
         conversationId,
         directoryId,
       });
     },
-    [],
+    [t],
   );
 
   const notifySensitiveCommandIntercepted = useCallback(
@@ -270,13 +276,15 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
       toolName,
     }: NotifySensitiveCommandOptions): void => {
       showConversationNotification({
-        title: "敏感命令需要确认",
-        body: `工具 ${toolName} 触发了敏感命令拦截，请返回确认`,
+        title: t("notification.sensitiveCommand.title"),
+        body: t("notification.sensitiveCommand.body", {
+          values: { toolName },
+        }),
         conversationId,
         directoryId,
       });
     },
-    [],
+    [t],
   );
 
   const notifyUserInteractionRequired = useCallback(
@@ -287,13 +295,13 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
     }: NotifyUserInteractionOptions): void => {
       const body = reason.length > 60 ? `${reason.slice(0, 60)}...` : reason;
       showConversationNotification({
-        title: "需要您的输入",
+        title: t("notification.userInteraction.title"),
         body,
         conversationId,
         directoryId,
       });
     },
-    [],
+    [t],
   );
 
   return {

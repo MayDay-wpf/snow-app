@@ -781,6 +781,24 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
     },
   );
   ipcMain.handle(
+    "chat-conversations:list-workflow-node-sessions-by-parents",
+    (_event, parentConversationIds: unknown) => {
+      if (!Array.isArray(parentConversationIds)) {
+        throw new Error(
+          "Parent conversation IDs are required to list workflow node sessions",
+        );
+      }
+
+      const safeIds = parentConversationIds.filter(
+        (id): id is string => typeof id === "string" && id.trim() !== "",
+      );
+      if (safeIds.length === 0) {
+        return Promise.resolve({});
+      }
+      return native.listWorkflowNodeSessionsByParents(safeIds);
+    },
+  );
+  ipcMain.handle(
     "chat-conversations:get-workflow-node-session",
     async (_event, conversationId: unknown) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {

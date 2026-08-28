@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { DailyTrendChart } from "./DailyTrendChart";
+import { ModelDonutChart } from "./ModelDonutChart";
 import { UsageDateFilter } from "./UsageDateFilter";
 import { useI18n } from "../../../i18n";
 import type {
@@ -139,6 +148,8 @@ export function UsageSettingsPanel({
     [],
   );
   const [dailyData, setDailyData] = useState<DailyUsageBreakdown[]>([]);
+  // 趋势图数据：按当前筛选区间请求，与年度热力图（整年）区分开。
+  const [trendData, setTrendData] = useState<DailyUsageBreakdown[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -159,6 +170,8 @@ export function UsageSettingsPanel({
   const [isClearing, setIsClearing] = useState(false);
   const [pendingClear, setPendingClear] = useState(false);
   const [clearNotice, setClearNotice] = useState("");
+  // 使用记录明细默认展开，用户可手动折叠。
+  const [recordsOpen, setRecordsOpen] = useState(true);
 
   const handlePresetChange = useCallback((preset: UsageDatePreset) => {
     setDatePreset(preset);
@@ -227,14 +240,17 @@ export function UsageSettingsPanel({
         new Date(now.getTime() - ONE_YEAR_MS),
       );
       const heatmapUntil = formatDateForInput(now);
-      const [summaryResult, dailyResult, modelResult] = await Promise.all([
-        window.snow.getUsageSummary(sinceDateTime, untilDateTime),
-        window.snow.getUsageDailyBreakdown(heatmapSince, heatmapUntil),
-        window.snow.getUsageModelBreakdown(sinceDateTime, untilDateTime),
-      ]);
+      const [summaryResult, dailyResult, modelResult, trendResult] =
+        await Promise.all([
+          window.snow.getUsageSummary(sinceDateTime, untilDateTime),
+          window.snow.getUsageDailyBreakdown(heatmapSince, heatmapUntil),
+          window.snow.getUsageModelBreakdown(sinceDateTime, untilDateTime),
+          window.snow.getUsageDailyBreakdown(sinceDateTime, untilDateTime),
+        ]);
       setSummary(summaryResult);
       setDailyData(dailyResult ?? []);
       setModelBreakdown(modelResult ?? []);
+      setTrendData(trendResult ?? []);
     } catch (e) {
       setError(
         e instanceof Error
@@ -831,13 +847,53 @@ export function UsageSettingsPanel({
           </div>
           <div className="usage-summary-card">
             <span className="usage-summary-card-label">
+              {t("settings.usageSuccessRate", { defaultValue: "Success rate" })}
+            </span>
+            <span className="usage-summary-card-value">
+              {summary.totalRequests > 0
+                ? `${(
+                    (1 - summary.errorRequests / summary.totalRequests) *
+                    100
+                  ).toFixed(1)}%`
+                : "100%"}
+            </span>
+            <span className="usage-summary-card-sub">
               {t("settings.usageErrorRequests", {
                 defaultValue: "Error requests",
               })}
+              : {summary.errorRequests.toLocaleString()}
             </span>
-            <span className="usage-summary-card-value">
-              {summary.errorRequests.toLocaleString()}
-            </span>
+          </div>
+        </div>
+      )}
+
+      {(trendData.length > 0 || modelBreakdown.length > 0) && (
+        <div className="usage-charts-grid">
+          <div className="usage-chart-card">
+            <div className="usage-chart-header">
+              <strong>
+                {t("settings.usageTrendTitle", {
+                  defaultValue: "Daily trend",
+                })}
+              </strong>
+            </div>
+            <DailyTrendChart
+              data={trendData}
+              formatTokens={formatTokensLocale}
+            />
+          </div>
+          <div className="usage-chart-card">
+            <div className="usage-chart-header">
+              <strong>
+                {t("settings.usageDonutTitle", {
+                  defaultValue: "Model share",
+                })}
+              </strong>
+            </div>
+            <ModelDonutChart
+              data={modelBreakdown}
+              formatTokens={formatTokensLocale}
+            />
           </div>
         </div>
       )}
@@ -863,28 +919,28 @@ export function UsageSettingsPanel({
                   <th>
                     {t("settings.usageColModel", { defaultValue: "Model" })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColRequests", {
                       defaultValue: "Requests",
                     })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColInput", { defaultValue: "Input" })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColOutput", { defaultValue: "Output" })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColCacheWrite", {
                       defaultValue: "Cache W",
                     })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColCacheRead", {
                       defaultValue: "Cache R",
                     })}
                   </th>
-                  <th>
+                  <th className="usage-th-number">
                     {t("settings.usageColTotal", { defaultValue: "Total" })}
                   </th>
                 </tr>
@@ -1036,16 +1092,6 @@ export function UsageSettingsPanel({
       </div>
 
       <div className="usage-table-section">
-        <div className="usage-table-header">
-          <strong>
-            {t("settings.usageRecordsTitle", { defaultValue: "Usage records" })}
-          </strong>
-          <span className="settings-item-description">
-            {t("settings.usageRecordsInfo", {
-              defaultValue: "Detailed log of each API call.",
-            })}
-          </span>
-        </div>
         <div className="usage-clear-section">
           <div className="usage-table-header">
             <strong>
@@ -1098,116 +1144,160 @@ export function UsageSettingsPanel({
             </button>
           </div>
         </div>
-        <div className="usage-table-wrapper">
-          <table className="usage-table">
-            <thead>
-              <tr>
-                <th>{t("settings.usageColTime", { defaultValue: "Time" })}</th>
-                <th>
-                  {t("settings.usageColModel", { defaultValue: "Model" })}
-                </th>
-                <th>
-                  {t("settings.usageColProfile", { defaultValue: "Profile" })}
-                </th>
-                <th>
-                  {t("settings.usageColInput", { defaultValue: "Input" })}
-                </th>
-                <th>
-                  {t("settings.usageColOutput", { defaultValue: "Output" })}
-                </th>
-                <th>
-                  {t("settings.usageColCacheWrite", {
-                    defaultValue: "Cache W",
-                  })}
-                </th>
-                <th>
-                  {t("settings.usageColCacheRead", {
-                    defaultValue: "Cache R",
-                  })}
-                </th>
-                <th>
-                  {t("settings.usageColTotal", { defaultValue: "Total" })}
-                </th>
-                <th>
-                  {t("settings.usageColStatus", { defaultValue: "Status" })}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
+        <div className="usage-table-header">
+          <button
+            type="button"
+            className="usage-records-toggle"
+            onClick={() => setRecordsOpen((v) => !v)}
+            aria-expanded={recordsOpen}
+            aria-label={t(
+              recordsOpen
+                ? "settings.usageHideRecords"
+                : "settings.usageShowRecords",
+              {
+                defaultValue: recordsOpen
+                  ? "Hide usage records"
+                  : "Show usage records",
+              },
+            )}
+          >
+            <span className="usage-records-toggle-text">
+              <strong>
+                {t("settings.usageRecordsTitle", {
+                  defaultValue: "Usage records",
+                })}
+              </strong>
+              <span className="settings-item-description">
+                {t("settings.usageRecordsInfo", {
+                  defaultValue: "Detailed log of each API call.",
+                })}
+              </span>
+            </span>
+            <ChevronDown
+              size={14}
+              strokeWidth={1.8}
+              className={`usage-records-chevron${recordsOpen ? " open" : ""}`}
+            />
+          </button>
+        </div>
+        {recordsOpen && (
+          <div className="usage-table-wrapper">
+            <table className="usage-table">
+              <thead>
                 <tr>
-                  <td colSpan={9} className="usage-table-loading">
-                    {t("settings.usageLoading", { defaultValue: "Loading..." })}
-                  </td>
-                </tr>
-              ) : records.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="usage-table-empty">
-                    {t("settings.usageNoRecords", {
-                      defaultValue: "No usage records found.",
+                  <th>
+                    {t("settings.usageColTime", { defaultValue: "Time" })}
+                  </th>
+                  <th>
+                    {t("settings.usageColModel", { defaultValue: "Model" })}
+                  </th>
+                  <th>
+                    {t("settings.usageColProfile", { defaultValue: "Profile" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColInput", { defaultValue: "Input" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColOutput", { defaultValue: "Output" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColCacheWrite", {
+                      defaultValue: "Cache W",
                     })}
-                  </td>
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColCacheRead", {
+                      defaultValue: "Cache R",
+                    })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColTotal", { defaultValue: "Total" })}
+                  </th>
+                  <th>
+                    {t("settings.usageColStatus", { defaultValue: "Status" })}
+                  </th>
                 </tr>
-              ) : (
-                records.map((record) => (
-                  <tr
-                    key={record.id}
-                    onMouseEnter={(e) =>
-                      showTooltip(
-                        renderRecordTooltip(record),
-                        e.clientX,
-                        e.clientY,
-                      )
-                    }
-                    onMouseMove={(e) => positionTooltip(e.clientX, e.clientY)}
-                    onMouseLeave={hideTooltip}
-                  >
-                    <td className="usage-cell-time">
-                      {formatDateTime(record.createdAt)}
-                    </td>
-                    <td className="usage-cell-model">{record.model || "-"}</td>
-                    <td className="usage-cell-profile">
-                      {record.apiProfileName || "-"}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(record.inputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(record.outputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(record.cacheCreationInputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(record.cacheReadInputTokens)}
-                    </td>
-                    <td className="usage-cell-number usage-cell-total">
-                      {formatTokens(record.totalTokens)}
-                    </td>
-                    <td className="usage-cell-status">
-                      <span
-                        className={`usage-status-badge ${
-                          record.status === "error"
-                            ? "error"
-                            : record.status === "cancelled" ||
-                                record.status === "incomplete" ||
-                                record.status === "failed"
-                              ? "warning"
-                              : "success"
-                        }`}
-                        title={record.status || undefined}
-                      >
-                        {translateStatus(record.status)}
-                      </span>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={9} className="usage-table-loading">
+                      {t("settings.usageLoading", {
+                        defaultValue: "Loading...",
+                      })}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : records.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="usage-table-empty">
+                      {t("settings.usageNoRecords", {
+                        defaultValue: "No usage records found.",
+                      })}
+                    </td>
+                  </tr>
+                ) : (
+                  records.map((record) => (
+                    <tr
+                      key={record.id}
+                      onMouseEnter={(e) =>
+                        showTooltip(
+                          renderRecordTooltip(record),
+                          e.clientX,
+                          e.clientY,
+                        )
+                      }
+                      onMouseMove={(e) => positionTooltip(e.clientX, e.clientY)}
+                      onMouseLeave={hideTooltip}
+                    >
+                      <td className="usage-cell-time">
+                        {formatDateTime(record.createdAt)}
+                      </td>
+                      <td className="usage-cell-model">
+                        {record.model || "-"}
+                      </td>
+                      <td className="usage-cell-profile">
+                        {record.apiProfileName || "-"}
+                      </td>
+                      <td className="usage-cell-number">
+                        {formatTokens(record.inputTokens)}
+                      </td>
+                      <td className="usage-cell-number">
+                        {formatTokens(record.outputTokens)}
+                      </td>
+                      <td className="usage-cell-number">
+                        {formatTokens(record.cacheCreationInputTokens)}
+                      </td>
+                      <td className="usage-cell-number">
+                        {formatTokens(record.cacheReadInputTokens)}
+                      </td>
+                      <td className="usage-cell-number usage-cell-total">
+                        {formatTokens(record.totalTokens)}
+                      </td>
+                      <td className="usage-cell-status">
+                        <span
+                          className={`usage-status-badge ${
+                            record.status === "error"
+                              ? "error"
+                              : record.status === "cancelled" ||
+                                  record.status === "incomplete" ||
+                                  record.status === "failed"
+                                ? "warning"
+                                : "success"
+                          }`}
+                          title={record.status || undefined}
+                        >
+                          {translateStatus(record.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-        {total > PAGE_SIZE && (
+        {recordsOpen && total > PAGE_SIZE && (
           <div className="usage-pagination">
             <button
               className="usage-pagination-btn"

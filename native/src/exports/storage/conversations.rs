@@ -400,6 +400,17 @@ pub async fn list_workflow_node_sessions(
 }
 
 #[napi]
+pub async fn list_workflow_node_sessions_by_parents(
+    parent_conversation_ids: Vec<String>,
+) -> napi::Result<std::collections::HashMap<String, Vec<ChatConversationRecord>>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::list_workflow_node_sessions_by_parents(&parent_conversation_ids)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn get_workflow_node_session(
     conversation_id: String,
 ) -> napi::Result<Option<WorkflowNodeSessionRecord>> {

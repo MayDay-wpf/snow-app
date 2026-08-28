@@ -723,6 +723,12 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to list workflow node sessions",
           ),
         ),
+      listWorkflowNodeSessionsByParents: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list workflow node sessions by parents",
+          ),
+        ),
       getWorkflowNodeSession: () =>
         Promise.reject(
           new Error(

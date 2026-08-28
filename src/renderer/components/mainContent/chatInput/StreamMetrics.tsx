@@ -1,5 +1,5 @@
 import { ArrowDown, Clock, Gauge, Pause, Play, Timer } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 
 export type StreamMetricsProps = {
@@ -48,6 +48,13 @@ const formatTokPerSec = (tokens: number, elapsedMs: number): string => {
   const tps = (tokens / elapsedMs) * 1000;
   return tps >= 100 ? `${Math.round(tps)}` : tps.toFixed(1);
 };
+
+/**
+ * 无新 token 到达超过该时长即视为输出卡住：tok/s 归 0 而非冻结在上一个值。
+ * 流式期间正常 chunk 间隔远小于此阈值（指标 250ms 合并更新一次），
+ * 不会误判正常慢速输出。
+ */
+const STALL_THRESHOLD_MS = 2000;
 
 /**
  * Fixed streaming metrics bar displayed above the input box while the AI
@@ -101,10 +108,26 @@ export const StreamMetrics = memo(
     }, [isActive, startedAt]);
 
     const elapsedDisplay = formatDuration(localElapsed);
+
+    // 卡住检测：token 累计数最后发生变化的时间戳。`elapsedMs` 只随后端
+    // chunk 到达而推进，流卡住时 tok/s 会冻结在上一个值，与"当前没有
+    // 速度"不符。token 数（或 run 锚点，覆盖切换会话/新 run 场景）一变
+    // 就重置锚点，超时无变化即判定卡住，tok/s 归 0。
+    const lastTokenChangeRef = useRef({ count: tokenCount, at: Date.now() });
+    useEffect(() => {
+      lastTokenChangeRef.current = { count: tokenCount, at: Date.now() };
+    }, [tokenCount, startedAt]);
+
     const hasTokens = tokenCount > 0;
+    const isStalled =
+      isActive &&
+      hasTokens &&
+      Date.now() - lastTokenChangeRef.current.at >= STALL_THRESHOLD_MS;
     const tps =
-      tokenCount > 0 && elapsedMs > 0
-        ? formatTokPerSec(tokenCount, elapsedMs)
+      hasTokens && elapsedMs > 0
+        ? isStalled
+          ? "0"
+          : formatTokPerSec(tokenCount, elapsedMs)
         : "--";
     const hasTps = tps !== "--";
 
@@ -177,7 +200,7 @@ export const StreamMetrics = memo(
         </span>
       </span>
     );
-  }
+  },
 );
 
 StreamMetrics.displayName = "StreamMetrics";

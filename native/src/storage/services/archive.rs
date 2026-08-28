@@ -38,6 +38,10 @@ const TODO_COLUMNS: &str = "id, session_id, content, status, response_id, create
 
 const SESSION_COLUMNS: &str = "id, conversation_id, parent_conversation_id, agent_id, agent_name, run_status, error_message, created_at, updated_at";
 
+/// 与运行库 workflow_node_sessions 完全一致的列。
+const WORKFLOW_NODE_SESSION_COLUMNS: &str =
+    "id, conversation_id, parent_conversation_id, flow_id, flow_checkpoint_id, node_id, node_name, run_status, error_message, handoff_content, created_at, updated_at";
+
 /// 打开归档库连接。
 ///
 /// 归档库刻意使用传统 rollback journal 而非 WAL：归档操作需要把归档库
@@ -167,6 +171,27 @@ pub(crate) fn create_archive_schema(connection: &Connection) -> rusqlite::Result
          );
          CREATE INDEX IF NOT EXISTS idx_archive_sub_agent_sessions_parent
            ON sub_agent_sessions(parent_conversation_id, created_at ASC, id ASC);
+
+         CREATE TABLE IF NOT EXISTS workflow_node_sessions (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL UNIQUE,
+           parent_conversation_id TEXT NOT NULL,
+           flow_id TEXT NOT NULL DEFAULT '',
+           flow_checkpoint_id TEXT NOT NULL DEFAULT '',
+           node_id TEXT NOT NULL,
+           node_name TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'pending',
+           error_message TEXT NOT NULL DEFAULT '',
+           handoff_content TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE,
+           FOREIGN KEY(parent_conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS idx_archive_workflow_node_sessions_flow
+           ON workflow_node_sessions(parent_conversation_id, flow_id);
+         CREATE INDEX IF NOT EXISTS idx_archive_workflow_node_sessions_parent
+           ON workflow_node_sessions(parent_conversation_id, created_at ASC, id ASC);
     ",
     )?;
     migrate_archive_chat_conversations(connection)
@@ -331,8 +356,41 @@ pub fn archive_conversations(
 
     // 子代理会话随父会话一并归档
     let mut all_target_ids = archivable_ids.clone();
+
+    // WorkFlow 节点会话随父会话一并归档（归档库中作为普通会话保存，
+    // 还原后不再作为 workflow 节点运行）
     {
         let placeholders = in_clause_placeholders(archivable_ids.len());
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT conversation_id
+                   FROM workflow_node_sessions
+                  WHERE parent_conversation_id IN ({placeholders})"
+            ))
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+        let rows = statement
+            .query_map(params_from_iter(archivable_ids.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+        for child_id in rows {
+            let child_id = child_id.map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+            if !all_target_ids.contains(&child_id) {
+                all_target_ids.push(child_id);
+            }
+        }
+    }
+
+    // 子代理查询覆盖全部父级目标（含 workflow 节点），确保节点运行期间
+    // 派生的子代理随节点一并归档
+    {
+        let placeholders = in_clause_placeholders(all_target_ids.len());
         let mut statement = transaction
             .prepare(&format!(
                 "SELECT conversation_id
@@ -343,7 +401,7 @@ pub fn archive_conversations(
                 database::database_error(main_database_path, "archive conversations", error)
             })?;
         let rows = statement
-            .query_map(params_from_iter(archivable_ids.iter()), |row| {
+            .query_map(params_from_iter(all_target_ids.iter()), |row| {
                 row.get::<_, String>(0)
             })
             .map_err(|error| {
@@ -377,7 +435,7 @@ pub fn archive_conversations(
                 database::database_error(main_database_path, "archive conversations", error)
             })?;
     }
-    for chunk in archivable_ids.chunks(MAX_VARIABLES) {
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
         for id in chunk {
@@ -392,6 +450,33 @@ pub fn archive_conversations(
                     "INSERT INTO archive_db.sub_agent_sessions ({SESSION_COLUMNS})
                      SELECT {SESSION_COLUMNS}
                        FROM sub_agent_sessions
+                      WHERE parent_conversation_id IN ({placeholders})
+                         OR conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+    }
+
+    // WorkFlow 节点 bookkeeping 行随父会话一并归档：保留父子层级，
+    // 还原后节点树（workflowNodeMap）可完整恢复。
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
+        for id in chunk {
+            params.push(id);
+        }
+        for id in chunk {
+            params.push(id);
+        }
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO archive_db.workflow_node_sessions ({WORKFLOW_NODE_SESSION_COLUMNS})
+                     SELECT {WORKFLOW_NODE_SESSION_COLUMNS}
+                       FROM workflow_node_sessions
                       WHERE parent_conversation_id IN ({placeholders})
                          OR conversation_id IN ({placeholders})"
                 ),
@@ -473,6 +558,28 @@ pub fn archive_conversations(
                 database::database_error(main_database_path, "archive conversations", error)
             })?;
     }
+    for chunk in archivable_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
+        for id in chunk {
+            params.push(id);
+        }
+        for id in chunk {
+            params.push(id);
+        }
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_node_sessions
+                      WHERE parent_conversation_id IN ({placeholders})
+                         OR conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+    }
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         transaction
@@ -521,6 +628,8 @@ pub fn list_archived_conversations_paginated(
     limit: i32,
     offset: i32,
 ) -> Result<ChatConversationPage> {
+    // 确保归档库 schema 就绪（旧归档库可能缺少 workflow_node_sessions 表）
+    ensure_archive_database(archive_path)?;
     open_archive_connection(archive_path)
         .and_then(|connection| {
             let total: i32 = connection.query_row(
@@ -532,6 +641,11 @@ pub fn list_archived_conversations_paginated(
                       SELECT 1
                         FROM sub_agent_sessions AS sub_agent
                        WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
                     )",
                 params![directory_id],
                 |row| row.get(0),
@@ -572,15 +686,20 @@ pub fn list_archived_conversations_paginated(
                        conversation.run_cache_read_input_tokens,
                        COALESCE(conversation.last_run_duration_ms, 0)
                   FROM chat_conversations AS conversation
-                 WHERE directory_id = ?1
-                   AND status = 'active'
-                   AND NOT EXISTS (
-                     SELECT 1
-                       FROM sub_agent_sessions AS sub_agent
-                      WHERE sub_agent.conversation_id = conversation.conversation_id
-                   )
-                 ORDER BY archived_at DESC, id DESC
-                 LIMIT ?2 OFFSET ?3",
+                  WHERE directory_id = ?1
+                    AND status = 'active'
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM sub_agent_sessions AS sub_agent
+                       WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
+                    )
+                  ORDER BY archived_at DESC, id DESC
+                  LIMIT ?2 OFFSET ?3",
             )?;
 
             let rows = statement.query_map(
@@ -649,6 +768,9 @@ pub fn restore_archived_conversations(
         return Ok(());
     }
 
+    // 确保归档库 schema 就绪（旧归档库可能缺少 workflow_node_sessions 表）
+    ensure_archive_database(archive_database_path)?;
+
     let mut connection = database::open_connection(main_database_path).map_err(|error| {
         database::database_error(main_database_path, "restore archived conversations", error)
     })?;
@@ -673,10 +795,39 @@ pub fn restore_archived_conversations(
             database::database_error(main_database_path, "restore archived conversations", error)
         })?;
 
-    // 还原目标：选中会话 + 其子代理会话
+    // 还原目标：选中会话 + 其 workflow 节点会话 + 子代理会话
+    // （子代理覆盖节点运行期间派生的层级）
     let mut all_target_ids = unique_ids.clone();
     {
+        // WorkFlow 节点会话：层级关系从归档库 workflow_node_sessions 恢复
         let placeholders = in_clause_placeholders(unique_ids.len());
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT conversation_id
+                   FROM archive_db.workflow_node_sessions
+                  WHERE parent_conversation_id IN ({placeholders})"
+            ))
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+        let rows = statement
+            .query_map(params_from_iter(unique_ids.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+        for child_id in rows {
+            let child_id = child_id.map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+            if !all_target_ids.contains(&child_id) {
+                all_target_ids.push(child_id);
+            }
+        }
+    }
+    {
+        let placeholders = in_clause_placeholders(all_target_ids.len());
         let mut statement = transaction
             .prepare(&format!(
                 "SELECT conversation_id
@@ -687,7 +838,7 @@ pub fn restore_archived_conversations(
                 database::database_error(main_database_path, "restore archived conversations", error)
             })?;
         let rows = statement
-            .query_map(params_from_iter(unique_ids.iter()), |row| {
+            .query_map(params_from_iter(all_target_ids.iter()), |row| {
                 row.get::<_, String>(0)
             })
             .map_err(|error| {
@@ -733,7 +884,7 @@ pub fn restore_archived_conversations(
                 database::database_error(main_database_path, "restore archived conversations", error)
             })?;
     }
-    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
         for id in chunk {
@@ -748,6 +899,32 @@ pub fn restore_archived_conversations(
                     "INSERT INTO sub_agent_sessions ({SESSION_COLUMNS})
                      SELECT {SESSION_COLUMNS}
                        FROM archive_db.sub_agent_sessions
+                      WHERE parent_conversation_id IN ({placeholders})
+                         OR conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+    }
+
+    // WorkFlow 节点 bookkeeping 行还原：恢复 主会话 → 节点 的父子层级
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
+        for id in chunk {
+            params.push(id);
+        }
+        for id in chunk {
+            params.push(id);
+        }
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO workflow_node_sessions ({WORKFLOW_NODE_SESSION_COLUMNS})
+                     SELECT {WORKFLOW_NODE_SESSION_COLUMNS}
+                       FROM archive_db.workflow_node_sessions
                       WHERE parent_conversation_id IN ({placeholders})
                          OR conversation_id IN ({placeholders})"
                 ),
@@ -832,6 +1009,28 @@ pub fn restore_archived_conversations(
     }
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 2);
+        for id in chunk {
+            params.push(id);
+        }
+        for id in chunk {
+            params.push(id);
+        }
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM archive_db.workflow_node_sessions
+                      WHERE parent_conversation_id IN ({placeholders})
+                         OR conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+    }
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
         deleted_rows += transaction
             .execute(
                 &format!("DELETE FROM archive_db.chat_conversations WHERE conversation_id IN ({placeholders})"),
@@ -882,6 +1081,9 @@ pub fn delete_archived_conversations(
         return Ok(());
     }
 
+    // 确保归档库 schema 就绪（旧归档库可能缺少 workflow_node_sessions 表）
+    ensure_archive_database(archive_database_path)?;
+
     let mut connection = open_archive_connection(archive_database_path).map_err(|error| {
         database::database_error(archive_database_path, "delete archived conversations", error)
     })?;
@@ -896,7 +1098,37 @@ pub fn delete_archived_conversations(
     // 一次查出所有直接子代理会话 id（覆盖全部选中父会话）
     let mut all_target_ids = unique_ids.clone();
     {
+        // WorkFlow 节点会话随父会话级联删除
         let placeholders = in_clause_placeholders(unique_ids.len());
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT conversation_id
+                   FROM workflow_node_sessions
+                  WHERE parent_conversation_id IN ({placeholders})"
+            ))
+            .map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+        let rows = statement
+            .query_map(params_from_iter(unique_ids.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+        for child_id in rows {
+            let child_id = child_id.map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+            if !all_target_ids.contains(&child_id) {
+                all_target_ids.push(child_id);
+            }
+        }
+    }
+    {
+        // 子代理查询覆盖全部父级目标（含 workflow 节点），确保节点运行期间
+        // 派生的子代理随节点一并删除
+        let placeholders = in_clause_placeholders(all_target_ids.len());
         let mut statement = transaction
             .prepare(&format!(
                 "SELECT conversation_id
@@ -907,7 +1139,7 @@ pub fn delete_archived_conversations(
                 database::database_error(archive_database_path, "delete archived conversations", error)
             })?;
         let rows = statement
-            .query_map(params_from_iter(unique_ids.iter()), |row| {
+            .query_map(params_from_iter(all_target_ids.iter()), |row| {
                 row.get::<_, String>(0)
             })
             .map_err(|error| {
@@ -961,6 +1193,20 @@ pub fn delete_archived_conversations(
                          OR conversation_id IN ({placeholders})"
                 ),
                 params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+    }
+
+    for chunk in all_target_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_node_sessions WHERE conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
             )
             .map_err(|error| {
                 database::database_error(archive_database_path, "delete archived conversations", error)

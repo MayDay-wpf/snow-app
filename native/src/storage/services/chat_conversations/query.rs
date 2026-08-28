@@ -45,14 +45,19 @@ pub fn list_chat_conversations(
                        conversation.run_cache_read_input_tokens,
                        COALESCE(conversation.last_run_duration_ms, 0)
                   FROM chat_conversations AS conversation
-                 WHERE directory_id = ?1
-                   AND status = 'active'
-                   AND NOT EXISTS (
-                     SELECT 1
-                       FROM sub_agent_sessions AS sub_agent
-                      WHERE sub_agent.conversation_id = conversation.conversation_id
-                   )
-                 ORDER BY updated_at DESC, id DESC",
+                  WHERE directory_id = ?1
+                    AND status = 'active'
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM sub_agent_sessions AS sub_agent
+                       WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
+                    )
+                  ORDER BY updated_at DESC, id DESC",
             )?;
 
             let rows = statement.query_map(params![directory_id], map_chat_conversation_row)?;
@@ -78,6 +83,11 @@ pub fn list_chat_conversations_paginated(
                       SELECT 1
                         FROM sub_agent_sessions AS sub_agent
                        WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
                     )",
                 params![directory_id],
                 |row| row.get(0),
@@ -118,15 +128,20 @@ pub fn list_chat_conversations_paginated(
                        conversation.run_cache_read_input_tokens,
                        COALESCE(conversation.last_run_duration_ms, 0)
                   FROM chat_conversations AS conversation
-                 WHERE directory_id = ?1
-                   AND status = 'active'
-                   AND NOT EXISTS (
-                     SELECT 1
-                       FROM sub_agent_sessions AS sub_agent
-                      WHERE sub_agent.conversation_id = conversation.conversation_id
-                   )
-                 ORDER BY updated_at DESC, id DESC
-                 LIMIT ?2 OFFSET ?3",
+                  WHERE directory_id = ?1
+                    AND status = 'active'
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM sub_agent_sessions AS sub_agent
+                       WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
+                    )
+                  ORDER BY updated_at DESC, id DESC
+                  LIMIT ?2 OFFSET ?3",
             )?;
 
             let rows = statement.query_map(
@@ -194,14 +209,19 @@ pub fn list_chat_conversations_by_ids(
                        conversation.run_cache_read_input_tokens,
                        COALESCE(conversation.last_run_duration_ms, 0)
                   FROM chat_conversations AS conversation
-                 WHERE conversation_id IN ({placeholders})
-                   AND status = 'active'
-                   AND NOT EXISTS (
-                     SELECT 1
-                       FROM sub_agent_sessions AS sub_agent
-                      WHERE sub_agent.conversation_id = conversation.conversation_id
-                   )
-                 ORDER BY updated_at DESC, id DESC"
+                  WHERE conversation_id IN ({placeholders})
+                    AND status = 'active'
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM sub_agent_sessions AS sub_agent
+                       WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
+                    )
+                  ORDER BY updated_at DESC, id DESC"
             );
 
             let mut statement = connection.prepare(&sql)?;
@@ -254,6 +274,11 @@ pub fn search_chat_conversations(
                       SELECT 1
                         FROM sub_agent_sessions AS sub_agent
                        WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
                     )
                     AND (
                          conversation.title LIKE ?1 ESCAPE '\\'
@@ -344,13 +369,18 @@ pub fn list_pinned_conversations(
                        conversation.run_cache_read_input_tokens,
                        COALESCE(conversation.last_run_duration_ms, 0)
                   FROM chat_conversations AS conversation
-                 WHERE directory_id = ?1
-                   AND status = 'pin'
-                   AND NOT EXISTS (
-                      SELECT 1
-                        FROM sub_agent_sessions AS sub_agent
-                       WHERE sub_agent.conversation_id = conversation.conversation_id
-                    )
+                  WHERE directory_id = ?1
+                    AND status = 'pin'
+                    AND NOT EXISTS (
+                       SELECT 1
+                         FROM sub_agent_sessions AS sub_agent
+                        WHERE sub_agent.conversation_id = conversation.conversation_id
+                     )
+                    AND NOT EXISTS (
+                       SELECT 1
+                         FROM workflow_node_sessions AS workflow_node
+                        WHERE workflow_node.conversation_id = conversation.conversation_id
+                     )
                   ORDER BY updated_at DESC, id DESC",
             )?;
 
@@ -386,12 +416,16 @@ pub fn get_chat_conversation(
                             conversation.output_tokens,
                             conversation.cache_creation_input_tokens,
                             conversation.cache_read_input_tokens,
-                            CASE WHEN sub_agent.conversation_id IS NULL THEN 'main' ELSE 'sub_agent' END,
-                            COALESCE(sub_agent.parent_conversation_id, ''),
-                            COALESCE(sub_agent.agent_id, ''),
-                            COALESCE(sub_agent.agent_name, ''),
-                            COALESCE(sub_agent.run_status, ''),
-                            COALESCE(sub_agent.error_message, ''),
+                            CASE
+                              WHEN workflow_node.conversation_id IS NOT NULL THEN 'workflow_node'
+                              WHEN sub_agent.conversation_id IS NULL THEN 'main'
+                              ELSE 'sub_agent'
+                            END,
+                            COALESCE(sub_agent.parent_conversation_id, workflow_node.parent_conversation_id, ''),
+                            COALESCE(sub_agent.agent_id, workflow_node.node_id, ''),
+                            COALESCE(sub_agent.agent_name, workflow_node.node_name, ''),
+                            COALESCE(sub_agent.run_status, workflow_node.run_status, ''),
+                            COALESCE(sub_agent.error_message, workflow_node.error_message, ''),
                             COALESCE(conversation.total_duration_ms, 0),
                             COALESCE(conversation.emoji, ''),
                             COALESCE(conversation.api_profile_name, ''),
@@ -403,6 +437,8 @@ pub fn get_chat_conversation(
                        FROM chat_conversations AS conversation
                        LEFT JOIN sub_agent_sessions AS sub_agent
                          ON sub_agent.conversation_id = conversation.conversation_id
+                       LEFT JOIN workflow_node_sessions AS workflow_node
+                         ON workflow_node.conversation_id = conversation.conversation_id
                       WHERE conversation.conversation_id = ?1
                       LIMIT 1",
                     params![conversation_id],

@@ -58,6 +58,69 @@ export const createIsRunCancelled = (
 };
 
 // ---------------------------------------------------------------------------
+// Helper: remapPersistedUserMessageIds
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace the frontend-generated temporary user message ids with the real
+ * database snowflake ids returned by the backend (persistedUserMessageIds).
+ * The backend persists user messages in order and returns their ids in the
+ * same order, so the pending (non-numeric) user message ids are mapped 1:1.
+ * This keeps the in-memory message ids in sync with the DB so features like
+ * the user-message rail (which queries the DB for message ids) can locate
+ * the DOM element by id. Returns the id remap (old frontend id -> DB id) so
+ * callers can update outer-scope references if needed.
+ */
+export const remapPersistedUserMessageIds = (
+  ctx: ConversationContextValue,
+  sessionKey: string,
+  persistedUserMessageIds: string[],
+): ReadonlyMap<string, string> => {
+  if (!persistedUserMessageIds || persistedUserMessageIds.length === 0) {
+    return new Map();
+  }
+
+  // Collect all pending (non-persisted) user message ids in order so we can
+  // map them 1:1 to the returned DB ids.
+  const pendingUserIds: string[] = [];
+  const currentMessages = ctx.sessionsRef.current[sessionKey]?.messages ?? [];
+  for (const m of currentMessages) {
+    if (m.role === "user" && !m.isContextCompaction) {
+      // A user message is "pending" (needs id replacement) if its id
+      // does not look like a DB snowflake id. Frontend ids use the
+      // pattern "user-{timestamp}-{random}"; DB ids are numeric
+      // snowflake strings.
+      const isFrontendId = isNaN(Number(m.id));
+      if (isFrontendId) {
+        pendingUserIds.push(m.id);
+      }
+    }
+  }
+
+  // Build a mapping from old frontend id -> new DB id. The backend
+  // returns ids in the same order as the user messages in the request.
+  const idRemap = new Map<string, string>();
+  const remapCount = Math.min(
+    pendingUserIds.length,
+    persistedUserMessageIds.length,
+  );
+  for (let i = 0; i < remapCount; i++) {
+    idRemap.set(pendingUserIds[i], persistedUserMessageIds[i]);
+  }
+
+  if (idRemap.size > 0) {
+    ctx.updateSessionMessages(sessionKey, (msgs) =>
+      msgs.map((m) => {
+        const newId = idRemap.get(m.id);
+        return newId ? { ...m, id: newId } : m;
+      }),
+    );
+  }
+
+  return idRemap;
+};
+
+// ---------------------------------------------------------------------------
 // Factory: awaitHookDecision
 // ---------------------------------------------------------------------------
 

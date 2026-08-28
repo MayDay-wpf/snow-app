@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use super::super::super::database;
 use super::super::super::models::WorkflowNodeSessionRecord;
+use super::super::super::ChatConversationRecord;
+use super::{in_clause_placeholders, map_chat_conversation_row};
 
 /// Create a workflow node session: a `chat_conversations` row bound to the
 /// node's own API profile/model plus a `workflow_node_sessions` bookkeeping row.
@@ -121,6 +124,82 @@ pub fn list_workflow_node_sessions(
         .and_then(|connection| list_workflow_node_sessions_with(&connection, parent_conversation_id))
         .map_err(|error| {
             database::database_error(database_path, "list workflow node sessions", error)
+        })
+}
+
+/// 批量查询多个父会话的 workflow 节点会话（单条 SQL，避免 N+1 查询）。
+/// 返回按父会话 id 分组的完整会话记录：conversationType 标记为
+/// `workflow_node`，node 的 id/name/run_status/error 映射到
+/// subAgentId/subAgentName/subAgentStatus/subAgentError 字段供 UI 展示。
+pub fn list_workflow_node_sessions_by_parents(
+    database_path: &Path,
+    parent_conversation_ids: &[String],
+) -> Result<HashMap<String, Vec<ChatConversationRecord>>> {
+    if parent_conversation_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let placeholders = in_clause_placeholders(parent_conversation_ids.len());
+            let mut statement = connection.prepare(&format!(
+                "SELECT conversation.conversation_id,
+                        conversation.title,
+                        conversation.summary,
+                        conversation.last_message_preview,
+                        conversation.message_count,
+                        conversation.model,
+                        conversation.status,
+                        conversation.directory_id,
+                        conversation.forked_from_conversation_id,
+                        conversation.fork_message_count,
+                        conversation.created_at,
+                        conversation.updated_at,
+                        conversation.input_tokens,
+                        conversation.output_tokens,
+                        conversation.cache_creation_input_tokens,
+                        conversation.cache_read_input_tokens,
+                        'workflow_node',
+                        workflow.parent_conversation_id,
+                        workflow.node_id,
+                        workflow.node_name,
+                        workflow.run_status,
+                        workflow.error_message,
+                        COALESCE(conversation.total_duration_ms, 0),
+                        COALESCE(conversation.emoji, ''),
+                        COALESCE(conversation.api_profile_name, ''),
+                        COALESCE(conversation.run_input_tokens, 0),
+                        COALESCE(conversation.run_output_tokens, 0),
+                        COALESCE(conversation.run_cache_creation_input_tokens, 0),
+                        COALESCE(conversation.run_cache_read_input_tokens, 0),
+                        COALESCE(conversation.last_run_duration_ms, 0)
+                   FROM workflow_node_sessions AS workflow
+                   JOIN chat_conversations AS conversation
+                     ON conversation.conversation_id = workflow.conversation_id
+                  WHERE workflow.parent_conversation_id IN ({placeholders})
+                  ORDER BY workflow.created_at ASC, workflow.id ASC"
+            ))?;
+
+            let rows =
+                statement.query_map(params_from_iter(parent_conversation_ids.iter()), |row| {
+                    let parent_id = row.get::<_, String>(17)?;
+                    let record = map_chat_conversation_row(row)?;
+                    Ok((parent_id, record))
+                })?;
+
+            let mut grouped: HashMap<String, Vec<ChatConversationRecord>> = HashMap::new();
+            for row in rows {
+                let (parent_id, record) = row?;
+                grouped.entry(parent_id).or_default().push(record);
+            }
+            Ok(grouped)
+        })
+        .map_err(|error| {
+            database::database_error(
+                database_path,
+                "list workflow node sessions by parents",
+                error,
+            )
         })
 }
 

@@ -25,9 +25,11 @@ import {
   accumulateRunTokenUsage,
   createStreamChunkHandler,
   createStreamIdHandler,
+  remapPersistedUserMessageIds,
   resetIterationStreamMetrics,
   resetRunStreamMetrics,
 } from "../hooks/agentLoopHelpers";
+import { SUB_AGENT_MAIN_TOOL_NAMES } from "../hooks/subAgentActivation";
 
 export type WorkflowNodeData = {
   id: string;
@@ -255,10 +257,11 @@ export function abandonWorkflow(interactionId: string): void {
 // 执行引擎（子代理同构：节点 = 主会话，ctx 驱动增量消息循环）
 // ---------------------------------------------------------------------------
 
-/** 节点内禁止的交互式工具：节点后台串行执行，无法也不应请求用户交互。 */
+/** 节点内禁止的交互式工具：节点后台串行执行，无法也不应请求用户交互。
+ *  子代理（sub-agents-）除外：节点是真实主会话，允许派生子代理，
+ *  其交互在子代理会话内处理，侧边栏以 节点 → 子代理 树形展示。 */
 const INTERACTIVE_TOOL_PREFIXES = [
   "user-interaction-",
-  "sub-agents-",
   "workflow-",
   "app-control-requestApproval",
 ];
@@ -305,6 +308,22 @@ type WorkflowRunnerDeps = {
     projectId?: string,
   ) => Promise<ToolAuthorizationDecision[]>;
   planApprovedSessionKeysRef: { current: Set<string> };
+  /** 子代理激活执行器（渲染进程异步运行时）：节点内允许派生子代理，
+   *  子代理在节点会话下运行，交互与授权在子代理会话内处理。 */
+  executeSubAgentActivation: (
+    argsJson: string,
+    parentConversationId: string,
+    dirId: string,
+    toolCallInteractionId: string | undefined,
+    checkpointIds: string[],
+  ) => Promise<string>;
+  /** 主会话子代理管理工具（listSubAgents/continue）执行器 */
+  executeSubAgentMainTool: (
+    toolName: string,
+    argsJson: string,
+    parentConversationId: string,
+    checkpointIds: string[],
+  ) => Promise<string>;
 };
 
 // runner 注册表：key = `父会话:interactionId`。useAgentLoop 处理
@@ -448,7 +467,13 @@ function createNodeConversationId(): string {
 export function createWorkflowRunner(
   deps: WorkflowRunnerDeps,
 ): WorkflowRunExecutor {
-  const { ctx, requestToolAuthorizations, planApprovedSessionKeysRef } = deps;
+  const {
+    ctx,
+    requestToolAuthorizations,
+    planApprovedSessionKeysRef,
+    executeSubAgentActivation,
+    executeSubAgentMainTool,
+  } = deps;
   // 同一父会话只允许一个执行中的 runner（防止重复点击/并发启动）。
   const runners = new Map<string, Promise<WorkflowRunOutcome>>();
 
@@ -548,6 +573,11 @@ export function createWorkflowRunner(
             node.errorMessage,
             node.handoffContent,
           );
+          // 节点状态落盘后立即刷新侧边栏（workflowNodeMap 重查）。
+          // updateWorkflowNodeSession 只写 bookkeeping 表，不会触发会话
+          // upsert/版本递增，若不主动刷新，用户手动中止后节点树会
+          // 停留在旧的 running（loading）状态。
+          ctx.setConversationListVersion((version) => version + 1);
           summary.push({
             nodeId: node.id,
             label: node.label || node.name,
@@ -573,6 +603,21 @@ export function createWorkflowRunner(
           node.runStatus = "failed";
           node.errorMessage = getErrorMessage(error);
           overallFailed = true;
+          // 节点会话已创建（执行中途抛错）：将失败状态落盘并刷新侧边栏，
+          // 避免节点树停留在 running（loading）状态。
+          if (node.conversationId) {
+            await window.snow
+              .updateWorkflowNodeSession(
+                node.conversationId,
+                "failed",
+                node.errorMessage,
+                "",
+              )
+              .catch(() => {
+                // 落盘失败不阻断 workflow 收尾
+              });
+            ctx.setConversationListVersion((version) => version + 1);
+          }
           emit({
             status: "running",
             nodeId,
@@ -800,6 +845,25 @@ export function createWorkflowRunner(
           return { content: "", failed: true, error: getErrorMessage(error) };
         }
 
+        // 与主会话一致：store_chat_exchange 已把本批 user 消息持久化并返回
+        // DB snowflake id，这里把前端临时 id 替换为 DB id，让 DOM 的
+        // data-message-id 与 DB 一致（UserMessageRail 的可见性高亮与点击
+        // 跳转都按 DB id 在 DOM 中定位消息）。
+        if (
+          response.persistedUserMessageIds &&
+          response.persistedUserMessageIds.length > 0
+        ) {
+          remapPersistedUserMessageIds(
+            ctx,
+            conversationId,
+            response.persistedUserMessageIds,
+          );
+        }
+        // 节点会话消息已持久化：bump conversationVersion 让 UserMessageRail
+        // 重新拉取用户消息列表。节点运行期间没有其它 bump 来源，否则运行中
+        // 打开节点会话时 rail 只显示打开时刻的陈旧快照。
+        ctx.setConversationVersion((version) => version + 1);
+
         const disposition = resolveResponseDisposition(response);
         if (disposition.kind === "error") {
           finalizeMessage(assistantMessageId, {
@@ -1021,67 +1085,90 @@ export function createWorkflowRunner(
             ? directoryIdToPath(dirId)
             : undefined;
           try {
-            // 第三参 projectId 必须传目录 id：工具执行的工作目录上下文。
-            // 第四参 checkpointIds 传 flow checkpoint：文件工具 before 阶段
-            // 把被改文件的原始状态捕获进该 checkpoint（lazy capture），
-            // 回滚时恢复它即可撤销节点的文件改动。
-            // onChunk 把 tool_execution id 记录到工具卡片：会话级联中止时
-            // killRunningToolExecutions 据此杀掉节点仍在运行的子进程。
-            result = await window.snow.callMcpTool(
-              toolCall.name,
-              toolArgs,
-              dirId,
-              flowCheckpointId ? [flowCheckpointId] : [],
-              flowCheckpointWorkDir,
-              sensitiveAuthorizationToken,
-              (chunk) => {
-                if (!chunk.data) {
-                  return;
-                }
-                if (
-                  chunk.stream === "interactive_session" ||
-                  chunk.stream === "tool_execution"
-                ) {
+            // 子代理工具必须走渲染进程异步运行时：Rust callMcpTool 端
+            // 会拒绝并报 "must be executed through the asynchronous
+            // Electron interaction bridge"。节点内与主会话一致，允许
+            // 激活子代理（在节点会话下运行）与 listSubAgents/continue
+            // 管理工具，侧边栏以 节点 → 子代理 树形展示。
+            if (toolCall.name === "sub-agents-activate") {
+              result = await executeSubAgentActivation(
+                toolArgs,
+                conversationId,
+                dirId,
+                toolCall.interactionId,
+                flowCheckpointId ? [flowCheckpointId] : [],
+              );
+            } else if (SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name)) {
+              result = await executeSubAgentMainTool(
+                toolCall.name,
+                toolArgs,
+                conversationId,
+                flowCheckpointId ? [flowCheckpointId] : [],
+              );
+            } else {
+              // 第三参 projectId 必须传目录 id：工具执行的工作目录上下文。
+              // 第四参 checkpointIds 传 flow checkpoint：文件工具 before
+              // 阶段把被改文件的原始状态捕获进该 checkpoint（lazy
+              // capture），回滚时恢复它即可撤销节点的文件改动。
+              // onChunk 把 tool_execution id 记录到工具卡片：会话级联
+              // 中止时 killRunningToolExecutions 据此杀掉节点仍在运行
+              // 的子进程。
+              result = await window.snow.callMcpTool(
+                toolCall.name,
+                toolArgs,
+                dirId,
+                flowCheckpointId ? [flowCheckpointId] : [],
+                flowCheckpointWorkDir,
+                sensitiveAuthorizationToken,
+                (chunk) => {
+                  if (!chunk.data) {
+                    return;
+                  }
+                  if (
+                    chunk.stream === "interactive_session" ||
+                    chunk.stream === "tool_execution"
+                  ) {
+                    updateAssistantToolCalls(
+                      assistantMessageId,
+                      toolCall,
+                      ["pending", "running"],
+                      (currentToolCall) => ({
+                        ...currentToolCall,
+                        interactiveSessionId:
+                          chunk.stream === "interactive_session"
+                            ? chunk.data
+                            : currentToolCall.interactiveSessionId,
+                        toolExecutionId:
+                          chunk.stream === "tool_execution"
+                            ? chunk.data
+                            : currentToolCall.toolExecutionId,
+                      }),
+                    );
+                    return;
+                  }
                   updateAssistantToolCalls(
                     assistantMessageId,
                     toolCall,
                     ["pending", "running"],
                     (currentToolCall) => ({
                       ...currentToolCall,
-                      interactiveSessionId:
-                        chunk.stream === "interactive_session"
-                          ? chunk.data
-                          : currentToolCall.interactiveSessionId,
-                      toolExecutionId:
-                        chunk.stream === "tool_execution"
-                          ? chunk.data
-                          : currentToolCall.toolExecutionId,
+                      streamingStdout:
+                        chunk.stream === "stdout"
+                          ? `${currentToolCall.streamingStdout ?? ""}${chunk.data}`
+                          : currentToolCall.streamingStdout,
+                      streamingStderr:
+                        chunk.stream === "stderr"
+                          ? `${currentToolCall.streamingStderr ?? ""}${chunk.data}`
+                          : currentToolCall.streamingStderr,
                     }),
                   );
-                  return;
-                }
-                updateAssistantToolCalls(
-                  assistantMessageId,
-                  toolCall,
-                  ["pending", "running"],
-                  (currentToolCall) => ({
-                    ...currentToolCall,
-                    streamingStdout:
-                      chunk.stream === "stdout"
-                        ? `${currentToolCall.streamingStdout ?? ""}${chunk.data}`
-                        : currentToolCall.streamingStdout,
-                    streamingStderr:
-                      chunk.stream === "stderr"
-                        ? `${currentToolCall.streamingStderr ?? ""}${chunk.data}`
-                        : currentToolCall.streamingStderr,
-                  }),
-                );
-              },
-              toolCall.interactionId,
-              undefined,
-              false,
-              planApprovedSessionKeysRef.current.has(parentConversationId),
-            );
+                },
+                toolCall.interactionId,
+                undefined,
+                false,
+                planApprovedSessionKeysRef.current.has(parentConversationId),
+              );
+            }
           } catch (error) {
             toolErrored = true;
             result = JSON.stringify({ error: getErrorMessage(error) });

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useI18n } from "../../../../i18n";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import type {
   ChatConversationMessage,
@@ -35,6 +36,7 @@ import {
   createIsRunCancelled,
   createStreamChunkHandler,
   createStreamIdHandler,
+  remapPersistedUserMessageIds,
   resetIterationStreamMetrics,
   resetRunStreamMetrics,
 } from "./agentLoopHelpers";
@@ -45,6 +47,7 @@ import {
 import {
   createWorkflowRunner,
   executeWorkflowGenerate as executeWorkflowGenerateTool,
+  parseWorkflowGraph,
   registerWorkflowRunner,
 } from "../workflow/workflowRunner";
 import { createToolExecutor } from "./toolExecution";
@@ -215,6 +218,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
   // setPlanModeState directly and must NOT clear it — otherwise an approved
   // plan is lost when the user navigates away and back.
   const planApprovedSessionKeysRef = ctx.planApprovedSessionKeysRef;
+  const { t } = useI18n();
 
   const handleSendMessage = useCallback(
     (message: string, options: ChatInputSendOptions) => {
@@ -557,8 +561,22 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             ctx,
             requestToolAuthorizations,
             planApprovedSessionKeysRef,
+            executeSubAgentActivation,
+            executeSubAgentMainTool,
           }),
         );
+        // 通知系统：与 askUserQuestion 同语义——工具挂起等待用户操作时
+        // 触发系统通知（窗口聚焦时主进程 notificationManager 自动跳过）。
+        // 仅对真正挂起的流程通知：空节点图会立即结算失败，无需打扰用户。
+        const workflowGraph = parseWorkflowGraph(argsJson);
+        if (workflowGraph.nodes.length > 0) {
+          ctx.notifyUserInteractionRequired({
+            conversationId: parentConversationId,
+            directoryId: dirId,
+            reason:
+              workflowGraph.title || t("notification.workflow.defaultReason"),
+          });
+        }
         return executeWorkflowGenerateTool(
           argsJson,
           parentConversationId,
@@ -687,48 +705,16 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           response.persistedUserMessageIds &&
           response.persistedUserMessageIds.length > 0
         ) {
-          // Collect all pending (non-persisted) user message ids in order so
-          // we can map them 1:1 to the returned DB ids.
-          const pendingUserIds: string[] = [];
-          const currentMessages =
-            ctx.sessionsRef.current[effectiveKey]?.messages ?? [];
-          for (const m of currentMessages) {
-            if (m.role === "user" && !m.isContextCompaction) {
-              // A user message is "pending" (needs id replacement) if its id
-              // does not look like a DB snowflake id. Frontend ids use the
-              // pattern "user-{timestamp}-{random}"; DB ids are numeric
-              // snowflake strings.
-              const isFrontendId = isNaN(Number(m.id));
-              if (isFrontendId) {
-                pendingUserIds.push(m.id);
-              }
-            }
-          }
-
-          // Build a mapping from old frontend id -> new DB id. The backend
-          // returns ids in the same order as the user messages in the request.
-          const idRemap = new Map<string, string>();
-          const remapCount = Math.min(
-            pendingUserIds.length,
-            response.persistedUserMessageIds.length,
+          const idRemap = remapPersistedUserMessageIds(
+            ctx,
+            effectiveKey,
+            response.persistedUserMessageIds,
           );
-          for (let i = 0; i < remapCount; i++) {
-            idRemap.set(pendingUserIds[i], response.persistedUserMessageIds[i]);
-          }
-
-          if (idRemap.size > 0) {
-            ctx.updateSessionMessages(effectiveKey, (msgs) =>
-              msgs.map((m) => {
-                const newId = idRemap.get(m.id);
-                return newId ? { ...m, id: newId } : m;
-              }),
-            );
-            // Update the outer-scope userMessage reference so downstream code
-            // (checkpoint association, error retry) uses the real DB id.
-            const remappedUser = idRemap.get(userMessage.id);
-            if (remappedUser) {
-              userMessage.id = remappedUser;
-            }
+          // Update the outer-scope userMessage reference so downstream code
+          // (checkpoint association, error retry) uses the real DB id.
+          const remappedUser = idRemap.get(userMessage.id);
+          if (remappedUser) {
+            userMessage.id = remappedUser;
           }
         }
 
@@ -1963,6 +1949,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       ctx.setRollbackNewChatState,
       ctx.notifyAiComplete,
       requestToolAuthorizations,
+      t,
     ],
   );
 

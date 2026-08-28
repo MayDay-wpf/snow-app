@@ -7,6 +7,7 @@ import {
   Loader2,
   MessageSquareMore,
   Pause,
+  Workflow,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -33,6 +34,10 @@ type ChatItemProps = {
   /** 子代理中待用户确认（提问/工具授权）的会话 id 集合 */
   subAgentAttentionRequiredIds?: Set<string>;
   isSubAgentExpanded?: boolean;
+  /** Workflow 主会话（创建了 workflow 节点会话），显示特殊图标与树形展开 */
+  isWorkflow?: boolean;
+  isWorkflowExpanded?: boolean;
+  onToggleWorkflowPanel?: () => void;
   isMultiSelectMode?: boolean;
   isSelected?: boolean;
   /** 允许作为拖拽源（拖到置顶区/普通列表区切换置顶状态） */
@@ -67,6 +72,8 @@ export function ChatItem({
   subAgentConversations = [],
   subAgentAttentionRequiredIds = new Set<string>(),
   isSubAgentExpanded = false,
+  isWorkflow = false,
+  isWorkflowExpanded = false,
   isMultiSelectMode = false,
   isSelected = false,
   isDraggable = false,
@@ -83,6 +90,7 @@ export function ChatItem({
   onToggleSelect,
   onSelect,
   onToggleSubAgentPanel,
+  onToggleWorkflowPanel,
 }: ChatItemProps): React.JSX.Element {
   const { t } = useI18n();
   const [isEditing, setIsEditing] = useState(false);
@@ -331,7 +339,9 @@ export function ChatItem({
                   : ""
           }${showDefaultIcon && isForked ? " forked" : ""}${
             showDefaultIcon && hasSubAgents ? " has-sub-agents" : ""
-          }${showDefaultIcon && hasEmoji ? " has-emoji" : ""}`}
+          }${showDefaultIcon && isWorkflow ? " workflow" : ""}${
+            showDefaultIcon && hasEmoji ? " has-emoji" : ""
+          }`}
           onClick={(event) => {
             // 图标不再承载交互，点击仅阻止选中会话；修改入口在右键菜单中
             event.stopPropagation();
@@ -349,6 +359,8 @@ export function ChatItem({
             <CheckCircle2 size={12} aria-hidden="true" />
           ) : hasEmoji ? (
             <span className="chat-item-emoji">{conversation.emoji}</span>
+          ) : isWorkflow ? (
+            <Workflow size={11} />
           ) : isForked ? (
             <GitFork size={11} />
           ) : (
@@ -373,6 +385,23 @@ export function ChatItem({
         ) : (
           <>
             <div className="chat-item-title-row">
+              {isWorkflow && (
+                <span
+                  className="chat-item-expand-toggle workflow"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleWorkflowPanel?.();
+                  }}
+                  role="button"
+                  tabIndex={-1}
+                  aria-expanded={isWorkflowExpanded}
+                >
+                  <ChevronRight
+                    size={12}
+                    className={isWorkflowExpanded ? "expanded" : ""}
+                  />
+                </span>
+              )}
               {hasSubAgents && (
                 <span
                   className="chat-item-expand-toggle"

@@ -1188,6 +1188,12 @@ input {
   color: var(--accent-secondary, #8b5cf6);
 }
 
+/* Workflow 主会话图标：蓝色调，与子代理（紫色）区分 */
+.chat-item-icon.workflow {
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
+}
+
 .chat-item-icon.has-emoji {
   border-color: var(--border-light, var(--border-color));
   cursor: pointer;
@@ -1331,6 +1337,128 @@ input {
 }
 .chat-item-sub-agent-count.attention {
   background: var(--warning, #f59e0b);
+}
+
+/* Workflow 节点列表面板：渲染在 ChatItem 外部（兄弟节点），
+   从主会话图标中心引出树形轴；节点项内嵌的子代理面板再缩进一层 */
+.workflow-node-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 4px 19px;
+  padding-left: 19px;
+  border-left: 1px solid var(--border-color);
+}
+
+.workflow-node-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.workflow-node-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.workflow-node-list-item.active {
+  background: var(--bg-active);
+}
+
+.workflow-node-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.12s ease;
+}
+
+.workflow-node-expand-toggle:hover {
+  color: var(--text-primary);
+}
+
+.workflow-node-expand-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.workflow-node-expand-toggle svg.expanded {
+  transform: rotate(90deg);
+}
+
+.workflow-node-list-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.workflow-node-list-icon svg {
+  color: var(--text-muted);
+}
+
+.workflow-node-list-item .workflow-node-list-icon svg[stroke="currentColor"] {
+  color: var(--text-muted);
+}
+
+/* 节点图标：静态状态用 Workflow 图标（与子代理的 Bot 图标区分），运行中
+   改用 Loader2 旋转指示器；选择器与灰色兜底规则同优先级且后定义，确保生效 */
+.workflow-node-list-item
+  .workflow-node-list-icon
+  svg.workflow-node-status-running {
+  color: var(--accent, #3b82f6);
+}
+
+.workflow-node-list-item
+  .workflow-node-list-icon
+  svg.workflow-node-status-completed {
+  color: var(--accent-green, #22c55e);
+}
+
+.workflow-node-list-item
+  .workflow-node-list-icon
+  svg.workflow-node-status-failed {
+  color: var(--accent-red-text, #ef4444);
+}
+
+.workflow-node-list-item
+  .workflow-node-list-icon
+  svg.workflow-node-status-pending {
+  color: var(--text-tertiary);
+}
+
+/* 优先级高于灰色覆盖 */
+.workflow-node-list-item .workflow-node-list-icon svg.sub-agent-attention {
+  color: var(--warning, #f59e0b);
+}
+
+.workflow-node-list-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workflow-node-list-item.active .workflow-node-list-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 节点内嵌的子代理面板：在 workflow 节点树下再缩进一层，
+   并与上方节点项留出间隙，避免两块背景紧贴 */
+.workflow-node-list-panel .sub-agent-list-panel {
+  margin-top: 4px;
+  margin-left: 13px;
 }
 
 .chat-item-content {
@@ -10976,13 +11104,20 @@ input {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
+  width: fit-content;
+  padding: 4px 6px 4px 8px;
   font-size: 12.5px;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
   list-style: none;
   line-height: 1.4;
+  transition: background 0.15s ease;
+}
+
+.tcn-header:hover {
+  background: var(--bg-hover);
+  border-radius: 6px;
 }
 
 .tcn-header::-webkit-details-marker {
@@ -27555,7 +27690,7 @@ input {
 
 /* Rollback Confirm Dialog */
 .rollback-confirm-dialog {
-  width: 520px;
+  width: min(760px, 92vw);
   max-height: 80vh;
   border-color: rgba(210, 153, 34, 0.3);
   transition: width 0.2s ease;
@@ -34969,6 +35104,238 @@ body.ctrl-held [data-path] {
   line-height: 1.2;
 }
 
+/* 成功率卡片副行：错误请求数 */
+.usage-summary-card-sub {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* 图表总览区：每日趋势 + 模型占比环形图并排 */
+.usage-charts-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.usage-chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.usage-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+}
+
+.usage-chart-header strong {
+  font-size: 13px;
+}
+
+.usage-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.usage-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.usage-chart-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* 每日趋势图 */
+.usage-trend-chart {
+  position: relative;
+  width: 100%;
+}
+
+.usage-trend-chart svg {
+  display: block;
+  width: 100%;
+  height: 138px;
+}
+
+.usage-chart-axis-label {
+  fill: var(--text-muted);
+  font-size: 9.5px;
+}
+
+.usage-chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  min-width: 150px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--island-shadow);
+  font-size: 11px;
+}
+
+.usage-chart-tooltip-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.usage-chart-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-chart-tooltip-label {
+  color: var(--text-muted);
+}
+
+.usage-chart-tooltip-value {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 模型占比环形图 */
+.usage-donut {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.usage-donut svg {
+  flex-shrink: 0;
+  width: 116px;
+  height: 116px;
+}
+
+.usage-donut-segment {
+  transition: opacity 0.15s;
+}
+
+.usage-donut-segment.dim {
+  opacity: 0.3;
+}
+
+.usage-donut-center-value {
+  fill: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.usage-donut-center-label {
+  fill: var(--text-muted);
+  font-size: 9px;
+}
+
+.usage-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.usage-donut-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  cursor: default;
+}
+
+.usage-donut-legend-item:hover {
+  background: var(--bg-hover);
+}
+
+.usage-donut-legend-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.usage-donut-legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.usage-donut-legend-pct {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图表空态 */
+.usage-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 138px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 使用记录折叠开关 */
+.usage-records-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.usage-records-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.usage-records-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.usage-records-chevron.open {
+  transform: rotate(180deg);
+}
+
 .usage-heatmap-section {
   margin-bottom: 22px;
 }
@@ -35219,6 +35586,11 @@ body.ctrl-held [data-path] {
   font-size: 14px;
 }
 
+/* 用量记录标题紧贴表格，与上方清理区保持分隔 */
+.usage-table-section .usage-clear-section + .usage-table-header {
+  margin-top: 8px;
+}
+
 .usage-table-wrapper {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -35266,6 +35638,11 @@ body.ctrl-held [data-path] {
 .usage-table thead th:first-child,
 .usage-table tbody td:first-child {
   width: 160px;
+}
+
+/* 数值列表头与右对齐的数值单元格保持同一对齐基线 */
+.usage-table thead th.usage-th-number {
+  text-align: right;
 }
 
 .usage-table thead th:nth-child(4),
