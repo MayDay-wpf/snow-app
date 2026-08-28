@@ -17,6 +17,8 @@ const POPUP_HEIGHT = 32;
 const VIEWPORT_MARGIN = 8;
 // 浮层与锚点（光标 / 选区末行 / 鼠标）的间距
 const ANCHOR_GAP = 8;
+// 按下与松开位移小于该阈值视为「单击」，而非拖拽形成新选区
+const CLICK_DRAG_THRESHOLD = 4;
 
 /** 判断节点是否位于容器的划词来源区（data-quote-source 标记的元素）内。 */
 const isInsideQuoteSource = (
@@ -55,6 +57,12 @@ export const useTextSelectionQuote = (
   const dismissQuote = useCallback(() => setQuoteState(null), []);
 
   useEffect(() => {
+    // mousedown 瞬间的选区快照：区分「单击已有选区」与拖拽/双击形成的新选区
+    let mouseDownX = 0;
+    let mouseDownY = 0;
+    let hadSelectionAtMouseDown = false;
+    let selectionTextAtMouseDown = "";
+    let mouseDownInPopup = false;
     // mouseup 后浏览器已确定最终选区：校验来源与长度并计算浮层位置。
     const handleMouseUp = (event: MouseEvent): void => {
       const container = containerRef.current;
@@ -72,6 +80,20 @@ export const useTextSelectionQuote = (
         .toString()
         .replace(/\u200B/g, "")
         .trim();
+      // 单击（未拖拽）落在已有选区上：Chromium 会保留原选区，导致 mouseup
+      // 时浮层重新弹出；视为取消引用，仅当选区文本变化（双击选词等）放行。
+      const moved =
+        Math.abs(event.clientX - mouseDownX) > CLICK_DRAG_THRESHOLD ||
+        Math.abs(event.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD;
+      if (
+        !moved &&
+        !mouseDownInPopup &&
+        hadSelectionAtMouseDown &&
+        text === selectionTextAtMouseDown
+      ) {
+        setQuoteState(null);
+        return;
+      }
       if (
         !text ||
         text.length < MIN_QUOTE_LENGTH ||
@@ -129,10 +151,24 @@ export const useTextSelectionQuote = (
       setQuoteState({ text, x: clampedX, y: clampedY });
     };
 
-    // 捕获阶段的 mousedown：点击浮层以外任何位置即取消。
+    // 捕获阶段的 mousedown：点击浮层以外任何位置即取消，同时快照选区状态。
     const handleMouseDown = (event: MouseEvent): void => {
       const target = event.target;
-      if (target instanceof Element && target.closest("[data-quote-popup]")) {
+      mouseDownInPopup =
+        target instanceof Element &&
+        target.closest("[data-quote-popup]") !== null;
+      mouseDownX = event.clientX;
+      mouseDownY = event.clientY;
+      const selection = window.getSelection();
+      const selectionText =
+        selection
+          ?.toString()
+          .replace(/\u200B/g, "")
+          .trim() ?? "";
+      hadSelectionAtMouseDown =
+        !!selection && !selection.isCollapsed && selection.rangeCount > 0;
+      selectionTextAtMouseDown = hadSelectionAtMouseDown ? selectionText : "";
+      if (mouseDownInPopup) {
         return;
       }
       setQuoteState(null);
