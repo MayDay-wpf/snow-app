@@ -1,4 +1,4 @@
-import { File, Folder } from "lucide-react";
+import { FilePlus, FolderPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
@@ -528,13 +528,13 @@ export const useInputFileOperations = ({
           {
             id: "files",
             label: t("plusMenu.files"),
-            icon: File,
+            icon: FilePlus,
             onSelect: () => void handleSelectFiles(),
           },
           {
             id: "folders",
             label: t("plusMenu.folders"),
-            icon: Folder,
+            icon: FolderPlus,
             onSelect: () => void handleSelectFolders(),
           },
         ],

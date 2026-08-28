@@ -21116,8 +21116,8 @@ input {
 
 .plus-menu-dropdown {
   position: absolute;
-  min-width: 200px;
-  max-width: 280px;
+  min-width: 320px;
+  max-width: 360px;
   max-height: min(520px, 70vh);
   display: flex;
   flex-direction: column;
@@ -21209,8 +21209,10 @@ input {
 
 .plus-menu-item-content {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -21218,12 +21220,15 @@ input {
   color: var(--text-primary);
   font-size: 12px;
   line-height: 1.4;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .plus-menu-item-description {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.35;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -21238,25 +21243,24 @@ input {
   cursor: default;
 }
 
-.plus-menu-goal-budget-panel {
-  padding: 6px 12px 10px 38px;
-}
-
-.plus-menu-goal-budget-title {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-bottom: 6px;
-}
-
-.plus-menu-goal-budget-input-row {
+.plus-menu-goal-budget-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 5px 12px 7px 38px;
+}
+
+.plus-menu-goal-budget-title {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .plus-menu-goal-budget-input {
-  width: 110px;
-  padding: 4px 8px;
+  width: 90px;
+  min-width: 0;
+  flex: 0 1 90px;
+  padding: 3px 8px;
   font-size: 12px;
   border-radius: 4px;
   border: 1px solid var(--border-color);
@@ -21281,8 +21285,8 @@ input {
 .plus-menu-goal-unlimited-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 5px;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;

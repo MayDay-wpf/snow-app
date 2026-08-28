@@ -362,28 +362,26 @@ export const PlusMenu = ({
               </label>
             </div>
             {goalMode && (
-              <div className="plus-menu-goal-budget-panel">
-                <div className="plus-menu-goal-budget-title">
+              <div className="plus-menu-goal-budget-row">
+                <span className="plus-menu-goal-budget-title">
                   {t("plusMenu.goalBudgetTitle")}
-                </div>
-                <div className="plus-menu-goal-budget-input-row">
-                  <input
-                    className="plus-menu-goal-budget-input"
-                    type="number"
-                    min={10000}
-                    step={100000}
-                    value={goalModeTokenBudget}
-                    disabled={goalModeTokenBudget <= 0}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(value) && value > 0) {
-                        onGoalModeTokenBudgetChange?.(value);
-                      }
-                    }}
-                    aria-label={t("plusMenu.goalBudgetTitle")}
-                  />
-                  <span className="plus-menu-goal-budget-unit">tokens</span>
-                </div>
+                </span>
+                <input
+                  className="plus-menu-goal-budget-input"
+                  type="number"
+                  min={10000}
+                  step={100000}
+                  value={goalModeTokenBudget}
+                  disabled={goalModeTokenBudget <= 0}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    if (!Number.isNaN(value) && value > 0) {
+                      onGoalModeTokenBudgetChange?.(value);
+                    }
+                  }}
+                  aria-label={t("plusMenu.goalBudgetTitle")}
+                />
+                <span className="plus-menu-goal-budget-unit">tokens</span>
                 <label className="plus-menu-goal-unlimited-row">
                   <input
                     type="checkbox"
