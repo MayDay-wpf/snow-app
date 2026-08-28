@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  Bot,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -14,6 +13,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
@@ -326,7 +326,7 @@ export const ModelSelector = ({
         {modelError ? (
           <AlertCircle size={14} className="model-icon" />
         ) : (
-          <Bot size={14} className="model-icon" />
+          <ModelBrandIcon model={displayModel} size={14} />
         )}
         <span className="model-name" title={displayModel}>
           {displayModel}
@@ -541,7 +541,17 @@ export const ModelSelector = ({
                       {config.displayName}
                     </span>
                     <span className="model-dropdown-item-model">
-                      {config.advancedModel || config.basicModel || "-"}
+                      {(config.advancedModel || config.basicModel) && (
+                        <ModelBrandIcon
+                          model={
+                            config.advancedModel || config.basicModel || ""
+                          }
+                          size={12}
+                        />
+                      )}
+                      <span className="model-dropdown-item-model-text">
+                        {config.advancedModel || config.basicModel || "-"}
+                      </span>
                     </span>
                     {config.profileName === selectedApiProfile && (
                       <Check size={14} className="model-dropdown-check" />
@@ -706,8 +716,11 @@ export const ModelSelector = ({
                       type="button"
                       title={model.id}
                     >
-                      <span className="model-dropdown-item-name">
-                        {model.id}
+                      <span className="model-dropdown-item-name with-icon">
+                        <ModelBrandIcon model={model.id} size={16} />
+                        <span className="model-dropdown-item-name-text">
+                          {model.id}
+                        </span>
                       </span>
                       {selectedModel === model.id && (
                         <Check size={14} className="model-dropdown-check" />

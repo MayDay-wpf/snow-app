@@ -22371,14 +22371,22 @@ input {
 }
 
 .model-dropdown-item-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-left: auto;
   flex-shrink: 0;
   max-width: 120px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.model-dropdown-item-model-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  color: var(--text-tertiary);
+  min-width: 0;
 }
 
 .api-profile-dropdown-divider {
@@ -22772,6 +22780,13 @@ input {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
+}
+
+.model-dropdown-item-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
 }
 
@@ -36664,6 +36679,34 @@ body.ctrl-held [data-path] {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.api-model-combobox-option-icon {
+  flex-shrink: 0;
+}
+
+/* 模型品牌图标：LobeHub 头像容器（.lobe-flex）只输出 CSS 变量，真正的 flex
+   居中规则在其官方样式表中（项目未引入），缺失时内部 logo 会按内联元素坐在
+   文字基线上导致中心偏移，这里统一补齐居中规则。 */
+.model-brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.model-brand-icon > svg {
+  display: block;
+  flex: none;
+}
+
+/* 未匹配到品牌 logo 时的默认占位 */
+.model-brand-icon-fallback {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  pointer-events: none;
+  user-select: none;
 }
 
 .api-model-combobox-option-name {

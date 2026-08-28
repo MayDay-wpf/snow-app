@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Check, ChevronDown, Loader2, RefreshCw, Search } from "lucide-react";
+import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import type { Model } from "../../../../preload";
 
 type ApiModelComboboxProps = {
@@ -75,7 +82,7 @@ export function ApiModelCombobox({
     // Prefer the currently selected model when it is visible so that
     // reopening the list highlights what is already configured.
     const selectedIndex = filteredModels.findIndex(
-      (model) => model.id === value
+      (model) => model.id === value,
     );
     setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
   }, [value, filteredModels]);
@@ -133,7 +140,7 @@ export function ApiModelCombobox({
         showFullModelList();
       }
       setHighlightedIndex((index) =>
-        Math.min(index + 1, Math.max(filteredModels.length - 1, 0))
+        Math.min(index + 1, Math.max(filteredModels.length - 1, 0)),
       );
       return;
     }
@@ -158,7 +165,15 @@ export function ApiModelCombobox({
       <span>{label}</span>
       <div className="api-model-combobox" ref={rootRef}>
         <div className="api-model-combobox-input-wrap">
-          <Search size={14} className="api-model-combobox-search" />
+          {value.trim() ? (
+            <ModelBrandIcon
+              model={value}
+              size={14}
+              className="api-model-combobox-search"
+            />
+          ) : (
+            <Search size={14} className="api-model-combobox-search" />
+          )}
           <input
             value={value}
             onChange={(event) => {
@@ -207,7 +222,8 @@ export function ApiModelCombobox({
                   const isSelected = model.id === value;
                   const isHighlighted = index === highlightedIndex;
                   const known = knownModels?.find(
-                    (entry) => entry.id.toLowerCase() === model.id.toLowerCase()
+                    (entry) =>
+                      entry.id.toLowerCase() === model.id.toLowerCase(),
                   );
 
                   return (
@@ -230,6 +246,11 @@ export function ApiModelCombobox({
                       title={model.id}
                     >
                       <span className="api-model-combobox-option-main">
+                        <ModelBrandIcon
+                          model={model.id}
+                          size={16}
+                          className="api-model-combobox-option-icon"
+                        />
                         <span className="api-model-combobox-option-name">
                           {model.id}
                         </span>
