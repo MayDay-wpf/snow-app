@@ -34,13 +34,13 @@ export type PetSpriteState = keyof typeof PET_STATE_ROWS;
 /** 各状态播放帧率（fps）。 */
 export const PET_STATE_FPS: Record<PetSpriteState, number> = {
   idle: 6,
-  "running-right": 12,
-  "running-left": 12,
+  "running-right": 5,
+  "running-left": 5,
   waving: 8,
   jumping: 9,
   failed: 8,
   waiting: 7,
-  running: 12,
+  running: 5,
   review: 9,
 };
 
@@ -65,7 +65,7 @@ const cellHasContent = (
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
 ): boolean => {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
@@ -94,7 +94,7 @@ const cellHasContent = (
 export const prepareSpritesheet = (
   image: HTMLImageElement,
   columns: number,
-  rows: number
+  rows: number,
 ): PreparedSpritesheet => {
   const canvas = document.createElement("canvas");
   canvas.width = image.naturalWidth;
@@ -132,7 +132,7 @@ export const prepareSpritesheet = (
         col * frameWidth,
         row * frameHeight,
         frameWidth,
-        frameHeight
+        frameHeight,
       );
       if (hasContent) {
         emptyRun = 0;

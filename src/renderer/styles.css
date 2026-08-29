@@ -7417,12 +7417,39 @@ input {
   flex-basis: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
   /* Bottom padding matches the mask fade height so the latest message rests
      fully above the fade zone when stuck to the bottom. */
   padding: 16px 20px 48px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.chat-area::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-area::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.chat-area.is-hovering-scrollbar,
+.chat-area.is-wheelscrolling {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.chat-area.is-hovering-scrollbar::-webkit-scrollbar-thumb,
+.chat-area.is-wheelscrolling::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+.chat-area.is-hovering-scrollbar::-webkit-scrollbar-thumb:hover,
+.chat-area.is-wheelscrolling::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+.chat-area.is-hovering-scrollbar::-webkit-scrollbar-thumb:active,
+.chat-area.is-wheelscrolling::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
 }
 
 /* 消息区响应式宽度梯度（按视口宽度分档，兼容 1366×768 ~ 4K/带鱼屏）：
@@ -26508,7 +26535,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px 16px 16px;
+  padding: 14px 16px 0;
 }
 
 .project-mcp-state {
@@ -26605,8 +26632,10 @@ input {
 .project-mcp-list {
   display: flex;
   min-height: 0;
+  flex-shrink: 0;
   flex-direction: column;
   gap: 16px;
+  padding-bottom: 16px;
 }
 
 .project-mcp-group {

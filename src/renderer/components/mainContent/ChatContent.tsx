@@ -355,6 +355,7 @@ const ChatContentBody = ({
   const scrollToBottomAnimRef = useRef(0);
   const previousIsCompactingRef = useRef(isCompactingActive);
   const scrollRafIdRef = useRef(0);
+  const wheelScrollbarTimerRef = useRef(0);
   const hasMessagesRef = useRef(hasMessages);
   const autoScrollEnabledRef = useRef(autoScrollEnabled);
   const isStreamingRef = useRef(isStreaming);
@@ -765,6 +766,45 @@ const ChatContentBody = ({
     isSmoothScrollingToBottomRef.current = false;
   }, []);
 
+  const handleChatPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const container = event.currentTarget;
+      if (container.scrollHeight <= container.clientHeight) {
+        container.classList.remove("is-hovering-scrollbar");
+        return;
+      }
+      const scrollbarStartX =
+        container.getBoundingClientRect().left + container.clientWidth;
+      container.classList.toggle(
+        "is-hovering-scrollbar",
+        event.clientX >= scrollbarStartX,
+      );
+    },
+    [],
+  );
+
+  const handleChatPointerLeave = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      event.currentTarget.classList.remove("is-hovering-scrollbar");
+    },
+    [],
+  );
+
+  const flashChatScrollbar = useCallback((): void => {
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+    container.classList.add("is-wheelscrolling");
+    if (wheelScrollbarTimerRef.current !== 0) {
+      window.clearTimeout(wheelScrollbarTimerRef.current);
+    }
+    wheelScrollbarTimerRef.current = window.setTimeout(() => {
+      wheelScrollbarTimerRef.current = 0;
+      container.classList.remove("is-wheelscrolling");
+    }, 1000);
+  }, []);
+
   // 滚轮是唯一带方向信息的滚动输入，在这里同步决定跟随状态，而不是等 scroll
   // 事件：渲染帧里 ResizeObserver 的钉底先于 scroll 事件执行，若等事件再
   // 推导，流式增长会先一步把视口钉回底部，用户向上的滚动会被“吃掉”。
@@ -781,6 +821,7 @@ const ChatContentBody = ({
       }
 
       markUserScrollIntent();
+      flashChatScrollbar();
 
       if (deltaY < 0) {
         // 向上滚 = 阅读历史：立即脱离跟随。容器已在顶部时手势不产生滚动，
@@ -801,7 +842,7 @@ const ChatContentBody = ({
         setShowScrollToBottom(false);
       }
     },
-    [markUserScrollIntent, syncScrollButtonVisibility],
+    [flashChatScrollbar, markUserScrollIntent, syncScrollButtonVisibility],
   );
 
   const handleChatPointerDown = useCallback(
@@ -1041,6 +1082,10 @@ const ChatContentBody = ({
         cancelAnimationFrame(scrollToBottomAnimRef.current);
         scrollToBottomAnimRef.current = 0;
       }
+      if (wheelScrollbarTimerRef.current !== 0) {
+        window.clearTimeout(wheelScrollbarTimerRef.current);
+        wheelScrollbarTimerRef.current = 0;
+      }
     };
   }, []);
 
@@ -1065,6 +1110,8 @@ const ChatContentBody = ({
         onWheel={handleChatWheel}
         onTouchStart={markUserScrollIntent}
         onPointerDown={handleChatPointerDown}
+        onPointerMove={handleChatPointerMove}
+        onPointerLeave={handleChatPointerLeave}
         onKeyDown={handleChatKeyDown}
         onScroll={handleChatScroll}
         tabIndex={0}
