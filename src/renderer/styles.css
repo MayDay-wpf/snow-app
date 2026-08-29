@@ -9231,6 +9231,7 @@ input {
   background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: 12px;
+  animation: chat-enter 0.2s ease-out both;
 }
 
 .chat-vision-status-spinner {
@@ -9302,6 +9303,26 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* 新消息挂载时柔和浮现，替代瞬间跳变（虚拟化消息滚回视口重挂载时
+     同样播放，作为内容重建的轻量视觉提示）。 */
+  animation: chat-enter 0.18s ease-out both;
+}
+
+/* ===== Agent loop 入场动画 =====
+   统一用于"新节点挂载"场景：用户消息、工具卡片、任务摘要条、
+   视觉分析状态卡等。只定义 from 帧，to 帧自然落到元素常规样式，
+   动画结束后无残留 transform，不影响内部 fixed/absolute 定位。 */
+@keyframes chat-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes chat-fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .chat-message-hook-container {
@@ -9367,6 +9388,8 @@ input {
   font-variant-numeric: tabular-nums;
   line-height: 1;
   vertical-align: 0.05em;
+  /* 每轮流式开始时柔和浮现，避免指示器突兀弹出 */
+  animation: chat-fade-in 0.2s ease-out both;
 }
 
 .stream-cursor-tokens {
@@ -9430,6 +9453,7 @@ input {
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-tertiary);
+  animation: chat-fade-in 0.15s ease-out both;
 }
 
 .response-incomplete-notice {
@@ -9444,6 +9468,7 @@ input {
   color: var(--accent-amber-text);
   font-size: 12px;
   line-height: 1.5;
+  animation: chat-enter 0.2s ease-out both;
 }
 
 .response-incomplete-notice-icon {
@@ -9629,6 +9654,8 @@ input {
   align-items: center;
   gap: 6px;
   color: var(--text-muted);
+  /* AI 流程结束后操作按钮浮现，避免与正文同时硬切出现 */
+  animation: chat-fade-in 0.25s ease-out both;
 }
 
 .ai-response-action-btn {
@@ -9726,6 +9753,8 @@ input {
   width: min(100%, var(--chat-content-max));
   margin: 4px auto 0;
   padding: 0 12px;
+  /* run 结束时摘要条从消息流尾部柔和浮现 */
+  animation: chat-enter 0.25s ease-out both;
 }
 
 .chat-run-summary-content {
@@ -10998,6 +11027,28 @@ input {
   margin-top: 6px;
 }
 
+/* 折叠/展开双向高度动画：grid-rows 0fr<->1fr 插值。内容常挂载，
+   收起时 content-visibility 跳过整个子树的 layout/paint，
+   保持与原来条件卸载同级的开销。 */
+.thinking-block-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.thinking-block-collapse.is-collapsed {
+  grid-template-rows: 0fr;
+}
+
+.thinking-block-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.thinking-block-collapse.is-collapsed .thinking-block-collapse-inner {
+  content-visibility: hidden;
+}
+
 /* Scrollable area with fixed height */
 .thinking-block-scroll {
   max-height: 200px;
@@ -11116,6 +11167,8 @@ input {
    ============================================================ */
 .tcg {
   margin-bottom: 6px;
+  /* 首个工具出现时整组（含 "N steps" 标签行）柔和浮现 */
+  animation: chat-enter 0.18s ease-out both;
 }
 
 .tcg-toggle {
@@ -11149,15 +11202,74 @@ input {
   transform: rotate(90deg);
 }
 
+/* "N steps" 组的双向展开/收起高度动画：grid-rows 0fr<->1fr 插值。
+   列表常挂载（工具卡的 details 关闭态内容由浏览器在 shadow 层隐藏，
+   实际布局开销有限）；收起时再叠加 content-visibility 跳过整棵子树。 */
+.tcg-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.tcg-collapse.is-open {
+  grid-template-rows: 1fr;
+}
+
 .tcg-list {
   display: flex;
+  position: relative;
   flex-direction: column;
   gap: 0;
-  margin-left: 6px;
-  padding-left: 12px;
-  border-left: 1.5px solid var(--border-light);
+  /* 负值使轴线中心（6 + 8.75px）对齐思考块边框中心（margin 4px + 4px 边框 / 2 = 6px） */
+  margin-left: -2.75px;
+  /* 竖线由 ::before 内移 8px 绘制（不再用 border-left）：左侧 8px
+     内衬属于裁剪区内，骑线定位的 .tcn-dot（边框盒宽 10px）才能
+     完整显示而不被 overflow: hidden 裁掉。 */
+  padding-left: 20px;
   --tcn-line-width: 1.5px;
-  --tcn-pad-left: 12px;
+  /* left + translate(-50%) 组合的语义是圆点中心落在 left 值上：
+     中心 = 20 - (10.5 + 0.75) = 8.75px，与竖线中心精确对齐，
+     且左缘 8.75 - 5 = 3.75px > 0，完整位于裁剪区内。 */
+  --tcn-pad-left: 10.5px;
+  /* 作为 grid item 允许收缩到 0fr 行高，并裁剪溢出 */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tcg-list::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 8px;
+  width: var(--tcn-line-width, 1.5px);
+  background: var(--border-light);
+}
+
+.tcg-collapse:not(.is-open) .tcg-list {
+  content-visibility: hidden;
+}
+
+/* 新工具卡片依次浮现：交错延迟让批量出现的卡片有节奏感，
+   最迟一张也在 0.18s 淡入 + 0.2s 延迟内完成，整体不拖沓。 */
+.tcg-list > .tcn:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.tcg-list > .tcn:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.tcg-list > .tcn:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.tcg-list > .tcn:nth-child(5) {
+  animation-delay: 160ms;
+}
+
+.tcg-list > .tcn:nth-child(n + 6) {
+  animation-delay: 200ms;
 }
 
 /* ============================================================
@@ -11165,6 +11277,8 @@ input {
    ============================================================ */
 .tcn {
   position: relative;
+  /* 工具卡挂载时柔和浮现（模型一轮响应结束后整批出现） */
+  animation: chat-enter 0.18s ease-out both;
 }
 
 .tcn-header {
@@ -11201,6 +11315,8 @@ input {
   border-radius: 50%;
   border: 1.5px solid var(--bg-primary, #fff);
   box-sizing: content-box;
+  /* 状态切换（pending->running->completed/error）颜色平滑过渡 */
+  transition: background-color 0.2s ease;
 }
 
 .tcn-dot--completed {
@@ -11211,6 +11327,21 @@ input {
   background: var(--accent-blue, #3b82f6);
   box-shadow: 0 0 0 2px
     color-mix(in srgb, var(--accent-blue, #3b82f6) 25%, transparent);
+  /* 运行中状态点呼吸光晕，与旋转图标一起表达"进行中" */
+  animation: tcn-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tcn-dot-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--accent-blue, #3b82f6) 25%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px
+      color-mix(in srgb, var(--accent-blue, #3b82f6) 10%, transparent);
+  }
 }
 
 .tcn-dot--error {
@@ -11324,6 +11455,44 @@ input {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
+}
+
+/* 工具卡展开时 body 柔和下滑浮现。details 关闭态的内容被浏览器在
+   shadow 层隐藏（无前置渲染帧，transition 无法生效），因此展开用
+   单向 animation；收起保持原生瞬时折叠，避免等待动画。 */
+.tcn[open] > .tcn-body {
+  animation: tcn-body-in 0.18s ease-out both;
+}
+
+@keyframes tcn-body-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+/* Agent loop 动效统一豁免：用户偏好减弱动态效果时关闭所有新增
+   入场/过渡动画，保留静态可见性不受影响。 */
+@media (prefers-reduced-motion: reduce) {
+  .chat-message-group,
+  .tcg,
+  .tcn,
+  .chat-run-summary,
+  .chat-vision-status,
+  .response-incomplete-notice,
+  .ai-response-actions,
+  .stream-cursor,
+  .stream-stopping,
+  .tcn[open] > .tcn-body,
+  .tcn-dot--running {
+    animation: none;
+  }
+
+  .tcg-collapse,
+  .thinking-block-collapse,
+  .tcn-dot {
+    transition: none;
+  }
 }
 
 /* ============================================================

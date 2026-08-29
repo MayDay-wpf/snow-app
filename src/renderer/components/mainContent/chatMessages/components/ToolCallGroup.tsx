@@ -44,7 +44,11 @@ export const ToolCallGroup = ({
           aria-hidden="true"
         />
       </button>
-      {isOpen ? <div className="tcg-list">{children}</div> : null}
+      {/* 列表常挂载（收起时由 .tcg-collapse 折叠为 0 高度），
+          这样展开/收起都能走 grid-rows 高度过渡动画，而非瞬间闪现。 */}
+      <div className={`tcg-collapse${isOpen ? " is-open" : ""}`}>
+        <div className="tcg-list">{children}</div>
+      </div>
     </div>
   );
 };

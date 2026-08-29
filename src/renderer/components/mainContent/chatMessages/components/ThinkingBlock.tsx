@@ -143,50 +143,58 @@ export const ThinkingBlock = ({
         <span>{t("chat.thinkingProcess")}</span>
       </div>
 
-      {!isCollapsed ? (
-        <div className="thinking-block-content-wrapper">
-          <div
-            className={`thinking-block-scroll${
-              isExpanded ? " thinking-block-scroll--expanded" : ""
-            }`}
-            ref={scrollRef}
-            onScroll={handleScroll}
-          >
-            {/* data-quote-source：思考过程文本同样支持划词引用 */}
-            <div ref={bodyRef} data-quote-source="true">
-              <MarkdownBlock
-                className="thinking-block-body"
-                content={content}
-                streaming={isStreaming}
-              />
+      {/* 内容区常挂载（收起时由 .thinking-block-collapse 折叠为 0 高度），
+          使折叠/展开都能走 grid-rows 高度过渡动画，而非瞬间闪现。 */}
+      <div
+        className={`thinking-block-collapse${
+          isCollapsed ? " is-collapsed" : ""
+        }`}
+      >
+        <div className="thinking-block-collapse-inner">
+          <div className="thinking-block-content-wrapper">
+            <div
+              className={`thinking-block-scroll${
+                isExpanded ? " thinking-block-scroll--expanded" : ""
+              }`}
+              ref={scrollRef}
+              onScroll={handleScroll}
+            >
+              {/* data-quote-source：思考过程文本同样支持划词引用 */}
+              <div ref={bodyRef} data-quote-source="true">
+                <MarkdownBlock
+                  className="thinking-block-body"
+                  content={content}
+                  streaming={isStreaming}
+                />
+              </div>
             </div>
-          </div>
 
-          {isOverflow && !isExpanded ? (
-            <div className="thinking-block-mask">
+            {isOverflow && !isExpanded ? (
+              <div className="thinking-block-mask">
+                <button
+                  type="button"
+                  className="thinking-block-expand-btn"
+                  onClick={handleToggleExpand}
+                >
+                  <ChevronDown size={14} aria-hidden="true" />
+                  <span>{t("chat.expandAll")}</span>
+                </button>
+              </div>
+            ) : null}
+
+            {isExpanded ? (
               <button
                 type="button"
-                className="thinking-block-expand-btn"
+                className="thinking-block-collapse-btn"
                 onClick={handleToggleExpand}
               >
-                <ChevronDown size={14} aria-hidden="true" />
-                <span>{t("chat.expandAll")}</span>
+                <ChevronUp size={14} aria-hidden="true" />
+                <span>{t("chat.collapse")}</span>
               </button>
-            </div>
-          ) : null}
-
-          {isExpanded ? (
-            <button
-              type="button"
-              className="thinking-block-collapse-btn"
-              onClick={handleToggleExpand}
-            >
-              <ChevronUp size={14} aria-hidden="true" />
-              <span>{t("chat.collapse")}</span>
-            </button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 };
