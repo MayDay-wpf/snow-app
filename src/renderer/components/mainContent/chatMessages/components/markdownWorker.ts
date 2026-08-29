@@ -96,9 +96,10 @@ const markdown = new MarkdownIt({
       `<span>${label}</span>` +
       `</button>` +
       `<button class="code-block-copy" type="button" data-code="${encodeURIComponent(
-        str
-      )}">` +
-      `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>` +
+        str,
+      )}\">` +
+      `<svg class="code-block-copy-icon code-block-copy-icon-copy" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>` +
+      `<svg class="code-block-copy-icon code-block-copy-icon-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>` +
       `</button>` +
       `</div>` +
       `<pre><code class="hljs language-${
@@ -138,15 +139,86 @@ markdown.renderer.rules.table_close = (): string => "</table>\n</div>\n";
  * 在 token 层面还原为纯文本（保留原文，不渲染成 <a>）。
  */
 const FAKE_LINK_FILE_EXTENSIONS = new Set([
-  "md", "markdown", "txt", "log", "csv", "json", "js", "mjs", "cjs", "ts",
-  "tsx", "jsx", "css", "scss", "less", "html", "htm", "xml", "svg", "py",
-  "rb", "go", "rs", "java", "kt", "swift", "c", "h", "cpp", "cc", "hpp",
-  "cs", "php", "sh", "bash", "zsh", "yml", "yaml", "toml", "ini", "cfg",
-  "conf", "sql", "pdf", "doc", "docx", "xls", "xlsx", "zip", "tar", "gz",
-  "7z", "ai", "psd", "wasm", "map", "lock", "patch", "diff", "vue",
-  "svelte", "ttf", "woff", "woff2", "mp3", "mp4", "avi", "mov", "dmg",
-  "exe", "dll", "bat", "cmd", "ps1", "reg", "env", "npmrc", "yarnrc",
-  "editorconfig", "gitignore",
+  "md",
+  "markdown",
+  "txt",
+  "log",
+  "csv",
+  "json",
+  "js",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "jsx",
+  "css",
+  "scss",
+  "less",
+  "html",
+  "htm",
+  "xml",
+  "svg",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "swift",
+  "c",
+  "h",
+  "cpp",
+  "cc",
+  "hpp",
+  "cs",
+  "php",
+  "sh",
+  "bash",
+  "zsh",
+  "yml",
+  "yaml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "sql",
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "zip",
+  "tar",
+  "gz",
+  "7z",
+  "ai",
+  "psd",
+  "wasm",
+  "map",
+  "lock",
+  "patch",
+  "diff",
+  "vue",
+  "svelte",
+  "ttf",
+  "woff",
+  "woff2",
+  "mp3",
+  "mp4",
+  "avi",
+  "mov",
+  "dmg",
+  "exe",
+  "dll",
+  "bat",
+  "cmd",
+  "ps1",
+  "reg",
+  "env",
+  "npmrc",
+  "yarnrc",
+  "editorconfig",
+  "gitignore",
 ]);
 
 const isFakeLinkUrl = (href: string): boolean => {
@@ -234,10 +306,7 @@ markdown.core.ruler.push("annotate-source-badges", (state) => {
       }
       // 定位对应 link_close，拼接链接文本
       let close = i + 1;
-      while (
-        close < children.length &&
-        children[close].type !== "link_close"
-      ) {
+      while (close < children.length && children[close].type !== "link_close") {
         close += 1;
       }
       if (close >= children.length) {
@@ -282,14 +351,14 @@ markdown.renderer.rules.md_source_badge = (tokens, idx): string => {
   const meta = tokens[idx].meta as SourceEntry;
   const favicon = meta.favicon
     ? `<img class="md-source-badge-favicon" src="${attrEscape(
-        meta.favicon
+        meta.favicon,
       )}" alt="" decoding="async">`
     : "";
   return (
     `<span class="md-source-badge" data-title="${attrEscape(
-      meta.title
+      meta.title,
     )}" data-url="${attrEscape(meta.url)}" data-summary="${attrEscape(
-      meta.summary
+      meta.summary,
     )}">` +
     favicon +
     `<span class="md-source-badge-fallback" aria-hidden="true">${SOURCE_BADGE_FALLBACK_SVG}</span>` +
@@ -328,13 +397,7 @@ const normalizeLocalImagePath = (src: string): string | null => {
 // 直接读盘），符合渲染进程 CSP（img-src 允许 img-proxy: 但不允许任意 https:
 // 与本地相对路径）。
 const defaultImageRule = markdown.renderer.rules.image;
-markdown.renderer.rules.image = (
-  tokens,
-  idx,
-  options,
-  env,
-  self
-) => {
+markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const srcIndex = token.attrIndex("src");
   if (srcIndex >= 0 && token.attrs) {

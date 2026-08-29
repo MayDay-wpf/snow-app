@@ -10102,6 +10102,22 @@ input {
   padding: 0;
 }
 
+.context-compaction-markdown .code-block-copy .code-block-copy-icon-check {
+  display: none;
+}
+
+.context-compaction-markdown
+  .code-block-copy.copied
+  .code-block-copy-icon-copy {
+  display: none;
+}
+
+.context-compaction-markdown
+  .code-block-copy.copied
+  .code-block-copy-icon-check {
+  display: block;
+}
+
 .context-compaction-markdown .code-block-lang:hover,
 .context-compaction-markdown .code-block-copy:hover {
   background: var(--bg-hover);
@@ -10532,6 +10548,18 @@ input {
 
 .ai-message .code-block-copy.copied {
   color: var(--accent-green);
+}
+
+.ai-message .code-block-copy .code-block-copy-icon-check {
+  display: none;
+}
+
+.ai-message .code-block-copy.copied .code-block-copy-icon-copy {
+  display: none;
+}
+
+.ai-message .code-block-copy.copied .code-block-copy-icon-check {
+  display: block;
 }
 
 .ai-message .code-block-wrapper pre {
