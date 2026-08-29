@@ -2811,6 +2811,7 @@ export const en = {
   "settings.shortcutToggleWindow": "Show/hide main window",
   "settings.shortcutTogglePet": "Show/hide desktop pet",
   "settings.shortcutEnabled": "Enabled",
+  "settings.shortcutFocusInput": "Focus chat input",
   "settings.shortcutForegroundOnly": "Foreground only",
   "settings.shortcutForegroundOnlyNote":
     'When "Foreground only" is on, the shortcut only works while the app window is focused. When off, it works as long as the process is running (limited to app-focused scenarios in the current implementation).',

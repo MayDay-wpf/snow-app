@@ -146,7 +146,7 @@ export const matchKey = (event: KeyboardEvent, key: string): boolean => {
   const hasCtrl = parts.includes("ctrl");
   const hasShift = parts.includes("shift");
   const mainPart = parts.find(
-    (p) => p !== "mod" && p !== "alt" && p !== "ctrl" && p !== "shift"
+    (p) => p !== "mod" && p !== "alt" && p !== "ctrl" && p !== "shift",
   );
 
   if (mainPart === undefined) return false;
@@ -185,7 +185,7 @@ export const shouldPreventDefault = (key: string): boolean => {
 };
 
 /**
- * 9 个快捷键动作的有序列表。
+ * 10 个快捷键动作的有序列表。
  * 排列规则：台前生效的快捷键在前（默认 foregroundOnly=true），
  * 全局生效的 toggleWindow（默认 foregroundOnly=false）放最后。
  */
@@ -198,6 +198,7 @@ export const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
   "openProjectExplorer",
   "cycleApiProfile",
   "togglePet",
+  "focusInput",
   "toggleWindow",
 ];
 
@@ -246,6 +247,10 @@ export const SHORTCUT_META: Record<KeyboardShortcutAction, ShortcutMeta> = {
     descKey: "settings.shortcutTogglePet",
     descDefault: "Show/hide desktop pet",
   },
+  focusInput: {
+    descKey: "settings.shortcutFocusInput",
+    descDefault: "Focus chat input",
+  },
 };
 
 /**
@@ -255,7 +260,7 @@ export const SHORTCUT_META: Record<KeyboardShortcutAction, ShortcutMeta> = {
 export const findConflicts = (
   settings: KeyboardShortcutsSettings,
   targetKey: string,
-  excludeAction: KeyboardShortcutAction
+  excludeAction: KeyboardShortcutAction,
 ): KeyboardShortcutAction[] => {
   const conflicts: KeyboardShortcutAction[] = [];
   for (const action of SHORTCUT_ACTIONS) {

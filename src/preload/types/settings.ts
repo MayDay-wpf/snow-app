@@ -436,7 +436,8 @@ export type KeyboardShortcutAction =
   | "openProjectExplorer"
   | "cycleApiProfile"
   | "toggleWindow"
-  | "togglePet";
+  | "togglePet"
+  | "focusInput";
 
 export type KeyboardShortcutConfig = {
   /**
@@ -459,4 +460,5 @@ export type KeyboardShortcutsSettings = {
   cycleApiProfile: KeyboardShortcutConfig;
   toggleWindow: KeyboardShortcutConfig;
   togglePet: KeyboardShortcutConfig;
+  focusInput: KeyboardShortcutConfig;
 };

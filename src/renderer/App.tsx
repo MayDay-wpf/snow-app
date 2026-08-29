@@ -67,8 +67,8 @@ const clamp = (value: number, min: number, max: number): number =>
  * 2. 注册快捷键动作的处理器：
  *    - cancelSession：直接调用 handleAbort
  *    - openSearch / openMemo / openTodo / cycleProject /
- *      openProjectExplorer / cycleApiProfile：通过 shortcutEvents
- *      事件总线分发到各目标组件
+ *      openProjectExplorer / cycleApiProfile / focusInput：通过
+ *      shortcutEvents 事件总线分发到各目标组件
  *    - togglePet：读取宠物设置并取反（主进程负责创建/收起宠物窗口）
  *
  * 注册通过 registerHandler 完成，handler 使用 ref 保持最新值。
@@ -120,6 +120,9 @@ const ShortcutHandlerBridge = (): null => {
         void window.snow.setPetEnabled(!petSettings.enabled);
       });
     });
+    const unsubFocusInput = registerHandler("focusInput", () => {
+      shortcutEvents.emit("focus-chat-input");
+    });
 
     return () => {
       unsubCancel();
@@ -130,6 +133,7 @@ const ShortcutHandlerBridge = (): null => {
       unsubExplorer();
       unsubCycleApiProfile();
       unsubTogglePet();
+      unsubFocusInput();
     };
   }, [registerHandler]);
 

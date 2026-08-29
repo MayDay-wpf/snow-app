@@ -974,6 +974,24 @@ export const useChatInputController = ({
     return shortcutEvents.on("open-api-profile-menu", handleOpenApiProfileMenu);
   }, [handleOpenApiProfileMenu]);
 
+  // 聚焦输入框（Ctrl/Cmd+I 快捷键触发）：焦点移到内容末尾，便于直接输入。
+  const handleFocusInput = useCallback((): void => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(textarea);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }, [textareaRef]);
+
+  useEffect(() => {
+    return shortcutEvents.on("focus-chat-input", handleFocusInput);
+  }, [handleFocusInput]);
+
   const activeThinkingOption = useMemo(() => {
     const matchingOption = thinkingOptions.find(
       (option) => option.value === effectiveThinkingValue,

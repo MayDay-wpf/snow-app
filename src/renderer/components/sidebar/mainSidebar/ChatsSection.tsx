@@ -28,7 +28,10 @@ import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { Tooltip } from "../../common/Tooltip";
 import { useI18n } from "../../../i18n";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
-import { isPendingSessionKey } from "../../mainContent/chatMessages/utils/conversationTypes";
+import {
+  isPendingSessionKey,
+  type ConversationSessionState,
+} from "../../mainContent/chatMessages/utils/conversationTypes";
 import type {
   ChatConversationRecord,
   WorkspaceDirectoryRecord,
@@ -297,6 +300,16 @@ export function ChatsSection({
   // effect 仅以会话 id 集合为依赖：upsert/重排（id 不变）不会重查子代理。
   const conversationsRef = useRef<ChatConversationRecord[]>([]);
   conversationsRef.current = conversations;
+  // 运行中/需关注会话 id 集合的实时镜像：列表合并逻辑在异步回调中读取，
+  // 不把频繁变化的集合纳入 effect/callback 依赖。
+  const runningIdsRef = useRef<Set<string>>(new Set());
+  runningIdsRef.current = runningConversationIds;
+  // 内存会话状态的实时镜像：合并抓取结果时据此重建运行中 pending 槽位的
+  // 占位记录（跨项目切换会保留后台流式槽位的会话状态）。
+  const sessionsMirrorRef = useRef<Record<string, ConversationSessionState>>(
+    {},
+  );
+  sessionsMirrorRef.current = sessions;
   const conversationIdsKey = conversations
     .map((conv) => conv.conversationId)
     .join("\u0000");
@@ -335,7 +348,110 @@ export function ChatsSection({
         );
 
         if (!cancelled) {
-          setConversations(result.items);
+          setConversations((prev) => {
+            const fetchedIds = new Set(
+              result.items.map((row) => row.conversationId),
+            );
+            // 运行中的新会话（首条 AI 响应未返回、会话行尚未落库）只存在
+            // 于渲染进程内存。项目切换会整表重拉 DB 列表，直接替换会把这
+            // 类会话的唯一前端表示（pending 占位记录）清掉，导致切换项目
+            // 往返后运行中的新会话从列表消失（issue #118），直到会话落库
+            // 后的下一次抓取才恢复。这里把属于当前项目、仍在运行的占位
+            // 记录合并进抓取结果；真实记录落库后由迁移 upsert / 后续抓取
+            // 自然接管，不会产生重复项。
+            const pendingToReal = pendingToRealConversationIdRef.current;
+            const livePlaceholders: ChatConversationRecord[] = [];
+            const collected = new Set<string>();
+            const collectPlaceholder = (
+              record: ChatConversationRecord,
+            ): void => {
+              if (collected.has(record.conversationId)) {
+                return;
+              }
+              if (fetchedIds.has(record.conversationId)) {
+                return;
+              }
+              // 迁移映射指向的真实记录已随本次抓取返回时丢弃占位
+              const realId = pendingToReal?.get(record.conversationId);
+              if (realId && fetchedIds.has(realId)) {
+                return;
+              }
+              collected.add(record.conversationId);
+              livePlaceholders.push(record);
+            };
+            for (const item of prev) {
+              if (
+                isPendingSessionKey(item.conversationId) &&
+                item.directoryId === directoryId &&
+                runningIdsRef.current.has(item.conversationId)
+              ) {
+                collectPlaceholder(item);
+              }
+            }
+            // 快速往返切换时 upsertedConversation 只保留最后一条占位，
+            // 并行新会话的占位需从内存 session 重建（会话状态在跨项目
+            // 切换时对后台流式运行的槽位予以保留）。
+            for (const [key, session] of Object.entries(
+              sessionsMirrorRef.current,
+            )) {
+              if (!isPendingSessionKey(key) || collected.has(key)) {
+                continue;
+              }
+              if (!session.isStreaming || session.directoryId !== directoryId) {
+                continue;
+              }
+              const firstUserMessage = session.messages.find(
+                (message) => message.role === "user",
+              );
+              const content = firstUserMessage?.content ?? "";
+              collectPlaceholder({
+                conversationId: key,
+                title: content,
+                summary: "",
+                lastMessagePreview:
+                  content.length > 50 ? `${content.slice(0, 50)}...` : content,
+                messageCount: session.messages.length,
+                model:
+                  session.messages.find(
+                    (message) => message.role === "assistant",
+                  )?.model ?? "",
+                apiProfileName: "",
+                status: "active",
+                directoryId: session.directoryId ?? directoryId,
+                forkedFromConversationId: "",
+                forkMessageCount: 0,
+                conversationType: "main",
+                parentConversationId: "",
+                subAgentId: "",
+                subAgentName: "",
+                subAgentStatus: "",
+                subAgentError: "",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheCreationInputTokens: 0,
+                cacheReadInputTokens: 0,
+                totalDurationMs: 0,
+                runInputTokens: 0,
+                runOutputTokens: 0,
+                runCacheCreationInputTokens: 0,
+                runCacheReadInputTokens: 0,
+                lastRunDurationMs: 0,
+                emoji: "",
+              });
+            }
+            if (livePlaceholders.length === 0) {
+              return sortConversationsByUpdatedAt(
+                result.items,
+                runningIdsRef.current,
+              );
+            }
+            return sortConversationsByUpdatedAt(
+              [...livePlaceholders, ...result.items],
+              runningIdsRef.current,
+            );
+          });
           setTotal(result.total);
         }
       } catch (err) {
@@ -454,20 +570,51 @@ export function ChatsSection({
     setIsLoadingMore(true);
 
     try {
+      // 分页 offset 必须按"已加载的 DB 行数"计算：pending 占位记录不属于
+      // DB 行，计入列表长度会让 offset 虚增而跳过真实记录。
+      const dbOffset = conversationsRef.current.filter(
+        (item) => !isPendingSessionKey(item.conversationId),
+      ).length;
       const result = await window.snow.listChatConversationsPaginated(
         directoryId,
         CHAT_PAGE_SIZE,
-        conversations.length,
+        dbOffset,
       );
 
-      setConversations((prev) => [...prev, ...result.items]);
+      setConversations((prev) => {
+        // 运行中会话落库后，DB 顶部的排序位移会让相邻页出现重叠，
+        // 追加前必须按 id 去重；某占位的真实记录已随本页返回时，
+        // 同时丢弃占位，避免同一会话出现重复条目。
+        const existingIds = new Set(prev.map((item) => item.conversationId));
+        const fetchedIds = new Set(
+          result.items.map((row) => row.conversationId),
+        );
+        const pendingToReal = pendingToRealConversationIdRef.current;
+        const kept = prev.filter((item) => {
+          if (!isPendingSessionKey(item.conversationId)) {
+            return true;
+          }
+          const realId = pendingToReal?.get(item.conversationId);
+          return !(realId && fetchedIds.has(realId));
+        });
+        const fresh = result.items.filter(
+          (row) => !existingIds.has(row.conversationId),
+        );
+        if (fresh.length === 0 && kept.length === prev.length) {
+          return prev;
+        }
+        return sortConversationsByUpdatedAt(
+          [...kept, ...fresh],
+          runningIdsRef.current,
+        );
+      });
       setTotal(result.total);
     } catch {
       // Silent fail for pagination
     } finally {
       setIsLoadingMore(false);
     }
-  }, [conversations.length, directoryId, hasMore, isLoading, isLoadingMore]);
+  }, [conversationsRef, directoryId, hasMore, isLoading, isLoadingMore]);
 
   useEffect(() => {
     if (!hasMore || isLoading) {

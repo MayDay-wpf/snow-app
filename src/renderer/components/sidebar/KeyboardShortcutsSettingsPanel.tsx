@@ -28,6 +28,7 @@ import {
  * cycleApiProfile 平台相关：macOS 用 Ctrl+P，其他平台用 Alt+P。
  * toggleWindow 用 mod+shift+h（全局生效，由主进程 globalShortcut 注册）。
  * togglePet 用 mod+shift+p（仅台前生效，由渲染进程快捷键触发）。
+ * focusInput 用 mod+i（仅台前生效，由渲染进程快捷键触发）。
  */
 const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   cancelSession: "escape",
@@ -39,6 +40,7 @@ const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   cycleApiProfile: isMacOS() ? "ctrl+p" : "alt+p",
   toggleWindow: "mod+shift+h",
   togglePet: "mod+shift+p",
+  focusInput: "mod+i",
 };
 
 type KeyboardShortcutsSettingsPanelProps = {
@@ -58,7 +60,7 @@ export function KeyboardShortcutsSettingsPanel({
       (event: ChangeEvent<HTMLInputElement>): void => {
         updateShortcutConfig(action, { enabled: event.target.checked });
       },
-    [updateShortcutConfig]
+    [updateShortcutConfig],
   );
 
   const handleForegroundOnlyChange = useCallback(
@@ -66,7 +68,7 @@ export function KeyboardShortcutsSettingsPanel({
       (event: ChangeEvent<HTMLInputElement>): void => {
         updateShortcutConfig(action, { foregroundOnly: event.target.checked });
       },
-    [updateShortcutConfig]
+    [updateShortcutConfig],
   );
 
   const startRecording = useCallback((action: KeyboardShortcutAction): void => {
@@ -81,7 +83,7 @@ export function KeyboardShortcutsSettingsPanel({
     (action: KeyboardShortcutAction): void => {
       updateShortcutConfig(action, { key: DEFAULT_KEYS[action] });
     },
-    [updateShortcutConfig]
+    [updateShortcutConfig],
   );
 
   const handleResetAll = useCallback((): void => {
@@ -243,7 +245,7 @@ export function KeyboardShortcutsSettingsPanel({
                             .map((c) =>
                               t(SHORTCUT_META[c].descKey, {
                                 defaultValue: SHORTCUT_META[c].descDefault,
-                              })
+                              }),
                             )
                             .join(", "),
                         },

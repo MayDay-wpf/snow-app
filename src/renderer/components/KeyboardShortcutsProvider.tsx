@@ -17,12 +17,14 @@ import { isMacOS } from "../utils/shortcutUtils";
 
 /**
  * 所有快捷键的默认配置。当后端尚未 seed 或读取失败时使用。
- * 9 个快捷键默认 enabled=true；除 toggleWindow 外默认 foregroundOnly=true。
+ * 10 个快捷键默认 enabled=true；除 toggleWindow 外默认 foregroundOnly=true。
  * cycleApiProfile 的默认键平台相关：macOS 用 Ctrl+P（Alt 会输入特殊字符），
  * 其他平台用 Alt+P。
  * toggleWindow（mod+shift+h）默认 foregroundOnly=false：它由主进程
  * globalShortcut 注册，窗口隐藏到托盘时也要能呼出，不受"仅台前"限制。
  * togglePet（mod+shift+p）默认 foregroundOnly=true：宠物启停由渲染进程
+ * 快捷键触发，仅应用聚焦时生效。
+ * focusInput（mod+i）默认 foregroundOnly=true：聚焦输入框由渲染进程
  * 快捷键触发，仅应用聚焦时生效。
  */
 const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
@@ -44,6 +46,11 @@ const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
   },
   togglePet: {
     key: "mod+shift+p",
+    enabled: true,
+    foregroundOnly: true,
+  },
+  focusInput: {
+    key: "mod+i",
     enabled: true,
     foregroundOnly: true,
   },
@@ -79,16 +86,16 @@ type KeyboardShortcutsContextValue = {
   /** 更新单个快捷键的配置，同时写入 SQLite 和内存缓存 */
   updateShortcutConfig: (
     action: KeyboardShortcutAction,
-    config: Partial<KeyboardShortcutConfig>
+    config: Partial<KeyboardShortcutConfig>,
   ) => void;
   /** 注册某个动作的处理器。返回注销函数。 */
   registerHandler: (
     action: KeyboardShortcutAction,
-    handler: KeyboardShortcutHandler
+    handler: KeyboardShortcutHandler,
   ) => () => void;
   /** 获取某个动作的当前处理器（通过 ref，避免闭包过期） */
   getHandler: (
-    action: KeyboardShortcutAction
+    action: KeyboardShortcutAction,
   ) => KeyboardShortcutHandler | null;
   /**
    * 注册某个动作的作用域（局部）处理器。当快捷键命中且
@@ -98,11 +105,11 @@ type KeyboardShortcutsContextValue = {
   registerScopedHandler: (
     action: KeyboardShortcutAction,
     handler: KeyboardShortcutHandler,
-    shouldIntercept: ScopedShortcutInterceptor
+    shouldIntercept: ScopedShortcutInterceptor,
   ) => () => void;
   /** 获取某个动作的全部作用域条目（引擎用，逆序查找） */
   getScopedHandlers: (
-    action: KeyboardShortcutAction
+    action: KeyboardShortcutAction,
   ) => ScopedShortcutHandler[];
 };
 
@@ -164,7 +171,7 @@ export const KeyboardShortcutsProvider = ({
   const updateShortcutConfig = useCallback(
     (
       action: KeyboardShortcutAction,
-      config: Partial<KeyboardShortcutConfig>
+      config: Partial<KeyboardShortcutConfig>,
     ) => {
       setSettings((prev: KeyboardShortcutsSettings) => {
         const current = prev[action];
@@ -188,7 +195,7 @@ export const KeyboardShortcutsProvider = ({
         return next;
       });
     },
-    []
+    [],
   );
 
   const registerHandler = useCallback(
@@ -201,21 +208,21 @@ export const KeyboardShortcutsProvider = ({
         }
       };
     },
-    []
+    [],
   );
 
   const getHandler = useCallback(
     (action: KeyboardShortcutAction): KeyboardShortcutHandler | null => {
       return handlersRef.current.get(action) ?? null;
     },
-    []
+    [],
   );
 
   const registerScopedHandler = useCallback(
     (
       action: KeyboardShortcutAction,
       handler: KeyboardShortcutHandler,
-      shouldIntercept: ScopedShortcutInterceptor
+      shouldIntercept: ScopedShortcutInterceptor,
     ) => {
       const entry: ScopedShortcutHandler = { handler, shouldIntercept };
       const list = scopedHandlersRef.current.get(action) ?? [];
@@ -233,14 +240,14 @@ export const KeyboardShortcutsProvider = ({
         }
       };
     },
-    []
+    [],
   );
 
   const getScopedHandlers = useCallback(
     (action: KeyboardShortcutAction): ScopedShortcutHandler[] => {
       return scopedHandlersRef.current.get(action) ?? [];
     },
-    []
+    [],
   );
 
   const value: KeyboardShortcutsContextValue = {
@@ -265,7 +272,7 @@ export const useKeyboardShortcutsSettings =
     const context = useContext(KeyboardShortcutsContext);
     if (!context) {
       throw new Error(
-        "useKeyboardShortcutsSettings must be used within a KeyboardShortcutsProvider"
+        "useKeyboardShortcutsSettings must be used within a KeyboardShortcutsProvider",
       );
     }
     return context;

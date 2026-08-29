@@ -311,6 +311,7 @@ export type KeyboardShortcutsSettings = {
   openProjectExplorer: KeyboardShortcutConfig;
   toggleWindow: KeyboardShortcutConfig;
   togglePet: KeyboardShortcutConfig;
+  focusInput: KeyboardShortcutConfig;
 };
 
 export type CodebaseEmbedProgress = {

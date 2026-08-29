@@ -19,7 +19,8 @@ export type ShortcutAction =
   | "toggle-todo"
   | "cycle-project"
   | "open-project-explorer"
-  | "open-api-profile-menu";
+  | "open-api-profile-menu"
+  | "focus-chat-input";
 
 type ListenerMap = {
   "toggle-search": Set<() => void>;
@@ -28,6 +29,7 @@ type ListenerMap = {
   "cycle-project": Set<() => void>;
   "open-project-explorer": Set<() => void>;
   "open-api-profile-menu": Set<() => void>;
+  "focus-chat-input": Set<() => void>;
 };
 
 const listeners: ListenerMap = {
@@ -37,6 +39,7 @@ const listeners: ListenerMap = {
   "cycle-project": new Set(),
   "open-project-explorer": new Set(),
   "open-api-profile-menu": new Set(),
+  "focus-chat-input": new Set(),
 };
 
 export const shortcutEvents = {

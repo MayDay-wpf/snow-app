@@ -10270,7 +10270,9 @@ input {
 }
 
 /* favicon 默认隐藏，加载成功（.favicon-ok）才显示；失败/缺失/无 favicon
-   站点稳定回退到内置地球占位图标（向后兼容，不出现破图） */
+   站点稳定回退到内置地球占位图标（向后兼容，不出现破图）。
+   本条为基础兜底；.ai-message 等容器内全局 Markdown 图片规则的
+   display:block 优先级更高，由下方带容器前缀的提权规则接管显隐。 */
 .md-source-badge-favicon {
   display: none;
   width: 14px;
@@ -10302,15 +10304,25 @@ input {
   white-space: nowrap;
 }
 
-/* 覆盖全局 markdown 图片规则：徽章 favicon 保持小尺寸、不触发灯箱 */
-:is(.ai-message, .context-compaction-markdown)
+/* 覆盖全局 Markdown 图片规则（display: block / max-width / margin 等）。
+   favicon 显隐只由 .favicon-ok 状态决定：本条 (0,3,1) 高于全局图片规则
+   (0,2,1)，把加载中的 img 压为隐藏，避免网站图标与占位图标同时显示；
+   加载成功的显示由下方 (0,4,1) 规则接管。 */
+:is(.ai-message, .context-compaction-markdown, .thinking-block-body)
   .md-source-badge
   img.md-source-badge-favicon {
-  display: block;
+  display: none;
   max-width: none;
   max-height: none;
   margin: 0;
   cursor: default;
+}
+
+/* favicon 加载成功：.favicon-ok 提权显示，压过上一条隐藏规则 */
+:is(.ai-message, .context-compaction-markdown, .thinking-block-body)
+  .md-source-badge.favicon-ok
+  img.md-source-badge-favicon {
+  display: block;
 }
 
 /* Tooltip 定位宿主：fixed 于徽章顶部中心，Tooltip 在宿主上方弹出 */

@@ -292,6 +292,12 @@ type BadgeHoverInfo = {
 /** favicon 加载结果缓存（按 img-proxy URL），会话内不重复探测。 */
 const faviconStatusCache = new Map<string, "ok" | "fail">();
 
+/**
+ * 已注册 load/error 监听的 img。流式期间 bindFaviconFallback 随每次渲染
+ * 重入，同一 img 只允许绑定一次监听，避免 once 监听器随渲染次数累积。
+ */
+const faviconBoundImgs = new WeakSet<HTMLImageElement>();
+
 /** 默认显示地球占位图标，真实 favicon 加载成功才加 favicon-ok 切换显示；
  *  失败/缺失稳定回退默认图标。须在 useLayoutEffect 中调用（paint 前判定，
  *  缓存命中时 complete=true 同步确定，避免首帧闪烁）。 */
@@ -323,11 +329,19 @@ const bindFaviconFallback = (root: HTMLElement): void => {
         }
         return;
       }
+      // 流式重入防抖：已在等待加载结果的 img 不重复绑定监听。
+      if (faviconBoundImgs.has(img)) {
+        return;
+      }
+      faviconBoundImgs.add(img);
       img.addEventListener("load", markLoaded, { once: true });
       img.addEventListener(
         "error",
         () => {
           faviconStatusCache.set(img.src, "fail");
+          // 防御：favicon-ok 已加上后本次加载仍失败（DOM 重建后重新请求），
+          // 摘掉标记回退占位图标，避免出现空白图标。
+          badge.classList.remove("favicon-ok");
         },
         { once: true },
       );
