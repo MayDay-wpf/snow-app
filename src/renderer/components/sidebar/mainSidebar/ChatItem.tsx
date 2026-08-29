@@ -30,6 +30,8 @@ type ChatItemProps = {
   /** 流式会话被用户暂停（agent loop 阻塞等待恢复），图标切换为静态暂停态 */
   isPaused?: boolean;
   isCompleted?: boolean;
+  /** 运行中（流式/待确认）：多选模式下不参与选择，不渲染复选框 */
+  isRunning?: boolean;
   subAgentConversations?: ChatConversationRecord[];
   /** 子代理中待用户确认（提问/工具授权）的会话 id 集合 */
   subAgentAttentionRequiredIds?: Set<string>;
@@ -69,6 +71,7 @@ export function ChatItem({
   isStreaming = false,
   isPaused = false,
   isCompleted = false,
+  isRunning = false,
   subAgentConversations = [],
   subAgentAttentionRequiredIds = new Set<string>(),
   isSubAgentExpanded = false,
@@ -173,13 +176,9 @@ export function ChatItem({
   };
 
   const isPinned = conversation.status === "pin";
-  // 运行中的会话（流式输出中或等待输入）不提供操作菜单，
-  // 避免运行中的会话被删除造成数据混乱；子代理待确认同样暂停了整体流程
   const hasAttentionRequiredSubAgent = subAgentConversations.some((sub) =>
     subAgentAttentionRequiredIds.has(sub.conversationId),
   );
-  const isRunning =
-    isStreaming || isAttentionRequired || hasAttentionRequiredSubAgent;
   const isForked = conversation.forkedFromConversationId !== "";
   const hasEmoji = conversation.emoji.trim() !== "";
   const displayName =
@@ -220,8 +219,13 @@ export function ChatItem({
     if (isEditing) {
       return;
     }
-    if (isMultiSelectMode) {
+    // 运行中的会话不参与多选（与无复选框的渲染保持一致）
+    if (isMultiSelectMode && !isRunning) {
       onToggleSelect?.();
+      return;
+    }
+    // 多选模式下运行中的会话不可点击选中，也不允许切换会话
+    if (isMultiSelectMode) {
       return;
     }
     onSelect?.();
@@ -287,7 +291,7 @@ export function ChatItem({
     <div
       className={`chat-item${isMenuOpen ? " menu-open" : ""}${
         isActive ? " active" : ""
-      }${isMultiSelectMode ? " multi-select" : ""}${
+      }${isMultiSelectMode && !isRunning ? " multi-select" : ""}${
         isSelected ? " selected" : ""
       }${isDragSource ? " dragging" : ""}`}
       key={conversation.conversationId}
@@ -312,7 +316,7 @@ export function ChatItem({
         }
       }}
     >
-      {isMultiSelectMode ? (
+      {isMultiSelectMode && !isRunning ? (
         <span
           className={`chat-item-checkbox${isSelected ? " checked" : ""}`}
           onClick={(event) => {

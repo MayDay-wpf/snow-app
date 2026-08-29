@@ -18,6 +18,44 @@ use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk}
 // Stream chunk emission
 // ---------------------------------------------------------------------------
 
+/// Per-iteration thinking stream statistics.
+///
+/// Every provider's streaming loop owns one instance (alongside the
+/// `stream_token_count` counter). `emit_stream_chunk` updates it on every
+/// thinking delta: the token count is accumulated with the same `o200k_base`
+/// tokenizer used for the total stream probe, and the first/last elapsed
+/// timestamps bracket the thinking phase so the renderer (and the persisted
+/// `chat_messages` row) can show how long the model spent thinking.
+#[derive(Debug, Default)]
+pub(crate) struct ThinkingStreamTracker {
+    /// Cumulative token count across every thinking delta of this iteration.
+    pub token_count: usize,
+    /// Elapsed ms (relative to the stream start) of the first thinking delta.
+    /// 0 means no thinking delta has arrived yet.
+    pub first_elapsed_ms: i64,
+    /// Elapsed ms of the most recent thinking delta.
+    pub last_elapsed_ms: i64,
+}
+
+impl ThinkingStreamTracker {
+    /// Duration of the thinking phase so far (0 when nothing has streamed).
+    pub fn duration_ms(&self) -> i64 {
+        if self.first_elapsed_ms == 0 {
+            0
+        } else {
+            self.last_elapsed_ms - self.first_elapsed_ms
+        }
+    }
+
+    fn record(&mut self, delta: &str, elapsed_ms: i64) {
+        self.token_count += crate::api::token_counter::count_tokens(delta);
+        if self.first_elapsed_ms == 0 {
+            self.first_elapsed_ms = elapsed_ms.max(1);
+        }
+        self.last_elapsed_ms = elapsed_ms;
+    }
+}
+
 /// Emit a streaming chunk to the JavaScript side via ThreadsafeFunction.
 ///
 /// Only the delta strings are sent; the `content` and `thinking` fields are
@@ -28,11 +66,15 @@ use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk}
 /// agent-loop iteration. The counter is mutated in place: each call adds the
 /// token count of the delta text (content + thinking) so the renderer always
 /// receives the up-to-date probe value.
+///
+/// `thinking_tracker` is updated on every thinking delta so the chunk can
+/// carry the live thinking token count / duration alongside the totals.
 pub(crate) fn emit_stream_chunk(
     on_chunk: &ResponsesApiStreamCallback,
     content_delta: String,
     thinking_delta: String,
     stream_token_count: &mut usize,
+    thinking_tracker: &mut ThinkingStreamTracker,
     elapsed_ms: i64,
     ttft_ms: i64,
 ) {
@@ -54,6 +96,9 @@ pub(crate) fn emit_stream_chunk(
         let combined = format!("{content_delta}{thinking_delta}");
         let count = crate::api::token_counter::count_tokens(&combined);
         *stream_token_count += count;
+        if !thinking_delta.is_empty() {
+            thinking_tracker.record(&thinking_delta, elapsed_ms);
+        }
         on_chunk.call(
             ResponsesApiStreamChunk {
                 content_delta,
@@ -64,6 +109,8 @@ pub(crate) fn emit_stream_chunk(
                 retry_attempt: None,
                 retry_error: None,
                 stream_token_count: *stream_token_count as i64,
+                thinking_token_count: thinking_tracker.token_count as i64,
+                thinking_duration_ms: thinking_tracker.duration_ms(),
                 elapsed_ms,
                 ttft_ms,
                 vision_status: None,
@@ -75,6 +122,9 @@ pub(crate) fn emit_stream_chunk(
 
     let count = crate::api::token_counter::count_tokens(delta_text);
     *stream_token_count += count;
+    if !thinking_delta.is_empty() {
+        thinking_tracker.record(&thinking_delta, elapsed_ms);
+    }
 
     on_chunk.call(
         ResponsesApiStreamChunk {
@@ -86,6 +136,8 @@ pub(crate) fn emit_stream_chunk(
             retry_attempt: None,
             retry_error: None,
             stream_token_count: *stream_token_count as i64,
+            thinking_token_count: thinking_tracker.token_count as i64,
+            thinking_duration_ms: thinking_tracker.duration_ms(),
             elapsed_ms,
             ttft_ms,
             vision_status: None,
@@ -99,10 +151,12 @@ pub(crate) fn emit_stream_chunk(
 /// Used for tool-call argument deltas, where the argument text is assembled
 /// separately and must NOT be appended to the assistant message body. The
 /// probe still needs to update so the renderer reflects long tool arguments
-/// in real time.
+/// in real time. The thinking tracker is forwarded read-only so the emitted
+/// chunk keeps reporting the latest thinking statistics.
 pub(crate) fn emit_tool_args_probe(
     on_chunk: &ResponsesApiStreamCallback,
     stream_token_count: &mut usize,
+    thinking_tracker: &ThinkingStreamTracker,
     args_delta: &str,
     elapsed_ms: i64,
     ttft_ms: i64,
@@ -122,6 +176,8 @@ pub(crate) fn emit_tool_args_probe(
             retry_attempt: None,
             retry_error: None,
             stream_token_count: *stream_token_count as i64,
+            thinking_token_count: thinking_tracker.token_count as i64,
+            thinking_duration_ms: thinking_tracker.duration_ms(),
             elapsed_ms,
             ttft_ms,
             vision_status: None,

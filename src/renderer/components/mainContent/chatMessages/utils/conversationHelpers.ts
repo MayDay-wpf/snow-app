@@ -258,7 +258,11 @@ const normalizeToolCallArgumentsFromTc = (
         if (!current || current === "{}") break;
         try {
           const parsed: unknown = JSON.parse(current);
-          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          if (
+            typeof parsed !== "object" ||
+            parsed === null ||
+            Array.isArray(parsed)
+          ) {
             break;
           }
           current = parsed;
@@ -269,13 +273,25 @@ const normalizeToolCallArgumentsFromTc = (
       if (typeof current === "string") {
         return current.length > 0 ? current : undefined;
       }
-      if (typeof current === "object" && current !== null && !Array.isArray(current)) {
-        return Object.keys(current).length > 0 ? JSON.stringify(current) : undefined;
+      if (
+        typeof current === "object" &&
+        current !== null &&
+        !Array.isArray(current)
+      ) {
+        return Object.keys(current).length > 0
+          ? JSON.stringify(current)
+          : undefined;
       }
       return undefined;
     }
-    if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
-      return Object.keys(candidate).length > 0 ? JSON.stringify(candidate) : undefined;
+    if (
+      typeof candidate === "object" &&
+      candidate !== null &&
+      !Array.isArray(candidate)
+    ) {
+      return Object.keys(candidate).length > 0
+        ? JSON.stringify(candidate)
+        : undefined;
     }
     return undefined;
   };
@@ -499,6 +515,8 @@ export const buildConversationMessages = (
             ? stripHookSections(record.content)
             : record.content,
         thinking: record.thinking || undefined,
+        thinkingDurationMs: record.thinkingDurationMs || undefined,
+        thinkingTokenCount: record.thinkingTokenCount || undefined,
         timestamp: record.createdAt,
         status: messageStatus,
         responseId: record.responseId || undefined,

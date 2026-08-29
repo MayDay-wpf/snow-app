@@ -815,6 +815,10 @@ export type ChatMessageRecord = {
   role: string;
   content: string;
   thinking: string;
+  /** Thinking-phase duration (ms) recorded for this assistant message. */
+  thinkingDurationMs: number;
+  /** Thinking-only token count recorded for this assistant message. */
+  thinkingTokenCount: number;
   status: string;
   model: string;
   responseId: string;
@@ -1061,6 +1065,12 @@ export type ResponsesApiStreamChunk = {
   retryAttempt?: number | null;
   retryError?: string | null;
   streamTokenCount: number;
+  /** Cumulative thinking-only token count for the current iteration
+   *  (subset of streamTokenCount). 0 while no thinking has streamed. */
+  thinkingTokenCount: number;
+  /** Milliseconds between the first and the most recent thinking delta of
+   *  the current iteration. 0 while no thinking has streamed. */
+  thinkingDurationMs: number;
   elapsedMs: number;
   ttftMs: number;
   /** External-vision textify progress event (JSON string). See preload types. */

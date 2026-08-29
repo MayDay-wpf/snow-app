@@ -58,6 +58,7 @@ export const TopBar = ({
     messages,
     isStreaming,
     subAgentSessionEvents,
+    upsertedConversation,
   } = useChatConversationContext();
   const [conversationDirectoryName, setConversationDirectoryName] = useState<
     string | undefined
@@ -86,7 +87,7 @@ export const TopBar = ({
   // Error message of the last failed embedding for the active project.
   // Shown as a red error state on the codebase sync indicator (see #16/#17).
   const [codebaseEmbedError, setCodebaseEmbedError] = useState<string | null>(
-    null
+    null,
   );
   // Track which projectId the codebaseEnabled state corresponds to. This is
   // used to detect stale enabled values during project switches — when the
@@ -238,7 +239,7 @@ export const TopBar = ({
         ) {
           loadCodebaseIndexed();
         }
-      }
+      },
     );
 
     // Refresh stats when the initial (full) embedding finishes. The embed
@@ -261,7 +262,7 @@ export const TopBar = ({
         } else if (progress.phase === "error") {
           setCodebaseEmbedError(progress.error || null);
         }
-      }
+      },
     );
 
     return () => {
@@ -291,7 +292,7 @@ export const TopBar = ({
           return;
         }
         const matched = directories.find(
-          (directory) => directory.directoryId === conversationDirectoryId
+          (directory) => directory.directoryId === conversationDirectoryId,
         );
         setConversationDirectoryName(matched?.name);
       })
@@ -306,7 +307,10 @@ export const TopBar = ({
 
   // Fetch the active conversation's persisted meta (conversation type, sub-agent
   // fields, parent id) and, when it is a sub-agent conversation, the parent
-  // conversation's title so the header can show where the run came from.
+  // conversation's identity so the header can show where the run came from.
+  // The parent is displayed by its AI-generated summary when available —
+  // the raw title is just the (possibly file-tag-laden) first user message —
+  // falling back to the title only while no summary exists yet.
   useEffect(() => {
     if (!activeConversationId) {
       setActiveConversationMeta(null);
@@ -336,7 +340,7 @@ export const TopBar = ({
           return;
         }
         setParentConversationTitle(
-          parentRecord?.title || parentRecord?.summary || ""
+          parentRecord?.summary || parentRecord?.title || "",
         );
       })
       .catch(() => {
@@ -347,6 +351,26 @@ export const TopBar = ({
       cancelled = true;
     };
   }, [activeConversationId]);
+
+  const parentConversationId =
+    activeConversationMeta?.parentConversationId ?? "";
+  // The parent's summary is generated asynchronously by the backend right
+  // after its first user message. When the sub-agent view is opened during
+  // that window the fetch above only sees an empty summary (title fallback);
+  // the sidebar upsert channel broadcasts the refreshed record once the
+  // summary is persisted, so watch it and swap the subtitle in place.
+  useEffect(() => {
+    const record = upsertedConversation?.record;
+    if (
+      !record ||
+      !parentConversationId ||
+      record.conversationId !== parentConversationId ||
+      !record.summary
+    ) {
+      return;
+    }
+    setParentConversationTitle(record.summary);
+  }, [upsertedConversation, parentConversationId]);
 
   const SidebarToggleIcon = isSidebarCollapsed ? SidebarOpen : SidebarClose;
   const sidebarToggleLabel = isSidebarCollapsed
@@ -382,7 +406,9 @@ export const TopBar = ({
 
   const headerTitle = isSubAgentConversation
     ? activeConversationMeta?.title ||
-      (summary || displayDirectoryName || "New Chat")
+      summary ||
+      displayDirectoryName ||
+      "New Chat"
     : summary || displayDirectoryName || "New Chat";
   const headerSubtitle = isSubAgentConversation
     ? parentConversationTitle
@@ -414,12 +440,14 @@ export const TopBar = ({
   }, [isPlusMenuOpen]);
 
   // 代码库功能已开启且当前项目嵌入完毕后，才在 Plus 菜单中提供“代码库”项。
-  const canOpenCodebase = effectiveEnabled && codebaseIndexed && activeProjectId;
+  const canOpenCodebase =
+    effectiveEnabled && codebaseIndexed && activeProjectId;
 
   // 项目标签右键菜单：快速在当前项目打开终端/浏览器/代码库，
   // 以及复制路径、在文件管理器中显示（SSH 远程工作区不可用）。
   const projectPath = activeDirectory?.path ?? "";
-  const isSshProject = activeDirectory?.kind === "ssh" || projectPath.startsWith("ssh://");
+  const isSshProject =
+    activeDirectory?.kind === "ssh" || projectPath.startsWith("ssh://");
   const branchContextMenuItems: ContextMenuItem[] = [
     {
       id: "terminal",
@@ -458,7 +486,7 @@ export const TopBar = ({
               setBranchContextMenu(null);
               onOpenCodebase?.(
                 activeProjectId,
-                activeDirectory?.name ?? activeProjectId
+                activeDirectory?.name ?? activeProjectId,
               );
             },
           },
@@ -512,7 +540,13 @@ export const TopBar = ({
       icon: Paintbrush,
     },
     ...(canOpenCodebase
-      ? [{ id: "codebase", label: t("topBar.plusMenu.codebase"), icon: Database }]
+      ? [
+          {
+            id: "codebase",
+            label: t("topBar.plusMenu.codebase"),
+            icon: Database,
+          },
+        ]
       : []),
   ];
 
@@ -526,7 +560,7 @@ export const TopBar = ({
     } else if (actionId === "codebase" && activeProjectId) {
       onOpenCodebase?.(
         activeProjectId,
-        activeDirectory?.name ?? activeProjectId
+        activeDirectory?.name ?? activeProjectId,
       );
     }
     setIsPlusMenuOpen(false);
@@ -588,7 +622,7 @@ export const TopBar = ({
             if (activeProjectId) {
               onOpenCodebase?.(
                 activeProjectId,
-                activeDirectory?.name ?? activeProjectId
+                activeDirectory?.name ?? activeProjectId,
               );
             }
           }}
@@ -607,10 +641,7 @@ export const TopBar = ({
       >
         <div className="top-bar-branch-info">
           {activeDirectory && (
-            <span
-              className="top-bar-branch-label"
-              title={activeDirectory.name}
-            >
+            <span className="top-bar-branch-label" title={activeDirectory.name}>
               <GitBranch size={13} strokeWidth={1.8} />
               <span>{activeDirectory.name}</span>
             </span>
@@ -633,20 +664,20 @@ export const TopBar = ({
             {isPlusMenuOpen && (
               <div className="top-bar-plus-dropdown">
                 {plusMenuItems.map((item) => {
-                    const ItemIcon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        className="top-bar-plus-dropdown-item"
-                        type="button"
-                        onClick={() => handlePlusMenuAction(item.id)}
-                      >
-                        <ItemIcon size={13} strokeWidth={1.8} />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                  const ItemIcon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      className="top-bar-plus-dropdown-item"
+                      type="button"
+                      onClick={() => handlePlusMenuAction(item.id)}
+                    >
+                      <ItemIcon size={13} strokeWidth={1.8} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
           {!isRightPanelFullscreen && (

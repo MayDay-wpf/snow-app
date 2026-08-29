@@ -63,6 +63,9 @@ export const AiResponse = memo(
     title,
     summary,
     thinking,
+    thinkingDurationMs,
+    thinkingTokenCount,
+    isThinkingActive,
     sections = [],
     isStreaming = false,
     isAborting = false,
@@ -166,11 +169,18 @@ export const AiResponse = memo(
         <div className="ai-message-content" data-quote-source="true">
           {title ? <h2>{title}</h2> : null}
 
-          {/* 1. Thinking */}
+          {/* 1. Thinking — the block auto-collapses once the thinking phase
+              ends (first content delta / stream end) unless the user has
+              expanded or collapsed it manually. */}
           {normalizedThinking ? (
             <ThinkingBlock
               content={normalizedThinking}
               isStreaming={isStreaming}
+              isThinkingActive={
+                Boolean(isStreaming) && Boolean(isThinkingActive)
+              }
+              durationMs={thinkingDurationMs}
+              tokenCount={thinkingTokenCount}
             />
           ) : null}
 

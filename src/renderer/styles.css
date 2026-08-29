@@ -1624,48 +1624,6 @@ input {
  * 会话多选模式（批量删除）
  * ============================================================ */
 
-/* 复选框 */
-.chat-item-checkbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-color);
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease;
-}
-
-.chat-item-checkbox:hover:not(.disabled) {
-  border-color: var(--accent, #3b82f6);
-}
-
-.chat-item-checkbox.selected {
-  background: var(--accent, #3b82f6);
-  border-color: var(--accent, #3b82f6);
-}
-
-.chat-item-checkbox.disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-/* 多选模式下选中行高亮（覆盖默认 active 背景） */
-.chat-item.selected,
-.sub-agent-list-item.selected {
-  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
-}
-
-.chat-item.selected:hover {
-  background: color-mix(in srgb, var(--accent, #3b82f6) 20%, transparent);
-}
-
 .section-toggle-btn.danger {
   color: var(--accent-red-text, #ef4444);
 }
@@ -2410,15 +2368,18 @@ input {
   }
 }
 
+/* 复选框未勾选时边框使用 --text-muted 而非 --border-color：
+   选中行背景为 accent 混色（默认主题 accent = text-primary，呈浅/深灰色调），
+   与中性的 --border-color 接近，会导致复选框在选中行上几乎不可见 */
 .chat-item-checkbox {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm, 6px);
-  border: 1.5px solid var(--border-color);
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-muted);
   background: transparent;
   color: var(--on-solid);
   cursor: pointer;
@@ -2433,7 +2394,9 @@ input {
 
 .chat-item-checkbox.checked {
   background: var(--accent-color);
-  border-color: var(--accent-color);
+  /* 边框改用低透明度的 accent 混色，与选中行背景拉开对比，
+     保证勾选方块在选中行上轮廓清晰 */
+  border-color: color-mix(in srgb, var(--accent-color) 60%, transparent);
 }
 
 .chat-item.selected {
@@ -10980,15 +10943,18 @@ input {
 
 /* ===== Thinking Block ===== */
 .thinking-block {
-  margin: 0 0 14px 4px;
-  padding-left: 14px;
+  margin: 0 0 14px 8.5px;
+  padding-left: 10px;
   border-left: 4px solid var(--border-color);
   color: var(--text-tertiary);
 }
 
-/* Header row: clickable to collapse/expand the whole section */
+/* Header row: clickable to collapse/expand the whole section.
+   必须用块级 flex（而非 inline-flex）：inline 级元素会落入父级行盒，
+   与行盒 strut 做 baseline 对齐后在头顶/底部产生幽灵空隙，导致标题
+   相对左侧 border 视觉上不居中。width: fit-content 保持收缩宽度。 */
 .thinking-block-header {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 4px;
   width: fit-content;
@@ -11021,19 +10987,116 @@ input {
   transform: rotate(90deg);
 }
 
+/* 思考完成自动收起的瞬间：绿色圆勾替代展开箭头提示成功，1s 后还原 */
+.thinking-block-check {
+  flex-shrink: 0;
+  color: var(--success, #22c55e);
+  animation: thinking-check-in 0.22s ease-out both;
+}
+
+@keyframes thinking-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 思考统计（时长 · token 数）：后端实时统计，思考中与结束后都显示 */
+.thinking-block-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  animation: thinking-meta-in 0.24s ease-out both;
+}
+
+.thinking-block-meta-icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.thinking-block-meta-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.thinking-block-meta-sep {
+  opacity: 0.55;
+}
+
+.thinking-block-meta-label {
+  opacity: 0.75;
+}
+
+@keyframes thinking-meta-in {
+  from {
+    opacity: 0;
+    transform: translateX(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 思考中标题流光：亮色高光从左向右扫过文字后短暂停顿，循环往复。
+   background-clip: text 把渐变裁剪进字形；两端均为基色，配合 repeat
+   平铺在任意 background-position 下都不会出现透明断层。 */
+.thinking-block-title--shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--text-tertiary) 0%,
+    var(--text-tertiary) 42%,
+    var(--text-primary) 50%,
+    var(--text-tertiary) 58%,
+    var(--text-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-title-shimmer 1.5s linear infinite;
+}
+
+@keyframes thinking-title-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* 收起后的"思考完毕"摘要行：整块只剩这一行，弱化为次要色 */
+.thinking-block-header--collapsed {
+  color: var(--text-tertiary);
+}
+
 /* Content wrapper */
 .thinking-block-content-wrapper {
   position: relative;
   margin-top: 6px;
 }
 
-/* 折叠/展开双向高度动画：grid-rows 0fr<->1fr 插值。内容常挂载，
-   收起时 content-visibility 跳过整个子树的 layout/paint，
-   保持与原来条件卸载同级的开销。 */
+/* 折叠/展开双向高度动画：grid-rows 0fr<->1fr 插值，内容常挂载。
+   注意收起态不能用 content-visibility: hidden——它强制 size
+   containment，会把内容高度瞬间清零，导致 1fr 的解析值（自由空间）
+   归零、grid-rows 过渡失去高度差，收起因此直接跳变。改用 visibility:
+   hidden：不影响布局，其离散过渡在收起动画全程保持内容可见、动画结束
+   才隐藏（且跳过收起态的绘制），双向动画都平滑。 */
 .thinking-block-collapse {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 0.22s ease;
+  transition: grid-template-rows 0.3s cubic-bezier(0.33, 0, 0.2, 1);
 }
 
 .thinking-block-collapse.is-collapsed {
@@ -11043,10 +11106,12 @@ input {
 .thinking-block-collapse-inner {
   min-height: 0;
   overflow: hidden;
+  transition: visibility 0.3s;
 }
 
 .thinking-block-collapse.is-collapsed .thinking-block-collapse-inner {
-  content-visibility: hidden;
+  visibility: hidden;
+  transition: visibility 0.3s;
 }
 
 /* Scrollable area with fixed height */
@@ -11220,18 +11285,9 @@ input {
   position: relative;
   flex-direction: column;
   gap: 0;
-  /* 负值使轴线中心（6 + 8.75px）对齐思考块边框中心（margin 4px + 4px 边框 / 2 = 6px） */
-  margin-left: -2.75px;
-  /* 竖线由 ::before 内移 8px 绘制（不再用 border-left）：左侧 8px
-     内衬属于裁剪区内，骑线定位的 .tcn-dot（边框盒宽 10px）才能
-     完整显示而不被 overflow: hidden 裁掉。 */
   padding-left: 20px;
   --tcn-line-width: 1.5px;
-  /* left + translate(-50%) 组合的语义是圆点中心落在 left 值上：
-     中心 = 20 - (10.5 + 0.75) = 8.75px，与竖线中心精确对齐，
-     且左缘 8.75 - 5 = 3.75px > 0，完整位于裁剪区内。 */
-  --tcn-pad-left: 10.5px;
-  /* 作为 grid item 允许收缩到 0fr 行高，并裁剪溢出 */
+  --tcn-pad-left: 8.5px;
   min-height: 0;
   overflow: hidden;
 }
@@ -11241,7 +11297,7 @@ input {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 8px;
+  left: 10px;
   width: var(--tcn-line-width, 1.5px);
   background: var(--border-light);
 }

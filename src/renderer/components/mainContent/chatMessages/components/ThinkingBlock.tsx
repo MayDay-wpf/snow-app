@@ -1,70 +1,178 @@
-import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Timer,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { MarkdownBlock } from "./markdownRenderer";
 
-/** Fixed height (px) for the collapsed thinking content area. */
+/** 收起状态下思考内容区的固定高度（px）。 */
 const THINKING_FIXED_HEIGHT = 200;
+
+/** 思考完成自动收起后，绿色成功勾替代展开箭头的时长（ms）。 */
+const SUCCESS_CHECK_DURATION = 1500;
+
+const formatTokenCount = (count: number): string =>
+  count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+
+const formatThinkingDuration = (ms: number): string => {
+  if (ms <= 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 1) return "<1s";
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m${remainingSeconds}s`;
+};
 
 type ThinkingBlockProps = {
   content: string;
   isStreaming?: boolean;
+  /** 思考流是否仍在进行；结束时自动收起，除非用户已手动操作过。 */
+  isThinkingActive?: boolean;
+  /** Rust 后端测量的思考阶段时长（ms）。 */
+  durationMs?: number;
+  /** Rust 后端统计的思考阶段 token 数。 */
+  tokenCount?: number;
 };
 
 export const ThinkingBlock = ({
   content,
   isStreaming = false,
+  isThinkingActive = false,
+  durationMs = 0,
+  tokenCount = 0,
 }: ThinkingBlockProps): React.JSX.Element => {
   const { t } = useI18n();
 
-  // Whether the entire thinking section is collapsed (header-only)
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  // Whether the content is fully expanded (no height limit)
+  // 思考中默认展开以便观察推理流，其余情况默认收起保持对话紧凑。
+  const [isCollapsed, setIsCollapsed] = useState(() => !isThinkingActive);
   const [isExpanded, setIsExpanded] = useState(false);
-  // Whether content overflows the fixed height (controls mask visibility)
   const [isOverflow, setIsOverflow] = useState(false);
+  // 思考完成自动收起的瞬间，绿色圆勾短暂替代展开箭头，1.5s 后还原。
+  const [showSuccessCheck, setShowSuccessCheck] = useState(false);
+
+  // 用户手动操作过后不再自动收起，避免打断阅读。
+  const userInteractedRef = useRef(false);
+  // 识别"思考中 → 结束"的真实转变，避免历史消息误判为刚完成。
+  const prevThinkingActiveRef = useRef(isThinkingActive);
+  const successTimerRef = useRef<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  // The inner element whose size changes as the async-rendered markdown HTML
-  // arrives. ResizeObserver on this element replaces the previous per-chunk
-  // useLayoutEffect([content]) that forced a synchronous layout read on every
-  // streamed token — a major source of jank for long thinking blocks.
+  // 异步渲染的 markdown 内容会随时增长，用 ResizeObserver 监听它代替旧的
+  // 每 chunk 一次 useLayoutEffect 同步读布局，避免长思考块卡顿。
   const bodyRef = useRef<HTMLDivElement>(null);
-  // Tracks whether auto-scroll should be active (user hasn't scrolled away)
   const autoScrollRef = useRef(true);
-  // Mirror isExpanded into a ref so the ResizeObserver callback can read the
-  // latest value without re-creating the observer on every toggle. In the
-  // collapsed (fixed-height) view we always pin to the newest content,
-  // regardless of whether the user scrolled up.
+  // 平滑跟随滚动（rAF + 指数趋近）：流式内容离散到达，逐帧向底部 lerp
+  // 追平而非硬跳；由 ResizeObserver 唤醒，追平后自动休眠，零开销。
+  const followRafRef = useRef<number | null>(null);
+  // 程序滚动豁免窗口：lerp 写入 scrollTop 的 scroll 事件不算用户滚动。
+  const programmaticScrollUntilRef = useRef(0);
+  // 上一次 scrollTop，用于识别用户向上滚动（内容单调增长，scrollTop 减小
+  // 只可能来自用户）。
+  const lastScrollTopRef = useRef(0);
+  // 供 ResizeObserver 回调读取最新 isExpanded，避免每次切换重建 observer。
   const isExpandedRef = useRef(isExpanded);
   useEffect(() => {
     isExpandedRef.current = isExpanded;
   }, [isExpanded]);
+  // 自动滚动只服务于正在思考的块；同步最新 isThinkingActive 供回调读取，
+  // 已完成的块不再跟随内容增长滚动。
+  const isThinkingActiveRef = useRef(isThinkingActive);
+  useEffect(() => {
+    isThinkingActiveRef.current = isThinkingActive;
+  }, [isThinkingActive]);
 
-  // Check if content overflows the fixed height, and if auto-scroll is active,
-  // keep the thinking view pinned to the newest content. Both concerns are
-  // driven by the same trigger — a change in rendered content size — so they
-  // are handled together inside the ResizeObserver callback to avoid
-  // duplicated layout reads.
+  const stopFollowLoop = useCallback(() => {
+    if (followRafRef.current !== null) {
+      cancelAnimationFrame(followRafRef.current);
+      followRafRef.current = null;
+    }
+  }, []);
+
+  // 唤醒跟随滚动循环：每帧向底部 lerp 追平（<0.5px 后休眠），幂等。
+  const startFollowLoop = useCallback(() => {
+    if (followRafRef.current !== null) return;
+    const step = (): void => {
+      const node = scrollRef.current;
+      if (!node) {
+        followRafRef.current = null;
+        return;
+      }
+      // 思考完成即退出：已完成块无论何种入口都不再自动滚动。
+      if (!isThinkingActiveRef.current) {
+        followRafRef.current = null;
+        return;
+      }
+      // 收起视图始终贴最新内容；展开视图尊重用户滚动位置，滚离时退出。
+      if (isExpandedRef.current && !autoScrollRef.current) {
+        followRafRef.current = null;
+        return;
+      }
+      const target = node.scrollHeight - node.clientHeight;
+      const distance = target - node.scrollTop;
+      if (Math.abs(distance) < 0.5) {
+        node.scrollTop = target;
+        followRafRef.current = null;
+        return;
+      }
+      programmaticScrollUntilRef.current = performance.now() + 100;
+      node.scrollTop += distance * 0.3;
+      followRafRef.current = requestAnimationFrame(step);
+    };
+    followRafRef.current = requestAnimationFrame(step);
+  }, []);
+
+  // 思考结束自动收起，保持对话紧凑；用户手动操作过则跳过。触发瞬间用
+  // 绿色圆勾替代展开箭头提示成功，1.5s 后还原（SUCCESS_CHECK_DURATION）。
+  useEffect(() => {
+    const wasActive = prevThinkingActiveRef.current;
+    prevThinkingActiveRef.current = isThinkingActive;
+    if (isThinkingActive || !wasActive) {
+      return;
+    }
+    if (userInteractedRef.current) {
+      return;
+    }
+    setIsCollapsed(true);
+    setShowSuccessCheck(true);
+    if (successTimerRef.current !== null) {
+      window.clearTimeout(successTimerRef.current);
+    }
+    successTimerRef.current = window.setTimeout(() => {
+      successTimerRef.current = null;
+      setShowSuccessCheck(false);
+    }, SUCCESS_CHECK_DURATION);
+  }, [isThinkingActive]);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current !== null) {
+        window.clearTimeout(successTimerRef.current);
+      }
+      stopFollowLoop();
+    };
+  }, [stopFollowLoop]);
+
+  // 溢出检测与跟随滚动由同一触发（内容尺寸变化）驱动，合并处理避免重复读布局。
   const handleContentSizeChange = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setIsOverflow(el.scrollHeight > THINKING_FIXED_HEIGHT);
-    // In the collapsed (fixed-height) view, always pin to the newest content.
-    // In the expanded view, respect the user's scroll position.
+    // 已完成的思考块保持用户当前阅读位置，不再自动跟随滚动。
+    if (!isThinkingActiveRef.current) return;
+    // 收起视图始终贴最新内容；展开视图尊重用户滚动位置。
     if (!isExpandedRef.current || autoScrollRef.current) {
-      el.scrollTop = el.scrollHeight;
+      startFollowLoop();
     }
-  }, []);
+  }, [startFollowLoop]);
 
-  // Observe the rendered markdown body for size changes. This fires:
-  //   - When the worker returns new HTML and React commits it to the DOM
-  //   - When the container width changes (panel resize, expand/collapse toggle)
-  // Because markdown rendering is now async (worker + rAF throttle), the old
-  // approach of reading scrollHeight in a useLayoutEffect([content]) would
-  // measure stale DOM (the worker round-trip hasn't landed yet) and force a
-  // layout thrash on every chunk. ResizeObserver is passive and fires only
-  // when the browser has actually laid out new content.
+  // markdown 渲染已异步化（worker + rAF 节流），旧方案在 useLayoutEffect
+  // 里同步读 scrollHeight 会量到过期 DOM 并反复触发重排；ResizeObserver
+  // 被动触发，仅在浏览器真正完成新内容布局后回调。
   useEffect(() => {
     const body = bodyRef.current;
     const scroll = scrollRef.current;
@@ -73,78 +181,140 @@ export const ThinkingBlock = ({
     const resizeObserver = new ResizeObserver(() => {
       handleContentSizeChange();
     });
-    // Observe the body (content growth) and the scroll container (width
-    // changes from panel resize / expand toggle that affect wrapping).
     resizeObserver.observe(body);
     resizeObserver.observe(scroll);
 
     return () => resizeObserver.disconnect();
   }, [handleContentSizeChange]);
 
-  // Reset auto-scroll when streaming starts
   useEffect(() => {
-    if (isStreaming) {
+    if (isStreaming && isThinkingActive) {
       autoScrollRef.current = true;
     }
-  }, [isStreaming]);
+  }, [isStreaming, isThinkingActive]);
 
-  // Keep auto-scroll pinned while streaming. Content changes no longer drive
-  // scrolling directly (the ResizeObserver handles that), but we still need
-  // to reactivate auto-scroll on resume when the user hasn't scrolled away
-  // and isStreaming flips true.
+  // 恢复流式时若用户仍在底部，唤醒平滑跟随追平存量差距；仅限正在思考的块。
   useEffect(() => {
     if (!isStreaming) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    if (autoScrollRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [isStreaming]);
+    if (!isThinkingActive) return;
+    if (!autoScrollRef.current) return;
+    startFollowLoop();
+  }, [isStreaming, isThinkingActive, startFollowLoop]);
+
+  // 思考完成立即停止自动跟随并复位标记，已完成的块保持用户滚动位置，
+  // 不再因内容重排或展开操作而跳动。
+  useEffect(() => {
+    if (isThinkingActive) return;
+    autoScrollRef.current = false;
+    stopFollowLoop();
+  }, [isThinkingActive, stopFollowLoop]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const prev = lastScrollTopRef.current;
+    lastScrollTopRef.current = el.scrollTop;
+    // scrollTop 减小只可能来自用户向上滚动，立即尊重用户意图。
+    if (el.scrollTop < prev - 0.5) {
+      const isNearBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+      autoScrollRef.current = isNearBottom;
+      return;
+    }
+    // lerp 追赶写入触发的 scroll 事件不算用户滚动，避免误判为滚离底部。
+    if (performance.now() < programmaticScrollUntilRef.current) {
+      return;
+    }
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    // 用户滚回底部时立即续上跟随；已完成块不再参与自动滚动。
+    if (isNearBottom && !autoScrollRef.current && isThinkingActiveRef.current) {
+      startFollowLoop();
+    }
     autoScrollRef.current = isNearBottom;
-  }, []);
+  }, [startFollowLoop]);
 
   const handleToggleCollapse = useCallback(() => {
+    userInteractedRef.current = true;
     setIsCollapsed((v) => !v);
   }, []);
 
   const handleToggleExpand = useCallback(() => {
+    userInteractedRef.current = true;
     setIsExpanded((v) => !v);
   }, []);
 
   const handleHeaderKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
+      userInteractedRef.current = true;
       setIsCollapsed((v) => !v);
     }
   }, []);
 
+  // 标题随阶段切换：思考中 / 已完成（收起）/ 思考内容（展开）。
+  const headerTitle = isThinkingActive
+    ? t("chat.thinkingProcess")
+    : isCollapsed
+      ? t("chat.thinkingDone")
+      : t("chat.thinkingContent");
+  const hasStats = durationMs > 0 || tokenCount > 0;
+
   return (
     <div className="thinking-block">
       <div
-        className="thinking-block-header"
+        className={`thinking-block-header${
+          isCollapsed ? " thinking-block-header--collapsed" : ""
+        }`}
         onClick={handleToggleCollapse}
         onKeyDown={handleHeaderKeyDown}
         role="button"
         tabIndex={0}
         aria-expanded={!isCollapsed}
       >
-        <ChevronRight
-          className={`thinking-block-chevron${
-            !isCollapsed ? " thinking-block-chevron--open" : ""
-          }`}
-          size={16}
-          aria-hidden="true"
-        />
-        <span>{t("chat.thinkingProcess")}</span>
+        {showSuccessCheck ? (
+          <CheckCircle2
+            className="thinking-block-check"
+            size={16}
+            aria-hidden="true"
+          />
+        ) : (
+          <ChevronRight
+            className={`thinking-block-chevron${
+              !isCollapsed ? " thinking-block-chevron--open" : ""
+            }`}
+            size={16}
+            aria-hidden="true"
+          />
+        )}
+        <span
+          className={
+            isThinkingActive ? "thinking-block-title--shimmer" : undefined
+          }
+        >
+          {headerTitle}
+        </span>
+        {hasStats ? (
+          <span className="thinking-block-meta" title="tokens">
+            <Timer
+              size={12}
+              className="thinking-block-meta-icon"
+              aria-hidden="true"
+            />
+            <span className="thinking-block-meta-value">
+              {formatThinkingDuration(durationMs)}
+            </span>
+            <span className="thinking-block-meta-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="thinking-block-meta-value">
+              {formatTokenCount(tokenCount)}
+            </span>
+            <span className="thinking-block-meta-label">tokens</span>
+          </span>
+        ) : null}
       </div>
 
-      {/* 内容区常挂载（收起时由 .thinking-block-collapse 折叠为 0 高度），
-          使折叠/展开都能走 grid-rows 高度过渡动画，而非瞬间闪现。 */}
+      {/* 内容区常挂载，收起时折叠为 0 高度，让折叠/展开能走高度过渡动画。 */}
       <div
         className={`thinking-block-collapse${
           isCollapsed ? " is-collapsed" : ""
@@ -159,7 +329,7 @@ export const ThinkingBlock = ({
               ref={scrollRef}
               onScroll={handleScroll}
             >
-              {/* data-quote-source：思考过程文本同样支持划词引用 */}
+              {/* 思考过程文本同样支持划词引用（data-quote-source）。 */}
               <div ref={bodyRef} data-quote-source="true">
                 <MarkdownBlock
                   className="thinking-block-body"

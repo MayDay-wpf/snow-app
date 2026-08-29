@@ -660,6 +660,10 @@ pub struct ChatMessageRecord {
     pub role: String,
     pub content: String,
     pub thinking: String,
+    /// Thinking-phase duration (ms) recorded for this assistant message.
+    pub thinking_duration_ms: i64,
+    /// Thinking-only token count recorded for this assistant message.
+    pub thinking_token_count: i64,
     pub status: String,
     pub model: String,
     pub response_id: String,

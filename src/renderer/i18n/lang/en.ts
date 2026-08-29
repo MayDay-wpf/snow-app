@@ -506,6 +506,8 @@ export const en = {
   "chat.fastModeFollowProfile": "Follow Profile default",
   "chat.saveFastModeError": "Failed to save Fast Mode",
   "chat.thinkingProcess": "Thinking process",
+  "chat.thinkingContent": "Thinking content",
+  "chat.thinkingDone": "Thinking done",
   "chat.visionAnalyzing": "Analyzing images with vision model…",
   "chat.triggeredByTask": "Triggered by scheduled task: {{name}}",
   "chat.expandAll": "Expand all",

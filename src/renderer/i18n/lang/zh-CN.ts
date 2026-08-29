@@ -483,6 +483,8 @@ export const zhCN = {
   "chat.fastModeFollowProfile": "跟随 Profile 默认值",
   "chat.saveFastModeError": "保存 Fast Mode 失败",
   "chat.thinkingProcess": "思考过程",
+  "chat.thinkingContent": "思考内容",
+  "chat.thinkingDone": "思考完毕",
   "chat.visionAnalyzing": "视觉模型正在分析图片…",
   "chat.triggeredByTask": "由定时任务触发：{{name}}",
   "chat.expandAll": "展开全部",

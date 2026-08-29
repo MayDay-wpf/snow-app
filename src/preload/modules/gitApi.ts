@@ -24,7 +24,7 @@ const createCommitMsgStreamId = (): string =>
   `commit-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const normalizeStreamChunk = (
-  value: unknown
+  value: unknown,
 ): ResponsesApiStreamChunk | null => {
   if (!isRecord(value)) {
     return null;
@@ -43,6 +43,14 @@ const normalizeStreamChunk = (
     retryError: typeof value.retryError === "string" ? value.retryError : null,
     streamTokenCount:
       typeof value.streamTokenCount === "number" ? value.streamTokenCount : 0,
+    thinkingTokenCount:
+      typeof value.thinkingTokenCount === "number"
+        ? value.thinkingTokenCount
+        : 0,
+    thinkingDurationMs:
+      typeof value.thinkingDurationMs === "number"
+        ? value.thinkingDurationMs
+        : 0,
     elapsedMs: typeof value.elapsedMs === "number" ? value.elapsedMs : 0,
     ttftMs: typeof value.ttftMs === "number" ? value.ttftMs : 0,
   };
@@ -72,7 +80,7 @@ export const gitApi = {
     ipcRenderer.invoke("git:stage", repoPath, filePaths),
   gitUnstage: (
     repoPath: string,
-    filePaths: string[]
+    filePaths: string[],
   ): Promise<GitStageResult> =>
     ipcRenderer.invoke("git:unstage", repoPath, filePaths),
   gitStageAll: (repoPath: string): Promise<GitStageResult> =>
@@ -89,35 +97,35 @@ export const gitApi = {
     ipcRenderer.invoke("git:fetch", repoPath),
   gitCheckout: (
     repoPath: string,
-    branchName: string
+    branchName: string,
   ): Promise<GitCheckoutResult> =>
     ipcRenderer.invoke("git:checkout", repoPath, branchName),
   gitCreateBranch: (
     repoPath: string,
-    branchName: string
+    branchName: string,
   ): Promise<GitCheckoutResult> =>
     ipcRenderer.invoke("git:create-branch", repoPath, branchName),
   gitFileDiff: (
     repoPath: string,
     filePath: string,
-    staged: boolean
+    staged: boolean,
   ): Promise<GitDiffResult> =>
     ipcRenderer.invoke("git:file-diff", repoPath, filePath, staged),
   gitFileContent: (
     repoPath: string,
     filePath: string,
-    revision: string | null
+    revision: string | null,
   ): Promise<GitFileContentResult> =>
     ipcRenderer.invoke("git:file-content", repoPath, filePath, revision),
   gitDiscardChanges: (
     repoPath: string,
-    filePaths: string[]
+    filePaths: string[],
   ): Promise<GitStageResult> =>
     ipcRenderer.invoke("git:discard", repoPath, filePaths),
   gitLog: (
     repoPath: string,
     skip: number,
-    limit: number
+    limit: number,
   ): Promise<GitLogEntry[]> =>
     ipcRenderer.invoke("git:log", repoPath, skip, limit),
   gitCommitFiles: (repoPath: string, hash: string): Promise<GitCommitFile[]> =>
@@ -127,7 +135,7 @@ export const gitApi = {
   gitCommitFileDiff: (
     repoPath: string,
     hash: string,
-    filePath: string
+    filePath: string,
   ): Promise<GitDiffResult> =>
     ipcRenderer.invoke("git:commit-file-diff", repoPath, hash, filePath),
   discoverGitRepos: (rootPath: string): Promise<GitRepoInfo[]> =>
@@ -158,7 +166,7 @@ export const gitApi = {
   generateCommitMessage: (
     repoPath: string,
     onChunk?: (chunk: ResponsesApiStreamChunk) => void,
-    onStreamId?: (streamId: string) => void
+    onStreamId?: (streamId: string) => void,
   ): Promise<ResponsesApiResult> => {
     const streamId = createCommitMsgStreamId();
     onStreamId?.(streamId);

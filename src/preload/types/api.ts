@@ -139,6 +139,12 @@ export type ResponsesApiStreamChunk = {
   retryAttempt?: number | null;
   retryError?: string | null;
   streamTokenCount: number;
+  /** Cumulative thinking-only token count for the current iteration
+   *  (subset of streamTokenCount). 0 while no thinking has streamed. */
+  thinkingTokenCount: number;
+  /** Milliseconds between the first and the most recent thinking delta of
+   *  the current iteration. 0 while no thinking has streamed. */
+  thinkingDurationMs: number;
   elapsedMs: number;
   ttftMs: number;
   /** External-vision textify progress event. Present only while the backend

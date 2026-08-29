@@ -171,6 +171,16 @@ pub struct ResponsesApiStreamChunk {
     /// iteration starts and ignores it for non-streaming chunks (retry
     /// events), where the field stays at the previously-accumulated value.
     pub stream_token_count: i64,
+    /// Cumulative thinking-only token count for the current agent-loop
+    /// iteration (the subset of `stream_token_count` produced by thinking
+    /// deltas). Drives the live "thinking tokens" readout on the thinking
+    /// block and is persisted on the assistant message when the run ends.
+    pub thinking_token_count: i64,
+    /// Milliseconds elapsed between the first and the most recent thinking
+    /// delta of the current iteration (0 while no thinking has streamed).
+    /// Grows live while the model is thinking and freezes once the last
+    /// thinking delta has been emitted.
+    pub thinking_duration_ms: i64,
     /// Elapsed milliseconds since the streaming request started. Updated
     /// on every chunk so the renderer can display a live timer.
     pub elapsed_ms: i64,
@@ -468,6 +478,8 @@ async fn create_response_async(
                 token_usage: streamed_response.token_usage,
                 response_thinking: &streamed_response.thinking,
                 response_thinking_blocks_json: &streamed_response.reasoning_items_json,
+                response_thinking_duration_ms: streamed_response.thinking_duration_ms,
+                response_thinking_token_count: streamed_response.thinking_token_count,
                 tool_calls_json: &streamed_response.tool_calls_json,
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),

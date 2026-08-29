@@ -257,6 +257,8 @@ async fn create_interactions_response_async(
                 token_usage: streamed_response.token_usage,
                 response_thinking: &streamed_response.thinking,
                 response_thinking_blocks_json: "[]",
+                response_thinking_duration_ms: streamed_response.thinking_duration_ms,
+                response_thinking_token_count: streamed_response.thinking_token_count,
                 tool_calls_json: &streamed_response.tool_calls_json,
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),

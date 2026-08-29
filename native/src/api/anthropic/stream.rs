@@ -12,7 +12,9 @@ use reqwest::header::{
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, inject_custom_headers};
+use crate::api::common::{
+    emit_stream_chunk, emit_tool_args_probe, inject_custom_headers, ThinkingStreamTracker,
+};
 use crate::api::responses::{ResponsesApiStreamCallback, ResponsesApiStreamChunk};
 use crate::api::retry::{
     decide_stream_recovery, should_retry, stream_idle_timeout_error, visible_content_char_count,
@@ -37,6 +39,10 @@ pub(super) struct AnthropicStreamResult {
     pub token_usage: ChatTokenUsage,
     pub tool_calls_json: String,
     pub tool_parse_errors: Vec<String>,
+    /// Thinking-only token count accumulated during this stream.
+    pub thinking_token_count: i64,
+    /// Wall-clock duration between the first and last thinking delta.
+    pub thinking_duration_ms: i64,
     pub total_duration_ms: i64,
 }
 
@@ -154,6 +160,7 @@ pub(super) async fn collect_anthropic_stream(
 ) -> Result<AnthropicStreamResult> {
     let mut attempt: u32 = 0;
     let mut stream_token_count: usize = 0;
+    let mut thinking_tracker = ThinkingStreamTracker::default();
     let stream_start = std::time::Instant::now();
     let mut ttft_ms: i64 = 0;
 
@@ -176,6 +183,8 @@ pub(super) async fn collect_anthropic_stream(
                     token_usage: ChatTokenUsage::default(),
                     tool_calls_json: "[]".to_string(),
                     tool_parse_errors: Vec::new(),
+                    thinking_token_count: thinking_tracker.token_count as i64,
+                    thinking_duration_ms: thinking_tracker.duration_ms(),
                     total_duration_ms: stream_start.elapsed().as_millis() as i64,
                 });
             }
@@ -205,6 +214,8 @@ pub(super) async fn collect_anthropic_stream(
                         token_usage: ChatTokenUsage::default(),
                         tool_calls_json: "[]".to_string(),
                         tool_parse_errors: Vec::new(),
+                        thinking_token_count: thinking_tracker.token_count as i64,
+                        thinking_duration_ms: thinking_tracker.duration_ms(),
                         total_duration_ms: stream_start.elapsed().as_millis() as i64,
                     });
                 }
@@ -238,6 +249,8 @@ pub(super) async fn collect_anthropic_stream(
                                 retry_attempt: Some((attempt + 1) as i32),
                                 retry_error: Some(error.reason.clone()),
                                 stream_token_count: stream_token_count as i64,
+                                thinking_token_count: thinking_tracker.token_count as i64,
+                                thinking_duration_ms: thinking_tracker.duration_ms(),
                                 elapsed_ms: stream_start.elapsed().as_millis() as i64,
                                 ttft_ms,
                                 vision_status: None,
@@ -271,6 +284,8 @@ pub(super) async fn collect_anthropic_stream(
                             retry_attempt: Some((attempt + 1) as i32),
                             retry_error: Some(error.reason.clone()),
                             stream_token_count: stream_token_count as i64,
+                            thinking_token_count: thinking_tracker.token_count as i64,
+                            thinking_duration_ms: thinking_tracker.duration_ms(),
                             elapsed_ms: stream_start.elapsed().as_millis() as i64,
                             ttft_ms,
                             vision_status: None,
@@ -312,12 +327,14 @@ pub(super) async fn collect_anthropic_stream(
                     content_delta,
                     thinking_delta,
                     &mut stream_token_count,
+                    &mut thinking_tracker,
                     stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
                 );
                 emit_tool_args_probe(
                     on_chunk,
                     &mut stream_token_count,
+                    &thinking_tracker,
                     &tool_args_delta,
                     stream_start.elapsed().as_millis() as i64,
                     ttft_ms,
@@ -386,6 +403,8 @@ pub(super) async fn collect_anthropic_stream(
                         retry_attempt: Some((attempt + 1) as i32),
                         retry_error: Some(retry_error),
                         stream_token_count: stream_token_count as i64,
+                        thinking_token_count: thinking_tracker.token_count as i64,
+                        thinking_duration_ms: thinking_tracker.duration_ms(),
                         elapsed_ms: stream_start.elapsed().as_millis() as i64,
                         ttft_ms,
                         vision_status: None,
@@ -446,6 +465,8 @@ pub(super) async fn collect_anthropic_stream(
         token_usage: attempt_state.token_usage,
         tool_calls_json,
         tool_parse_errors: attempt_state.tool_parse_errors,
+        thinking_token_count: thinking_tracker.token_count as i64,
+        thinking_duration_ms: thinking_tracker.duration_ms(),
         total_duration_ms: stream_start.elapsed().as_millis() as i64,
     })
 }

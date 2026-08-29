@@ -114,6 +114,18 @@ export type ChatConversationMessage = {
   role: "user" | "assistant" | "tool";
   content: string;
   thinking?: string;
+  /** Thinking-phase duration (ms) for this message, measured by the Rust
+   *  backend between the first and the last thinking delta of the stream.
+   *  Updated live while streaming, persisted on the message record. */
+  thinkingDurationMs?: number;
+  /** Thinking-only token count for this message, counted by the Rust
+   *  backend with the stream tokenizer. Updated live while streaming,
+   *  persisted on the message record. */
+  thinkingTokenCount?: number;
+  /** Runtime-only flag: true while this message is still receiving thinking
+   *  deltas (content has not started / not arrived yet). Drives the live
+   *  "thinking" state of the thinking block; never persisted. */
+  isThinkingActive?: boolean;
   timestamp: string;
   status?: "sending" | "sent" | "incomplete" | "error";
   incompleteVariant?: IncompleteVariant;

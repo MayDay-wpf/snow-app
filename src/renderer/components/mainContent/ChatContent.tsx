@@ -154,6 +154,7 @@ const ChatContentBody = ({
     conversationVersion,
     subAgentSessionEvents,
     handleSelectConversation,
+    upsertedConversation,
   } = useChatConversationContext();
   const { t } = useI18n();
   const handleRuntimeInputStateChange = useCallback(
@@ -263,6 +264,7 @@ const ChatContentBody = ({
     "";
 
   // 子代理关联的主会话信息（标题/摘要），用于信息头的“由主会话启动”展示。
+  // 展示时优先取 AI 生成的摘要——标题只是首条用户消息原文（常带文件标签）。
   const [subAgentParentMeta, setSubAgentParentMeta] = useState<{
     title: string;
     summary: string;
@@ -294,6 +296,24 @@ const ChatContentBody = ({
       cancelled = true;
     };
   }, [subAgentParentConversationId]);
+
+  // The parent's summary is generated asynchronously right after its first
+  // message; entering the sub-agent view during that window only sees an
+  // empty summary. The sidebar upsert channel broadcasts the refreshed
+  // record once the summary is persisted — watch it to swap the header
+  // label in place without re-entering the conversation.
+  useEffect(() => {
+    const record = upsertedConversation?.record;
+    if (
+      !record ||
+      !subAgentParentConversationId ||
+      record.conversationId !== subAgentParentConversationId ||
+      !record.summary
+    ) {
+      return;
+    }
+    setSubAgentParentMeta({ title: record.title, summary: record.summary });
+  }, [upsertedConversation, subAgentParentConversationId]);
 
   // Sub-agent header display data. The live session event wins while the run
   // is in flight; the persisted record covers reopened conversations. The
@@ -1142,7 +1162,7 @@ const ChatContentBody = ({
                 sessionTitle={subAgentSessionTitle}
                 prompt={subAgentPrompt}
                 parentTitle={
-                  subAgentParentMeta?.title || subAgentParentMeta?.summary || ""
+                  subAgentParentMeta?.summary || subAgentParentMeta?.title || ""
                 }
                 parentConversationId={subAgentParentConversationId}
                 onBackToParent={handleSelectConversation}

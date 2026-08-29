@@ -321,6 +321,7 @@ export const applyStreamChunkToMessage = (
       ...ordinaryStreamingMessage,
       content: "",
       thinking: undefined,
+      isThinkingActive: false,
       status: "sending",
     };
   }
@@ -332,10 +333,34 @@ export const applyStreamChunkToMessage = (
     chunk.thinking ||
     `${ordinaryStreamingMessage.thinking ?? ""}${chunk.thinkingDelta}`;
 
+  // Thinking-phase live stats: the Rust backend counts thinking-only tokens
+  // and brackets the thinking phase with the first/last thinking delta of the
+  // iteration. Each frontend assistant message maps 1:1 to one backend
+  // stream call (one agent-loop iteration), so the chunk values are already
+  // cumulative for this message — overwrite when present, never regress.
+  const nextThinkingTokenCount =
+    chunk.thinkingTokenCount > 0
+      ? chunk.thinkingTokenCount
+      : (ordinaryStreamingMessage.thinkingTokenCount ?? 0);
+  const nextThinkingDurationMs =
+    chunk.thinkingDurationMs > 0
+      ? chunk.thinkingDurationMs
+      : (ordinaryStreamingMessage.thinkingDurationMs ?? 0);
+  // The thinking phase is active while thinking deltas keep arriving; the
+  // first content delta (or the end of the stream) marks it as finished.
+  const nextIsThinkingActive = chunk.thinkingDelta
+    ? true
+    : chunk.contentDelta || chunk.content
+      ? false
+      : (ordinaryStreamingMessage.isThinkingActive ?? false);
+
   return {
     ...ordinaryStreamingMessage,
     content: nextContent,
     thinking: nextThinking || undefined,
+    thinkingDurationMs: nextThinkingDurationMs || undefined,
+    thinkingTokenCount: nextThinkingTokenCount || undefined,
+    isThinkingActive: nextIsThinkingActive,
     timestamp,
     status: "sending",
   };

@@ -49,6 +49,8 @@ fn emit_vision_status(
             retry_attempt: None,
             retry_error: None,
             stream_token_count: 0,
+            thinking_token_count: 0,
+            thinking_duration_ms: 0,
             elapsed_ms: 0,
             ttft_ms: 0,
             vision_status: Some(payload.to_string()),

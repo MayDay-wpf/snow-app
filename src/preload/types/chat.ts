@@ -1,7 +1,4 @@
-import type {
-  StreamInterruptionReason,
-  StreamRecoveryOutcome,
-} from "./api";
+import type { StreamInterruptionReason, StreamRecoveryOutcome } from "./api";
 
 export type ChatConversationRecord = {
   conversationId: string;
@@ -67,6 +64,10 @@ export type ChatMessageRecord = {
   role: string;
   content: string;
   thinking: string;
+  /** Thinking-phase duration (ms) recorded for this assistant message. */
+  thinkingDurationMs: number;
+  /** Thinking-only token count recorded for this assistant message. */
+  thinkingTokenCount: number;
   status: string;
   model: string;
   responseId: string;
@@ -89,4 +90,3 @@ export type UserMessageSummary = {
   content: string;
   createdAt: string;
 };
-

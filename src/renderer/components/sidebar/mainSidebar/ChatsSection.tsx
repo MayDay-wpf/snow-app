@@ -1026,6 +1026,10 @@ export function ChatsSection({
   };
 
   const handleToggleSelect = (conversationId: string): void => {
+    // 运行中的会话不允许进入多选集合
+    if (runningConversationIds.has(conversationId)) {
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(conversationId)) {
@@ -1037,9 +1041,17 @@ export function ChatsSection({
     });
   };
 
+  /** 可参与多选的会话：排除 PENDING 占位会话与运行中会话（流式/待确认/含待确认子代理） */
+  const isMultiSelectable = (conv: ChatConversationRecord): boolean =>
+    !isPendingSessionKey(conv.conversationId) &&
+    !runningConversationIds.has(conv.conversationId) &&
+    !surfacedConversationIds.has(conv.conversationId);
+  // 可多选会话总数：用于顶部全选按钮的文案切换
+  const multiSelectableCount = conversations.filter(isMultiSelectable).length;
+
   const handleSelectAll = (): void => {
     const allIds = conversations
-      .filter((conv) => !isPendingSessionKey(conv.conversationId))
+      .filter(isMultiSelectable)
       .map((conv) => conv.conversationId);
     setSelectedIds(new Set(allIds));
   };
@@ -1053,7 +1065,7 @@ export function ChatsSection({
    */
   const handleToggleGroupSelect = (group: TimeGroup): void => {
     const groupIds = group.conversations
-      .filter((conv) => !isPendingSessionKey(conv.conversationId))
+      .filter(isMultiSelectable)
       .map((conv) => conv.conversationId);
     if (groupIds.length === 0) {
       return;
@@ -1640,10 +1652,7 @@ export function ChatsSection({
           <div className="chat-multi-select-actions">
             <Tooltip
               content={
-                selectedIds.size ===
-                conversations.filter(
-                  (conv) => !isPendingSessionKey(conv.conversationId),
-                ).length
+                selectedIds.size === multiSelectableCount
                   ? t("sidebar.chatMultiSelectDeselectAll", {
                       defaultValue: "Deselect all",
                     })
@@ -1657,10 +1666,7 @@ export function ChatsSection({
                 type="button"
                 className="chat-multi-select-action-btn"
                 onClick={() =>
-                  selectedIds.size ===
-                  conversations.filter(
-                    (conv) => !isPendingSessionKey(conv.conversationId),
-                  ).length
+                  selectedIds.size === multiSelectableCount
                     ? handleDeselectAll()
                     : handleSelectAll()
                 }
@@ -1668,10 +1674,7 @@ export function ChatsSection({
               >
                 <CheckSquare size={13} />
                 <span>
-                  {selectedIds.size ===
-                  conversations.filter(
-                    (conv) => !isPendingSessionKey(conv.conversationId),
-                  ).length
+                  {selectedIds.size === multiSelectableCount
                     ? t("sidebar.chatMultiSelectDeselectAll", {
                         defaultValue: "Deselect all",
                       })
@@ -2212,7 +2215,7 @@ export function ChatsSection({
                 const isGroupCollapsed = collapsedGroupKeys[group.key] === true;
                 // 分组粒度的选择状态：全部已选 / 部分已选 / 未选
                 const groupSelectableIds = group.conversations
-                  .filter((conv) => !isPendingSessionKey(conv.conversationId))
+                  .filter(isMultiSelectable)
                   .map((conv) => conv.conversationId);
                 const groupSelectedCount = groupSelectableIds.filter((id) =>
                   selectedIds.has(id),
@@ -2328,6 +2331,14 @@ export function ChatsSection({
                               isCompleted={completedConversationIds.has(
                                 conversation.conversationId,
                               )}
+                              isRunning={
+                                runningConversationIds.has(
+                                  conversation.conversationId,
+                                ) ||
+                                surfacedConversationIds.has(
+                                  conversation.conversationId,
+                                )
+                              }
                               subAgentConversations={subAgentConversations}
                               subAgentAttentionRequiredIds={
                                 attentionRequiredConversationIds

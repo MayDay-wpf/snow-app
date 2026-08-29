@@ -484,6 +484,8 @@ export const zhTW = {
   "chat.fastModeFollowProfile": "跟隨 Profile 預設值",
   "chat.saveFastModeError": "儲存 Fast Mode 失敗",
   "chat.thinkingProcess": "思考過程",
+  "chat.thinkingContent": "思考內容",
+  "chat.thinkingDone": "思考完畢",
   "chat.visionAnalyzing": "視覺模型正在分析圖片…",
   "chat.triggeredByTask": "由定時任務觸發：{{name}}",
   "chat.expandAll": "展開全部",

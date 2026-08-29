@@ -76,6 +76,12 @@ pub struct StoreChatExchangeInput<'a> {
     pub token_usage: ChatTokenUsage,
     pub response_thinking: &'a str,
     pub response_thinking_blocks_json: &'a str,
+    /// Wall-clock duration (ms) between the first and last thinking delta of
+    /// this response's stream. Persisted for the thinking block summary UI.
+    pub response_thinking_duration_ms: i64,
+    /// Thinking-only token count of this response's stream (counted by the
+    /// backend with the same tokenizer as the stream probe).
+    pub response_thinking_token_count: i64,
     pub tool_calls_json: &'a str,
     pub directory_id: &'a str,
     pub context_compaction: bool,
@@ -294,6 +300,8 @@ pub fn store_chat_exchange(
                     input.raw_response_json,
                     "",
                     "[]",
+                    0,
+                    0,
                     "[]",
                     0,
                 )?;
@@ -345,6 +353,8 @@ pub fn store_chat_exchange(
                             raw_json,
                             "",
                             "[]",
+                            0,
+                            0,
                             "[]",
                             index,
                         )?;
@@ -367,6 +377,8 @@ pub fn store_chat_exchange(
                     input.raw_response_json,
                     input.response_thinking,
                     input.response_thinking_blocks_json,
+                    input.response_thinking_duration_ms,
+                    input.response_thinking_token_count,
                     input.tool_calls_json,
                     input.request_messages.len(),
                 )?;
@@ -499,6 +511,8 @@ pub fn store_failed_chat_exchange(
             token_usage: ChatTokenUsage::default(),
             response_thinking: "",
             response_thinking_blocks_json: "[]",
+            response_thinking_duration_ms: 0,
+            response_thinking_token_count: 0,
             tool_calls_json: "[]",
             directory_id,
             context_compaction: false,
@@ -536,6 +550,8 @@ pub fn append_tool_message(
                 "{}",
                 "",
                 "[]",
+                0,
+                0,
                 "[]",
                 0,
             )?;
@@ -595,6 +611,8 @@ fn insert_message(
     raw_json: &str,
     thinking: &str,
     thinking_blocks_json: &str,
+    thinking_duration_ms: i64,
+    thinking_token_count: i64,
     tool_calls_json: &str,
     index: usize,
 ) -> rusqlite::Result<String> {
@@ -614,11 +632,13 @@ fn insert_message(
            recovery_outcome,
            raw_json,
            thinking,
+           thinking_duration_ms,
+           thinking_token_count,
            thinking_blocks_json,
            tool_calls_json,
            created_at
          ) VALUES (
-           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now', 'localtime')
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, datetime('now', 'localtime')
          )",
         params![
             id,
@@ -634,6 +654,8 @@ fn insert_message(
             recovery_outcome,
             raw_json,
             thinking.trim(),
+            thinking_duration_ms,
+            thinking_token_count,
             thinking_blocks_json,
             tool_calls_json,
         ],

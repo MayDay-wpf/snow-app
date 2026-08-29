@@ -61,6 +61,8 @@ fn message_to_json(m: &ChatMessageRecord) -> serde_json::Value {
         "role": m.role,
         "content": m.content,
         "thinking": m.thinking,
+        "thinkingDurationMs": m.thinking_duration_ms,
+        "thinkingTokenCount": m.thinking_token_count,
         "status": m.status,
         "model": m.model,
         "responseId": m.response_id,
