@@ -6,12 +6,13 @@ import {
   Folder,
   Globe2,
   Loader2,
+  Pencil,
   RefreshCw,
   Trash2,
   Wrench,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GithubSkillRecord,
   ImportResourceRecord,
@@ -25,6 +26,7 @@ import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { GitHubLogo } from "../common/GitHubLogo";
 import { ManagedImportResourceActions } from "./importConfig/ManagedImportResourceActions";
+import { SkillEditModal } from "./SkillEditModal";
 
 type SkillsSettingsPanelProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -39,26 +41,16 @@ const EMPTY_SKILLS_BY_SCOPE: SkillsByScope = {
   project: [],
 };
 
-/**
- * Validate a GitHub URL / shorthand. Mirrors the Rust `parse_github_url`
- * logic so we can give instant feedback in the UI before invoking the backend.
- */
-function isValidGitHubUrl(input: string): boolean {
+/** Loose check: github.com URL or owner/repo shorthand; the backend download validates the rest. */
+function isGitHubSource(input: string): boolean {
   const trimmed = input.trim();
   if (!trimmed) {
     return false;
   }
-  let working = trimmed.replace(/\.git$/, "").replace(/\/$/, "");
-  const urlMatch = working.match(
-    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+)(\/.*)?)?$/i
-  );
-  if (urlMatch) {
-    return Boolean(urlMatch[1] && urlMatch[2]);
+  if (/^https?:\/\/(?:www\.)?github\.com(\/|$)/i.test(trimmed)) {
+    return true;
   }
-  const shorthandMatch = working.match(
-    /^([^/\s@]+)\/([^/\s@]+)(?:@([^:]+))?(?::(.+))?$/
-  );
-  return Boolean(shorthandMatch && shorthandMatch[1] && shorthandMatch[2]);
+  return !/^https?:\/\//i.test(trimmed) && trimmed.includes("/");
 }
 
 export function SkillsSettingsPanel({
@@ -68,7 +60,7 @@ export function SkillsSettingsPanel({
   const { t } = useI18n();
   const [activeScope, setActiveScope] = useState<SkillsScope>("global");
   const [skillsByScope, setSkillsByScope] = useState<SkillsByScope>(
-    EMPTY_SKILLS_BY_SCOPE
+    EMPTY_SKILLS_BY_SCOPE,
   );
   const [isLoading, setIsLoading] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState("");
@@ -82,29 +74,43 @@ export function SkillsSettingsPanel({
   const [releasingResourceId, setReleasingResourceId] = useState("");
   const [pendingUninstallSkill, setPendingUninstallSkill] =
     useState<SkillDefinition | null>(null);
-  const [importResources, setImportResources] = useState<ImportResourceRecord[]>([]);
+  const [editingSkill, setEditingSkill] = useState<SkillDefinition | null>(
+    null,
+  );
+  const [importResources, setImportResources] = useState<
+    ImportResourceRecord[]
+  >([]);
   const [pendingRelease, setPendingRelease] = useState<{
     resource: ImportResourceRecord;
     source: ImportResourceSource;
     disposition: ImportResourceReleaseDisposition;
   } | null>(null);
 
+  const loadSequenceRef = useRef(0);
+
   const loadSkills = useCallback(async (): Promise<void> => {
+    // Only the latest load may write state.
+    const sequence = ++loadSequenceRef.current;
     setIsLoading(true);
     setError("");
 
     try {
-      const [globalSkills, effectiveSkills, githubRecords, managedResources] = await Promise.all([
-        window.snow.listAvailableSkills(),
-        activeDirectory
-          ? window.snow.listAvailableSkills(activeDirectory.directoryId)
-          : Promise.resolve([]),
-        window.snow.listGithubSkills(),
-        window.snow.listManagedImportResources(),
-      ]);
+      const [globalSkills, effectiveSkills, githubRecords, managedResources] =
+        await Promise.all([
+          window.snow.listAvailableSkills(),
+          activeDirectory
+            ? window.snow.listAvailableSkills(activeDirectory.directoryId)
+            : Promise.resolve([]),
+          window.snow.listGithubSkills(),
+          window.snow.listManagedImportResources(),
+        ]);
+      if (sequence !== loadSequenceRef.current) {
+        return;
+      }
       const globalSkillIds = new Set(globalSkills.map((skill) => skill.id));
       const projectSkills = effectiveSkills.filter(
-        (skill) => skill.location === "project" && !globalSkillIds.has(skill.id)
+        (skill) =>
+          skill.location === "project" && !globalSkillIds.has(skill.id),
       );
 
       setSkillsByScope({
@@ -114,16 +120,21 @@ export function SkillsSettingsPanel({
       setGithubSkills(githubRecords);
       setImportResources(managedResources);
     } catch (loadError) {
+      if (sequence !== loadSequenceRef.current) {
+        return;
+      }
       setSkillsByScope(EMPTY_SKILLS_BY_SCOPE);
       setError(
         loadError instanceof Error
           ? loadError.message
           : t("settings.skillsLoadError", {
               defaultValue: "Failed to load Skills",
-            })
+            }),
       );
     } finally {
-      setIsLoading(false);
+      if (sequence === loadSequenceRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [activeDirectory, t]);
 
@@ -135,16 +146,18 @@ export function SkillsSettingsPanel({
       setStatus("");
 
       try {
-        const importResource = importResources.find((resource) =>
-          resource.resourceType === "skill" &&
-          (resource.targetPath === skill.path || resource.targetId === skill.path)
+        const importResource = importResources.find(
+          (resource) =>
+            resource.resourceType === "skill" &&
+            (resource.targetPath === skill.path ||
+              resource.targetId === skill.path),
         );
         await window.snow.setSkillEnabled(
           skill.location === "project"
             ? activeDirectory?.directoryId
             : undefined,
           skill.id,
-          nextEnabled
+          nextEnabled,
         );
         const source = importResource?.sources[0];
         if (importResource && source) {
@@ -164,8 +177,8 @@ export function SkillsSettingsPanel({
               defaultValue: nextEnabled
                 ? "Skill enabled."
                 : "Skill disabled and removed from skill-execute.",
-            }
-          )
+            },
+          ),
         );
       } catch (updateError) {
         setError(
@@ -173,22 +186,22 @@ export function SkillsSettingsPanel({
             ? updateError.message
             : t("settings.skillsUpdateError", {
                 defaultValue: "Failed to update Skill",
-              })
+              }),
         );
       } finally {
         setUpdatingSkillId("");
       }
     },
-    [activeDirectory?.directoryId, importResources, loadSkills, t]
+    [activeDirectory?.directoryId, importResources, loadSkills, t],
   );
 
   const handleInstall = useCallback(async (): Promise<void> => {
     const url = installUrl.trim();
-    if (!url || !isValidGitHubUrl(url)) {
+    if (!url || !isGitHubSource(url)) {
       setError(
         t("settings.skillsInstallInvalidUrl", {
           defaultValue: "Please enter a valid GitHub URL.",
-        })
+        }),
       );
       return;
     }
@@ -197,7 +210,7 @@ export function SkillsSettingsPanel({
         t("settings.skillsInstallError", {
           defaultValue: "Install failed: {{error}}",
           values: { error: "No active project" },
-        })
+        }),
       );
       return;
     }
@@ -210,7 +223,7 @@ export function SkillsSettingsPanel({
       const result = await window.snow.installSkillFromGithub(
         url,
         activeScope,
-        activeScope === "project" ? activeDirectory?.directoryId : undefined
+        activeScope === "project" ? activeDirectory?.directoryId : undefined,
       );
       if (result.success) {
         const names = result.results
@@ -221,7 +234,7 @@ export function SkillsSettingsPanel({
           `${t("settings.skillsInstallSuccess", {
             defaultValue: "{{count}} skill(s) installed successfully.",
             values: { count: result.installedCount },
-          })}${names ? ` (${names})` : ""}`
+          })}${names ? ` (${names})` : ""}`,
         );
         setInstallUrl("");
         await loadSkills();
@@ -230,7 +243,7 @@ export function SkillsSettingsPanel({
           t("settings.skillsInstallError", {
             defaultValue: "Install failed: {{error}}",
             values: { error: result.error ?? "Unknown error" },
-          })
+          }),
         );
       }
     } catch (installError) {
@@ -243,7 +256,7 @@ export function SkillsSettingsPanel({
                 ? installError.message
                 : "Unknown error",
           },
-        })
+        }),
       );
     } finally {
       setIsInstalling(false);
@@ -267,15 +280,13 @@ export function SkillsSettingsPanel({
     try {
       const result = await window.snow.uninstallGithubSkill(
         skill.id,
-        skill.location === "project"
-          ? activeDirectory?.directoryId
-          : undefined
+        skill.location === "project" ? activeDirectory?.directoryId : undefined,
       );
       if (result.success) {
         setStatus(
           t("settings.skillsUninstallSuccess", {
             defaultValue: "Skill uninstalled.",
-          })
+          }),
         );
         await loadSkills();
       } else {
@@ -283,7 +294,7 @@ export function SkillsSettingsPanel({
           t("settings.skillsUninstallError", {
             defaultValue: "Failed to uninstall: {{error}}",
             values: { error: result.error ?? result.message },
-          })
+          }),
         );
       }
     } catch (uninstallError) {
@@ -296,7 +307,7 @@ export function SkillsSettingsPanel({
                 ? uninstallError.message
                 : "Unknown error",
           },
-        })
+        }),
       );
     } finally {
       setUninstallingSkillId("");
@@ -307,9 +318,9 @@ export function SkillsSettingsPanel({
     (
       resource: ImportResourceRecord,
       source: ImportResourceSource,
-      disposition: ImportResourceReleaseDisposition
+      disposition: ImportResourceReleaseDisposition,
     ): void => setPendingRelease({ resource, source, disposition }),
-    []
+    [],
   );
 
   const confirmRelease = useCallback(async (): Promise<void> => {
@@ -335,7 +346,7 @@ export function SkillsSettingsPanel({
             })
           : t("settings.importResourceRemoveSuccess", {
               defaultValue: "Removed the imported resource association.",
-            })
+            }),
       );
     } catch (releaseError) {
       setError(
@@ -343,12 +354,17 @@ export function SkillsSettingsPanel({
           ? releaseError.message
           : t("settings.importResourceRemoveError", {
               defaultValue: "Failed to remove imported resource.",
-            })
+            }),
       );
     } finally {
       setReleasingResourceId("");
     }
   }, [loadSkills, pendingRelease, t]);
+
+  const dismissNotice = useCallback((): void => {
+    setError("");
+    setStatus("");
+  }, []);
 
   useEffect(() => {
     void loadSkills();
@@ -362,7 +378,7 @@ export function SkillsSettingsPanel({
 
   const githubSkillIds = useMemo(
     () => new Set(githubSkills.map((r) => r.id)),
-    [githubSkills]
+    [githubSkills],
   );
 
   const allSkills = [...skillsByScope.global, ...skillsByScope.project];
@@ -384,9 +400,8 @@ export function SkillsSettingsPanel({
         values: { name: activeDirectory?.name ?? "" },
       });
 
-  const urlValid = isValidGitHubUrl(installUrl);
-  const canInstall =
-    !isInstalling && !isLoading && installUrl.trim().length > 0 && urlValid;
+  // 有内容即可点击，合法性在 handleInstall 里判断。
+  const canInstall = !isInstalling && installUrl.trim().length > 0;
 
   return (
     <div className="api-settings-page skills-settings-page" role="region">
@@ -461,7 +476,7 @@ export function SkillsSettingsPanel({
               isLoading
                 ? "settings.skillsRefreshing"
                 : "settings.skillsRefresh",
-              { defaultValue: isLoading ? "Refreshing..." : "Refresh Skills" }
+              { defaultValue: isLoading ? "Refreshing..." : "Refresh Skills" },
             )}
           </span>
         </button>
@@ -470,10 +485,7 @@ export function SkillsSettingsPanel({
       <AutoDismissNotice
         message={error || status}
         tone={error ? "error" : "success"}
-        onDismiss={() => {
-          setError("");
-          setStatus("");
-        }}
+        onDismiss={dismissNotice}
       />
 
       <div
@@ -543,7 +555,8 @@ export function SkillsSettingsPanel({
                 }
               }}
               placeholder={t("settings.skillsInstallUrlPlaceholder", {
-                defaultValue: "https://github.com/owner/repo or owner/repo@branch",
+                defaultValue:
+                  "https://github.com/owner/repo or owner/repo@branch",
               })}
               disabled={isInstalling}
               aria-label={t("settings.skillsInstallUrlLabel", {
@@ -632,7 +645,7 @@ export function SkillsSettingsPanel({
                     defaultValue: isGlobalScope
                       ? "No global Skills found."
                       : "No project-only Skills found.",
-                  }
+                  },
                 )}
               </span>
             </div>
@@ -640,11 +653,14 @@ export function SkillsSettingsPanel({
             activeSkills.map((skill) => {
               const isUpdating = updatingSkillId === skill.id;
               const isUninstalling = uninstallingSkillId === skill.id;
-              const importResource = importResources.find((resource) =>
-                resource.resourceType === "skill" &&
-                (resource.targetPath === skill.path || resource.targetId === skill.path)
+              const importResource = importResources.find(
+                (resource) =>
+                  resource.resourceType === "skill" &&
+                  (resource.targetPath === skill.path ||
+                    resource.targetId === skill.path),
               );
-              const isReleasing = importResource?.resourceId === releasingResourceId;
+              const isReleasing =
+                importResource?.resourceId === releasingResourceId;
               const isGithubInstalled = githubSkillIds.has(skill.id);
               const toggleLabel = skill.enabled
                 ? t("settings.skillsDisable", { defaultValue: "Disable Skill" })
@@ -654,6 +670,9 @@ export function SkillsSettingsPanel({
                 : t("settings.inactive", { defaultValue: "Disabled" });
               const uninstallLabel = t("settings.skillsUninstall", {
                 defaultValue: "Uninstall",
+              });
+              const editLabel = t("settings.skillsEdit", {
+                defaultValue: "Edit Skill",
               });
 
               return (
@@ -673,7 +692,12 @@ export function SkillsSettingsPanel({
                         type="checkbox"
                         checked={skill.enabled}
                         onChange={() => void toggleSkillEnabled(skill)}
-                        disabled={isLoading || Boolean(updatingSkillId) || isInstalling || Boolean(releasingResourceId)}
+                        disabled={
+                          isLoading ||
+                          Boolean(updatingSkillId) ||
+                          isInstalling ||
+                          Boolean(releasingResourceId)
+                        }
                         hidden
                       />
                       <span className="toggle-slider" />
@@ -722,6 +746,18 @@ export function SkillsSettingsPanel({
                     <span className="skills-settings-badge">
                       .{skill.source}
                     </span>
+                    <button
+                      className="icon-btn ghost skills-settings-uninstall-btn"
+                      onClick={() => setEditingSkill(skill)}
+                      type="button"
+                      disabled={
+                        isLoading || Boolean(updatingSkillId) || isInstalling
+                      }
+                      aria-label={editLabel}
+                      title={editLabel}
+                    >
+                      <Pencil size={13} strokeWidth={1.8} />
+                    </button>
                     {isGithubInstalled && (
                       <button
                         className="icon-btn ghost skills-settings-uninstall-btn"
@@ -779,28 +815,50 @@ export function SkillsSettingsPanel({
       />
       <ConfirmDialog
         open={Boolean(pendingRelease)}
-        title={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopy", { defaultValue: "Keep local copy" })
-          : t("settings.importResourceRemove", { defaultValue: "Remove imported resource" })}
-        message={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopyConfirm", {
-              defaultValue: "Keep this local copy and remove its import association?",
-            })
-          : pendingRelease && pendingRelease.resource.sourceCount > 1
-            ? t("settings.importResourceUnlinkConfirm", {
-                defaultValue: "Remove this source association? Other sources will keep the resource available.",
+        title={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopy", {
+                defaultValue: "Keep local copy",
               })
-            : t("settings.importResourceRemoveConfirm", {
-                defaultValue: "Remove this import association and delete the Snow-managed resource?",
-              })}
-        confirmLabel={pendingRelease?.disposition === "adopt"
-          ? t("settings.importResourceKeepCopy", { defaultValue: "Keep copy" })
-          : t("settings.remove", { defaultValue: "Remove" })}
+            : t("settings.importResourceRemove", {
+                defaultValue: "Remove imported resource",
+              })
+        }
+        message={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopyConfirm", {
+                defaultValue:
+                  "Keep this local copy and remove its import association?",
+              })
+            : pendingRelease && pendingRelease.resource.sourceCount > 1
+              ? t("settings.importResourceUnlinkConfirm", {
+                  defaultValue:
+                    "Remove this source association? Other sources will keep the resource available.",
+                })
+              : t("settings.importResourceRemoveConfirm", {
+                  defaultValue:
+                    "Remove this import association and delete the Snow-managed resource?",
+                })
+        }
+        confirmLabel={
+          pendingRelease?.disposition === "adopt"
+            ? t("settings.importResourceKeepCopy", {
+                defaultValue: "Keep copy",
+              })
+            : t("settings.remove", { defaultValue: "Remove" })
+        }
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
         variant={pendingRelease?.disposition === "adopt" ? "default" : "danger"}
         onConfirm={() => void confirmRelease()}
         onCancel={() => setPendingRelease(null)}
       />
+      {editingSkill && (
+        <SkillEditModal
+          key={editingSkill.path}
+          skill={editingSkill}
+          onClose={() => setEditingSkill(null)}
+        />
+      )}
     </div>
   );
 }

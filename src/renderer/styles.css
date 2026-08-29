@@ -40870,3 +40870,128 @@ body.ctrl-held [data-path] {
   padding: 0 5px;
   border-radius: 8px;
 }
+
+/* ===== Skill 编辑弹窗：左侧文件结构 + 右侧 FileViewerContent 编辑器 ===== */
+.skill-edit-modal {
+  width: min(1200px, calc(100vw - 48px));
+  height: min(88vh, calc(100vh - 48px));
+}
+
+.skill-edit-modal .app-modal-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.skill-edit-modal-layout {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.skill-edit-tree-pane {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.skill-edit-tree-pane-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.skill-edit-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.skill-edit-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.skill-edit-tree-row:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.skill-edit-tree-row.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.skill-edit-tree-row.loading {
+  cursor: default;
+  color: var(--text-tertiary);
+}
+
+.skill-edit-tree-chevron {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  transition: transform 0.15s;
+}
+
+.skill-edit-tree-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.skill-edit-tree-folder,
+.skill-edit-tree-file {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.skill-edit-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-edit-tree-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.skill-edit-viewer-pane {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+}
+
+.skill-edit-viewer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}

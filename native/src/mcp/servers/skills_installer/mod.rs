@@ -82,16 +82,9 @@ pub struct SkillUninstallResult {
 // URL parsing
 // ---------------------------------------------------------------------------
 
-/// Parse a GitHub URL into its components.
-///
-/// Supported formats:
-///  - https://github.com/owner/repo
-///  - https://github.com/owner/repo/tree/branch
-///  - https://github.com/owner/repo/tree/branch/sub/dir
-///  - https://github.com/owner/repo.git
-///  - owner/repo
-///  - owner/repo@branch
-///  - owner/repo@branch:sub/dir
+/// Parse a GitHub URL into owner/repo (+ optional ref / sub-directory).
+/// Lenient on purpose: only github.com URLs and owner/repo shorthands are
+/// recognized, everything else is left to the download to accept or fail.
 pub fn parse_github_url(input: &str) -> Option<ParsedGitHubUrl> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -99,32 +92,65 @@ pub fn parse_github_url(input: &str) -> Option<ParsedGitHubUrl> {
     }
 
     let mut working = trimmed.to_string();
-    // Strip trailing slash / .git
+    let lowered = working.to_ascii_lowercase();
+    let is_url = lowered.starts_with("http://")
+        || lowered.starts_with("https://")
+        || lowered.starts_with("github.com/")
+        || lowered.starts_with("www.github.com/");
+
+    if is_url {
+        // Strip query / fragment (URLs only; shorthand branches may contain them).
+        if let Some(hash_idx) = working.find('#') {
+            working.truncate(hash_idx);
+        }
+        if let Some(query_idx) = working.find('?') {
+            working.truncate(query_idx);
+        }
+    } else if lowered.starts_with("git@github.com:") {
+        // SSH clone URL -> rewrite into the owner/repo shorthand form.
+        working = working.split_off("git@github.com:".len());
+    }
+
+    // Strip a trailing .git suffix and any trailing slashes.
     if working.ends_with(".git") {
-        working = working[..working.len() - 4].to_string();
+        working.truncate(working.len() - 4);
     }
     while working.ends_with('/') {
         working.pop();
     }
 
-    // Full https / http URL
-    // https://github.com/owner/repo/tree/branch/sub/dir
-    let url_re =
-        regex::Regex::new(r"(?i)^https?://github\.com/([^/]+)/([^/]+)(?:/tree/([^/]+)(/.*)?)?$")
-            .ok()?;
-    if let Some(caps) = url_re.captures(&working) {
-        let owner = caps.get(1)?.as_str().to_string();
-        let repo = caps.get(2)?.as_str().to_string();
-        let r#ref = caps.get(3).map(|m| m.as_str().to_string());
-        let sub_dir = caps.get(4).map(|m| {
-            let s = m.as_str();
-            // strip leading/trailing slashes
-            let s = s.trim_start_matches('/').trim_end_matches('/');
-            s.to_string()
-        });
+    if is_url {
+        // Skip the scheme, then the host must be github.com (www. tolerated).
+        let after_scheme = working.find("://").map(|idx| idx + 3).unwrap_or(0);
+        let mut segments = working[after_scheme..].split('/');
+        let host = segments.next().unwrap_or_default();
+        if !(host.eq_ignore_ascii_case("github.com")
+            || host.eq_ignore_ascii_case("www.github.com"))
+        {
+            return None;
+        }
+        let owner = segments.next().filter(|s| !s.is_empty())?;
+        let repo = segments.next().filter(|s| !s.is_empty())?;
+        let rest: Vec<&str> = segments.filter(|s| !s.is_empty()).collect();
+        let (r#ref, sub_dir) = match rest.first() {
+            Some(&first)
+                if matches!(
+                    first.to_ascii_lowercase().as_str(),
+                    "tree" | "blob" | "raw"
+                ) && rest.len() >= 2 =>
+            {
+                let sub = if rest.len() > 2 {
+                    Some(rest[2..].join("/"))
+                } else {
+                    None
+                };
+                (Some(rest[1].to_string()), sub)
+            }
+            _ => (None, None),
+        };
         return Some(ParsedGitHubUrl {
-            owner,
-            repo,
+            owner: owner.to_string(),
+            repo: repo.to_string(),
             r#ref: r#ref.filter(|r| !r.is_empty()),
             sub_dir: sub_dir.filter(|s| !s.is_empty()),
         });
@@ -132,20 +158,17 @@ pub fn parse_github_url(input: &str) -> Option<ParsedGitHubUrl> {
 
     // Shorthand: owner/repo  or  owner/repo@ref  or  owner/repo@ref:sub/dir
     let shorthand_re = regex::Regex::new(r"^([^/\s@]+)/([^/\s@]+)(?:@([^:]+))?(?::(.+))?$").ok()?;
-    if let Some(caps) = shorthand_re.captures(&working) {
-        let owner = caps.get(1)?.as_str().to_string();
-        let repo = caps.get(2)?.as_str().to_string();
-        let r#ref = caps.get(3).map(|m| m.as_str().to_string());
-        let sub_dir = caps.get(4).map(|m| m.as_str().to_string());
-        return Some(ParsedGitHubUrl {
-            owner,
-            repo,
-            r#ref: r#ref.filter(|r| !r.is_empty()),
-            sub_dir: sub_dir.filter(|s| !s.is_empty()),
-        });
-    }
-
-    None
+    let caps = shorthand_re.captures(&working)?;
+    let owner = caps.get(1)?.as_str().to_string();
+    let repo = caps.get(2)?.as_str().to_string();
+    let r#ref = caps.get(3).map(|m| m.as_str().to_string());
+    let sub_dir = caps.get(4).map(|m| m.as_str().to_string());
+    Some(ParsedGitHubUrl {
+        owner,
+        repo,
+        r#ref: r#ref.filter(|r| !r.is_empty()),
+        sub_dir: sub_dir.filter(|s| !s.is_empty()),
+    })
 }
 
 // ---------------------------------------------------------------------------

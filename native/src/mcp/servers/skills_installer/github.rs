@@ -3,6 +3,7 @@ use super::*;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use napi::{Error, Status};
 
@@ -125,8 +126,11 @@ fn resolve_commit_sha(parsed: &ParsedGitHubUrl) -> napi::Result<ShaInfo> {
 }
 
 fn build_http_client() -> napi::Result<reqwest::blocking::Client> {
-    let mut builder =
-        reqwest::blocking::Client::builder().user_agent(crate::api::http_client::app_user_agent());
+    let mut builder = reqwest::blocking::Client::builder()
+        .user_agent(crate::api::http_client::app_user_agent())
+        // Avoid hanging forever on flaky networks.
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(300));
     // Use a GitHub token when available to avoid unauthenticated API rate
     // limits (60 requests/hour per IP). Reads GITHUB_TOKEN first, then
     // GH_TOKEN (the environment variable used by the gh CLI, e.g. after

@@ -2105,6 +2105,13 @@ export const en = {
   "settings.skillsNoDescription": "No description provided.",
   "settings.skillsEffectiveSource": "Effective source",
   "settings.skillsAllowedTools": "Allowed tools",
+  "settings.skillsEdit": "Edit Skill",
+  "settings.skillsEditFiles": "Files",
+  "settings.skillsEditSelectFile": "Select a file to edit",
+  "settings.skillsEditEmpty": "No files found",
+  "settings.skillsEditTreeError": "Failed to load files",
+  "settings.skillsEditDiscardConfirm":
+    "You have unsaved changes. Discard and close?",
   "settings.skillsEnabledCount": "Enabled Skills",
   "settings.skillsDisabledCount": "Disabled Skills",
   "settings.skillsEnable": "Enable Skill",
