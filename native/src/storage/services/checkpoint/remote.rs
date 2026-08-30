@@ -508,9 +508,11 @@ pub async fn canonical_work_dir_remote(
 // ============================================================================
 
 use super::{
-    bump_restore_epoch, checkpoint_manifest_exists, checkpoint_operation_lock, checkpoint_root,
-    current_restore_epoch, filter_existing_checkpoints, fingerprint_lookup, fingerprint_store,
-    manifest_lock, pending_state_to_original, read_manifest, should_skip_manifest_path,
+    bump_restore_epoch, change_owned_by_other_capture, checkpoint_manifest_exists,
+    checkpoint_operation_lock, checkpoint_root, current_restore_epoch, filter_existing_checkpoints,
+    fingerprint_lookup, fingerprint_store, manifest_lock, original_object_id,
+    pending_state_to_original, read_manifest, register_file_capture_end,
+    register_file_capture_start, register_recorded_change, should_skip_manifest_path,
     should_skip_relative, store_object_bytes, work_dir_lock, work_dir_read_guard_async,
     work_dir_write_guard_async, write_manifest, CachedCheckpointDiff, CheckpointEntry,
     CheckpointFileChange, CheckpointFileDiff, CheckpointManifest, CheckpointWorktreeCapture,
@@ -1089,13 +1091,23 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
             },
             None => after_stat.map(|_| OriginalState::Missing),
         };
-        if let Some(original) = change {
-            changes.push(AfterChange {
-                relative: relative_path.clone(),
-                original,
-                needs_expected_content: after_stat.is_some(),
-            });
+        let Some(original) = change else {
+            continue;
+        };
+        // 多会话并行防线（与本地一致）：路径已被并行文件工具认领（正在
+        // 追捕或已按同一变更起点记录）时跳过，变化归它负责。
+        if change_owned_by_other_capture(
+            &capture.work_dir,
+            relative_path,
+            before_state.and_then(|state| state.object_id.as_deref()),
+        ) {
+            continue;
         }
+        changes.push(AfterChange {
+            relative: relative_path.clone(),
+            original,
+            needs_expected_content: after_stat.is_some(),
+        });
     }
 
     // ---- 远程阶段 2：为变更文件批量抓取命令后的内容（expected 状态）----
@@ -1144,6 +1156,7 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
                 };
                 apply_entry_states(
                     &mut manifest,
+                    &capture.work_dir,
                     &change.relative,
                     change.original.clone(),
                     expected,
@@ -1171,8 +1184,10 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
 
 /// 把 (original, expected) 状态对写入 manifest 条目：已有条目仅更新
 /// expected（保留首次记录的 original），新条目追加。纯本地操作。
+/// `work_dir` 用于变更归属注册（并行会话的 bash 全树对比据此跳过该路径）。
 fn apply_entry_states(
     manifest: &mut CheckpointManifest,
+    work_dir: &str,
     relative: &str,
     original: OriginalState,
     expected: OriginalState,
@@ -1189,6 +1204,7 @@ fn apply_entry_states(
         entry.expected = Some(expected);
         return;
     }
+    register_recorded_change(work_dir, relative, original_object_id(&original));
     manifest.entries.push(CheckpointEntry {
         path: relative.to_string(),
         original,
@@ -1216,6 +1232,11 @@ pub(crate) async fn record_checkpoint_file_remote(
         return Ok(());
     }
 
+    // before 内容只采样一次；无论该文件是否已有条目都必须登记"正在追捕"
+    // （与本地一致），否则本轮编辑期间并行 bash 的全树对比会误记变化。
+    let original = current_state_remote(client, &absolute).await?;
+    register_file_capture_start(&work_dir, &path, original_object_id(&original));
+
     for checkpoint_id in checkpoint_ids {
         with_manifest_lock_async(&checkpoint_id, || async {
             let mut manifest = read_manifest(&checkpoint_id)?;
@@ -1227,7 +1248,7 @@ pub(crate) async fn record_checkpoint_file_remote(
             }
             manifest.entries.push(CheckpointEntry {
                 path: path.clone(),
-                original: current_state_remote(client, &absolute).await?,
+                original: original.clone(),
                 expected: None,
             });
             write_manifest(&checkpoint_id, &manifest)
@@ -1270,6 +1291,8 @@ pub(crate) async fn record_checkpoint_file_after_remote(
         })
         .await?;
     }
+    // 无条件解除"正在追捕"登记，并保留变更归属供并行 bash 全树对比判定。
+    register_file_capture_end(&work_dir, &path);
     Ok(())
 }
 
@@ -1504,9 +1527,10 @@ pub(crate) async fn list_checkpoint_changes_batch_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_ids: Vec<String>,
     work_dir: String,
+    include_all: bool,
 ) -> Result<Vec<CheckpointFileChange>> {
     Ok(
-        list_checkpoint_diffs_batch_remote(client, checkpoint_ids, work_dir, true)
+        list_checkpoint_diffs_batch_remote(client, checkpoint_ids, work_dir, include_all)
             .await?
             .into_iter()
             .map(|diff| CheckpointFileChange {

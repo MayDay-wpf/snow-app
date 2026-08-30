@@ -2004,6 +2004,7 @@ export type NativeBridge = {
   listCheckpointChangesBatch: (
     checkpointIds: string[],
     workDir: string,
+    includeAll?: boolean,
   ) => Promise<CheckpointFileChange[]>;
   listCheckpointDiffs: (
     checkpointId: string,

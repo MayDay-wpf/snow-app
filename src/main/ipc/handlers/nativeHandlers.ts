@@ -1172,7 +1172,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   );
   ipcMain.handle(
     "checkpoint:list-changes-batch",
-    (_event, checkpointIds: unknown, workDir: unknown) => {
+    (_event, checkpointIds: unknown, workDir: unknown, includeAll: unknown) => {
       if (
         !Array.isArray(checkpointIds) ||
         checkpointIds.length === 0 ||
@@ -1185,9 +1185,13 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
           "Working directory path is required to list checkpoint changes",
         );
       }
+      if (includeAll !== undefined && typeof includeAll !== "boolean") {
+        throw new Error("includeAll must be a boolean when provided");
+      }
       return native.listCheckpointChangesBatch(
         checkpointIds.map((id) => id.trim()),
         workDir.trim(),
+        includeAll === true,
       );
     },
   );

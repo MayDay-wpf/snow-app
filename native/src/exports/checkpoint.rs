@@ -147,19 +147,28 @@ pub async fn list_checkpoint_changes(
 pub async fn list_checkpoint_changes_batch(
     checkpoint_ids: Vec<String>,
     work_dir: String,
+    include_all: Option<bool>,
 ) -> napi::Result<Vec<CheckpointFileChange>> {
+    let include_all = include_all.unwrap_or(false);
     let operation_lock =
         crate::storage::services::checkpoint::checkpoint_operation_lock(&work_dir)?;
     let _operation_guard = operation_lock.write_owned().await;
     if is_ssh_path(&work_dir) {
         let callback = checkpoint_remote_callback()?;
         let client = RemoteCheckpointClient::new(&callback);
-        return list_checkpoint_changes_batch_remote(&client, checkpoint_ids, work_dir).await;
+        return list_checkpoint_changes_batch_remote(
+            &client,
+            checkpoint_ids,
+            work_dir,
+            include_all,
+        )
+        .await;
     }
     tokio::task::spawn_blocking(move || {
         crate::storage::services::checkpoint::list_checkpoint_changes_batch(
             checkpoint_ids,
             work_dir,
+            include_all,
         )
     })
     .await

@@ -352,9 +352,14 @@ export const useRollback = (ctx: ConversationContextValue) => {
           let changes: CheckpointFileChange[] = [];
           if (previewCheckpointIds.length > 0 && sessionWorkDir) {
             try {
+              // includeAll=false（rollback preview 语义）：只列出当前状态
+              // 仍处于 checkpoint 后状态的文件——与 restoreCheckpoints 的
+              // 实际恢复范围完全一致。true 的"文件面板"语义会把后来被
+              // 覆盖/漂移的痕迹也列出来，造成"回滚列表混入无关文件"。
               changes = await window.snow.listCheckpointChangesBatch(
                 previewCheckpointIds,
                 sessionWorkDir,
+                false,
               );
             } catch {
               // Best effort — show dialog without changes on error

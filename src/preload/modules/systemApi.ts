@@ -1023,8 +1023,14 @@ export const systemApi = {
   listCheckpointChangesBatch: (
     checkpointIds: string[],
     workDir: string,
+    includeAll?: boolean,
   ): Promise<CheckpointFileChange[]> =>
-    ipcRenderer.invoke("checkpoint:list-changes-batch", checkpointIds, workDir),
+    ipcRenderer.invoke(
+      "checkpoint:list-changes-batch",
+      checkpointIds,
+      workDir,
+      includeAll ?? false,
+    ),
   listCheckpointDiffs: (
     checkpointId: string,
     workDir: string,

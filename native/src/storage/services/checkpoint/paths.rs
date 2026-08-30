@@ -49,7 +49,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 /// `\\?\UNC\server\share`. Logical absolute paths from the AI / UI usually do
 /// not include this prefix, so `starts_with` would otherwise reject in-workspace
 /// absolute paths (especially for files that do not exist yet).
-fn strip_windows_extended_prefix(path: &Path) -> PathBuf {
+pub(crate) fn strip_windows_extended_prefix(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\") {
         if let Some(unc) = rest.strip_prefix(r"UNC\") {
@@ -60,7 +60,13 @@ fn strip_windows_extended_prefix(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-fn path_key(path: &Path) -> String {
+/// 归一化路径键：正斜杠 + 去尾部斜杠，Windows 下整体转小写。
+/// 仅用于"同一文件"的等价判断（锁表 / 前缀剥离定位），**绝不能**把
+/// 返回值当作 manifest 存储路径——小写形式会让变更列表显示磁盘上
+/// 不存在的文件名（历史 bug：ThinkingBlock.tsx 被记成 thinkingblock.tsx）。
+/// `replace` 与 `to_ascii_lowercase` 都不改变字节长度，因此键与原始
+/// forward-slash 字符串的字符位置一一对应，可用于切片还原真实大小写。
+pub(crate) fn path_key(path: &Path) -> String {
     let stripped = strip_windows_extended_prefix(path);
     let mut key = stripped.to_string_lossy().replace('\\', "/");
     while key.ends_with('/') && key.len() > 1 {
@@ -71,6 +77,47 @@ fn path_key(path: &Path) -> String {
         key = key.to_ascii_lowercase();
     }
     key
+}
+
+/// Windows 文件系统大小写不敏感：manifest 条目路径比较必须同样不敏感，
+/// 否则单文件记录（旧版产生小写路径）与全树扫描（真实大小写）会为同一
+/// 文件写入两条 manifest 条目，回滚列表出现"重复/不存在"的文件。
+pub(crate) fn manifest_paths_equal(left: &str, right: &str) -> bool {
+    #[cfg(windows)]
+    {
+        left.eq_ignore_ascii_case(right)
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+/// 从绝对路径剥出相对 `root` 的部分，**保留磁盘上的真实大小写**。
+/// 文件不存在或不在 root 内时返回 None（调用方回退用原始 manifest 路径）。
+/// 用于把历史 manifest 中已落盘的小写条目在展示时恢复为真实文件名。
+pub(crate) fn real_relative_path(root: &Path, absolute: &Path) -> Option<String> {
+    let canonical = fs::canonicalize(absolute).ok()?;
+    let stripped = strip_windows_extended_prefix(&canonical);
+    if !is_path_within_root(&stripped, root) {
+        return None;
+    }
+    let full = stripped.to_string_lossy().replace('\\', "/");
+    let full_key = path_key(&stripped);
+    let root_key = path_key(root);
+    if full_key == root_key {
+        return Some(String::new());
+    }
+    let prefix = format!("{root_key}/");
+    if !full_key.starts_with(&prefix) {
+        return None;
+    }
+    // 键与原串字节位置一一对应：按尾部宽度切出原始大小写形式。
+    let suffix_len = full_key.len() - prefix.len();
+    if suffix_len > full.len() {
+        return None;
+    }
+    Some(full[full.len() - suffix_len..].to_string())
 }
 
 fn is_path_within_root(path: &Path, root: &Path) -> bool {
@@ -138,7 +185,19 @@ pub(crate) fn resolve_checkpoint_path(root: &Path, file_path: &str) -> Result<(P
             let relative_key = path_key_value
                 .strip_prefix(&format!("{root_key_value}/"))
                 .ok_or_else(|| Error::from_reason("Failed to create checkpoint-relative path"))?;
-            relative_key.to_string()
+            // 键是原字符串逐字符小写化的产物（字节长度不变），因此用尾部
+            // 宽度从原始 forward-slash 形式切片，保留磁盘上的真实大小写。
+            // 旧版直接存储小写键，导致 manifest 里出现
+            // `thinkingblock.tsx` 这类磁盘上不存在的文件名。
+            let original_full =
+                strip_windows_extended_prefix(&normalized).to_string_lossy().replace('\\', "/");
+            let suffix_len = relative_key.len();
+            if suffix_len > original_full.len() {
+                return Err(Error::from_reason(
+                    "Failed to create checkpoint-relative path",
+                ));
+            }
+            original_full[original_full.len() - suffix_len..].to_string()
         }
     };
     Ok((normalized, relative))

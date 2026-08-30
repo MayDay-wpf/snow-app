@@ -4,7 +4,7 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -24,7 +24,8 @@ use self::git::{read_git_object, update_checkpoint_git_ref};
 use self::manifest::{read_manifest, write_manifest};
 use self::paths::{
     canonical_work_dir, checkpoint_dir, checkpoint_manifest_exists, filter_existing_checkpoints,
-    resolve_checkpoint_path, resolve_manifest_path, should_skip_manifest_path,
+    manifest_paths_equal, real_relative_path, resolve_checkpoint_path, resolve_manifest_path,
+    should_skip_manifest_path,
 };
 
 const OBJECT_DIR_NAME: &str = "objects";
@@ -349,6 +350,136 @@ pub(crate) fn bump_restore_epoch(work_dir: &str) -> Result<()> {
     Ok(())
 }
 
+/// 变更归属注册表：记录工作目录内每个路径最近的文件变更由哪个捕获负责。
+/// 多会话并行共享同一工作目录时，bash 的全树 before→after 对比无法区分
+/// "本会话命令改的"与"并行会话改的"；文件工具（filesystem-replace_edit /
+/// create）在 before 阶段登记"正在追捕目标文件"、after 阶段解除并保留
+/// 归属，bash 全树 after 对比据此跳过并行会话已认领的文件——防止把其他
+/// 会话在 bash 执行期间的修改误记到本会话 checkpoint（回滚列表混入无关
+/// 文件的核心防线）。
+/// key = "{normalized_work_dir}\\0{normalized_relative}"。
+struct RecordedFileChange {
+    /// 变更前内容对象 id（BLAKE3，None = 变更前不存在）。用于判断
+    /// "变更起点与本会话 before 指纹一致"——一致说明该变化发生在本会话
+    /// 观察起点之后且已由其他捕获记录，归它负责。
+    original_object_id: Option<String>,
+    /// 文件工具 before 已登记、after 尚未完成。超时自动失效（工具崩溃
+    /// 后 after 不会执行，避免该路径被永久跳过）。
+    active_since: Option<Instant>,
+}
+
+/// active 登记（before→after 区间）的兜底超时：正常文件工具毫秒级完成。
+const ACTIVE_CAPTURE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// 归属注册表上限：超过后清理已完成（非 active）的条目防膨胀。
+const RECORDED_CHANGES_MAX_ENTRIES: usize = 100_000;
+
+static CHECKPOINT_RECORDED_CHANGES: OnceLock<Mutex<HashMap<String, RecordedFileChange>>> =
+    OnceLock::new();
+
+fn recorded_changes() -> MutexGuard<'static, HashMap<String, RecordedFileChange>> {
+    CHECKPOINT_RECORDED_CHANGES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn recorded_change_key(work_dir: &str, relative: &str) -> String {
+    format!(
+        "{}\0{}",
+        normalize_operation_key(work_dir),
+        normalize_operation_key(relative)
+    )
+}
+
+fn trim_recorded_changes(changes: &mut HashMap<String, RecordedFileChange>) {
+    if changes.len() >= RECORDED_CHANGES_MAX_ENTRIES {
+        changes.retain(|_, entry| entry.active_since.is_some());
+    }
+}
+
+/// 文件工具 before：登记目标文件（active），original 为变更前内容 id。
+pub(crate) fn register_file_capture_start(
+    work_dir: &str,
+    relative: &str,
+    original_object_id: Option<String>,
+) {
+    let mut changes = recorded_changes();
+    trim_recorded_changes(&mut changes);
+    changes.insert(
+        recorded_change_key(work_dir, relative),
+        RecordedFileChange {
+            original_object_id,
+            active_since: Some(Instant::now()),
+        },
+    );
+}
+
+/// 文件工具 after：解除 active，保留变更归属（original 不变）。
+pub(crate) fn register_file_capture_end(work_dir: &str, relative: &str) {
+    let key = recorded_change_key(work_dir, relative);
+    let mut changes = recorded_changes();
+    if let Some(entry) = changes.get_mut(&key) {
+        entry.active_since = None;
+    }
+}
+
+/// 变更被写入 manifest（bash 全树对比 / 文件工具 after）时登记归属。
+pub(crate) fn register_recorded_change(
+    work_dir: &str,
+    relative: &str,
+    original_object_id: Option<String>,
+) {
+    let mut changes = recorded_changes();
+    trim_recorded_changes(&mut changes);
+    changes
+        .entry(recorded_change_key(work_dir, relative))
+        .and_modify(|entry| {
+            entry.original_object_id.clone_from(&original_object_id);
+            entry.active_since = None;
+        })
+        .or_insert_with(|| RecordedFileChange {
+            original_object_id,
+            active_since: None,
+        });
+}
+
+/// bash 全树 after 对比判定：该路径的变化是否已由其他捕获认领。
+/// - active（并行文件工具正在追捕）：跳过，它稍后会自己记录；
+/// - 登记的变更前内容与本会话 before 指纹一致：变化发生在观察起点之后
+///   且已被人记录，归别人负责；
+/// - 登记的变更前内容不同：那条记录的起点早于本会话观察，与本会话无关，
+///   继续走正常对比。
+pub(crate) fn change_owned_by_other_capture(
+    work_dir: &str,
+    relative: &str,
+    before_object_id: Option<&str>,
+) -> bool {
+    let key = recorded_change_key(work_dir, relative);
+    let changes = recorded_changes();
+    let Some(entry) = changes.get(&key) else {
+        return false;
+    };
+    if let Some(active_since) = entry.active_since {
+        if active_since.elapsed() < ACTIVE_CAPTURE_TIMEOUT {
+            return true;
+        }
+    }
+    match before_object_id {
+        // 本会话 before 时文件不存在：对方也登记"变更前不存在"才算同源。
+        None => entry.original_object_id.is_none(),
+        Some(object_id) => entry.original_object_id.as_deref() == Some(object_id),
+    }
+}
+
+/// 从记录状态提取归属比对用的内容 id（Missing / Git 无法对比，返回 None）。
+fn original_object_id(original: &OriginalState) -> Option<String> {
+    match original {
+        OriginalState::Object { object_id } => Some(object_id.clone()),
+        _ => None,
+    }
+}
+
 /// 返回同一工作目录下某个文件的执行锁。工作目录锁负责与 bash/回滚互斥，
 /// 文件锁只串行化相同路径，保留不同文件之间的并行能力。
 pub(crate) fn checkpoint_file_operation_lock(
@@ -649,9 +780,16 @@ fn update_expected_state(
     absolute: &Path,
     path: &str,
 ) -> Result<bool> {
-    let Some(entry) = manifest.entries.iter_mut().find(|entry| entry.path == path) else {
+    let Some(entry) = manifest
+        .entries
+        .iter_mut()
+        .find(|entry| manifest_paths_equal(&entry.path, path))
+    else {
         return Ok(false);
     };
+    // Windows 大小写不敏感命中（如历史小写条目）时顺手把条目路径升级为
+    // 当前真实大小写，避免同一文件在 manifest 中分裂成两条记录。
+    entry.path = path.to_string();
     entry.expected = Some(current_state(absolute)?);
     Ok(true)
 }
@@ -661,22 +799,33 @@ fn capture_entry(
     absolute: &Path,
     relative: &Path,
     original: OriginalState,
+    work_dir: &str,
 ) -> Result<()> {
     if relative.as_os_str().is_empty() || should_skip_relative(relative) {
         return Ok(());
     }
     let path = to_forward_slashes(relative);
     let expected = current_state(absolute)?;
-    if let Some(entry) = manifest.entries.iter_mut().find(|entry| entry.path == path) {
+    // 归属比对用内容 id：在 original 被 move 进 manifest 前提取。
+    let original_id = original_object_id(&original);
+    if let Some(entry) = manifest
+        .entries
+        .iter_mut()
+        .find(|entry| manifest_paths_equal(&entry.path, &path))
+    {
+        // 大小写不敏感命中：更新 expected 并把条目路径升级为真实大小写。
+        entry.path = path.clone();
         entry.expected = Some(expected);
-        return Ok(());
+    } else {
+        manifest.entries.push(CheckpointEntry {
+            path: path.clone(),
+            original,
+            expected: Some(expected),
+        });
     }
-
-    manifest.entries.push(CheckpointEntry {
-        path,
-        original,
-        expected: Some(expected),
-    });
+    // 登记归属：该路径的变化由本次捕获负责，并行会话的 bash 全树对比
+    // 会据此跳过，不再重复/误记。
+    register_recorded_change(work_dir, &path, original_id);
     Ok(())
 }
 
@@ -748,18 +897,31 @@ pub fn record_checkpoint_file(
         return Ok(());
     }
 
+    // before 内容只采样一次；无论该文件是否已有条目（同一文件在本会话
+    // 后续轮次再次被编辑时，manifest 里已存在记录）都必须登记"正在追捕"，
+    // 否则本轮编辑执行期间并行 bash 的全树对比会把变化误记到自己名下。
+    let original = current_state(&absolute)?;
+    register_file_capture_start(&work_dir, &path, original_object_id(&original));
+
     for checkpoint_id in checkpoint_ids {
         with_manifest_lock(&checkpoint_id, || {
             let mut manifest = read_manifest(&checkpoint_id)?;
             let Some(_root) = validate_capture_work_dir(&manifest, &work_dir) else {
                 return Ok(());
             };
-            if manifest.entries.iter().any(|entry| entry.path == path) {
+            if let Some(entry) = manifest
+                .entries
+                .iter_mut()
+                .find(|entry| manifest_paths_equal(&entry.path, &path))
+            {
+                // 已有条目（Windows 下大小写不同也算同一文件）：把路径升级
+                // 为当前真实大小写，避免 manifest 中同一文件出现两条记录。
+                entry.path = path.clone();
                 return Ok(());
             }
             manifest.entries.push(CheckpointEntry {
                 path: path.clone(),
-                original: current_state(&absolute)?,
+                original: original.clone(),
                 expected: None,
             });
             write_manifest(&checkpoint_id, &manifest)
@@ -798,6 +960,9 @@ pub fn record_checkpoint_file_after(
             Ok(())
         })?;
     }
+    // 无条件解除"正在追捕"登记（即使 before 记录失败 / 工具未实际修改），
+    // 并保留变更归属，供并行 bash 的全树对比判定跳过。
+    register_file_capture_end(&work_dir, &path);
     Ok(())
 }
 
@@ -994,27 +1159,33 @@ pub fn record_checkpoint_worktree_after(capture: CheckpointWorktreeCapture) -> R
                 let absolute = root.join(&relative);
                 let before_state = capture.before_states.get(relative_path);
 
-                // 变更检测 + 原始状态物化：
-                // - before 存在：mtime+size/hash 对比；文件已消失 → 删除
-                //   （original 为 before 对象 id）；
-                // - before 不存在且命令后存在：命令新建 → Missing。
-                let change = match before_state {
+                // 变更检测：before 存在时 mtime+size/hash 对比；before 不
+                // 存在且命令后存在 → 命令新建。
+                let changed_now = match before_state {
                     // 内容抓取被跳过：无法恢复命令前内容，不记录变更
-                    Some(state) if state.skipped => None,
-                    Some(state) => {
-                        if pending_state_matches_current(state, &absolute)? {
-                            None
-                        } else {
-                            Some(pending_state_to_original(state)?)
-                        }
-                    }
-                    None => absolute.is_file().then_some(OriginalState::Missing),
+                    Some(state) if state.skipped => false,
+                    Some(state) => !pending_state_matches_current(state, &absolute)?,
+                    None => absolute.is_file(),
                 };
-                let Some(original) = change else {
+                if !changed_now {
                     continue;
+                }
+                // 多会话并行防线：该路径已被并行文件工具认领（正在追捕或
+                // 已按同一变更起点记录）时跳过——变化归它负责，不能记入
+                // 本会话 checkpoint（回滚列表混入无关文件的根因）。
+                if change_owned_by_other_capture(
+                    &capture.work_dir,
+                    relative_path,
+                    before_state.and_then(|state| state.object_id.as_deref()),
+                ) {
+                    continue;
+                }
+                let original = match before_state {
+                    Some(state) => pending_state_to_original(state)?,
+                    None => OriginalState::Missing,
                 };
 
-                capture_entry(&mut manifest, &absolute, &relative, original)?;
+                capture_entry(&mut manifest, &absolute, &relative, original, &capture.work_dir)?;
                 changed = true;
             }
 
@@ -1271,6 +1442,18 @@ fn collect_tracked_entries(manifest: &CheckpointManifest) -> Vec<CheckpointEntry
     manifest.entries.clone()
 }
 
+/// 展示用路径规范化：历史 manifest 中可能存在旧版记录的全小写相对路径
+/// （Windows 上 path_key 产物，磁盘上并不存在该拼写）。文件仍存在时用
+/// canonicalize 恢复磁盘真实大小写；文件已删除或解析失败时保持原条目。
+/// `\\x00abs:` 标记的工作区外条目本身就是真实路径，原样返回。
+fn display_entry_path(root: &Path, entry_path: &str) -> String {
+    if entry_path.starts_with(ABSOLUTE_PATH_MARKER) {
+        return entry_path.to_string();
+    }
+    let absolute = resolve_manifest_path(root, entry_path);
+    real_relative_path(root, &absolute).unwrap_or_else(|| entry_path.to_string())
+}
+
 /// Compare only paths explicitly recorded while this conversation's tools ran.
 pub fn list_checkpoint_changes(
     checkpoint_id: String,
@@ -1307,7 +1490,7 @@ pub fn list_checkpoint_changes(
             &entry.path,
         )? {
             changes.push(CheckpointFileChange {
-                path: entry.path,
+                path: display_entry_path(&root, &entry.path),
                 change_type,
             });
         }
@@ -1413,7 +1596,7 @@ pub fn list_checkpoint_diffs(
             }
         };
         diffs.push(CheckpointFileDiff {
-            path: entry.path,
+            path: display_entry_path(&root, &entry.path),
             change_type,
             content,
             is_binary,
@@ -1446,8 +1629,9 @@ pub fn list_checkpoint_diffs_batch(
 pub fn list_checkpoint_changes_batch(
     checkpoint_ids: Vec<String>,
     work_dir: String,
+    include_all: bool,
 ) -> Result<Vec<CheckpointFileChange>> {
-    Ok(list_checkpoint_diffs_batch(checkpoint_ids, work_dir, true)?
+    Ok(list_checkpoint_diffs_batch(checkpoint_ids, work_dir, include_all)?
         .into_iter()
         .map(|diff| CheckpointFileChange {
             path: diff.path,
