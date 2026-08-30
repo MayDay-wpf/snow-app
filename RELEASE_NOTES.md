@@ -1,5 +1,29 @@
 # Release Notes
 
+## v0.2.21
+
+## New Features
+
+- **WorkFlow Persistence & Breakpoint Continuation**: Run state and canvas now persist across restarts, so interrupted or failed workflows resume from the last executed node without losing progress; graph topology validation is unified in the Rust layer, and archiving/deletion clean up run records to avoid ghost progress.
+- **Skill Editing**: Skills can be edited directly from the settings panel, and GitHub skill installation is hardened.
+- **Thinking-Phase Stats**: Thinking token count and wall-clock duration are measured across all provider streams and persisted; ThinkingBlock is revamped with a live duration/token readout, auto-collapse on completion, and smooth follow-scroll.
+- **`mod+i` Focus Input**: A new focusInput shortcut focuses the chat input box.
+
+## Improvements
+
+- Agent message flow gains entry animation and collapse/expand height transitions.
+- The chat scrollbar auto-hides, reappearing on hover or wheel.
+- Optimized code block copy with a copy-status icon.
+- Read-only tools in workflow nodes are now auto-approved instead of confirming one by one.
+- Running conversations are excluded from sidebar multi-select mode.
+
+## Bug Fixes
+
+- Fixed parallel-session checkpoint attribution — unrelated edits no longer leak into the current session's rollback list.
+- Fixed Windows path-casing issues in checkpoint manifests.
+- Fixed running sessions disappearing from the list after switching projects (#118).
+- Fixed the follow-to-bottom behavior when scrolling to the bottom of the chat and duplicate favicon listeners.
+
 ## v0.2.20
 
 ## New Features
