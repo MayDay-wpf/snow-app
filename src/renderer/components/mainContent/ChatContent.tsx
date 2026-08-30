@@ -52,12 +52,7 @@ const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
 const STICK_TO_BOTTOM_THRESHOLD = 16;
 
-/**
- * 判断一次滚轮手势是否会被聊天区内部的嵌套滚动容器（Thinking 块、子代理
- * 活动列表等）消费。只有滚动聊天区本身的滚轮才允许改变跟随状态，否则在
- * 嵌套容器里翻阅内容会误停整个对话的自动滚动。嵌套容器滚到边界后手势会
- * 冒泡给外层，此时视为容器滚动。
- */
+
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
   target: EventTarget | null,
@@ -164,8 +159,7 @@ const ChatContentBody = ({
     [activeConversationId, updateRuntimeInputState],
   );
   const { autoScrollEnabled, setAutoScrollEnabled } = useAutoScrollPreference();
-  // 「编辑后自动格式化」开关持久化在 Rust 侧设置（默认开启），
-  // 打开 Plus 菜单时通过 onRefreshAutoFormat 重新读取。
+
   const [autoFormatEnabled, setAutoFormatEnabled] = useState(false);
   const refreshAutoFormat = useCallback(async (): Promise<boolean> => {
     try {
@@ -178,13 +172,9 @@ const ChatContentBody = ({
   }, []);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const hasMessages = messages.length > 0;
-  // History loading renders a skeleton, not conversation content. Keep the
-  // empty-state layout while it is loading so the input region stays visible
-  // instead of letting the message-area flex layout push it out of view.
+
   const hasHistoryContent = hasMessages;
-  // Compaction state is global, but the preview/error UI must only appear in
-  // the conversation that is actually compacting — otherwise it bleeds into
-  // other conversations after a switch.
+
   const isCompactionForActiveConversation =
     activeConversationId != null &&
     activeConversationId === compactingConversationId;
@@ -193,10 +183,7 @@ const ChatContentBody = ({
     ? compactionError
     : null;
 
-  // Sub-agent run state of the active conversation. The persisted record
-  // (fetched on switch) covers conversations opened after their run ended
-  // (e.g. after an app restart); the live session event takes precedence
-  // while a run is in flight or has just finished in this app session.
+
   const [activeConversationMeta, setActiveConversationMeta] = useState<{
     conversationType: string;
     subAgentStatus: string;
@@ -247,12 +234,7 @@ const ChatContentBody = ({
     activeConversationMeta?.conversationType === "sub_agent";
   const subAgentRunStatus =
     liveSubAgentEvent?.status ?? activeConversationMeta?.subAgentStatus ?? "";
-  // Once its run ends the sub-agent conversation becomes read-only: the
-  // input box disappears and only a status notice remains. While the run is
-  // live the input stays visible so the user can insert pending messages.
-  // Only the three terminal statuses count — any other value (including
-  // unknown statuses) keeps the input visible instead of locking the
-  // conversation aggressively.
+
   const isSubAgentFinished =
     isSubAgentConversation &&
     ["completed", "failed", "cancelled"].includes(subAgentRunStatus);
@@ -295,11 +277,7 @@ const ChatContentBody = ({
     };
   }, [subAgentParentConversationId]);
 
-  // The parent's summary is generated asynchronously right after its first
-  // message; entering the sub-agent view during that window only sees an
-  // empty summary. The sidebar upsert channel broadcasts the refreshed
-  // record once the summary is persisted — watch it to swap the header
-  // label in place without re-entering the conversation.
+
   useEffect(() => {
     const record = upsertedConversation?.record;
     if (
@@ -313,11 +291,7 @@ const ChatContentBody = ({
     setSubAgentParentMeta({ title: record.title, summary: record.summary });
   }, [upsertedConversation, subAgentParentConversationId]);
 
-  // Sub-agent header display data. The live session event wins while the run
-  // is in flight; the persisted record covers reopened conversations. The
-  // session title is the prompt truncated to 80 chars (set at activation), so
-  // it reads as the "stage" the sub-agent was spawned for; the full prompt is
-  // the first user message of this conversation.
+
   const subAgentName =
     liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
   const subAgentSessionTitle = activeConversationMeta?.title ?? "";
@@ -358,19 +332,12 @@ const ChatContentBody = ({
   const isLoadingOlderWithScrollRef = useRef(false);
   const scrolledAuthorizationSignatureRef = useRef("");
   const shouldStickToBottomRef = useRef(true);
-  const lastScrollTopRef = useRef(0);
+  const lastUserScrollDirectionRef = useRef(0);
   const isInitialBottomPositioningRef = useRef(false);
   const isUserScrollIntentRef = useRef(false);
-  // True while the scroll-to-bottom button's smooth animation is running:
-  // the scroll handler must not re-derive the follow state from the still-far
-  // distance during the animation, or a streaming conversation stops tracking
-  // new content right after the animation lands on its stale target.
+
   const isSmoothScrollingToBottomRef = useRef(false);
-  // Animation-frame id of the custom scroll-to-bottom tween. Unlike the native
-  // smooth scroll, this re-derives the target every frame so streaming content
-  // that grows mid-animation is always reached, and the ResizeObserver's
-  // synchronous pin is suppressed while the tween is active to avoid the
-  // instant jump that used to interrupt the animation.
+
   const scrollToBottomAnimRef = useRef(0);
   const previousIsCompactingRef = useRef(isCompactingActive);
   const scrollRafIdRef = useRef(0);
@@ -383,8 +350,7 @@ const ChatContentBody = ({
   autoScrollEnabledRef.current = autoScrollEnabled;
   isStreamingRef.current = isStreaming;
 
-  // 纯几何同步“回到底部”按钮显隐，绝不触碰跟随状态。内容增长、窗口缩放等
-  // 非用户滚动场景只允许走这里——跟随状态只能被用户输入或显式动作改变。
+
   const syncScrollButtonVisibility = useCallback(
     (container: HTMLDivElement): void => {
       if (isSmoothScrollingToBottomRef.current) {
@@ -401,8 +367,7 @@ const ChatContentBody = ({
     [],
   );
 
-  // scroll 事件路径（用户滚动与程序化钉底都会触发）：从视口位置推导跟随
-  // 状态。钉底落点距底部为 0，只会把跟随重新确认为 true，不会误停。
+
   const deriveFollowStateFromScroll = useCallback(
     (container: HTMLDivElement): void => {
       if (isSmoothScrollingToBottomRef.current) {
@@ -423,16 +388,9 @@ const ChatContentBody = ({
         return;
       }
 
-      const deltaScrollTop = container.scrollTop - lastScrollTopRef.current;
-      lastScrollTopRef.current = container.scrollTop;
-
-      if (deltaScrollTop > 0) {
-        shouldStickToBottomRef.current =
-          distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
-      } else if (deltaScrollTop < 0) {
-        shouldStickToBottomRef.current = false;
-      }
-
+      shouldStickToBottomRef.current =
+        lastUserScrollDirectionRef.current !== -1 &&
+        distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
       setShowScrollToBottom(
         hasMessagesRef.current &&
           distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD,
@@ -454,6 +412,7 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
+    lastUserScrollDirectionRef.current = 0;
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
       scrollToBottomAnimRef.current = 0;
@@ -483,11 +442,7 @@ const ChatContentBody = ({
       return;
     }
 
-    // content-visibility: auto on .chat-message-group causes scrollHeight to
-    // be based on contain-intrinsic-size estimates (80px per message) until
-    // the browser lazily renders off-screen messages. These immediate passes
-    // handle the first paints; the ResizeObserver below keeps following later
-    // height changes from Markdown workers, tool views, and image decoding.
+
     let rafId1 = 0;
     let rafId2 = 0;
     let rafId3 = 0;
@@ -498,6 +453,7 @@ const ChatContentBody = ({
 
     isInitialBottomPositioningRef.current = true;
     isUserScrollIntentRef.current = false;
+    lastUserScrollDirectionRef.current = 0;
     shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
     scrollToBottom();
@@ -534,17 +490,7 @@ const ChatContentBody = ({
     let lastClientHeight = container.clientHeight;
     const observedChildren = new Set<Element>();
 
-    // Keep the viewport pinned to the latest content synchronously, within
-    // the same frame and before paint. The ResizeObserver notification step
-    // runs before requestAnimationFrame and before paint, so adjusting
-    // scrollTop here ensures grown streaming content is never painted at a
-    // stale scroll position — which was the source of the jitter when this
-    // work was deferred to requestAnimationFrame.
-    //
-    // 关键不变量：内容几何变化绝不修改跟随状态。跟随状态只会被用户输入
-    // （滚轮/滚动条/键盘/触摸）或显式动作（发送、回到底部按钮、压缩）改变。
-    // 否则一次突发增长（图片解码、Markdown 重排、虚拟化展开）把距离推过
-    // 阈值，就会在用户毫无操作的情况下悄悄停掉自动滚动。
+
     const keepAtBottomSync = (): void => {
       if (
         scrollRef.current !== container ||
@@ -565,11 +511,7 @@ const ChatContentBody = ({
         return;
       }
 
-      // Skip while older messages are being prepended — the pending scroll
-      // restore will re-position the viewport and the follow-up scroll event
-      // re-evaluates the state. Also skip while the scroll-to-bottom tween is
-      // running: it re-derives its own target each frame, so a synchronous jump
-      // here would fight the animation and cause the half-scroll / jitter.
+
       if (
         isLoadingOlderWithScrollRef.current ||
         pendingScrollRestoreRef.current !== null ||
@@ -578,9 +520,7 @@ const ChatContentBody = ({
         return;
       }
 
-      // 窗口变高或内容收缩后视口可能物理上贴在底部：会话进行中时重新吸附，
-      // 让后续增长继续跟随（"回到底部后继续自动滚动"的几何等价形态）。会话
-      // 结束后不再重新吸附——用户阅读历史时视口恰好贴底，不应被记为"要跟随"。
+
       const distanceFromBottom =
         nextScrollHeight - container.scrollTop - nextClientHeight;
       if (
@@ -593,29 +533,16 @@ const ChatContentBody = ({
 
       syncScrollButtonVisibility(container);
 
-      // 钉底在两种情况下生效：流式输出期间内容增长持续把视口钉在底部；
-      // 以及切换会话后的初始定位阶段（isInitialBottomPositioningRef）。
-      // 历史消息是异步渲染的（Markdown worker、代码高亮、图片解码、
-      // content-visibility 估算高度修正等），初始定位只在同步 + 几帧 rAF
-      // 里滚动过，几何高度在此之后仍会继续增长，若此时不继续钉底，
-      // 非流式会话的视口就会停在中间。用户一旦滚动（markUserScrollIntent
-      // 会清掉该标志）就不再拉回视口，用户停在哪儿就是哪儿。初始定位
-      // 不受自动滚动偏好约束——与初始滚动本身不看偏好保持一致；偏好只
-      // 约束流式期间的持续跟随。发送消息等显式动作（handleSendWithScroll）
-      // 不受影响，仍会主动滚到底部。
+
       if (
         shouldStickToBottomRef.current &&
-        (isInitialBottomPositioningRef.current ||
-          (autoScrollEnabledRef.current && isStreamingRef.current))
+        (isInitialBottomPositioningRef.current || autoScrollEnabledRef.current)
       ) {
         container.scrollTop = nextScrollHeight;
       }
     };
 
-    // Coalesce bulk DOM mutations (child list changes, image loads) into a
-    // single check per animation frame. These events can fire in bursts and a
-    // one-frame delay is acceptable here, unlike the per-frame streaming
-    // growth handled synchronously by the ResizeObserver above.
+
     const scheduleResizeCheck = (): void => {
       if (resizeRafId === 0) {
         resizeRafId = requestAnimationFrame(() => {
@@ -626,8 +553,7 @@ const ChatContentBody = ({
     };
 
     const resizeObserver = new ResizeObserver(keepAtBottomSync);
-    // 观察容器自身：窗口/面板缩放只改变 clientHeight，不改变子元素高度，
-    // 不观察容器就收不到这类几何变化，钉底与按钮显隐会在缩放后失真。
+
     resizeObserver.observe(container);
     const observeCurrentChildren = (): void => {
       for (const child of observedChildren) {
@@ -664,9 +590,7 @@ const ChatContentBody = ({
     };
   }, [activeConversationId, syncScrollButtonVisibility]);
 
-  // When tool authorization prompts appear, force-scroll the chat area to
-  // the bottom so users do not miss the confirmation while reading earlier
-  // messages and leave the agent loop blocked without noticing.
+
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container || !activeConversationId) {
@@ -782,10 +706,9 @@ const ChatContentBody = ({
 
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;
+    lastUserScrollDirectionRef.current = 0;
     isInitialBottomPositioningRef.current = false;
-    // A user-initiated scroll cancels the button's smooth animation outright:
-    // leaving the tween running would keep dragging the viewport down against
-    // the user's gesture for the frames until its deviation check trips.
+
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
       scrollToBottomAnimRef.current = 0;
@@ -832,9 +755,7 @@ const ChatContentBody = ({
     }, 1000);
   }, []);
 
-  // 滚轮是唯一带方向信息的滚动输入，在这里同步决定跟随状态，而不是等 scroll
-  // 事件：渲染帧里 ResizeObserver 的钉底先于 scroll 事件执行，若等事件再
-  // 推导，流式增长会先一步把视口钉回底部，用户向上的滚动会被“吃掉”。
+
   const handleChatWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>): void => {
       const container = event.currentTarget;
@@ -851,6 +772,7 @@ const ChatContentBody = ({
       flashChatScrollbar();
 
       if (deltaY < 0) {
+        lastUserScrollDirectionRef.current = -1;
         // 向上滚 = 阅读历史：立即脱离跟随。容器已在顶部时手势不产生滚动，
         // 不应停掉自动滚动。
         if (container.scrollTop > 0) {
@@ -860,6 +782,7 @@ const ChatContentBody = ({
         return;
       }
 
+      lastUserScrollDirectionRef.current = 1;
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
       if (distanceFromBottom <= 0) {
@@ -880,9 +803,7 @@ const ChatContentBody = ({
       if (container.scrollHeight <= container.clientHeight) {
         return;
       }
-      // 垂直滚动条位于 clientWidth 与外边缘之间（clientWidth 不含滚动条），
-      // 该检测与滚动条实际宽度无关。按住滚动条 = 接管滚动：立即脱离跟随，
-      // 避免拖拽经过吸附阈值时与流式钉底打架；拖回底部由 scroll 事件恢复。
+
       const scrollbarStartX =
         container.getBoundingClientRect().left + container.clientWidth;
       if (event.clientX < scrollbarStartX) {
@@ -896,8 +817,7 @@ const ChatContentBody = ({
 
   const handleChatKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
-      // 只有容器自身聚焦时按键才会滚动它；子元素（按钮等）冒泡上来的按键
-      // 不算滚动意图。
+
       if (event.target !== event.currentTarget) {
         return;
       }
@@ -915,8 +835,13 @@ const ChatContentBody = ({
         return;
       }
       markUserScrollIntent();
-      if (scrollsUp && event.currentTarget.scrollTop > 0) {
-        shouldStickToBottomRef.current = false;
+      if (scrollsUp) {
+        lastUserScrollDirectionRef.current = -1;
+        if (event.currentTarget.scrollTop > 0) {
+          shouldStickToBottomRef.current = false;
+        }
+      } else {
+        lastUserScrollDirectionRef.current = 1;
       }
     },
     [markUserScrollIntent],
@@ -928,9 +853,7 @@ const ChatContentBody = ({
       return;
     }
 
-    // 跟随状态同步推导（几次几何读取，开销极小）：必须赶在渲染帧的
-    // ResizeObserver 钉底之前反映用户的滚动位置，否则节流间隙里流式钉底
-    // 会把视口拽回底部。
+
     deriveFollowStateFromScroll(container);
 
     // 只有“加载更早消息”检查走 rAF 节流，避免快速滚动时频繁触发分页逻辑。
@@ -984,17 +907,12 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
-    // Protect the follow state while the tween runs: during the animation the
-    // distance is still large, so without this the scroll handler would flip
-    // the stick flag back to false and a streaming conversation would stop
-    // tracking new content right after the animation lands on a stale target.
+    lastUserScrollDirectionRef.current = 0;
+
     isSmoothScrollingToBottomRef.current = true;
     setShowScrollToBottom(false);
 
-    // Capture the starting scrollTop once so the easing curve is stable. The
-    // *target* (maxScrollTop) is re-read every frame so content that streams
-    // in mid-animation is always reached — the native smooth scroll computed
-    // its target once at call time and would stop short when the target moved.
+
     const startTop = container.scrollTop;
     const startTimeMs = performance.now();
     const durationMs = 350;
@@ -1009,11 +927,7 @@ const ChatContentBody = ({
 
       const maxScrollTop = container.scrollHeight - container.clientHeight;
 
-      // The user took over the wheel / keyboard and moved away from the
-      // tween's last position: stop the animation and let the live geometry
-      // drive the follow state, respecting the user's intent. (Safety net:
-      // the input handlers cancel this tween synchronously, but the message
-      // rail jump sets the intent ref directly and is caught by this check.)
+
       if (
         isUserScrollIntentRef.current &&
         Math.abs(container.scrollTop - lastTop) > 2
@@ -1053,6 +967,7 @@ const ChatContentBody = ({
       shouldStickToBottomRef.current = true;
       isInitialBottomPositioningRef.current = false;
       isUserScrollIntentRef.current = false;
+      lastUserScrollDirectionRef.current = 0;
       setShowScrollToBottom(false);
       requestAnimationFrame(() => {
         if (scrollRef.current) {
@@ -1236,9 +1151,6 @@ const ChatContentBody = ({
             onBackToParent={handleSelectConversation}
           />
         ) : (
-          // key 让 ChatInput 实例随会话切换而重建（草稿由 per-conversation
-          // 草稿池恢复），但不再随历史加载被卸载——输入框区域保持稳定，
-          // 切换会话时只有模型/配置区短暂进入 loading，而不是整体消失。
           <ChatInput
             key={chatRenderKey}
             projectId={activeDirectory?.directoryId}
@@ -1318,8 +1230,7 @@ const ChatContentBody = ({
         />
       ) : null}
 
-      {/* portal 到 body：.main-content 的 backdrop-filter 会成为 fixed
-          后代的包含块并裁切内容，挂到 body 才能按视口坐标正确定位 */}
+      
       {quoteState
         ? createPortal(
             <div
@@ -1349,13 +1260,7 @@ const ChatContentBody = ({
   );
 };
 
-/**
- * Info header shown at the top of a sub-agent conversation's message list.
- * It surfaces what the read-only run was about: the sub-agent's display name
- * (agent id), the session title (the prompt truncated at activation, i.e. the
- * "stage" it was spawned for), the parent conversation that launched it (with
- * a shortcut back), and the full prompt that was delegated.
- */
+
 const SubAgentInfoHeader = ({
   agentName,
   sessionTitle,
@@ -1373,9 +1278,7 @@ const SubAgentInfoHeader = ({
 }): React.JSX.Element => {
   const { t } = useI18n();
 
-  // The session title is the prompt truncated to 80 chars at activation; if
-  // it is missing (e.g. the record has not loaded yet), fall back to a fresh
-  // truncation of the prompt, then to the agent name.
+
   const displayTitle =
     sessionTitle ||
     (prompt.length > 80 ? `${prompt.slice(0, 80)}...` : prompt) ||
@@ -1422,11 +1325,7 @@ const SubAgentInfoHeader = ({
   );
 };
 
-/**
- * Read-only footer shown in place of the input box once a sub-agent
- * conversation's run has ended (completed, failed or cancelled). Offers a
- * shortcut back to the parent conversation where the dialogue continues.
- */
+
 const SubAgentFinishedNotice = ({
   status,
   parentConversationId,

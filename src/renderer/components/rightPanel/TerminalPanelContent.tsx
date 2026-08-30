@@ -73,7 +73,10 @@ const lightTerminalTheme: ITheme = {
   blue: "#0184BC",
   magenta: "#A626A4",
   cyan: "#0997B3",
-  white: "#FAFAFA",
+  // Windows ConPTY 会把 cmd/PowerShell 的默认前景色（属性 fg=7）转写成 SGR 37
+  // 「白色」；浅色主题若 white 仍用接近背景的白色，常规输出会完全看不见。
+  // 参照 VS Code Light+ 的做法，将 ANSI white 固定为深灰以保证 Windows 下可读。
+  white: "#555555",
   brightBlack: "#4F525E",
   brightRed: "#E06C75",
   brightGreen: "#98C379",
@@ -81,7 +84,8 @@ const lightTerminalTheme: ITheme = {
   brightBlue: "#61AFEF",
   brightMagenta: "#C678DD",
   brightCyan: "#56B6C2",
-  brightWhite: "#FFFFFF",
+  // 同上：SGR 97（brightWhite）在浅色背景上同样接近不可见，固定为中灰。
+  brightWhite: "#a5a5a5",
 };
 
 const getTerminalTheme = (): ITheme => {

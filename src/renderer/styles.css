@@ -31363,16 +31363,19 @@ body.ctrl-held [data-path] {
   padding: 0;
 }
 
-.terminal-container .xterm-viewport {
-  overflow-y: auto;
-  /* xterm.css paints .xterm-viewport with a fixed dark background, but the
-     terminal theme only covers .xterm-screen. When the container height is
-     not an exact multiple of the line height, the leftover strip at the
-     bottom shows the viewport background, so match it to the terminal theme. */
+/* xterm.css 用 `.xterm .xterm-viewport` 把视口涂成固定黑色（与本站规则
+   `.terminal-container .xterm-viewport` 特异性相同，仅靠先后顺序取胜），
+   而终端主题色只覆盖 .xterm-screen：当容器高度不是行高的整数倍时，底部
+   残留条会露出视口背景，浅色模式下表现为黑色横条。这里提高特异性并同时
+   覆盖终端根元素，使整个可见区域（含残留条）都跟随终端主题色。
+   xterm v6 的 .xterm-scrollable-element 内联背景已由库按主题设置，无需干预。 */
+.terminal-container .xterm,
+.terminal-container .xterm .xterm-viewport {
   background-color: #fbfcfd;
 }
 
-:root[data-theme="dark"] .terminal-container .xterm-viewport {
+:root[data-theme="dark"] .terminal-container .xterm,
+:root[data-theme="dark"] .terminal-container .xterm .xterm-viewport {
   background-color: #0e0e0e;
 }
 .terminal-container .xterm-screen {
