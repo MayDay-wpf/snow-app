@@ -50,8 +50,9 @@ type PendingScrollRestore = {
 
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
-const STICK_TO_BOTTOM_THRESHOLD = 16;
+const STICK_TO_BOTTOM_THRESHOLD = 48;
 
+const USER_SCROLL_DIRECTION_WINDOW_MS = 300;
 
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
@@ -183,7 +184,6 @@ const ChatContentBody = ({
     ? compactionError
     : null;
 
-
   const [activeConversationMeta, setActiveConversationMeta] = useState<{
     conversationType: string;
     subAgentStatus: string;
@@ -277,7 +277,6 @@ const ChatContentBody = ({
     };
   }, [subAgentParentConversationId]);
 
-
   useEffect(() => {
     const record = upsertedConversation?.record;
     if (
@@ -290,7 +289,6 @@ const ChatContentBody = ({
     }
     setSubAgentParentMeta({ title: record.title, summary: record.summary });
   }, [upsertedConversation, subAgentParentConversationId]);
-
 
   const subAgentName =
     liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
@@ -333,6 +331,8 @@ const ChatContentBody = ({
   const scrolledAuthorizationSignatureRef = useRef("");
   const shouldStickToBottomRef = useRef(true);
   const lastUserScrollDirectionRef = useRef(0);
+  const lastUserScrollAtRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
   const isInitialBottomPositioningRef = useRef(false);
   const isUserScrollIntentRef = useRef(false);
 
@@ -350,7 +350,6 @@ const ChatContentBody = ({
   autoScrollEnabledRef.current = autoScrollEnabled;
   isStreamingRef.current = isStreaming;
 
-
   const syncScrollButtonVisibility = useCallback(
     (container: HTMLDivElement): void => {
       if (isSmoothScrollingToBottomRef.current) {
@@ -366,7 +365,6 @@ const ChatContentBody = ({
     },
     [],
   );
-
 
   const deriveFollowStateFromScroll = useCallback(
     (container: HTMLDivElement): void => {
@@ -388,9 +386,25 @@ const ChatContentBody = ({
         return;
       }
 
-      shouldStickToBottomRef.current =
-        lastUserScrollDirectionRef.current !== -1 &&
-        distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
+      const userInputRecent =
+        performance.now() - lastUserScrollAtRef.current <
+        USER_SCROLL_DIRECTION_WINDOW_MS;
+
+      if (userInputRecent && lastUserScrollDirectionRef.current === 0) {
+        const deltaScrollTop = container.scrollTop - lastScrollTopRef.current;
+        if (deltaScrollTop < 0) {
+          lastUserScrollDirectionRef.current = -1;
+        } else if (deltaScrollTop > 0) {
+          lastUserScrollDirectionRef.current = 1;
+        }
+      }
+      lastScrollTopRef.current = container.scrollTop;
+
+      if (userInputRecent && lastUserScrollDirectionRef.current === -1) {
+        shouldStickToBottomRef.current = false;
+      } else if (distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD) {
+        shouldStickToBottomRef.current = true;
+      }
       setShowScrollToBottom(
         hasMessagesRef.current &&
           distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD,
@@ -442,7 +456,6 @@ const ChatContentBody = ({
       return;
     }
 
-
     let rafId1 = 0;
     let rafId2 = 0;
     let rafId3 = 0;
@@ -490,7 +503,6 @@ const ChatContentBody = ({
     let lastClientHeight = container.clientHeight;
     const observedChildren = new Set<Element>();
 
-
     const keepAtBottomSync = (): void => {
       if (
         scrollRef.current !== container ||
@@ -511,7 +523,6 @@ const ChatContentBody = ({
         return;
       }
 
-
       if (
         isLoadingOlderWithScrollRef.current ||
         pendingScrollRestoreRef.current !== null ||
@@ -519,7 +530,6 @@ const ChatContentBody = ({
       ) {
         return;
       }
-
 
       const distanceFromBottom =
         nextScrollHeight - container.scrollTop - nextClientHeight;
@@ -533,7 +543,6 @@ const ChatContentBody = ({
 
       syncScrollButtonVisibility(container);
 
-
       if (
         shouldStickToBottomRef.current &&
         (isInitialBottomPositioningRef.current || autoScrollEnabledRef.current)
@@ -541,7 +550,6 @@ const ChatContentBody = ({
         container.scrollTop = nextScrollHeight;
       }
     };
-
 
     const scheduleResizeCheck = (): void => {
       if (resizeRafId === 0) {
@@ -589,7 +597,6 @@ const ChatContentBody = ({
       resizeObserver.disconnect();
     };
   }, [activeConversationId, syncScrollButtonVisibility]);
-
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -707,6 +714,7 @@ const ChatContentBody = ({
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;
     lastUserScrollDirectionRef.current = 0;
+    lastUserScrollAtRef.current = performance.now();
     isInitialBottomPositioningRef.current = false;
 
     if (scrollToBottomAnimRef.current !== 0) {
@@ -754,7 +762,6 @@ const ChatContentBody = ({
       container.classList.remove("is-wheelscrolling");
     }, 1000);
   }, []);
-
 
   const handleChatWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>): void => {
@@ -817,7 +824,6 @@ const ChatContentBody = ({
 
   const handleChatKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
-
       if (event.target !== event.currentTarget) {
         return;
       }
@@ -852,7 +858,6 @@ const ChatContentBody = ({
     if (!container) {
       return;
     }
-
 
     deriveFollowStateFromScroll(container);
 
@@ -912,7 +917,6 @@ const ChatContentBody = ({
     isSmoothScrollingToBottomRef.current = true;
     setShowScrollToBottom(false);
 
-
     const startTop = container.scrollTop;
     const startTimeMs = performance.now();
     const durationMs = 350;
@@ -926,7 +930,6 @@ const ChatContentBody = ({
       }
 
       const maxScrollTop = container.scrollHeight - container.clientHeight;
-
 
       if (
         isUserScrollIntentRef.current &&
@@ -1230,7 +1233,6 @@ const ChatContentBody = ({
         />
       ) : null}
 
-      
       {quoteState
         ? createPortal(
             <div
@@ -1260,7 +1262,6 @@ const ChatContentBody = ({
   );
 };
 
-
 const SubAgentInfoHeader = ({
   agentName,
   sessionTitle,
@@ -1277,7 +1278,6 @@ const SubAgentInfoHeader = ({
   onBackToParent: (conversationId: string) => Promise<void> | void;
 }): React.JSX.Element => {
   const { t } = useI18n();
-
 
   const displayTitle =
     sessionTitle ||
@@ -1324,7 +1324,6 @@ const SubAgentInfoHeader = ({
     </div>
   );
 };
-
 
 const SubAgentFinishedNotice = ({
   status,

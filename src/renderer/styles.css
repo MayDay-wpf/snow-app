@@ -11114,11 +11114,46 @@ input {
   transition: visibility 0.3s;
 }
 
-/* Scrollable area with fixed height */
+/* Scrollable area with fixed height. 半展开预览窗的滚动条方案与 ChatContent
+   一致：默认透明隐藏，悬停滚动条轨道（is-hovering-scrollbar）或滚轮滚动
+   （is-wheelscrolling）时短暂显示 thumb；stable gutter 防止内容增减时宽度跳动。 */
 .thinking-block-scroll {
   max-height: 200px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
+}
+
+.thinking-block-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.thinking-block-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.thinking-block-scroll.is-hovering-scrollbar,
+.thinking-block-scroll.is-wheelscrolling {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb,
+.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb:hover,
+.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb:active,
+.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
 }
 
 /* When expanded, remove height limit but keep scrolling for very long content */
@@ -11146,7 +11181,7 @@ input {
   position: absolute;
   bottom: 0;
   left: 0;
-  right: 0;
+  right: 8px;
   display: flex;
   justify-content: center;
   align-items: flex-end;
@@ -21936,7 +21971,7 @@ input {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   box-shadow: var(--island-shadow);

@@ -60,6 +60,9 @@ export const ThinkingBlock = ({
   // 识别"思考中 → 结束"的真实转变，避免历史消息误判为刚完成。
   const prevThinkingActiveRef = useRef(isThinkingActive);
   const successTimerRef = useRef<number | null>(null);
+  // 滚轮闪现滚动条计时器：半展开预览窗的滚动条默认隐藏，滚轮滚动时
+  // 短暂显示 1s（与 ChatContent 的 is-wheelscrolling 方案一致）。
+  const wheelScrollbarTimerRef = useRef(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // 异步渲染的 markdown 内容会随时增长，用 ResizeObserver 监听它代替旧的
@@ -153,6 +156,10 @@ export const ThinkingBlock = ({
       if (successTimerRef.current !== null) {
         window.clearTimeout(successTimerRef.current);
       }
+      if (wheelScrollbarTimerRef.current !== 0) {
+        window.clearTimeout(wheelScrollbarTimerRef.current);
+        wheelScrollbarTimerRef.current = 0;
+      }
       stopFollowLoop();
     };
   }, [stopFollowLoop]);
@@ -232,6 +239,61 @@ export const ThinkingBlock = ({
     }
     autoScrollRef.current = isNearBottom;
   }, [startFollowLoop]);
+
+  // 半展开预览窗的滚动条默认透明隐藏，滚轮滚动可被本容器消费时闪现 1s
+  //（与 ChatContent 的 is-wheelscrolling 方案一致）。
+  const flashScrollbar = useCallback((): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.classList.add("is-wheelscrolling");
+    if (wheelScrollbarTimerRef.current !== 0) {
+      window.clearTimeout(wheelScrollbarTimerRef.current);
+    }
+    wheelScrollbarTimerRef.current = window.setTimeout(() => {
+      wheelScrollbarTimerRef.current = 0;
+      el.classList.remove("is-wheelscrolling");
+    }, 1000);
+  }, []);
+
+  // 鼠标悬停在滚动条轨道（右侧 gutter）时显示 thumb：内容未溢出时不做处理。
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const el = event.currentTarget;
+      if (el.scrollHeight <= el.clientHeight) {
+        el.classList.remove("is-hovering-scrollbar");
+        return;
+      }
+      const scrollbarStartX = el.getBoundingClientRect().left + el.clientWidth;
+      el.classList.toggle(
+        "is-hovering-scrollbar",
+        event.clientX >= scrollbarStartX,
+      );
+    },
+    [],
+  );
+
+  const handlePointerLeave = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      event.currentTarget.classList.remove("is-hovering-scrollbar");
+    },
+    [],
+  );
+
+  // 滚轮可被本容器消费时闪现滚动条；已滚到底/顶时手势交由外层容器处理。
+  const handleWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>): void => {
+      const el = event.currentTarget;
+      if (el.scrollHeight <= el.clientHeight + 1) return;
+      const deltaY = event.deltaY;
+      if (deltaY === 0) return;
+      const maxScrollTop = el.scrollHeight - el.clientHeight;
+      const canConsume =
+        (deltaY < 0 && el.scrollTop > 0) ||
+        (deltaY > 0 && el.scrollTop < maxScrollTop - 1);
+      if (canConsume) flashScrollbar();
+    },
+    [flashScrollbar],
+  );
 
   const handleToggleCollapse = useCallback(() => {
     userInteractedRef.current = true;
@@ -328,6 +390,9 @@ export const ThinkingBlock = ({
               }`}
               ref={scrollRef}
               onScroll={handleScroll}
+              onPointerMove={handlePointerMove}
+              onPointerLeave={handlePointerLeave}
+              onWheel={handleWheel}
             >
               {/* 思考过程文本同样支持划词引用（data-quote-source）。 */}
               <div ref={bodyRef} data-quote-source="true">
