@@ -422,6 +422,76 @@ pub async fn get_workflow_node_session(
 }
 
 #[napi]
+pub async fn upsert_workflow_run(
+    parent_conversation_id: String,
+    flow_id: String,
+    run_status: String,
+    current_node_index: i64,
+    last_handoff: String,
+    total_tokens: i64,
+    flow_checkpoint_id: String,
+    directory_id: String,
+    error_message: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::upsert_workflow_run(
+            &parent_conversation_id,
+            &flow_id,
+            &run_status,
+            current_node_index,
+            &last_handoff,
+            total_tokens,
+            &flow_checkpoint_id,
+            &directory_id,
+            &error_message,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn get_workflow_run(
+    parent_conversation_id: String,
+    flow_id: String,
+) -> napi::Result<Option<WorkflowRunRecord>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::get_workflow_run(&parent_conversation_id, &flow_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn upsert_workflow_canvas(
+    parent_conversation_id: String,
+    interaction_id: String,
+    canvas_json: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::upsert_workflow_canvas(
+            &parent_conversation_id,
+            &interaction_id,
+            &canvas_json,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn get_workflow_canvas(
+    parent_conversation_id: String,
+    interaction_id: String,
+) -> napi::Result<Option<WorkflowCanvasRecord>> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::get_workflow_canvas(&parent_conversation_id, &interaction_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn update_conversation_status(
     conversation_id: String,
     status: String,

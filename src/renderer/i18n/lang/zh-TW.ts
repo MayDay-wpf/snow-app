@@ -689,6 +689,9 @@ export const zhTW = {
   "toolCall.workflow.status.completed": "已完成",
   "toolCall.workflow.status.failed": "執行失敗",
   "toolCall.workflow.execute": "確認執行",
+  "toolCall.workflow.resume": "繼續執行",
+  "toolCall.workflow.resumedHint":
+    "偵測到未完成的執行記錄，繼續可跳過已完成的節點。",
   "toolCall.workflow.emptyCanvas": "流程圖資料不完整或為空，AI重新生成。",
   "toolCall.workflow.idleHint":
     "右鍵節點可設定 API、模型與提示詞；拖曳節點調整佈局，確認後按節點順序執行。",

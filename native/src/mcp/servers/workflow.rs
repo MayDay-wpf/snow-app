@@ -102,7 +102,10 @@ impl WorkflowService {
 
 /// Topological sort (Kahn's algorithm) plus structural validation.
 /// Returns the execution order of node ids and a list of validation errors.
-fn validate_graph(nodes: &[Value], edges: &[Value]) -> (Vec<String>, Vec<String>) {
+/// Shared by the MCP tool (workflow-generate) and the `validate_workflow_graph`
+/// NAPI export so the desktop runner and the model see exactly one topology
+/// implementation (no duplicated sort/cycle logic on the renderer side).
+pub(crate) fn validate_graph(nodes: &[Value], edges: &[Value]) -> (Vec<String>, Vec<String>) {
     let mut errors: Vec<String> = Vec::new();
     let mut node_ids: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();

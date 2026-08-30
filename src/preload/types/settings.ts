@@ -59,6 +59,36 @@ export type WorkflowNodeSessionRecord = {
   updatedAt: string;
 };
 
+/** WorkFlow run 级状态（父会话 + flow 隔离一行）。跨重启持久化，
+ *  支持从最后一个已执行节点恢复执行而非丢失全部进度。 */
+export type WorkflowRunRecord = {
+  parentConversationId: string;
+  flowId: string;
+  runStatus: string;
+  currentNodeIndex: number;
+  lastHandoff: string;
+  totalTokens: number;
+  flowCheckpointId: string;
+  directoryId: string;
+  errorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** WorkFlow 画布持久化记录（替代 localStorage）。 */
+export type WorkflowCanvasRecord = {
+  parentConversationId: string;
+  interactionId: string;
+  canvasJson: string;
+  updatedAt: string;
+};
+
+/** Rust 端图校验结果（拓扑收敛的唯一实现）。 */
+export type WorkflowGraphValidationResult = {
+  order: string[];
+  errors: string[];
+};
+
 export type ConversationRuntimeConfig = {
   thinkingStrength: string | null;
   responsesFastMode: boolean | null;

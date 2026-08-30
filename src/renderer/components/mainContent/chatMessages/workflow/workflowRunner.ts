@@ -391,40 +391,54 @@ export function abandonWorkflowsForConversation(
   }
 }
 
-function topologicalOrder(
+/**
+ * 计算执行顺序：委托 Rust 端 validateWorkflowGraph（与 workflow-generate
+ * MCP 工具共用同一 Kahn 拓扑排序 + 环检测实现），前端不再重复实现拓扑
+ * 逻辑。校验失败或桥不可用时回退为输入顺序（与原 topologicalOrder 的
+ * 环退化行为一致）。
+ */
+async function resolveExecutionOrder(
   nodes: WorkflowNodeItem[],
   edges: WorkflowEdgeItem[],
-): string[] {
-  const ids = nodes.map((node) => node.id);
-  const inDegree = new Map<string, number>(ids.map((id) => [id, 0]));
-  const adjacency = new Map<string, string[]>(
-    ids.map((id) => [id, [] as string[]]),
-  );
-  for (const edge of edges) {
-    if (!inDegree.has(edge.source) || !inDegree.has(edge.target)) {
-      continue;
+): Promise<string[]> {
+  try {
+    const nodesPayload = nodes.map((node) => ({
+      id: node.id,
+      name: node.name,
+      label: node.label,
+      prompt: node.prompt,
+      description: node.description,
+      apiProfile: node.apiProfile,
+      model: node.model,
+    }));
+    const edgesPayload = edges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+    }));
+    const result = await window.snow.validateWorkflowGraph(
+      JSON.stringify(nodesPayload),
+      JSON.stringify(edgesPayload),
+    );
+    if (result.errors.length === 0 && result.order.length === nodes.length) {
+      return result.order;
     }
-    inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
-    adjacency.get(edge.source)?.push(edge.target);
+  } catch {
+    // 桥不可用：回退输入顺序，执行不阻塞
   }
-  const queue = ids.filter((id) => (inDegree.get(id) ?? 0) === 0);
-  const order: string[] = [];
-  while (queue.length > 0) {
-    const id = queue.shift() as string;
-    order.push(id);
-    for (const child of adjacency.get(id) ?? []) {
-      const next = (inDegree.get(child) ?? 0) - 1;
-      inDegree.set(child, next);
-      if (next === 0) {
-        queue.push(child);
-      }
-    }
+  return nodes.map((node) => node.id);
+}
+
+// readonly 工具集合缓存（模块级）：workflow 节点内只读工具自动放行，
+// 避免每个节点每轮都重新查询工具清单。
+let cachedReadonlyToolNames: Set<string> | null = null;
+
+async function getReadonlyToolNames(): Promise<Set<string>> {
+  if (cachedReadonlyToolNames === null) {
+    cachedReadonlyToolNames = new Set(
+      await window.snow.listReadonlyTools().catch(() => []),
+    );
   }
-  if (order.length !== ids.length) {
-    // 环：放弃拓扑序，退化为原顺序（执行时按编辑顺序串行）。
-    return ids;
-  }
-  return order;
+  return cachedReadonlyToolNames;
 }
 
 function extractHandoff(content: string): string {
@@ -499,7 +513,10 @@ export function createWorkflowRunner(
       });
     };
     const nodesById = new Map(options.nodes.map((node) => [node.id, node]));
-    const order = topologicalOrder(options.nodes, options.edges);
+    // 执行顺序由 Rust 端校验（拓扑收敛的唯一实现）：环/非法图时
+    // resolveExecutionOrder 已回退为输入顺序，前端不再自行实现拓扑排序。
+    const resolveOrder = (): Promise<string[]> =>
+      resolveExecutionOrder(options.nodes, options.edges);
     // 运行前重置节点状态为 pending。
     for (const node of options.nodes) {
       node.runStatus = "pending";
@@ -525,6 +542,80 @@ export function createWorkflowRunner(
       }
     };
 
+    /** 将 run 级进度持久化到 workflow_runs（跨重启恢复 + 断点续跑依据）。 */
+    const persistRun = (
+      runStatus: "running" | "completed" | "failed",
+      currentIndex: number,
+      lastHandoff: string,
+      tokens: number,
+      flowCheckpointId: string,
+      errorMessage = "",
+    ): void => {
+      void window.snow
+        .upsertWorkflowRun(
+          key,
+          options.interactionId,
+          runStatus,
+          currentIndex,
+          lastHandoff,
+          tokens,
+          flowCheckpointId,
+          options.directoryId,
+          errorMessage,
+        )
+        .catch(() => {
+          // 持久化失败不阻断执行：run 状态仍可从节点会话记录部分恢复
+        });
+    };
+
+    // 断点续跑：读取本 flow 的 workflow_runs 记录，恢复上次执行进度。
+    // 已完成的节点（workflow_node_sessions 中 run_status = completed）直接
+    // 跳过，从上次中断/失败的节点继续；lastHandoff 与 token 累计一并恢复。
+    const loadResumeState = async (): Promise<{
+      handoff: string;
+      tokens: number;
+      completedByNode: Map<string, string>;
+    }> => {
+      try {
+        const run = await window.snow.getWorkflowRun(
+          key,
+          options.interactionId,
+        );
+        if (
+          !run ||
+          run.runStatus === "completed" ||
+          run.currentNodeIndex <= 0
+        ) {
+          return {
+            handoff: "",
+            tokens: 0,
+            completedByNode: new Map(),
+          };
+        }
+        const records = await window.snow.listWorkflowNodeSessions(key);
+        const flowRecords = records.filter(
+          (record) => record.flowId === options.interactionId,
+        );
+        const completedByNode = new Map<string, string>();
+        for (const record of flowRecords) {
+          if (record.runStatus === "completed" && record.nodeId) {
+            completedByNode.set(record.nodeId, record.handoffContent);
+          }
+        }
+        return {
+          handoff: run.lastHandoff,
+          tokens: run.totalTokens,
+          completedByNode,
+        };
+      } catch {
+        return {
+          handoff: "",
+          tokens: 0,
+          completedByNode: new Map(),
+        };
+      }
+    };
+
     const runner: Promise<WorkflowRunOutcome> = (async () => {
       const flowCheckpointId = await createFlowCheckpoint();
       // checkpoint 创建期间 run 可能已被取消（用户中止/回滚）：清理后直接退出。
@@ -542,12 +633,47 @@ export function createWorkflowRunner(
           error: "Workflow was cancelled before start",
         };
       }
-      let handoff = "";
+      const order = await resolveOrder();
+      const resume = await loadResumeState();
+      let handoff = resume.handoff;
       let overallFailed = false;
-      let totalTokens = 0;
+      let totalTokens = resume.tokens;
       const summary: WorkflowRunOutcome["summary"] = [];
+      // 续跑：按「已完成节点 id」匹配跳过（不按 index——用户可能增删节点
+      // 导致顺序变化）。lastHandoff 与 token 累计从 workflow_runs 恢复。
+      // completedCount 表示「累计已完成/失败的节点数」，作为 run 进度
+      // （currentNodeIndex）持久化，供下次续跑定位。
+      const skipped = new Set<string>();
+      for (const nodeId of order) {
+        const node = nodesById.get(nodeId);
+        if (!node) {
+          continue;
+        }
+        if (resume.completedByNode.has(nodeId)) {
+          node.runStatus = "completed";
+          node.errorMessage = "";
+          const handoffContent = resume.completedByNode.get(nodeId) ?? "";
+          node.handoffContent = handoffContent;
+          skipped.add(nodeId);
+          summary.push({
+            nodeId: node.id,
+            label: node.label || node.name,
+            status: "completed",
+            conversationId: "",
+            handoff: handoffContent,
+            tokens: 0,
+          });
+        }
+      }
+      let completedCount = skipped.size;
+      if (completedCount > 0) {
+        emit({ status: "running" });
+      }
 
       for (const nodeId of order) {
+        if (skipped.has(nodeId)) {
+          continue;
+        }
         const node = nodesById.get(nodeId);
         if (!node) {
           continue;
@@ -594,10 +720,30 @@ export function createWorkflowRunner(
             conversationId: result.conversationId,
             ...(result.failed ? { error: node.errorMessage } : {}),
           });
+          // 每完成一个节点就持久化一次 run 进度：应用重启/中断后
+          // workflow_runs 记录的是「已完成到第几个节点」，支持断点续跑。
+          // 失败节点不计入完成数（failure 分支单独落 failed 状态），
+          // 否则续跑会把失败节点误跳过。
           if (result.failed) {
             overallFailed = true;
+            persistRun(
+              "failed",
+              completedCount,
+              handoff,
+              totalTokens,
+              flowCheckpointId,
+              node.errorMessage,
+            );
             break;
           }
+          completedCount += 1;
+          persistRun(
+            "running",
+            completedCount,
+            node.handoffContent,
+            totalTokens,
+            flowCheckpointId,
+          );
           handoff = node.handoffContent;
         } catch (error) {
           node.runStatus = "failed";
@@ -624,10 +770,26 @@ export function createWorkflowRunner(
             nodeStatus: "failed",
             error: node.errorMessage,
           });
+          persistRun(
+            "failed",
+            completedCount,
+            handoff,
+            totalTokens,
+            flowCheckpointId,
+            node.errorMessage,
+          );
           break;
         }
       }
       emit({ status: overallFailed ? "failed" : "completed" });
+      persistRun(
+        overallFailed ? "failed" : "completed",
+        completedCount,
+        handoff,
+        totalTokens,
+        flowCheckpointId,
+        overallFailed ? "One or more nodes failed" : "",
+      );
       return {
         success: !overallFailed,
         summary,
@@ -946,12 +1108,40 @@ export function createWorkflowRunner(
           isRetrying: false,
         });
 
-        // 工具授权：与子代理一致，授权气泡挂在节点会话上。
-        const decisions = await requestToolAuthorizations(
-          toolCalls,
-          conversationId,
-          dirId,
+        // 工具授权：readonly 工具自动放行（workflow 节点后台串行执行，
+        // 不应让只读操作打断自动化流程），非只读工具仍走授权气泡。
+        // 这解决"workflow 声称自动执行却每个只读工具都要点确认"的矛盾。
+        const readonlyToolNames = await getReadonlyToolNames();
+        const toolsNeedingAuth = toolCalls.filter(
+          (toolCall) => !readonlyToolNames.has(toolCall.name),
         );
+        const readonlyDecisions: ToolAuthorizationDecision[] = toolCalls
+          .filter((toolCall) => readonlyToolNames.has(toolCall.name))
+          .map(() => ({ status: "approved" as const }));
+        const authDecisions =
+          toolsNeedingAuth.length > 0
+            ? await requestToolAuthorizations(
+                toolsNeedingAuth,
+                conversationId,
+                dirId,
+              )
+            : [];
+        // 合并：按 toolCalls 原始顺序组装决策数组，保证与后续
+        // structuredResults 循环的 index 对齐。
+        const decisions: ToolAuthorizationDecision[] = [];
+        let readonlyIndex = 0;
+        let authIndex = 0;
+        for (const toolCall of toolCalls) {
+          if (readonlyToolNames.has(toolCall.name)) {
+            decisions.push(
+              readonlyDecisions[readonlyIndex] ?? { status: "approved" },
+            );
+            readonlyIndex += 1;
+          } else {
+            decisions.push(authDecisions[authIndex] ?? { status: "approved" });
+            authIndex += 1;
+          }
+        }
         if (isNodeCancelled()) {
           return {
             content: "",

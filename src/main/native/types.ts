@@ -246,6 +246,36 @@ export type WorkflowNodeSessionRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+/** WorkFlow run 级状态（父会话 + flow 隔离一行）。跨重启持久化，
+ *  支持从最后一个已执行节点恢复执行而非丢失全部进度。 */
+export type WorkflowRunRecord = {
+  parentConversationId: string;
+  flowId: string;
+  runStatus: string;
+  currentNodeIndex: number;
+  lastHandoff: string;
+  totalTokens: number;
+  flowCheckpointId: string;
+  directoryId: string;
+  errorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** WorkFlow 画布持久化记录（替代 localStorage）。 */
+export type WorkflowCanvasRecord = {
+  parentConversationId: string;
+  interactionId: string;
+  canvasJson: string;
+  updatedAt: string;
+};
+
+/** Rust 端图校验结果（拓扑收敛的唯一实现）。 */
+export type WorkflowGraphValidationResult = {
+  order: string[];
+  errors: string[];
+};
 export type ThemeMode = "system" | "light" | "dark";
 
 export type ThemePalette = {
@@ -1409,6 +1439,34 @@ export type NativeBridge = {
   getWorkflowNodeSession: (
     conversationId: string,
   ) => Promise<WorkflowNodeSessionRecord | null>;
+  upsertWorkflowRun: (
+    parentConversationId: string,
+    flowId: string,
+    runStatus: string,
+    currentNodeIndex: number,
+    lastHandoff: string,
+    totalTokens: number,
+    flowCheckpointId: string,
+    directoryId: string,
+    errorMessage: string,
+  ) => Promise<void>;
+  getWorkflowRun: (
+    parentConversationId: string,
+    flowId: string,
+  ) => Promise<WorkflowRunRecord | null>;
+  upsertWorkflowCanvas: (
+    parentConversationId: string,
+    interactionId: string,
+    canvasJson: string,
+  ) => Promise<void>;
+  getWorkflowCanvas: (
+    parentConversationId: string,
+    interactionId: string,
+  ) => Promise<WorkflowCanvasRecord | null>;
+  validateWorkflowGraph: (
+    nodesJson: string,
+    edgesJson: string,
+  ) => Promise<WorkflowGraphValidationResult>;
   getConversationRuntimeConfig: (
     conversationId: string,
   ) => Promise<ConversationRuntimeConfig>;

@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::path::PathBuf;
 
 use napi::bindgen_prelude::*;
@@ -27,6 +28,7 @@ use crate::mcp::servers::skills::{ProjectSkillDefinition, SkillDefinition, Skill
 use crate::mcp::servers::terminal::TerminalCommandCallback;
 use crate::mcp::servers::user_interaction::UserQuestionCallback;
 use crate::mcp::servers::websearch::WebSearchCommandCallback;
+use crate::mcp::servers::workflow::validate_graph as validate_workflow_graph_impl;
 use crate::mcp::tools::{
     call_mcp_tool as call_tool, list_mcp_project_server_tools as list_project_server_tools,
     list_mcp_project_servers as list_project_servers, list_mcp_server_tools as list_server_tools,
@@ -372,4 +374,36 @@ pub async fn call_mcp_tool(
         plan_approved.unwrap_or(false),
     )
     .await
+}
+
+#[napi(object)]
+pub struct WorkflowGraphValidationResult {
+    /// Topological execution order of node ids (Kahn's algorithm).
+    pub order: Vec<String>,
+    /// Structural validation problems; empty when the graph is valid.
+    pub errors: Vec<String>,
+}
+
+/// Validate a WorkFlow graph and compute its topological execution order in
+/// Rust — the single source of truth for topology. The renderer runner calls
+/// this instead of re-implementing Kahn's algorithm / cycle detection, so the
+/// executed order always matches the MCP tool's own validation.
+#[napi]
+pub async fn validate_workflow_graph(
+    nodes_json: String,
+    edges_json: String,
+) -> napi::Result<WorkflowGraphValidationResult> {
+    tokio::task::spawn_blocking(move || {
+        let nodes: Vec<Value> = serde_json::from_str(&nodes_json).unwrap_or_default();
+        let edges: Vec<Value> = serde_json::from_str(&edges_json).unwrap_or_default();
+        let (order, errors) = validate_workflow_graph_impl(&nodes, &edges);
+        Ok(WorkflowGraphValidationResult { order, errors })
+    })
+    .await
+    .map_err(|e| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to execute validate_workflow_graph: {e}"),
+        )
+    })?
 }

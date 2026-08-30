@@ -592,6 +592,33 @@ pub struct WorkflowNodeSessionRecord {
     pub updated_at: String,
 }
 
+/// WorkFlow run-level state (one row per parent conversation + flow id).
+/// Persists across app restarts so a flow can be resumed from the last
+/// executed node instead of losing all progress.
+#[napi(object)]
+pub struct WorkflowRunRecord {
+    pub parent_conversation_id: String,
+    pub flow_id: String,
+    pub run_status: String,
+    pub current_node_index: i64,
+    pub last_handoff: String,
+    pub total_tokens: i64,
+    pub flow_checkpoint_id: String,
+    pub directory_id: String,
+    pub error_message: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// WorkFlow canvas persistence payload (replaces localStorage).
+#[napi(object)]
+pub struct WorkflowCanvasRecord {
+    pub parent_conversation_id: String,
+    pub interaction_id: String,
+    pub canvas_json: String,
+    pub updated_at: String,
+}
+
 #[napi(object)]
 pub struct ChatConversationRecord {
     pub conversation_id: String,

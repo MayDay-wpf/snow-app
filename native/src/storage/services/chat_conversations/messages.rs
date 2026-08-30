@@ -219,6 +219,28 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| {
                 database::database_error(database_path, "delete workflow node sessions", error)
             })?;
+        // WorkFlow run 级状态与画布按父会话归属：父会话（含节点会话）删除时
+        // 一并清理，避免残留 run 记录让卡片恢复出"幽灵 running"。
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_runs WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params.iter().copied()),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow runs", error)
+            })?;
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_canvases WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(params.iter().copied()),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow canvases", error)
+            })?;
     }
 
     for target_id in conversation_ids.iter().rev() {
@@ -418,6 +440,28 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
             )
             .map_err(|error| {
                 database::database_error(database_path, "delete workflow node sessions", error)
+            })?;
+        // WorkFlow run 级状态与画布按父会话归属：随父会话（含节点会话）
+        // 批量删除一并清理，避免残留记录让卡片恢复出"幽灵 running"。
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_runs WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow runs", error)
+            })?;
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_canvases WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete workflow canvases", error)
             })?;
     }
 

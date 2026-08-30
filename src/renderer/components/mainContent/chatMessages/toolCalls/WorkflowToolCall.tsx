@@ -99,7 +99,7 @@ const WorkflowCardNode = memo(function WorkflowCardNode({
 const WORKFLOW_NODE_TYPES = { workflowCard: WorkflowCardNode };
 
 // ---------------------------------------------------------------------------
-// 画布持久化（localStorage）与连线校验
+// 画布持久化（DB 替代 localStorage）
 // ---------------------------------------------------------------------------
 
 /** 持久化 payload 中的节点：只含配置字段与位置。运行态字段
@@ -128,21 +128,6 @@ type InitialCanvas = {
   edges: WorkflowEdgeItem[];
 };
 
-// 持久化键按「父会话 + 工具调用」隔离：AI 重新生成的图是新 tool call
-// （新 interactionId），天然读不到旧画布数据，不会互相污染。
-const CANVAS_STORAGE_PREFIX = "snow.workflow.canvas";
-const CANVAS_STORAGE_VERSION = 1;
-
-function buildCanvasStorageKey(
-  parentConversationId: string,
-  interactionId: string,
-): string {
-  // parentConversationId 为空时退化为仅 interactionId（防御极端场景）。
-  return parentConversationId
-    ? `${CANVAS_STORAGE_PREFIX}.${parentConversationId}.${interactionId}`
-    : `${CANVAS_STORAGE_PREFIX}.${interactionId}`;
-}
-
 // 默认网格布局（3 列）：与无持久化数据时的初始布局保持一致。
 const defaultNodePosition = (index: number): { x: number; y: number } => ({
   x: (index % 3) * 300,
@@ -169,21 +154,14 @@ function toFlowNode(
   };
 }
 
-/** 防御性解析持久化数据：任何异常（键不存在/JSON 损坏/结构不符）都静默
- *  返回 null，让组件回退到 args 解析图，绝不能因坏数据崩溃。 */
-function readPersistedCanvas(
-  storageKey: string,
-): PersistedCanvasPayload | null {
+/** 防御性解析 DB 画布 payload：JSON 损坏/结构不符都静默返回 null，
+ *  让组件回退到 args 解析图，绝不能因坏数据崩溃。 */
+function parseCanvasPayload(raw: string): PersistedCanvasPayload | null {
   try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return null;
-    }
     const parsed = JSON.parse(raw) as PersistedCanvasPayload | null;
     if (
       !parsed ||
       typeof parsed !== "object" ||
-      parsed.version !== CANVAS_STORAGE_VERSION ||
       !Array.isArray(parsed.nodes) ||
       !Array.isArray(parsed.edges)
     ) {
@@ -223,68 +201,11 @@ function readPersistedCanvas(
           edge.target.length > 0,
       )
       .map((edge) => ({ source: edge.source, target: edge.target }));
-    return { version: CANVAS_STORAGE_VERSION, nodes, edges };
+    return { version: parsed.version, nodes, edges };
   } catch {
-    // localStorage 不可用 / JSON 损坏：静默回退，画布功能不受影响。
+    // JSON 损坏：静默回退，画布功能不受影响。
     return null;
   }
-}
-
-/** 挂载时一次性构建初始画布：先按 args 解析默认图，再叠加 localStorage
- *  持久化的画布定制。持久化数据存在即权威：节点集合取持久化节点（用户
- *  删过的节点不因 args 里仍存在而复活），共享 id 的节点先以解析结果补
- *  默认字段、再被持久化字段覆盖；边取持久化边并过滤端点不存在的悬空边。
- *  无合法持久化数据时直接使用解析图（默认网格布局）。 */
-function loadInitialCanvas(
-  graph: WorkflowGraph,
-  storageKey: string,
-): InitialCanvas {
-  const persisted = readPersistedCanvas(storageKey);
-  if (!persisted) {
-    return {
-      nodes: graph.nodes.map((node, index) =>
-        toFlowNode(node, defaultNodePosition(index)),
-      ),
-      edges: graph.edges,
-    };
-  }
-  const parsedNodeById = new Map(
-    graph.nodes.map((node) => [node.id, node] as const),
-  );
-  const nodes = persisted.nodes.map((persistedNode, index) => {
-    const base = parsedNodeById.get(persistedNode.id);
-    return toFlowNode(
-      {
-        id: persistedNode.id,
-        name: persistedNode.name ?? base?.name ?? "",
-        label: persistedNode.label ?? base?.label ?? base?.name ?? "",
-        prompt: persistedNode.prompt ?? base?.prompt ?? "",
-        description: persistedNode.description ?? base?.description ?? "",
-        apiProfile: persistedNode.apiProfile ?? base?.apiProfile ?? "",
-        model: persistedNode.model ?? base?.model ?? "",
-      },
-      persistedNode.position ?? defaultNodePosition(index),
-    );
-  });
-  const nodeIdSet = new Set(nodes.map((node) => node.id));
-  const seenEdgeIds = new Set<string>();
-  const edges = persisted.edges.filter((edge) => {
-    if (
-      edge.source === edge.target ||
-      !nodeIdSet.has(edge.source) ||
-      !nodeIdSet.has(edge.target)
-    ) {
-      return false;
-    }
-    // 去重：确定性 id 相同视为同一条边（重复边本就被禁止）。
-    const edgeId = buildEdgeId(edge);
-    if (seenEdgeIds.has(edgeId)) {
-      return false;
-    }
-    seenEdgeIds.add(edgeId);
-    return true;
-  });
-  return { nodes, edges };
 }
 
 /** 确定性边 id（重复边被禁止，端点即可唯一确定一条边）：派生/删除/过滤
@@ -365,16 +286,17 @@ const WorkflowToolCallInner = ({
     () => parseWorkflowGraph(toolCall.arguments ?? "{}"),
     [toolCall],
   );
-  // 初始画布仅计算一次（useRef 兜住整个生命周期）：args 解析图与
-  // localStorage 持久化画布定制同步合并——localStorage 是同步 API，
-  // 禁止用异步 effect 二次渲染覆盖初始状态。
-  const canvasStorageKey = buildCanvasStorageKey(
-    parentConversationId,
-    toolCall.interactionId,
-  );
+  // 初始画布仅计算一次（useRef 兜住整个生命周期）：先用 args 解析图做
+  // 同步基线，随后由 effect 异步加载 DB 持久化的画布定制覆盖（DB 是
+  // 异步 API，不能像旧版 localStorage 那样同步合并）。
   const initialCanvasRef = useRef<InitialCanvas | null>(null);
   if (initialCanvasRef.current === null) {
-    initialCanvasRef.current = loadInitialCanvas(graph, canvasStorageKey);
+    initialCanvasRef.current = {
+      nodes: graph.nodes.map((node, index) =>
+        toFlowNode(node, defaultNodePosition(index)),
+      ),
+      edges: graph.edges,
+    };
   }
   const initialCanvas = initialCanvasRef.current;
   // React Flow 官方受控模式（useNodesState + onNodesChange）：拖拽由
@@ -410,6 +332,13 @@ const WorkflowToolCallInner = ({
   // 工具调用是否仍挂起等待用户操作（未结算）。历史 replay 的已完成
   // 工具调用初始即视为非挂起。
   const pendingRef = useRef<boolean>(toolCall.status !== "completed");
+  // 断点续跑状态：workflow_runs 中记录了未完成的执行进度（应用重启/
+  // 中断/失败后），卡片据此显示"继续执行"并跳过已完成节点。
+  const [resumeState, setResumeState] = useState<{
+    resumeIndex: number;
+    handoff: string;
+    tokens: number;
+  } | null>(null);
 
   // 编辑类操作仅在工具挂起且未运行时开放（渲染期读 ref）。
   const canEditCanvas =
@@ -449,11 +378,13 @@ const WorkflowToolCallInner = ({
     }
   }, [toolCall.status]);
 
-  // 恢复历史运行状态：挂载时从 DB 读取本 flow 的节点运行记录。
-  // 记录按 flowId（= toolCall.interactionId）隔离，避免同会话多 flow 的
-  // 重名节点互串；旧数据（无 flowId）回退按 nodeId 匹配。
+  // 恢复历史运行状态：挂载时从 DB 读取本 flow 的节点运行记录与 run 级
+  // 进度。记录按 flowId（= toolCall.interactionId）隔离，避免同会话多
+  // flow 的重名节点互串；旧数据（无 flowId）回退按 nodeId 匹配。
   // runner 仍在活跃执行时保留 running 状态（后续事件继续驱动更新）；
-  // 应用重启后残留的 running 记录无人驱动，降级为 pending。
+  // 应用重启后残留的 running 记录无人驱动，降级为 pending。workflow_runs
+  // 里存在未完成进度（重启/失败/中断）时记录 resumeState，让执行按钮
+  // 变为"继续执行"并跳过已完成节点。
   const restoreRuns = useCallback(async (): Promise<void> => {
     if (!parentConversationId) {
       return;
@@ -468,11 +399,41 @@ const WorkflowToolCallInner = ({
         ownRecords.length > 0
           ? ownRecords
           : allRecords.filter((record) => !record.flowId);
+      const runActive = isWorkflowRunActive(
+        parentConversationId,
+        toolCall.interactionId,
+      );
+      // run 级进度：存在未完成的 run 且当前没有活跃 runner（应用重启/
+      // 失败/中断）时，可继续执行跳过已完成节点。仅当工具仍挂起（未结算，
+      // 执行按钮可用）时展示"继续执行"，避免结算后出现误导性提示。
+      let resume: {
+        resumeIndex: number;
+        handoff: string;
+        tokens: number;
+      } | null = null;
+      if (!runActive && pendingRef.current) {
+        try {
+          const run = await window.snow.getWorkflowRun(
+            parentConversationId,
+            toolCall.interactionId,
+          );
+          if (
+            run &&
+            run.runStatus !== "completed" &&
+            run.currentNodeIndex > 0
+          ) {
+            resume = {
+              resumeIndex: run.currentNodeIndex,
+              handoff: run.lastHandoff,
+              tokens: run.totalTokens,
+            };
+          }
+        } catch {
+          // 读取失败：不启用续跑，仅展示节点状态
+        }
+      }
+      setResumeState(resume);
       if (records.length > 0) {
-        const runActive = isWorkflowRunActive(
-          parentConversationId,
-          toolCall.interactionId,
-        );
         setFlowNodes((current) =>
           current.map((flowNode) => {
             const record = records.find((item) => item.nodeId === flowNode.id);
@@ -522,10 +483,6 @@ const WorkflowToolCallInner = ({
       // 恢复失败不影响展示
     }
   }, [parentConversationId, toolCall.interactionId]);
-
-  useEffect(() => {
-    void restoreRuns();
-  }, [restoreRuns]);
 
   // 订阅 Runner 事件更新节点运行状态（按 interactionId 隔离，多 flow 互不串扰）。
   useEffect(() => {
@@ -622,42 +579,122 @@ const WorkflowToolCallInner = ({
     [edges, runStatusKey],
   );
 
-  // 画布定制持久化：防抖整体写回（拖拽/连线/输入逐帧变化时只落最后一次）。
+  // 画布定制持久化：防抖整体写回 DB（拖拽/连线/输入逐帧变化时只落最后一次）。
   // 运行态字段变化也会触发本 effect，但写入内容已剥离运行态字段，幂等无害；
-  // interactionId 缺失时不写（无法定位存储键）。
+  // interactionId 缺失时不写（无法定位存储键）。DB 替代旧版 localStorage：
+  // 无 5MB 容量限制、随会话归档/导出、跨重启持久。
   useEffect(() => {
     if (!toolCall.interactionId) {
       return;
     }
     const timer = window.setTimeout(() => {
-      try {
-        const payload: PersistedCanvasPayload = {
-          version: CANVAS_STORAGE_VERSION,
-          nodes: flowNodes.map((flowNode) => ({
-            id: flowNode.id,
-            name: flowNode.data.node.name,
-            label: flowNode.data.node.label,
-            prompt: flowNode.data.node.prompt,
-            description: flowNode.data.node.description,
-            apiProfile: flowNode.data.node.apiProfile,
-            model: flowNode.data.node.model,
-            position: { x: flowNode.position.x, y: flowNode.position.y },
-          })),
-          edges: edges.map((edge) => ({
-            source: edge.source,
-            target: edge.target,
-          })),
-        };
-        window.localStorage.setItem(
-          buildCanvasStorageKey(parentConversationId, toolCall.interactionId),
+      const payload: PersistedCanvasPayload = {
+        version: 1,
+        nodes: flowNodes.map((flowNode) => ({
+          id: flowNode.id,
+          name: flowNode.data.node.name,
+          label: flowNode.data.node.label,
+          prompt: flowNode.data.node.prompt,
+          description: flowNode.data.node.description,
+          apiProfile: flowNode.data.node.apiProfile,
+          model: flowNode.data.node.model,
+          position: { x: flowNode.position.x, y: flowNode.position.y },
+        })),
+        edges: edges.map((edge) => ({
+          source: edge.source,
+          target: edge.target,
+        })),
+      };
+      void window.snow
+        .upsertWorkflowCanvas(
+          parentConversationId,
+          toolCall.interactionId,
           JSON.stringify(payload),
-        );
-      } catch {
-        // localStorage 不可用/超限：静默失败，画布功能不受影响。
-      }
+        )
+        .catch(() => {
+          // DB 写入失败：静默降级，画布功能不受影响
+        });
     }, 350);
     return () => window.clearTimeout(timer);
   }, [flowNodes, edges, parentConversationId, toolCall.interactionId]);
+
+  // 挂载后恢复流程串行化：先异步加载 DB 持久化的画布定制（节点集合取
+  // 持久化节点、位置与边），再恢复节点运行态。两个恢复源不能并发——画布
+  // 恢复用 toFlowNode 构造节点会把 runStatus 重置为 pending，若与
+  // restoreRuns 并发且晚完成，会覆盖掉已恢复的完成/失败状态（表现为切换
+  // 会话后节点 icon 丢失）。串行保证 restoreRuns 是最后的写入者，节点
+  // 运行态必然收敛正确。DB 是异步 API，因此放在 effect 中。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // 第一步：画布定制恢复（interactionId 缺失时跳过，保持 args 基线）。
+      if (toolCall.interactionId) {
+        try {
+          const record = await window.snow.getWorkflowCanvas(
+            parentConversationId,
+            toolCall.interactionId,
+          );
+          if (!cancelled && record) {
+            const persisted = parseCanvasPayload(record.canvasJson);
+            if (persisted) {
+              const parsedNodeById = new Map(
+                graph.nodes.map((node) => [node.id, node] as const),
+              );
+              const restoredNodes = persisted.nodes.map(
+                (persistedNode, index) => {
+                  const base = parsedNodeById.get(persistedNode.id);
+                  return toFlowNode(
+                    {
+                      id: persistedNode.id,
+                      name: persistedNode.name ?? base?.name ?? "",
+                      label:
+                        persistedNode.label ?? base?.label ?? base?.name ?? "",
+                      prompt: persistedNode.prompt ?? base?.prompt ?? "",
+                      description:
+                        persistedNode.description ?? base?.description ?? "",
+                      apiProfile:
+                        persistedNode.apiProfile ?? base?.apiProfile ?? "",
+                      model: persistedNode.model ?? base?.model ?? "",
+                    },
+                    persistedNode.position ?? defaultNodePosition(index),
+                  );
+                },
+              );
+              const nodeIdSet = new Set(restoredNodes.map((node) => node.id));
+              const seenEdgeIds = new Set<string>();
+              const restoredEdges = persisted.edges.filter((edge) => {
+                if (
+                  edge.source === edge.target ||
+                  !nodeIdSet.has(edge.source) ||
+                  !nodeIdSet.has(edge.target)
+                ) {
+                  return false;
+                }
+                const edgeId = buildEdgeId(edge);
+                if (seenEdgeIds.has(edgeId)) {
+                  return false;
+                }
+                seenEdgeIds.add(edgeId);
+                return true;
+              });
+              setFlowNodes(restoredNodes);
+              setEdges(restoredEdges);
+            }
+          }
+        } catch {
+          // DB 读取失败：保持 args 解析基线
+        }
+      }
+      // 第二步：画布落地后恢复节点运行态（最后的写入者，icon 状态必正确）。
+      if (!cancelled) {
+        await restoreRuns();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentConversationId, toolCall.interactionId, restoreRuns]);
 
   const openCanvasContextMenu = useCallback(
     (
@@ -1340,7 +1377,9 @@ const WorkflowToolCallInner = ({
 
         {hasCanvas && (
           <div className="workflow-actions">
-            {/* 执行按钮只在待确认时出现：提交反馈或执行后进入终态即隐藏。 */}
+            {/* 执行按钮只在待确认时出现：提交反馈或执行后进入终态即隐藏。
+                存在未完成的 workflow_runs 进度（应用重启/失败/中断）时，
+                按钮变为"继续执行"，runner 自动跳过已完成节点。 */}
             {isInteractive ? (
               <button
                 type="button"
@@ -1348,7 +1387,11 @@ const WorkflowToolCallInner = ({
                 onClick={() => handleExecute()}
               >
                 <Play size={14} aria-hidden="true" />
-                <span>{t("toolCall.workflow.execute")}</span>
+                <span>
+                  {resumeState
+                    ? t("toolCall.workflow.resume")
+                    : t("toolCall.workflow.execute")}
+                </span>
               </button>
             ) : null}
             {isRunning ? (
@@ -1358,6 +1401,10 @@ const WorkflowToolCallInner = ({
             ) : runnerStatus === "completed" ? (
               <span className="workflow-execute-hint">
                 {t("toolCall.workflow.completedHint")}
+              </span>
+            ) : resumeState ? (
+              <span className="workflow-execute-hint">
+                {t("toolCall.workflow.resumedHint")}
               </span>
             ) : hasReplied ? (
               <span className="workflow-execute-hint">

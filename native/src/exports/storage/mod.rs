@@ -25,7 +25,7 @@ pub(crate) use crate::storage::{
     ScheduledTaskRecord, ScheduledTaskRecordInput,
     SensitiveCommandConfigInput, SensitiveCommandConfigRecord, SensitiveCommandMatchResult,
     SubAgentConfigInput, SubAgentConfigRecord, SystemPromptItemInput, SystemPromptItemRecord,
-    UserMessageSummary, WorkflowNodeSessionRecord, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,
+    UserMessageSummary, WorkflowCanvasRecord, WorkflowNodeSessionRecord, WorkflowRunRecord, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,
 };
 
 mod agents;

@@ -725,6 +725,9 @@ export const en = {
   "toolCall.workflow.status.completed": "Completed",
   "toolCall.workflow.status.failed": "Failed",
   "toolCall.workflow.execute": "Execute",
+  "toolCall.workflow.resume": "Resume execution",
+  "toolCall.workflow.resumedHint":
+    "Interrupted run detected; resume to skip already completed nodes.",
   "toolCall.workflow.emptyCanvas":
     "Workflow data is incomplete or empty. Regenerate again.",
   "toolCall.workflow.idleHint":

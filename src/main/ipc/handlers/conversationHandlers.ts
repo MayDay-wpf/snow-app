@@ -809,6 +809,122 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       return native.getWorkflowNodeSession(conversationId.trim());
     },
   );
+  ipcMain.handle(
+    "chat-conversations:upsert-workflow-run",
+    async (
+      _event,
+      parentConversationId: unknown,
+      flowId: unknown,
+      runStatus: unknown,
+      currentNodeIndex: unknown,
+      lastHandoff: unknown,
+      totalTokens: unknown,
+      flowCheckpointId: unknown,
+      directoryId: unknown,
+      errorMessage: unknown,
+    ) => {
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to upsert workflow run",
+        );
+      }
+      if (typeof flowId !== "string") {
+        throw new Error("Flow ID is required to upsert workflow run");
+      }
+      if (typeof runStatus !== "string" || !runStatus.trim()) {
+        throw new Error("Run status is required to upsert workflow run");
+      }
+      await native.upsertWorkflowRun(
+        parentConversationId.trim(),
+        flowId,
+        runStatus.trim(),
+        typeof currentNodeIndex === "number" ? currentNodeIndex : 0,
+        typeof lastHandoff === "string" ? lastHandoff : "",
+        typeof totalTokens === "number" ? totalTokens : 0,
+        typeof flowCheckpointId === "string" ? flowCheckpointId : "",
+        typeof directoryId === "string" ? directoryId : "",
+        typeof errorMessage === "string" ? errorMessage : "",
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:get-workflow-run",
+    async (_event, parentConversationId: unknown, flowId: unknown) => {
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to get workflow run",
+        );
+      }
+      if (typeof flowId !== "string") {
+        throw new Error("Flow ID is required to get workflow run");
+      }
+      return native.getWorkflowRun(parentConversationId.trim(), flowId);
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:upsert-workflow-canvas",
+    async (
+      _event,
+      parentConversationId: unknown,
+      interactionId: unknown,
+      canvasJson: unknown,
+    ) => {
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to upsert workflow canvas",
+        );
+      }
+      if (typeof interactionId !== "string") {
+        throw new Error("Interaction ID is required to upsert workflow canvas");
+      }
+      if (typeof canvasJson !== "string") {
+        throw new Error("Canvas JSON must be a string");
+      }
+      await native.upsertWorkflowCanvas(
+        parentConversationId.trim(),
+        interactionId,
+        canvasJson,
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:get-workflow-canvas",
+    async (_event, parentConversationId: unknown, interactionId: unknown) => {
+      if (
+        typeof parentConversationId !== "string" ||
+        !parentConversationId.trim()
+      ) {
+        throw new Error(
+          "Parent conversation ID is required to get workflow canvas",
+        );
+      }
+      if (typeof interactionId !== "string") {
+        throw new Error("Interaction ID is required to get workflow canvas");
+      }
+      return native.getWorkflowCanvas(
+        parentConversationId.trim(),
+        interactionId,
+      );
+    },
+  );
+  ipcMain.handle(
+    "workflow:validate-graph",
+    async (_event, nodesJson: unknown, edgesJson: unknown) => {
+      if (typeof nodesJson !== "string" || typeof edgesJson !== "string") {
+        throw new Error("nodesJson and edgesJson must be strings");
+      }
+      return native.validateWorkflowGraph(nodesJson, edgesJson);
+    },
+  );
   // ===== Conversation export =====
   // Rust 端负责从 SQLite 读取会话与消息并格式化为目标格式文本，
   // 主进程负责弹出保存对话框并将文本写入用户选择的文件路径。

@@ -42,6 +42,14 @@ const SESSION_COLUMNS: &str = "id, conversation_id, parent_conversation_id, agen
 const WORKFLOW_NODE_SESSION_COLUMNS: &str =
     "id, conversation_id, parent_conversation_id, flow_id, flow_checkpoint_id, node_id, node_name, run_status, error_message, handoff_content, created_at, updated_at";
 
+/// 与运行库 workflow_runs 完全一致的列。
+const WORKFLOW_RUN_COLUMNS: &str =
+    "id, parent_conversation_id, flow_id, run_status, current_node_index, last_handoff, total_tokens, flow_checkpoint_id, directory_id, error_message, created_at, updated_at";
+
+/// 与运行库 workflow_canvases 完全一致的列。
+const WORKFLOW_CANVAS_COLUMNS: &str =
+    "parent_conversation_id, interaction_id, canvas_json, updated_at";
+
 /// 打开归档库连接。
 ///
 /// 归档库刻意使用传统 rollback journal 而非 WAL：归档操作需要把归档库
@@ -194,6 +202,36 @@ pub(crate) fn create_archive_schema(connection: &Connection) -> rusqlite::Result
            ON workflow_node_sessions(parent_conversation_id, flow_id);
          CREATE INDEX IF NOT EXISTS idx_archive_workflow_node_sessions_parent
            ON workflow_node_sessions(parent_conversation_id, created_at ASC, id ASC);
+
+         -- WorkFlow run 级状态（与运行库 workflow_runs 一致）：归档后还原时
+         -- 保留断点续跑进度（已完成的节点/累积 handoff/token）。
+         CREATE TABLE IF NOT EXISTS workflow_runs (
+           id TEXT PRIMARY KEY NOT NULL,
+           parent_conversation_id TEXT NOT NULL,
+           flow_id TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'running',
+           current_node_index INTEGER NOT NULL DEFAULT 0,
+           last_handoff TEXT NOT NULL DEFAULT '',
+           total_tokens INTEGER NOT NULL DEFAULT 0,
+           flow_checkpoint_id TEXT NOT NULL DEFAULT '',
+           directory_id TEXT NOT NULL DEFAULT '',
+           error_message TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(parent_conversation_id, flow_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_archive_workflow_runs_parent
+           ON workflow_runs(parent_conversation_id, flow_id);
+
+         -- WorkFlow 画布（与运行库 workflow_canvases 一致）：归档后还原时
+         -- 保留用户对节点/连线的定制。
+         CREATE TABLE IF NOT EXISTS workflow_canvases (
+           parent_conversation_id TEXT NOT NULL,
+           interaction_id TEXT NOT NULL,
+           canvas_json TEXT NOT NULL DEFAULT '{}',
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           PRIMARY KEY (parent_conversation_id, interaction_id)
+         );
      ",
     )?;
     migrate_archive_chat_conversations(connection)?;
@@ -514,6 +552,41 @@ pub fn archive_conversations(
                 database::database_error(main_database_path, "archive conversations", error)
             })?;
     }
+    // WorkFlow run 级状态随父会话归档：断点续跑进度（已完成节点、
+    // 累积 handoff/token）在还原后保留。按 parent_conversation_id 归属。
+    for chunk in archivable_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO archive_db.workflow_runs ({WORKFLOW_RUN_COLUMNS})
+                     SELECT {WORKFLOW_RUN_COLUMNS}
+                       FROM workflow_runs
+                      WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+    }
+    // WorkFlow 画布随父会话归档：用户对节点/连线的定制在还原后保留。
+    for chunk in archivable_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO archive_db.workflow_canvases ({WORKFLOW_CANVAS_COLUMNS})
+                     SELECT {WORKFLOW_CANVAS_COLUMNS}
+                       FROM workflow_canvases
+                      WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+    }
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         transaction
@@ -603,6 +676,31 @@ pub fn archive_conversations(
                          OR conversation_id IN ({placeholders})"
                 ),
                 params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+    }
+    // 已归档父会话的 run 级状态与画布一并从运行库清理（run/canvas 行
+    // 按 parent_conversation_id 归属，不随节点会话级联删除）。
+    for chunk in archivable_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_runs WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "archive conversations", error)
+            })?;
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_canvases WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
             )
             .map_err(|error| {
                 database::database_error(main_database_path, "archive conversations", error)
@@ -958,6 +1056,40 @@ pub fn restore_archived_conversations(
                 ),
                 params_from_iter(params),
             )
+.map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+    }
+    // WorkFlow run 级状态还原：从归档库恢复断点续跑进度。
+    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO workflow_runs ({WORKFLOW_RUN_COLUMNS})
+                     SELECT {WORKFLOW_RUN_COLUMNS}
+                       FROM archive_db.workflow_runs
+                      WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+    }
+    // WorkFlow 画布还原：从归档库恢复用户对节点/连线的定制。
+    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        transaction
+            .execute(
+                &format!(
+                    "INSERT INTO workflow_canvases ({WORKFLOW_CANVAS_COLUMNS})
+                     SELECT {WORKFLOW_CANVAS_COLUMNS}
+                       FROM archive_db.workflow_canvases
+                      WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
             .map_err(|error| {
                 database::database_error(main_database_path, "restore archived conversations", error)
             })?;
@@ -1052,6 +1184,30 @@ pub fn restore_archived_conversations(
                          OR conversation_id IN ({placeholders})"
                 ),
                 params_from_iter(params),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+    }
+    // 已还原父会话的 run 级状态与画布从归档库清理。
+    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM archive_db.workflow_runs WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(main_database_path, "restore archived conversations", error)
+            })?;
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM archive_db.workflow_canvases WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
             )
             .map_err(|error| {
                 database::database_error(main_database_path, "restore archived conversations", error)
@@ -1233,6 +1389,31 @@ pub fn delete_archived_conversations(
             .execute(
                 &format!(
                     "DELETE FROM workflow_node_sessions WHERE conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+    }
+
+    // 已删除父会话的 run 级状态与画布从归档库清理（按 parent_conversation_id 归属）。
+    for chunk in unique_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_runs WHERE parent_conversation_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+            )
+            .map_err(|error| {
+                database::database_error(archive_database_path, "delete archived conversations", error)
+            })?;
+        deleted_rows += transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_canvases WHERE parent_conversation_id IN ({placeholders})"
                 ),
                 params_from_iter(chunk.iter()),
             )

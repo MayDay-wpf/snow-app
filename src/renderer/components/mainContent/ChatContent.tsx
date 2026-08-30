@@ -50,9 +50,7 @@ type PendingScrollRestore = {
 
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
-// 视口距底部小于该值视为“在底部”：scroll 事件把跟随状态重新吸附为 true，
-// 之后的内容增长会继续钉底。给用户回到底部留出少量容错，避免必须像素级触底。
-const STICK_TO_BOTTOM_THRESHOLD = 48;
+const STICK_TO_BOTTOM_THRESHOLD = 16;
 
 /**
  * 判断一次滚轮手势是否会被聊天区内部的嵌套滚动容器（Thinking 块、子代理
@@ -360,6 +358,7 @@ const ChatContentBody = ({
   const isLoadingOlderWithScrollRef = useRef(false);
   const scrolledAuthorizationSignatureRef = useRef("");
   const shouldStickToBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
   const isInitialBottomPositioningRef = useRef(false);
   const isUserScrollIntentRef = useRef(false);
   // True while the scroll-to-bottom button's smooth animation is running:
@@ -424,8 +423,16 @@ const ChatContentBody = ({
         return;
       }
 
-      shouldStickToBottomRef.current =
-        distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
+      const deltaScrollTop = container.scrollTop - lastScrollTopRef.current;
+      lastScrollTopRef.current = container.scrollTop;
+
+      if (deltaScrollTop > 0) {
+        shouldStickToBottomRef.current =
+          distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
+      } else if (deltaScrollTop < 0) {
+        shouldStickToBottomRef.current = false;
+      }
+
       setShowScrollToBottom(
         hasMessagesRef.current &&
           distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD,
@@ -853,11 +860,9 @@ const ChatContentBody = ({
         return;
       }
 
-      // 向下滚：若已在吸附阈值内（手势可能不产生 scroll 事件），立即恢复
-      // 跟随；其余情况由随后的 scroll 事件在接近底部时恢复。
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD) {
+      if (distanceFromBottom <= 0) {
         shouldStickToBottomRef.current = true;
         setShowScrollToBottom(false);
       }

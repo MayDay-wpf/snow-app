@@ -6,7 +6,10 @@ import type {
   ChatMessageRecord,
   ConversationSearchResult,
   UserMessageSummary,
+  WorkflowCanvasRecord,
+  WorkflowGraphValidationResult,
   WorkflowNodeSessionRecord,
+  WorkflowRunRecord,
 } from "../types";
 
 export const conversationApi = {
@@ -277,6 +280,63 @@ export const conversationApi = {
       "chat-conversations:get-workflow-node-session",
       conversationId,
     ),
+  upsertWorkflowRun: (
+    parentConversationId: string,
+    flowId: string,
+    runStatus: string,
+    currentNodeIndex: number,
+    lastHandoff: string,
+    totalTokens: number,
+    flowCheckpointId: string,
+    directoryId: string,
+    errorMessage: string,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      "chat-conversations:upsert-workflow-run",
+      parentConversationId,
+      flowId,
+      runStatus,
+      currentNodeIndex,
+      lastHandoff,
+      totalTokens,
+      flowCheckpointId,
+      directoryId,
+      errorMessage,
+    ),
+  getWorkflowRun: (
+    parentConversationId: string,
+    flowId: string,
+  ): Promise<WorkflowRunRecord | null> =>
+    ipcRenderer.invoke(
+      "chat-conversations:get-workflow-run",
+      parentConversationId,
+      flowId,
+    ),
+  upsertWorkflowCanvas: (
+    parentConversationId: string,
+    interactionId: string,
+    canvasJson: string,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      "chat-conversations:upsert-workflow-canvas",
+      parentConversationId,
+      interactionId,
+      canvasJson,
+    ),
+  getWorkflowCanvas: (
+    parentConversationId: string,
+    interactionId: string,
+  ): Promise<WorkflowCanvasRecord | null> =>
+    ipcRenderer.invoke(
+      "chat-conversations:get-workflow-canvas",
+      parentConversationId,
+      interactionId,
+    ),
+  validateWorkflowGraph: (
+    nodesJson: string,
+    edgesJson: string,
+  ): Promise<WorkflowGraphValidationResult> =>
+    ipcRenderer.invoke("workflow:validate-graph", nodesJson, edgesJson),
   listTodosForRollback: (
     sessionId: string,
     responseId: string,

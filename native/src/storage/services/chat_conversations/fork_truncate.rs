@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
-use rusqlite::{params, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior};
 
 use super::super::super::database;
 use super::super::super::ChatConversationRecord;
-use super::{create_chat_id, get_chat_conversation};
+use super::{create_chat_id, get_chat_conversation, in_clause_placeholders};
 
 pub fn fork_conversation(
     database_path: &Path,
@@ -337,11 +337,13 @@ pub fn truncate_conversation_from_message(
 /// from the LLM tool call id), so the callId is extracted from the persisted
 /// `tool_calls_json` here — the JSON disappears together with the message,
 /// hence this must run before the message DELETE.
+/// Returns `(node_conversation_ids, flow_ids)` so the caller can also clean
+/// up `workflow_runs` / `workflow_canvases` keyed by the same flow ids.
 fn collect_truncated_workflow_node_ids(
     transaction: &rusqlite::Transaction<'_>,
     conversation_id: &str,
     delete_from: &str,
-) -> rusqlite::Result<Vec<String>> {
+) -> rusqlite::Result<(Vec<String>, Vec<String>)> {
     let mut statement = transaction.prepare(
         "SELECT tool_calls_json FROM chat_messages
           WHERE conversation_id = ?1 AND id >= ?2
@@ -416,7 +418,7 @@ fn collect_truncated_workflow_node_ids(
         }
     }
     if flow_ids.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let mut node_ids: Vec<String> = Vec::new();
@@ -436,7 +438,7 @@ fn collect_truncated_workflow_node_ids(
             }
         }
     }
-    Ok(node_ids)
+    Ok((node_ids, flow_ids))
 }
 
 /// Locate the request row (response_id = '') immediately before the given
@@ -472,7 +474,7 @@ fn truncate_conversation_from_id(
     // 级联删除：flow 卡片是节点会话的唯一入口，卡片删除后重新执行 flow 会
     // 生成新的 flowId，旧节点会话将永远成为孤儿。必须在删除消息之前收集
     // （tool_calls_json 随消息一起消失）。
-    let truncated_node_ids = collect_truncated_workflow_node_ids(
+    let (truncated_node_ids, truncated_flow_ids) = collect_truncated_workflow_node_ids(
         transaction,
         conversation_id,
         delete_from,
@@ -540,6 +542,39 @@ fn truncate_conversation_from_id(
             )
             .map_err(|error| {
                 database::database_error(database_path, "delete workflow node conversation", error)
+            })?;
+    }
+
+    // 被截断 flow 的 run 级状态与画布随截断一并清理：flow 卡片已被删除，
+    // 残留的 workflow_runs / workflow_canvases 会让卡片恢复出"幽灵进度"。
+    if !truncated_flow_ids.is_empty() {
+        let placeholders = in_clause_placeholders(truncated_flow_ids.len());
+        // 第一个占位符是父会话 id，其余是 flow ids；统一为 &str 迭代。
+        let run_params = std::iter::once(conversation_id)
+            .chain(truncated_flow_ids.iter().map(String::as_str));
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_runs
+                      WHERE parent_conversation_id = ?1 AND flow_id IN ({placeholders})"
+                ),
+                params_from_iter(run_params),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete truncated workflow runs", error)
+            })?;
+        let canvas_params = std::iter::once(conversation_id)
+            .chain(truncated_flow_ids.iter().map(String::as_str));
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM workflow_canvases
+                      WHERE parent_conversation_id = ?1 AND interaction_id IN ({placeholders})"
+                ),
+                params_from_iter(canvas_params),
+            )
+            .map_err(|error| {
+                database::database_error(database_path, "delete truncated workflow canvases", error)
             })?;
     }
 

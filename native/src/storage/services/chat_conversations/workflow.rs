@@ -5,7 +5,9 @@ use napi::bindgen_prelude::*;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use super::super::super::database;
-use super::super::super::models::WorkflowNodeSessionRecord;
+use super::super::super::models::{
+    WorkflowCanvasRecord, WorkflowNodeSessionRecord, WorkflowRunRecord,
+};
 use super::super::super::ChatConversationRecord;
 use super::{in_clause_placeholders, map_chat_conversation_row};
 
@@ -272,4 +274,158 @@ pub fn get_workflow_node_session(
         .map_err(|error| {
             database::database_error(database_path, "get workflow node session", error)
         })
+}
+
+// ---------------------------------------------------------------------------
+// Workflow run-level state (workflow_runs) & canvas persistence (workflow_canvases)
+// ---------------------------------------------------------------------------
+
+/// Upsert a workflow run row keyed by (parent_conversation_id, flow_id).
+/// The runner calls this when a flow starts and as each node progresses so
+/// the run survives app restarts and can be resumed from the last node.
+pub fn upsert_workflow_run(
+    database_path: &Path,
+    parent_conversation_id: &str,
+    flow_id: &str,
+    run_status: &str,
+    current_node_index: i64,
+    last_handoff: &str,
+    total_tokens: i64,
+    flow_checkpoint_id: &str,
+    directory_id: &str,
+    error_message: &str,
+) -> Result<()> {
+    database::open_connection(database_path)
+        .and_then(|mut connection| {
+            let transaction = connection.transaction()?;
+            transaction.execute(
+                "INSERT INTO workflow_runs (
+                   id, parent_conversation_id, flow_id, run_status, current_node_index,
+                   last_handoff, total_tokens, flow_checkpoint_id, directory_id, error_message,
+                   created_at, updated_at
+                 ) VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                   datetime('now', 'localtime'), datetime('now', 'localtime')
+                 )
+                 ON CONFLICT(parent_conversation_id, flow_id) DO UPDATE SET
+                   run_status = excluded.run_status,
+                   current_node_index = excluded.current_node_index,
+                   last_handoff = excluded.last_handoff,
+                   total_tokens = excluded.total_tokens,
+                   flow_checkpoint_id = excluded.flow_checkpoint_id,
+                   directory_id = excluded.directory_id,
+                   error_message = excluded.error_message,
+                   updated_at = datetime('now', 'localtime')",
+                params![
+                    database::create_snowflake_id(),
+                    parent_conversation_id,
+                    flow_id,
+                    run_status,
+                    current_node_index,
+                    last_handoff,
+                    total_tokens,
+                    flow_checkpoint_id,
+                    directory_id,
+                    error_message,
+                ],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .map_err(|error| database::database_error(database_path, "upsert workflow run", error))
+}
+
+/// Read a workflow run by (parent_conversation_id, flow_id); `None` when no
+/// run has been recorded yet.
+pub fn get_workflow_run(
+    database_path: &Path,
+    parent_conversation_id: &str,
+    flow_id: &str,
+) -> Result<Option<WorkflowRunRecord>> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT parent_conversation_id, flow_id, run_status, current_node_index,
+                            last_handoff, total_tokens, flow_checkpoint_id, directory_id,
+                            error_message, created_at, updated_at
+                       FROM workflow_runs
+                      WHERE parent_conversation_id = ?1 AND flow_id = ?2
+                      LIMIT 1",
+                    params![parent_conversation_id, flow_id],
+                    |row| {
+                        Ok(WorkflowRunRecord {
+                            parent_conversation_id: row.get(0)?,
+                            flow_id: row.get(1)?,
+                            run_status: row.get(2)?,
+                            current_node_index: row.get(3)?,
+                            last_handoff: row.get(4)?,
+                            total_tokens: row.get(5)?,
+                            flow_checkpoint_id: row.get(6)?,
+                            directory_id: row.get(7)?,
+                            error_message: row.get(8)?,
+                            created_at: row.get(9)?,
+                            updated_at: row.get(10)?,
+                        })
+                    },
+                )
+                .optional()
+        })
+        .map_err(|error| database::database_error(database_path, "get workflow run", error))
+}
+
+/// Upsert a workflow canvas row keyed by (parent_conversation_id, interaction_id).
+/// Replaces the old localStorage-based canvas persistence.
+pub fn upsert_workflow_canvas(
+    database_path: &Path,
+    parent_conversation_id: &str,
+    interaction_id: &str,
+    canvas_json: &str,
+) -> Result<()> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection.execute(
+                "INSERT INTO workflow_canvases (
+                   parent_conversation_id, interaction_id, canvas_json, updated_at
+                 ) VALUES (
+                   ?1, ?2, ?3, datetime('now', 'localtime')
+                 )
+                 ON CONFLICT(parent_conversation_id, interaction_id) DO UPDATE SET
+                   canvas_json = excluded.canvas_json,
+                   updated_at = datetime('now', 'localtime')",
+                params![parent_conversation_id, interaction_id, canvas_json],
+            )?;
+            Ok(())
+        })
+        .map_err(|error| database::database_error(database_path, "upsert workflow canvas", error))
+}
+
+/// Read a workflow canvas by (parent_conversation_id, interaction_id);
+/// `None` when no canvas has been persisted yet.
+pub fn get_workflow_canvas(
+    database_path: &Path,
+    parent_conversation_id: &str,
+    interaction_id: &str,
+) -> Result<Option<WorkflowCanvasRecord>> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT parent_conversation_id, interaction_id, canvas_json, updated_at
+                       FROM workflow_canvases
+                      WHERE parent_conversation_id = ?1 AND interaction_id = ?2
+                      LIMIT 1",
+                    params![parent_conversation_id, interaction_id],
+                    |row| {
+                        Ok(WorkflowCanvasRecord {
+                            parent_conversation_id: row.get(0)?,
+                            interaction_id: row.get(1)?,
+                            canvas_json: row.get(2)?,
+                            updated_at: row.get(3)?,
+                        })
+                    },
+                )
+                .optional()
+        })
+        .map_err(|error| database::database_error(database_path, "get workflow canvas", error))
 }

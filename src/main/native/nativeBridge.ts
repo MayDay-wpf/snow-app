@@ -735,6 +735,28 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to get workflow node session",
           ),
         ),
+      upsertWorkflowRun: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to upsert workflow run"),
+        ),
+      getWorkflowRun: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to get workflow run"),
+        ),
+      upsertWorkflowCanvas: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to upsert workflow canvas"),
+        ),
+      getWorkflowCanvas: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to get workflow canvas"),
+        ),
+      validateWorkflowGraph: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to validate workflow graph",
+          ),
+        ),
       cancelRunningSubAgentSessions: () =>
         Promise.reject(
           new Error(

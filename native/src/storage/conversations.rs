@@ -118,6 +118,66 @@ pub fn get_workflow_node_session(
     services::chat_conversations::get_workflow_node_session(&database_path, conversation_id)
 }
 
+pub fn upsert_workflow_run(
+    parent_conversation_id: &str,
+    flow_id: &str,
+    run_status: &str,
+    current_node_index: i64,
+    last_handoff: &str,
+    total_tokens: i64,
+    flow_checkpoint_id: &str,
+    directory_id: &str,
+    error_message: &str,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::upsert_workflow_run(
+        &database_path,
+        parent_conversation_id,
+        flow_id,
+        run_status,
+        current_node_index,
+        last_handoff,
+        total_tokens,
+        flow_checkpoint_id,
+        directory_id,
+        error_message,
+    )
+}
+
+pub fn get_workflow_run(
+    parent_conversation_id: &str,
+    flow_id: &str,
+) -> Result<Option<WorkflowRunRecord>> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::get_workflow_run(&database_path, parent_conversation_id, flow_id)
+}
+
+pub fn upsert_workflow_canvas(
+    parent_conversation_id: &str,
+    interaction_id: &str,
+    canvas_json: &str,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::upsert_workflow_canvas(
+        &database_path,
+        parent_conversation_id,
+        interaction_id,
+        canvas_json,
+    )
+}
+
+pub fn get_workflow_canvas(
+    parent_conversation_id: &str,
+    interaction_id: &str,
+) -> Result<Option<WorkflowCanvasRecord>> {
+    let database_path = ensure_database_file()?;
+services::chat_conversations::get_workflow_canvas(
+        &database_path,
+        parent_conversation_id,
+        interaction_id,
+    )
+}
+
 pub fn get_conversation_runtime_config(
     conversation_id: &str,
 ) -> Result<services::chat_conversations::ConversationRuntimeConfig> {
