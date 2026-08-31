@@ -319,6 +319,14 @@ pub fn set_system_setting(
                 setting_value,
             )
         })
+        .map(|()| {
+            // 写入后立即失效缓存，避免 TTL 内的读操作拿到旧值
+            // （pets:changed 等广播触发的回读会覆盖界面的乐观更新）。
+            settings_cache()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(setting_code);
+        })
         .map_err(|error| database::database_error(database_path, "write system setting", error))
 }
 
@@ -330,7 +338,13 @@ pub fn delete_system_setting(database_path: &Path, setting_code: &str) -> Result
                 [setting_code],
             )
         })
-        .map(|_| ())
+        .map(|_| {
+            // 删除后同样失效缓存，避免读到已删除的旧值。
+            settings_cache()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(setting_code);
+        })
         .map_err(|error| database::database_error(database_path, "delete system setting", error))
 }
 

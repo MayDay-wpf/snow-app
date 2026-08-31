@@ -6,13 +6,7 @@
  * 支持：唤醒/收起、安装 Codex 宠物包（.zip）、选择激活宠物、
  * 卸载 Snow App 安装的宠物、调整显示大小。
  */
-import {
-  Loader2,
-  PackagePlus,
-  PawPrint,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Loader2, PackagePlus, PawPrint, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { PetManifest, PetSettings } from "../../../preload/types/pets";
@@ -38,10 +32,7 @@ export function PetsSettingsPanel({
   const petScaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reloadPets = (): Promise<void> =>
-    Promise.all([
-      window.snow.listInstalledPets(),
-      window.snow.getPetSettings(),
-    ])
+    Promise.all([window.snow.listInstalledPets(), window.snow.getPetSettings()])
       .then(([petList, settings]) => {
         setPets(petList);
         setPetSettings(settings);
@@ -72,7 +63,7 @@ export function PetsSettingsPanel({
       .installPetFromZip()
       .catch((error: unknown) => {
         setPetInstallError(
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       })
       .finally(() => {
@@ -85,26 +76,35 @@ export function PetsSettingsPanel({
     if (!petSettings) {
       return;
     }
+    const previous = petSettings;
     // 尚未选择宠物时，首次唤醒视为选择第一只宠物。
-    if (enabled && !petSettings.activePetId && pets.length > 0) {
+    if (enabled && !previous.activePetId && pets.length > 0) {
+      // 乐观更新：开关立即响应点击，IPC 完成后对账、失败回滚。
+      setPetSettings({ ...previous, enabled: true, activePetId: pets[0].id });
       window.snow
         .setActivePet(pets[0].id)
         .then(() => window.snow.setPetEnabled(true))
         .then(setPetSettings)
-        .catch(() => undefined);
+        .catch(() => setPetSettings(previous));
       return;
     }
+    setPetSettings({ ...previous, enabled });
     window.snow
       .setPetEnabled(enabled)
       .then(setPetSettings)
-      .catch(() => undefined);
+      .catch(() => setPetSettings(previous));
   };
 
   const handleSelectPet = (petId: string): void => {
+    if (!petSettings) {
+      return;
+    }
+    const previous = petSettings;
+    setPetSettings({ ...previous, activePetId: petId });
     window.snow
       .setActivePet(petId)
       .then(setPetSettings)
-      .catch(() => undefined);
+      .catch(() => setPetSettings(previous));
   };
 
   const handleUninstallPet = (pet: PetManifest): void => {
@@ -122,7 +122,7 @@ export function PetsSettingsPanel({
       .then(() => reloadPets())
       .catch((error: unknown) => {
         setPetInstallError(
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       });
   };
@@ -160,9 +160,7 @@ export function PetsSettingsPanel({
     <div className="api-settings-page" role="region">
       <div className="api-settings-page-header">
         <div className="api-settings-title-group">
-          <strong>
-            {t("settings.pets", { defaultValue: "Desktop pet" })}
-          </strong>
+          <strong>{t("settings.pets", { defaultValue: "Desktop pet" })}</strong>
           <span className="settings-item-description">
             {t("settings.petsInfo", {
               defaultValue:
@@ -331,7 +329,9 @@ export function PetsSettingsPanel({
                       </label>
                       <PetPreview spritesheetPath={pet.spritesheetPath} />
                       <span className="pets-list-info">
-                        <span className="pets-list-name">{pet.displayName}</span>
+                        <span className="pets-list-name">
+                          {pet.displayName}
+                        </span>
                         <span className="pets-list-source">
                           {petSourceLabel(pet.source)}
                         </span>
