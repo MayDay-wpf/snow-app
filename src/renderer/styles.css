@@ -7383,6 +7383,7 @@ input {
   flex-shrink: 1;
   flex-basis: auto;
   overflow-y: auto;
+  overflow-anchor: none;
   scrollbar-gutter: stable;
   scrollbar-color: transparent transparent;
   /* Bottom padding matches the mask fade height so the latest message rests

@@ -487,15 +487,17 @@ export const useChatInputController = ({
       return;
     }
 
-    textarea.style.height = "auto";
     const lineHeight =
       parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
     const minHeight = lineHeight * DEFAULT_TEXTAREA_ROWS;
     const maxHeight = lineHeight * MAX_TEXTAREA_ROWS;
-    textarea.style.height = `${Math.min(
+    const nextHeight = `${Math.min(
       Math.max(textarea.scrollHeight, minHeight),
       maxHeight,
     )}px`;
+    if (textarea.style.height !== nextHeight) {
+      textarea.style.height = nextHeight;
+    }
   }, []);
 
   useEffect(() => {

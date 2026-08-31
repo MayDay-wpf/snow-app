@@ -54,6 +54,9 @@ const STICK_TO_BOTTOM_THRESHOLD = 48;
 
 const USER_SCROLL_DIRECTION_WINDOW_MS = 300;
 
+const getMaxScrollTop = (container: HTMLElement): number =>
+  Math.max(0, container.scrollHeight - container.clientHeight);
+
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
   target: EventTarget | null,
@@ -461,7 +464,7 @@ const ChatContentBody = ({
     let rafId3 = 0;
 
     const scrollToBottom = (): void => {
-      container.scrollTop = container.scrollHeight;
+      container.scrollTop = getMaxScrollTop(container);
     };
 
     isInitialBottomPositioningRef.current = true;
@@ -547,7 +550,10 @@ const ChatContentBody = ({
         shouldStickToBottomRef.current &&
         (isInitialBottomPositioningRef.current || autoScrollEnabledRef.current)
       ) {
-        container.scrollTop = nextScrollHeight;
+        const targetScrollTop = getMaxScrollTop(container);
+        if (Math.abs(container.scrollTop - targetScrollTop) > 1) {
+          container.scrollTop = targetScrollTop;
+        }
       }
     };
 
@@ -627,7 +633,7 @@ const ChatContentBody = ({
     scrolledAuthorizationSignatureRef.current = signature;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        scrollRef.current.scrollTop = getMaxScrollTop(scrollRef.current);
       }
     });
   }, [activeConversationId, pendingToolAuthorizations]);
@@ -644,7 +650,14 @@ const ChatContentBody = ({
       return;
     }
 
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+    const targetScrollTop = getMaxScrollTop(container);
+    if (Math.abs(container.scrollTop - targetScrollTop) > 1) {
+      container.scrollTop = targetScrollTop;
+    }
   }, [autoScrollEnabled, isStreaming, messages]);
 
   // Compaction is an explicit operation, so its preview and persisted boundary
@@ -660,7 +673,7 @@ const ChatContentBody = ({
     const scrollToBottom = (): void => {
       const container = scrollRef.current;
       if (container) {
-        container.scrollTop = container.scrollHeight;
+        container.scrollTop = getMaxScrollTop(container);
       }
     };
 
@@ -973,9 +986,11 @@ const ChatContentBody = ({
       lastUserScrollDirectionRef.current = 0;
       setShowScrollToBottom(false);
       requestAnimationFrame(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        const container = scrollRef.current;
+        if (!container) {
+          return;
         }
+        container.scrollTop = getMaxScrollTop(container);
       });
     },
     [handleSendMessage],
