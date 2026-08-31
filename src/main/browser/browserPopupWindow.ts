@@ -1,4 +1,10 @@
-import { app, BrowserWindow, nativeTheme, type WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  nativeTheme,
+  type WebContents,
+} from "electron";
 import { APP_WINDOW_ICON_PATH } from "../app/constants";
 
 /**
@@ -29,6 +35,12 @@ import { APP_WINDOW_ICON_PATH } from "../app/constants";
  *    BrowserPanelContent 内部新建一个标签页（由 guest 的 webContents id
  *    路由到对应的浏览器实例）。这样 _blank 链接会在侧边栏内以标签页
  *    形式打开，而不是突兀地弹出一个独立窗口。
+ *
+ * 注意：webview guest 内**用户点击** target=_blank 链接因 Electron bug
+ * （electron#30886）不会触发 setWindowOpenHandler —— 该场景由 guest
+ * preload（webviewBrowserPreload）在捕获阶段拦截点击后经
+ * browser:guest-open-tab IPC 中继到 notifyHostOpenTab（同一路由与去重），
+ * 两条上报路径在此汇合，见 OPEN_TAB_NOTIFY_DEDUPE_MS。
  */
 
 const DEFAULT_POPUP_WIDTH = 800;
@@ -41,6 +53,54 @@ const MAX_POPUP_HEIGHT = 1200;
 /** 通知宿主渲染进程：guest 请求在侧边浏览器内新建标签页。 */
 export const BROWSER_OPEN_TAB_CHANNEL = "browser:open-tab";
 
+/** guest preload（webviewBrowserPreload）拦截 target=_blank 链接后发送的通道。 */
+const GUEST_OPEN_TAB_CHANNEL = "browser:guest-open-tab";
+
+/**
+ * 短时间窗口内同 guest 同 URL 的「新建标签页」通知去重。
+ *
+ * target=_blank 链接的激活有两路上报：guest preload 拦截点击
+ * （browser:guest-open-tab，绕过 electron#30886 —— webview 内点击
+ * target=_blank 不触发 setWindowOpenHandler），以及主进程
+ * setWindowOpenHandler（JS window.open 等场景）。未来 Electron 修复
+ * 该 bug 后链接点击会两路同时到达，这里按 guestId+url 去重，
+ * 避免在侧边浏览器内重复开两个标签页。
+ */
+const OPEN_TAB_NOTIFY_DEDUPE_MS = 300;
+const recentOpenTabNotifies = new Map<string, number>();
+
+/** 把「在侧边浏览器内新建标签页」通知转发给 guest 的宿主窗口渲染进程。 */
+const notifyHostOpenTab = (
+  guest: WebContents,
+  url: string,
+  disposition: string,
+): void => {
+  const host = guest.hostWebContents;
+  if (!host || host.isDestroyed()) {
+    return;
+  }
+  const key = `${guest.id}\u0000${url}`;
+  const now = Date.now();
+  const last = recentOpenTabNotifies.get(key);
+  if (last !== undefined && now - last < OPEN_TAB_NOTIFY_DEDUPE_MS) {
+    return;
+  }
+  recentOpenTabNotifies.set(key, now);
+  if (recentOpenTabNotifies.size > 128) {
+    // 简单防膨胀：超阈值时清理过期项。
+    for (const [expiredKey, time] of recentOpenTabNotifies) {
+      if (now - time >= OPEN_TAB_NOTIFY_DEDUPE_MS) {
+        recentOpenTabNotifies.delete(expiredKey);
+      }
+    }
+  }
+  host.send(BROWSER_OPEN_TAB_CHANNEL, {
+    guestWebContentsId: guest.id,
+    url,
+    disposition,
+  });
+};
+
 const popupWindows = new Set<BrowserWindow>();
 
 const getPopupBackgroundColor = (): string =>
@@ -48,7 +108,7 @@ const getPopupBackgroundColor = (): string =>
 
 /** 解析 window.open() features 字符串中的宽高（如 "popup=yes,width=500,height=600"）。 */
 const parseWindowFeatures = (
-  features: string
+  features: string,
 ): { width: number; height: number } => {
   const widthMatch = /(?:^|,)\s*width\s*=\s*(\d+)/i.exec(features);
   const heightMatch = /(?:^|,)\s*height\s*=\s*(\d+)/i.exec(features);
@@ -68,7 +128,7 @@ const parseWindowFeatures = (
 const computeCenteredPosition = (
   opener: BrowserWindow | null,
   width: number,
-  height: number
+  height: number,
 ): { x: number; y: number } | undefined => {
   if (!opener || opener.isDestroyed() || opener.isMinimized()) {
     return undefined;
@@ -92,7 +152,7 @@ const computeCenteredPosition = (
  */
 const isWindowPopupRequest = (
   disposition: string,
-  features: string
+  features: string,
 ): boolean => {
   if (disposition === "new-popup") {
     return true;
@@ -112,7 +172,7 @@ const isWindowPopupRequest = (
  */
 export const attachBrowserPopupWindowHandler = (
   contents: WebContents,
-  options?: { openTabsInSidebar?: boolean }
+  options?: { openTabsInSidebar?: boolean },
 ): void => {
   contents.setWindowOpenHandler(({ url, disposition, features }) => {
     // 侧边浏览器 webview：非窗口级弹出一律在侧边栏内新建标签页，
@@ -121,14 +181,7 @@ export const attachBrowserPopupWindowHandler = (
       options?.openTabsInSidebar &&
       !isWindowPopupRequest(disposition, features)
     ) {
-      const host = contents.hostWebContents;
-      if (host && !host.isDestroyed()) {
-        host.send(BROWSER_OPEN_TAB_CHANNEL, {
-          guestWebContentsId: contents.id,
-          url,
-          disposition,
-        });
-      }
+      notifyHostOpenTab(contents, url, disposition);
       return { action: "deny" };
     }
 
@@ -181,6 +234,32 @@ export const attachBrowserPopupWindowHandler = (
 
 /** 初始化：为所有 webview guest 注册弹出处理（幂等）。 */
 export const initBrowserPopupHandler = (): void => {
+  // guest preload 拦截 target=_blank / 中键链接激活后的中继：
+  // 校验 sender 必须是 webview guest（guest 页面受 contextIsolation 保护
+  // 无法直接触达 ipcRenderer，伪造消息也在此被拒），转发给宿主窗口由
+  // 渲染端在侧边浏览器内新建标签页。绕过 electron#30886。
+  ipcMain.on(GUEST_OPEN_TAB_CHANNEL, (event, payload) => {
+    const guest = event.sender;
+    if (
+      guest.getType() !== "webview" ||
+      !payload ||
+      typeof payload !== "object"
+    ) {
+      return;
+    }
+    const record = payload as { url?: unknown; disposition?: unknown };
+    if (typeof record.url !== "string" || !record.url) {
+      return;
+    }
+    notifyHostOpenTab(
+      guest,
+      record.url,
+      typeof record.disposition === "string"
+        ? record.disposition
+        : "foreground-tab",
+    );
+  });
+
   app.on("web-contents-created", (_event, contents) => {
     if (contents.getType() !== "webview") {
       return;

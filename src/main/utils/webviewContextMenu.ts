@@ -1,5 +1,15 @@
-import { app, BrowserWindow, clipboard, Menu, type MenuItemConstructorOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  Menu,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { openBrowserDevTools } from "../ipc/handlers/windowHandlers";
+import {
+  getUserscriptMenuCommands,
+  invokeUserscriptMenuCommand,
+} from "../ipc/handlers/userscriptHandlers";
 
 let installed = false;
 
@@ -110,14 +120,31 @@ export const installWebviewContextMenu = (): void => {
         {
           label: "检查元素",
           click: inspectBrowserElement,
-        }
+        },
       );
+
+      // 用户脚本菜单命令（GM_registerMenuCommand 注册）。
+      const scriptCommands = getUserscriptMenuCommands(contents.id);
+      if (scriptCommands.length > 0) {
+        template.push(
+          { type: "separator" },
+          {
+            label: "脚本命令",
+            submenu: scriptCommands.map((command) => ({
+              label: command.title,
+              click: () => invokeUserscriptMenuCommand(contents, command.id),
+            })),
+          },
+        );
+      }
 
       // popup 挂到宿主窗口（webview guest 的 hostWebContents 对应主窗口）。
       const hostWindow = contents.hostWebContents
         ? BrowserWindow.fromWebContents(contents.hostWebContents)
         : undefined;
-      Menu.buildFromTemplate(template).popup({ window: hostWindow ?? undefined });
+      Menu.buildFromTemplate(template).popup({
+        window: hostWindow ?? undefined,
+      });
     });
   });
 };

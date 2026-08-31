@@ -47,6 +47,18 @@ type FileViewerContentProps = {
   onOpenTerminal?: (cwd: string) => void;
   /** 加载完成后自动进入编辑模式（供资源管理器双击快速编辑弹窗使用）。 */
   initialEditMode?: boolean;
+  /**
+   * 虚拟文件编辑模式：不读写磁盘文件，初始内容与保存均由宿主提供
+   * （如用户脚本编辑器复用带行号/语法高亮的编辑体验）。
+   */
+  virtualSource?: {
+    /** 初始内容。 */
+    content: string;
+    /** 初始即视为已修改（新建场景下允许直接保存）。 */
+    initialDirty?: boolean;
+    /** 保存回调，Promise resolve 即视为保存成功。 */
+    onSave: (content: string) => Promise<void>;
+  };
 };
 
 /** 文内搜索匹配数上限，避免超大文件单字符查询卡死。 */
@@ -241,6 +253,7 @@ export function FileViewerContent({
   onDirtyChange,
   onOpenTerminal,
   initialEditMode = false,
+  virtualSource,
 }: FileViewerContentProps): React.JSX.Element {
   const { t } = useI18n();
   const { registerScopedHandler } = useKeyboardShortcutsSettings();
@@ -292,6 +305,10 @@ export function FileViewerContent({
 
   const originalContentRef = useRef("");
   const onDirtyChangeRef = useRef(onDirtyChange);
+  // 虚拟文件源保存在 ref 中：宿主每次渲染传入的对象引用都会变化，
+  // 但加载/保存只应在挂载与用户操作时读取，避免触发重复加载。
+  const virtualSourceRef = useRef(virtualSource);
+  virtualSourceRef.current = virtualSource;
   const draftSnapshotRef = useRef<{
     profileId: string;
     workspaceId: string;
@@ -356,7 +373,18 @@ export function FileViewerContent({
     setMdMode("preview");
     try {
       let result: FileContentResult;
-      if (isSsh && sshSessionId) {
+      const virtual = virtualSourceRef.current;
+      if (virtual) {
+        result = {
+          content: virtual.content,
+          isBinary: false,
+          isImage: false,
+          isSvg: false,
+          mimeType: "text/plain",
+          encoding: "utf-8",
+          size: new Blob([virtual.content]).size,
+        };
+      } else if (isSsh && sshSessionId) {
         result = await window.snow.sshReadFile(sshSessionId, filePath);
       } else {
         result = await window.snow.readFileContent(filePath);
@@ -367,7 +395,7 @@ export function FileViewerContent({
       if (initialEditMode && isEditable(result)) {
         setEditMode(true);
         setEditedContent(result.content);
-        setDirty(false);
+        setDirty(Boolean(virtual?.initialDirty));
         setSaveError(null);
         setSavedAt(false);
         setSaveGuarantee(null);
@@ -682,7 +710,10 @@ export function FileViewerContent({
             version: NonNullable<FileContentResult["remoteVersion"]>;
           }
         | undefined;
-      if (isSsh) {
+      const virtual = virtualSourceRef.current;
+      if (virtual) {
+        await virtual.onSave(editedContent);
+      } else if (isSsh) {
         if (!sshSessionId || !sshWorkspaceId || !content?.remoteVersion) {
           throw new Error(
             "Remote file save is missing its verified workspace or version",

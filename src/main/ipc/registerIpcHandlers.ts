@@ -22,6 +22,7 @@ import { registerImageHandlers } from "./handlers/imageHandlers";
 import { registerImageLibraryHandlers } from "./handlers/imageLibraryHandlers";
 import { registerStorageHandlers } from "./handlers/storageHandlers";
 import { registerBrowserPasswordHandlers } from "./handlers/browserPasswordHandlers";
+import { registerUserscriptHandlers } from "./handlers/userscriptHandlers";
 import { registerPetHandlers } from "./handlers/petHandlers";
 import { PluginRuntimeManager } from "../plugins/pluginRuntimeManager";
 
@@ -51,5 +52,6 @@ export const registerIpcHandlers = (native: NativeBridge): void => {
   registerImageLibraryHandlers(native);
   registerStorageHandlers(native);
   registerBrowserPasswordHandlers(native);
+  registerUserscriptHandlers(native);
   registerPetHandlers(native);
 };

@@ -19,6 +19,7 @@ mod storage_locations;
 mod system;
 mod theme_assets;
 mod usage;
+mod userscripts;
 mod workspace;
 
 pub use models::*;
@@ -40,6 +41,7 @@ pub use storage_locations::*;
 pub use system::*;
 pub use theme_assets::*;
 pub use usage::*;
+pub use userscripts::*;
 pub use workspace::*;
 
 use std::{

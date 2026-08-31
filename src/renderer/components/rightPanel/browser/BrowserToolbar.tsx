@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Camera,
   Check,
+  Download,
   Globe,
   Loader2,
   MousePointer2,
@@ -11,7 +12,9 @@ import {
 } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 import type { ScreenshotFeedback } from "./useWebviewScreenshot";
+import type { BrowserDownloadItemEvent } from "../../../../preload/modules/systemApi";
 import { BrowserMenu } from "./BrowserMenu";
+import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
 import { useI18n } from "../../../i18n";
 
 export type BrowserToolbarProps = {
@@ -46,6 +49,11 @@ export type BrowserToolbarProps = {
   onSetHomepage: (url: string) => Promise<void>;
   /** 独立窗口专属：还原为右侧面板标签页（undefined 时菜单不显示该项） */
   onRestoreToTabs?: () => void;
+  // 下载管理
+  downloads: BrowserDownloadItemEvent[];
+  onDownloadOpen: (id: number) => void;
+  onDownloadShowInFolder: (id: number) => void;
+  onDownloadCancel: (id: number) => void;
 };
 
 const buildScreenshotClassName = (feedback: ScreenshotFeedback): string => {
@@ -108,8 +116,16 @@ export const BrowserToolbar = ({
   onOpenDevTools,
   onSetHomepage,
   onRestoreToTabs,
+  downloads,
+  onDownloadOpen,
+  onDownloadShowInFolder,
+  onDownloadCancel,
 }: BrowserToolbarProps): React.JSX.Element => {
   const { t } = useI18n();
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const activeDownloadCount = downloads.filter(
+    (item) => item.state === "progressing",
+  ).length;
   // 地址输入框右键菜单（剪切/复制/粘贴/全选）：
   // 主进程已 Menu.setApplicationMenu(null)，Electron 不再提供原生编辑菜单，需自建。
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -269,6 +285,21 @@ export const BrowserToolbar = ({
       >
         {renderScreenshotIcon(isCapturing, screenshotFeedback)}
       </button>
+      <button
+        type="button"
+        className={`browser-nav-btn browser-downloads-btn${
+          downloadsOpen ? " is-active" : ""
+        }`}
+        onClick={() => setDownloadsOpen((prev) => !prev)}
+        disabled={downloads.length === 0 && activeDownloadCount === 0}
+        aria-label={t("browser.downloadsTitle")}
+        title={t("browser.downloadsTitle")}
+      >
+        <Download size={15} strokeWidth={1.8} />
+        {activeDownloadCount > 0 && (
+          <span className="browser-downloads-badge">{activeDownloadCount}</span>
+        )}
+      </button>
       <BrowserMenu
         zoomFactor={zoomFactor}
         homepage={homepage}
@@ -284,6 +315,15 @@ export const BrowserToolbar = ({
         onSetHomepage={onSetHomepage}
         onRestoreToTabs={onRestoreToTabs}
       />
+      {downloadsOpen && (
+        <BrowserDownloadsPanel
+          items={downloads}
+          onOpen={onDownloadOpen}
+          onShowInFolder={onDownloadShowInFolder}
+          onCancel={onDownloadCancel}
+          onClose={() => setDownloadsOpen(false)}
+        />
+      )}
       {addressMenu && (
         <ContextMenu
           x={addressMenu.x}

@@ -25,7 +25,8 @@ pub(crate) use crate::storage::{
     ScheduledTaskRecord, ScheduledTaskRecordInput,
     SensitiveCommandConfigInput, SensitiveCommandConfigRecord, SensitiveCommandMatchResult,
     SubAgentConfigInput, SubAgentConfigRecord, SystemPromptItemInput, SystemPromptItemRecord,
-    UserMessageSummary, WorkflowCanvasRecord, WorkflowNodeSessionRecord, WorkflowRunRecord, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,
+UserMessageSummary, UserscriptRecord, UserscriptValue,
+    WorkflowCanvasRecord, WorkflowNodeSessionRecord, WorkflowRunRecord, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,
 };
 
 mod agents;
@@ -45,6 +46,7 @@ mod scheduled_tasks;
 mod shortcuts;
 mod storage_locations;
 mod theme;
+mod userscripts;
 
 // 保留 crate::exports::storage::* 原有公共路径的重导出
 #[allow(unused_imports)]
@@ -52,7 +54,7 @@ pub use {
     agents::*, api_configs::*, app::*, conversations::*, hooks::*, imports::*, logs::*, lsp::*,
     mcp::*,
     memos::*, plugins::*, privacy::*, projects::*, scheduled_tasks::*, shortcuts::*,
-    storage_locations::*, theme::*,
+    storage_locations::*, theme::*, userscripts::*,
 };
 
 // ============================================================================

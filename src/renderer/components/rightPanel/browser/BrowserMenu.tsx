@@ -176,7 +176,7 @@ export const BrowserMenu = ({
       fn();
       close();
     },
-    [close]
+    [close],
   );
 
   const handleTriggerClick = (): void => {
@@ -191,7 +191,7 @@ export const BrowserMenu = ({
   }, [homepageDraft, onSetHomepage]);
 
   const handleHomepageKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>
+    e: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -405,7 +405,7 @@ export const BrowserMenu = ({
                 </span>
               </button>
             </div>,
-            document.body
+            document.body,
           )
         : null}
     </div>

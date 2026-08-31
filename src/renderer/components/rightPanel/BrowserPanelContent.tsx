@@ -18,6 +18,7 @@ import {
   useWebviewScreenshot,
   type PickedElement,
 } from "./browser";
+import type { BrowserDownloadItemEvent } from "../../../preload/modules/systemApi";
 import { DEFAULT_BROWSER_HOMEPAGE } from "./browser/browserHomepageConstants";
 import {
   focusBrowserMcpInstance,
@@ -173,16 +174,18 @@ const truncateSnapshotText = (text: string): string => {
   const slice = text.slice(0, MAX_SNAPSHOT_TEXT_LENGTH);
   const paraBreak = slice.lastIndexOf("\n\n");
   const cutAt =
-    paraBreak > 0 ? paraBreak : Math.max(1, MAX_SNAPSHOT_TEXT_LENGTH - TRUNCATION_MARKER.length);
+    paraBreak > 0
+      ? paraBreak
+      : Math.max(1, MAX_SNAPSHOT_TEXT_LENGTH - TRUNCATION_MARKER.length);
   return `${text.slice(0, cutAt).replace(/\n+$/, "")}${TRUNCATION_MARKER}`;
 };
 
 /** webview 内执行正文提取脚本，返回清洗后的文本（失败/为空 → ""）。 */
 const extractPageText = async (
-  webview: Electron.WebviewTag
+  webview: Electron.WebviewTag,
 ): Promise<string> => {
   const result = (await webview.executeJavaScript(
-    EXTRACT_PAGE_TEXT_SCRIPT
+    EXTRACT_PAGE_TEXT_SCRIPT,
   )) as { text?: string } | null;
   return cleanSnapshotText(result?.text ?? "");
 };
@@ -193,7 +196,7 @@ const extractPageText = async (
  */
 const withLayerTimeout = <T,>(
   promise: Promise<T>,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<T | undefined> =>
   new Promise<T | undefined>((resolve) => {
     const timer = window.setTimeout(() => resolve(undefined), timeoutMs);
@@ -205,7 +208,7 @@ const withLayerTimeout = <T,>(
       () => {
         window.clearTimeout(timer);
         resolve(undefined);
-      }
+      },
     );
   });
 
@@ -245,12 +248,15 @@ const createWebviewTab = (url: string): BrowserWebviewTab => ({
  *
  * 新标签页的来源：
  * 1. 用户点击标签栏 + 按钮（打开首页）；
- * 2. guest 页面内的 target=_blank / window.open（无 features）—— 主进程
- *    browserPopupWindow 判定为「标签页级打开」后 deny 并通过
- *    browser:open-tab IPC 通知，这里按 guest webContents id 路由到本实例
- *    后新建标签页（disposition 为 background-tab 时后台打开，不切换）。
- *    窗口级弹出（new-popup / 带 width=height= 等 features）仍由主进程
- *    创建真实 BrowserWindow（OAuth 登录依赖 window.opener）。
+ * 2. guest 页面内的标签页级打开请求 —— 主进程 browserPopupWindow 判定后
+ *    deny 并通过 browser:open-tab IPC 通知，这里按 guest webContents id
+ *    路由到本实例后新建标签页（disposition 为 background-tab 时后台打开，
+ *    不切换）。两个上报来源在此汇合：JS window.open（无 features）走主
+ *    进程 setWindowOpenHandler；target=_blank 链接点击因 Electron bug
+ *    （electron#30886）不触发该 handler，改由 guest preload 拦截点击经
+ *    browser:guest-open-tab 中继。窗口级弹出（new-popup / 带
+ *    width=height= 等 features）仍由主进程创建真实 BrowserWindow
+ *    （OAuth 登录依赖 window.opener）。
  */
 
 // ---------------------------------------------------------------------------
@@ -263,7 +269,7 @@ const createWebviewTab = (url: string): BrowserWebviewTab => ({
 const getDragPreviewCard = (
   ref: RefObject<HTMLDivElement | null>,
   title: string,
-  url: string
+  url: string,
 ): HTMLDivElement | null => {
   let el = ref.current;
   if (!el) {
@@ -336,7 +342,7 @@ export const BrowserPanelContent = ({
   // 独立窗口「还原为标签页」时携带 initialTabs（实例内全部标签页快照），
   // 优先于 initialUrl，逐个重建内部标签页，第一个为激活页。
   const initialTabIdRef = useRef<string>(
-    `browser-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    `browser-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
   const [webviewTabs, setWebviewTabs] = useState<BrowserWebviewTab[]>(() => {
     const snapshotTabs = initialTabs?.filter((tab) => tab.url.trim());
@@ -374,7 +380,7 @@ export const BrowserPanelContent = ({
     ];
   });
   const [activeWebviewTabId, setActiveWebviewTabId] = useState<string>(
-    initialTabIdRef.current
+    initialTabIdRef.current,
   );
   const activeWebviewTabIdRef = useRef<string>(initialTabIdRef.current);
   // 事件监听器通过 ref 读取最新标签页数据，避免反复重绑监听器。
@@ -382,7 +388,7 @@ export const BrowserPanelContent = ({
   webviewTabsRef.current = webviewTabs;
   // tabId -> webview 元素（所有标签页保持挂载以保留页面状态）。
   const webviewElementsRef = useRef<Map<string, Electron.WebviewTag>>(
-    new Map()
+    new Map(),
   );
   // guest webContents id -> tabId，用于把主进程 browser:open-tab 事件
   // 路由到发起请求的那个 webview 所属的浏览器实例。
@@ -394,6 +400,8 @@ export const BrowserPanelContent = ({
   const [findVisible, setFindVisible] = useState(false);
   const [findText, setFindText] = useState("");
   const [findResult, setFindResult] = useState<BrowserFindResult | null>(null);
+  // 下载列表（webview JS 弹窗走 Electron 原生对话框，无需自绘）。
+  const [downloads, setDownloads] = useState<BrowserDownloadItemEvent[]>([]);
   const browserContentRef = useRef<HTMLDivElement>(null);
   // C1 拖拽预览卡片单例（挂载于 document.body，跨拖拽复用，卸载时移除）。
   const dragPreviewRef = useRef<HTMLDivElement | null>(null);
@@ -448,13 +456,13 @@ export const BrowserPanelContent = ({
   const updateWebviewTab = useCallback(
     (
       tabId: string,
-      updater: (tab: BrowserWebviewTab) => BrowserWebviewTab
+      updater: (tab: BrowserWebviewTab) => BrowserWebviewTab,
     ): void => {
       setWebviewTabs((prev) =>
-        prev.map((tab) => (tab.id === tabId ? updater(tab) : tab))
+        prev.map((tab) => (tab.id === tabId ? updater(tab) : tab)),
       );
     },
-    []
+    [],
   );
 
   /**
@@ -481,136 +489,139 @@ export const BrowserPanelContent = ({
    */
   const attachWebviewListeners = useCallback(
     (webview: Electron.WebviewTag, tabId: string): void => {
-    const handleDomReady = (): void => {
-      try {
-        // 注册 guest id -> tabId 映射：主进程 browser:open-tab 事件按此路由。
-        webviewGuestIdToTabIdRef.current.set(webview.getWebContentsId(), tabId);
-      } catch {
-        // guest 尚未就绪，忽略。
-      }
-      // guest 就绪后补一次静音设置（挂载时 setAudioMuted 可能抛异常）。
-      applyMutedState();
-    };
+      const handleDomReady = (): void => {
+        try {
+          // 注册 guest id -> tabId 映射：主进程 browser:open-tab 事件按此路由。
+          webviewGuestIdToTabIdRef.current.set(
+            webview.getWebContentsId(),
+            tabId,
+          );
+        } catch {
+          // guest 尚未就绪，忽略。
+        }
+        // guest 就绪后补一次静音设置（挂载时 setAudioMuted 可能抛异常）。
+        applyMutedState();
+      };
 
-    const handleNavigationStateUpdate = (): void => {
-      const canGoBack = webview.canGoBack();
-      const canGoForward = webview.canGoForward();
-      updateWebviewTab(tabId, (tab) => ({ ...tab, canGoBack, canGoForward }));
-    };
+      const handleNavigationStateUpdate = (): void => {
+        const canGoBack = webview.canGoBack();
+        const canGoForward = webview.canGoForward();
+        updateWebviewTab(tabId, (tab) => ({ ...tab, canGoBack, canGoForward }));
+      };
 
-    // did-navigate fires for every navigation including server-side redirects
-    // and in-page pushState. We update the address bar for display but
-    // deliberately do NOT update tab.src — changing src would trigger a
-    // fresh loadURL via the webview attribute observer, re-triggering the
-    // redirect and creating an infinite loop (e.g. Cloudflare challenges).
-    const handleDidNavigate = (e: Electron.DidNavigateEvent): void => {
-      // 导航成功（含重定向目标、页面内 pushState）后清除失败状态，
-      // 使 screenshot 等 MCP 操作恢复正常执行。
-      recordMainFrameNavigationSuccess(tabId, e.url);
-      updateWebviewTab(tabId, (tab) => ({ ...tab, addressInput: e.url }));
-      handleNavigationStateUpdate();
-      // 仅激活标签页驱动工具栏状态与上层（RightPanel tab 标题/URL）同步。
-      if (tabId === activeWebviewTabIdRef.current) {
-        // Keep the menu's zoom display in sync with the webview's actual zoom
-        // (Electron persists zoom per webContents across navigations).
-        setZoomFactor(webview.getZoomFactor());
-        // 上报最新 URL，供 RightPanel 同步 tab.data.url（拖拽引用需要实时地址）
-        onUrlChangeRef.current?.(e.url);
-      }
-    };
+      // did-navigate fires for every navigation including server-side redirects
+      // and in-page pushState. We update the address bar for display but
+      // deliberately do NOT update tab.src — changing src would trigger a
+      // fresh loadURL via the webview attribute observer, re-triggering the
+      // redirect and creating an infinite loop (e.g. Cloudflare challenges).
+      const handleDidNavigate = (e: Electron.DidNavigateEvent): void => {
+        // 导航成功（含重定向目标、页面内 pushState）后清除失败状态，
+        // 使 screenshot 等 MCP 操作恢复正常执行。
+        recordMainFrameNavigationSuccess(tabId, e.url);
+        updateWebviewTab(tabId, (tab) => ({ ...tab, addressInput: e.url }));
+        handleNavigationStateUpdate();
+        // 仅激活标签页驱动工具栏状态与上层（RightPanel tab 标题/URL）同步。
+        if (tabId === activeWebviewTabIdRef.current) {
+          // Keep the menu's zoom display in sync with the webview's actual zoom
+          // (Electron persists zoom per webContents across navigations).
+          setZoomFactor(webview.getZoomFactor());
+          // 上报最新 URL，供 RightPanel 同步 tab.data.url（拖拽引用需要实时地址）
+          onUrlChangeRef.current?.(e.url);
+        }
+      };
 
-    const handleDidStartLoading = (): void => {
-      updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: true }));
-    };
+      const handleDidStartLoading = (): void => {
+        updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: true }));
+      };
 
-    const handleDidStopLoading = (): void => {
-      updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: false }));
-      handleNavigationStateUpdate();
-    };
+      const handleDidStopLoading = (): void => {
+        updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: false }));
+        handleNavigationStateUpdate();
+      };
 
-    const handlePageTitleUpdated = (
-      e: Electron.PageTitleUpdatedEvent
-    ): void => {
-      updateWebviewTab(tabId, (tab) => ({ ...tab, title: e.title }));
-      if (tabId === activeWebviewTabIdRef.current && e.title) {
-        onTitleChangeRef.current?.(e.title);
-      }
-    };
+      const handlePageTitleUpdated = (
+        e: Electron.PageTitleUpdatedEvent,
+      ): void => {
+        updateWebviewTab(tabId, (tab) => ({ ...tab, title: e.title }));
+        if (tabId === activeWebviewTabIdRef.current && e.title) {
+          onTitleChangeRef.current?.(e.title);
+        }
+      };
 
-    // ERR_ABORTED (-3) and ERR_FAILED (-2) are expected when a page redirects
-    // (e.g. Cloudflare managed challenge, Google -> localized). Chromium aborts
-    // the original request, which fires did-fail-load. Suppress these so the
-    // console stays clean; the redirect target loads normally afterward.
-    const handleDidFailLoad = (
-      e: Event & {
-        errorCode?: number;
-        errorDescription?: string;
-        validatedURL?: string;
-        isMainFrame?: boolean;
-      }
-    ): void => {
-      if (
-        e.errorCode !== undefined &&
-        SUPPRESSED_ERROR_CODES.has(e.errorCode)
-      ) {
-        return;
-      }
-      // 仅主 Frame 失败才记录导航失败状态（子资源失败不影响页面截图）。
-      if (e.isMainFrame === false) {
-        return;
-      }
-      recordMainFrameNavigationFailure(
-        tabId,
-        e.validatedURL || "",
-        e.errorCode,
-        e.errorDescription ||
-          `Navigation failed with code ${e.errorCode ?? "unknown"}`
-      );
-    };
-
-    const handleFoundInPage = (e: Electron.FoundInPageEvent): void => {
-      setFindResult({
-        activeMatchOrdinal: e.result.activeMatchOrdinal,
-        matches: e.result.matches,
-      });
-    };
-
-    const handleConsoleMessage = (e: Electron.ConsoleMessageEvent): void => {
-      consoleMessagesRef.current = [
-        ...consoleMessagesRef.current,
-        {
-          level: e.level,
-          message: e.message,
-          line: e.line,
-          sourceId: e.sourceId,
-          recordedAt: new Date().toISOString(),
+      // ERR_ABORTED (-3) and ERR_FAILED (-2) are expected when a page redirects
+      // (e.g. Cloudflare managed challenge, Google -> localized). Chromium aborts
+      // the original request, which fires did-fail-load. Suppress these so the
+      // console stays clean; the redirect target loads normally afterward.
+      const handleDidFailLoad = (
+        e: Event & {
+          errorCode?: number;
+          errorDescription?: string;
+          validatedURL?: string;
+          isMainFrame?: boolean;
         },
-      ].slice(-500);
-    };
+      ): void => {
+        if (
+          e.errorCode !== undefined &&
+          SUPPRESSED_ERROR_CODES.has(e.errorCode)
+        ) {
+          return;
+        }
+        // 仅主 Frame 失败才记录导航失败状态（子资源失败不影响页面截图）。
+        if (e.isMainFrame === false) {
+          return;
+        }
+        recordMainFrameNavigationFailure(
+          tabId,
+          e.validatedURL || "",
+          e.errorCode,
+          e.errorDescription ||
+            `Navigation failed with code ${e.errorCode ?? "unknown"}`,
+        );
+      };
 
-    webview.addEventListener("dom-ready", handleDomReady);
-    webview.addEventListener("did-navigate", handleDidNavigate);
-    webview.addEventListener("did-navigate-in-page", handleDidNavigate);
-    webview.addEventListener(
-      "did-start-loading",
-      handleDidStartLoading as EventListener
-    );
-    webview.addEventListener(
-      "did-stop-loading",
-      handleDidStopLoading as EventListener
-    );
-    webview.addEventListener(
-      "page-title-updated",
-      handlePageTitleUpdated as EventListener
-    );
-    webview.addEventListener(
-      "did-fail-load",
-      handleDidFailLoad as EventListener
-    );
-    webview.addEventListener("found-in-page", handleFoundInPage);
-    webview.addEventListener("console-message", handleConsoleMessage);
+      const handleFoundInPage = (e: Electron.FoundInPageEvent): void => {
+        setFindResult({
+          activeMatchOrdinal: e.result.activeMatchOrdinal,
+          matches: e.result.matches,
+        });
+      };
+
+      const handleConsoleMessage = (e: Electron.ConsoleMessageEvent): void => {
+        consoleMessagesRef.current = [
+          ...consoleMessagesRef.current,
+          {
+            level: e.level,
+            message: e.message,
+            line: e.line,
+            sourceId: e.sourceId,
+            recordedAt: new Date().toISOString(),
+          },
+        ].slice(-500);
+      };
+
+      webview.addEventListener("dom-ready", handleDomReady);
+      webview.addEventListener("did-navigate", handleDidNavigate);
+      webview.addEventListener("did-navigate-in-page", handleDidNavigate);
+      webview.addEventListener(
+        "did-start-loading",
+        handleDidStartLoading as EventListener,
+      );
+      webview.addEventListener(
+        "did-stop-loading",
+        handleDidStopLoading as EventListener,
+      );
+      webview.addEventListener(
+        "page-title-updated",
+        handlePageTitleUpdated as EventListener,
+      );
+      webview.addEventListener(
+        "did-fail-load",
+        handleDidFailLoad as EventListener,
+      );
+      webview.addEventListener("found-in-page", handleFoundInPage);
+      webview.addEventListener("console-message", handleConsoleMessage);
     },
-    [updateWebviewTab, applyMutedState]
+    [updateWebviewTab, applyMutedState],
   );
 
   /**
@@ -643,7 +654,7 @@ export const BrowserPanelContent = ({
         webviewRef.current = webview;
       }
     },
-    [attachWebviewListeners]
+    [attachWebviewListeners],
   );
 
   // homepage 加载完成后（且没有显式 initialUrl / initialTabs），让第一个
@@ -682,13 +693,15 @@ export const BrowserPanelContent = ({
     addWebviewTab(homepageRef.current || DEFAULT_BROWSER_HOMEPAGE, true);
   };
 
-  // 主进程 browser:open-tab：guest 内 target=_blank / window.open（无 features）
-  // 被判定为标签页级打开。按 guest webContents id 路由：属于本实例的
-  // webview 发起时才在此新建标签页（弹出窗口内的请求不会命中注册表）。
+  // 主进程 browser:open-tab：guest 内的标签页级打开请求（JS window.open
+  // 无 features 走 setWindowOpenHandler；target=_blank 链接点击经 guest
+  // preload 拦截 + browser:guest-open-tab 中继）。按 guest webContents id
+  // 路由：属于本实例的 webview 发起时才在此新建标签页（弹出窗口内的
+  // 请求不会命中注册表）。
   useEffect(() => {
     return window.snow.onBrowserOpenTab((event) => {
       const tabId = webviewGuestIdToTabIdRef.current.get(
-        event.guestWebContentsId
+        event.guestWebContentsId,
       );
       if (!tabId) {
         return;
@@ -697,6 +710,30 @@ export const BrowserPanelContent = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 下载列表：初始拉取一次，之后由主进程增量推送。
+  useEffect(() => {
+    window.snow
+      .listBrowserDownloads()
+      .then((items) => {
+        setDownloads(items);
+      })
+      .catch(() => {});
+    const unsubscribeDownloads = window.snow.onDownloadsUpdated(setDownloads);
+    return () => {
+      unsubscribeDownloads();
+    };
+  }, []);
+
+  const handleDownloadOpen = (id: number): void => {
+    void window.snow.openBrowserDownload(id).catch(() => {});
+  };
+  const handleDownloadShowInFolder = (id: number): void => {
+    window.snow.showBrowserDownloadInFolder(id);
+  };
+  const handleDownloadCancel = (id: number): void => {
+    void window.snow.cancelBrowserDownload(id).catch(() => {});
+  };
 
   // MCP 命令桥：页面级操作（navigate/click/devtools 等）作用于「当前激活
   // 标签页」的 webview（对齐浏览器语义）；标签页级操作（open_tab /
@@ -754,7 +791,7 @@ export const BrowserPanelContent = ({
             const maxLength =
               typeof args.maxLength === "number" ? args.maxLength : 20000;
             const content = (await webview.executeJavaScript(
-              "document.body ? document.body.innerText : ''"
+              "document.body ? document.body.innerText : ''",
             )) as string;
             return {
               url: webview.getURL(),
@@ -773,7 +810,7 @@ export const BrowserPanelContent = ({
           instanceId,
           operation,
           args,
-          consoleMessagesRef.current
+          consoleMessagesRef.current,
         ).then((result) => {
           if (
             operation === "devtools" &&
@@ -784,7 +821,7 @@ export const BrowserPanelContent = ({
           }
           return result;
         });
-      }
+      },
     );
     return () => {
       unregister();
@@ -813,19 +850,19 @@ export const BrowserPanelContent = ({
   useEffect(() => {
     const dispatchSnapshotResult = (
       requestId: number,
-      snapshot?: WebPageSnapshot
+      snapshot?: WebPageSnapshot,
     ): void => {
       window.dispatchEvent(
         new CustomEvent<WebSnapshotResult>(WEB_SNAPSHOT_RESULT_EVENT, {
           detail: { requestId, snapshot },
-        })
+        }),
       );
     };
 
     const collectWebSnapshot = async (
       webview: Electron.WebviewTag,
       requestedUrl: string,
-      tabId: string
+      tabId: string,
     ): Promise<WebPageSnapshot | undefined> => {
       // URL 兜底校验：页面已导航到其他地址则视为过期引用，直接降级，
       // 避免快照内容与 chip 上的 URL 不一致。
@@ -848,7 +885,7 @@ export const BrowserPanelContent = ({
       // ① 整页正文：webview 内 JS 提取 + 渲染进程清洗（≤8000 字符）。
       const text = await withLayerTimeout(
         extractPageText(webview),
-        SNAPSHOT_LAYER_TIMEOUT_MS
+        SNAPSHOT_LAYER_TIMEOUT_MS,
       );
 
       // ② 元素区域：picked 由激活标签页的 webview 产生（webviewRef 指向它），
@@ -868,7 +905,7 @@ export const BrowserPanelContent = ({
       try {
         const dataUrl = await withLayerTimeout(
           captureWebviewPage(webview),
-          SNAPSHOT_LAYER_TIMEOUT_MS
+          SNAPSHOT_LAYER_TIMEOUT_MS,
         );
         if (dataUrl && dataUrl.length <= MAX_SNAPSHOT_DATA_URL_LENGTH) {
           screenshotDataUrl = dataUrl;
@@ -913,7 +950,7 @@ export const BrowserPanelContent = ({
       }
       void collectWebSnapshot(webview, detail.url, tabId).then(
         (snapshot) => dispatchSnapshotResult(detail.requestId, snapshot),
-        () => dispatchSnapshotResult(detail.requestId, undefined)
+        () => dispatchSnapshotResult(detail.requestId, undefined),
       );
     };
 
@@ -921,7 +958,7 @@ export const BrowserPanelContent = ({
     return () => {
       window.removeEventListener(
         WEB_SNAPSHOT_REQUEST_EVENT,
-        handleSnapshotRequest
+        handleSnapshotRequest,
       );
     };
   }, [instanceId]);
@@ -973,10 +1010,7 @@ export const BrowserPanelContent = ({
 
     if (remaining.length === 0) {
       // 关闭最后一个标签页：新建一个首页标签页（对齐 Chrome 行为）。
-      const url = normalizeUrl(
-        homepageRef.current,
-        homepageRef.current
-      );
+      const url = normalizeUrl(homepageRef.current, homepageRef.current);
       const newTab = createWebviewTab(url);
       setWebviewTabs([newTab]);
       activeWebviewTabIdRef.current = newTab.id;
@@ -1007,7 +1041,7 @@ export const BrowserPanelContent = ({
 
   const handleNavigate = (rawInput?: string): void => {
     const currentTab = webviewTabsRef.current.find(
-      (tab) => tab.id === activeWebviewTabIdRef.current
+      (tab) => tab.id === activeWebviewTabIdRef.current,
     );
     if (!currentTab) {
       return;
@@ -1043,7 +1077,7 @@ export const BrowserPanelContent = ({
   };
 
   const handleAddressKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>
+    e: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
     if (e.key !== "Enter") {
       return;
@@ -1095,31 +1129,31 @@ export const BrowserPanelContent = ({
     webviewRef.current?.reload();
   };
 
-  // 跳转到浏览器设置页（起始页 / 密码管理 / 导入）。
+  // 跳转到浏览器设置页（起始页 / 密码管理 / 用户脚本 / 导入）。
   const handleOpenSettings = (): void => {
     window.dispatchEvent(
       new CustomEvent(APP_CONTROL_OPEN_SETTINGS_EVENT, {
         detail: { view: "browser-settings" },
-      })
+      }),
     );
   };
 
   // 实例内部全部标签页的快照（激活页置首，其余保持原有顺序）。
   // 供「在新窗口中打开」与「还原为标签页」迁移时完整携带标签页状态，
   // 上层还原/重建时第一个标签页即激活页。
-  const buildTabsSnapshot = useCallback(
-    (): { url: string; title: string }[] => {
-      const activeId = activeWebviewTabIdRef.current;
-      const tabs = webviewTabsRef.current;
-      const active = tabs.find((tab) => tab.id === activeId);
-      const rest = tabs.filter((tab) => tab.id !== activeId);
-      return [...(active ? [active] : []), ...rest].map((tab) => ({
-        url: tab.src || tab.addressInput,
-        title: tab.title,
-      }));
-    },
-    []
-  );
+  const buildTabsSnapshot = useCallback((): {
+    url: string;
+    title: string;
+  }[] => {
+    const activeId = activeWebviewTabIdRef.current;
+    const tabs = webviewTabsRef.current;
+    const active = tabs.find((tab) => tab.id === activeId);
+    const rest = tabs.filter((tab) => tab.id !== activeId);
+    return [...(active ? [active] : []), ...rest].map((tab) => ({
+      url: tab.src || tab.addressInput,
+      title: tab.title,
+    }));
+  }, []);
 
   // 标签页增删 / 导航 / 切换激活页时向上层同步快照（父组件经
   // BrowserTabData.tabs 持久化，供窗口迁移时携带）。
@@ -1222,8 +1256,9 @@ export const BrowserPanelContent = ({
   // window.open / target=_blank 都会被 Chromium 直接拦截（window.open
   // 返回 null），不会到达主进程 setWindowOpenHandler。放行后由主进程
   // browserPopupWindow 分流：窗口级弹出（OAuth 等带 features 的）创建
-  // 真实弹出窗体；标签页级打开（target=_blank）通过 browser:open-tab
-  // IPC 回到这里新建内部标签页。
+  // 真实弹出窗体；标签页级打开经 browser:open-tab IPC 回到这里新建
+  // 内部标签页（target=_blank 链接点击因 electron#30886 由 guest preload
+  // 拦截中继，见 browserPopupWindow.ts）。
   //
   // 注意：必须写字符串 "true" 而非布尔值！React 18 对未知 boolean 属性
   // （allowpopups 不在 React 白名单）会丢弃并仅打印告警，导致 guest 保持
@@ -1259,6 +1294,10 @@ export const BrowserPanelContent = ({
         onOpenDevTools={handleOpenDevTools}
         onSetHomepage={setHomepage}
         onRestoreToTabs={detached ? handleRestoreToTabs : undefined}
+        downloads={downloads}
+        onDownloadOpen={handleDownloadOpen}
+        onDownloadShowInFolder={handleDownloadShowInFolder}
+        onDownloadCancel={handleDownloadCancel}
       />
       <div className="browser-tab-bar" role="tablist">
         {webviewTabs.map((tab) => (
@@ -1289,7 +1328,11 @@ export const BrowserPanelContent = ({
               }
               // C1 自定义拖影：以「🌐 标题 + 域名」预览卡片替代默认整 tab 快照
               // （偏移到卡片左边缘，跟随鼠标）。
-              const preview = getDragPreviewCard(dragPreviewRef, tab.title, url);
+              const preview = getDragPreviewCard(
+                dragPreviewRef,
+                tab.title,
+                url,
+              );
               if (preview) {
                 event.dataTransfer.setDragImage(preview, 12, 12);
               }
@@ -1298,7 +1341,9 @@ export const BrowserPanelContent = ({
               // C1：拖拽结束清理预览卡片文本（元素保持挂载复用，由卸载 effect 移除）。
               clearDragPreviewCard(dragPreviewRef);
             }}
-            title={tab.title || tab.addressInput || t("rightPanel.browserNewTab")}
+            title={
+              tab.title || tab.addressInput || t("rightPanel.browserNewTab")
+            }
           >
             <span className="browser-tab-title">
               {tab.title || tab.addressInput || t("rightPanel.browserNewTab")}

@@ -1,4 +1,5 @@
 import { app, session, webContents } from "electron";
+import { snowLog } from "../../../utils/snowLogger";
 
 /**
  * 内置浏览器调试数据收集：
@@ -20,7 +21,7 @@ const debuggerMessageListeners = new Set<
   (webContentsId: number, method: string, params: unknown) => void
 >();
 export const registerDebuggerMessageListener = (
-  listener: (webContentsId: number, method: string, params: unknown) => void
+  listener: (webContentsId: number, method: string, params: unknown) => void,
 ): void => {
   debuggerMessageListeners.add(listener);
 };
@@ -66,7 +67,7 @@ let nextCdpRecordId = 1;
 const MAX_BODY_BYTES = 128 * 1024;
 
 const getBrowserWebContentsId = (
-  details: BrowserRequestDetails
+  details: BrowserRequestDetails,
 ): number | undefined => {
   const id = details.webContentsId ?? details.webContents?.id;
   return id !== undefined && browserWebContentsIds.has(id) ? id : undefined;
@@ -98,24 +99,22 @@ export const initBrowserNetworkRecorder = (): void => {
 
   // onBeforeSendHeaders 携带最终请求头；仅记录已识别的 webview 请求，
   // 避免把 Snow App 自身 API、更新检查等请求混进浏览器调试结果。
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    (details, callback) => {
-      const webContentsId = getBrowserWebContentsId(details);
-      if (webContentsId !== undefined) {
-        pendingRequests.set(details.id, {
-          webContentsId,
-          startedAt: Date.now(),
-          method: details.method,
-          requestHeaders: details.requestHeaders,
-        });
-      }
-
-      // onBeforeSendHeaders 是阻塞型事件；无论是否记录该请求，都必须调用
-      // callback 放行，否则 defaultSession 的所有请求（包括主窗口 file://）
-      // 都会永久停在 about:blank，表现为全应用白屏。
-      callback({ requestHeaders: details.requestHeaders });
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const webContentsId = getBrowserWebContentsId(details);
+    if (webContentsId !== undefined) {
+      pendingRequests.set(details.id, {
+        webContentsId,
+        startedAt: Date.now(),
+        method: details.method,
+        requestHeaders: details.requestHeaders,
+      });
     }
-  );
+
+    // onBeforeSendHeaders 是阻塞型事件；无论是否记录该请求，都必须调用
+    // callback 放行，否则 defaultSession 的所有请求（包括主窗口 file://）
+    // 都会永久停在 about:blank，表现为全应用白屏。
+    callback({ requestHeaders: details.requestHeaders });
+  });
 
   session.defaultSession.webRequest.onCompleted((details) => {
     const pending = pendingRequests.get(details.id);
@@ -177,17 +176,20 @@ export const queryNetworkRecords = (
   webContentsId: number,
   filter?: string,
   limit = 50,
-  includeStatic = false
+  includeStatic = false,
 ): BrowserNetworkRecord[] => {
   const cdp = cdpNetworkRecords.get(webContentsId);
-  let result = cdp && cdp.size > 0
-    ? [...cdp.values()]
-    : networkRecords.filter((record) => record.webContentsId === webContentsId);
+  let result =
+    cdp && cdp.size > 0
+      ? [...cdp.values()]
+      : networkRecords.filter(
+          (record) => record.webContentsId === webContentsId,
+        );
   if (!includeStatic) {
     result = result.filter(
       (record) =>
         typeof record.status === "number" &&
-        !STATIC_RESOURCE_TYPES.has(record.resourceType)
+        !STATIC_RESOURCE_TYPES.has(record.resourceType),
     );
   }
   if (filter) {
@@ -203,7 +205,7 @@ export const queryNetworkRecords = (
 
 /** 按 id 获取单条网络记录详情。 */
 export const getNetworkRecord = (
-  recordId: number
+  recordId: number,
 ): BrowserNetworkRecord | undefined =>
   networkRecords.find((record) => record.id === recordId);
 
@@ -223,33 +225,9 @@ export const clearNetworkRecords = (webContentsId: number): number => {
   return before - networkRecords.length;
 };
 
-// ===== JavaScript 弹窗捕获与响应 =====
+// ===== webview 注册表与 CDP 消息路由 =====
 
-export type PendingBrowserDialog = {
-  webContentsId: number;
-  dialogType: string;
-  message: string;
-  defaultText: string | null;
-  url: string | null;
-  capturedAt: string;
-};
-
-type JavascriptDialogOpeningParams = {
-  url?: string;
-  message?: string;
-  type?: string;
-  defaultPrompt?: string;
-};
-
-const pendingDialogs = new Map<number, PendingBrowserDialog>();
 let dialogHandlerInitialized = false;
-
-const readDialogOpeningParams = (
-  params: unknown
-): JavascriptDialogOpeningParams =>
-  params !== null && typeof params === "object"
-    ? (params as JavascriptDialogOpeningParams)
-    : {};
 
 /** 已 attach 且 Page 域已启用的 webContents 集合（弹窗捕获所需）。
  * 每个浏览器 MCP 命令都会调用 ensureWebContentsDebugger，多个 webview
@@ -258,17 +236,17 @@ const readDialogOpeningParams = (
 const debuggerDomainsEnabled = new Set<number>();
 
 /** 已启用 Network 记录（Network.enable）的 webContents 集合。
- * 网络记录按需启用：webview 创建时只启用 Page 域（弹窗捕获），
- * 只有真正查询网络调试数据的实例才开启 Network 事件流，其余
- * webview（含用户手动新建、从未调试的 tab）保持零网络 CDP 开销。 */
+ * 网络记录按需启用：只有真正查询网络调试数据的实例才开启 Network
+ * 事件流，其余 webview（含用户手动新建、从未调试的 tab）保持零网络
+ * CDP 开销。 */
 const networkRecordingEnabled = new Set<number>();
 
 /** 确保 webview 的 CDP debugger 会话可用（attach + 启用 Page 域）。
- * 弹窗捕获、CDP 网络记录、路由 mock 共用同一会话；
+ * CDP 网络记录、路由 mock、登录态注入共用同一会话；
  * DevTools 打开时会话被占用，devtools-closed 后自动重连。
  * Network.enable 由 ensureNetworkRecording 按需启用。 */
 export const ensureWebContentsDebugger = async (
-  contents: Electron.WebContents
+  contents: Electron.WebContents,
 ): Promise<void> => {
   if (contents.isDestroyed() || contents.isDevToolsOpened()) {
     return;
@@ -287,6 +265,12 @@ export const ensureWebContentsDebugger = async (
   } catch {
     // DevTools 或其他调试客户端可能暂时占用 CDP；devtools-closed 后会重试。
     debuggerDomainsEnabled.delete(contents.id);
+    snowLog.warn({
+      module: "browser/network-recorder",
+      func: "ensureWebContentsDebugger",
+      message: "CDP debugger attach unavailable",
+      context: `webContentsId=${contents.id}`,
+    });
   }
 };
 
@@ -294,7 +278,7 @@ export const ensureWebContentsDebugger = async (
  * 多个浏览器实例时，只有真正使用网络调试的实例才开启事件流，
  * 其余 webview 保持零网络 CDP 开销。 */
 export const ensureNetworkRecording = async (
-  contents: Electron.WebContents
+  contents: Electron.WebContents,
 ): Promise<void> => {
   await ensureWebContentsDebugger(contents);
   if (contents.isDestroyed() || !contents.debugger.isAttached()) {
@@ -312,11 +296,16 @@ export const ensureNetworkRecording = async (
 };
 
 /**
- * 捕获 webview guest 页面的 alert/confirm/prompt。
- * Electron 没有公开 JavaScript dialog 事件，因此使用官方 debugger/CDP：
- * Page.javascriptDialogOpening → Page.handleJavaScriptDialog。
+ * 注册 webview guest 的 CDP 会话与事件路由。
+ *
+ * 仅做注册与消息路由，不主动 attach（普通浏览不 attach CDP，
+ * 页面的 alert/confirm/prompt 走 Electron 原生对话框）；调试功能
+ * （网络记录 / MCP / 登录态 / 路由 mock）按需调用 ensureWebContentsDebugger。
+ * 调试会话激活期间 Chromium 会接管 JS 弹窗并挂起页面，而引擎无自绘
+ * 弹窗 UI，此时对 Page.javascriptDialogOpening 直接拒绝应答（脚本拿到
+ * false），保证页面不卡死。
  */
-export const initBrowserDialogHandler = (): void => {
+export const initBrowserWebviewRegistry = (): void => {
   if (dialogHandlerInitialized) {
     return;
   }
@@ -328,22 +317,16 @@ export const initBrowserDialogHandler = (): void => {
     }
 
     browserWebContentsIds.add(contents.id);
-    void ensureWebContentsDebugger(contents);
 
     contents.debugger.on("message", (_event, method, params) => {
       switch (method) {
-        case "Page.javascriptDialogOpening": {
-          const details = readDialogOpeningParams(params);
-          pendingDialogs.set(contents.id, {
-            webContentsId: contents.id,
-            dialogType: details.type ?? "unknown",
-            message: details.message ?? "",
-            defaultText: details.defaultPrompt ?? null,
-            url: details.url ?? null,
-            capturedAt: new Date().toISOString(),
-          });
+        case "Page.javascriptDialogOpening":
+          // 调试会话期间弹窗被 Chromium 接管且无 UI 可展示，
+          // 自动拒绝避免页面脚本永久挂起。
+          contents.debugger
+            .sendCommand("Page.handleJavaScriptDialog", { accept: false })
+            .catch(() => {});
           break;
-        }
         case "Network.requestWillBeSent":
           handleNetworkRequestWillBeSent(contents.id, params);
           break;
@@ -381,62 +364,10 @@ export const initBrowserDialogHandler = (): void => {
       browserWebContentsIds.delete(contents.id);
       debuggerDomainsEnabled.delete(contents.id);
       networkRecordingEnabled.delete(contents.id);
-      pendingDialogs.delete(contents.id);
       cdpNetworkRecords.delete(contents.id);
       routeRules.delete(contents.id);
     });
   });
-};
-
-export const listPendingDialogs = (
-  webContentsId: number
-): PendingBrowserDialog[] => {
-  const dialog = pendingDialogs.get(webContentsId);
-  return dialog ? [dialog] : [];
-};
-
-/** 响应指定 webview 的 pending 弹窗。 */
-export const respondPendingDialog = async (
-  webContentsId: number,
-  accept: boolean,
-  promptText?: string
-): Promise<{ responded: boolean; remaining: number; error?: string }> => {
-  const first = pendingDialogs.get(webContentsId);
-  if (!first) {
-    return { responded: false, remaining: 0 };
-  }
-
-  const contents = webContents.fromId(first.webContentsId);
-  if (!contents || contents.isDestroyed()) {
-    pendingDialogs.delete(first.webContentsId);
-    return {
-      responded: false,
-      remaining: pendingDialogs.size,
-      error: "Dialog web contents no longer exists",
-    };
-  }
-
-  try {
-    await ensureWebContentsDebugger(contents);
-    if (!contents.debugger.isAttached()) {
-      throw new Error(
-        "Browser debugger is unavailable; close the page DevTools and retry"
-      );
-    }
-    await contents.debugger.sendCommand("Page.handleJavaScriptDialog", {
-      accept,
-      promptText: accept && promptText !== undefined ? promptText : undefined,
-    });
-    pendingDialogs.delete(first.webContentsId);
-    return { responded: true, remaining: pendingDialogs.size };
-  } catch (error) {
-    // 保留 pending，允许用户关闭 DevTools 后重试，避免弹窗状态丢失。
-    return {
-      responded: false,
-      remaining: pendingDialogs.size,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
 };
 
 // ===== CDP 网络事件处理 =====
@@ -490,14 +421,18 @@ const toHeaderArrayRecord = (value: unknown): Record<string, string[]> => {
   const out: Record<string, string[]> = {};
   for (const [key, val] of Object.entries(value)) {
     out[key] =
-      typeof val === "string" ? [val] : Array.isArray(val) ? val.map(String) : [];
+      typeof val === "string"
+        ? [val]
+        : Array.isArray(val)
+          ? val.map(String)
+          : [];
   }
   return out;
 };
 
 const pushCdpRecord = (
   webContentsId: number,
-  record: BrowserNetworkRecord
+  record: BrowserNetworkRecord,
 ): void => {
   let map = cdpNetworkRecords.get(webContentsId);
   if (!map) {
@@ -517,7 +452,7 @@ const pushCdpRecord = (
 
 const handleNetworkRequestWillBeSent = (
   webContentsId: number,
-  params: unknown
+  params: unknown,
 ): void => {
   const p = params as CdpRequestWillBeSent;
   const requestId = p?.requestId;
@@ -567,7 +502,7 @@ const handleNetworkRequestWillBeSent = (
 
 const handleNetworkResponseReceived = (
   webContentsId: number,
-  params: unknown
+  params: unknown,
 ): void => {
   const p = params as CdpResponseReceived;
   const requestId = p?.requestId;
@@ -593,7 +528,7 @@ const handleNetworkResponseReceived = (
 
 const handleNetworkLoadingFailed = (
   webContentsId: number,
-  params: unknown
+  params: unknown,
 ): void => {
   const p = params as CdpLoadingFailed;
   const requestId = p?.requestId;
@@ -605,7 +540,8 @@ const handleNetworkLoadingFailed = (
     return;
   }
   record.status = "error";
-  const text = typeof p?.errorText === "string" ? p.errorText : "Request failed";
+  const text =
+    typeof p?.errorText === "string" ? p.errorText : "Request failed";
   record.error = p?.canceled === true ? `${text} (canceled)` : text;
 };
 
@@ -613,7 +549,7 @@ const handleNetworkLoadingFailed = (
 
 const truncateText = (
   text: string,
-  maxBytes: number
+  maxBytes: number,
 ): { text: string; truncated: boolean } => {
   if (Buffer.byteLength(text, "utf8") <= maxBytes) {
     return { text, truncated: false };
@@ -622,7 +558,10 @@ const truncateText = (
   for (let i = 0; i < text.length; i++) {
     used += Buffer.byteLength(text[i], "utf8");
     if (used > maxBytes) {
-      return { text: `${text.slice(0, i)}\n…[truncated at ${maxBytes} bytes]…`, truncated: true };
+      return {
+        text: `${text.slice(0, i)}\n…[truncated at ${maxBytes} bytes]…`,
+        truncated: true,
+      };
     }
   }
   return { text, truncated: false };
@@ -630,7 +569,7 @@ const truncateText = (
 
 /** 校验 webContentsId 属于内置浏览器 webview，返回其 WebContents（供 CDP 命令桥等复用）。 */
 export const getBrowserWebContents = (
-  webContentsId: number
+  webContentsId: number,
 ): Electron.WebContents => {
   if (!browserWebContentsIds.has(webContentsId)) {
     throw new Error("Invalid browser webContents id");
@@ -655,7 +594,7 @@ export type BrowserNetworkDetails = {
 export const queryNetworkDetails = async (
   webContentsId: number,
   requestId: string,
-  maxBodyBytes = MAX_BODY_BYTES
+  maxBodyBytes = MAX_BODY_BYTES,
 ): Promise<BrowserNetworkDetails> => {
   const record = cdpNetworkRecords.get(webContentsId)?.get(requestId);
   if (!record) {
@@ -670,7 +609,8 @@ export const queryNetworkDetails = async (
     return {
       found: true,
       record,
-      error: "Browser debugger is unavailable; close the page DevTools and retry",
+      error:
+        "Browser debugger is unavailable; close the page DevTools and retry",
     };
   }
 
@@ -678,7 +618,7 @@ export const queryNetworkDetails = async (
   try {
     const result = (await contents.debugger.sendCommand(
       "Network.getRequestPostData",
-      { requestId }
+      { requestId },
     )) as { postData?: unknown };
     if (typeof result.postData === "string") {
       details.requestBody = truncateText(result.postData, maxBodyBytes);
@@ -689,7 +629,7 @@ export const queryNetworkDetails = async (
   try {
     const result = (await contents.debugger.sendCommand(
       "Network.getResponseBody",
-      { requestId }
+      { requestId },
     )) as { body?: unknown; base64Encoded?: unknown };
     if (typeof result.body === "string") {
       const truncated = truncateText(result.body, maxBodyBytes);
@@ -710,13 +650,13 @@ export const queryNetworkDetails = async (
 
 export const setBrowserNetworkState = async (
   webContentsId: number,
-  offline: boolean
+  offline: boolean,
 ): Promise<{ state: "online" | "offline" }> => {
   const contents = getBrowserWebContents(webContentsId);
   await ensureNetworkRecording(contents);
   if (!contents.debugger.isAttached()) {
     throw new Error(
-      "Browser debugger is unavailable; close the page DevTools and retry"
+      "Browser debugger is unavailable; close the page DevTools and retry",
     );
   }
   await contents.debugger.sendCommand("Network.emulateNetworkConditions", {
@@ -756,7 +696,7 @@ const matchesPattern = (url: string, pattern: string): boolean => {
 };
 
 const enableFetchInterception = async (
-  contents: Electron.WebContents
+  contents: Electron.WebContents,
 ): Promise<void> => {
   if (!contents.debugger.isAttached()) {
     return;
@@ -769,13 +709,13 @@ const enableFetchInterception = async (
 /** 设置路由 mock 规则（全量替换；空数组 = 清除并恢复真实网络）。 */
 export const setBrowserRouteRules = async (
   webContentsId: number,
-  rules: BrowserRouteRule[]
+  rules: BrowserRouteRule[],
 ): Promise<{ active: number }> => {
   const contents = getBrowserWebContents(webContentsId);
   await ensureWebContentsDebugger(contents);
   if (!contents.debugger.isAttached()) {
     throw new Error(
-      "Browser debugger is unavailable; close the page DevTools and retry"
+      "Browser debugger is unavailable; close the page DevTools and retry",
     );
   }
   routeRules.set(webContentsId, rules);
@@ -792,12 +732,12 @@ export const setBrowserRouteRules = async (
 };
 
 export const clearBrowserRouteRules = async (
-  webContentsId: number
+  webContentsId: number,
 ): Promise<{ active: number }> => setBrowserRouteRules(webContentsId, []);
 
 const handleFetchRequestPaused = (
   contents: Electron.WebContents,
-  params: unknown
+  params: unknown,
 ): void => {
   const requestId = (params as { requestId?: unknown } | null)?.requestId;
   if (typeof requestId !== "string") {
@@ -814,7 +754,7 @@ const handleFetchRequestPaused = (
     return;
   }
   const headers: { name: string; value: string }[] = Object.entries(
-    rule.headers ?? {}
+    rule.headers ?? {},
   ).map(([name, value]) => ({ name, value }));
   if (rule.contentType) {
     headers.push({ name: "Content-Type", value: rule.contentType });

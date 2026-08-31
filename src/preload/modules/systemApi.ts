@@ -166,6 +166,61 @@ ipcRenderer.on(
   },
 );
 
+// ===== 浏览器下载事件（broadcast 到宿主窗口）=====
+
+export type BrowserDownloadItemEvent = {
+  id: number;
+  url: string;
+  filename: string;
+  path: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+  startedAt: number;
+  endedAt: number | null;
+  gmRequestId: number;
+};
+
+type BrowserDownloadSubscriber = (items: BrowserDownloadItemEvent[]) => void;
+
+const downloadSubscribers = new Set<BrowserDownloadSubscriber>();
+
+ipcRenderer.on(
+  "browser:downloads-updated",
+  (_event: IpcRendererEvent, items: unknown): void => {
+    if (!Array.isArray(items)) {
+      return;
+    }
+    const list: BrowserDownloadItemEvent[] = items
+      .filter(isRecord)
+      .map((raw) => ({
+        id: typeof raw.id === "number" ? raw.id : 0,
+        url: typeof raw.url === "string" ? raw.url : "",
+        filename: typeof raw.filename === "string" ? raw.filename : "",
+        path: typeof raw.path === "string" ? raw.path : "",
+        state:
+          raw.state === "completed" ||
+          raw.state === "cancelled" ||
+          raw.state === "interrupted"
+            ? raw.state
+            : "progressing",
+        receivedBytes:
+          typeof raw.receivedBytes === "number" ? raw.receivedBytes : 0,
+        totalBytes: typeof raw.totalBytes === "number" ? raw.totalBytes : 0,
+        startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
+        endedAt: typeof raw.endedAt === "number" ? raw.endedAt : null,
+        gmRequestId: typeof raw.gmRequestId === "number" ? raw.gmRequestId : 0,
+      }));
+    for (const subscriber of downloadSubscribers) {
+      try {
+        subscriber(list);
+      } catch (error) {
+        console.error("[browser] Download subscriber failed", error);
+      }
+    }
+  },
+);
+
 type BrowserRestoreSubscriber = (payload: BrowserRestorePayload) => void;
 
 const browserRestoreSubscribers = new Set<BrowserRestoreSubscriber>();
@@ -705,6 +760,23 @@ export const systemApi = {
       browserOpenTabSubscribers.delete(callback);
     };
   },
+  /** 订阅浏览器下载列表变化（全量快照推送）。 */
+  onDownloadsUpdated: (
+    callback: (items: BrowserDownloadItemEvent[]) => void,
+  ): (() => void) => {
+    downloadSubscribers.add(callback);
+    return () => {
+      downloadSubscribers.delete(callback);
+    };
+  },
+  listBrowserDownloads: (): Promise<BrowserDownloadItemEvent[]> =>
+    ipcRenderer.invoke("browser:downloads-list"),
+  openBrowserDownload: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke("browser:download-open", id),
+  showBrowserDownloadInFolder: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke("browser:download-show-in-folder", id),
+  cancelBrowserDownload: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke("browser:download-cancel", id),
   /**
    * 将元素选择结果转发给主窗口聊天输入框（独立浏览器窗口专用：
    * 该窗口内没有 ChatInputView，INSERT_ELEMENT_TAG_EVENT 事件无法跨

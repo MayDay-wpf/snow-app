@@ -19,10 +19,12 @@ import {
 import { applySessionProxy } from "./sessionProxy";
 import { ensureBuiltinDocs, ensureBuiltinSkills } from "./ensureBuiltinSkills";
 import {
-  initBrowserDialogHandler,
   initBrowserNetworkRecorder,
+  initBrowserWebviewRegistry,
 } from "../ipc/handlers/browserNetworkRecorder";
 import { installWebviewContextMenu } from "../utils/webviewContextMenu";
+import { installWebviewDownloadHandler } from "./downloadManager";
+import { initUserscriptSyncStore } from "./userscriptSyncStore";
 import { initBrowserPopupHandler } from "../browser/browserPopupWindow";
 import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
 
@@ -142,16 +144,22 @@ export const bootstrapApplication = (): void => {
     // IPC 注册放在窗口创建之后 — 渲染进程 boot-loader 阶段不需要 IPC，
     // 等 React 挂载后才会发起 invoke 调用，此时注册早已完成。
     registerIpcHandlers(native);
+    // 用户脚本同步匹配缓存：必须在任何 webview 创建前注册 sendSync
+    // handler（webview preload 顶层同步调用，未注册会死锁渲染进程）。
+    initUserscriptSyncStore(native);
 
     // 浏览器调试数据收集：网络请求记录 + JavaScript 弹窗捕获（幂等）。
     // 需在 app ready 且 defaultSession 可用后初始化。
     initBrowserNetworkRecorder();
-    initBrowserDialogHandler();
+    initBrowserWebviewRegistry();
     // 浏览器弹出窗口：webview 内 window.open / target=_blank 创建真实窗体
     // （Google 登录等 OAuth 弹窗依赖 window.opener 关系，不能转交系统浏览器）。
     initBrowserPopupHandler();
     // 浏览器右键菜单：Electron webview 默认无右键菜单，需主进程手动弹出。
     installWebviewContextMenu();
+    // webview 下载接管：无 will-download 监听器时 Electron 会静默取消下载，
+    // 使网页 a[download] / Blob 下载（含用户脚本 GM_download）全部失效。
+    installWebviewDownloadHandler();
 
     // 渲染进程保存代理设置后通知主进程重新应用会话代理。
     ipcMain.handle("proxy-browser-settings:apply", () =>

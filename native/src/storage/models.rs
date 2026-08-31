@@ -181,6 +181,55 @@ pub struct ProjectCollectionRecord {
     pub updated_at: String,
 }
 
+// ===== 用户脚本（油猴兼容）=====
+
+/// 用户脚本的解析后元数据（`// ==UserScript==` 头）。
+#[napi(object)]
+pub struct UserscriptMeta {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub namespace: String,
+    pub author: String,
+    pub run_at: String,
+    pub noframes: bool,
+    pub grant: Vec<String>,
+    pub matches: Vec<String>,
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub requires: Vec<String>,
+}
+
+/// 用户脚本完整记录（管理 UI 使用）。
+#[napi(object)]
+pub struct UserscriptRecord {
+    pub script_id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub namespace: String,
+    pub author: String,
+    pub enabled: bool,
+    pub run_at: String,
+    pub noframes: bool,
+    pub grant: Vec<String>,
+    pub matches: Vec<String>,
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub requires: Vec<String>,
+    /// 脚本文件在磁盘上的绝对路径（~/.snowapp/browser-script/{script_id}.user.js）。
+    pub file_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// GM_* API 的持久化值条目。
+#[napi(object)]
+pub struct UserscriptValue {
+    pub key: String,
+    pub value: String,
+}
+
 #[napi(object)]
 pub struct RemoteDraftInput {
     pub profile_id: String,

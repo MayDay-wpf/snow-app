@@ -12,3 +12,5 @@ export type { BrowserMenuProps } from "./BrowserMenu";
 export { BrowserFindBar } from "./BrowserFindBar";
 export type { BrowserFindBarProps, BrowserFindResult } from "./BrowserFindBar";
 export { useBrowserHomepage } from "./useBrowserHomepage";
+export { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
+export type { BrowserDownloadsPanelProps } from "./BrowserDownloadsPanel";

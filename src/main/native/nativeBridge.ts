@@ -545,6 +545,42 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete plugin marketplaces",
           ),
         ),
+      listUserscripts: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to list userscripts"),
+        ),
+      createUserscript: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to create userscripts"),
+        ),
+      updateUserscript: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to update userscripts"),
+        ),
+      deleteUserscript: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete userscripts"),
+        ),
+      setUserscriptEnabled: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to toggle userscripts"),
+        ),
+      readUserscriptSource: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to read userscript source"),
+        ),
+      getUserscriptValues: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to read GM values"),
+        ),
+      setUserscriptValue: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to write GM values"),
+        ),
+      deleteUserscriptValue: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete GM values"),
+        ),
       listHookConfigs: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list hook configs"),

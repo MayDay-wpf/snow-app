@@ -2235,6 +2235,32 @@ export type NativeBridge = {
   listInstalledPets: () => Promise<PetManifestRecord[]>;
   /** 卸载 Snow App 安装的宠物 */
   uninstallPet: (petId: string) => Promise<void>;
+  // ── 用户脚本（油猴兼容）────────────────────────────────────────────
+  /** 列出全部用户脚本 */
+  listUserscripts: () => Promise<UserscriptRecord[]>;
+  /** 创建用户脚本（raw 含元数据头），返回完整记录 */
+  createUserscript: (raw: string) => Promise<UserscriptRecord>;
+  /** 更新用户脚本（按 scriptId 覆盖 raw），返回完整记录 */
+  updateUserscript: (
+    scriptId: string,
+    raw: string,
+  ) => Promise<UserscriptRecord>;
+  /** 删除用户脚本（级联删除其 GM 值） */
+  deleteUserscript: (scriptId: string) => Promise<void>;
+  /** 启用/禁用用户脚本 */
+  setUserscriptEnabled: (scriptId: string, enabled: boolean) => Promise<void>;
+  /** 读取脚本文件完整内容（含元数据头） */
+  readUserscriptSource: (scriptId: string) => Promise<string>;
+  /** 读取脚本的 GM 值 */
+  getUserscriptValues: (scriptId: string) => Promise<UserscriptValue[]>;
+  /** 写入/更新脚本的 GM 值 */
+  setUserscriptValue: (
+    scriptId: string,
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  /** 删除脚本的 GM 值 */
+  deleteUserscriptValue: (scriptId: string, key: string) => Promise<void>;
 };
 
 /** 本机浏览器源（探测结果）。 */
@@ -2293,4 +2319,55 @@ export type PetManifestRecord = {
   columns: number;
   /** 精灵图行数 */
   rows: number;
+};
+
+// ── 用户脚本（油猴兼容）────────────────────────────────────────────
+
+/** 用户脚本完整记录（管理 UI 使用）。 */
+export type UserscriptRecord = {
+  scriptId: string;
+  name: string;
+  version: string;
+  description: string;
+  namespace: string;
+  author: string;
+  enabled: boolean;
+  runAt: "document-start" | "document-end" | "document-idle";
+  noframes: boolean;
+  grant: string[];
+  matches: string[];
+  includes: string[];
+  excludes: string[];
+  requires: string[];
+  /** 脚本文件在磁盘上的绝对路径。 */
+  filePath: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** webview preload 匹配查询返回项（主进程 userscriptSyncStore 从缓存构造）。 */
+export type UserscriptMatchItem = {
+  scriptId: string;
+  name: string;
+  version: string;
+  description: string;
+  runAt: "document-start" | "document-end" | "document-idle";
+  noframes: boolean;
+  grant: string[];
+  /** @require 声明的外部脚本 URL（主进程负责下载并拼接）。 */
+  requires: string[];
+  /** GM 值快照：主进程 match 时内嵌，preload 注入后同步读取。 */
+  gmValues?: Record<string, string>;
+  /** @resource 资源快照（name -> content），主进程 match 时下载内嵌。 */
+  resources?: Record<string, string>;
+  /** 去除元数据头后的可执行代码。 */
+  code: string;
+  /** 原始完整内容（含元数据头）。 */
+  raw: string;
+};
+
+/** GM_* API 的持久化值条目。 */
+export type UserscriptValue = {
+  key: string;
+  value: string;
 };

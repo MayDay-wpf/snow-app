@@ -26,13 +26,17 @@ import {
   ensureWebContentsDebugger,
   getBrowserWebContents,
   getNetworkRecord,
-  listPendingDialogs,
   queryNetworkDetails,
   queryNetworkRecords,
-  respondPendingDialog,
   setBrowserNetworkState,
   setBrowserRouteRules,
 } from "./browserNetworkRecorder";
+import {
+  cancelDownload,
+  listDownloads,
+  openDownload,
+  showDownloadInFolder,
+} from "../../app/downloadManager";
 import {
   deleteBrowserCookie,
   listBrowserCookies,
@@ -133,7 +137,7 @@ export const openBrowserDevTools = (contents: WebContents): void => {
           }
           link.setAttribute("href", ${JSON.stringify(snowFaviconDataUrl)});
         })();
-      `
+      `,
       )
       .catch(() => {
         // DevTools 正在关闭时执行脚本可能失败，无需影响窗口生命周期。
@@ -243,7 +247,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
   // 渲染进程保存快捷键设置后调用：重新读取数据库并注册/注销
   // 显示/隐藏窗口的全局快捷键（toggleWindow）。
   ipcMain.handle("shortcuts:reload-global", () =>
-    registerToggleWindowShortcut(_native)
+    registerToggleWindowShortcut(_native),
   );
 
   // ===== Window Drag (macOS JS drag region) =====
@@ -351,11 +355,11 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
               !!tab &&
               typeof tab === "object" &&
               typeof (tab as Record<string, unknown>).url === "string" &&
-              typeof (tab as Record<string, unknown>).title === "string"
+              typeof (tab as Record<string, unknown>).title === "string",
           )
         : undefined;
       createDetachedBrowserWindow(instanceId.trim(), url.trim(), tabSnapshot);
-    }
+    },
   );
 
   // 独立浏览器窗口「还原为标签页」：把实例（含全部内部标签页）转发给
@@ -378,7 +382,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         (tab) =>
           !!tab &&
           typeof tab === "object" &&
-          typeof (tab as Record<string, unknown>).url === "string"
+          typeof (tab as Record<string, unknown>).url === "string",
       )
     ) {
       return;
@@ -466,7 +470,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       _event,
       webContentsId: unknown,
       method: unknown,
-      params: unknown
+      params: unknown,
     ) => {
       if (typeof webContentsId !== "number") {
         throw new Error("webContentsId must be a number");
@@ -478,14 +482,14 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       await ensureWebContentsDebugger(contents);
       if (!contents.debugger.isAttached()) {
         throw new Error(
-          "Browser debugger is unavailable; close the page DevTools and retry"
+          "Browser debugger is unavailable; close the page DevTools and retry",
         );
       }
       return contents.debugger.sendCommand(
         method,
-        params !== null && typeof params === "object" ? params : {}
+        params !== null && typeof params === "object" ? params : {},
       );
-    }
+    },
   );
   // 性能 trace：录制 durationMs 毫秒并返回精简统计（Tracing 域，主进程处理）。
   ipcMain.handle(
@@ -493,8 +497,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     (_event, webContentsId: number, durationMs: number) =>
       runBrowserTrace(
         typeof webContentsId === "number" ? webContentsId : -1,
-        typeof durationMs === "number" ? durationMs : 3000
-      )
+        typeof durationMs === "number" ? durationMs : 3000,
+      ),
   );
 
   // 浏览器调试数据：网络请求记录与 JavaScript 弹窗（供 browser-devtools 查询/响应）
@@ -507,7 +511,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       webContentsId: number,
       filter?: string,
       limit?: number,
-      includeStatic?: boolean
+      includeStatic?: boolean,
     ) => {
       const id = typeof webContentsId === "number" ? webContentsId : -1;
       if (id >= 0) {
@@ -517,9 +521,9 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         id,
         typeof filter === "string" ? filter : undefined,
         typeof limit === "number" ? limit : 50,
-        includeStatic === true
+        includeStatic === true,
       );
-    }
+    },
   );
   // 网络请求详情：请求/响应头 + 请求体 + 响应体（基于 CDP 记录中的 requestId）。
   ipcMain.handle(
@@ -528,8 +532,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       queryNetworkDetails(
         typeof webContentsId === "number" ? webContentsId : -1,
         typeof requestId === "string" ? requestId : "",
-        typeof maxBodyBytes === "number" ? maxBodyBytes : undefined
-      )
+        typeof maxBodyBytes === "number" ? maxBodyBytes : undefined,
+      ),
   );
   // 网络状态模拟：offline=true 离线，false 恢复在线。
   ipcMain.handle(
@@ -537,8 +541,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     (_event, webContentsId: number, offline: boolean) =>
       setBrowserNetworkState(
         typeof webContentsId === "number" ? webContentsId : -1,
-        offline === true
-      )
+        offline === true,
+      ),
   );
   // 路由 mock：设置拦截规则（全量替换；空数组 = 恢复真实网络）。
   ipcMain.handle(
@@ -548,13 +552,13 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         typeof webContentsId === "number" ? webContentsId : -1,
         Array.isArray(rules)
           ? (rules as Parameters<typeof setBrowserRouteRules>[1])
-          : []
-      )
+          : [],
+      ),
   );
   ipcMain.handle("browser:route-clear", (_event, webContentsId: number) =>
     clearBrowserRouteRules(
-      typeof webContentsId === "number" ? webContentsId : -1
-    )
+      typeof webContentsId === "number" ? webContentsId : -1,
+    ),
   );
   // 登录态保存：cookie + localStorage → safeStorage 加密落盘（~/.snow/browser-state/）。
   ipcMain.handle(
@@ -562,8 +566,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     (_event, webContentsId: number, fileName?: string) =>
       saveBrowserStorageState(
         typeof webContentsId === "number" ? webContentsId : -1,
-        typeof fileName === "string" ? fileName : undefined
-      )
+        typeof fileName === "string" ? fileName : undefined,
+      ),
   );
   // 登录态恢复：解密 → cookies.set + localStorage 注入（origin 校验）；恢复前自动加密备份。
   ipcMain.handle(
@@ -571,8 +575,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     (_event, webContentsId: number, fileName: string) =>
       restoreBrowserStorageState(
         typeof webContentsId === "number" ? webContentsId : -1,
-        typeof fileName === "string" ? fileName : ""
-      )
+        typeof fileName === "string" ? fileName : "",
+      ),
   );
   // 列出当前会话 cookie（默认脱敏值，showValues=true 返回明文）。
   ipcMain.handle(
@@ -581,8 +585,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       listBrowserCookies(
         typeof webContentsId === "number" ? webContentsId : -1,
         typeof domain === "string" ? domain : undefined,
-        showValues === true
-      )
+        showValues === true,
+      ),
   );
   // 删除指定 cookie（name + domain 精确定位）。
   ipcMain.handle(
@@ -591,31 +595,32 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       deleteBrowserCookie(
         typeof webContentsId === "number" ? webContentsId : -1,
         typeof name === "string" ? name : "",
-        typeof domain === "string" ? domain : ""
-      )
+        typeof domain === "string" ? domain : "",
+      ),
   );
   ipcMain.handle("browser:network-request", (_event, recordId: number) => {
     const record = getNetworkRecord(
-      typeof recordId === "number" ? recordId : -1
+      typeof recordId === "number" ? recordId : -1,
     );
     return record ?? null;
   });
   ipcMain.handle("browser:network-clear", (_event, webContentsId: number) => {
     const cleared = clearNetworkRecords(
-      typeof webContentsId === "number" ? webContentsId : -1
+      typeof webContentsId === "number" ? webContentsId : -1,
     );
     return { cleared };
   });
-  ipcMain.handle("browser:dialogs-list", (_event, webContentsId: number) =>
-    listPendingDialogs(typeof webContentsId === "number" ? webContentsId : -1)
+
+  // ===== 浏览器下载管理 =====
+  ipcMain.handle("browser:downloads-list", () => listDownloads());
+  ipcMain.handle("browser:download-open", (_event, id: unknown) =>
+    openDownload(typeof id === "number" ? id : -1),
   );
-  ipcMain.handle(
-    "browser:dialog-respond",
-    (_event, webContentsId: number, accept: boolean, promptText?: string) =>
-      respondPendingDialog(
-        typeof webContentsId === "number" ? webContentsId : -1,
-        accept === true,
-        promptText
-      )
+  ipcMain.handle("browser:download-show-in-folder", (_event, id: unknown) => {
+    showDownloadInFolder(typeof id === "number" ? id : -1);
+    return true;
+  });
+  ipcMain.handle("browser:download-cancel", (_event, id: unknown) =>
+    cancelDownload(typeof id === "number" ? id : -1),
   );
 };

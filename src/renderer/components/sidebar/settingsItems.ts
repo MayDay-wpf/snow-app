@@ -222,5 +222,5 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
  * when the active view is a settings page (e.g. to reset to chat on exit).
  */
 export const SETTINGS_VIEW_IDS: ReadonlySet<MainContentView> = new Set(
-  SETTINGS_ITEMS.map((item) => item.view)
+  SETTINGS_ITEMS.map((item) => item.view),
 );

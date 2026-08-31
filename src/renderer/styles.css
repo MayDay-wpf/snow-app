@@ -4066,6 +4066,10 @@ input {
 
 .import-settings-tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   min-height: 32px;
   padding: 0 1px;
   border: 0;
@@ -23570,6 +23574,18 @@ input {
   display: flex;
 }
 
+/* 懒加载 tab chunk 就绪前的占位 loading（如文件查看器/终端首次打开）。 */
+.right-panel-tab-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  min-height: 0;
+}
+
 /* ===== Codebase Panel ===== */
 .codebase-panel {
   display: flex;
@@ -41257,4 +41273,325 @@ body.ctrl-held [data-path] {
   flex: 1;
   color: var(--text-tertiary);
   font-size: 13px;
+}
+
+/* ============================================================
+ * 用户脚本 Section（嵌入 BrowserSettingsPanel Tab）
+ * ============================================================ */
+/* 搜索行：输入框与搜索按钮同行排列，按钮独立于输入框容器外，垂直居中对齐 */
+.userscripts-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userscripts-search-row .browser-settings-search-row {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.userscripts-search-submit {
+  flex-shrink: 0;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.userscripts-search-submit:disabled,
+.userscripts-search-submit:disabled:hover {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* 提示行与下方内容保持间距，避免死贴 */
+.userscripts-section .browser-settings-hint-row {
+  margin-bottom: 6px;
+}
+
+/* 用户脚本区独占剩余高度：section 弹性伸展，表格内部滚动，不限制高度 */
+.userscripts-section {
+  flex: 1;
+  min-height: 0;
+}
+
+.userscripts-section .browser-settings-table-wrap {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.userscripts-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userscripts-section-actions .browser-settings-scan-action {
+  margin-top: 0;
+}
+
+.userscripts-tab-count {
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* 表格单元格辅助 */
+.userscripts-cell-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+
+.userscripts-cell-version {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+}
+
+.userscripts-cell-matches {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+}
+
+.userscripts-cell-runat {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.userscripts-cell-rating {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--accent-amber-text, #b45309);
+}
+
+.userscripts-cell-installs {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* 搜索链接 */
+.userscripts-search-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+.userscripts-search-link:hover {
+  text-decoration: underline;
+}
+
+/* 安装按钮（表格内紧凑） */
+.userscripts-install-btn {
+  white-space: nowrap;
+}
+
+/* 编辑器弹窗：复用 FileEditModal 的弹出模式（Modal 大尺寸 + 内容区撑满） */
+.userscripts-editor-modal {
+  width: min(720px, calc(100vw - 48px));
+  height: min(560px, calc(100vh - 48px));
+}
+
+.userscripts-editor-modal .app-modal-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ===== Browser downloads panel & JS dialog (theme tokens) ===== */
+
+.browser-toolbar {
+  position: relative;
+}
+
+.browser-downloads-btn {
+  position: relative;
+}
+
+.browser-downloads-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent-blue);
+  color: var(--on-solid);
+  font-size: 9px;
+  line-height: 13px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
+.browser-downloads-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 4px;
+  z-index: 60;
+  width: 320px;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--island-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
+  overflow: hidden;
+}
+
+.browser-downloads-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.browser-downloads-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.1s ease,
+    color 0.1s ease;
+}
+
+.browser-downloads-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.browser-downloads-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.browser-downloads-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.browser-download-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+}
+
+.browser-download-item:hover {
+  background: var(--bg-hover);
+}
+
+.browser-download-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue-text);
+}
+
+.browser-download-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.browser-download-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-download-progress {
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+
+.browser-download-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-blue);
+  transition: width 0.25s ease;
+}
+
+.browser-download-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.browser-download-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.browser-download-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent-blue-text);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.browser-download-action:hover {
+  background: var(--accent-blue-bg);
 }
