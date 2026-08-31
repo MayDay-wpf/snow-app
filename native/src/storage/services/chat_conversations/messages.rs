@@ -11,6 +11,9 @@ use super::super::super::database;
 use super::super::super::{ChatMessagePage, ChatMessageRecord, UserMessageSummary};
 use super::in_clause_placeholders;
 
+/// SQLite 默认变量数上限为 999，分块执行避免超出。
+const MAX_VARIABLES: usize = 400;
+
 pub fn update_conversation_status(
     database_path: &Path,
     conversation_id: &str,
@@ -176,6 +179,11 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
         |error| database::database_error(database_path, "scan inline upload images", error),
     )?;
 
+    // 删除前收集全部 checkpoint id（消息级 + flow 级），供提交后清理快照文件；
+    // 收集失败不阻断删除（最多残留孤儿目录）
+    let checkpoint_ids =
+        collect_conversation_checkpoint_ids(&transaction, &conversation_ids).unwrap_or_default();
+
     for target_id in &conversation_ids {
         transaction
             .execute(
@@ -260,6 +268,9 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
     cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+
+    // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
+    cleanup_orphan_checkpoint_files(&checkpoint_ids);
 
     Ok(())
 }
@@ -392,8 +403,11 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
         |error| database::database_error(database_path, "scan inline upload images", error),
     )?;
 
-    // SQLite 默认变量数上限为 999，分块执行避免超出
-    const MAX_VARIABLES: usize = 400;
+    // 删除前收集全部 checkpoint id（消息级 + flow 级），供提交后清理快照文件；
+    // 收集失败不阻断删除（最多残留孤儿目录）
+    let checkpoint_ids =
+        collect_conversation_checkpoint_ids(&transaction, &all_target_ids).unwrap_or_default();
+
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         transaction
@@ -485,6 +499,9 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
     cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+
+    // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
+    cleanup_orphan_checkpoint_files(&checkpoint_ids);
 
     Ok(())
 }
@@ -864,5 +881,63 @@ fn cleanup_orphan_upload_files(
         if canonical_file.starts_with(&canonical_root) {
             let _ = fs::remove_file(&canonical_file);
         }
+    }
+}
+
+/// 收集待删会话关联的全部 checkpoint id：消息级（chat_messages.checkpoint_id）
+/// 与 workflow 节点 flow 级（workflow_node_sessions.flow_checkpoint_id）。
+/// 供删除事务提交后清理快照目录；去重后按收集顺序返回。
+pub fn collect_conversation_checkpoint_ids(
+    transaction: &rusqlite::Transaction<'_>,
+    conversation_ids: &[String],
+) -> rusqlite::Result<Vec<String>> {
+    let mut checkpoint_ids = Vec::new();
+    let mut seen = HashSet::new();
+    for chunk in conversation_ids.chunks(MAX_VARIABLES) {
+        let placeholders = in_clause_placeholders(chunk.len());
+        // 消息级 checkpoint：随 user 消息创建，回滚到该消息时恢复文件状态
+        let mut statement = transaction.prepare(&format!(
+            "SELECT checkpoint_id
+               FROM chat_messages
+              WHERE conversation_id IN ({placeholders})
+                AND checkpoint_id != ''"
+        ))?;
+        let rows = statement.query_map(params_from_iter(chunk.iter()), |row| {
+            row.get::<_, String>(0)
+        })?;
+        for row in rows {
+            let checkpoint_id = row?;
+            if seen.insert(checkpoint_id.clone()) {
+                checkpoint_ids.push(checkpoint_id);
+            }
+        }
+        // flow 级 checkpoint：workflow 节点（尤其 bash）对工作区的改动
+        let mut statement = transaction.prepare(&format!(
+            "SELECT flow_checkpoint_id
+               FROM workflow_node_sessions
+              WHERE conversation_id IN ({placeholders})
+                AND flow_checkpoint_id != ''"
+        ))?;
+        let rows = statement.query_map(params_from_iter(chunk.iter()), |row| {
+            row.get::<_, String>(0)
+        })?;
+        for row in rows {
+            let checkpoint_id = row?;
+            if seen.insert(checkpoint_id.clone()) {
+                checkpoint_ids.push(checkpoint_id);
+            }
+        }
+    }
+    Ok(checkpoint_ids)
+}
+
+/// 删除不再被任何会话引用的 checkpoint 快照目录（孤儿清理）。
+/// 物理删除失败仅产生孤儿目录，不阻断会话删除。
+pub fn cleanup_orphan_checkpoint_files(checkpoint_ids: &[String]) {
+    if checkpoint_ids.is_empty() {
+        return;
+    }
+    for checkpoint_id in checkpoint_ids {
+        let _ = crate::storage::services::checkpoint::delete_checkpoint(checkpoint_id.clone());
     }
 }

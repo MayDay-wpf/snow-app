@@ -7,6 +7,7 @@ use rusqlite::{params, params_from_iter, Connection, TransactionBehavior};
 
 use super::super::database;
 use super::super::{ChatConversationPage, ChatConversationRecord};
+use super::chat_conversations::{cleanup_orphan_checkpoint_files, collect_conversation_checkpoint_ids};
 
 /// 归档冷数据库（archive.db）专用服务。
 ///
@@ -1124,7 +1125,7 @@ pub fn restore_archived_conversations(
             })?;
     }
 
-    // ---- 清理归档库 ----
+// ---- 清理归档库 ----
     let mut deleted_rows: usize = 0;
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
@@ -1339,6 +1340,11 @@ pub fn delete_archived_conversations(
         }
     }
 
+    // 删除前收集全部 checkpoint id（消息级 + flow 级），供提交后清理快照文件；
+    // 收集失败不阻断删除（最多残留孤儿目录）
+    let checkpoint_ids =
+        collect_conversation_checkpoint_ids(&transaction, &all_target_ids).unwrap_or_default();
+
     let mut deleted_rows: usize = 0;
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
@@ -1439,6 +1445,9 @@ pub fn delete_archived_conversations(
         .map_err(|error| {
             database::database_error(archive_database_path, "delete archived conversations", error)
         })?;
+
+    // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
+    cleanup_orphan_checkpoint_files(&checkpoint_ids);
 
     // ---- 收缩归档库文件（与归档运行库对称）----
     // 永久删除从归档库删除了数据，归档库同样不会自动回收空闲页（auto_vacuum=NONE），
