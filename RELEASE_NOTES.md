@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.2.22
+
+## New Features
+
+- **Tampermonkey-Compatible Userscript Engine**: The built-in browser now runs Tampermonkey-compatible userscripts, with a new Userscripts tab in browser settings for listing, enabling, editing, and searching & installing scripts.
+- **`userscripts` Config Scope**: The `config` MCP tool gains a `userscripts` scope so the agent can create/update/toggle/delete scripts and manage GM_* values (`sourcePath` or `raw`).
+
+## Improvements
+
+- Chat scroll rebuilt: element-anchored scroll restore when loading older messages, enter/leave hysteresis buffers to stop mount/unmount oscillation, locked heights during placeholder→content transitions, and a transient scrollbar that appears while scrolling.
+- Markdown renderer cache bumped to 256 entries with scroll position preserved on full-block rebuilds; viewport virtualization streamlined.
+
+## Bug Fixes
+
+- Fixed chat scroll jitter and redundant layout writes.
+- Fixed the terminal light-theme styling.
+- Fixed a race where disabling a userscript had no effect; stale async snapshots no longer overwrite newer ones.
+
 ## v0.2.21
 
 ## New Features
