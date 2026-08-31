@@ -56,8 +56,9 @@ export type GreasyForkSearchItem = {
   ratingScore: number;
 };
 
-/** Greasy Fork 搜索结果。 */
+/** Greasy Fork 搜索结果（相对分页：API 无总数，以 hasMore 判断是否有下一页）。 */
 export type GreasyForkSearchResult = {
-  total: number;
+  page: number;
+  hasMore: boolean;
   results: GreasyForkSearchItem[];
 };

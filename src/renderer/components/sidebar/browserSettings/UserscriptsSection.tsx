@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   Loader2,
@@ -69,7 +71,8 @@ export function UserscriptsSection(): React.JSX.Element {
   const [searchResults, setSearchResults] = useState<GreasyForkSearchItem[]>(
     [],
   );
-  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchHasMore, setSearchHasMore] = useState(false);
   const [installingUrl, setInstallingUrl] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -170,26 +173,31 @@ export function UserscriptsSection(): React.JSX.Element {
   }, [deletingId, t]);
 
   // ---- 搜索 ----
-  const runSearch = useCallback(async (): Promise<void> => {
-    const keyword = searchQuery.trim();
-    if (!keyword) {
-      return;
-    }
-    setSearching(true);
-    setHasSearched(true);
-    try {
-      const result = await window.snow.searchUserscripts(keyword, 20);
-      setSearchResults(result.results);
-      setSearchTotal(result.total);
-    } catch (error) {
-      console.error("Failed to search userscripts:", error);
-      setNotice({ type: "error", text: t("userscripts.searchFailed") });
-      setSearchResults([]);
-      setSearchTotal(0);
-    } finally {
-      setSearching(false);
-    }
-  }, [searchQuery, t]);
+  /** page 从 1 起；提交新关键词时重置为 1，翻页时传目标页码。 */
+  const runSearch = useCallback(
+    async (page: number): Promise<void> => {
+      const keyword = searchQuery.trim();
+      if (!keyword) {
+        return;
+      }
+      setSearching(true);
+      setHasSearched(true);
+      try {
+        const result = await window.snow.searchUserscripts(keyword, 20, page);
+        setSearchResults(result.results);
+        setSearchPage(result.page);
+        setSearchHasMore(result.hasMore);
+      } catch (error) {
+        console.error("Failed to search userscripts:", error);
+        setNotice({ type: "error", text: t("userscripts.searchFailed") });
+        setSearchResults([]);
+        setSearchHasMore(false);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [searchQuery, t],
+  );
 
   const installScript = useCallback(
     async (item: GreasyForkSearchItem): Promise<void> => {
@@ -372,7 +380,7 @@ export function UserscriptsSection(): React.JSX.Element {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    void runSearch();
+                    void runSearch(1);
                   }
                 }}
                 placeholder={t("userscripts.searchPlaceholder")}
@@ -393,7 +401,7 @@ export function UserscriptsSection(): React.JSX.Element {
             <button
               type="button"
               className="browser-settings-scan-action userscripts-search-submit"
-              onClick={() => void runSearch()}
+              onClick={() => void runSearch(1)}
               disabled={searching || !searchQuery.trim()}
             >
               {searching ? (
@@ -431,13 +439,6 @@ export function UserscriptsSection(): React.JSX.Element {
             ) : null
           ) : (
             <>
-              <div className="browser-settings-hint-row">
-                <span>
-                  {t("userscripts.searchTotal", {
-                    values: { count: String(searchTotal) },
-                  })}
-                </span>
-              </div>
               <div className="browser-settings-table-wrap">
                 <table className="api-settings-table">
                   <thead>
@@ -517,6 +518,37 @@ export function UserscriptsSection(): React.JSX.Element {
                 </table>
               </div>
             </>
+          )}
+
+          {/* 相对分页：API 不返回总数，hasMore 控制下一页可用性 */}
+          {hasSearched && (searchResults.length > 0 || searchPage > 1) && (
+            <div className="userscripts-pagination">
+              <button
+                type="button"
+                className="userscripts-page-btn"
+                disabled={searching || searchPage <= 1}
+                onClick={() => void runSearch(searchPage - 1)}
+                title={t("userscripts.prevPage")}
+                aria-label={t("userscripts.prevPage")}
+              >
+                <ChevronLeft size={14} strokeWidth={1.8} />
+              </button>
+              <span className="userscripts-page-indicator">
+                {t("userscripts.pageIndicator", {
+                  values: { page: String(searchPage) },
+                })}
+              </span>
+              <button
+                type="button"
+                className="userscripts-page-btn"
+                disabled={searching || !searchHasMore}
+                onClick={() => void runSearch(searchPage + 1)}
+                title={t("userscripts.nextPage")}
+                aria-label={t("userscripts.nextPage")}
+              >
+                <ChevronRight size={14} strokeWidth={1.8} />
+              </button>
+            </div>
           )}
         </>
       )}

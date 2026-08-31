@@ -36,6 +36,10 @@ type CachedUserscript = {
 const cache = new Map<string, CachedUserscript>();
 let cacheReady = false;
 
+// 并发刷新保护：只允许最新一次 loadCache 的结果写入缓存，
+// 防止先发起、后完成的旧快照覆盖新快照（如连续快速切换多个开关）。
+let loadGeneration = 0;
+
 /** @require / @resource 内容缓存（异步预热，同步命中）。 */
 const dependencyCache = new Map<string, string>();
 const pendingDependencies = new Map<string, Promise<void>>();
@@ -67,6 +71,7 @@ export const warmUserscriptDependency = (url: string): void => {
 };
 
 const loadCache = async (native: NativeBridge): Promise<void> => {
+  const generation = ++loadGeneration;
   try {
     const records = await native.listUserscripts();
     const next = new Map<string, CachedUserscript>();
@@ -109,6 +114,10 @@ const loadCache = async (native: NativeBridge): Promise<void> => {
         raw,
         values,
       });
+    }
+    if (generation !== loadGeneration) {
+      // 已有更新的刷新任务完成或发起，本快照过期，丢弃。
+      return;
     }
     cache.clear();
     for (const [id, item] of next) {

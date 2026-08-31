@@ -36,9 +36,10 @@ export type GreasyForkSearchItem = {
   ratingScore: number;
 };
 
-/** Greasy Fork 搜索响应（归一化后）。 */
+/** Greasy Fork 搜索响应（归一化后；API 不返回总数，用 hasMore 做相对分页）。 */
 export type GreasyForkSearchResult = {
-  total: number;
+  page: number;
+  hasMore: boolean;
   results: GreasyForkSearchItem[];
 };
 
@@ -245,13 +246,14 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
 
   ipcMain.handle(
     "userscripts:set-enabled",
-    (_event, scriptId: unknown, enabled: unknown) => {
+    async (_event, scriptId: unknown, enabled: unknown) => {
       if (!isNonEmptyString(scriptId)) {
         throw new Error("Userscript id is required");
       }
-      const result = native.setUserscriptEnabled(scriptId, enabled === true);
+      // 必须等写库完成后再刷新匹配缓存，否则读库与写库并发，
+      // 缓存可能拿到旧的 enabled 状态，禁用不生效。
+      await native.setUserscriptEnabled(scriptId, enabled === true);
       refreshUserscriptSyncStore(native);
-      return result;
     },
   );
 
@@ -263,16 +265,19 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
       _event,
       query: unknown,
       perPage: unknown,
+      page: unknown,
     ): Promise<GreasyForkSearchResult> => {
       const keyword = isNonEmptyString(query) ? query.trim() : "";
       if (!keyword) {
-        return { total: 0, results: [] };
+        return { page: 1, hasMore: false, results: [] };
       }
       const size = Math.min(Math.max(Number(perPage) || 20, 1), 50);
+      const pageNo = Math.min(Math.max(Math.trunc(Number(page) || 1), 1), 200);
       const params = new URLSearchParams({
         q: keyword,
         per_page: String(size),
         sort: "total_installs",
+        page: String(pageNo),
       });
       const response = await net.fetch(
         `${GREASY_FORK_SEARCH_URL}?${params.toString()}`,
@@ -286,7 +291,6 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
       }
       const data = (await response.json()) as {
         query?: unknown;
-        term?: unknown;
       };
       const results = Array.isArray(data.query)
         ? data.query
@@ -294,7 +298,8 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
             .filter((item): item is GreasyForkSearchItem => item !== null)
         : [];
       return {
-        total: results.length,
+        page: pageNo,
+        hasMore: results.length >= size,
         results,
       };
     },

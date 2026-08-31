@@ -101,7 +101,7 @@ const dispatchRender = (content: string): Promise<string> => {
  *
  * Capped at the same size as the worker cache for parity.
  */
-const CACHE_MAX_ENTRIES = 64;
+const CACHE_MAX_ENTRIES = 256;
 const htmlCache = new Map<string, string>();
 
 const cacheGet = (key: string): string | undefined => {
@@ -156,6 +156,44 @@ const findLastNonEmptyTextNode = (root: Node): Text | null => {
     }
   }
   return last;
+};
+
+/**
+ * 整块重建 HTML 前后保持最近可滚动祖先的「距底距离」。
+ *
+ * markdown 结构变化（新段落/代码块开始闭合等）时流式渲染走 innerHTML
+ * 整块重建，内容高度存在中间态闪变（如未闭合代码块先渲染为段落），
+ * 直接替换会让滚动位置被浏览器 clamp/偏移，lerp 追平前的几帧表现为
+ * 内容抖动。重建前记录距底距离，替换后立即回写 scrollTop：贴底场景
+ * 保持吸底，阅读场景保持视口相对位置。
+ */
+const replaceHtmlKeepingScroll = (node: HTMLElement, html: string): void => {
+  let scroller: HTMLElement | null = node.parentElement;
+  while (scroller && scroller !== document.body) {
+    const overflowY = window.getComputedStyle(scroller).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") {
+      break;
+    }
+    scroller = scroller.parentElement;
+  }
+  const distanceFromBottom = scroller
+    ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    : 0;
+  node.innerHTML = html;
+  if (!scroller) {
+    return;
+  }
+  const maxScrollTop = Math.max(
+    0,
+    scroller.scrollHeight - scroller.clientHeight,
+  );
+  scroller.scrollTop = Math.max(
+    0,
+    Math.min(
+      maxScrollTop,
+      scroller.scrollHeight - scroller.clientHeight - distanceFromBottom,
+    ),
+  );
 };
 
 /**
@@ -468,7 +506,7 @@ export const MarkdownBlock = memo(
       if (!streaming) {
         lastStreamTextRef.current = "";
         if (html !== lastHtmlRef.current) {
-          node.innerHTML = html;
+          replaceHtmlKeepingScroll(node, html);
           lastHtmlRef.current = html;
         }
         return;
@@ -477,7 +515,7 @@ export const MarkdownBlock = memo(
       const doc = new DOMParser().parseFromString(html, "text/html");
       const newLastText = findLastNonEmptyTextNode(doc.body);
       if (!newLastText) {
-        node.innerHTML = html;
+        replaceHtmlKeepingScroll(node, html);
         lastHtmlRef.current = html;
         return;
       }
@@ -486,7 +524,7 @@ export const MarkdownBlock = memo(
 
       // 首帧或结构变化：整块重建，并让新最后文本整体淡入。
       if (!prevText || !fullText.startsWith(prevText)) {
-        node.innerHTML = html;
+        replaceHtmlKeepingScroll(node, html);
         lastHtmlRef.current = html;
         lastStreamTextRef.current = fullText;
         const domLastText = findLastNonEmptyTextNode(node);

@@ -27,8 +27,9 @@ export const userscriptsApi = {
   searchUserscripts: (
     query: string,
     perPage?: number,
+    page?: number,
   ): Promise<GreasyForkSearchResult> =>
-    ipcRenderer.invoke("userscripts:search", query, perPage ?? 20),
+    ipcRenderer.invoke("userscripts:search", query, perPage ?? 20, page ?? 1),
   installUserscript: (codeUrl: string): Promise<UserscriptRecord> =>
     ipcRenderer.invoke("userscripts:install", codeUrl),
   // ===== GM 值（管理 UI 查看用） =====
