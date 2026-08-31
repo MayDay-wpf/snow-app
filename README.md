@@ -16,6 +16,9 @@
 
 Snow App is a developer-focused desktop application that integrates AI-powered chat, terminal emulation, SSH remote management, Git tooling, and a built-in browser panel into a single unified workspace. It leverages a Rust native module for performance-critical operations such as SQLite storage, AI streaming, file watching, and HTTP requests.
 
+<img width="1525" height="1058" alt="image" src="https://github.com/user-attachments/assets/343e09f8-e085-4a2b-99ca-011e244460f0" />
+
+
 ## Features
 
 - **AI Chat** - Streaming AI assistant with markdown rendering, syntax highlighting, and configurable system prompts
