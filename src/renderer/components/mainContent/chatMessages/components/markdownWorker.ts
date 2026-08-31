@@ -442,7 +442,7 @@ markdown.use(texmath, {
  *   - The same worker instance is reused across all MarkdownBlock instances.
  *   - Cache lookups do not require a structured-clone round-trip.
  */
-const CACHE_MAX_ENTRIES = 256;
+const CACHE_MAX_ENTRIES = 64;
 const renderCache = new Map<string, string>();
 
 const cacheGet = (key: string): string | undefined => {

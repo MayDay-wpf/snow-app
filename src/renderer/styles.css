@@ -7383,9 +7383,6 @@ input {
   flex-shrink: 1;
   flex-basis: auto;
   overflow-y: auto;
-  /* 滚动位置完全由程序接管（吸底跟随/虚拟化高度保持/markdown 重建
-     锚定），禁用浏览器滚动锚定，避免其补偿与程序滚动方向冲突造成抖动。 */
-  overflow-anchor: none;
   scrollbar-gutter: stable;
   scrollbar-color: transparent transparent;
   /* Bottom padding matches the mask fade height so the latest message rests
@@ -9311,23 +9308,10 @@ input {
   display: block;
 }
 
-/* 高度锁定期（占位符切回真实内容、markdown 异步渲染就绪前）：
-   wrapper 固定为卸载前缓存高度，隐藏尚未撑开的溢出内容，
-   防止 scrollHeight 突减造成视口空白与错位。释放后由内容决定高度。 */
-.virtualized-message.is-settling {
-  overflow: hidden;
-}
-
 .virtualized-message.is-placeholder {
   /* Height is set inline by VirtualizedMessage based on the last measured
      value. Keep the node paint-cheap: no background, no children. */
   contain: strict;
-}
-
-/* 虚拟化重挂载（占位符切回真实内容）不重放入场动画：输入框增高等
-   视口变化会让边缘消息反复进出可见集，动画重放表现为内容闪烁抖动。 */
-.virtualized-message.no-enter .chat-message-group {
-  animation: none;
 }
 
 /* Tool-role messages render nothing but must keep a stable React key. */
@@ -11141,9 +11125,6 @@ input {
   max-height: 200px;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 同 chat-area：滚动由 ThinkingBlock 的 lerp 跟随程序接管，禁用
-     浏览器滚动锚定，避免 markdown 流式重建时的锚定补偿与 lerp 打架。 */
-  overflow-anchor: none;
   scrollbar-gutter: stable;
   scrollbar-color: transparent transparent;
 }

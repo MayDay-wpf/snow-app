@@ -44,11 +44,8 @@ type ChatContentProps = {
 type PendingScrollRestore = {
   conversationId: string;
   requestId: number;
-  /** 加载前视口顶部的消息包装元素（虚拟化 wrapper 常驻挂载，key 稳定）。
-   *  恢复按元素视口位置对齐，不依赖 scrollHeight 差值——新加载消息在
-   *  测量前以估算占位符参与布局，差值会严重低估导致恢复错位与空白。 */
-  anchor: HTMLElement;
-  anchorViewportTop: number;
+  scrollHeight: number;
+  scrollTop: number;
 };
 
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
@@ -680,32 +677,12 @@ const ChatContentBody = ({
 
     const requestId = ++scrollRestoreRequestIdRef.current;
     isLoadingOlderWithScrollRef.current = true;
-    // 锚定视口顶部的消息包装元素（虚拟化 wrapper 常驻挂载，恢复时必然
-    // 仍可定位），恢复时按元素视口位置对齐。
-    const containerRect = container.getBoundingClientRect();
-    let anchor: HTMLElement | null = null;
-    let anchorViewportTop = 0;
-    for (const wrapper of container.querySelectorAll<HTMLElement>(
-      "[data-message-id]",
-    )) {
-      const rect = wrapper.getBoundingClientRect();
-      if (rect.bottom > containerRect.top) {
-        anchor = wrapper;
-        anchorViewportTop = rect.top - containerRect.top;
-        break;
-      }
-    }
-    if (!anchor) {
-      anchor = container.firstElementChild as HTMLElement | null;
-    }
-    if (anchor) {
-      pendingScrollRestoreRef.current = {
-        conversationId,
-        requestId,
-        anchor,
-        anchorViewportTop,
-      };
-    }
+    pendingScrollRestoreRef.current = {
+      conversationId,
+      requestId,
+      scrollHeight: container.scrollHeight,
+      scrollTop: container.scrollTop,
+    };
 
     try {
       await loadOlderMessages();
@@ -717,13 +694,12 @@ const ChatContentBody = ({
             pendingRestore &&
             pendingRestore.requestId === requestId &&
             pendingRestore.conversationId === activeConversationIdRef.current &&
-            scrollRef.current === container &&
-            pendingRestore.anchor.isConnected
+            scrollRef.current === container
           ) {
-            const newTop =
-              pendingRestore.anchor.getBoundingClientRect().top -
-              container.getBoundingClientRect().top;
-            container.scrollTop += newTop - pendingRestore.anchorViewportTop;
+            const addedHeight =
+              container.scrollHeight - pendingRestore.scrollHeight;
+            container.scrollTop =
+              pendingRestore.scrollTop + Math.max(0, addedHeight);
           }
 
           if (scrollRestoreRequestIdRef.current === requestId) {
