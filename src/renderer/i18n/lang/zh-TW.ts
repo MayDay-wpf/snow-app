@@ -3776,6 +3776,8 @@ export const zhTW = {
   "settings.shortcutCycleProject": "循環切換專案",
   "settings.shortcutEnabled": "啟用",
   "settings.shortcutFocusInput": "聚焦對話輸入框",
+  "settings.shortcutToggleSidebar": "收起/展開左側邊欄",
+  "settings.shortcutToggleRightPanel": "收起/展開右側面板",
   "settings.shortcutForegroundOnly": "僅台前生效",
   "settings.shortcutForegroundOnlyNote":
     '開啟"僅台前生效"時，快捷鍵僅在應用程式視窗聚焦時生效；關閉後只要程序未退出即生效（目前實作受限於應用程式聚焦場景）。',

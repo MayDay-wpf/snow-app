@@ -2683,6 +2683,8 @@ export const zhCN = {
   "settings.shortcutTogglePet": "切换宠物启停",
   "settings.shortcutEnabled": "启用",
   "settings.shortcutFocusInput": "聚焦对话输入框",
+  "settings.shortcutToggleSidebar": "收起/展开左侧边栏",
+  "settings.shortcutToggleRightPanel": "收起/展开右侧面板",
   "settings.shortcutForegroundOnly": "仅台前生效",
   "settings.shortcutForegroundOnlyNote":
     '开启"仅台前生效"时，快捷键仅在应用窗口聚焦时生效；关闭后只要进程未退出即生效（当前实现受限于应用聚焦场景）。',

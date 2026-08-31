@@ -185,7 +185,7 @@ export const shouldPreventDefault = (key: string): boolean => {
 };
 
 /**
- * 10 个快捷键动作的有序列表。
+ * 12 个快捷键动作的有序列表。
  * 排列规则：台前生效的快捷键在前（默认 foregroundOnly=true），
  * 全局生效的 toggleWindow（默认 foregroundOnly=false）放最后。
  */
@@ -199,6 +199,8 @@ export const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
   "cycleApiProfile",
   "togglePet",
   "focusInput",
+  "toggleSidebar",
+  "toggleRightPanel",
   "toggleWindow",
 ];
 
@@ -250,6 +252,14 @@ export const SHORTCUT_META: Record<KeyboardShortcutAction, ShortcutMeta> = {
   focusInput: {
     descKey: "settings.shortcutFocusInput",
     descDefault: "Focus chat input",
+  },
+  toggleSidebar: {
+    descKey: "settings.shortcutToggleSidebar",
+    descDefault: "Collapse/expand left sidebar",
+  },
+  toggleRightPanel: {
+    descKey: "settings.shortcutToggleRightPanel",
+    descDefault: "Collapse/expand right panel",
   },
 };
 

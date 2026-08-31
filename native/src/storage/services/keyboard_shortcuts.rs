@@ -74,7 +74,27 @@ fn default_focus_input_config() -> KeyboardShortcutConfig {
     }
 }
 
-/// 完整快捷键设置：9 个快捷键各自的配置。
+/// toggleSidebar 的默认配置：ctrl+shift+l（收起/展开左侧边栏）。
+/// foreground_only 默认 true：收起/展开侧边栏由渲染进程快捷键触发（应用聚焦时生效）。
+fn default_toggle_sidebar_config() -> KeyboardShortcutConfig {
+    KeyboardShortcutConfig {
+        key: DEFAULT_TOGGLE_SIDEBAR_KEY.to_string(),
+        enabled: true,
+        foreground_only: true,
+    }
+}
+
+/// toggleRightPanel 的默认配置：ctrl+shift+r（收起/展开右侧面板）。
+/// foreground_only 默认 true：收起/展开右面板由渲染进程快捷键触发（应用聚焦时生效）。
+fn default_toggle_right_panel_config() -> KeyboardShortcutConfig {
+    KeyboardShortcutConfig {
+        key: DEFAULT_TOGGLE_RIGHT_PANEL_KEY.to_string(),
+        enabled: true,
+        foreground_only: true,
+    }
+}
+
+/// 完整快捷键设置：12 个快捷键各自的配置。
 /// 序列化为 JSON 存储在 system_settings 表中。
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -98,6 +118,14 @@ pub struct KeyboardShortcutsSettings {
     /// （mod+i，见 default_focus_input_config）。
     #[serde(default = "default_focus_input_config")]
     pub focus_input: KeyboardShortcutConfig,
+    /// 收起/展开左侧边栏。旧 JSON 缺少该字段时回退到默认配置
+    /// （ctrl+shift+l，见 default_toggle_sidebar_config）。
+    #[serde(default = "default_toggle_sidebar_config")]
+    pub toggle_sidebar: KeyboardShortcutConfig,
+    /// 收起/展开右侧面板。旧 JSON 缺少该字段时回退到默认配置
+    /// （ctrl+shift+r，见 default_toggle_right_panel_config）。
+    #[serde(default = "default_toggle_right_panel_config")]
+    pub toggle_right_panel: KeyboardShortcutConfig,
 }
 
 impl Default for KeyboardShortcutsSettings {
@@ -141,17 +169,22 @@ impl Default for KeyboardShortcutsSettings {
             toggle_window: default_toggle_window_config(),
             toggle_pet: default_toggle_pet_config(),
             focus_input: default_focus_input_config(),
+            toggle_sidebar: default_toggle_sidebar_config(),
+            toggle_right_panel: default_toggle_right_panel_config(),
         }
     }
 }
 
-/// 10 个快捷键的默认按键绑定（与渲染层 useKeyboardShortcuts 原始硬编码一致）。
+/// 12 个快捷键的默认按键绑定（与渲染层 useKeyboardShortcuts 原始硬编码一致）。
 /// `mod` 为平台主修饰键占位符（macOS=Cmd，其他=Ctrl）。
 /// cycleApiProfile 平台相关：macOS 用 Ctrl+P（Option/Alt 会输入特殊字符），
 /// 其他平台用 Alt+P。
 /// toggleWindow 用 mod+shift+h：macOS ⌘⇧H / 其他 Ctrl+Shift+H，全局生效。
 /// togglePet 用 mod+shift+p：macOS ⌘⇧P / 其他 Ctrl+Shift+P，仅台前生效。
 /// focusInput 用 mod+i：macOS ⌘I / 其他 Ctrl+I，仅台前生效。
+/// toggleSidebar / toggleRightPanel 用 mod+shift+l / mod+shift+r：
+/// macOS ⌘⇧L / ⌘⇧R，其他 Ctrl+Shift+L / Ctrl+Shift+R，
+/// 收起/展开左右侧边栏，仅台前生效。
 const DEFAULT_CANCEL_SESSION_KEY: &str = "escape";
 const DEFAULT_OPEN_SEARCH_KEY: &str = "mod+f";
 const DEFAULT_OPEN_MEMO_KEY: &str = "mod+b";
@@ -166,6 +199,8 @@ const DEFAULT_CYCLE_API_PROFILE_KEY: &str = if cfg!(target_os = "macos") {
 const DEFAULT_TOGGLE_WINDOW_KEY: &str = "mod+shift+h";
 const DEFAULT_TOGGLE_PET_KEY: &str = "mod+shift+p";
 const DEFAULT_FOCUS_INPUT_KEY: &str = "mod+i";
+const DEFAULT_TOGGLE_SIDEBAR_KEY: &str = "mod+shift+l";
+const DEFAULT_TOGGLE_RIGHT_PANEL_KEY: &str = "mod+shift+r";
 
 impl KeyboardShortcutsSettings {
     /// 规范化：对每个配置校验 key 合法性，不合法时回退到默认按键绑定。
@@ -206,16 +241,22 @@ impl KeyboardShortcutsSettings {
         if !is_valid_key(&self.focus_input.key) {
             self.focus_input.key = DEFAULT_FOCUS_INPUT_KEY.to_string();
         }
+        if !is_valid_key(&self.toggle_sidebar.key) {
+            self.toggle_sidebar.key = DEFAULT_TOGGLE_SIDEBAR_KEY.to_string();
+        }
+        if !is_valid_key(&self.toggle_right_panel.key) {
+            self.toggle_right_panel.key = DEFAULT_TOGGLE_RIGHT_PANEL_KEY.to_string();
+        }
     }
 }
 
-/// 默认值：10 个快捷键各自默认 key + enabled=true；除 toggleWindow 外
+/// 默认值：12 个快捷键各自默认 key + enabled=true；除 toggleWindow 外
 /// foreground_only=true，toggleWindow 默认 false（全局生效，窗口隐藏时
 /// 也要能呼出）。与 DEFAULT_*_KEY 常量保持一致；cycleApiProfile 的 key
 /// 平台相关，动态构造。
 fn default_keyboard_shortcuts_value() -> String {
     format!(
-        r#"{{"cancelSession":{{"key":"escape","enabled":true,"foregroundOnly":true}},"openSearch":{{"key":"mod+f","enabled":true,"foregroundOnly":true}},"openMemo":{{"key":"mod+b","enabled":true,"foregroundOnly":true}},"openTodo":{{"key":"mod+t","enabled":true,"foregroundOnly":true}},"cycleProject":{{"key":"mod+backtick","enabled":true,"foregroundOnly":true}},"openProjectExplorer":{{"key":"mod+d","enabled":true,"foregroundOnly":true}},"cycleApiProfile":{{"key":"{DEFAULT_CYCLE_API_PROFILE_KEY}","enabled":true,"foregroundOnly":true}},"toggleWindow":{{"key":"mod+shift+h","enabled":true,"foregroundOnly":false}},"togglePet":{{"key":"mod+shift+p","enabled":true,"foregroundOnly":true}},"focusInput":{{"key":"mod+i","enabled":true,"foregroundOnly":true}}}}"#
+        r#"{{"cancelSession":{{"key":"escape","enabled":true,"foregroundOnly":true}},"openSearch":{{"key":"mod+f","enabled":true,"foregroundOnly":true}},"openMemo":{{"key":"mod+b","enabled":true,"foregroundOnly":true}},"openTodo":{{"key":"mod+t","enabled":true,"foregroundOnly":true}},"cycleProject":{{"key":"mod+backtick","enabled":true,"foregroundOnly":true}},"openProjectExplorer":{{"key":"mod+d","enabled":true,"foregroundOnly":true}},"cycleApiProfile":{{"key":"{DEFAULT_CYCLE_API_PROFILE_KEY}","enabled":true,"foregroundOnly":true}},"toggleWindow":{{"key":"mod+shift+h","enabled":true,"foregroundOnly":false}},"togglePet":{{"key":"mod+shift+p","enabled":true,"foregroundOnly":true}},"focusInput":{{"key":"mod+i","enabled":true,"foregroundOnly":true}},"toggleSidebar":{{"key":"mod+shift+l","enabled":true,"foregroundOnly":true}},"toggleRightPanel":{{"key":"mod+shift+r","enabled":true,"foregroundOnly":true}}}}"#
     )
 }
 

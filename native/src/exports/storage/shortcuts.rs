@@ -3,7 +3,7 @@
 use super::*;
 
 // ============================================================================
-// Keyboard shortcuts — 快捷键设置，10 个快捷键各自 enabled + foregroundOnly。
+// Keyboard shortcuts — 快捷键设置，12 个快捷键各自 enabled + foregroundOnly。
 // ============================================================================
 
 #[napi(object)]
@@ -49,6 +49,8 @@ pub struct KeyboardShortcutsSettingsNapi {
     pub toggle_window: KeyboardShortcutConfigNapi,
     pub toggle_pet: KeyboardShortcutConfigNapi,
     pub focus_input: KeyboardShortcutConfigNapi,
+    pub toggle_sidebar: KeyboardShortcutConfigNapi,
+    pub toggle_right_panel: KeyboardShortcutConfigNapi,
 }
 
 impl From<crate::storage::services::keyboard_shortcuts::KeyboardShortcutsSettings>
@@ -66,6 +68,8 @@ impl From<crate::storage::services::keyboard_shortcuts::KeyboardShortcutsSetting
             toggle_window: s.toggle_window.into(),
             toggle_pet: s.toggle_pet.into(),
             focus_input: s.focus_input.into(),
+            toggle_sidebar: s.toggle_sidebar.into(),
+            toggle_right_panel: s.toggle_right_panel.into(),
         }
     }
 }
@@ -85,6 +89,8 @@ impl From<KeyboardShortcutsSettingsNapi>
             toggle_window: s.toggle_window.into(),
             toggle_pet: s.toggle_pet.into(),
             focus_input: s.focus_input.into(),
+            toggle_sidebar: s.toggle_sidebar.into(),
+            toggle_right_panel: s.toggle_right_panel.into(),
         }
     }
 }

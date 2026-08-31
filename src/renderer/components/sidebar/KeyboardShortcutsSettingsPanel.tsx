@@ -29,6 +29,8 @@ import {
  * toggleWindow 用 mod+shift+h（全局生效，由主进程 globalShortcut 注册）。
  * togglePet 用 mod+shift+p（仅台前生效，由渲染进程快捷键触发）。
  * focusInput 用 mod+i（仅台前生效，由渲染进程快捷键触发）。
+ * toggleSidebar / toggleRightPanel 用 ctrl+shift+l / ctrl+shift+r
+ * （仅台前生效，由渲染进程快捷键触发，收起/展开左右侧边栏）。
  */
 const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   cancelSession: "escape",
@@ -41,6 +43,8 @@ const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   toggleWindow: "mod+shift+h",
   togglePet: "mod+shift+p",
   focusInput: "mod+i",
+  toggleSidebar: "mod+shift+l",
+  toggleRightPanel: "mod+shift+r",
 };
 
 type KeyboardShortcutsSettingsPanelProps = {

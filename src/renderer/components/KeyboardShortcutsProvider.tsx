@@ -17,7 +17,7 @@ import { isMacOS } from "../utils/shortcutUtils";
 
 /**
  * 所有快捷键的默认配置。当后端尚未 seed 或读取失败时使用。
- * 10 个快捷键默认 enabled=true；除 toggleWindow 外默认 foregroundOnly=true。
+ * 12 个快捷键默认 enabled=true；除 toggleWindow 外默认 foregroundOnly=true。
  * cycleApiProfile 的默认键平台相关：macOS 用 Ctrl+P（Alt 会输入特殊字符），
  * 其他平台用 Alt+P。
  * toggleWindow（mod+shift+h）默认 foregroundOnly=false：它由主进程
@@ -26,6 +26,8 @@ import { isMacOS } from "../utils/shortcutUtils";
  * 快捷键触发，仅应用聚焦时生效。
  * focusInput（mod+i）默认 foregroundOnly=true：聚焦输入框由渲染进程
  * 快捷键触发，仅应用聚焦时生效。
+ * toggleSidebar / toggleRightPanel（mod+shift+l / mod+shift+r）默认
+ * foregroundOnly=true：收起/展开左右侧边栏由渲染进程快捷键触发。
  */
 const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
   cancelSession: { key: "escape", enabled: true, foregroundOnly: true },
@@ -51,6 +53,16 @@ const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
   },
   focusInput: {
     key: "mod+i",
+    enabled: true,
+    foregroundOnly: true,
+  },
+  toggleSidebar: {
+    key: "mod+shift+l",
+    enabled: true,
+    foregroundOnly: true,
+  },
+  toggleRightPanel: {
+    key: "mod+shift+r",
     enabled: true,
     foregroundOnly: true,
   },

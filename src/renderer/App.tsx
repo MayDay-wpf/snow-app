@@ -123,6 +123,12 @@ const ShortcutHandlerBridge = (): null => {
     const unsubFocusInput = registerHandler("focusInput", () => {
       shortcutEvents.emit("focus-chat-input");
     });
+    const unsubToggleSidebar = registerHandler("toggleSidebar", () => {
+      shortcutEvents.emit("toggle-sidebar");
+    });
+    const unsubToggleRightPanel = registerHandler("toggleRightPanel", () => {
+      shortcutEvents.emit("toggle-right-panel");
+    });
 
     return () => {
       unsubCancel();
@@ -134,6 +140,8 @@ const ShortcutHandlerBridge = (): null => {
       unsubCycleApiProfile();
       unsubTogglePet();
       unsubFocusInput();
+      unsubToggleSidebar();
+      unsubToggleRightPanel();
     };
   }, [registerHandler]);
 
@@ -208,6 +216,23 @@ export const App = (): React.JSX.Element => {
       }
     });
   }, [isRightPanelCollapsed, clearAutoCollapsed]);
+
+  // 快捷键切换左右侧边栏收起/展开（toggleSidebar / toggleRightPanel）：
+  // 手动切换视为用户接管，清除自动恢复标记（手动收起的不再自动展开）。
+  useEffect(() => {
+    const unsubSidebar = shortcutEvents.on("toggle-sidebar", () => {
+      clearAutoCollapsed("sidebar");
+      setIsSidebarCollapsed((isCollapsed) => !isCollapsed);
+    });
+    const unsubRightPanel = shortcutEvents.on("toggle-right-panel", () => {
+      clearAutoCollapsed("rightPanel");
+      setIsRightPanelCollapsed((isCollapsed) => !isCollapsed);
+    });
+    return () => {
+      unsubSidebar();
+      unsubRightPanel();
+    };
+  }, [clearAutoCollapsed]);
 
   // 窗口缩窄时按缩窄方向自动收起对应侧面板，拉宽到足够宽度时自动恢复：
   // 从左边缩窄 → 收起侧栏；从右边缩窄 → 收起右面板。

@@ -342,6 +342,8 @@ export type KeyboardShortcutsSettings = {
   toggleWindow: KeyboardShortcutConfig;
   togglePet: KeyboardShortcutConfig;
   focusInput: KeyboardShortcutConfig;
+  toggleSidebar: KeyboardShortcutConfig;
+  toggleRightPanel: KeyboardShortcutConfig;
 };
 
 export type CodebaseEmbedProgress = {
