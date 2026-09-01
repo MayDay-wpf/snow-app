@@ -10,7 +10,6 @@ import { MainContent } from "./components/MainContent";
 import { RightPanel, type RightPanelRef } from "./components/RightPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
-import { WindowControls } from "./components/WindowControls";
 import { NotificationNavigationBridge } from "./components/NotificationNavigationBridge";
 import {
   ChatConversationProvider,
@@ -576,7 +575,6 @@ export const App = (): React.JSX.Element => {
         />
         <ShortcutHandlerBridge />
         <div ref={appShellRef} className={shellClasses} style={panelSizeStyle}>
-          {isWindows && <WindowControls />}
           <TopBar
             isSidebarCollapsed={isSidebarCollapsed}
             isRightPanelCollapsed={isRightPanelCollapsed}
@@ -648,6 +646,9 @@ export const App = (): React.JSX.Element => {
               isResizing={activeResizeTarget !== null}
               activeDirectory={activeDirectory}
               onSelectMainView={setActiveMainView}
+              onToggleRightPanelFullscreen={() =>
+                setIsRightPanelFullscreen((isFullscreen) => !isFullscreen)
+              }
             />
           </div>
           {showSshWizard ? (

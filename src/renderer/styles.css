@@ -300,6 +300,46 @@ input {
   }
 }
 
+/* ===== Windows 合并式顶栏 =====
+   Windows 无原生标题栏：窗口控制按钮（最小化/最大化/关闭）嵌入 TopBar
+   右侧卡片、标准大小 LOGO 移至左侧卡片后，独立的窗口控制条整体移除，
+   顶栏合并为单行，把原本标题条的空缺区域利用起来。仅 Windows 生效。 */
+.app-shell.is-windows .top-bar-left {
+  padding: 0 16px;
+}
+
+.top-bar-logo {
+  width: 32px;
+  height: 32px;
+  margin-right: auto;
+  object-fit: contain;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.top-bar .window-controls-buttons {
+  margin-left: 4px;
+}
+
+.top-bar .window-control-btn {
+  width: 40px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+}
+
+/* 右面板收起时第三列固定 49px，容纳不下窗口控制按钮：Windows 下按内容自适应 */
+.app-shell.is-windows.right-panel-collapsed .top-bar,
+.app-shell.is-windows.sidebar-collapsed.right-panel-collapsed .top-bar {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) auto;
+}
+
+@media (max-width: 720px) {
+  .app-shell.is-windows.sidebar-collapsed.right-panel-collapsed .top-bar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+}
+
 .top-bar-plus-menu {
   position: relative;
   display: flex;
@@ -753,37 +793,12 @@ input {
   display: none;
 }
 
-/* ===== Window Controls Bar (Windows) ===== */
-.window-controls-bar {
-  display: flex;
-  align-items: center;
-  height: 32px;
-  flex-shrink: 0;
-  background: var(--app-bg);
-  -webkit-app-region: drag;
-}
-
-.window-controls-logo {
-  display: flex;
-  align-items: center;
-  padding-left: 12px;
-  -webkit-app-region: no-drag;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.window-controls-logo img {
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-  pointer-events: none;
-}
-
+/* ===== Window Controls (Windows, 嵌入 TopBar 右侧卡片) ===== */
 .window-controls-buttons {
   display: flex;
   align-items: center;
-  margin-left: auto;
-  height: 100%;
+  gap: 2px;
+  height: 32px;
   -webkit-app-region: no-drag;
 }
 
@@ -29100,6 +29115,24 @@ input {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-light);
   background: var(--surface-island-muted);
+}
+
+/* Windows：tab 栏末尾的「新建 + 最大化」操作区与 tab 列表同行显示 */
+.app-shell.is-windows .right-panel-tabs {
+  flex-direction: row;
+}
+
+.app-shell.is-windows .right-panel-tab-list {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-panel-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  flex-shrink: 0;
 }
 
 .right-panel-tab-list {

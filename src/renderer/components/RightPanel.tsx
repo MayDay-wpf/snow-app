@@ -1,4 +1,12 @@
-import { X } from "lucide-react";
+import {
+  Database,
+  Globe,
+  Maximize2,
+  Minimize2,
+  Paintbrush,
+  Terminal,
+  X,
+} from "lucide-react";
 import {
   forwardRef,
   lazy,
@@ -17,6 +25,11 @@ import { setWebTagDragData } from "./rightPanel/browserDrag";
 import { GitPanelContent } from "./rightPanel/GitPanelContent";
 import { DiffViewer } from "./rightPanel/DiffViewer";
 import { FileDiffPreview } from "./common/FileDiffPreview";
+import {
+  PlusMenuButton,
+  type PlusMenuAction,
+  type PlusMenuItem,
+} from "./common/PlusMenuButton";
 import { RightPanelTabContextMenu } from "./rightPanel/RightPanelTabContextMenu";
 // 浏览器面板静态导入（非 lazy）：模块（含 homepage 缓存）随应用启动加载并
 // 预取起始页，避免首次创建浏览器实例时异步拉取 chunk 造成「不进预设起始页」
@@ -78,7 +91,7 @@ const DRAGGABLE_TAB_TYPES = new Set([
  */
 const handleTabDragStart = (
   event: React.DragEvent<HTMLDivElement>,
-  tab: RightPanelTab
+  tab: RightPanelTab,
 ): void => {
   if (!DRAGGABLE_TAB_TYPES.has(tab.type)) {
     return;
@@ -109,9 +122,7 @@ const handleTabDragStart = (
   }
   // 文件类 tab：统一取出 filePath + 名称，作为 file-tags 拖入输入框
   const data = tab.data as
-    | FileViewerTabData
-    | DiffTabData
-    | FileDiffPreviewTabData;
+    FileViewerTabData | DiffTabData | FileDiffPreviewTabData;
   const filePath = data.filePath;
   const fileName =
     (data as FileViewerTabData).fileName ??
@@ -124,7 +135,7 @@ const handleTabDragStart = (
   const tags = [{ path: filePath, name: fileName }];
   event.dataTransfer.setData(
     "application/json",
-    JSON.stringify({ type: "file-tags", tags })
+    JSON.stringify({ type: "file-tags", tags }),
   );
   event.dataTransfer.effectAllowed = "copy";
 };
@@ -133,22 +144,22 @@ const handleTabDragStart = (
 const FileViewerContent = lazy(() =>
   import("./rightPanel/FileViewerContent").then((m) => ({
     default: m.FileViewerContent,
-  }))
+  })),
 );
 const TerminalPanelContent = lazy(() =>
   import("./rightPanel/TerminalPanelContent").then((m) => ({
     default: m.TerminalPanelContent,
-  }))
+  })),
 );
 const CodebasePanelContent = lazy(() =>
   import("./rightPanel/CodebasePanelContent").then((m) => ({
     default: m.CodebasePanelContent,
-  }))
+  })),
 );
 const DrawingPanelContent = lazy(() =>
   import("./rightPanel/DrawingPanelContent").then((m) => ({
     default: m.DrawingPanelContent,
-  }))
+  })),
 );
 
 const GIT_TAB_ID = "git";
@@ -198,7 +209,7 @@ export type RightPanelRef = {
     sshSessionId?: string | null,
     focusLine?: number,
     sshWorkspaceRoot?: string,
-    sshWorkspaceId?: string
+    sshWorkspaceId?: string,
   ) => void;
 };
 
@@ -208,6 +219,8 @@ type RightPanelProps = RightPanelContentProps & {
   isResizing?: boolean;
   /** 切换主内容视图（绘图工作台错误卡片跳转设置用）。 */
   onSelectMainView?: (view: MainContentView) => void;
+  /** 切换右面板全屏（Windows 下由 tab 操作区的最大化按钮触发）。 */
+  onToggleRightPanelFullscreen?: () => void;
 };
 
 export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
@@ -218,9 +231,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       isResizing = false,
       activeDirectory,
       onSelectMainView,
+      onToggleRightPanelFullscreen,
     },
-    ref
+    ref,
   ): React.JSX.Element => {
+    const isWindows = navigator.userAgent.includes("Win");
     const { t } = useI18n();
     const [tabs, setTabs] = useState<RightPanelTab[]>([
       { id: GIT_TAB_ID, type: "git", title: t("rightPanel.gitTab") },
@@ -230,7 +245,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     // 聊天区 Ctrl+点击远程路径时按工作区复用 SSH 连接；Promise 缓存还能
     // 合并快速连续点击产生的并发连接请求。
     const sshFileSessionPromisesRef = useRef<Map<string, Promise<string>>>(
-      new Map()
+      new Map(),
     );
     // tab 右键菜单：记录触发位置与目标 tab（Git 固定 tab 无关闭项；
     // tabId 为 null 表示右键在 tab 栏空白区域，仅提供新建项）。
@@ -266,7 +281,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                       imageDiff,
                     },
                   }
-                : t
+                : t,
             );
           }
           const newTab: RightPanelTab = {
@@ -285,14 +300,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         });
         setActiveTabId(tabId);
       },
-      []
+      [],
     );
 
     const handleOpenTerminalTab = useCallback(
       (
         cwd: string,
         requestedTabId?: string,
-        options?: TerminalOpenOptions
+        options?: TerminalOpenOptions,
       ): string => {
         const tabId = requestedTabId ?? `terminal-${Date.now()}`;
         const terminalData: TerminalTabData = {
@@ -311,16 +326,16 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         setActiveTabId(tabId);
         return tabId;
       },
-      [t]
+      [t],
     );
 
     const handleTerminalTitleChange = useCallback(
       (tabId: string, title: string) => {
         setTabs((prev) =>
-          prev.map((tab) => (tab.id === tabId ? { ...tab, title } : tab))
+          prev.map((tab) => (tab.id === tabId ? { ...tab, title } : tab)),
         );
       },
-      []
+      [],
     );
 
     const handleOpenBrowserTab = useCallback(
@@ -344,16 +359,16 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         setActiveTabId(instanceId);
         return instanceId;
       },
-      [t]
+      [t],
     );
 
     const handleBrowserTitleChange = useCallback(
       (tabId: string, title: string) => {
         setTabs((prev) =>
-          prev.map((tab) => (tab.id === tabId ? { ...tab, title } : tab))
+          prev.map((tab) => (tab.id === tabId ? { ...tab, title } : tab)),
         );
       },
-      []
+      [],
     );
 
     // 页面导航（含页面内跳转）后同步 tab 的实时 URL，
@@ -366,8 +381,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                 ...tab,
                 data: { ...(tab.data as BrowserTabData), url },
               }
-            : tab
-        )
+            : tab,
+        ),
       );
     }, []);
 
@@ -383,11 +398,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                   ...tab,
                   data: { ...(tab.data as BrowserTabData), tabs },
                 }
-              : tab
-          )
+              : tab,
+          ),
         );
       },
-      []
+      [],
     );
 
     // 打开（或切换到已存在的）代码库数据 tab。tab id 固定，避免同一时间
@@ -403,7 +418,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                     ...t,
                     data: { projectId, projectName } as CodebaseTabData,
                   }
-                : t
+                : t,
             );
           }
           const codebaseData: CodebaseTabData = { projectId, projectName };
@@ -419,7 +434,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         });
         setActiveTabId(CODEBASE_TAB_ID);
       },
-      [t]
+      [t],
     );
 
     // 新建绘图工作台 tab：每次新建独立画布，可开多个并行绘图。
@@ -464,8 +479,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                           projectName: activeDirectory?.name ?? tab.title,
                         } as CodebaseTabData,
                       }
-                    : tab
-                )
+                    : tab,
+                ),
               );
             } else {
               setTabs((prev) => prev.filter((t) => t.type !== "codebase"));
@@ -475,13 +490,13 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                 }
                 // 回退到左侧相邻 tab；没有则回到 Git tab。
                 const currentIndex = tabs.findIndex(
-                  (t) => t.id === CODEBASE_TAB_ID
+                  (t) => t.id === CODEBASE_TAB_ID,
                 );
                 if (currentIndex > 0) {
                   return tabs[currentIndex - 1].id;
                 }
                 const gitTab = tabs.find((t) => t.id === GIT_TAB_ID);
-                return gitTab ? GIT_TAB_ID : tabs[1]?.id ?? currentActive;
+                return gitTab ? GIT_TAB_ID : (tabs[1]?.id ?? currentActive);
               });
             }
           })
@@ -492,7 +507,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           cancelled = true;
         };
       },
-      [tabs, activeDirectory]
+      [tabs, activeDirectory],
     );
 
     useEffect(() => {
@@ -510,7 +525,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         sshSessionId?: string | null,
         focusLine?: number,
         sshWorkspaceRoot?: string,
-        sshWorkspaceId?: string
+        sshWorkspaceId?: string,
       ) => {
         const tabId = isSsh
           ? `file:ssh:${sshSessionId ?? "unknown"}:${filePath}`
@@ -534,7 +549,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                         (t.data as FileViewerTabData).sshWorkspaceId,
                     },
                   }
-                : t
+                : t,
             );
           }
           const fileData: FileViewerTabData = {
@@ -556,7 +571,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         });
         setActiveTabId(tabId);
       },
-      []
+      [],
     );
 
     // Git 变更/暂存区文件「打开文件」按钮：以本地仓库文件（isSsh=false）
@@ -565,7 +580,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       (filePath: string, fileName: string) => {
         handleOpenFileTab(filePath, fileName, false);
       },
-      [handleOpenFileTab]
+      [handleOpenFileTab],
     );
 
     const handleOpenFileDiffPreviewTab = useCallback(
@@ -576,7 +591,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           payload.oldContent,
           payload.newContent,
           payload.oldStartLine,
-          payload.newStartLine
+          payload.newStartLine,
         );
         const data: FileDiffPreviewTabData = {
           fileName: payload.fileName,
@@ -602,13 +617,13 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         setActiveTabId(tabId);
         rightPanelEvents.emit("request-expand");
       },
-      []
+      [],
     );
 
     useEffect(() => {
       return rightPanelEvents.on(
         "open-file-diff-preview",
-        handleOpenFileDiffPreviewTab
+        handleOpenFileDiffPreviewTab,
       );
     }, [handleOpenFileDiffPreviewTab]);
 
@@ -634,7 +649,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleOpenBrowserTab(url);
         rightPanelEvents.emit("request-expand");
       },
-      [handleOpenBrowserTab]
+      [handleOpenBrowserTab],
     );
 
     useEffect(() => {
@@ -662,7 +677,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         sshFileSessionPromisesRef.current.set(workspacePath, connecting);
         return connecting;
       },
-      []
+      [],
     );
 
     useEffect(() => {
@@ -710,14 +725,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             sshSessionId,
             payload.focusLine,
             payload.sshWorkspaceRoot ?? payload.sshWorkspacePath,
-            payload.sshWorkspaceId
+            payload.sshWorkspaceId,
           );
           rightPanelEvents.emit("request-expand");
         })().catch((error: unknown) => {
           console.error("Failed to open file from chat path", error);
         });
       },
-      [getSshFileSession, handleOpenFileTab]
+      [getSshFileSession, handleOpenFileTab],
     );
 
     useEffect(() => {
@@ -746,7 +761,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           sshSessionId?: string | null,
           focusLine?: number,
           sshWorkspaceRoot?: string,
-          sshWorkspaceId?: string
+          sshWorkspaceId?: string,
         ) => {
           handleOpenFileTab(
             filePath,
@@ -755,7 +770,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             sshSessionId,
             focusLine,
             sshWorkspaceRoot,
-            sshWorkspaceId
+            sshWorkspaceId,
           );
         },
       }),
@@ -765,7 +780,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleOpenCodebaseTab,
         handleOpenDrawingTab,
         handleOpenFileTab,
-      ]
+      ],
     );
 
     const handleCloseTab = useCallback(
@@ -800,10 +815,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           }
           // currentIndex === 0：左侧无 tab，回退到 Git tab（若存在）
           const gitTab = tabs.find((t) => t.id === GIT_TAB_ID);
-          return gitTab ? GIT_TAB_ID : tabs[1]?.id ?? currentActive;
+          return gitTab ? GIT_TAB_ID : (tabs[1]?.id ?? currentActive);
         });
       },
-      [tabs]
+      [tabs],
     );
 
     // 关闭所有可关闭的 tab（Git 为固定 tab，始终保留），回到 Git 视图。
@@ -828,10 +843,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           return next;
         });
         setActiveTabId((current) =>
-          closedIds.has(current) ? fallbackTabId : current
+          closedIds.has(current) ? fallbackTabId : current,
         );
       },
-      []
+      [],
     );
 
     // 关闭除指定 tab（与 Git 固定 tab）外的所有 tab。
@@ -839,10 +854,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       (tabId: string) => {
         batchCloseTabs(
           tabs.filter((t) => t.id !== GIT_TAB_ID && t.id !== tabId),
-          tabId
+          tabId,
         );
       },
-      [tabs, batchCloseTabs]
+      [tabs, batchCloseTabs],
     );
 
     // 关闭指定 tab 右侧的所有 tab（Git 固定 tab 始终保留）。
@@ -854,10 +869,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         }
         batchCloseTabs(
           tabs.slice(idx + 1).filter((t) => t.id !== GIT_TAB_ID),
-          tabId
+          tabId,
         );
       },
-      [tabs, batchCloseTabs]
+      [tabs, batchCloseTabs],
     );
 
     // 关闭指定 tab 左侧的所有可关闭 tab（Git 固定 tab 始终保留）。
@@ -869,16 +884,16 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         }
         batchCloseTabs(
           tabs.slice(0, idx).filter((t) => t.id !== GIT_TAB_ID),
-          tabId
+          tabId,
         );
       },
-      [tabs, batchCloseTabs]
+      [tabs, batchCloseTabs],
     );
 
     const handleCloseBrowserTab = useCallback(
       (instanceId: string): boolean => {
         const tab = tabs.find(
-          (t) => t.id === instanceId && t.type === "browser"
+          (t) => t.id === instanceId && t.type === "browser",
         );
         if (!tab) {
           return false;
@@ -886,7 +901,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleCloseTab(instanceId);
         return true;
       },
-      [tabs, handleCloseTab]
+      [tabs, handleCloseTab],
     );
 
     // 浏览器 tab「在新窗口中打开」：主进程创建独立 BrowserWindow 承载
@@ -904,7 +919,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           .openDetachedBrowserWindow(
             browserTab.instanceId,
             browserTab.url,
-            browserTab.tabs
+            browserTab.tabs,
           )
           .then(() => {
             handleCloseTab(tabId);
@@ -913,7 +928,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             console.error("Failed to open browser in new window", error);
           });
       },
-      [tabs, handleCloseTab]
+      [tabs, handleCloseTab],
     );
 
     // 独立浏览器窗口「还原为标签页」：主进程转发还原请求后，把该实例恢复
@@ -932,7 +947,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         const firstUrl = restoredTabs[0]?.url ?? "";
         setTabs((prev) => {
           const existing = prev.find(
-            (t) => t.id === instanceId && t.type === "browser"
+            (t) => t.id === instanceId && t.type === "browser",
           );
           if (existing) {
             // 同实例 tab 已存在（极端竞态）：刷新快照并激活，不重复创建。
@@ -941,15 +956,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               t.id === instanceId && t.type === "browser"
                 ? {
                     ...t,
-                    title:
-                      restoredTabs[0]?.title || existing.title,
+                    title: restoredTabs[0]?.title || existing.title,
                     data: {
                       ...existingData,
                       url: firstUrl || existingData.url,
                       tabs: restoredTabs,
                     },
                   }
-                : t
+                : t,
             );
           }
           return [
@@ -957,8 +971,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             {
               id: instanceId,
               type: "browser",
-              title:
-                restoredTabs[0]?.title || t("rightPanel.browserTab"),
+              title: restoredTabs[0]?.title || t("rightPanel.browserTab"),
               data: {
                 instanceId,
                 url: firstUrl,
@@ -970,19 +983,19 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         setActiveTabId(instanceId);
         rightPanelEvents.emit("request-expand");
       },
-      [t]
+      [t],
     );
 
     useEffect(() => {
       return window.snow.onRestoreBrowserToMain(
-        handleRestoreBrowserFromDetachedWindow
+        handleRestoreBrowserFromDetachedWindow,
       );
     }, [handleRestoreBrowserFromDetachedWindow]);
 
     const handleFocusBrowserTab = useCallback(
       (instanceId: string): boolean => {
         const tab = tabs.find(
-          (t) => t.id === instanceId && t.type === "browser"
+          (t) => t.id === instanceId && t.type === "browser",
         );
         if (!tab) {
           return false;
@@ -991,7 +1004,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         focusBrowserMcpInstance(instanceId);
         return true;
       },
-      [tabs]
+      [tabs],
     );
 
     // 工具调用组件（BrowserToolCall）请求切换到指定浏览器实例的 tab。
@@ -1005,13 +1018,13 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           rightPanelEvents.emit("request-expand");
         }
       },
-      [handleFocusBrowserTab]
+      [handleFocusBrowserTab],
     );
 
     useEffect(() => {
       return rightPanelEvents.on(
         "focus-browser-tab",
-        handleFocusBrowserTabEvent
+        handleFocusBrowserTabEvent,
       );
     }, [handleFocusBrowserTabEvent]);
 
@@ -1037,7 +1050,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleCloseBrowserTab,
         handleFocusBrowserTab,
         handleListBrowserTabs,
-      ]
+      ],
     );
 
     // MCP 浏览器命令桥：传入 isCollapsed，面板折叠时命令执行前先自动
@@ -1053,7 +1066,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleCloseTab(tabId);
         return true;
       },
-      [tabs, handleCloseTab]
+      [tabs, handleCloseTab],
     );
 
     const handleFocusTerminalTab = useCallback(
@@ -1065,7 +1078,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         setActiveTabId(tabId);
         return true;
       },
-      [tabs]
+      [tabs],
     );
 
     const handleListTerminalTabs = useCallback(() => {
@@ -1091,7 +1104,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleCloseTerminalTab,
         handleFocusTerminalTab,
         handleListTerminalTabs,
-      ]
+      ],
     );
 
     useTerminalMcpCommandBridge(terminalMcpCallbacks, activeDirectory);
@@ -1140,7 +1153,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           maxX: listRect.width - 4,
         });
       },
-      [handleCloseTab]
+      [handleCloseTab],
     );
 
     // 确认关闭：执行关闭并收起浮层。
@@ -1166,6 +1179,56 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       return () =>
         document.removeEventListener("mousedown", handlePointerDown, true);
     }, [closeConfirm]);
+
+    // Windows 下 Plus 菜单与最大化按钮位于 tab 操作区（right-panel-tabs 内），
+    // 替代 TopBar 右侧的同名按钮；非 Windows 平台不渲染操作区。
+    const plusMenuItems: PlusMenuItem[] = [
+      {
+        id: "terminal",
+        label: t("topBar.plusMenu.terminal", { defaultValue: "Terminal" }),
+        icon: Terminal,
+      },
+      {
+        id: "browser",
+        label: t("topBar.plusMenu.browser", { defaultValue: "Browser" }),
+        icon: Globe,
+      },
+      {
+        id: "drawing",
+        label: t("topBar.plusMenu.drawing", { defaultValue: "Drawing" }),
+        icon: Paintbrush,
+      },
+      // 代码库项需要具体项目承载；项目不可用时隐藏（与 TopBar 一致）。
+      ...(activeDirectory?.directoryId
+        ? [
+            {
+              id: "codebase" as PlusMenuAction,
+              label: t("topBar.plusMenu.codebase"),
+              icon: Database,
+            },
+          ]
+        : []),
+    ];
+
+    const handlePlusMenuAction = (actionId: PlusMenuAction): void => {
+      if (actionId === "terminal") {
+        handleOpenTerminalTab(activeDirectory?.path ?? "");
+      } else if (actionId === "browser") {
+        handleOpenBrowserTab();
+      } else if (actionId === "drawing") {
+        handleOpenDrawingTab();
+      } else if (actionId === "codebase" && activeDirectory?.directoryId) {
+        handleOpenCodebaseTab(
+          activeDirectory.directoryId,
+          activeDirectory.name,
+        );
+      }
+    };
+
+    const FullscreenToggleIcon = isFullscreen ? Minimize2 : Maximize2;
+    const fullscreenToggleLabel = isFullscreen
+      ? "Exit right panel fullscreen"
+      : "Right panel fullscreen";
 
     const panelClasses = [
       "right-panel",
@@ -1311,25 +1374,19 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     const contextMenuTargetIsBrowser =
       tabContextMenu !== null && tabContextMenu.tabId !== null
         ? tabs.some(
-            (t) => t.id === tabContextMenu.tabId && t.type === "browser"
+            (t) => t.id === tabContextMenu.tabId && t.type === "browser",
           )
         : false;
     const hasClosableTabs = tabs.some((t) => t.id !== GIT_TAB_ID);
     const hasClosableOthers =
       contextMenuTargetIndex >= 0 &&
-      tabs.some(
-        (t, i) => i !== contextMenuTargetIndex && t.id !== GIT_TAB_ID
-      );
+      tabs.some((t, i) => i !== contextMenuTargetIndex && t.id !== GIT_TAB_ID);
     const hasClosableRight =
       contextMenuTargetIndex >= 0 &&
-      tabs
-        .slice(contextMenuTargetIndex + 1)
-        .some((t) => t.id !== GIT_TAB_ID);
+      tabs.slice(contextMenuTargetIndex + 1).some((t) => t.id !== GIT_TAB_ID);
     const hasClosableLeft =
       contextMenuTargetIndex >= 0 &&
-      tabs
-        .slice(0, contextMenuTargetIndex)
-        .some((t) => t.id !== GIT_TAB_ID);
+      tabs.slice(0, contextMenuTargetIndex).some((t) => t.id !== GIT_TAB_ID);
 
     return (
       <aside className={panelClasses}>
@@ -1404,13 +1461,30 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                 </div>
               ))}
             </div>
+            {isWindows && (
+              <div className="right-panel-tab-actions">
+                <PlusMenuButton
+                  items={plusMenuItems}
+                  onAction={handlePlusMenuAction}
+                />
+                <button
+                  className="icon-btn ghost right-panel-fullscreen-btn"
+                  type="button"
+                  aria-label={fullscreenToggleLabel}
+                  title={fullscreenToggleLabel}
+                  onClick={() => onToggleRightPanelFullscreen?.()}
+                >
+                  <FullscreenToggleIcon size={16} strokeWidth={1.8} />
+                </button>
+              </div>
+            )}
             {closeConfirm && (
               <div
                 className="right-panel-close-confirm"
                 style={{
                   left: Math.max(
                     4,
-                    Math.min(closeConfirm.x, closeConfirm.maxX - 168)
+                    Math.min(closeConfirm.x, closeConfirm.maxX - 168),
                   ),
                   top: closeConfirm.y + 5,
                 }}
@@ -1423,16 +1497,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                     left: Math.max(
                       10,
                       Math.min(
-                        closeConfirm.x + 8 -
+                        closeConfirm.x +
+                          8 -
                           Math.max(
                             4,
-                            Math.min(
-                              closeConfirm.x,
-                              closeConfirm.maxX - 168
-                            )
+                            Math.min(closeConfirm.x, closeConfirm.maxX - 168),
                           ),
-                        148
-                      )
+                        148,
+                      ),
                     ),
                   }}
                   aria-hidden="true"
@@ -1555,7 +1627,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         )}
       </aside>
     );
-  }
+  },
 );
 
 RightPanel.displayName = "RightPanel";

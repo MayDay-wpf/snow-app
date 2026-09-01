@@ -7,7 +7,6 @@ import {
   Maximize2,
   Minimize2,
   Paintbrush,
-  Plus,
   SidebarClose,
   SidebarOpen,
   SquarePen,
@@ -15,11 +14,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceDirectoryRecord } from "../../preload";
+import appIcon from "../assets/app-icon.png";
 import { useI18n } from "../i18n";
 import { useChatConversationContext } from "./mainContent/chatMessages";
 import { CodebaseSyncIndicator } from "./TopBar/CodebaseSyncIndicator";
 import { TodoPanelButton } from "./TopBar/TodoPanelButton";
 import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
+import { PlusMenuButton, type PlusMenuItem } from "./common/PlusMenuButton";
+import { WindowControlsButtons } from "./WindowControls";
 import { useCodebaseWatcher } from "../hooks/useCodebaseWatcher";
 
 type TopBarProps = {
@@ -49,6 +51,7 @@ export const TopBar = ({
   onOpenCodebase,
   onOpenDrawing,
 }: TopBarProps): React.JSX.Element => {
+  const isWindows = navigator.userAgent.includes("Win");
   const { t } = useI18n();
   const {
     handleNewChat,
@@ -96,7 +99,6 @@ export const TopBar = ({
   // By comparing enabledProjectIdRef with activeProjectId, we can force
   // enabled=false until the new project's scope is confirmed.
   const enabledProjectIdRef = useRef<string | undefined>(undefined);
-  const plusMenuRef = useRef<HTMLDivElement>(null);
   // Guards against stale index-stats responses: every project switch (or
   // effect re-run) bumps the generation, so in-flight responses from the
   // previous project are discarded.
@@ -419,26 +421,6 @@ export const TopBar = ({
       : subAgentDisplayName
     : displayDirectoryName || "";
 
-  useEffect(() => {
-    if (!isPlusMenuOpen) {
-      return undefined;
-    }
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        plusMenuRef.current &&
-        !plusMenuRef.current.contains(event.target as Node)
-      ) {
-        setIsPlusMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handleClickOutside, true);
-    return () => {
-      document.removeEventListener("pointerdown", handleClickOutside, true);
-    };
-  }, [isPlusMenuOpen]);
-
   // 代码库功能已开启且当前项目嵌入完毕后，才在 Plus 菜单中提供“代码库”项。
   const canOpenCodebase =
     effectiveEnabled && codebaseIndexed && activeProjectId;
@@ -523,7 +505,7 @@ export const TopBar = ({
     },
   ];
 
-  const plusMenuItems = [
+  const plusMenuItems: PlusMenuItem[] = [
     {
       id: "terminal",
       label: t("topBar.plusMenu.terminal", { defaultValue: "Terminal" }),
@@ -542,7 +524,7 @@ export const TopBar = ({
     ...(canOpenCodebase
       ? [
           {
-            id: "codebase",
+            id: "codebase" as const,
             label: t("topBar.plusMenu.codebase"),
             icon: Database,
           },
@@ -563,7 +545,6 @@ export const TopBar = ({
         activeDirectory?.name ?? activeProjectId,
       );
     }
-    setIsPlusMenuOpen(false);
   };
 
   const isTodoPanelInteractive = isTodoPanelOpen && !isTodoPanelPinned;
@@ -575,6 +556,14 @@ export const TopBar = ({
       }${isTodoPanelInteractive ? " todo-panel-interactive" : ""}`}
     >
       <div className="top-bar-left">
+        {isWindows && (
+          <img
+            className="top-bar-logo"
+            src={appIcon}
+            alt="Snow"
+            draggable={false}
+          />
+        )}
         <div className="top-bar-sidebar-actions" aria-label="Sidebar actions">
           <button
             className="icon-btn sidebar-toggle-btn"
@@ -648,38 +637,13 @@ export const TopBar = ({
           )}
         </div>
         <div className="top-bar-right-actions">
-          <div className="top-bar-plus-menu" ref={plusMenuRef}>
-            <button
-              className={`icon-btn ghost top-bar-plus-btn${
-                isPlusMenuOpen ? " active" : ""
-              }`}
-              type="button"
-              aria-label="New tab"
-              title="New tab"
-              aria-expanded={isPlusMenuOpen}
-              onClick={() => setIsPlusMenuOpen((open) => !open)}
-            >
-              <Plus size={16} strokeWidth={1.8} />
-            </button>
-            {isPlusMenuOpen && (
-              <div className="top-bar-plus-dropdown">
-                {plusMenuItems.map((item) => {
-                  const ItemIcon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      className="top-bar-plus-dropdown-item"
-                      type="button"
-                      onClick={() => handlePlusMenuAction(item.id)}
-                    >
-                      <ItemIcon size={13} strokeWidth={1.8} />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {!isWindows && (
+            <PlusMenuButton
+              items={plusMenuItems}
+              onAction={handlePlusMenuAction}
+              onOpenChange={setIsPlusMenuOpen}
+            />
+          )}
           {!isRightPanelFullscreen && (
             <button
               className="icon-btn ghost right-panel-toggle-btn"
@@ -691,15 +655,18 @@ export const TopBar = ({
               <RightPanelToggleIcon size={16} strokeWidth={1.8} />
             </button>
           )}
-          <button
-            className="icon-btn ghost right-panel-fullscreen-btn"
-            type="button"
-            aria-label={fullscreenToggleLabel}
-            title={fullscreenToggleLabel}
-            onClick={onToggleRightPanelFullscreen}
-          >
-            <FullscreenToggleIcon size={16} strokeWidth={1.8} />
-          </button>
+          {!isWindows && (
+            <button
+              className="icon-btn ghost right-panel-fullscreen-btn"
+              type="button"
+              aria-label={fullscreenToggleLabel}
+              title={fullscreenToggleLabel}
+              onClick={onToggleRightPanelFullscreen}
+            >
+              <FullscreenToggleIcon size={16} strokeWidth={1.8} />
+            </button>
+          )}
+          {isWindows && <WindowControlsButtons />}
         </div>
       </div>
       {branchContextMenu && (

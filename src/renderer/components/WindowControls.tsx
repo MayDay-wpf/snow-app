@@ -1,12 +1,12 @@
 import { Minus, Square, X, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
-import appIcon from "../assets/app-icon.png";
 
 /**
- * Windows 自定义窗口操作栏 (最小化 / 最大化 / 关闭)
- * 仅在 Windows 平台渲染。macOS 使用原生 traffic lights，不渲染此组件。
+ * Windows 自定义窗口操作按钮组 (最小化 / 最大化 / 关闭)
+ * 仅 Windows 平台渲染，已嵌入 TopBar 右侧卡片；
+ * macOS 使用原生 traffic lights，不渲染此组件。
  */
-export const WindowControls = (): React.JSX.Element | null => {
+export const WindowControlsButtons = (): React.JSX.Element => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -43,39 +43,34 @@ export const WindowControls = (): React.JSX.Element | null => {
   const MaximizeIcon = isMaximized ? Copy : Square;
 
   return (
-    <div className="window-controls-bar" aria-label="Window controls">
-      <div className="window-controls-logo">
-        <img src={appIcon} alt="Snow" draggable={false} />
-      </div>
-      <div className="window-controls-buttons">
-        <button
-          type="button"
-          className="window-control-btn minimize-btn"
-          aria-label="Minimize"
-          title="Minimize"
-          onClick={handleMinimize}
-        >
-          <Minus size={16} strokeWidth={1.5} />
-        </button>
-        <button
-          type="button"
-          className="window-control-btn maximize-btn"
-          aria-label={isMaximized ? "Restore" : "Maximize"}
-          title={isMaximized ? "Restore" : "Maximize"}
-          onClick={handleToggleMaximize}
-        >
-          <MaximizeIcon size={14} strokeWidth={1.5} />
-        </button>
-        <button
-          type="button"
-          className="window-control-btn close-btn"
-          aria-label="Close"
-          title="Close"
-          onClick={handleClose}
-        >
-          <X size={16} strokeWidth={1.5} />
-        </button>
-      </div>
+    <div className="window-controls-buttons" aria-label="Window controls">
+      <button
+        type="button"
+        className="window-control-btn minimize-btn"
+        aria-label="Minimize"
+        title="Minimize"
+        onClick={handleMinimize}
+      >
+        <Minus size={16} strokeWidth={1.5} />
+      </button>
+      <button
+        type="button"
+        className="window-control-btn maximize-btn"
+        aria-label={isMaximized ? "Restore" : "Maximize"}
+        title={isMaximized ? "Restore" : "Maximize"}
+        onClick={handleToggleMaximize}
+      >
+        <MaximizeIcon size={14} strokeWidth={1.5} />
+      </button>
+      <button
+        type="button"
+        className="window-control-btn close-btn"
+        aria-label="Close"
+        title="Close"
+        onClick={handleClose}
+      >
+        <X size={16} strokeWidth={1.5} />
+      </button>
     </div>
   );
 };
