@@ -1,11 +1,29 @@
 # Release Notes
 
+## v0.2.23
+
+## New Features
+
+- **Persistent Memories**: A new `memory` MCP server adds item-level persistent memory — agents can save/search/list/update/delete memory records per project, memories are injected into the system prompt, a memory management panel is added in settings, and memories are cleaned up when their session is deleted.
+- **Sidebar Collapse Shortcuts**: New keyboard shortcuts toggle the left and right sidebars.
+
+## Improvements
+
+- The Windows window control bar is merged into the TopBar, with the Plus-menu button refactored as a reused component.
+- The MCP add dialog gains a JSON editor with syntax highlighting and fault-tolerant paste parsing.
+- The compositor height resets after a successful submission.
+
+## Bug Fixes
+
+- Orphaned checkpoint snapshot directories are now cleaned up when sessions are deleted.
+- System setting writes now run after cache invalidation (pet settings use optimistic updates), fixing stale-value reads.
+
 ## v0.2.22
 
 ## New Features
 
 - **Tampermonkey-Compatible Userscript Engine**: The built-in browser now runs Tampermonkey-compatible userscripts, with a new Userscripts tab in browser settings for listing, enabling, editing, and searching & installing scripts.
-- **`userscripts` Config Scope**: The `config` MCP tool gains a `userscripts` scope so the agent can create/update/toggle/delete scripts and manage GM_* values (`sourcePath` or `raw`).
+- **`userscripts` Config Scope**: The `config` MCP tool gains a `userscripts` scope so the agent can create/update/toggle/delete scripts and manage GM\_\* values (`sourcePath` or `raw`).
 
 ## Improvements
 
