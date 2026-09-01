@@ -27514,10 +27514,9 @@ input {
   gap: 8px;
 }
 
-.mcp-editor-json-textarea {
-  width: 100%;
-  min-height: 260px;
-  padding: 12px;
+/* react-simple-code-editor 外层容器：库将透明 textarea 覆盖在高亮 <pre> 之上，
+   两者从此容器继承字体度量，caret 与高亮保持对齐。 */
+.mcp-editor-json-code {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md, 8px);
   background: var(--bg-primary);
@@ -27525,21 +27524,94 @@ input {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
-  resize: vertical;
-  tab-size: 2;
+  overflow: hidden;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 
-.mcp-editor-json-textarea:hover {
+.mcp-editor-json-code:hover {
   border-color: var(--border-color);
 }
 
-.mcp-editor-json-textarea:focus {
+.mcp-editor-json-code:focus-within {
   outline: none;
   border-color: var(--text-muted);
   box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.mcp-editor-json-code.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* 库内 textarea 文字透明（-webkit-text-fill-color: transparent），
+   仅用于输入与 caret；tab 缩进与字体度量由容器统一控制。 */
+.mcp-editor-json-input {
+  caret-color: var(--text-primary);
+  color: var(--text-primary);
+  tab-size: 2;
+  -moz-tab-size: 2;
+  /* cream 等主题对所有 textarea:focus-visible 施加橙色 outline（preset-cream.css）；
+     编辑器的焦点反馈由外层容器 focus-within 承担，此处压掉浏览器 outline。
+     !important 用于覆盖主题规则的高特异性。 */
+  outline: none !important;
+}
+
+/* JSON 语法高亮 token（preClassName="hljs"），使用主题语义色，
+   自动适配 light/dark 与预设主题 */
+.mcp-editor-json-code .hljs-attr {
+  color: var(--accent-blue-text);
+}
+
+.mcp-editor-json-code .hljs-string {
+  color: var(--accent-green-text);
+}
+
+.mcp-editor-json-code .hljs-number,
+.mcp-editor-json-code .hljs-literal {
+  color: var(--accent-amber-text);
+}
+
+.mcp-editor-json-code .hljs-comment {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.mcp-editor-json-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 26px;
+}
+
+.mcp-editor-json-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mcp-editor-json-status > svg {
+  flex-shrink: 0;
+}
+
+.mcp-editor-json-status.valid {
+  color: var(--accent-green-text);
+}
+
+.mcp-editor-json-status.invalid {
+  color: var(--accent-red-text);
+}
+
+/* 长错误信息（带行列号的 V8 报错）单行截断，完整内容看 title */
+.mcp-editor-json-status.invalid > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .mcp-editor-json-hint {
@@ -28429,9 +28501,11 @@ input {
   color: var(--text-primary);
   font-size: 12.5px;
   font-family: var(--font-sans);
+  line-height: 1.5;
   resize: vertical;
   min-height: 36px;
-  max-height: 80px;
+  /* 拖拽扩展上限：约 8 行（8 × 18.75px 行高 + 上下 6px 内边距 + 2px 边框） */
+  max-height: 164px;
 }
 .git-commit-input:focus {
   outline: none;

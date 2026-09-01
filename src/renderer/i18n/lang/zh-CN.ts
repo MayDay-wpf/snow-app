@@ -2146,7 +2146,8 @@ export const zhCN = {
   "settings.mcpJsonInvalid": "JSON 无效",
   "settings.mcpJsonEditorLabel": "MCP 服务器 JSON 配置",
   "settings.mcpJsonHint":
-    '以 JSON 形式编辑服务器配置，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。未填写 type（http/stdio）时会根据 url 或 command 自动推断。',
+    '以 JSON 形式编辑服务器配置，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。粘贴内容自动兼容：Markdown 代码块、mcpServers/servers 包装、注释、尾随逗号与全角空格均可识别。未填写 type（http/stdio）时会根据 url 或 command 自动推断。',
+  "settings.mcpJsonValid": "JSON 有效",
   "settings.mcpToolDetailsCollapse": "收起详情",
   "settings.mcpToolDetailsExpand": "查看工具详情",
   "settings.mcpToolDetailsTitle": "服务工具",

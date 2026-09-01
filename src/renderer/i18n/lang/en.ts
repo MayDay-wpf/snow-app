@@ -2239,7 +2239,8 @@ export const en = {
   "settings.mcpJsonInvalid": "Invalid JSON",
   "settings.mcpJsonEditorLabel": "MCP server JSON configuration",
   "settings.mcpJsonHint":
-    'Edit the server configuration as JSON, e.g. {"context7": {"url": "https://mcp.context7.com/mcp"}}. type (http/stdio) is inferred from url or command when omitted.',
+    'Edit the server configuration as JSON, e.g. {"context7": {"url": "https://mcp.context7.com/mcp"}}. Pasted configs with markdown fences, mcpServers/servers wrappers, comments, trailing commas or full-width spaces are tolerated. type (http/stdio) is inferred from url or command when omitted.',
+  "settings.mcpJsonValid": "Valid JSON",
   "settings.mcpToolDetailsCollapse": "Collapse details",
   "settings.mcpToolDetailsExpand": "View tool details",
   "settings.mcpToolDetailsTitle": "Server tools",

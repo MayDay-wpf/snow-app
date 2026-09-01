@@ -2147,7 +2147,8 @@ export const zhTW = {
   "settings.mcpJsonInvalid": "JSON 無效",
   "settings.mcpJsonEditorLabel": "MCP 伺服器 JSON 設定",
   "settings.mcpJsonHint":
-    '以 JSON 形式編輯伺服器設定，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。未填寫 type（http/stdio）時會根據 url 或 command 自動推斷。',
+    '以 JSON 形式編輯伺服器設定，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。貼上內容自動相容：Markdown 程式碼區塊、mcpServers/servers 包裝、註解、尾隨逗號與全形空格均可識別。未填寫 type（http/stdio）時會根據 url 或 command 自動推斷。',
+  "settings.mcpJsonValid": "JSON 有效",
   "settings.mcpToolDetailsCollapse": "收起詳情",
   "settings.mcpToolDetailsExpand": "檢視工具詳情",
   "settings.mcpToolDetailsTitle": "服務工具",

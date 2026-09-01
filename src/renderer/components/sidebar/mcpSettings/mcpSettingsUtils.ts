@@ -49,7 +49,7 @@ const parseJsonObject = (value: string): Record<string, string> => {
         }
         return result;
       },
-      {}
+      {},
     );
   } catch {
     return {};
@@ -58,7 +58,7 @@ const parseJsonObject = (value: string): Record<string, string> => {
 
 const pairsFromJson = (value: string): McpKeyValuePair[] =>
   Object.entries(parseJsonObject(value)).map(([key, item]) =>
-    createMcpPair(key, item)
+    createMcpPair(key, item),
   );
 
 export const pairsToJson = (pairs: McpKeyValuePair[]): string => {
@@ -117,7 +117,7 @@ const toScopedInput = (
   draft: McpServerDraft,
   fallbackSortOrder: number,
   serverId: string,
-  source: string
+  source: string,
 ): McpServerConfigInput => ({
   serverId,
   name: draft.name.trim(),
@@ -135,18 +135,18 @@ const toScopedInput = (
 
 export const toInput = (
   draft: McpServerDraft,
-  fallbackSortOrder: number
+  fallbackSortOrder: number,
 ): McpServerConfigInput =>
   toScopedInput(
     draft,
     fallbackSortOrder,
     draft.serverId || `global:${draft.name.trim()}`,
-    draft.source || "manual"
+    draft.source || "manual",
   );
 
 export const toProjectInput = (
   draft: McpServerDraft,
-  fallbackSortOrder: number
+  fallbackSortOrder: number,
 ): McpServerConfigInput =>
   toScopedInput(draft, fallbackSortOrder, draft.serverId, "project");
 
@@ -214,10 +214,200 @@ export const draftToJson = (draft: McpServerDraft): string => {
   return JSON.stringify({ [draft.name]: server }, null, 2);
 };
 
-const isRecordLike = (
-  value: unknown
-): value is Record<string, unknown> =>
+const isRecordLike = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
+
+/* ===== 容错 JSON 解析（对齐主流 MCP 客户端粘贴导入的兼容策略） ===== */
+
+/** JSON.parse 只接受 ASCII 空白，全角空格/NBSP 等会直接解析失败 —— */
+const NON_ASCII_WHITESPACE =
+  /[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/;
+
+/** 剥离文本开头的 BOM（部分编辑器保存/复制时会产生）。 */
+const stripBom = (text: string): string =>
+  text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+
+/** 剥离整体包裹的 markdown 代码围栏（```json ... ```），从 AI 聊天复制时常见。 */
+const stripMarkdownFence = (text: string): string => {
+  const match = /^```[^\n]*\n([\s\S]*?)\n?[^\S\n]*```$/.exec(text.trim());
+  return match ? match[1] : text;
+};
+
+/**
+ * 字符串字面量之外的字符级扫描改写（不碰字符串内容，避免破坏值语义）：
+ * - 非标准空白（全角空格/NBSP/零宽字符等）归一化为半角空格，修复
+ *   “{ 前有空格”导致粘贴配置无法识别的问题；
+ * - 剥离 // 行注释与块注释（jsonc 兼容，VS Code mcp.json 同款策略）。
+ */
+const sanitizeOutsideStrings = (text: string): string => {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      result += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      result += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      const lineEnd = text.indexOf("\n", i);
+      i = lineEnd === -1 ? text.length : lineEnd;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const blockEnd = text.indexOf("*/", i + 2);
+      i = blockEnd === -1 ? text.length : blockEnd + 2;
+      continue;
+    }
+    if (NON_ASCII_WHITESPACE.test(ch)) {
+      result += " ";
+      i += 1;
+      continue;
+    }
+    result += ch;
+    i += 1;
+  }
+  return result;
+};
+
+/** 剥离字符串字面量之外的尾随逗号（`, }` / `, ]`），jsonc 兼容。 */
+const removeTrailingCommas = (text: string): string => {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      result += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      result += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) {
+        j += 1;
+      }
+      if (text[j] === "}" || text[j] === "]") {
+        continue;
+      }
+    }
+    result += ch;
+  }
+  return result;
+};
+
+/** 提取首个 { 到最后一个 } 之间的主体，剥离 JSON 前后的说明文字。 */
+const extractJsonBody = (text: string): string | null => {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    return null;
+  }
+  return text.slice(start, end + 1);
+};
+
+/** 直接粘贴 `"name": {...}` 片段（无外层花括号）时补一层包装。 */
+const wrapBareEntry = (text: string): string | null => {
+  const trimmed = text.trim();
+  if (!/^"(?:[^"\\]|\\[\s\S])*"\s*:/.test(trimmed)) {
+    return null;
+  }
+  return `{${trimmed}}`;
+};
+
+/**
+ * 容错解析 JSON 文本，按以下层级依次尝试，任一层成功即返回：
+ * 1. 原文直接解析（标准路径，零改写）
+ * 2. 剥离 BOM/markdown 围栏 + 字符串外空白归一化/注释剥离/尾随逗号剥离
+ * 3. 裸条目补外层花括号（优先于 4，保留服务器名）
+ * 4. 提取 { ... } 主体（剥离前后杂文字）
+ *
+ * 全部失败时抛出最原始的 JSON.parse 错误（行列信息相对原文，最有诊断价值）。
+ */
+export const parseLooseJson = (jsonText: string): unknown => {
+  const text = stripBom(jsonText);
+  let firstError: unknown;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    firstError = error;
+  }
+
+  const sanitized = removeTrailingCommas(
+    sanitizeOutsideStrings(stripMarkdownFence(text)),
+  );
+  const candidates: string[] = [sanitized];
+  const bare = wrapBareEntry(sanitized);
+  if (bare) {
+    candidates.push(bare);
+  }
+  const body = extractJsonBody(sanitized);
+  if (body && body !== sanitized) {
+    candidates.push(body);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // 尝试下一层容错
+    }
+  }
+  throw firstError;
+};
+
+/**
+ * 净化 JSON 解析报错文案用于展示：V8 对 “Unexpected token” 类错误会附带
+ * 一段原文引文（`, "..." is not valid JSON`），截掉引文避免过长刺眼。
+ */
+export const formatJsonParseError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const quoteIndex = message.indexOf(', "');
+  return quoteIndex > 0 ? message.slice(0, quoteIndex) : message;
+};
+
+/**
+ * 容错解析并按 2 空格缩进格式化 JSON 对象文本（供粘贴自动格式化）。
+ * 仅接受对象（服务器配置）——数字/字符串/数组等片段粘贴时返回 null，
+ * 由调用方保持浏览器默认的插入行为，避免误替换整个编辑器内容。
+ */
+export const formatMcpJsonText = (jsonText: string): string | null => {
+  try {
+    const parsed = parseLooseJson(jsonText);
+    if (!isRecordLike(parsed)) {
+      return null;
+    }
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return null;
+  }
+};
 
 const SERVER_CONFIG_KEYS = new Set([
   "type",
@@ -235,7 +425,8 @@ const SERVER_CONFIG_KEYS = new Set([
 ]);
 
 /**
- * 解析 JSON 编辑模式中的 draft 文本。支持以下格式：
+ * 解析 JSON 编辑模式中的 draft 文本（经 parseLooseJson 容错：markdown 代码块、
+ * 注释、尾随逗号、全角空格、前后杂文字等粘贴常见问题均可自动兼容）。支持以下格式：
  * - `{ "<name>": {...} }`（draftToJson 输出，单条目映射，字段
  *   type/url/command/args/env/environment/headers/enabled/timeout；type 省略时按 url 推断 http）
  * - `{ "servers": { "<name>": {...} } }` / `{ "mcpServers": { "<name>": {...} } }`（兼容容器格式）
@@ -246,9 +437,9 @@ const SERVER_CONFIG_KEYS = new Set([
  */
 export const parseDraftJson = (
   jsonText: string,
-  base: McpServerDraft
+  base: McpServerDraft,
 ): McpServerDraft => {
-  const raw: unknown = JSON.parse(jsonText);
+  const raw: unknown = parseLooseJson(jsonText);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("JSON must be an object");
   }
@@ -274,7 +465,7 @@ export const parseDraftJson = (
   } else {
     const entries = Object.entries(root);
     const looksLikeFlatConfig = entries.some(([key]) =>
-      SERVER_CONFIG_KEYS.has(key)
+      SERVER_CONFIG_KEYS.has(key),
     );
     if (looksLikeFlatConfig) {
       // 单个服务器对象（旧格式）
@@ -285,7 +476,7 @@ export const parseDraftJson = (
       source = entries[0][1];
     } else {
       throw new Error(
-        'JSON must be a server config object or a single-entry map like { "context7": { ... } }'
+        'JSON must be a server config object or a single-entry map like { "context7": { ... } }',
       );
     }
   }
