@@ -357,23 +357,27 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
   );
   ipcMain.handle(
     "chat-conversations:delete",
-    async (_event, conversationId: unknown) => {
+    async (_event, conversationId: unknown, deleteMemories: unknown) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {
         throw new Error("Conversation ID is required to delete");
       }
+      const shouldDeleteMemories = deleteMemories === true;
 
       snowLog.warn({
         module: "ipc/conversation",
         func: "delete",
         message: "Conversation deleted",
-        context: `conversation=${conversationId.trim()}`,
+        context: `conversation=${conversationId.trim()}; deleteMemories=${shouldDeleteMemories}`,
       });
-      await native.deleteConversation(conversationId.trim());
+      await native.deleteConversation(
+        conversationId.trim(),
+        shouldDeleteMemories,
+      );
     },
   );
   ipcMain.handle(
     "chat-conversations:batch-delete",
-    async (_event, conversationIds: unknown) => {
+    async (_event, conversationIds: unknown, deleteMemories: unknown) => {
       if (!Array.isArray(conversationIds)) {
         throw new Error("Conversation IDs are required to batch delete");
       }
@@ -384,14 +388,15 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       if (safeIds.length === 0) {
         return;
       }
+      const shouldDeleteMemories = deleteMemories === true;
 
       snowLog.warn({
         module: "ipc/conversation",
         func: "batch-delete",
         message: "Conversations deleted",
-        context: `count=${safeIds.length}`,
+        context: `count=${safeIds.length}; deleteMemories=${shouldDeleteMemories}`,
       });
-      await native.deleteConversations(safeIds);
+      await native.deleteConversations(safeIds, shouldDeleteMemories);
     },
   );
   ipcMain.handle(

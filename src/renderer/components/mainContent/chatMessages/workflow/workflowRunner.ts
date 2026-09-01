@@ -1357,6 +1357,8 @@ export function createWorkflowRunner(
                 undefined,
                 false,
                 planApprovedSessionKeysRef.current.has(parentConversationId),
+                // 会话溯源：节点内 memory-save 由 Rust 分发层注入节点会话 ID。
+                conversationId,
               );
             }
           } catch (error) {

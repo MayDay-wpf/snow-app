@@ -170,6 +170,10 @@ The `todo-todo-manage` tool is the standard workflow for multi-step work — it 
 5. **Language**: Follow the language used by the user when adding a todo
 6. **Final check before finishing**: Before ending any task or reporting completion, call `todo-todo-manage` (action=get) and verify EVERY item is marked completed — update or delete any items still pending. NEVER finish work with unconfirmed TODO items left behind
 
+## Project Memory
+
+Save durable cross-session knowledge with `memory-save`: confirmed decisions, preferences, pitfalls, build conventions. Skip secrets, trivia, or anything re-derivable from code. Use `importance` ≥ 3 for must-know facts; reuse existing titles to merge instead of duplicating. Search with `memory-search` before decisions or when referencing past work.
+
 ## Sub-Agents
 
 Sub-agents are independent AI execution loops that run with their own tool set and return a final summary. They are useful for isolating complex, multi-step work so the main conversation stays focused.

@@ -967,6 +967,49 @@ export type MemoCountSummary = {
   done: number;
 };
 
+// ---------------------------------------------------------------------------
+// Project Memory（项目级持久记忆）
+// ---------------------------------------------------------------------------
+
+export type MemoryKind =
+  "fact" | "decision" | "preference" | "pitfall" | "task_state";
+
+export type MemoryStatus = "active" | "pending" | "archived";
+
+export type MemorySource = "agent" | "auto" | "user";
+
+export type MemoryRecord = {
+  id: string;
+  memoryId: string;
+  directoryId: string;
+  kind: MemoryKind | string;
+  title: string;
+  content: string;
+  source: MemorySource | string;
+  status: MemoryStatus | string;
+  importance: number;
+  sessionId: string;
+  conversationId: string;
+  tags: string[];
+  lastRecalledAt?: string;
+  recallCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryPage = {
+  items: MemoryRecord[];
+  total: number;
+  hasMore: boolean;
+};
+
+export type MemoryStats = {
+  total: number;
+  active: number;
+  pending: number;
+  archived: number;
+};
+
 export type ScheduledTaskRunRecord = {
   /** ISO timestamp (UTC) when this run started. */
   runAt: string;
@@ -1808,8 +1851,16 @@ export type NativeBridge = {
     conversationId: string,
     profileName: string,
   ) => Promise<void>;
-  deleteConversation: (conversationId: string) => Promise<void>;
-  deleteConversations: (conversationIds: string[]) => Promise<void>;
+  /** deleteMemories=true 时把该会话（含级联子会话）保存的项目记忆一并删除；默认保留。 */
+  deleteConversation: (
+    conversationId: string,
+    deleteMemories?: boolean,
+  ) => Promise<void>;
+  /** deleteMemories=true 时把这些会话（含级联子会话）保存的项目记忆一并删除；默认保留。 */
+  deleteConversations: (
+    conversationIds: string[],
+    deleteMemories?: boolean,
+  ) => Promise<void>;
   /** 归档会话：从运行库搬移到独立的归档冷数据库（含子代理级联），置顶会话不参与归档。 */
   archiveConversations: (conversationIds: string[]) => Promise<void>;
   /** 分页列出归档会话（按归档时间倒序）。 */
@@ -1925,6 +1976,7 @@ export type NativeBridge = {
     subAgentAllowedTools: string[] | undefined,
     planMode: boolean | undefined,
     planApproved: boolean | undefined,
+    conversationId: string | undefined,
   ) => Promise<string>;
   engineInfo: () => string;
   sum: (a: number, b: number) => number;
@@ -2136,6 +2188,47 @@ export type NativeBridge = {
   updateMemoStatus: (memoId: string, status: string) => Promise<MemoRecord>;
   deleteMemo: (memoId: string) => Promise<void>;
   getMemoCountSummary: (directoryId: string) => Promise<MemoCountSummary>;
+  upsertProjectMemory: (
+    directoryId: string,
+    kind: string,
+    title: string,
+    content: string,
+    importance: number,
+    tags?: string[],
+    source?: string,
+    status?: string,
+    sessionId?: string,
+    conversationId?: string,
+  ) => Promise<MemoryRecord>;
+  listProjectMemories: (
+    directoryId: string,
+    limit: number,
+    offset: number,
+    status?: string,
+    kind?: string,
+  ) => Promise<MemoryPage>;
+  updateProjectMemory: (
+    memoryId: string,
+    kind?: string,
+    title?: string,
+    content?: string,
+    importance?: number,
+    status?: string,
+    tags?: string[],
+  ) => Promise<MemoryRecord>;
+  deleteProjectMemory: (memoryId: string) => Promise<boolean>;
+  clearProjectMemories: (directoryId: string) => Promise<number>;
+  getProjectMemoryStats: (directoryId: string) => Promise<MemoryStats>;
+  countProjectMemoriesByConversations: (
+    conversationIds: string[],
+  ) => Promise<number>;
+  listProjectMemoriesByConversation: (
+    conversationId: string,
+    limit?: number,
+  ) => Promise<MemoryRecord[]>;
+  deleteProjectMemoriesByConversation: (
+    conversationId: string,
+  ) => Promise<number>;
   listScheduledTasks: () => Promise<ScheduledTaskRecord[]>;
   upsertScheduledTask: (
     input: ScheduledTaskRecordInput,

@@ -1016,17 +1016,42 @@ CREATE TABLE IF NOT EXISTS userscripts (
          CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_directory
            ON scheduled_tasks(directory_id, created_at ASC, id ASC);
 
-         CREATE TABLE IF NOT EXISTS scheduled_task_runs (
-           id TEXT PRIMARY KEY NOT NULL,
-           task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
-           run_at TEXT NOT NULL,
-           status TEXT NOT NULL DEFAULT 'running',
-           duration_ms INTEGER,
-           error TEXT
-         );
-         CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
-           ON scheduled_task_runs(task_id, run_at ASC, id ASC);
-    ",
+          CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+            id TEXT PRIMARY KEY NOT NULL,
+            task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+            run_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            duration_ms INTEGER,
+            error TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
+            ON scheduled_task_runs(task_id, run_at ASC, id ASC);
+
+          -- 项目级持久记忆（Project Memory）：按 directory_id 隔离的跨会话
+          -- AI 记忆条目。kind: fact | decision | preference | pitfall |
+          -- task_state；source: agent(AI 工具写入) | auto(蒸馏) | user(手动)；
+          -- status: active | pending(待确认) | archived。注入系统提示词时按
+          -- importance + updated_at 排序取前 N 条。
+          CREATE TABLE IF NOT EXISTS project_memories (
+            id TEXT PRIMARY KEY NOT NULL,
+            memory_id TEXT NOT NULL UNIQUE,
+            directory_id TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'fact',
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'agent',
+            status TEXT NOT NULL DEFAULT 'active',
+            importance INTEGER NOT NULL DEFAULT 2,
+            conversation_id TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            last_recalled_at TEXT,
+            recall_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_project_memories_directory
+            ON project_memories(directory_id, status, importance DESC, updated_at DESC, id DESC);
+     ",
     )?;
 
     // Ensure the codebase embed sessions table exists. Defined in a separate

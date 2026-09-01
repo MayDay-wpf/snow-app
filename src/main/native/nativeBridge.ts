@@ -1373,6 +1373,52 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to count memos"),
         ),
+      upsertProjectMemory: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to save project memories"),
+        ),
+      listProjectMemories: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to list project memories"),
+        ),
+      updateProjectMemory: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to update project memories",
+          ),
+        ),
+      deleteProjectMemory: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to delete project memories",
+          ),
+        ),
+      clearProjectMemories: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to clear project memories"),
+        ),
+      getProjectMemoryStats: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to count project memories"),
+        ),
+      countProjectMemoriesByConversations: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to count memories by conversations",
+          ),
+        ),
+      listProjectMemoriesByConversation: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list memories by conversation",
+          ),
+        ),
+      deleteProjectMemoriesByConversation: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to delete memories by conversation",
+          ),
+        ),
       listScheduledTasks: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list scheduled tasks"),

@@ -532,17 +532,27 @@ pub async fn update_conversation_api_profile(
 }
 
 #[napi]
-pub async fn delete_conversation(conversation_id: String) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || crate::storage::delete_conversation(conversation_id))
-        .await
-        .map_err(map_spawn_error)?
+pub async fn delete_conversation(
+    conversation_id: String,
+    delete_memories: Option<bool>,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_conversation(conversation_id, delete_memories.unwrap_or(false))
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]
-pub async fn delete_conversations(conversation_ids: Vec<String>) -> napi::Result<()> {
-    tokio::task::spawn_blocking(move || crate::storage::delete_conversations(conversation_ids))
-        .await
-        .map_err(map_spawn_error)?
+pub async fn delete_conversations(
+    conversation_ids: Vec<String>,
+    delete_memories: Option<bool>,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_conversations(conversation_ids, delete_memories.unwrap_or(false))
+    })
+    .await
+    .map_err(map_spawn_error)?
 }
 
 #[napi]

@@ -295,6 +295,22 @@ pub async fn prepare_context_request(
     } else {
         format!("{system_prompt}\n\n{imagegen_section}")
     };
+    // 项目记忆章节（2026-09-01，仿 LSP/imagegen 方案 B）：项目启用
+    // builtin:memory（默认启用）且记忆库可用时，在系统提示词末尾追加
+    // 「Project Memory」章节——importance 头部条目 + memory-search/save
+    // 工具指引。查询失败静默降级为空串。子代理不注入：任务短且上下文
+    // 昂贵，记忆操作由主会话统一决策。追加在末尾：与 LSP/imagegen 同理，
+    // 最小化 prompt cache 前缀失效范围。
+    let memory_section = if request.is_sub_agent {
+        String::new()
+    } else {
+        crate::mcp::servers::memory::build_system_prompt_section(request.directory_id).await
+    };
+    let system_prompt = if memory_section.is_empty() {
+        system_prompt
+    } else {
+        format!("{system_prompt}\n\n{memory_section}")
+    };
     let user_system_prompts = if request.is_sub_agent {
         compose_sub_agent_system_prompts(
             &system_prompt,

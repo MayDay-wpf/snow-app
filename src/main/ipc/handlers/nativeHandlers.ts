@@ -992,6 +992,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       subAgentAllowedTools: unknown,
       planMode: unknown,
       planApproved: unknown,
+      conversationId: unknown,
     ) => {
       if (typeof toolFullName !== "string" || !toolFullName.trim()) {
         throw new Error("Tool full name is required");
@@ -1038,6 +1039,12 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       }
       if (planApproved !== undefined && typeof planApproved !== "boolean") {
         throw new Error("Plan approval state must be a boolean");
+      }
+      if (
+        conversationId !== undefined &&
+        (typeof conversationId !== "string" || !conversationId.trim())
+      ) {
+        throw new Error("Conversation id must be a non-empty string");
       }
 
       const normalizedStreamId = streamId.trim();
@@ -1095,6 +1102,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
         normalizedSubAgentAllowedTools,
         planMode as boolean | undefined,
         planApproved as boolean | undefined,
+        (conversationId as string | undefined)?.trim(),
       );
 
       try {

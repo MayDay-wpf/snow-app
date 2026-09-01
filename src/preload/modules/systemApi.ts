@@ -1049,6 +1049,7 @@ export const systemApi = {
     subAgentAllowedTools?: string[],
     planMode?: boolean,
     planApproved?: boolean,
+    conversationId?: string,
   ): Promise<string> => {
     const streamId = createMcpToolStreamId();
     ensureMcpToolChunkListener();
@@ -1071,6 +1072,7 @@ export const systemApi = {
         subAgentAllowedTools,
         planMode,
         planApproved,
+        conversationId,
       )
       .finally(() => {
         mcpToolChunkCallbacks.delete(streamId);

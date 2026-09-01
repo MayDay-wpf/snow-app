@@ -1,4 +1,5 @@
 import {
+  Brain,
   CalendarClock,
   Download,
   LoaderCircle,
@@ -26,6 +27,7 @@ import {
 import { useCrossProjectNotifications } from "./mainSidebar/useCrossProjectNotifications";
 import { GlobalSearchModal } from "./GlobalSearchModal";
 import { MemoModal } from "./MemoModal";
+import { MemoryModal } from "./MemoryModal";
 import { ScheduledTasksModal } from "./ScheduledTasksModal";
 import { UpdateDialog, OPEN_UPDATE_DIALOG_EVENT } from "./UpdateDialog";
 import type { SidebarContentProps } from "./types";
@@ -60,6 +62,7 @@ export function MainSidebarContent({
   const [isSwitchingDirectory, setIsSwitchingDirectory] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMemoOpen, setIsMemoOpen] = useState(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [isChatsCollapsed, setIsChatsCollapsed] = useState(false);
@@ -255,6 +258,18 @@ export function MainSidebarContent({
           )}
         </button>
         <button
+          className="nav-item sidebar-memory-btn"
+          disabled={!activeDirectoryId}
+          onClick={() => setIsMemoryOpen(true)}
+          title={t("memory.sidebarEntry", { defaultValue: "Project Memory" })}
+          type="button"
+        >
+          <Brain size={16} strokeWidth={1.8} />
+          <span>
+            {t("memory.sidebarEntry", { defaultValue: "Project Memory" })}
+          </span>
+        </button>
+        <button
           className="nav-item sidebar-scheduled-tasks-btn"
           onClick={() => setIsScheduledTasksOpen(true)}
           title={t("scheduledTask.sidebarEntry", {
@@ -378,6 +393,11 @@ export function MainSidebarContent({
           refreshPendingMemoCount();
         }}
         onPendingCountChange={setPendingMemoCount}
+      />
+      <MemoryModal
+        directoryId={activeDirectoryId}
+        open={isMemoryOpen}
+        onClose={() => setIsMemoryOpen(false)}
       />
       <ScheduledTasksModal
         directoryId={activeDirectoryId}

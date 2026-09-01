@@ -75,10 +75,26 @@ export const conversationApi = {
       conversationId,
       profileName,
     ),
-  deleteConversation: (conversationId: string): Promise<void> =>
-    ipcRenderer.invoke("chat-conversations:delete", conversationId),
-  deleteConversations: (conversationIds: string[]): Promise<void> =>
-    ipcRenderer.invoke("chat-conversations:batch-delete", conversationIds),
+  /** deleteMemories=true 时把该会话（含级联子会话）保存的项目记忆一并删除；默认保留。 */
+  deleteConversation: (
+    conversationId: string,
+    deleteMemories?: boolean,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      "chat-conversations:delete",
+      conversationId,
+      deleteMemories,
+    ),
+  /** deleteMemories=true 时把这些会话（含级联子会话）保存的项目记忆一并删除；默认保留。 */
+  deleteConversations: (
+    conversationIds: string[],
+    deleteMemories?: boolean,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      "chat-conversations:batch-delete",
+      conversationIds,
+      deleteMemories,
+    ),
   archiveConversations: (conversationIds: string[]): Promise<void> =>
     ipcRenderer.invoke("chat-conversations:archive", conversationIds),
   listArchivedConversationsPaginated: (

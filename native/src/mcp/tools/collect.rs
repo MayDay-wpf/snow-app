@@ -350,6 +350,7 @@ pub(crate) fn builtin_server_name(server_id: &str) -> &str {
         "config" => "Config",
         "imagegen" => "Image Generation",
         "lsp" => "LSP",
+        "memory" => "Project Memory",
         _ => server_id,
     }
 }

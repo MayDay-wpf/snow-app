@@ -47,8 +47,8 @@ type ChatItemProps = {
   onPin: () => void;
   onRename: (newTitle: string) => Promise<void>;
   onSetEmoji: (emoji: string) => Promise<void>;
-  /** 确认删除；deleteImages=true 表示同时级联删除图库图片 */
-  onDelete: (deleteImages: boolean) => void;
+  /** 确认删除；deleteImages=true 同时级联删除图库图片，deleteMemories=true 同时删除该会话保存的项目记忆 */
+  onDelete: (deleteImages: boolean, deleteMemories: boolean) => void;
   onExport: (format: ExportFormat) => void;
   /** 创建分支会话（复制整个会话到新的分支） */
   onFork?: () => void;

@@ -400,14 +400,24 @@ pub fn update_conversation_api_profile(
     )
 }
 
-pub fn delete_conversation(conversation_id: String) -> Result<()> {
+/// 删除会话。`delete_memories=true` 时把该会话（含级联子会话）保存的
+/// 项目记忆一并删除——由删除确认弹窗的用户选择传入，默认保留。
+pub fn delete_conversation(conversation_id: String, delete_memories: bool) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::chat_conversations::delete_conversation(&database_path, &conversation_id)
+    services::chat_conversations::delete_conversation(
+        &database_path,
+        &conversation_id,
+        delete_memories,
+    )
 }
 
-pub fn delete_conversations(conversation_ids: Vec<String>) -> Result<()> {
+pub fn delete_conversations(conversation_ids: Vec<String>, delete_memories: bool) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::chat_conversations::delete_conversations(&database_path, &conversation_ids)
+    services::chat_conversations::delete_conversations(
+        &database_path,
+        &conversation_ids,
+        delete_memories,
+    )
 }
 
 pub fn archive_conversations(conversation_ids: Vec<String>) -> Result<()> {

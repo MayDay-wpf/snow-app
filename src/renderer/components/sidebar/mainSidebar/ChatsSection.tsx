@@ -229,6 +229,12 @@ export function ChatsSection({
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchImagesCount, setBatchImagesCount] = useState<number | null>(null);
   const [batchDeleteImages, setBatchDeleteImages] = useState(false);
+  // 批量删除确认：所选会话保存的项目记忆数（null = 未查询），
+  // 以及用户是否选择连带删除记忆（默认不勾选 = 保留）
+  const [batchMemoriesCount, setBatchMemoriesCount] = useState<number | null>(
+    null,
+  );
+  const [batchDeleteMemories, setBatchDeleteMemories] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   /** 单条删除进行中的会话 id 集合 */
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -896,6 +902,7 @@ export function ChatsSection({
   const handleDelete = async (
     conversation: ChatConversationRecord,
     deleteImages: boolean,
+    deleteMemories: boolean,
   ): Promise<void> => {
     if (deletingIds.size > 0) {
       return;
@@ -919,7 +926,12 @@ export function ChatsSection({
         abortConversation(targetId);
       }
 
-      await window.snow.deleteConversation(conversation.conversationId);
+      // deleteMemories=true 时在 Rust 删除事务内把该会话（含级联子会话）
+      // 保存的项目记忆一并删除；默认保留
+      await window.snow.deleteConversation(
+        conversation.conversationId,
+        deleteMemories,
+      );
 
       // 删除的会话不再需要保留输入草稿
       for (const targetId of deleteTargetIds) {
@@ -1089,11 +1101,18 @@ export function ChatsSection({
     setShowBatchConfirm(true);
     setBatchImagesCount(null);
     setBatchDeleteImages(false);
+    // 同时查询所选会话保存的项目记忆数（>0 才显示「同时删除记忆」选项）
+    setBatchMemoriesCount(null);
+    setBatchDeleteMemories(false);
     if (selectedIds.size > 0) {
       void window.snow
         .countConversationImages([...selectedIds])
         .then((count) => setBatchImagesCount(count))
         .catch(() => setBatchImagesCount(0));
+      void window.snow
+        .countProjectMemoriesByConversations([...selectedIds])
+        .then((count) => setBatchMemoriesCount(count))
+        .catch(() => setBatchMemoriesCount(0));
     }
   };
 
@@ -1125,8 +1144,12 @@ export function ChatsSection({
       }
 
       // 单次批量删除：native 单事务完成（选中父会话时子代理随级联删除），
-      // 避免逐条 IPC + 逐条事务（N+1）
-      await window.snow.deleteConversations([...selectedIds]);
+      // 避免逐条 IPC + 逐条事务（N+1）；deleteMemories=true 时在同一事务内
+      // 把这些会话保存的项目记忆一并删除
+      await window.snow.deleteConversations(
+        [...selectedIds],
+        batchDeleteMemories,
+      );
 
       // 删除的会话不再需要保留输入草稿
       for (const targetId of targetIds) {
@@ -2371,8 +2394,12 @@ export function ChatsSection({
                               onSetEmoji={(emoji) =>
                                 handleSetEmoji(conversation, emoji)
                               }
-                              onDelete={(deleteImages) =>
-                                void handleDelete(conversation, deleteImages)
+                              onDelete={(deleteImages, deleteMemories) =>
+                                void handleDelete(
+                                  conversation,
+                                  deleteImages,
+                                  deleteMemories,
+                                )
                               }
                               onExport={(format) =>
                                 handleExport(conversation, format)
@@ -2501,12 +2528,15 @@ export function ChatsSection({
       <ChatDeleteConfirmDialog
         conversationCount={selectedIds.size}
         deleteImages={batchDeleteImages}
+        deleteMemories={batchDeleteMemories}
         imagesCount={batchImagesCount}
+        memoriesCount={batchMemoriesCount}
         isBatch
         isConfirming={isBatchDeleting}
         onCancel={() => setShowBatchConfirm(false)}
         onConfirm={() => void handleBatchDelete()}
         onDeleteImagesChange={setBatchDeleteImages}
+        onDeleteMemoriesChange={setBatchDeleteMemories}
         open={showBatchConfirm}
       />
       {/* 归档会话永久删除确认（归档数据不可恢复） */}

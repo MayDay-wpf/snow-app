@@ -8,6 +8,7 @@ pub mod filesystem;
 pub mod grep;
 pub mod imagegen;
 pub mod lsp;
+pub mod memory;
 pub mod remote_workspace;
 pub mod skills;
 pub mod skills_config;

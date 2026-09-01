@@ -334,7 +334,7 @@ pub async fn write_interactive_stdin(session_id: String, input: String) -> napi:
 }
 
 #[napi(
-    ts_args_type = "toolFullName: string, argsJson: string, projectId: string | undefined, checkpointIds: string[] | undefined, checkpointWorkDir: string | undefined, sensitiveAuthorizationToken: string | undefined, onChunk: (chunk: BashStreamChunk) => void, onBrowserCommand: (command: BrowserCommand) => Promise<string>, onWebSearchCommand: (command: WebSearchCommand) => Promise<string>, onUserQuestion: (question: UserQuestionCommand) => Promise<string>, onAppControl: (command: AppControlCommand) => Promise<string>, onRemoteWorkspaceCommand: (command: RemoteWorkspaceCommand) => Promise<string>, onTerminalCommand: (command: TerminalCommand) => Promise<string>, subAgentAllowedTools: string[] | undefined, planMode: boolean | undefined, planApproved: boolean | undefined",
+    ts_args_type = "toolFullName: string, argsJson: string, projectId: string | undefined, checkpointIds: string[] | undefined, checkpointWorkDir: string | undefined, sensitiveAuthorizationToken: string | undefined, onChunk: (chunk: BashStreamChunk) => void, onBrowserCommand: (command: BrowserCommand) => Promise<string>, onWebSearchCommand: (command: WebSearchCommand) => Promise<string>, onUserQuestion: (question: UserQuestionCommand) => Promise<string>, onAppControl: (command: AppControlCommand) => Promise<string>, onRemoteWorkspaceCommand: (command: RemoteWorkspaceCommand) => Promise<string>, onTerminalCommand: (command: TerminalCommand) => Promise<string>, subAgentAllowedTools: string[] | undefined, planMode: boolean | undefined, planApproved: boolean | undefined, conversationId: string | undefined",
     ts_return_type = "Promise<string>"
 )]
 pub async fn call_mcp_tool(
@@ -354,6 +354,7 @@ pub async fn call_mcp_tool(
     sub_agent_allowed_tools: Option<Vec<String>>,
     plan_mode: Option<bool>,
     plan_approved: Option<bool>,
+    conversation_id: Option<String>,
 ) -> napi::Result<String> {
     call_tool(
         tool_full_name,
@@ -372,6 +373,7 @@ pub async fn call_mcp_tool(
         sub_agent_allowed_tools,
         plan_mode.unwrap_or(false),
         plan_approved.unwrap_or(false),
+        conversation_id,
     )
     .await
 }

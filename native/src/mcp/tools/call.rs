@@ -19,6 +19,7 @@ use super::super::servers::filesystem::FilesystemService;
 use super::super::servers::grep::GrepService;
 use super::super::servers::imagegen::ImageGenService;
 use super::super::servers::lsp::LspService;
+use super::super::servers::memory::MemoryService;
 use super::super::servers::remote_workspace::{is_ssh_path, RemoteWorkspaceCallback};
 use super::super::servers::skills::SkillsService;
 use super::super::servers::terminal::{TerminalCommandCallback, TerminalService};
@@ -64,6 +65,7 @@ pub async fn call_mcp_tool(
     sub_agent_allowed_tools: Option<Vec<String>>,
     plan_mode: bool,
     plan_approved: bool,
+    conversation_id: Option<String>,
 ) -> napi::Result<String> {
     // Sanitize: AI may copy "[Tool: server-tool#callId]" from conversation
     // history or leak internal XML tags into the tool name. Normalize
@@ -314,6 +316,18 @@ pub async fn call_mcp_tool(
         fs_result?
     } else if tool_full_name == "todo-todo-manage" {
         TodoService::new().execute_async(&args).await?
+    } else if let Some(memory_tool) = tool_full_name.strip_prefix("memory-") {
+        // 项目记忆工具集：project_id 由调用链注入（当前会话项目），
+        // 工具参数不携带 projectId，模型无法跨项目读写；conversation_id
+        // 同理由调用链注入（memory-save 的溯源锚点，AI 不可填写）。
+        MemoryService::new()
+            .execute_async(
+                memory_tool,
+                &args,
+                project_id.as_deref(),
+                conversation_id.as_deref(),
+            )
+            .await?
     } else if tool_full_name == "websearch-websearch-search" {
         WebSearchService::new()
             .execute_async("websearch-search", &args, &on_websearch_command)

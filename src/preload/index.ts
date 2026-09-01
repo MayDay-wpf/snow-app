@@ -8,6 +8,7 @@ import { gitApi } from "./modules/gitApi";
 import { teamApi } from "./modules/teamApi";
 import { systemApi, ptyApi, windowApi } from "./modules/systemApi";
 import { memoApi } from "./modules/memoApi";
+import { memoryApi } from "./modules/memoryApi";
 import { scheduledTaskApi } from "./modules/scheduledTaskApi";
 import { personalizationApi } from "./modules/personalizationApi";
 import { codexApi } from "./modules/codexApi";
@@ -34,6 +35,7 @@ const api = {
   ...ptyApi,
   ...windowApi,
   ...memoApi,
+  ...memoryApi,
   ...scheduledTaskApi,
   ...personalizationApi,
   ...codexApi,

@@ -8,6 +8,11 @@ type ChatDeleteConfirmDialogProps = {
   imagesCount: number | null;
   deleteImages: boolean;
   onDeleteImagesChange: (deleteImages: boolean) => void;
+  /** 这些会话保存的项目记忆条数（null = 未查询到/不可用） */
+  memoriesCount: number | null;
+  /** 用户是否选择连带删除记忆（默认不勾选 = 保留记忆） */
+  deleteMemories: boolean;
+  onDeleteMemoriesChange: (deleteMemories: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
   /** 删除进行中：确认按钮显示 loading */
@@ -22,6 +27,9 @@ export function ChatDeleteConfirmDialog({
   imagesCount,
   deleteImages,
   onDeleteImagesChange,
+  memoriesCount,
+  deleteMemories,
+  onDeleteMemoriesChange,
   onConfirm,
   onCancel,
   isConfirming = false,
@@ -73,6 +81,29 @@ export function ChatDeleteConfirmDialog({
                   defaultValue:
                     "Also delete the {{count}} image(s) generated in this conversation",
                   values: { count: imagesCount },
+                })}
+          </span>
+        </label>
+      ) : null}
+      {memoriesCount !== null && memoriesCount > 0 ? (
+        <label className="chat-item-menu-delete-images">
+          <input
+            checked={deleteMemories}
+            disabled={isConfirming}
+            onChange={(event) => onDeleteMemoriesChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            {isBatch
+              ? t("sidebar.chatDeleteMemoriesOptionBatch", {
+                  defaultValue:
+                    "Also delete the {{count}} project memories saved from the selected conversations",
+                  values: { count: memoriesCount },
+                })
+              : t("sidebar.chatDeleteMemoriesOption", {
+                  defaultValue:
+                    "Also delete the {{count}} project memories saved from this conversation (uncheck to keep them in the project memory bank)",
+                  values: { count: memoriesCount },
                 })}
           </span>
         </label>

@@ -18,6 +18,7 @@ pub(crate) use crate::storage::{
     ImportResourceRelease, ImportResourceReleaseInput, LspServerConfigInput, LspServerConfigRecord,
     McpServerConfigInput, McpServerConfigRecord,
     MemoryOptimizeResult,
+    MemoryPage, MemoryRecord, MemoryStats,
     MemoCountSummary, MemoPage, MemoRecord, PluginInput, PluginMarketplaceInput,
     PluginMarketplaceRecord, PluginRecord, ProjectCollectionRecord, ProjectMcpServerConfigRecord,
     ProjectSensitiveCommandConfigInput, ProjectSensitiveCommandConfigRecord,
@@ -39,6 +40,7 @@ mod logs;
 mod lsp;
 mod mcp;
 mod memos;
+mod memory;
 mod plugins;
 mod privacy;
 mod projects;
@@ -53,7 +55,7 @@ mod userscripts;
 pub use {
     agents::*, api_configs::*, app::*, conversations::*, hooks::*, imports::*, logs::*, lsp::*,
     mcp::*,
-    memos::*, plugins::*, privacy::*, projects::*, scheduled_tasks::*, shortcuts::*,
+    memos::*, memory::*, plugins::*, privacy::*, projects::*, scheduled_tasks::*, shortcuts::*,
     storage_locations::*, theme::*, userscripts::*,
 };
 

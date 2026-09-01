@@ -29,8 +29,8 @@ type ChatItemMenuProps = {
   onPin: () => void;
   onRename: () => void;
   onSetEmoji: (emoji: string) => void | Promise<void>;
-  /** 确认删除；deleteImages=true 表示同时级联删除图库图片 */
-  onDelete: (deleteImages: boolean) => void;
+  /** 确认删除；deleteImages=true 同时级联删除图库图片，deleteMemories=true 同时删除该会话保存的项目记忆 */
+  onDelete: (deleteImages: boolean, deleteMemories: boolean) => void;
   /** 删除进行中：确认框保持打开并显示 loading */
   isDeleting?: boolean;
   onExport: (format: ExportFormat) => void;
@@ -72,6 +72,10 @@ export function ChatItemMenu({
   // 以及用户是否选择级联删除图片
   const [imagesCount, setImagesCount] = useState<number | null>(null);
   const [deleteImages, setDeleteImages] = useState(false);
+  // 该会话保存的项目记忆数（null = 未查询），以及用户是否选择连带删除
+  // 记忆（默认不勾选 = 保留记忆）
+  const [memoriesCount, setMemoriesCount] = useState<number | null>(null);
+  const [deleteMemories, setDeleteMemories] = useState(false);
   // 已点击确认删除：确认框保持打开，删除完成（isDeleting 回到 false）后自动关闭
   const [hasConfirmed, setHasConfirmed] = useState(false);
   // 右键锚点存在时菜单即为打开状态
@@ -242,10 +246,17 @@ export function ChatItemMenu({
       .countConversationImages([conversationId])
       .then((count) => setImagesCount(count))
       .catch(() => setImagesCount(0));
+    // 同时查询该会话保存的项目记忆数（>0 才显示「同时删除记忆」选项）
+    setMemoriesCount(null);
+    setDeleteMemories(false);
+    void window.snow
+      .countProjectMemoriesByConversations([conversationId])
+      .then((count) => setMemoriesCount(count))
+      .catch(() => setMemoriesCount(0));
   };
 
   const handleDeleteConfirm = (): void => {
-    onDelete(deleteImages);
+    onDelete(deleteImages, deleteMemories);
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
     // 确认框保持打开：删除期间显示 loading，完成（isDeleting 回到 false）后由 effect 关闭
@@ -533,12 +544,15 @@ export function ChatItemMenu({
       <ChatDeleteConfirmDialog
         conversationCount={1}
         deleteImages={deleteImages}
+        deleteMemories={deleteMemories}
         imagesCount={imagesCount}
+        memoriesCount={memoriesCount}
         isBatch={false}
         isConfirming={isDeleting}
         onCancel={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
         onDeleteImagesChange={setDeleteImages}
+        onDeleteMemoriesChange={setDeleteMemories}
         open={showConfirm}
       />
     </>

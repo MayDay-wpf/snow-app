@@ -446,6 +446,9 @@ export function createToolExecutor(
                 undefined,
                 sessionPlanMode(effectiveKey),
                 planApprovedSessionKeysRef.current.has(effectiveKey),
+                // 会话溯源（memory-save 由 Rust 分发层注入会话 ID）：
+                // PENDING 会话没有真实会话 id，传 undefined。
+                isPendingSessionKey(effectiveKey) ? undefined : effectiveKey,
               );
             }
           } catch (err) {
@@ -987,6 +990,9 @@ export function createToolExecutor(
                   undefined,
                   sessionPlanMode(effectiveKey),
                   planApprovedSessionKeysRef.current.has(effectiveKey),
+                  // 会话溯源（memory-save 由 Rust 分发层注入会话 ID）：
+                  // PENDING 会话没有真实会话 id，传 undefined。
+                  isPendingSessionKey(effectiveKey) ? undefined : effectiveKey,
                 );
 
                 // Record successful file modifications (filesystem-create /

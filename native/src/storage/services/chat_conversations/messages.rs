@@ -84,7 +84,7 @@ pub fn update_conversation_emoji(
         .map(|_| ())
 }
 
-pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Result<()> {
+pub fn delete_conversation(database_path: &Path, conversation_id: &str, delete_memories: bool) -> Result<()> {
     let mut connection = database::open_connection(database_path)
         .map_err(|error| database::database_error(database_path, "delete conversation", error))?;
 
@@ -201,6 +201,19 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
             .map_err(|error| database::database_error(database_path, "delete todo items", error))?;
     }
 
+    // 会话删除联动（Project Memory）：用户在删除确认弹窗勾选「同时删除
+    // 记忆」时，把该会话（含级联子代理 / workflow 节点会话）保存的项目
+    // 记忆一并删除；默认保留——记忆是项目级知识资产，不随来源会话消失。
+    if delete_memories {
+        super::super::project_memories::delete_memories_by_conversation_ids(
+            &transaction,
+            &conversation_ids,
+        )
+        .map_err(|error| {
+            database::database_error(database_path, "delete project memories", error)
+        })?;
+    }
+
     // 清理子代理与 workflow 节点 bookkeeping 行：覆盖全部级联目标
     // （父会话、直接子代理、workflow 节点、节点派生的子代理）。
     if !conversation_ids.is_empty() {
@@ -278,7 +291,11 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str) -> Resul
 /// 批量删除会话，语义与单条 [delete_conversation] 完全一致：
 /// 选中父会话时其直接子代理会话随级联删除，消息与 todo 一并清理。
 /// 与逐条删除相比，只打开一次数据库、使用单个事务，避免 N+1 查询。
-pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -> Result<()> {
+pub fn delete_conversations(
+    database_path: &Path,
+    conversation_ids: &[String],
+    delete_memories: bool,
+) -> Result<()> {
     if conversation_ids.is_empty() {
         return Ok(());
     }
@@ -424,6 +441,18 @@ pub fn delete_conversations(database_path: &Path, conversation_ids: &[String]) -
                 params_from_iter(chunk.iter()),
             )
             .map_err(|error| database::database_error(database_path, "delete todo items", error))?;
+    }
+
+    // 会话删除联动（Project Memory）：与单条删除一致，仅在用户勾选
+    // 「同时删除记忆」时把全部级联目标保存的项目记忆一并删除。
+    if delete_memories {
+        super::super::project_memories::delete_memories_by_conversation_ids(
+            &transaction,
+            &all_target_ids,
+        )
+        .map_err(|error| {
+            database::database_error(database_path, "delete project memories", error)
+        })?;
     }
 
     // 删除子代理会话关联行：覆盖全部级联目标（父会话、子代理、

@@ -14,6 +14,7 @@ use super::servers::filesystem::FilesystemService;
 use super::servers::grep::GrepService;
 use super::servers::imagegen::ImageGenService;
 use super::servers::lsp::LspService;
+use super::servers::memory::MemoryService;
 use super::servers::sub_agents::SubAgentsService;
 use super::servers::terminal::TerminalService;
 use super::servers::todo::TodoService;
@@ -46,6 +47,7 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         Arc::new(ImageGenService::new()),
         Arc::new(LspService::new()),
         Arc::new(WorkflowService::new()),
+        Arc::new(MemoryService::new()),
         // NOTE: new services must be appended to the END of this list to keep
         // the tool order stable (prompt cache); never insert in the middle.
         //
@@ -89,6 +91,8 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "imagegen-imagegen-image-describe",
     "codebase-search",
     "todo-todo-manage",
+    "memory-search",
+    "memory-list",
 ];
 
 /// 返回仍注册在案的只读工具全名（过滤掉已删除/改名工具的过期条目）。

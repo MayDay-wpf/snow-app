@@ -24,6 +24,7 @@ import {
   ConfigToolCall,
   AppControlToolCall,
   DbxToolCall,
+  MemoryToolCall,
   WorkflowToolCall,
 } from "../toolCalls";
 import { ToolCallNode } from "../toolCalls/shared/ToolCallNode";
@@ -384,6 +385,10 @@ export const ToolCallItem = memo(
       // 注意：外部 MCP 工具名可能被规范化为下划线风格（dbx_execute_query），
       // 因此同时兼容连字符与下划线两种前缀。
       return <DbxToolCall toolCall={toolCall} />;
+    }
+
+    if (toolCall.name.startsWith("memory-")) {
+      return <MemoryToolCall toolCall={toolCall} />;
     }
 
     // —— 以下为通用兜底渲染 ——

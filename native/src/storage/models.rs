@@ -783,6 +783,46 @@ pub struct MemoCountSummary {
     pub done: i32,
 }
 
+/// 项目级持久记忆条目（project_memories 表）。按 `directory_id` 做项目
+/// 隔离；`kind` 为 fact | decision | preference | pitfall | task_state，
+/// `source` 为 agent（AI 工具写入）| auto（蒸馏）| user（手动），
+/// `status` 为 active | pending（待确认）| archived。
+#[napi(object)]
+#[derive(serde::Serialize)]
+pub struct MemoryRecord {
+    pub id: String,
+    pub memory_id: String,
+    pub directory_id: String,
+    pub kind: String,
+    pub title: String,
+    pub content: String,
+    pub source: String,
+    pub status: String,
+    pub importance: i32,
+    pub conversation_id: String,
+    pub tags: Vec<String>,
+    pub last_recalled_at: Option<String>,
+    pub recall_count: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[napi(object)]
+pub struct MemoryPage {
+    pub items: Vec<MemoryRecord>,
+    pub total: i32,
+    pub has_more: bool,
+}
+
+/// 项目记忆库统计（面板徽标与注入章节尾部汇总用）。
+#[napi(object)]
+pub struct MemoryStats {
+    pub total: i32,
+    pub active: i32,
+    pub pending: i32,
+    pub archived: i32,
+}
+
 #[napi(object)]
 #[derive(Clone)]
 pub struct ScheduledTaskRunRecord {

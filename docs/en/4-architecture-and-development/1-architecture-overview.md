@@ -5,14 +5,14 @@
 
 ## 1. Technology Stack
 
-| Layer | Technology | Primary responsibilities |
-|---|---|---|
-| Renderer | React 19, TypeScript, Vite | UI, conversation state, main agent loop, authorization UX |
-| Preload | Electron contextBridge | Flattens 16 API objects into controlled `window.snow.*` methods |
-| Main | Electron 37, TypeScript | Lifecycle, IPC orchestration, windows, PTY/SSH, browser, plugins, updates |
-| Native | Rust, napi-rs, Tokio | Provider adapters, MCP, SQLite, checkpoints, codebase indexing |
-| Storage | SQLite, file system | `~/.snowapp/snowapp.db`, resource files, and multiple config domains |
-| Build | electron-vite, Cargo, electron-builder | Three-entry bundling and platform-native `.node` artifacts |
+| Layer    | Technology                             | Primary responsibilities                                                  |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------- |
+| Renderer | React 19, TypeScript, Vite             | UI, conversation state, main agent loop, authorization UX                 |
+| Preload  | Electron contextBridge                 | Flattens 16 API objects into controlled `window.snow.*` methods           |
+| Main     | Electron 37, TypeScript                | Lifecycle, IPC orchestration, windows, PTY/SSH, browser, plugins, updates |
+| Native   | Rust, napi-rs, Tokio                   | Provider adapters, MCP, SQLite, checkpoints, codebase indexing            |
+| Storage  | SQLite, file system                    | `~/.snowapp/snowapp.db`, resource files, and multiple config domains      |
+| Build    | electron-vite, Cargo, electron-builder | Three-entry bundling and platform-native `.node` artifacts                |
 
 ## 2. Layered Architecture
 
@@ -59,7 +59,7 @@ sequenceDiagram
     DB-->>UI: serialized result through the same chain
 ```
 
-`src/preload/index.ts` currently combines **16 flat API objects**: `apiConfigApi`, `configApi`, `conversationApi`, `workspaceApi`, `sshApi`, `gitApi`, `systemApi`, `ptyApi`, `windowApi`, `memoApi`, `personalizationApi`, `codexApi`, `importConfigApi`, `pluginsApi`, `imageLibraryApi`, and `ideApi`. Methods live directly under `window.snow`; types are in `src/preload/types/`.
+`src/preload/index.ts` currently combines **17 flat API objects**: `apiConfigApi`, `configApi`, `conversationApi`, `workspaceApi`, `sshApi`, `gitApi`, `systemApi`, `ptyApi`, `windowApi`, `memoApi`, `memoryApi`, `personalizationApi`, `codexApi`, `importConfigApi`, `pluginsApi`, `imageLibraryApi`, and `ideApi`. Methods live directly under `window.snow`; types are in `src/preload/types/`.
 
 ### 3.2 The storageReady gate
 
@@ -98,26 +98,26 @@ Rust `api/conversation/stream.rs` dispatches by `request_method` to four protoco
 
 ### 5.1 Main
 
-`src/main/ipc/registerIpcHandlers.ts` is the authoritative IPC registration list and currently registers **19 groups**: PTY, native, API config, chat, config, conversation, workspace, IDE, SSH, Git, window, notification, memo, personalization, Codex, import config, image, image library, and browser password. `browserNetworkRecorder`, `browserStorageState`, and `browserTrace` are support modules, not registration groups.
+`src/main/ipc/registerIpcHandlers.ts` is the authoritative IPC registration list and currently registers **20 groups**: PTY, native, API config, chat, config, conversation, workspace, IDE, SSH, Git, window, notification, memo, memory, personalization, Codex, import config, image, image library, and browser password. `browserNetworkRecorder`, `browserStorageState`, and `browserTrace` are support modules, not registration groups.
 
-| Area | Responsibility |
-|---|---|
-| `app/` | Bootstrap, windows, protocols, tray, network proxy, storageReady |
-| `ipc/handlers/` | Validation and business orchestration |
-| `native/` | Binding load, types, and storage gate |
-| `pty/`, `ssh/` | Local terminals and remote workspaces |
-| `browser/` | Webview popups and browser support |
-| `plugins/` | Isolated utility-process plugin runtime |
-| `importConfig/`, `codex/` | Third-party discovery, selective import, reversible commit |
-| `updater/` | Platform update flows |
+| Area                      | Responsibility                                                   |
+| ------------------------- | ---------------------------------------------------------------- |
+| `app/`                    | Bootstrap, windows, protocols, tray, network proxy, storageReady |
+| `ipc/handlers/`           | Validation and business orchestration                            |
+| `native/`                 | Binding load, types, and storage gate                            |
+| `pty/`, `ssh/`            | Local terminals and remote workspaces                            |
+| `browser/`                | Webview popups and browser support                               |
+| `plugins/`                | Isolated utility-process plugin runtime                          |
+| `importConfig/`, `codex/` | Third-party discovery, selective import, reversible commit       |
+| `updater/`                | Platform update flows                                            |
 
 ### 5.2 Native
 
 `native/src/exports/` currently has 13 `.rs` files: `api.rs`, `checkpoint.rs`, `codebase.rs`, `engine.rs`, `git.rs`, `ide.rs`, `images.rs`, `mod.rs`, `sample.rs`, `sphere_layout.rs`, `storage.rs`, `terminal.rs`, and `updater.rs`.
 
-The direct batch in `native/src/storage/database.rs::create_schema` creates 20 tables, followed by `image_library::ensure_image_library_table`; the current core business schema is therefore **21 tables including `image_library`**. Codebase indexing also creates auxiliary or per-project dynamic tables. `storage/services/` currently contains **35 service implementation modules plus `mod.rs`**.
+The direct batch in `native/src/storage/database.rs::create_schema` creates 21 tables, followed by `image_library::ensure_image_library_table`; the current core business schema is therefore **22 tables including `image_library`**. Codebase indexing also creates auxiliary or per-project dynamic tables. `storage/services/` currently contains **36 service implementation modules plus `mod.rs`**.
 
-The **14 fixed-order built-in MCP services** are filesystem, bash, todo, grep, websearch, browser, user_interaction, sub_agents, codebase, codelens, app_control, config, terminal, and imagegen. Their order stabilizes the model tool array and prompt cache. The Skills tool is injected dynamically by `SkillsService`; `remote_workspace.rs` supports SSH and is not one of the 14 services.
+The **15 fixed-order built-in MCP services** are filesystem, bash, todo, grep, websearch, browser, user_interaction, sub_agents, codebase, codelens, app_control, config, terminal, imagegen, and memory. Their order stabilizes the model tool array and prompt cache. The Skills tool is injected dynamically by `SkillsService`; `remote_workspace.rs` supports SSH and is not one of the 15 services.
 
 ## 6. Startup Flow
 
@@ -182,13 +182,13 @@ Checkpoints are supplemented around tool calls. Plan Mode, sub-agent allowed-too
 
 ## 8. Key Design Decisions and Source Anchors
 
-| Decision | Rationale | Authoritative anchor |
-|---|---|---|
-| Agent loop in renderer | Conversation UI, authorization, pause, and background state share one runtime | `src/renderer/components/mainContent/chatMessages/hooks/useAgentLoop.ts` |
-| No Node in renderer | Reduces attack surface to allowlisted capabilities | `src/preload/index.ts` |
-| Window before storage | Shows the boot loader as early as possible | `src/main/app/bootstrap.ts` |
-| Automatic nativeBridge gate | Avoids duplicated readiness checks in every IPC handler | `src/main/native/nativeBridge.ts` |
-| Providers and MCP in Rust | Unifies streaming, tool security boundaries, and persistence | `native/src/api/conversation/stream.rs`, `native/src/mcp/tools.rs` |
-| SQLite WAL | Supports concurrent readers and one writer; backups must still preserve WAL consistency | `native/src/storage/database.rs` |
-| Stable built-in tool order | Stabilizes request bodies and prompt caches | `native/src/mcp/builtin.rs` |
-| streamId-isolated AI chunks | Supports concurrent conversations without cross-stream events | `src/preload/modules/apiConfigApi.ts`, `src/main/ipc/handlers/chatHandlers.ts` |
+| Decision                    | Rationale                                                                               | Authoritative anchor                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Agent loop in renderer      | Conversation UI, authorization, pause, and background state share one runtime           | `src/renderer/components/mainContent/chatMessages/hooks/useAgentLoop.ts`       |
+| No Node in renderer         | Reduces attack surface to allowlisted capabilities                                      | `src/preload/index.ts`                                                         |
+| Window before storage       | Shows the boot loader as early as possible                                              | `src/main/app/bootstrap.ts`                                                    |
+| Automatic nativeBridge gate | Avoids duplicated readiness checks in every IPC handler                                 | `src/main/native/nativeBridge.ts`                                              |
+| Providers and MCP in Rust   | Unifies streaming, tool security boundaries, and persistence                            | `native/src/api/conversation/stream.rs`, `native/src/mcp/tools.rs`             |
+| SQLite WAL                  | Supports concurrent readers and one writer; backups must still preserve WAL consistency | `native/src/storage/database.rs`                                               |
+| Stable built-in tool order  | Stabilizes request bodies and prompt caches                                             | `native/src/mcp/builtin.rs`                                                    |
+| streamId-isolated AI chunks | Supports concurrent conversations without cross-stream events                           | `src/preload/modules/apiConfigApi.ts`, `src/main/ipc/handlers/chatHandlers.ts` |

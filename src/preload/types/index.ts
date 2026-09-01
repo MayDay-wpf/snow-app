@@ -10,6 +10,7 @@ export type * from "./git";
 export type * from "./chat";
 export type * from "./checkpoint";
 export type * from "./memo";
+export type * from "./memory";
 export type * from "./updater";
 export type * from "./scheduledTask";
 export type * from "./personalization";

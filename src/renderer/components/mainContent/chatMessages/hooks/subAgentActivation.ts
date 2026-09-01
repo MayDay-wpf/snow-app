@@ -824,6 +824,9 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
             ctx.sessionsRefData.current.get(parentConversationId)?.planMode ??
               ctx.planModeRef.current,
             planApprovedSessionKeysRef.current.has(parentConversationId),
+            // 会话溯源：子代理内 memory-save 溯源到子代理会话（删除主会话
+            // 时级联子会话一并清理）。
+            subConvId,
           );
         }
       } catch (err) {

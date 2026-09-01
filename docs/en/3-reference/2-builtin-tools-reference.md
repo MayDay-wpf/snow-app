@@ -28,6 +28,7 @@ Listed in registration order:
 | `terminal`         | Terminal automation (persistent PTY session tabs, unlike bash's one-shot commands)                                                                                                                                                              |
 | `imagegen`         | AI image generation & editing (OpenAI / Gemini multiple channels; **hidden on demand when no channel is configured**)                                                                                                                           |
 | `skills`           | Skill loading and execution (**dynamically registered**: hidden from the tool list when no enabled skill exists)                                                                                                                                |
+| `memory`           | Project-level persistent memory (cross-session knowledge bank: save / search / list / update / delete, isolated to the current conversation's project)                                                                                          |
 
 ## 3. Tool Details
 
@@ -354,6 +355,33 @@ that stay alive across multiple calls), complementary to `bash-terminal-execute`
 > appears in the tool list only when at least one enabled skill exists under
 > `~/.snow/skills` or the project's `.snow/skills`; it disappears automatically
 > when all skills are disabled/uninstalled.
+
+### memory
+
+| Full tool name  | Purpose                                                      | Key parameters                                                         |
+| --------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `memory-save`   | Save a cross-session project memory (same-title saves merge) | `title`, `content`, `kind`, `importance`, `tags`, `sessionId`          |
+| `memory-search` | Search project memories by keywords (score-ranked)           | `query`, `kind`, `status`, `limit`                                     |
+| `memory-list`   | Browse project memories page by page                         | `status`, `kind`, `limit`, `offset`                                    |
+| `memory-update` | Update a memory entry (omitted fields keep their values)     | `memoryId`, `title`, `content`, `kind`, `importance`, `status`, `tags` |
+| `memory-delete` | Delete one memory (**DESTRUCTIVE**, requires user approval)  | `memoryId`, `confirmed`                                                |
+
+> **Project isolation & injection**: every memory tool reads/writes scoped to
+> the current conversation's project (`directory_id`) — the model cannot cross
+> projects; the project context is injected by the call chain, so tools take
+> no projectId parameter. The main session's system prompt automatically gets
+> a trailing `## Project Memory` section: active entries with
+> `importance >= 3` are injected top-first (capped at 30 entries / 4000
+> chars), and the section tail carries the current conversation id, guiding
+> `memory-save` to pass it as `sessionId` (the per-conversation provenance
+> anchor). An empty bank gets a short bootstrap hint instead. Sub-agents do
+> not receive the section. When a conversation is deleted, the confirm dialog
+> counts the memories saved from it and lets the user choose whether to delete
+> them as well (kept by default).
+>
+> `memory-delete` is destructive: obtain the user's explicit approval via
+> `user-interaction-askUserQuestion` first, then retry with `confirmed: true`;
+> calls without it are rejected.
 
 ## 4. Special Notes
 
