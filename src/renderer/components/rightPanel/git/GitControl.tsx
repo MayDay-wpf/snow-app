@@ -168,6 +168,9 @@ export const GitControl = ({
   const lastClickedSectionRef = useRef<"staged" | "unstaged" | null>(null);
   const prevStatusRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 提交信息输入框引用：提交成功后清除用户拖拽拉伸留下的 inline
+  // height，让输入框回归 rows={1} 的单行默认尺寸。
+  const commitInputRef = useRef<HTMLTextAreaElement>(null);
   // Set to true after a commit succeeds; the effect below resets scroll
   // to top once the refreshed status has been applied to the DOM.
   const commitPendingRef = useRef(false);
@@ -530,6 +533,12 @@ export const GitControl = ({
         // 清空的是“该仓库”的草稿：若提交期间已切换项目，UI 不受影响。
         applyCommitMessage(repoPath, "");
         commitPendingRef.current = true;
+        // 输入框回归单行：拖拽拉伸由浏览器写入 inline height，React
+        // 重渲染不会清掉，这里主动移除使其回到 rows={1} 的默认尺寸。
+        // 仅在当前显示的还是提交的仓库时执行，避免误清新仓库的拉伸状态。
+        if (repoPath === currentRepoRef.current) {
+          commitInputRef.current?.style.removeProperty("height");
+        }
         // 提交并推送模式下，提交成功后紧接着推送。
         if (shouldPush) {
           return window.snow.gitPush(repoPath);
@@ -963,6 +972,7 @@ export const GitControl = ({
             <div className="git-commit-section">
               <div className="git-commit-input-wrapper">
                 <textarea
+                  ref={commitInputRef}
                   className="git-commit-input"
                   placeholder={t("git.commitMessagePlaceholder")}
                   value={displayedCommitMessage}
