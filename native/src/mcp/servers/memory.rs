@@ -287,14 +287,14 @@ impl McpService for MemoryService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "save".to_string(),
-                description: "Save a durable, cross-session memory about the CURRENT project to its persistent memory bank (SQLite, scoped to the conversation's project). Use for knowledge worth remembering in FUTURE sessions: key technical decisions, user preferences/conventions, pitfalls and their fixes, project structure facts, task state. NOT for transient session state (use the todo tool for that).\n\nFields:\n- kind (optional): \"fact\" | \"decision\" | \"preference\" | \"pitfall\" | \"task_state\" (default \"fact\")\n- title (required): one concise line; it is the dedup key — saving with an existing title MERGES into that entry instead of creating a duplicate\n- content (required): concrete details (paths, commands, reasons); keep under ~400 chars\n- importance (optional, default 2): 1-5; entries with importance >= 3 are auto-injected into the system prompt of new conversations, so reserve 4-5 for must-know project knowledge\n- tags (optional): lowercase keywords for retrieval\n\nWhat to save: architecture choices the user confirmed, build/test conventions, \"don't do X\" lessons, environment quirks, recurring user instructions specific to this project. Do NOT save secrets, one-off facts easily re-derived from code, or content the user asked to forget.".to_string(),
+                description: "Save a durable, cross-session memory about the CURRENT project to its persistent memory bank (SQLite, scoped to the conversation's project). Use for knowledge worth remembering in FUTURE sessions: key technical decisions, user preferences/conventions, pitfalls and their fixes, project structure facts, task state. NOT for transient session state (use the todo tool for that).\n\nFields:\n- kind (optional): \"fact\" | \"decision\" | \"preference\" | \"pitfall\" | \"task_state\" (default \"fact\")\n- title (required): one concise line; it is the dedup key — saving with an existing title MERGES into that entry instead of creating a duplicate\n- content (required): concrete details (paths, commands, reasons); keep under ~400 chars\n- importance (optional, default 2): 1-5. 1-2 = retrieval-only (found via memory-search, never injected) — the default and correct level for specific, task-bound events (a fixed bug, a one-off decision, current task state). >= 3 = auto-injected into the system prompt of EVERY new conversation — reserve it strictly for general project knowledge useful to nearly all sessions (build/test commands, core conventions, architecture facts); if an entry only matters for one specific topic or task, keep it at 1-2 even if it feels important\n- tags (optional): lowercase keywords for retrieval\n\nWhat to save: architecture choices the user confirmed, build/test conventions, \"don't do X\" lessons, environment quirks, recurring user instructions specific to this project. Do NOT save secrets, one-off facts easily re-derived from code, or content the user asked to forget.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "kind": {
                             "type": "string",
                             "enum": ["fact", "decision", "preference", "pitfall", "task_state"],
-                            "description": "Memory category. decision = confirmed technical/architecture choice; preference = user convention/instruction; pitfall = a lesson learned from a failure; task_state = where long-running work left off."
+                            "description": "Memory category. decision = confirmed technical/architecture choice; preference = user convention/instruction; pitfall = a lesson learned from a failure; task_state = where long-running work left off (task-bound: save at importance 1-2)."
                         },
                         "title": {
                             "type": "string",
@@ -308,7 +308,7 @@ impl McpService for MemoryService {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 5,
-                            "description": "1-5. >= 3 gets auto-injected into every new conversation's system prompt for this project."
+                            "description": "1-5. 1-2 (default): retrieval-only via memory-search — for specific, task-bound events. >= 3: auto-injected into every new conversation's system prompt — general project knowledge only, never topic-specific events."
                         },
                         "tags": {
                             "type": "array",
@@ -558,7 +558,9 @@ about this project when needed.",
             "\nBank stats: {} total ({} active / {} pending / {} archived). Use \
 `memory-search` for details on any topic, and `memory-save` when you learn \
 durable knowledge worth keeping for future sessions (same-title saves merge \
-instead of duplicating).",
+instead of duplicating). When saving, keep specific/task-bound events at \
+importance 1-2 (retrieval-only) and reserve importance >= 3 for general \
+project knowledge worth auto-injecting into every new session.",
             stats.total, stats.active, stats.pending, stats.archived
         ));
     }

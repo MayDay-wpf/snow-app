@@ -172,7 +172,7 @@ The `todo-todo-manage` tool is the standard workflow for multi-step work — it 
 
 ## Project Memory
 
-Save durable cross-session knowledge with `memory-save`: confirmed decisions, preferences, pitfalls, build conventions. Skip secrets, trivia, or anything re-derivable from code. Use `importance` ≥ 3 for must-know facts; reuse existing titles to merge instead of duplicating. Search with `memory-search` before decisions or when referencing past work.
+Save durable cross-session knowledge with `memory-save`: confirmed decisions, preferences, pitfalls, build conventions. Skip secrets, trivia, or anything re-derivable from code. Importance: 1-2 (default) are retrieval-only entries found via `memory-search`; `importance` ≥ 3 auto-injects the entry into the system prompt of EVERY new conversation, so reserve ≥ 3 strictly for general project knowledge useful to nearly all sessions (build/test commands, core conventions, architecture) — save specific, task-bound events (a fixed bug, a one-off decision, task state) at 1-2 even if they feel important. Reuse existing titles to merge instead of duplicating. Search with `memory-search` before decisions or when referencing past work.
 
 ## Sub-Agents
 
