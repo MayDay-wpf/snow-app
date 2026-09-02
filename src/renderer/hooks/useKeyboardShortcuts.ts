@@ -58,6 +58,13 @@ export const useKeyboardShortcuts = (): void => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
+      // IME 组合输入期间（中文/日文等输入法候选过程，部分平台 keyCode 229）
+      // 的按键属于输入法操作，不触发任何快捷键：如取消候选的 Esc 会误触发
+      // cancelSession 中断正在运行的会话。
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
+
       // 局部快捷键区域：事件源在标记元素内部时，引擎完全不介入，
       // 由该区域组件自己的 keydown 逻辑处理（避免 Esc 触发 cancelSession 等）。
       const target = event.target;

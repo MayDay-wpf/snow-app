@@ -112,6 +112,17 @@ const makeTextRange = (
 const escapeHtml = (str: string): string =>
   str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/** IME 组合输入中的按键（如中文输入法候选词确认的 Enter）：一律忽略。
+ * 组合期间 preventDefault 会吞掉候选词上屏，导致中文无法输入
+ * 搜索框/编辑器（isComposing 为 true，部分平台报 keyCode 229）。 */
+const isComposingKeyboardEvent = (
+  event: React.KeyboardEvent<HTMLElement>,
+): boolean => {
+  const nativeEvent = event.nativeEvent;
+  const nativeEventWithKeyCode = nativeEvent as unknown as { keyCode?: number };
+  return nativeEvent.isComposing || nativeEventWithKeyCode.keyCode === 229;
+};
+
 const getLanguageFromFileName = (fileName: string): string => {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
@@ -851,8 +862,13 @@ export function FileViewerContent({
   // Keyboard shortcuts handled inside the editor's onKeyDown (which runs before
   // the library's own key handling): Ctrl/Cmd+S saves, Esc exits edit mode.
   // Undo/redo (Ctrl/Cmd+Z, Ctrl+Y) is handled natively by the editor library.
+  // IME 组合输入（如中文候选词）期间放行给输入法：确认候选的 Enter/取消
+  // 候选的 Esc 不得触发保存/退出编辑，否则候选词无法上屏。
   const handleEditorKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLElement>) => {
+      if (isComposingKeyboardEvent(e)) {
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       if (mod && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
@@ -1023,8 +1039,13 @@ export function FileViewerContent({
   );
 
   // 搜索栏按键：容器带 data-local-shortcuts，全局快捷键引擎不介入。
+  // IME 组合输入（如中文候选词）期间的 Enter/Esc 属于输入法操作，必须
+  // 放行给 IME，否则候选词无法上屏（表现为无法输入中文搜索）。
   const handleSearchBarKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (isComposingKeyboardEvent(event)) {
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
