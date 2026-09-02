@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.2.24
+
+## New Features
+
+- **Workflow Failed-Node Resume**: A new `workflow-resume` tool — when a node fails, the workflow pauses, and with the user's consent the agent resumes the failed node in its original conversation with an optional `continuePrompt` (full context preserved); once it succeeds, the remaining nodes run as usual.
+
+## Improvements
+
+- The rollback dialog gains an optional cleanup: project memories saved during the rolled-back turns can be deleted along with the rollback (kept by default, with an expandable list).
+- The sidebar memory entry shows a live count badge for the current project's memories, refreshed whenever the AI saves/updates/deletes them.
+- `<handoff>` documents now render as collapsible blocks; memory and workflow tool-call cards are polished.
+
 ## v0.2.23
 
 ## New Features
