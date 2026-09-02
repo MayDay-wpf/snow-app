@@ -1419,6 +1419,16 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete memories by conversation",
           ),
         ),
+      listProjectMemoriesForRollback: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to list memories for rollback",
+          ),
+        ),
+      deleteProjectMemoriesByIds: () =>
+        Promise.reject(
+          new Error("Rust native bridge is required to delete memories by ids"),
+        ),
       listScheduledTasks: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list scheduled tasks"),

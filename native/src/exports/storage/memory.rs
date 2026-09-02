@@ -20,6 +20,7 @@ pub async fn upsert_project_memory(
     source: Option<String>,
     status: Option<String>,
     conversation_id: Option<String>,
+    response_id: Option<String>,
 ) -> napi::Result<MemoryRecord> {
     tokio::task::spawn_blocking(move || {
         let (record, _created) = crate::storage::upsert_project_memory(
@@ -31,6 +32,7 @@ pub async fn upsert_project_memory(
             status.unwrap_or_else(|| "active".to_string()),
             importance,
             conversation_id.unwrap_or_default(),
+            response_id.unwrap_or_default(),
             tags.unwrap_or_default(),
         )?;
         Ok(record)
@@ -149,6 +151,54 @@ pub async fn delete_project_memories_by_conversation(
         crate::storage::services::project_memories::delete_memories_by_conversation(
             &database_path,
             &conversation_id,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+// ---------------------------------------------------------------------------
+// 回滚联动：按截断边界圈定被回滚轮次保存的记忆 + 确认后按 id 批量清理
+// ---------------------------------------------------------------------------
+
+/// 列出回滚将被清理的项目记忆（回滚确认弹窗展示清单）。
+///
+/// 边界定位与 truncate 语义一致：`boundary_message_id`（持久化用户消息行
+/// id，失败/中断轮次）优先，其次 `boundary_response_id`；两者皆空（回滚
+/// 首条消息）时返回该会话全部记忆。`cascade_conversation_ids`（随回滚
+/// 整体级联删除的 WorkFlow 节点会话等）的全部记忆一并返回。
+#[napi]
+pub async fn list_project_memories_for_rollback(
+    conversation_id: String,
+    boundary_message_id: Option<String>,
+    boundary_response_id: Option<String>,
+    cascade_conversation_ids: Option<Vec<String>>,
+) -> napi::Result<Vec<MemoryRecord>> {
+    tokio::task::spawn_blocking(move || {
+        let database_path = crate::storage::ensure_database_file()?;
+        crate::storage::services::project_memories::list_memories_for_rollback(
+            &database_path,
+            &conversation_id,
+            boundary_message_id.as_deref(),
+            boundary_response_id.as_deref(),
+            &cascade_conversation_ids.unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+/// 按 memory_id 批量删除记忆（回滚确认后勾选清理）。单事务原子执行，
+/// 返回删除条数。
+#[napi]
+pub async fn delete_project_memories_by_ids(
+    memory_ids: Vec<String>,
+) -> napi::Result<i32> {
+    tokio::task::spawn_blocking(move || {
+        let database_path = crate::storage::ensure_database_file()?;
+        crate::storage::services::project_memories::delete_memories_by_memory_ids(
+            &database_path,
+            &memory_ids,
         )
     })
     .await

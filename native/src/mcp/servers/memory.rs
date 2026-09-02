@@ -94,6 +94,13 @@ impl MemoryService {
             .filter(|value| !value.is_empty())
             .unwrap_or_default()
             .to_string();
+        // 响应级溯源：渲染层工具执行器注入当前 assistant responseId
+        // （与 todo-todo-manage 相同的模式），回滚据此圈定被回滚轮次
+        // 保存的记忆；无响应上下文时为空串，不参与回滚范围匹配。
+        let response_id = optional_string(args, "responseId")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_default();
 
         let project_id = project_id.to_string();
         let (record, created) = tokio::task::spawn_blocking(move || {
@@ -106,6 +113,7 @@ impl MemoryService {
                 "active".to_string(),
                 importance,
                 conversation_id,
+                response_id,
                 tags,
             )
         })

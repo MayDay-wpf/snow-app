@@ -16,7 +16,7 @@ use std::path::Path;
 
 use chrono::NaiveDateTime;
 use napi::bindgen_prelude::*;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
 
 use super::super::database;
 use super::super::{MemoryPage, MemoryRecord, MemoryStats};
@@ -49,6 +49,8 @@ pub struct MemoryUpsertInput<'a> {
     pub status: &'a str,
     pub importance: i32,
     pub conversation_id: &'a str,
+    /// 溯源响应（保存该记忆的 assistant response id），回滚清理的锚点。
+    pub response_id: &'a str,
     pub tags: Vec<String>,
 }
 
@@ -140,11 +142,11 @@ fn parse_tags(raw: &str) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 const MEMORY_COLUMNS: &str = "id, memory_id, directory_id, kind, title, content, source, \
-     status, importance, conversation_id, tags_json, \
+     status, importance, conversation_id, response_id, tags_json, \
      last_recalled_at, recall_count, created_at, updated_at";
 
 fn map_memory_row(row: &Row) -> rusqlite::Result<MemoryRecord> {
-    let tags_json: String = row.get(10)?;
+    let tags_json: String = row.get(11)?;
     Ok(MemoryRecord {
         id: row.get(0)?,
         memory_id: row.get(1)?,
@@ -156,11 +158,12 @@ fn map_memory_row(row: &Row) -> rusqlite::Result<MemoryRecord> {
         status: row.get(7)?,
         importance: row.get(8)?,
         conversation_id: row.get(9)?,
+        response_id: row.get(10)?,
         tags: parse_tags(&tags_json),
-        last_recalled_at: row.get(11)?,
-        recall_count: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        last_recalled_at: row.get(12)?,
+        recall_count: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
@@ -268,14 +271,15 @@ fn upsert_memory_with_connection(
         connection.execute(
             "UPDATE project_memories
                 SET kind = ?1, content = ?2, importance = ?3, status = ?4,
-                    tags_json = ?5, updated_at = datetime('now', 'localtime')
-              WHERE memory_id = ?6",
+                    tags_json = ?5, response_id = ?6, updated_at = datetime('now', 'localtime')
+              WHERE memory_id = ?7",
             params![
                 kind,
                 content,
                 importance,
                 status,
                 serialize_tags(&tags),
+                input.response_id.trim(),
                 existing_memory_id,
             ],
         )?;
@@ -288,9 +292,9 @@ fn upsert_memory_with_connection(
     connection.execute(
         "INSERT INTO project_memories
            (id, memory_id, directory_id, kind, title, content, source, status,
-            importance, conversation_id, tags_json,
+            importance, conversation_id, response_id, tags_json,
             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                  datetime('now', 'localtime'), datetime('now', 'localtime'))",
         params![
             database::create_snowflake_id(),
@@ -303,6 +307,7 @@ fn upsert_memory_with_connection(
             status,
             clamp_importance(input.importance),
             input.conversation_id.trim(),
+            input.response_id.trim(),
             serialize_tags(&input.tags),
         ],
     )?;
@@ -496,6 +501,177 @@ pub fn delete_memories_by_conversation_ids(
             .join(", ");
         let mut statement = connection.prepare(&format!(
             "DELETE FROM project_memories WHERE conversation_id IN ({placeholders})"
+        ))?;
+        deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
+    }
+    Ok(deleted)
+}
+
+// ---------------------------------------------------------------------------
+// 回滚联动（按响应锚点圈定被回滚轮次保存的记忆）
+// ---------------------------------------------------------------------------
+
+/// 列出回滚将被清理的记忆：主会话中 `response_id` 落在截断边界之后消息
+/// 范围内的条目，加上级联会话（WorkFlow 节点等整体删除的会话）的全部条目。
+///
+/// 边界解析与 `truncate_conversation_from_message/from_response` 一致：
+/// 优先用持久化消息行 id（失败/中断轮次没有 responseId），否则用边界
+/// responseId 定位行；两者皆空（回滚首条消息）时返回该会话全部记忆。
+/// `cascade_conversation_ids` 的记忆无范围限制地全部返回——这些会话会
+/// 随回滚整体级联删除。
+pub fn list_memories_for_rollback(
+    database_path: &Path,
+    conversation_id: &str,
+    boundary_message_id: Option<&str>,
+    boundary_response_id: Option<&str>,
+    cascade_conversation_ids: &[String],
+) -> Result<Vec<MemoryRecord>> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cascade_ids: Vec<String> = cascade_conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            // 定位截断边界的起始行 id；无边界（回滚首条消息）时为 None。
+            let boundary_row_id: Option<String> = match (
+                boundary_message_id.map(str::trim).filter(|value| !value.is_empty()),
+                boundary_response_id.map(str::trim).filter(|value| !value.is_empty()),
+            ) {
+                (Some(message_id), _) => connection
+                    .query_row(
+                        "SELECT id FROM chat_messages
+                          WHERE conversation_id = ?1 AND id = ?2 LIMIT 1",
+                        params![conversation_id, message_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?,
+                (None, Some(response_id)) => connection
+                    .query_row(
+                        "SELECT id FROM chat_messages
+                          WHERE conversation_id = ?1 AND response_id = ?2
+                          LIMIT 1",
+                        params![conversation_id, response_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?,
+                (None, None) => None,
+            };
+
+            // 主会话范围记忆：response_id 锚定到边界行之后仍存在的响应。
+            let main_sql = match boundary_row_id {
+                Some(_) => format!(
+                    "SELECT {MEMORY_COLUMNS} FROM project_memories
+                      WHERE conversation_id = ?1
+                        AND response_id <> ''
+                        AND response_id IN (
+                          SELECT response_id FROM chat_messages
+                            WHERE conversation_id = ?1
+                              AND response_id <> ''
+                              AND id >= ?2
+                        )"
+                ),
+                None => format!(
+                    "SELECT {MEMORY_COLUMNS} FROM project_memories
+                      WHERE conversation_id = ?1"
+                ),
+            };
+            let main_memories: Vec<MemoryRecord> = match boundary_row_id {
+                Some(row_id) => {
+                    let mut statement = connection.prepare(&main_sql)?;
+                    let rows = statement.query_map(
+                        params![conversation_id, row_id],
+                        map_memory_row,
+                    )?;
+                    rows.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+                None => {
+                    let mut statement = connection.prepare(&main_sql)?;
+                    let rows = statement.query_map(params![conversation_id], map_memory_row)?;
+                    rows.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+            };
+
+            // 级联会话记忆：会话整体删除，其全部记忆都在清理范围。
+            let mut records = main_memories;
+            if !cascade_ids.is_empty() {
+                for chunk in cascade_ids.chunks(MEMORY_SQL_CHUNK) {
+                    let placeholders = chunk
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| format!("?{}", index + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let sql = format!(
+                        "SELECT {MEMORY_COLUMNS} FROM project_memories
+                          WHERE conversation_id IN ({placeholders})"
+                    );
+                    let mut statement = connection.prepare(&sql)?;
+                    let rows = statement
+                        .query_map(rusqlite::params_from_iter(chunk.iter().cloned()), map_memory_row)?;
+                    for record in rows.collect::<rusqlite::Result<Vec<_>>>()? {
+                        if !records
+                            .iter()
+                            .any(|existing| existing.memory_id == record.memory_id)
+                        {
+                            records.push(record);
+                        }
+                    }
+                }
+            }
+
+            Ok(records)
+        })
+        .map_err(|error| database::database_error(database_path, "list memories for rollback", error))
+}
+
+/// 按 memory_id 批量删除记忆（回滚确认后清理）。单个 IMMEDIATE 事务
+/// 保证原子性，返回删除条数；不存在的 id 静默跳过。
+pub fn delete_memories_by_memory_ids(
+    database_path: &Path,
+    memory_ids: &[String],
+) -> Result<i32> {
+    let ids: Vec<String> = memory_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    let deleted = delete_memories_by_memory_ids_with_connection(&transaction, &ids)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    transaction
+        .commit()
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    Ok(deleted)
+}
+
+fn delete_memories_by_memory_ids_with_connection(
+    connection: &Connection,
+    memory_ids: &[String],
+) -> rusqlite::Result<i32> {
+    let mut deleted = 0i32;
+    for chunk in memory_ids.chunks(MEMORY_SQL_CHUNK) {
+        let placeholders = chunk
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection.prepare(&format!(
+            "DELETE FROM project_memories WHERE memory_id IN ({placeholders})"
         ))?;
         deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
     }

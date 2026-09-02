@@ -589,6 +589,9 @@ export const zhCN = {
   "chat.rollbackWorkflowNotice":
     "将中止（若仍在运行）并级联删除 {{count}} 个 WorkFlow 及其节点会话；恢复文件时节点对文件的改动将一并还原",
   "chat.rollbackTodoToggle": "展开/收起 TODO 列表",
+  "chat.rollbackMemoryOption":
+    "同时删除被回滚轮次保存的 {{count}} 条项目记忆（取消勾选则保留在项目记忆库）",
+  "chat.rollbackMemoryToggle": "展开/收起记忆列表",
   "chat.forkConversation": "分支",
   "chat.forkedFromConversation": "从对话中派生",
   "chat.runSummary.duration": "当前会话累计耗时",

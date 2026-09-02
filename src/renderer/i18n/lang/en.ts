@@ -621,6 +621,9 @@ export const en = {
   "chat.rollbackWorkflowNotice":
     "Cancels (if still running) and deletes {{count}} WorkFlow(s) together with their node sessions; node file changes are restored along with the files",
   "chat.rollbackTodoToggle": "Expand/collapse TODO list",
+  "chat.rollbackMemoryOption":
+    "Also delete the {{count}} project memor(ies) saved during the rolled-back turns (uncheck to keep them in the project memory bank)",
+  "chat.rollbackMemoryToggle": "Expand/collapse memory list",
   "chat.forkConversation": "Fork",
   "chat.forkedFromConversation": "Forked from conversation",
   "chat.runSummary.duration": "Current conversation cumulative duration",

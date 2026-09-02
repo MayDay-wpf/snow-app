@@ -590,6 +590,9 @@ export const zhTW = {
   "chat.rollbackWorkflowNotice":
     "將中止（若仍在執行）並級聯刪除 {{count}} 個 WorkFlow 及其節點會話；還原檔案時節點對檔案的變更將一併還原",
   "chat.rollbackTodoToggle": "展開/收起 TODO 列表",
+  "chat.rollbackMemoryOption":
+    "同時刪除被回滾輪次儲存的 {{count}} 條專案記憶（取消勾選則保留在專案記憶庫）",
+  "chat.rollbackMemoryToggle": "展開/收起記憶列表",
   "chat.forkConversation": "分支",
   "chat.forkedFromConversation": "從對話中派生",
   "chat.runSummary.duration": "目前對話累計耗時",

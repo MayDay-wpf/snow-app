@@ -3930,18 +3930,25 @@ input {
 
 .settings-update-actions {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .settings-update-actions .nav-item {
-  width: 100%;
+  width: auto;
+  padding: 4px 10px;
 }
 
 .settings-update-actions .nav-item > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-about-row .check-update-btn {
+  margin-left: auto;
+  padding: 4px 10px;
 }
 
 .check-update-btn.checking {
@@ -19485,6 +19492,23 @@ input {
   flex-shrink: 0;
 }
 
+/* 项目记忆条数徽标：规格同备忘录徽标，配色参考项目合集的灰色徽标 */
+.sidebar-memory-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
 /* ===== Memo Modal ===== */
 .memo-modal {
   width: min(1120px, calc(100vw - 48px));
@@ -28462,6 +28486,31 @@ input {
 }
 
 .rollback-todo-toggle:hover {
+  color: var(--text-secondary);
+}
+
+/* 记忆清理选项（回滚弹窗）：行内 checkbox + 可展开清单 */
+.rollback-memory-notice {
+  cursor: default;
+}
+
+.rollback-memory-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rollback-memory-option input[type="checkbox"] {
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.rollback-memory-option span {
   color: var(--text-secondary);
 }
 

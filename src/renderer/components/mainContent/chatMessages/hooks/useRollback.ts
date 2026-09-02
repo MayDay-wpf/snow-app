@@ -4,6 +4,7 @@ import type {
   CheckpointFileChange,
   RollbackMode,
   RollbackConversationState,
+  RollbackMemoryItem,
   RollbackTodoItem,
   ToolCallInfo,
 } from "../utils/conversationTypes";
@@ -409,6 +410,30 @@ export const useRollback = (ctx: ConversationContextValue) => {
             }
           }
 
+          // 记忆清理清单：被回滚轮次（边界与截断一致：优先持久化消息
+          // id，失败轮次无 responseId）保存的项目记忆，加上将随回滚级联
+          // 删除的 WorkFlow 节点会话的全部记忆。用户确认时可勾选一并删除。
+          let memoryItems: RollbackMemoryItem[] = [];
+          if (convId) {
+            try {
+              const memories = await window.snow.listProjectMemoriesForRollback(
+                convId,
+                persistedMessageId,
+                todoBoundaryResponseId,
+                workflowNodeIds,
+              );
+              memoryItems = memories
+                .filter((record) => record.memoryId)
+                .map((record) => ({
+                  memoryId: record.memoryId,
+                  title: record.title,
+                  kind: record.kind,
+                }));
+            } catch {
+              // Best effort — show empty on error
+            }
+          }
+
           // 异步查询完成时用户可能已切换到同项目的另一个会话，或又发起了
           // 一次回滚。只允许仍属于当前活动会话的最新请求打开弹窗。
           if (
@@ -435,6 +460,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
             isFirstMessage,
             isContextCompaction: targetMessage.isContextCompaction === true,
             todoItems,
+            memoryItems,
             workflowFlowCount,
             flowCheckpointIds,
             workflowNodeIds,
@@ -467,7 +493,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
   );
 
   const confirmRollback = useCallback(
-    async (mode: RollbackMode): Promise<void> => {
+    async (mode: RollbackMode, deleteMemories?: boolean): Promise<void> => {
       const preview = ctx.rollbackPreview;
       if (!preview || rollbackRequestIdRef.current !== preview.requestId) {
         return;
@@ -489,6 +515,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
         isContextCompaction,
         flowCheckpointIds,
         workflowNodeIds,
+        memoryItems,
       } = preview;
 
       // Wait for any in-flight stream AND summary generation to fully settle
@@ -516,7 +543,9 @@ export const useRollback = (ctx: ConversationContextValue) => {
       // 以重试或取消，不会出现"界面已撤销但重启后消息复活"的不一致。
       try {
         if (isFirstMessage && !isContextCompaction && convId) {
-          await window.snow.deleteConversation(convId);
+          // 首条消息回滚 = 整会话删除：deleteMemories 直接走既有级联
+          //（含子代理/WorkFlow 子会话）删除事务。
+          await window.snow.deleteConversation(convId, deleteMemories === true);
         } else if (convId && persistedMessageId) {
           // 失败/中断轮次没有 responseId，用持久化用户消息 ID 作为边界，
           // 从该行开始删除该轮及之后的所有消息。
@@ -550,6 +579,21 @@ export const useRollback = (ctx: ConversationContextValue) => {
           error: getErrorMessage(error),
         });
         return;
+      }
+
+      // 截断/删除成功后按预览清单清理记忆（best effort，不阻塞回滚）。
+      // 首条消息路径已由 deleteConversation 的级联事务覆盖，不重复删除。
+      if (
+        deleteMemories === true &&
+        convId &&
+        memoryItems.length > 0 &&
+        !(isFirstMessage && !isContextCompaction)
+      ) {
+        void window.snow
+          .deleteProjectMemoriesByIds(memoryItems.map((item) => item.memoryId))
+          .catch(() => {
+            // 清理失败不阻塞回滚
+          });
       }
 
       // Persistence succeeded — now update the UI. The message list update is

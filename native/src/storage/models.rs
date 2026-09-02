@@ -800,6 +800,7 @@ pub struct MemoryRecord {
     pub status: String,
     pub importance: i32,
     pub conversation_id: String,
+    pub response_id: String,
     pub tags: Vec<String>,
     pub last_recalled_at: Option<String>,
     pub recall_count: i32,

@@ -1,9 +1,5 @@
 export type MemoryKind =
-  | "fact"
-  | "decision"
-  | "preference"
-  | "pitfall"
-  | "task_state";
+  "fact" | "decision" | "preference" | "pitfall" | "task_state";
 
 export type MemoryStatus = "active" | "pending" | "archived";
 
@@ -24,6 +20,8 @@ export type MemoryRecord = {
   sessionId: string;
   /** 来源会话 ID（会话删除联动的锚点）。 */
   conversationId: string;
+  /** 保存该记忆的 assistant response id（回滚清理锚点；旧数据为空串）。 */
+  responseId: string;
   tags: string[];
   lastRecalledAt?: string;
   recallCount: number;

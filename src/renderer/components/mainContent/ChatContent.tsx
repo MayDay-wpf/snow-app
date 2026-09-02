@@ -1020,10 +1020,10 @@ const ChatContentBody = ({
   );
 
   const handleConfirmRollback = useCallback(
-    async (mode: RollbackMode): Promise<void> => {
+    async (mode: RollbackMode, deleteMemories?: boolean): Promise<void> => {
       // 返回真实 Promise：RollbackConfirmDialog 的确认按钮据此在整个
       // 回滚期间（含 SSH 文件恢复）保持 loading，完成后再关闭弹窗。
-      await confirmRollback(mode);
+      await confirmRollback(mode, deleteMemories);
     },
     [confirmRollback],
   );
@@ -1241,6 +1241,7 @@ const ChatContentBody = ({
           workDir={rollbackPreview.workDir}
           isFirstMessage={rollbackPreview.isFirstMessage}
           todoItems={rollbackPreview.todoItems}
+          memoryItems={rollbackPreview.memoryItems}
           workflowFlowCount={rollbackPreview.workflowFlowCount}
           error={rollbackPreview.error}
           onConfirm={handleConfirmRollback}

@@ -1538,10 +1538,7 @@ export function GeneralSettingsPanel({
             {appVersion && (
               <span className="sidebar-version-badge">v{appVersion}</span>
             )}
-          </div>
-
-          <div className="settings-update-actions">
-            {/* 检查更新按钮 - 始终可见 */}
+            {/* 检查更新按钮 - 行内右侧，始终可见 */}
             <button
               className={`nav-item check-update-btn ${
                 isChecking ? "checking" : ""
@@ -1550,7 +1547,7 @@ export function GeneralSettingsPanel({
               type="button"
               disabled={isChecking || updateStatus.downloading}
             >
-              <RefreshCw size={16} strokeWidth={1.8} />
+              <RefreshCw size={14} strokeWidth={1.8} />
               <span>
                 {isChecking
                   ? t("settings.checkingUpdate", {
@@ -1561,7 +1558,9 @@ export function GeneralSettingsPanel({
                     })}
               </span>
             </button>
+          </div>
 
+          <div className="settings-update-actions">
             {/* 发现新版本 → 打开更新弹窗（展示发行说明与下载进度） */}
             {updateStatus.available &&
               !updateStatus.downloading &&

@@ -1,5 +1,7 @@
 import { ipcMain } from "electron";
+import type { IpcMainInvokeEvent } from "electron";
 import type { NativeBridge } from "../../native/types";
+import { safeSend } from "../../utils/safeSend";
 
 const MEMORY_KINDS = [
   "fact",
@@ -184,6 +186,60 @@ export const registerMemoryHandlers = (native: NativeBridge): void => {
         throw new Error("Conversation ID is required");
       }
       return native.deleteProjectMemoriesByConversation(conversationId.trim());
+    },
+  );
+
+  // 回滚预览：列出将被清理的记忆（boundary 二选一，cascade 为级联会话）。
+  ipcMain.handle(
+    "memories:list-for-rollback",
+    (
+      _event,
+      conversationId: unknown,
+      boundaryMessageId: unknown,
+      boundaryResponseId: unknown,
+      cascadeConversationIds: unknown,
+    ) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error("Conversation ID is required");
+      }
+      const safeBoundaryMessageId =
+        typeof boundaryMessageId === "string" && boundaryMessageId.trim()
+          ? boundaryMessageId.trim()
+          : undefined;
+      const safeBoundaryResponseId =
+        typeof boundaryResponseId === "string" && boundaryResponseId.trim()
+          ? boundaryResponseId.trim()
+          : undefined;
+      const safeCascadeIds = Array.isArray(cascadeConversationIds)
+        ? cascadeConversationIds.filter(
+            (id): id is string => typeof id === "string" && id.trim() !== "",
+          )
+        : [];
+      return native.listProjectMemoriesForRollback(
+        conversationId.trim(),
+        safeBoundaryMessageId,
+        safeBoundaryResponseId,
+        safeCascadeIds,
+      );
+    },
+  );
+
+  // 回滚确认后：按 memory_id 批量删除记忆。
+  ipcMain.handle(
+    "memories:delete-by-ids",
+    async (_event: IpcMainInvokeEvent, memoryIds: unknown) => {
+      const safeIds = Array.isArray(memoryIds)
+        ? memoryIds.filter(
+            (id): id is string => typeof id === "string" && id.trim() !== "",
+          )
+        : [];
+      const deleted = await native.deleteProjectMemoriesByIds(safeIds);
+      // 记忆有实际删除时广播变更（回滚清理等场景），侧边栏徽标据此
+      // 刷新；directoryId 传 undefined 让各窗口刷新自己活动项目的统计。
+      if (deleted > 0) {
+        safeSend(_event.sender, "memories:changed", undefined);
+      }
+      return deleted;
     },
   );
 };

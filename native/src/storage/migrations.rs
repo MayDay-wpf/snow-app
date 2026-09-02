@@ -93,6 +93,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     drop_tables_referencing_sub_agent_configs_legacy(connection)?;
     migrate_project_collections(connection)?;
     migrate_workflow_node_sessions_flow_checkpoint_id(connection)?;
+    migrate_project_memories_response_id(connection)?;
     Ok(())
 }
 
@@ -1026,7 +1027,29 @@ fn migrate_project_collections(connection: &Connection) -> rusqlite::Result<()> 
            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
            UNIQUE(collection_id, directory_id)
          );
-         CREATE INDEX IF NOT EXISTS idx_collection_members_collection
-           ON collection_members(collection_id, sort_order);",
+          CREATE INDEX IF NOT EXISTS idx_collection_members_collection
+            ON collection_members(collection_id, sort_order);",
     )
+}
+
+/// Adds the `response_id` column to `project_memories` for databases created
+/// by older app versions.
+///
+/// The column anchors each memory to the assistant response whose tool call
+/// saved it (same pattern as `todo_items.response_id`), so a rollback can
+/// list and clean exactly the memories written during the rolled-back turns.
+/// Idempotent: fresh databases get the column from `CREATE TABLE`.
+fn migrate_project_memories_response_id(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(project_memories)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if !columns.iter().any(|column| column == "response_id") {
+        connection.execute(
+            "ALTER TABLE project_memories ADD COLUMN response_id TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    Ok(())
 }

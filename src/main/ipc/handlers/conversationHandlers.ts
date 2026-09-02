@@ -2,9 +2,18 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { writeFile } from "node:fs/promises";
 import type { NativeBridge } from "../../native/types";
 import { snowLog } from "../../../utils/snowLogger";
+import { safeSend } from "../../utils/safeSend";
 
 const EXPORT_FORMATS = ["markdown", "html", "json", "csv"] as const;
 type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+/** 会话删除级联清理记忆后广播（回滚首条消息等场景），各窗口刷新自己
+ *  活动项目的记忆统计（directoryId 为 undefined 时的刷新语义）。 */
+const broadcastMemoriesChanged = (): void => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    safeSend(win.webContents, "memories:changed", undefined);
+  }
+};
 
 const EXPORT_LABELS: Record<ExportFormat, string> = {
   markdown: "Markdown",
@@ -373,6 +382,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         conversationId.trim(),
         shouldDeleteMemories,
       );
+      if (shouldDeleteMemories) {
+        broadcastMemoriesChanged();
+      }
     },
   );
   ipcMain.handle(
@@ -397,6 +409,9 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         context: `count=${safeIds.length}; deleteMemories=${shouldDeleteMemories}`,
       });
       await native.deleteConversations(safeIds, shouldDeleteMemories);
+      if (shouldDeleteMemories) {
+        broadcastMemoriesChanged();
+      }
     },
   );
   ipcMain.handle(

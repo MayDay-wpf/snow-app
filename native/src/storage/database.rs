@@ -17,7 +17,7 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
-/// 38: workflow_runs / workflow_canvases tables (workflow run-state persistence).
+/// 40: project_memories.response_id column (rollback memory cleanup anchor).
 /// 39: userscripts / userscript_values tables (userscript engine).
 /// 37: workflow_node_sessions.flow_checkpoint_id column (flow-level file checkpoint).
 /// 36: workflow_node_sessions.flow_id column (multi-flow isolation per parent).
@@ -27,7 +27,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 39;
+const CURRENT_SCHEMA_VERSION: i64 = 40;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -1043,6 +1043,7 @@ CREATE TABLE IF NOT EXISTS userscripts (
             status TEXT NOT NULL DEFAULT 'active',
             importance INTEGER NOT NULL DEFAULT 2,
             conversation_id TEXT NOT NULL DEFAULT '',
+            response_id TEXT NOT NULL DEFAULT '',
             tags_json TEXT NOT NULL DEFAULT '[]',
             last_recalled_at TEXT,
             recall_count INTEGER NOT NULL DEFAULT 0,

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowLeft,
+  Brain,
   CheckSquare,
   ChevronDown,
   ChevronRight,
@@ -17,7 +18,11 @@ import type {
   CheckpointFileDiff,
 } from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
-import type { RollbackMode } from "../utils/conversationTypes";
+import type {
+  RollbackMemoryItem,
+  RollbackMode,
+  RollbackTodoItem,
+} from "../utils/conversationTypes";
 import {
   FileChangeIcon,
   FileDiffPreview,
@@ -26,23 +31,22 @@ import {
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import { getFileName } from "../toolCalls/shared/formatters";
 
-type RollbackTodoItem = {
-  id: string;
-  content: string;
-  status: string;
-};
-
 type RollbackConfirmDialogProps = {
   changes: CheckpointFileChange[];
   checkpointIds: string[];
   workDir?: string;
   isFirstMessage: boolean;
   todoItems: RollbackTodoItem[];
+  /** 被回滚轮次保存的项目记忆清单；非空时展示可选清理项。 */
+  memoryItems: RollbackMemoryItem[];
   /** 被回滚轮次关联的 WorkFlow 数量：>0 时提示将级联中止并删除。 */
   workflowFlowCount: number;
   /** 持久化截断失败时的错误信息，显示在对话框顶部提醒用户重试。 */
   error?: string;
-  onConfirm: (mode: RollbackMode) => void | Promise<void>;
+  onConfirm: (
+    mode: RollbackMode,
+    deleteMemories: boolean,
+  ) => void | Promise<void>;
   onCancel: () => void;
 };
 
@@ -60,6 +64,7 @@ export const RollbackConfirmDialog = ({
   workDir,
   isFirstMessage,
   todoItems,
+  memoryItems,
   workflowFlowCount,
   error,
   onConfirm,
@@ -72,6 +77,9 @@ export const RollbackConfirmDialog = ({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [isTodoExpanded, setIsTodoExpanded] = useState(false);
+  /** 记忆清理选项：默认不勾选（保留记忆，与删除会话弹窗语义一致）。 */
+  const [deleteMemories, setDeleteMemories] = useState(false);
+  const [isMemoryExpanded, setIsMemoryExpanded] = useState(false);
   /** 确认进行中的模式：文件恢复（SSH 下经 SFTP）可能较慢，期间禁用
    *  对话框交互并在确认按钮上显示 loading。 */
   const [confirmingMode, setConfirmingMode] = useState<RollbackMode | null>(
@@ -94,7 +102,7 @@ export const RollbackConfirmDialog = ({
     confirmingRef.current = true;
     setConfirmingMode(mode);
     try {
-      await onConfirm(mode);
+      await onConfirm(mode, deleteMemories);
     } finally {
       confirmingRef.current = false;
       setConfirmingMode(null);
@@ -326,6 +334,53 @@ export const RollbackConfirmDialog = ({
                   </li>
                 ))}
               </ul>
+            )}
+            {memoryItems.length > 0 && (
+              <>
+                <div className="rollback-todo-notice rollback-memory-notice">
+                  <button
+                    type="button"
+                    className="rollback-todo-toggle"
+                    onClick={() => setIsMemoryExpanded((v) => !v)}
+                    aria-label={t("chat.rollbackMemoryToggle")}
+                    title={t("chat.rollbackMemoryToggle")}
+                  >
+                    {isMemoryExpanded ? (
+                      <ChevronDown size={14} />
+                    ) : (
+                      <ChevronRight size={14} />
+                    )}
+                  </button>
+                  <Brain size={14} />
+                  <label className="rollback-memory-option">
+                    <input
+                      checked={deleteMemories}
+                      disabled={confirmingMode !== null}
+                      onChange={(event) =>
+                        setDeleteMemories(event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    <span>
+                      {t("chat.rollbackMemoryOption", {
+                        values: { count: memoryItems.length },
+                      })}
+                    </span>
+                  </label>
+                </div>
+                {isMemoryExpanded && (
+                  <ul className="rollback-todo-list">
+                    {memoryItems.map((memory) => (
+                      <li key={memory.memoryId} className="rollback-todo-item">
+                        <Brain size={12} className="rollback-todo-item-icon" />
+                        <span className="rollback-todo-item-content">
+                          {memory.title}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </div>
         )}

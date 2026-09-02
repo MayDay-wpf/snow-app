@@ -772,6 +772,21 @@ export function createToolExecutor(
               }
             }
 
+            // memory-save 的响应级溯源：注入当前 assistant responseId
+            //（覆盖模型可能伪造的值），回滚据此圈定被回滚轮次保存的记忆。
+            if (toolCall.name === "memory-save" && responseId) {
+              try {
+                const parsedArgs = JSON.parse(toolArgs) as Record<
+                  string,
+                  unknown
+                >;
+                parsedArgs.responseId = responseId;
+                toolArgs = JSON.stringify(parsedArgs);
+              } catch {
+                // If args are not valid JSON, let the tool fail naturally.
+              }
+            }
+
             // Attach Snow-owned session metadata to command and persistent
             // terminal tools. Pending conversations do not yet have a stable ID.
             toolArgs = injectSessionIdIntoToolArgs(

@@ -369,6 +369,13 @@ export type RollbackTodoItem = {
   status: string;
 };
 
+/** 回滚将被清理的项目记忆（弹窗清单用，memoryId 供确认后批量删除）。 */
+export type RollbackMemoryItem = {
+  memoryId: string;
+  title: string;
+  kind: string;
+};
+
 export type RollbackMode = "conversation-only" | "conversation-and-files";
 
 export type RollbackConversationState = ConversationInputRuntimeState & {
@@ -417,6 +424,8 @@ export type RollbackPreview = {
   isFirstMessage: boolean;
   isContextCompaction: boolean;
   todoItems: RollbackTodoItem[];
+  /** 被回滚轮次（含级联节点会话）保存的项目记忆，用户可选清理。 */
+  memoryItems: RollbackMemoryItem[];
   /** 被回滚轮次关联的 WorkFlow 数量（UI 提示用）。 */
   workflowFlowCount: number;
   /** WorkFlow flow 级文件检查点（flow 首节点执行前拍摄）。回滚时与
@@ -885,7 +894,11 @@ export type UseChatConversationResult = {
   rollbackPreparingMessageId: string | null;
   rollbackPreview: RollbackPreview | null;
   rollbackNewChatState: RollbackConversationState | null;
-  confirmRollback: (mode: RollbackMode) => Promise<void>;
+  /** deleteMemories=true 时把被回滚轮次保存的项目记忆一并删除；默认保留。 */
+  confirmRollback: (
+    mode: RollbackMode,
+    deleteMemories?: boolean,
+  ) => Promise<void>;
   cancelRollback: () => void;
   yoloMode: boolean;
   isUpdatingYoloMode: boolean;

@@ -19,6 +19,7 @@ pub fn upsert_project_memory(
     status: String,
     importance: i32,
     conversation_id: String,
+    response_id: String,
     tags: Vec<String>,
 ) -> Result<(MemoryRecord, bool)> {
     let database_path = ensure_database_file()?;
@@ -33,6 +34,7 @@ pub fn upsert_project_memory(
             status: &status,
             importance,
             conversation_id: &conversation_id,
+            response_id: &response_id,
             tags,
         },
     )

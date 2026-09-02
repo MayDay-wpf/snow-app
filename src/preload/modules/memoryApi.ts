@@ -1,4 +1,5 @@
 import { ipcRenderer } from "electron";
+import type { IpcRendererEvent } from "electron";
 import type {
   MemoryKind,
   MemoryPage,
@@ -83,14 +84,47 @@ export const memoryApi = {
     conversationId: string,
     limit?: number,
   ): Promise<MemoryRecord[]> =>
-    ipcRenderer.invoke(
-      "memories:list-by-conversation",
-      conversationId,
-      limit,
-    ),
+    ipcRenderer.invoke("memories:list-by-conversation", conversationId, limit),
 
   deleteProjectMemoriesByConversation: (
     conversationId: string,
   ): Promise<number> =>
     ipcRenderer.invoke("memories:delete-by-conversation", conversationId),
+
+  /** 回滚预览：列出被回滚轮次（含级联会话）保存的项目记忆清单。 */
+  listProjectMemoriesForRollback: (
+    conversationId: string,
+    boundaryMessageId?: string,
+    boundaryResponseId?: string,
+    cascadeConversationIds?: string[],
+  ): Promise<MemoryRecord[]> =>
+    ipcRenderer.invoke(
+      "memories:list-for-rollback",
+      conversationId,
+      boundaryMessageId,
+      boundaryResponseId,
+      cascadeConversationIds,
+    ),
+
+  /** 回滚确认后：按 memory_id 批量删除记忆，返回删除条数。 */
+  deleteProjectMemoriesByIds: (memoryIds: string[]): Promise<number> =>
+    ipcRenderer.invoke("memories:delete-by-ids", memoryIds),
+
+  /** AI 记忆写工具（memory-save/update/delete）成功后由主进程广播。 */
+  onMemoriesChanged: (
+    callback: (directoryId: string | undefined) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      directoryId: string | undefined,
+    ): void => {
+      callback(directoryId);
+    };
+
+    ipcRenderer.on("memories:changed", handler);
+
+    return () => {
+      ipcRenderer.removeListener("memories:changed", handler);
+    };
+  },
 };

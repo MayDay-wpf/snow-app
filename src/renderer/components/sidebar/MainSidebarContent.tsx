@@ -67,6 +67,7 @@ export function MainSidebarContent({
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [isChatsCollapsed, setIsChatsCollapsed] = useState(false);
   const [pendingMemoCount, setPendingMemoCount] = useState(0);
+  const [memoryCount, setMemoryCount] = useState(0);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(
     INITIAL_UPDATE_STATUS,
   );
@@ -132,6 +133,36 @@ export function MainSidebarContent({
       window.removeEventListener(APP_CONTROL_MEMO_CREATED_EVENT, handler);
     };
   }, [refreshPendingMemoCount]);
+
+  // 加载当前项目的记忆总条数，用于侧边栏徽标：挂载、切换项目时刷新，
+  // 记忆弹窗关闭时也刷新（弹窗内可增删记忆）。
+  const refreshMemoryCount = useCallback(() => {
+    if (!activeDirectoryId) {
+      setMemoryCount(0);
+      return;
+    }
+    window.snow
+      .getProjectMemoryStats(activeDirectoryId)
+      .then((stats) => setMemoryCount(stats.total))
+      .catch(() => undefined);
+  }, [activeDirectoryId]);
+
+  useEffect(() => {
+    refreshMemoryCount();
+  }, [refreshMemoryCount]);
+
+  // 订阅 AI 记忆写工具的变更广播：memory-save/update/delete 成功后，
+  // 主进程带项目 ID 广播，命中当前项目时刷新徽标。
+  useEffect(() => {
+    const unsubscribe = window.snow.onMemoriesChanged((directoryId) => {
+      if (!directoryId || directoryId === activeDirectoryId) {
+        refreshMemoryCount();
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [activeDirectoryId, refreshMemoryCount]);
 
   // 订阅自动更新状态：autoUpdater 在启动后自动检测更新，发现新版本时
   // 通过 onUpdateStatusChanged 推送，此处据此在设置按钮旁显示更新入口。
@@ -268,6 +299,9 @@ export function MainSidebarContent({
           <span>
             {t("memory.sidebarEntry", { defaultValue: "Project Memory" })}
           </span>
+          {memoryCount > 0 && (
+            <span className="sidebar-memory-badge">{memoryCount}</span>
+          )}
         </button>
         <button
           className="nav-item sidebar-scheduled-tasks-btn"
@@ -397,7 +431,10 @@ export function MainSidebarContent({
       <MemoryModal
         directoryId={activeDirectoryId}
         open={isMemoryOpen}
-        onClose={() => setIsMemoryOpen(false)}
+        onClose={() => {
+          setIsMemoryOpen(false);
+          refreshMemoryCount();
+        }}
       />
       <ScheduledTasksModal
         directoryId={activeDirectoryId}

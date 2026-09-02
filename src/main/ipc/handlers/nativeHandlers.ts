@@ -1063,10 +1063,11 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       // remote command runs; we map every emitted id to this controller.
       const sshAbortController = new AbortController();
       const remoteExecutionIds = new Set<string>();
+      const normalizedProjectId = (projectId as string | undefined)?.trim();
       const callPromise = native.callMcpTool(
         toolFullName.trim(),
         argsJson,
-        (projectId as string | undefined)?.trim(),
+        normalizedProjectId,
         (checkpointIds as string[] | undefined)?.map((id) => id.trim()),
         (checkpointWorkDir as string | undefined)?.trim(),
         (sensitiveAuthorizationToken as string | undefined)?.trim(),
@@ -1106,7 +1107,18 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       );
 
       try {
-        return await callPromise;
+        const result = await callPromise;
+        // memory 写工具成功后广播记忆变更：AI 可在主对话/子代理/工作流
+        // 任意路径改库，仅此处统一可见，侧边栏徽标据此刷新。
+        const toolName = toolFullName.trim();
+        if (
+          toolName === "memory-save" ||
+          toolName === "memory-update" ||
+          toolName === "memory-delete"
+        ) {
+          safeSend(event.sender, "memories:changed", normalizedProjectId);
+        }
+        return result;
       } finally {
         for (const executionId of remoteExecutionIds) {
           unregisterSshCommandAbort(executionId);
