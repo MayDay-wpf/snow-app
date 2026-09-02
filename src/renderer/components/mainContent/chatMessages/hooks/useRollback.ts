@@ -538,9 +538,43 @@ export const useRollback = (ctx: ConversationContextValue) => {
         return;
       }
 
-      // 回退是事务性的：必须先成功删除/截断持久化会话，再更新界面。
-      // 持久化失败时界面消息保持原样，预览重新打开并显示错误，用户可
-      // 以重试或取消，不会出现"界面已撤销但重启后消息复活"的不一致。
+      // 文件恢复必须前置于 DB 删除/截断：Rust delete_conversation（提交
+      // 34be2bff 引入的孤儿快照清理）删除会话时会级联物理删除消息级
+      // （chat_messages.checkpoint_id）与 flow 级（workflow_node_sessions.
+      // flow_checkpoint_id）的 checkpoint 快照目录；放在删除之后会让
+      // restore_checkpoints 因 manifest 缺失而静默跳过，文件完全不恢复。
+      // 恢复只依赖磁盘 manifest 与对象文件、不依赖任何 DB 行，且幂等：
+      // DB 失败重试时已恢复文件不再匹配 manifest 的 expected 状态，
+      // states_match 门控自动跳过，重试安全。checkpointIds 为预览阶段
+      // 按消息持久化顺序收集的检查点，flowCheckpointIds 为被回滚
+      // WorkFlow 的 flow 级检查点（flow 首节点执行前拍摄），按快照时间
+      // 升序合并交给 restore（其内部逆序逐个恢复，最终工作区 = 最早
+      // 快照 = 回滚目标处理前状态）。
+      if (
+        mode === "conversation-and-files" &&
+        preview.workDir &&
+        checkpointIds.length + flowCheckpointIds.length > 0
+      ) {
+        // SSH 回滚经 SFTP 逐文件写回可能较慢，对话框确认按钮在此期间
+        // 显示 loading。恢复失败不阻塞后续 DB 回滚（best effort）。
+        try {
+          await window.snow.restoreCheckpoints(
+            [...checkpointIds, ...flowCheckpointIds].sort(
+              compareCheckpointIds,
+            ),
+            preview.workDir,
+          );
+        } catch {
+          // Best effort — file restore failure must not block DB rollback.
+        } finally {
+          ctx.setConversationVersion((version) => version + 1);
+        }
+      }
+
+      // 删除/截断持久化会话；失败时界面消息保持原样，预览重新打开并
+      // 显示错误后 return——checkpoint 尚未清理，用户重试时上面的前置
+      // 恢复是幂等 no-op，重试可行，不会出现"界面已撤销但重启后消息
+      // 复活"的不一致。
       try {
         if (isFirstMessage && !isContextCompaction && convId) {
           // 首条消息回滚 = 整会话删除：deleteMemories 直接走既有级联
@@ -596,18 +630,10 @@ export const useRollback = (ctx: ConversationContextValue) => {
           });
       }
 
-      // Persistence succeeded — now update the UI. The message list update is
-      // intentionally deferred until AFTER the file restore: SSH rollback
-      // restores files over SFTP and can take a while, and the confirm dialog
-      // stays open with a loading button during that time. Updating the list
-      // here would show the rolled-back conversation while the dialog is still
-      // waiting, which feels broken. DB persistence already happened above, so
-      // the UI state below cannot diverge from disk.
-      // 文件检查点只作为临时清理集合使用，回滚顺序以预览阶段按消息
-      // 持久化顺序收集的 checkpointIds 为准。flowCheckpointIds 是被回滚
-      // WorkFlow 的 flow 级检查点（flow 首节点执行前拍摄），与父会话
-      // checkpoint 按快照时间升序合并后交给 restore（restore 内部逆序
-      // 逐个恢复，最终工作区状态 = 最早的快照 = 回滚目标处理前状态）。
+      // DB 删除/截断成功。文件恢复已前移到 DB 之前完成（见上），此处
+      // 仅清理 checkpoint：过滤内存集合并删除快照；conversation-only
+      // 模式从不恢复文件，同样只清理。deleteCheckpoints 只在 DB 成功
+      // 后到达——失败分支已提前 return，快照未删，重试不受影响。
       if (checkpointIds.length > 0 || flowCheckpointIds.length > 0) {
         const sessionRef = ctx.sessionsRefData.current.get(key);
         if (sessionRef) {
@@ -616,33 +642,12 @@ export const useRollback = (ctx: ConversationContextValue) => {
             (id) => !discarded.has(id),
           );
         }
-
-        const shouldRestoreFiles =
-          mode === "conversation-and-files" && Boolean(preview.workDir);
-        if (shouldRestoreFiles && preview.workDir) {
-          // 等待文件恢复完成再关闭对话框：SSH 回滚经 SFTP 逐文件写回，
-          // 可能较慢，对话框确认按钮在此期间显示 loading。恢复失败不
-          // 阻塞消息清理（best effort，与旧行为一致）。
-          try {
-            await window.snow.restoreCheckpoints(
-              [...checkpointIds, ...flowCheckpointIds].sort(
-                compareCheckpointIds,
-              ),
-              preview.workDir,
-            );
-          } catch {
-            // Best effort — file restore failure must not block rollback cleanup.
-          } finally {
-            ctx.setConversationVersion((version) => version + 1);
-            deleteCheckpoints([...checkpointIds, ...flowCheckpointIds]);
-          }
-        } else {
-          deleteCheckpoints([...checkpointIds, ...flowCheckpointIds]);
-        }
+        deleteCheckpoints([...checkpointIds, ...flowCheckpointIds]);
       }
 
-      // 文件恢复完成后再更新消息列表：弹窗此时仍打开（确认按钮 loading），
-      // 列表变化与弹窗关闭同步发生，避免"消息已回滚但弹窗还停着"的割裂。
+      // 文件恢复与 DB 删除/截断均已完成，此时再更新消息列表：弹窗此刻
+      // 仍打开，列表变化与弹窗关闭同步发生，避免"消息已回滚但弹窗还
+      // 停着"的割裂，也不会出现界面与磁盘/DB 不一致。
       ctx.updateSessionMessages(key, (currentMessages) => {
         const targetIndex = currentMessages.findIndex(
           (message) => message.id === messageId,
