@@ -487,6 +487,11 @@ export const useChatInputController = ({
       return;
     }
 
+    // 先解除固定高度再测量：scrollHeight 恒 >= clientHeight，若保留上次
+    // 写入的固定 height，删除内容后 scrollHeight 不会回落，输入框高度将
+    // 无法降回。置为 auto 让内容自然收缩后再读取真实内容高度。
+    textarea.style.height = "auto";
+
     const lineHeight =
       parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
     const minHeight = lineHeight * DEFAULT_TEXTAREA_ROWS;

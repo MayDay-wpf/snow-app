@@ -1157,13 +1157,22 @@ export const readEditableContent = (el: HTMLElement): string =>
  * 注意不能用 String.prototype.trim() 判断：trim 会删除空格，导致仅含
  * 空格的输入被误判为空（输入空格时 placeholder 不隐藏）；也不能直接
  * 比较 === ""：删除全部内容后浏览器会在 contenteditable 中残留 <br>
- * （序列化为 \n），导致 placeholder 不恢复显示。
+ * 或 "\n" 文本节点（均序列化为单个 \n），导致 placeholder 不恢复显示。
  *
- * 因此这里只剥离 <br> / 空块产生的结构换行符 \n，其余任何字符
- * （包括空格）都视为真实内容。
+ * 因此先剥离换行符 \n：若还剩任何字符（包括空格）都视为真实内容；
+ * 若一个不剩，则以换行符数量区分空框形态（Chromium 实测）：
+ * - 0~1 个换行符只渲染一个空行，即删除全部内容后的残留形态，视为空；
+ * - 2 个及以上换行符渲染出多个空行，即用户在空输入框中主动换行
+ *   （insertLineBreak 恰好插入两个 "\n"），视为非空，此时
+ *   placeholder 也应消失。
  */
-export const isEditableContentEmpty = (content: string): boolean =>
-  content.replace(/\n/g, "") === "";
+export const isEditableContentEmpty = (content: string): boolean => {
+  const withoutBreaks = content.replace(/\n/g, "");
+  if (withoutBreaks !== "") {
+    return false;
+  }
+  return content.length <= 1;
+};
 
 /**
  * 读取编辑区内容为人类可读纯文本，用于复制/剪切时剪贴板的
@@ -1243,20 +1252,6 @@ export const insertLineBreak = (): void => {
   document.execCommand("insertLineBreak");
 };
 
-/**
- * 重新编号编辑区内的图片 chip，并固定所有 chip 的宽度。
- *
- * 固定宽度的目的：chip 内的 remove 按钮默认隐藏，hover 时才显示。
- * 若不固定宽度，hover 出现按钮会撑大 chip，导致名字不省略、布局跳动。
- * 固定后，hover 时名字用省略号收缩让位，chip 外框尺寸不变。
- *
- * 测量时需要临时释放 name 元素的 `flex: 1` + `min-width: 0`，否则
- * inline-flex chip 会把名字收缩到接近 0，从而钉住一个过小的宽度，
- * 导致大部分文件名被截断。释放后 chip 展开到完整内容宽度，再复原样式。
- *
- * 此逻辑在输入框内容变化（syncContent）和草稿还原（draftToRestore）
- * 两个场景都需要调用，因此提取为独立工具函数。
- */
 export const renumberImageChips = (el: HTMLElement): void => {
   const chips = el.querySelectorAll<HTMLElement>("[data-image-tag='true']");
   chips.forEach((chip, i) => {
