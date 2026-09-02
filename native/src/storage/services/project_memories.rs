@@ -820,11 +820,14 @@ fn query_memories_page(
 pub fn get_memory_stats(database_path: &Path, directory_id: &str) -> Result<MemoryStats> {
     database::open_connection(database_path)
         .and_then(|connection| {
+            // COALESCE 必不可少：空集上 SUM 返回 NULL 而非 0，NULL 读入 i32
+            // 会触发 InvalidColumnType，导致无记忆项目的统计整体失败（与
+            // usage_records 的写法保持一致）。
             let (total, active, pending, archived): (i32, i32, i32, i32) = connection.query_row(
                 "SELECT COUNT(*),
-                        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END)
+                        COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0)
                    FROM project_memories WHERE directory_id = ?1",
                 params![directory_id.trim()],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
