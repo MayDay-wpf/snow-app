@@ -206,80 +206,107 @@ impl McpService for WorkflowService {
     }
 
     fn tools(&self) -> Vec<McpTool> {
-        vec![McpTool {
-            server_id: SERVER_ID.to_string(),
-            name: "workflow-generate".to_string(),
-            description: "Generate/validate a WorkFlow graph. Call this ONCE with the complete workflow: nodes (id, name, label, prompt, description, apiProfile, model) plus edges (source -> target). The graph must be an acyclic chain/tree; the desktop UI renders it as an interactive flow chart where the user edits per-node API profile, model and prompt, then confirms execution. Each node runs in its own conversation with its own API config/model, receives the previous node's <handoff> document, and must produce a <handoff> document for the next node. Return value: {valid, title, nodes, edges, order, errors} where order is the topological execution order and errors lists validation problems (empty = valid). Be self-contained: node prompts must work in a fresh conversation with no access to this one.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Workflow title (displayed on the graph)"
-                    },
-                    "nodes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {
-                                    "type": "string",
-                                    "description": "Unique node id, e.g. node-1"
-                                },
-                                "name": {
-                                    "type": "string",
-                                    "description": "Short node name"
-                                },
-                                "label": {
-                                    "type": "string",
-                                    "description": "Human-readable label rendered on the graph card"
-                                },
-                                "prompt": {
-                                    "type": "string",
-                                    "description": "Fully self-contained instruction prompt the node's agent executes alone"
-                                },
-                                "description": {
-                                    "type": "string",
-                                    "description": "One-line description of what this node achieves"
-                                },
-                                "apiProfile": {
-                                    "type": "string",
-                                    "description": "API config profile name to pin this node to; empty string inherits the current profile"
-                                },
-                                "model": {
-                                    "type": "string",
-                                    "description": "Model id to pin this node to; empty string inherits the current model"
-                                }
-                            },
-                            "required": ["id", "name", "prompt"]
+        vec![
+            McpTool {
+                server_id: SERVER_ID.to_string(),
+                name: "workflow-generate".to_string(),
+                description: "Generate/validate a WorkFlow graph. Call this ONCE with the complete workflow: nodes (id, name, label, prompt, description, apiProfile, model) plus edges (source -> target). The graph must be an acyclic chain/tree; the desktop UI renders it as an interactive flow chart where the user edits per-node API profile, model and prompt, then confirms execution. Each node runs in its own conversation with its own API config/model, receives the previous node's <handoff> document, and must produce a <handoff> document for the next node. Return value: {valid, title, nodes, edges, order, errors} where order is the topological execution order and errors lists validation problems (empty = valid). Be self-contained: node prompts must work in a fresh conversation with no access to this one.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Workflow title (displayed on the graph)"
                         },
-                        "description": "Workflow nodes in execution order"
-                    },
-                    "edges": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "source": { "type": "string", "description": "Source node id" },
-                                "target": { "type": "string", "description": "Target node id" }
+                        "nodes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Unique node id, e.g. node-1"
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Short node name"
+                                    },
+                                    "label": {
+                                        "type": "string",
+                                        "description": "Human-readable label rendered on the graph card"
+                                    },
+                                    "prompt": {
+                                        "type": "string",
+                                        "description": "Fully self-contained instruction prompt the node's agent executes alone"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "One-line description of what this node achieves"
+                                    },
+                                    "apiProfile": {
+                                        "type": "string",
+                                        "description": "API config profile name to pin this node to; empty string inherits the current profile"
+                                    },
+                                    "model": {
+                                        "type": "string",
+                                        "description": "Model id to pin this node to; empty string inherits the current model"
+                                    }
+                                },
+                                "required": ["id", "name", "prompt"]
                             },
-                            "required": ["source", "target"]
+                            "description": "Workflow nodes in execution order"
                         },
-                        "description": "Directed edges expressing execution order"
-                    }
-                },
-                "required": ["nodes", "edges"]
-            }),
-        }]
+                        "edges": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "source": { "type": "string", "description": "Source node id" },
+                                    "target": { "type": "string", "description": "Target node id" }
+                                },
+                                "required": ["source", "target"]
+                            },
+                            "description": "Directed edges expressing execution order"
+                        }
+                    },
+                    "required": ["nodes", "edges"]
+                }),
+            },
+            McpTool {
+                server_id: SERVER_ID.to_string(),
+                name: "workflow-resume".to_string(),
+                description: "Resume a failed WorkFlow from its failed node. When the execute result contains `failedNode` with `resumable: true`, first ask the user whether to resume; only call this tool after the user agrees. The runtime reuses the failed node's ORIGINAL conversation and sends a continue prompt there, so the node keeps its full context instead of restarting from scratch; once it succeeds, the remaining nodes run as usual. Parameters: `flowId` (the `failedNode.flowId` from the failed result) and an optional `continuePrompt` (a short instruction for the failed node's agent on how to continue, e.g. the user's fix suggestion). Return value: the same summary shape as the execute result; if the node fails again you may repeat this loop after asking the user.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "flowId": {
+                            "type": "string",
+                            "description": "The flowId from the failed workflow result (the workflow-generate tool call's flow id, found in failedNode.flowId)"
+                        },
+                        "continuePrompt": {
+                            "type": "string",
+                            "description": "Optional short instruction sent to the failed node's conversation telling its agent how to continue (e.g. the user's fix suggestion). Omit to simply ask it to continue from where it stopped."
+                        }
+                    },
+                    "required": ["flowId"],
+                    "additionalProperties": false
+                }),
+            },
+        ]
     }
 
     fn execute(&self, tool_name: &str, args: &Value) -> napi::Result<Value> {
         match tool_name {
             "workflow-generate" => self.generate(args),
+            "workflow-resume" => Err(Error::new(
+                Status::GenericFailure,
+                "workflow-resume must be executed through the asynchronous Electron interaction bridge"
+                    .to_string(),
+            )),
             _ => Err(Error::new(
                 Status::InvalidArg,
                 format!(
-                    "Unknown tool: \"{}\" for MCP server \"workflow\". Available tools: [workflow-workflow-generate]",
+                    "Unknown tool: \"{}\" for MCP server \"workflow\". Available tools: [workflow-workflow-generate, workflow-workflow-resume]",
                     tool_name
                 ),
             )),

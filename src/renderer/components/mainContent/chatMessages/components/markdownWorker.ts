@@ -133,6 +133,123 @@ markdown.renderer.rules.table_open = (): string =>
 markdown.renderer.rules.table_close = (): string => "</table>\n</div>\n";
 
 /**
+ * 工作流交接文档块：<handoff>...</handoff>（标签独占行）渲染为可折叠的
+ * tag 块，而非裸露的 XML 文本。在 paragraph 之前注册块级规则，内容中的
+ * 代码块/列表等结构不会干扰识别（识别只看标签行本身）。
+ *
+ * 必须找到闭合标签才消费：未闭合时（流式写入中，或模型在思考/正文里
+ * 字面引用标签说明格式）一律交给 paragraph 原样渲染，绝不把后续内容
+ * 吞进折叠块——否则该行之后直到文末的正文会整体消失。
+ */
+const HANDOFF_OPEN_RE = /^ {0,3}<handoff>[ \t]*$/i;
+const HANDOFF_CLOSE_RE = /^ {0,3}<\/handoff>[ \t]*$/i;
+
+// markdown-it 的块级规则挂在实例的 block.ruler 上，其类型定义未声明
+// 该成员（运行时存在），这里按用到的最小签名做类型收窄。
+type HandoffBlockState = {
+  bMarks: number[];
+  eMarks: number[];
+  tShift: number[];
+  blkIndent: number;
+  src: string;
+  line: number;
+  getLines: (
+    begin: number,
+    end: number,
+    indent: number,
+    keepNewLines: boolean,
+  ) => string;
+  push: (type: string, tag: string, nesting: number) => Token;
+};
+
+(
+  markdown as unknown as {
+    block: {
+      ruler: {
+        before: (
+          beforeName: string,
+          ruleName: string,
+          fn: (
+            state: HandoffBlockState,
+            startLine: number,
+            endLine: number,
+            silent: boolean,
+          ) => boolean,
+        ) => void;
+      };
+    };
+  }
+).block.ruler.before(
+  "paragraph",
+  "handoff_block",
+  (state, startLine, endLine, silent) => {
+    // 廉价预检：行长不足 "<handoff>"（9 字符）直接跳过。
+    if (state.tShift[startLine] < 0) {
+      return false;
+    }
+    const pos = state.bMarks[startLine] + state.tShift[startLine];
+    const max = state.eMarks[startLine];
+    if (pos + 8 > max) {
+      return false;
+    }
+    if (!HANDOFF_OPEN_RE.test(state.src.slice(pos, max))) {
+      return false;
+    }
+    // 找不到闭合标签行则不消费（silent 探测与实际消费同一判定，
+    // 保证上游嵌套块的探测结果一致）。
+    let closeLine = -1;
+    for (let line = startLine + 1; line < endLine; line += 1) {
+      if (state.tShift[line] < 0) {
+        continue;
+      }
+      const linePos = state.bMarks[line] + state.tShift[line];
+      const lineMax = state.eMarks[line];
+      if (
+        linePos + 9 <= lineMax &&
+        HANDOFF_CLOSE_RE.test(state.src.slice(linePos, lineMax))
+      ) {
+        closeLine = line;
+        break;
+      }
+    }
+    if (closeLine < 0) {
+      return false;
+    }
+    if (silent) {
+      return true;
+    }
+    const token = state.push("handoff_block", "", 0);
+    token.content = state.getLines(
+      startLine + 1,
+      closeLine,
+      state.blkIndent,
+      true,
+    );
+    token.map = [startLine, closeLine + 1];
+    state.line = closeLine + 1;
+    return true;
+  },
+);
+
+// handoff tag 块：默认收起的主题色胶囊标签，点击展开（React 层事件委托
+// 处理）。内部文本作为 markdown 嵌套渲染（交接文档含列表/路径等富文本
+// 结构），展开为主题色引用面板。
+markdown.renderer.rules.handoff_block = (tokens, idx): string => {
+  const inner = tokens[idx].content.trim();
+  const rendered = inner ? markdown.render(inner) : "";
+  return (
+    `<div class="md-handoff-block">` +
+    `<button class="md-handoff-toggle" type="button" aria-expanded="false">` +
+    `<span class="md-handoff-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></span>` +
+    `<span class="md-handoff-label">handoff</span>` +
+    `<svg class="md-handoff-chevron" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>` +
+    `</button>` +
+    `<div class="md-handoff-content">${rendered}</div>` +
+    `</div>\n`
+  );
+};
+
+/**
  * linkify 会把 `README.md` 这类裸文本误识别为链接：`.md` 是 IANA 顶级域名
  * （黑山共和国），`README.md` 会被转成 `http://README.md`，点击会打开
  * 浏览器而不是右侧文件阅读器。这里把"单段 host + 文件扩展名 TLD"的伪链接

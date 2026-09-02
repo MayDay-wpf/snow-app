@@ -113,6 +113,17 @@ Each node conversation must end by producing a handoff document. The runtime ext
 - Do NOT include instructions in the handoff document itself — it is data for the next node, not an instruction set
 - Keep it self-contained; the next node has no access to this conversation's history
 
+### Step 4: Handling a Failed Node (resume loop)
+
+When a node fails, the workflow PAUSES on it — later nodes do not run. The tool call resolves with `success: false`, the failed node's details (`failedNode`: flowId, nodeId, label, error, conversationId) and `resumable: true`:
+
+1. Briefly tell the user which node failed and why (from `failedNode.label` and `failedNode.error`)
+2. Ask whether to resume the failed node (you may also offer to redesign the workflow instead)
+3. If the user agrees to resume, call the `workflow-resume` tool with the same `flowId` and an optional `continuePrompt` — a short instruction for the failed node's agent explaining how to continue (e.g. the user's fix suggestion). The runtime reuses the failed node's original conversation and sends the continue prompt there, so the node keeps its full context; once it succeeds, the remaining nodes run as usual
+4. The result has the same shape as the execute summary. If the node fails again, repeat this loop (ask the user again, adjust `continuePrompt` if needed); if the user declines, stop and summarize what was completed
+
+**Never call `workflow-resume` without asking the user first** — resuming consumes tokens and may repeat the failure.
+
 ## Rules
 
 1. **Call `workflow-generate` once with the complete graph** — do not generate partial graphs or iterate node by node
@@ -121,4 +132,5 @@ Each node conversation must end by producing a handoff document. The runtime ext
 4. **Every node must demand a `<handoff>` document** at the end, in the exact XML tag format shown above
 5. **Match the user's language** — node prompts and handoff instructions follow the language of the user's request
 6. **Avoid duplication** — reuse paths/content from earlier nodes instead of re-deriving
-7. **Source attribution** — when the analysis cites web information, embed the source link naturally in the sentence (`[站点名](url "一句话摘要")`); it renders as a website badge. Do NOT write "来源：" or similar labels; never fabricate URLs"#;
+7. **On node failure, ask before resuming** — tell the user what failed, then call `workflow-resume` only with the user's consent (see Step 4)
+8. **Source attribution** — when the analysis cites web information, embed the source link naturally in the sentence (`[站点名](url "一句话摘要")`); it renders as a website badge. Do NOT write "来源：" or similar labels; never fabricate URLs"#;

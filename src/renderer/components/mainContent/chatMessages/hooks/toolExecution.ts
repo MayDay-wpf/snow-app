@@ -89,6 +89,12 @@ export type ToolExecutorDeps = {
     dirId: string,
     toolCallInteractionId: string,
   ) => Promise<string>;
+  /** 失败节点续跑（workflow-resume）：渲染进程运行时执行。 */
+  executeWorkflowResume: (
+    argsJson: string,
+    parentConversationId: string,
+    toolCallInteractionId: string,
+  ) => Promise<string>;
   planApprovedSessionKeysRef: { current: Set<string> };
   planModeRef: { current: boolean };
 };
@@ -112,6 +118,7 @@ export function createToolExecutor(
     executeSubAgentActivation,
     executeSubAgentMainTool,
     executeWorkflowGenerate,
+    executeWorkflowResume,
     planApprovedSessionKeysRef,
     planModeRef,
   } = deps;
@@ -962,6 +969,19 @@ export function createToolExecutor(
                   effectiveKey,
                   sessionDirId ?? ctx.directoryId ?? "",
                   toolCall.interactionId,
+                );
+              } else if (
+                toolCall.name === "workflow-workflow-resume" &&
+                !isPendingSessionKey(effectiveKey)
+              ) {
+                // 失败节点续跑：主流程获用户同意后调用，直接在渲染进程
+                // 执行（阻塞至续跑完成，结果同执行汇总格式回传模型）。
+                // 第三参传工具调用 id：续跑事件据此标记来源，供卡片切换
+                // 画布宿主（generate 卡片收起、resume 卡片展开）。
+                result = await executeWorkflowResume(
+                  toolArgs,
+                  effectiveKey,
+                  toolCall.interactionId ?? "",
                 );
               } else if (
                 SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name) &&

@@ -68,6 +68,12 @@ type RunnerEventDetail = {
   /** 触发执行的 workflow-generate 工具调用 id：同一会话多个 flow 卡片
    *  的事件隔离键（节点 id 在不同 flow 间可能重名，不能只按会话过滤）。 */
   interactionId: string;
+  /** run 来源："run" = generate 卡片执行；"resume" = workflow-resume 续跑。
+   *  同 flow 的多张卡片据此做画布宿主切换（非本次 run 的卡片收起画布）。 */
+  origin?: "run" | "resume";
+  /** 发起本次 run 的工具调用 id（run = generate 卡片 id；resume = 续跑
+   *  卡片 id）：卡片判断「事件是否属于自己」的依据。 */
+  originInteractionId?: string;
   status: WorkflowRunnerStatus;
   nodeId?: string;
   /** 节点自身状态：与整体 status 解耦——节点完成时整体仍在 running，
@@ -293,12 +299,68 @@ export type WorkflowRunOutcome = {
   }[];
   totalTokens?: number;
   error?: string;
+  /** 失败节点详情：主流程据此向用户说明失败点，并决定是否续跑。 */
+  failedNode?: {
+    /** flow 标识 = workflow-generate 工具调用 id，续跑工具的入参。 */
+    flowId: string;
+    nodeId: string;
+    label: string;
+    conversationId: string;
+    error: string;
+  };
+  /** 失败节点是否可通过 workflow-resume 续跑（失败上下文仍在内存）。 */
+  resumable?: boolean;
 };
+
+/** 失败 flow 的续跑上下文：run 失败时登记，workflow-resume 据此原会话续跑。 */
+type FailedFlowEntry = {
+  directoryId: string;
+  sessionApiProfile: string;
+  sessionModel: string;
+  nodes: WorkflowNodeItem[];
+  edges: WorkflowEdgeItem[];
+  onNodeConversationCreated?: (conversationId: string) => void;
+  /** flow 级文件检查点：续跑复用原 checkpoint，保证回滚语义完整。 */
+  flowCheckpointId: string;
+  failedNodeId: string;
+  failedConversationId: string;
+};
+
+// 失败 flow 注册表：key = `父会话:interactionId`（与 runnerRegistry 同键）。
+// 节点失败即写入，续跑成功或 flow 完成时清除；内存生命周期与 runner 一致
+// （应用重启后模型侧无续跑上下文，走卡片"继续执行"的断点重跑路径）。
+const failedFlows = new Map<string, FailedFlowEntry>();
 
 /** workflow 执行器：由 useAgentLoop 在主会话工具调用时创建并注册。 */
 export type WorkflowRunExecutor = {
   runWorkflow: (options: RunnerOptions) => Promise<WorkflowRunOutcome>;
+  /** 从失败节点原会话续跑：发送继续提示词，完成后继续后续节点。 */
+  resumeWorkflow: (params: {
+    parentConversationId: string;
+    interactionId: string;
+    /** 触发续跑的 workflow-resume 工具调用 id（画布宿主切换依据）。 */
+    originInteractionId: string;
+    continuePrompt?: string;
+  }) => Promise<WorkflowRunOutcome>;
 };
+
+/** runner 事件与进度持久化的参数形态（runWorkflow / resumeWorkflow 共用）。 */
+type FlowEmitDetail = {
+  status: WorkflowRunnerStatus;
+  nodeId?: string;
+  nodeStatus?: NodeRunStatus;
+  conversationId?: string;
+  error?: string;
+};
+type FlowEmit = (detail: FlowEmitDetail) => void;
+type FlowPersistRun = (
+  runStatus: "running" | "completed" | "failed",
+  currentIndex: number,
+  lastHandoff: string,
+  tokens: number,
+  flowCheckpointId: string,
+  errorMessage?: string,
+) => void;
 
 type WorkflowRunnerDeps = {
   ctx: ConversationContextValue;
@@ -357,10 +419,17 @@ export function getWorkflowRunner(
   );
 }
 
-// 活跃 run 注册表：key = `父会话:interactionId`。runWorkflow 开始时登记、
-// 结束时移除。UI 重挂载恢复状态时据此区分"真在运行"（保留 running +
-// 持续接事件）与"重启后残留的 running 记录"（降级为 pending）。
-const activeRuns = new Set<string>();
+// 活跃 run 注册表：key = `父会话:interactionId`。runWorkflow/resumeWorkflow
+// 开始时登记、结束时移除。UI 重挂载恢复状态时据此区分"真在运行"（保留
+// running + 持续接事件）与"重启后残留的 running 记录"（降级为 pending）；
+// value 记录 run 来源，卡片据此判断画布宿主（自己的 run 展开画布，
+// 他人接管的 run 收起画布）。
+type ActiveWorkflowRun = {
+  origin: "run" | "resume";
+  /** 发起本次 run 的工具调用 id（卡片归属判断依据）。 */
+  originInteractionId: string;
+};
+const activeRuns = new Map<string, ActiveWorkflowRun>();
 
 export function isWorkflowRunActive(
   parentConversationId: string,
@@ -368,6 +437,44 @@ export function isWorkflowRunActive(
 ): boolean {
   return activeRuns.has(runnerRegistryKey(parentConversationId, interactionId));
 }
+
+/** 活跃 run 的来源信息：无活跃 run 时返回 undefined。 */
+export function getActiveWorkflowRun(
+  parentConversationId: string,
+  interactionId: string,
+): ActiveWorkflowRun | undefined {
+  return activeRuns.get(runnerRegistryKey(parentConversationId, interactionId));
+}
+
+// 活跃 run 的实时节点状态：事件瞬发，挂载中的卡片可能错过（画布异步
+// 恢复完成前，事件更新作用于空节点数组），而 DB 写入又滞后于 runner
+// 内存状态。卡片挂载恢复完成后据此对齐最新节点状态，避免"节点实际已
+// 在续跑、卡片仍显示上次失败"的冻结画面。
+const activeRunNodeStates = new Map<string, Map<string, NodeRunStatus>>();
+
+/** 读取活跃 run 的实时节点状态（无活跃 run 时 undefined）。 */
+export function getActiveRunNodeStates(
+  parentConversationId: string,
+  interactionId: string,
+): Map<string, NodeRunStatus> | undefined {
+  return activeRunNodeStates.get(
+    runnerRegistryKey(parentConversationId, interactionId),
+  );
+}
+
+/** 记录活跃 run 中节点的最新状态（runFlowNodes 各状态变化点调用）。 */
+const setActiveNodeRunState = (
+  flowKey: string,
+  nodeId: string,
+  status: NodeRunStatus,
+): void => {
+  let nodeStates = activeRunNodeStates.get(flowKey);
+  if (!nodeStates) {
+    nodeStates = new Map();
+    activeRunNodeStates.set(flowKey, nodeStates);
+  }
+  nodeStates.set(nodeId, status);
+};
 
 // 活跃节点会话注册表：key = 父会话 id，value = 该父会话正在执行的节点
 // 会话 id 集合。主会话中断/删除时据此级联停止所有节点。
@@ -464,14 +571,35 @@ function buildNodePrompt(node: WorkflowNodeItem, handoff: string): string {
   if (handoff.trim()) {
     parts.push(`\n\n## 上一个节点的交接文档\n\n${handoff.trim()}`);
   }
-  parts.push(
-    "\n\n## 工作流节点执行要求\n当你完成这个节点的全部工作后，必须在回复的最后输出交接文档，格式如下：\n\n<handoff>\n与你之后节点需要的信息，例如：完成了什么、关键文件路径、决策、证据（构建/诊断结果）、下一步建议。\n</handoff>\n\n请直接输出交接文档到 <handoff> 标签中，不要添加额外说明。",
-  );
+  parts.push(NODE_HANDOFF_REQUIREMENT);
   return parts.join("\n\n");
 }
 
 function createNodeConversationId(): string {
   return `wf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** 节点失败后的交接要求（续跑提示词与首跑提示词共用同一段要求）。 */
+const NODE_HANDOFF_REQUIREMENT =
+  "\n\n## 工作流节点执行要求\n当你完成这个节点的全部工作后，必须在回复的最后输出交接文档，格式如下：\n\n<handoff>\n与你之后节点需要的信息，例如：完成了什么、关键文件路径、决策、证据（构建/诊断结果）、下一步建议。\n</handoff>\n\n请直接输出交接文档到 <handoff> 标签中，不要添加额外说明。";
+
+/** 续跑提示词：发送到失败节点的原会话，让节点带着已有上下文继续完成工作。 */
+function buildResumePrompt(
+  node: WorkflowNodeItem,
+  continuePrompt: string,
+): string {
+  const parts: string[] = [
+    `你之前执行的节点「${node.label || node.name}」未能完成，工作流已在此暂停，现在请求你继续。`,
+  ];
+  if (continuePrompt.trim()) {
+    parts.push(`## 继续要求\n\n${continuePrompt.trim()}`);
+  } else {
+    parts.push(
+      "请从上次中断的地方继续完成本节点的全部工作，不要重做已完成的步骤。",
+    );
+  }
+  parts.push(NODE_HANDOFF_REQUIREMENT.trim());
+  return parts.join("\n\n");
 }
 
 /**
@@ -491,6 +619,122 @@ export function createWorkflowRunner(
   // 同一父会话只允许一个执行中的 runner（防止重复点击/并发启动）。
   const runners = new Map<string, Promise<WorkflowRunOutcome>>();
 
+  // Flow 事件与 run 进度持久化工厂：runWorkflow / resumeWorkflow 共用。
+  // origin/originInteractionId 标记本次 run 的发起者：同 flow 的多张卡片
+  // （generate 卡片 + 若干 resume 卡片）据此做画布宿主切换。
+  const createFlowEmit =
+    (
+      parentConversationId: string,
+      interactionId: string,
+      origin: "run" | "resume",
+      originInteractionId: string,
+    ): FlowEmit =>
+    (detail) => {
+      emitProgress({
+        parentConversationId,
+        interactionId,
+        origin,
+        originInteractionId,
+        ...detail,
+      });
+    };
+
+  /** 将 run 级进度持久化到 workflow_runs（跨重启恢复 + 断点续跑依据）。 */
+  const createFlowPersistRun =
+    (options: RunnerOptions): FlowPersistRun =>
+    (
+      runStatus,
+      currentIndex,
+      lastHandoff,
+      tokens,
+      flowCheckpointId,
+      errorMessage = "",
+    ) => {
+      void window.snow
+        .upsertWorkflowRun(
+          options.parentConversationId,
+          options.interactionId,
+          runStatus,
+          currentIndex,
+          lastHandoff,
+          tokens,
+          flowCheckpointId,
+          options.directoryId,
+          errorMessage,
+        )
+        .catch(() => {
+          // 持久化失败不阻断执行：run 状态仍可从节点会话记录部分恢复
+        });
+    };
+
+  // 断点续跑：读取本 flow 的 workflow_runs 记录，恢复上次执行进度。
+  // 已完成的节点（workflow_node_sessions 中 run_status = completed）直接
+  // 跳过，从上次中断/失败的节点继续；lastHandoff 与 token 累计一并恢复。
+  const loadResumeState = async (
+    key: string,
+    interactionId: string,
+  ): Promise<{
+    handoff: string;
+    tokens: number;
+    completedByNode: Map<string, string>;
+  }> => {
+    try {
+      const run = await window.snow.getWorkflowRun(key, interactionId);
+      if (!run || run.runStatus === "completed" || run.currentNodeIndex <= 0) {
+        return {
+          handoff: "",
+          tokens: 0,
+          completedByNode: new Map(),
+        };
+      }
+      const records = await window.snow.listWorkflowNodeSessions(key);
+      const flowRecords = records.filter(
+        (record) => record.flowId === interactionId,
+      );
+      const completedByNode = new Map<string, string>();
+      for (const record of flowRecords) {
+        if (record.runStatus === "completed" && record.nodeId) {
+          completedByNode.set(record.nodeId, record.handoffContent);
+        }
+      }
+      return {
+        handoff: run.lastHandoff,
+        tokens: run.totalTokens,
+        completedByNode,
+      };
+    } catch {
+      return {
+        handoff: "",
+        tokens: 0,
+        completedByNode: new Map(),
+      };
+    }
+  };
+
+  /** 节点失败时登记续跑上下文（workflow-resume 原会话续跑的依据）。 */
+  const registerFailedFlow = (
+    flowKey: string,
+    options: RunnerOptions,
+    node: WorkflowNodeItem,
+    flowCheckpointId: string,
+    conversationId: string,
+  ): void => {
+    if (!conversationId) {
+      return;
+    }
+    failedFlows.set(flowKey, {
+      directoryId: options.directoryId,
+      sessionApiProfile: options.sessionApiProfile ?? "",
+      sessionModel: options.sessionModel ?? "",
+      nodes: options.nodes,
+      edges: options.edges,
+      onNodeConversationCreated: options.onNodeConversationCreated,
+      flowCheckpointId,
+      failedNodeId: node.id,
+      failedConversationId: conversationId,
+    });
+  };
+
   const runWorkflow = (options: RunnerOptions): Promise<WorkflowRunOutcome> => {
     const key = options.parentConversationId;
     const flowKey = runnerRegistryKey(key, options.interactionId);
@@ -499,24 +743,13 @@ export function createWorkflowRunner(
     if (existing) {
       return existing;
     }
-    const emit = (detail: {
-      status: WorkflowRunnerStatus;
-      nodeId?: string;
-      nodeStatus?: NodeRunStatus;
-      conversationId?: string;
-      error?: string;
-    }): void => {
-      emitProgress({
-        parentConversationId: key,
-        interactionId: options.interactionId,
-        ...detail,
-      });
-    };
-    const nodesById = new Map(options.nodes.map((node) => [node.id, node]));
-    // 执行顺序由 Rust 端校验（拓扑收敛的唯一实现）：环/非法图时
-    // resolveExecutionOrder 已回退为输入顺序，前端不再自行实现拓扑排序。
-    const resolveOrder = (): Promise<string[]> =>
-      resolveExecutionOrder(options.nodes, options.edges);
+    const emit = createFlowEmit(
+      key,
+      options.interactionId,
+      "run",
+      options.interactionId,
+    );
+    const persistRun = createFlowPersistRun(options);
     // 运行前重置节点状态为 pending。
     for (const node of options.nodes) {
       node.runStatus = "pending";
@@ -542,80 +775,6 @@ export function createWorkflowRunner(
       }
     };
 
-    /** 将 run 级进度持久化到 workflow_runs（跨重启恢复 + 断点续跑依据）。 */
-    const persistRun = (
-      runStatus: "running" | "completed" | "failed",
-      currentIndex: number,
-      lastHandoff: string,
-      tokens: number,
-      flowCheckpointId: string,
-      errorMessage = "",
-    ): void => {
-      void window.snow
-        .upsertWorkflowRun(
-          key,
-          options.interactionId,
-          runStatus,
-          currentIndex,
-          lastHandoff,
-          tokens,
-          flowCheckpointId,
-          options.directoryId,
-          errorMessage,
-        )
-        .catch(() => {
-          // 持久化失败不阻断执行：run 状态仍可从节点会话记录部分恢复
-        });
-    };
-
-    // 断点续跑：读取本 flow 的 workflow_runs 记录，恢复上次执行进度。
-    // 已完成的节点（workflow_node_sessions 中 run_status = completed）直接
-    // 跳过，从上次中断/失败的节点继续；lastHandoff 与 token 累计一并恢复。
-    const loadResumeState = async (): Promise<{
-      handoff: string;
-      tokens: number;
-      completedByNode: Map<string, string>;
-    }> => {
-      try {
-        const run = await window.snow.getWorkflowRun(
-          key,
-          options.interactionId,
-        );
-        if (
-          !run ||
-          run.runStatus === "completed" ||
-          run.currentNodeIndex <= 0
-        ) {
-          return {
-            handoff: "",
-            tokens: 0,
-            completedByNode: new Map(),
-          };
-        }
-        const records = await window.snow.listWorkflowNodeSessions(key);
-        const flowRecords = records.filter(
-          (record) => record.flowId === options.interactionId,
-        );
-        const completedByNode = new Map<string, string>();
-        for (const record of flowRecords) {
-          if (record.runStatus === "completed" && record.nodeId) {
-            completedByNode.set(record.nodeId, record.handoffContent);
-          }
-        }
-        return {
-          handoff: run.lastHandoff,
-          tokens: run.totalTokens,
-          completedByNode,
-        };
-      } catch {
-        return {
-          handoff: "",
-          tokens: 0,
-          completedByNode: new Map(),
-        };
-      }
-    };
-
     const runner: Promise<WorkflowRunOutcome> = (async () => {
       const flowCheckpointId = await createFlowCheckpoint();
       // checkpoint 创建期间 run 可能已被取消（用户中止/回滚）：清理后直接退出。
@@ -633,143 +792,259 @@ export function createWorkflowRunner(
           error: "Workflow was cancelled before start",
         };
       }
-      const order = await resolveOrder();
-      const resume = await loadResumeState();
-      let handoff = resume.handoff;
-      let overallFailed = false;
-      let totalTokens = resume.tokens;
-      const summary: WorkflowRunOutcome["summary"] = [];
-      // 续跑：按「已完成节点 id」匹配跳过（不按 index——用户可能增删节点
-      // 导致顺序变化）。lastHandoff 与 token 累计从 workflow_runs 恢复。
-      // completedCount 表示「累计已完成/失败的节点数」，作为 run 进度
-      // （currentNodeIndex）持久化，供下次续跑定位。
-      const skipped = new Set<string>();
-      for (const nodeId of order) {
-        const node = nodesById.get(nodeId);
-        if (!node) {
-          continue;
-        }
-        if (resume.completedByNode.has(nodeId)) {
-          node.runStatus = "completed";
-          node.errorMessage = "";
-          const handoffContent = resume.completedByNode.get(nodeId) ?? "";
-          node.handoffContent = handoffContent;
-          skipped.add(nodeId);
-          summary.push({
-            nodeId: node.id,
-            label: node.label || node.name,
-            status: "completed",
-            conversationId: "",
-            handoff: handoffContent,
-            tokens: 0,
-          });
-        }
-      }
-      let completedCount = skipped.size;
-      if (completedCount > 0) {
-        emit({ status: "running" });
-      }
+      // 执行顺序由 Rust 端校验（拓扑收敛的唯一实现）：环/非法图时
+      // resolveExecutionOrder 已回退为输入顺序，前端不再自行实现拓扑排序。
+      const order = await resolveExecutionOrder(options.nodes, options.edges);
+      const resume = await loadResumeState(key, options.interactionId);
+      return runFlowNodes({
+        flowKey,
+        options,
+        emit,
+        persistRun,
+        flowCheckpointId,
+        order,
+        nodesById: new Map(options.nodes.map((node) => [node.id, node])),
+        completedByNode: resume.completedByNode,
+        resumeByNode: new Map(),
+        handoff: resume.handoff,
+        totalTokens: resume.tokens,
+      });
+    })().finally(() => {
+      activeRuns.delete(flowKey);
+      activeRunNodeStates.delete(flowKey);
+      runners.delete(flowKey);
+    });
+    runners.set(flowKey, runner);
+    activeRuns.set(flowKey, {
+      origin: "run",
+      originInteractionId: options.interactionId,
+    });
+    return runner;
+  };
 
-      for (const nodeId of order) {
-        if (skipped.has(nodeId)) {
-          continue;
+  /** 从失败节点原会话续跑：发送继续提示词到原会话，完成后继续后续节点。 */
+  const resumeWorkflow = (params: {
+    parentConversationId: string;
+    interactionId: string;
+    /** 触发续跑的 workflow-resume 工具调用 id（画布宿主切换依据）。 */
+    originInteractionId: string;
+    continuePrompt?: string;
+  }): Promise<WorkflowRunOutcome> => {
+    const key = params.parentConversationId;
+    const flowKey = runnerRegistryKey(key, params.interactionId);
+    const failed = failedFlows.get(flowKey);
+    if (!failed) {
+      return Promise.resolve({
+        success: false,
+        summary: [],
+        error:
+          "No resumable failed node for this flowId. The failed-node context only lives until the app restarts; ask the user to press Continue on the workflow card (breakpoint re-run) or re-run the workflow.",
+      });
+    }
+    const existing = runners.get(flowKey);
+    if (existing) {
+      return existing;
+    }
+    const resumeNode = failed.nodes.find(
+      (item) => item.id === failed.failedNodeId,
+    );
+    if (!resumeNode) {
+      return Promise.resolve({
+        success: false,
+        summary: [],
+        error: "The failed node no longer exists in this workflow graph",
+      });
+    }
+    // failedFlows 持有执行时的节点对象引用：已完成节点的 runStatus/handoff
+    // 仍然准确，据此重建 RunnerOptions。
+    const options: RunnerOptions = {
+      parentConversationId: key,
+      interactionId: params.interactionId,
+      directoryId: failed.directoryId,
+      sessionApiProfile: failed.sessionApiProfile,
+      sessionModel: failed.sessionModel,
+      nodes: failed.nodes,
+      edges: failed.edges,
+      onNodeConversationCreated: failed.onNodeConversationCreated,
+    };
+    const emit = createFlowEmit(
+      key,
+      params.interactionId,
+      "resume",
+      params.originInteractionId,
+    );
+    const persistRun = createFlowPersistRun(options);
+    const runner: Promise<WorkflowRunOutcome> = (async () => {
+      emit({ status: "running" });
+      const order = await resolveExecutionOrder(failed.nodes, failed.edges);
+      const completedByNode = new Map<string, string>();
+      for (const item of failed.nodes) {
+        if (item.runStatus === "completed") {
+          completedByNode.set(item.id, item.handoffContent);
         }
-        const node = nodesById.get(nodeId);
-        if (!node) {
-          continue;
-        }
-        node.runStatus = "running";
-        emit({ status: "running", nodeId });
-        try {
-          const result = await executeNode(
-            options,
-            node,
-            handoff,
-            flowCheckpointId,
-          );
-          node.conversationId = result.conversationId;
-          node.handoffContent = result.failed ? "" : result.handoff;
-          node.runStatus = result.failed ? "failed" : "completed";
-          node.errorMessage = result.failed
-            ? (result.error ?? "Node failed")
-            : "";
-          await window.snow.updateWorkflowNodeSession(
-            result.conversationId,
-            node.runStatus === "completed" ? "completed" : "failed",
-            node.errorMessage,
-            node.handoffContent,
-          );
-          // 节点状态落盘后立即刷新侧边栏（workflowNodeMap 重查）。
-          // updateWorkflowNodeSession 只写 bookkeeping 表，不会触发会话
-          // upsert/版本递增，若不主动刷新，用户手动中止后节点树会
-          // 停留在旧的 running（loading）状态。
-          ctx.setConversationListVersion((version) => version + 1);
-          summary.push({
-            nodeId: node.id,
-            label: node.label || node.name,
-            status: node.runStatus,
-            conversationId: result.conversationId,
-            handoff: node.handoffContent,
-            tokens: result.tokenCount,
-          });
-          totalTokens += result.tokenCount;
-          emit({
-            status: "running",
-            nodeId,
-            nodeStatus: result.failed ? "failed" : "completed",
-            conversationId: result.conversationId,
-            ...(result.failed ? { error: node.errorMessage } : {}),
-          });
-          // 每完成一个节点就持久化一次 run 进度：应用重启/中断后
-          // workflow_runs 记录的是「已完成到第几个节点」，支持断点续跑。
-          // 失败节点不计入完成数（failure 分支单独落 failed 状态），
-          // 否则续跑会把失败节点误跳过。
-          if (result.failed) {
-            overallFailed = true;
-            persistRun(
-              "failed",
-              completedCount,
-              handoff,
-              totalTokens,
-              flowCheckpointId,
-              node.errorMessage,
-            );
-            break;
-          }
-          completedCount += 1;
-          persistRun(
-            "running",
-            completedCount,
-            node.handoffContent,
-            totalTokens,
-            flowCheckpointId,
-          );
-          handoff = node.handoffContent;
-        } catch (error) {
-          node.runStatus = "failed";
-          node.errorMessage = getErrorMessage(error);
+      }
+      // 续跑注入：失败节点复用原会话，继续提示词沿用其全部上下文；
+      // resume 模式不消费 handoff（节点已带着原始需求与执行历史）。
+      const resumeByNode = new Map<
+        string,
+        { conversationId: string; prompt: string }
+      >([
+        [
+          failed.failedNodeId,
+          {
+            conversationId: failed.failedConversationId,
+            prompt: buildResumePrompt(resumeNode, params.continuePrompt ?? ""),
+          },
+        ],
+      ]);
+      return runFlowNodes({
+        flowKey,
+        options,
+        emit,
+        persistRun,
+        // 复用原 flow checkpoint：节点已做的文件改动捕获在它上面，续跑的
+        // 新改动继续捕获进去，回滚语义保持完整。
+        flowCheckpointId: failed.flowCheckpointId,
+        order,
+        nodesById: new Map(failed.nodes.map((node) => [node.id, node])),
+        completedByNode,
+        resumeByNode,
+        handoff: "",
+        totalTokens: 0,
+      });
+    })().finally(() => {
+      activeRuns.delete(flowKey);
+      activeRunNodeStates.delete(flowKey);
+      runners.delete(flowKey);
+    });
+    runners.set(flowKey, runner);
+    activeRuns.set(flowKey, {
+      origin: "resume",
+      originInteractionId: params.originInteractionId,
+    });
+    return runner;
+  };
+
+  /** 共用执行核心：按拓扑序执行未完成节点，失败即暂停并登记续跑上下文。 */
+  const runFlowNodes = async (params: {
+    flowKey: string;
+    options: RunnerOptions;
+    emit: FlowEmit;
+    persistRun: FlowPersistRun;
+    flowCheckpointId: string;
+    order: string[];
+    nodesById: Map<string, WorkflowNodeItem>;
+    /** 已完成节点（跳过执行）：nodeId -> handoff。 */
+    completedByNode: Map<string, string>;
+    /** 复用原会话续跑的节点：nodeId -> { conversationId, prompt }。 */
+    resumeByNode: Map<string, { conversationId: string; prompt: string }>;
+    handoff: string;
+    totalTokens: number;
+  }): Promise<WorkflowRunOutcome> => {
+    const { flowKey, options, emit, persistRun, flowCheckpointId } = params;
+    let handoff = params.handoff;
+    let overallFailed = false;
+    let totalTokens = params.totalTokens;
+    const summary: WorkflowRunOutcome["summary"] = [];
+    // 跳过已完成节点：按「已完成节点 id」匹配（不按 index——用户可能增删
+    // 节点导致顺序变化）。completedCount 表示「累计已完成节点数」，作为
+    // run 进度（currentNodeIndex）持久化，供下次断点续跑定位。
+    const skipped = new Set<string>();
+    for (const nodeId of params.order) {
+      const node = params.nodesById.get(nodeId);
+      if (!node) {
+        continue;
+      }
+      const handoffContent = params.completedByNode.get(nodeId);
+      if (handoffContent === undefined) {
+        continue;
+      }
+      node.runStatus = "completed";
+      node.errorMessage = "";
+      node.handoffContent = handoffContent;
+      skipped.add(nodeId);
+      setActiveNodeRunState(flowKey, nodeId, "completed");
+      summary.push({
+        nodeId: node.id,
+        label: node.label || node.name,
+        status: "completed",
+        conversationId: node.conversationId,
+        handoff: handoffContent,
+        tokens: 0,
+      });
+    }
+    let completedCount = skipped.size;
+    if (completedCount > 0) {
+      emit({ status: "running" });
+    }
+
+    for (const nodeId of params.order) {
+      if (skipped.has(nodeId)) {
+        continue;
+      }
+      const node = params.nodesById.get(nodeId);
+      if (!node) {
+        continue;
+      }
+      node.runStatus = "running";
+      setActiveNodeRunState(flowKey, nodeId, "running");
+      emit({ status: "running", nodeId });
+      try {
+        const result = await executeNode(
+          options,
+          node,
+          handoff,
+          flowCheckpointId,
+          params.resumeByNode.get(nodeId),
+          // 会话就绪回调：节点会话 id 在 executeNode 内确定（新节点生成/
+          // 续跑复用原会话），此处补发携带 conversationId 的 running 事件，
+          // 画布节点点击跳会话即时可用（否则运行中节点要等完成事件才能
+          // 拿到会话 id），并写回 runner 侧节点对象供失败登记等使用。
+          (conversationId) => {
+            node.conversationId = conversationId;
+            emit({ status: "running", nodeId, conversationId });
+          },
+        );
+        node.conversationId = result.conversationId;
+        node.handoffContent = result.failed ? "" : result.handoff;
+        node.runStatus = result.failed ? "failed" : "completed";
+        node.errorMessage = result.failed
+          ? (result.error ?? "Node failed")
+          : "";
+        setActiveNodeRunState(flowKey, nodeId, node.runStatus);
+        await window.snow.updateWorkflowNodeSession(
+          result.conversationId,
+          node.runStatus === "completed" ? "completed" : "failed",
+          node.errorMessage,
+          node.handoffContent,
+        );
+        // 节点状态落盘后立即刷新侧边栏（workflowNodeMap 重查）。
+        // updateWorkflowNodeSession 只写 bookkeeping 表，不会触发会话
+        // upsert/版本递增，若不主动刷新，用户手动中止后节点树会
+        // 停留在旧的 running（loading）状态。
+        ctx.setConversationListVersion((version) => version + 1);
+        summary.push({
+          nodeId: node.id,
+          label: node.label || node.name,
+          status: node.runStatus,
+          conversationId: result.conversationId,
+          handoff: node.handoffContent,
+          tokens: result.tokenCount,
+        });
+        totalTokens += result.tokenCount;
+        emit({
+          status: "running",
+          nodeId,
+          nodeStatus: result.failed ? "failed" : "completed",
+          conversationId: result.conversationId,
+          ...(result.failed ? { error: node.errorMessage } : {}),
+        });
+        // 每完成一个节点就持久化一次 run 进度：应用重启/中断后
+        // workflow_runs 记录的是「已完成到第几个节点」，支持断点续跑。
+        // 失败节点不计入完成数（failure 分支单独落 failed 状态），
+        // 否则续跑会把失败节点误跳过。
+        if (result.failed) {
           overallFailed = true;
-          // 节点会话已创建（执行中途抛错）：将失败状态落盘并刷新侧边栏，
-          // 避免节点树停留在 running（loading）状态。
-          if (node.conversationId) {
-            await window.snow
-              .updateWorkflowNodeSession(
-                node.conversationId,
-                "failed",
-                node.errorMessage,
-                "",
-              )
-              .catch(() => {
-                // 落盘失败不阻断 workflow 收尾
-              });
-            ctx.setConversationListVersion((version) => version + 1);
-          }
-          emit({
-            status: "running",
-            nodeId,
-            nodeStatus: "failed",
-            error: node.errorMessage,
-          });
           persistRun(
             "failed",
             completedCount,
@@ -778,31 +1053,114 @@ export function createWorkflowRunner(
             flowCheckpointId,
             node.errorMessage,
           );
+          registerFailedFlow(
+            flowKey,
+            options,
+            node,
+            flowCheckpointId,
+            result.conversationId,
+          );
           break;
         }
+        completedCount += 1;
+        persistRun(
+          "running",
+          completedCount,
+          node.handoffContent,
+          totalTokens,
+          flowCheckpointId,
+        );
+        handoff = node.handoffContent;
+      } catch (error) {
+        node.runStatus = "failed";
+        node.errorMessage = getErrorMessage(error);
+        overallFailed = true;
+        setActiveNodeRunState(flowKey, nodeId, "failed");
+        // 节点会话已创建（执行中途抛错）：将失败状态落盘并刷新侧边栏，
+        // 避免节点树停留在 running（loading）状态。
+        if (node.conversationId) {
+          await window.snow
+            .updateWorkflowNodeSession(
+              node.conversationId,
+              "failed",
+              node.errorMessage,
+              "",
+            )
+            .catch(() => {
+              // 落盘失败不阻断 workflow 收尾
+            });
+          ctx.setConversationListVersion((version) => version + 1);
+        }
+        emit({
+          status: "running",
+          nodeId,
+          nodeStatus: "failed",
+          error: node.errorMessage,
+        });
+        persistRun(
+          "failed",
+          completedCount,
+          handoff,
+          totalTokens,
+          flowCheckpointId,
+          node.errorMessage,
+        );
+        // 会话已存在才有续跑价值（resume 节点抛错时 conversationId
+        // 仍是原会话；全新节点执行前抛错则无上下文可续）。
+        registerFailedFlow(
+          flowKey,
+          options,
+          node,
+          flowCheckpointId,
+          node.conversationId,
+        );
+        break;
       }
-      emit({ status: overallFailed ? "failed" : "completed" });
-      persistRun(
-        overallFailed ? "failed" : "completed",
-        completedCount,
-        handoff,
-        totalTokens,
-        flowCheckpointId,
-        overallFailed ? "One or more nodes failed" : "",
-      );
-      return {
-        success: !overallFailed,
-        summary,
-        totalTokens,
-        ...(overallFailed ? { error: "One or more nodes failed" } : {}),
-      };
-    })().finally(() => {
-      activeRuns.delete(flowKey);
-      runners.delete(flowKey);
-    });
-    runners.set(flowKey, runner);
-    activeRuns.add(flowKey);
-    return runner;
+    }
+    emit({ status: overallFailed ? "failed" : "completed" });
+    persistRun(
+      overallFailed ? "failed" : "completed",
+      completedCount,
+      handoff,
+      totalTokens,
+      flowCheckpointId,
+      overallFailed ? "One or more nodes failed" : "",
+    );
+    // 失败详情回传主流程：主流程据此向用户说明失败点，并可通过
+    // workflow-resume 原会话续跑；flow 跑完时清除续跑上下文。
+    const failedEntry = overallFailed ? failedFlows.get(flowKey) : undefined;
+    const failedNodeItem = failedEntry
+      ? params.nodesById.get(failedEntry.failedNodeId)
+      : undefined;
+    if (!overallFailed) {
+      failedFlows.delete(flowKey);
+    }
+    const failedNodeDetail =
+      overallFailed && failedEntry
+        ? {
+            flowId: options.interactionId,
+            nodeId: failedEntry.failedNodeId,
+            label:
+              failedNodeItem?.label ||
+              failedNodeItem?.name ||
+              failedEntry.failedNodeId,
+            conversationId: failedEntry.failedConversationId,
+            error: failedNodeItem?.errorMessage || "Node failed",
+          }
+        : undefined;
+    return {
+      success: !overallFailed,
+      summary,
+      totalTokens,
+      ...(overallFailed
+        ? {
+            error: failedNodeDetail?.error || "One or more nodes failed",
+            ...(failedNodeDetail
+              ? { failedNode: failedNodeDetail, resumable: true }
+              : {}),
+          }
+        : {}),
+    };
   };
 
   /** 单节点执行：建主会话 → 注册内存会话 → 增量消息 agent loop → 收尾。 */
@@ -811,6 +1169,10 @@ export function createWorkflowRunner(
     node: WorkflowNodeItem,
     handoff: string,
     flowCheckpointId: string,
+    /** 续跑注入：复用失败节点的原会话，改发继续提示词。 */
+    resume?: { conversationId: string; prompt: string },
+    /** 会话就绪回调（已创建/复用并落 running 后触发）。 */
+    onSessionReady?: (conversationId: string) => void,
   ): Promise<{
     conversationId: string;
     handoff: string;
@@ -820,7 +1182,7 @@ export function createWorkflowRunner(
   }> => {
     const parentConversationId = options.parentConversationId;
     const dirId = options.directoryId;
-    const conversationId = createNodeConversationId();
+    const conversationId = resume?.conversationId ?? createNodeConversationId();
     // 登记活跃节点：主会话中断/删除时据此级联停止本节点。
     let set = activeNodeSessions.get(parentConversationId);
     if (!set) {
@@ -840,32 +1202,44 @@ export function createWorkflowRunner(
     // 节点会话是真实主会话：DB 记录 + bookkeeping 行一次建好。
     // flow_id = interactionId，多 flow 卡片的恢复数据按它隔离；
     // flow_checkpoint_id = flow 级文件检查点，回滚恢复时撤销节点文件改动。
-    await window.snow.createWorkflowNodeSession(
-      conversationId,
-      parentConversationId,
-      options.interactionId,
-      flowCheckpointId,
-      node.id,
-      node.label || node.name,
-      dirId,
-      effectiveApiProfile,
-      effectiveModel,
-    );
-    options.onNodeConversationCreated?.(conversationId);
+    // 续跑模式跳过创建：复用失败节点的原会话（完整上下文仍在其中）。
+    if (!resume) {
+      await window.snow.createWorkflowNodeSession(
+        conversationId,
+        parentConversationId,
+        options.interactionId,
+        flowCheckpointId,
+        node.id,
+        node.label || node.name,
+        dirId,
+        effectiveApiProfile,
+        effectiveModel,
+      );
+      options.onNodeConversationCreated?.(conversationId);
+    }
     await window.snow.updateWorkflowNodeSession(
       conversationId,
       "running",
       "",
       "",
     );
-    // 侧边栏立即出现节点会话（主会话身份，点击可进入查看实时内容）。
-    try {
-      const record = await window.snow.getChatConversation(conversationId);
-      if (record) {
-        ctx.setUpsertedConversation({ record, timestamp: Date.now() });
+    // 节点转 running 后立即刷新侧边栏（workflowNodeMap 重查最新
+    // run_status）：节点图标进入 loading。续跑复用原会话没有"新建会话"
+    // 的刷新回调（onNodeConversationCreated），不 bump 会停留在上轮
+    // 终态（如失败图标），看起来节点没有恢复执行。
+    ctx.setConversationListVersion((version) => version + 1);
+    // 会话就绪（新节点已创建 / 续跑复用原会话）：通知调用方补发携带
+    // conversationId 的 running 事件，画布节点点击跳会话即时可用。
+    onSessionReady?.(conversationId);
+    if (!resume) {
+      try {
+        const record = await window.snow.getChatConversation(conversationId);
+        if (record) {
+          ctx.setUpsertedConversation({ record, timestamp: Date.now() });
+        }
+      } catch {
+        // 侧边栏 upsert 失败不阻塞节点执行
       }
-    } catch {
-      // 侧边栏 upsert 失败不阻塞节点执行
     }
 
     // 注册内存会话并进入发送状态（与子代理激活一致）。
@@ -933,8 +1307,9 @@ export function createWorkflowRunner(
     };
 
     try {
-      // 首条 user 消息（节点需求 + 上一个节点的交接文档）。
-      const prompt = buildNodePrompt(node, handoff);
+      // 首条 user 消息：新节点发节点需求 + 上一个节点的交接文档；
+      // 续跑节点改发继续提示词（原会话已带完整上下文）。
+      const prompt = resume?.prompt ?? buildNodePrompt(node, handoff);
       ctx.updateSessionMessages(conversationId, (currentMessages) => [
         ...currentMessages,
         {
@@ -1439,5 +1814,5 @@ export function createWorkflowRunner(
     }
   };
 
-  return { runWorkflow };
+  return { runWorkflow, resumeWorkflow };
 }

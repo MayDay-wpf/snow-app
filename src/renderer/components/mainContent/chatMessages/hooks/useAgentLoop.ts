@@ -47,6 +47,7 @@ import {
 import {
   createWorkflowRunner,
   executeWorkflowGenerate as executeWorkflowGenerateTool,
+  getWorkflowRunner,
   parseWorkflowGraph,
   registerWorkflowRunner,
 } from "../workflow/workflowRunner";
@@ -583,6 +584,87 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           dirId,
           toolCallInteractionId,
         );
+      };
+      // 失败节点续跑（workflow-resume）：主流程询问用户并获同意后调用。
+      // 续跑发生在失败结果结算后的新一轮 loop，注册的 runner 闭包已过期，
+      // 这里用本轮新鲜的 ctx 重新注册 runner 再执行 resumeWorkflow（失败
+      // 上下文存在模块级 failedFlows，跨 runner 实例共享）。
+      const executeWorkflowResume = (
+        argsJson: string,
+        parentConversationId: string,
+        toolCallInteractionId: string,
+      ): Promise<string> => {
+        let flowId = "";
+        let continuePrompt = "";
+        try {
+          const parsed = JSON.parse(argsJson || "{}") as {
+            flowId?: unknown;
+            continuePrompt?: unknown;
+          };
+          flowId = typeof parsed.flowId === "string" ? parsed.flowId : "";
+          continuePrompt =
+            typeof parsed.continuePrompt === "string"
+              ? parsed.continuePrompt
+              : "";
+        } catch {
+          // 参数非 JSON：flowId 保持空串，走结构化错误分支
+        }
+        if (!flowId) {
+          return Promise.resolve(
+            JSON.stringify({
+              success: false,
+              error:
+                "workflow-resume requires flowId (the failedNode.flowId from the failed workflow result)",
+            }),
+          );
+        }
+        registerWorkflowRunner(
+          parentConversationId,
+          flowId,
+          createWorkflowRunner({
+            ctx,
+            requestToolAuthorizations,
+            planApprovedSessionKeysRef,
+            executeSubAgentActivation,
+            executeSubAgentMainTool,
+          }),
+        );
+        const runner = getWorkflowRunner(parentConversationId, flowId);
+        if (!runner) {
+          return Promise.resolve(
+            JSON.stringify({
+              success: false,
+              error:
+                "Workflow resume executor is no longer available; ask the user to press Continue on the workflow card or re-run the workflow.",
+            }),
+          );
+        }
+        return runner
+          .resumeWorkflow({
+            parentConversationId,
+            interactionId: flowId,
+            originInteractionId: toolCallInteractionId,
+            continuePrompt,
+          })
+          .then((outcome) =>
+            JSON.stringify({
+              success: outcome.success,
+              summary: outcome.summary,
+              ...(outcome.totalTokens
+                ? { totalTokens: outcome.totalTokens }
+                : {}),
+              ...(outcome.error ? { error: outcome.error } : {}),
+              // 再次失败时保持同样的续跑指引，主流程可重复询问用户。
+              ...(outcome.failedNode
+                ? {
+                    failedNode: outcome.failedNode,
+                    resumable: outcome.resumable,
+                    resumeInstruction:
+                      "The node failed again after resuming. Tell the user, ask whether to resume once more (call workflow-resume again, optionally with an adjusted continuePrompt) or stop, and follow the user's decision.",
+                  }
+                : {}),
+            }),
+          );
       };
       // 主会话子代理管理工具（listSubAgents / continue）执行器：会话隔离
       // 在内部强制，只允许操作当前会话自己的子代理；continue 在内存无
@@ -1287,6 +1369,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           executeSubAgentActivation,
           executeSubAgentMainTool,
           executeWorkflowGenerate,
+          executeWorkflowResume,
           planApprovedSessionKeysRef,
           planModeRef: ctx.planModeRef,
         });

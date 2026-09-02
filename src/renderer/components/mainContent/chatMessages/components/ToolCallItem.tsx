@@ -290,6 +290,19 @@ export const ToolCallItem = memo(
       );
     }
 
+    // 失败节点续跑卡片：与 generate 卡片同一组件（复用画布渲染与事件
+    // 订阅），mode=resume 下只读展示续跑节点状态；两卡片按事件来源做
+    // 画布宿主切换（续跑进行中上方 generate 卡片画布收起）。
+    if (toolCall.name === "workflow-workflow-resume") {
+      return (
+        <WorkflowToolCall
+          toolCall={toolCall}
+          conversationId={conversationId}
+          mode="resume"
+        />
+      );
+    }
+
     if (toolCall.name === "filesystem-read") {
       return <FilesystemReadToolCall toolCall={toolCall} />;
     }

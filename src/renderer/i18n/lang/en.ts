@@ -714,6 +714,8 @@ export const en = {
   "toolCall.memory.statusLabel": "Status",
   "toolCall.memory.itemCount": "{{count}} item(s)",
   "toolCall.memory.deleted": "Deleted",
+  "toolCall.memory.saved": "Saved",
+  "toolCall.memory.updated": "Updated",
   "toolCall.memory.empty": "No items",
   "toolCall.memory.viewInSidebar": "View full list in sidebar",
   "toolCall.memory.result": "Result",
@@ -803,6 +805,14 @@ export const en = {
   "toolCall.workflow.status.failed": "Failed",
   "toolCall.workflow.execute": "Execute",
   "toolCall.workflow.resume": "Resume execution",
+  "toolCall.workflow.resumeAction": "Resume workflow",
+  "toolCall.workflow.canvasSupersededHint":
+    "Canvas collapsed — node status is shown on the resume card below.",
+  "toolCall.workflow.resumeCanvasCollapsedHint":
+    "Resume canvas collapsed — expand to inspect node status.",
+  "toolCall.workflow.expandCanvas": "Show canvas",
+  "toolCall.workflow.failedHint":
+    "The workflow paused on a failed node. Ask the AI to resume it or give feedback.",
   "toolCall.workflow.resumedHint":
     "Interrupted run detected; resume to skip already completed nodes.",
   "toolCall.workflow.emptyCanvas":

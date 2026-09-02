@@ -22,7 +22,7 @@ type MemoryAction = "save" | "search" | "list" | "update" | "delete";
 type MemoryKind = "fact" | "decision" | "preference" | "pitfall" | "task_state";
 
 type ParsedMemoryArgs = {
-  action: MemoryAction;
+  action?: MemoryAction;
   title?: string;
   content?: string;
   query?: string;
@@ -35,7 +35,7 @@ type ParsedMemoryArgs = {
 };
 
 type ParsedMemoryResult =
-  | { type: "success"; itemCount: number; deleted: boolean }
+  | { type: "success"; itemCount: number; deleted: boolean; saved: boolean }
   | { type: "error"; message: string }
   | { type: "raw"; text: string }
   | { type: "empty" };
@@ -51,22 +51,28 @@ const isValidKind = (value: unknown): value is MemoryKind =>
   typeof value === "string" &&
   ["fact", "decision", "preference", "pitfall", "task_state"].includes(value);
 
-const parseArgs = (args: string): ParsedMemoryArgs | null => {
+const parseArgs = (args: string): ParsedMemoryArgs => {
   try {
     const parsed: unknown = JSON.parse(args);
-    if (!isRecord(parsed) || !isValidAction(parsed.action)) {
-      return null;
+    if (!isRecord(parsed)) {
+      return {};
     }
 
-    const result: ParsedMemoryArgs = { action: parsed.action };
+    const result: ParsedMemoryArgs = {};
 
+    // action 不是工具参数：Rust 端 memory 服务按工具名路由
+    // （memory-save 即 action=save），参数里只有 title/content 等纯字段。
+    if (isValidAction(parsed.action)) result.action = parsed.action;
     if (typeof parsed.title === "string") result.title = parsed.title;
     if (typeof parsed.content === "string") result.content = parsed.content;
     if (typeof parsed.query === "string") result.query = parsed.query;
     if (isValidKind(parsed.kind)) result.kind = parsed.kind;
-    if (typeof parsed.importance === "number") result.importance = parsed.importance;
+    if (typeof parsed.importance === "number")
+      result.importance = parsed.importance;
     if (Array.isArray(parsed.tags)) {
-      result.tags = parsed.tags.filter((x): x is string => typeof x === "string");
+      result.tags = parsed.tags.filter(
+        (x): x is string => typeof x === "string",
+      );
     }
     if (typeof parsed.memoryId === "string") result.memoryId = parsed.memoryId;
     if (typeof parsed.limit === "number") result.limit = parsed.limit;
@@ -74,8 +80,14 @@ const parseArgs = (args: string): ParsedMemoryArgs | null => {
 
     return result;
   } catch {
-    return null;
+    return {};
   }
+};
+
+// 从工具名推导 action：memory-save -> save。
+const actionFromName = (name: string): MemoryAction | null => {
+  const suffix = name.replace(/^memory-/, "");
+  return isValidAction(suffix) ? suffix : null;
 };
 
 const parseResult = (result: string | undefined): ParsedMemoryResult => {
@@ -93,20 +105,26 @@ const parseResult = (result: string | undefined): ParsedMemoryResult => {
       return { type: "error", message: parsed.error };
     }
 
-    if (typeof parsed.message === "string") {
-      return { type: "error", message: parsed.message };
-    }
+    // 注意：message 是成功响应也带有的提示文案（save/update/delete/search），
+    // 不能据此判定为错误；真实错误统一走 error 字段或 MCP 错误通道。
 
     const deleted = parsed.deleted === true;
-    let itemCount = 0;
-    if (Array.isArray(parsed.items)) {
-      itemCount = parsed.items.length;
-    } else if (typeof parsed.todos === "number") {
-      itemCount = parsed.todos;
-    }
+    const saved = isRecord(parsed.memory);
+    const itemCount = Array.isArray(parsed.items)
+      ? parsed.items.length
+      : Array.isArray(parsed.results)
+        ? parsed.results.length
+        : typeof parsed.todos === "number"
+          ? parsed.todos
+          : 0;
 
-    if (deleted || itemCount > 0 || typeof parsed.memoryId === "string") {
-      return { type: "success", itemCount, deleted };
+    if (
+      deleted ||
+      itemCount > 0 ||
+      saved ||
+      typeof parsed.memoryId === "string"
+    ) {
+      return { type: "success", itemCount, deleted, saved };
     }
 
     return { type: "raw", text: result };
@@ -129,16 +147,16 @@ export const MemoryToolCall = ({
   const { t } = useI18n();
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const isRunning = toolCall.status === "running";
 
-  const action = parsedArgs?.action ?? "list";
+  const action = parsedArgs.action ?? actionFromName(toolCall.name) ?? "list";
   const ActionIcon = ACTION_ICON_MAP[action] ?? List;
   const actionLabel = t(`toolCall.memory.action.${action}`);
 
@@ -149,10 +167,10 @@ export const MemoryToolCall = ({
 
   // Header 摘要：save/update 显示标题，search 显示查询词，delete 显示 memoryId。
   const summary =
-    parsedArgs?.title ??
-    parsedArgs?.query ??
-    (parsedArgs?.action === "delete" || parsedArgs?.action === "update"
-      ? parsedArgs?.memoryId
+    parsedArgs.title ??
+    parsedArgs.query ??
+    (action === "delete" || action === "update"
+      ? parsedArgs.memoryId
       : undefined);
 
   return (
@@ -184,109 +202,111 @@ export const MemoryToolCall = ({
             <span className="tool-call-memory-hint">
               {parsedResult.deleted
                 ? t("toolCall.memory.deleted")
-                : parsedResult.itemCount === 0
-                  ? t("toolCall.memory.empty")
-                  : t("toolCall.memory.viewInSidebar")}
+                : parsedResult.itemCount > 0
+                  ? t("toolCall.memory.viewInSidebar")
+                  : parsedResult.saved
+                    ? action === "update"
+                      ? t("toolCall.memory.updated")
+                      : t("toolCall.memory.saved")
+                    : t("toolCall.memory.empty")}
             </span>
           ) : null}
         </div>
 
         {/* Arguments */}
-        {parsedArgs ? (
-          <div className="tool-call-memory-args">
-            {parsedArgs.title ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.title")}
-                </span>
-                <pre className="tool-call-memory-arg-value">
-                  {parsedArgs.title}
-                </pre>
-              </div>
-            ) : null}
+        <div className="tool-call-memory-args">
+          {parsedArgs.title ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.title")}
+              </span>
+              <pre className="tool-call-memory-arg-value">
+                {parsedArgs.title}
+              </pre>
+            </div>
+          ) : null}
 
-            {parsedArgs.query ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.query")}
-                </span>
-                <pre className="tool-call-memory-arg-value">
-                  {parsedArgs.query}
-                </pre>
-              </div>
-            ) : null}
+          {parsedArgs.query ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.query")}
+              </span>
+              <pre className="tool-call-memory-arg-value">
+                {parsedArgs.query}
+              </pre>
+            </div>
+          ) : null}
 
-            {parsedArgs.content ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.content")}
-                </span>
-                <pre className="tool-call-memory-arg-value">
-                  {parsedArgs.content}
-                </pre>
-              </div>
-            ) : null}
+          {parsedArgs.content ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.content")}
+              </span>
+              <pre className="tool-call-memory-arg-value">
+                {parsedArgs.content}
+              </pre>
+            </div>
+          ) : null}
 
-            {parsedArgs.memoryId ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.memoryId")}
-                </span>
-                <code className="tool-call-memory-arg-code">
-                  {parsedArgs.memoryId}
-                </code>
-              </div>
-            ) : null}
+          {parsedArgs.memoryId ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.memoryId")}
+              </span>
+              <code className="tool-call-memory-arg-code">
+                {parsedArgs.memoryId}
+              </code>
+            </div>
+          ) : null}
 
-            {parsedArgs.kind ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.kind")}
-                </span>
-                <span className="tool-call-memory-kind-badge">
-                  {t(`toolCall.memory.kindValue.${parsedArgs.kind}`)}
-                </span>
-              </div>
-            ) : null}
+          {parsedArgs.kind ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.kind")}
+              </span>
+              <span className="tool-call-memory-kind-badge">
+                {t(`toolCall.memory.kindValue.${parsedArgs.kind}`)}
+              </span>
+            </div>
+          ) : null}
 
-            {parsedArgs.importance ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.importance")}
-                </span>
-                <span className="tool-call-memory-importance-badge">
-                  {parsedArgs.importance}
-                </span>
-              </div>
-            ) : null}
+          {parsedArgs.importance ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.importance")}
+              </span>
+              <span className="tool-call-memory-importance-badge">
+                {parsedArgs.importance}
+              </span>
+            </div>
+          ) : null}
 
-            {parsedArgs.tags && parsedArgs.tags.length > 0 ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.tags")}
-                </span>
-                <span className="tool-call-memory-tags">
-                  {parsedArgs.tags.map((tag) => (
-                    <code className="tool-call-memory-tag" key={tag}>
-                      {tag}
-                    </code>
-                  ))}
-                </span>
-              </div>
-            ) : null}
+          {parsedArgs.tags && parsedArgs.tags.length > 0 ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.tags")}
+              </span>
+              <span className="tool-call-memory-tags">
+                {parsedArgs.tags.map((tag) => (
+                  <code className="tool-call-memory-tag" key={tag}>
+                    {tag}
+                  </code>
+                ))}
+              </span>
+            </div>
+          ) : null}
 
-            {parsedArgs.status ? (
-              <div className="tool-call-memory-arg-item">
-                <span className="tool-call-memory-arg-label">
-                  {t("toolCall.memory.statusLabel")}
-                </span>
-                <code className="tool-call-memory-arg-code">
-                  {parsedArgs.status}
-                </code>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+          {parsedArgs.status ? (
+            <div className="tool-call-memory-arg-item">
+              <span className="tool-call-memory-arg-label">
+                {t("toolCall.memory.statusLabel")}
+              </span>
+              <code className="tool-call-memory-arg-code">
+                {parsedArgs.status}
+              </code>
+            </div>
+          ) : null}
+        </div>
 
         {/* Error */}
         {hasError ? (

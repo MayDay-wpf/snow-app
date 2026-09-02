@@ -681,6 +681,8 @@ export const zhCN = {
   "toolCall.memory.statusLabel": "状态",
   "toolCall.memory.itemCount": "{{count}} 条",
   "toolCall.memory.deleted": "已删除",
+  "toolCall.memory.saved": "已保存",
+  "toolCall.memory.updated": "已更新",
   "toolCall.memory.empty": "无匹配项",
   "toolCall.memory.viewInSidebar": "在侧边栏查看完整列表",
   "toolCall.memory.result": "执行结果",
@@ -765,6 +767,14 @@ export const zhCN = {
   "toolCall.workflow.status.failed": "执行失败",
   "toolCall.workflow.execute": "确认执行",
   "toolCall.workflow.resume": "继续执行",
+  "toolCall.workflow.resumeAction": "续跑工作流",
+  "toolCall.workflow.canvasSupersededHint":
+    "画布已收起，节点续跑状态在下方续跑卡片中展示。",
+  "toolCall.workflow.resumeCanvasCollapsedHint":
+    "续跑画布已收起，可展开查看节点状态。",
+  "toolCall.workflow.expandCanvas": "展开画布",
+  "toolCall.workflow.failedHint":
+    "工作流在失败节点暂停，可让 AI 续跑或反馈调整。",
   "toolCall.workflow.resumedHint":
     "检测到未完成的执行记录，继续将跳过已完成的节点。",
   "toolCall.workflow.emptyCanvas": "流程图数据不完整或为空，将重新生成。",

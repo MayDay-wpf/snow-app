@@ -650,6 +650,22 @@ export const MarkdownBlock = memo(
           }
         }
 
+        // --- Handoff tag（工作流交接文档折叠块）展开/收起 ---
+        const handoffToggle = target.closest(
+          ".md-handoff-toggle",
+        ) as HTMLElement | null;
+        if (handoffToggle) {
+          const block = handoffToggle.closest(".md-handoff-block");
+          if (block) {
+            block.classList.toggle("expanded");
+            handoffToggle.setAttribute(
+              "aria-expanded",
+              block.classList.contains("expanded") ? "true" : "false",
+            );
+          }
+          return;
+        }
+
         // --- Regular code block interactions ---
         // Handle collapse / expand toggle
         const langBtn = target.closest(
