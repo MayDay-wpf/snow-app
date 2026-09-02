@@ -33684,10 +33684,19 @@ body.ctrl-held [data-path] {
   flex-direction: column;
 }
 
+/* View mode mirrors the edit mode layout (`.file-viewer-edit-scroll`): this is
+   the single scroll container for both axes, so the horizontal scrollbar is
+   pinned to the bottom of the viewport instead of the bottom of the whole
+   content (previously it lived on `.file-viewer-code-content`, forcing users
+   to scroll all the way down to reach it). Long lines overflow the `.file-viewer-code`
+   flex row, whose `white-space: pre` code child refuses to shrink below its
+   widest line (min-width: auto), producing the horizontal scroll here while
+   the sticky gutter stays pinned on the left. */
 .file-viewer-code-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: scroll;
+  overflow-x: auto;
   background: var(--bg-primary);
 }
 
@@ -33738,6 +33747,15 @@ body.ctrl-held [data-path] {
   position: relative;
 }
 
+/* 查看模式专属（编辑模式复用上面的类但依赖 editor-wrap 自身撑宽）：
+   pre 按最长行扩展，横向滚动由外层 .file-viewer-code-scroll 承担，
+   使行高亮条与搜索标记层（absolute 定位于本元素）覆盖全部内容宽度；
+   内容较窄时 min-width 兜底占满视口宽度。 */
+pre.file-viewer-code {
+  width: max-content;
+  min-width: 100%;
+}
+
 .file-viewer-line-numbers {
   flex-shrink: 0;
   padding: 0 10px 0 14px;
@@ -33757,7 +33775,6 @@ body.ctrl-held [data-path] {
   padding: 0 14px 0 10px;
   background: transparent;
   white-space: pre;
-  overflow-x: scroll;
 }
 
 .file-viewer-line-highlight {
@@ -34024,8 +34041,9 @@ body.ctrl-held [data-path] {
   font-size: 12px;
 }
 
-/* 匹配高亮层：绝对定位于 .file-viewer-code（position: relative）内，
-   横向偏移由内联 transform translateX(-scrollLeft) 实时补偿。 */
+/* 匹配高亮层：绝对定位于 .file-viewer-code（position: relative）内。
+    横向滚动由外层 .file-viewer-code-scroll 承担，本层随 pre 与代码
+    同步滚动，矩形坐标天然对齐，无需滚动补偿。 */
 .file-viewer-search-marks {
   position: absolute;
   inset: 0;

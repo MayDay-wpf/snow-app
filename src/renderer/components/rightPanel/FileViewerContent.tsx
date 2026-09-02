@@ -1046,7 +1046,7 @@ export function FileViewerContent({
   );
 
   // 当前匹配滚动入视。编辑模式仅在显式导航时重设选区（避免覆盖用户
-  // 正在编辑的光标）；查看模式始终滚动（纵向外层容器 + 横向内层代码区）。
+  // 正在编辑的光标）；查看模式始终滚动（外层滚动容器双轴定位）。
   useEffect(() => {
     if (!searchOpen || searchMatches.length === 0) return;
     const match =
@@ -1087,29 +1087,42 @@ export function FileViewerContent({
       }
     }
     const contentEl = codeContentRef.current;
-    if (contentEl) {
-      const range = makeTextRange(contentEl, match.start, match.end);
-      const rects = range?.getClientRects();
-      if (rects && rects.length > 0) {
-        const first = rects[0];
-        const box = contentEl.getBoundingClientRect();
-        const x = first.left - box.left + contentEl.scrollLeft;
-        const margin = 24;
-        if (x < contentEl.scrollLeft + margin) {
-          contentEl.scrollLeft = Math.max(0, x - margin);
-        } else if (
-          x + first.width >
-          contentEl.scrollLeft + contentEl.clientWidth - margin
-        ) {
-          contentEl.scrollLeft =
-            x + first.width - contentEl.clientWidth + margin;
-        }
-      }
+    if (!scrollEl || !contentEl) {
+      return;
+    }
+    const range = makeTextRange(contentEl, match.start, match.end);
+    const rects = range?.getClientRects();
+    if (!rects || rects.length === 0) {
+      return;
+    }
+    const first = rects[0];
+    const scrollBox = scrollEl.getBoundingClientRect();
+    // 内容可视左缘：sticky 行号钉在滚动区左缘，会遮挡其下滚过的内容。
+    const gutterEl = contentEl.parentElement?.querySelector(
+      ".file-viewer-line-numbers",
+    );
+    const contentLeft = contentEl.getBoundingClientRect().left;
+    const visibleLeft =
+      gutterEl instanceof HTMLElement
+        ? Math.max(contentLeft, gutterEl.getBoundingClientRect().right)
+        : contentLeft;
+    const margin = 24;
+    if (first.left < visibleLeft + margin) {
+      // 匹配贴近/越过可视左缘（含被行号遮挡）：向左滚动使其距左缘 margin。
+      scrollEl.scrollLeft = Math.max(
+        0,
+        scrollEl.scrollLeft + first.left - visibleLeft - margin,
+      );
+    } else if (first.right > scrollBox.right - margin) {
+      // 匹配超出可视右缘：向右滚动使其距右缘 margin（上限由浏览器夹紧）。
+      scrollEl.scrollLeft =
+        scrollEl.scrollLeft + first.right - (scrollBox.right - margin);
     }
   }, [searchOpen, searchMatches, searchIndex, editMode]);
 
   // 查看模式匹配高亮层：用 Range 取每个匹配文本的渲染矩形，换算为相对
-  // .file-viewer-code 的坐标；内层代码区横向滚动由层 transform 实时补偿。
+  // .file-viewer-code 的坐标。横向滚动由外层 .file-viewer-code-scroll 承担，
+  // 高亮层随 pre 与代码同步滚动，矩形天然对齐，无需滚动补偿。
   useLayoutEffect(() => {
     if (editMode || !searchOpen) {
       setSearchMarkRects([]);
@@ -1124,7 +1137,6 @@ export function FileViewerContent({
     const preEl = contentEl.closest(".file-viewer-code");
     if (!preEl) return;
     const preRect = preEl.getBoundingClientRect();
-    const scrollLeft = contentEl.scrollLeft;
     const current =
       searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
     if (!current) {
@@ -1144,7 +1156,7 @@ export function FileViewerContent({
         const r = clientRects[i];
         if (r.width <= 0 && r.height <= 0) continue;
         rects.push({
-          left: r.left - preRect.left + scrollLeft,
+          left: r.left - preRect.left,
           top: r.top - preRect.top,
           width: r.width,
           height: r.height,
@@ -1152,7 +1164,6 @@ export function FileViewerContent({
         });
       }
     }
-    layer.style.transform = `translateX(${-scrollLeft}px)`;
     setSearchMarkRects(rects);
   }, [
     searchOpen,
@@ -1162,17 +1173,6 @@ export function FileViewerContent({
     highlightedCode,
     svgMode,
   ]);
-
-  const handleCodeContentScroll = useCallback(
-    (event: React.UIEvent<HTMLElement>) => {
-      const layer = marksLayerRef.current;
-      if (layer) {
-        const scrollLeft = (event.currentTarget as HTMLElement).scrollLeft;
-        layer.style.transform = `translateX(${-scrollLeft}px)`;
-      }
-    },
-    [],
-  );
 
   const buildMenuItems = (): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [];
@@ -1279,7 +1279,6 @@ export function FileViewerContent({
           <code
             ref={codeContentRef}
             className="hljs file-viewer-code-content"
-            onScroll={handleCodeContentScroll}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </pre>
