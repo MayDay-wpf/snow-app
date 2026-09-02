@@ -4,26 +4,26 @@ MCP (Model Context Protocol) servers provide external tools to the AI. Snow App 
 
 ## 1. Configuration entries and scopes
 
-| Entry | Storage and activation semantics |
-| --- | --- |
-| **Settings → MCP Settings** (settings page id: `mcp-settings`) | Manages the app database directly; supports global/project servers, and server and tool toggles (global + project). |
-| Agent `config` service | Global `settings.mcpServers` is synchronized into the app database and written to `~/.snow/settings.json`; project scope writes directly to the app database. |
-| Manual `~/.snow/settings.json` editing | Changes only the Snow CLI shared file; run **Sync Snow CLI MCP settings** in MCP Settings afterward. |
+| Entry                                                          | Storage and activation semantics                                                                                                                              |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Settings → MCP Settings** (settings page id: `mcp-settings`) | Manages the app database directly; supports global/project servers, and server and tool toggles (global + project).                                           |
+| Agent `config` service                                         | Global `settings.mcpServers` is synchronized into the app database and written to `~/.snow/settings.json`; project scope writes directly to the app database. |
+| Manual `~/.snow/settings.json` editing                         | Changes only the Snow CLI shared file; run **Sync Snow CLI MCP settings** in MCP Settings afterward.                                                          |
 
 Global servers are visible to every project. Project servers are **added to**, not name-based replacements for, global servers; their internal IDs are independent. When public server names conflict, Snow App normalizes them and appends a stable short hash. Always use **Fetch Tools** or the project tool list to obtain the actual full tool name.
 
 ## 2. Transports and fields
 
-| Field | `stdio` | `http` | Meaning |
-| --- | --- | --- | --- |
-| `type` | `stdio` (`local` also connects as stdio) | `http` | Defaults to `stdio` |
-| `command` | Required | Ignored | Executable path or resolvable command |
-| `args` | Optional string array | Ignored | Passed to the child process item by item |
-| `env` | Optional string object | Ignored | Environment variables for the child process |
-| `url` | Ignored | Required | Streamable HTTP MCP endpoint |
-| `headers` | Ignored | Optional string object | HTTP headers, including authorization when required |
-| `enabled` | Optional | Optional | Defaults to `true` |
-| `timeoutMs` | Optional positive integer | Optional positive integer | Total connection-and-discovery budget; default `120000` ms |
+| Field       | `stdio`                                  | `http`                    | Meaning                                                    |
+| ----------- | ---------------------------------------- | ------------------------- | ---------------------------------------------------------- |
+| `type`      | `stdio` (`local` also connects as stdio) | `http`                    | Defaults to `stdio`                                        |
+| `command`   | Required                                 | Ignored                   | Executable path or resolvable command                      |
+| `args`      | Optional string array                    | Ignored                   | Passed to the child process item by item                   |
+| `env`       | Optional string object                   | Ignored                   | Environment variables for the child process                |
+| `url`       | Ignored                                  | Required                  | Streamable HTTP MCP endpoint                               |
+| `headers`   | Ignored                                  | Optional string object    | HTTP headers, including authorization when required        |
+| `enabled`   | Optional                                 | Optional                  | Defaults to `true`                                         |
+| `timeoutMs` | Optional positive integer                | Optional positive integer | Total connection-and-discovery budget; default `120000` ms |
 
 `timeoutMs` currently controls the **tool-discovery stage**: connecting and `tools/list` share one deadline. It is not a general timeout for every `tools/call`; a long-running server must implement its own cancellation or timeout.
 
@@ -157,9 +157,10 @@ Snow App uses the same lifecycle strategy for `stdio` and HTTP:
 1. Auto mode prefers the stateless `2026-07-28` `server/discover` flow;
 2. The SDK automatically downgrades on standard `Method Not Found` / `Unsupported Protocol Version` responses;
 3. For other negotiation JSON-RPC errors or a connection closed during discovery, Snow App reconnects with legacy `initialize`;
-4. If `server/discover` is **silent for 10 seconds**, it is also treated as a legacy server and reconnected;
-5. After connection, Snow App calls `tools/list`;
-6. If a tool call reports `Transport closed`, Snow App reconnects with the legacy handshake and retries once. If the retry fails, it preserves the original transport error for diagnosis.
+4. If the `server/discover` probe itself fails at the transport level (for example a session-only `2024-11-05` server answers `discover` with HTTP 400/404/405 and a body that is not a valid JSON-RPC error), it is also treated as "no stateless discovery support" and falls back to legacy `initialize`;
+5. If `server/discover` is **silent for 10 seconds**, it is also treated as a legacy server and reconnected;
+6. After connection, Snow App calls `tools/list`;
+7. If a tool call reports `Transport closed`, Snow App reconnects with the legacy handshake and retries once. If the retry fails, it preserves the original transport error for diagnosis.
 
 Up to four servers are discovered concurrently. One server's failure is logged and skipped without preventing tools from other servers from registering.
 
@@ -215,19 +216,20 @@ Project MCP uses a database full-replace flow and should not rely on the file ba
 
 ## 11. Troubleshooting
 
-| Symptom | Cause and fix |
-| --- | --- |
-| stdio reports no command | `type` is `stdio` but `command` is empty; check executable resolution and JSON path escaping. |
-| HTTP reports no URL | `type` is `http` but `url` is empty; verify that the endpoint is MCP Streamable HTTP. |
-| `server/discover` times out | The client retries legacy after 10 seconds; if that also fails, inspect server logs, protocol support, and networking. |
-| Discovery exceeds `timeoutMs` | Connection and `tools/list` share the budget; increase the positive value carefully or fix slow server startup. |
-| One server fails while others work | Discovery is isolated per server; diagnose only the failing server instead of restarting everything. |
-| Tool list is empty | Check server `enabled`, project server toggle, project tool disables, and the server's `tools/list` response. |
-| Tool name differs from config name | Names were normalized or hash-suffixed after a collision; use the public name returned by the UI/tool list. |
-| Other global entries disappear after one edit | `settings.mcpServers` is a full map with diff synchronization; restore and write the complete object. |
-| Global tools remain after editing project config | Project servers are added to global servers; disable the global server in project tool settings. |
-| `Transport closed` | Snow App reconnects with legacy mode and retries once; persistent failures require child-process, server-log, or SDK investigation. |
-| Credentials appear in a config read | MCP `env`/`headers` are not guaranteed to be masked; rotate exposed credentials and switch to secure injection. |
+| Symptom                                              | Cause and fix                                                                                                                                                                                                                                         |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| stdio reports no command                             | `type` is `stdio` but `command` is empty; check executable resolution and JSON path escaping.                                                                                                                                                         |
+| HTTP reports no URL                                  | `type` is `http` but `url` is empty; verify that the endpoint is MCP Streamable HTTP.                                                                                                                                                                 |
+| `server/discover` times out                          | The client retries legacy after 10 seconds; if that also fails, inspect server logs, protocol support, and networking.                                                                                                                                |
+| HTTP server answers `discover` with HTTP 400/404/405 | Common for session-only legacy servers (e.g. Chat2DB's embedded Spring MCP): treated as "no stateless discovery support" and automatically falls back to legacy `initialize`; if the fallback also fails, inspect server logs and auth configuration. |
+| Discovery exceeds `timeoutMs`                        | Connection and `tools/list` share the budget; increase the positive value carefully or fix slow server startup.                                                                                                                                       |
+| One server fails while others work                   | Discovery is isolated per server; diagnose only the failing server instead of restarting everything.                                                                                                                                                  |
+| Tool list is empty                                   | Check server `enabled`, project server toggle, project tool disables, and the server's `tools/list` response.                                                                                                                                         |
+| Tool name differs from config name                   | Names were normalized or hash-suffixed after a collision; use the public name returned by the UI/tool list.                                                                                                                                           |
+| Other global entries disappear after one edit        | `settings.mcpServers` is a full map with diff synchronization; restore and write the complete object.                                                                                                                                                 |
+| Global tools remain after editing project config     | Project servers are added to global servers; disable the global server in project tool settings.                                                                                                                                                      |
+| `Transport closed`                                   | Snow App reconnects with legacy mode and retries once; persistent failures require child-process, server-log, or SDK investigation.                                                                                                                   |
+| Credentials appear in a config read                  | MCP `env`/`headers` are not guaranteed to be masked; rotate exposed credentials and switch to secure injection.                                                                                                                                       |
 
 ## 12. References
 

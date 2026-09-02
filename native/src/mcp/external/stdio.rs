@@ -60,7 +60,14 @@ impl StdioMcpClient {
                 guard: Some(guard),
             }),
             Ok(Err(error)) if super::should_retry_with_legacy_handshake(&error) => {
-                // 先清理第一次启动的进程树，再 spawn 重试（issue #88）
+                // 服务器不支持 server/discover（规范 JSON-RPC 错误 / discover
+                // 阶段传输失败，如旧服务器收到 discover 探测直接退出导致写
+                // 管道失败，issue #119 的 HTTP 同类场景）。记录回退原因便于
+                // 诊断，先清理第一次启动的进程树，再 spawn 重试（issue #88）
+                eprintln!(
+                    "[MCP] stdio server {} does not support server/discover ({error}), falling back to legacy initialize",
+                    config.name
+                );
                 drop(guard);
                 match Self::connect_legacy(config).await {
                     Ok(client) => Ok(client),

@@ -65,6 +65,14 @@ impl HttpMcpClient {
         match auto_result {
             Ok(Ok(running)) => Ok(Self { client: running }),
             Ok(Err(error)) if super::should_retry_with_legacy_handshake(&error) => {
+                // 服务器不支持 server/discover（规范 JSON-RPC 错误 / discover
+                // 阶段传输失败，如仅支持 2024-11-05 会话式的服务器对 discover
+                // 探测回 HTTP 400 非 JSON-RPC 响应，issue #119）。记录回退
+                // 原因便于诊断，再用 legacy initialize 握手重连。
+                eprintln!(
+                    "[MCP] HTTP server {} does not support server/discover ({error}), falling back to legacy initialize",
+                    config.name
+                );
                 // 重建 transport 避免复用失败连接的状态,改用 legacy 握手重连。
                 match Self::connect_legacy(config).await {
                     Ok(client) => Ok(client),

@@ -608,6 +608,15 @@ impl_client_handle!(http::HttpMcpClient);
 ///   with pre-2026 SDKs (e.g. DBX 0.4.51) exit the process on `discover`
 ///   instead of replying with a JSON-RPC error, so a closed connection is a
 ///   strong signal that the server only understands the legacy handshake.
+/// - A transport failure while sending the `server/discover` probe (the rmcp
+///   context mentions `discover`). Session-style servers that only speak
+///   the 2024-11-05 protocol (e.g. Chat2DB's embedded Spring MCP server)
+///   answer `server/discover` with a non-2xx HTTP status whose body is not a
+///   valid JSON-RPC error, so the SDK can only surface it as a transport
+///   error (issue #119). That still means "no stateless discovery support",
+///   so the legacy handshake is retried. Transport errors raised during the
+///   SDK-internal legacy fallback (context "send initialize request" etc.)
+///   are excluded: that handshake was already attempted and failed.
 pub(super) fn should_retry_with_legacy_handshake(
     error: &rmcp::service::ClientInitializeError,
 ) -> bool {
@@ -617,6 +626,9 @@ pub(super) fn should_retry_with_legacy_handshake(
                 && error_data.code != rmcp::model::ErrorCode::UNSUPPORTED_PROTOCOL_VERSION
         }
         rmcp::service::ClientInitializeError::ConnectionClosed(_) => true,
+        rmcp::service::ClientInitializeError::TransportError { context, .. } => {
+            context.contains("discover")
+        }
         _ => false,
     }
 }
