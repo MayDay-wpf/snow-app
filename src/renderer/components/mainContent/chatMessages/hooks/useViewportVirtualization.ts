@@ -42,8 +42,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  */
 
 /** Extra pixels above/below the viewport that stay rendered, so fast scrolls
- *  do not flash empty placeholders before the observer catches up. */
+ * do not flash empty placeholders before the observer catches up. */
 const VIEWPORT_BUFFER_PX = 600;
+
+/** Whether a node overlaps the scroll viewport extended by the buffer margin —
+ * the same geometry the IntersectionObserver reports with rootMargin, but
+ * evaluated synchronously so freshly mounted placeholders near the viewport
+ * can flip to real content before the observer's asynchronous first report
+ * arrives (see the eager-measure batch in `register`). */
+const isNodeWithinViewportBuffer = (
+  node: HTMLElement,
+  rootRect: DOMRect,
+): boolean => {
+  const rect = node.getBoundingClientRect();
+  return (
+    rect.bottom > rootRect.top - VIEWPORT_BUFFER_PX &&
+    rect.top < rootRect.bottom + VIEWPORT_BUFFER_PX
+  );
+};
 
 /** Fallback height for a message that was never measured before being
  *  virtualized out. Matches the CSS contain-intrinsic-size estimate so
@@ -92,7 +108,7 @@ export const VIRTUAL_PLACEHOLDER_DEFAULT_HEIGHT = DEFAULT_PLACEHOLDER_HEIGHT;
 export const useViewportVirtualization = (
   scrollContainerRef: React.RefObject<HTMLDivElement | null>,
   pinnedIds: ReadonlySet<string>,
-  initialVisibleIds?: ReadonlySet<string> | null
+  initialVisibleIds?: ReadonlySet<string> | null,
 ): ViewportVirtualization => {
   // null = "not yet initialized". While null, every message renders its real
   // content so the first paint is not a wall of empty placeholders. As soon
@@ -108,10 +124,10 @@ export const useViewportVirtualization = (
   // switches. The observer's first report replaces the estimate with the
   // real intersection set.
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<string> | null>(
-    () => initialVisibleIds ?? null
+    () => initialVisibleIds ?? null,
   );
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(
-    () => new Map<string, number>()
+    () => new Map<string, number>(),
   );
 
   // Shared observers, lazily created once the scroll container is available.
@@ -189,7 +205,7 @@ export const useViewportVirtualization = (
         flushVisibleIds();
       }
     },
-    [flushVisibleIds]
+    [flushVisibleIds],
   );
 
   // ResizeObserver callback factory.
@@ -198,6 +214,11 @@ export const useViewportVirtualization = (
     const updates: Array<[string, number]> = [];
     for (const entry of entries) {
       const node = entry.target as HTMLElement;
+      // 占位符的高度来自 inline style（缓存值或 80px 默认值），不是内容的
+      // 真实高度。「真实 → 占位符」切换触发的 resize 若写回缓存，会把已
+      // 测得的真实高度覆盖成占位符高度，此后该消息每次进出 buffer 都令
+      // 文档高度剧烈伸缩——向上慢滚时表现为滚动位置反复跳变。
+      if (node.classList.contains("is-placeholder")) continue;
       const id = nodeToIdRef.current.get(node);
       if (!id) continue;
       // Throttle per-id writes so streaming bursts (which fire ResizeObserver
@@ -297,18 +318,48 @@ export const useViewportVirtualization = (
         // (layout thrashing). The rAF runs after all ref callbacks in the
         // current commit batch have fired, so the browser only performs one
         // layout pass for the whole batch.
+        //
+        // 占位符没有真实内容高度可测（inline height 即缓存/默认值）：把
+        // 80px 写进缓存还会占用 200ms 节流窗口，随后反虚拟化的 resize 事件
+        // 被整条丢弃，缓存永久停在 80px，该消息每次进出 buffer 都造成文档
+        // 高度剧变（慢滚跳变的根源）。真实高度交由反虚拟化后的
+        // ResizeObserver 首次写入，不经过节流。
         if (!lastMeasureAtRef.current.has(id)) {
           if (measureRafRef.current === 0) {
             measureRafRef.current = requestAnimationFrame(() => {
               measureRafRef.current = 0;
               const pending: Array<[string, number]> = [];
+              const root = scrollContainerRef.current;
+              const rootRect = root ? root.getBoundingClientRect() : null;
+              let bufferedIdsChanged = false;
               for (const [mid, mnode] of idToNodeRef.current) {
+                if (mnode.classList.contains("is-placeholder")) {
+                  // 新挂载的占位符若已落在视口 buffer 内（loadOlder 往顶部
+                  // 翻页插入的消息紧邻视口），立即视为可见，不等 IO 的异步
+                  // 首批报告：ChatContent 恢复滚动位置的双 rAF 会先于 IO 报告
+                  // 执行，中间隔着的占位符帧让恢复逻辑按 80px 增量补偿
+                  // scrollTop，随后反虚拟化又让真实高度涌入，表现为一次
+                  // 明显的滚动位置跳变。
+                  if (
+                    root &&
+                    rootRect &&
+                    !intersectingIdsRef.current.has(mid) &&
+                    isNodeWithinViewportBuffer(mnode, rootRect)
+                  ) {
+                    intersectingIdsRef.current.add(mid);
+                    bufferedIdsChanged = true;
+                  }
+                  continue;
+                }
                 if (lastMeasureAtRef.current.has(mid)) continue;
                 const h = Math.round(mnode.getBoundingClientRect().height);
                 if (h > 0) {
                   lastMeasureAtRef.current.set(mid, Date.now());
                   pending.push([mid, h]);
                 }
+              }
+              if (bufferedIdsChanged) {
+                flushVisibleIds();
               }
               if (pending.length > 0) {
                 setHeights((prev) => {
@@ -326,7 +377,7 @@ export const useViewportVirtualization = (
         idToNodeRef.current.delete(id);
       }
     },
-    [rebuildObservers]
+    [rebuildObservers],
   );
 
   // Final teardown on unmount.
@@ -351,7 +402,7 @@ export const useViewportVirtualization = (
   // streaming chunk even though their visibility did not change.
   const virtualization = useMemo(
     () => ({ visibleIds, heights, register }),
-    [visibleIds, heights, register]
+    [visibleIds, heights, register],
   );
 
   return virtualization;

@@ -8066,8 +8066,7 @@ input {
   align-items: flex-end;
 }
 
-.chat-message-skeleton-line,
-.chat-history-skeleton-line {
+.chat-message-skeleton-line {
   height: 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-hover);
@@ -8517,31 +8516,6 @@ input {
   font-size: 12px;
   line-height: 1.5;
   color: var(--accent-red-text);
-}
-
-.chat-history-skeleton {
-  display: flex;
-  width: min(100%, var(--chat-content-max));
-  min-height: 28px;
-  margin: 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.chat-history-skeleton-line {
-  width: 72px;
-  height: 8px;
-}
-
-.chat-history-skeleton-line:nth-child(2) {
-  width: 48px;
-  animation-delay: 0.12s;
-}
-
-.chat-history-skeleton-line:nth-child(3) {
-  width: 64px;
-  animation-delay: 0.24s;
 }
 
 .chat-message-list {

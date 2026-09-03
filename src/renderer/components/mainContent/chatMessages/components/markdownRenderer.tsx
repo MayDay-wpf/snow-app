@@ -139,6 +139,37 @@ const renderMarkdown = async (content: string): Promise<string> => {
 };
 
 /**
+ * 预热一批 markdown 渲染结果（翻页加载旧消息时使用）。
+ *
+ * MarkdownBlock 挂载时若缓存未命中，首帧以空 html 渲染，worker 返回后
+ * 内容才涌入——新插入消息的高度因此经历「近空白 → 真实高度」的剧变。
+ * 分页加载的滚动恢复若在这个窗口期按偏小的 scrollHeight 补偿 scrollTop，
+ * 视口位置必然错位，随后涌入的内容再推挤视口，表现为滚动位置跳变。
+ * 翻页前先把渲染结果写进缓存，新消息挂载首帧即为最终高度。
+ *
+ * 带整体超时保护：worker 单例在流式输出期间被持续占用，预热请求可能
+ * 排队很久；超时后放弃等待（已在途的渲染仍会写缓存），调用方照常
+ * 渲染消息，不要让翻页卡死在预热上。
+ */
+export const prefetchMarkdown = async (
+  contents: string[],
+  timeoutMs = 1500,
+): Promise<void> => {
+  const pending = contents.filter(
+    (content) => content && !htmlCache.has(content),
+  );
+  if (pending.length === 0) {
+    return;
+  }
+  await Promise.race([
+    Promise.allSettled(pending.map((content) => renderMarkdown(content))),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+};
+
+/**
  * 流式柔和渐显使用的 CSS 类：每帧新增的文本被包进带该类名的 span，
  * 通过 opacity 动画从透明柔和浮现，替代打字机式的整块跳变。
  */

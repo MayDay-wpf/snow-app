@@ -44,6 +44,20 @@ type ChatContentProps = {
 type PendingScrollRestore = {
   conversationId: string;
   requestId: number;
+  /**
+   * 触发翻页时视口内的首个消息节点（VirtualizedMessage wrapper，始终带
+   * data-message-id）。新页插在它上方，恢复时按它的实测位移做增量校正。
+   */
+  anchorElement: Element | null;
+  /** 触发时 anchor 顶边相对容器视口顶边的偏移（可为负）。 */
+  anchorViewportOffset: number;
+  /**
+   * 翻页前首条消息 id：新页从顶部插入后它必然变化——据此确认「新页已
+   * commit」，把恢复时机钉在新页挂载的那次渲染上；同时排除发送新消息
+   * 等尾部追加导致的误判。
+   */
+  firstMessageId: string | undefined;
+  /** anchor 缺失/失效时的兜底几何快照：翻页前的 scrollHeight/scrollTop。 */
   scrollHeight: number;
   scrollTop: number;
 };
@@ -395,6 +409,7 @@ const ChatContentBody = ({
   const scrollRafIdRef = useRef(0);
   const wheelScrollbarTimerRef = useRef(0);
   const hasMessagesRef = useRef(hasMessages);
+  const messagesRef = useRef(messages);
   const autoScrollEnabledRef = useRef(autoScrollEnabled);
   const isStreamingRef = useRef(isStreaming);
   // Run 收尾宽限窗口：时间戳，期间 RO 钉底视同流式输出。
@@ -402,6 +417,7 @@ const ChatContentBody = ({
   const previousIsStreamingRef = useRef(isStreaming);
   activeConversationIdRef.current = activeConversationId;
   hasMessagesRef.current = hasMessages;
+  messagesRef.current = messages;
   autoScrollEnabledRef.current = autoScrollEnabled;
   isStreamingRef.current = isStreaming;
 
@@ -773,9 +789,32 @@ const ChatContentBody = ({
 
     const requestId = ++scrollRestoreRequestIdRef.current;
     isLoadingOlderWithScrollRef.current = true;
+
+    // 以视口内首个消息节点为翻页恢复锚点：新页插在它上方，恢复时按它的
+    // 实测位移做增量校正。相比「翻页前 scrollTop + scrollHeight 增量」的
+    // 绝对位置恢复，锚点法不依赖恢复时刻新内容高度已定型——markdown
+    // worker 异步渲染、虚拟化占位符都会改变增量口径，绝对值恢复在这些
+    // 窗口期必然错位；实测位移则与内容状态无关。浏览器滚动锚定若已
+    // 补偿，delta≈0，幂等不打架。
+    let anchorElement: Element | null = null;
+    let anchorViewportOffset = 0;
+    const containerTop = container.getBoundingClientRect().top;
+    for (const el of container.querySelectorAll<HTMLElement>(
+      "[data-message-id]",
+    )) {
+      if (el.getBoundingClientRect().bottom > containerTop) {
+        anchorElement = el;
+        anchorViewportOffset = el.getBoundingClientRect().top - containerTop;
+        break;
+      }
+    }
+
     pendingScrollRestoreRef.current = {
       conversationId,
       requestId,
+      anchorElement,
+      anchorViewportOffset,
+      firstMessageId: messagesRef.current[0]?.id,
       scrollHeight: container.scrollHeight,
       scrollTop: container.scrollTop,
     };
@@ -783,29 +822,57 @@ const ChatContentBody = ({
     try {
       await loadOlderMessages();
     } finally {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const pendingRestore = pendingScrollRestoreRef.current;
-          if (
-            pendingRestore &&
-            pendingRestore.requestId === requestId &&
-            pendingRestore.conversationId === activeConversationIdRef.current &&
-            scrollRef.current === container
-          ) {
-            const addedHeight =
-              container.scrollHeight - pendingRestore.scrollHeight;
-            container.scrollTop =
-              pendingRestore.scrollTop + Math.max(0, addedHeight);
-          }
-
-          if (scrollRestoreRequestIdRef.current === requestId) {
-            pendingScrollRestoreRef.current = null;
-            isLoadingOlderWithScrollRef.current = false;
-          }
-        });
-      });
+      // 正常路径由下方的恢复 layout effect 在「新页 commit」的渲染周期内
+      // 消费 pending（paint 前校正，视觉零扰动）。此超时仅作兜底：新页为
+      // 空/加载异常导致 firstMessageId 始终未变时，清理状态防止
+      // isLoadingOlderWithScrollRef 卡死翻页。requestId 不匹配说明期间
+      // 发起了新一轮翻页，交由新轮回收。
+      window.setTimeout(() => {
+        if (scrollRestoreRequestIdRef.current === requestId) {
+          pendingScrollRestoreRef.current = null;
+          isLoadingOlderWithScrollRef.current = false;
+        }
+      }, 2000);
     }
   }, [loadOlderMessages]);
+
+  // 翻页滚动恢复：新页 commit 后、paint 前同步校正。若用 rAF 推迟恢复，
+  // 「视口内容被新页推挤」的中间帧会先被 paint，随后校正再把视口拉回，
+  // 用户看到两次抖动；layout 阶段校正则浏览器 paint 时已是正确位置——
+  // 翻页在视觉上完全静止，正在阅读的内容纹丝不动，只有上方文档变长。
+  // firstMessageId 变化 = 新页已从顶部插入，把恢复精确钉在该次渲染上，
+  // 排除发送新消息等尾部追加的误判。
+  useLayoutEffect(() => {
+    const pendingRestore = pendingScrollRestoreRef.current;
+    const container = scrollRef.current;
+    if (
+      !pendingRestore ||
+      !container ||
+      !activeConversationId ||
+      pendingRestore.conversationId !== activeConversationId ||
+      messages[0]?.id === pendingRestore.firstMessageId
+    ) {
+      return;
+    }
+
+    const anchorEl = pendingRestore.anchorElement;
+    if (anchorEl && container.contains(anchorEl)) {
+      const delta =
+        anchorEl.getBoundingClientRect().top -
+        container.getBoundingClientRect().top -
+        pendingRestore.anchorViewportOffset;
+      if (delta !== 0) {
+        container.scrollTop += delta;
+      }
+    } else {
+      // 兜底：锚点缺失/失效时按几何增量恢复。
+      const addedHeight = container.scrollHeight - pendingRestore.scrollHeight;
+      container.scrollTop = pendingRestore.scrollTop + Math.max(0, addedHeight);
+    }
+
+    pendingScrollRestoreRef.current = null;
+    isLoadingOlderWithScrollRef.current = false;
+  }, [messages, activeConversationId]);
 
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;
@@ -1175,13 +1242,6 @@ const ChatContentBody = ({
                 parentConversationId={subAgentParentConversationId}
                 onBackToParent={handleSelectConversation}
               />
-            ) : null}
-            {isLoadingOlderMessages ? (
-              <div className="chat-history-skeleton" aria-hidden="true">
-                <div className="chat-history-skeleton-line" />
-                <div className="chat-history-skeleton-line" />
-                <div className="chat-history-skeleton-line" />
-              </div>
             ) : null}
             <ChatMessageList
               messages={messages}

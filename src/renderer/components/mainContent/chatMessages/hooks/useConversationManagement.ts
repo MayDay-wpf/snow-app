@@ -20,6 +20,7 @@ import {
   runHook,
   toNonBlockingRecord,
 } from "./hookOutcome";
+import { prefetchMarkdown } from "../components/markdownRenderer";
 import {
   abandonWorkflowsForConversation,
   getActiveWorkflowNodeIds,
@@ -523,6 +524,35 @@ export const useConversationManagement = (
       const olderRecords = page.items.filter(
         (record) => !existingIds.has(record.id),
       );
+
+      // 新页 markdown 先行预热（倒序：贴近视口的最新旧消息优先，worker
+      // 按派发顺序处理）。MarkdownBlock 挂载时缓存未命中会先渲染空 html，
+      // worker 返回后内容涌入，新消息高度经历「近空白 → 真实高度」的剧变；
+      // ChatContent 的翻页滚动恢复若落在该窗口期，按偏小的 scrollHeight
+      // 补偿 scrollTop 必然错位，随后涌入的内容再推挤视口——表现为翻页
+      // 后滚动位置跳变。预热让新消息挂载首帧即为最终高度。超时由
+      // prefetchMarkdown 内部兜底，worker 忙碌时不会卡死翻页。
+      if (olderRecords.length > 0) {
+        const prefetchTargets: string[] = [];
+        for (let i = olderRecords.length - 1; i >= 0; i--) {
+          const record = olderRecords[i];
+          if (record.role === "user") {
+            continue;
+          }
+          const content = record.content?.trim();
+          if (content) {
+            prefetchTargets.push(content);
+          }
+          const thinking = record.thinking?.trim();
+          if (thinking) {
+            prefetchTargets.push(thinking);
+          }
+        }
+        if (prefetchTargets.length > 0) {
+          await prefetchMarkdown(prefetchTargets);
+        }
+      }
+
       const combinedRecords = [
         ...olderRecords,
         ...currentSession.messageRecords,
