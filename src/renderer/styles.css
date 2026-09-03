@@ -11051,17 +11051,16 @@ input {
 }
 
 /* ===== Thinking Block ===== */
+/* 无左边框缩进，与消息正文左边缘对齐 */
 .thinking-block {
-  margin: 0 0 14px 8.5px;
-  padding-left: 10px;
-  border-left: 4px solid var(--border-color);
+  margin: 0 0 14px;
   color: var(--text-tertiary);
 }
 
 /* Header row: clickable to collapse/expand the whole section.
    必须用块级 flex（而非 inline-flex）：inline 级元素会落入父级行盒，
-   与行盒 strut 做 baseline 对齐后在头顶/底部产生幽灵空隙，导致标题
-   相对左侧 border 视觉上不居中。width: fit-content 保持收缩宽度。 */
+   与行盒 strut 做 baseline 对齐后在头顶/底部产生幽灵空隙。width:
+   fit-content 保持收缩宽度。 */
 .thinking-block-header {
   display: flex;
   align-items: center;
@@ -11086,6 +11085,13 @@ input {
   box-shadow: 0 0 0 2px var(--accent-primary, #4c9aff);
 }
 
+/* 自绘思考云图标：header 左侧的思考语义标识，恒定装饰不参与状态表达 */
+.thinking-block-thinking-icon {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+/* 右侧展开/收起箭头：展开时旋转 90 度指示 */
 .thinking-block-chevron {
   flex-shrink: 0;
   color: currentColor;

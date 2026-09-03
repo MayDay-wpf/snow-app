@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.2.25
+
+## New Features
+
+- **Parallel Workflow Node Execution**: Nodes whose dependencies are ready now launch simultaneously, each receiving the merged handoff documents of all its direct predecessors; node sessions accept user messages while running and switch to read-only after completion.
+
+## Improvements
+
+- The memory library popup supports multi-select batch deletion.
+- MCP falls back to the legacy initialize handshake when the transport-layer handshake fails, for compatibility with older servers.
+- File viewer scrolling polished, with View/Edit mode layout tweaks and the horizontal scrollbar pinned to the bottom of the viewport.
+- Clarified memory importance semantics for injection vs retrieval.
+
+## Bug Fixes
+
+- Fixed files not being restored on "conversation and files" rollback (file restore now runs before the DB deletion).
+- Fixed shortcut keys misfiring during Chinese IME composition.
+- Fixed usage stats failing when a project has no memory items (SUM over an empty set returned NULL).
+- Fixed the empty input box height glitch.
+
 ## v0.2.24
 
 ## New Features

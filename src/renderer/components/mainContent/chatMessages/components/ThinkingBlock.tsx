@@ -1,4 +1,6 @@
 import {
+  ArrowDown,
+  Bubbles,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -48,8 +50,8 @@ export const ThinkingBlock = ({
 }: ThinkingBlockProps): React.JSX.Element => {
   const { t } = useI18n();
 
-  // 思考中默认展开以便观察推理流，其余情况默认收起保持对话紧凑。
-  const [isCollapsed, setIsCollapsed] = useState(() => !isThinkingActive);
+  // 思考内容默认收起保持对话紧凑，用户可点击头部展开。
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflow, setIsOverflow] = useState(false);
   // 思考完成自动收起的瞬间，绿色圆勾短暂替代展开箭头，1.5s 后还原。
@@ -333,21 +335,11 @@ export const ThinkingBlock = ({
         tabIndex={0}
         aria-expanded={!isCollapsed}
       >
-        {showSuccessCheck ? (
-          <CheckCircle2
-            className="thinking-block-check"
-            size={16}
-            aria-hidden="true"
-          />
-        ) : (
-          <ChevronRight
-            className={`thinking-block-chevron${
-              !isCollapsed ? " thinking-block-chevron--open" : ""
-            }`}
-            size={16}
-            aria-hidden="true"
-          />
-        )}
+        <Bubbles
+          className="thinking-block-thinking-icon"
+          size={16}
+          aria-hidden="true"
+        />
         <span
           className={
             isThinkingActive ? "thinking-block-title--shimmer" : undefined
@@ -368,12 +360,32 @@ export const ThinkingBlock = ({
             <span className="thinking-block-meta-sep" aria-hidden="true">
               ·
             </span>
+            <ArrowDown
+              size={12}
+              className="thinking-block-meta-icon"
+              aria-hidden="true"
+            />
             <span className="thinking-block-meta-value">
               {formatTokenCount(tokenCount)}
             </span>
             <span className="thinking-block-meta-label">tokens</span>
           </span>
         ) : null}
+        {showSuccessCheck ? (
+          <CheckCircle2
+            className="thinking-block-check"
+            size={16}
+            aria-hidden="true"
+          />
+        ) : (
+          <ChevronRight
+            className={`thinking-block-chevron${
+              !isCollapsed ? " thinking-block-chevron--open" : ""
+            }`}
+            size={16}
+            aria-hidden="true"
+          />
+        )}
       </div>
 
       {/* 内容区常挂载，收起时折叠为 0 高度，让折叠/展开能走高度过渡动画。 */}
