@@ -17,6 +17,7 @@ import type { WorkspaceDirectoryRecord } from "../../preload";
 import appIcon from "../assets/app-icon.png";
 import { useI18n } from "../i18n";
 import { useChatConversationContext } from "./mainContent/chatMessages";
+import { OPEN_PROJECT_CODEBASE_PANEL_EVENT } from "./mainContent/chatInput/ProjectCodebasePanel";
 import { CodebaseSyncIndicator } from "./TopBar/CodebaseSyncIndicator";
 import { TodoPanelButton } from "./TopBar/TodoPanelButton";
 import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
@@ -608,12 +609,10 @@ export const TopBar = ({
           isIndexed={codebaseIndexed}
           embedError={codebaseEmbedError}
           onClick={() => {
-            if (activeProjectId) {
-              onOpenCodebase?.(
-                activeProjectId,
-                activeDirectory?.name ?? activeProjectId,
-              );
-            }
+            // 同步指示器点击 → 打开代码库管理弹窗（ChatInputView 监听该事件）。
+            window.dispatchEvent(
+              new CustomEvent(OPEN_PROJECT_CODEBASE_PANEL_EVENT),
+            );
           }}
         />
       </div>

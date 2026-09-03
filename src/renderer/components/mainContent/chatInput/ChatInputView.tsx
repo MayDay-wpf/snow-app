@@ -5,6 +5,7 @@ import type { ChatInputViewProps } from "./types";
 import { InputOverlayLayer } from "./InputOverlayLayer";
 import { TerminalMonitorBar } from "./TerminalMonitorBar";
 import { ChatInputPanels } from "./ChatInputPanels";
+import { OPEN_PROJECT_CODEBASE_PANEL_EVENT } from "./ProjectCodebasePanel";
 import { ChatInputToolbar } from "./ChatInputToolbar";
 import { FileMentionPopup } from "./FileMentionPopup";
 import { PendingMessages } from "./PendingMessages";
@@ -185,7 +186,31 @@ export const ChatInputView = ({
   const handleOpenFileChanges = useCallback(() => {
     setIsFileChangesOpen(true);
   }, []);
+  /** 打开代码库管理弹窗（互斥关闭其他面板）；命令面板与 TopBar 事件共用。 */
+  const handleOpenCodebasePanel = useCallback((): void => {
+    setIsProjectMcpOpen(false);
+    setIsProjectSensitiveCommandsOpen(false);
+    setIsProjectPermissionsOpen(false);
+    setIsProjectSkillsOpen(false);
+    setIsRoleEditorOpen(false);
+    setIsFileChangesOpen(false);
+    setIsProjectCodebaseOpen(true);
+  }, []);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+
+  // TopBar 代码库同步指示器点击：经窗口事件打开代码库管理弹窗。
+  useEffect(() => {
+    window.addEventListener(
+      OPEN_PROJECT_CODEBASE_PANEL_EVENT,
+      handleOpenCodebasePanel,
+    );
+    return () => {
+      window.removeEventListener(
+        OPEN_PROJECT_CODEBASE_PANEL_EVENT,
+        handleOpenCodebasePanel,
+      );
+    };
+  }, [handleOpenCodebasePanel]);
 
   // review 指令只在新建会话（尚未绑定历史会话）时开放，审查对象是
   // 当前项目目录的 Git 状态，而不是某个历史会话绑定的目录。
@@ -251,15 +276,7 @@ export const ChatInputView = ({
           setIsFileChangesOpen(false);
           setIsProjectSkillsOpen(true);
         },
-        onOpenCodebasePanel: () => {
-          setIsProjectMcpOpen(false);
-          setIsProjectSensitiveCommandsOpen(false);
-          setIsProjectPermissionsOpen(false);
-          setIsProjectSkillsOpen(false);
-          setIsRoleEditorOpen(false);
-          setIsFileChangesOpen(false);
-          setIsProjectCodebaseOpen(true);
-        },
+        onOpenCodebasePanel: handleOpenCodebasePanel,
         onOpenReviewPanel: () => {
           setIsProjectMcpOpen(false);
           setIsProjectSensitiveCommandsOpen(false);
@@ -317,6 +334,7 @@ export const ChatInputView = ({
     [
       activeConversationId,
       handleNewChat,
+      handleOpenCodebasePanel,
       isCompacting,
       isNewChat,
       isStreaming,

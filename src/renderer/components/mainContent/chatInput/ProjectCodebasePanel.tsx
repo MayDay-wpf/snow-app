@@ -29,6 +29,9 @@ import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "../../../hooks/useAppControl";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { Modal } from "../../common/Modal";
 
+/** 派发该事件打开当前项目的代码库管理弹窗（TopBar 同步指示器使用）。 */
+export const OPEN_PROJECT_CODEBASE_PANEL_EVENT = "project-codebase:open-panel";
+
 type ProjectCodebasePanelProps = {
   open: boolean;
   projectId?: string;
@@ -78,7 +81,7 @@ export const ProjectCodebasePanel = ({
   const [indexStats, setIndexStats] = useState<CodebaseIndexStats | null>(null);
   const [indexStatsLoaded, setIndexStatsLoaded] = useState(false);
   const [scanPreview, setScanPreview] = useState<CodebaseScanPreview | null>(
-    null
+    null,
   );
   const [isScanningPreview, setIsScanningPreview] = useState(false);
 
@@ -168,7 +171,7 @@ export const ProjectCodebasePanel = ({
     } catch (loadError) {
       if (loadGenerationRef.current === generation) {
         setError(
-          loadError instanceof Error ? loadError.message : String(loadError)
+          loadError instanceof Error ? loadError.message : String(loadError),
         );
       }
     } finally {
@@ -274,12 +277,12 @@ export const ProjectCodebasePanel = ({
     } catch (updateError) {
       if (loadGenerationRef.current === generation) {
         setScope((current) =>
-          current ? { ...current, [key]: !enabled } : current
+          current ? { ...current, [key]: !enabled } : current,
         );
         setError(
           updateError instanceof Error
             ? updateError.message
-            : String(updateError)
+            : String(updateError),
         );
       }
     } finally {
@@ -302,7 +305,7 @@ export const ProjectCodebasePanel = ({
       void loadIndexStats();
     } catch (clearError) {
       setError(
-        clearError instanceof Error ? clearError.message : String(clearError)
+        clearError instanceof Error ? clearError.message : String(clearError),
       );
     }
   }, [projectId, loadIndexStats]);
@@ -314,7 +317,7 @@ export const ProjectCodebasePanel = ({
     window.dispatchEvent(
       new CustomEvent(APP_CONTROL_OPEN_SETTINGS_EVENT, {
         detail: { view: "codebase-settings" },
-      })
+      }),
     );
   }, []);
 
@@ -348,7 +351,7 @@ export const ProjectCodebasePanel = ({
       await window.snow.setCodebaseProjectEnabled(projectId, false);
       if (loadGenerationRef.current === generation) {
         setScope((current) =>
-          current ? { ...current, enabled: false } : current
+          current ? { ...current, enabled: false } : current,
         );
       }
     } catch (disableError) {
@@ -356,7 +359,7 @@ export const ProjectCodebasePanel = ({
         setError(
           disableError instanceof Error
             ? disableError.message
-            : String(disableError)
+            : String(disableError),
         );
         // Reload scope to reflect the actual server-side state.
         void loadScope();
@@ -372,7 +375,7 @@ export const ProjectCodebasePanel = ({
     key: ToggleKey,
     label: string,
     description: string,
-    Icon: LucideIcon
+    Icon: LucideIcon,
   ): React.JSX.Element => {
     const checked = scope?.[key] ?? false;
     const isPending = pendingKey === key;
@@ -421,7 +424,7 @@ export const ProjectCodebasePanel = ({
       ? Math.round(
           (embedding.embedProgress.processedChunks /
             embedding.embedProgress.totalChunks) *
-            100
+            100,
         )
       : 0;
 
@@ -440,7 +443,7 @@ export const ProjectCodebasePanel = ({
   const isEmbedConfigMissing =
     embedding.embedState === "error" &&
     /required|not configured|api key|base url|model name/i.test(
-      embedErrorMessage
+      embedErrorMessage,
     );
 
   return (
@@ -514,19 +517,19 @@ export const ProjectCodebasePanel = ({
                 "enabled",
                 t("projectCodebase.toggleEnabled"),
                 t("projectCodebase.toggleEnabledDescription"),
-                Database
+                Database,
               )}
               {renderToggle(
                 "enableAgentReview",
                 t("projectCodebase.toggleAgentReview"),
                 t("projectCodebase.toggleAgentReviewDescription"),
-                BrainCircuit
+                BrainCircuit,
               )}
               {renderToggle(
                 "enableReranking",
                 t("projectCodebase.toggleReranking"),
                 t("projectCodebase.toggleRerankingDescription"),
-                ArrowUpDown
+                ArrowUpDown,
               )}
             </div>
 
