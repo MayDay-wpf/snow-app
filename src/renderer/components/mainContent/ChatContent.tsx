@@ -72,6 +72,14 @@ type PendingScrollRestore = {
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
 const STICK_TO_BOTTOM_THRESHOLD = 16;
+// 真实滚动输入（wheel/滚动条/按键/触摸）的背书窗口。scroll 事件本身
+// 无法区分用户滚动与浏览器滚动锚定（scroll anchoring）/clamp 位移，
+// delta 启发式存在漏判：视口上方塌缩与下方流式增长同帧交错时，scrollTop
+// 净位移与 scrollHeight 变化异号/不等量，负 delta 被误读为「用户上滚」
+// 而静默关闭跟随——此后钉底全部被 stick gate 挡住，只有手动触底才能
+// 恢复。故脱离跟随必须由窗口内的真实输入背书；窗口外的负位移只能是
+// 几何交错的产物，保持 stick，由钉底把视口带回底部。
+const USER_SCROLL_INTENT_WINDOW_MS = 750;
 // Run 结束（isStreaming true→false）后消息集中定稿重渲染：动作按钮出现、
 // run summary 摘要条插入、Thinking 折叠、markdown 定稿，高度逐帧变化。
 // 在此窗口内保持钉底资格，把最终总结带到可视底部。
@@ -408,6 +416,9 @@ const ChatContentBody = ({
   const lastClientHeightRef = useRef(0);
   const isInitialBottomPositioningRef = useRef(false);
   const isUserScrollIntentRef = useRef(false);
+  // 最近一次真实滚动输入（wheel/滚动条/按键/触摸）的时间戳：stick=false
+  // 只允许在该输入的延续窗口内生效，见 USER_SCROLL_INTENT_WINDOW_MS。
+  const lastUserScrollInputAtRef = useRef(-Infinity);
 
   const isSmoothScrollingToBottomRef = useRef(false);
 
@@ -493,7 +504,16 @@ const ChatContentBody = ({
           shouldStickToBottomRef.current =
             distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
         } else if (deltaScrollTop < 0) {
-          shouldStickToBottomRef.current = false;
+          // 负位移只有在真实输入的延续窗口内（wheel 惯性余韵、滚动条
+          // 拖拽、触摸拖动）才允许脱离跟随；窗口外无输入背书的负位移
+          // 只能来自滚动锚定/clamp 与钉底写入的几何交错，忽略它并保持
+          // stick，由下一次钉底把视口带回底部。
+          if (
+            performance.now() - lastUserScrollInputAtRef.current <=
+            USER_SCROLL_INTENT_WINDOW_MS
+          ) {
+            shouldStickToBottomRef.current = false;
+          }
         }
       }
       setShowScrollToBottom(
@@ -517,6 +537,7 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
+    lastUserScrollInputAtRef.current = -Infinity;
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
       scrollToBottomAnimRef.current = 0;
@@ -626,9 +647,12 @@ const ChatContentBody = ({
 
       const distanceFromBottom =
         nextScrollHeight - container.scrollTop - nextClientHeight;
+      // 流式期间贴底（≤ 阈值）时自动找回跟随：兜住任何漏判掉出 stick 的
+      // 路径，避免「距底部一点却永不跟随、须手动触底」的死锁。用户真实
+      // 上滚阅读时距离远大于阈值，不会被误拉回。
       if (
         !shouldStickToBottomRef.current &&
-        distanceFromBottom <= 0 &&
+        distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD &&
         isStreamingRef.current
       ) {
         shouldStickToBottomRef.current = true;
@@ -911,6 +935,7 @@ const ChatContentBody = ({
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;
     isInitialBottomPositioningRef.current = false;
+    lastUserScrollInputAtRef.current = performance.now();
 
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
@@ -1100,6 +1125,7 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
+    lastUserScrollInputAtRef.current = -Infinity;
     isSmoothScrollingToBottomRef.current = true;
     setShowScrollToBottom(false);
 
@@ -1156,6 +1182,7 @@ const ChatContentBody = ({
       shouldStickToBottomRef.current = true;
       isInitialBottomPositioningRef.current = false;
       isUserScrollIntentRef.current = false;
+      lastUserScrollInputAtRef.current = -Infinity;
       setShowScrollToBottom(false);
       requestAnimationFrame(() => {
         if (scrollRef.current) {
