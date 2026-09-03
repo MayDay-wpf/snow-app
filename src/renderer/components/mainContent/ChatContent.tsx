@@ -50,12 +50,11 @@ type PendingScrollRestore = {
 
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
-const STICK_TO_BOTTOM_THRESHOLD = 48;
-
-const USER_SCROLL_DIRECTION_WINDOW_MS = 300;
-
-const getMaxScrollTop = (container: HTMLElement): number =>
-  Math.max(0, container.scrollHeight - container.clientHeight);
+const STICK_TO_BOTTOM_THRESHOLD = 16;
+// Run 结束（isStreaming true→false）后消息集中定稿重渲染：动作按钮出现、
+// run summary 摘要条插入、Thinking 折叠、markdown 定稿，高度逐帧变化。
+// 在此窗口内保持钉底资格，把最终总结带到可视底部。
+const RUN_FINISH_FOLLOW_GRACE_MS = 1200;
 
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
@@ -88,6 +87,7 @@ const ChatContentBody = ({
   const {
     messages,
     activeConversationId,
+    sessionViewKey,
     newChatGeneration,
     conversationDirectoryId,
     isLoadingOlderMessages,
@@ -381,9 +381,10 @@ const ChatContentBody = ({
   const isLoadingOlderWithScrollRef = useRef(false);
   const scrolledAuthorizationSignatureRef = useRef("");
   const shouldStickToBottomRef = useRef(true);
-  const lastUserScrollDirectionRef = useRef(0);
-  const lastUserScrollAtRef = useRef(0);
   const lastScrollTopRef = useRef(0);
+  // 上次 scroll 事件时的几何快照：用于区分「用户滚动」与「滚动锚定/clamp 位移」。
+  const lastScrollHeightRef = useRef(0);
+  const lastClientHeightRef = useRef(0);
   const isInitialBottomPositioningRef = useRef(false);
   const isUserScrollIntentRef = useRef(false);
 
@@ -396,6 +397,9 @@ const ChatContentBody = ({
   const hasMessagesRef = useRef(hasMessages);
   const autoScrollEnabledRef = useRef(autoScrollEnabled);
   const isStreamingRef = useRef(isStreaming);
+  // Run 收尾宽限窗口：时间戳，期间 RO 钉底视同流式输出。
+  const followGraceUntilRef = useRef(0);
+  const previousIsStreamingRef = useRef(isStreaming);
   activeConversationIdRef.current = activeConversationId;
   hasMessagesRef.current = hasMessages;
   autoScrollEnabledRef.current = autoScrollEnabled;
@@ -421,6 +425,9 @@ const ChatContentBody = ({
     (container: HTMLDivElement): void => {
       if (isSmoothScrollingToBottomRef.current) {
         shouldStickToBottomRef.current = true;
+        lastScrollTopRef.current = container.scrollTop;
+        lastScrollHeightRef.current = container.scrollHeight;
+        lastClientHeightRef.current = container.clientHeight;
         setShowScrollToBottom(false);
         return;
       }
@@ -433,28 +440,38 @@ const ChatContentBody = ({
         !isUserScrollIntentRef.current
       ) {
         shouldStickToBottomRef.current = true;
+        lastScrollTopRef.current = container.scrollTop;
+        lastScrollHeightRef.current = container.scrollHeight;
+        lastClientHeightRef.current = container.clientHeight;
         setShowScrollToBottom(false);
         return;
       }
 
-      const userInputRecent =
-        performance.now() - lastUserScrollAtRef.current <
-        USER_SCROLL_DIRECTION_WINDOW_MS;
-
-      if (userInputRecent && lastUserScrollDirectionRef.current === 0) {
-        const deltaScrollTop = container.scrollTop - lastScrollTopRef.current;
-        if (deltaScrollTop < 0) {
-          lastUserScrollDirectionRef.current = -1;
-        } else if (deltaScrollTop > 0) {
-          lastUserScrollDirectionRef.current = 1;
-        }
-      }
+      const deltaScrollTop = container.scrollTop - lastScrollTopRef.current;
+      const deltaScrollHeight =
+        container.scrollHeight - lastScrollHeightRef.current;
+      const deltaClientHeight =
+        container.clientHeight - lastClientHeightRef.current;
       lastScrollTopRef.current = container.scrollTop;
+      lastScrollHeightRef.current = container.scrollHeight;
+      lastClientHeightRef.current = container.clientHeight;
 
-      if (userInputRecent && lastUserScrollDirectionRef.current === -1) {
-        shouldStickToBottomRef.current = false;
-      } else if (distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD) {
-        shouldStickToBottomRef.current = true;
+      // 视口上方的占位/折叠/图片加载会触发浏览器滚动锚定：scrollTop 随
+      // scrollHeight 同向等量回移；窗口缩放引发 clamp 时 clientHeight 变化。
+      // 这些位移没有用户输入，若按「向上滚」处理会静默停掉流式自动吸底。
+      const isGeometryShift =
+        deltaClientHeight !== 0 ||
+        (deltaScrollTop !== 0 &&
+          Math.sign(deltaScrollTop) === Math.sign(deltaScrollHeight) &&
+          Math.abs(deltaScrollTop - deltaScrollHeight) <= 1);
+
+      if (!isGeometryShift) {
+        if (deltaScrollTop > 0) {
+          shouldStickToBottomRef.current =
+            distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
+        } else if (deltaScrollTop < 0) {
+          shouldStickToBottomRef.current = false;
+        }
       }
       setShowScrollToBottom(
         hasMessagesRef.current &&
@@ -477,7 +494,6 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
-    lastUserScrollDirectionRef.current = 0;
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
       scrollToBottomAnimRef.current = 0;
@@ -490,6 +506,10 @@ const ChatContentBody = ({
 
     const container = scrollRef.current;
     if (container) {
+      // 清零几何快照：切换会话的 scrollTop 归零不得算作跨会话的滚动位移。
+      lastScrollTopRef.current = 0;
+      lastScrollHeightRef.current = 0;
+      lastClientHeightRef.current = 0;
       container.scrollTop = 0;
     }
   }, [activeConversationId]);
@@ -512,12 +532,11 @@ const ChatContentBody = ({
     let rafId3 = 0;
 
     const scrollToBottom = (): void => {
-      container.scrollTop = getMaxScrollTop(container);
+      container.scrollTop = container.scrollHeight;
     };
 
     isInitialBottomPositioningRef.current = true;
     isUserScrollIntentRef.current = false;
-    lastUserScrollDirectionRef.current = 0;
     shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
     scrollToBottom();
@@ -594,14 +613,16 @@ const ChatContentBody = ({
 
       syncScrollButtonVisibility(container);
 
+      // 钉底仅在初始定位、流式输出及 run 收尾宽限期生效；几何变化一律不改跟随状态
+      const isFollowActive =
+        isStreamingRef.current ||
+        performance.now() < followGraceUntilRef.current;
       if (
         shouldStickToBottomRef.current &&
-        (isInitialBottomPositioningRef.current || autoScrollEnabledRef.current)
+        (isInitialBottomPositioningRef.current ||
+          (autoScrollEnabledRef.current && isFollowActive))
       ) {
-        const targetScrollTop = getMaxScrollTop(container);
-        if (Math.abs(container.scrollTop - targetScrollTop) > 1) {
-          container.scrollTop = targetScrollTop;
-        }
+        container.scrollTop = nextScrollHeight;
       }
     };
 
@@ -681,7 +702,7 @@ const ChatContentBody = ({
     scrolledAuthorizationSignatureRef.current = signature;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
-        scrollRef.current.scrollTop = getMaxScrollTop(scrollRef.current);
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     });
   }, [activeConversationId, pendingToolAuthorizations]);
@@ -698,15 +719,29 @@ const ChatContentBody = ({
       return;
     }
 
-    const container = scrollRef.current;
-    if (!container) {
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [autoScrollEnabled, isStreaming, messages]);
+
+  // Run 结束瞬间（isStreaming true→false）消息集中定稿：showActions 按钮、
+  // run summary 摘要条、Thinking 折叠、markdown 定稿，高度逐帧变化，而流式
+  // 钉底条件此刻已失效。仍在跟随时立即钉底并开启收尾宽限窗口，由 RO 把晚到
+  // 的定稿渲染继续带到底部；用户已上滚（stick=false）则不强制拉底。
+  useLayoutEffect(() => {
+    const wasStreaming = previousIsStreamingRef.current;
+    previousIsStreamingRef.current = isStreaming;
+    if (isStreaming || !wasStreaming) {
       return;
     }
-    const targetScrollTop = getMaxScrollTop(container);
-    if (Math.abs(container.scrollTop - targetScrollTop) > 1) {
-      container.scrollTop = targetScrollTop;
+    if (!shouldStickToBottomRef.current) {
+      return;
     }
-  }, [autoScrollEnabled, isStreaming, messages]);
+    followGraceUntilRef.current =
+      performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [isStreaming]);
 
   // Compaction is an explicit operation, so its preview and persisted boundary
   // must remain visible regardless of the user's normal auto-scroll preference.
@@ -721,7 +756,7 @@ const ChatContentBody = ({
     const scrollToBottom = (): void => {
       const container = scrollRef.current;
       if (container) {
-        container.scrollTop = getMaxScrollTop(container);
+        container.scrollTop = container.scrollHeight;
       }
     };
 
@@ -774,8 +809,6 @@ const ChatContentBody = ({
 
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;
-    lastUserScrollDirectionRef.current = 0;
-    lastUserScrollAtRef.current = performance.now();
     isInitialBottomPositioningRef.current = false;
 
     if (scrollToBottomAnimRef.current !== 0) {
@@ -840,7 +873,6 @@ const ChatContentBody = ({
       flashChatScrollbar();
 
       if (deltaY < 0) {
-        lastUserScrollDirectionRef.current = -1;
         // 向上滚 = 阅读历史：立即脱离跟随。容器已在顶部时手势不产生滚动，
         // 不应停掉自动滚动。
         if (container.scrollTop > 0) {
@@ -850,7 +882,6 @@ const ChatContentBody = ({
         return;
       }
 
-      lastUserScrollDirectionRef.current = 1;
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
       if (distanceFromBottom <= 0) {
@@ -902,13 +933,8 @@ const ChatContentBody = ({
         return;
       }
       markUserScrollIntent();
-      if (scrollsUp) {
-        lastUserScrollDirectionRef.current = -1;
-        if (event.currentTarget.scrollTop > 0) {
-          shouldStickToBottomRef.current = false;
-        }
-      } else {
-        lastUserScrollDirectionRef.current = 1;
+      if (scrollsUp && event.currentTarget.scrollTop > 0) {
+        shouldStickToBottomRef.current = false;
       }
     },
     [markUserScrollIntent],
@@ -973,8 +999,6 @@ const ChatContentBody = ({
     shouldStickToBottomRef.current = true;
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
-    lastUserScrollDirectionRef.current = 0;
-
     isSmoothScrollingToBottomRef.current = true;
     setShowScrollToBottom(false);
 
@@ -1031,14 +1055,11 @@ const ChatContentBody = ({
       shouldStickToBottomRef.current = true;
       isInitialBottomPositioningRef.current = false;
       isUserScrollIntentRef.current = false;
-      lastUserScrollDirectionRef.current = 0;
       setShowScrollToBottom(false);
       requestAnimationFrame(() => {
-        const container = scrollRef.current;
-        if (!container) {
-          return;
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-        container.scrollTop = getMaxScrollTop(container);
       });
     },
     [handleSendMessage],
@@ -1095,9 +1116,10 @@ const ChatContentBody = ({
     };
   }, []);
 
-  const chatRenderKey = `${activeDirectory?.directoryId ?? "no-project"}:${
-    activeConversationId ?? "new-chat"
-  }:${newChatGeneration}`;
+  // 视图重建 key 用 sessionViewKey（而非 activeConversationId）：pending 会话
+  // 首轮结束迁移为真实 ID 时它保持不变，chat-area / ChatInput 不重建——
+  // 否则首次工具组挂载的同一瞬间整页闪烁、输入框失焦。
+  const chatRenderKey = `${activeDirectory?.directoryId ?? "no-project"}:${sessionViewKey}:${newChatGeneration}`;
 
   return (
     <div

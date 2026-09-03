@@ -15,9 +15,7 @@ import type {
 import { useI18n } from "../../../i18n";
 import { shortcutEvents } from "../../shortcutEvents";
 import {
-  DEFAULT_TEXTAREA_ROWS,
   DEFAULT_THINKING_VALUE,
-  MAX_TEXTAREA_ROWS,
   THINKING_OPTIONS_BY_METHOD,
 } from "./constants";
 import {
@@ -482,27 +480,10 @@ export const useChatInputController = ({
   }, [isModelMenuOpen]);
 
   const adjustHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-
-    // 先解除固定高度再测量：scrollHeight 恒 >= clientHeight，若保留上次
-    // 写入的固定 height，删除内容后 scrollHeight 不会回落，输入框高度将
-    // 无法降回。置为 auto 让内容自然收缩后再读取真实内容高度。
-    textarea.style.height = "auto";
-
-    const lineHeight =
-      parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
-    const minHeight = lineHeight * DEFAULT_TEXTAREA_ROWS;
-    const maxHeight = lineHeight * MAX_TEXTAREA_ROWS;
-    const nextHeight = `${Math.min(
-      Math.max(textarea.scrollHeight, minHeight),
-      maxHeight,
-    )}px`;
-    if (textarea.style.height !== nextHeight) {
-      textarea.style.height = nextHeight;
-    }
+    // contenteditable 随内容自然伸缩，行数上下限由 CSS 约束。
+    // 仅清除历史内联高度：写入固定高度前会先置 auto，该瞬时塌缩会
+    // 改变聊天区 clientHeight 并钳制 scrollTop，导致流式输出跳动
+    textareaRef.current?.style.removeProperty("height");
   }, []);
 
   useEffect(() => {

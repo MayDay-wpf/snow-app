@@ -564,6 +564,11 @@ export type ConversationContextValue = {
    *  every handleNewChat so a fresh ChatInput instance is created even when
    *  multiple new chats share the same pending conversation key. */
   newChatGeneration: number;
+  /** 聊天视图身份 key：真实 conversationId，或新会话视图的 "new-chat"。
+   *  与 activeConversationId 唯一的区别：pending 会话迁移为真实 ID 时不
+   *  变化（setActiveId 传 preserveViewKey），避免 chat-area / ChatInput 因
+   *  key 变化整体重建（页面闪一下、输入框失焦）。 */
+  sessionViewKey: string;
   yoloMode: boolean;
   isUpdatingYoloMode: boolean;
   /** 精简模式（全局开关）：启用后禁用 Browser / App Control / Terminal Control
@@ -703,6 +708,7 @@ export type ConversationContextValue = {
   >;
   setNewChatRequested: Dispatch<SetStateAction<boolean>>;
   setNewChatGeneration: Dispatch<SetStateAction<number>>;
+  setSessionViewKey: Dispatch<SetStateAction<string>>;
   setYoloModeState: Dispatch<SetStateAction<boolean>>;
   setIsUpdatingYoloMode: Dispatch<SetStateAction<boolean>>;
   setLiteModeState: Dispatch<SetStateAction<boolean>>;
@@ -724,7 +730,12 @@ export type ConversationContextValue = {
   setCompactingConversationId: Dispatch<SetStateAction<string | null>>;
 
   // Basic session callbacks
-  setActiveId: (id: string | undefined) => void;
+  /** opts.preserveViewKey：pending 会话迁移为真实 ID 时保持 sessionViewKey
+   *  不变（见 sessionViewKey 字段注释）。 */
+  setActiveId: (
+    id: string | undefined,
+    opts?: { preserveViewKey?: boolean },
+  ) => void;
   ensureSession: (key: string, dirId?: string) => void;
   /** 级联中止该会话运行中的 WorkFlow 节点并结算挂起的 workflow-generate。
    *  可选：ctx 组装先于 useConversationManagement，创建后被回填。 */
@@ -781,6 +792,8 @@ export type UseChatConversationResult = {
    *  sessions such as streaming sub-agent conversations. */
   sessions: Record<string, ConversationSessionState>;
   activeConversationId: string | undefined;
+  /** 聊天视图身份 key（chat-area / ChatInput 的 key 用），pending 迁移时保持稳定。 */
+  sessionViewKey: string;
   /** Renderer-only generation incremented for every new-chat lifecycle. */
   newChatGeneration: number;
   conversationDirectoryId: string | undefined;

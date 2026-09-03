@@ -7405,7 +7405,6 @@ input {
   flex-shrink: 1;
   flex-basis: auto;
   overflow-y: auto;
-  overflow-anchor: none;
   scrollbar-gutter: stable;
   scrollbar-color: transparent transparent;
   /* Bottom padding matches the mask fade height so the latest message rests
@@ -21585,6 +21584,12 @@ input {
   overflow-wrap: break-word;
 }
 
+/* 尺寸交给 CSS：contenteditable 随内容自然伸缩，min 2 行（40px）、
+   max 8 行（160px 由 .input-field 提供）。禁用 JS 写固定高度 */
+.input-field.input-field-editable {
+  min-height: 40px;
+}
+
 .input-field-editable[contenteditable][data-empty="true"]::before {
   content: attr(data-placeholder);
   color: var(--text-muted);
@@ -34372,6 +34377,24 @@ pre.file-viewer-code {
   padding: 5px 8px;
   border-bottom: 1px solid var(--border-light);
   background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-codebase-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.tool-call-codebase-file-group-collapsed .tool-call-codebase-file-header {
+  border-bottom: none;
+}
+
+.tool-call-codebase-file-chevron {
+  transition: transform 0.12s ease;
+}
+
+.tool-call-codebase-file-chevron-open {
+  transform: rotate(90deg);
 }
 
 .tool-call-codebase-file-header svg {

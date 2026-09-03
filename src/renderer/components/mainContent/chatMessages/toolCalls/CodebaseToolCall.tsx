@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertCircle,
   BrainCircuit,
   CheckCircle,
+  ChevronRight,
   Database,
   FileCode,
   Hash,
@@ -115,7 +116,7 @@ const parseResult = (result: string | undefined): ParsedCodebaseResult => {
           (r) =>
             typeof r.filePath === "string" &&
             typeof r.relativePath === "string" &&
-            typeof r.content === "string"
+            typeof r.content === "string",
         )
         .map((r) => ({
           filePath: r.filePath as string,
@@ -191,7 +192,7 @@ const parseResult = (result: string | undefined): ParsedCodebaseResult => {
 ///
 /// Returns events in the order they were received (oldest first).
 const parseProgressEvents = (
-  stdout: string | undefined
+  stdout: string | undefined,
 ): ReviewProgressEvent[] => {
   if (!stdout) {
     return [];
@@ -255,14 +256,31 @@ export const CodebaseToolCall = ({
   const { t } = useI18n();
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const isRunning = toolCall.status === "running";
+
+  // 文件内容详情默认收起，点击文件头展开
+  const [expandedFiles, setExpandedFiles] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+
+  const toggleFileExpanded = (filePath: string): void => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) {
+        next.delete(filePath);
+      } else {
+        next.add(filePath);
+      }
+      return next;
+    });
+  };
 
   const query = parsedArgs?.query ?? "search";
   const hasError = parsedResult.type === "error";
@@ -277,7 +295,7 @@ export const CodebaseToolCall = ({
   // UI can show what the review is doing instead of a static spinner.
   const progressEvents = useMemo(
     () => parseProgressEvents(toolCall.streamingStdout),
-    [toolCall.streamingStdout]
+    [toolCall.streamingStdout],
   );
   const latestProgress =
     progressEvents.length > 0
@@ -296,7 +314,7 @@ export const CodebaseToolCall = ({
     }
 
     return Array.from(groups.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+      a[0].localeCompare(b[0]),
     );
   }, [parsedResult]);
 
@@ -436,10 +454,10 @@ export const CodebaseToolCall = ({
                         },
                       })
                     : latestProgress.phase === "re_searching"
-                    ? t("toolCall.codebase.progress.reSearching", {
-                        values: { attempt: latestProgress.attempt },
-                      })
-                    : t("toolCall.codebase.progress.processing")}
+                      ? t("toolCall.codebase.progress.reSearching", {
+                          values: { attempt: latestProgress.attempt },
+                        })
+                      : t("toolCall.codebase.progress.processing")}
                 </span>
                 {latestProgress.relevantCount !== null ? (
                   <span className="tool-call-codebase-progress-counts">
@@ -484,21 +502,44 @@ export const CodebaseToolCall = ({
           </div>
         ) : null}
 
-        {/* Search results grouped by file */}
+        {/* Search results grouped by file, 详情默认收起 */}
         {groupedResults && groupedResults.length > 0 ? (
           <div className="tool-call-codebase-results">
             {groupedResults.map(([filePath, fileResults], groupIdx) => {
               const fileName = getFileName(filePath);
+              const fileExpanded = expandedFiles.has(filePath);
               return (
                 <div
                   key={`${filePath}-${groupIdx}`}
-                  className="tool-call-codebase-file-group"
+                  className={`tool-call-codebase-file-group${
+                    fileExpanded
+                      ? ""
+                      : " tool-call-codebase-file-group-collapsed"
+                  }`}
                 >
                   <div
                     className="tool-call-codebase-file-header"
                     title={filePath}
                     data-path={filePath}
+                    role="button"
+                    aria-expanded={fileExpanded}
+                    onClick={(e) => {
+                      // Ctrl+点击保留给"打开文件"语义
+                      if (e.ctrlKey || e.metaKey) {
+                        return;
+                      }
+                      toggleFileExpanded(filePath);
+                    }}
                   >
+                    <ChevronRight
+                      size={12}
+                      className={`tool-call-codebase-file-chevron${
+                        fileExpanded
+                          ? " tool-call-codebase-file-chevron-open"
+                          : ""
+                      }`}
+                      aria-hidden="true"
+                    />
                     <FileCode size={12} aria-hidden="true" />
                     <span
                       className="tool-call-codebase-file-name"
@@ -516,27 +557,29 @@ export const CodebaseToolCall = ({
                       {fileResults.length}
                     </span>
                   </div>
-                  <div className="tool-call-codebase-match-list">
-                    {fileResults.map((result, matchIdx) => (
-                      <div
-                        key={`${result.chunkIndex}-${matchIdx}`}
-                        className="tool-call-codebase-match-line"
-                        data-path={filePath}
-                        data-line={result.startLine}
-                      >
-                        <span className="tool-call-codebase-line-info">
-                          <Hash size={9} aria-hidden="true" />
-                          {result.startLine}-{result.endLine}
-                        </span>
-                        <span className="tool-call-codebase-score">
-                          {formatScore(result.score)}
-                        </span>
-                        <code className="tool-call-codebase-line-content">
-                          {result.content}
-                        </code>
-                      </div>
-                    ))}
-                  </div>
+                  {fileExpanded ? (
+                    <div className="tool-call-codebase-match-list">
+                      {fileResults.map((result, matchIdx) => (
+                        <div
+                          key={`${result.chunkIndex}-${matchIdx}`}
+                          className="tool-call-codebase-match-line"
+                          data-path={filePath}
+                          data-line={result.startLine}
+                        >
+                          <span className="tool-call-codebase-line-info">
+                            <Hash size={9} aria-hidden="true" />
+                            {result.startLine}-{result.endLine}
+                          </span>
+                          <span className="tool-call-codebase-score">
+                            {formatScore(result.score)}
+                          </span>
+                          <code className="tool-call-codebase-line-content">
+                            {result.content}
+                          </code>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

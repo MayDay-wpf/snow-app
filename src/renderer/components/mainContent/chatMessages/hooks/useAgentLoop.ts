@@ -855,7 +855,12 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               ctx.activeSessionKeyRef.current === migratingPendingKey &&
               !ctx.newChatRequestedRef.current
             ) {
-              ctx.setActiveId(response.conversationId);
+              // preserveViewKey：迁移是同一逻辑会话的 ID 升级而非视图切换，
+              // 保持 sessionViewKey 不变，避免第一轮结束（通常伴随首个工具组
+              // 挂载）时 chat-area / ChatInput 因 key 变化整体重建。
+              ctx.setActiveId(response.conversationId, {
+                preserveViewKey: true,
+              });
             }
 
             // First message: replace the pending placeholder with the real

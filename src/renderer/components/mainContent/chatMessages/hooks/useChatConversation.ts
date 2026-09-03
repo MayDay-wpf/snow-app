@@ -150,6 +150,10 @@ export const useChatConversation = (
   // conversation changes: every new-chat request gets a fresh generation even
   // when the pending session key is reused.
   const [newChatGeneration, setNewChatGeneration] = useState(0);
+  // 聊天视图身份 key：真实 conversationId 或 "new-chat"。pending 会话迁移为
+  // 真实 ID 时由 setActiveId(preserveViewKey) 保持不变，chat-area / ChatInput
+  // 的 key 因此不重建（避免迁移瞬间页面闪烁与输入框失焦）。
+  const [sessionViewKey, setSessionViewKey] = useState("new-chat");
   const [yoloMode, setYoloModeState] = useState(false);
   const [isUpdatingYoloMode, setIsUpdatingYoloMode] = useState(false);
   const [liteMode, setLiteModeState] = useState(false);
@@ -459,6 +463,7 @@ export const useChatConversation = (
     rollbackNewChatState,
     newChatRequested,
     newChatGeneration,
+    sessionViewKey,
     yoloMode,
     isUpdatingYoloMode,
     liteMode,
@@ -526,6 +531,7 @@ export const useChatConversation = (
     setRollbackNewChatState,
     setNewChatRequested,
     setNewChatGeneration,
+    setSessionViewKey,
     setYoloModeState,
     setIsUpdatingYoloMode,
     setLiteModeState,
@@ -720,6 +726,7 @@ export const useChatConversation = (
     recordFileChange,
     sessions,
     activeConversationId,
+    sessionViewKey,
     newChatGeneration,
     conversationDirectoryId: activeSession?.directoryId,
     tokenUsage: activeSession?.tokenUsage ?? null,

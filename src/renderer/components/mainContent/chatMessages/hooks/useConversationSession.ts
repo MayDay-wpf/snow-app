@@ -50,19 +50,25 @@ const showConversationNotification = ({
 export const useConversationSession = (ctx: ConversationContextValue) => {
   const { t } = useI18n();
   const setActiveId = useCallback(
-    (id: string | undefined): void => {
+    (id: string | undefined, opts?: { preserveViewKey?: boolean }): void => {
       ctx.activeConversationIdRef.current = id;
       ctx.setActiveConversationId(id);
       // 视图会话 key 同步：新会话视图（id 为空）映射到当前序号的
       // pending 槽位 key，所有异步闭包读取它定位当前视图的会话。
       ctx.activeSessionKeyRef.current =
         id ?? getPendingSessionKey(ctx.pendingSessionSeqRef.current);
+      // 视图身份 key 同步；迁移（pending -> 真实 ID）传 preserveViewKey
+      // 跳过，避免 chat-area / ChatInput 因 key 变化整体重建。
+      if (!opts?.preserveViewKey) {
+        ctx.setSessionViewKey(id ?? "new-chat");
+      }
     },
     [
       ctx.activeConversationIdRef,
       ctx.setActiveConversationId,
       ctx.activeSessionKeyRef,
       ctx.pendingSessionSeqRef,
+      ctx.setSessionViewKey,
     ],
   );
 
