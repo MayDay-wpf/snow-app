@@ -13322,6 +13322,11 @@ input {
   background: var(--bg-primary);
 }
 
+:is(.ai-message, .context-compaction-markdown, .thinking-block-body)
+  .tool-call-image-preview {
+  cursor: default;
+}
+
 .tool-call-pending {
   display: flex;
   flex-direction: column;
