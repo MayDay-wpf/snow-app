@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 /**
  * Viewport virtualization for the chat message list.
@@ -45,22 +52,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  * do not flash empty placeholders before the observer catches up. */
 const VIEWPORT_BUFFER_PX = 600;
 
-/** Whether a node overlaps the scroll viewport extended by the buffer margin —
- * the same geometry the IntersectionObserver reports with rootMargin, but
- * evaluated synchronously so freshly mounted placeholders near the viewport
- * can flip to real content before the observer's asynchronous first report
- * arrives (see the eager-measure batch in `register`). */
-const isNodeWithinViewportBuffer = (
-  node: HTMLElement,
-  rootRect: DOMRect,
-): boolean => {
-  const rect = node.getBoundingClientRect();
-  return (
-    rect.bottom > rootRect.top - VIEWPORT_BUFFER_PX &&
-    rect.top < rootRect.bottom + VIEWPORT_BUFFER_PX
-  );
-};
-
 /** Fallback height for a message that was never measured before being
  *  virtualized out. Matches the CSS contain-intrinsic-size estimate so
  *  scrollbar behavior stays consistent with the content-visibility path. */
@@ -103,12 +94,19 @@ export const VIRTUAL_PLACEHOLDER_DEFAULT_HEIGHT = DEFAULT_PLACEHOLDER_HEIGHT;
  *   full-list first render for large conversations: the initial commit only
  *   renders this window, and the first IntersectionObserver report replaces
  *   it with the real intersection set.
+ * @param newlyPrependedIds Ids of messages freshly prepended at the top of
+ *   the list (loadOlder paging). They render their real content immediately
+ *   on mount and stay force-visible until the observer's first report takes
+ *   over — an 80px placeholder phase between would make the scroll-restore
+ *   correction under-shift and then visibly shove the viewport as the real
+ *   content expands.
  * @returns Virtualization API: `visibleIds`, `heights`, `register`.
  */
 export const useViewportVirtualization = (
   scrollContainerRef: React.RefObject<HTMLDivElement | null>,
   pinnedIds: ReadonlySet<string>,
   initialVisibleIds?: ReadonlySet<string> | null,
+  newlyPrependedIds?: ReadonlySet<string>,
 ): ViewportVirtualization => {
   // null = "not yet initialized". While null, every message renders its real
   // content so the first paint is not a wall of empty placeholders. As soon
@@ -144,6 +142,12 @@ export const useViewportVirtualization = (
   // Live set of ids currently intersecting the viewport. Mutated in place in
   // the observer callback; a shallow copy is pushed to state when it changes.
   const intersectingIdsRef = useRef<Set<string>>(new Set());
+  // Ids that render real content unconditionally until the observer reports
+  // their first intersection state (freshly prepended pages). Keeps a newly
+  // prepended page from spending frames as 80px placeholders — the paging
+  // scroll-restore correction measures geometry while those frames exist and
+  // under-shifts, then the real content expansion visibly shoves the viewport.
+  const forceVisibleIdsRef = useRef<Set<string>>(new Set());
   // Current pinned ids, kept in a ref so the observer callback (which closes
   // over the ref, not the value) always reads the latest set without being
   // recreated when pinnedIds changes.
@@ -154,6 +158,9 @@ export const useViewportVirtualization = (
   // only when it actually changes.
   const flushVisibleIds = useCallback(() => {
     const next = new Set<string>(intersectingIdsRef.current);
+    for (const id of forceVisibleIdsRef.current) {
+      next.add(id);
+    }
     const pinned = pinnedIdsRef.current;
     if (pinned.size > 0) {
       for (const id of pinned) {
@@ -180,6 +187,24 @@ export const useViewportVirtualization = (
     });
   }, []);
 
+  // Fold freshly prepended ids into the force-visible set and flush before
+  // paint: the newly prepended page must mount with its real content (layout
+  // effect → synchronous re-render, still pre-paint), not as 80px
+  // placeholders — the paging scroll-restore correction measures geometry
+  // across these commits and a placeholder frame makes it under-shift, after
+  // which the real content expansion visibly shoves the viewport. The
+  // observer's first report for each id removes it from the set, handing
+  // visibility back to the normal intersection logic.
+  useLayoutEffect(() => {
+    if (!newlyPrependedIds || newlyPrependedIds.size === 0) {
+      return;
+    }
+    for (const id of newlyPrependedIds) {
+      forceVisibleIdsRef.current.add(id);
+    }
+    flushVisibleIds();
+  }, [newlyPrependedIds, flushVisibleIds]);
+
   // IntersectionObserver callback factory. Kept as a stable function so both
   // the lazy creation path and the container-change path share one impl.
   const handleIntersection = useCallback(
@@ -189,6 +214,11 @@ export const useViewportVirtualization = (
       for (const entry of entries) {
         const id = nodeToIdRef.current.get(entry.target as HTMLElement);
         if (!id) continue;
+        // The observer has produced its authoritative verdict for this id —
+        // the force-visible escape hatch (prepended pages) is no longer needed.
+        if (forceVisibleIdsRef.current.delete(id)) {
+          changed = true;
+        }
         if (entry.isIntersecting) {
           if (!intersecting.has(id)) {
             intersecting.add(id);
@@ -329,37 +359,14 @@ export const useViewportVirtualization = (
             measureRafRef.current = requestAnimationFrame(() => {
               measureRafRef.current = 0;
               const pending: Array<[string, number]> = [];
-              const root = scrollContainerRef.current;
-              const rootRect = root ? root.getBoundingClientRect() : null;
-              let bufferedIdsChanged = false;
               for (const [mid, mnode] of idToNodeRef.current) {
-                if (mnode.classList.contains("is-placeholder")) {
-                  // 新挂载的占位符若已落在视口 buffer 内（loadOlder 往顶部
-                  // 翻页插入的消息紧邻视口），立即视为可见，不等 IO 的异步
-                  // 首批报告：ChatContent 恢复滚动位置的双 rAF 会先于 IO 报告
-                  // 执行，中间隔着的占位符帧让恢复逻辑按 80px 增量补偿
-                  // scrollTop，随后反虚拟化又让真实高度涌入，表现为一次
-                  // 明显的滚动位置跳变。
-                  if (
-                    root &&
-                    rootRect &&
-                    !intersectingIdsRef.current.has(mid) &&
-                    isNodeWithinViewportBuffer(mnode, rootRect)
-                  ) {
-                    intersectingIdsRef.current.add(mid);
-                    bufferedIdsChanged = true;
-                  }
-                  continue;
-                }
+                if (mnode.classList.contains("is-placeholder")) continue;
                 if (lastMeasureAtRef.current.has(mid)) continue;
                 const h = Math.round(mnode.getBoundingClientRect().height);
                 if (h > 0) {
                   lastMeasureAtRef.current.set(mid, Date.now());
                   pending.push([mid, h]);
                 }
-              }
-              if (bufferedIdsChanged) {
-                flushVisibleIds();
               }
               if (pending.length > 0) {
                 setHeights((prev) => {
@@ -375,6 +382,7 @@ export const useViewportVirtualization = (
         }
       } else {
         idToNodeRef.current.delete(id);
+        forceVisibleIdsRef.current.delete(id);
       }
     },
     [rebuildObservers],
@@ -391,6 +399,7 @@ export const useViewportVirtualization = (
       idToNodeRef.current.clear();
       lastMeasureAtRef.current.clear();
       intersectingIdsRef.current.clear();
+      forceVisibleIdsRef.current.clear();
     };
   }, []);
 

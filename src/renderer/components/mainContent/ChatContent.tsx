@@ -49,14 +49,21 @@ type PendingScrollRestore = {
    * data-message-id）。新页插在它上方，恢复时按它的实测位移做增量校正。
    */
   anchorElement: Element | null;
-  /** 触发时 anchor 顶边相对容器视口顶边的偏移（可为负）。 */
-  anchorViewportOffset: number;
+  /**
+   * 触发时 anchor 的内容坐标（anchorRect.top - containerTop + scrollTop）。
+   * 用户滚动改变 scrollTop 时 anchorRect 同步反向移动，内容坐标恒定；
+   * 只有 DOM 推挤（新页插入/展开）才会改变它——据此校正天然剥离等待
+   * 期间用户继续滚动的位移，只补偿推挤量，不回拨用户。
+   */
+  anchorContentOffset: number;
   /**
    * 翻页前首条消息 id：新页从顶部插入后它必然变化——据此确认「新页已
    * commit」，把恢复时机钉在新页挂载的那次渲染上；同时排除发送新消息
    * 等尾部追加导致的误判。
    */
   firstMessageId: string | undefined;
+  /** 恢复收敛轮次计数（防御性上限）。 */
+  rounds: number;
   /** anchor 缺失/失效时的兜底几何快照：翻页前的 scrollHeight/scrollTop。 */
   scrollHeight: number;
   scrollTop: number;
@@ -790,21 +797,21 @@ const ChatContentBody = ({
     const requestId = ++scrollRestoreRequestIdRef.current;
     isLoadingOlderWithScrollRef.current = true;
 
-    // 以视口内首个消息节点为翻页恢复锚点：新页插在它上方，恢复时按它的
-    // 实测位移做增量校正。相比「翻页前 scrollTop + scrollHeight 增量」的
-    // 绝对位置恢复，锚点法不依赖恢复时刻新内容高度已定型——markdown
-    // worker 异步渲染、虚拟化占位符都会改变增量口径，绝对值恢复在这些
-    // 窗口期必然错位；实测位移则与内容状态无关。浏览器滚动锚定若已
-    // 补偿，delta≈0，幂等不打架。
+    // 以视口内首个消息节点为翻页恢复锚点：新页插在它上方，恢复时按它
+    // 在内容坐标系中的位移做增量校正。内容坐标 = anchorRect.top -
+    // containerTop + scrollTop：用户滚动时 anchorRect 与 scrollTop 同步
+    // 反向移动，内容坐标恒定；只有 DOM 推挤才会改变它——校正量天然剥离
+    // 等待期间用户继续慢滚的位移，只补偿推挤，不回拨用户。
     let anchorElement: Element | null = null;
-    let anchorViewportOffset = 0;
+    let anchorContentOffset = 0;
     const containerTop = container.getBoundingClientRect().top;
     for (const el of container.querySelectorAll<HTMLElement>(
       "[data-message-id]",
     )) {
       if (el.getBoundingClientRect().bottom > containerTop) {
         anchorElement = el;
-        anchorViewportOffset = el.getBoundingClientRect().top - containerTop;
+        anchorContentOffset =
+          el.getBoundingClientRect().top - containerTop + container.scrollTop;
         break;
       }
     }
@@ -813,8 +820,9 @@ const ChatContentBody = ({
       conversationId,
       requestId,
       anchorElement,
-      anchorViewportOffset,
+      anchorContentOffset,
       firstMessageId: messagesRef.current[0]?.id,
+      rounds: 0,
       scrollHeight: container.scrollHeight,
       scrollTop: container.scrollTop,
     };
@@ -836,12 +844,14 @@ const ChatContentBody = ({
     }
   }, [loadOlderMessages]);
 
-  // 翻页滚动恢复：新页 commit 后、paint 前同步校正。若用 rAF 推迟恢复，
-  // 「视口内容被新页推挤」的中间帧会先被 paint，随后校正再把视口拉回，
-  // 用户看到两次抖动；layout 阶段校正则浏览器 paint 时已是正确位置——
-  // 翻页在视觉上完全静止，正在阅读的内容纹丝不动，只有上方文档变长。
-  // firstMessageId 变化 = 新页已从顶部插入，把恢复精确钉在该次渲染上，
-  // 排除发送新消息等尾部追加的误判。
+  // 翻页滚动恢复（多轮收敛）：新页 commit 后、paint 前按 anchor 的内容
+  // 坐标差分校正推挤。新页消息由虚拟化 hook 的 forceVisible 机制挂载即
+  // 真实渲染，但 flush 发生在新页 commit 之后的同步渲染轮次里——占位符
+  // 阶段的几何令校正偏小，必须逐轮重测。每轮校正后更新基准（anchor 的
+  // 内容坐标），下一轮只补「新发生的推挤」，累计精确；新页全部以真实
+  // 内容渲染后几何定型，本轮校正即最终值。所有轮次都由 layout 阶段的
+  // setState 同步 flush，发生在 paint 前——视口不出现任何中间帧。
+  const [restoreTick, setRestoreTick] = useState(0);
   useLayoutEffect(() => {
     const pendingRestore = pendingScrollRestoreRef.current;
     const container = scrollRef.current;
@@ -857,12 +867,15 @@ const ChatContentBody = ({
 
     const anchorEl = pendingRestore.anchorElement;
     if (anchorEl && container.contains(anchorEl)) {
-      const delta =
+      const anchorContentNow =
         anchorEl.getBoundingClientRect().top -
-        container.getBoundingClientRect().top -
-        pendingRestore.anchorViewportOffset;
-      if (delta !== 0) {
-        container.scrollTop += delta;
+        container.getBoundingClientRect().top +
+        container.scrollTop;
+      const pushSinceLastRound =
+        anchorContentNow - pendingRestore.anchorContentOffset;
+      if (pushSinceLastRound !== 0) {
+        container.scrollTop += pushSinceLastRound;
+        pendingRestore.anchorContentOffset = anchorContentNow;
       }
     } else {
       // 兜底：锚点缺失/失效时按几何增量恢复。
@@ -870,9 +883,30 @@ const ChatContentBody = ({
       container.scrollTop = pendingRestore.scrollTop + Math.max(0, addedHeight);
     }
 
+    // 收敛检查：新页里只要还有占位符形态的消息，说明 forceVisible 的
+    // 反虚拟化渲染尚未落地，几何还会变化——bump restoreTick 排队下一轮
+    // 校正；全部真实渲染后清理收尾。轮次上限防御异常时的无限循环。
+    let newPageFullyRendered = true;
+    for (const message of messages) {
+      if (message.id === pendingRestore.firstMessageId) break;
+      if (message.role === "tool") continue;
+      const node = container.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(message.id)}"]`,
+      );
+      if (node && node.classList.contains("is-placeholder")) {
+        newPageFullyRendered = false;
+        break;
+      }
+    }
+    if (!newPageFullyRendered && pendingRestore.rounds < 8) {
+      pendingRestore.rounds += 1;
+      setRestoreTick((tick) => tick + 1);
+      return;
+    }
+
     pendingScrollRestoreRef.current = null;
     isLoadingOlderWithScrollRef.current = false;
-  }, [messages, activeConversationId]);
+  }, [messages, activeConversationId, restoreTick]);
 
   const markUserScrollIntent = useCallback((): void => {
     isUserScrollIntentRef.current = true;

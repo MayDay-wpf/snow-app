@@ -1,4 +1,11 @@
-import { memo, useCallback, useMemo } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Bot,
   Database,
@@ -523,10 +530,40 @@ export const ChatMessageList = ({
     return ids;
   }, [messages, pinnedIds]);
 
+  // 翻页（loadOlder）往顶部插入的新消息前缀：比较本次与上次渲染的首条
+  // 消息 id 得出。传给虚拟化 hook，让新页在 IO 首批报告前就以真实内容
+  // 挂载（见 useViewportVirtualization 的 forceVisible 机制）——若新页
+  // 先以 80px 占位符存在，ChatContent 的翻页滚动恢复按占位符几何校正必
+  // 然偏小，新内容涌入后再把视口内容往下挤，观感就是「被挤下去」。
+  const [newlyPrependedIds, setNewlyPrependedIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set<string>());
+  const prevFirstMessageIdRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const prevFirst = prevFirstMessageIdRef.current;
+    prevFirstMessageIdRef.current = messages[0]?.id;
+    if (
+      prevFirst === undefined ||
+      messages.length === 0 ||
+      messages[0].id === prevFirst
+    ) {
+      return;
+    }
+    const ids = new Set<string>();
+    for (const message of messages) {
+      if (message.id === prevFirst) break;
+      ids.add(message.id);
+    }
+    if (ids.size > 0) {
+      setNewlyPrependedIds(ids);
+    }
+  }, [messages]);
+
   const virtualization = useViewportVirtualization(
     scrollContainerRef,
     pinnedIds,
     initialVisibleIds,
+    newlyPrependedIds,
   );
 
   // Intermediate status card shown while the backend describes user images
