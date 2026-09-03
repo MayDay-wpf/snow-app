@@ -1282,20 +1282,14 @@ const WorkflowToolCallInner = ({
   return (
     <div className="tool-call-item tool-call-workflow">
       <div className="tool-call-header">
-        <ToolNameBadge name={t("toolCall.workflow.name")} category="agent" />
-        {isRunning ? (
-          <Loader2
-            className="tool-call-icon-spinning"
-            size={14}
-            aria-hidden="true"
-          />
-        ) : runnerStatus === "completed" ? (
+        <ToolNameBadge name={t("toolCall.workflow.name")} category="workflow" />
+        {/* 运行态不再叠加 header loading：执行进度已由状态徽标、画布节点
+            spinner 与连线动画承载，terminal 态保留结果 icon 便于扫读。 */}
+        {runnerStatus === "completed" ? (
           <Check size={14} aria-hidden="true" />
         ) : runnerStatus === "failed" ? (
           <CircleX size={14} aria-hidden="true" />
-        ) : (
-          <Workflow size={14} aria-hidden="true" />
-        )}
+        ) : null}
         <span className="tool-call-name">
           {isResumeMode
             ? t("toolCall.workflow.resumeAction")

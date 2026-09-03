@@ -795,7 +795,7 @@ export const zhTW = {
     "偵測到未完成的執行記錄，繼續可跳過已完成的節點。",
   "toolCall.workflow.emptyCanvas": "流程圖資料不完整或為空，AI重新生成。",
   "toolCall.workflow.idleHint":
-    "右鍵節點可設定 API、模型與提示詞；拖曳節點調整佈局，確認後按節點順序執行。",
+    "右鍵節點可設定 API、模型與提示詞；拖曳節點調整佈局，確認後按依賴並行執行。",
   "toolCall.workflow.runningHint":
     "工作流執行中，點擊執行中的節點可跳轉到對應會話。",
   "toolCall.workflow.completedHint": "工作流已執行完成，可點擊節點查看會話。",

@@ -12,6 +12,7 @@ import {
   ScanSearch,
   Search,
   Terminal,
+  Workflow,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +29,7 @@ export type ToolCategory =
   | "todo"
   | "interaction"
   | "agent"
+  | "workflow"
   | "lens"
   | "image"
   | "generic";
@@ -44,6 +46,7 @@ const CATEGORY_ICONS: Record<ToolCategory, LucideIcon> = {
   todo: ListChecks,
   interaction: MessageCircleQuestion,
   agent: Bot,
+  workflow: Workflow,
   lens: ScanSearch,
   image: ImageIcon,
   generic: Wrench,
@@ -67,6 +70,9 @@ const getToolIcon = (category: ToolCategory): LucideIcon =>
  */
 export const getToolCategory = (toolName: string): ToolCategory => {
   const lower = toolName.toLowerCase();
+  if (lower.includes("workflow")) {
+    return "workflow";
+  }
   if (
     lower.includes("sub-agent") ||
     lower.includes("subagent") ||

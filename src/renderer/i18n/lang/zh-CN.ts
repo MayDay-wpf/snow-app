@@ -794,7 +794,7 @@ export const zhCN = {
     "检测到未完成的执行记录，继续将跳过已完成的节点。",
   "toolCall.workflow.emptyCanvas": "流程图数据不完整或为空，将重新生成。",
   "toolCall.workflow.idleHint":
-    "右键节点可配置 API、模型与提示词；拖拽节点调整布局，确认后按节点顺序执行。",
+    "右键节点可配置 API、模型与提示词；拖拽节点调整布局，确认后按依赖并行执行。",
   "toolCall.workflow.runningHint":
     "工作流执行中，点击运行中的节点可跳转到对应会话。",
   "toolCall.workflow.completedHint": "工作流已执行完成，可点击节点查看会话。",

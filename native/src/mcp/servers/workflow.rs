@@ -192,7 +192,7 @@ pub(crate) fn validate_graph(nodes: &[Value], edges: &[Value]) -> (Vec<String>, 
 
     if order.len() != node_ids.len() {
         errors.push(
-            "Workflow graph contains a cycle — nodes must form an acyclic graph (linear chain or tree)"
+            "Workflow graph contains a cycle — nodes must form an acyclic graph (a DAG)"
                 .to_string(),
         );
     }
@@ -210,7 +210,7 @@ impl McpService for WorkflowService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "workflow-generate".to_string(),
-                description: "Generate/validate a WorkFlow graph. Call this ONCE with the complete workflow: nodes (id, name, label, prompt, description, apiProfile, model) plus edges (source -> target). The graph must be an acyclic chain/tree; the desktop UI renders it as an interactive flow chart where the user edits per-node API profile, model and prompt, then confirms execution. Each node runs in its own conversation with its own API config/model, receives the previous node's <handoff> document, and must produce a <handoff> document for the next node. Return value: {valid, title, nodes, edges, order, errors} where order is the topological execution order and errors lists validation problems (empty = valid). Be self-contained: node prompts must work in a fresh conversation with no access to this one.".to_string(),
+                description: "Generate/validate a WorkFlow graph. Call this ONCE with the complete workflow: nodes (id, name, label, prompt, description, apiProfile, model) plus edges (source -> target). The graph must be an acyclic DAG; the desktop UI renders it as an interactive flow chart where the user edits per-node API profile, model and prompt, then confirms execution. Nodes whose dependencies are all met run concurrently, each in its own conversation with its own API config/model, receiving the merged <handoff> documents of all its direct predecessors (a node without predecessors receives none) and producing a <handoff> document for its downstream nodes; independent branches execute in parallel by dependencies. Return value: {valid, title, nodes, edges, order, errors} where order is the topological execution order and errors lists validation problems (empty = valid). Be self-contained: node prompts must work in a fresh conversation with no access to this one.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -266,7 +266,7 @@ impl McpService for WorkflowService {
                                 },
                                 "required": ["source", "target"]
                             },
-                            "description": "Directed edges expressing execution order"
+                            "description": "Directed edges expressing dependencies"
                         }
                     },
                     "required": ["nodes", "edges"]

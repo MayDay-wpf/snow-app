@@ -835,7 +835,7 @@ export const en = {
   "toolCall.workflow.emptyCanvas":
     "Workflow data is incomplete or empty. Regenerate again.",
   "toolCall.workflow.idleHint":
-    "Right-click a node to configure API, model and prompt; drag nodes to rearrange, then confirm to execute in order.",
+    "Right-click a node to configure API, model and prompt; drag nodes to rearrange, then confirm to execute in parallel by dependencies.",
   "toolCall.workflow.runningHint":
     "Workflow running; click a running node to open its conversation.",
   "toolCall.workflow.completedHint":
