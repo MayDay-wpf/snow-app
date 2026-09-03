@@ -1714,6 +1714,7 @@ export function createWorkflowRunner(
           content: string;
           toolResultsJson?: string;
         }[],
+        resumeAfterCompaction = false,
       ): Promise<{ content: string; failed: boolean; error?: string }> => {
         if (isNodeCancelled()) {
           if (isNodeForceSendAborted()) {
@@ -1756,6 +1757,7 @@ export function createWorkflowRunner(
               goalMode: false,
               worktreeMode: false,
               workflowMode: false,
+              resumeAfterCompaction,
             },
             createStreamChunkHandler(
               ctx,
@@ -1858,6 +1860,76 @@ export function createWorkflowRunner(
         }
 
         const toolCalls = parseToolCalls(response.toolCallsJson);
+
+        // 自动压缩（与主流程/子代理同构）：回合仍在推进且总 token 达到
+        // 节点生效配置的阈值时压缩会话，再从压缩边界续跑；节点自然收尾
+        // 时不触发，避免唤醒已完成的节点。
+        const loopWillContinue =
+          toolCalls.length > 0 ||
+          (ctx.pendingQueueRef.current.get(conversationId)?.length ?? 0) > 0;
+        if (loopWillContinue && response.tokenUsage) {
+          const apiConfig = await ctx.getActiveApiConfig(
+            effectiveApiProfile || undefined,
+          );
+          if (apiConfig?.enableAutoCompress) {
+            const thresholdTokens = apiConfig.autoCompressThreshold;
+            if (thresholdTokens != null && thresholdTokens > 0) {
+              const totalTokens =
+                response.tokenUsage.inputTokens +
+                response.tokenUsage.outputTokens;
+              if (totalTokens >= thresholdTokens) {
+                // 固化跨阈值轮次的消息，其工具调用被压缩交接放弃。
+                finalizeMessage(assistantMessageId, {
+                  content: response.content || "",
+                  thinking: response.thinking || undefined,
+                  status: "sent",
+                  responseId: response.id || undefined,
+                  model: response.model || undefined,
+                  isRetrying: false,
+                });
+
+                const compactionResult = await ctx.performCompactionRef.current(
+                  conversationId,
+                  effectiveModel || undefined,
+                  true,
+                  undefined,
+                  effectiveApiProfile || undefined,
+                );
+
+                if (compactionResult) {
+                  if (isNodeCancelled()) {
+                    if (isNodeForceSendAborted()) {
+                      return { content: "", failed: false };
+                    }
+                    return {
+                      content: "",
+                      failed: true,
+                      error: "Workflow node was interrupted by the user",
+                    };
+                  }
+
+                  // performCompaction 的 finally 复位了 isSending，恢复执行态。
+                  const nodeRefAfterCompaction =
+                    ctx.sessionsRefData.current.get(conversationId);
+                  if (nodeRefAfterCompaction) {
+                    nodeRefAfterCompaction.isSending = true;
+                    nodeRefAfterCompaction.isAbortRequested = false;
+                  }
+
+                  // 从压缩边界续跑：占位 + 压缩前最后的节点任务原文。
+                  return runLoop(
+                    [
+                      { role: "user", content: compactionResult.content },
+                      ...(compactionResult.protectedMessages ?? []),
+                    ],
+                    true,
+                  );
+                }
+              }
+            }
+          }
+        }
+
         if (toolCalls.length === 0) {
           finalizeMessage(assistantMessageId, {
             content: response.content || "",
