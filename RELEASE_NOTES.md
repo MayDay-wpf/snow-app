@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.2.26
+
+## Improvements
+
+- The TopBar sync indicator now opens the codebase management popup via a window event, decoupling the components.
+
+## Bug Fixes
+
+- Fixed scroll position jumps when paging up to load older chat messages (including jumps caused by new-page placeholders).
+- Fixed chat bottom scrolling; the view stays stable during pending session migration.
+- Tool-call image previews use the default cursor again.
+
 ## v0.2.25
 
 ## New Features
