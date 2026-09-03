@@ -149,6 +149,7 @@ const ChatContentBody = ({
     setGoalModeTokenBudget,
     pendingToolAuthorizations,
     conversationVersion,
+    conversationListVersion,
     subAgentSessionEvents,
     handleSelectConversation,
     upsertedConversation,
@@ -245,6 +246,53 @@ const ChatContentBody = ({
     activeConversationMeta?.parentConversationId ||
     liveSubAgentEvent?.parentConversationId ||
     "";
+
+  // workflow 节点会话（conversationType = workflow_node）与子代理同构：
+  // run_status 映射进 subAgentStatus 字段；节点结束（completed/failed）后
+  // 会话转只读，输入框替换为收尾栏（resume 续跑会重新落 running）。
+  const isWorkflowNodeConversation =
+    activeConversationMeta?.conversationType === "workflow_node";
+  const workflowNodeRunStatus = activeConversationMeta?.subAgentStatus ?? "";
+  const isWorkflowNodeFinished =
+    isWorkflowNodeConversation &&
+    ["completed", "failed"].includes(workflowNodeRunStatus);
+  const workflowNodeParentConversationId =
+    activeConversationMeta?.parentConversationId ?? "";
+
+  // 节点状态落盘（updateWorkflowNodeSession）不触发会话 upsert，runner 每次状态
+  // 变化都会 bump conversationListVersion：观看中的节点会话据此重查元数据，
+  // 节点结束即时切只读，续跑恢复输入框；非节点会话不产生额外查询。
+  useEffect(() => {
+    if (!activeConversationId || !isWorkflowNodeConversation) {
+      return;
+    }
+    let cancelled = false;
+    void window.snow
+      .getChatConversation(activeConversationId)
+      .then((record) => {
+        if (cancelled || !record) {
+          return;
+        }
+        setActiveConversationMeta({
+          conversationType: record.conversationType,
+          subAgentStatus: record.subAgentStatus,
+          parentConversationId: record.parentConversationId,
+          title: record.title,
+          subAgentName: record.subAgentName,
+          subAgentId: record.subAgentId,
+        });
+      })
+      .catch(() => {
+        // Best effort — 保留当前元数据，仅缺少即时刷新
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeConversationId,
+    conversationListVersion,
+    isWorkflowNodeConversation,
+  ]);
 
   // 子代理关联的主会话信息（标题/摘要），用于信息头的“由主会话启动”展示。
   // 展示时优先取 AI 生成的摘要——标题只是首条用户消息原文（常带文件标签）。
@@ -1168,6 +1216,13 @@ const ChatContentBody = ({
             parentConversationId={subAgentParentConversationId}
             onBackToParent={handleSelectConversation}
           />
+        ) : isWorkflowNodeFinished ? (
+          <SubAgentFinishedNotice
+            status={workflowNodeRunStatus}
+            parentConversationId={workflowNodeParentConversationId}
+            onBackToParent={handleSelectConversation}
+            kind="workflow_node"
+          />
         ) : (
           <ChatInput
             key={chatRenderKey}
@@ -1345,13 +1400,20 @@ const SubAgentFinishedNotice = ({
   status,
   parentConversationId,
   onBackToParent,
+  kind = "sub_agent",
 }: {
   status: string;
   parentConversationId: string;
   onBackToParent: (conversationId: string) => Promise<void> | void;
+  /** 文案组：workflow 节点会话结束复用同一条只读收尾栏。 */
+  kind?: "sub_agent" | "workflow_node";
 }): React.JSX.Element => {
   const { t } = useI18n();
 
+  const keyPrefix =
+    kind === "workflow_node"
+      ? "chat.workflowNodeFinished"
+      : "chat.subAgentFinished";
   const icon =
     status === "failed" ? (
       <AlertCircle size={15} aria-hidden="true" />
@@ -1363,8 +1425,10 @@ const SubAgentFinishedNotice = ({
   const [messageKey, messageDefault] =
     status === "failed"
       ? [
-          "chat.subAgentFinished.failed",
-          "This sub-agent failed. The conversation is read-only.",
+          `${keyPrefix}.failed`,
+          kind === "workflow_node"
+            ? "This workflow node failed. The conversation is read-only."
+            : "This sub-agent failed. The conversation is read-only.",
         ]
       : status === "cancelled"
         ? [
@@ -1372,8 +1436,10 @@ const SubAgentFinishedNotice = ({
             "This sub-agent was cancelled. The conversation is read-only.",
           ]
         : [
-            "chat.subAgentFinished.completed",
-            "This sub-agent has finished. The conversation is read-only.",
+            `${keyPrefix}.completed`,
+            kind === "workflow_node"
+              ? "This workflow node has finished. The conversation is read-only."
+              : "This sub-agent has finished. The conversation is read-only.",
           ];
 
   return (
@@ -1393,7 +1459,7 @@ const SubAgentFinishedNotice = ({
           onClick={() => void onBackToParent(parentConversationId)}
         >
           <ArrowLeft size={13} aria-hidden="true" />
-          {t("chat.subAgentFinished.backToParent", {
+          {t(`${keyPrefix}.backToParent`, {
             defaultValue: "Back to parent conversation",
           })}
         </button>

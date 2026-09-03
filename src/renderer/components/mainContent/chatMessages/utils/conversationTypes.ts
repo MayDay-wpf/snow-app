@@ -335,10 +335,11 @@ export type ConversationSessionRef = {
    *  box is hidden and handleSendMessage refuses to start a new loop in it.
    *  Only meaningful for sub-agent sessions; absent for main conversations. */
   subAgentTerminated?: boolean;
-  /** 用户在子代理运行中点击"立即发送"暂存的消息。子代理循环被
-   *  handleAbort 中断退出时（见 subAgentActivation 收尾）若检测到该数组
-   *  非空，则跳过终止收尾，直接在子代理会话启动新回合处理这些消息
-   *  （"强行发送给谁就是谁"），而不是转交父会话。 */
+  /** 用户在子代理/WorkFlow 节点运行中点击"立即发送"暂存的消息。会话循环
+   *  被 handleAbort 中断退出时（子代理见 subAgentActivation 收尾的
+   *  runForceSendLoop；WorkFlow 节点见 workflowRunner executeNode 的
+   *  force-send 循环）若检测到该数组非空，则在原会话内启动新回合处理
+   *  这些消息（"强行发送给谁就是谁"），而不是转交父会话/主流程。 */
   forceSendMessages?: { text: string; options: ChatInputSendOptions }[];
   forceSendAbort?: boolean;
 };

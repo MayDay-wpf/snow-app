@@ -23,6 +23,7 @@ import {
 import {
   abandonWorkflowsForConversation,
   getActiveWorkflowNodeIds,
+  isActiveWorkflowNodeSession,
 } from "../workflow/workflowRunner";
 
 /** 会话被选中（切换会话）时派发的全局事件：主视图应回到聊天界面。 */
@@ -1017,6 +1018,29 @@ export const useConversationManagement = (
         ctx.setActivePendingMessages(parentQueue.map((item) => item.text));
         void handleSelectConversation(parentId);
         return;
+      }
+
+      // WorkFlow 节点会话的"立即发送"（与上方子代理分支同语义）：把消息暂存
+      // 到节点会话的 forceSendMessages 并中断当前回合，workflowRunner 的节点
+      // 执行循环会在本节点会话内以新回合继续处理它（见 executeNode 的
+      // force-send 循环），而不是停掉节点或把消息转交主流程。绝不能走
+      // handleSendMessage —— 那是主流程路径：会把节点会话当成主会话发送
+      // （工具集/系统提示不对，还会被侧边栏 upsert 成"独立主会话"），且节点
+      // 会因 handleAbort 直接以"被中断"失败收场（状态变结束）。节点已结束
+      // （不在活跃节点表）时不进此分支，走下方正常主会话发送——节点会话
+      // 本就支持结束后手动继续对话。
+      if (isActiveWorkflowNodeSession(sessionKey)) {
+        const nodeRef = ctx.sessionsRefData.current.get(sessionKey);
+        if (nodeRef) {
+          nodeRef.forceSendMessages = [
+            ...(nodeRef.forceSendMessages ?? []),
+            { text: removed.text, options: removed.options ?? {} },
+          ];
+          nodeRef.forceSendAbort = true;
+          handleAbort();
+          ctx.setActivePendingMessages(queue.map((item) => item.text));
+          return;
+        }
       }
 
       ctx.setActivePendingMessages(queue.map((item) => item.text));

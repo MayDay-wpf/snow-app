@@ -519,6 +519,11 @@ export const en = {
   "chat.subAgentFinished.cancelled":
     "This sub-agent was cancelled. The conversation is read-only.",
   "chat.subAgentFinished.backToParent": "Back to parent conversation",
+  "chat.workflowNodeFinished.completed":
+    "This workflow node has finished. The conversation is read-only.",
+  "chat.workflowNodeFinished.failed":
+    "This workflow node failed. The conversation is read-only.",
+  "chat.workflowNodeFinished.backToParent": "Back to parent conversation",
   "chat.subAgentInfo.launchedBy": 'Launched by parent "{{title}}"',
   "chat.subAgentInfo.prompt": "Prompt",
   "chat.quickActionAddProject": "Add a project",

@@ -487,6 +487,17 @@ export function getActiveWorkflowNodeIds(
   return Array.from(activeNodeSessions.get(parentConversationId) ?? []);
 }
 
+/** 会话是否为正在执行的 WorkFlow 节点会话。sendPendingMessageNow 据此把
+ *  "立即发送"路由到节点的 force-send 路径（与子代理分支同语义）。 */
+export function isActiveWorkflowNodeSession(conversationId: string): boolean {
+  for (const nodeIds of activeNodeSessions.values()) {
+    if (nodeIds.has(conversationId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** 会话中断时结算其所有挂起的 workflow-generate（避免僵尸 promise）。 */
 export function abandonWorkflowsForConversation(
   parentConversationId: string,
@@ -1266,6 +1277,44 @@ export function createWorkflowRunner(
       return !parentRef?.isSending || parentRef.isAbortRequested;
     };
 
+    // 用户强行发送（sendPendingMessageNow 暂存 forceSendMessages 后 handleAbort）
+    // 触发的中止：与普通中止不同，节点不据此失败——软结束当前回合，由下方
+    // force-send 循环在本节点会话内以新回合继续（与子代理 subAgentRunLoop 的
+    // forceSendAbort 处理同构）。
+    const isNodeForceSendAborted = (): boolean => {
+      const nodeRef = ctx.sessionsRefData.current.get(conversationId);
+      return (
+        nodeRef?.isAbortRequested === true && nodeRef?.forceSendAbort === true
+      );
+    };
+
+    // 消费本节点会话的 Pending 队列（用户在节点运行期间排队的消息）：全部合并
+    // 为一条 user 文本追加进会话；仅当节点会话是当前激活视图时清空待发面板
+    // （activePendingMessages 只镜像激活会话的队列）。队列空返回 null。
+    const consumeNodePendingQueue = (): string | null => {
+      const pendingItems =
+        ctx.pendingQueueRef.current.get(conversationId) ?? [];
+      if (pendingItems.length === 0) {
+        return null;
+      }
+      ctx.pendingQueueRef.current.delete(conversationId);
+      const pendingText = pendingItems.map((item) => item.text).join("\n\n");
+      if (ctx.activeConversationIdRef.current === conversationId) {
+        ctx.setActivePendingMessages([]);
+      }
+      ctx.updateSessionMessages(conversationId, (currentMessages) => [
+        ...currentMessages,
+        {
+          id: createMessageId("user"),
+          role: "user",
+          content: pendingText,
+          timestamp: formatMessageTime(),
+          status: "sent",
+        },
+      ]);
+      return pendingText;
+    };
+
     const finalizeMessage = (
       messageId: string,
       patch: Partial<ChatConversationMessage>,
@@ -1306,6 +1355,33 @@ export function createWorkflowRunner(
       );
     };
 
+    // 节点收尾时的 Pending 队列转交（与子代理 createForwardSubPendingQueue
+    // 同构）：节点结束后未消费的排队消息与强行发送暂存不能悬空丢失，转交
+    // 父会话 pending 队列，由父循环在 run 结束的冲刷点消费（或用户处理）。
+    const forwardNodePendingQueue = (): void => {
+      const forwardRef = ctx.sessionsRefData.current.get(conversationId);
+      const leftover = [
+        ...(ctx.pendingQueueRef.current.get(conversationId) ?? []),
+        ...(forwardRef?.forceSendMessages ?? []),
+      ];
+      if (leftover.length === 0) {
+        return;
+      }
+      ctx.pendingQueueRef.current.delete(conversationId);
+      if (forwardRef) {
+        forwardRef.forceSendMessages = undefined;
+      }
+      const parentQueue =
+        ctx.pendingQueueRef.current.get(parentConversationId) ?? [];
+      parentQueue.push(...leftover);
+      ctx.pendingQueueRef.current.set(parentConversationId, parentQueue);
+      if (ctx.activeConversationIdRef.current === parentConversationId) {
+        ctx.setActivePendingMessages(parentQueue.map((item) => item.text));
+      } else if (ctx.activeConversationIdRef.current === conversationId) {
+        ctx.setActivePendingMessages([]);
+      }
+    };
+
     try {
       // 首条 user 消息：新节点发节点需求 + 上一个节点的交接文档；
       // 续跑节点改发继续提示词（原会话已带完整上下文）。
@@ -1321,12 +1397,17 @@ export function createWorkflowRunner(
         },
       ]);
 
-      const runLoop = async (requestMessages: {
-        role: "user" | "assistant" | "tool";
-        content: string;
-        toolResultsJson?: string;
-      }): Promise<{ content: string; failed: boolean; error?: string }> => {
+      const runLoop = async (
+        requestMessages: {
+          role: "user" | "assistant" | "tool";
+          content: string;
+          toolResultsJson?: string;
+        }[],
+      ): Promise<{ content: string; failed: boolean; error?: string }> => {
         if (isNodeCancelled()) {
+          if (isNodeForceSendAborted()) {
+            return { content: "", failed: false };
+          }
           return {
             content: "",
             failed: true,
@@ -1355,7 +1436,7 @@ export function createWorkflowRunner(
           response = await window.snow.createResponseStream(
             {
               // 增量消息：Rust 端按 conversationId 重建上下文并只持久化本批新消息。
-              messages: [requestMessages],
+              messages: requestMessages,
               conversationId,
               directoryId: dirId || undefined,
               apiProfile: effectiveApiProfile || undefined,
@@ -1400,6 +1481,23 @@ export function createWorkflowRunner(
         // 重新拉取用户消息列表。节点运行期间没有其它 bump 来源，否则运行中
         // 打开节点会话时 rail 只显示打开时刻的陈旧快照。
         ctx.setConversationVersion((version) => version + 1);
+
+        // 强行发送触发的中止：保留已流式内容软结束当前回合（handleAbort 已把
+        // 消息固化为 sent，这里补内容），交给 executeNode 的 force-send 循环继续
+        // 新回合。普通中止不在此拦截，维持原有 disposition 语义。
+        if (isNodeForceSendAborted()) {
+          const currentAssistant = ctx.sessionsRef.current?.[
+            conversationId
+          ]?.messages.find((message) => message.id === assistantMessageId);
+          const partialContent =
+            currentAssistant?.content || response.content || "";
+          finalizeMessage(assistantMessageId, {
+            content: partialContent,
+            status: "sent",
+            isRetrying: false,
+          });
+          return { content: partialContent, failed: false };
+        }
 
         const disposition = resolveResponseDisposition(response);
         if (disposition.kind === "error") {
@@ -1461,11 +1559,21 @@ export function createWorkflowRunner(
           // 响应在中断竞态下正常完成时，也必须按失败返回，
           // 否则 runWorkflow 会误判成功并激活下一个节点。
           if (isNodeCancelled()) {
+            if (isNodeForceSendAborted()) {
+              return { content: response.content || "", failed: false };
+            }
             return {
               content: "",
               failed: true,
               error: "Workflow node was interrupted by the user",
             };
+          }
+          // 自动发送：节点回合结束（无后续工具调用）时消费 Pending 队列——用户
+          // 在节点运行期间排队的消息作为新 user 回合在本节点会话处理，绝不悬空
+          // 在队列里（与主循环在无工具调用边界冲刷队列同语义）。
+          const finalPendingText = consumeNodePendingQueue();
+          if (finalPendingText) {
+            return runLoop([{ role: "user", content: finalPendingText }]);
           }
           return { content: response.content || "", failed: false };
         }
@@ -1518,6 +1626,9 @@ export function createWorkflowRunner(
           }
         }
         if (isNodeCancelled()) {
+          if (isNodeForceSendAborted()) {
+            return { content: "", failed: false };
+          }
           return {
             content: "",
             failed: true,
@@ -1543,6 +1654,9 @@ export function createWorkflowRunner(
           const toolCall = toolCalls[index];
           const decision = decisions[index];
           if (isNodeCancelled()) {
+            if (isNodeForceSendAborted()) {
+              return { content: "", failed: false };
+            }
             return {
               content: "",
               failed: true,
@@ -1779,14 +1893,57 @@ export function createWorkflowRunner(
           };
         }
 
-        return runLoop({
-          role: "tool",
+        // 自动发送：本回合工具执行完毕，消费 Pending 队列中用户排队的消息，与
+        // 工具结果一起进入下一轮（与子代理 subPendingForTools 同构：节点运行
+        // 期间插入的消息在回合边界切入本节点会话）。
+        const toolPendingText = consumeNodePendingQueue();
+        const toolRequest = {
+          role: "tool" as const,
           content: formatToolResultsContent(structuredResults),
           toolResultsJson: JSON.stringify(structuredResults),
-        });
+        };
+        return runLoop(
+          toolPendingText
+            ? [toolRequest, { role: "user" as const, content: toolPendingText }]
+            : [toolRequest],
+        );
       };
 
-      const loopResult = await runLoop({ role: "user", content: prompt });
+      let loopResult = await runLoop([{ role: "user", content: prompt }]);
+      // 强行发送循环：用户在节点运行中点击"立即发送"（sendPendingMessageNow
+      // 已把消息暂存到 forceSendMessages 并 handleAbort 中断当前回合）时，在
+      // 本节点会话内以新回合继续处理暂存消息（与子代理 runForceSendLoop 同构），
+      // 而不是停掉节点、也绝不转交主流程 handleSendMessage。直到没有新的强行
+      // 发送为止；节点的最终产出由最后一轮回合决定。
+      while (true) {
+        const forceRef = ctx.sessionsRefData.current.get(conversationId);
+        const forceSends = forceRef?.forceSendMessages;
+        if (!forceRef || !forceSends || forceSends.length === 0) {
+          break;
+        }
+        forceRef.forceSendMessages = undefined;
+        const forceText = forceSends.map((item) => item.text).join("\n\n");
+        ctx.updateSessionMessages(conversationId, (currentMessages) => [
+          ...currentMessages,
+          {
+            id: createMessageId("user"),
+            role: "user",
+            content: forceText,
+            timestamp: formatMessageTime(),
+            status: "sent",
+          },
+        ]);
+        // handleAbort 已复位运行状态：新回合必须恢复 isSending/isAbortRequested/
+        // 流式标记（与子代理 runForceSendLoop 一致），中止检查才能正常工作。
+        forceRef.isSending = true;
+        forceRef.isAbortRequested = false;
+        forceRef.forceSendAbort = false;
+        ctx.updateSessionField(conversationId, "isStreaming", true);
+        resetRunStreamMetrics(ctx, conversationId);
+        ctx.updateSessionField(conversationId, "streamStartedAt", Date.now());
+        ctx.addStreamingId(conversationId);
+        loopResult = await runLoop([{ role: "user", content: forceText }]);
+      }
       return {
         conversationId,
         handoff: loopResult.failed ? "" : extractHandoff(loopResult.content),
@@ -1807,10 +1964,15 @@ export function createWorkflowRunner(
       if (ref) {
         ref.isSending = false;
         ref.isAbortRequested = false;
+        // 复位软中断标记：异常退出路径（如授权等待被 handleAbort reject 抛出）
+        // 会残留 true，续跑复用本会话时会把真实停止误判为强行发送软中断。
+        ref.forceSendAbort = false;
       }
       ctx.updateSessionField(conversationId, "isStreaming", false);
       ctx.updateSessionField(conversationId, "isAborting", false);
       ctx.removeStreamingId(conversationId);
+      // 节点收尾转交：未消费的排队消息与强行发送暂存交给父会话队列。
+      forwardNodePendingQueue();
     }
   };
 
