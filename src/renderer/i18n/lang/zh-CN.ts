@@ -430,6 +430,15 @@ export const zhCN = {
   "memory.clearConfirm":
     "确定永久删除本项目的全部 {{count}} 条记忆吗？此操作不可撤销。",
   "memory.clearTitle": "清空记忆库",
+  "memory.multiSelect": "多选",
+  "memory.multiSelectExit": "退出多选",
+  "memory.multiSelectCount": "已选 {{count}} 条",
+  "memory.multiSelectAll": "全选",
+  "memory.multiSelectDeselectAll": "取消全选",
+  "memory.multiSelectDelete": "删除所选",
+  "memory.multiSelectDeleting": "正在删除...",
+  "memory.multiSelectDeleteConfirm":
+    "确定永久删除选中的 {{count}} 条记忆吗？此操作不可撤销。",
   "sidebar.chatActionMultiSelect": "多选",
   "sidebar.chatMultiSelectCount": "已选 {{count}} 项",
   "sidebar.chatMultiSelectAll": "全选",

@@ -431,6 +431,15 @@ export const zhTW = {
   "memory.clearConfirm":
     "確定永久刪除本專案的全部 {{count}} 條記憶嗎？此操作無法復原。",
   "memory.clearTitle": "清空記憶庫",
+  "memory.multiSelect": "多選",
+  "memory.multiSelectExit": "退出多選",
+  "memory.multiSelectCount": "已選 {{count}} 條",
+  "memory.multiSelectAll": "全選",
+  "memory.multiSelectDeselectAll": "取消全選",
+  "memory.multiSelectDelete": "刪除所選",
+  "memory.multiSelectDeleting": "正在刪除...",
+  "memory.multiSelectDeleteConfirm":
+    "確定永久刪除選中的 {{count}} 條記憶嗎？此操作無法復原。",
   "sidebar.chatActionMultiSelect": "多選",
   "sidebar.chatMultiSelectCount": "已選 {{count}} 項",
   "sidebar.chatMultiSelectAll": "全選",

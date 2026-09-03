@@ -42352,6 +42352,115 @@ pre.file-viewer-code {
   cursor: not-allowed;
 }
 
+/* 多选删除：header 工具条 + 条目勾选框（参照 chat-multi-select 交互） */
+.memory-multi-select-exit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.memory-multi-select-exit-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.memory-multi-select-exit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memory-multi-select-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.memory-multi-select-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.memory-multi-select-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.memory-multi-select-action-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.memory-multi-select-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memory-multi-select-action-btn.danger {
+  color: var(--danger, #e5484d);
+}
+
+.memory-multi-select-action-btn.danger:hover:not(:disabled) {
+  background: rgba(229, 72, 77, 0.1);
+}
+
+/* 多选模式下条目由纵向堆叠改为勾选框 + 内容的横向布局 */
+.memory-list-item.multi-select {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.memory-item-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-muted);
+  background: transparent;
+  color: var(--on-solid);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.memory-item-checkbox:hover {
+  border-color: var(--accent-color);
+}
+
+.memory-item-checkbox.checked {
+  background: var(--accent-color);
+  border-color: color-mix(in srgb, var(--accent-color) 60%, transparent);
+}
+
 /* MemoryToolCall specific styles */
 .tool-call-memory-action-row {
   display: flex;

@@ -447,6 +447,15 @@ export const en = {
   "memory.clearConfirm":
     "Permanently delete ALL {{count}} memories of this project? This cannot be undone.",
   "memory.clearTitle": "Clear memory bank",
+  "memory.multiSelect": "Multi-select",
+  "memory.multiSelectExit": "Exit multi-select",
+  "memory.multiSelectCount": "{{count}} selected",
+  "memory.multiSelectAll": "Select all",
+  "memory.multiSelectDeselectAll": "Deselect all",
+  "memory.multiSelectDelete": "Delete selected",
+  "memory.multiSelectDeleting": "Deleting...",
+  "memory.multiSelectDeleteConfirm":
+    "Permanently delete the {{count}} selected memories? This cannot be undone.",
   "sidebar.chatActionMultiSelect": "Multi-select",
   "sidebar.chatMultiSelectCount": "{{count}} selected",
   "sidebar.chatMultiSelectAll": "Select all",

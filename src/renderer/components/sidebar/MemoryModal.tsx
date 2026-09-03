@@ -1,4 +1,13 @@
-import { Archive, Check, Loader2, Plus, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  Check,
+  CheckSquare,
+  ListChecks,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useI18n } from "../../i18n";
@@ -92,6 +101,13 @@ export function MemoryModal({
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MemoryRecord | null>(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] =
+    useState(false);
 
   const requestIdRef = useRef(0);
   const loadingMoreRef = useRef(false);
@@ -160,6 +176,14 @@ export function MemoryModal({
     loadPage(0, false);
     refreshStats();
   }, [open, loadPage, refreshStats]);
+
+  // 关闭弹窗时重置多选状态
+  useEffect(() => {
+    if (open) return;
+    setIsMultiSelectMode(false);
+    setSelectedMemoryIds(new Set());
+    setIsBatchDeleteConfirmOpen(false);
+  }, [open]);
 
   const handleListScroll = () => {
     const el = listScrollRef.current;
@@ -260,6 +284,60 @@ export function MemoryModal({
     }
   };
 
+  // ---------------------------------------------------------------------
+  // 多选删除
+  // ---------------------------------------------------------------------
+  const handleEnterMultiSelect = () => {
+    setIsMultiSelectMode(true);
+    setSelection({ mode: "none" });
+  };
+
+  const handleExitMultiSelect = () => {
+    setIsMultiSelectMode(false);
+    setSelectedMemoryIds(new Set());
+  };
+
+  const handleToggleSelect = (memoryId: string) => {
+    setSelectedMemoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(memoryId)) {
+        next.delete(memoryId);
+      } else {
+        next.add(memoryId);
+      }
+      return next;
+    });
+  };
+
+  // 全选只覆盖当前已加载条目；滚动加载的新条目需再次全选
+  const isAllSelected =
+    memories.length > 0 &&
+    memories.every((item) => selectedMemoryIds.has(item.memoryId));
+
+  const handleToggleSelectAll = () => {
+    setSelectedMemoryIds(
+      isAllSelected
+        ? new Set()
+        : new Set(memories.map((item) => item.memoryId)),
+    );
+  };
+
+  const confirmBatchDelete = async () => {
+    setIsBatchDeleteConfirmOpen(false);
+    if (isBatchDeleting || selectedMemoryIds.size === 0) return;
+    setIsBatchDeleting(true);
+    try {
+      await window.snow.deleteProjectMemoriesByIds([...selectedMemoryIds]);
+      setSelectedMemoryIds(new Set());
+      loadPage(0, false);
+      refreshStats();
+    } catch {
+      // Ignore
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
   const kindLabel = (kind: string) =>
     t(`memory.kind.${kind}`, {
       defaultValue:
@@ -287,36 +365,120 @@ export function MemoryModal({
   const renderSidebar = () => (
     <div className="memo-sidebar memory-sidebar">
       <div className="memo-sidebar-header">
-        <div className="memo-filter-tabs">
-          {(["all", ...STATUS_KEYS] as MemoryFilterStatus[]).map((key) => (
+        {isMultiSelectMode ? (
+          <>
             <button
-              className={`memo-filter-tab${
-                filterStatus === key ? " active" : ""
-              }`}
-              key={key}
-              onClick={() => setFilterStatus(key)}
+              className="memory-multi-select-exit-btn"
+              disabled={isBatchDeleting}
+              onClick={handleExitMultiSelect}
+              title={t("memory.multiSelectExit", {
+                defaultValue: "Exit multi-select",
+              })}
               type="button"
             >
-              {key === "all"
-                ? t("memory.filterAllStatuses", { defaultValue: "All" })
-                : statusLabel(key)}
+              <X size={14} strokeWidth={2} />
             </button>
-          ))}
-        </div>
-        <button
-          aria-label={t("memory.new", { defaultValue: "New" })}
-          className="memo-new-btn compact"
-          disabled={selection.mode === "create"}
-          onClick={handleStartCreate}
-          title={t("memory.new", { defaultValue: "New" })}
-          type="button"
-        >
-          <Plus size={15} strokeWidth={2.2} />
-        </button>
+            <span className="memory-multi-select-count">
+              {t("memory.multiSelectCount", {
+                defaultValue: "{{count}} selected",
+                values: { count: selectedMemoryIds.size },
+              })}
+            </span>
+            <div className="memory-multi-select-actions">
+              <button
+                className="memory-multi-select-action-btn"
+                disabled={isBatchDeleting}
+                onClick={handleToggleSelectAll}
+                type="button"
+              >
+                <CheckSquare size={13} />
+                <span>
+                  {isAllSelected
+                    ? t("memory.multiSelectDeselectAll", {
+                        defaultValue: "Deselect all",
+                      })
+                    : t("memory.multiSelectAll", {
+                        defaultValue: "Select all",
+                      })}
+                </span>
+              </button>
+              <button
+                className="memory-multi-select-action-btn danger"
+                disabled={isBatchDeleting || selectedMemoryIds.size === 0}
+                onClick={() => setIsBatchDeleteConfirmOpen(true)}
+                type="button"
+              >
+                {isBatchDeleting ? (
+                  <Loader2 className="spin" size={13} />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                <span>
+                  {isBatchDeleting
+                    ? t("memory.multiSelectDeleting", {
+                        defaultValue: "Deleting...",
+                      })
+                    : t("memory.multiSelectDelete", {
+                        defaultValue: "Delete selected",
+                      })}
+                </span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="memo-filter-tabs">
+              {(["all", ...STATUS_KEYS] as MemoryFilterStatus[]).map((key) => (
+                <button
+                  className={`memo-filter-tab${
+                    filterStatus === key ? " active" : ""
+                  }`}
+                  key={key}
+                  onClick={() => {
+                    setFilterStatus(key);
+                    setSelectedMemoryIds(new Set());
+                  }}
+                  type="button"
+                >
+                  {key === "all"
+                    ? t("memory.filterAllStatuses", { defaultValue: "All" })
+                    : statusLabel(key)}
+                </button>
+              ))}
+            </div>
+            <button
+              aria-label={t("memory.multiSelect", {
+                defaultValue: "Multi-select",
+              })}
+              className="memo-new-btn compact"
+              disabled={memories.length === 0}
+              onClick={handleEnterMultiSelect}
+              title={t("memory.multiSelect", {
+                defaultValue: "Multi-select",
+              })}
+              type="button"
+            >
+              <ListChecks size={15} strokeWidth={2.2} />
+            </button>
+            <button
+              aria-label={t("memory.new", { defaultValue: "New" })}
+              className="memo-new-btn compact"
+              disabled={selection.mode === "create"}
+              onClick={handleStartCreate}
+              title={t("memory.new", { defaultValue: "New" })}
+              type="button"
+            >
+              <Plus size={15} strokeWidth={2.2} />
+            </button>
+          </>
+        )}
       </div>
       <div className="memory-sidebar-subrow">
         <CustomSelect
-          onChange={(value) => setFilterKind(value as MemoryFilterKind)}
+          onChange={(value) => {
+            setFilterKind(value as MemoryFilterKind);
+            setSelectedMemoryIds(new Set());
+          }}
           options={[
             {
               label: t("memory.filterAllKinds", { defaultValue: "All kinds" }),
@@ -374,17 +536,33 @@ export function MemoryModal({
             const isSelected =
               selection.mode === "edit" &&
               selection.record.memoryId === record.memoryId;
+            const isChecked = selectedMemoryIds.has(record.memoryId);
             const date = (record.updatedAt || record.createdAt).slice(0, 10);
             return (
               <div
-                className={`memo-list-item memory-list-item${isSelected ? " selected" : ""}${
-                  record.status === "archived" ? " archived" : ""
-                }`}
+                className={`memo-list-item memory-list-item${
+                  isMultiSelectMode ? " multi-select" : ""
+                }${
+                  isSelected || (isMultiSelectMode && isChecked)
+                    ? " selected"
+                    : ""
+                }${record.status === "archived" ? " archived" : ""}`}
                 key={record.memoryId}
-                onClick={() => handleSelect(record)}
+                onClick={
+                  isMultiSelectMode
+                    ? () => handleToggleSelect(record.memoryId)
+                    : () => handleSelect(record)
+                }
                 role="button"
                 tabIndex={0}
               >
+                {isMultiSelectMode && (
+                  <span
+                    className={`memory-item-checkbox${isChecked ? " checked" : ""}`}
+                  >
+                    {isChecked ? <Check size={11} strokeWidth={3} /> : null}
+                  </span>
+                )}
                 <div className="memory-list-item-main">
                   <div className="memory-list-item-title-row">
                     <span className={`memory-kind-badge ${record.kind}`}>
@@ -670,6 +848,22 @@ export function MemoryModal({
         onConfirm={() => void confirmClear()}
         open={isClearConfirmOpen}
         title={t("memory.clearTitle", { defaultValue: "Clear memory bank" })}
+        variant="danger"
+      />
+      <ConfirmDialog
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        confirmLabel={t("memory.multiSelectDelete", {
+          defaultValue: "Delete selected",
+        })}
+        message={t("memory.multiSelectDeleteConfirm", {
+          defaultValue:
+            "Permanently delete the {{count}} selected memories? This cannot be undone.",
+          values: { count: selectedMemoryIds.size },
+        })}
+        onCancel={() => setIsBatchDeleteConfirmOpen(false)}
+        onConfirm={() => void confirmBatchDelete()}
+        open={isBatchDeleteConfirmOpen}
+        title={t("memory.deleteTitle", { defaultValue: "Delete memory" })}
         variant="danger"
       />
     </Modal>
