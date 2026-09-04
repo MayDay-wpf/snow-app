@@ -7259,9 +7259,13 @@ input {
   backdrop-filter: var(--backdrop-blur-lg);
   overflow: hidden;
   opacity: 1;
+  /* 不过渡 flex-grow：全屏切换时它必须瞬时取值，main 才能每帧吃满
+     右面板 width 过渡释放的空间，行内不出现空白（右缘不离开窗口边）。
+     padding 与右面板 width 过渡同曲线：main 分配宽度经过 [0, 20px)
+     区间时不会被 border-box padding clamp 撑出最小占位造成溢出 */
   transition:
-    flex-grow 0.2s ease,
-    opacity 0.2s ease;
+    opacity 0.2s ease,
+    padding 0.18s ease;
   padding: 18px 10px;
 }
 
@@ -23694,6 +23698,7 @@ input {
   position: relative;
   width: var(--right-panel-width);
   min-width: var(--right-panel-width);
+  flex-grow: 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -23706,7 +23711,6 @@ input {
   transition:
     width 0.18s ease,
     min-width 0.18s ease,
-    flex-grow 0.2s ease,
     opacity 0.18s ease;
 }
 
@@ -23717,18 +23721,33 @@ input {
   pointer-events: none;
 }
 
+/* 全屏：flex-grow 恒为 0，只数值过渡 width（px→calc 可靠插值）；
+   main-content 保持 flex:1 自动补位，右边缘恒贴窗口，左边缘单调左移 */
 .right-panel.fullscreen {
-  flex-grow: 1;
-  width: auto;
+  width: calc(100% - var(--sidebar-width) - 10px);
   min-width: 0;
   opacity: 1;
   pointer-events: auto;
 }
 
+.app-shell.right-panel-fullscreen.sidebar-collapsed .right-panel {
+  width: 100%;
+}
+
+/* 聊天悬浮时 main-content absolute 脱离 flex 流，右面板失去右侧锚定会
+   跳到 sidebar 旁再向右生长；auto 外边距吸收行内剩余空间，把右面板
+   重新锚在右缘，并随 width 过渡每帧收缩，左边缘因此平滑单调左移 */
+.app-shell.right-panel-fullscreen.chat-float-enabled .right-panel {
+  margin-left: auto;
+}
+
+/* 全屏时 main 不再参与 grow 插值：保持 flex:1 每帧吃掉右面板 width
+   过渡释放的空间，自身平滑收缩到 0，右面板因此恒贴右边缘。
+   padding 同步归零（0.18s 与 width 过渡同曲线），确保 main 宽度经过
+   [0, 28px) 区间时不会被 padding clamp 撑出 28px 最小占位——否则行内
+   溢出会顶得右面板右缘暂时离开窗口边（收起时右侧「收一下」的根因） */
 .app-shell.right-panel-fullscreen .main-content {
-  flex-grow: 0;
   min-width: 0;
-  width: 0;
   opacity: 0;
   pointer-events: none;
   padding: 0;
@@ -23739,6 +23758,318 @@ input {
   min-width: 0;
   opacity: 0;
   pointer-events: none;
+  /* 立即归零，避免 10px 残宽在动画期间挤出右侧缝隙 */
+  transition: none;
+}
+
+/* ===== 右侧面板全屏：聊天视图悬浮为底部卡片 =====
+   chat-float-enabled 仅在 activeView 为 chat 时由 App 添加，
+   其他视图（设置页等）仍走上方 .main-content 的隐藏规则。
+   卡片与胶囊均以右面板实际区域为参照居中（非全窗）：
+   区域左缘 = app-layout 左内边距 + sidebar 宽 + resizer，右缘 = 右内边距。
+   卡片仅完整形态（is-float-expanded）：标题行 + 消息区 + 输入框；
+   收起即灵动岛（is-float-dismissed）。 */
+.app-shell.right-panel-fullscreen.chat-float-enabled {
+  --chat-float-region-left: calc(var(--sidebar-width) + 20px);
+}
+
+/* sidebar 收起：右面板占满 app-layout 全宽，区域左缘回到左内边距 */
+.app-shell.right-panel-fullscreen.chat-float-enabled.sidebar-collapsed {
+  --chat-float-region-left: 10px;
+}
+
+.app-shell.right-panel-fullscreen.chat-float-enabled .main-content {
+  position: absolute;
+  left: var(--chat-float-region-left);
+  right: 10px;
+  bottom: 14px;
+  z-index: 40;
+  margin: 0 auto;
+  width: min(680px, calc(100vw - var(--chat-float-region-left) - 10px));
+  max-height: min(580px, 60vh);
+  /* 不声明任何 flex 属性：absolute 虽不参与 flex 分配，但残留的
+     flex-grow: 0 会在退出全屏回流时触发 grow 0→1 过渡，让 main 逐步
+     补位、行尾出现空白，右面板右缘被顶离窗口边（收起时「收一下」） */
+  opacity: 1;
+  pointer-events: auto;
+  padding: 0 0 10px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  /* 打开：仅轻微上滑定位，无缩放/透明/过冲 */
+  animation: chat-float-card-in 0.2s ease-out both;
+}
+
+@keyframes chat-float-card-in {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* 悬浮头部：状态点 + 会话标题 + 关闭 */
+.chat-float-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.chat-float-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  opacity: 0.7;
+}
+
+.chat-float-dot.is-streaming {
+  background: var(--accent-green);
+  opacity: 1;
+  animation: chat-float-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes chat-float-dot-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-green-bg, rgba(74, 222, 128, 0.45));
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.chat-float-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-float-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-float-action-btn {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.chat-float-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 关闭态：卡片透明且不可交互，仅保留底部重开 pill。
+   容器横跨右面板区域，胶囊据此以 RightPanel 居中（同 --chat-float-region-left） */
+.app-shell.right-panel-fullscreen.chat-float-enabled
+  .main-content:has(.chat-content.is-float-dismissed) {
+  /* animation 置 none：dismissed ↔ 卡片切换时入场动画才会重新播放 */
+  animation: none;
+  margin: 0;
+  width: auto;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
+.chat-content.is-float-dismissed {
+  align-items: center;
+  justify-content: flex-end;
+  /* 入场动画过冲会越出静止位，顶部留余量避免被 main-content 裁剪 */
+  padding: 6px 0 2px;
+}
+
+@keyframes chat-float-island-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  40% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 灵动岛：悬浮卡片关闭后的常驻胶囊。空闲态仅图标；流式期间按最宽
+   状态项取档展开，固定单行内上下轮播。描边替代阴影提供边缘对比。 */
+.chat-float-island {
+  display: inline-flex;
+  height: 32px;
+  max-width: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: #101013;
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: chat-float-island-enter 0.48s cubic-bezier(0.34, 1.56, 0.64, 1)
+    both;
+  /* 宽度 auto：随视区宽度过渡平滑伸缩，伸缩动画在视区上驱动 */
+}
+
+.chat-float-island.is-live {
+  max-width: min(320px, calc(100vw - 90px));
+}
+
+.chat-float-island-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* 状态体：宽度扩张由 max-width 过渡驱动，内容延迟淡入避免过渡期闪烁 */
+.chat-float-island-body {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.22s ease 0.14s;
+}
+
+.chat-float-island.is-live .chat-float-island-body {
+  opacity: 1;
+}
+
+/* 可视区：固定单行高，宽度由脚本按最宽状态项量化设定（过渡平滑伸缩）。
+   多项轮播时上下边缘渐隐，相邻项滚入滚出更柔和 */
+.chat-float-island-viewport {
+  display: inline-flex;
+  flex: 0 1 auto;
+  height: 16px; /* 与脚本 ITEM_HEIGHT_PX 保持一致 */
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.45s cubic-bezier(0.32, 0.72, 0.16, 1);
+}
+
+.chat-float-island-viewport.is-cycling {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 3px,
+    #000 calc(100% - 3px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 3px,
+    #000 calc(100% - 3px),
+    transparent
+  );
+}
+
+/* 垂直轮播轨道：状态项纵向堆叠，transform 逐项上下滚动（悬停暂停由脚本驱动） */
+.chat-float-island-track {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  width: max-content;
+  transition: transform 0.4s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.chat-float-island-item {
+  display: flex;
+  flex: 0 0 auto;
+  height: 16px;
+  max-width: var(--island-max-width, 260px);
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  /* 等宽数字：token/耗时数值变化时文本宽度稳定 */
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+  user-select: none;
+}
+
+.chat-float-island-item-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-float-island-item svg {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.chat-float-island-item.is-thinking svg {
+  color: #b19eff;
+}
+
+.chat-float-island-item.is-responding svg {
+  color: #6ee7b7;
+}
+
+.chat-float-island-item.is-tool svg {
+  color: #7dd3fc;
+}
+
+.chat-float-island-item.is-files svg {
+  color: #fbbf24;
+}
+
+.chat-float-island-item.is-tokens svg {
+  color: #34d399;
+}
+
+.chat-float-island-item.is-elapsed svg {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.chat-float-island-item.is-aborting svg {
+  color: #f87171;
+}
+
+.chat-float-island-item.is-paused svg {
+  color: #fbbf24;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-float-island,
+  .app-shell.right-panel-fullscreen.chat-float-enabled .main-content {
+    animation: none;
+  }
+  .chat-float-island-viewport,
+  .chat-float-island-track {
+    transition: none;
+  }
 }
 
 .right-panel-content-wrapper {

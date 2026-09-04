@@ -140,6 +140,8 @@ type MainContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
   activeView: MainContentView;
   isResizing?: boolean;
+  /** 右侧面板全屏时聊天视图悬浮为卡片 */
+  isFloating?: boolean;
   onSelectView: (view: MainContentView) => void;
 };
 
@@ -159,6 +161,7 @@ export const MainContent = ({
   activeDirectory,
   activeView,
   isResizing = false,
+  isFloating = false,
   onSelectView,
 }: MainContentProps): React.JSX.Element => {
   return (
@@ -166,6 +169,7 @@ export const MainContent = ({
       {activeView === "chat" ? (
         <ChatContent
           activeDirectory={activeDirectory}
+          isFloating={isFloating}
           onNavigateToView={onSelectView}
         />
       ) : activeView === "team" ? (

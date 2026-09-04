@@ -469,12 +469,16 @@ export const App = (): React.JSX.Element => {
     setShowSshWizard(false);
   }, []);
 
+  const isChatFloatActive = isRightPanelFullscreen && activeMainView === "chat";
+
   const shellClasses = [
     "app-shell",
     isWindows ? "is-windows" : "",
     isSidebarCollapsed ? "sidebar-collapsed" : "",
     isRightPanelCollapsed ? "right-panel-collapsed" : "",
     isRightPanelFullscreen ? "right-panel-fullscreen" : "",
+    // 全屏时聊天视图悬浮为底部卡片（其他视图仍完全隐藏）
+    isChatFloatActive ? "chat-float-enabled" : "",
     activeResizeTarget ? "is-resizing" : "",
   ]
     .filter(Boolean)
@@ -624,6 +628,7 @@ export const App = (): React.JSX.Element => {
               activeDirectory={activeDirectory}
               activeView={activeMainView}
               isResizing={activeResizeTarget !== null}
+              isFloating={isChatFloatActive}
               onSelectView={setActiveMainView}
             />
             {!isRightPanelCollapsed && (
