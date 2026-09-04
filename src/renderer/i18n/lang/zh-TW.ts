@@ -533,6 +533,8 @@ export const zhTW = {
   "chat.loadingApiConfig": "正在載入 API 設定",
   "chat.noApiConfig": "尚未設定 AI API，請先在設定中新增 API 設定。",
   "chat.noApiConfigBanner": "尚未設定 AI API，請先新增 API 設定後再開始對話",
+  "chat.backgroundTasksRunning":
+    "目前有 {{count}} 個背景會話正在執行，訊息可能會排隊處理",
   "chat.configureApi": "前往設定",
   "chat.customThinkingStrength": "自訂思考強度",
   "chat.customThinkingPlaceholder": "例如 ultra",

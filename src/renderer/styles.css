@@ -19304,6 +19304,34 @@ input {
   outline-offset: 1px;
 }
 
+/* 后台子代理/WorkFlow 节点运行中的轻量提醒条：
+   低调中性色，随后台会话出现/消失，不阻塞输入 */
+.chat-input-background-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-island);
+  font-size: 12px;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 1;
+}
+
+.chat-input-background-hint svg {
+  flex-shrink: 0;
+  color: var(--accent-blue);
+}
+
+.chat-input-background-hint span {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
+}
+
 .input-box {
   position: relative;
   z-index: 1;

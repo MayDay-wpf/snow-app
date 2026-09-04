@@ -558,6 +558,8 @@ export const en = {
     "No AI API configured. Please add an API configuration in Settings first.",
   "chat.noApiConfigBanner":
     "No AI API configured yet. Add an API configuration to start chatting",
+  "chat.backgroundTasksRunning":
+    "{{count}} background session(s) running; the message may be queued",
   "chat.configureApi": "Open Settings",
   "chat.customThinkingStrength": "Custom thinking strength",
   "chat.customThinkingPlaceholder": "e.g. ultra",

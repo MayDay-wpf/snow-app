@@ -532,6 +532,8 @@ export const zhCN = {
   "chat.loadingApiConfig": "正在加载 API 配置",
   "chat.noApiConfig": "尚未配置 AI API，请先在设置中添加 API 配置。",
   "chat.noApiConfigBanner": "尚未配置 AI API，请先添加 API 配置后再开始对话",
+  "chat.backgroundTasksRunning":
+    "当前有 {{count}} 个后台会话正在运行，消息可能排队处理",
   "chat.configureApi": "前往设置",
   "chat.customThinkingStrength": "自定义思考强度",
   "chat.customThinkingPlaceholder": "例如 ultra",
