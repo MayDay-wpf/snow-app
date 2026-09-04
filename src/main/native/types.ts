@@ -2184,6 +2184,7 @@ export type NativeBridge = {
     limit: number,
     offset: number,
     status?: string,
+    sortOrder?: string,
   ) => Promise<MemoPage>;
   createMemo: (directoryId: string, content: string) => Promise<MemoRecord>;
   updateMemoContent: (memoId: string, content: string) => Promise<MemoRecord>;

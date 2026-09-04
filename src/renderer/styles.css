@@ -19597,6 +19597,28 @@ input {
   flex-shrink: 0;
 }
 
+.memo-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.memo-sort-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .memo-build-btn {
   display: inline-flex;
   align-items: center;
