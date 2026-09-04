@@ -405,6 +405,7 @@ mod tests {
             plan_mode: None,
             goal_mode: None,
             worktree_mode: None,
+            workflow_mode: None,
             thinking_strength: None,
             responses_fast_mode: None,
             remote_role_content: None,
@@ -1076,7 +1077,7 @@ mod tests {
                     {
                         "name": "browser-screenshot",
                         "callId": "image-call",
-                        "result": "captured @@image:data:image/png;base64,YQ==@@"
+                        "result": "captured @@image:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==@@"
                     },
                     {
                         "name": "filesystem-read",
@@ -1118,7 +1119,7 @@ mod tests {
             json!({ "result": "captured [Image #1]" })
         );
         assert_eq!(input[3]["inline_data"]["mime_type"], "image/png");
-        assert_eq!(input[3]["inline_data"]["data"], "YQ==");
+        assert_eq!(input[3]["inline_data"]["data"], "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
         assert_eq!(input[4]["id"], "text-call");
         assert_eq!(input[5]["call_id"], "text-call");
     }
