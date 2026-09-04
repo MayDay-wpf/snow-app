@@ -211,8 +211,8 @@ export function WorkspaceDirectoryRow({
   return (
     <div
       className={`workspace-directory-row${
-        isDragging ? " dragging" : ""
-      }${isDragOver ? " drag-over" : ""}${
+        directory.kind === "ssh" ? " kind-ssh" : ""
+      }${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${
         isConversationDragOver ? " conversation-drop-over" : ""
       }${isMenuOpen ? " menu-open" : ""}${isEditing ? " editing" : ""}`}
       draggable={draggable && !isActionLocked && !isEditing}

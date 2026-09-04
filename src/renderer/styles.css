@@ -2578,6 +2578,18 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+/* SSH 远程项目：图标与「远程」标签用琥珀色区分本地项目 */
+.workspace-directory-row.kind-ssh .list-icon {
+  color: var(--accent-amber-text, #b45309);
+}
+
+.workspace-directory-row.kind-ssh .list-meta {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-amber-bg, rgba(245, 158, 11, 0.15));
+  color: var(--accent-amber-text, #b45309);
+}
+
 /* ===== 项目合集（project collections） ===== */
 
 .project-collections {
