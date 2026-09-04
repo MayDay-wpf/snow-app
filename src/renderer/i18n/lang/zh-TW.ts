@@ -838,6 +838,17 @@ export const zhTW = {
   "toolCall.workflow.deleteNode": "刪除節點",
   "toolCall.workflow.newNodeName": "新節點",
   "toolCall.workflow.deleteEdge": "刪除連線",
+  "toolCall.workflow.deleteConfirmTitle": "確認刪除",
+  "toolCall.workflow.deleteConfirmNodes":
+    "將刪除 {{count}} 個節點，相連連線將一併移除。",
+  "toolCall.workflow.deleteConfirmEdges": "將刪除 {{count}} 條連線。",
+  "toolCall.workflow.deleteConfirmMixed":
+    "將刪除 {{count}} 個節點及 {{edges}} 條連線。",
+  "toolCall.workflow.deleteConfirmHint": "刪除後可透過 {{shortcut}} 復原。",
+  "toolCall.workflow.deleteConfirmAction": "刪除",
+  "toolCall.workflow.deleteConfirmCancel": "取消",
+  "toolCall.workflow.deletedToast": "已刪除 · {{shortcut}} 可復原",
+  "toolCall.workflow.undoDelete": "復原",
   // 系統通知
   "notification.aiComplete.title": "AI 任務已完成",
   "notification.aiComplete.bodyWithTitle": "會話「{{title}}」已結束",
@@ -3432,6 +3443,8 @@ export const zhTW = {
   "rightPanel.drawingTab": "繪圖工作台",
   "rightPanel.closeTab": "關閉標籤頁",
   "rightPanel.confirmCloseTerminal": "關閉終端？",
+  "rightPanel.fullscreenPendingTitle": "右側面板即將全螢幕",
+  "rightPanel.fullscreenPendingHint": "放開滑鼠進入全螢幕，拖回可取消",
   "rightPanel.confirmCloseBrowser": "關閉瀏覽器？",
   "rightPanel.closeAllTabs": "關閉所有標籤頁",
   "rightPanel.closeOtherTabs": "關閉其他標籤頁",

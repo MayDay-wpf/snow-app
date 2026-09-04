@@ -882,6 +882,19 @@ export const en = {
   "toolCall.workflow.deleteNode": "Delete node",
   "toolCall.workflow.newNodeName": "New node",
   "toolCall.workflow.deleteEdge": "Delete connection",
+  "toolCall.workflow.deleteConfirmTitle": "Confirm deletion",
+  "toolCall.workflow.deleteConfirmNodes":
+    "This will delete {{count}} node(s); connected lines will be removed too.",
+  "toolCall.workflow.deleteConfirmEdges":
+    "This will delete {{count}} connection(s).",
+  "toolCall.workflow.deleteConfirmMixed":
+    "This will delete {{count}} node(s) and {{edges}} connection(s).",
+  "toolCall.workflow.deleteConfirmHint":
+    "You can undo with {{shortcut}} afterwards.",
+  "toolCall.workflow.deleteConfirmAction": "Delete",
+  "toolCall.workflow.deleteConfirmCancel": "Cancel",
+  "toolCall.workflow.deletedToast": "Deleted · {{shortcut}} to undo",
+  "toolCall.workflow.undoDelete": "Undo",
   // System notifications
   "notification.aiComplete.title": "AI task completed",
   "notification.aiComplete.bodyWithTitle":
@@ -3650,6 +3663,9 @@ export const en = {
   "rightPanel.drawingTab": "Drawing Workspace",
   "rightPanel.closeTab": "Close tab",
   "rightPanel.confirmCloseTerminal": "Close terminal?",
+  "rightPanel.fullscreenPendingTitle": "Right panel is about to go fullscreen",
+  "rightPanel.fullscreenPendingHint":
+    "Release to enter fullscreen, drag back to cancel",
   "rightPanel.confirmCloseBrowser": "Close browser?",
   "rightPanel.closeAllTabs": "Close all tabs",
   "rightPanel.closeOtherTabs": "Close Other Tabs",

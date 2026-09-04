@@ -7269,6 +7269,64 @@ input {
   padding: 18px 10px;
 }
 
+/* 右面板拖宽越界待全屏遮罩：持续拖拽越界 500ms 后出现，提示"松手即全屏"，
+   拖回可取消。pointer-events: none 保证拖拽手势不受影响。 */
+.fullscreen-pending-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: fullscreen-pending-in 0.15s ease-out;
+}
+
+.fullscreen-pending-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: var(--island-shadow);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.fullscreen-pending-card > svg {
+  color: var(--accent, #3b82f6);
+}
+
+.fullscreen-pending-title {
+  font-weight: 600;
+}
+
+.fullscreen-pending-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@keyframes fullscreen-pending-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-pending-overlay {
+    animation: none;
+  }
+}
+
 /* 懒加载面板的 Suspense 兜底：铺满主内容区，避免分包加载时白屏 */
 .main-content-loading {
   flex: 1;
@@ -7993,7 +8051,7 @@ input {
   }
 
   .chat-empty-quick-actions {
-    gap: 8px;
+    --quick-gap: 8px;
     margin-top: 48px;
   }
 
@@ -8110,6 +8168,9 @@ input {
   margin-bottom: 28px;
   padding: 0 20px;
   text-align: center;
+  /* 容器查询锚点：quick-actions 依据此宽度决定自动隐藏 */
+  container-type: inline-size;
+  container-name: chat-greeting;
 }
 
 .chat-empty-greeting-brand {
@@ -8432,19 +8493,98 @@ input {
 
 /* Quick action cards in empty chat state */
 .chat-empty-quick-actions {
+  --quick-gap: 12px;
+  position: relative;
   display: flex;
   align-items: stretch;
   justify-content: center;
-  gap: 12px;
+  gap: var(--quick-gap);
   margin-top: 96px;
+  /* 极窄时整体淡出；visibility 离散过渡保证淡出结束才不可见、淡入立即开始 */
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease,
+    visibility 0.28s ease;
+}
+
+/* 宽度决定可见卡片数：单卡低于约 176px 舒适下限时从尾部逐张收起。
+   隐藏卡 absolute 钉在原槽位原尺寸淡出——不参与 flex 行高，
+   恢复时宽度立即归位仅做淡入，杜绝窄盒换行撑高行高的形变 */
+@container chat-greeting (max-width: 551px) {
+  .chat-empty-quick-actions .chat-empty-quick-card {
+    width: calc((100% - var(--quick-gap)) / 2);
+  }
+
+  .chat-empty-quick-card:nth-child(3) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: calc((100% + var(--quick-gap)) * 2 / 3);
+    width: calc((100% - var(--quick-gap) * 2) / 3);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+}
+
+@container chat-greeting (max-width: 363px) {
+  .chat-empty-quick-actions .chat-empty-quick-card {
+    width: 100%;
+  }
+
+  .chat-empty-quick-card:nth-child(2) {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    width: calc((100% - var(--quick-gap)) / 2);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+
+  /* 已完全隐藏，直接脱离渲染层 */
+  .chat-empty-quick-card:nth-child(3) {
+    display: none;
+  }
+}
+
+@container chat-greeting (max-width: 219px) {
+  .chat-empty-quick-card:nth-child(1) {
+    position: absolute;
+    top: 0;
+    inset-inline: 0;
+    margin-inline: auto;
+    width: 100%;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+
+  .chat-empty-quick-card:nth-child(2),
+  .chat-empty-quick-card:nth-child(3) {
+    display: none;
+  }
+
+  .chat-empty-quick-actions {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty-quick-actions,
+  .chat-empty-quick-card {
+    transition: none;
+  }
 }
 
 .chat-empty-quick-card {
   position: relative;
   display: block;
-  flex: 1 1 0;
+  width: calc((100% - var(--quick-gap) * 2) / 3);
   min-width: 0;
   max-width: 220px;
+  overflow: hidden;
   padding: 16px 18px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -8454,7 +8594,12 @@ input {
   cursor: pointer;
   transition:
     border-color 0.18s ease,
-    background 0.18s ease;
+    background 0.18s ease,
+    opacity 0.28s ease,
+    transform 0.28s ease,
+    width 0.28s ease,
+    max-width 0.28s ease,
+    visibility 0.28s ease;
 }
 
 .chat-empty-quick-card:hover:not(:disabled) {
@@ -12195,6 +12340,19 @@ input {
   overflow: hidden;
 }
 
+/* 连线视觉：线条稍加粗提升辨识度；流向箭头（marker 为共享 defs，无法按
+   边状态区分颜色）与线条共用同一令牌，亮/暗主题自动跟随。 */
+.workflow-canvas .react-flow__edge-path {
+  stroke-width: 1.5;
+}
+
+.workflow-canvas .react-flow__arrowclosed path,
+.workflow-canvas .react-flow__arrowclosed polyline,
+.workflow-canvas .react-flow__arrowclosed polygon {
+  fill: var(--xy-edge-stroke-default);
+  stroke: var(--xy-edge-stroke-default);
+}
+
 .workflow-node {
   min-width: 130px;
   max-width: 190px;
@@ -12286,6 +12444,123 @@ input {
 .workflow-context-menu button:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* 删除二次确认浮层：画布内居中，确认后才真正删除。 */
+.workflow-delete-confirm {
+  position: absolute;
+  z-index: 30;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 262px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.workflow-delete-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workflow-delete-confirm-title svg {
+  color: #f85149;
+}
+
+.workflow-delete-confirm-content {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.workflow-delete-confirm-hint {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.workflow-delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.workflow-delete-confirm-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-delete-confirm-cancel {
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.workflow-delete-confirm-cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-delete-confirm-confirm {
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  background: rgba(248, 81, 73, 0.12);
+  color: #f85149;
+}
+
+.workflow-delete-confirm-confirm:hover {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+/* 删除后的撤销提示条：画布底部居中，避开左下角 Controls。 */
+.workflow-undo-toast {
+  position: absolute;
+  z-index: 30;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.workflow-undo-toast button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-undo-toast button:hover {
+  background: var(--bg-hover);
 }
 
 .workflow-actions {
@@ -22160,9 +22435,12 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   padding: 0 2px;
   user-select: none;
   -webkit-user-select: none;
+  /* 容器查询基准：以工具行宽度渐进缩略 ModelSelector，避免极窄溢出。 */
+  container-type: inline-size;
 }
 
 .toolbar-left,
@@ -22170,6 +22448,7 @@ input {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
 
 /* ===== Plus Menu ===== */
@@ -23048,6 +23327,8 @@ input {
 /* ===== Model Selector ===== */
 .model-selector {
   position: relative;
+  display: flex;
+  min-width: 0;
 }
 
 .model-dropdown-item-model {
@@ -23247,6 +23528,8 @@ input {
 
 .toolbar-btn.model {
   max-width: 340px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .model-trigger-thinking {
@@ -23290,7 +23573,41 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
   max-width: 180px;
+}
+
+/* 极窄输入框下渐进缩略 ModelSelector：
+   先藏思考强度文字，再藏思考强度区，最后只留品牌图标与箭头。 */
+@container (max-width: 420px) {
+  .model-trigger-thinking-label {
+    display: none;
+  }
+
+  .model-name {
+    max-width: 120px;
+  }
+}
+
+@container (max-width: 330px) {
+  .model-trigger-thinking {
+    display: none;
+  }
+
+  .model-name {
+    max-width: 90px;
+  }
+}
+
+@container (max-width: 250px) {
+  .model-name {
+    display: none;
+  }
+
+  .model-trigger-fast span {
+    display: none;
+  }
 }
 
 .model-dropdown {

@@ -1422,6 +1422,16 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                     setCloseConfirm(null);
                     setActiveTabId(tab.id);
                   }}
+                  onMouseDown={(event) => {
+                    // 中键快速关闭（Git 固定 tab 除外）；preventDefault 阻止自动滚动
+                    if (event.button === 1) {
+                      event.preventDefault();
+                      if (tab.id !== GIT_TAB_ID) {
+                        setCloseConfirm(null);
+                        handleCloseTab(tab.id);
+                      }
+                    }
+                  }}
                   draggable={DRAGGABLE_TAB_TYPES.has(tab.type)}
                   onDragStart={(event) => handleTabDragStart(event, tab)}
                   onContextMenu={(event) => {

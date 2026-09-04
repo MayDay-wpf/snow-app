@@ -837,6 +837,17 @@ export const zhCN = {
   "toolCall.workflow.deleteNode": "删除节点",
   "toolCall.workflow.newNodeName": "新节点",
   "toolCall.workflow.deleteEdge": "删除连线",
+  "toolCall.workflow.deleteConfirmTitle": "确认删除",
+  "toolCall.workflow.deleteConfirmNodes":
+    "将删除 {{count}} 个节点，相连连线将一并移除。",
+  "toolCall.workflow.deleteConfirmEdges": "将删除 {{count}} 条连线。",
+  "toolCall.workflow.deleteConfirmMixed":
+    "将删除 {{count}} 个节点及 {{edges}} 条连线。",
+  "toolCall.workflow.deleteConfirmHint": "删除后可通过 {{shortcut}} 撤销。",
+  "toolCall.workflow.deleteConfirmAction": "删除",
+  "toolCall.workflow.deleteConfirmCancel": "取消",
+  "toolCall.workflow.deletedToast": "已删除 · {{shortcut}} 可撤销",
+  "toolCall.workflow.undoDelete": "撤销",
   // 系统通知
   "notification.aiComplete.title": "AI 任务已完成",
   "notification.aiComplete.bodyWithTitle": "会话「{{title}}」已结束",
@@ -3455,6 +3466,8 @@ export const zhCN = {
   "rightPanel.drawingTab": "绘图工作台",
   "rightPanel.closeTab": "关闭标签页",
   "rightPanel.confirmCloseTerminal": "关闭终端？",
+  "rightPanel.fullscreenPendingTitle": "右面板即将全屏",
+  "rightPanel.fullscreenPendingHint": "松开鼠标进入全屏，拖回可取消",
   "rightPanel.confirmCloseBrowser": "关闭浏览器？",
   "rightPanel.closeAllTabs": "关闭所有标签页",
   "rightPanel.closeOtherTabs": "关闭其他标签页",
