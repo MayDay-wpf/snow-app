@@ -1,7 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { useEscapeKey } from "../../hooks/useEscapeKey";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -39,13 +38,6 @@ export const ConfirmDialog = ({
 }: ConfirmDialogProps): React.JSX.Element => {
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // 统一 ESC 关闭：确认动作进行中（isConfirming）时 gate 拒绝，Esc 无动作。
-  useEscapeKey({
-    onEscape: onCancel,
-    enabled: open,
-    gate: () => !isConfirming,
-  });
-
   useEffect(() => {
     if (!open) {
       return;
@@ -58,7 +50,12 @@ export const ConfirmDialog = ({
       <div
         className="confirm-dialog-overlay"
         onKeyDown={(e) => {
-          // ESC 统一由 useEscapeKey 层级栈处理；此处仅保留 Enter 确认。
+          if (e.key === "Escape") {
+            e.preventDefault();
+            if (!isConfirming) {
+              onCancel();
+            }
+          }
           if (e.key === "Enter" && e.target === dialogRef.current) {
             e.preventDefault();
             if (!isConfirming) {

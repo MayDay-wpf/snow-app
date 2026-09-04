@@ -146,20 +146,6 @@ export const en = {
   "sidebar.directoryDetails": "Details",
   "sidebar.directoryActionActivate": "Set as active",
   "sidebar.directoryActionRename": "Rename",
-  "sidebar.directoryActionChangeFolder": "Change folder…",
-  "sidebar.updateFolderTitle": "Change project folder",
-  "sidebar.updateFolderSelectTitle": "Select the new project folder",
-  "sidebar.updateFolderDescription":
-    "The project will be re-pointed to the new folder. Its conversations, memories, scheduled tasks and project data are migrated together. The project name stays unchanged.",
-  "sidebar.updateFolderOldLabel": "Current folder",
-  "sidebar.updateFolderNewLabel": "New folder",
-  "sidebar.updateFolderConfirm": "Change folder",
-  "sidebar.updateFolderError": "Failed to change project folder",
-  "sidebar.moveConversationTitle": "Move conversation",
-  "sidebar.moveConversationConfirmLabel": "Move",
-  "sidebar.moveConversationConfirm":
-    'Move conversation "{{title}}" to project "{{project}}"? Its messages, sub-agents and workflow history are moved together.',
-  "sidebar.moveConversationError": "Failed to move conversation",
   "sidebar.directoryRenamePlaceholder": "Enter new name",
   "sidebar.renameDirectoryError": "Failed to rename workspace directory",
   "sidebar.sshConfigSection": "Hosts from SSH config ({{count}})",
@@ -587,8 +573,6 @@ export const en = {
     "No AI API configured. Please add an API configuration in Settings first.",
   "chat.noApiConfigBanner":
     "No AI API configured yet. Add an API configuration to start chatting",
-  "chat.backgroundTasksRunning":
-    "{{count}} background session(s) running; the message may be queued",
   "chat.configureApi": "Open Settings",
   "chat.customThinkingStrength": "Custom thinking strength",
   "chat.customThinkingPlaceholder": "e.g. ultra",
@@ -2387,7 +2371,6 @@ export const en = {
     "Failed to load MCP server configurations.",
   "settings.mcpErrorInvalidConfigJson":
     "The MCP server configuration contains invalid JSON values.",
-  "settings.mcpErrorDetailSuffix": " (Details: {{detail}})",
   "settings.mcpFetchToolsErrorDetail": "Failed to fetch MCP tools: {{detail}}",
   "settings.mcpEditForm": "Form",
   "settings.mcpJsonInvalid": "Invalid JSON",

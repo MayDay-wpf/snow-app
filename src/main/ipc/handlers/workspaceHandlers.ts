@@ -88,28 +88,6 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       return directories;
     },
   );
-  // 修改项目文件夹：把项目重定向到新路径（directoryId 随路径重建），
-  // 由 Rust 端在单事务内迁移该项目的全部历史数据；完成后广播列表变化，
-  // 让侧边栏与活动项目状态同步刷新。
-  ipcMain.handle(
-    "workspace-directories:update-path",
-    async (_event, directoryId: unknown, newPath: unknown) => {
-      if (typeof directoryId !== "string" || !directoryId.trim()) {
-        throw new Error("Workspace directory ID is required");
-      }
-      if (typeof newPath !== "string" || !newPath.trim()) {
-        throw new Error("New workspace directory path is required");
-      }
-
-      await native.updateWorkspaceDirectoryPath(
-        directoryId.trim(),
-        newPath.trim(),
-      );
-      const directories = await native.listWorkspaceDirectories();
-      broadcastDirectoryListChanged();
-      return directories;
-    },
-  );
 
   // ===== Project collections（项目合集） =====
   // 合集是收纳项目的纯元数据容器，变更后广播 workspace-directory-list:changed，

@@ -22,7 +22,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
-import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import { downloadImageSrc } from "../../../../utils/imageDownload";
 import { imageProxyUrl } from "../../../../utils/imageProxyUrl";
 import type { ToolCallInfo } from "../utils/conversationTypes";
@@ -83,7 +82,7 @@ export const ImageGenGallery = ({
       }
       const ratio = img.naturalWidth / img.naturalHeight;
       setRatios((prev) =>
-        prev[slotKey] === ratio ? prev : { ...prev, [slotKey]: ratio },
+        prev[slotKey] === ratio ? prev : { ...prev, [slotKey]: ratio }
       );
     };
   }, []);
@@ -92,7 +91,8 @@ export const ImageGenGallery = ({
   const slots = useMemo<GallerySlot[]>(() => {
     const result: GallerySlot[] = [];
     for (const [callIndex, toolCall] of toolCalls.entries()) {
-      const callKey = toolCall.interactionId || `imagegen-call-${callIndex}`;
+      const callKey =
+        toolCall.interactionId || `imagegen-call-${callIndex}`;
       const promptLabel = parseImageGenArgs(toolCall.arguments)?.prompt ?? "";
       const parsedResult = parseImageGenResult(toolCall.result);
 
@@ -200,7 +200,7 @@ export const ImageGenGallery = ({
           console.warn(
             "[imagegen] resolveLibraryImage failed for",
             path,
-            error,
+            error
           );
         }
         if (cancelled) {
@@ -223,13 +223,15 @@ export const ImageGenGallery = ({
   // 远程图加载失败的记录：按 slot key 降级为占位展示
   const [failedRemotes, setFailedRemotes] = useState<Set<string>>(new Set());
   const handleRemoteError = useCallback((key: string) => {
-    setFailedRemotes((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    setFailedRemotes((prev) =>
+      prev.has(key) ? prev : new Set(prev).add(key)
+    );
   }, []);
 
   // 同批并行生成的图片统一展示比例：取已加载比例的中位数，避免个别图抖动
   const unifiedRatio = useMemo(() => {
     const values = Object.values(ratios).filter(
-      (value) => Number.isFinite(value) && value > 0,
+      (value) => Number.isFinite(value) && value > 0
     );
     if (values.length === 0) {
       return null;
@@ -254,7 +256,7 @@ export const ImageGenGallery = ({
       slots
         .map((slot, index) => (slot.kind === "image" ? index : -1))
         .filter((index) => index >= 0),
-    [slots],
+    [slots]
   );
 
   /** 灯箱在同批次图片间切换（delta ±1），越界不响应 */
@@ -278,11 +280,11 @@ export const ImageGenGallery = ({
       setLightbox(
         slot.image
           ? { kind: "image", image: slot.image }
-          : { kind: "remote", url: slot.remoteUrl! },
+          : { kind: "remote", url: slot.remoteUrl! }
       );
       setLightboxIndex(next);
     },
-    [lightboxIndex, navigableSlots, slots],
+    [lightboxIndex, navigableSlots, slots]
   );
 
   /** 关闭灯箱（同时重置切换索引） */
@@ -295,7 +297,7 @@ export const ImageGenGallery = ({
     ? lightbox.kind === "remote"
       ? imageProxyUrl(lightbox.url)
       : lightbox.image.path
-        ? (resolvedLibrary[lightbox.image.path] ?? "")
+        ? resolvedLibrary[lightbox.image.path] ?? ""
         : `data:${lightbox.image.mimeType};base64,${lightbox.image.data}`
     : "";
 
@@ -319,7 +321,7 @@ export const ImageGenGallery = ({
         console.warn(
           "[imagegen] resolveLibraryImage failed for lightbox",
           targetPath,
-          error,
+          error
         );
       }
     })();
@@ -332,26 +334,31 @@ export const ImageGenGallery = ({
     resolvedLibrary,
   ]);
 
-  // Esc 关闭灯箱统一走 useEscapeKey 层级栈；
-  // 方向键切换（非关闭语义）仍由局部 keydown 监听处理。
-  useEscapeKey({ onEscape: closeLightbox, enabled: lightbox !== null });
-
+  // Esc 关闭灯箱；方向键在同批次图片间上下/左右切换
   useEffect(() => {
     if (!lightbox) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      if (event.key === "Escape") {
+        closeLightbox();
+      } else if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowLeft"
+      ) {
         event.preventDefault();
         lightboxDelta(-1);
-      } else if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      } else if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowRight"
+      ) {
         event.preventDefault();
         lightboxDelta(1);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [lightbox, lightboxDelta]);
+  }, [lightbox, lightboxDelta, closeLightbox]);
 
   const lightboxElement = lightbox
     ? createPortal(
@@ -384,7 +391,10 @@ export const ImageGenGallery = ({
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
-            <div className="tool-call-imagegen-lightbox-loading" role="status">
+            <div
+              className="tool-call-imagegen-lightbox-loading"
+              role="status"
+            >
               <Loader2
                 className="tool-call-icon-spinning"
                 size={28}
@@ -404,7 +414,8 @@ export const ImageGenGallery = ({
             title={t("toolCall.imagegen.next")}
             disabled={
               lightboxIndex < 0 ||
-              navigableSlots.indexOf(lightboxIndex) >= navigableSlots.length - 1
+              navigableSlots.indexOf(lightboxIndex) >=
+                navigableSlots.length - 1
             }
           >
             <ChevronRight size={22} aria-hidden="true" />
@@ -433,7 +444,7 @@ export const ImageGenGallery = ({
                   ) {
                     src =
                       (await window.snow.resolveLibraryImage(
-                        lightbox.image.path,
+                        lightbox.image.path
                       )) ?? "";
                   }
                   if (src) {
@@ -459,16 +470,14 @@ export const ImageGenGallery = ({
             </button>
           </div>
         </div>,
-        document.body,
+        document.body
       )
     : null;
 
   const slotCount = slots.length;
 
   // 生成中占位内容：有流式预览显示预览图，否则 loading 图标 + 状态文案
-  const renderLoadingContent = (
-    slot: Extract<GallerySlot, { kind: "loading" }>,
-  ) =>
+  const renderLoadingContent = (slot: Extract<GallerySlot, { kind: "loading" }>) =>
     slot.streaming ? (
       <img
         src={`data:${slot.streaming.mimeType};base64,${slot.streaming.data}`}
@@ -516,14 +525,16 @@ export const ImageGenGallery = ({
         style={{
           gridTemplateColumns: `repeat(${Math.max(
             2,
-            columnsForCount(slotCount),
+            columnsForCount(slotCount)
           )}, minmax(0, 1fr))`,
         }}
       >
         {slots.map((slot, index) => {
           const isImage = slot.kind === "image";
           const failed =
-            isImage && slot.remoteUrl ? failedRemotes.has(slot.key) : false;
+            isImage && slot.remoteUrl
+              ? failedRemotes.has(slot.key)
+              : false;
           const resolvedSrc =
             isImage && slot.image?.path
               ? (resolvedLibrary[slot.image.path] ?? "")
@@ -552,7 +563,7 @@ export const ImageGenGallery = ({
                     window.open(
                       slot.remoteUrl,
                       "_blank",
-                      "noopener,noreferrer",
+                      "noopener,noreferrer"
                     );
                     return;
                   }
@@ -561,7 +572,9 @@ export const ImageGenGallery = ({
                     : setLightbox({ kind: "remote", url: slot.remoteUrl! });
                   setLightboxIndex(index);
                 }}
-                title={isImage ? t("toolCall.imagegen.zoom") : undefined}
+                title={
+                  isImage ? t("toolCall.imagegen.zoom") : undefined
+                }
                 aria-label={
                   isImage
                     ? t("toolCall.imagegen.zoom")

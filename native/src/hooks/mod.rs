@@ -17,39 +17,6 @@ use crate::storage::services::hooks_configs;
 
 const DEFAULT_TIMEOUT_MS: u64 = 5_000;
 
-/// 只有真正守卫"流程入口"的 hook 类型允许用退出码 >= 2 阻断主流程（工具
-/// 调用拦截）。其余类型（onUserMessage / beforeSubAgentStart / afterToolCall /
-/// onSessionStart / onSubAgentComplete / onStop / beforeCompress）的任何失败
-/// ——包括环境性失败（脚本缺失、解释器报错而以退出码 2 结束）——只记录
-/// 结果，绝不阻断用户消息、子代理等主流程：hook 的价值是辅助，一次环境
-/// 问题不应让整个 agent 无响应。
-const BLOCK_CAPABLE_HOOK_TYPES: [&str; 2] = ["beforeToolCall", "toolConfirmation"];
-
-fn hook_can_block(hook_type: &str) -> bool {
-    BLOCK_CAPABLE_HOOK_TYPES.contains(&hook_type)
-}
-
-#[cfg(test)]
-mod block_semantics_tests {
-    use super::hook_can_block;
-
-    /// 只有守卫型 hook 允许阻断：onUserMessage 等辅助/通知型 hook 的失败
-    /// （包括环境性 exit 2，如脚本缺失、解释器报错）绝不能挂起用户消息、
-    /// 子代理等主流程。
-    #[test]
-    fn only_guard_hook_types_can_block() {
-        assert!(hook_can_block("beforeToolCall"));
-        assert!(hook_can_block("toolConfirmation"));
-        assert!(!hook_can_block("onUserMessage"));
-        assert!(!hook_can_block("beforeSubAgentStart"));
-        assert!(!hook_can_block("afterToolCall"));
-        assert!(!hook_can_block("onSessionStart"));
-        assert!(!hook_can_block("onStop"));
-        assert!(!hook_can_block("beforeCompress"));
-        assert!(!hook_can_block("onSubAgentComplete"));
-    }
-}
-
 #[napi(object)]
 pub struct HookExecuteInput {
     pub hook_type: String,
@@ -79,8 +46,6 @@ pub struct HookExecuteResult {
     /// and the output/error should replace or warn the caller.
     pub soft_signal: Option<bool>,
     /// When a command exits with code >= 2, the hook blocks the action.
-    /// Blocking only applies to guard-type hooks (`beforeToolCall` /
-    /// `toolConfirmation`); every other hook type never blocks the main flow.
     pub blocked: Option<bool>,
     pub block_message: Option<String>,
     /// When true, the soft-warning hook returned a decision JSON on stdout
@@ -188,21 +153,15 @@ pub async fn execute_hooks(
             let result = execute_action(action, &context).await?;
             executed += 1;
 
-            let is_command = result.action_type == "command";
-            let failed = is_command && !result.success;
-            // 守卫型 hook（beforeToolCall/toolConfirmation）的退出码 >= 2
-            // 仍然是 hook 作者的主动拦截投票 → 阻断。
-            let is_hard = failed
-                && hook_can_block(hook_type)
+            let is_soft = matches!(&result.action_type.as_str(), t if *t == "command")
+                && !result.success
+                && result.exit_code == Some(1);
+            let is_hard = matches!(&result.action_type.as_str(), t if *t == "command")
+                && !result.success
                 && result
                     .exit_code
                     .map(|code| code >= 2 || code < 0)
                     .unwrap_or(false);
-            // soft：显式退出码 1（可能携带 decision JSON），以及其余一切非
-            // 阻断失败——包括非守卫类型的退出码 >= 2（多为环境性失败，如
-            // 脚本缺失、解释器报错）与 spawn/超时的 exit_code=None。失败
-            // 在 UI/日志中可见，但不阻断主流程。
-            let is_soft = failed && !is_hard;
 
             if is_soft {
                 soft_signal = true;
@@ -446,47 +405,17 @@ async fn execute_command_action(
     // Windows 拒绝（os error 267）。与 bash MCP 工具、集成终端 ptyManager.ts
     // 的处理保持一致。
     if let Some(ref dir) = cwd {
-        if is_windows_wsl_shell(&detect_shell_family(&shell)) {
-            // WSL 的工作目录由 shell_args 中的 `--cd` 承担，跳过 current_dir。
-        } else if !dir.exists() {
-            // 项目目录已被移动/删除（例如旧会话仍挂在历史项目 id 上）时，
-            // 以不存在的 current_dir 启动子进程会在 Windows 上直接报
-            // os error 267，并让整条 hook 链以 GenericFailure 中断。这里
-            // 返回 soft 失败结果：不阻塞后续 hook，错误信息留痕可诊断。
-            return Ok(HookActionResultRecord {
-                action_type: "command".to_string(),
-                success: false,
-                command: Some(command.to_string()),
-                exit_code: None,
-                output: None,
-                error: Some(format!(
-                    "Hook working directory does not exist (project folder moved or removed?): {}",
-                    dir.display()
-                )),
-                additional_context: None,
-            });
-        } else {
+        if !is_windows_wsl_shell(&detect_shell_family(&shell)) {
             shell_command.current_dir(dir);
         }
     }
 
-    let mut child = match shell_command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            // spawn 失败（命令/解释器不存在、权限等环境问题）按 soft 失败
-            // 处理：不中断 hook 链，更不向上抛错挂起主流程。
-            eprintln!("Failed to spawn hook command: {error}");
-            return Ok(HookActionResultRecord {
-                action_type: "command".to_string(),
-                success: false,
-                command: Some(command.to_string()),
-                exit_code: None,
-                output: None,
-                error: Some(format!("Failed to spawn hook command: {error}")),
-                additional_context: None,
-            });
-        }
-    };
+    let mut child = shell_command.spawn().map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to spawn hook command: {error}"),
+        )
+    })?;
 
     if let Some(data) = &stdin_data {
         if let Some(stdin) = child.stdin.as_mut() {
@@ -538,21 +467,7 @@ async fn execute_command_action(
             };
             (status, stdout_data, stderr_data)
         }
-        Err(error) => {
-            // 等待失败 / 超时同属环境性失败：soft 失败留痕，不中断 hook 链、
-            // 不挂起主流程（错误文本沿用原 message，如
-            // "Hook command timed out after Nms"）。
-            eprintln!("{}", error.reason);
-            return Ok(HookActionResultRecord {
-                action_type: "command".to_string(),
-                success: false,
-                command: Some(command.to_string()),
-                exit_code: None,
-                output: None,
-                error: Some(error.reason.clone()),
-                additional_context: None,
-            });
-        }
+        Err(err) => return Err(err),
     };
 
     let (status, stdout_bytes, stderr_bytes) = output;

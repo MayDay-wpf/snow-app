@@ -22,7 +22,6 @@ import {
   Trash2,
   ZoomIn,
 } from "lucide-react";
-import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 
 export type BrowserMenuProps = {
@@ -130,9 +129,17 @@ export const BrowserMenu = ({
       setIsOpen(false);
       setIsClearDataSubOpen(false);
     };
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        setIsClearDataSubOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
 
@@ -163,15 +170,6 @@ export const BrowserMenu = ({
     setIsClearDataSubOpen(false);
     setIsHomepageEditing(false);
   }, []);
-
-  // ESC 关闭整个菜单（层级栈）。默认主页编辑态时本层让位（gate=false）：
-  // 事件继续传播到 homepage 输入框的 onKeyDown，由其恢复草稿并退出编辑态、
-  // 保留菜单（与收敛前行为一致）。
-  useEscapeKey({
-    onEscape: close,
-    enabled: isOpen,
-    gate: () => !isHomepageEditing,
-  });
 
   const runAction = useCallback(
     (fn: () => void): void => {

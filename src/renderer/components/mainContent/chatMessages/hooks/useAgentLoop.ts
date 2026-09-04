@@ -1723,11 +1723,10 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         }
 
         // Execute onUserMessage hooks before sending the message to the AI.
-        // Unified exit-code semantics (non-blocking for this hook type — only
-        // guard-type hooks `beforeToolCall` / `toolConfirmation` may abort):
+        // Unified exit-code semantics:
         //   0 = pass (stdout injected as [Hook Context])
         //   1 = warn (warning text injected as [Hook Warning])
-        //   2+ = soft failure (recorded; the AI loop always continues)
+        //   2+ = abort (AI loop interrupted, error shown to user)
         try {
           const hookContext = JSON.stringify({
             message: trimmed,

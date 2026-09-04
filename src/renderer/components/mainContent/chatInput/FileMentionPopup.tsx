@@ -27,7 +27,6 @@ import type {
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
-import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import type { FileTag, SkillTag } from "./fileTagUtils";
 
@@ -170,9 +169,6 @@ export const FileMentionPopup = forwardRef<
     [],
   );
   const [agentError, setAgentError] = useState(false);
-  // ESC 关闭统一走 useEscapeKey 层级栈，不再由 handleKeyDown 命令式处理；
-  // 面板可见期间注册，关闭即注销（IME 组合中的 Esc 由 hook 内部防护）。
-  useEscapeKey({ onEscape: onClose, enabled: visible });
   // `@!技能关键词`：感叹号前缀表示 Skills 搜索模式。
   const isSkillMode = query.trim().startsWith("!");
   const skillQuery = isSkillMode ? query.trim().slice(1).trim() : "";
@@ -580,6 +576,13 @@ export const FileMentionPopup = forwardRef<
           return false;
         }
 
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+          return true;
+        }
+
         // Skills 模式：仅支持上下选择与 Enter 确认。
         if (isSkillMode) {
           if (skills.length === 0) {
@@ -669,6 +672,7 @@ export const FileMentionPopup = forwardRef<
       selectedIndex,
       toggleCheck,
       handleConfirmSelection,
+      onClose,
       pathSegments,
       onNavigateTo,
       activeDirectory,

@@ -291,17 +291,11 @@ fn get_project_mcp_server_settings_with_connection(
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.to_string();
-    } else if settings.project_id != normalized_project_id {
-        // 同 scopes::get_mcp_project_scope_settings：setting_code 是
-        // blake3(project_id)，按请求 id 的哈希命中即说明记录属于请求的项目；
-        // JSON 内嵌 projectId 被历史目录迁移的文本替换改写时自愈回写，
-        // 而不是让该项目的 MCP server 配置读取整体失败。
-        eprintln!(
-            "Project MCP server setting identity mismatch (stored '{}', requested '{}'); healing",
-            settings.project_id, normalized_project_id
-        );
-        settings.project_id = normalized_project_id.to_string();
-        write_project_mcp_server_settings_with_connection(connection, &settings)?;
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(project_mcp_storage_error(
+            "Project MCP server setting identity does not match the requested project",
+        ));
     }
     Ok(settings)
 }

@@ -41,7 +41,6 @@ import { ChatItem } from "./ChatItem";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import { isChatDrag, readChatDragData } from "./chatDrag";
 import { SubAgentListPanel } from "./SubAgentListPanel";
-import { useWorkflowActivityMap } from "./useWorkflowActivityMap";
 import { WorkflowNodeListPanel } from "./WorkflowNodeListPanel";
 import {
   formatTimeLabel,
@@ -173,17 +172,12 @@ export function ChatsSection({
   const [subAgentMap, setSubAgentMap] = useState<SubAgentMap>({});
   // Workflow 主会话 -> 其 workflow 节点会话（树形子层）
   const [workflowNodeMap, setWorkflowNodeMap] = useState<SubAgentMap>({});
-  // Workflow 主会话 -> 后台活动计数（运行中节点 + 节点下的子代理）：
-  // 供 ChatItem 徽标/图标亮点与下方"运行中置顶"提升使用
-  const workflowActivityMap = useWorkflowActivityMap(
-    workflowNodeMap,
-    subAgentMap,
-    streamingConversationIds,
-    attentionRequiredConversationIds,
-  );
   // 含待确认子代理的父会话也视为需关注：与运行中会话一样置顶排序，
   // 保证会话较多时用户不会漏掉被暂停等待确认的子代理
   const surfacedConversationIds = useMemo(() => {
+    if (attentionRequiredConversationIds.size === 0) {
+      return runningConversationIds;
+    }
     const next = new Set(runningConversationIds);
     for (const [parentId, subs] of Object.entries(subAgentMap)) {
       if (
@@ -212,17 +206,12 @@ export function ChatsSection({
         next.add(parentId);
       }
     }
-    // workflow 节点/其子代理后台运行时，主会话同样提升置顶
-    for (const parentId of Object.keys(workflowActivityMap)) {
-      next.add(parentId);
-    }
     return next;
   }, [
     runningConversationIds,
     attentionRequiredConversationIds,
     subAgentMap,
     workflowNodeMap,
-    workflowActivityMap,
   ]);
   const [expandedSubAgentConversationIds, setExpandedSubAgentConversationIds] =
     useState<Set<string>>(() => new Set());
@@ -2376,14 +2365,6 @@ export function ChatsSection({
                               subAgentConversations={subAgentConversations}
                               subAgentAttentionRequiredIds={
                                 attentionRequiredConversationIds
-                              }
-                              workflowRunningCount={
-                                workflowActivityMap[conversation.conversationId]
-                                  ?.running ?? 0
-                              }
-                              workflowAttentionCount={
-                                workflowActivityMap[conversation.conversationId]
-                                  ?.attention ?? 0
                               }
                               isSubAgentExpanded={isSubAgentPanelExpanded}
                               isWorkflow={isWorkflow}

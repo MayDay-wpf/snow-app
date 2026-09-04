@@ -24,7 +24,6 @@ import {
 } from "./mermaidRenderer";
 import { rightPanelEvents } from "../../../rightPanel/rightPanelEvents";
 import { downloadImageSrc } from "../../../../utils/imageDownload";
-import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import { Tooltip } from "../../../common/Tooltip";
 
 /**
@@ -466,11 +465,19 @@ export const MarkdownBlock = memo(
       [],
     );
 
-    // Esc 关闭灯箱（useEscapeKey 层级栈统一分派，避免与引擎/其他浮层冲突）
-    useEscapeKey({
-      onEscape: () => setLightboxSrc(null),
-      enabled: lightboxSrc !== null,
-    });
+    // Esc 关闭灯箱
+    useEffect(() => {
+      if (!lightboxSrc) {
+        return;
+      }
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          setLightboxSrc(null);
+        }
+      };
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }, [lightboxSrc]);
 
     // 流式柔和渐显：接管 innerHTML，把每帧新增的文本包进淡入 span。
     // 与整块替换（打字机式跳变）不同，旧文字保持原 DOM 稳定不动，只有

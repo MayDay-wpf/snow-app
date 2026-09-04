@@ -87,19 +87,6 @@ export const workspaceApi = {
     directoryId: string,
   ): Promise<WorkspaceDirectoryRecord[]> =>
     ipcRenderer.invoke("workspace-directories:delete", directoryId),
-  /**
-   * 修改项目绑定的文件夹路径：项目重定向到新路径（directoryId 随路径重建），
-   * Rust 端在单事务内迁移该项目的历史数据（会话/记忆/任务等）后返回新列表。
-   */
-  updateWorkspaceDirectoryPath: (
-    directoryId: string,
-    newPath: string,
-  ): Promise<WorkspaceDirectoryRecord[]> =>
-    ipcRenderer.invoke(
-      "workspace-directories:update-path",
-      directoryId,
-      newPath,
-    ),
   listProjectCollections: (): Promise<ProjectCollectionRecord[]> =>
     ipcRenderer.invoke("project-collections:list"),
   createProjectCollection: (name: string): Promise<ProjectCollectionRecord[]> =>

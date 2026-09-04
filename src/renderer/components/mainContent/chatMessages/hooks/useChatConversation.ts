@@ -725,7 +725,6 @@ export const useChatConversation = (
     fileChangeStats,
     recordFileChange,
     sessions,
-    sessionsRefData,
     activeConversationId,
     sessionViewKey,
     newChatGeneration,

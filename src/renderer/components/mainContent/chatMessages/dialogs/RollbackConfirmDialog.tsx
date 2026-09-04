@@ -18,7 +18,6 @@ import type {
   CheckpointFileDiff,
 } from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
-import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import type {
   RollbackMemoryItem,
   RollbackMode,
@@ -91,20 +90,6 @@ export const RollbackConfirmDialog = ({
    *  完成后的重复截断/删除会失败并弹回错误弹窗（表现为回滚异常）。 */
   const confirmingRef = useRef(false);
 
-  // ESC 层级栈：预览展开时先收起预览，再按一次才取消对话框（先子后父）；
-  // 确认进行中（confirmingMode）期间拒绝响应——gate=false 时 ESC 无动作，
-  // 也不会误关被遮挡的下层浮层或触发全局 cancelSession。
-  useEscapeKey({
-    onEscape: () => {
-      if (isPreviewOpen) {
-        setIsPreviewOpen(false);
-      } else {
-        onCancel();
-      }
-    },
-    gate: () => confirmingMode === null,
-  });
-
   useEffect(() => {
     dialogRef.current?.focus();
   }, []);
@@ -166,10 +151,16 @@ export const RollbackConfirmDialog = ({
     <div
       className="confirm-dialog-overlay"
       onKeyDown={(e) => {
-        // ESC 关闭（预览先收起，否则取消对话框）统一由 useEscapeKey
-        // 层级栈处理；这里仅保留 Enter 确认（确认进行中不响应）。
         if (confirmingMode) {
           return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          if (isPreviewOpen) {
+            setIsPreviewOpen(false);
+          } else {
+            onCancel();
+          }
         }
         if (e.key === "Enter" && e.target === dialogRef.current) {
           e.preventDefault();

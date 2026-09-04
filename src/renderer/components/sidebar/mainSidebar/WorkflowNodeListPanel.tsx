@@ -2,7 +2,6 @@ import { ChevronRight, CircleAlert, Loader2, Workflow } from "lucide-react";
 
 import { useI18n } from "../../../i18n";
 import type { ChatConversationRecord } from "../../../../preload";
-import { isActiveWorkflowNodeSession } from "../../mainContent/chatMessages/workflow/workflowRunner";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 
 type WorkflowNodeListPanelProps = {
@@ -90,17 +89,10 @@ export function WorkflowNodeListPanel({
         );
         const isStreaming =
           streamingConversationIds?.has(node.conversationId) ?? false;
-        // 节点活跃判定：streaming 集合为主，workflowRunner 模块级活跃
-        // 注册表兜底，覆盖"续跑接管窗口期"（DB 已转 running、注册时序上
-        // 先于 addStreamingId 的间隙）。手动中止后注册表与 streaming 集合
-        // 均先移除、侧边栏重查落库转 failed 前，两者皆不命中 → 不显示
-        // loading；重启后的僵尸 running 同样不命中（与画布降级语义一致）。
-        const isNodeActive =
-          isStreaming || isActiveWorkflowNodeSession(node.conversationId);
-        // 兜底：DB 中 run_status 仍为 running 但节点已不再活跃
-        //（用户手动中止后、侧边栏重查落盘前的窗口期），不再显示 loading
+        // 兜底：DB 中 run_status 仍为 running 但会话已不再活跃
+        // （用户手动中止后、侧边栏重查落盘前的窗口期），不再显示 loading
         const displayStatus =
-          node.subAgentStatus === "running" && !isNodeActive
+          node.subAgentStatus === "running" && !isStreaming
             ? ""
             : node.subAgentStatus;
         const nodeName =

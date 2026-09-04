@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitBranch as GitBranchType } from "../../../../preload";
-import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 
@@ -107,17 +106,6 @@ export const BranchSelector = ({
     }
   }, [showCreate]);
 
-  // ESC 收起「新建分支」表单（层级栈，仅创建表单打开时激活）：
-  // 下拉整体保持打开（与收敛前一致，分支列表本身无 ESC 关闭行为）。
-  useEscapeKey({
-    onEscape: () => {
-      setShowCreate(false);
-      setNewBranchName("");
-      setCreateError(null);
-    },
-    enabled: isOpen && showCreate,
-  });
-
   const handleCheckout = (branchName: string): void => {
     if (branchName === currentBranch) {
       setIsOpen(false);
@@ -143,7 +131,7 @@ export const BranchSelector = ({
     }
 
     const exists = branches.some(
-      (b) => b.name === trimmed || b.name === `origin/${trimmed}`,
+      (b) => b.name === trimmed || b.name === `origin/${trimmed}`
     );
     if (exists) {
       setCreateError(t("git.createBranchExists"));
@@ -173,11 +161,16 @@ export const BranchSelector = ({
   };
 
   const handleCreateInputKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>,
+    event: React.KeyboardEvent<HTMLInputElement>
   ): void => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleCreateBranch();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setShowCreate(false);
+      setNewBranchName("");
+      setCreateError(null);
     }
   };
 

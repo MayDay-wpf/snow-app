@@ -35,18 +35,12 @@ pub fn get_mcp_project_scope_settings(
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.clone();
-    } else if settings.project_id != normalized_project_id {
-        // setting_code 以 blake3(project_id) 结尾：按请求 id 的哈希命中即说明
-        // 这条记录就是为当前请求的项目写入的；JSON 内嵌的 projectId 只是
-        // 冗余字段，可能已被历史目录迁移的文本替换改写（setting_code 是
-        // 哈希，REPLACE 迁移更新不到它，造成 code 与 JSON 脱节）。自愈为
-        // 请求的 project_id 并回写，而不是让该项目的全部 MCP 调用硬失败。
-        eprintln!(
-            "Project MCP scope setting identity mismatch (stored '{}', requested '{}'); healing",
-            settings.project_id, normalized_project_id
-        );
-        settings.project_id = normalized_project_id.clone();
-        write_mcp_project_scope_settings(database_path, &settings)?;
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Project MCP scope setting identity does not match the requested project".to_string(),
+        ));
     }
 
     Ok(settings)
@@ -195,15 +189,13 @@ pub fn get_skills_project_scope_settings(
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.clone();
-    } else if settings.project_id != normalized_project_id {
-        // 同 get_mcp_project_scope_settings：哈希命中的记录必然属于请求的
-        // 项目，JSON 内嵌 projectId 被历史迁移改写时自愈回写而非硬失败。
-        eprintln!(
-            "Project Skills scope setting identity mismatch (stored '{}', requested '{}'); healing",
-            settings.project_id, normalized_project_id
-        );
-        settings.project_id = normalized_project_id.clone();
-        write_skills_project_scope_settings(database_path, &settings)?;
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Project Skills scope setting identity does not match the requested project"
+                .to_string(),
+        ));
     }
 
     Ok(settings)
@@ -277,15 +269,13 @@ pub fn get_codebase_project_scope_settings(
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.clone();
-    } else if settings.project_id != normalized_project_id {
-        // 同 get_mcp_project_scope_settings：哈希命中的记录必然属于请求的
-        // 项目，JSON 内嵌 projectId 被历史迁移改写时自愈回写而非硬失败。
-        eprintln!(
-            "Project Codebase scope setting identity mismatch (stored '{}', requested '{}'); healing",
-            settings.project_id, normalized_project_id
-        );
-        settings.project_id = normalized_project_id.clone();
-        write_codebase_project_scope_settings(database_path, &settings)?;
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Project Codebase scope setting identity does not match the requested project"
+                .to_string(),
+        ));
     }
 
     Ok(settings)
@@ -370,15 +360,13 @@ pub fn get_tool_approval_project_scope_settings(
     settings.normalize();
     if settings.project_id.is_empty() {
         settings.project_id = normalized_project_id.clone();
-    } else if settings.project_id != normalized_project_id {
-        // 同 get_mcp_project_scope_settings：哈希命中的记录必然属于请求的
-        // 项目，JSON 内嵌 projectId 被历史迁移改写时自愈回写而非硬失败。
-        eprintln!(
-            "Project Tool approval scope setting identity mismatch (stored '{}', requested '{}'); healing",
-            settings.project_id, normalized_project_id
-        );
-        settings.project_id = normalized_project_id.clone();
-        write_tool_approval_project_scope_settings(database_path, &settings)?;
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Project Tool approval scope setting identity does not match the requested project"
+                .to_string(),
+        ));
     }
 
     Ok(settings)

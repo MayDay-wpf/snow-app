@@ -72,7 +72,6 @@ rmcp = { version = "3.0.1", default-features = false, features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
-    "reqwest-native-tls",
 ] }
 # LSP client framework: stdio transport + MainLoop + LanguageClient omnitrait.
 # default-features off to drop client-monitor (server-side) / tracing (unused).

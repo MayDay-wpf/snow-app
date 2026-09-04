@@ -293,12 +293,6 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete workspace directories",
           ),
         ),
-      updateWorkspaceDirectoryPath: () =>
-        Promise.reject(
-          new Error(
-            "Rust native bridge is required to update workspace directory paths",
-          ),
-        ),
       listProjectCollections: () =>
         Promise.reject(
           new Error(
@@ -814,12 +808,6 @@ export const loadNativeBridge = (): NativeBridge => {
       renameConversation: () =>
         Promise.reject(
           new Error("Rust native bridge is required to rename conversation"),
-        ),
-      moveChatConversation: () =>
-        Promise.reject(
-          new Error(
-            "Rust native bridge is required to move chat conversations",
-          ),
         ),
       updateConversationEmoji: () =>
         Promise.reject(

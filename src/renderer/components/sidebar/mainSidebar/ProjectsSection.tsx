@@ -21,8 +21,6 @@ import type {
 } from "../../../../preload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { FormDialog } from "../../common/FormDialog";
-import { useChatConversationContext } from "../../mainContent/chatMessages";
-import type { ConversationDragPayload } from "./conversationDrag";
 import { WorkspaceDirectoryList } from "./WorkspaceDirectoryList";
 import type { CrossProjectNotificationGroup } from "./useCrossProjectNotifications";
 
@@ -124,8 +122,6 @@ export function ProjectsSection({
   isChatsCollapsed,
 }: ProjectsSectionProps): React.JSX.Element {
   const { t } = useI18n();
-  // 会话迁移后刷新会话列表（普通/置顶列表都监听 conversationListVersion）
-  const { refreshConversations } = useChatConversationContext();
   const [workspaceDirectories, setWorkspaceDirectories] = useState<
     WorkspaceDirectoryRecord[]
   >([]);
@@ -177,17 +173,6 @@ export function ProjectsSection({
   const [dragOverCollectionId, setDragOverCollectionId] = useState<
     string | null
   >(null);
-  // 修改项目文件夹：目标目录与输入中的新路径（local 为系统选目录结果，
-  // ssh 为输入框内容），确认后在确认弹窗中执行重定向。
-  const [updateFolderTarget, setUpdateFolderTarget] =
-    useState<WorkspaceDirectoryRecord | null>(null);
-  const [updateFolderPathInput, setUpdateFolderPathInput] = useState("");
-  const updateFolderInputRef = useRef<HTMLInputElement | null>(null);
-  // 会话拖入项目行：待确认的迁移（会话 payload + 目标项目）
-  const [conversationMoveConfirm, setConversationMoveConfirm] = useState<{
-    payload: ConversationDragPayload;
-    targetDirectoryId: string;
-  } | null>(null);
 
   // 克隆的最终目录预览：所选保存位置 + 从仓库地址推导出的项目名。
   const cloneTargetPreview = useMemo(() => {
@@ -1085,135 +1070,6 @@ export function ProjectsSection({
     }
   };
 
-  // 修改项目文件夹入口：local 项目弹系统目录选择框，选中后进入确认弹窗；
-  // ssh 项目直接打开输入弹窗（预填当前路径）。
-  const handleUpdateFolderStart = async (
-    directory: WorkspaceDirectoryRecord,
-  ): Promise<void> => {
-    setDirectoryError(null);
-
-    if (directory.kind === "local") {
-      try {
-        const selected = await window.snow.selectWorkspaceDirectory(
-          t("sidebar.updateFolderSelectTitle", {
-            defaultValue: "Select the new project folder",
-          }),
-        );
-        if (!selected || selected === directory.path) {
-          return;
-        }
-        setUpdateFolderTarget(directory);
-        setUpdateFolderPathInput(selected);
-        return;
-      } catch {
-        // 选择对话框失败时静默返回，保持原状态
-        return;
-      }
-    }
-
-    setUpdateFolderTarget(directory);
-    setUpdateFolderPathInput(directory.path);
-  };
-
-  const handleUpdateFolderCancel = (): void => {
-    if (isSavingDirectory) {
-      return;
-    }
-    setUpdateFolderTarget(null);
-    setUpdateFolderPathInput("");
-    setDirectoryError(null);
-  };
-
-  const handleUpdateFolderConfirm = async (): Promise<void> => {
-    const directory = updateFolderTarget;
-    const newPath = updateFolderPathInput.trim();
-    if (!directory || isSavingDirectory || !newPath) {
-      return;
-    }
-    if (newPath === directory.path) {
-      setUpdateFolderTarget(null);
-      setUpdateFolderPathInput("");
-      return;
-    }
-
-    setIsSavingDirectory(true);
-    setDirectoryError(null);
-
-    try {
-      const directories = await window.snow.updateWorkspaceDirectoryPath(
-        directory.directoryId,
-        newPath,
-      );
-      setWorkspaceDirectories(directories);
-      // 合集成员登记的是项目 directoryId，后端已迁移，这里刷新合集状态
-      const nextCollections = await window.snow.listProjectCollections();
-      setCollections(nextCollections);
-      setUpdateFolderTarget(null);
-      setUpdateFolderPathInput("");
-    } catch (error) {
-      setDirectoryError(
-        error instanceof Error
-          ? error.message
-          : t("sidebar.updateFolderError", {
-              defaultValue: "Failed to change project folder",
-            }),
-      );
-    } finally {
-      setIsSavingDirectory(false);
-    }
-  };
-
-  // 会话拖入项目行：同项目拖拽已由行级 drop 过滤，这里进入确认弹窗。
-  const handleDropConversationOnDirectory = (
-    payload: ConversationDragPayload,
-    targetDirectoryId: string,
-  ): void => {
-    if (payload.directoryId === targetDirectoryId) {
-      return;
-    }
-    setDirectoryError(null);
-    setConversationMoveConfirm({ payload, targetDirectoryId });
-  };
-
-  const handleConversationMoveCancel = (): void => {
-    if (isSavingDirectory) {
-      return;
-    }
-    setConversationMoveConfirm(null);
-    setDirectoryError(null);
-  };
-
-  const handleConversationMoveConfirm = async (): Promise<void> => {
-    const confirmState = conversationMoveConfirm;
-    if (!confirmState || isSavingDirectory) {
-      return;
-    }
-
-    setIsSavingDirectory(true);
-    setDirectoryError(null);
-
-    try {
-      await window.snow.moveChatConversation(
-        confirmState.payload.conversationId,
-        confirmState.targetDirectoryId,
-      );
-      setConversationMoveConfirm(null);
-      // 普通列表与置顶区都监听 conversationListVersion，统一触发重拉；
-      // 目标项目非当前项目时其列表在切换后按 directoryId 自然加载。
-      refreshConversations();
-    } catch (error) {
-      setDirectoryError(
-        error instanceof Error
-          ? error.message
-          : t("sidebar.moveConversationError", {
-              defaultValue: "Failed to move conversation",
-            }),
-      );
-    } finally {
-      setIsSavingDirectory(false);
-    }
-  };
-
   const handleShowDetails = (directoryId: string): void => {
     const directory = workspaceDirectories.find(
       (d) => d.directoryId === directoryId,
@@ -1571,97 +1427,6 @@ export function ProjectsSection({
           <span className="form-dialog-error">{directoryError}</span>
         ) : null}
       </FormDialog>
-      <FormDialog
-        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-        closeLabel={t("sidebar.close", { defaultValue: "Close" })}
-        confirmDisabled={
-          !updateFolderPathInput.trim() ||
-          updateFolderPathInput.trim() === updateFolderTarget?.path
-        }
-        confirmLabel={t("sidebar.updateFolderConfirm", {
-          defaultValue: "Change folder",
-        })}
-        initialFocusRef={updateFolderInputRef}
-        isSubmitting={isSavingDirectory}
-        onCancel={handleUpdateFolderCancel}
-        onConfirm={() => void handleUpdateFolderConfirm()}
-        open={Boolean(updateFolderTarget)}
-        title={t("sidebar.updateFolderTitle", {
-          defaultValue: "Change project folder",
-        })}
-      >
-        <p className="form-dialog-description">
-          {t("sidebar.updateFolderDescription", {
-            defaultValue:
-              "The project will be re-pointed to the new folder. Its conversations, memories, scheduled tasks and project data are migrated together. The project name stays unchanged.",
-          })}
-        </p>
-        <label className="form-dialog-field">
-          <span className="form-dialog-label">
-            {t("sidebar.updateFolderOldLabel", {
-              defaultValue: "Current folder",
-            })}
-          </span>
-          <span className="form-dialog-value">
-            {updateFolderTarget?.path ?? ""}
-          </span>
-        </label>
-        <label className="form-dialog-field">
-          <span className="form-dialog-label">
-            {t("sidebar.updateFolderNewLabel", {
-              defaultValue: "New folder",
-            })}
-          </span>
-          {updateFolderTarget?.kind === "ssh" ? (
-            <input
-              ref={updateFolderInputRef}
-              className="form-dialog-input"
-              disabled={isSavingDirectory}
-              onChange={(event) => setUpdateFolderPathInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void handleUpdateFolderConfirm();
-                }
-              }}
-              placeholder="ssh://user@host:22/path/to/project"
-              value={updateFolderPathInput}
-            />
-          ) : (
-            <span className="form-dialog-value">{updateFolderPathInput}</span>
-          )}
-        </label>
-        {directoryError ? (
-          <span className="form-dialog-error">{directoryError}</span>
-        ) : null}
-      </FormDialog>
-      <ConfirmDialog
-        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-        confirmLabel={t("sidebar.moveConversationConfirmLabel", {
-          defaultValue: "Move",
-        })}
-        message={t("sidebar.moveConversationConfirm", {
-          values: {
-            title:
-              conversationMoveConfirm?.payload.title ||
-              conversationMoveConfirm?.payload.conversationId ||
-              "",
-            project:
-              workspaceDirectories.find(
-                (d) =>
-                  d.directoryId === conversationMoveConfirm?.targetDirectoryId,
-              )?.name ?? "",
-          },
-          defaultValue:
-            'Move conversation "{{title}}" to project "{{project}}"? Its messages, sub-agents and workflow history are moved together.',
-        })}
-        onCancel={handleConversationMoveCancel}
-        onConfirm={() => void handleConversationMoveConfirm()}
-        open={Boolean(conversationMoveConfirm)}
-        title={t("sidebar.moveConversationTitle", {
-          defaultValue: "Move conversation",
-        })}
-      />
       <ConfirmDialog
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
         confirmLabel={t("sidebar.deleteCollection", {
@@ -1895,10 +1660,6 @@ export function ProjectsSection({
               void handleRemoveFromCollection(collectionId, directoryId)
             }
             onRename={handleRenameDirectory}
-            onUpdateFolderStart={(directory) =>
-              void handleUpdateFolderStart(directory)
-            }
-            onDropConversation={handleDropConversationOnDirectory}
             onRenameCollection={handleRenameCollectionOpen}
             onShowDetails={handleShowDetails}
             onToggleCollection={handleToggleCollectionExpanded}

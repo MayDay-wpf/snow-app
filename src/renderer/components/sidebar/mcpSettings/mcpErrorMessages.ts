@@ -13,25 +13,13 @@ type McpTranslate = (
   options?: {
     defaultValue?: string;
     values?: Record<string, string | number>;
-  },
+  }
 ) => string;
 
 const extractDetail = (message: string, prefix: string): string => {
   const detail = message.slice(prefix.length).trim();
   return detail.startsWith(":") ? detail.slice(1).trim() : detail;
 };
-
-/**
- * 在基础错误提示后追加 detail 后缀；分隔符文案走 i18n key，不在代码中硬编码。
- * detail 为空时直接返回 base，避免出现悬挂标点。
- */
-const withDetail = (base: string, detail: string, t: McpTranslate): string =>
-  detail
-    ? `${base}${t("settings.mcpErrorDetailSuffix", {
-        defaultValue: " (Details: {{detail}})",
-        values: { detail },
-      })}`
-    : base;
 
 /**
  * 将 native 侧 MCP 错误消息转换为友好的本地化提示。
@@ -41,11 +29,7 @@ const withDetail = (base: string, detail: string, t: McpTranslate): string =>
  */
 export const formatMcpError = (error: unknown, t: McpTranslate): string => {
   const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
 
   if (!message) {
     return t("settings.mcpFetchToolsError", {
@@ -64,50 +48,33 @@ export const formatMcpError = (error: unknown, t: McpTranslate): string => {
 
   // stdio 子进程无法启动（命令不存在、路径错误、权限不足等）。
   if (message.includes("Failed to start external MCP server")) {
-    const detail = extractDetail(
-      message,
-      "Failed to start external MCP server",
-    );
-    return withDetail(
-      t("settings.mcpErrorStartFailed", {
-        defaultValue:
-          "Failed to start the MCP server process. Check the command and arguments.",
-      }),
-      detail,
-      t,
-    );
+    const detail = extractDetail(message, "Failed to start external MCP server");
+    return t("settings.mcpErrorStartFailed", {
+      defaultValue: "Failed to start the MCP server process. Check the command and arguments.",
+      values: detail ? { detail } : undefined,
+    });
   }
 
   // stdio 初始化握手失败（连接建立但协议协商未完成）。
   if (message.includes("Failed to initialize external MCP stdio server")) {
     const detail = extractDetail(
       message,
-      "Failed to initialize external MCP stdio server",
+      "Failed to initialize external MCP stdio server"
     );
-    return withDetail(
-      t("settings.mcpErrorInitializeFailed", {
-        defaultValue:
-          "Failed to initialize the MCP server connection. The server may not be compatible.",
-      }),
-      detail,
-      t,
-    );
+    return t("settings.mcpErrorInitializeFailed", {
+      defaultValue:
+        "Failed to initialize the MCP server connection. The server may not be compatible.",
+      values: detail ? { detail } : undefined,
+    });
   }
 
   // HTTP 传输连接失败。
   if (message.includes("Failed to connect external MCP HTTP server")) {
-    const detail = extractDetail(
-      message,
-      "Failed to connect external MCP HTTP server",
-    );
-    return withDetail(
-      t("settings.mcpErrorHttpConnectFailed", {
-        defaultValue:
-          "Failed to connect to the MCP HTTP server. Check the URL and network.",
-      }),
-      detail,
-      t,
-    );
+    const detail = extractDetail(message, "Failed to connect external MCP HTTP server");
+    return t("settings.mcpErrorHttpConnectFailed", {
+      defaultValue: "Failed to connect to the MCP HTTP server. Check the URL and network.",
+      values: detail ? { detail } : undefined,
+    });
   }
 
   // 配置缺少必需字段。
@@ -125,43 +92,32 @@ export const formatMcpError = (error: unknown, t: McpTranslate): string => {
   // 配置已被删除或不再存在。
   if (message.includes("is no longer configured")) {
     return t("settings.mcpErrorNotConfigured", {
-      defaultValue:
-        "This MCP server is no longer configured. Re-add it to continue.",
+      defaultValue: "This MCP server is no longer configured. Re-add it to continue.",
     });
   }
 
   // 工具列表加载失败（进程已启动但 tools/list 调用失败）。
   if (message.includes("External MCP tools/list failed")) {
     const detail = extractDetail(message, "External MCP tools/list failed");
-    return withDetail(
-      t("settings.mcpErrorListToolsFailed", {
-        defaultValue: "Failed to fetch the tool list from the MCP server.",
-      }),
-      detail,
-      t,
-    );
+    return t("settings.mcpErrorListToolsFailed", {
+      defaultValue: "Failed to fetch the tool list from the MCP server.",
+      values: detail ? { detail } : undefined,
+    });
   }
 
   // 配置加载失败（数据库读取错误）。
   if (message.includes("Failed to load external MCP server configs")) {
-    const detail = extractDetail(
-      message,
-      "Failed to load external MCP server configs",
-    );
-    return withDetail(
-      t("settings.mcpErrorLoadConfigsFailed", {
-        defaultValue: "Failed to load MCP server configurations.",
-      }),
-      detail,
-      t,
-    );
+    const detail = extractDetail(message, "Failed to load external MCP server configs");
+    return t("settings.mcpErrorLoadConfigsFailed", {
+      defaultValue: "Failed to load MCP server configurations.",
+      values: detail ? { detail } : undefined,
+    });
   }
 
   // 配置 JSON 格式非法。
   if (message.includes("Invalid external MCP")) {
     return t("settings.mcpErrorInvalidConfigJson", {
-      defaultValue:
-        "The MCP server configuration contains invalid JSON values.",
+      defaultValue: "The MCP server configuration contains invalid JSON values.",
     });
   }
 

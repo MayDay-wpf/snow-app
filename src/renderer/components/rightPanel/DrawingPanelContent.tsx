@@ -39,7 +39,6 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { useI18n } from "../../i18n";
 import { CustomSelect } from "../common/CustomSelect";
 import {
@@ -83,7 +82,10 @@ import {
   saveBlobToFile,
   srcToBlob,
 } from "../../utils/imageDownload";
-import { imageProxyUrl, localImageProxyUrl } from "../../utils/imageProxyUrl";
+import {
+  imageProxyUrl,
+  localImageProxyUrl,
+} from "../../utils/imageProxyUrl";
 
 type DrawingPanelContentProps = {
   /** 当前 tab 是否激活：灯箱键盘快捷键仅在激活 tab 生效。 */
@@ -233,12 +235,7 @@ const DRAWING_PERSIST_KEY = "snow:drawing-workbench:v1";
 /**
  * 带 LRU 上限的 Map 写入：Map 保持插入顺序，超限时删除最旧的条目。
  */
-const cacheSet = <K, V>(
-  map: Map<K, V>,
-  key: K,
-  value: V,
-  max: number,
-): void => {
+const cacheSet = <K, V>(map: Map<K, V>, key: K, value: V, max: number): void => {
   if (map.has(key)) {
     map.delete(key); // 更新访问顺序：删除后重新插入到末尾
   }
@@ -437,7 +434,7 @@ const formatTime = (iso: string): string => {
     }
     const pad = (n: number): string => String(n).padStart(2, "0");
     return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-      date.getHours(),
+      date.getHours()
     )}:${pad(date.getMinutes())}`;
   } catch {
     return iso;
@@ -450,11 +447,7 @@ const formatTime = (iso: string): string => {
  */
 const ERROR_KIND_ICONS: Record<
   ImageGenErrorKind,
-  React.ComponentType<{
-    size?: number;
-    strokeWidth?: number;
-    className?: string;
-  }>
+  React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
 > = {
   timeout: Clock3,
   auth: KeyRound,
@@ -531,8 +524,7 @@ const readPersistedParams = (): Partial<PersistedDrawingParams> => {
     const clean: Partial<PersistedDrawingParams> = {};
     const str = (value: unknown): value is string => typeof value === "string";
     if (str(parsed.prompt)) clean.prompt = parsed.prompt;
-    if (str(parsed.negativePrompt))
-      clean.negativePrompt = parsed.negativePrompt;
+    if (str(parsed.negativePrompt)) clean.negativePrompt = parsed.negativePrompt;
     if (str(parsed.model)) clean.model = parsed.model;
     if (str(parsed.ratio)) clean.ratio = parsed.ratio;
     if (str(parsed.tier)) clean.tier = parsed.tier;
@@ -547,20 +539,15 @@ const readPersistedParams = (): Partial<PersistedDrawingParams> => {
     }
     if (typeof parsed.stream === "boolean") clean.stream = parsed.stream;
     if (str(parsed.outputFormat)) clean.outputFormat = parsed.outputFormat;
-    if (str(parsed.outputCompression))
-      clean.outputCompression = parsed.outputCompression;
+    if (str(parsed.outputCompression)) clean.outputCompression = parsed.outputCompression;
     if (str(parsed.background)) clean.background = parsed.background;
     if (str(parsed.inputFidelity)) clean.inputFidelity = parsed.inputFidelity;
     if (str(parsed.thinkingLevel)) clean.thinkingLevel = parsed.thinkingLevel;
-    if (typeof parsed.webSearch === "boolean")
-      clean.webSearch = parsed.webSearch;
-    if (typeof parsed.imageSearch === "boolean")
-      clean.imageSearch = parsed.imageSearch;
-    if (str(parsed.personGeneration))
-      clean.personGeneration = parsed.personGeneration;
+    if (typeof parsed.webSearch === "boolean") clean.webSearch = parsed.webSearch;
+    if (typeof parsed.imageSearch === "boolean") clean.imageSearch = parsed.imageSearch;
+    if (str(parsed.personGeneration)) clean.personGeneration = parsed.personGeneration;
     if (str(parsed.seed)) clean.seed = parsed.seed;
-    if (typeof parsed.showAdvanced === "boolean")
-      clean.showAdvanced = parsed.showAdvanced;
+    if (typeof parsed.showAdvanced === "boolean") clean.showAdvanced = parsed.showAdvanced;
     return clean;
   } catch {
     return {};
@@ -623,8 +610,7 @@ const readPromptEditor = (root: HTMLElement): string => {
     return units.reduce((result, unit, index) => {
       if (index === 0) return unit;
       const previous = units[index - 1];
-      const separator =
-        previous.endsWith("\n") || unit.startsWith("\n") ? "" : "\n";
+      const separator = previous.endsWith("\n") || unit.startsWith("\n") ? "" : "\n";
       return result + separator + unit;
     }, "");
   };
@@ -634,7 +620,7 @@ const readPromptEditor = (root: HTMLElement): string => {
 const getPromptOffsetAt = (
   root: HTMLElement,
   container: Node,
-  offset: number,
+  offset: number
 ): number | null => {
   if (container !== root && !root.contains(container)) return null;
   const before = document.createRange();
@@ -652,38 +638,24 @@ const getPromptOffsetAt = (
 const getPromptSelectionOffset = (root: HTMLElement): number | null => {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
-  return getPromptOffsetAt(
-    root,
-    selection.focusNode ?? root,
-    selection.focusOffset,
-  );
+  return getPromptOffsetAt(root, selection.focusNode ?? root, selection.focusOffset);
 };
 
-const getPromptSelectionOffsets = (
-  root: HTMLElement,
-): PromptSelectionOffsets | null => {
+const getPromptSelectionOffsets = (root: HTMLElement): PromptSelectionOffsets | null => {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
-  const start = getPromptOffsetAt(
-    root,
-    range.startContainer,
-    range.startOffset,
-  );
+  const start = getPromptOffsetAt(root, range.startContainer, range.startOffset);
   const end = getPromptOffsetAt(root, range.endContainer, range.endOffset);
   return start === null || end === null ? null : { start, end };
 };
 
-const getPromptDomBoundary = (
-  root: HTMLElement,
-  offset: number,
-): PromptDomBoundary => {
+const getPromptDomBoundary = (root: HTMLElement, offset: number): PromptDomBoundary => {
   let remaining = Math.max(0, offset);
   const children = Array.from(root.childNodes);
   for (let index = 0; index < children.length; index += 1) {
     const node = children[index];
-    const token =
-      node instanceof HTMLElement ? node.dataset.refToken : undefined;
+    const token = node instanceof HTMLElement ? node.dataset.refToken : undefined;
     const length = token?.length ?? node.textContent?.length ?? 0;
     if (remaining === 0) return { node: root, offset: index };
     if (remaining <= length) {
@@ -698,7 +670,7 @@ const getPromptDomBoundary = (
 
 const setPromptSelectionOffsets = (
   root: HTMLElement,
-  offsets: PromptSelectionOffsets,
+  offsets: PromptSelectionOffsets
 ): void => {
   const selection = window.getSelection();
   if (!selection) return;
@@ -746,20 +718,17 @@ const DEFAULT_NEGATIVE_PROMPT =
  */
 const resolveImagePlaceholders = (
   prompt: string,
-  refCount: number,
+  refCount: number
 ): { expanded: string; unresolved: number[] } => {
   const unresolved: number[] = [];
-  const expanded = prompt.replace(
-    IMAGE_PLACEHOLDER_RE,
-    (match, rawIndex: string) => {
-      const n = Number(rawIndex);
-      if (n >= 1 && n <= refCount) {
-        return `[Image ${n}]`;
-      }
-      unresolved.push(n);
-      return match;
-    },
-  );
+  const expanded = prompt.replace(IMAGE_PLACEHOLDER_RE, (match, rawIndex: string) => {
+    const n = Number(rawIndex);
+    if (n >= 1 && n <= refCount) {
+      return `[Image ${n}]`;
+    }
+    unresolved.push(n);
+    return match;
+  });
   return { expanded, unresolved };
 };
 
@@ -808,7 +777,7 @@ export function DrawingPanelContent({
   const [prompt, setPrompt] = useState(persisted.prompt ?? "");
   /** 反向提示词（仅 Gemini Imagen 生效；默认自动填充通用负面词，可编辑/清空）。 */
   const [negativePrompt, setNegativePrompt] = useState(
-    persisted.negativePrompt ?? DEFAULT_NEGATIVE_PROMPT,
+    persisted.negativePrompt ?? DEFAULT_NEGATIVE_PROMPT
   );
   const [channelId, setChannelId] = useState("");
   /** 当前选中的模型（聚合模型列表；优先恢复持久化值，加载完成后校验兜底）。 */
@@ -832,33 +801,25 @@ export function DrawingPanelContent({
   const [stream, setStream] = useState(persisted.stream ?? true);
   // 高级参数（按渠道协议分别生效）
   const [showAdvanced, setShowAdvanced] = useState(
-    persisted.showAdvanced ?? false,
+    persisted.showAdvanced ?? false
   );
-  const [outputFormat, setOutputFormat] = useState(
-    persisted.outputFormat ?? "",
-  );
+  const [outputFormat, setOutputFormat] = useState(persisted.outputFormat ?? "");
   const [outputCompression, setOutputCompression] = useState(
-    persisted.outputCompression ?? "",
+    persisted.outputCompression ?? ""
   );
   const [background, setBackground] = useState(persisted.background ?? "");
-  const [inputFidelity, setInputFidelity] = useState(
-    persisted.inputFidelity ?? "",
-  );
+  const [inputFidelity, setInputFidelity] = useState(persisted.inputFidelity ?? "");
   const [thinkingLevel, setThinkingLevel] = useState(
-    persisted.thinkingLevel ?? "",
+    persisted.thinkingLevel ?? ""
   );
   const [webSearch, setWebSearch] = useState(persisted.webSearch ?? false);
-  const [imageSearch, setImageSearch] = useState(
-    persisted.imageSearch ?? false,
-  );
+  const [imageSearch, setImageSearch] = useState(persisted.imageSearch ?? false);
   const [personGeneration, setPersonGeneration] = useState(
-    persisted.personGeneration ?? "",
+    persisted.personGeneration ?? ""
   );
   const [seed, setSeed] = useState(persisted.seed ?? "");
   /** 图生图参考图列表（上限按模型能力动态适配；图库相对路径 image/... 或本地绝对路径）。 */
-  const [refImages, setRefImages] = useState<
-    Array<{ path: string; mimeType: string }>
-  >([]);
+  const [refImages, setRefImages] = useState<Array<{ path: string; mimeType: string }>>([]);
   /** 参考图 ref 镜像（事件/拖拽追加时同步读取，避免闭包过期）。 */
   const refImagesRef = useRef(refImages);
   refImagesRef.current = refImages;
@@ -875,7 +836,7 @@ export function DrawingPanelContent({
   /** 追加参考图（去重 + 上限）；返回追加张数与跳过原因。 */
   const appendRefImages = useCallback(
     (
-      images: Array<{ path: string; mimeType: string }>,
+      images: Array<{ path: string; mimeType: string }>
     ): { added: number; duplicate: boolean; overLimit: boolean } => {
       const current = refImagesRef.current;
       const seen = new Set(current.map((item) => item.path));
@@ -899,7 +860,7 @@ export function DrawingPanelContent({
       }
       return { added: next.length - current.length, duplicate, overLimit };
     },
-    [],
+    []
   );
 
   // 图库面板「设为参考图」事件（跨组件联动；组件常驻渲染，挂载即监听）。
@@ -988,7 +949,7 @@ export function DrawingPanelContent({
         const ratioAvailable = supportsSizeTier(channel.provider, channel.model)
           ? fallbackRatio in OPENAI_SIZE_PRESETS
           : openaiFixedSizePresets(channel.model).some(
-              (item) => item.ratio === fallbackRatio,
+              (item) => item.ratio === fallbackRatio
             );
         setRatio(fallbackRatio && ratioAvailable ? fallbackRatio : "");
         setTier("");
@@ -1003,17 +964,17 @@ export function DrawingPanelContent({
   const loadSettings = useCallback(async (): Promise<void> => {
     try {
       const raw = await window.snow.getSystemSettingValue(
-        IMAGE_GEN_SETTING_CODE,
+        IMAGE_GEN_SETTING_CODE
       );
       const settings = readImageGenSettingsJson(raw);
       const usable = settings.channels.filter(
-        (channel) => channel.enabled && channel.model.trim() !== "",
+        (channel) => channel.enabled && channel.model.trim() !== ""
       );
       setChannels(usable);
       // 保留当前选中渠道（若仍可用），否则回退第一个可用渠道。
       const keepId = usable.some((channel) => channel.id === channelId)
         ? channelId
-        : (usable[0]?.id ?? "");
+        : usable[0]?.id ?? "";
       setChannelId(keepId);
       const channel = usable.find((item) => item.id === keepId) ?? usable[0];
       // 仅当渠道真正变化时同步默认尺寸，避免覆盖用户手动选择的参数。
@@ -1064,15 +1025,12 @@ export function DrawingPanelContent({
         } catch (error) {
           console.warn(
             `[ai-drawing] fetch models failed for channel ${channel.id}`,
-            error,
+            error
           );
         }
         // 渠道配置的模型补充进列表（API 拉取失败或自定义模型名时仍可用）。
         const channelModel = channel.model.trim();
-        if (
-          channelModel &&
-          !aggregated.some((item) => item.id === channelModel)
-        ) {
+        if (channelModel && !aggregated.some((item) => item.id === channelModel)) {
           aggregated.push({ id: channelModel, channelId: channel.id });
         }
       }
@@ -1100,7 +1058,7 @@ export function DrawingPanelContent({
         const target = channels.find(
           (channel) =>
             channel.id ===
-            (list.find((item) => item.id === keepModel)?.channelId ?? ""),
+            (list.find((item) => item.id === keepModel)?.channelId ?? "")
         );
         if (target) {
           setChannelId(target.id);
@@ -1154,21 +1112,23 @@ export function DrawingPanelContent({
     const preferredWidth = 272;
     const width = Math.min(
       preferredWidth,
-      Math.max(0, window.innerWidth - viewportPadding * 2),
+      Math.max(0, window.innerWidth - viewportPadding * 2)
     );
     const maxLeft = Math.max(
       viewportPadding,
-      window.innerWidth - width - viewportPadding,
+      window.innerWidth - width - viewportPadding
     );
-    const left = Math.min(Math.max(triggerRect.left, viewportPadding), maxLeft);
+    const left = Math.min(
+      Math.max(triggerRect.left, viewportPadding),
+      maxLeft
+    );
     const estimatedHeight = 420;
-    const spaceBelow =
-      window.innerHeight - triggerRect.bottom - viewportPadding;
+    const spaceBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
     const spaceAbove = triggerRect.top - viewportPadding;
     const openAbove = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
     const availableHeight = Math.max(
       80,
-      Math.min(estimatedHeight, (openAbove ? spaceAbove : spaceBelow) - 6),
+      Math.min(estimatedHeight, (openAbove ? spaceAbove : spaceBelow) - 6)
     );
     const top = openAbove
       ? Math.max(viewportPadding, triggerRect.top - availableHeight - 6)
@@ -1190,10 +1150,9 @@ export function DrawingPanelContent({
     window.addEventListener("resize", updateSizePopoverPosition);
     window.addEventListener("scroll", updateSizePopoverPosition, true);
     const triggerParent = sizeTriggerRef.current?.parentElement;
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updateSizePopoverPosition);
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateSizePopoverPosition);
     if (triggerParent && resizeObserver) {
       resizeObserver.observe(triggerParent);
     }
@@ -1220,7 +1179,7 @@ export function DrawingPanelContent({
   /** 当前模型的质量选项（按能力裁剪；空数组 = 隐藏质量控件）。 */
   const qualityOptions = useMemo(
     () => capabilities?.qualityOptions ?? [],
-    [capabilities],
+    [capabilities]
   );
 
   /** 组装后的 size 参数（"" = 渠道默认；ratio-resolution 体系不组装，见 handleGenerate）。 */
@@ -1244,7 +1203,7 @@ export function DrawingPanelContent({
     // 无档位模型：宽高比 → 固定分辨率
     if (!showTier && ratio) {
       const preset = openaiFixedSizePresets(effectiveModel).find(
-        (item) => item.ratio === ratio,
+        (item) => item.ratio === ratio
       );
       if (preset) {
         return preset.size;
@@ -1337,8 +1296,9 @@ export function DrawingPanelContent({
   }, [capabilities, geminiTierOptions, showTier]);
 
   /** 当前生效的尺寸值（gemini/openai 档位 → tier；ratio-resolution → resolution）。 */
-  const activeSize =
-    capabilities?.sizeSystem === "ratio-resolution" ? resolution : tier;
+  const activeSize = capabilities?.sizeSystem === "ratio-resolution"
+    ? resolution
+    : tier;
 
   /** 尺寸候选副文本（实际分辨率，仅展示；无对应值返回空）。 */
   const sizeTierHint = useCallback(
@@ -1353,18 +1313,20 @@ export function DrawingPanelContent({
         return ""; // grok 的 1k/2k 即档位名，无分辨率副文本
       }
       if (ratio && OPENAI_SIZE_PRESETS[ratio]) {
-        return OPENAI_SIZE_PRESETS[ratio][value as "1K" | "2K" | "4K"] ?? "";
+        return (
+          OPENAI_SIZE_PRESETS[ratio][value as "1K" | "2K" | "4K"] ?? ""
+        );
       }
       return "";
     },
-    [capabilities, ratio, effectiveModel],
+    [capabilities, ratio, effectiveModel]
   );
 
   /** 尺寸候选选中判定（含「默认」空值）。 */
   const isSizeActive = useCallback(
     (value: string): boolean =>
       value === "" ? activeSize === "" : activeSize === value,
-    [activeSize],
+    [activeSize]
   );
 
   /** 尺寸候选选择（按体系写入 tier 或 resolution）。 */
@@ -1376,7 +1338,7 @@ export function DrawingPanelContent({
         setTier(value);
       }
     },
-    [capabilities],
+    [capabilities]
   );
 
   /** 三位一体控件按钮摘要：比例 · 尺寸 · 质量（各维度按能力裁剪）。 */
@@ -1401,9 +1363,7 @@ export function DrawingPanelContent({
     }
     if (qualityOptions.length > 0) {
       const option = qualityOptions.find((item) => item.value === quality);
-      parts.push(
-        option ? t(option.labelKey) : t("rightPanel.aiDrawing.qualityDefault"),
-      );
+      parts.push(option ? t(option.labelKey) : t("rightPanel.aiDrawing.qualityDefault"));
     }
     return parts.length > 0
       ? parts.join(" · ")
@@ -1428,7 +1388,7 @@ export function DrawingPanelContent({
       capabilities
         ? COUNT_OPTIONS.filter((value) => value <= capabilities.maxCount)
         : COUNT_OPTIONS,
-    [capabilities],
+    [capabilities]
   );
 
   /** 模型能力联动：不支持的选项自动回退（数量/透明背景/档位/搜索）。 */
@@ -1487,11 +1447,7 @@ export function DrawingPanelContent({
     (value: string) => {
       setModel(value);
       const entry = modelList.find((item) => item.id === value);
-      if (
-        !entry ||
-        !selectedChannel ||
-        entry.channelId === selectedChannel.id
-      ) {
+      if (!entry || !selectedChannel || entry.channelId === selectedChannel.id) {
         return;
       }
       const target = channels.find((channel) => channel.id === entry.channelId);
@@ -1501,7 +1457,7 @@ export function DrawingPanelContent({
       setChannelId(target.id);
       syncChannelSize(target);
     },
-    [modelList, channels, selectedChannel, syncChannelSize],
+    [modelList, channels, selectedChannel, syncChannelSize]
   );
 
   // ----------------------------------------------------------------
@@ -1524,7 +1480,7 @@ export function DrawingPanelContent({
     // 对应第 N 张参考图；越界/无参考图引用则拦截并提示（不静默丢弃）。
     const { expanded, unresolved } = resolveImagePlaceholders(
       rawText,
-      refImages.length,
+      refImages.length
     );
     if (unresolved.length > 0) {
       setImportNotice({
@@ -1596,7 +1552,10 @@ export function DrawingPanelContent({
     }
     // 反向提示词：仅 Gemini Imagen（supportsNegativePrompt）生效，
     // 由后端写入 generationConfig.negativePrompt；其他模型忽略不发送。
-    if (capabilities?.supportsNegativePrompt && negativePrompt.trim() !== "") {
+    if (
+      capabilities?.supportsNegativePrompt &&
+      negativePrompt.trim() !== ""
+    ) {
       args.negativePrompt = negativePrompt.trim();
     }
     // 种子（可复现；留空随机；模型不支持时忽略）
@@ -1674,7 +1633,7 @@ export function DrawingPanelContent({
               // 避免高频 partial_image 触发每 chunk 一次的全组件重渲染。
               const pending = pendingFramesRef.current;
               const existing = pending.findIndex(
-                (item) => item.index === image.index,
+                (item) => item.index === image.index
               );
               if (existing >= 0) {
                 pending[existing] = image;
@@ -1684,7 +1643,10 @@ export function DrawingPanelContent({
               if (rafRef.current === null) {
                 rafRef.current = window.requestAnimationFrame(() => {
                   rafRef.current = null;
-                  if (cancelledRef.current || genSeqRef.current !== mySeq) {
+                  if (
+                    cancelledRef.current ||
+                    genSeqRef.current !== mySeq
+                  ) {
                     return;
                   }
                   const frames = pendingFramesRef.current;
@@ -1699,7 +1661,7 @@ export function DrawingPanelContent({
                     const merged = [...prev.streaming];
                     for (const frame of frames) {
                       const i = merged.findIndex(
-                        (item) => item.index === frame.index,
+                        (item) => item.index === frame.index
                       );
                       if (i >= 0) {
                         merged[i] = frame;
@@ -1720,7 +1682,7 @@ export function DrawingPanelContent({
         undefined, // interactionId：工作台独立生成，不挂接会话
         undefined, // subAgentAllowedTools
         false, // planMode
-        false, // planApproved
+        false // planApproved
       );
       if (cancelledRef.current || genSeqRef.current !== mySeq) {
         return; // 已取消或已被新生成取代：丢弃结果，不更新 UI
@@ -1794,10 +1756,7 @@ export function DrawingPanelContent({
       let last = 0;
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(value)) !== null) {
-        if (match.index > last)
-          fragment.append(
-            document.createTextNode(value.slice(last, match.index)),
-          );
+        if (match.index > last) fragment.append(document.createTextNode(value.slice(last, match.index)));
         const n = Number.parseInt(match[1], 10);
         const ref = refImages[n - 1];
         const card = document.createElement("button");
@@ -1808,9 +1767,7 @@ export function DrawingPanelContent({
         card.className = `ai-drawing-ref-card-inline${ref ? "" : " is-out-of-range"}`;
         card.disabled = !ref;
         card.title = ref
-          ? t("rightPanel.aiDrawing.refOpenImage", {
-              defaultValue: "Open reference image",
-            })
+          ? t("rightPanel.aiDrawing.refOpenImage", { defaultValue: "Open reference image" })
           : t("rightPanel.aiDrawing.refPlaceholderOutOfRange", {
               values: { refs: match[0], count: refImages.length },
             });
@@ -1834,18 +1791,15 @@ export function DrawingPanelContent({
         }
         const label = document.createElement("span");
         label.className = "ai-drawing-ref-card-inline-label";
-        label.textContent = t("rightPanel.aiDrawing.refChipLabel", {
-          values: { n },
-        });
+        label.textContent = t("rightPanel.aiDrawing.refChipLabel", { values: { n } });
         card.append(label);
         fragment.append(card);
         last = match.index + match[0].length;
       }
-      if (last < value.length)
-        fragment.append(document.createTextNode(value.slice(last)));
+      if (last < value.length) fragment.append(document.createTextNode(value.slice(last)));
       editor.replaceChildren(fragment);
     },
-    [refImages, t],
+    [refImages, t]
   );
 
   const refreshPromptPresentation = useCallback(
@@ -1861,14 +1815,13 @@ export function DrawingPanelContent({
         setPromptSelectionOffsets(editor, selectionOffsets);
       }
     },
-    [renderPromptEditor],
+    [renderPromptEditor]
   );
 
   useEffect(() => {
     const editor = promptEditorRef.current;
     if (!editor) return;
-    const presentationChanged =
-      promptRendererRef.current !== renderPromptEditor;
+    const presentationChanged = promptRendererRef.current !== renderPromptEditor;
     const promptChanged = readPromptEditor(editor) !== prompt;
     if (!presentationChanged && !promptChanged) return;
     if (promptComposingRef.current) {
@@ -1879,40 +1832,36 @@ export function DrawingPanelContent({
     refreshPromptPresentation(prompt);
   }, [prompt, refreshPromptPresentation, renderPromptEditor]);
 
-  const insertRefPlaceholder = useCallback(
-    (n: number): void => {
-      const editor = promptEditorRef.current;
-      const token = `{{Image ${n}}}`;
-      if (!editor) {
-        setPrompt((prev) => (prev ? `${prev} ${token}` : token));
-        return;
-      }
-      editor.focus();
-      const selection = window.getSelection();
-      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-      const insertionRange =
-        range && editor.contains(range.commonAncestorContainer) ? range : null;
-      const tokenNode = document.createTextNode(token);
-      if (insertionRange) {
-        insertionRange.deleteContents();
-        insertionRange.insertNode(tokenNode);
-      } else {
-        editor.append(tokenNode);
-      }
-      setPromptCaretAfter(tokenNode);
-      const next = readPromptEditor(editor);
-      const caretOffset = getPromptSelectionOffset(editor) ?? next.length;
-      setPrompt(next);
-      window.requestAnimationFrame(() => {
-        renderPromptEditor(next);
-        const root = promptEditorRef.current;
-        if (!root) return;
-        root.focus();
-        setPromptSelectionOffset(root, caretOffset);
-      });
-    },
-    [renderPromptEditor],
-  );
+  const insertRefPlaceholder = useCallback((n: number): void => {
+    const editor = promptEditorRef.current;
+    const token = `{{Image ${n}}}`;
+    if (!editor) {
+      setPrompt((prev) => (prev ? `${prev} ${token}` : token));
+      return;
+    }
+    editor.focus();
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const insertionRange = range && editor.contains(range.commonAncestorContainer) ? range : null;
+    const tokenNode = document.createTextNode(token);
+    if (insertionRange) {
+      insertionRange.deleteContents();
+      insertionRange.insertNode(tokenNode);
+    } else {
+      editor.append(tokenNode);
+    }
+    setPromptCaretAfter(tokenNode);
+    const next = readPromptEditor(editor);
+    const caretOffset = getPromptSelectionOffset(editor) ?? next.length;
+    setPrompt(next);
+    window.requestAnimationFrame(() => {
+      renderPromptEditor(next);
+      const root = promptEditorRef.current;
+      if (!root) return;
+      root.focus();
+      setPromptSelectionOffset(root, caretOffset);
+    });
+  }, [renderPromptEditor]);
 
   /** 参考图 → 灯箱 GalleryItem（chip 点击打开图片，复用 openLightbox）。 */
   const refGalleryItems = useMemo<GalleryItem[]>(
@@ -1922,7 +1871,7 @@ export function DrawingPanelContent({
         src: ref.path,
         path: ref.path,
       })),
-    [refImages],
+    [refImages]
   );
 
   const [refPickerOpen, setRefPickerOpen] = useState(false);
@@ -1970,20 +1919,14 @@ export function DrawingPanelContent({
     });
   };
 
-  const handlePromptPaste = (
-    event: React.ClipboardEvent<HTMLDivElement>,
-  ): void => {
+  const handlePromptPaste = (event: React.ClipboardEvent<HTMLDivElement>): void => {
     event.preventDefault();
-    const text = event.clipboardData
-      .getData("text/plain")
-      .replace(/\r\n?/g, "\n");
+    const text = event.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
     document.execCommand("insertText", false, text);
     syncPromptFromEditor();
   };
 
-  const handlePromptCopy = (
-    event: React.ClipboardEvent<HTMLDivElement>,
-  ): void => {
+  const handlePromptCopy = (event: React.ClipboardEvent<HTMLDivElement>): void => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
     const fragment = document.createElement("div");
@@ -1992,21 +1935,19 @@ export function DrawingPanelContent({
     event.clipboardData.setData("text/plain", readPromptEditor(fragment));
   };
 
-  // ESC 关闭参考图选择弹窗（层级栈；弹窗打开期间任意焦点位置生效）。
-  useEscapeKey({
-    onEscape: () => setRefPickerOpen(false),
-    enabled: refPickerOpen,
-  });
-
-  // prompt 编辑器局部按键仅保留 Ctrl+Enter 生成（ESC 交由上方层级栈层处理）。
   const handleKeyDownOnPrompt = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         void handleGenerate();
+        return;
+      }
+      if (event.key === "Escape" && refPickerOpen) {
+        event.preventDefault();
+        setRefPickerOpen(false);
       }
     },
-    [handleGenerate],
+    [handleGenerate, refPickerOpen]
   );
 
   // ----------------------------------------------------------------
@@ -2059,7 +2000,7 @@ export function DrawingPanelContent({
           mimeType: record.mimeType,
           prompt: record.prompt,
           createdAt: record.createdAt,
-        })),
+        }))
       );
     } catch (error) {
       console.warn("[ai-drawing] list image library failed", error);
@@ -2090,7 +2031,7 @@ export function DrawingPanelContent({
       return library;
     }
     return library.filter((record) =>
-      record.prompt.toLowerCase().includes(query),
+      record.prompt.toLowerCase().includes(query)
     );
   }, [library, historyQuery]);
 
@@ -2106,7 +2047,7 @@ export function DrawingPanelContent({
     (record: { id: string; relativePath: string }): void => {
       setDeleteTarget(record);
     },
-    [],
+    []
   );
 
   /** 确认删除：物理文件 + 索引 + 会话消息重写（Rust 侧事务处理）。 */
@@ -2121,13 +2062,10 @@ export function DrawingPanelContent({
         uploadDataCache.delete(record.relativePath);
         // 被删图片若正作为参考图，一并清除。
         setRefImages((prev) =>
-          prev.filter((item) => item.path !== record.relativePath),
+          prev.filter((item) => item.path !== record.relativePath)
         );
         void loadLibrary();
-        setImportNotice({
-          kind: "ok",
-          text: t("rightPanel.aiDrawing.deleted"),
-        });
+        setImportNotice({ kind: "ok", text: t("rightPanel.aiDrawing.deleted") });
       } catch (error) {
         console.warn("[ai-drawing] delete image failed", error);
         setImportNotice({
@@ -2136,12 +2074,16 @@ export function DrawingPanelContent({
         });
       }
     },
-    [loadLibrary, t],
+    [loadLibrary, t]
   );
 
   /** 以图库历史图为参考（图生图）：追加到参考图列表并回填提示词。 */
   const handleUseAsReference = useCallback(
-    (record: { relativePath: string; mimeType: string; prompt: string }) => {
+    (record: {
+      relativePath: string;
+      mimeType: string;
+      prompt: string;
+    }) => {
       const { added, duplicate } = appendRefImages([
         { path: record.relativePath, mimeType: record.mimeType },
       ]);
@@ -2155,7 +2097,7 @@ export function DrawingPanelContent({
         setPrompt(record.prompt);
       }
     },
-    [appendRefImages, t],
+    [appendRefImages, t]
   );
 
   // ----------------------------------------------------------------
@@ -2191,13 +2133,13 @@ export function DrawingPanelContent({
   const handleUploadImages = useCallback(async (): Promise<void> => {
     try {
       const selected = await window.snow.selectImageFiles(
-        t("rightPanel.aiDrawing.uploadDialogTitle"),
+        t("rightPanel.aiDrawing.uploadDialogTitle")
       );
       if (!selected || selected.length === 0) {
         return;
       }
       const { added, duplicate, overLimit } = appendRefImages(
-        selected.map((path) => ({ path, mimeType: inferMimeFromPath(path) })),
+        selected.map((path) => ({ path, mimeType: inferMimeFromPath(path) }))
       );
       if (added > 0) {
         setImportNotice({
@@ -2232,14 +2174,17 @@ export function DrawingPanelContent({
   // ----------------------------------------------------------------
   /** 拖拽悬停区域（library = 图库区导入；canvas = 其他区域设为参考图）。 */
   const [dragOverZone, setDragOverZone] = useState<"library" | "canvas" | null>(
-    null,
+    null
   );
 
   /** 拖拽进入工作台：允许 application/json（图库图）与 Files（本地文件）。 */
   const handleRootDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>): void => {
       const types = event.dataTransfer.types;
-      if (!types.includes("application/json") && !types.includes("Files")) {
+      if (
+        !types.includes("application/json") &&
+        !types.includes("Files")
+      ) {
         return;
       }
       event.preventDefault();
@@ -2248,7 +2193,7 @@ export function DrawingPanelContent({
         (event.target as HTMLElement).closest(".ai-drawing-history") !== null;
       setDragOverZone(inLibrary ? "library" : "canvas");
     },
-    [],
+    []
   );
 
   const handleRootDragLeave = useCallback(
@@ -2257,7 +2202,7 @@ export function DrawingPanelContent({
         setDragOverZone(null);
       }
     },
-    [],
+    []
   );
 
   const handleRootDrop = useCallback(
@@ -2275,10 +2220,7 @@ export function DrawingPanelContent({
         try {
           const parsed = JSON.parse(jsonData) as Record<string, unknown>;
           const images: Array<{ path: string; mimeType: string }> = [];
-          if (
-            parsed.type === "library-image" &&
-            typeof parsed.path === "string"
-          ) {
+          if (parsed.type === "library-image" && typeof parsed.path === "string") {
             images.push({
               path: parsed.path,
               mimeType:
@@ -2310,9 +2252,9 @@ export function DrawingPanelContent({
             setImportNotice({
               kind: "ok",
               text: overLimit
-                ? t("rightPanel.aiDrawing.refLimit", {
-                    values: { count: maxRefLimit },
-                  })
+            ? t("rightPanel.aiDrawing.refLimit", {
+                values: { count: maxRefLimit },
+              })
                 : duplicate && added === 0
                   ? t("rightPanel.aiDrawing.refSkippedDuplicate")
                   : t("rightPanel.aiDrawing.refSetDone"),
@@ -2337,7 +2279,7 @@ export function DrawingPanelContent({
       }
       const entries = await window.snow.resolveDroppedFiles(files);
       const imagePaths = entries.filter(
-        (entry) => !entry.isDirectory && IMAGE_EXT_RE.test(entry.path),
+        (entry) => !entry.isDirectory && IMAGE_EXT_RE.test(entry.path)
       );
       if (imagePaths.length === 0) {
         return;
@@ -2346,7 +2288,7 @@ export function DrawingPanelContent({
         // 拖入图库区：导入图库（复制 + 写索引）；失败给出明确提示。
         try {
           const imported = await window.snow.importImageFiles(
-            imagePaths.map((entry) => entry.path),
+            imagePaths.map((entry) => entry.path)
           );
           if (imported.length > 0) {
             setImportNotice({
@@ -2371,7 +2313,7 @@ export function DrawingPanelContent({
           imagePaths.map((entry) => ({
             path: entry.path,
             mimeType: inferMimeFromPath(entry.path),
-          })),
+          }))
         );
         setImportNotice({
           kind: "ok",
@@ -2385,7 +2327,7 @@ export function DrawingPanelContent({
         });
       }
     },
-    [loadLibrary, appendRefImages, t],
+    [loadLibrary, appendRefImages, t]
   );
 
   const saveItem = useCallback(async (item: GalleryItem): Promise<void> => {
@@ -2423,7 +2365,7 @@ export function DrawingPanelContent({
         setSaving(false);
       }
     },
-    [saving, saveItem],
+    [saving, saveItem]
   );
 
   const handleSaveAll = useCallback(async (): Promise<void> => {
@@ -2467,19 +2409,15 @@ export function DrawingPanelContent({
     });
   }, []);
 
-  // 灯箱 ESC 关闭（层级栈；仅在本 tab 激活时响应，避免后台 tab 抢 ESC）。
-  // 左右箭头切换保留局部监听（非 ESC 语义）。
-  useEscapeKey({
-    onEscape: closeLightbox,
-    enabled: lightbox !== null && isActive,
-  });
-
   useEffect(() => {
     if (!lightbox || !isActive) {
       return;
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "ArrowLeft") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeLightbox();
+      } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         lightboxStep(-1);
       } else if (event.key === "ArrowRight") {
@@ -2489,7 +2427,7 @@ export function DrawingPanelContent({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [lightbox, isActive, lightboxStep]);
+  }, [lightbox, isActive, closeLightbox, lightboxStep]);
 
   const lightboxItem = lightbox ? lightbox.items[lightbox.index] : null;
 
@@ -2546,7 +2484,7 @@ export function DrawingPanelContent({
       personGeneration,
       seed,
       showAdvanced,
-    ],
+    ]
   );
 
   useEffect(() => {
@@ -2573,7 +2511,9 @@ export function DrawingPanelContent({
         : null;
 
   const resultRawText =
-    gen.status === "done" && gen.result.type === "raw" ? gen.result.text : null;
+    gen.status === "done" && gen.result.type === "raw"
+      ? gen.result.text
+      : null;
 
   /** 错误卡片图标组件（按错误类别区分）。 */
   const errorIconComponent = errorInfo
@@ -2601,8 +2541,8 @@ export function DrawingPanelContent({
       {/* 内部布局包装层：container-type 放在这里，避免 layout containment
           把全屏 fixed 浮层（灯箱/删除弹窗）捕获为面板级定位 */}
       <div className="ai-drawing-body">
-        {/* 提示词 + 生成 */}
-        <div className="ai-drawing-composer">
+          {/* 提示词 + 生成 */}
+          <div className="ai-drawing-composer">
           <div className="ai-drawing-prompt-wrap">
             <div
               ref={promptEditorRef}
@@ -2623,16 +2563,12 @@ export function DrawingPanelContent({
               onCompositionEnd={handlePromptCompositionEnd}
               onKeyDown={handleKeyDownOnPrompt}
               onMouseDown={(event) => {
-                if (
-                  (event.target as HTMLElement).closest(PROMPT_REF_SELECTOR)
-                ) {
+                if ((event.target as HTMLElement).closest(PROMPT_REF_SELECTOR)) {
                   event.preventDefault();
                 }
               }}
               onClick={(event) => {
-                const card = (event.target as HTMLElement).closest<HTMLElement>(
-                  PROMPT_REF_SELECTOR,
-                );
+                const card = (event.target as HTMLElement).closest<HTMLElement>(PROMPT_REF_SELECTOR);
                 const n = Number(card?.dataset.refIndex);
                 if (card && Number.isInteger(n) && refImages[n - 1]) {
                   openLightbox(refGalleryItems, n - 1);
@@ -2693,9 +2629,7 @@ export function DrawingPanelContent({
               <textarea
                 className="ai-drawing-negative-input"
                 value={negativePrompt}
-                placeholder={t(
-                  "rightPanel.aiDrawing.negativePromptPlaceholder",
-                )}
+                placeholder={t("rightPanel.aiDrawing.negativePromptPlaceholder")}
                 rows={2}
                 onChange={(event) => setNegativePrompt(event.target.value)}
               />
@@ -2756,7 +2690,7 @@ export function DrawingPanelContent({
             )}
           </div>
         </div>
-
+  
         {/* 参数栏（模型来自渠道模型 API 聚合，选择模型自动匹配服务商） */}
         <div className="ai-drawing-params">
           <label className="ai-drawing-param ai-drawing-param-model">
@@ -2813,7 +2747,7 @@ export function DrawingPanelContent({
               </>
             )}
           </label>
-
+  
           {/* 三位一体尺寸控件：比例 × 尺寸 × 质量（各维度按模型能力裁剪） */}
           {sizeRatioOptions.length > 0 && (
             <div className="ai-drawing-size-control">
@@ -2837,128 +2771,126 @@ export function DrawingPanelContent({
                     className={sizePanelOpen ? "rotate-180" : ""}
                   />
                 </button>
-                {sizePanelOpen &&
-                  sizePopoverRect &&
-                  createPortal(
-                    <>
-                      {/* 点击外部关闭弹层（透明 backdrop 优先捕获） */}
-                      <div
-                        className="ai-drawing-size-backdrop"
-                        onClick={() => setSizePanelOpen(false)}
-                      />
-                      <div
-                        className="ai-drawing-size-popover"
-                        style={{
-                          top: `${sizePopoverRect.top}px`,
-                          left: `${sizePopoverRect.left}px`,
-                          width: `${sizePopoverRect.width}px`,
-                          maxHeight: `${sizePopoverRect.maxHeight}px`,
-                        }}
-                      >
-                        {/* 比例 */}
+                {sizePanelOpen && sizePopoverRect && createPortal(
+                  <>
+                    {/* 点击外部关闭弹层（透明 backdrop 优先捕获） */}
+                    <div
+                      className="ai-drawing-size-backdrop"
+                      onClick={() => setSizePanelOpen(false)}
+                    />
+                    <div
+                      className="ai-drawing-size-popover"
+                      style={{
+                        top: `${sizePopoverRect.top}px`,
+                        left: `${sizePopoverRect.left}px`,
+                        width: `${sizePopoverRect.width}px`,
+                        maxHeight: `${sizePopoverRect.maxHeight}px`,
+                      }}
+                    >
+                      {/* 比例 */}
+                      <div className="ai-drawing-size-row">
+                        <span className="ai-drawing-size-row-title">
+                          {t("rightPanel.aiDrawing.ratio")}
+                        </span>
+                        <div className="ai-drawing-size-grid">
+                          <button
+                            type="button"
+                            className={`ai-drawing-size-option${
+                              ratio === "" ? " active" : ""
+                            }`}
+                            onClick={() => setRatio("")}
+                          >
+                            {t("rightPanel.aiDrawing.sizeDefault")}
+                          </button>
+                          {sizeRatioOptions.map((value) => (
+                            <button
+                              type="button"
+                              key={value}
+                              className={`ai-drawing-size-option${
+                                ratio === value ? " active" : ""
+                              }`}
+                              onClick={() => setRatio(value)}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* 尺寸（档位/分辨率）；无档位模型（比例定尺寸）隐藏该行 */}
+                      {sizeTierOptions.length > 0 && (
                         <div className="ai-drawing-size-row">
                           <span className="ai-drawing-size-row-title">
-                            {t("rightPanel.aiDrawing.ratio")}
+                            {t("rightPanel.aiDrawing.resolution")}
                           </span>
                           <div className="ai-drawing-size-grid">
                             <button
                               type="button"
                               className={`ai-drawing-size-option${
-                                ratio === "" ? " active" : ""
+                                isSizeActive("") ? " active" : ""
                               }`}
-                              onClick={() => setRatio("")}
+                              onClick={() => handleSizeSelect("")}
                             >
                               {t("rightPanel.aiDrawing.sizeDefault")}
                             </button>
-                            {sizeRatioOptions.map((value) => (
+                            {sizeTierOptions.map((value) => {
+                              const hint = sizeTierHint(value);
+                              return (
+                                <button
+                                  type="button"
+                                  key={value}
+                                  className={`ai-drawing-size-option${
+                                    isSizeActive(value) ? " active" : ""
+                                  }`}
+                                  onClick={() => handleSizeSelect(value)}
+                                >
+                                  <span>{value}</span>
+                                  {hint ? (
+                                    <em className="ai-drawing-size-hint">
+                                      {hint}
+                                    </em>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* 质量：按模型能力裁剪；无质量参数的模型隐藏该行 */}
+                      {qualityOptions.length > 0 && (
+                        <div className="ai-drawing-size-row">
+                          <span className="ai-drawing-size-row-title">
+                            {t("toolCall.imagegen.quality", {
+                              defaultValue: "Quality",
+                            })}
+                          </span>
+                          <div className="ai-drawing-size-grid">
+                            {qualityOptions.map((option) => (
                               <button
                                 type="button"
-                                key={value}
+                                key={option.value}
                                 className={`ai-drawing-size-option${
-                                  ratio === value ? " active" : ""
+                                  quality === option.value ? " active" : ""
                                 }`}
-                                onClick={() => setRatio(value)}
+                                onClick={() => setQuality(option.value)}
                               >
-                                {value}
+                                {(option.value === "" ||
+                                  option.value === "auto") &&
+                                channelDefaultQuality
+                                  ? `${t(option.labelKey)} (${channelDefaultQuality})`
+                                  : t(option.labelKey)}
                               </button>
                             ))}
                           </div>
                         </div>
-                        {/* 尺寸（档位/分辨率）；无档位模型（比例定尺寸）隐藏该行 */}
-                        {sizeTierOptions.length > 0 && (
-                          <div className="ai-drawing-size-row">
-                            <span className="ai-drawing-size-row-title">
-                              {t("rightPanel.aiDrawing.resolution")}
-                            </span>
-                            <div className="ai-drawing-size-grid">
-                              <button
-                                type="button"
-                                className={`ai-drawing-size-option${
-                                  isSizeActive("") ? " active" : ""
-                                }`}
-                                onClick={() => handleSizeSelect("")}
-                              >
-                                {t("rightPanel.aiDrawing.sizeDefault")}
-                              </button>
-                              {sizeTierOptions.map((value) => {
-                                const hint = sizeTierHint(value);
-                                return (
-                                  <button
-                                    type="button"
-                                    key={value}
-                                    className={`ai-drawing-size-option${
-                                      isSizeActive(value) ? " active" : ""
-                                    }`}
-                                    onClick={() => handleSizeSelect(value)}
-                                  >
-                                    <span>{value}</span>
-                                    {hint ? (
-                                      <em className="ai-drawing-size-hint">
-                                        {hint}
-                                      </em>
-                                    ) : null}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                        {/* 质量：按模型能力裁剪；无质量参数的模型隐藏该行 */}
-                        {qualityOptions.length > 0 && (
-                          <div className="ai-drawing-size-row">
-                            <span className="ai-drawing-size-row-title">
-                              {t("toolCall.imagegen.quality", {
-                                defaultValue: "Quality",
-                              })}
-                            </span>
-                            <div className="ai-drawing-size-grid">
-                              {qualityOptions.map((option) => (
-                                <button
-                                  type="button"
-                                  key={option.value}
-                                  className={`ai-drawing-size-option${
-                                    quality === option.value ? " active" : ""
-                                  }`}
-                                  onClick={() => setQuality(option.value)}
-                                >
-                                  {(option.value === "" ||
-                                    option.value === "auto") &&
-                                  channelDefaultQuality
-                                    ? `${t(option.labelKey)} (${channelDefaultQuality})`
-                                    : t(option.labelKey)}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </>,
-                    document.body,
-                  )}
+                      )}
+                    </div>
+                  </>,
+                  document.body
+                )}
               </div>
             </div>
           )}
-
+  
           <label className="ai-drawing-param">
             <span className="ai-drawing-param-label">
               {t("rightPanel.aiDrawing.count")}
@@ -2982,7 +2914,7 @@ export function DrawingPanelContent({
               portal
             />
           </label>
-
+  
           {/* 流式预览：模型不支持时隐藏（如 xAI Grok） */}
           {capabilities?.supportsStream !== false && (
             <label className="ai-drawing-param ai-drawing-param-stream">
@@ -3004,7 +2936,7 @@ export function DrawingPanelContent({
               </span>
             </label>
           )}
-
+  
           <button
             type="button"
             className={`ai-drawing-advanced-toggle${
@@ -3020,7 +2952,7 @@ export function DrawingPanelContent({
             />
           </button>
         </div>
-
+  
         {/* 高级参数（按渠道协议 + 模型能力分别显示） */}
         {showAdvanced && (
           <div className="ai-drawing-advanced">
@@ -3156,9 +3088,7 @@ export function DrawingPanelContent({
                         label: t(option.labelKey),
                         disabled:
                           option.value === "transparent" &&
-                          (capabilities
-                            ? !capabilities.supportsTransparent
-                            : false),
+                          (capabilities ? !capabilities.supportsTransparent : false),
                       }))}
                       onChange={setBackground}
                       portal
@@ -3201,7 +3131,7 @@ export function DrawingPanelContent({
             )}
           </div>
         )}
-
+  
         {/* 参考图（图生图，最多 5 张，逐张可移除；编号角标 = {{Image N}} 引用号） */}
         {refImages.length > 0 && (
           <div className="ai-drawing-refs">
@@ -3229,7 +3159,7 @@ export function DrawingPanelContent({
                   onClick={(event) => {
                     event.stopPropagation();
                     setRefImages((prev) =>
-                      prev.filter((item) => item.path !== ref.path),
+                      prev.filter((item) => item.path !== ref.path)
                     );
                   }}
                 >
@@ -3247,17 +3177,15 @@ export function DrawingPanelContent({
             <span>{t("rightPanel.aiDrawing.refPlaceholderHint")}</span>
           </div>
         )}
-
+  
         {/* 模型不支持参考图时提示（如 dall-e-3 / imagen 仅文生图） */}
-        {refImages.length > 0 &&
-          capabilities &&
-          !capabilities.supportsReference && (
-            <div className="ai-drawing-model-warn">
-              <AlertCircle size={13} strokeWidth={1.8} />
-              <span>{t("rightPanel.aiDrawing.modelUnsupportedRef")}</span>
-            </div>
-          )}
-
+        {refImages.length > 0 && capabilities && !capabilities.supportsReference && (
+          <div className="ai-drawing-model-warn">
+            <AlertCircle size={13} strokeWidth={1.8} />
+            <span>{t("rightPanel.aiDrawing.modelUnsupportedRef")}</span>
+          </div>
+        )}
+  
         {/* 上传导入提示（成功/失败，自动消失） */}
         {importNotice && (
           <div
@@ -3271,17 +3199,13 @@ export function DrawingPanelContent({
             <span>{importNotice.text}</span>
           </div>
         )}
-
+  
         {/* 本次生成结果（画布区：占据剩余空间） */}
         <div className="ai-drawing-section ai-drawing-canvas">
           {isGenerating ? (
             <>
               <div className="ai-drawing-status ai-drawing-status-generating">
-                <Loader2
-                  size={16}
-                  strokeWidth={1.8}
-                  className="ai-drawing-spin"
-                />
+                <Loader2 size={16} strokeWidth={1.8} className="ai-drawing-spin" />
                 <span>
                   {streamingItems.length > 0
                     ? t("toolCall.imagegen.streamingPreview", {
@@ -3388,11 +3312,7 @@ export function DrawingPanelContent({
                 onClick={() => void handleSaveAll()}
               >
                 {saving ? (
-                  <Loader2
-                    size={13}
-                    strokeWidth={1.8}
-                    className="ai-drawing-spin"
-                  />
+                  <Loader2 size={13} strokeWidth={1.8} className="ai-drawing-spin" />
                 ) : (
                   <Download size={13} strokeWidth={1.8} />
                 )}
@@ -3423,7 +3343,7 @@ export function DrawingPanelContent({
               />
             </div>
           ) : null}
-
+  
           {!isGenerating &&
             !hasError &&
             !resultRawText &&
@@ -3441,7 +3361,7 @@ export function DrawingPanelContent({
                       onClick={() =>
                         openLightbox(
                           resultItems,
-                          resultItems.findIndex((it) => it.key === item.key),
+                          resultItems.findIndex((it) => it.key === item.key)
                         )
                       }
                     />
@@ -3455,7 +3375,7 @@ export function DrawingPanelContent({
                         onClick={() =>
                           openLightbox(
                             resultItems,
-                            resultItems.findIndex((it) => it.key === item.key),
+                            resultItems.findIndex((it) => it.key === item.key)
                           )
                         }
                       >
@@ -3477,7 +3397,7 @@ export function DrawingPanelContent({
               </div>
             )}
         </div>
-
+  
         {/* 图库历史（存储） */}
         <div
           className={`ai-drawing-section ai-drawing-history${
@@ -3530,7 +3450,7 @@ export function DrawingPanelContent({
               </button>
             </div>
           </div>
-
+  
           {historyCollapsed ? null : library.length === 0 ? (
             <div className="ai-drawing-status ai-drawing-status-empty">
               <Images size={18} strokeWidth={1.8} />
@@ -3561,7 +3481,7 @@ export function DrawingPanelContent({
                           name:
                             record.relativePath.split("/").pop() ??
                             record.relativePath,
-                        }),
+                        })
                       );
                       event.dataTransfer.effectAllowed = "copy";
                     }}
@@ -3570,7 +3490,7 @@ export function DrawingPanelContent({
                       path={record.relativePath}
                       alt={record.prompt || record.relativePath}
                       title={`${record.prompt || record.relativePath}\n${formatTime(
-                        record.createdAt,
+                        record.createdAt
                       )}`}
                       loading="lazy"
                       onClick={() =>
@@ -3580,7 +3500,7 @@ export function DrawingPanelContent({
                             src: proxyForLibraryPath(item.relativePath),
                             record: item,
                           })),
-                          index,
+                          index
                         )
                       }
                     />
@@ -3608,7 +3528,7 @@ export function DrawingPanelContent({
                               src: proxyForLibraryPath(item.relativePath),
                               record: item,
                             })),
-                            index,
+                            index
                           )
                         }
                       >
@@ -3637,7 +3557,7 @@ export function DrawingPanelContent({
               )}
             </>
           )}
-        </div>
+      </div>
       </div>
 
       {/* 删除确认弹窗（fixed 全屏浮层，保持在 container-type 容器之外） */}
@@ -3746,9 +3666,9 @@ export function DrawingPanelContent({
                 lightboxItem.image?.path
               }
               src={
-                (lightboxItem.path ??
+                lightboxItem.path ??
                 lightboxItem.record?.relativePath ??
-                lightboxItem.image?.path)
+                lightboxItem.image?.path
                   ? undefined
                   : lightboxItem.src
               }

@@ -4,7 +4,6 @@ import {
   Code2,
   Ellipsis,
   FileSearch,
-  FolderInput,
   FolderMinus,
   Loader2,
   Pencil,
@@ -13,7 +12,6 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 import type { IdeInfo, WorkspaceDirectoryKind } from "../../../../preload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
@@ -32,8 +30,6 @@ type WorkspaceDirectoryMenuProps = {
   kind?: WorkspaceDirectoryKind;
   onDelete: () => void;
   onOpenChange?: (isOpen: boolean) => void;
-  /** 修改项目文件夹（重定向到新路径并迁移历史数据；非 builtin 项目） */
-  onChangeFolder?: () => void;
   /** 从所属合集移除（合集成员行菜单项，非成员行不传） */
   onRemoveFromCollection?: () => void;
   onRename?: () => void;
@@ -57,7 +53,6 @@ export function WorkspaceDirectoryMenu({
   kind,
   onDelete,
   onOpenChange,
-  onChangeFolder,
   onRemoveFromCollection,
   onRename,
   onShowDetails,
@@ -84,21 +79,6 @@ export function WorkspaceDirectoryMenu({
   onContextMenuCloseRef.current = onContextMenuClose;
   const idesLoadedRef = useRef(false);
   const openWithCloseTimerRef = useRef<number | null>(null);
-
-  // 关闭整个菜单（含确认框/打开方式二级菜单）；Escape 与点击外部共用。
-  const closeMenu = (): void => {
-    setIsButtonOpen(false);
-    onContextMenuCloseRef.current?.();
-    setShowConfirm(false);
-    setIsOpenWithOpen(false);
-  };
-
-  // ESC 关闭整个菜单（层级栈）。确认框打开时本层让位给 ConfirmDialog（common）
-  // 自身的 ESC 层：此时 ESC 仅取消确认框、保留菜单（与收敛前行为一致）。
-  useEscapeKey({
-    onEscape: closeMenu,
-    enabled: isOpen && !showConfirm,
-  });
 
   // 鼠标从触发项移到二级菜单之间存在间隙，直接关闭会导致菜单闪烁。
   // 用短暂延时确认用户确实离开后再收起。
@@ -176,6 +156,14 @@ export function WorkspaceDirectoryMenu({
       return;
     }
 
+    // 关闭菜单：清空按钮态、右键锚点态与二级菜单态
+    const closeMenu = (): void => {
+      setIsButtonOpen(false);
+      onContextMenuCloseRef.current?.();
+      setShowConfirm(false);
+      setIsOpenWithOpen(false);
+    };
+
     const handleClickOutside = (event: MouseEvent): void => {
       // 右键按下不立即关闭：由 document 级 contextmenu 监听统一处理，
       // 允许在同一行上连续右键时直接重新定位菜单，避免闪烁。
@@ -223,11 +211,19 @@ export function WorkspaceDirectoryMenu({
       closeMenu();
     };
 
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+    };
+
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("contextmenu", handleGlobalContextMenu);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("contextmenu", handleGlobalContextMenu);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
 
@@ -249,12 +245,6 @@ export function WorkspaceDirectoryMenu({
 
   const handleRenameClick = (): void => {
     onRename?.();
-    setIsButtonOpen(false);
-    onContextMenuCloseRef.current?.();
-  };
-
-  const handleChangeFolderClick = (): void => {
-    onChangeFolder?.();
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
   };
@@ -526,21 +516,6 @@ export function WorkspaceDirectoryMenu({
                     <span>
                       {t("sidebar.directoryActionRename", {
                         defaultValue: "Rename",
-                      })}
-                    </span>
-                  </button>
-                ) : null}
-                {onChangeFolder ? (
-                  <button
-                    type="button"
-                    className="workspace-directory-menu-item"
-                    onClick={handleChangeFolderClick}
-                    role="menuitem"
-                  >
-                    <FolderInput size={13} />
-                    <span>
-                      {t("sidebar.directoryActionChangeFolder", {
-                        defaultValue: "Change folder…",
                       })}
                     </span>
                   </button>

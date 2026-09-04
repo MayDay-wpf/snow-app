@@ -1,4 +1,4 @@
-import { Loader2, Plug, Settings } from "lucide-react";
+import { Plug, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import type { ChatInputViewProps } from "./types";
@@ -10,7 +10,6 @@ import { ChatInputToolbar } from "./ChatInputToolbar";
 import { FileMentionPopup } from "./FileMentionPopup";
 import { PendingMessages } from "./PendingMessages";
 import { StreamMetrics } from "./StreamMetrics";
-import { useBackgroundRunningSessions } from "./useBackgroundRunningSessions";
 import { useChatConversationContext } from "../chatMessages";
 import { directoryIdToPath } from "../chatMessages/utils/conversationHelpers";
 import { collectConversationFileChanges } from "../chatMessages/hooks/fileChangeTracking";
@@ -141,18 +140,7 @@ export const ChatInputView = ({
     isPaused,
     handlePause,
     handleResume,
-    sessionsRefData,
-    streamingConversationIds,
-    attentionRequiredConversationIds,
   } = useChatConversationContext();
-  // 当前会话树下后台运行的子代理/WorkFlow 节点数：
-  // 输入区显示轻量提醒条，提示消息可能排队处理
-  const backgroundRunningCount = useBackgroundRunningSessions(
-    activeConversationId,
-    streamingConversationIds,
-    attentionRequiredConversationIds,
-    sessionsRefData,
-  );
   // 用户发送过的历史消息（终端式 ↑/↓ 回溯用）：按时间正序保留。
   // 过滤压缩摘要（isContextCompaction）等非用户真实输入的系统消息。
   const userHistoryMessages = useMemo(
@@ -577,21 +565,6 @@ export const ChatInputView = ({
           onWithdraw={handleWithdrawPending}
           onSendNow={handleSendPendingNow}
         />
-        {/* 后台子代理/WorkFlow 节点运行中的轻量提醒：仅当前会话未在
-            流式输出时显示（流式时已有 stream-metrics-bar 占位），
-            随后台会话收尾自动消失，不阻塞输入 */}
-        {backgroundRunningCount > 0 && !isStreaming ? (
-          <div className="chat-input-background-hint" role="status">
-            <Loader2 className="spin" size={13} aria-hidden="true" />
-            <span>
-              {t("chat.backgroundTasksRunning", {
-                defaultValue:
-                  "当前有 {{count}} 个后台会话正在运行，消息可能排队处理",
-                values: { count: backgroundRunningCount },
-              })}
-            </span>
-          </div>
-        ) : null}
         {isStreaming ? (
           <div className="stream-metrics-bar">
             <StreamMetrics

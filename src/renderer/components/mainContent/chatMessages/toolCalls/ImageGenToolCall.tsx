@@ -12,7 +12,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
-import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import {
   downloadImageSrc,
   extensionForBlob,
@@ -116,7 +115,7 @@ export const ImageGenToolCall = ({
                   }
                   const list = prev.streamingImages;
                   const existing = list.findIndex(
-                    (item) => item.index === image.index,
+                    (item) => item.index === image.index
                   );
                   const next =
                     existing >= 0
@@ -132,14 +131,14 @@ export const ImageGenToolCall = ({
           toolCall.interactionId, // 沿用原调用 ID，chunk 路由到同一卡片
           undefined, // subAgentAllowedTools
           false, // planMode：生图不涉及写门
-          false, // planApproved
+          false // planApproved
         );
         setRetry({ status: "done", result });
       } catch (error) {
         setRetry({ status: "failed", error: getErrorMessage(error) });
       }
     },
-    [toolCall.name, toolCall.interactionId],
+    [toolCall.name, toolCall.interactionId]
   );
 
   /** 失败重试：完全相同参数重跑 */
@@ -228,6 +227,7 @@ export const ImageGenToolCall = ({
     return count;
   }, [sessions, activeConversationId]);
 
+
   // ------------------------------------------------------------------
   // 批量下载：优先一次选择目录写入全部（showDirectoryPicker），
   // 回退为逐张保存（每张弹一次原生保存框）。
@@ -244,7 +244,7 @@ export const ImageGenToolCall = ({
       }
       const ratio = img.naturalWidth / img.naturalHeight;
       setRatios((prev) =>
-        prev[index] === ratio ? prev : { ...prev, [index]: ratio },
+        prev[index] === ratio ? prev : { ...prev, [index]: ratio }
       );
     };
   }, []);
@@ -252,7 +252,7 @@ export const ImageGenToolCall = ({
   // 同批并行生成的图片统一展示比例：取已加载比例的中位数，避免个别图抖动
   const unifiedRatio = useMemo(() => {
     const values = Object.values(ratios).filter(
-      (value) => Number.isFinite(value) && value > 0,
+      (value) => Number.isFinite(value) && value > 0
     );
     if (values.length === 0) {
       return null;
@@ -266,8 +266,8 @@ export const ImageGenToolCall = ({
     unifiedRatio !== null && unifiedRatio > IMG_WIDE_RATIO
       ? " tool-call-imagegen-figure-wide"
       : unifiedRatio !== null && unifiedRatio < IMG_TALL_RATIO
-        ? " tool-call-imagegen-figure-tall"
-        : ""
+      ? " tool-call-imagegen-figure-tall"
+      : ""
   }`;
   const figureStyle =
     unifiedRatio !== null
@@ -276,7 +276,7 @@ export const ImageGenToolCall = ({
 
   const parsedArgs = useMemo(
     () => parseImageGenArgs(toolCall.arguments),
-    [toolCall.arguments],
+    [toolCall.arguments]
   );
 
   // 实际使用的 seed：变体注入的 seed 优先，其次原参数中的 seed
@@ -291,11 +291,11 @@ export const ImageGenToolCall = ({
     retry.status === "running"
       ? undefined
       : retry.status === "done"
-        ? retry.result
-        : toolCall.result;
+      ? retry.result
+      : toolCall.result;
   const parsedResult = useMemo(
     () => parseImageGenResult(effectiveResult),
-    [effectiveResult],
+    [effectiveResult]
   );
 
   // 收集 path 引用参考图（无内联 data 的项），挂载后经主进程读取真实缩略图
@@ -355,7 +355,7 @@ export const ImageGenToolCall = ({
           console.warn(
             "[imagegen] resolveLibraryImage failed for",
             path,
-            error,
+            error
           );
         }
         if (cancelled) {
@@ -487,7 +487,7 @@ export const ImageGenToolCall = ({
           showDirectoryPicker?: () => Promise<{
             getFileHandle: (
               name: string,
-              opts: { create: boolean },
+              opts: { create: boolean }
             ) => Promise<{
               createWritable: () => Promise<{
                 write: (blob: Blob) => Promise<void>;
@@ -502,7 +502,7 @@ export const ImageGenToolCall = ({
         for (let i = 0; i < blobs.length; i++) {
           const fileHandle = await dir.getFileHandle(
             `${base}-${i + 1}.${extensionForBlob(blobs[i])}`,
-            { create: true },
+            { create: true }
           );
           const writable = await fileHandle.createWritable();
           await writable.write(blobs[i]);
@@ -513,7 +513,7 @@ export const ImageGenToolCall = ({
         for (let i = 0; i < blobs.length; i++) {
           await saveBlobToFile(
             blobs[i],
-            `${base}-${i + 1}.${extensionForBlob(blobs[i])}`,
+            `${base}-${i + 1}.${extensionForBlob(blobs[i])}`
           );
         }
       }
@@ -527,7 +527,9 @@ export const ImageGenToolCall = ({
   // 远程图加载失败（链接过期/403 等）的记录：按 key 降级为占位展示
   const [failedRemotes, setFailedRemotes] = useState<Set<string>>(new Set());
   const handleRemoteError = useCallback((key: string) => {
-    setFailedRemotes((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    setFailedRemotes((prev) =>
+      prev.has(key) ? prev : new Set(prev).add(key)
+    );
   }, []);
 
   const prompt = parsedArgs?.prompt ?? "";
@@ -647,7 +649,8 @@ export const ImageGenToolCall = ({
           ) : null}
           {parsedArgs.inputFidelity ? (
             <span className="tool-call-imagegen-param-tag">
-              {t("toolCall.imagegen.inputFidelity")}: {parsedArgs.inputFidelity}
+              {t("toolCall.imagegen.inputFidelity")}:{" "}
+              {parsedArgs.inputFidelity}
             </span>
           ) : null}
           {parsedArgs.background ? (
@@ -667,7 +670,8 @@ export const ImageGenToolCall = ({
           ) : null}
           {parsedArgs.thinkingLevel ? (
             <span className="tool-call-imagegen-param-tag">
-              {t("toolCall.imagegen.thinkingLevel")}: {parsedArgs.thinkingLevel}
+              {t("toolCall.imagegen.thinkingLevel")}:{" "}
+              {parsedArgs.thinkingLevel}
             </span>
           ) : null}
           {parsedArgs.imageSearch === true ? (
@@ -698,8 +702,8 @@ export const ImageGenToolCall = ({
               const src = image.data
                 ? `data:${image.mimeType};base64,${image.data}`
                 : image.path
-                  ? (resolvedRefs[image.path] ?? "")
-                  : "";
+                ? resolvedRefs[image.path] ?? ""
+                : "";
               return (
                 <div
                   key={`${index}-${image.path ?? image.data.length}`}
@@ -735,7 +739,7 @@ export const ImageGenToolCall = ({
     }
     const preview = parsedResult.contentPreview ?? "";
     const failedMatch = preview.match(
-      /(\d+\/\d+ parallel requests failed: [\s\S]*)$/,
+      /(\d+\/\d+ parallel requests failed: [\s\S]*)$/
     );
     return failedMatch ? failedMatch[1] : "";
   }, [parsedResult]);
@@ -746,7 +750,7 @@ export const ImageGenToolCall = ({
       parsedResult.type === "error"
         ? classifyImageGenError(parsedResult.message)
         : null,
-    [parsedResult],
+    [parsedResult]
   );
 
   // 灯箱：挂载到 document.body，确保 fixed 定位始终相对视口，
@@ -765,11 +769,11 @@ export const ImageGenToolCall = ({
       setLightbox(
         item.image
           ? { kind: "image", image: item.image }
-          : { kind: "remote", url: item.remoteUrl! },
+          : { kind: "remote", url: item.remoteUrl! }
       );
       setLightboxIndex(next);
     },
-    [lightboxIndex, galleryItems],
+    [lightboxIndex, galleryItems]
   );
 
   /** 关闭灯箱（同时重置切换索引） */
@@ -782,7 +786,7 @@ export const ImageGenToolCall = ({
     ? lightbox.kind === "remote"
       ? imageProxyUrl(lightbox.url)
       : lightbox.image.path
-        ? (resolvedLibrary[lightbox.image.path] ?? "")
+        ? resolvedLibrary[lightbox.image.path] ?? ""
         : `data:${lightbox.image.mimeType};base64,${lightbox.image.data}`
     : "";
 
@@ -807,7 +811,7 @@ export const ImageGenToolCall = ({
         console.warn(
           "[imagegen] resolveLibraryImage failed for lightbox",
           targetPath,
-          error,
+          error
         );
       }
     })();
@@ -820,26 +824,31 @@ export const ImageGenToolCall = ({
     resolvedLibrary,
   ]);
 
-  // Esc 关闭灯箱统一走 useEscapeKey 层级栈；
-  // 方向键切换（非关闭语义）仍由局部 keydown 监听处理。
-  useEscapeKey({ onEscape: closeLightbox, enabled: lightbox !== null });
-
+  // Esc 关闭灯箱；方向键在同批次图片间上下/左右切换
   useEffect(() => {
     if (!lightbox) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      if (event.key === "Escape") {
+        closeLightbox();
+      } else if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowLeft"
+      ) {
         event.preventDefault();
         lightboxDelta(-1);
-      } else if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      } else if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowRight"
+      ) {
         event.preventDefault();
         lightboxDelta(1);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [lightbox, lightboxDelta]);
+  }, [lightbox, lightboxDelta, closeLightbox]);
 
   const lightboxElement = lightbox
     ? createPortal(
@@ -870,7 +879,10 @@ export const ImageGenToolCall = ({
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
-            <div className="tool-call-imagegen-lightbox-loading" role="status">
+            <div
+              className="tool-call-imagegen-lightbox-loading"
+              role="status"
+            >
               <Loader2
                 className="tool-call-icon-spinning"
                 size={28}
@@ -909,14 +921,10 @@ export const ImageGenToolCall = ({
               onClick={() => {
                 void (async () => {
                   let src = lightboxSrc;
-                  if (
-                    !src &&
-                    lightbox.kind === "image" &&
-                    lightbox.image.path
-                  ) {
+                  if (!src && lightbox.kind === "image" && lightbox.image.path) {
                     src =
                       (await window.snow.resolveLibraryImage(
-                        lightbox.image.path,
+                        lightbox.image.path
                       )) ?? "";
                   }
                   if (src) {
@@ -943,7 +951,7 @@ export const ImageGenToolCall = ({
             </button>
           </div>
         </div>,
-        document.body,
+        document.body
       )
     : null;
 
@@ -956,7 +964,7 @@ export const ImageGenToolCall = ({
       resultImageCount > 1
         ? ({
             gridTemplateColumns: `repeat(${columnsForCount(
-              resultImageCount,
+              resultImageCount
             )}, minmax(0, 1fr))`,
           } as React.CSSProperties)
         : undefined;
@@ -973,7 +981,7 @@ export const ImageGenToolCall = ({
                 type="button"
                 className="tool-call-imagegen-seed"
                 title={`${t("toolCall.imagegen.seed")}: ${displayedSeed} · ${t(
-                  "toolCall.imagegen.seedCopy",
+                  "toolCall.imagegen.seedCopy"
                 )}`}
                 onClick={() => {
                   void navigator.clipboard.writeText(String(displayedSeed));
@@ -1024,7 +1032,7 @@ export const ImageGenToolCall = ({
         >
           {galleryItems.map((item, index) => {
             const failed = Boolean(
-              item.remoteUrl && failedRemotes.has(item.key),
+              item.remoteUrl && failedRemotes.has(item.key)
             );
             return (
               <figure
@@ -1038,11 +1046,7 @@ export const ImageGenToolCall = ({
                   onClick={() => {
                     if (failed && item.remoteUrl) {
                       // 链接已失效：直接打开原始 URL（浏览器可尝试重试/登录）
-                      window.open(
-                        item.remoteUrl,
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
+                      window.open(item.remoteUrl, "_blank", "noopener,noreferrer");
                       return;
                     }
                     item.image
@@ -1073,9 +1077,7 @@ export const ImageGenToolCall = ({
                     />
                   )}
                   {resultImageCount > 1 ? (
-                    <span className="tool-call-imagegen-badge">
-                      {index + 1}
-                    </span>
+                    <span className="tool-call-imagegen-badge">{index + 1}</span>
                   ) : null}
                 </button>
                 {item.image ? (
@@ -1216,13 +1218,14 @@ export const ImageGenToolCall = ({
                     aria-hidden="true"
                   />
                   <span>
-                    {toolCall.status === "pending" && runningImageGenCount > 0
+                    {toolCall.status === "pending" &&
+                    runningImageGenCount > 0
                       ? t("toolCall.imagegen.queued", {
                           values: { count: runningImageGenCount },
                         })
                       : toolCall.status === "running"
-                        ? t("toolCall.imagegen.generating")
-                        : t("toolCall.imagegen.waiting")}
+                      ? t("toolCall.imagegen.generating")
+                      : t("toolCall.imagegen.waiting")}
                   </span>
                 </div>
               )}
@@ -1234,13 +1237,14 @@ export const ImageGenToolCall = ({
               <span className="tool-call-imagegen-figure-label">
                 {latestStream
                   ? t("toolCall.imagegen.streamingPreview")
-                  : toolCall.status === "pending" && runningImageGenCount > 0
-                    ? t("toolCall.imagegen.queued", {
-                        values: { count: runningImageGenCount },
-                      })
-                    : toolCall.status === "running"
-                      ? t("toolCall.imagegen.generating")
-                      : t("toolCall.imagegen.waiting")}
+                  : toolCall.status === "pending" &&
+                    runningImageGenCount > 0
+                  ? t("toolCall.imagegen.queued", {
+                      values: { count: runningImageGenCount },
+                    })
+                  : toolCall.status === "running"
+                  ? t("toolCall.imagegen.generating")
+                  : t("toolCall.imagegen.waiting")}
               </span>
               <span aria-hidden="true" />
             </figcaption>
@@ -1283,8 +1287,8 @@ export const ImageGenToolCall = ({
               <span className="tool-call-error-title">
                 {t(
                   imageGenErrorTitleKey(
-                    classifyImageGenError(retry.error).kind,
-                  ),
+                    classifyImageGenError(retry.error).kind
+                  )
                 )}
               </span>
               <span className="tool-call-error-detail">{retry.error}</span>

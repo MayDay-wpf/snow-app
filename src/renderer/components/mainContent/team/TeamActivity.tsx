@@ -15,7 +15,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TeamMessage, TeamMessageAttachment } from "../../../../preload";
 import { useI18n } from "../../../i18n";
-import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { dataUrlToBlob, saveBlobToFile } from "../../../utils/imageDownload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import type { TeamData } from "./useTeamData";
@@ -334,11 +333,19 @@ export const TeamActivity = ({
     void pushMessage(record);
   };
 
-  // Esc 关闭图片预览（useEscapeKey 层级栈统一分派）
-  useEscapeKey({
-    onEscape: () => setPreviewSrc(null),
-    enabled: previewSrc !== null,
-  });
+  // Esc 关闭图片预览
+  useEffect(() => {
+    if (!previewSrc) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        setPreviewSrc(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewSrc]);
 
   const retrySend = (messageId: string): void => {
     const target = outbox.find((item) => item.record.id === messageId);
