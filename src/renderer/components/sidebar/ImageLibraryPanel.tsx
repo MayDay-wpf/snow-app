@@ -22,16 +22,14 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { useI18n } from "../../i18n";
 import { CustomSelect } from "../common/CustomSelect";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { FormDialog } from "../common/FormDialog";
 import { ContextMenu } from "../common/ContextMenu";
 import type { ContextMenuItem } from "../common/ContextMenu";
-import type {
-  ImageAlbumRecord,
-  ImageLibraryRecord,
-} from "../../../preload";
+import type { ImageAlbumRecord, ImageLibraryRecord } from "../../../preload";
 
 type RatioFilter = "all" | "landscape" | "square" | "portrait";
 type TimeFilter = "all" | "today" | "7d" | "30d";
@@ -122,7 +120,7 @@ export const ImageLibraryPanel = ({
   const [newAlbumName, setNewAlbumName] = useState("");
   /** 正在重命名的相册（null = 未在重命名） */
   const [renamingAlbum, setRenamingAlbum] = useState<ImageAlbumRecord | null>(
-    null
+    null,
   );
   const [renameAlbumName, setRenameAlbumName] = useState("");
   /** 新建/重命名相册对话框内联错误提示 */
@@ -151,13 +149,11 @@ export const ImageLibraryPanel = ({
   const [albumCovers, setAlbumCovers] = useState<Record<string, string>>({});
   /** 最近一次复制成功的标识（用于"已复制"反馈） */
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const copiedKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const copiedKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 轻量操作反馈（设为封面/发送到聊天框等，数秒后消失）。 */
   const [actionToast, setActionToast] = useState<string | null>(null);
   const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
+    null,
   );
   /** 相册排序拖拽中（携带的相册 id）。 */
   const [draggingAlbumId, setDraggingAlbumId] = useState<string | null>(null);
@@ -199,7 +195,7 @@ export const ImageLibraryPanel = ({
       setAlbums(albumRecords);
     } catch (loadError) {
       setError(
-        loadError instanceof Error ? loadError.message : String(loadError)
+        loadError instanceof Error ? loadError.message : String(loadError),
       );
     } finally {
       setLoading(false);
@@ -224,7 +220,7 @@ export const ImageLibraryPanel = ({
         }
       }
       const pending = items.filter(
-        (record) => !imageDataCache.has(record.relativePath)
+        (record) => !imageDataCache.has(record.relativePath),
       );
       let cursor = 0;
       const workerCount = Math.min(6, Math.max(1, pending.length));
@@ -235,7 +231,7 @@ export const ImageLibraryPanel = ({
           const record = pending[idx];
           try {
             const dataUrl = await window.snow.resolveLibraryImage(
-              record.relativePath
+              record.relativePath,
             );
             if (dataUrl) {
               imageDataCache.set(record.relativePath, dataUrl);
@@ -246,9 +242,7 @@ export const ImageLibraryPanel = ({
           }
         }
       };
-      await Promise.all(
-        Array.from({ length: workerCount }, () => worker())
-      );
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
       if (!cancelled && Object.keys(next).length > 0) {
         setDataUrls((prev) => ({ ...prev, ...next }));
       }
@@ -272,7 +266,7 @@ export const ImageLibraryPanel = ({
         }
         try {
           const dataUrl = await window.snow.resolveLibraryImage(
-            album.coverPath
+            album.coverPath,
           );
           if (dataUrl) {
             imageDataCache.set(album.coverPath, dataUrl);
@@ -300,12 +294,12 @@ export const ImageLibraryPanel = ({
 
   const models = useMemo(
     () => [...new Set(items.map((item) => item.model).filter(Boolean))].sort(),
-    [items]
+    [items],
   );
   const providers = useMemo(
     () =>
       [...new Set(items.map((item) => item.provider).filter(Boolean))].sort(),
-    [items]
+    [items],
   );
 
   const filtered = useMemo(() => {
@@ -317,12 +311,7 @@ export const ImageLibraryPanel = ({
     const matched = items.filter((item) => {
       // 搜索：文件名 / prompt / 模型 / 服务商 模糊匹配
       if (keyword) {
-        const haystack = [
-          item.fileName,
-          item.prompt,
-          item.model,
-          item.provider,
-        ]
+        const haystack = [item.fileName, item.prompt, item.model, item.provider]
           .join(" ")
           .toLowerCase();
         if (!haystack.includes(keyword)) {
@@ -352,8 +341,8 @@ export const ImageLibraryPanel = ({
           timeFilter === "today"
             ? todayStart.getTime()
             : timeFilter === "7d"
-            ? now - 7 * dayMs
-            : now - 30 * dayMs;
+              ? now - 7 * dayMs
+              : now - 30 * dayMs;
         if (!Number.isFinite(created) || created < limit) {
           return false;
         }
@@ -363,12 +352,12 @@ export const ImageLibraryPanel = ({
     if (sortBy === "oldest") {
       return [...matched].sort(
         (a, b) =>
-          a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+          a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
       );
     }
     if (sortBy === "name") {
       return [...matched].sort((a, b) =>
-        a.fileName.localeCompare(b.fileName, undefined, { numeric: true })
+        a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
       );
     }
     return matched; // newest：后端已按 created_at DESC 返回
@@ -416,7 +405,7 @@ export const ImageLibraryPanel = ({
     } catch (albumError) {
       console.warn("[image-library] create album failed", albumError);
       setAlbumError(
-        albumError instanceof Error ? albumError.message : String(albumError)
+        albumError instanceof Error ? albumError.message : String(albumError),
       );
     } finally {
       setAlbumBusy(false);
@@ -447,7 +436,7 @@ export const ImageLibraryPanel = ({
     try {
       const updated = await window.snow.renameImageAlbum(album.id, name);
       setAlbums((prev) =>
-        prev.map((item) => (item.id === album.id ? updated : item))
+        prev.map((item) => (item.id === album.id ? updated : item)),
       );
       setRenamingAlbum(null);
       setRenameAlbumName("");
@@ -455,7 +444,9 @@ export const ImageLibraryPanel = ({
     } catch (renameError) {
       console.warn("[image-library] rename album failed", renameError);
       setAlbumError(
-        renameError instanceof Error ? renameError.message : String(renameError)
+        renameError instanceof Error
+          ? renameError.message
+          : String(renameError),
       );
     } finally {
       setAlbumBusy(false);
@@ -474,8 +465,8 @@ export const ImageLibraryPanel = ({
       // 相册内图片置为未分类，同步本地状态
       setItems((prev) =>
         prev.map((item) =>
-          item.albumId === album.id ? { ...item, albumId: null } : item
-        )
+          item.albumId === album.id ? { ...item, albumId: null } : item,
+        ),
       );
       if (activeAlbum === album.id) {
         setActiveAlbum("all");
@@ -488,7 +479,7 @@ export const ImageLibraryPanel = ({
   /** 移动图片到相册（value 为空 = 未分类） */
   const moveToAlbum = async (
     record: ImageLibraryRecord,
-    albumId: string
+    albumId: string,
   ): Promise<void> => {
     const target = albumId || null;
     if (target === record.albumId) {
@@ -498,8 +489,8 @@ export const ImageLibraryPanel = ({
       await window.snow.setImageAlbum(record.id, target);
       setItems((prev) =>
         prev.map((item) =>
-          item.id === record.id ? { ...item, albumId: target } : item
-        )
+          item.id === record.id ? { ...item, albumId: target } : item,
+        ),
       );
       // 刷新相册计数与封面（懒刷新：移入/移出后重新拉取相册列表）
       const albumRecords = await window.snow
@@ -564,7 +555,7 @@ export const ImageLibraryPanel = ({
       .map((id) => items.find((record) => record.id === id))
       .filter(
         (record): record is ImageLibraryRecord =>
-          !!record && record.prompt.trim() !== ""
+          !!record && record.prompt.trim() !== "",
       )
       .map((record) => record.prompt.trim());
     if (texts.length === 0) {
@@ -592,11 +583,11 @@ export const ImageLibraryPanel = ({
               },
             ],
           },
-        })
+        }),
       );
       showActionToast(t("settings.imageLibrarySentToChat"));
     },
-    [dataUrls, showActionToast, t]
+    [dataUrls, showActionToast, t],
   );
 
   /** 灯箱/卡片：设为绘图工作台参考图（工作台常驻监听全局事件）。 */
@@ -608,11 +599,11 @@ export const ImageLibraryPanel = ({
             path: record.relativePath,
             mimeType: record.mimeType,
           },
-        })
+        }),
       );
       showActionToast(t("settings.imageLibraryRefSet"));
     },
-    [showActionToast, t]
+    [showActionToast, t],
   );
 
   /** 将图片设为所在相册的手动封面。 */
@@ -624,17 +615,17 @@ export const ImageLibraryPanel = ({
       try {
         const updated = await window.snow.setImageAlbumCover(
           record.albumId,
-          record.id
+          record.id,
         );
         setAlbums((prev) =>
-          prev.map((album) => (album.id === updated.id ? updated : album))
+          prev.map((album) => (album.id === updated.id ? updated : album)),
         );
         showActionToast(t("settings.imageLibraryCoverSet"));
       } catch (coverError) {
         console.warn("[image-library] set album cover failed", coverError);
       }
     },
-    [showActionToast, t]
+    [showActionToast, t],
   );
 
   /** 相册排序拖拽：把 dragging 相册移动到目标相册位置并持久化。 */
@@ -655,19 +646,19 @@ export const ImageLibraryPanel = ({
       setAlbums(
         ids
           .map((id) => byId.get(id))
-          .filter((album): album is ImageAlbumRecord => !!album)
+          .filter((album): album is ImageAlbumRecord => !!album),
       );
       void window.snow.reorderImageAlbums(ids).catch((error) => {
         console.warn("[image-library] reorder albums failed", error);
       });
     },
-    [albums]
+    [albums],
   );
 
   /** 单选 / Ctrl 点选切换；Shift 为范围连选（基于当前过滤+排序结果） */
   const toggleSelect = (
     record: ImageLibraryRecord,
-    shiftKey: boolean
+    shiftKey: boolean,
   ): void => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -721,7 +712,7 @@ export const ImageLibraryPanel = ({
   /** 批量移入相册（albumId 空 = 移出到未分类；idsOverride 供拖拽批量归类） */
   const batchMoveToAlbum = async (
     albumId: string,
-    idsOverride?: string[]
+    idsOverride?: string[],
   ): Promise<void> => {
     const target = albumId || null;
     const ids = idsOverride ?? [...selectedIds];
@@ -732,8 +723,8 @@ export const ImageLibraryPanel = ({
       await Promise.all(ids.map((id) => window.snow.setImageAlbum(id, target)));
       setItems((prev) =>
         prev.map((item) =>
-          ids.includes(item.id) ? { ...item, albumId: target } : item
-        )
+          ids.includes(item.id) ? { ...item, albumId: target } : item,
+        ),
       );
       const albumRecords = await window.snow
         .listImageAlbums()
@@ -772,7 +763,7 @@ export const ImageLibraryPanel = ({
   /** 打开图片右键菜单 */
   const openContextMenu = (
     event: React.MouseEvent,
-    record: ImageLibraryRecord
+    record: ImageLibraryRecord,
   ): void => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, record });
@@ -785,7 +776,7 @@ export const ImageLibraryPanel = ({
   /** 手动导入图片：选择文件 → 复制进图库并写索引 → 刷新列表 */
   const handleImport = async (): Promise<void> => {
     const selected = await window.snow.selectImageFiles(
-      t("settings.imageLibrarySelectImages")
+      t("settings.imageLibrarySelectImages"),
     );
     if (!selected || selected.length === 0) {
       return;
@@ -799,7 +790,9 @@ export const ImageLibraryPanel = ({
     } catch (importError) {
       console.warn("[image-library] import failed", importError);
       setError(
-        importError instanceof Error ? importError.message : String(importError)
+        importError instanceof Error
+          ? importError.message
+          : String(importError),
       );
     } finally {
       setImporting(false);
@@ -818,7 +811,7 @@ export const ImageLibraryPanel = ({
       event.dataTransfer.dropEffect = "copy";
       setPanelDragOver(true);
     },
-    []
+    [],
   );
 
   const handlePanelDragLeave = useCallback(
@@ -827,7 +820,7 @@ export const ImageLibraryPanel = ({
         setPanelDragOver(false);
       }
     },
-    []
+    [],
   );
 
   const handlePanelDrop = useCallback(
@@ -848,7 +841,7 @@ export const ImageLibraryPanel = ({
       const imagePaths = entries.filter(
         (entry) =>
           !entry.isDirectory &&
-          /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|tiff?)$/i.test(entry.path)
+          /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|tiff?)$/i.test(entry.path),
       );
       if (imagePaths.length === 0) {
         return;
@@ -856,7 +849,7 @@ export const ImageLibraryPanel = ({
       setImporting(true);
       try {
         const imported = await window.snow.importImageFiles(
-          imagePaths.map((entry) => entry.path)
+          imagePaths.map((entry) => entry.path),
         );
         if (imported.length > 0) {
           await load();
@@ -866,13 +859,13 @@ export const ImageLibraryPanel = ({
         setError(
           importError instanceof Error
             ? importError.message
-            : String(importError)
+            : String(importError),
         );
       } finally {
         setImporting(false);
       }
     },
-    [load]
+    [load],
   );
 
   /** 估算网格列数（键盘上下导航用） */
@@ -912,7 +905,7 @@ export const ImageLibraryPanel = ({
   /** 卡片键盘导航（方向键移动焦点 / Delete 删除） */
   const handleCardKeyDown = (
     event: React.KeyboardEvent,
-    record: ImageLibraryRecord
+    record: ImageLibraryRecord,
   ): void => {
     const index = filtered.findIndex((r) => r.id === record.id);
     if (index < 0) {
@@ -987,11 +980,13 @@ export const ImageLibraryPanel = ({
     }
     await saveBlob(
       dataUrl,
-      record.fileName || record.relativePath.split("/").pop() || "image.png"
+      record.fileName || record.relativePath.split("/").pop() || "image.png",
     );
   };
 
-  const lightboxDataUrl = lightbox ? dataUrls[lightbox.relativePath] ?? "" : "";
+  const lightboxDataUrl = lightbox
+    ? (dataUrls[lightbox.relativePath] ?? "")
+    : "";
   /** 灯箱图片在过滤结果中的位置（-1 = 不在结果中） */
   const lightboxIndex = lightbox
     ? filtered.findIndex((r) => r.id === lightbox.id)
@@ -1043,12 +1038,15 @@ export const ImageLibraryPanel = ({
     }
   }, [activeAlbum]);
 
+  // 灯箱 ESC 关闭（层级栈）；左右箭头切换保留局部监听（非 ESC 语义）。
+  useEscapeKey({
+    onEscape: () => setLightbox(null),
+    enabled: lightbox !== null,
+  });
+
   useEffect(() => {
     if (!lightbox) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setLightbox(null);
-      }
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         // 在当前过滤+排序结果内前后切换
         const index = filtered.findIndex((r) => r.id === lightbox.id);
@@ -1155,7 +1153,9 @@ export const ImageLibraryPanel = ({
             setDragOverAlbum("none");
           }}
           onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            if (
+              !event.currentTarget.contains(event.relatedTarget as Node | null)
+            ) {
               setDragOverAlbum((prev) => (prev === "none" ? null : prev));
             }
           }}
@@ -1197,7 +1197,7 @@ export const ImageLibraryPanel = ({
                 // 相册排序拖拽：自定义 MIME（与图片归类协议区分）
                 event.dataTransfer.setData(
                   "application/x-snow-album",
-                  album.id
+                  album.id,
                 );
                 event.dataTransfer.effectAllowed = "move";
                 setDraggingAlbumId(album.id);
@@ -1205,7 +1205,9 @@ export const ImageLibraryPanel = ({
               onDragEnd={() => setDraggingAlbumId(null)}
               onDragOver={(event) => {
                 // 相册排序拖拽优先（move 效果）；否则图片归类（copy 效果）
-                if (event.dataTransfer.types.includes("application/x-snow-album")) {
+                if (
+                  event.dataTransfer.types.includes("application/x-snow-album")
+                ) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
                   setDragOverAlbum(album.id);
@@ -1218,19 +1220,17 @@ export const ImageLibraryPanel = ({
               onDragLeave={(event) => {
                 if (
                   !event.currentTarget.contains(
-                    event.relatedTarget as Node | null
+                    event.relatedTarget as Node | null,
                   )
                 ) {
-                  setDragOverAlbum((prev) =>
-                    prev === album.id ? null : prev
-                  );
+                  setDragOverAlbum((prev) => (prev === album.id ? null : prev));
                 }
               }}
               onDrop={(event) => {
                 event.preventDefault();
                 event.stopPropagation(); // 阻止冒泡到面板根（避免触发文件导入）
                 const albumDragId = event.dataTransfer.getData(
-                  "application/x-snow-album"
+                  "application/x-snow-album",
                 );
                 setDragOverAlbum(null);
                 setDraggingAlbumId(null);
@@ -1491,9 +1491,7 @@ export const ImageLibraryPanel = ({
 
       {/* ===== 图片网格（相册栏切换浏览范围：全部 / 未分类 / 相册） ===== */}
       <div className="image-library-gallery-header">
-        <span className="image-library-gallery-title">
-          {galleryTitle}
-        </span>
+        <span className="image-library-gallery-title">{galleryTitle}</span>
         <span className="image-library-gallery-count">
           {t("settings.imageLibraryCount", {
             values: { count: filtered.length },
@@ -1551,138 +1549,136 @@ export const ImageLibraryPanel = ({
         ) : (
           <>
             <div className="image-library-grid masonry" ref={gridRef}>
-            {filtered.slice(0, visibleLimit).map((record) => {
-              const src = dataUrls[record.relativePath];
-              const selected = selectedIds.has(record.id);
-              return (
-                <div
-                  key={record.id}
-                  className={`image-library-card${
-                    selected ? " selected" : ""
-                  }`}
-                  role="button"
-                  tabIndex={0}
-                  ref={(element) => {
-                    cardRefs.current.set(record.id, element);
-                  }}
-                  onClick={() => setLightbox(record)}
-                  onKeyDown={(event) => handleCardKeyDown(event, record)}
-                  onContextMenu={(event) => openContextMenu(event, record)}
-                  draggable
-                  onDragStart={(event) => {
-                    // 拖拽协议：卡片在选中集中时拖拽整组（批量归类/批量发图），
-                    // 否则拖拽单张。application/json 供聊天框/工作台消费，
-                    // text/plain 兼容相册 chip 旧协议。
-                    const dragged = selectedIds.has(record.id)
-                      ? [...selectedIds]
-                      : [record.id];
-                    const images = dragged
-                      .map((id) => items.find((r) => r.id === id))
-                      .filter((r): r is ImageLibraryRecord => !!r);
-                    event.dataTransfer.setData(
-                      "application/json",
-                      JSON.stringify({
-                        type: "library-images",
-                        images: images.map((r) => ({
-                          id: r.id,
-                          path: r.relativePath,
-                          mimeType: r.mimeType,
-                          name: r.relativePath.split("/").pop() ?? r.fileName,
-                        })),
-                      })
-                    );
-                    if (images.length === 1) {
-                      event.dataTransfer.setData("text/plain", images[0].id);
-                    }
-                    event.dataTransfer.effectAllowed = "copy";
-                  }}
-                  title={record.prompt || record.fileName}
-                >
-                  <span
-                    className={`image-library-card-check${
-                      selected ? " checked" : ""
-                    }`}
-                    role="checkbox"
-                    aria-checked={selected}
-                    tabIndex={-1}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleSelect(record, event.shiftKey);
-                    }}
-                  >
-                    {selected ? (
-                      <Check size={10} aria-hidden="true" />
-                    ) : null}
-                  </span>
-                  {src ? (
-                    <img src={src} alt={record.prompt || record.fileName} />
-                  ) : (
-                    <div className="image-library-card-placeholder">
-                      <Loader2
-                        className="tool-call-icon-spinning"
-                        size={16}
-                        aria-hidden="true"
-                      />
-                    </div>
-                  )}
-                  <div className="image-library-card-meta">
-                    <span className="image-library-card-model">
-                      {record.model || record.provider || "—"}
-                    </span>
-                    <span className="image-library-card-date">
-                      {record.createdAt}
-                    </span>
-                  </div>
+              {filtered.slice(0, visibleLimit).map((record) => {
+                const src = dataUrls[record.relativePath];
+                const selected = selectedIds.has(record.id);
+                return (
                   <div
-                    className="image-library-card-actions"
-                    onClick={(event) => event.stopPropagation()}
+                    key={record.id}
+                    className={`image-library-card${
+                      selected ? " selected" : ""
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    ref={(element) => {
+                      cardRefs.current.set(record.id, element);
+                    }}
+                    onClick={() => setLightbox(record)}
+                    onKeyDown={(event) => handleCardKeyDown(event, record)}
+                    onContextMenu={(event) => openContextMenu(event, record)}
+                    draggable
+                    onDragStart={(event) => {
+                      // 拖拽协议：卡片在选中集中时拖拽整组（批量归类/批量发图），
+                      // 否则拖拽单张。application/json 供聊天框/工作台消费，
+                      // text/plain 兼容相册 chip 旧协议。
+                      const dragged = selectedIds.has(record.id)
+                        ? [...selectedIds]
+                        : [record.id];
+                      const images = dragged
+                        .map((id) => items.find((r) => r.id === id))
+                        .filter((r): r is ImageLibraryRecord => !!r);
+                      event.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({
+                          type: "library-images",
+                          images: images.map((r) => ({
+                            id: r.id,
+                            path: r.relativePath,
+                            mimeType: r.mimeType,
+                            name: r.relativePath.split("/").pop() ?? r.fileName,
+                          })),
+                        }),
+                      );
+                      if (images.length === 1) {
+                        event.dataTransfer.setData("text/plain", images[0].id);
+                      }
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    title={record.prompt || record.fileName}
                   >
-                    <CustomSelect
-                      value={record.albumId ?? ""}
-                      options={[
-                        {
-                          value: "",
-                          label: t("settings.imageLibraryAlbumNone"),
-                        },
-                        ...albums.map((album) => ({
-                          value: album.id,
-                          label: album.name,
-                        })),
-                      ]}
-                      onChange={(value) => void moveToAlbum(record, value)}
-                      portal
-                    />
-                    <button
-                      type="button"
-                      className="image-library-card-btn"
-                      onClick={() => void handleDownload(record)}
-                      title={t("toolCall.imagegen.download")}
-                      aria-label={t("toolCall.imagegen.download")}
+                    <span
+                      className={`image-library-card-check${
+                        selected ? " checked" : ""
+                      }`}
+                      role="checkbox"
+                      aria-checked={selected}
+                      tabIndex={-1}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSelect(record, event.shiftKey);
+                      }}
                     >
-                      <Download size={12} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="image-library-card-btn danger"
-                      onClick={() => requestDelete(record)}
-                      disabled={deletingId === record.id}
-                      title={t("settings.imageLibraryDelete")}
-                      aria-label={t("settings.imageLibraryDelete")}
-                    >
-                      {deletingId === record.id ? (
+                      {selected ? <Check size={10} aria-hidden="true" /> : null}
+                    </span>
+                    {src ? (
+                      <img src={src} alt={record.prompt || record.fileName} />
+                    ) : (
+                      <div className="image-library-card-placeholder">
                         <Loader2
                           className="tool-call-icon-spinning"
-                          size={12}
+                          size={16}
                           aria-hidden="true"
                         />
-                      ) : (
-                        <Trash2 size={12} aria-hidden="true" />
-                      )}
-                    </button>
+                      </div>
+                    )}
+                    <div className="image-library-card-meta">
+                      <span className="image-library-card-model">
+                        {record.model || record.provider || "—"}
+                      </span>
+                      <span className="image-library-card-date">
+                        {record.createdAt}
+                      </span>
+                    </div>
+                    <div
+                      className="image-library-card-actions"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <CustomSelect
+                        value={record.albumId ?? ""}
+                        options={[
+                          {
+                            value: "",
+                            label: t("settings.imageLibraryAlbumNone"),
+                          },
+                          ...albums.map((album) => ({
+                            value: album.id,
+                            label: album.name,
+                          })),
+                        ]}
+                        onChange={(value) => void moveToAlbum(record, value)}
+                        portal
+                      />
+                      <button
+                        type="button"
+                        className="image-library-card-btn"
+                        onClick={() => void handleDownload(record)}
+                        title={t("toolCall.imagegen.download")}
+                        aria-label={t("toolCall.imagegen.download")}
+                      >
+                        <Download size={12} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="image-library-card-btn danger"
+                        onClick={() => requestDelete(record)}
+                        disabled={deletingId === record.id}
+                        title={t("settings.imageLibraryDelete")}
+                        aria-label={t("settings.imageLibraryDelete")}
+                      >
+                        {deletingId === record.id ? (
+                          <Loader2
+                            className="tool-call-icon-spinning"
+                            size={12}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Trash2 size={12} aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             </div>
             <div className="image-library-load-more" role="status">
               {visibleLimit < filtered.length ? (
@@ -1739,7 +1735,9 @@ export const ImageLibraryPanel = ({
                 }}
                 aria-label={t("settings.imageLibraryNext")}
                 title={t("settings.imageLibraryNext")}
-                disabled={lightboxIndex < 0 || lightboxIndex >= filtered.length - 1}
+                disabled={
+                  lightboxIndex < 0 || lightboxIndex >= filtered.length - 1
+                }
               >
                 <ChevronRight size={22} aria-hidden="true" />
               </button>
@@ -1835,70 +1833,72 @@ export const ImageLibraryPanel = ({
                 </div>
                 {lightboxDetailsOpen ? (
                   <>
-                {lightbox.prompt ? (
-                  <div className="image-library-lightbox-prompt">
-                    <div className="image-library-lightbox-detail-row">
+                    {lightbox.prompt ? (
+                      <div className="image-library-lightbox-prompt">
+                        <div className="image-library-lightbox-detail-row">
+                          <span className="image-library-lightbox-detail-label">
+                            {t("settings.imageLibraryPrompt")}
+                          </span>
+                          <button
+                            type="button"
+                            className="image-library-lightbox-copy"
+                            onClick={() =>
+                              void copyText(lightbox.prompt, "prompt")
+                            }
+                          >
+                            {copiedKey === "prompt" ? (
+                              <>
+                                <Check size={11} aria-hidden="true" />
+                                {t("settings.imageLibraryCopied")}
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={11} aria-hidden="true" />
+                                {t("settings.imageLibraryCopyPrompt")}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <p className="image-library-lightbox-prompt-text">
+                          {lightbox.prompt}
+                        </p>
+                      </div>
+                    ) : null}
+                    <div className="image-library-lightbox-detail-grid">
                       <span className="image-library-lightbox-detail-label">
-                        {t("settings.imageLibraryPrompt")}
+                        {t("settings.imageLibrarySize")}
                       </span>
-                      <button
-                        type="button"
-                        className="image-library-lightbox-copy"
-                        onClick={() => void copyText(lightbox.prompt, "prompt")}
-                      >
-                        {copiedKey === "prompt" ? (
-                          <>
-                            <Check size={11} aria-hidden="true" />
-                            {t("settings.imageLibraryCopied")}
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={11} aria-hidden="true" />
-                            {t("settings.imageLibraryCopyPrompt")}
-                          </>
-                        )}
-                      </button>
+                      <span>
+                        {lightbox.width && lightbox.height
+                          ? `${lightbox.width} × ${lightbox.height}`
+                          : "—"}
+                      </span>
+                      <span className="image-library-lightbox-detail-label">
+                        {t("settings.imageLibraryFileSize")}
+                      </span>
+                      <span>{formatBytes(lightbox.sizeBytes)}</span>
+                      <span className="image-library-lightbox-detail-label">
+                        {t("settings.imageLibraryFileName")}
+                      </span>
+                      <span className="image-library-lightbox-file-name">
+                        {lightbox.fileName}
+                      </span>
+                      <span className="image-library-lightbox-detail-label">
+                        {t("settings.imageLibraryAlbumLabel")}
+                      </span>
+                      <span>
+                        {albums.find((a) => a.id === lightbox.albumId)?.name ??
+                          t("settings.imageLibraryAlbumNone")}
+                      </span>
                     </div>
-                    <p className="image-library-lightbox-prompt-text">
-                      {lightbox.prompt}
-                    </p>
-                  </div>
-                ) : null}
-                <div className="image-library-lightbox-detail-grid">
-                  <span className="image-library-lightbox-detail-label">
-                    {t("settings.imageLibrarySize")}
-                  </span>
-                  <span>
-                    {lightbox.width && lightbox.height
-                      ? `${lightbox.width} × ${lightbox.height}`
-                      : "—"}
-                  </span>
-                  <span className="image-library-lightbox-detail-label">
-                    {t("settings.imageLibraryFileSize")}
-                  </span>
-                  <span>{formatBytes(lightbox.sizeBytes)}</span>
-                  <span className="image-library-lightbox-detail-label">
-                    {t("settings.imageLibraryFileName")}
-                  </span>
-                  <span className="image-library-lightbox-file-name">
-                    {lightbox.fileName}
-                  </span>
-                  <span className="image-library-lightbox-detail-label">
-                    {t("settings.imageLibraryAlbumLabel")}
-                  </span>
-                  <span>
-                    {albums.find((a) => a.id === lightbox.albumId)?.name ??
-                      t("settings.imageLibraryAlbumNone")}
-                  </span>
-                </div>
-                <div className="image-library-lightbox-nav-hint">
-                  ←/→ {t("settings.imageLibraryNavHint")}
-                </div>
+                    <div className="image-library-lightbox-nav-hint">
+                      ←/→ {t("settings.imageLibraryNavHint")}
+                    </div>
                   </>
                 ) : null}
               </div>
             </div>,
-            document.body
+            document.body,
           )
         : null}
 
