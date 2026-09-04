@@ -6,6 +6,7 @@ import {
   matchKey,
   shouldPreventDefault,
 } from "../utils/shortcutUtils";
+import { hasActiveEscapeLayers } from "./useEscapeKey";
 
 /**
  * 核心快捷键引擎 hook。
@@ -85,9 +86,14 @@ export const useKeyboardShortcuts = (): void => {
 
         if (!matchKey(event, config.key)) continue;
 
-        // 命令面板 / 文件提及面板打开时，ESC 仅用于关闭面板，
-        // 不触发 cancelSession（避免误中断正在运行的会话）。
-        if (action === "cancelSession" && isEscapePanelOpen()) {
+        // 命令面板 / 文件提及面板或任意 useEscapeKey 层（弹窗/浮层）打开时，
+        // ESC 仅用于关闭该浮层，不触发 cancelSession（避免误中断正在运行的会话）。
+        // 注：useEscapeKey 的监听器可能注册在本引擎之后（同为 document 捕获阶段），
+        // 其 stopPropagation 拦不住已先触发的本引擎，故此处需主动查询激活的 ESC 层。
+        if (
+          action === "cancelSession" &&
+          (isEscapePanelOpen() || hasActiveEscapeLayers())
+        ) {
           continue;
         }
 

@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 import { ChatDeleteConfirmDialog } from "./ChatDeleteConfirmDialog";
 import { useMenuPosition } from "./useMenuPosition";
@@ -91,6 +92,22 @@ export function ChatItemMenu({
   const onContextMenuCloseRef = useRef(onContextMenuClose);
   onContextMenuCloseRef.current = onContextMenuClose;
 
+  // 关闭整个菜单（含确认框/导出面板/表情面板）；Escape 与点击外部共用。
+  const closeMenu = (): void => {
+    setIsButtonOpen(false);
+    onContextMenuCloseRef.current?.();
+    setShowConfirm(false);
+    setShowExport(false);
+    setShowEmoji(false);
+  };
+
+  // ESC 关闭整个菜单（层级栈）。确认框打开时本层让位给 ConfirmDialog（common）
+  // 自身的 ESC 层：此时 ESC 仅取消确认框、保留菜单（与收敛前行为一致）。
+  useEscapeKey({
+    onEscape: closeMenu,
+    enabled: isOpen && !showConfirm,
+  });
+
   const showExportRef = useRef(showExport);
   showExportRef.current = showExport;
 
@@ -127,15 +144,6 @@ export function ChatItemMenu({
     if (!isOpen) {
       return;
     }
-
-    // 关闭菜单：清空按钮态与右键锚点态
-    const closeMenu = (): void => {
-      setIsButtonOpen(false);
-      onContextMenuCloseRef.current?.();
-      setShowConfirm(false);
-      setShowExport(false);
-      setShowEmoji(false);
-    };
 
     const handleClickOutside = (event: MouseEvent): void => {
       // 右键按下不立即关闭：由 document 级 contextmenu 监听统一处理，
@@ -183,19 +191,11 @@ export function ChatItemMenu({
       closeMenu();
     };
 
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        closeMenu();
-      }
-    };
-
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("contextmenu", handleGlobalContextMenu);
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("contextmenu", handleGlobalContextMenu);
-      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
 
@@ -310,14 +310,8 @@ export function ChatItemMenu({
     setShowExport(false);
   };
 
-  // Escape / 焦点离开面板等场景：关闭整个菜单
-  const handleEmojiClose = (): void => {
-    setIsButtonOpen(false);
-    onContextMenuCloseRef.current?.();
-    setShowEmoji(false);
-    setShowConfirm(false);
-    setShowExport(false);
-  };
+  // Emoji 面板关闭（ESC/选择完成/焦点离开等）：与 closeMenu 同义，统一入口。
+  const handleEmojiClose = closeMenu;
 
   return (
     <>

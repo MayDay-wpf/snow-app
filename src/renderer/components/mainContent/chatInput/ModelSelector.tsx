@@ -19,6 +19,7 @@ import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import { ThinkingStrengthMenu } from "./ThinkingStrengthMenu";
 import { useDropdownDirection } from "./useDropdownDirection";
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import type { MainContentView } from "../types";
 import type { ChatInputActions, ChatInputState } from "./types";
 import { ApiSettingsEditModal } from "../../sidebar/apiSettings/ApiSettingsEditModal";
@@ -135,6 +136,41 @@ export const ModelSelector = ({
     setApiConfigsOverride(null);
   }, [apiConfigs]);
   const effectiveApiConfigs = apiConfigsOverride ?? apiConfigs;
+
+  // 渠道编辑弹窗（ApiSettingsEditModal 内部 common/Modal）打开时它是视觉顶层，
+  // 菜单各 ESC 层全部让位（enabled=false），ESC 由弹窗层消费以关闭弹窗。
+  const isMenuEscapeActive = isModelMenuOpen && editingApiConfig === null;
+
+  // ESC 层级栈（后注册先响应）：父层为菜单本体；各子层（搜索过滤/手动输入）
+  // 激活时优先消费 ESC，实现「先退子层、再关父菜单」的多级回退。
+  // 父层：model 下拉菜单本体。enabled 已保证菜单处于打开状态，toggle 即为关闭。
+  useEscapeKey({
+    onEscape: handleToggleModelMenu,
+    enabled: isMenuEscapeActive,
+  });
+  // 子层：渠道搜索过滤态——有搜索词时 ESC 先清词；清空后本层失效，
+  // 再按一次 ESC 由父层关闭整个菜单。
+  useEscapeKey({
+    onEscape: () => setApiProfileSearchQuery(""),
+    enabled:
+      isMenuEscapeActive &&
+      modelMenuView === "apiProfile" &&
+      apiProfileSearchQuery !== "",
+  });
+  // 子层：模型搜索过滤态，语义同上。
+  useEscapeKey({
+    onEscape: () => setModelSearchQuery(""),
+    enabled:
+      isMenuEscapeActive &&
+      modelMenuView === "model" &&
+      !isManualMode &&
+      modelSearchQuery !== "",
+  });
+  // 子层：手动输入模型名——ESC 退出输入模式回到模型列表。
+  useEscapeKey({
+    onEscape: () => setIsManualMode(false),
+    enabled: isMenuEscapeActive && modelMenuView === "model" && isManualMode,
+  });
 
   useEffect(() => {
     if (!isModelMenuOpen || modelMenuView !== "model") {
@@ -492,11 +528,6 @@ export const ModelSelector = ({
                   onChange={(event) =>
                     setApiProfileSearchQuery(event.target.value)
                   }
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setApiProfileSearchQuery("");
-                    }
-                  }}
                   placeholder={labels.searchApiProfiles}
                 />
                 {apiProfileSearchQuery && (
@@ -676,11 +707,6 @@ export const ModelSelector = ({
                     onChange={(event) =>
                       setModelSearchQuery(event.target.value)
                     }
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        setModelSearchQuery("");
-                      }
-                    }}
                     placeholder={labels.searchModels}
                   />
                   {modelSearchQuery && (

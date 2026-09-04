@@ -8,6 +8,8 @@ import {
 import { Check, ChevronDown } from "lucide-react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../hooks/useEscapeKey";
+
 export type CustomSelectOption = {
   value: string;
   label: string;
@@ -93,6 +95,9 @@ export function CustomSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // 统一 ESC 关闭：下拉打开期间按 Esc 收起（原先仅点击外部关闭，缺 Esc）。
+  useEscapeKey({ onEscape: () => setIsOpen(false), enabled: isOpen });
 
   // Reset the filter and focus the input every time the dropdown opens.
   useEffect(() => {

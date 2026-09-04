@@ -8,6 +8,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, Copy, Eye, FileCode, GitFork, Type } from "lucide-react";
 import { useI18n } from "../../../../i18n";
+import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import { stripMarkdown } from "../utils/stripMarkdown";
 
 export type AiResponseActionsProps = {
@@ -42,15 +43,18 @@ export const AiResponseActions = ({
   const copyBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const copyToClipboard = useCallback(
-    (text: string): void => {
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      });
-    },
-    []
-  );
+  // ESC 关闭统一走 useEscapeKey 层级栈；mousedown 外点关闭仍走下方 effect。
+  useEscapeKey({
+    onEscape: () => setIsCopyMenuOpen(false),
+    enabled: isCopyMenuOpen,
+  });
+
+  const copyToClipboard = useCallback((text: string): void => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    });
+  }, []);
 
   const handleCopyAsMarkdown = useCallback((): void => {
     copyToClipboard(content);
@@ -66,8 +70,9 @@ export const AiResponseActions = ({
     onFork(conversationId, responseId ?? "");
   };
 
-  // Close on outside click / Escape. The menu is portaled to document.body, so
+  // Close on outside click. The menu is portaled to document.body, so
   // we must exclude clicks inside BOTH the trigger button and the portaled menu.
+  // Escape 关闭已收敛到 useEscapeKey 层级栈，这里仅保留 mousedown 外点关闭。
   useEffect(() => {
     if (!isCopyMenuOpen) {
       return;
@@ -82,16 +87,9 @@ export const AiResponseActions = ({
       }
       setIsCopyMenuOpen(false);
     };
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setIsCopyMenuOpen(false);
-      }
-    };
     document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isCopyMenuOpen]);
 
@@ -185,7 +183,7 @@ export const AiResponseActions = ({
                 </span>
               </button>
             </div>,
-            document.body
+            document.body,
           )
         : null}
       <button

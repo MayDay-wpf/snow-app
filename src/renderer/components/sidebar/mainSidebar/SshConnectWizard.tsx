@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 import { localizeSshError } from "../../../utils/sshErrorMessages";
 import type {
@@ -73,7 +74,7 @@ const buildSshUrl = (
   host: string,
   port: number,
   username: string,
-  remotePath: string
+  remotePath: string,
 ): string =>
   `ssh://${username}@${host}:${port}${normalizeRemotePath(remotePath)}`;
 
@@ -98,7 +99,7 @@ export function SshConnectWizard({
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<ConnectErrorState | null>(
-    null
+    null,
   );
   const [hostKeyChanged, setHostKeyChanged] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -108,12 +109,12 @@ export function SshConnectWizard({
   const [entries, setEntries] = useState<SshDirectoryEntry[]>([]);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   const [entriesError, setEntriesError] = useState<ConnectErrorState | null>(
-    null
+    null,
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const [savedCredentials, setSavedCredentials] = useState<CredentialOption[]>(
-    []
+    [],
   );
   const [showSavedList, setShowSavedList] = useState(false);
   // 本地 ~/.ssh/config 中解析出的主机条目，点击后自动填充表单
@@ -170,7 +171,7 @@ export function SshConnectWizard({
       try {
         const result = await window.snow.sshListDirectory(
           sessionId,
-          normalizedPath
+          normalizedPath,
         );
         if (requestId !== directoryRequestIdRef.current) {
           return false;
@@ -179,7 +180,7 @@ export function SshConnectWizard({
           result.map((entry) => ({
             ...entry,
             path: normalizeRemotePath(entry.path),
-          }))
+          })),
         );
         setRemotePath(normalizedPath);
         return true;
@@ -201,7 +202,7 @@ export function SshConnectWizard({
         }
       }
     },
-    [sessionId, t]
+    [sessionId, t],
   );
 
   useEffect(() => {
@@ -235,7 +236,7 @@ export function SshConnectWizard({
     const selected = await window.snow.sshSelectPrivateKey(
       t("sidebar.sshSelectPrivateKey", {
         defaultValue: "Select private key file",
-      })
+      }),
     );
     if (selected) {
       setPrivateKeyPath(selected);
@@ -243,7 +244,7 @@ export function SshConnectWizard({
   };
 
   const handleLoadCredential = async (
-    cred: CredentialOption
+    cred: CredentialOption,
   ): Promise<void> => {
     setHost(cred.host);
     setPort(cred.port);
@@ -258,7 +259,7 @@ export function SshConnectWizard({
       const secret = await window.snow.sshGetDecryptedSecret(
         cred.host,
         cred.port,
-        cred.username
+        cred.username,
       );
       if (secret) {
         if (cred.authMethod === "password") {
@@ -270,9 +271,7 @@ export function SshConnectWizard({
     }
   };
 
-  const handleConnect = async (
-    hostKeyPolicy?: "replace"
-  ): Promise<void> => {
+  const handleConnect = async (hostKeyPolicy?: "replace"): Promise<void> => {
     setIsConnecting(true);
     setConnectError(null);
     setHostKeyChanged(false);
@@ -340,7 +339,7 @@ export function SshConnectWizard({
             });
       setHostKeyChanged(
         message.includes("Host key changed") ||
-          message.startsWith("[SSH_HOST_KEY_CHANGED]")
+          message.startsWith("[SSH_HOST_KEY_CHANGED]"),
       );
       setConnectError({
         code: null,
@@ -353,7 +352,7 @@ export function SshConnectWizard({
 
   const handleEntryClick = (
     entry: SshDirectoryEntry,
-    event: React.MouseEvent<HTMLDivElement>
+    event: React.MouseEvent<HTMLDivElement>,
   ): void => {
     // The first click already opens a directory. Ignore the second click from
     // a double-click so a fast response cannot navigate into a same-named child.
@@ -377,7 +376,7 @@ export function SshConnectWizard({
         .then((loaded) => {
           if (loaded) {
             setPathHistory((prev) =>
-              prev[prev.length - 1] === entryPath ? prev : [...prev, entryPath]
+              prev[prev.length - 1] === entryPath ? prev : [...prev, entryPath],
             );
           }
         })
@@ -422,7 +421,7 @@ export function SshConnectWizard({
       host.trim(),
       port,
       username.trim(),
-      selectedPath
+      selectedPath,
     );
     if (sessionId) {
       void window.snow.sshDisconnect(sessionId);
@@ -450,19 +449,12 @@ export function SshConnectWizard({
     setSelectedPath(null);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === "Escape") {
-      handleCancel();
-    }
-  };
+  // ESC 取消整个向导（层级栈；语义是「取消/关闭」而非步骤回退，
+  // 原为 overlay 元素级 onKeyDown，收敛后打开期间全窗口生效）。
+  useEscapeKey({ onEscape: handleCancel });
 
   return (
-    <div
-      className="ssh-wizard-overlay"
-      onKeyDown={handleKeyDown}
-      ref={wizardRef}
-      tabIndex={-1}
-    >
+    <div className="ssh-wizard-overlay" ref={wizardRef} tabIndex={-1}>
       <div className="ssh-wizard-dialog">
         <div className="ssh-wizard-header">
           <div className="ssh-wizard-title">
@@ -951,8 +943,8 @@ export function SshConnectWizard({
                           {entry.size < 1024
                             ? `${entry.size} B`
                             : entry.size < 1024 * 1024
-                            ? `${(entry.size / 1024).toFixed(1)} KB`
-                            : `${(entry.size / (1024 * 1024)).toFixed(1)} MB`}
+                              ? `${(entry.size / 1024).toFixed(1)} KB`
+                              : `${(entry.size / (1024 * 1024)).toFixed(1)} MB`}
                         </span>
                       ) : null}
                     </div>

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
+
 export type BrowserFindResult = {
   activeMatchOrdinal: number;
   matches: number;
@@ -17,7 +19,7 @@ export type BrowserFindBarProps = {
 
 const formatMatchCount = (
   value: string,
-  result: BrowserFindResult | null
+  result: BrowserFindResult | null,
 ): string => {
   if (!value || !result) {
     return "";
@@ -51,12 +53,10 @@ export const BrowserFindBar = ({
     inputRef.current?.select();
   }, []);
 
+  // ESC 关闭查找栏（层级栈；组件仅在打开时挂载，挂载期间即激活）。
+  useEscapeKey({ onEscape: onClose });
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-      return;
-    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (e.shiftKey) {
@@ -82,9 +82,7 @@ export const BrowserFindBar = ({
         placeholder="查找"
         spellCheck={false}
       />
-      <span
-        className={`browser-find-count${hasNoMatches ? " is-empty" : ""}`}
-      >
+      <span className={`browser-find-count${hasNoMatches ? " is-empty" : ""}`}>
         {matchCount}
       </span>
       <button

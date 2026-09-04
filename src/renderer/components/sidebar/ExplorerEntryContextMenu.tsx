@@ -12,6 +12,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { useI18n } from "../../i18n";
 import type { IdeInfo } from "../../../preload";
 import { IdeIcon } from "../icons/ideIcons";
@@ -102,19 +103,15 @@ export function ExplorerEntryContextMenu({
       }
       onClose();
     };
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
     window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
+
+  // ESC 关闭整个菜单（层级栈，挂载期间即激活；actions/rename/delete 三种
+  // 模式下 ESC 语义一致，均为关闭整个菜单）。
+  useEscapeKey({ onEscape: onClose });
 
   useEffect(() => {
     if (mode === "rename") {
@@ -140,7 +137,7 @@ export function ExplorerEntryContextMenu({
             ? error.message
             : t("sidebar.openWithError", {
                 defaultValue: "Failed to detect installed IDEs",
-              })
+              }),
         );
       })
       .finally(() => setIsLoadingIdes(false));
@@ -171,7 +168,7 @@ export function ExplorerEntryContextMenu({
         window.clearTimeout(openWithCloseTimerRef.current);
       }
     },
-    []
+    [],
   );
 
   const { position: openWithPosition } = useMenuPosition({
@@ -182,7 +179,7 @@ export function ExplorerEntryContextMenu({
   });
 
   const handleRenameSubmit = async (
-    event: React.FormEvent<HTMLFormElement>
+    event: React.FormEvent<HTMLFormElement>,
   ): Promise<void> => {
     event.preventDefault();
     const trimmedName = newName.trim();
@@ -233,7 +230,7 @@ export function ExplorerEntryContextMenu({
     if (!isDirectory) {
       const lastSep = Math.max(
         entryPath.lastIndexOf("/"),
-        entryPath.lastIndexOf("\\")
+        entryPath.lastIndexOf("\\"),
       );
       cwd = lastSep === -1 ? entryPath : entryPath.slice(0, lastSep);
     }
@@ -272,7 +269,7 @@ export function ExplorerEntryContextMenu({
             ? error.message
             : t("sidebar.openInIdeError", {
                 defaultValue: "Failed to open project in IDE",
-              })
+              }),
         );
         setIsOpenWithOpen(true);
       });
@@ -470,7 +467,7 @@ export function ExplorerEntryContextMenu({
                       >
                         {renderOpenWithItems()}
                       </div>,
-                      document.body
+                      document.body,
                     )
                   : null}
               </span>
@@ -483,7 +480,9 @@ export function ExplorerEntryContextMenu({
               type="button"
             >
               <Pencil size={13} />
-              <span>{t("sidebar.explorerRename", { defaultValue: "Rename" })}</span>
+              <span>
+                {t("sidebar.explorerRename", { defaultValue: "Rename" })}
+              </span>
             </button>
             <button
               className="explorer-entry-context-menu-item danger"
@@ -492,12 +491,17 @@ export function ExplorerEntryContextMenu({
               type="button"
             >
               <Trash2 size={13} />
-              <span>{t("sidebar.explorerDelete", { defaultValue: "Delete" })}</span>
+              <span>
+                {t("sidebar.explorerDelete", { defaultValue: "Delete" })}
+              </span>
             </button>
           </>
         )
       ) : mode === "rename" ? (
-        <form className="explorer-entry-context-menu-form" onSubmit={handleRenameSubmit}>
+        <form
+          className="explorer-entry-context-menu-form"
+          onSubmit={handleRenameSubmit}
+        >
           <label htmlFor="explorer-entry-rename-input">
             {t("sidebar.explorerRename", { defaultValue: "Rename" })}
           </label>
@@ -562,6 +566,6 @@ export function ExplorerEntryContextMenu({
         </div>
       )}
     </div>,
-    document.body
+    document.body,
   );
 }

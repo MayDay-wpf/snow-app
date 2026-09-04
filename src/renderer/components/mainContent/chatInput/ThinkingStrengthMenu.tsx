@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronLeft, Keyboard, Sparkles } from "lucide-react";
 import { useI18n } from "../../../i18n";
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import type { ThinkingOption } from "./types";
 
 type ThinkingStrengthMenuProps = {
@@ -48,6 +49,13 @@ export function ThinkingStrengthMenu({
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState("");
 
+  // 自定义值输入是菜单内的子层：ESC 先退出输入模式回到选项列表；
+  // 退出后本层失效，再按一次 ESC 由外层浮层（model 菜单等）响应。
+  useEscapeKey({
+    onEscape: () => setIsCustomMode(false),
+    enabled: open && isCustomMode,
+  });
+
   // 菜单关闭时退出自定义思考强度输入
   useEffect(() => {
     if (!open) {
@@ -56,7 +64,8 @@ export function ThinkingStrengthMenu({
   }, [open]);
 
   // 当前值不在预设选项中（且非继承空值）→ 视为自定义值
-  const isCustomValue = value !== "" && !options.some((option) => option.value === value);
+  const isCustomValue =
+    value !== "" && !options.some((option) => option.value === value);
 
   const handleOpenCustom = (): void => {
     setCustomValue(isCustomValue ? value : "");
@@ -74,7 +83,7 @@ export function ThinkingStrengthMenu({
 
   const handleSelect = (
     event: React.MouseEvent<HTMLButtonElement>,
-    nextValue: string
+    nextValue: string,
   ): void => {
     event.preventDefault();
     event.stopPropagation();
@@ -82,16 +91,15 @@ export function ThinkingStrengthMenu({
   };
 
   const handleCustomKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
+    event: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
+    // ESC 退出自定义输入模式统一由 useEscapeKey 层级栈处理，这里仅保留 Enter 确认。
     if (event.key === "Enter") {
       if (event.nativeEvent.isComposing) {
         return;
       }
       event.preventDefault();
       handleConfirmCustom();
-    } else if (event.key === "Escape") {
-      setIsCustomMode(false);
     }
   };
 
@@ -186,7 +194,9 @@ export function ThinkingStrengthMenu({
               <Sparkles size={14} className="thinking-option-icon" />
               <span>{inheritLabel}</span>
             </span>
-            {value === "" && <Check size={14} className="model-dropdown-check" />}
+            {value === "" && (
+              <Check size={14} className="model-dropdown-check" />
+            )}
           </button>
         )}
         {options.map((option) => {
@@ -227,7 +237,9 @@ export function ThinkingStrengthMenu({
         >
           <Keyboard size={14} />
           <span>{t("chat.customThinking")}</span>
-          {isCustomValue && <Check size={14} className="model-dropdown-check" />}
+          {isCustomValue && (
+            <Check size={14} className="model-dropdown-check" />
+          )}
         </button>
       </div>
     </>
