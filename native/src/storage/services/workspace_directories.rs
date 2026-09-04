@@ -370,6 +370,31 @@ fn migrate_workspace_directory_in_transaction(
         params![old_id, new_id],
     )?;
 
+    // 项目级设置（MCP scope / MCP server configs / Skills / Codebase / Tool
+    // approval / LSP / sensitive commands / hooks）的 setting_code 以
+    // `前缀 + blake3(project_id)` 结尾——哈希不含 id 原文，上面的 REPLACE
+    // 无法命中。这里按新旧 id 重算 code 整体重命名记录；漏掉这一步会让
+    // 重定向后的项目读不到旧设置（表现为设置“丢失”），且 JSON 内嵌的
+    // projectId 与 code 脱节会让后续 MCP 调用报 identity mismatch。
+    const PROJECT_SETTING_CODE_PREFIXES: [&str; 8] = [
+        "project_mcp_scope_",
+        "project_mcp_server_configs_",
+        "project_skills_scope_",
+        "project_codebase_scope_",
+        "project_tool_approval_scope_",
+        "project_lsp_server_configs_",
+        "project_sensitive_command_scope_",
+        "hooks_project_",
+    ];
+    for prefix in PROJECT_SETTING_CODE_PREFIXES {
+        let old_code = format!("{prefix}{}", blake3::hash(old_id.as_bytes()).to_hex());
+        let new_code = format!("{prefix}{}", blake3::hash(new_id.as_bytes()).to_hex());
+        connection.execute(
+            "UPDATE system_settings SET setting_code = ?1 WHERE setting_code = ?2",
+            params![new_code, old_code],
+        )?;
+    }
+
     connection.execute(
         "UPDATE system_settings
             SET setting_value = REPLACE(
