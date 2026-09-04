@@ -50,13 +50,35 @@ pub fn delete_project_collection(collection_id: String) -> Result<()> {
     services::project_collections::delete_project_collection(&database_path, &collection_id)
 }
 
-pub fn add_project_to_collection(collection_id: String, directory_id: String) -> Result<()> {
+pub fn reorder_project_collection_members(
+    collection_id: String,
+    ordered_member_ids: Vec<String>,
+) -> Result<()> {
     let database_path = ensure_database_file()?;
-    services::project_collections::add_project_to_collection(
+    services::project_collections::reorder_project_collection_members(
         &database_path,
         &collection_id,
-        &directory_id,
+        &ordered_member_ids,
     )
+}
+
+pub fn move_project_to_collection(
+    target_collection_id: String,
+    directory_id: String,
+    ordered_member_ids: Vec<String>,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::move_project_to_collection(
+        &database_path,
+        &target_collection_id,
+        &directory_id,
+        &ordered_member_ids,
+    )
+}
+
+pub fn remove_project_from_all_collections(directory_id: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::project_collections::remove_project_from_all_collections(&database_path, &directory_id)
 }
 
 pub fn remove_project_from_collection(collection_id: String, directory_id: String) -> Result<()> {

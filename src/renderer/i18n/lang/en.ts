@@ -41,6 +41,8 @@ export const en = {
     "Are you sure you want to delete this collection? Projects inside it are not affected.",
   "sidebar.deleteCollectionError": "Failed to delete collection",
   "sidebar.addToCollectionError": "Failed to add project to collection",
+  "sidebar.reorderCollectionMembersError":
+    "Failed to reorder projects in collection",
   "sidebar.removeFromCollection": "Remove from collection",
   "sidebar.removeFromCollectionError":
     "Failed to remove project from collection",

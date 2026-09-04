@@ -149,9 +149,38 @@ pub async fn delete_project_collection(collection_id: String) -> napi::Result<()
 }
 
 #[napi]
-pub async fn add_project_to_collection(collection_id: String, directory_id: String) -> napi::Result<()> {
+pub async fn reorder_project_collection_members(
+    collection_id: String,
+    ordered_member_ids: Vec<String>,
+) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
-        crate::storage::add_project_to_collection(collection_id, directory_id)
+        crate::storage::reorder_project_collection_members(collection_id, ordered_member_ids)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn move_project_to_collection(
+    target_collection_id: String,
+    directory_id: String,
+    ordered_member_ids: Vec<String>,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::move_project_to_collection(
+            target_collection_id,
+            directory_id,
+            ordered_member_ids,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn remove_project_from_all_collections(directory_id: String) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::remove_project_from_all_collections(directory_id)
     })
     .await
     .map_err(map_spawn_error)?

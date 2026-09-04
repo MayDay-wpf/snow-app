@@ -100,13 +100,31 @@ export const workspaceApi = {
     collectionId: string,
   ): Promise<ProjectCollectionRecord[]> =>
     ipcRenderer.invoke("project-collections:delete", collectionId),
-  addProjectToCollection: (
+  reorderProjectCollectionMembers: (
     collectionId: string,
+    orderedMemberIds: string[],
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke(
+      "project-collections:reorder-members",
+      collectionId,
+      orderedMemberIds,
+    ),
+  moveProjectToCollection: (
+    collectionId: string,
+    directoryId: string,
+    orderedMemberIds: string[],
+  ): Promise<ProjectCollectionRecord[]> =>
+    ipcRenderer.invoke(
+      "project-collections:move-member",
+      collectionId,
+      directoryId,
+      orderedMemberIds,
+    ),
+  removeProjectFromAllCollections: (
     directoryId: string,
   ): Promise<ProjectCollectionRecord[]> =>
     ipcRenderer.invoke(
-      "project-collections:add-member",
-      collectionId,
+      "project-collections:remove-member-from-all",
       directoryId,
     ),
   removeProjectFromCollection: (

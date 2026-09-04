@@ -20,7 +20,7 @@ type WorkspaceDirectoryRowProps = {
   isEditing: boolean;
   /** 该项目的跨项目通知会话数（>0 时显示徽标） */
   notificationCount?: number;
-  /** 合集成员行不可拖拽（避免与「拖入合集」语义冲突） */
+  /** 是否可拖拽（默认 true） */
   draggable?: boolean;
   /** 合集成员行不显示序号 */
   showIndex?: boolean;
@@ -35,7 +35,7 @@ type WorkspaceDirectoryRowProps = {
   onDragEnd: () => void;
   onDragOver: (directoryId: string) => void;
   onDragStart: (directoryId: string) => void;
-  onDrop: (directoryId: string) => void;
+  onDrop: (directoryId: string, dataTransfer: DataTransfer) => void;
   onRenameStart?: (directory: WorkspaceDirectoryRecord) => void;
   onShowDetails?: (directoryId: string) => void;
 };
@@ -135,7 +135,7 @@ export function WorkspaceDirectoryRow({
     directoryId: string,
   ): void => {
     event.preventDefault();
-    onDrop(directoryId);
+    onDrop(directoryId, event.dataTransfer);
   };
 
   // 右键 == 三点按钮菜单：在光标位置弹出同一份操作菜单

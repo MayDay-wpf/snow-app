@@ -29,12 +29,20 @@ type WorkspaceDirectoryListProps = {
   onActivate: (directoryId: string) => void;
   onCollectionDragOver: (collectionId: string) => void;
   onCollectionDrop: (collectionId: string, directoryId: string) => void;
+  /** 合集成员行之间的 drop：同合集=成员重排；跨合集/顶层=移动进该合集的指定位置 */
+  onCollectionMemberDrop: (
+    collectionId: string,
+    directoryId: string,
+    dataTransfer: DataTransfer,
+  ) => void;
   onDelete: (directoryId: string) => void;
   onDeleteCollection: (collection: ProjectCollectionRecord) => void;
   onDragEnd: () => void;
   onDragOver: (directoryId: string) => void;
   onDragStart: (directoryId: string) => void;
-  onDrop: (directoryId: string) => void;
+  onDrop: (directoryId: string, dataTransfer: DataTransfer) => void;
+  /** 拖到顶层列表空白区域（非行、非合集）：合集成员移出合集回到顶层 */
+  onDropOutside: (directoryId: string) => void;
   onRemoveFromCollection: (collectionId: string, directoryId: string) => void;
   /** 重命名目录显示名；返回 Promise 时提交期间保持编辑态直到完成 */
   onRename?: (directoryId: string, newName: string) => void | Promise<void>;
@@ -62,12 +70,14 @@ export function WorkspaceDirectoryList({
   onActivate,
   onCollectionDragOver,
   onCollectionDrop,
+  onCollectionMemberDrop,
   onDelete,
   onDeleteCollection,
   onDragEnd,
   onDragOver,
   onDragStart,
   onDrop,
+  onDropOutside,
   onRemoveFromCollection,
   onRename,
   onRenameCollection,
@@ -164,6 +174,42 @@ export function WorkspaceDirectoryList({
     return sourceIndex < targetIndex ? "bottom" : "top";
   }, [draggedDirectoryId, dragOverDirectoryId, workspaceDirectories]);
 
+  // 所有合集成员 id 的并集：用于顶层列表空白区域的「移出合集」兜底 drop。
+  const allCollectionMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const collection of collections) {
+      for (const id of collection.memberDirectoryIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [collections]);
+
+  // 合集成员行的插入指示线：基于该合集内的成员顺序计算（顶层行的
+  // dropIndicatorSide 用全量列表索引，对合成员行不适用）。外部来源
+  // （顶层或其它合集的项目）统一指示插到目标行之前（top）。
+  const getCollectionMemberDropSide = (
+    collection: ProjectCollectionRecord,
+    directoryId: string,
+  ): "top" | "bottom" | null => {
+    if (!draggedDirectoryId || dragOverDirectoryId !== directoryId) {
+      return null;
+    }
+    if (draggedDirectoryId === directoryId) {
+      return null;
+    }
+    const memberIds = collection.memberDirectoryIds;
+    const sourceIndex = memberIds.indexOf(draggedDirectoryId);
+    const targetIndex = memberIds.indexOf(directoryId);
+    if (targetIndex < 0) {
+      return null;
+    }
+    if (sourceIndex < 0) {
+      return "top";
+    }
+    return sourceIndex < targetIndex ? "bottom" : "top";
+  };
+
   const handleCollectionDrop = (
     event: DragEvent<HTMLDivElement>,
     collectionId: string,
@@ -176,6 +222,46 @@ export function WorkspaceDirectoryList({
       return;
     }
     onCollectionDrop(collectionId, draggedId);
+  };
+
+  // 列表根节点的兜底落点：项目行/合集行的 dragover 都已 preventDefault，
+  // 这里只接住行与行之间的空白区域——把合集成员拖到顶层列表空白处 = 移出合集。
+  const handleListRootDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (
+      !draggedDirectoryId ||
+      !allCollectionMemberIds.has(draggedDirectoryId)
+    ) {
+      return;
+    }
+    // 落在合集区域内的空白处不视为「移出合集」
+    if (
+      (event.target as Element | null)?.closest?.(".project-collection-group")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+
+  const handleListRootDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const draggedId =
+      draggedDirectoryId || event.dataTransfer.getData("text/plain") || null;
+    if (!draggedId || !allCollectionMemberIds.has(draggedId)) {
+      return;
+    }
+    if (
+      (event.target as Element | null)?.closest?.(".project-collection-group")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onDropOutside(draggedId);
   };
 
   const renderCollectionMembers = (
@@ -209,7 +295,10 @@ export function WorkspaceDirectoryList({
             directory={directory}
             draggedDirectoryId={draggedDirectoryId}
             dragOverDirectoryId={dragOverDirectoryId}
-            dropIndicatorSide={dropIndicatorSide}
+            dropIndicatorSide={getCollectionMemberDropSide(
+              collection,
+              directory.directoryId,
+            )}
             editingValue={editingValue}
             index={0}
             isActionLocked={isActionLocked}
@@ -223,7 +312,13 @@ export function WorkspaceDirectoryList({
             onDragEnd={onDragEnd}
             onDragOver={onDragOver}
             onDragStart={onDragStart}
-            onDrop={onDrop}
+            onDrop={(directoryId, dataTransfer) =>
+              onCollectionMemberDrop(
+                collection.collectionId,
+                directoryId,
+                dataTransfer,
+              )
+            }
             onEditingValueChange={setEditingValue}
             onRemoveFromCollection={() =>
               onRemoveFromCollection(
@@ -236,7 +331,6 @@ export function WorkspaceDirectoryList({
             onShowDetails={onShowDetails}
             showIndex={false}
             totalCount={0}
-            draggable={false}
           />
         ))}
       </div>
@@ -246,6 +340,8 @@ export function WorkspaceDirectoryList({
   return (
     <div
       className="section-list workspace-directory-list"
+      onDragOver={handleListRootDragOver}
+      onDrop={handleListRootDrop}
       ref={directoryListRef}
     >
       {collections.length > 0 ? (

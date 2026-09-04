@@ -38,6 +38,7 @@ export const zhCN = {
     "确定要删除这个合集吗？其中的项目不会受到影响。",
   "sidebar.deleteCollectionError": "删除合集失败",
   "sidebar.addToCollectionError": "将项目加入合集失败",
+  "sidebar.reorderCollectionMembersError": "调整合集内项目顺序失败",
   "sidebar.removeFromCollection": "从合集移除",
   "sidebar.removeFromCollectionError": "从合集移除项目失败",
   "sidebar.collectionEmpty": "暂无项目 — 拖一个项目到这里即可加入",

@@ -99,6 +99,19 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
     return value.trim();
   };
 
+  // 校验合集成员顺序列表：必须是非空字符串数组（去重交给 Rust 端校验）
+  const requireDirectoryIdList = (value: unknown): string[] => {
+    if (
+      !Array.isArray(value) ||
+      value.some((id) => typeof id !== "string" || !id.trim())
+    ) {
+      throw new Error(
+        "Ordered member directory IDs must be a list of non-empty strings",
+      );
+    }
+    return (value as string[]).map((id) => id.trim());
+  };
+
   ipcMain.handle("project-collections:list", () =>
     native.listProjectCollections(),
   );
@@ -137,10 +150,39 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
     },
   );
   ipcMain.handle(
-    "project-collections:add-member",
-    async (_event, collectionId: unknown, directoryId: unknown) => {
-      await native.addProjectToCollection(
+    "project-collections:reorder-members",
+    async (_event, collectionId: unknown, orderedMemberIds: unknown) => {
+      await native.reorderProjectCollectionMembers(
         requireText(collectionId, "Collection ID"),
+        requireDirectoryIdList(orderedMemberIds),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:move-member",
+    async (
+      _event,
+      collectionId: unknown,
+      directoryId: unknown,
+      orderedMemberIds: unknown,
+    ) => {
+      await native.moveProjectToCollection(
+        requireText(collectionId, "Collection ID"),
+        requireText(directoryId, "Workspace directory ID"),
+        requireDirectoryIdList(orderedMemberIds),
+      );
+      const collections = await native.listProjectCollections();
+      broadcastDirectoryListChanged();
+      return collections;
+    },
+  );
+  ipcMain.handle(
+    "project-collections:remove-member-from-all",
+    async (_event, directoryId: unknown) => {
+      await native.removeProjectFromAllCollections(
         requireText(directoryId, "Workspace directory ID"),
       );
       const collections = await native.listProjectCollections();

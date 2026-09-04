@@ -1640,10 +1640,16 @@ export type NativeBridge = {
     name: string,
   ) => Promise<void>;
   deleteProjectCollection: (collectionId: string) => Promise<void>;
-  addProjectToCollection: (
+  reorderProjectCollectionMembers: (
     collectionId: string,
-    directoryId: string,
+    orderedMemberIds: string[],
   ) => Promise<void>;
+  moveProjectToCollection: (
+    targetCollectionId: string,
+    directoryId: string,
+    orderedMemberIds: string[],
+  ) => Promise<void>;
+  removeProjectFromAllCollections: (directoryId: string) => Promise<void>;
   removeProjectFromCollection: (
     collectionId: string,
     directoryId: string,

@@ -317,10 +317,22 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to delete project collections",
           ),
         ),
-      addProjectToCollection: () =>
+      reorderProjectCollectionMembers: () =>
         Promise.reject(
           new Error(
-            "Rust native bridge is required to add projects to collections",
+            "Rust native bridge is required to reorder project collection members",
+          ),
+        ),
+      moveProjectToCollection: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to move projects to collections",
+          ),
+        ),
+      removeProjectFromAllCollections: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to remove projects from collections",
           ),
         ),
       removeProjectFromCollection: () =>

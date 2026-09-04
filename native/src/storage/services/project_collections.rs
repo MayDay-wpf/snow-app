@@ -3,6 +3,7 @@
 //! 合集是纯元数据（名称 + 收纳的项目 directory_id 列表），不对应磁盘目录，
 //! 也不会参与「激活/会话挂载」等目录逻辑——仅用于侧边栏收纳与整理项目。
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
@@ -93,69 +94,239 @@ pub fn delete_project_collection(database_path: &Path, collection_id: &str) -> R
         })
 }
 
-/// 把项目加入合集。幂等：重复加入同一项目时静默忽略。
+/// 校验错误：以 SQLITE_CONSTRAINT 形式的 rusqlite 错误表达，最终由
+/// `database_error` 统一包装为 napi 错误抛给上层。
+fn constraint_error(reason: &str) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+        Some(reason.to_string()),
+    )
+}
+
+fn ensure_collection_exists(connection: &Connection, collection_id: &str) -> rusqlite::Result<()> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM project_collections WHERE collection_id = ?1
+         )",
+        [collection_id],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    Ok(())
+}
+
+fn ensure_workspace_directory_exists(
+    connection: &Connection,
+    directory_id: &str,
+) -> rusqlite::Result<()> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM workspace_directories WHERE directory_id = ?1
+         )",
+        [directory_id],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    Ok(())
+}
+
+/// 校验 ordered_member_ids：无重复，且集合恰好等于 expected（该合集应有的
+/// 完整成员集合）。要求调用方传入完整成员列表，避免部分更新造成成员丢失。
+fn ensure_ordered_members_match(
+    ordered_member_ids: &[String],
+    expected: &HashSet<&str>,
+) -> rusqlite::Result<()> {
+    let mut seen: HashSet<&str> = HashSet::with_capacity(ordered_member_ids.len());
+    for member_id in ordered_member_ids {
+        if !seen.insert(member_id.as_str()) {
+            return Err(constraint_error(
+                "ordered member list contains duplicate ids",
+            ));
+        }
+    }
+    if seen != *expected {
+        return Err(constraint_error(
+            "ordered member list must contain exactly the collection members",
+        ));
+    }
+    Ok(())
+}
+
+/// 按给定顺序重排合集内成员（同一事务中逐个更新 sort_order）。
 ///
-/// 要求合集与项目（workspace_directories）都必须存在，避免产生孤儿成员记录。
-pub fn add_project_to_collection(
+/// ordered_member_ids 必须与该合集现有成员完全一致（仅顺序不同），否则报错，
+/// 防止顺带删除或凭空添加成员。
+pub fn reorder_project_collection_members(
     database_path: &Path,
     collection_id: &str,
+    ordered_member_ids: &[String],
+) -> Result<()> {
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
+
+                    ensure_collection_exists(&transaction, collection_id)?;
+                    let existing_member_ids =
+                        query_collection_members(&transaction, collection_id)?;
+                    let expected: HashSet<&str> = existing_member_ids
+                        .iter()
+                        .map(|id| id.as_str())
+                        .collect();
+                    ensure_ordered_members_match(ordered_member_ids, &expected)?;
+
+                    for (index, directory_id) in ordered_member_ids.iter().enumerate() {
+                        transaction.execute(
+                            "UPDATE collection_members
+                                SET sort_order = ?1
+                              WHERE collection_id = ?2 AND directory_id = ?3",
+                            params![index as i32, collection_id, directory_id],
+                        )?;
+                    }
+                    transaction.execute(
+                        "UPDATE project_collections
+                            SET updated_at = datetime('now', 'localtime')
+                          WHERE collection_id = ?1",
+                        [collection_id],
+                    )?;
+
+                    transaction.commit()
+                })
+            },
+            "reorder project collection members",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "reorder project collection members", error)
+    })
+}
+
+/// 把项目移动到目标合集的指定位置。
+///
+/// 语义：项目从所有其它合集中移除，并确保加入目标合集，然后按
+/// ordered_member_ids 重排目标合集（必须等于目标合集现有成员 ∪ {directory_id}）。
+/// 若项目已是目标合集成员，等价于「确认归属 + 可选重排」。
+pub fn move_project_to_collection(
+    database_path: &Path,
+    target_collection_id: &str,
+    directory_id: &str,
+    ordered_member_ids: &[String],
+) -> Result<()> {
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
+
+                    ensure_collection_exists(&transaction, target_collection_id)?;
+                    ensure_workspace_directory_exists(&transaction, directory_id)?;
+
+                    let existing_member_ids =
+                        query_collection_members(&transaction, target_collection_id)?;
+                    let mut expected: HashSet<&str> = existing_member_ids
+                        .iter()
+                        .map(|id| id.as_str())
+                        .collect();
+                    expected.insert(directory_id);
+                    ensure_ordered_members_match(ordered_member_ids, &expected)?;
+
+                    // 受影响的其它合集 updated_at 提前刷新（删除成员后就找不到它们了）
+                    transaction.execute(
+                        "UPDATE project_collections
+                            SET updated_at = datetime('now', 'localtime')
+                          WHERE collection_id IN (
+                            SELECT DISTINCT collection_id
+                              FROM collection_members
+                             WHERE directory_id = ?1 AND collection_id != ?2
+                          )",
+                        params![directory_id, target_collection_id],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM collection_members
+                          WHERE directory_id = ?1 AND collection_id != ?2",
+                        params![directory_id, target_collection_id],
+                    )?;
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO collection_members (
+                           id,
+                           collection_id,
+                           directory_id,
+                           sort_order,
+                           created_at
+                         ) VALUES (?1, ?2, ?3, 0, datetime('now', 'localtime'))",
+                        params![
+                            database::create_snowflake_id(),
+                            target_collection_id,
+                            directory_id,
+                        ],
+                    )?;
+
+                    for (index, member_id) in ordered_member_ids.iter().enumerate() {
+                        transaction.execute(
+                            "UPDATE collection_members
+                                SET sort_order = ?1
+                              WHERE collection_id = ?2 AND directory_id = ?3",
+                            params![index as i32, target_collection_id, member_id],
+                        )?;
+                    }
+                    transaction.execute(
+                        "UPDATE project_collections
+                            SET updated_at = datetime('now', 'localtime')
+                          WHERE collection_id = ?1",
+                        [target_collection_id],
+                    )?;
+
+                    transaction.commit()
+                })
+            },
+            "move project to collection",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "move project to collection", error)
+    })
+}
+
+/// 把项目从所有合集中移出（回到顶层列表）。
+pub fn remove_project_from_all_collections(
+    database_path: &Path,
     directory_id: &str,
 ) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            let transaction = connection.transaction()?;
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
 
-            let collection_exists: bool = transaction.query_row(
-                "SELECT EXISTS(
-                   SELECT 1 FROM project_collections WHERE collection_id = ?1
-                 )",
-                [collection_id],
-                |row| row.get(0),
-            )?;
-            if !collection_exists {
-                return Err(rusqlite::Error::QueryReturnedNoRows);
-            }
+                    transaction.execute(
+                        "UPDATE project_collections
+                            SET updated_at = datetime('now', 'localtime')
+                          WHERE collection_id IN (
+                            SELECT DISTINCT collection_id
+                              FROM collection_members
+                             WHERE directory_id = ?1
+                          )",
+                        [directory_id],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM collection_members WHERE directory_id = ?1",
+                        [directory_id],
+                    )?;
 
-            let directory_exists: bool = transaction.query_row(
-                "SELECT EXISTS(
-                   SELECT 1 FROM workspace_directories WHERE directory_id = ?1
-                 )",
-                [directory_id],
-                |row| row.get(0),
-            )?;
-            if !directory_exists {
-                return Err(rusqlite::Error::QueryReturnedNoRows);
-            }
-
-            let next_sort_order: i32 = transaction.query_row(
-                "SELECT COALESCE(MAX(sort_order) + 1, 0)
-                   FROM collection_members
-                  WHERE collection_id = ?1",
-                [collection_id],
-                |row| row.get(0),
-            )?;
-
-            transaction.execute(
-                "INSERT OR IGNORE INTO collection_members (
-                   id,
-                   collection_id,
-                   directory_id,
-                   sort_order,
-                   created_at
-                 ) VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
-                params![
-                    database::create_snowflake_id(),
-                    collection_id,
-                    directory_id,
-                    next_sort_order,
-                ],
-            )?;
-
-            transaction.commit()
-        })
-        .map_err(|error| {
-            database::database_error(database_path, "add project to collection", error)
-        })
+                    transaction.commit()
+                })
+            },
+            "remove project from all collections",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "remove project from all collections", error)
+    })
 }
 
 pub fn remove_project_from_collection(

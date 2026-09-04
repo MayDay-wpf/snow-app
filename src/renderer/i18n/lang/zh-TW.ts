@@ -38,6 +38,7 @@ export const zhTW = {
     "確定要刪除這個合集嗎？其中的專案不會受到影響。",
   "sidebar.deleteCollectionError": "刪除合集失敗",
   "sidebar.addToCollectionError": "將專案加入合集失敗",
+  "sidebar.reorderCollectionMembersError": "調整合集內專案順序失敗",
   "sidebar.removeFromCollection": "從合集移除",
   "sidebar.removeFromCollectionError": "從合集移除專案失敗",
   "sidebar.collectionEmpty": "暫無專案 — 拖一個專案到這裡即可加入",
