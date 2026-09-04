@@ -191,6 +191,10 @@ export function WorkspaceDirectoryRow({
       }
       return;
     }
+
+    // 项目排序 drop：交给父组件重排并持久化
+    // （拖拽到自身时 dragover 未放行，不会走到这里）
+    onDrop(directoryId);
   };
 
   // 右键 == 三点按钮菜单：在光标位置弹出同一份操作菜单
