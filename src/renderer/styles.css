@@ -8035,32 +8035,11 @@ input {
 @media (max-height: 800px) {
   .chat-content.is-empty {
     overflow: hidden;
-    padding: 0;
   }
 
   .chat-content.is-empty .chat-area {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
     justify-content: flex-start;
     padding-bottom: 0;
-  }
-
-  .chat-empty-greeting-title {
-    margin-top: 20px;
-  }
-
-  .chat-empty-quick-actions {
-    --quick-gap: 8px;
-    margin-top: 48px;
-  }
-
-  .chat-empty-quick-card {
-    padding: 12px 14px;
-  }
-
-  .chat-content.is-empty .chat-input-region {
-    margin-top: 0;
   }
 }
 
@@ -8499,6 +8478,10 @@ input {
   align-items: stretch;
   justify-content: center;
   gap: var(--quick-gap);
+  /* 占满问候列内容宽：shrink-to-fit 会在跨断点收卡时随剩余卡片塌缩并整体
+     重新居中，盒内百分比基准漂移导致隐藏卡钉位错位形变；盒宽恒等于容器
+     查询宽度后基准稳定，隐藏卡得以按断点处固定尺寸逐像素钉回原槽位 */
+  width: 100%;
   margin-top: 96px;
   /* 极窄时整体淡出；visibility 离散过渡保证淡出结束才不可见、淡入立即开始 */
   transition:
@@ -8508,8 +8491,10 @@ input {
 }
 
 /* 宽度决定可见卡片数：单卡低于约 176px 舒适下限时从尾部逐张收起。
-   隐藏卡 absolute 钉在原槽位原尺寸淡出——不参与 flex 行高，
-   恢复时宽度立即归位仅做淡入，杜绝窄盒换行撑高行高的形变 */
+   断点处满员行恰好铺满盒宽，行尾槽位即盒的 inline-end 边缘，故隐藏卡
+   absolute 钉在行尾、以断点处的固定卡宽（由断点宽度反推）淡出淡入——
+   不参与 flex 行高，尺寸不随容器继续缩放而形变；恢复时固定尺寸与回流
+   槽位逐像素重合，仅做淡入 */
 @container chat-greeting (max-width: 551px) {
   .chat-empty-quick-actions .chat-empty-quick-card {
     width: calc((100% - var(--quick-gap)) / 2);
@@ -8518,8 +8503,8 @@ input {
   .chat-empty-quick-card:nth-child(3) {
     position: absolute;
     top: 0;
-    inset-inline-start: calc((100% + var(--quick-gap)) * 2 / 3);
-    width: calc((100% - var(--quick-gap) * 2) / 3);
+    inset-inline-end: 0;
+    width: calc((551px - var(--quick-gap) * 2) / 3);
     opacity: 0;
     visibility: hidden;
     transform: translateY(6px);
@@ -8535,7 +8520,7 @@ input {
     position: absolute;
     top: 0;
     inset-inline-end: 0;
-    width: calc((100% - var(--quick-gap)) / 2);
+    width: calc((363px - var(--quick-gap)) / 2);
     opacity: 0;
     visibility: hidden;
     transform: translateY(6px);
@@ -8553,7 +8538,7 @@ input {
     top: 0;
     inset-inline: 0;
     margin-inline: auto;
-    width: 100%;
+    width: 219px;
     opacity: 0;
     visibility: hidden;
     transform: translateY(6px);
@@ -8598,7 +8583,6 @@ input {
     opacity 0.28s ease,
     transform 0.28s ease,
     width 0.28s ease,
-    max-width 0.28s ease,
     visibility 0.28s ease;
 }
 

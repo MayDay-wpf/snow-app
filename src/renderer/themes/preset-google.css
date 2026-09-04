@@ -1076,7 +1076,7 @@
 }
 
 :root[data-theme-preset="google"] .chat-empty-quick-actions {
-  gap: 10px;
+  --quick-gap: 10px;
   margin-top: 48px;
 }
 
