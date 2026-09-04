@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.2.27
+
+## New Features
+
+- **Workflow Node Auto-Compaction**: Nodes now auto-compact and keep running when their token count reaches the threshold.
+- **Right Panel Full-Screen & Floating Card**: Dragging the right panel past its max width shows a mask prompt after a 500ms hold — release to enter full screen; the full-screen chat can float as a card, with the floating header reusing TopBar's TODO and codebase sync indicators; workflow canvas deletion (right-click / Backspace) is unified into a second confirmation with an undo bar (Ctrl/Cmd+Z, fading out after 10 seconds); workflow connections gain directional arrows and bolder lines; tabs support middle-click close (except the pinned Git tab); the empty-chat quick cards and the input ModelSelector shrink progressively with container width to avoid overflow when extremely narrow.
+- Collection members support drag-to-reorder.
+- Memo list gains a newest/oldest sort toggle.
+
+## Bug Fixes
+
+- Fixed pin-to-bottom follow being silently closed by displacement misjudgment during streaming, with re-anchoring restored when the window becomes visible again.
+- Fixed a temporary window jump at the right edge during the right-panel full-screen expand/collapse transition.
+- Fixed the empty-chat quick cards misaligning and deforming when the window retracts across breakpoints.
+
 ## v0.2.26
 
 ## Improvements
