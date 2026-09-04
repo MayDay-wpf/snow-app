@@ -597,6 +597,90 @@ pub fn update_conversation_summary(
         .map(|_| ())
 }
 
+/// 将会话迁移到目标项目：在单个事务内更新会话的 `directory_id`，并同步
+/// 该会话的工作流运行记录。消息、子代理会话、待办等按 `conversation_id`
+/// 关联，无需变更；置顶关系存于会话自身的 `status` 字段，同样自然跟随。
+///
+/// 返回是否发生了迁移：会话不存在、目标项目不存在时返回错误；
+/// 会话已属于目标项目时不做任何写操作，返回 `false`。
+pub fn move_chat_conversation(
+    database_path: &Path,
+    conversation_id: &str,
+    target_directory_id: &str,
+) -> Result<bool> {
+    let trimmed_conversation_id = conversation_id.trim();
+    let trimmed_target = target_directory_id.trim();
+    if trimmed_conversation_id.is_empty() || trimmed_target.is_empty() {
+        return Err(Error::from_reason(
+            "Conversation ID and target directory ID are required".to_string(),
+        ));
+    }
+
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection.transaction()?;
+
+                    let current_directory_id: Option<String> = {
+                        let mut statement = transaction.prepare(
+                            "SELECT directory_id FROM chat_conversations
+                              WHERE conversation_id = ?1
+                              LIMIT 1",
+                        )?;
+                        statement
+                            .query_row([trimmed_conversation_id], |row| row.get(0))
+                            .optional()?
+                    }
+                    .ok_or_else(|| {
+                        rusqlite::Error::InvalidParameterName(format!(
+                            "Conversation not found: '{trimmed_conversation_id}'"
+                        ))
+                    })?;
+
+                    let target_exists: Option<i64> = transaction
+                        .query_row(
+                            "SELECT 1 FROM workspace_directories
+                              WHERE directory_id = ?1
+                              LIMIT 1",
+                            [trimmed_target],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    if target_exists.is_none() {
+                        return Err(rusqlite::Error::InvalidParameterName(format!(
+                            "Target workspace directory not found: '{trimmed_target}'"
+                        )));
+                    }
+
+                    if current_directory_id.as_deref() == Some(trimmed_target) {
+                        return Ok(false);
+                    }
+
+                    transaction.execute(
+                        "UPDATE chat_conversations
+                            SET directory_id = ?2,
+                                updated_at = datetime('now', 'localtime')
+                          WHERE conversation_id = ?1",
+                        params![trimmed_conversation_id, trimmed_target],
+                    )?;
+                    // 工作流运行记录带独立的 directory_id 快照，跟随会话迁移。
+                    transaction.execute(
+                        "UPDATE workflow_runs
+                            SET directory_id = ?2
+                          WHERE parent_conversation_id = ?1",
+                        params![trimmed_conversation_id, trimmed_target],
+                    )?;
+
+                    transaction.commit().map(|_| true)
+                })
+            },
+            "move chat conversation",
+        )
+    })
+    .map_err(|error| database::database_error(database_path, "move chat conversation", error))
+}
+
 fn insert_message(
     connection: &Connection,
     conversation_id: &str,

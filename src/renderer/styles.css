@@ -2473,6 +2473,13 @@ input {
   background: var(--bg-hover);
 }
 
+/* 跨项目会话拖入：目标行高亮 + 左侧强调条，提示"松开迁移会话到此项目" */
+.workspace-directory-row.conversation-drop-over .list-item {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 0 var(--accent-color, #4f8cff);
+  cursor: copy;
+}
+
 /* 拖拽排序插入横线：显示在目标行与相邻行的间隙中，指示实际插入位置
    （top=插入目标行之前，bottom=插入目标行之后），颜色跟随主题强调色 */
 .workspace-directory-drop-line {
@@ -2569,6 +2576,18 @@ input {
   color: var(--text-tertiary);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+/* SSH 远程项目：图标与「远程」标签用琥珀色区分本地项目 */
+.workspace-directory-row.kind-ssh .list-icon {
+  color: var(--accent-amber-text, #b45309);
+}
+
+.workspace-directory-row.kind-ssh .list-meta {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-amber-bg, rgba(245, 158, 11, 0.15));
+  color: var(--accent-amber-text, #b45309);
 }
 
 /* ===== 项目合集（project collections） ===== */
@@ -2872,6 +2891,23 @@ input {
   color: var(--text-tertiary);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+/* 表单弹窗中的只读值（如路径预览）：等宽字体 + 可选中，长路径可断行 */
+.form-dialog-value {
+  display: block;
+  color: var(--text-primary);
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    "Cascadia Mono",
+    "Segoe UI Mono",
+    monospace
+  );
+  font-size: 11.5px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: text;
 }
 
 .form-dialog-error {
@@ -19565,6 +19601,34 @@ input {
 .api-config-empty-btn:focus-visible {
   outline: 1px solid var(--accent-amber-text);
   outline-offset: 1px;
+}
+
+/* 后台子代理/WorkFlow 节点运行中的轻量提醒条：
+   低调中性色，随后台会话出现/消失，不阻塞输入 */
+.chat-input-background-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-island);
+  font-size: 12px;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 1;
+}
+
+.chat-input-background-hint svg {
+  flex-shrink: 0;
+  color: var(--accent-blue);
+}
+
+.chat-input-background-hint span {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
 }
 
 .input-box {

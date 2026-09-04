@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { Search, Trash2, X } from "lucide-react";
 
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { useI18n } from "../../../i18n";
 
 export type EmojiPickerProps = {
@@ -46,13 +47,22 @@ const EMOJI_GROUPS: Array<{ key: string; emojis: EmojiEntry[] }> = [
   {
     key: "status",
     emojis: [
-      { char: "✅", keywords: ["check", "done", "yes", "success", "pass", "ok"] },
+      {
+        char: "✅",
+        keywords: ["check", "done", "yes", "success", "pass", "ok"],
+      },
       { char: "✔️", keywords: ["check", "mark", "ok", "done"] },
       { char: "☑️", keywords: ["ballot", "check", "box", "vote"] },
-      { char: "❌", keywords: ["cross", "no", "wrong", "error", "fail", "reject"] },
+      {
+        char: "❌",
+        keywords: ["cross", "no", "wrong", "error", "fail", "reject"],
+      },
       { char: "❎", keywords: ["cross", "button", "no", "deny"] },
       { char: "⚠️", keywords: ["warning", "alert", "caution", "danger"] },
-      { char: "🚫", keywords: ["ban", "prohibit", "deny", "reject", "block", "forbidden"] },
+      {
+        char: "🚫",
+        keywords: ["ban", "prohibit", "deny", "reject", "block", "forbidden"],
+      },
       { char: "⛔", keywords: ["no", "entry", "forbidden", "stop"] },
       { char: "🛑", keywords: ["stop", "halt", "sign"] },
       { char: "ℹ️", keywords: ["info", "information", "about"] },
@@ -75,7 +85,10 @@ const EMOJI_GROUPS: Array<{ key: string; emojis: EmojiEntry[] }> = [
       { char: "🔴", keywords: ["circle", "red", "offline", "busy", "error"] },
       { char: "🟠", keywords: ["circle", "orange", "away"] },
       { char: "🟡", keywords: ["circle", "yellow", "pending", "idle"] },
-      { char: "🟢", keywords: ["circle", "green", "online", "active", "success"] },
+      {
+        char: "🟢",
+        keywords: ["circle", "green", "online", "active", "success"],
+      },
       { char: "🔵", keywords: ["circle", "blue", "info"] },
       { char: "🟣", keywords: ["circle", "purple"] },
       { char: "🟤", keywords: ["circle", "brown"] },
@@ -527,14 +540,17 @@ export function EmojiPicker({
     // 兜底钳制：视口极小上下都放不下时，仍保证面板完整可见
     const maxTop = Math.max(
       VIEWPORT_MARGIN,
-      window.innerHeight - panelHeight - VIEWPORT_MARGIN
+      window.innerHeight - panelHeight - VIEWPORT_MARGIN,
     );
 
     return {
       top: Math.min(Math.max(preferredTop, VIEWPORT_MARGIN), maxTop),
       left: Math.min(
         Math.max(preferredLeft, VIEWPORT_MARGIN),
-        Math.max(VIEWPORT_MARGIN, window.innerWidth - panelWidth - VIEWPORT_MARGIN)
+        Math.max(
+          VIEWPORT_MARGIN,
+          window.innerWidth - panelWidth - VIEWPORT_MARGIN,
+        ),
       ),
     };
   }, [triggerRef]);
@@ -580,19 +596,8 @@ export function EmojiPicker({
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  // ESC 关闭面板（层级栈；组件仅在打开时挂载，挂载期间即激活）。
+  useEscapeKey({ onEscape: onClose });
 
   // 焦点离开面板时关闭（覆盖"点击搜索框输入后鼠标已移开"的场景）
   useEffect(() => {
@@ -626,7 +631,7 @@ export function EmojiPicker({
     const matched = ALL_EMOJIS.filter(
       (entry) =>
         entry.keywords.some((kw) => kw.includes(query)) ||
-        entry.char.includes(searchQuery.trim())
+        entry.char.includes(searchQuery.trim()),
     );
     if (matched.length === 0) {
       return [];
@@ -760,6 +765,6 @@ export function EmojiPicker({
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

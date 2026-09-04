@@ -4,6 +4,10 @@ import type { DragEvent } from "react";
 
 import { useI18n } from "../../../i18n";
 import type { WorkspaceDirectoryRecord } from "../../../../preload";
+import {
+  readConversationDragPayload,
+  type ConversationDragPayload,
+} from "./conversationDrag";
 import { WorkspaceDirectoryMenu } from "./WorkspaceDirectoryMenu";
 
 type WorkspaceDirectoryRowProps = {
@@ -37,6 +41,16 @@ type WorkspaceDirectoryRowProps = {
   onDragStart: (directoryId: string) => void;
   onDrop: (directoryId: string) => void;
   onRenameStart?: (directory: WorkspaceDirectoryRecord) => void;
+  /** 修改项目文件夹（重定向到新路径并迁移历史数据） */
+  onUpdateFolderStart?: (directory: WorkspaceDirectoryRecord) => void;
+  /**
+   * 会话拖入本项目时触发（跨项目迁移；同项目拖拽不触发）。
+   * 传入后项目行成为会话拖拽的合法 drop 目标。
+   */
+  onDropConversation?: (
+    payload: ConversationDragPayload,
+    targetDirectoryId: string,
+  ) => void;
   onShowDetails?: (directoryId: string) => void;
 };
 
@@ -84,6 +98,8 @@ export function WorkspaceDirectoryRow({
   onDragStart,
   onDrop,
   onRenameStart,
+  onUpdateFolderStart,
+  onDropConversation,
   onShowDetails,
 }: WorkspaceDirectoryRowProps): React.JSX.Element {
   const { t } = useI18n();
@@ -94,6 +110,8 @@ export function WorkspaceDirectoryRow({
     x: number;
     y: number;
   } | null>(null);
+  // 跨项目会话拖拽悬停中：高亮提示可迁移到本项目
+  const [isConversationDragOver, setIsConversationDragOver] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -122,6 +140,21 @@ export function WorkspaceDirectoryRow({
     event: DragEvent<HTMLDivElement>,
     directoryId: string,
   ): void => {
+    // 会话拖拽优先识别（拖到输入框 = 引用上下文，拖到项目行 = 迁移会话）：
+    // 跨项目会话悬停时高亮本行并放行 drop；同项目会话不响应。
+    const conversationPayload = onDropConversation
+      ? readConversationDragPayload(event.dataTransfer)
+      : null;
+    if (conversationPayload) {
+      if (conversationPayload.directoryId === directoryId) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setIsConversationDragOver(true);
+      return;
+    }
+
     if (isActionLocked || draggedDirectoryId === directoryId) {
       return;
     }
@@ -130,11 +163,37 @@ export function WorkspaceDirectoryRow({
     onDragOver(directoryId);
   };
 
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    // 进入子元素时 relatedTarget 仍在本行内，不算真正离开，避免高亮闪烁
+    if (
+      !event.currentTarget.contains(event.relatedTarget as Node | null) &&
+      isConversationDragOver
+    ) {
+      setIsConversationDragOver(false);
+    }
+  };
+
   const handleDrop = (
     event: DragEvent<HTMLDivElement>,
     directoryId: string,
   ): void => {
     event.preventDefault();
+    setIsConversationDragOver(false);
+
+    // 会话 drop：交给父组件走迁移确认流程（同项目拖拽在此忽略）
+    const conversationPayload = readConversationDragPayload(event.dataTransfer);
+    if (conversationPayload) {
+      if (
+        onDropConversation &&
+        conversationPayload.directoryId !== directoryId
+      ) {
+        onDropConversation(conversationPayload, directoryId);
+      }
+      return;
+    }
+
+    // 项目排序 drop：交给父组件重排并持久化
+    // （拖拽到自身时 dragover 未放行，不会走到这里）
     onDrop(directoryId);
   };
 
@@ -152,14 +211,15 @@ export function WorkspaceDirectoryRow({
   return (
     <div
       className={`workspace-directory-row${
-        isDragging ? " dragging" : ""
-      }${isDragOver ? " drag-over" : ""}${
-        isMenuOpen ? " menu-open" : ""
-      }${isEditing ? " editing" : ""}`}
+        directory.kind === "ssh" ? " kind-ssh" : ""
+      }${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${
+        isConversationDragOver ? " conversation-drop-over" : ""
+      }${isMenuOpen ? " menu-open" : ""}${isEditing ? " editing" : ""}`}
       draggable={draggable && !isActionLocked && !isEditing}
       key={directory.directoryId}
       onContextMenu={handleContextMenu}
       onDragEnd={onDragEnd}
+      onDragLeave={handleDragLeave}
       onDragOver={(event) => handleDragOver(event, directory.directoryId)}
       onDragStart={(event) => handleDragStart(event, directory.directoryId)}
       onDrop={(event) => handleDrop(event, directory.directoryId)}
@@ -265,6 +325,11 @@ export function WorkspaceDirectoryRow({
           onRemoveFromCollection ? onRemoveFromCollection : undefined
         }
         onRename={onRenameStart ? () => onRenameStart(directory) : undefined}
+        onChangeFolder={
+          directory.source !== "builtin" && onUpdateFolderStart
+            ? () => onUpdateFolderStart(directory)
+            : undefined
+        }
         onShowDetails={
           onShowDetails ? () => onShowDetails(directory.directoryId) : undefined
         }

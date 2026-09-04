@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useI18n } from "../../../../i18n";
+import { useEscapeKey } from "../../../../hooks/useEscapeKey";
 import type { ChatCommand } from "./types";
 
 export type CommandPanelHandle = {
@@ -26,6 +27,10 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
     const [selectedIndex, setSelectedIndex] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
 
+    // ESC 关闭统一走 useEscapeKey 层级栈（后注册先响应），不再由
+    // handleKeyDown 命令式处理；面板可见期间注册，关闭即注销。
+    useEscapeKey({ onEscape: onClose, enabled: visible });
+
     const filteredCommands = useMemo(() => {
       const normalizedQuery = query.trim().toLowerCase();
       const matched = !normalizedQuery
@@ -35,13 +40,13 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
               command.label.toLowerCase().includes(normalizedQuery) ||
               command.description.toLowerCase().includes(normalizedQuery) ||
               command.searchKeywords?.some((keyword) =>
-                keyword.toLowerCase().includes(normalizedQuery)
-              )
+                keyword.toLowerCase().includes(normalizedQuery),
+              ),
           );
 
       // 可用的命令排在前面，不可用的统一移到后面集中显示（保持原有相对顺序）
       return [...matched].sort(
-        (a, b) => Number(a.disabled) - Number(b.disabled)
+        (a, b) => Number(a.disabled) - Number(b.disabled),
       );
     }, [commands, query]);
 
@@ -53,7 +58,8 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
     useEffect(() => {
       const list = listRef.current;
       if (!list) return;
-      const selectedEl = list.children[selectedIndex] as HTMLElement | undefined;
+      const selectedEl = list.children[selectedIndex] as
+        HTMLElement | undefined;
       if (selectedEl) {
         selectedEl.scrollIntoView({ block: "nearest" });
       }
@@ -63,13 +69,6 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
       ref,
       () => ({
         handleKeyDown: (event): boolean => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-            return true;
-          }
-
           if (filteredCommands.length === 0) {
             return false;
           }
@@ -112,7 +111,7 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
           return false;
         },
       }),
-      [filteredCommands, onClose, onSelect, selectedIndex]
+      [filteredCommands, onSelect, selectedIndex],
     );
 
     return (
@@ -123,61 +122,61 @@ export const CommandPanel = forwardRef<CommandPanelHandle, CommandPanelProps>(
           role="listbox"
           aria-label={t("chatCommand.title")}
         >
-        <div className="chat-command-list" ref={listRef}>
-          {filteredCommands.length > 0 ? (
-            filteredCommands.map((command, index) => {
-              const CommandIcon = command.icon;
-              const isSelected = index === selectedIndex;
+          <div className="chat-command-list" ref={listRef}>
+            {filteredCommands.length > 0 ? (
+              filteredCommands.map((command, index) => {
+                const CommandIcon = command.icon;
+                const isSelected = index === selectedIndex;
 
-              return (
-                <button
-                  key={command.id}
-                  className={`chat-command-item${
-                    isSelected ? " selected" : ""
-                  }`}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  disabled={command.disabled}
-                  onMouseEnter={() => {
-                    if (!command.disabled) setSelectedIndex(index);
-                  }}
-                  onClick={() => onSelect(command)}
-                >
-                  <CommandIcon
-                    size={15}
-                    strokeWidth={1.8}
-                    className="chat-command-item-icon"
-                  />
-                  <span className="chat-command-item-content">
-                    <span className="chat-command-item-name">
-                      /{command.label}
+                return (
+                  <button
+                    key={command.id}
+                    className={`chat-command-item${
+                      isSelected ? " selected" : ""
+                    }`}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    disabled={command.disabled}
+                    onMouseEnter={() => {
+                      if (!command.disabled) setSelectedIndex(index);
+                    }}
+                    onClick={() => onSelect(command)}
+                  >
+                    <CommandIcon
+                      size={15}
+                      strokeWidth={1.8}
+                      className="chat-command-item-icon"
+                    />
+                    <span className="chat-command-item-content">
+                      <span className="chat-command-item-name">
+                        /{command.label}
+                      </span>
+                      <span className="chat-command-item-description">
+                        {command.description}
+                      </span>
                     </span>
-                    <span className="chat-command-item-description">
-                      {command.description}
-                    </span>
-                  </span>
-                </button>
-              );
-            })
-          ) : (
-            <div className="chat-command-empty">{t("chatCommand.empty")}</div>
-          )}
-        </div>
-        <div className="chat-command-footer">
-          <span>
-            <kbd>↑</kbd>
-            <kbd>↓</kbd> {t("chatCommand.navigate")}
-          </span>
-          <span>
-            <kbd>Enter</kbd> {t("chatCommand.execute")}
-          </span>
-          <span>
-            <kbd>Esc</kbd> {t("chatCommand.close")}
-          </span>
-        </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="chat-command-empty">{t("chatCommand.empty")}</div>
+            )}
+          </div>
+          <div className="chat-command-footer">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> {t("chatCommand.navigate")}
+            </span>
+            <span>
+              <kbd>Enter</kbd> {t("chatCommand.execute")}
+            </span>
+            <span>
+              <kbd>Esc</kbd> {t("chatCommand.close")}
+            </span>
+          </div>
         </div>
       )
     );
-  }
+  },
 );

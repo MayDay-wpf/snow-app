@@ -1633,6 +1633,11 @@ export type NativeBridge = {
     items: WorkspaceDirectoryInput[],
   ) => Promise<void>;
   deleteWorkspaceDirectory: (directoryId: string) => Promise<void>;
+  /** 将项目重定向到新文件夹路径，并迁移其全部历史数据（会话/记忆等） */
+  updateWorkspaceDirectoryPath: (
+    directoryId: string,
+    newPath: string,
+  ) => Promise<void>;
   listProjectCollections: () => Promise<ProjectCollectionRecord[]>;
   createProjectCollection: (name: string) => Promise<void>;
   renameProjectCollection: (
@@ -1845,6 +1850,11 @@ export type NativeBridge = {
     status: string,
   ) => Promise<void>;
   renameConversation: (conversationId: string, title: string) => Promise<void>;
+  /** 将会话迁移到目标项目（directoryId），返回是否发生迁移。 */
+  moveChatConversation: (
+    conversationId: string,
+    targetDirectoryId: string,
+  ) => Promise<boolean>;
   updateConversationEmoji: (
     conversationId: string,
     emoji: string,

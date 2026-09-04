@@ -765,6 +765,8 @@ export const useChatInputController = ({
 
   const handleManualKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
+      // ESC 退出手动输入模式的分支已收敛到 ModelSelector 的
+      // useEscapeKey 子层（层级栈先子后父），这里仅保留 Enter 确认。
       if (event.key === "Enter") {
         if (isComposingKeyboardEvent(event)) {
           return;
@@ -772,8 +774,6 @@ export const useChatInputController = ({
 
         event.preventDefault();
         void handleConfirmManualModel();
-      } else if (event.key === "Escape") {
-        setIsManualMode(false);
       }
     },
     [handleConfirmManualModel],

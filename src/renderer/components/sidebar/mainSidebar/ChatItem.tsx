@@ -35,6 +35,10 @@ type ChatItemProps = {
   subAgentConversations?: ChatConversationRecord[];
   /** 子代理中待用户确认（提问/工具授权）的会话 id 集合 */
   subAgentAttentionRequiredIds?: Set<string>;
+  /** Workflow 节点/节点下子代理的后台运行数量（计入主会话徽标） */
+  workflowRunningCount?: number;
+  /** Workflow 节点/节点下子代理的待确认数量（计入主会话徽标与图标） */
+  workflowAttentionCount?: number;
   isSubAgentExpanded?: boolean;
   /** Workflow 主会话（创建了 workflow 节点会话），显示特殊图标与树形展开 */
   isWorkflow?: boolean;
@@ -74,6 +78,8 @@ export function ChatItem({
   isRunning = false,
   subAgentConversations = [],
   subAgentAttentionRequiredIds = new Set<string>(),
+  workflowRunningCount = 0,
+  workflowAttentionCount = 0,
   isSubAgentExpanded = false,
   isWorkflow = false,
   isWorkflowExpanded = false,
@@ -176,9 +182,12 @@ export function ChatItem({
   };
 
   const isPinned = conversation.status === "pin";
-  const hasAttentionRequiredSubAgent = subAgentConversations.some((sub) =>
-    subAgentAttentionRequiredIds.has(sub.conversationId),
-  );
+  // 直接子代理待确认，或 Workflow 节点/节点下子代理待确认时，
+  // 主会话图标同样点亮需关注状态
+  const hasAttentionRequiredSubAgent =
+    subAgentConversations.some((sub) =>
+      subAgentAttentionRequiredIds.has(sub.conversationId),
+    ) || workflowAttentionCount > 0;
   const isForked = conversation.forkedFromConversationId !== "";
   const hasEmoji = conversation.emoji.trim() !== "";
   const displayName =
@@ -286,6 +295,12 @@ export function ChatItem({
       sub.subAgentStatus === "running" &&
       !subAgentAttentionRequiredIds.has(sub.conversationId),
   ).length;
+  // 徽标计数 = 直接子代理 + Workflow 节点及其子代理的后台活动
+  //（节点/节点子代理部分由父级 ChatsSection/PinnedSection 通过 props 传入；
+  // 展开面板 SubAgentListPanel 仍只展示直接子代理，徽标语义为"后代活动数"）
+  const totalRunningCount = runningSubAgentCount + workflowRunningCount;
+  const totalAttentionCount =
+    attentionRequiredSubAgentCount + workflowAttentionCount;
 
   return (
     <div
@@ -364,7 +379,16 @@ export function ChatItem({
           ) : hasEmoji ? (
             <span className="chat-item-emoji">{conversation.emoji}</span>
           ) : isWorkflow ? (
-            <Workflow size={11} />
+            workflowRunningCount > 0 ? (
+              // Workflow 节点/其子代理后台运行中：图标切换为旋转指示器
+              //（复用节点面板的 running 样式类，零新增 CSS）
+              <Loader2
+                size={11}
+                className="spin workflow-node-status-running"
+              />
+            ) : (
+              <Workflow size={11} />
+            )
           ) : isForked ? (
             <GitFork size={11} />
           ) : (
@@ -439,18 +463,18 @@ export function ChatItem({
                   {statusLabel}
                 </span>
               )}
-              {hasSubAgents && runningSubAgentCount > 0 && (
+              {totalRunningCount > 0 && (
                 <span className="chat-item-sub-agent-count">
-                  {runningSubAgentCount}
+                  {totalRunningCount}
                 </span>
               )}
-              {hasSubAgents && attentionRequiredSubAgentCount > 0 && (
+              {totalAttentionCount > 0 && (
                 <span
                   className="chat-item-sub-agent-count attention"
                   title={statusDescription}
                   aria-label={statusDescription}
                 >
-                  {attentionRequiredSubAgentCount}
+                  {totalAttentionCount}
                 </span>
               )}
               <span className="chat-item-time">{timeLabel}</span>

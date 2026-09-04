@@ -8,6 +8,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../hooks/useEscapeKey";
+
 type ModalProps = {
   open: boolean;
   title: string;
@@ -45,6 +47,10 @@ export function Modal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+
+  // 统一 ESC 关闭：打开期间注册为 ESC 层（document 级监听，天然覆盖
+  // portal 渲染）；closeDisabled 时不响应 Esc。
+  useEscapeKey({ onEscape: onClose, enabled: open && !closeDisabled });
 
   useEffect(() => {
     if (!open) return;

@@ -791,6 +791,12 @@ export type UseChatConversationResult = {
    *  UIs (e.g. sub-agent activation) to inspect the live state of other
    *  sessions such as streaming sub-agent conversations. */
   sessions: Record<string, ConversationSessionState>;
+  /** Live ref map of ConversationSessionRef keyed by conversation id.
+   *  Exposes ref-only fields (e.g. childSubAgentIds) to cross-tree
+   *  consumers such as the chat input's background-running counter.
+   *  Non-reactive: readers must recompute when the streaming/attention
+   *  sets change (those sets flip on every run start/end). */
+  sessionsRefData: RefValue<Map<string, ConversationSessionRef>>;
   activeConversationId: string | undefined;
   /** 聊天视图身份 key（chat-area / ChatInput 的 key 用），pending 迁移时保持稳定。 */
   sessionViewKey: string;

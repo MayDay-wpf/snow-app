@@ -6,6 +6,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Check, ChevronDown, FolderOpen, Loader2 } from "lucide-react";
+
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import type { DetectedTerminalOption } from "./types";
 
 type TerminalComboboxProps = {
@@ -87,6 +89,9 @@ export function TerminalCombobox({
     setIsOpen(false);
   };
 
+  // ESC 关闭下拉列表（层级栈；下拉打开期间任意焦点位置生效）。
+  useEscapeKey({ onEscape: () => setIsOpen(false), enabled: isOpen });
+
   // 焦点移入本组件的下拉区域（选项 / 浏览按钮）不算真正失焦，不触发保存；
   // 选中选项后由 onCommit 携带新值立即保存。
   const handleBlur = (event: FocusEvent<HTMLInputElement>) => {
@@ -98,16 +103,11 @@ export function TerminalCombobox({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      setIsOpen(false);
-      return;
-    }
-
     if (event.key === "ArrowDown") {
       event.preventDefault();
       openDropdown();
       setHighlightedIndex((index) =>
-        Math.min(index + 1, Math.max(filteredTerminals.length - 1, 0))
+        Math.min(index + 1, Math.max(filteredTerminals.length - 1, 0)),
       );
       return;
     }
@@ -118,7 +118,11 @@ export function TerminalCombobox({
       return;
     }
 
-    if (event.key === "Enter" && isOpen && filteredTerminals[highlightedIndex]) {
+    if (
+      event.key === "Enter" &&
+      isOpen &&
+      filteredTerminals[highlightedIndex]
+    ) {
       event.preventDefault();
       handleSelect(filteredTerminals[highlightedIndex].path);
     }

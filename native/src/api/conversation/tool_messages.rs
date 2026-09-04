@@ -18,6 +18,10 @@ use crate::storage::services::chat_conversations::ChatContextMessage;
 pub fn tool_calls_as_anthropic_blocks(tool_calls_json: &str) -> Vec<Value> {
     normalize_tool_calls(tool_calls_json)
         .into_iter()
+        // Anthropic requires a non-empty tool_use id; Gemini-origin calls
+        // (no id) cannot be replayed to Anthropic and are dropped, matching
+        // the pre-normalization behavior.
+        .filter(|entry| !entry.id.is_empty())
         .map(|entry| {
             serde_json::json!({
                 "type": "tool_use",
@@ -62,6 +66,10 @@ pub fn tool_calls_as_gemini_parts(tool_calls_json: &str) -> Vec<Value> {
 pub fn tool_calls_as_chat_completions(tool_calls_json: &str) -> Vec<Value> {
     normalize_tool_calls(tool_calls_json)
         .into_iter()
+        // Chat Completions requires a non-empty tool call id; Gemini-origin
+        // calls (no id) cannot be replayed here and are dropped, matching
+        // the pre-normalization behavior.
+        .filter(|entry| !entry.id.is_empty())
         .map(|entry| {
             let arguments =
                 serde_json::to_string(&entry.input).unwrap_or_else(|_| "{}".to_string());
@@ -177,37 +185,19 @@ pub fn parse_tool_results_with_images(
         .collect()
 }
 
-/// 判断工具结果是否携带图片标签，识别两种格式：
-/// 1. 前端 `formatMcpToolResultForModel` 追加的尾部标签行：`JSON\n@@image:...@@`；
-/// 2. filesystem-read 读取图片的 `{"content":"@@image:...@@","isImage":true}`。
+/// 判断工具结果是否携带图片标签。
 ///
-/// 不能用 `contains("@@image:")`——grep 等搜索结果 JSON 内嵌的匹配行文本可能
-/// 恰好含该字样，会误把非图片 base64 发给视觉模型。
+/// 此前仅信任两种"可信格式"（序列化 JSON 之后的尾部标签行 /
+/// filesystem-read 的 `isImage` JSON），但截图等工具的新格式会把标签嵌在
+/// 结果文本中间（如 `captured @@image:...@@`），会被漏判为纯文本、图片
+/// 无法进入多模态载荷。
+///
+/// 现放宽为"包含即放行"：真正的防误报由 parse_chat_message_content 的
+/// 逐标签校验兜底——data URL 需通过 base64 解码 + 图片魔数校验
+/// （parse_base64_image_data_url），伪标签（如 grep 结果 JSON 内恰好嵌入的
+/// `@@image:` 字样）会被拒绝并保留原文，不会作为图片发给上游视觉模型。
 fn has_image_tags(result: &str) -> bool {
-    // Case 1: 标签行紧跟在序列化 JSON 之后
-    let mut trailing_tag_len = 0usize;
-    for line in result.lines().rev() {
-        if line.trim_start().starts_with("@@image:") {
-            trailing_tag_len += line.len() + 1;
-        } else {
-            break;
-        }
-    }
-    if trailing_tag_len > 0 {
-        let json_part = &result[..result.len().saturating_sub(trailing_tag_len)];
-        if serde_json::from_str::<Value>(json_part.trim()).is_ok() {
-            return true;
-        }
-    }
-
-    // Case 2: filesystem-read 图片结果（isImage 为可信标志）
-    serde_json::from_str::<Value>(result).ok().is_some_and(|value| {
-        value.get("isImage").and_then(Value::as_bool).unwrap_or(false)
-            && value
-                .get("content")
-                .and_then(Value::as_str)
-                .is_some_and(|content| content.starts_with("@@image:"))
-    })
+    result.contains("@@image:")
 }
 
 /// A provider-agnostic representation of a single tool call extracted from
@@ -254,9 +244,12 @@ pub(crate) fn normalize_tool_calls(tool_calls_json: &str) -> Vec<NormalizedToolC
                 })
                 .unwrap_or("")
                 .to_string();
-            if id.is_empty() {
-                return None;
-            }
+            // Gemini's native functionCall carries no id. Keep the entry with
+            // an empty id (see extract_tool_call_entries) so order-based
+            // matching downstream can still see and validate the call; each
+            // output format decides for itself whether an empty id is
+            // representable (Gemini omits the field, Anthropic/Chat skip the
+            // entry entirely).
 
             // --- name ---
             // OpenAI Chat nests under "function.name"; the other providers

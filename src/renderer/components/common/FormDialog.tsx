@@ -9,6 +9,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../hooks/useEscapeKey";
+
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
   "[href]",
@@ -70,15 +72,16 @@ export function FormDialog({
     };
   }, [initialFocusRef, open]);
 
+  // 统一 ESC 关闭：提交进行中（isSubmitting）时 gate 拒绝，Esc 无动作。
+  useEscapeKey({
+    onEscape: onCancel,
+    enabled: open,
+    gate: () => !isSubmitting,
+  });
+
   if (!open) return null;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!isSubmitting) onCancel();
-      return;
-    }
-
     if (event.key !== "Tab" || !dialogRef.current) return;
 
     const focusableElements = Array.from(

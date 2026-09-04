@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useEscapeKey } from "../../hooks/useEscapeKey";
+
 export type ContextMenuItem = {
   id: string;
   label: string;
@@ -41,6 +43,10 @@ export function ContextMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [top, setTop] = useState(y);
 
+  // 统一 ESC 关闭：菜单挂载期间注册为 ESC 层，卸载自动注销
+  // （替换原先的 window keydown 监听，走层级栈统一分派）。
+  useEscapeKey({ onEscape: onClose });
+
   // 测量菜单实际高度，避免超出窗口底部。
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -63,17 +69,10 @@ export function ContextMenu({
       }
       onClose();
     };
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
 
     window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
 

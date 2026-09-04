@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Check, ChevronDown } from "lucide-react";
+
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 
 export type TokenPreset = {
   value: string;
@@ -56,7 +64,7 @@ export function TokenPresetInput({
     return presets.filter(
       (preset) =>
         preset.value.toLowerCase().includes(keyword) ||
-        preset.label.toLowerCase().includes(keyword)
+        preset.label.toLowerCase().includes(keyword),
     );
   }, [presets, value, showAll]);
 
@@ -94,11 +102,10 @@ export function TokenPresetInput({
     setIsOpen(false);
   };
 
+  // ESC 关闭预设列表（层级栈；列表打开期间任意焦点位置生效）。
+  useEscapeKey({ onEscape: () => setIsOpen(false), enabled: isOpen });
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === "Escape") {
-      setIsOpen(false);
-      return;
-    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (!isOpen) {
@@ -106,7 +113,7 @@ export function TokenPresetInput({
         return;
       }
       setHighlightedIndex((index) =>
-        Math.min(index + 1, Math.max(visiblePresets.length - 1, 0))
+        Math.min(index + 1, Math.max(visiblePresets.length - 1, 0)),
       );
       return;
     }
@@ -128,7 +135,7 @@ export function TokenPresetInput({
   // 过滤结果变化时防止高亮越界
   const clampedHighlightedIndex = Math.min(
     highlightedIndex,
-    Math.max(visiblePresets.length - 1, 0)
+    Math.max(visiblePresets.length - 1, 0),
   );
 
   return (

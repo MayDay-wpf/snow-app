@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Check, ChevronDown, Loader2, RefreshCw, Search } from "lucide-react";
+import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import type { Model } from "../../../../preload";
 
@@ -126,12 +127,10 @@ export function ApiModelCombobox({
     setIsOpen(false);
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      setIsOpen(false);
-      return;
-    }
+  // ESC 关闭下拉列表（层级栈；下拉打开期间任意焦点位置生效）。
+  useEscapeKey({ onEscape: () => setIsOpen(false), enabled: isOpen });
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (isOpen) {

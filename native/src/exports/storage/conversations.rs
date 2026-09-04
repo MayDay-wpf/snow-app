@@ -171,6 +171,19 @@ pub async fn archive_conversations(conversation_ids: Vec<String>) -> napi::Resul
         .map_err(map_spawn_error)?
 }
 
+/// 将会话迁移到目标项目（拖拽会话到项目行的落库入口），返回是否发生迁移。
+#[napi]
+pub async fn move_chat_conversation(
+    conversation_id: String,
+    target_directory_id: String,
+) -> napi::Result<bool> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::move_chat_conversation(conversation_id, target_directory_id)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
 /// 分页列出归档会话（按归档时间倒序）。
 #[napi]
 pub async fn list_archived_conversations_paginated(
