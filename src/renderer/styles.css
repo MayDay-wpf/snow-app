@@ -2473,6 +2473,13 @@ input {
   background: var(--bg-hover);
 }
 
+/* 跨项目会话拖入：目标行高亮 + 左侧强调条，提示"松开迁移会话到此项目" */
+.workspace-directory-row.conversation-drop-over .list-item {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 0 var(--accent-color, #4f8cff);
+  cursor: copy;
+}
+
 /* 拖拽排序插入横线：显示在目标行与相邻行的间隙中，指示实际插入位置
    （top=插入目标行之前，bottom=插入目标行之后），颜色跟随主题强调色 */
 .workspace-directory-drop-line {
@@ -2872,6 +2879,23 @@ input {
   color: var(--text-tertiary);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+/* 表单弹窗中的只读值（如路径预览）：等宽字体 + 可选中，长路径可断行 */
+.form-dialog-value {
+  display: block;
+  color: var(--text-primary);
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    "Cascadia Mono",
+    "Segoe UI Mono",
+    monospace
+  );
+  font-size: 11.5px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: text;
 }
 
 .form-dialog-error {

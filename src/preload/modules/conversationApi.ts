@@ -57,6 +57,19 @@ export const conversationApi = {
     ),
   renameConversation: (conversationId: string, title: string): Promise<void> =>
     ipcRenderer.invoke("chat-conversations:rename", conversationId, title),
+  /**
+   * 将会话迁移到目标项目（拖拽会话到项目行的落库入口）。
+   * 返回是否发生了迁移（目标项目与当前项目相同时返回 false）。
+   */
+  moveChatConversation: (
+    conversationId: string,
+    targetDirectoryId: string,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke(
+      "chat-conversations:move",
+      conversationId,
+      targetDirectoryId,
+    ),
   updateConversationEmoji: (
     conversationId: string,
     emoji: string,

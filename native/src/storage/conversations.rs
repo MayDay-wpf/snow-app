@@ -264,6 +264,19 @@ pub fn list_pinned_conversations(directory_id: String) -> Result<Vec<ChatConvers
     services::chat_conversations::list_pinned_conversations(&database_path, &directory_id)
 }
 
+/// 将会话迁移到目标项目（directoryId），详见服务层实现。
+pub fn move_chat_conversation(
+    conversation_id: String,
+    target_directory_id: String,
+) -> Result<bool> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::move_chat_conversation(
+        &database_path,
+        &conversation_id,
+        &target_directory_id,
+    )
+}
+
 pub fn search_chat_conversations(query: String) -> Result<Vec<ConversationSearchResult>> {
     let database_path = ensure_database_file()?;
     services::chat_conversations::search_chat_conversations(&database_path, &query)

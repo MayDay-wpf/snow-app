@@ -324,6 +324,24 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       await native.renameConversation(conversationId.trim(), title.trim());
     },
   );
+  // 会话迁移到目标项目（拖拽会话到项目行的落库入口）：由 Rust 端在单事务内
+  // 更新会话归属并同步工作流运行记录，返回是否发生了迁移。
+  ipcMain.handle(
+    "chat-conversations:move",
+    async (_event, conversationId: unknown, targetDirectoryId: unknown) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error("Conversation ID is required to move conversation");
+      }
+      if (typeof targetDirectoryId !== "string" || !targetDirectoryId.trim()) {
+        throw new Error("Target directory ID is required to move conversation");
+      }
+
+      return native.moveChatConversation(
+        conversationId.trim(),
+        targetDirectoryId.trim(),
+      );
+    },
+  );
   ipcMain.handle(
     "chat-conversations:update-emoji",
     async (_event, conversationId: unknown, emoji: unknown) => {

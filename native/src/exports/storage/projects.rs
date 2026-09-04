@@ -95,6 +95,20 @@ pub async fn upsert_workspace_directory(item: WorkspaceDirectoryInput) -> napi::
         .map_err(map_spawn_error)?
 }
 
+/// 将项目重定向到新文件夹路径，并把该项目的历史数据（会话、记忆等）
+/// 一并迁移到新的 directory_id，详见存储层实现。
+#[napi]
+pub async fn update_workspace_directory_path(
+    directory_id: String,
+    new_path: String,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::update_workspace_directory_path(directory_id, new_path)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
 #[napi]
 pub async fn activate_workspace_directory(directory_id: String) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || crate::storage::activate_workspace_directory(directory_id))

@@ -7,6 +7,7 @@ import type {
   ProjectCollectionRecord,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
+import type { ConversationDragPayload } from "./conversationDrag";
 import { WorkspaceDirectoryRow } from "./WorkspaceDirectoryRow";
 
 type WorkspaceDirectoryListProps = {
@@ -38,6 +39,13 @@ type WorkspaceDirectoryListProps = {
   onRemoveFromCollection: (collectionId: string, directoryId: string) => void;
   /** 重命名目录显示名；返回 Promise 时提交期间保持编辑态直到完成 */
   onRename?: (directoryId: string, newName: string) => void | Promise<void>;
+  /** 修改项目文件夹（重定向到新路径并迁移历史数据） */
+  onUpdateFolderStart?: (directory: WorkspaceDirectoryRecord) => void;
+  /** 会话拖入项目行时触发（跨项目迁移确认流程） */
+  onDropConversation?: (
+    payload: ConversationDragPayload,
+    targetDirectoryId: string,
+  ) => void;
   onRenameCollection: (collection: ProjectCollectionRecord) => void;
   onShowDetails?: (directoryId: string) => void;
   onToggleCollection: (collectionId: string) => void;
@@ -70,6 +78,8 @@ export function WorkspaceDirectoryList({
   onDrop,
   onRemoveFromCollection,
   onRename,
+  onUpdateFolderStart,
+  onDropConversation,
   onRenameCollection,
   onShowDetails,
   onToggleCollection,
@@ -234,6 +244,8 @@ export function WorkspaceDirectoryList({
             onRenameCancel={handleRenameCancel}
             onRenameSubmit={handleRenameSubmit}
             onShowDetails={onShowDetails}
+            onUpdateFolderStart={onUpdateFolderStart}
+            onDropConversation={onDropConversation}
             showIndex={false}
             totalCount={0}
             draggable={false}
@@ -375,6 +387,8 @@ export function WorkspaceDirectoryList({
               onRenameStart={handleRenameStart}
               onRenameSubmit={handleRenameSubmit}
               onShowDetails={onShowDetails}
+              onUpdateFolderStart={onUpdateFolderStart}
+              onDropConversation={onDropConversation}
               totalCount={totalCount}
             />
           ))}

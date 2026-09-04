@@ -16,6 +16,15 @@ pub fn upsert_workspace_directory(item: WorkspaceDirectoryInput) -> Result<()> {
     services::workspace_directories::upsert_workspace_directory(&database_path, &item)
 }
 
+pub fn update_workspace_directory_path(directory_id: String, new_path: String) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::workspace_directories::update_workspace_directory_path(
+        &database_path,
+        &directory_id,
+        &new_path,
+    )
+}
+
 pub fn activate_workspace_directory(directory_id: String) -> Result<()> {
     let database_path = ensure_database_file()?;
     services::workspace_directories::activate_workspace_directory(&database_path, &directory_id)
