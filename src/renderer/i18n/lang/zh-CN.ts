@@ -2263,6 +2263,7 @@ export const zhCN = {
   "settings.mcpErrorListToolsFailed": "从 MCP 服务器获取工具列表失败。",
   "settings.mcpErrorLoadConfigsFailed": "加载 MCP 服务器配置失败。",
   "settings.mcpErrorInvalidConfigJson": "MCP 服务器配置包含无效的 JSON 值。",
+  "settings.mcpErrorDetailSuffix": "（错误详情：{{detail}}）",
   "settings.mcpFetchToolsErrorDetail": "获取 MCP 工具失败：{{detail}}",
   "settings.mcpEditForm": "表单",
   "settings.mcpJsonInvalid": "JSON 无效",

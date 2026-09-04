@@ -2264,6 +2264,7 @@ export const zhTW = {
   "settings.mcpErrorListToolsFailed": "從 MCP 伺服器取得工具清單失敗。",
   "settings.mcpErrorLoadConfigsFailed": "載入 MCP 伺服器設定失敗。",
   "settings.mcpErrorInvalidConfigJson": "MCP 伺服器設定包含無效的 JSON 值。",
+  "settings.mcpErrorDetailSuffix": "（錯誤詳情：{{detail}}）",
   "settings.mcpFetchToolsErrorDetail": "取得 MCP 工具失敗：{{detail}}",
   "settings.mcpEditForm": "表單",
   "settings.mcpJsonInvalid": "JSON 無效",

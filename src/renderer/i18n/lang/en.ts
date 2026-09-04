@@ -2359,6 +2359,7 @@ export const en = {
     "Failed to load MCP server configurations.",
   "settings.mcpErrorInvalidConfigJson":
     "The MCP server configuration contains invalid JSON values.",
+  "settings.mcpErrorDetailSuffix": " (Details: {{detail}})",
   "settings.mcpFetchToolsErrorDetail": "Failed to fetch MCP tools: {{detail}}",
   "settings.mcpEditForm": "Form",
   "settings.mcpJsonInvalid": "Invalid JSON",
