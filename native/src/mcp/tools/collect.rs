@@ -351,6 +351,7 @@ pub(crate) fn builtin_server_name(server_id: &str) -> &str {
         "imagegen" => "Image Generation",
         "lsp" => "LSP",
         "memory" => "Project Memory",
+        "workflow" => "WorkFlow",
         _ => server_id,
     }
 }
