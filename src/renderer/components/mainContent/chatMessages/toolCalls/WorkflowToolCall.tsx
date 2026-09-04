@@ -2,6 +2,7 @@ import {
   Background,
   Controls,
   Handle,
+  MarkerType,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -25,6 +26,8 @@ import {
   Plus,
   Send,
   Trash2,
+  TriangleAlert,
+  Undo2,
   Workflow,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -274,6 +277,21 @@ type CanvasContextMenu = {
   edgeId: string | null;
 };
 
+/** 待二次确认的删除集合：edgeIds 为确定性边 id，发起时已并入节点的级联连线。 */
+type PendingCanvasDelete = {
+  nodeIds: string[];
+  edgeIds: string[];
+};
+
+/** 已执行删除的撤销快照：被删节点与连线原样保存，撤销时按此恢复。 */
+type CanvasDeleteSnapshot = {
+  nodes: WorkflowFlowNode[];
+  edges: WorkflowEdgeItem[];
+};
+
+// 撤销快捷键文案按平台显示。
+const UNDO_SHORTCUT_LABEL = /mac/i.test(navigator.platform) ? "⌘Z" : "Ctrl+Z";
+
 const WorkflowToolCallInner = ({
   toolCall,
   conversationId,
@@ -363,6 +381,22 @@ const WorkflowToolCallInner = ({
     handoff: string;
     tokens: number;
   } | null>(null);
+
+  // 删除画布内容的二次确认与撤销：pendingDelete = 待确认删除集合（右键
+  // 删除/键盘 Backspace 先入此，确认后才真正执行）；lastDeleted = 最近一次
+  // 已执行删除的快照，撤销按钮与 Ctrl/Cmd+Z 据此恢复。
+  const [pendingDelete, setPendingDelete] =
+    useState<PendingCanvasDelete | null>(null);
+  const [lastDeleted, setLastDeleted] = useState<CanvasDeleteSnapshot | null>(
+    null,
+  );
+  const [undoToastVisible, setUndoToastVisible] = useState(false);
+  const pendingDeleteRef = useRef<PendingCanvasDelete | null>(null);
+  pendingDeleteRef.current = pendingDelete;
+  const lastDeletedRef = useRef<CanvasDeleteSnapshot | null>(null);
+  lastDeletedRef.current = lastDeleted;
+  const undoToastVisibleRef = useRef(false);
+  undoToastVisibleRef.current = undoToastVisible;
 
   // 画布宿主切换：同一 flow 的画布在消息流中只由「发起当前 run 的卡片」
   // 展示。resume 卡片默认收起（历史回看时画布由上方 generate 卡片展示），
@@ -684,6 +718,8 @@ const WorkflowToolCallInner = ({
           id: buildEdgeId(edge),
           source: edge.source,
           target: edge.target,
+          // 流向箭头：指向 target 节点，颜色由 CSS 与线条令牌同步。
+          markerEnd: { type: MarkerType.ArrowClosed },
           animated:
             flowNodesRef.current.find((flowNode) => flowNode.id === edge.source)
               ?.data.node.runStatus === "completed" ||
@@ -924,25 +960,133 @@ const WorkflowToolCallInner = ({
     [openNodeEditor, screenToFlowPosition, t],
   );
 
-  const handleDeleteNode = useCallback((nodeId: string): void => {
+  // 删除画布内容统一入口：不直接动 state，先并入待确认集合。nodeIds 的
+  // 级联连线在发起时即算入（确认文案与执行口径一致）；同一次按键可能连续
+  // 触发节点与连线两条路径（React Flow 先发节点 remove、再发级联边 remove），
+  // 函数式合并去重后只弹一个确认框。
+  const requestCanvasDelete = useCallback(
+    (nodeIds: string[], edgeIds: string[]): void => {
+      if (nodeIds.length === 0 && edgeIds.length === 0) {
+        return;
+      }
+      const cascadeEdgeIds =
+        nodeIds.length > 0
+          ? edgesRef.current
+              .filter(
+                (edge) =>
+                  nodeIds.includes(edge.source) ||
+                  nodeIds.includes(edge.target),
+              )
+              .map((edge) => buildEdgeId(edge))
+          : [];
+      const mergedEdgeIds = Array.from(
+        new Set([...edgeIds, ...cascadeEdgeIds]),
+      );
+      setPendingDelete((current) =>
+        current
+          ? {
+              nodeIds: Array.from(new Set([...current.nodeIds, ...nodeIds])),
+              edgeIds: Array.from([
+                ...new Set([...current.edgeIds, ...mergedEdgeIds]),
+              ]),
+            }
+          : { nodeIds: [...nodeIds], edgeIds: mergedEdgeIds },
+      );
+    },
+    [],
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string): void => {
+      requestCanvasDelete([nodeId], []);
+      setContextMenu(null);
+    },
+    [requestCanvasDelete],
+  );
+
+  const handleDeleteEdge = useCallback(
+    (edgeId: string): void => {
+      // edgeId 为确定性边 id：与 flowEdges 派生 id、右键命中的 edge.id 对齐。
+      requestCanvasDelete([], [edgeId]);
+      setContextMenu(null);
+    },
+    [requestCanvasDelete],
+  );
+
+  // 确认删除：按发起时刻的最新画布重算目标集合（级联连线以当时状态为准），
+  // 快照被删节点与连线供撤销恢复，随后展示撤销提示条。
+  const confirmCanvasDelete = useCallback((): void => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+    setContextMenu(null);
+    const nodeIdSet = new Set(pending.nodeIds);
+    const edgeIdSet = new Set(pending.edgeIds);
+    const removedNodes = flowNodesRef.current.filter((flowNode) =>
+      nodeIdSet.has(flowNode.id),
+    );
+    const removedEdges = edgesRef.current.filter(
+      (edge) =>
+        edgeIdSet.has(buildEdgeId(edge)) ||
+        nodeIdSet.has(edge.source) ||
+        nodeIdSet.has(edge.target),
+    );
+    if (removedNodes.length === 0 && removedEdges.length === 0) {
+      return;
+    }
+    const removedEdgeIdSet = new Set(
+      removedEdges.map((edge) => buildEdgeId(edge)),
+    );
     setFlowNodes((current) =>
-      current.filter((flowNode) => flowNode.id !== nodeId),
+      current.filter((flowNode) => !nodeIdSet.has(flowNode.id)),
     );
     setEdges((current) =>
-      current.filter(
-        (edge) => edge.source !== nodeId && edge.target !== nodeId,
-      ),
+      current.filter((edge) => !removedEdgeIdSet.has(buildEdgeId(edge))),
     );
-    setEditingNodeId((current) => (current === nodeId ? null : current));
-    setContextMenu(null);
+    setEditingNodeId((current) =>
+      current && nodeIdSet.has(current) ? null : current,
+    );
+    const snapshot: CanvasDeleteSnapshot = {
+      nodes: removedNodes,
+      edges: removedEdges,
+    };
+    lastDeletedRef.current = snapshot;
+    setLastDeleted(snapshot);
+    setUndoToastVisible(true);
   }, []);
 
-  const handleDeleteEdge = useCallback((edgeId: string): void => {
-    // 按确定性 id 过滤：与 flowEdges 派生 id、右键命中的 edge.id 严格对齐。
-    setEdges((current) =>
-      current.filter((edge) => buildEdgeId(edge) !== edgeId),
-    );
-    setContextMenu(null);
+  const cancelCanvasDelete = useCallback((): void => {
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+  }, []);
+
+  // 撤销最近一次删除：节点与连线按快照原样恢复（配置与位置不变），已被
+  // 重建的同 id 节点/同端点连线跳过，避免重复。
+  const undoCanvasDelete = useCallback((): void => {
+    const snapshot = lastDeletedRef.current;
+    if (!snapshot) {
+      return;
+    }
+    lastDeletedRef.current = null;
+    setLastDeleted(null);
+    setUndoToastVisible(false);
+    setFlowNodes((current) => {
+      const existing = new Set(current.map((flowNode) => flowNode.id));
+      return [
+        ...current,
+        ...snapshot.nodes.filter((flowNode) => !existing.has(flowNode.id)),
+      ];
+    });
+    setEdges((current) => {
+      const existing = new Set(current.map((edge) => buildEdgeId(edge)));
+      return [
+        ...current,
+        ...snapshot.edges.filter((edge) => !existing.has(buildEdgeId(edge))),
+      ];
+    });
   }, []);
 
   // 连线合法性统一入口（handleConnect 与 isValidConnection 同源复用）：
@@ -991,53 +1135,100 @@ const WorkflowToolCallInner = ({
   );
 
   // React Flow 内置删除路径（键盘 Backspace 删选中等）通过 onEdgesChange
-  // 下发 remove change：按确定性 id 同步清理 edges state 兜底。不可编辑
-  // （运行中/已结算）时忽略 remove change，与 handleNodesChange 的节点
-  // remove 过滤同一口径——否则键盘删除选中节点时节点 remove change 被
-  // 过滤保留，而相连边会被级联 remove，出现「节点在、边被删」的不一致。
-  const handleEdgesChange = useCallback((changes: EdgeChange[]): void => {
-    if (!canEditCanvasRef.current) {
-      return;
-    }
-    const removedIds = new Set(
-      changes
+  // 下发 remove change：与节点 remove 同口径拦截转二次确认，不再直接落
+  // state（确认后由 confirmCanvasDelete 统一执行）。不可编辑（运行中/
+  // 已结算）时忽略，保持画布只读。
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]): void => {
+      if (!canEditCanvasRef.current) {
+        return;
+      }
+      const removedIds = changes
         .filter((change) => change.type === "remove")
-        .map((change) => change.id),
-    );
-    if (removedIds.size === 0) {
-      return;
-    }
-    setEdges((current) =>
-      current.filter((edge) => !removedIds.has(buildEdgeId(edge))),
-    );
-  }, []);
+        .map((change) => change.id);
+      if (removedIds.length === 0) {
+        return;
+      }
+      requestCanvasDelete([], removedIds);
+    },
+    [requestCanvasDelete],
+  );
 
-  // 包装节点变更：键盘删除选中节点（默认 Backspace）时同步清掉引用这些
-  // 节点的边，避免死边留在 state（并随之进入持久化数据）；canEditCanvas
-  // 为 false 时过滤 remove change 防运行中误删，其余 change（拖拽/
-  // select/dimensions）照常透传，不影响受控拖拽逐帧更新。
+  // 包装节点变更：remove change 一律拦截——不可编辑时直接丢弃（防运行中
+  // 误删），可编辑时转二次确认；其余 change（拖拽/select/dimensions）照常
+  // 透传，不影响受控拖拽逐帧更新。被拦的删除在确认前不影响画布，级联连线
+  // 由 confirmCanvasDelete 统一清理，不会出现「节点在、边被删」的不一致。
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowFlowNode>[]): void => {
-      const next = canEditCanvasRef.current
+      const removedIds = canEditCanvasRef.current
         ? changes
-        : changes.filter((change) => change.type !== "remove");
-      const removedIds = new Set(
-        next
-          .filter((change) => change.type === "remove")
-          .map((change) => change.id),
-      );
-      if (removedIds.size > 0) {
-        setEdges((current) =>
-          current.filter(
-            (edge) =>
-              !removedIds.has(edge.source) && !removedIds.has(edge.target),
-          ),
-        );
+            .filter((change) => change.type === "remove")
+            .map((change) => change.id)
+        : [];
+      if (removedIds.length > 0) {
+        requestCanvasDelete(removedIds, []);
       }
-      onFlowNodesChange(next);
+      onFlowNodesChange(changes.filter((change) => change.type !== "remove"));
     },
-    [onFlowNodesChange],
+    [onFlowNodesChange, requestCanvasDelete],
   );
+
+  // 键盘协同：Esc 关闭删除确认；Ctrl/Cmd+Z 撤销最近一次删除。撤销仅在
+  // 提示期内且焦点位于本画布（或焦点丢失回到 body，如刚点完右键菜单）时
+  // 响应，避免多卡片同屏互相干扰；输入控件中的 Ctrl+Z 让位文本撤销。
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        if (pendingDeleteRef.current) {
+          cancelCanvasDelete();
+        }
+        return;
+      }
+      if (
+        event.key.toLowerCase() !== "z" ||
+        event.shiftKey ||
+        !(event.metaKey || event.ctrlKey)
+      ) {
+        return;
+      }
+      if (!undoToastVisibleRef.current || !lastDeletedRef.current) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const wrap = canvasWrapRef.current;
+      const inCanvas = Boolean(
+        wrap && target instanceof Node && wrap.contains(target),
+      );
+      const focusOnBody = !target || target === document.body;
+      if (!inCanvas && !focusOnBody) {
+        return;
+      }
+      if (!canEditCanvasRef.current) {
+        return;
+      }
+      event.preventDefault();
+      undoCanvasDelete();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [cancelCanvasDelete, undoCanvasDelete]);
+
+  // 撤销提示条自动淡出（10 秒内可点击撤销按钮或 Ctrl/Cmd+Z）。
+  useEffect(() => {
+    if (!lastDeleted || !undoToastVisible) {
+      return;
+    }
+    const timer = window.setTimeout(() => setUndoToastVisible(false), 10000);
+    return () => window.clearTimeout(timer);
+  }, [lastDeleted, undoToastVisible]);
 
   const editingNode =
     flowNodes.find((flowNode) => flowNode.id === editingNodeId)?.data.node ??
@@ -1203,6 +1394,8 @@ const WorkflowToolCallInner = ({
     runnerStatusRef.current = "running";
     setRunnerStatus("running");
     setContextMenu(null);
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
     const executeRun = async (): Promise<void> => {
       // 优先从会话记录解析目录（历史消息中的 tool call 可能不属于当前活动会话）。
       // 空节点配置跟随会话自身的 API 配置/模型（会话可独立更改配置），
@@ -1423,6 +1616,70 @@ const WorkflowToolCallInner = ({
                     <span>{t("toolCall.workflow.addNode")}</span>
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* 删除二次确认浮层：显示待删节点/连线数量，确认后才真正删除。 */}
+            {pendingDelete && canEditCanvas && (
+              <div className="workflow-delete-confirm">
+                <div className="workflow-delete-confirm-title">
+                  <TriangleAlert size={13} aria-hidden="true" />
+                  <span>{t("toolCall.workflow.deleteConfirmTitle")}</span>
+                </div>
+                <div className="workflow-delete-confirm-content">
+                  {pendingDelete.nodeIds.length > 0 &&
+                  pendingDelete.edgeIds.length > 0
+                    ? t("toolCall.workflow.deleteConfirmMixed", {
+                        values: {
+                          count: pendingDelete.nodeIds.length,
+                          edges: pendingDelete.edgeIds.length,
+                        },
+                      })
+                    : pendingDelete.nodeIds.length > 0
+                      ? t("toolCall.workflow.deleteConfirmNodes", {
+                          values: { count: pendingDelete.nodeIds.length },
+                        })
+                      : t("toolCall.workflow.deleteConfirmEdges", {
+                          values: { count: pendingDelete.edgeIds.length },
+                        })}
+                </div>
+                <small className="workflow-delete-confirm-hint">
+                  {t("toolCall.workflow.deleteConfirmHint", {
+                    values: { shortcut: UNDO_SHORTCUT_LABEL },
+                  })}
+                </small>
+                <div className="workflow-delete-confirm-actions">
+                  <button
+                    type="button"
+                    className="workflow-delete-confirm-cancel"
+                    onClick={() => cancelCanvasDelete()}
+                  >
+                    {t("toolCall.workflow.deleteConfirmCancel")}
+                  </button>
+                  <button
+                    type="button"
+                    className="workflow-delete-confirm-confirm"
+                    onClick={() => confirmCanvasDelete()}
+                  >
+                    <Trash2 size={12} aria-hidden="true" />
+                    <span>{t("toolCall.workflow.deleteConfirmAction")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 删除后的撤销提示条：点击撤销或 Ctrl/Cmd+Z 恢复，10 秒后淡出。 */}
+            {lastDeleted && undoToastVisible && (
+              <div className="workflow-undo-toast">
+                <span>
+                  {t("toolCall.workflow.deletedToast", {
+                    values: { shortcut: UNDO_SHORTCUT_LABEL },
+                  })}
+                </span>
+                <button type="button" onClick={() => undoCanvasDelete()}>
+                  <Undo2 size={12} aria-hidden="true" />
+                  <span>{t("toolCall.workflow.undoDelete")}</span>
+                </button>
               </div>
             )}
 

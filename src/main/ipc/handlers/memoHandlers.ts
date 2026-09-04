@@ -38,20 +38,27 @@ export const registerMemoHandlers = (native: NativeBridge): void => {
       directoryId: unknown,
       limit: unknown,
       offset: unknown,
-      status: unknown
+      status: unknown,
+      sortOrder: unknown,
     ) => {
       const safeLimit =
         typeof limit === "number" && limit > 0 ? Math.floor(limit) : 20;
       const safeOffset =
         typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
       const statusFilter = normalizeMemoStatus(status);
+      const safeSortOrder =
+        typeof sortOrder === "string" &&
+        sortOrder.trim().toLowerCase() === "asc"
+          ? "asc"
+          : "desc";
       return native.listMemos(
         requireDirectoryId(directoryId),
         safeLimit,
         safeOffset,
-        statusFilter
+        statusFilter,
+        safeSortOrder,
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -59,9 +66,9 @@ export const registerMemoHandlers = (native: NativeBridge): void => {
     (_event, directoryId: unknown, content: unknown) => {
       return native.createMemo(
         requireDirectoryId(directoryId),
-        requireMemoContent(content)
+        requireMemoContent(content),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -69,9 +76,9 @@ export const registerMemoHandlers = (native: NativeBridge): void => {
     (_event, memoId: unknown, content: unknown) => {
       return native.updateMemoContent(
         requireMemoId(memoId),
-        requireMemoContent(content)
+        requireMemoContent(content),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -82,7 +89,7 @@ export const registerMemoHandlers = (native: NativeBridge): void => {
         throw new Error("Memo status must be 'pending' or 'done'");
       }
       return native.updateMemoStatus(requireMemoId(memoId), normalizedStatus);
-    }
+    },
   );
 
   ipcMain.handle("memos:delete", (_event, memoId: unknown) => {

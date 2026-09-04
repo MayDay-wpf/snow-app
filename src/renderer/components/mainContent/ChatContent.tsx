@@ -5,6 +5,7 @@ import {
   Bot,
   CheckCircle2,
   MessageSquareQuote,
+  X,
   XCircle,
 } from "lucide-react";
 import {
@@ -18,6 +19,8 @@ import { createPortal } from "react-dom";
 import type { WorkspaceDirectoryRecord } from "../../../preload";
 import { useAutoScrollPreference } from "../../hooks/useAutoScrollPreference";
 import { useI18n } from "../../i18n";
+import { ChatFloatIsland } from "./ChatFloatIsland";
+import { ChatFloatHeaderStatus } from "./ChatFloatHeaderStatus";
 import { ChatInput } from "./ChatInput";
 import { EmptyChatGreeting } from "./EmptyChatGreeting";
 import { ChatMessageList, useChatConversationContext } from "./chatMessages";
@@ -38,29 +41,19 @@ import { directoryIdToPath } from "./chatMessages/utils/conversationHelpers";
 
 type ChatContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
+  /** 右侧面板全屏时以悬浮卡片呈现 */
+  isFloating?: boolean;
   onNavigateToView?: (view: MainContentView) => void;
 };
 
 type PendingScrollRestore = {
   conversationId: string;
   requestId: number;
-  /**
-   * 触发翻页时视口内的首个消息节点（VirtualizedMessage wrapper，始终带
-   * data-message-id）。新页插在它上方，恢复时按它的实测位移做增量校正。
-   */
+
   anchorElement: Element | null;
-  /**
-   * 触发时 anchor 的内容坐标（anchorRect.top - containerTop + scrollTop）。
-   * 用户滚动改变 scrollTop 时 anchorRect 同步反向移动，内容坐标恒定；
-   * 只有 DOM 推挤（新页插入/展开）才会改变它——据此校正天然剥离等待
-   * 期间用户继续滚动的位移，只补偿推挤量，不回拨用户。
-   */
+
   anchorContentOffset: number;
-  /**
-   * 翻页前首条消息 id：新页从顶部插入后它必然变化——据此确认「新页已
-   * commit」，把恢复时机钉在新页挂载的那次渲染上；同时排除发送新消息
-   * 等尾部追加导致的误判。
-   */
+
   firstMessageId: string | undefined;
   /** 恢复收敛轮次计数（防御性上限）。 */
   rounds: number;
@@ -72,13 +65,7 @@ type PendingScrollRestore = {
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
 const STICK_TO_BOTTOM_THRESHOLD = 16;
-// 真实滚动输入（wheel/滚动条/按键/触摸）的背书窗口。scroll 事件本身
-// 无法区分用户滚动与浏览器滚动锚定（scroll anchoring）/clamp 位移，
-// delta 启发式存在漏判：视口上方塌缩与下方流式增长同帧交错时，scrollTop
-// 净位移与 scrollHeight 变化异号/不等量，负 delta 被误读为「用户上滚」
-// 而静默关闭跟随——此后钉底全部被 stick gate 挡住，只有手动触底才能
-// 恢复。故脱离跟随必须由窗口内的真实输入背书；窗口外的负位移只能是
-// 几何交错的产物，保持 stick，由钉底把视口带回底部。
+
 const USER_SCROLL_INTENT_WINDOW_MS = 750;
 // Run 结束（isStreaming true→false）后消息集中定稿重渲染：动作按钮出现、
 // run summary 摘要条插入、Thinking 折叠、markdown 定稿，高度逐帧变化。
@@ -111,6 +98,7 @@ const willNestedScrollerConsumeWheel = (
 
 const ChatContentBody = ({
   activeDirectory,
+  isFloating = false,
   onNavigateToView,
 }: ChatContentProps): React.JSX.Element => {
   const {
@@ -207,7 +195,37 @@ const ChatContentBody = ({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const hasMessages = messages.length > 0;
 
+  // 悬浮只有两种形态：灵动岛胶囊（收起）/ 完整会话面板（展开）。
+  // 默认收起为胶囊，流式状态一目了然；点击胶囊或切换会话即展开完整面板
+  const [isFloatDismissed, setIsFloatDismissed] = useState(true);
+  useEffect(() => {
+    if (!isFloating) {
+      setIsFloatDismissed(true);
+    }
+  }, [isFloating]);
+
   const hasHistoryContent = hasMessages;
+
+  // 悬浮模式下活动会话变化（侧边栏切换/新建/彻底回滚）必须重开面板，
+  // 否则灵动岛态下切换毫无可见反馈，表现为「切换会话无效」
+  const prevFloatConversationIdRef = useRef<string | undefined>(
+    activeConversationId,
+  );
+  useEffect(() => {
+    if (!isFloating) {
+      prevFloatConversationIdRef.current = activeConversationId;
+      return;
+    }
+    if (prevFloatConversationIdRef.current === activeConversationId) {
+      return;
+    }
+    prevFloatConversationIdRef.current = activeConversationId;
+    setIsFloatDismissed(false);
+  }, [isFloating, activeConversationId]);
+
+  // chat-area 的实际挂载条件：灵动岛态下不渲染，展开时 DOM 节点整体
+  // 重建，滚动相关 effect 据此重跑
+  const isChatAreaRendered = !isFloating || !isFloatDismissed;
 
   const isCompactionForActiveConversation =
     activeConversationId != null &&
@@ -222,6 +240,7 @@ const ChatContentBody = ({
     subAgentStatus: string;
     parentConversationId: string;
     title: string;
+    summary: string;
     subAgentName: string;
     subAgentId: string;
   } | null>(null);
@@ -246,6 +265,7 @@ const ChatContentBody = ({
           subAgentStatus: record.subAgentStatus,
           parentConversationId: record.parentConversationId,
           title: record.title,
+          summary: record.summary,
           subAgentName: record.subAgentName,
           subAgentId: record.subAgentId,
         });
@@ -307,6 +327,7 @@ const ChatContentBody = ({
           subAgentStatus: record.subAgentStatus,
           parentConversationId: record.parentConversationId,
           title: record.title,
+          summary: record.summary,
           subAgentName: record.subAgentName,
           subAgentId: record.subAgentId,
         });
@@ -370,6 +391,22 @@ const ChatContentBody = ({
     setSubAgentParentMeta({ title: record.title, summary: record.summary });
   }, [upsertedConversation, subAgentParentConversationId]);
 
+  // 当前会话被 upsert 时跟随刷新摘要：悬浮头部运行中显示 AI 摘要，
+  // 而非首条用户消息（title）。
+  useEffect(() => {
+    const record = upsertedConversation?.record;
+    if (
+      !record ||
+      record.conversationId !== activeConversationId ||
+      !record.summary
+    ) {
+      return;
+    }
+    setActiveConversationMeta((meta) =>
+      meta ? { ...meta, summary: record.summary } : meta,
+    );
+  }, [upsertedConversation, activeConversationId]);
+
   const subAgentName =
     liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
   const subAgentSessionTitle = activeConversationMeta?.title ?? "";
@@ -419,6 +456,8 @@ const ChatContentBody = ({
   // 最近一次真实滚动输入（wheel/滚动条/按键/触摸）的时间戳：stick=false
   // 只允许在该输入的延续窗口内生效，见 USER_SCROLL_INTENT_WINDOW_MS。
   const lastUserScrollInputAtRef = useRef(-Infinity);
+  // 最近一次真实输入的方向：-1 上行 / 1 下行 / 0 未知（触摸、滚动条拖拽）。
+  const lastUserScrollInputDirectionRef = useRef(0);
 
   const isSmoothScrollingToBottomRef = useRef(false);
 
@@ -432,6 +471,8 @@ const ChatContentBody = ({
   const isStreamingRef = useRef(isStreaming);
   // Run 收尾宽限窗口：时间戳，期间 RO 钉底视同流式输出。
   const followGraceUntilRef = useRef(0);
+  // 窗口失焦/遮挡（渲染帧停摆）时处于跟随中的标记：恢复后据此追赶钉底。
+  const refocusFollowArmedRef = useRef(false);
   const previousIsStreamingRef = useRef(isStreaming);
   activeConversationIdRef.current = activeConversationId;
   hasMessagesRef.current = hasMessages;
@@ -501,16 +542,22 @@ const ChatContentBody = ({
 
       if (!isGeometryShift) {
         if (deltaScrollTop > 0) {
-          shouldStickToBottomRef.current =
-            distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD;
+          // 正位移只允许找回跟随、禁止关闭：流式期间的正 delta 几乎全部
+          // 来自钉底写入，钉底与滚动事件之间的增量增长令 distance 短暂超
+          // 阈值，据此重导出 false 会静默杀死跟随（总结尾部停滚的偶发
+          // 根因）。用户下滚未触底时 stick 本就为 false，不受影响。
+          if (distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD) {
+            shouldStickToBottomRef.current = true;
+          }
         } else if (deltaScrollTop < 0) {
-          // 负位移只有在真实输入的延续窗口内（wheel 惯性余韵、滚动条
-          // 拖拽、触摸拖动）才允许脱离跟随；窗口外无输入背书的负位移
-          // 只能来自滚动锚定/clamp 与钉底写入的几何交错，忽略它并保持
-          // stick，由下一次钉底把视口带回底部。
+          // 负位移脱离跟随需双重背书：真实输入的延续窗口内，且最近输入
+          // 为上行或方向未知（触摸/滚动条拖拽）。下行输入后的负净位移只能
+          // 来自上方塌缩与下方增长的同帧交错（躲过 isGeometryShift 判定），
+          // 不得误判为用户上滚而关掉跟随。
           if (
             performance.now() - lastUserScrollInputAtRef.current <=
-            USER_SCROLL_INTENT_WINDOW_MS
+              USER_SCROLL_INTENT_WINDOW_MS &&
+            lastUserScrollInputDirectionRef.current <= 0
           ) {
             shouldStickToBottomRef.current = false;
           }
@@ -538,6 +585,8 @@ const ChatContentBody = ({
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
     lastUserScrollInputAtRef.current = -Infinity;
+    lastUserScrollInputDirectionRef.current = 0;
+    refocusFollowArmedRef.current = false;
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
       scrollToBottomAnimRef.current = 0;
@@ -557,6 +606,18 @@ const ChatContentBody = ({
       container.scrollTop = 0;
     }
   }, [activeConversationId]);
+
+  // chat-area 重挂载（灵动岛重开/紧凑展开）时容器 DOM 被整体替换：
+  // 清除已定位标记，让初始定位 effect 在同轮 commit 重新滚到底部。
+  useLayoutEffect(() => {
+    if (!isChatAreaRendered) {
+      return;
+    }
+    const conversationId = activeConversationIdRef.current;
+    if (conversationId) {
+      positionedConversationIdsRef.current.delete(conversationId);
+    }
+  }, [isChatAreaRendered]);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -601,6 +662,7 @@ const ChatContentBody = ({
     };
   }, [
     activeConversationId,
+    isChatAreaRendered,
     isInitialHistoryLoaded,
     isLoadingInitialHistory,
     messages.length,
@@ -647,13 +709,15 @@ const ChatContentBody = ({
 
       const distanceFromBottom =
         nextScrollHeight - container.scrollTop - nextClientHeight;
-      // 流式期间贴底（≤ 阈值）时自动找回跟随：兜住任何漏判掉出 stick 的
-      // 路径，避免「距底部一点却永不跟随、须手动触底」的死锁。用户真实
-      // 上滚阅读时距离远大于阈值，不会被误拉回。
+      const isFollowActive =
+        isStreamingRef.current ||
+        performance.now() < followGraceUntilRef.current;
+      // 流式或收尾宽限内贴底（≤ 阈值）时自动找回跟随：兜住任何漏判掉出
+      // stick 的路径，避免「距底部一点却永不跟随、须手动触底」的死锁。
       if (
         !shouldStickToBottomRef.current &&
         distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD &&
-        isStreamingRef.current
+        isFollowActive
       ) {
         shouldStickToBottomRef.current = true;
       }
@@ -661,15 +725,18 @@ const ChatContentBody = ({
       syncScrollButtonVisibility(container);
 
       // 钉底仅在初始定位、流式输出及 run 收尾宽限期生效；几何变化一律不改跟随状态
-      const isFollowActive =
-        isStreamingRef.current ||
-        performance.now() < followGraceUntilRef.current;
       if (
         shouldStickToBottomRef.current &&
         (isInitialBottomPositioningRef.current ||
           (autoScrollEnabledRef.current && isFollowActive))
       ) {
         container.scrollTop = nextScrollHeight;
+        // 钉底即续期收尾宽限：定稿渲染逐帧晚到也持续被带到底部，
+        // 几何静默或用户上滚（stick=false）后窗口自然失效。
+        if (autoScrollEnabledRef.current && isFollowActive) {
+          followGraceUntilRef.current =
+            performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
+        }
       }
     };
 
@@ -718,7 +785,7 @@ const ChatContentBody = ({
       mutationObserver.disconnect();
       resizeObserver.disconnect();
     };
-  }, [activeConversationId, syncScrollButtonVisibility]);
+  }, [activeConversationId, isChatAreaRendered, syncScrollButtonVisibility]);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -789,6 +856,77 @@ const ChatContentBody = ({
       container.scrollTop = container.scrollHeight;
     }
   }, [isStreaming]);
+
+  // 失焦/被遮挡时渲染帧停摆：rAF 与 ResizeObserver 挂起，markdown 渲染
+  // （rAF 门控）被推迟；run 在后台结束后，恢复可见时 deferred 渲染集中
+  // 落地而收尾宽限早已过期——总结尾部就此停在视口外。恢复可见/聚焦时
+  // 重新打开宽限并钉底，后续落地增长由 RO 钉底+续期持续带到可视底部。
+  useEffect(() => {
+    let rafId1 = 0;
+    let rafId2 = 0;
+    const pinToBottom = (): void => {
+      const container = scrollRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    };
+    const armFollowCatchUp = (): void => {
+      refocusFollowArmedRef.current =
+        shouldStickToBottomRef.current &&
+        (isStreamingRef.current ||
+          performance.now() < followGraceUntilRef.current);
+    };
+    const runFollowCatchUp = (): void => {
+      if (!shouldStickToBottomRef.current || !autoScrollEnabledRef.current) {
+        return;
+      }
+      if (
+        !refocusFollowArmedRef.current &&
+        !isStreamingRef.current &&
+        performance.now() >= followGraceUntilRef.current
+      ) {
+        return;
+      }
+      refocusFollowArmedRef.current = false;
+      if (rafId1 !== 0) {
+        cancelAnimationFrame(rafId1);
+        rafId1 = 0;
+      }
+      if (rafId2 !== 0) {
+        cancelAnimationFrame(rafId2);
+        rafId2 = 0;
+      }
+      followGraceUntilRef.current =
+        performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
+      pinToBottom();
+      rafId1 = requestAnimationFrame(() => {
+        pinToBottom();
+        rafId2 = requestAnimationFrame(pinToBottom);
+      });
+    };
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "hidden") {
+        armFollowCatchUp();
+      } else {
+        runFollowCatchUp();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", armFollowCatchUp);
+    // capture：点击输入框等元素激活窗口时 focus 不冒泡到 window。
+    window.addEventListener("focus", runFollowCatchUp, true);
+    return (): void => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", armFollowCatchUp);
+      window.removeEventListener("focus", runFollowCatchUp, true);
+      if (rafId1 !== 0) {
+        cancelAnimationFrame(rafId1);
+      }
+      if (rafId2 !== 0) {
+        cancelAnimationFrame(rafId2);
+      }
+    };
+  }, []);
 
   // Compaction is an explicit operation, so its preview and persisted boundary
   // must remain visible regardless of the user's normal auto-scroll preference.
@@ -932,10 +1070,11 @@ const ChatContentBody = ({
     isLoadingOlderWithScrollRef.current = false;
   }, [messages, activeConversationId, restoreTick]);
 
-  const markUserScrollIntent = useCallback((): void => {
+  const markUserScrollIntent = useCallback((direction: number): void => {
     isUserScrollIntentRef.current = true;
     isInitialBottomPositioningRef.current = false;
     lastUserScrollInputAtRef.current = performance.now();
+    lastUserScrollInputDirectionRef.current = direction;
 
     if (scrollToBottomAnimRef.current !== 0) {
       cancelAnimationFrame(scrollToBottomAnimRef.current);
@@ -995,7 +1134,7 @@ const ChatContentBody = ({
         return;
       }
 
-      markUserScrollIntent();
+      markUserScrollIntent(deltaY < 0 ? -1 : 1);
       flashChatScrollbar();
 
       if (deltaY < 0) {
@@ -1034,7 +1173,7 @@ const ChatContentBody = ({
       if (event.clientX < scrollbarStartX) {
         return;
       }
-      markUserScrollIntent();
+      markUserScrollIntent(0);
       shouldStickToBottomRef.current = false;
     },
     [markUserScrollIntent],
@@ -1058,7 +1197,7 @@ const ChatContentBody = ({
       if (!scrollsUp && !scrollsDown) {
         return;
       }
-      markUserScrollIntent();
+      markUserScrollIntent(scrollsUp ? -1 : 1);
       if (scrollsUp && event.currentTarget.scrollTop > 0) {
         shouldStickToBottomRef.current = false;
       }
@@ -1126,6 +1265,7 @@ const ChatContentBody = ({
     isInitialBottomPositioningRef.current = false;
     isUserScrollIntentRef.current = false;
     lastUserScrollInputAtRef.current = -Infinity;
+    lastUserScrollInputDirectionRef.current = 0;
     isSmoothScrollingToBottomRef.current = true;
     setShowScrollToBottom(false);
 
@@ -1183,6 +1323,7 @@ const ChatContentBody = ({
       isInitialBottomPositioningRef.current = false;
       isUserScrollIntentRef.current = false;
       lastUserScrollInputAtRef.current = -Infinity;
+      lastUserScrollInputDirectionRef.current = 0;
       setShowScrollToBottom(false);
       requestAnimationFrame(() => {
         if (scrollRef.current) {
@@ -1249,184 +1390,228 @@ const ChatContentBody = ({
   // 否则首次工具组挂载的同一瞬间整页闪烁、输入框失焦。
   const chatRenderKey = `${activeDirectory?.directoryId ?? "no-project"}:${sessionViewKey}:${newChatGeneration}`;
 
+  // 悬浮头部标题：AI 摘要 > 会话标题 > 项目名 > 兜底（运行中优先摘要）
+  const floatTitle =
+    activeConversationMeta?.summary ||
+    activeConversationMeta?.title ||
+    activeDirectory?.name ||
+    t("chat.float.untitled");
+
+  const chatContentClasses = [
+    "chat-content",
+    hasHistoryContent ? "has-messages" : "is-empty",
+    isFloating ? "is-floating" : "",
+    isFloating && !isFloatDismissed ? "is-float-expanded" : "",
+    isFloating && isFloatDismissed ? "is-float-dismissed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div
-      className={`chat-content ${
-        hasHistoryContent ? "has-messages" : "is-empty"
-      }`}
-    >
-      <div
-        key={chatRenderKey}
-        className={`chat-area ${
-          isLoadingInitialHistory ? "is-loading-history" : ""
-        }`}
-        ref={scrollRef}
-        onClick={pathClickOpenProps.onClick}
-        onAuxClick={pathClickOpenProps.onAuxClick}
-        onWheel={handleChatWheel}
-        onTouchStart={markUserScrollIntent}
-        onPointerDown={handleChatPointerDown}
-        onPointerMove={handleChatPointerMove}
-        onPointerLeave={handleChatPointerLeave}
-        onKeyDown={handleChatKeyDown}
-        onScroll={handleChatScroll}
-        tabIndex={0}
-        aria-busy={isLoadingInitialHistory || isLoadingOlderMessages}
-      >
-        {isLoadingInitialHistory ? (
-          <div className="chat-initial-history-skeleton" aria-hidden="true">
-            {Array.from({ length: 3 }, (_, index) => (
-              <div
-                className={`chat-message-skeleton ${
-                  index === 1 ? "is-user" : "is-assistant"
-                }`}
-                key={index}
-              >
-                <div className="chat-message-skeleton-line is-primary" />
-                <div className="chat-message-skeleton-line is-secondary" />
-                {index === 0 ? (
-                  <div className="chat-message-skeleton-line is-tertiary" />
-                ) : null}
+    <div className={chatContentClasses}>
+      {isFloating && isFloatDismissed ? (
+        <ChatFloatIsland onReopen={() => setIsFloatDismissed(false)} />
+      ) : (
+        <>
+          {isFloating ? (
+            <div className="chat-float-header">
+              <span
+                className={`chat-float-dot${isStreaming ? " is-streaming" : ""}`}
+                aria-hidden="true"
+              />
+              <span className="chat-float-title" title={floatTitle}>
+                {floatTitle}
+              </span>
+              <ChatFloatHeaderStatus activeDirectory={activeDirectory} />
+              <div className="chat-float-actions">
+                <button
+                  type="button"
+                  className="chat-float-action-btn"
+                  onClick={() => setIsFloatDismissed(true)}
+                  aria-label={t("chat.float.close")}
+                  title={t("chat.float.close")}
+                >
+                  <X size={14} strokeWidth={1.8} aria-hidden="true" />
+                </button>
               </div>
-            ))}
+            </div>
+          ) : null}
+          <div
+            key={chatRenderKey}
+            className={`chat-area ${isLoadingInitialHistory ? "is-loading-history" : ""}`}
+            ref={scrollRef}
+            onClick={pathClickOpenProps.onClick}
+            onAuxClick={pathClickOpenProps.onAuxClick}
+            onWheel={handleChatWheel}
+            onTouchStart={() => markUserScrollIntent(0)}
+            onPointerDown={handleChatPointerDown}
+            onPointerMove={handleChatPointerMove}
+            onPointerLeave={handleChatPointerLeave}
+            onKeyDown={handleChatKeyDown}
+            onScroll={handleChatScroll}
+            tabIndex={0}
+            aria-busy={isLoadingInitialHistory || isLoadingOlderMessages}
+          >
+            {isLoadingInitialHistory ? (
+              <div className="chat-initial-history-skeleton" aria-hidden="true">
+                {Array.from({ length: 3 }, (_, index) => (
+                  <div
+                    className={`chat-message-skeleton ${
+                      index === 1 ? "is-user" : "is-assistant"
+                    }`}
+                    key={index}
+                  >
+                    <div className="chat-message-skeleton-line is-primary" />
+                    <div className="chat-message-skeleton-line is-secondary" />
+                    {index === 0 ? (
+                      <div className="chat-message-skeleton-line is-tertiary" />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : hasMessages ? (
+              <>
+                {isSubAgentConversation ? (
+                  <SubAgentInfoHeader
+                    agentName={subAgentName}
+                    sessionTitle={subAgentSessionTitle}
+                    prompt={subAgentPrompt}
+                    parentTitle={
+                      subAgentParentMeta?.summary ||
+                      subAgentParentMeta?.title ||
+                      ""
+                    }
+                    parentConversationId={subAgentParentConversationId}
+                    onBackToParent={handleSelectConversation}
+                  />
+                ) : null}
+                <ChatMessageList
+                  messages={messages}
+                  isStreaming={isStreaming}
+                  isAborting={isAborting}
+                  canRollback={!isSubAgentConversation}
+                  scrollContainerRef={scrollRef}
+                />
+                <CompactionStream
+                  isCompacting={isCompactingActive}
+                  compactionPreview={compactionPreview}
+                  compactionError={activeCompactionError}
+                />
+              </>
+            ) : (
+              <EmptyChatGreeting
+                activeDirectory={activeDirectory}
+                onNavigateToView={onNavigateToView}
+              />
+            )}
           </div>
-        ) : hasMessages ? (
-          <>
-            {isSubAgentConversation ? (
-              <SubAgentInfoHeader
-                agentName={subAgentName}
-                sessionTitle={subAgentSessionTitle}
-                prompt={subAgentPrompt}
-                parentTitle={
-                  subAgentParentMeta?.summary || subAgentParentMeta?.title || ""
-                }
+
+          {hasMessages ? (
+            <UserMessageRail
+              conversationId={activeConversationId}
+              scrollContainerRef={scrollRef}
+              loadOlderMessages={loadOlderMessages}
+              isLoadingOlderMessages={isLoadingOlderMessages}
+              hasMoreMessages={hasMoreMessages}
+              conversationVersion={conversationVersion}
+              shouldStickToBottomRef={shouldStickToBottomRef}
+              isInitialBottomPositioningRef={isInitialBottomPositioningRef}
+              isUserScrollIntentRef={isUserScrollIntentRef}
+            />
+          ) : null}
+
+          <div className="chat-input-region">
+            {showScrollToBottom && hasMessages ? (
+              <button
+                className={`chat-scroll-to-bottom${
+                  isStreaming ? " is-streaming" : ""
+                }`}
+                type="button"
+                onClick={handleScrollToBottom}
+                aria-label={t("chat.scrollToBottom")}
+                title={t("chat.scrollToBottom")}
+              >
+                <ArrowDown size={20} strokeWidth={2} aria-hidden="true" />
+              </button>
+            ) : null}
+            {isSubAgentFinished ? (
+              <SubAgentFinishedNotice
+                status={subAgentRunStatus}
                 parentConversationId={subAgentParentConversationId}
                 onBackToParent={handleSelectConversation}
               />
-            ) : null}
-            <ChatMessageList
-              messages={messages}
-              isStreaming={isStreaming}
-              isAborting={isAborting}
-              canRollback={!isSubAgentConversation}
-              scrollContainerRef={scrollRef}
-            />
-            <CompactionStream
-              isCompacting={isCompactingActive}
-              compactionPreview={compactionPreview}
-              compactionError={activeCompactionError}
-            />
-          </>
-        ) : (
-          <EmptyChatGreeting
-            activeDirectory={activeDirectory}
-            onNavigateToView={onNavigateToView}
-          />
-        )}
-      </div>
-
-      {hasMessages ? (
-        <UserMessageRail
-          conversationId={activeConversationId}
-          scrollContainerRef={scrollRef}
-          loadOlderMessages={loadOlderMessages}
-          isLoadingOlderMessages={isLoadingOlderMessages}
-          hasMoreMessages={hasMoreMessages}
-          conversationVersion={conversationVersion}
-          shouldStickToBottomRef={shouldStickToBottomRef}
-          isInitialBottomPositioningRef={isInitialBottomPositioningRef}
-          isUserScrollIntentRef={isUserScrollIntentRef}
-        />
-      ) : null}
-
-      <div className="chat-input-region">
-        {showScrollToBottom && hasMessages ? (
-          <button
-            className={`chat-scroll-to-bottom${
-              isStreaming ? " is-streaming" : ""
-            }`}
-            type="button"
-            onClick={handleScrollToBottom}
-            aria-label={t("chat.scrollToBottom")}
-            title={t("chat.scrollToBottom")}
-          >
-            <ArrowDown size={20} strokeWidth={2} aria-hidden="true" />
-          </button>
-        ) : null}
-        {isSubAgentFinished ? (
-          <SubAgentFinishedNotice
-            status={subAgentRunStatus}
-            parentConversationId={subAgentParentConversationId}
-            onBackToParent={handleSelectConversation}
-          />
-        ) : isWorkflowNodeFinished ? (
-          <SubAgentFinishedNotice
-            status={workflowNodeRunStatus}
-            parentConversationId={workflowNodeParentConversationId}
-            onBackToParent={handleSelectConversation}
-            kind="workflow_node"
-          />
-        ) : (
-          <ChatInput
-            key={chatRenderKey}
-            projectId={activeDirectory?.directoryId}
-            projectName={activeDirectory?.name}
-            conversationId={activeConversationId}
-            onSend={handleSendWithScroll}
-            onNavigateToView={onNavigateToView}
-            isStreaming={isStreaming}
-            isAborting={isAborting}
-            onAbort={handleAbort}
-            tokenUsage={tokenUsage}
-            draftToRestore={draftToRestore}
-            autoSendToken={autoSendToken}
-            onDraftRestored={clearDraftToRestore}
-            autoSendOverride={pendingAutoSendOverride}
-            onAutoSendOverrideConsumed={() => setPendingAutoSendOverride(null)}
-            saveInputDraft={saveInputDraft}
-            getInputDraft={getInputDraft}
-            clearInputDraft={clearInputDraft}
-            rollbackInputState={rollbackNewChatState}
-            onRuntimeInputStateChange={handleRuntimeInputStateChange}
-            pendingMessages={pendingMessages}
-            onWithdrawPendingMessage={withdrawPendingMessage}
-            onSendPendingMessageNow={sendPendingMessageNow}
-            onCompactConversation={compactConversation}
-            yoloMode={yoloMode}
-            isUpdatingYoloMode={isUpdatingYoloMode}
-            onYoloModeChange={setYoloMode}
-            onRefreshYoloMode={refreshYoloMode}
-            liteMode={liteMode}
-            isUpdatingLiteMode={isUpdatingLiteMode}
-            onLiteModeChange={setLiteMode}
-            onRefreshLiteMode={refreshLiteMode}
-            planMode={planMode}
-            isUpdatingPlanMode={isUpdatingPlanMode}
-            onPlanModeChange={setPlanMode}
-            onRefreshPlanMode={refreshPlanMode}
-            goalMode={goalMode}
-            isUpdatingGoalMode={isUpdatingGoalMode}
-            onGoalModeChange={setGoalMode}
-            onRefreshGoalMode={refreshGoalMode}
-            worktreeMode={worktreeMode}
-            isUpdatingWorktreeMode={isUpdatingWorktreeMode}
-            onWorktreeModeChange={setWorktreeMode}
-            onRefreshWorktreeMode={refreshWorktreeMode}
-            workflowMode={workflowMode}
-            isUpdatingWorkflowMode={isUpdatingWorkflowMode}
-            onWorkflowModeChange={setWorkflowMode}
-            onRefreshWorkflowMode={refreshWorkflowMode}
-            goalModeTokenBudget={goalModeTokenBudget}
-            onGoalModeTokenBudgetChange={setGoalModeTokenBudget}
-            autoScrollEnabled={autoScrollEnabled}
-            onAutoScrollChange={handleAutoScrollChange}
-            autoFormatEnabled={autoFormatEnabled}
-            onAutoFormatChange={handleAutoFormatChange}
-            onRefreshAutoFormat={refreshAutoFormat}
-            isCompacting={isCompactingActive}
-          />
-        )}
-      </div>
+            ) : isWorkflowNodeFinished ? (
+              <SubAgentFinishedNotice
+                status={workflowNodeRunStatus}
+                parentConversationId={workflowNodeParentConversationId}
+                onBackToParent={handleSelectConversation}
+                kind="workflow_node"
+              />
+            ) : (
+              <ChatInput
+                key={chatRenderKey}
+                projectId={activeDirectory?.directoryId}
+                projectName={activeDirectory?.name}
+                conversationId={activeConversationId}
+                onSend={handleSendWithScroll}
+                onNavigateToView={onNavigateToView}
+                isStreaming={isStreaming}
+                isAborting={isAborting}
+                onAbort={handleAbort}
+                tokenUsage={tokenUsage}
+                draftToRestore={draftToRestore}
+                autoSendToken={autoSendToken}
+                onDraftRestored={clearDraftToRestore}
+                autoSendOverride={pendingAutoSendOverride}
+                onAutoSendOverrideConsumed={() =>
+                  setPendingAutoSendOverride(null)
+                }
+                saveInputDraft={saveInputDraft}
+                getInputDraft={getInputDraft}
+                clearInputDraft={clearInputDraft}
+                rollbackInputState={rollbackNewChatState}
+                onRuntimeInputStateChange={handleRuntimeInputStateChange}
+                pendingMessages={pendingMessages}
+                onWithdrawPendingMessage={withdrawPendingMessage}
+                onSendPendingMessageNow={sendPendingMessageNow}
+                onCompactConversation={compactConversation}
+                yoloMode={yoloMode}
+                isUpdatingYoloMode={isUpdatingYoloMode}
+                onYoloModeChange={setYoloMode}
+                onRefreshYoloMode={refreshYoloMode}
+                liteMode={liteMode}
+                isUpdatingLiteMode={isUpdatingLiteMode}
+                onLiteModeChange={setLiteMode}
+                onRefreshLiteMode={refreshLiteMode}
+                planMode={planMode}
+                isUpdatingPlanMode={isUpdatingPlanMode}
+                onPlanModeChange={setPlanMode}
+                onRefreshPlanMode={refreshPlanMode}
+                goalMode={goalMode}
+                isUpdatingGoalMode={isUpdatingGoalMode}
+                onGoalModeChange={setGoalMode}
+                onRefreshGoalMode={refreshGoalMode}
+                worktreeMode={worktreeMode}
+                isUpdatingWorktreeMode={isUpdatingWorktreeMode}
+                onWorktreeModeChange={setWorktreeMode}
+                onRefreshWorktreeMode={refreshWorktreeMode}
+                workflowMode={workflowMode}
+                isUpdatingWorkflowMode={isUpdatingWorkflowMode}
+                onWorkflowModeChange={setWorkflowMode}
+                onRefreshWorkflowMode={refreshWorkflowMode}
+                goalModeTokenBudget={goalModeTokenBudget}
+                onGoalModeTokenBudgetChange={setGoalModeTokenBudget}
+                autoScrollEnabled={autoScrollEnabled}
+                onAutoScrollChange={handleAutoScrollChange}
+                autoFormatEnabled={autoFormatEnabled}
+                onAutoFormatChange={handleAutoFormatChange}
+                onRefreshAutoFormat={refreshAutoFormat}
+                isCompacting={isCompactingActive}
+              />
+            )}
+          </div>
+        </>
+      )}
 
       {rollbackPreview ? (
         <RollbackConfirmDialog
@@ -1613,11 +1798,13 @@ const SubAgentFinishedNotice = ({
 
 export const ChatContent = ({
   activeDirectory,
+  isFloating,
   onNavigateToView,
 }: ChatContentProps): React.JSX.Element => {
   return (
     <ChatContentBody
       activeDirectory={activeDirectory}
+      isFloating={isFloating}
       onNavigateToView={onNavigateToView}
     />
   );

@@ -7295,10 +7295,72 @@ input {
   backdrop-filter: var(--backdrop-blur-lg);
   overflow: hidden;
   opacity: 1;
+  /* 不过渡 flex-grow：全屏切换时它必须瞬时取值，main 才能每帧吃满
+     右面板 width 过渡释放的空间，行内不出现空白（右缘不离开窗口边）。
+     padding 与右面板 width 过渡同曲线：main 分配宽度经过 [0, 20px)
+     区间时不会被 border-box padding clamp 撑出最小占位造成溢出 */
   transition:
-    flex-grow 0.2s ease,
-    opacity 0.2s ease;
+    opacity 0.2s ease,
+    padding 0.18s ease;
   padding: 18px 10px;
+}
+
+/* 右面板拖宽越界待全屏遮罩：持续拖拽越界 500ms 后出现，提示"松手即全屏"，
+   拖回可取消。pointer-events: none 保证拖拽手势不受影响。 */
+.fullscreen-pending-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: fullscreen-pending-in 0.15s ease-out;
+}
+
+.fullscreen-pending-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  box-shadow: var(--island-shadow);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.fullscreen-pending-card > svg {
+  color: var(--accent, #3b82f6);
+}
+
+.fullscreen-pending-title {
+  font-weight: 600;
+}
+
+.fullscreen-pending-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@keyframes fullscreen-pending-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-pending-overlay {
+    animation: none;
+  }
 }
 
 /* 懒加载面板的 Suspense 兜底：铺满主内容区，避免分包加载时白屏 */
@@ -8025,7 +8087,7 @@ input {
   }
 
   .chat-empty-quick-actions {
-    gap: 8px;
+    --quick-gap: 8px;
     margin-top: 48px;
   }
 
@@ -8142,6 +8204,9 @@ input {
   margin-bottom: 28px;
   padding: 0 20px;
   text-align: center;
+  /* 容器查询锚点：quick-actions 依据此宽度决定自动隐藏 */
+  container-type: inline-size;
+  container-name: chat-greeting;
 }
 
 .chat-empty-greeting-brand {
@@ -8464,19 +8529,98 @@ input {
 
 /* Quick action cards in empty chat state */
 .chat-empty-quick-actions {
+  --quick-gap: 12px;
+  position: relative;
   display: flex;
   align-items: stretch;
   justify-content: center;
-  gap: 12px;
+  gap: var(--quick-gap);
   margin-top: 96px;
+  /* 极窄时整体淡出；visibility 离散过渡保证淡出结束才不可见、淡入立即开始 */
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease,
+    visibility 0.28s ease;
+}
+
+/* 宽度决定可见卡片数：单卡低于约 176px 舒适下限时从尾部逐张收起。
+   隐藏卡 absolute 钉在原槽位原尺寸淡出——不参与 flex 行高，
+   恢复时宽度立即归位仅做淡入，杜绝窄盒换行撑高行高的形变 */
+@container chat-greeting (max-width: 551px) {
+  .chat-empty-quick-actions .chat-empty-quick-card {
+    width: calc((100% - var(--quick-gap)) / 2);
+  }
+
+  .chat-empty-quick-card:nth-child(3) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: calc((100% + var(--quick-gap)) * 2 / 3);
+    width: calc((100% - var(--quick-gap) * 2) / 3);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+}
+
+@container chat-greeting (max-width: 363px) {
+  .chat-empty-quick-actions .chat-empty-quick-card {
+    width: 100%;
+  }
+
+  .chat-empty-quick-card:nth-child(2) {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    width: calc((100% - var(--quick-gap)) / 2);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+
+  /* 已完全隐藏，直接脱离渲染层 */
+  .chat-empty-quick-card:nth-child(3) {
+    display: none;
+  }
+}
+
+@container chat-greeting (max-width: 219px) {
+  .chat-empty-quick-card:nth-child(1) {
+    position: absolute;
+    top: 0;
+    inset-inline: 0;
+    margin-inline: auto;
+    width: 100%;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+
+  .chat-empty-quick-card:nth-child(2),
+  .chat-empty-quick-card:nth-child(3) {
+    display: none;
+  }
+
+  .chat-empty-quick-actions {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty-quick-actions,
+  .chat-empty-quick-card {
+    transition: none;
+  }
 }
 
 .chat-empty-quick-card {
   position: relative;
   display: block;
-  flex: 1 1 0;
+  width: calc((100% - var(--quick-gap) * 2) / 3);
   min-width: 0;
   max-width: 220px;
+  overflow: hidden;
   padding: 16px 18px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -8486,7 +8630,12 @@ input {
   cursor: pointer;
   transition:
     border-color 0.18s ease,
-    background 0.18s ease;
+    background 0.18s ease,
+    opacity 0.28s ease,
+    transform 0.28s ease,
+    width 0.28s ease,
+    max-width 0.28s ease,
+    visibility 0.28s ease;
 }
 
 .chat-empty-quick-card:hover:not(:disabled) {
@@ -12227,6 +12376,19 @@ input {
   overflow: hidden;
 }
 
+/* 连线视觉：线条稍加粗提升辨识度；流向箭头（marker 为共享 defs，无法按
+   边状态区分颜色）与线条共用同一令牌，亮/暗主题自动跟随。 */
+.workflow-canvas .react-flow__edge-path {
+  stroke-width: 1.5;
+}
+
+.workflow-canvas .react-flow__arrowclosed path,
+.workflow-canvas .react-flow__arrowclosed polyline,
+.workflow-canvas .react-flow__arrowclosed polygon {
+  fill: var(--xy-edge-stroke-default);
+  stroke: var(--xy-edge-stroke-default);
+}
+
 .workflow-node {
   min-width: 130px;
   max-width: 190px;
@@ -12318,6 +12480,123 @@ input {
 .workflow-context-menu button:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* 删除二次确认浮层：画布内居中，确认后才真正删除。 */
+.workflow-delete-confirm {
+  position: absolute;
+  z-index: 30;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 262px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.workflow-delete-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workflow-delete-confirm-title svg {
+  color: #f85149;
+}
+
+.workflow-delete-confirm-content {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.workflow-delete-confirm-hint {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.workflow-delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.workflow-delete-confirm-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-delete-confirm-cancel {
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.workflow-delete-confirm-cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-delete-confirm-confirm {
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  background: rgba(248, 81, 73, 0.12);
+  color: #f85149;
+}
+
+.workflow-delete-confirm-confirm:hover {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+/* 删除后的撤销提示条：画布底部居中，避开左下角 Controls。 */
+.workflow-undo-toast {
+  position: absolute;
+  z-index: 30;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.workflow-undo-toast button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.workflow-undo-toast button:hover {
+  background: var(--bg-hover);
 }
 
 .workflow-actions {
@@ -19657,6 +19936,28 @@ input {
   flex-shrink: 0;
 }
 
+.memo-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.memo-sort-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .memo-build-btn {
   display: inline-flex;
   align-items: center;
@@ -22198,9 +22499,12 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   padding: 0 2px;
   user-select: none;
   -webkit-user-select: none;
+  /* 容器查询基准：以工具行宽度渐进缩略 ModelSelector，避免极窄溢出。 */
+  container-type: inline-size;
 }
 
 .toolbar-left,
@@ -22208,6 +22512,7 @@ input {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
 
 /* ===== Plus Menu ===== */
@@ -23086,6 +23391,8 @@ input {
 /* ===== Model Selector ===== */
 .model-selector {
   position: relative;
+  display: flex;
+  min-width: 0;
 }
 
 .model-dropdown-item-model {
@@ -23285,6 +23592,8 @@ input {
 
 .toolbar-btn.model {
   max-width: 340px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .model-trigger-thinking {
@@ -23328,7 +23637,41 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
   max-width: 180px;
+}
+
+/* 极窄输入框下渐进缩略 ModelSelector：
+   先藏思考强度文字，再藏思考强度区，最后只留品牌图标与箭头。 */
+@container (max-width: 420px) {
+  .model-trigger-thinking-label {
+    display: none;
+  }
+
+  .model-name {
+    max-width: 120px;
+  }
+}
+
+@container (max-width: 330px) {
+  .model-trigger-thinking {
+    display: none;
+  }
+
+  .model-name {
+    max-width: 90px;
+  }
+}
+
+@container (max-width: 250px) {
+  .model-name {
+    display: none;
+  }
+
+  .model-trigger-fast span {
+    display: none;
+  }
 }
 
 .model-dropdown {
@@ -23758,6 +24101,7 @@ input {
   position: relative;
   width: var(--right-panel-width);
   min-width: var(--right-panel-width);
+  flex-grow: 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -23770,7 +24114,6 @@ input {
   transition:
     width 0.18s ease,
     min-width 0.18s ease,
-    flex-grow 0.2s ease,
     opacity 0.18s ease;
 }
 
@@ -23781,18 +24124,33 @@ input {
   pointer-events: none;
 }
 
+/* 全屏：flex-grow 恒为 0，只数值过渡 width（px→calc 可靠插值）；
+   main-content 保持 flex:1 自动补位，右边缘恒贴窗口，左边缘单调左移 */
 .right-panel.fullscreen {
-  flex-grow: 1;
-  width: auto;
+  width: calc(100% - var(--sidebar-width) - 10px);
   min-width: 0;
   opacity: 1;
   pointer-events: auto;
 }
 
+.app-shell.right-panel-fullscreen.sidebar-collapsed .right-panel {
+  width: 100%;
+}
+
+/* 聊天悬浮时 main-content absolute 脱离 flex 流，右面板失去右侧锚定会
+   跳到 sidebar 旁再向右生长；auto 外边距吸收行内剩余空间，把右面板
+   重新锚在右缘，并随 width 过渡每帧收缩，左边缘因此平滑单调左移 */
+.app-shell.right-panel-fullscreen.chat-float-enabled .right-panel {
+  margin-left: auto;
+}
+
+/* 全屏时 main 不再参与 grow 插值：保持 flex:1 每帧吃掉右面板 width
+   过渡释放的空间，自身平滑收缩到 0，右面板因此恒贴右边缘。
+   padding 同步归零（0.18s 与 width 过渡同曲线），确保 main 宽度经过
+   [0, 28px) 区间时不会被 padding clamp 撑出 28px 最小占位——否则行内
+   溢出会顶得右面板右缘暂时离开窗口边（收起时右侧「收一下」的根因） */
 .app-shell.right-panel-fullscreen .main-content {
-  flex-grow: 0;
   min-width: 0;
-  width: 0;
   opacity: 0;
   pointer-events: none;
   padding: 0;
@@ -23803,6 +24161,318 @@ input {
   min-width: 0;
   opacity: 0;
   pointer-events: none;
+  /* 立即归零，避免 10px 残宽在动画期间挤出右侧缝隙 */
+  transition: none;
+}
+
+/* ===== 右侧面板全屏：聊天视图悬浮为底部卡片 =====
+   chat-float-enabled 仅在 activeView 为 chat 时由 App 添加，
+   其他视图（设置页等）仍走上方 .main-content 的隐藏规则。
+   卡片与胶囊均以右面板实际区域为参照居中（非全窗）：
+   区域左缘 = app-layout 左内边距 + sidebar 宽 + resizer，右缘 = 右内边距。
+   卡片仅完整形态（is-float-expanded）：标题行 + 消息区 + 输入框；
+   收起即灵动岛（is-float-dismissed）。 */
+.app-shell.right-panel-fullscreen.chat-float-enabled {
+  --chat-float-region-left: calc(var(--sidebar-width) + 20px);
+}
+
+/* sidebar 收起：右面板占满 app-layout 全宽，区域左缘回到左内边距 */
+.app-shell.right-panel-fullscreen.chat-float-enabled.sidebar-collapsed {
+  --chat-float-region-left: 10px;
+}
+
+.app-shell.right-panel-fullscreen.chat-float-enabled .main-content {
+  position: absolute;
+  left: var(--chat-float-region-left);
+  right: 10px;
+  bottom: 14px;
+  z-index: 40;
+  margin: 0 auto;
+  width: min(680px, calc(100vw - var(--chat-float-region-left) - 10px));
+  max-height: min(580px, 60vh);
+  /* 不声明任何 flex 属性：absolute 虽不参与 flex 分配，但残留的
+     flex-grow: 0 会在退出全屏回流时触发 grow 0→1 过渡，让 main 逐步
+     补位、行尾出现空白，右面板右缘被顶离窗口边（收起时「收一下」） */
+  opacity: 1;
+  pointer-events: auto;
+  padding: 0 0 10px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  /* 打开：仅轻微上滑定位，无缩放/透明/过冲 */
+  animation: chat-float-card-in 0.2s ease-out both;
+}
+
+@keyframes chat-float-card-in {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* 悬浮头部：状态点 + 会话标题 + 关闭 */
+.chat-float-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.chat-float-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  opacity: 0.7;
+}
+
+.chat-float-dot.is-streaming {
+  background: var(--accent-green);
+  opacity: 1;
+  animation: chat-float-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes chat-float-dot-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-green-bg, rgba(74, 222, 128, 0.45));
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.chat-float-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-float-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-float-action-btn {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.chat-float-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 关闭态：卡片透明且不可交互，仅保留底部重开 pill。
+   容器横跨右面板区域，胶囊据此以 RightPanel 居中（同 --chat-float-region-left） */
+.app-shell.right-panel-fullscreen.chat-float-enabled
+  .main-content:has(.chat-content.is-float-dismissed) {
+  /* animation 置 none：dismissed ↔ 卡片切换时入场动画才会重新播放 */
+  animation: none;
+  margin: 0;
+  width: auto;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
+.chat-content.is-float-dismissed {
+  align-items: center;
+  justify-content: flex-end;
+  /* 入场动画过冲会越出静止位，顶部留余量避免被 main-content 裁剪 */
+  padding: 6px 0 2px;
+}
+
+@keyframes chat-float-island-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  40% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 灵动岛：悬浮卡片关闭后的常驻胶囊。空闲态仅图标；流式期间按最宽
+   状态项取档展开，固定单行内上下轮播。描边替代阴影提供边缘对比。 */
+.chat-float-island {
+  display: inline-flex;
+  height: 32px;
+  max-width: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: #101013;
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: chat-float-island-enter 0.48s cubic-bezier(0.34, 1.56, 0.64, 1)
+    both;
+  /* 宽度 auto：随视区宽度过渡平滑伸缩，伸缩动画在视区上驱动 */
+}
+
+.chat-float-island.is-live {
+  max-width: min(320px, calc(100vw - 90px));
+}
+
+.chat-float-island-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* 状态体：宽度扩张由 max-width 过渡驱动，内容延迟淡入避免过渡期闪烁 */
+.chat-float-island-body {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.22s ease 0.14s;
+}
+
+.chat-float-island.is-live .chat-float-island-body {
+  opacity: 1;
+}
+
+/* 可视区：固定单行高，宽度由脚本按最宽状态项量化设定（过渡平滑伸缩）。
+   多项轮播时上下边缘渐隐，相邻项滚入滚出更柔和 */
+.chat-float-island-viewport {
+  display: inline-flex;
+  flex: 0 1 auto;
+  height: 16px; /* 与脚本 ITEM_HEIGHT_PX 保持一致 */
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.45s cubic-bezier(0.32, 0.72, 0.16, 1);
+}
+
+.chat-float-island-viewport.is-cycling {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 3px,
+    #000 calc(100% - 3px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 3px,
+    #000 calc(100% - 3px),
+    transparent
+  );
+}
+
+/* 垂直轮播轨道：状态项纵向堆叠，transform 逐项上下滚动（悬停暂停由脚本驱动） */
+.chat-float-island-track {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  width: max-content;
+  transition: transform 0.4s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.chat-float-island-item {
+  display: flex;
+  flex: 0 0 auto;
+  height: 16px;
+  max-width: var(--island-max-width, 260px);
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  /* 等宽数字：token/耗时数值变化时文本宽度稳定 */
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+  user-select: none;
+}
+
+.chat-float-island-item-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-float-island-item svg {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.chat-float-island-item.is-thinking svg {
+  color: #b19eff;
+}
+
+.chat-float-island-item.is-responding svg {
+  color: #6ee7b7;
+}
+
+.chat-float-island-item.is-tool svg {
+  color: #7dd3fc;
+}
+
+.chat-float-island-item.is-files svg {
+  color: #fbbf24;
+}
+
+.chat-float-island-item.is-tokens svg {
+  color: #34d399;
+}
+
+.chat-float-island-item.is-elapsed svg {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.chat-float-island-item.is-aborting svg {
+  color: #f87171;
+}
+
+.chat-float-island-item.is-paused svg {
+  color: #fbbf24;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-float-island,
+  .app-shell.right-panel-fullscreen.chat-float-enabled .main-content {
+    animation: none;
+  }
+  .chat-float-island-viewport,
+  .chat-float-island-track {
+    transition: none;
+  }
 }
 
 .right-panel-content-wrapper {

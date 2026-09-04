@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Maximize2 } from "lucide-react";
 import { ChatContent } from "./mainContent/ChatContent";
 import { TeamPanel } from "./mainContent/team/TeamPanel";
 import { useI18n } from "../i18n";
@@ -140,6 +140,10 @@ type MainContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
   activeView: MainContentView;
   isResizing?: boolean;
+  /** 右侧面板全屏时聊天视图悬浮为卡片 */
+  isFloating?: boolean;
+  /** 右面板拖宽越界待全屏：显示遮罩提醒，拖回可取消 */
+  isFullscreenPending?: boolean;
   onSelectView: (view: MainContentView) => void;
 };
 
@@ -159,13 +163,30 @@ export const MainContent = ({
   activeDirectory,
   activeView,
   isResizing = false,
+  isFloating = false,
+  isFullscreenPending = false,
   onSelectView,
 }: MainContentProps): React.JSX.Element => {
+  const { t } = useI18n();
   return (
     <main className="main-content">
+      {isFullscreenPending && (
+        <div className="fullscreen-pending-overlay" aria-live="assertive">
+          <div className="fullscreen-pending-card">
+            <Maximize2 size={20} aria-hidden="true" />
+            <span className="fullscreen-pending-title">
+              {t("rightPanel.fullscreenPendingTitle")}
+            </span>
+            <span className="fullscreen-pending-hint">
+              {t("rightPanel.fullscreenPendingHint")}
+            </span>
+          </div>
+        </div>
+      )}
       {activeView === "chat" ? (
         <ChatContent
           activeDirectory={activeDirectory}
+          isFloating={isFloating}
           onNavigateToView={onSelectView}
         />
       ) : activeView === "team" ? (

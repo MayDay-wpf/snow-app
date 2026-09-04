@@ -245,6 +245,9 @@ export const en = {
     "Write your memo here... (paste images, format text)",
   "memo.editorLabel": "Memo content",
   "memo.deleteShortcut": "Delete selected memo",
+  "memo.sortToggle": "Toggle sort order",
+  "memo.sortDesc": "Newest first",
+  "memo.sortAsc": "Oldest first",
   "scheduledTask.sidebarEntry": "Scheduled Tasks",
   "scheduledTask.title": "Scheduled Tasks",
   "scheduledTask.close": "Close scheduled tasks",
@@ -523,6 +526,18 @@ export const en = {
   "chat.greetingNoProject": "Select a workspace project to get started.",
   "chat.quote.addToInput": "Add to input",
   "chat.scrollToBottom": "Scroll to bottom",
+  "chat.float.untitled": "New chat",
+  "chat.float.collapse": "Collapse conversation",
+  "chat.float.expand": "Expand conversation",
+  "chat.float.close": "Close floating chat",
+  "chat.float.reopen": "Open chat",
+  "chat.float.island.thinking": "Thinking",
+  "chat.float.island.responding": "Generating",
+  "chat.float.island.aborting": "Stopping",
+  "chat.float.island.paused": "Paused",
+  "chat.float.island.tool": "Tool {{name}}",
+  "chat.float.island.filesChanged": "{{count}} files changed",
+  "chat.float.island.tokens": "{{count}} tokens",
   "chat.userMessageRail.title": "User messages",
   "chat.subAgentModelFixed":
     "Sub-agent uses the API profile and model resolved when it started",
@@ -883,6 +898,19 @@ export const en = {
   "toolCall.workflow.deleteNode": "Delete node",
   "toolCall.workflow.newNodeName": "New node",
   "toolCall.workflow.deleteEdge": "Delete connection",
+  "toolCall.workflow.deleteConfirmTitle": "Confirm deletion",
+  "toolCall.workflow.deleteConfirmNodes":
+    "This will delete {{count}} node(s); connected lines will be removed too.",
+  "toolCall.workflow.deleteConfirmEdges":
+    "This will delete {{count}} connection(s).",
+  "toolCall.workflow.deleteConfirmMixed":
+    "This will delete {{count}} node(s) and {{edges}} connection(s).",
+  "toolCall.workflow.deleteConfirmHint":
+    "You can undo with {{shortcut}} afterwards.",
+  "toolCall.workflow.deleteConfirmAction": "Delete",
+  "toolCall.workflow.deleteConfirmCancel": "Cancel",
+  "toolCall.workflow.deletedToast": "Deleted · {{shortcut}} to undo",
+  "toolCall.workflow.undoDelete": "Undo",
   // System notifications
   "notification.aiComplete.title": "AI task completed",
   "notification.aiComplete.bodyWithTitle":
@@ -3652,6 +3680,9 @@ export const en = {
   "rightPanel.drawingTab": "Drawing Workspace",
   "rightPanel.closeTab": "Close tab",
   "rightPanel.confirmCloseTerminal": "Close terminal?",
+  "rightPanel.fullscreenPendingTitle": "Right panel is about to go fullscreen",
+  "rightPanel.fullscreenPendingHint":
+    "Release to enter fullscreen, drag back to cancel",
   "rightPanel.confirmCloseBrowser": "Close browser?",
   "rightPanel.closeAllTabs": "Close all tabs",
   "rightPanel.closeOtherTabs": "Close Other Tabs",

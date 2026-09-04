@@ -1,4 +1,6 @@
 import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   Check,
   CheckCircle2,
   Circle,
@@ -21,6 +23,8 @@ const SAVE_DEBOUNCE_MS = 600;
 const PREVIEW_MAX_LEN = 120;
 
 type MemoFilter = "all" | MemoStatus;
+
+type MemoSortOrder = "asc" | "desc";
 
 type MemoModalProps = {
   open: boolean;
@@ -103,6 +107,7 @@ export function MemoModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [filter, setFilter] = useState<MemoFilter>("all");
+  const [sortOrder, setSortOrder] = useState<MemoSortOrder>("desc");
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -147,7 +152,7 @@ export function MemoModal({
   );
 
   const loadFirstPage = useCallback(
-    async (currentFilter: MemoFilter) => {
+    async (currentFilter: MemoFilter, currentSortOrder: MemoSortOrder) => {
       const currentRequestId = ++requestIdRef.current;
       setIsLoading(true);
       try {
@@ -157,6 +162,7 @@ export function MemoModal({
           PAGE_SIZE,
           0,
           statusParam,
+          currentSortOrder,
         );
         if (currentRequestId !== requestIdRef.current) return;
         setMemos(page.items);
@@ -188,9 +194,9 @@ export function MemoModal({
 
   useEffect(() => {
     if (!open) return;
-    void loadFirstPage(filter);
+    void loadFirstPage(filter, sortOrder);
     void refreshPendingCount();
-  }, [open, filter, loadFirstPage, refreshPendingCount]);
+  }, [open, filter, sortOrder, loadFirstPage, refreshPendingCount]);
 
   // When the active project (directoryId) changes while the modal is open,
   // reset the selection and editor so stale content from another project is
@@ -365,7 +371,9 @@ export function MemoModal({
     setIsCreating(true);
     try {
       const created = await window.snow.createMemo(directoryId, "");
-      setMemos((prev) => [created, ...prev]);
+      setMemos((prev) =>
+        sortOrder === "asc" ? [...prev, created] : [created, ...prev],
+      );
       setTotalCount((prev) => prev + 1);
       setSelectedMemoId(created.memoId);
       lastSavedContentRef.current = "";
@@ -468,7 +476,7 @@ export function MemoModal({
     const statusParam = filter === "all" ? undefined : filter;
     const currentLength = memos.length;
     window.snow
-      .listMemos(directoryId, PAGE_SIZE, currentLength, statusParam)
+      .listMemos(directoryId, PAGE_SIZE, currentLength, statusParam, sortOrder)
       .then((page: MemoPage) => {
         setMemos((prev) => [...prev, ...page.items]);
         setHasMore(page.hasMore);
@@ -729,6 +737,23 @@ export function MemoModal({
                 </button>
               ))}
             </div>
+            <button
+              aria-label={t("memo.sortToggle")}
+              className="memo-sort-btn"
+              onClick={() =>
+                setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))
+              }
+              title={
+                sortOrder === "desc" ? t("memo.sortDesc") : t("memo.sortAsc")
+              }
+              type="button"
+            >
+              {sortOrder === "desc" ? (
+                <ArrowDownWideNarrow size={15} strokeWidth={2} />
+              ) : (
+                <ArrowUpNarrowWide size={15} strokeWidth={2} />
+              )}
+            </button>
             <button
               className="memo-new-btn compact"
               disabled={isCreating}

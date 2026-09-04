@@ -16,14 +16,16 @@ pub fn create_memo(database_path: &Path, directory_id: &str, content: &str) -> R
         .map_err(|error| database::database_error(database_path, "create memo", error))
 }
 
-/// Lists a page of memos ordered by creation time descending.
+/// Lists a page of memos ordered by creation time.
 /// `status_filter` accepts "", "pending" or "done"; empty means all.
+/// `sort_order` accepts "asc" or "desc" (default "desc").
 pub fn list_memos(
     database_path: &Path,
     directory_id: &str,
     limit: i32,
     offset: i32,
     status_filter: Option<&str>,
+    sort_order: Option<&str>,
 ) -> Result<MemoPage> {
     database::open_connection(database_path)
         .and_then(|connection| {
@@ -33,6 +35,7 @@ pub fn list_memos(
                 status_filter.unwrap_or(""),
                 limit,
                 offset,
+                sort_order.unwrap_or("desc"),
             )
         })
         .map_err(|error| database::database_error(database_path, "list memos", error))
@@ -133,28 +136,34 @@ fn query_memos_page(
     status_filter: &str,
     limit: i32,
     offset: i32,
+    sort_order: &str,
 ) -> rusqlite::Result<MemoPage> {
     let safe_limit = if limit > 0 { limit } else { 20 };
     let safe_offset = if offset > 0 { offset } else { 0 };
+    let order_clause = if sort_order.eq_ignore_ascii_case("asc") {
+        "ORDER BY created_at ASC, id ASC"
+    } else {
+        "ORDER BY created_at DESC, id DESC"
+    };
 
     let total = count_memos_with_connection(connection, directory_id, status_filter)?;
     let items = if matches!(status_filter, "" | "pending" | "done") {
         let mut statement = if status_filter.is_empty() {
-            connection.prepare(
+            connection.prepare(&format!(
                 "SELECT id, memo_id, directory_id, content, status, created_at, updated_at
                    FROM memos
                   WHERE directory_id = ?1
-                  ORDER BY created_at DESC, id DESC
-                  LIMIT ?2 OFFSET ?3",
-            )?
+                  {order_clause}
+                  LIMIT ?2 OFFSET ?3"
+            ))?
         } else {
-            connection.prepare(
+            connection.prepare(&format!(
                 "SELECT id, memo_id, directory_id, content, status, created_at, updated_at
                    FROM memos
                   WHERE directory_id = ?1 AND status = ?2
-                  ORDER BY created_at DESC, id DESC
-                  LIMIT ?3 OFFSET ?4",
-            )?
+                  {order_clause}
+                  LIMIT ?3 OFFSET ?4"
+            ))?
         };
 
         let row_mapper = |row: &Row| map_memo_row(row);

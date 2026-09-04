@@ -20,6 +20,7 @@ import { useChatConversationContext } from "./mainContent/chatMessages";
 import { OPEN_PROJECT_CODEBASE_PANEL_EVENT } from "./mainContent/chatInput/ProjectCodebasePanel";
 import { CodebaseSyncIndicator } from "./TopBar/CodebaseSyncIndicator";
 import { TodoPanelButton } from "./TopBar/TodoPanelButton";
+import { codebaseSyncStore } from "./TopBar/codebaseSyncStore";
 import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
 import { PlusMenuButton, type PlusMenuItem } from "./common/PlusMenuButton";
 import { WindowControlsButtons } from "./WindowControls";
@@ -214,6 +215,23 @@ export const TopBar = ({
     // off the "syncing" state even if a broadcast progress event was missed.
     onSyncFinished: loadCodebaseIndexed,
   });
+
+  // 发布同步状态快照：右面板全屏时 TopBar 中部隐藏，悬浮聊天头部订阅展示。
+  useEffect(() => {
+    codebaseSyncStore.set({
+      syncStatus,
+      watchedProjectId,
+      activeProjectId,
+      isIndexed: codebaseIndexed,
+      embedError: codebaseEmbedError,
+    });
+  }, [
+    syncStatus,
+    watchedProjectId,
+    activeProjectId,
+    codebaseIndexed,
+    codebaseEmbedError,
+  ]);
 
   // Load index stats to determine whether the codebase has been indexed.
   // The indicator uses this to distinguish "watching with an existing index"

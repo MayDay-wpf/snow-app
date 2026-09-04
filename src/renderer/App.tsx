@@ -37,6 +37,10 @@ const SIDEBAR_DEFAULT_WIDTH = 248;
 const RIGHT_PANEL_MIN_WIDTH = 280;
 const RIGHT_PANEL_MAX_WIDTH = 640;
 const RIGHT_PANEL_DEFAULT_WIDTH = 380;
+// 右面板拖宽越过最大宽度此距离进入"待全屏区"，持续拖拽保持 500ms 后出现
+// 遮罩提示；此后不回拉、松开鼠标即进入全屏。
+const RIGHT_PANEL_FULLSCREEN_OVERDRAG = 56;
+const RIGHT_PANEL_FULLSCREEN_DWELL_MS = 500;
 const MAIN_CONTENT_MIN_WIDTH = 420;
 // 窗口内容宽度 ≤ 此值时视为手机尺寸：自动收起两侧面板，聊天区独占窗口。
 const MOBILE_BREAKPOINT = 720;
@@ -161,6 +165,9 @@ export const App = (): React.JSX.Element => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [isRightPanelFullscreen, setIsRightPanelFullscreen] = useState(false);
+  // 拖宽右面板进入越界区后的"待全屏"状态：主内容区据此显示遮罩提醒。
+  const [isRightPanelFullscreenPending, setIsRightPanelFullscreenPending] =
+    useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [rightPanelWidth, setRightPanelWidth] = useState(
     RIGHT_PANEL_DEFAULT_WIDTH,
@@ -469,12 +476,16 @@ export const App = (): React.JSX.Element => {
     setShowSshWizard(false);
   }, []);
 
+  const isChatFloatActive = isRightPanelFullscreen && activeMainView === "chat";
+
   const shellClasses = [
     "app-shell",
     isWindows ? "is-windows" : "",
     isSidebarCollapsed ? "sidebar-collapsed" : "",
     isRightPanelCollapsed ? "right-panel-collapsed" : "",
     isRightPanelFullscreen ? "right-panel-fullscreen" : "",
+    // 全屏时聊天视图悬浮为底部卡片（其他视图仍完全隐藏）
+    isChatFloatActive ? "chat-float-enabled" : "",
     activeResizeTarget ? "is-resizing" : "",
   ]
     .filter(Boolean)
@@ -522,6 +533,46 @@ export const App = (): React.JSX.Element => {
     setActiveResizeTarget(target);
     event.currentTarget.setPointerCapture(event.pointerId);
 
+    // 右面板待全屏流程：越界区持续拖拽保持 1s 后出现遮罩提示（armed），
+    // 此后不回拉、松开鼠标即进入全屏；回拉或提前松手则取消。
+    // armed 用手势内局部变量记录（拖拽监听器是手势开始时的旧闭包，
+    // 不能依赖 React state 读最新值），state 仅驱动遮罩渲染。
+    let fullscreenTimer: number | null = null;
+    let fullscreenArmed = false;
+    const cancelFullscreenArm = (): void => {
+      if (fullscreenTimer !== null) {
+        window.clearTimeout(fullscreenTimer);
+        fullscreenTimer = null;
+      }
+      if (fullscreenArmed) {
+        fullscreenArmed = false;
+        setIsRightPanelFullscreenPending(false);
+      }
+    };
+
+    const stopResize = (): void => {
+      // 遮罩提示已出现且未回拉：松手进入右面板全屏。
+      if (fullscreenArmed) {
+        fullscreenArmed = false;
+        setIsRightPanelFullscreen(true);
+      }
+      if (fullscreenTimer !== null) {
+        window.clearTimeout(fullscreenTimer);
+        fullscreenTimer = null;
+      }
+      setIsRightPanelFullscreenPending(false);
+      setActiveResizeTarget(null);
+      // 提交最终宽度：与拖动期间手动写入的 CSS 变量值一致，React 渲染后无缝接管。
+      if (target === "sidebar") {
+        setSidebarWidth(latestWidth);
+      } else {
+        setRightPanelWidth(latestWidth);
+      }
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", stopResize);
+      document.removeEventListener("pointercancel", stopResize);
+    };
+
     const handlePointerMove = (pointerEvent: PointerEvent): void => {
       const deltaX = pointerEvent.clientX - startX;
       const nextWidth =
@@ -529,6 +580,22 @@ export const App = (): React.JSX.Element => {
       const minWidth =
         target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
       const maxWidth = getMaxPanelWidth(target);
+      // 右面板拖到最大宽度后仍向外拖拽：持续保持 1s 后出现遮罩提示。
+      const isOverdrag =
+        target === "right-panel" &&
+        !isRightPanelFullscreen &&
+        nextWidth >= maxWidth + RIGHT_PANEL_FULLSCREEN_OVERDRAG;
+      if (isOverdrag) {
+        // 计时器 id 保留为"已武装"标记，避免武装后重复计时。
+        if (fullscreenTimer === null) {
+          fullscreenTimer = window.setTimeout(() => {
+            fullscreenArmed = true;
+            setIsRightPanelFullscreenPending(true);
+          }, RIGHT_PANEL_FULLSCREEN_DWELL_MS);
+        }
+      } else {
+        cancelFullscreenArm();
+      }
       const clampedWidth = Math.round(clamp(nextWidth, minWidth, maxWidth));
       latestWidth = clampedWidth;
 
@@ -542,19 +609,6 @@ export const App = (): React.JSX.Element => {
           `${clampedWidth}px`,
         );
       }
-    };
-
-    const stopResize = (): void => {
-      setActiveResizeTarget(null);
-      // 提交最终宽度：与拖动期间手动写入的 CSS 变量值一致，React 渲染后无缝接管。
-      if (target === "sidebar") {
-        setSidebarWidth(latestWidth);
-      } else {
-        setRightPanelWidth(latestWidth);
-      }
-      document.removeEventListener("pointermove", handlePointerMove);
-      document.removeEventListener("pointerup", stopResize);
-      document.removeEventListener("pointercancel", stopResize);
     };
 
     document.addEventListener("pointermove", handlePointerMove);
@@ -624,6 +678,8 @@ export const App = (): React.JSX.Element => {
               activeDirectory={activeDirectory}
               activeView={activeMainView}
               isResizing={activeResizeTarget !== null}
+              isFloating={isChatFloatActive}
+              isFullscreenPending={isRightPanelFullscreenPending}
               onSelectView={setActiveMainView}
             />
             {!isRightPanelCollapsed && (
