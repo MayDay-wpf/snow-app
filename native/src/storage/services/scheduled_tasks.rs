@@ -148,7 +148,10 @@ fn list_with_connection(connection: &Connection) -> rusqlite::Result<Vec<Schedul
     )?;
     let runs: Vec<(String, ScheduledTaskRunRecord)> = run_statement
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, map_run_row(row)?))
+            // The SELECT prepends `task_id`, so the run fields start at
+            // column 1 instead of 0 (the source of the "Invalid column type
+            // Text at index: 2, name: status" failure when runs existed).
+            Ok((row.get::<_, String>(0)?, map_run_row_at(row, 1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -321,7 +324,9 @@ fn fetch_run_history(
           LIMIT ?2",
     )?;
     let rows = statement
-        .query_map(params![task_id, MAX_RUN_HISTORY], |row| map_run_row(row))?
+        .query_map(params![task_id, MAX_RUN_HISTORY], |row| {
+            map_run_row_at(row, 0)
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -355,11 +360,137 @@ fn map_task_row(row: &Row) -> rusqlite::Result<ScheduledTaskRecord> {
     })
 }
 
-fn map_run_row(row: &Row) -> rusqlite::Result<ScheduledTaskRunRecord> {
+/// Maps a `scheduled_task_runs` row starting at column `offset`.
+///
+/// `fetch_run_history` selects only the 4 record columns (`run_at, status,
+/// duration_ms, error`), while `list_with_connection` prefixes `task_id` for
+/// grouping. Callers must pass the matching offset — an off-by-one here
+/// surfaces as `Invalid column type Text at index: 2, name: status`.
+fn map_run_row_at(row: &Row, offset: usize) -> rusqlite::Result<ScheduledTaskRunRecord> {
     Ok(ScheduledTaskRunRecord {
-        run_at: row.get(0)?,
-        status: row.get(1)?,
-        duration_ms: row.get(2)?,
-        error: row.get(3)?,
+        run_at: row.get(offset)?,
+        status: row.get(offset + 1)?,
+        duration_ms: row.get(offset + 2)?,
+        error: row.get(offset + 3)?,
     })
+}
+
+#[cfg(test)]
+mod run_history_mapping_tests {
+    use super::*;
+
+    /// Minimal schema mirroring database.rs so both run-history query shapes
+    /// can be exercised against realistic column layouts.
+    const TEST_SCHEMA: &str = "
+        CREATE TABLE scheduled_tasks (
+          id TEXT PRIMARY KEY NOT NULL,
+          directory_id TEXT NOT NULL DEFAULT '',
+          name TEXT NOT NULL DEFAULT '',
+          prompt TEXT NOT NULL DEFAULT '',
+          schedule_json TEXT NOT NULL DEFAULT '{}',
+          api_profile TEXT,
+          basic_model TEXT,
+          model TEXT,
+          thinking_strength TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          paused INTEGER NOT NULL DEFAULT 0,
+          next_run_at TEXT,
+          last_run_at TEXT,
+          run_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          pre_script TEXT,
+          pre_script_timeout_ms INTEGER,
+          run_on_script_error INTEGER NOT NULL DEFAULT 0,
+          skip_count INTEGER NOT NULL DEFAULT 0,
+          last_skipped_at TEXT,
+          last_skip_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE scheduled_task_runs (
+          id TEXT PRIMARY KEY NOT NULL,
+          task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+          run_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running',
+          duration_ms INTEGER,
+          error TEXT
+        );
+    ";
+
+    fn seed(connection: &Connection) {
+        connection.execute_batch(TEST_SCHEMA).unwrap();
+        connection
+            .execute(
+                "INSERT INTO scheduled_tasks (
+                     id, directory_id, name, prompt, schedule_json,
+                     status, paused, run_count, last_run_at, created_at, updated_at
+                 ) VALUES (
+                     'task-1', '', 'Test', 'p', '{}',
+                     'pending', 0, 2,
+                     '2026-09-04T10:00:00Z', '2026-09-04T09:00:00Z', '2026-09-04T09:30:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO scheduled_task_runs (id, task_id, run_at, status, duration_ms, error)
+                 VALUES ('run-1', 'task-1', '2026-09-04T09:50:00Z', 'completed', 1200, NULL)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO scheduled_task_runs (id, task_id, run_at, status, duration_ms, error)
+                 VALUES ('run-2', 'task-1', '2026-09-04T09:55:00Z', 'running', NULL, NULL)",
+                [],
+            )
+            .unwrap();
+    }
+
+    /// Regression: `list_with_connection` selects a leading `task_id` column,
+    /// so the run fields start at index 1. Mapping them from index 0 raised
+    /// `Invalid column type Text at index: 2, name: status` whenever any run
+    /// history existed, breaking the whole scheduled-tasks:list handler.
+    #[test]
+    fn list_maps_run_history_offset_by_prepended_task_id() {
+        let connection = Connection::open_in_memory().unwrap();
+        seed(&connection);
+
+        let tasks = list_with_connection(&connection).unwrap();
+        assert_eq!(tasks.len(), 1);
+        let task = &tasks[0];
+        assert_eq!(task.id, "task-1");
+        assert_eq!(task.status, "pending");
+        assert_eq!(task.run_count, 2);
+
+        assert_eq!(task.history.len(), 2);
+        let completed = &task.history[0];
+        assert_eq!(completed.run_at, "2026-09-04T09:50:00Z");
+        assert_eq!(completed.status, "completed");
+        assert_eq!(completed.duration_ms, Some(1200));
+        assert_eq!(completed.error, None);
+
+        let running = &task.history[1];
+        assert_eq!(running.run_at, "2026-09-04T09:55:00Z");
+        assert_eq!(running.status, "running");
+        assert_eq!(running.duration_ms, None);
+        assert_eq!(running.error, None);
+    }
+
+    /// The plain per-task history query has no leading `task_id`, so mapping
+    /// starts at offset 0.
+    #[test]
+    fn fetch_run_history_maps_plain_run_columns() {
+        let connection = Connection::open_in_memory().unwrap();
+        seed(&connection);
+
+        let history = fetch_run_history(&connection, "task-1").unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].run_at, "2026-09-04T09:50:00Z");
+        assert_eq!(history[0].status, "completed");
+        assert_eq!(history[0].duration_ms, Some(1200));
+        assert_eq!(history[1].status, "running");
+        assert_eq!(history[1].duration_ms, None);
+    }
 }
