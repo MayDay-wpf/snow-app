@@ -9,6 +9,9 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   fontSize: 14,
   fontWeight: "normal",
   lineHeight: 1.2,
+  // GPU 渲染默认关闭：WebGL 上下文按需创建，遇远程桌面/驱动禁用等
+  // 环境问题可一键关闭回到稳定的 DOM 渲染器。
+  gpuRendering: false,
 };
 
 export const FONT_WEIGHT_OPTIONS = [

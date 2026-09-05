@@ -1,4 +1,4 @@
-import { Monitor, Type } from "lucide-react";
+import { Monitor, Type, Zap } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import type { TerminalSettingsValue } from "./types";
 
@@ -31,6 +31,17 @@ export function TerminalSettingsSummary({
         <small>
           {t("settings.terminalFontSize", { defaultValue: "Font size" })}:{" "}
           {preview.fontSize}
+        </small>
+      </div>
+      <div className="api-settings-summary-card">
+        <Zap size={15} strokeWidth={1.8} />
+        <span>
+          {t(preview.gpuRendering ? "settings.enabled" : "settings.disabled")}
+        </span>
+        <small>
+          {t("settings.terminalGpuRendering", {
+            defaultValue: "GPU rendering (WebGL)",
+          })}
         </small>
       </div>
     </div>

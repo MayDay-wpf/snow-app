@@ -7,10 +7,16 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-          input: {
-            index: resolve(__dirname, "src/main/index.ts"),
-            "import-discovery-worker": resolve(__dirname, "src/main/importConfig/import-discovery-worker.mjs"),
-            "plugin-runtime-worker": resolve(__dirname, "src/main/plugins/plugin-runtime-worker.ts"),
+        input: {
+          index: resolve(__dirname, "src/main/index.ts"),
+          "import-discovery-worker": resolve(
+            __dirname,
+            "src/main/importConfig/import-discovery-worker.mjs",
+          ),
+          "plugin-runtime-worker": resolve(
+            __dirname,
+            "src/main/plugins/plugin-runtime-worker.ts",
+          ),
         },
       },
     },
@@ -23,7 +29,10 @@ export default defineConfig({
           index: resolve(__dirname, "src/preload/index.ts"),
           // 内置浏览器 webview 的密码助手（guest 页面 preload，独立入口
           // 以输出单独的 webview-browser.mjs 供 <webview preload> 引用）。
-          "webview-browser": resolve(__dirname, "src/preload/webviewBrowserPreload.ts"),
+          "webview-browser": resolve(
+            __dirname,
+            "src/preload/webviewBrowserPreload.ts",
+          ),
           // 桌面宠物窗口的轻量 preload（输出 pet.mjs）。
           pet: resolve(__dirname, "src/preload/petPreload.ts"),
         },
@@ -63,7 +72,11 @@ export default defineConfig({
             // 代码高亮 — 仅 chat 消息渲染时需要
             "vendor-highlightjs": ["highlight.js"],
             // 终端模拟 — 仅打开终端 tab 时需要
-            "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit"],
+            "vendor-xterm": [
+              "@xterm/xterm",
+              "@xterm/addon-fit",
+              "@xterm/addon-webgl",
+            ],
           },
         },
       },

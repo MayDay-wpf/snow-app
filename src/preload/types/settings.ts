@@ -15,6 +15,8 @@ export type TerminalSettings = {
   fontSize: number;
   fontWeight: string;
   lineHeight: number;
+  /** 是否启用 GPU（WebGL2）渲染器加速终端绘制；不可用时自动回退 DOM 渲染。 */
+  gpuRendering: boolean;
 };
 
 export type PrivacyApiConfig = {

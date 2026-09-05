@@ -2947,6 +2947,8 @@ export const en = {
   "settings.terminalLineHeight": "Line height",
   "settings.terminalLineHeightValidationError":
     "Line height must be between 0.5 and 3.",
+  "settings.terminalSectionRendering": "Rendering",
+  "settings.terminalGpuRendering": "GPU rendering (WebGL)",
   "settings.terminalShellPathValidationError":
     "Shell executable does not exist. Check the path or leave it empty to auto-detect.",
   "settings.saveTerminalSettings": "Save settings",

@@ -2799,6 +2799,8 @@ export const zhCN = {
   "settings.terminalFontSizeValidationError": "字号必须在 6 到 72 之间。",
   "settings.terminalLineHeight": "行高",
   "settings.terminalLineHeightValidationError": "行高必须在 0.5 到 3 之间。",
+  "settings.terminalSectionRendering": "渲染",
+  "settings.terminalGpuRendering": "GPU 渲染 (WebGL)",
   "settings.terminalShellPathValidationError":
     "Shell 可执行文件不存在，请检查路径或留空自动检测。",
   "settings.saveTerminalSettings": "保存设置",

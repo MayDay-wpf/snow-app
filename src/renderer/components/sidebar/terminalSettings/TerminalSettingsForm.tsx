@@ -15,9 +15,11 @@ type TerminalSettingsFormProps = {
   isSelectingExecutable: boolean;
   detectedTerminals: DetectedTerminalOption[];
   onUpdateField: (
-    field: keyof TerminalSettingsFormValue
+    field: keyof TerminalSettingsFormValue,
   ) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   onSetValue: (field: keyof TerminalSettingsFormValue, value: string) => void;
+  /** GPU 渲染开关（即时生效控件）：切换后立即保存并应用到所有终端。 */
+  onGpuRenderingChange: (enabled: boolean) => void;
   onShellPathChange: (value: string) => void;
   /** 传入 nextForm 时以该值保存（下拉选择后 state 尚未重渲染，需显式携带新值）。 */
   onBlurSave: (nextForm?: TerminalSettingsFormValue) => void;
@@ -32,6 +34,7 @@ export function TerminalSettingsForm({
   detectedTerminals,
   onUpdateField,
   onSetValue,
+  onGpuRenderingChange,
   onShellPathChange,
   onBlurSave,
   onReset,
@@ -175,8 +178,46 @@ export function TerminalSettingsForm({
           </div>
         </div>
 
-      </div>
+        {/* ===== Rendering ===== */}
+        <div className="api-settings-form-section">
+          <div className="api-settings-form-section-header">
+            <strong className="api-settings-form-section-title">
+              {t("settings.terminalSectionRendering", {
+                defaultValue: "Rendering",
+              })}
+            </strong>
+          </div>
 
+          <div className="api-settings-form-grid">
+            <div className="api-settings-field wide">
+              <span>
+                {t("settings.terminalGpuRendering", {
+                  defaultValue: "GPU rendering (WebGL)",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={form.gpuRendering}
+                  onChange={(event) =>
+                    onGpuRenderingChange(event.target.checked)
+                  }
+                  disabled={isBusy}
+                  hidden
+                />
+                <span className="toggle-slider" />
+                <span>
+                  {t(
+                    form.gpuRendering
+                      ? "settings.enabled"
+                      : "settings.disabled",
+                  )}
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="api-settings-form-actions">
         <button
           className="api-settings-form-btn secondary"

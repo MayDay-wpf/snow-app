@@ -14,6 +14,9 @@ const toNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const toBool = (value: unknown, fallback: boolean): boolean =>
+  typeof value === "boolean" ? value : fallback;
+
 export const normalizeTerminalSettings = (value: unknown): TerminalSettings => {
   const source = isRecord(value) ? value : {};
 
@@ -26,13 +29,17 @@ export const normalizeTerminalSettings = (value: unknown): TerminalSettings => {
       DEFAULT_TERMINAL_SETTINGS.fontWeight,
     lineHeight: toNumber(
       source.lineHeight,
-      DEFAULT_TERMINAL_SETTINGS.lineHeight
+      DEFAULT_TERMINAL_SETTINGS.lineHeight,
+    ),
+    gpuRendering: toBool(
+      source.gpuRendering,
+      DEFAULT_TERMINAL_SETTINGS.gpuRendering,
     ),
   };
 };
 
 export const readTerminalSettingsJson = (
-  value: string | null
+  value: string | null,
 ): TerminalSettings => {
   if (!value) {
     return DEFAULT_TERMINAL_SETTINGS;
@@ -46,21 +53,23 @@ export const readTerminalSettingsJson = (
 };
 
 export const toTerminalForm = (
-  settings: TerminalSettings
+  settings: TerminalSettings,
 ): TerminalSettingsForm => ({
   shellPath: settings.shellPath,
   fontFamily: settings.fontFamily,
   fontSize: String(settings.fontSize),
   fontWeight: settings.fontWeight,
   lineHeight: String(settings.lineHeight),
+  gpuRendering: settings.gpuRendering,
 });
 
 export const toTerminalSettings = (
-  form: TerminalSettingsForm
+  form: TerminalSettingsForm,
 ): TerminalSettings => ({
   shellPath: form.shellPath.trim(),
   fontFamily: form.fontFamily.trim(),
   fontSize: toNumber(form.fontSize, DEFAULT_TERMINAL_SETTINGS.fontSize),
   fontWeight: form.fontWeight.trim() || DEFAULT_TERMINAL_SETTINGS.fontWeight,
   lineHeight: toNumber(form.lineHeight, DEFAULT_TERMINAL_SETTINGS.lineHeight),
+  gpuRendering: form.gpuRendering,
 });

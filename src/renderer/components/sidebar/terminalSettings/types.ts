@@ -10,6 +10,8 @@ export type TerminalSettingsForm = {
   fontSize: string;
   fontWeight: string;
   lineHeight: string;
+  /** GPU 渲染开关是即时生效控件，保持 boolean 而非字符串。 */
+  gpuRendering: boolean;
 };
 
 export type TerminalSettingsValue = TerminalSettings;

@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
@@ -130,6 +131,11 @@ export const TerminalPanelContent = ({
   const awaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** PTY resize 通知的尾沿防抖 timer(动画/拖拽期间的连续 resize 只发最终值) */
   const ptyResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 当前挂载的 WebGL 渲染 addon（未启用/tab 失活时为 null，回退 DOM 渲染器）。 */
+  const webglRef = useRef<WebglAddon | null>(null);
+  /** GPU 渲染设置镜像：主 effect 不依赖 settings（避免终端随设置重建），
+   *  创建 Terminal 时从这里读取最新值决定是否挂 WebGL addon。 */
+  const gpuRenderingRef = useRef(settings.gpuRendering);
 
   // ------------------------------------------------------------------
   // 终端日志流：按行切分后实时推送给监控方（输入框「监控终端」模式）
@@ -200,6 +206,56 @@ export const TerminalPanelContent = ({
   // Register this terminal tab with the MCP controller so that
   // terminal-send/read/resize/wait commands can reach it.
   useTerminalMcpInstance(tabId, cwd, isActive, termRef, ptyIdRef);
+
+  // GPU 渲染设置镜像同步：effect 定义在主 effect 之前，保证主 effect 创建
+  // Terminal 时读取到的是最新值。
+  useEffect(() => {
+    gpuRenderingRef.current = settings.gpuRendering;
+  }, [settings.gpuRendering]);
+
+  /** 尝试挂载 WebGL2 渲染 addon（GPU 绘制整屏字形，性能远超 DOM 渲染器）。
+   *  WebGL 不可用（远程桌面/驱动禁用等）或初始化失败时静默保持 DOM 渲染。 */
+  const attachWebgl = useCallback((): void => {
+    const term = termRef.current;
+    if (!term || webglRef.current) {
+      return;
+    }
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        // WebGL 上下文丢失（驱动重置/系统睡眠恢复）：卸载 addon，
+        // xterm 自动回退 DOM 渲染器并全量重绘，终端保持可用。
+        if (webglRef.current === addon) {
+          webglRef.current = null;
+        }
+        try {
+          addon.dispose();
+        } catch {
+          // ignore
+        }
+      });
+      term.loadAddon(addon);
+      webglRef.current = addon;
+    } catch {
+      // eslint-disable-next-line no-console
+      console.warn("[terminal] WebGL unavailable, using DOM renderer");
+      webglRef.current = null;
+    }
+  }, []);
+
+  /** 卸载 WebGL addon（关闭设置/tab 失活），回退 DOM 渲染器。 */
+  const detachWebgl = useCallback((): void => {
+    const addon = webglRef.current;
+    if (!addon) {
+      return;
+    }
+    webglRef.current = null;
+    try {
+      addon.dispose();
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -292,6 +348,13 @@ export const TerminalPanelContent = ({
 
     termRef.current = term;
     fitRef.current = fit;
+
+    // GPU 渲染（默认关闭）：设置开启时为新建的 Terminal 挂 WebGL addon。
+    // 终端因 cwd/PTY 变化重建后由此处重新挂载；运行中的开关切换与 tab
+    // 激活状态变化由下方独立 effect 处理。
+    if (gpuRenderingRef.current && isActive) {
+      attachWebgl();
+    }
 
     resizeObserver = new ResizeObserver(() => {
       if (disposed) {
@@ -438,6 +501,9 @@ export const TerminalPanelContent = ({
         ptyIdRef.current = null;
       }
       term.dispose();
+      // term.dispose() 会连带销毁已挂载的 WebGL addon，这里只需清引用；
+      // 终端重建后由主 effect 按当前设置重新挂载。
+      webglRef.current = null;
       termRef.current = null;
       fitRef.current = null;
     };
@@ -508,6 +574,18 @@ export const TerminalPanelContent = ({
     });
     return () => cancelAnimationFrame(raf);
   }, [isActive]);
+
+  // GPU 渲染状态同步：设置开启且当前 tab 激活时挂载 WebGL 渲染器；
+  // 关闭或 tab 失活时卸载释放 GPU 资源。非激活 tab 容器为 display:none
+  // 无需渲染，多终端场景下同时最多保留一个 WebGL 上下文，避免上下文
+  // 数量与显存占用随 tab 数量膨胀（Chromium 对单页 WebGL 上下文数有上限）。
+  useEffect(() => {
+    if (settings.gpuRendering && isActive) {
+      attachWebgl();
+    } else {
+      detachWebgl();
+    }
+  }, [settings.gpuRendering, isActive, attachWebgl, detachWebgl]);
 
   // 右键菜单：弹出复制 / 粘贴 / 全选 / 清屏（剪贴板走主进程 IPC，
   // 规避渲染进程 navigator.clipboard 的 clipboard-read 权限限制）。

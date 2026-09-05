@@ -2802,6 +2802,8 @@ export const zhTW = {
   "settings.terminalFontSizeValidationError": "字型大小必須在 6 到 72 之間。",
   "settings.terminalLineHeight": "行高",
   "settings.terminalLineHeightValidationError": "行高必須在 0.5 到 3 之間。",
+  "settings.terminalSectionRendering": "渲染",
+  "settings.terminalGpuRendering": "GPU 渲染 (WebGL)",
   "settings.terminalShellPathValidationError":
     "Shell 可執行檔不存在，請檢查路徑或留空自動偵測。",
   "settings.saveTerminalSettings": "儲存設定",

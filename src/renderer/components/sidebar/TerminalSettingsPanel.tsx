@@ -34,10 +34,10 @@ export function TerminalSettingsPanel({
 }: TerminalSettingsPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const [form, setForm] = useState<TerminalSettingsFormValue>(() =>
-    toTerminalForm(DEFAULT_TERMINAL_SETTINGS)
+    toTerminalForm(DEFAULT_TERMINAL_SETTINGS),
   );
   const [lastSaved, setLastSaved] = useState<TerminalSettingsValue>(
-    DEFAULT_TERMINAL_SETTINGS
+    DEFAULT_TERMINAL_SETTINGS,
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,7 +75,7 @@ export function TerminalSettingsPanel({
           ? e.message
           : t("settings.terminalLoadError", {
               defaultValue: "Failed to load terminal settings",
-            })
+            }),
       );
     } finally {
       setIsLoading(false);
@@ -119,7 +119,7 @@ export function TerminalSettingsPanel({
 
       return null;
     },
-    [t]
+    [t],
   );
 
   const saveSettings = useCallback(
@@ -131,7 +131,7 @@ export function TerminalSettingsPanel({
         // 避免保存后终端无法启动（纯文件名交由运行时按 PATH 解析）。
         if (settings.shellPath) {
           const shellValidation = await window.snow.validateTerminalShellPath(
-            settings.shellPath
+            settings.shellPath,
           );
           if (!shellValidation.valid) {
             if (isMountedRef.current) {
@@ -139,7 +139,7 @@ export function TerminalSettingsPanel({
                 t("settings.terminalShellPathValidationError", {
                   defaultValue:
                     "Shell executable does not exist. Check the path or leave it empty to auto-detect.",
-                })
+                }),
               );
             }
             return;
@@ -148,7 +148,7 @@ export function TerminalSettingsPanel({
         await window.snow.setSystemSetting(
           TERMINAL_SETTING_NAME,
           TERMINAL_SETTING_CODE,
-          JSON.stringify(settings)
+          JSON.stringify(settings),
         );
         if (isMountedRef.current) {
           setLastSaved(settings);
@@ -156,7 +156,7 @@ export function TerminalSettingsPanel({
           setStatus(
             t("settings.terminalSaveSuccess", {
               defaultValue: "Saved terminal settings.",
-            })
+            }),
           );
         }
       } catch (e) {
@@ -166,7 +166,7 @@ export function TerminalSettingsPanel({
               ? e.message
               : t("settings.terminalSaveError", {
                   defaultValue: "Failed to save terminal settings",
-                })
+                }),
           );
         }
       } finally {
@@ -175,7 +175,7 @@ export function TerminalSettingsPanel({
         }
       }
     },
-    [t]
+    [t],
   );
 
   // 失焦保存：输入框真正失焦、下拉控件完成选择时立即保存（选择时携带新值调用），
@@ -186,7 +186,7 @@ export function TerminalSettingsPanel({
     toTerminalSettings,
     lastSaved,
     saveSettings,
-    setError
+    setError,
   );
 
   const handleSelectExecutable = async () => {
@@ -198,7 +198,7 @@ export function TerminalSettingsPanel({
       const selectedPath = await window.snow.selectTerminalExecutable(
         t("settings.terminalSelectExecutableDialogTitle", {
           defaultValue: "Select terminal executable",
-        })
+        }),
       );
 
       if (selectedPath) {
@@ -211,7 +211,7 @@ export function TerminalSettingsPanel({
           ? e.message
           : t("settings.terminalExecutableSelectError", {
               defaultValue: "Failed to select terminal executable",
-            })
+            }),
       );
     } finally {
       setIsSelectingExecutable(false);
@@ -280,6 +280,15 @@ export function TerminalSettingsPanel({
             detectedTerminals={detectedTerminals}
             onUpdateField={updateField}
             onSetValue={setValue}
+            onGpuRenderingChange={(enabled) => {
+              // 开关即时保存：携带新值 commit（此时 setState 尚未重渲染，
+              // commit 内部 ref 持有的还是旧表单，必须显式传入新值）。
+              setForm((previous) => ({
+                ...previous,
+                gpuRendering: enabled,
+              }));
+              commitSave({ ...form, gpuRendering: enabled });
+            }}
             onBlurSave={commitSave}
             onShellPathChange={(path) =>
               setForm((previous) => ({ ...previous, shellPath: path }))
