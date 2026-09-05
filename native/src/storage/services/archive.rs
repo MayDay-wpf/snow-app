@@ -31,9 +31,14 @@ use super::chat_conversations::{cleanup_orphan_checkpoint_files, collect_convers
 const MAX_VARIABLES: usize = 400;
 
 /// 与运行库 chat_conversations 完全一致的列（不含归档时间列）。
-const CONVERSATION_COLUMNS: &str = "id, conversation_id, title, summary, last_message_preview, message_count, model, api_profile_name, thinking_strength, responses_fast_mode, last_response_id, status, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_duration_ms, run_input_tokens, run_output_tokens, run_cache_creation_input_tokens, run_cache_read_input_tokens, last_run_duration_ms, directory_id, forked_from_conversation_id, fork_message_count, emoji, plan_mode, goal_mode, worktree_mode, goal_mode_token_budget, created_at, updated_at";
+/// 必须与运行库 create_schema 的 chat_conversations 列保持同步——
+/// 归档与还原都按此清单显式拷贝，漏列即静默丢数据。
+const CONVERSATION_COLUMNS: &str = "id, conversation_id, title, summary, last_message_preview, message_count, model, api_profile_name, thinking_strength, responses_fast_mode, last_response_id, status, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_duration_ms, run_input_tokens, run_output_tokens, run_cache_creation_input_tokens, run_cache_read_input_tokens, last_run_duration_ms, directory_id, forked_from_conversation_id, fork_message_count, emoji, plan_mode, goal_mode, worktree_mode, workflow_mode, goal_mode_token_budget, created_at, updated_at";
 
-const MESSAGE_COLUMNS: &str = "id, message_id, conversation_id, role, content, model, response_id, checkpoint_id, status, raw_json, thinking, thinking_duration_ms, thinking_token_count, thinking_blocks_json, tool_calls_json, created_at";
+/// 与运行库 chat_messages 完全一致的列。
+/// 必须与运行库 create_schema 的 chat_messages 列保持同步——
+/// 归档与还原都按此清单显式拷贝，漏列即静默丢数据。
+const MESSAGE_COLUMNS: &str = "id, message_id, conversation_id, role, content, model, response_id, checkpoint_id, status, interruption_reason, recovery_outcome, raw_json, thinking, thinking_duration_ms, thinking_token_count, thinking_blocks_json, tool_calls_json, created_at";
 
 const TODO_COLUMNS: &str = "id, session_id, content, status, response_id, created_at, updated_at, parent_id";
 
@@ -116,14 +121,15 @@ pub(crate) fn create_archive_schema(connection: &Connection) -> rusqlite::Result
            directory_id TEXT NOT NULL DEFAULT '',
            forked_from_conversation_id TEXT NOT NULL DEFAULT '',
            fork_message_count INTEGER NOT NULL DEFAULT 0,
-           emoji TEXT NOT NULL DEFAULT '',
-           plan_mode INTEGER,
-           goal_mode INTEGER,
-           worktree_mode INTEGER,
-           goal_mode_token_budget INTEGER,
-           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-           archived_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            emoji TEXT NOT NULL DEFAULT '',
+            plan_mode INTEGER,
+            goal_mode INTEGER,
+            worktree_mode INTEGER,
+            workflow_mode INTEGER,
+            goal_mode_token_budget INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            archived_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
          );
          CREATE INDEX IF NOT EXISTS idx_archive_conversations_archived_at
            ON chat_conversations(archived_at DESC, id DESC);
@@ -140,9 +146,11 @@ pub(crate) fn create_archive_schema(connection: &Connection) -> rusqlite::Result
            content TEXT NOT NULL,
            model TEXT NOT NULL DEFAULT '',
            response_id TEXT NOT NULL DEFAULT '',
-           checkpoint_id TEXT NOT NULL DEFAULT '',
-           status TEXT NOT NULL DEFAULT 'sent',
-           raw_json TEXT NOT NULL DEFAULT '{}',
+            checkpoint_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'sent',
+            interruption_reason TEXT,
+            recovery_outcome TEXT,
+            raw_json TEXT NOT NULL DEFAULT '{}',
            thinking TEXT NOT NULL DEFAULT '',
            thinking_duration_ms INTEGER NOT NULL DEFAULT 0,
            thinking_token_count INTEGER NOT NULL DEFAULT 0,
@@ -250,6 +258,7 @@ fn migrate_archive_chat_conversations(connection: &Connection) -> rusqlite::Resu
         ("plan_mode", "INTEGER"),
         ("goal_mode", "INTEGER"),
         ("worktree_mode", "INTEGER"),
+        ("workflow_mode", "INTEGER"),
         ("goal_mode_token_budget", "INTEGER"),
         ("run_input_tokens", "INTEGER NOT NULL DEFAULT 0"),
         ("run_output_tokens", "INTEGER NOT NULL DEFAULT 0"),
@@ -275,6 +284,8 @@ fn migrate_archive_chat_conversations(connection: &Connection) -> rusqlite::Resu
 /// before the thinking block summary existed. Restoring an archive copies
 /// `chat_messages` by explicit column list, so an old archive database that
 /// lacks the columns would fail the restore — patch them here on open.
+/// The same applies to the stream-interruption columns (v31+ in the runtime
+/// schema): without them, archiving silently drops the interruption state.
 fn migrate_archive_chat_messages(connection: &Connection) -> rusqlite::Result<()> {
     let mut statement = connection.prepare("PRAGMA table_info(chat_messages)")?;
     let columns: Vec<String> = statement
@@ -282,6 +293,8 @@ fn migrate_archive_chat_messages(connection: &Connection) -> rusqlite::Result<()
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     for (name, definition) in [
+        ("interruption_reason", "TEXT"),
+        ("recovery_outcome", "TEXT"),
         ("thinking_duration_ms", "INTEGER NOT NULL DEFAULT 0"),
         ("thinking_token_count", "INTEGER NOT NULL DEFAULT 0"),
     ] {

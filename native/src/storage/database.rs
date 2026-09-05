@@ -262,8 +262,15 @@ pub(crate) fn recover_database(
             .unwrap_or("snowapp.db")
     ));
 
-    // Remove any stale recovered file from a previous failed attempt.
-    let _ = fs::remove_file(&recovered_path);
+    // Remove any stale recovered file (plus its WAL/SHM sidecars) from a
+    // previous failed attempt. A leftover sidecar would otherwise be
+    // reattached to the fresh empty database on the next open.
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}{suffix}",
+            recovered_path.display()
+        )));
+    }
 
     // Open the corrupted database in read-only mode and run the SQLite
     // `.recover` equivalent: iterate every table, dump CREATE + INSERT
@@ -413,6 +420,13 @@ pub(crate) fn recover_database(
     // user_version is set by the schema builder itself (create_schema writes
     // CURRENT_SCHEMA_VERSION; the archive builder leaves it unset, which the
     // archive service tolerates).
+
+    // Explicitly checkpoint and truncate the WAL so every recovered row lives
+    // in the main database file before the connection is dropped and the file
+    // is renamed into place. SQLite normally checkpoints on close, but a silent
+    // checkpoint failure would leave recovered rows in the -wal sidecar —
+    // which the renames below do not move, losing the data.
+    let _ = recovered_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
     drop(recovered_conn);
     drop(read_only_conn);
 
@@ -438,6 +452,16 @@ pub(crate) fn recover_database(
         let _ = fs::rename(&backup_path, database_path);
         Error::from_reason(format!("Failed to move recovered database into place: {e}"))
     })?;
+
+    // Clean up any leftover sidecars of the recovered file (normally removed
+    // by SQLite on close; this guards the case where the explicit checkpoint
+    // above could not run and left rows in the -wal).
+    for suffix in ["-wal", "-shm"] {
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}{suffix}",
+            recovered_path.display()
+        )));
+    }
 
     eprintln!(
         "Recovery complete. Corrupted database backed up to '{}'",
@@ -1093,19 +1117,26 @@ pub(crate) fn repair_database(
         .busy_timeout(Duration::from_secs(5))
         .map_err(|error| database_error(database_path, "repair", error))?;
 
-    // 1) 完整性检查：所有输出行均为 "ok" 才视为健康。
-    let integrity_lines: Vec<String> = {
-        let mut stmt = connection.prepare("PRAGMA integrity_check").map_err(|error| {
-            database_error(database_path, "integrity check during repair", error)
-        })?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|error| {
-                database_error(database_path, "integrity check during repair", error)
-            })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| {
-            database_error(database_path, "integrity check during repair", error)
-        })?
+    // 1) 完整性检查：所有输出行均为 "ok" 才视为健康。检查本身无法执行
+    //    （如 header 损坏 SQLITE_NOTADB、schema 页损坏 SQLITE_CORRUPT）同样
+    //    是重度损坏的证据——与检查出不 ok 一样进入恢复流程，而不是直接把
+    //    错误抛给用户。启动路径 ensure_database 对此类错误本就会自动恢复，
+    //    手动修复保持一致。
+    let integrity_check: rusqlite::Result<Vec<String>> = (|| {
+        let mut stmt = connection.prepare("PRAGMA integrity_check")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+    })();
+
+    let integrity_lines = match integrity_check {
+        Ok(lines) => lines,
+        Err(error) => {
+            eprintln!(
+                "Snow App database integrity check failed to run at '{}' ({error}). Treating as damaged.",
+                database_path.display()
+            );
+            vec![format!("integrity check failed to run: {error}")]
+        }
     };
 
     if integrity_lines.iter().all(|line| line.trim() == "ok") {
