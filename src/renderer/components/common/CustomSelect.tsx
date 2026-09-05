@@ -19,13 +19,14 @@ type CustomSelectBaseProps = {
   disabled?: boolean;
   title?: string;
   /**
-   * When true, the dropdown is rendered into `document.body` via a portal and
-   * positioned absolutely relative to the trigger button. Use this when the
-   * select lives inside a container with `overflow: hidden` or
-   * `overflow: auto` (e.g. inside a Modal) so the dropdown is not clipped.
+   * Force the dropdown to be rendered into `document.body` via a portal and
+   * positioned below the trigger button, so it escapes containers that would
+   * clip it (e.g. inside a Modal with `overflow: hidden`).
    *
-   * Defaults to `false` to preserve the existing in-flow behavior for all
-   * current callers.
+   * Defaults to `false`, which enables auto-detection instead: when a
+   * clipping ancestor (`overflow` other than `visible`, e.g. a Modal body)
+   * is found, the dropdown is portal-rendered automatically so it can
+   * overflow the container.
    */
   portal?: boolean;
   /**
@@ -89,10 +90,30 @@ export function CustomSelect({
   const [isOpen, setIsOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [dropdownRect, setDropdownRect] = useState<DropdownRect | null>(null);
+  // Auto-detect clipping ancestors (e.g. Modal bodies with `overflow: hidden`
+  // or `overflow: auto`): when one is found, render the dropdown through a
+  // portal so it can overflow the container instead of being clipped by it.
+  const [autoPortal, setAutoPortal] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (portal) return;
+    let node = containerRef.current?.parentElement;
+    while (node && node !== document.body) {
+      const style = window.getComputedStyle(node);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+        setAutoPortal(true);
+        return;
+      }
+      node = node.parentElement;
+    }
+    setAutoPortal(false);
+  }, [portal]);
+
+  const usePortal = portal || autoPortal;
 
   // Reset the filter and focus the input every time the dropdown opens.
   useEffect(() => {
@@ -119,7 +140,7 @@ export function CustomSelect({
 
   // Reposition the portal dropdown on resize/scroll while open.
   useEffect(() => {
-    if (!isOpen || !portal) return;
+    if (!isOpen || !usePortal) return;
     const update = (): void => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -136,11 +157,11 @@ export function CustomSelect({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isOpen, portal]);
+  }, [isOpen, usePortal]);
 
   // Initial measurement for portal dropdown.
   useLayoutEffect(() => {
-    if (!portal) {
+    if (!usePortal) {
       setDropdownRect(null);
       return;
     }
@@ -152,13 +173,9 @@ export function CustomSelect({
       left: rect.left,
       width: rect.width,
     });
-  }, [isOpen, portal]);
+  }, [isOpen, usePortal]);
 
-  const selectedValues = multiple
-    ? Array.isArray(value)
-      ? value
-      : []
-    : null;
+  const selectedValues = multiple ? (Array.isArray(value) ? value : []) : null;
   const selectedOption = multiple
     ? null
     : options.find((opt) => opt.value === value);
@@ -172,7 +189,7 @@ export function CustomSelect({
   const handleSelect = useCallback(
     (
       event: React.MouseEvent<HTMLButtonElement>,
-      option: CustomSelectOption
+      option: CustomSelectOption,
     ) => {
       event.preventDefault();
       event.stopPropagation();
@@ -189,7 +206,7 @@ export function CustomSelect({
         (onChange as (value: string) => void)(option.value);
       }
     },
-    [multiple, onChange, value]
+    [multiple, onChange, value],
   );
 
   const handleTriggerClick = (): void => {
@@ -203,7 +220,7 @@ export function CustomSelect({
       ? options.filter(
           (opt) =>
             opt.label.toLowerCase().includes(normalizedFilter) ||
-            opt.value.toLowerCase().includes(normalizedFilter)
+            opt.value.toLowerCase().includes(normalizedFilter),
         )
       : options;
 
@@ -261,7 +278,7 @@ export function CustomSelect({
         </span>
         <ChevronDown size={14} />
       </button>
-      {portal && dropdownRect
+      {usePortal && dropdownRect
         ? createPortal(
             isOpen && (
               <div
@@ -278,9 +295,9 @@ export function CustomSelect({
                 <div className="custom-select-dropdown">{dropdownItems}</div>
               </div>
             ),
-            document.body
+            document.body,
           )
-        : !portal && isOpen && dropdown}
+        : !usePortal && isOpen && dropdown}
     </div>
   );
 }

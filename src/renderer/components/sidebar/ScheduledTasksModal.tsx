@@ -34,6 +34,7 @@ import type {
   ScheduledTaskType,
 } from "../../../preload";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { CustomSelect } from "../common/CustomSelect";
 import { Modal } from "../common/Modal";
 import { THINKING_OPTIONS_BY_METHOD } from "../mainContent/chatInput/constants";
 import {
@@ -2330,25 +2331,26 @@ export function ScheduledTasksModal({
                         defaultValue: "Unit",
                       })}
                     </span>
-                    <select
-                      onChange={(event) =>
-                        setIntervalUnit(
-                          event.target.value as "minutes" | "hours",
-                        )
+                    <CustomSelect
+                      onChange={(value) =>
+                        setIntervalUnit(value as "minutes" | "hours")
                       }
+                      options={[
+                        {
+                          value: "minutes",
+                          label: t("scheduledTask.unitMinutes", {
+                            defaultValue: "minutes",
+                          }),
+                        },
+                        {
+                          value: "hours",
+                          label: t("scheduledTask.unitHours", {
+                            defaultValue: "hours",
+                          }),
+                        },
+                      ]}
                       value={intervalUnit}
-                    >
-                      <option value="minutes">
-                        {t("scheduledTask.unitMinutes", {
-                          defaultValue: "minutes",
-                        })}
-                      </option>
-                      <option value="hours">
-                        {t("scheduledTask.unitHours", {
-                          defaultValue: "hours",
-                        })}
-                      </option>
-                    </select>
+                    />
                   </label>
                 </div>
               ) : (
@@ -2357,18 +2359,14 @@ export function ScheduledTasksModal({
                     <span>
                       {t("scheduledTask.dailyHour", { defaultValue: "Hour" })}
                     </span>
-                    <select
-                      onChange={(event) => setDailyHour(event.target.value)}
+                    <CustomSelect
+                      onChange={setDailyHour}
+                      options={Array.from({ length: 24 }, (_, hour) => ({
+                        value: hour.toString(),
+                        label: pad2(hour),
+                      }))}
                       value={dailyHour}
-                    >
-                      {Array.from({ length: 24 }, (_, hour) => hour).map(
-                        (hour) => (
-                          <option key={hour} value={hour.toString()}>
-                            {pad2(hour)}
-                          </option>
-                        ),
-                      )}
-                    </select>
+                    />
                   </label>
                   <label className="scheduled-tasks-field">
                     <span>
@@ -2376,16 +2374,14 @@ export function ScheduledTasksModal({
                         defaultValue: "Minute",
                       })}
                     </span>
-                    <select
-                      onChange={(event) => setDailyMinute(event.target.value)}
+                    <CustomSelect
+                      onChange={setDailyMinute}
+                      options={Array.from({ length: 60 }, (_, minute) => ({
+                        value: minute.toString(),
+                        label: pad2(minute),
+                      }))}
                       value={dailyMinute}
-                    >
-                      {[0, 15, 30, 45].map((minute) => (
-                        <option key={minute} value={minute.toString()}>
-                          {pad2(minute)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </label>
                 </div>
               )}

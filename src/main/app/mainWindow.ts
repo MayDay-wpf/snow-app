@@ -180,6 +180,9 @@ export const createWindow = (): BrowserWindow => {
       nodeIntegration: false,
       webviewTag: true,
       spellcheck: false,
+      // The scheduler lives in this renderer. Keep its timers and IPC event
+      // loop active when the main window is minimized or unfocused.
+      backgroundThrottling: false,
     },
   });
   mainWindowRef = mainWindow;
@@ -229,7 +232,7 @@ export const createWindow = (): BrowserWindow => {
       safeSend(
         mainWindow.webContents,
         "window:maximize-state-changed",
-        mainWindow.isMaximized()
+        mainWindow.isMaximized(),
       );
     };
     mainWindow.on("maximize", notifyMaximizeState);
@@ -311,8 +314,8 @@ export const createWindow = (): BrowserWindow => {
     mainWindow
       .loadURL(
         pathToFileURL(
-          join(import.meta.dirname, "../renderer/index.html")
-        ).toString()
+          join(import.meta.dirname, "../renderer/index.html"),
+        ).toString(),
       )
       .catch((error) => {
         console.error("Failed to load packaged renderer:", error);

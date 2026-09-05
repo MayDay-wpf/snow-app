@@ -57,7 +57,7 @@ export const scheduledTaskApi = {
   listScheduledTasks: (): Promise<ScheduledTaskWireRecord[]> =>
     ipcRenderer.invoke("scheduled-tasks:list"),
   upsertScheduledTask: (
-    input: Omit<ScheduledTaskWireRecord, "history">
+    input: Omit<ScheduledTaskWireRecord, "history">,
   ): Promise<ScheduledTaskWireRecord> =>
     ipcRenderer.invoke("scheduled-tasks:upsert", input),
   deleteScheduledTask: (taskId: string): Promise<void> =>
@@ -65,17 +65,14 @@ export const scheduledTaskApi = {
   /** directoryId: null = clear all; "" = global only; other = that project. */
   clearScheduledTasks: (directoryId: string | null): Promise<number> =>
     ipcRenderer.invoke("scheduled-tasks:clear", directoryId),
-  appendScheduledTaskRun: (
-    taskId: string,
-    runAt: string
-  ): Promise<string> =>
+  appendScheduledTaskRun: (taskId: string, runAt: string): Promise<string> =>
     ipcRenderer.invoke("scheduled-tasks:append-run", taskId, runAt),
   finalizeScheduledTaskRun: (
     taskId: string,
     runId: string,
     status: "completed" | "error",
     durationMs?: number,
-    error?: string
+    error?: string,
   ): Promise<void> =>
     ipcRenderer.invoke(
       "scheduled-tasks:finalize-run",
@@ -83,8 +80,17 @@ export const scheduledTaskApi = {
       runId,
       status,
       durationMs,
-      error
+      error,
     ),
+  /**
+   * Subscribes to main-process scheduler wakeups. The main process emits these
+   * even while Chromium throttles renderer timers in the background.
+   */
+  onScheduledTaskWakeup: (listener: () => void): (() => void) => {
+    const handler = (): void => listener();
+    ipcRenderer.on("scheduled-tasks:wakeup", handler);
+    return () => ipcRenderer.removeListener("scheduled-tasks:wakeup", handler);
+  },
   /** Marks run rows left "running" by a crashed session as errored. Called
    *  once at startup before hydration reads the run history. */
   reconcileScheduledTaskRuns: (): Promise<number> =>
@@ -95,13 +101,13 @@ export const scheduledTaskApi = {
     command: string,
     cwd: string,
     timeoutMs: number,
-    envJson: string
+    envJson: string,
   ): Promise<PreScriptResult> =>
     ipcRenderer.invoke(
       "scheduled-task:run-pre-script",
       command,
       cwd,
       timeoutMs,
-      envJson
+      envJson,
     ),
 };

@@ -59,19 +59,19 @@ const MAX_RUN_HISTORY = 20;
 /** Appends a run-history entry, keeping the ring buffer bounded. */
 const appendRunHistory = (
   task: ScheduledTaskRecord,
-  run: ScheduledTaskRunRecord
+  run: ScheduledTaskRunRecord,
 ): ScheduledTaskRunRecord[] =>
   [...(task.history ?? []), run].slice(-MAX_RUN_HISTORY);
-/** Coarse tick used to wake the scheduler and check for due tasks. This keeps
- *  drift bounded and avoids one setTimeout per task (which would also leak if
- *  the renderer is throttled in the background). */
+/** Coarse tick used as a fallback for non-Electron/degraded environments. The
+ * Electron main process also sends wakeups because renderer timers are throttled
+ * while the app is in the background. */
 const TICK_MS = 5_000;
 
 type Executor = (
   prompt: string,
   taskName: string,
   directoryId: string,
-  options: ScheduledTaskRunOptions
+  options: ScheduledTaskRunOptions,
 ) => void | Promise<void>;
 /** Placeholder inside a task prompt that the pre-script's JSON "output"
  *  field is injected into (replaced with "" when the script provides none). */
@@ -85,7 +85,7 @@ export const PRE_SCRIPT_MAX_TIMEOUT_MS = 300_000;
  *  the project directory (cwd) and calls the Rust backend asynchronously. */
 type ScriptRunner = (
   command: string,
-  options: { timeoutMs: number; env: Record<string, string> }
+  options: { timeoutMs: number; env: Record<string, string> },
 ) => Promise<PreScriptResult>;
 type Listener = () => void;
 
@@ -111,7 +111,7 @@ const generateId = (): string => {
 export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
   if (schedule.type !== "once" && schedule.type !== "recurring") {
     throw new Error(
-      `Invalid schedule type: "${schedule.type}". Must be "once" or "recurring".`
+      `Invalid schedule type: "${schedule.type}". Must be "once" or "recurring".`,
     );
   }
 
@@ -129,7 +129,7 @@ export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
   // recurring
   if (schedule.mode !== "interval" && schedule.mode !== "daily") {
     throw new Error(
-      `Invalid recurring mode: "${schedule.mode}". Must be "interval" or "daily".`
+      `Invalid recurring mode: "${schedule.mode}". Must be "interval" or "daily".`,
     );
   }
 
@@ -142,13 +142,12 @@ export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
       interval > MAX_INTERVAL_MS
     ) {
       throw new Error(
-        `intervalMs must be an integer between ${MIN_INTERVAL_MS} and ${MAX_INTERVAL_MS} ms (1 minute - 366 days), received ${schedule.intervalMs}`
+        `intervalMs must be an integer between ${MIN_INTERVAL_MS} and ${MAX_INTERVAL_MS} ms (1 minute - 366 days), received ${schedule.intervalMs}`,
       );
     }
   } else {
     // daily
-    const hour =
-      typeof schedule.hour === "number" ? schedule.hour : Number.NaN;
+    const hour = typeof schedule.hour === "number" ? schedule.hour : Number.NaN;
     const minute =
       typeof schedule.minute === "number" ? schedule.minute : Number.NaN;
     if (
@@ -160,7 +159,7 @@ export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
       minute > 59
     ) {
       throw new Error(
-        `hour (0-23) and minute (0-59) are required for a daily schedule, received hour=${schedule.hour}, minute=${schedule.minute}`
+        `hour (0-23) and minute (0-59) are required for a daily schedule, received hour=${schedule.hour}, minute=${schedule.minute}`,
       );
     }
   }
@@ -169,7 +168,7 @@ export const validateSchedule = (schedule: ScheduledTaskSchedule): void => {
 /** Computes the next fire time (ms epoch) for a schedule, relative to "now". */
 const computeNextRunMs = (
   schedule: ScheduledTaskSchedule,
-  now: number
+  now: number,
 ): number | null => {
   if (schedule.type === "once") {
     if (!schedule.executeAt) return null;
@@ -200,7 +199,7 @@ const computeNextRunMs = (
 export const fromWire = (
   wire: Omit<ScheduledTaskWireRecord, "history"> & {
     history?: ScheduledTaskWireRun[];
-  }
+  },
 ): ScheduledTaskRecord | null => {
   let schedule: ScheduledTaskSchedule;
   try {
@@ -208,7 +207,7 @@ export const fromWire = (
   } catch {
     console.warn(
       `[scheduledTasks] Skipping task "${wire.id}" with unreadable schedule:`,
-      wire.scheduleJson
+      wire.scheduleJson,
     );
     return null;
   }
@@ -225,14 +224,12 @@ export const fromWire = (
     nextRunAt: wire.nextRunAt,
     lastError: wire.lastError,
     runCount: wire.runCount,
-    history: (wire.history ?? []).map(
-      (run): ScheduledTaskRunRecord => ({
-        runAt: run.runAt,
-        status: run.status as ScheduledTaskRunRecord["status"],
-        durationMs: run.durationMs,
-        error: run.error,
-      })
-    ),
+    history: (wire.history ?? []).map((run): ScheduledTaskRunRecord => ({
+      runAt: run.runAt,
+      status: run.status as ScheduledTaskRunRecord["status"],
+      durationMs: run.durationMs,
+      error: run.error,
+    })),
     apiProfile: wire.apiProfile,
     basicModel: wire.basicModel,
     model: wire.model,
@@ -249,7 +246,7 @@ export const fromWire = (
 /** Converts a rich record into the wire shape for upsert (history lives in
  *  the separate runs table and is excluded from the write). */
 export const toWire = (
-  record: ScheduledTaskRecord
+  record: ScheduledTaskRecord,
 ): Omit<ScheduledTaskWireRecord, "history"> => ({
   id: record.id,
   directoryId: record.directoryId,
@@ -285,10 +282,10 @@ const createPersistence = (): PersistenceAdapter | null => {
   if (typeof api.listScheduledTasks !== "function") return null;
   return {
     list: () => api.listScheduledTasks(),
-    upsert: (input) =>
-      api.upsertScheduledTask(input).then(() => undefined),
+    upsert: (input) => api.upsertScheduledTask(input).then(() => undefined),
     remove: (id) => api.deleteScheduledTask(id),
-    clear: (directoryId) => api.clearScheduledTasks(directoryId).then(() => undefined),
+    clear: (directoryId) =>
+      api.clearScheduledTasks(directoryId).then(() => undefined),
     appendRun: (taskId, runAt) => api.appendScheduledTaskRun(taskId, runAt),
     finalizeRun: (taskId, runId, status, durationMs, error) =>
       api.finalizeScheduledTaskRun(taskId, runId, status, durationMs, error),
@@ -307,7 +304,7 @@ type PersistenceAdapter = {
     runId: string,
     status: "completed" | "error",
     durationMs?: number,
-    error?: string
+    error?: string,
   ): Promise<void>;
   /** Marks run rows left "running" by a crashed session as errored. */
   reconcileRuns(): Promise<number>;
@@ -325,7 +322,7 @@ type PersistenceAdapter = {
  *  - A timeout always counts as an error.
  */
 export const parsePreScriptResult = (
-  result: PreScriptResult
+  result: PreScriptResult,
 ): PreScriptDecision => {
   if (result.timedOut) {
     return {
@@ -371,7 +368,7 @@ export const parsePreScriptResult = (
  *  output (or "" when the script provided none). */
 export const applyScriptOutput = (
   prompt: string,
-  output: string | undefined
+  output: string | undefined,
 ): string => {
   if (!prompt.includes(SCRIPT_OUTPUT_PLACEHOLDER)) return prompt;
   const injected = output ?? "";
@@ -381,7 +378,7 @@ export const applyScriptOutput = (
 /** Parses the last stdout line as a JSON object; returns null when absent or
  *  not an object (e.g. plain script output, parse failure). */
 const tryParseLastLineJson = (
-  stdout: string
+  stdout: string,
 ): Record<string, unknown> | null => {
   const trimmed = stdout.trim();
   if (!trimmed) return null;
@@ -390,7 +387,11 @@ const tryParseLastLineJson = (
   if (!lastLine.startsWith("{")) return null;
   try {
     const parsed = JSON.parse(lastLine) as unknown;
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+    ) {
       return parsed as Record<string, unknown>;
     }
     return null;
@@ -510,7 +511,7 @@ export class ScheduledTasksStore {
       // hydration.
       console.warn(
         "[scheduledTasks] Hydration from database failed permanently:",
-        error
+        error,
       );
     });
     return this.hydratePromise;
@@ -528,11 +529,11 @@ export class ScheduledTasksStore {
         lastError = error;
         console.warn(
           `[scheduledTasks] Hydration attempt ${attempt}/${HYDRATE_MAX_ATTEMPTS} failed:`,
-          error
+          error,
         );
         if (attempt < HYDRATE_MAX_ATTEMPTS) {
           await new Promise((resolve) =>
-            setTimeout(resolve, HYDRATE_RETRY_DELAY_MS * attempt)
+            setTimeout(resolve, HYDRATE_RETRY_DELAY_MS * attempt),
           );
         }
       }
@@ -587,7 +588,10 @@ export class ScheduledTasksStore {
       for (const task of dirty) {
         this.enqueuePersist(() => persistence.upsert(toWire(task))).catch(
           (error) =>
-            console.warn("[scheduledTasks] Failed to persist reconciliation:", error)
+            console.warn(
+              "[scheduledTasks] Failed to persist reconciliation:",
+              error,
+            ),
         );
       }
     } else {
@@ -604,7 +608,7 @@ export class ScheduledTasksStore {
         (task) =>
           directoryId === undefined ||
           task.directoryId === directoryId ||
-          task.directoryId === ""
+          task.directoryId === "",
       )
       .sort((a, b) => {
         // Sort: running/pending first, then by nextRunAt, then createdAt
@@ -613,8 +617,12 @@ export class ScheduledTasksStore {
         const bRank =
           b.status === "running" ? 0 : b.status === "pending" ? 1 : 2;
         if (aRank !== bRank) return aRank - bRank;
-        const aNext = a.nextRunAt ? Date.parse(a.nextRunAt) : Number.MAX_SAFE_INTEGER;
-        const bNext = b.nextRunAt ? Date.parse(b.nextRunAt) : Number.MAX_SAFE_INTEGER;
+        const aNext = a.nextRunAt
+          ? Date.parse(a.nextRunAt)
+          : Number.MAX_SAFE_INTEGER;
+        const bNext = b.nextRunAt
+          ? Date.parse(b.nextRunAt)
+          : Number.MAX_SAFE_INTEGER;
         if (aNext !== bNext) return aNext - bNext;
         return Date.parse(a.createdAt) - Date.parse(b.createdAt);
       });
@@ -623,7 +631,7 @@ export class ScheduledTasksStore {
   /** Builds a validated record and inserts it into the in-memory map. Shared
    *  by the sync best-effort `create` and the durability-aware `createAndAwait`. */
   private applyCreate = (
-    input: CreateScheduledTaskInput
+    input: CreateScheduledTaskInput,
   ): ScheduledTaskRecord => {
     // Empty directoryId = global task (not bound to any project).
     const directoryId = (input.directoryId ?? "").trim();
@@ -649,7 +657,7 @@ export class ScheduledTasksStore {
       preScriptTimeoutMs > PRE_SCRIPT_MAX_TIMEOUT_MS
     ) {
       throw new Error(
-        `preScriptTimeoutMs must be between ${PRE_SCRIPT_MIN_TIMEOUT_MS} and ${PRE_SCRIPT_MAX_TIMEOUT_MS} ms, received ${preScriptTimeoutMs}`
+        `preScriptTimeoutMs must be between ${PRE_SCRIPT_MIN_TIMEOUT_MS} and ${PRE_SCRIPT_MAX_TIMEOUT_MS} ms, received ${preScriptTimeoutMs}`,
       );
     }
     const runOnScriptError = input.runOnScriptError === true;
@@ -706,7 +714,7 @@ export class ScheduledTasksStore {
    *  rethrown, so a model retry (same id) cannot create duplicates. The UI
    *  keeps the best-effort `create`. */
   createAndAwait = async (
-    input: CreateScheduledTaskInput
+    input: CreateScheduledTaskInput,
   ): Promise<ScheduledTaskRecord> => {
     await this.ensureHydrated();
     const existingId = input.id?.trim();
@@ -718,7 +726,7 @@ export class ScheduledTasksStore {
     if (this.persistence) {
       try {
         await this.enqueuePersist(() =>
-          this.persistence!.upsert(toWire(record))
+          this.persistence!.upsert(toWire(record)),
         );
       } catch (error) {
         // Roll back so the task exists nowhere — the model sees a clean
@@ -773,7 +781,7 @@ export class ScheduledTasksStore {
         this.enqueuePersist(() => this.persistence!.clear(null)).catch(
           (error) => {
             console.warn("[scheduledTasks] Failed to clear tasks:", error);
-          }
+          },
         );
       }
       this.notify();
@@ -798,7 +806,7 @@ export class ScheduledTasksStore {
         this.enqueuePersist(() => this.persistence!.clear(directoryId)).catch(
           (error) => {
             console.warn("[scheduledTasks] Failed to clear tasks:", error);
-          }
+          },
         );
       }
       if (cleared) {
@@ -828,8 +836,11 @@ export class ScheduledTasksStore {
       if (this.persistence) {
         this.enqueuePersist(() => this.persistence!.clear("")).catch(
           (error) => {
-            console.warn("[scheduledTasks] Failed to clear global tasks:", error);
-          }
+            console.warn(
+              "[scheduledTasks] Failed to clear global tasks:",
+              error,
+            );
+          },
         );
       }
       if (cleared) {
@@ -845,7 +856,7 @@ export class ScheduledTasksStore {
    *  Returns the updated record, or null when the task does not exist. */
   update = (
     id: string,
-    input: UpdateScheduledTaskInput
+    input: UpdateScheduledTaskInput,
   ): ScheduledTaskRecord | null => {
     const task = this.tasks.get(id);
     if (!task) return null;
@@ -858,7 +869,7 @@ export class ScheduledTasksStore {
       preScript: input.preScript?.trim() || undefined,
       preScriptTimeoutMs:
         input.preScript && input.preScript.trim()
-          ? input.preScriptTimeoutMs ?? PRE_SCRIPT_DEFAULT_TIMEOUT_MS
+          ? (input.preScriptTimeoutMs ?? PRE_SCRIPT_DEFAULT_TIMEOUT_MS)
           : undefined,
       runOnScriptError:
         input.preScript && input.preScript.trim()
@@ -883,7 +894,7 @@ export class ScheduledTasksStore {
       status: !task.paused ? "pending" : task.status,
       nextRunAt: !task.paused
         ? new Date(
-            computeNextRunMs(task.schedule, Date.now()) ?? Date.now()
+            computeNextRunMs(task.schedule, Date.now()) ?? Date.now(),
           ).toISOString()
         : undefined,
       updatedAt: new Date().toISOString(),
@@ -892,6 +903,12 @@ export class ScheduledTasksStore {
     this.persistUpsert(updated);
     this.notify();
     return updated;
+  };
+
+  /** Wakeup entry point used by the Electron main process while the renderer
+   * is background-throttled. */
+  wake = (): void => {
+    void this.dueTasks();
   };
 
   /** Triggers all tasks whose nextRunAt is due and not paused/running. */
@@ -946,7 +963,7 @@ export class ScheduledTasksStore {
     if (this.persistence) {
       try {
         runId = await this.enqueuePersist(() =>
-          this.persistence!.appendRun(task.id, startedAt)
+          this.persistence!.appendRun(task.id, startedAt),
         );
       } catch (error) {
         console.warn("[scheduledTasks] Failed to record task run:", error);
@@ -993,7 +1010,7 @@ export class ScheduledTasksStore {
           if (after) {
             const next = this.advanceSchedule(
               after,
-              new Error(decision.errorMessage)
+              new Error(decision.errorMessage),
             );
             this.tasks.set(id, next);
             // Persist lastError so the failure is visible after a restart.
@@ -1009,7 +1026,7 @@ export class ScheduledTasksStore {
         } else {
           prompt = applyScriptOutput(
             decision.promptOverride ?? task.prompt,
-            decision.output
+            decision.output,
           );
         }
       }
@@ -1054,10 +1071,10 @@ export class ScheduledTasksStore {
             runId,
             status,
             durationMs,
-            last?.error
-          )
+            last?.error,
+          ),
         ).catch((error) =>
-          console.warn("[scheduledTasks] Failed to finalize task run:", error)
+          console.warn("[scheduledTasks] Failed to finalize task run:", error),
         );
       }
 
@@ -1067,7 +1084,7 @@ export class ScheduledTasksStore {
 
   /** Runs the task's pre-script and parses its decision. */
   private evaluatePreScript = async (
-    task: ScheduledTaskRecord
+    task: ScheduledTaskRecord,
   ): Promise<PreScriptDecision> => {
     const runner = this.scriptRunner;
     if (!runner) {
@@ -1082,7 +1099,7 @@ export class ScheduledTasksStore {
 
   /** Builds the environment variables exposed to the pre-script. */
   private buildScriptEnv = (
-    task: ScheduledTaskRecord
+    task: ScheduledTaskRecord,
   ): Record<string, string> => {
     return {
       SNOW_TASK_NAME: task.name,
@@ -1097,7 +1114,7 @@ export class ScheduledTasksStore {
   /** Records a skipped run into app logs (script output preserved). */
   private logSkip = (
     task: ScheduledTaskRecord,
-    decision: Extract<PreScriptDecision, { action: "skip" }>
+    decision: Extract<PreScriptDecision, { action: "skip" }>,
   ): void => {
     this.writeTaskLog(task, {
       message: `Pre-script skipped the AI Loop for scheduled task "${task.name}"`,
@@ -1109,7 +1126,7 @@ export class ScheduledTasksStore {
   /** Records a script failure into app logs. */
   private logScriptError = (
     task: ScheduledTaskRecord,
-    decision: Extract<PreScriptDecision, { action: "error" }>
+    decision: Extract<PreScriptDecision, { action: "error" }>,
   ): void => {
     this.writeTaskLog(task, {
       message: `Pre-script failed for scheduled task "${task.name}": ${decision.errorMessage}`,
@@ -1120,12 +1137,16 @@ export class ScheduledTasksStore {
   /** Best-effort app log write (window.snow.writeLog -> Rust app_logs). */
   private writeTaskLog = (
     task: ScheduledTaskRecord,
-    entry: { message: string; output?: string; context?: string }
+    entry: { message: string; output?: string; context?: string },
   ): void => {
     try {
-      const writeLog = (window as unknown as {
-        snow?: { writeLog?: (level: string, entry: unknown) => Promise<void> };
-      })?.snow?.writeLog;
+      const writeLog = (
+        window as unknown as {
+          snow?: {
+            writeLog?: (level: string, entry: unknown) => Promise<void>;
+          };
+        }
+      )?.snow?.writeLog;
       if (!writeLog) return;
       void writeLog("INFO", {
         module: "scheduled-task",
@@ -1144,7 +1165,7 @@ export class ScheduledTasksStore {
   private advanceSchedule = (
     task: ScheduledTaskRecord,
     error?: unknown,
-    skip?: Extract<PreScriptDecision, { action: "skip" }>
+    skip?: Extract<PreScriptDecision, { action: "skip" }>,
   ): ScheduledTaskRecord => {
     const now = new Date().toISOString();
 
@@ -1163,7 +1184,9 @@ export class ScheduledTasksStore {
         history[history.length - 1] = {
           ...last,
           status: "completed",
-          durationMs: Number.isNaN(startedMs) ? undefined : Date.now() - startedMs,
+          durationMs: Number.isNaN(startedMs)
+            ? undefined
+            : Date.now() - startedMs,
           error: undefined,
         };
       }
@@ -1199,8 +1222,8 @@ export class ScheduledTasksStore {
       error instanceof Error
         ? error.message
         : typeof error === "string"
-        ? error
-        : "Unknown error";
+          ? error
+          : "Unknown error";
 
     const runCount = task.runCount + 1;
     const lastRunAt = now;
@@ -1214,7 +1237,9 @@ export class ScheduledTasksStore {
       history[history.length - 1] = {
         ...last,
         status: error ? "error" : "completed",
-        durationMs: Number.isNaN(startedMs) ? undefined : Date.now() - startedMs,
+        durationMs: Number.isNaN(startedMs)
+          ? undefined
+          : Date.now() - startedMs,
         error: error ? errorMessage : undefined,
       };
     }
@@ -1261,7 +1286,7 @@ export class ScheduledTasksStore {
     const run = this.persistQueue.then(op, op);
     this.persistQueue = run.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     );
     return run;
   };
@@ -1272,7 +1297,7 @@ export class ScheduledTasksStore {
     this.enqueuePersist(() => this.persistence!.upsert(toWire(record))).catch(
       (error) => {
         console.warn("[scheduledTasks] Failed to persist task:", error);
-      }
+      },
     );
   };
 }
@@ -1282,7 +1307,7 @@ export class ScheduledTasksStore {
  *  changed (changed tasks are written back). */
 export const reconcileAfterRestart = (
   record: ScheduledTaskRecord,
-  now: number
+  now: number,
 ): { task: ScheduledTaskRecord; changed: boolean } => {
   let task = record;
   let changed = false;
@@ -1317,8 +1342,7 @@ export const reconcileAfterRestart = (
         task = {
           ...task,
           status: "pending",
-          nextRunAt:
-            next != null ? new Date(next).toISOString() : undefined,
+          nextRunAt: next != null ? new Date(next).toISOString() : undefined,
         };
       }
       changed = true;
@@ -1335,5 +1359,9 @@ export const reconcileAfterRestart = (
  * the UI subscribes.
  */
 export const scheduledTasksStore = new ScheduledTasksStore();
+
+if (typeof window !== "undefined" && window.snow?.onScheduledTaskWakeup) {
+  window.snow.onScheduledTaskWakeup(() => scheduledTasksStore.wake());
+}
 
 void scheduledTasksStore.ensureHydrated();

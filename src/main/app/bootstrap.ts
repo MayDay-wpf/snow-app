@@ -27,6 +27,7 @@ import { installWebviewDownloadHandler } from "./downloadManager";
 import { initUserscriptSyncStore } from "./userscriptSyncStore";
 import { initBrowserPopupHandler } from "../browser/browserPopupWindow";
 import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
+import { startScheduledTaskWakeup } from "./scheduledTaskWakeup";
 
 export const bootstrapApplication = (): void => {
   // ─── Chromium 启动加速开关（必须在 whenReady 之前）─────────────────────
@@ -37,12 +38,9 @@ export const bootstrapApplication = (): void => {
   );
   // 跳过 GPU 沙箱预热（部分显卡驱动初始化极慢）。
   app.commandLine.appendSwitch("disable-gpu-sandbox");
-  // 注意：不能禁用 renderer-backgrounding / timer-throttling。
-  // 这两个开关是全局永久的：窗口被遮挡/最小化/隐藏到托盘后渲染进程
-  // 依然全速跑 rAF 与动画（macOS 上还阻止 App Nap），空闲 CPU 占用
-  // 远高于 QQ 等同类 Electron 应用。恢复默认节流后，隐藏窗口的定时器
-  // 降频、rAF 暂停，但 IPC 事件（流式 chunk、任务执行）实时到达，
-  // 恢复可见时渲染自动补上，后台 AI 会话不受影响。
+  // 定时任务需要在后台持续运行。仅对主窗口关闭 Chromium 后台节流，避免
+  // 最小化/失焦后 renderer 的调度器和 IPC 事件被挂起；其他窗口和页面仍保留
+  // 默认后台节流策略。
 
   snowLog.info({
     module: "app/bootstrap",
@@ -116,9 +114,12 @@ export const bootstrapApplication = (): void => {
     // 完整的 loading 动画，而非空白/黑屏过渡。
     const mainWindow = createWindow();
 
+    const stopScheduledTaskWakeup = startScheduledTaskWakeup(mainWindow);
+
     // 宠物窗口生命周期绑定主窗口：主窗口关闭后一并销毁宠物，
     // 避免 Windows 下悬浮宠物窗口残留导致进程无法退出。
     mainWindow.on("closed", () => {
+      stopScheduledTaskWakeup();
       disposePetWindow();
     });
 

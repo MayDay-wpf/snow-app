@@ -45,7 +45,12 @@ const requiredExports = [
   // （历史会话引用已改为 @@conversation: 内联标签，不再需要附件表导出）
   "deleteWorkspaceEntries",
   "gitFileContent",
-  "getUsageModelBreakdown",
+  "listScheduledTasks",
+  "upsertScheduledTask",
+  "deleteScheduledTask",
+  "clearScheduledTasks",
+  "appendScheduledTaskRun",
+  "finalizeScheduledTaskRun",
   "reconcileScheduledTaskRuns",
   // 历史会话引用 chip 悬停预览（@@conversation: 标签注入内容预览）
   "previewConversationAttachment",

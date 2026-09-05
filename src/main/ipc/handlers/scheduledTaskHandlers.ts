@@ -50,7 +50,6 @@ const requireTaskInput = (value: unknown): ScheduledTaskRecordInput => {
   const record = value as Record<string, unknown>;
   for (const field of [
     "id",
-    "directoryId",
     "name",
     "prompt",
     "scheduleJson",
@@ -61,6 +60,9 @@ const requireTaskInput = (value: unknown): ScheduledTaskRecordInput => {
     if (typeof record[field] !== "string" || !record[field].trim()) {
       throw new Error(`Scheduled task field "${field}" is required`);
     }
+  }
+  if (typeof record.directoryId !== "string") {
+    throw new Error('Scheduled task field "directoryId" must be a string');
   }
   return {
     id: (record.id as string).trim(),
@@ -128,9 +130,9 @@ export const registerScheduledTaskHandlers = (native: NativeBridge): void => {
     (_event, taskId: unknown, runAt: unknown) => {
       return native.appendScheduledTaskRun(
         requireTaskId(taskId),
-        requireRunAt(runAt)
+        requireRunAt(runAt),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -141,16 +143,16 @@ export const registerScheduledTaskHandlers = (native: NativeBridge): void => {
       runId: unknown,
       status: unknown,
       durationMs: unknown,
-      error: unknown
+      error: unknown,
     ) => {
       return native.finalizeScheduledTaskRun(
         requireTaskId(taskId),
         requireRunId(runId),
         requireRunStatus(status),
         requireOptionalInt(durationMs),
-        requireOptionalString(error)
+        requireOptionalString(error),
       );
-    }
+    },
   );
 
   ipcMain.handle("scheduled-tasks:reconcile-runs", () => {
