@@ -62,3 +62,9 @@ export type GreasyForkSearchResult = {
   hasMore: boolean;
   results: GreasyForkSearchItem[];
 };
+
+/** 本地脚本文件选择结果（从文件导入，渲染层编辑器预填用）。 */
+export type UserscriptFilePick = {
+  fileName: string;
+  content: string;
+};

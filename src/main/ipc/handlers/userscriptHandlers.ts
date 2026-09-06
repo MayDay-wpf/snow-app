@@ -1,4 +1,6 @@
 import {
+  BrowserWindow,
+  dialog,
   ipcMain,
   net,
   Notification,
@@ -6,6 +8,7 @@ import {
   webContents as electronWebContents,
   type WebContents,
 } from "electron";
+import { basename } from "node:path";
 import type { NativeBridge, UserscriptRecord } from "../../native/types";
 import { startGmDownload } from "../../app/downloadManager";
 import {
@@ -46,6 +49,8 @@ export type GreasyForkSearchResult = {
 const GREASY_FORK_SEARCH_URL = "https://api.greasyfork.org/zh-CN/scripts.json";
 const SEARCH_TIMEOUT_MS = 15000;
 const INSTALL_TIMEOUT_MS = 20000;
+/** 本地导入脚本文件的大小上限（用户脚本为纯文本，超过即视为误选）。 */
+const MAX_IMPORT_FILE_SIZE = 2 * 1024 * 1024;
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
@@ -329,6 +334,51 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
         refreshUserscriptSyncStore(native);
         return record;
       });
+    },
+  );
+
+  // 从本地文件导入：弹出系统文件选择框，读取所选 .user.js 内容。
+  // 文件读取走 Rust 异步 spawn_blocking（不阻塞主进程），校验文本类型、
+  // 大小与 ==UserScript== 元数据头后返回给渲染层预填编辑器；用户取消
+  // 选择时返回 null。
+  ipcMain.handle(
+    "userscripts:pick-file",
+    async (
+      event,
+      dialogTitle: unknown,
+    ): Promise<{ fileName: string; content: string } | null> => {
+      const browserWindow = BrowserWindow.fromWebContents(event.sender);
+      const title =
+        typeof dialogTitle === "string" && dialogTitle.trim()
+          ? dialogTitle.trim()
+          : "Select userscript file";
+      const options: Electron.OpenDialogOptions = {
+        title,
+        properties: ["openFile"],
+        filters: [
+          // .user.js 的文件系统扩展名为 js，按 js 过滤即可命中。
+          { name: "Userscripts", extensions: ["js"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      };
+      const result = browserWindow
+        ? await dialog.showOpenDialog(browserWindow, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      const filePath = result.filePaths[0];
+      const file = await native.readFileContent(filePath);
+      if (file.isBinary) {
+        throw new Error("Selected file is not a text file");
+      }
+      if (file.size > MAX_IMPORT_FILE_SIZE) {
+        throw new Error("Selected file is too large (max 2 MB)");
+      }
+      if (!file.content.includes("==UserScript==")) {
+        throw new Error("Selected file is not a userscript");
+      }
+      return { fileName: basename(filePath), content: file.content };
     },
   );
 

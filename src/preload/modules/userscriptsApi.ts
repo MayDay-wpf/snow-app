@@ -1,6 +1,7 @@
 import { ipcRenderer } from "electron";
 import type {
   GreasyForkSearchResult,
+  UserscriptFilePick,
   UserscriptRecord,
   UserscriptValue,
 } from "../types/userscripts";
@@ -23,6 +24,11 @@ export const userscriptsApi = {
   /** 读取脚本文件完整内容（含元数据头），编辑器加载用。 */
   readUserscriptSource: (scriptId: string): Promise<string> =>
     ipcRenderer.invoke("userscripts:read-source", scriptId),
+  /** 弹出系统文件选择框并读取所选 .user.js 内容（从文件导入用）。取消时返回 null。 */
+  pickUserscriptFile: (
+    dialogTitle?: string,
+  ): Promise<UserscriptFilePick | null> =>
+    ipcRenderer.invoke("userscripts:pick-file", dialogTitle),
   // ===== Greasy Fork 搜索 / 安装 =====
   searchUserscripts: (
     query: string,

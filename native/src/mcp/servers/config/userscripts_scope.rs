@@ -12,6 +12,11 @@
 //! - { enabled: bool }：启用/禁用；
 //! - { values: { k: v } }：批量写入 GM_* 持久化值；
 //! - { deleteValues: ["k"] }：批量删除 GM_* 持久化值。
+//!
+//! AI 调用方的实际传参经常不规范（把字段对象序列化成 JSON 字符串、直接传
+//! 脚本文件路径或内联源码字符串、`source_path`/`path` 等别名拼写），因此
+//! [`set_userscript`] 入口先用 `normalize_set_value` 做归一化容错再分发，
+//! 避免调用方反复收到 "value must be an object" 后陷入无脑重试循环。
 
 use std::path::{Path, PathBuf};
 
@@ -62,23 +67,25 @@ pub fn get_userscript(db_path: &Path, script_id: &str) -> napi::Result<Value> {
 
 /// config-set scope=userscripts。按 value 字段分发：
 /// sourcePath | raw → 新建/更新；enabled → 开关；values → 批量写 GM 值；deleteValues → 批量删。
+///
+/// value 先经 [`normalize_set_value`] 归一化（兼容字符串化 JSON 对象、直接传
+/// 脚本文件路径 / 内联源码、字段别名、enabled 字符串布尔），再按字段分发。
 pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<Value> {
-    let obj = value.as_object().ok_or_else(|| {
-        Error::new(
-            Status::InvalidArg,
-            "value must be an object for the userscripts scope (sourcePath | raw | enabled | values | deleteValues)"
-                .to_string(),
-        )
-    })?;
+    let obj = normalize_set_value(value)?;
 
-// 源码来源：sourcePath（推荐，从磁盘文件读取，避免大工具参数）或 raw（内联），二选一。
+    // 源码来源：sourcePath（推荐，从磁盘文件读取，避免大工具参数）或 raw（内联），二选一。
     if obj.contains_key("sourcePath") {
-        let source_path = obj.get("sourcePath").and_then(Value::as_str).ok_or_else(|| {
-            Error::new(
-                Status::InvalidArg,
-                "sourcePath must be a non-empty string path to a script file".to_string(),
-            )
-        })?;
+        let source_path = obj
+            .get("sourcePath")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "sourcePath must be a non-empty string path to a script file".to_string(),
+                )
+            })?;
         let source = read_source_file(source_path)?;
         let created = key == NEW_KEY;
         let record = if created {
@@ -97,7 +104,11 @@ pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<
         }));
     }
 
-    if let Some(raw) = obj.get("raw").and_then(Value::as_str) {
+    if let Some(raw) = obj
+        .get("raw")
+        .and_then(Value::as_str)
+        .filter(|raw| !raw.trim().is_empty())
+    {
         let source = raw.to_string();
         let created = key == NEW_KEY;
         let record = if created {
@@ -116,7 +127,7 @@ pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<
         }));
     }
 
-    if let Some(enabled) = obj.get("enabled").and_then(Value::as_bool) {
+    if let Some(enabled) = obj.get("enabled").and_then(parse_bool_field) {
         ensure_script_exists(db_path, key)?;
         crate::storage::set_userscript_enabled(db_path, key, enabled).map_err(storage_error)?;
         return Ok(json!({
@@ -129,7 +140,8 @@ pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<
 
     if let Some(values) = obj.get("values") {
         ensure_script_exists(db_path, key)?;
-        if let Some(map) = values.as_object() {
+        let parsed = unwrap_json_string(values);
+        if let Some(map) = parsed.as_object() {
             for (name, raw) in map {
                 let stored = match raw {
                     Value::String(text) => text.clone(),
@@ -144,14 +156,15 @@ pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<
             "scope": "userscripts",
             "key": key,
             "saved": true,
-            "valuesWritten": values.as_object().map(|m| m.len()).unwrap_or(0),
+            "valuesWritten": parsed.as_object().map(|m| m.len()).unwrap_or(0),
         }));
     }
 
     if let Some(delete_values) = obj.get("deleteValues") {
         ensure_script_exists(db_path, key)?;
+        let parsed = unwrap_json_string(delete_values);
         let mut deleted = 0usize;
-        if let Some(names) = delete_values.as_array() {
+        if let Some(names) = parsed.as_array() {
             for item in names {
                 if let Some(name) = item.as_str() {
                     crate::storage::delete_userscript_value(db_path, key, name)
@@ -168,9 +181,12 @@ pub fn set_userscript(db_path: &Path, key: &str, value: &Value) -> napi::Result<
         }));
     }
 
+    let fields: Vec<&str> = obj.keys().map(String::as_str).collect();
     Err(Error::new(
         Status::InvalidArg,
-        "value must contain one of: `sourcePath` (path to a script file on disk), `raw` (inline script source), `enabled` (bool), `values` (GM values object), `deleteValues` (array of GM value keys)".to_string(),
+        format!(
+            "value for the userscripts scope must contain one of: `sourcePath` (absolute path to a .user.js file on disk — recommended: write the script with the filesystem server first, then pass its path), `raw` (full inline userscript source), `enabled` (bool), `values` (GM values object), `deleteValues` (array of GM value keys). Received object fields: {fields:?}"
+        ),
     ))
 }
 
@@ -187,6 +203,116 @@ pub fn delete_userscript(db_path: &Path, script_id: &str) -> napi::Result<Value>
         "key": script_id,
         "deleted": exists,
     }))
+}
+
+/// 把 AI 调用方传出的 value 归一化为字段对象：
+/// - 对象：经 [`normalize_field_aliases`] 做字段名归一化后返回；
+/// - 字符串：
+///   - `{...}` 形态且可解析 → 视为被二次序列化的字段对象，解析后按对象处理；
+///   - 含 `==UserScript==` 头 → `{raw: <源码>}`；
+///   - 不含换行且指向磁盘上存在的文件、或 `.js` 结尾 → `{sourcePath: <路径>}`；
+/// - 其他形态 → 报错并附收到的内容预览与正确用法，让调用方能自我纠正。
+fn normalize_set_value(value: &Value) -> napi::Result<serde_json::Map<String, Value>> {
+    match value {
+        Value::Object(map) => Ok(normalize_field_aliases(map)),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(trimmed) {
+                    return Ok(normalize_field_aliases(&map));
+                }
+            }
+            if trimmed.contains("==UserScript==") {
+                return Ok(single_field_map("raw", json!(text)));
+            }
+            if !trimmed.is_empty() && !trimmed.contains('\n') && !trimmed.contains('\r') {
+                let path = resolve_source_path(trimmed);
+                if path.is_file() || trimmed.to_ascii_lowercase().ends_with(".js") {
+                    return Ok(single_field_map("sourcePath", json!(trimmed)));
+                }
+            }
+            Err(invalid_value_error(value))
+        }
+        other => Err(invalid_value_error(other)),
+    }
+}
+
+/// 字段名别名归一化：AI 调用方常把 `sourcePath` 写成 snake_case 或近义词，
+/// 把 `enabled` 写成 `enable`，统一映射为规范字段名。
+fn normalize_field_aliases(
+    map: &serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    let mut result = serde_json::Map::new();
+    for (field, val) in map {
+        let canonical = match field.as_str() {
+            "source_path" | "path" | "filePath" | "file_path" | "file" => "sourcePath",
+            "enable" => "enabled",
+            other => other,
+        };
+        result.insert(canonical.to_string(), val.clone());
+    }
+    result
+}
+
+/// 解析 `enabled` 字段：兼容 bool 与 `"true"`/`"false"` 字符串传参。
+fn parse_bool_field(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(flag) => Some(*flag),
+        Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// 构造单字段对象，如 `{sourcePath: "..."}`。
+fn single_field_map(field: &str, value: Value) -> serde_json::Map<String, Value> {
+    let mut map = serde_json::Map::new();
+    map.insert(field.to_string(), value);
+    map
+}
+
+/// 字段值容错：若是被二次序列化成 JSON 字符串的对象/数组则解析还原，
+/// 否则原样克隆返回。
+fn unwrap_json_string(value: &Value) -> Value {
+    match value {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+                || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+            {
+                serde_json::from_str::<Value>(trimmed).unwrap_or_else(|_| value.clone())
+            } else {
+                value.clone()
+            }
+        }
+        other => other.clone(),
+    }
+}
+
+/// 构造 userscripts scope 的 value 参数错误：附收到的形态预览与正确用法示例，
+/// 让 AI 调用方能根据报错自我纠正而不是反复原样重试。
+fn invalid_value_error(received: &Value) -> napi::Error {
+    let received_desc = match received {
+        Value::String(text) => {
+            let preview: String = text.chars().take(80).collect();
+            format!("a string of {} chars starting with {preview:?}", text.chars().count())
+        }
+        other => {
+            let serialized =
+                serde_json::to_string(other).unwrap_or_else(|_| other.to_string());
+            let preview: String = serialized.chars().take(80).collect();
+            format!("{preview}")
+        }
+    };
+    Error::new(
+        Status::InvalidArg,
+        format!(
+            "value for the userscripts scope must be an object with one of: sourcePath (recommended; absolute path to a .user.js file on disk, e.g. value={{sourcePath: \"C:/abs/path/script.user.js\"}}), raw (full inline userscript source), enabled (bool), values (object of GM_* values), deleteValues (array of keys). Received {received_desc}"
+        ),
+    )
 }
 
 fn ensure_script_exists(db_path: &Path, script_id: &str) -> napi::Result<()> {

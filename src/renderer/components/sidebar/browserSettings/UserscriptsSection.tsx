@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
+  FileUp,
   Loader2,
   Pencil,
   Plus,
@@ -29,6 +30,15 @@ import type {
  */
 
 type Notice = { type: "success" | "error"; text: string } | null;
+
+/**
+ * 编辑器状态：新建（含从文件导入，fileName 为编辑器虚拟文件名）/
+ * 编辑既有脚本 / 关闭。
+ */
+type EditingState =
+  | { mode: "new"; fileName: string }
+  | { mode: "edit"; script: UserscriptRecord }
+  | null;
 
 /** 新脚本默认模板。 */
 const NEW_SCRIPT_TEMPLATE = `// ==UserScript==
@@ -61,8 +71,9 @@ export function UserscriptsSection(): React.JSX.Element {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ---- 编辑器 ----
-  const [editing, setEditing] = useState<UserscriptRecord | "new" | null>(null);
+  const [editing, setEditing] = useState<EditingState>(null);
   const [editorValue, setEditorValue] = useState("");
+  const [importing, setImporting] = useState(false);
 
   // ---- 搜索 / 安装 ----
   const [tab, setTab] = useState<"installed" | "search">("installed");
@@ -97,8 +108,33 @@ export function UserscriptsSection(): React.JSX.Element {
 
   const startCreate = useCallback((): void => {
     setEditorValue(NEW_SCRIPT_TEMPLATE);
-    setEditing("new");
+    setEditing({ mode: "new", fileName: "userscript.user.js" });
   }, []);
+
+  /** 从本地 .user.js 文件导入：选择 → 预填编辑器，保存时才写库。 */
+  const startImport = useCallback(async (): Promise<void> => {
+    setImporting(true);
+    try {
+      const picked = await window.snow.pickUserscriptFile(
+        t("userscripts.importPickTitle"),
+      );
+      if (!picked) {
+        return; // 用户取消选择，静默返回。
+      }
+      setEditorValue(picked.content);
+      setEditing({ mode: "new", fileName: picked.fileName });
+    } catch (error) {
+      console.error("Failed to import userscript file:", error);
+      setNotice({
+        type: "error",
+        text: `${t("userscripts.importFailed")} ${
+          error instanceof Error ? error.message : ""
+        }`,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }, [t]);
 
   const startEdit = useCallback(
     async (script: UserscriptRecord): Promise<void> => {
@@ -106,7 +142,7 @@ export function UserscriptsSection(): React.JSX.Element {
         // 脚本原文存放在磁盘文件，按需异步读取。
         const content = await window.snow.readUserscriptSource(script.scriptId);
         setEditorValue(content);
-        setEditing(script);
+        setEditing({ mode: "edit", script });
       } catch (error) {
         console.error("Failed to read userscript source:", error);
         setNotice({ type: "error", text: t("userscripts.readFailed") });
@@ -121,11 +157,11 @@ export function UserscriptsSection(): React.JSX.Element {
       if (!editing) {
         return;
       }
-      if (editing === "new") {
+      if (editing.mode === "new") {
         await window.snow.createUserscript(content);
         setNotice({ type: "success", text: t("userscripts.created") });
       } else {
-        await window.snow.updateUserscript(editing.scriptId, content);
+        await window.snow.updateUserscript(editing.script.scriptId, content);
         setNotice({ type: "success", text: t("userscripts.updated") });
       }
       await loadScripts();
@@ -242,6 +278,20 @@ export function UserscriptsSection(): React.JSX.Element {
           >
             <RotateCw size={13} strokeWidth={1.8} />
             <span>{t("userscripts.refresh")}</span>
+          </button>
+          <button
+            type="button"
+            className="browser-settings-scan-action"
+            onClick={() => void startImport()}
+            disabled={importing}
+            title={t("userscripts.importFromFile")}
+          >
+            {importing ? (
+              <Loader2 size={13} strokeWidth={1.8} className="spin" />
+            ) : (
+              <FileUp size={13} strokeWidth={1.8} />
+            )}
+            <span>{t("userscripts.importFromFile")}</span>
           </button>
           <button
             type="button"
@@ -558,9 +608,9 @@ export function UserscriptsSection(): React.JSX.Element {
         <Modal
           open
           title={
-            editing === "new"
+            editing.mode === "new"
               ? t("userscripts.createNew")
-              : `${t("userscripts.edit")} — ${editing.name}`
+              : `${t("userscripts.edit")} — ${editing.script.name}`
           }
           closeLabel={t("common.close", { defaultValue: "Close" })}
           onClose={closeEditor}
@@ -569,20 +619,20 @@ export function UserscriptsSection(): React.JSX.Element {
         >
           <FileViewerContent
             filePath={
-              editing === "new"
-                ? "userscript.user.js"
-                : `${editing.name}.user.js`
+              editing.mode === "new"
+                ? editing.fileName
+                : `${editing.script.name}.user.js`
             }
             fileName={
-              editing === "new"
-                ? "userscript.user.js"
-                : `${editing.name}.user.js`
+              editing.mode === "new"
+                ? editing.fileName
+                : `${editing.script.name}.user.js`
             }
             isSsh={false}
             initialEditMode
             virtualSource={{
               content: editorValue,
-              initialDirty: editing === "new",
+              initialDirty: editing.mode === "new",
               onSave: handleEditorSave,
             }}
           />

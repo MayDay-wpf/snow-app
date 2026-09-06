@@ -2977,7 +2977,7 @@ impl McpService for ConfigService {
                             "description": "Key name within the scope (see config-list). For imagegen: a channel id/name or provider type (openai|gemini), or the global key maxConcurrentImages."
                         },
                         "value": {
-                            "description": "New value; type must match the key schema (see config-list)."
+                            "description": "New value; type must match the key schema (see config-list). subAgents/hooks/apiProfiles/userscripts/imagegen require a JSON OBJECT here (e.g. userscripts: {sourcePath: \"C:/abs/path/script.user.js\"}), not a string or path."
                         },
                         "projectId": {
                             "type": "string",
