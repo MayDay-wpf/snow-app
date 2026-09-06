@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.2.28
+
+## New Features
+
+- **Terminal GPU (WebGL) Rendering**: The terminal gains GPU-accelerated rendering, switchable in the terminal settings panel.
+- **Local Userscript Import**: Browser settings support importing userscripts from local files; userscript config values are parsed fault-tolerantly, so bad data no longer breaks them.
+
+## Improvements
+
+- Scheduled tasks keep running while the window is backgrounded, no longer interrupted by window state.
+- The embedded browser's User-Agent is unified as standard desktop Chrome, removing the app name and Electron tokens.
+
+## Bug Fixes
+
+- Fixed data-loss paths in the database recovery flow and synced the archive table schema columns.
+- Added a display name mapping for the built-in workflow server.
+
 ## v0.2.27
 
 ## New Features
