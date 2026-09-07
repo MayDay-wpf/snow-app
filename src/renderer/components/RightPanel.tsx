@@ -31,6 +31,7 @@ import {
   type PlusMenuItem,
 } from "./common/PlusMenuButton";
 import { RightPanelTabContextMenu } from "./rightPanel/RightPanelTabContextMenu";
+import { OverlayScrollbar } from "./common/OverlayScrollbar";
 // 浏览器面板静态导入（非 lazy）：模块（含 homepage 缓存）随应用启动加载并
 // 预取起始页，避免首次创建浏览器实例时异步拉取 chunk 造成「不进预设起始页」
 // 与时序类问题（useBrowserHomepage 的模块级状态在 lazy 加载前不存在）。
@@ -1392,9 +1393,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       <aside className={panelClasses}>
         {tabs.length > 0 && (
           <div className="right-panel-tabs">
-            <div
+            <OverlayScrollbar
               ref={tabListRef}
               className="right-panel-tab-list"
+              orientation="horizontal"
               onScroll={() => setCloseConfirm(null)}
               onContextMenu={(event) => {
                 // 仅空白区域触发：tab 项上已有各自的右键菜单。
@@ -1470,7 +1472,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                   )}
                 </div>
               ))}
-            </div>
+            </OverlayScrollbar>
             {isWindows && (
               <div className="right-panel-tab-actions">
                 <PlusMenuButton

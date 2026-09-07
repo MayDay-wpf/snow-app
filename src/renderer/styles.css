@@ -29957,6 +29957,89 @@ input {
   padding: 4px 6px;
   overflow-x: auto;
   overflow-y: hidden;
+  /* 原生滚动条隐藏，改用 OverlayScrollbar 自绘细条 */
+  scrollbar-width: none;
+}
+.right-panel-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== 自绘悬浮滚动条（OverlayScrollbar）=====
+   wrapper 只负责布局，滚动在 scroller 内完成；thumb 按内容比例
+   绝对定位，细且可拖动，出现/消失不影响布局高度。 */
+.overlay-scrollbar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.overlay-scrollbar[data-orientation="horizontal"] {
+  flex-direction: row;
+}
+.overlay-scrollbar-scroller {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.overlay-scrollbar-thumb {
+  position: absolute;
+  z-index: 30;
+  opacity: 0;
+  cursor: default;
+}
+.overlay-scrollbar[data-orientation="horizontal"] .overlay-scrollbar-thumb {
+  left: 0;
+  bottom: 0;
+  height: 7px;
+}
+.overlay-scrollbar[data-orientation="vertical"] .overlay-scrollbar-thumb {
+  top: 0;
+  right: 0;
+  width: 12px;
+}
+.overlay-scrollbar-thumb::before {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  transition:
+    background 0.15s ease,
+    height 0.12s ease,
+    width 0.12s ease;
+}
+.overlay-scrollbar[data-orientation="horizontal"]
+  .overlay-scrollbar-thumb::before {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+}
+.overlay-scrollbar[data-orientation="horizontal"]
+  .overlay-scrollbar-thumb:hover::before {
+  height: 5px;
+}
+.overlay-scrollbar[data-orientation="vertical"]
+  .overlay-scrollbar-thumb::before {
+  top: 0;
+  bottom: 0;
+  right: 4px;
+  width: 5px;
+}
+.overlay-scrollbar[data-orientation="vertical"]
+  .overlay-scrollbar-thumb:hover::before {
+  right: 3px;
+  width: 7px;
+}
+.overlay-scrollbar-thumb:hover::before {
+  background: var(--scrollbar-thumb-hover);
+}
+.overlay-scrollbar-thumb:active::before {
+  background: var(--scrollbar-thumb-active);
+}
+/* Windows：tab 操作区与 tab 列表同行，wrapper 占据剩余宽度 */
+.app-shell.is-windows .right-panel-tabs > .overlay-scrollbar {
+  flex: 1;
+  min-width: 0;
 }
 
 .right-panel-tab-item {
