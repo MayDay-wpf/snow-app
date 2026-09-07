@@ -315,7 +315,11 @@ pub async fn call_mcp_tool(
             .await?;
         fs_result?
     } else if tool_full_name == "todo-todo-manage" {
-        TodoService::new().execute_async(&args).await?
+        // 会话隔离键由分发层注入当前会话 ID（与 memory 相同模式），
+        // 模型传入的 sessionId 参数一律忽略，无法跨会话读写。
+        TodoService::new()
+            .execute_async(&args, conversation_id.as_deref())
+            .await?
     } else if let Some(memory_tool) = tool_full_name.strip_prefix("memory-") {
         // 项目记忆工具集：project_id 由调用链注入（当前会话项目），
         // 工具参数不携带 projectId，模型无法跨项目读写；conversation_id

@@ -35,7 +35,7 @@ struct TodoItem {
 pub struct TodoService {
     db_path: String,
     /// Per-session lock to serialise concurrent mutations for the same session.
-    /// Keyed by session_id (passed as part of tool args).
+    /// Keyed by the session id injected by the call_mcp_tool dispatcher.
     session_locks: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
 }
 
@@ -266,10 +266,9 @@ impl TodoService {
     // Action handlers
     // ------------------------------------------------------------------
 
-    fn execute_get(&self, args: &Value) -> napi::Result<Value> {
-        let session_id = require_session_id(args)?;
+    fn execute_get(&self, _args: &Value, session_id: &str) -> napi::Result<Value> {
         let conn = self.get_connection()?;
-        let items = Self::get_todos_for_session(&conn, &session_id)?;
+        let items = Self::get_todos_for_session(&conn, session_id)?;
         let items_json: Vec<Value> = items
             .iter()
             .map(|item| serde_json::to_value(item).unwrap_or(json!({})))
@@ -289,9 +288,7 @@ impl TodoService {
         Ok(result)
     }
 
-    fn execute_add(&self, args: &Value) -> napi::Result<Value> {
-        let session_id = require_session_id(args)?;
-
+    fn execute_add(&self, args: &Value, session_id: &str) -> napi::Result<Value> {
         // Parse content into a list of strings. Three cases are handled:
         // 1. A JSON array value: ["a", "b"] -> multiple independent TODOs
         // 2. A string that is itself a JSON array: "[\"a\",\"b\"]" -> multiple independent TODOs
@@ -346,7 +343,7 @@ impl TodoService {
                 let exists = conn
                     .query_row(
                         "SELECT 1 FROM todo_items WHERE id = ?1 AND session_id = ?2",
-                        rusqlite::params![pid, &session_id],
+                        rusqlite::params![pid, session_id],
                         |_| Ok(()),
                     )
                     .optional()
@@ -372,7 +369,7 @@ impl TodoService {
             let id = create_id("todo");
             Self::add_todo(
                 &conn,
-                &session_id,
+                session_id,
                 &id,
                 content,
                 validated_parent.as_deref(),
@@ -380,15 +377,14 @@ impl TodoService {
             )?;
         }
 
-        let items = Self::get_todos_for_session(&conn, &session_id)?;
+        let items = Self::get_todos_for_session(&conn, session_id)?;
         Ok(json!({
             "sessionId": session_id,
             "todos": serde_json::to_value(&items).unwrap_or(json!([])),
         }))
     }
 
-    fn execute_update(&self, args: &Value) -> napi::Result<Value> {
-        let session_id = require_session_id(args)?;
+    fn execute_update(&self, args: &Value, session_id: &str) -> napi::Result<Value> {
         let ids = parse_todo_ids(args, "update")?;
 
         let status = args.get("status").and_then(|v| v.as_str());
@@ -415,9 +411,9 @@ impl TodoService {
         }
 
         let conn = self.get_connection()?;
-        let found = Self::update_todos(&conn, &session_id, &ids, status, content)?;
+        let found = Self::update_todos(&conn, session_id, &ids, status, content)?;
 
-        let items = Self::get_todos_for_session(&conn, &session_id)?;
+        let items = Self::get_todos_for_session(&conn, session_id)?;
         if !found {
             return Ok(json!({
                 "sessionId": session_id,
@@ -432,14 +428,13 @@ impl TodoService {
         }))
     }
 
-    fn execute_delete(&self, args: &Value) -> napi::Result<Value> {
-        let session_id = require_session_id(args)?;
+    fn execute_delete(&self, args: &Value, session_id: &str) -> napi::Result<Value> {
         let ids = parse_todo_ids(args, "delete")?;
 
         let conn = self.get_connection()?;
-        let deleted_count = Self::delete_todos(&conn, &session_id, &ids)?;
+        let deleted_count = Self::delete_todos(&conn, session_id, &ids)?;
 
-        let items = Self::get_todos_for_session(&conn, &session_id)?;
+        let items = Self::get_todos_for_session(&conn, session_id)?;
         Ok(json!({
             "sessionId": session_id,
             "deletedCount": deleted_count,
@@ -457,7 +452,7 @@ impl McpService for TodoService {
         vec![McpTool {
             server_id: SERVER_ID.to_string(),
             name: "todo-manage".to_string(),
-            description: "Unified session TODO list for AI work planning: use required field \"action\" — one of get | add | update | delete. The \"sessionId\" and \"status\" fields are required for ALL actions (status is only used by update, ignored by others).\n\nACTIONS:\n- get: Current list with IDs, status, hierarchy. MUST be called before update/delete to obtain real todo ids.\n- add: Create item(s). Use \"content\" (string or string[]). When content is an array, EACH element becomes a SEPARATE independent TODO item (they are NOT joined into one). Optional \"parentId\" for subtasks (valid parent id from get).\n- update: Required \"todoId\" (string or string[]). Use \"status\" (pending|inProgress|completed) and/or \"content\" (refined wording). Batch ids share the same updates.\n- delete: Required \"todoId\" (string or string[]). Deleting a parent cascades to children.\n\nRESULT:\n- EVERY action (get/add/update/delete) returns the FULL current todo list in the \"todos\" field of the result, with each item's id, content, status, createdAt, updatedAt and parentId. Always read the \"todos\" field from the latest tool result to know the current state — you do NOT need a separate get call right after a mutation.\n\nIMPORTANT:\n- MANDATORY: Before any update or delete, you MUST first know the real todo ids — either from a recent action=\"get\" result or from the \"todos\" field returned by your previous add/update/delete call in this conversation. NEVER guess ids or reuse ids from earlier turns — unknown ids are silently skipped and the tool reports success without effect.\n- For batch update/delete, pass todoId as a real JSON array like [\"id1\",\"id2\"], NOT as a single string containing an array.\n- When you pass content as a JSON array like [\"task A\", \"task B\"], two separate TODO items are created — NOT one item with combined text.\n- Each array element must be a self-contained task description.\n\nBEST PRACTICES:\n- Mark \"completed\" only after the step is verified; update as you work.\n- Update each item immediately after it is done; do NOT finish all work first and batch-update at the end.\n- Delete obsolete or redundant items to keep the list focused.\n\nEXAMPLES:\n- {action:\"get\", sessionId:\"...\", status:\"pending\"}\n- {action:\"add\", sessionId:\"...\", status:\"pending\", content:[\"Step 1\",\"Step 2\"]}  // creates 2 separate TODOs\n- {action:\"update\", sessionId:\"...\", status:\"completed\", todoId:\"...\"}\n- {action:\"delete\", sessionId:\"...\", status:\"pending\", todoId:\"...\"}".to_string(),
+            description: "Unified session TODO list for AI work planning: use required field \"action\" — one of get | add | update | delete. The list is automatically scoped to the CURRENT conversation — do NOT pass any sessionId parameter; the session is injected by the runtime and any value you pass is ignored.\n\nACTIONS:\n- get: Current list with IDs, status, hierarchy. MUST be called before update/delete to obtain real todo ids.\n- add: Create item(s). Use \"content\" (string or string[]). When content is an array, EACH element becomes a SEPARATE independent TODO item (they are NOT joined into one). Optional \"parentId\" for subtasks (valid parent id from get).\n- update: Required \"todoId\" (string or string[]). Use \"status\" (pending|inProgress|completed) and/or \"content\" (refined wording). Batch ids share the same updates.\n- delete: Required \"todoId\" (string or string[]). Deleting a parent cascades to children.\n\nRESULT:\n- EVERY action (get/add/update/delete) returns the FULL current todo list in the \"todos\" field of the result, with each item's id, content, status, createdAt, updatedAt and parentId. Always read the \"todos\" field from the latest tool result to know the current state — you do NOT need a separate get call right after a mutation.\n\nIMPORTANT:\n- MANDATORY: Before any update or delete, you MUST first know the real todo ids — either from a recent action=\"get\" result or from the \"todos\" field returned by your previous add/update/delete call in this conversation. NEVER guess ids or reuse ids from earlier turns — unknown ids are silently skipped and the tool reports success without effect.\n- For batch update/delete, pass todoId as a real JSON array like [\"id1\",\"id2\"], NOT as a single string containing an array.\n- When you pass content as a JSON array like [\"task A\", \"task B\"], two separate TODO items are created — NOT one item with combined text.\n- Each array element must be a self-contained task description.\n\nBEST PRACTICES:\n- Mark \"completed\" only after the step is verified; update as you work.\n- Update each item immediately after it is done; do NOT finish all work first and batch-update at the end.\n- Delete obsolete or redundant items to keep the list focused.\n\nEXAMPLES:\n- {action:\"get\"}\n- {action:\"add\", content:[\"Step 1\",\"Step 2\"]}  // creates 2 separate TODOs\n- {action:\"update\", status:\"completed\", todoId:\"...\"}\n- {action:\"delete\", todoId:\"...\"}".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -465,10 +460,6 @@ impl McpService for TodoService {
                         "type": "string",
                         "enum": ["get", "add", "update", "delete"],
                         "description": "Which operation to run on the session TODO list;Optional values (get, add, update, delete)."
-                    },
-                    "sessionId": {
-                        "type": "string",
-                        "description": "The conversation/session ID to scope the TODO list."
                     },
                     "content": {
                         "oneOf": [
@@ -505,69 +496,35 @@ impl McpService for TodoService {
                     "status": {
                         "type": "string",
                         "enum": ["pending", "inProgress", "completed"],
-                        "description": "ignored by get/add/delete."
+                        "description": "For action=update: the new status. Ignored by other actions."
                     }
                 },
-                "required": ["action", "sessionId", "status"]
+                "required": ["action"]
             }),
         }]
     }
 
-    fn execute(&self, tool_name: &str, args: &Value) -> napi::Result<Value> {
-        match tool_name {
-            "todo-manage" => {
-                let action = args
-                    .get("action")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        Error::new(
-                            Status::InvalidArg,
-                            "action is required (get | add | update | delete)".to_string(),
-                        )
-                    })?;
-
-                // Validate sessionId is present (will be used by the async path).
-                let _session_id = require_session_id(args)?;
-                let service = self.clone_for_async();
-                let args_clone = args.clone();
-
-                // We cannot use async in this trait method, so we delegate to the
-                // async executor in tools.rs. This synchronous execute() is only
-                // used as a fallback; the real path goes through call_mcp_tool.
-                match action {
-                    "get" => service.execute_get(&args_clone),
-                    "add" => service.execute_add(&args_clone),
-                    "update" => service.execute_update(&args_clone),
-                    "delete" => service.execute_delete(&args_clone),
-                    _ => Err(Error::new(
-                        Status::InvalidArg,
-                        format!("Unknown action: {action}"),
-                    )),
-                }
-            }
-            _ => Err(Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Unknown tool: \"{}\" for MCP server \"todo\". Available tools: [todo-todo-manage]",
-                    tool_name
-                ),
-            )),
-        }
+    /// 同步 fallback：todo 工具依赖调用期会话上下文（call_mcp_tool 分发
+    /// 注入的当前会话 ID），此入口拿不到会话，直接报错引导走异步路径。
+    fn execute(&self, tool_name: &str, _args: &Value) -> napi::Result<Value> {
+        Err(Error::new(
+            Status::GenericFailure,
+            format!(
+                "Tool \"{tool_name}\" of server \"todo\" requires the async call_mcp_tool path (conversation context). Available tools: [todo-todo-manage]"
+            ),
+        ))
     }
 }
 
 impl TodoService {
-    /// Clone the service for async execution. Since `db_path` is a String and
-    /// `session_locks` is behind an Arc, this is cheap.
-    fn clone_for_async(&self) -> TodoService {
-        TodoService {
-            db_path: self.db_path.clone(),
-            session_locks: Arc::clone(&self.session_locks),
-        }
-    }
-
     /// Async entry point used by `call_mcp_tool` in tools.rs.
-    pub async fn execute_async(&self, args: &Value) -> napi::Result<Value> {
+    /// `session_id` 由分发层注入当前会话 ID（与 memory 相同模式），
+    /// AI 传入的 sessionId 参数一律忽略，无法跨会话读写。
+    pub async fn execute_async(
+        &self,
+        args: &Value,
+        session_id: Option<&str>,
+    ) -> napi::Result<Value> {
         let action = args
             .get("action")
             .and_then(|v| v.as_str())
@@ -579,7 +536,16 @@ impl TodoService {
             })?
             .to_string();
 
-        let session_id = require_session_id(args)?;
+        let session_id = session_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                Error::new(
+                    Status::GenericFailure,
+                    "todo-todo-manage requires an active conversation; the TODO list is unavailable until the conversation is created.".to_string(),
+                )
+            })?
+            .to_string();
 
         // Acquire per-session lock to serialise concurrent mutations.
         let lock = self.get_session_lock(&session_id).await;
@@ -595,10 +561,10 @@ impl TodoService {
                 session_locks,
             };
             match action.as_str() {
-                "get" => service.execute_get(&args_owned),
-                "add" => service.execute_add(&args_owned),
-                "update" => service.execute_update(&args_owned),
-                "delete" => service.execute_delete(&args_owned),
+                "get" => service.execute_get(&args_owned, &session_id),
+                "add" => service.execute_add(&args_owned, &session_id),
+                "update" => service.execute_update(&args_owned, &session_id),
+                "delete" => service.execute_delete(&args_owned, &session_id),
                 other => Err(Error::new(
                     Status::InvalidArg,
                     format!("Unknown action: {other}"),
@@ -615,18 +581,6 @@ impl TodoService {
 // ---------------------------------------------------------------------------
 // Free functions
 // ---------------------------------------------------------------------------
-
-fn require_session_id(args: &Value) -> napi::Result<String> {
-    args.get("sessionId")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            Error::new(
-                Status::InvalidArg,
-                "sessionId is required for all todo-manage actions".to_string(),
-            )
-        })
-}
 
 /// Parse the `todoId` argument into a list of ids. Three cases are handled:
 /// 1. A JSON array value: ["a", "b"] -> multiple ids

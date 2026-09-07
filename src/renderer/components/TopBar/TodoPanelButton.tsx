@@ -61,7 +61,7 @@ const parseTodos = (result: string): TodoItem[] | null => {
   return parsed.todos
     .filter(
       (item): item is Record<string, unknown> =>
-        typeof item === "object" && item !== null
+        typeof item === "object" && item !== null,
     )
     .map((item) => ({
       id: typeof item.id === "string" ? item.id : "",
@@ -87,12 +87,12 @@ export const TodoPanelButton = ({
   const [isPinned, setIsPinned] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(
-    null
+    null,
   );
   const [localTodos, setLocalTodos] = useState<TodoItem[] | null>(null);
   const [fallbackTodos, setFallbackTodos] = useState<TodoItem[] | null>(null);
   const [fallbackSessionId, setFallbackSessionId] = useState<string | null>(
-    null
+    null,
   );
   const [newTodoContent, setNewTodoContent] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
@@ -148,11 +148,11 @@ export const TodoPanelButton = ({
   // > fallbackTodos (from backend query). When sessionId exists, localTodos
   // takes precedence so user operations are reflected immediately.
   const todos = sessionId
-    ? localTodos ?? (panelSessionId ? panelTodos : fallbackTodos ?? [])
+    ? (localTodos ?? (panelSessionId ? panelTodos : (fallbackTodos ?? [])))
     : [];
   const totalCount = todos.length;
   const completedCount = todos.filter(
-    (todo) => todo.status === "completed"
+    (todo) => todo.status === "completed",
   ).length;
   const incompleteCount = totalCount - completedCount;
 
@@ -166,11 +166,17 @@ export const TodoPanelButton = ({
     void window.snow
       .callMcpTool(
         "todo-todo-manage",
-        JSON.stringify({ action: "get", sessionId }),
+        JSON.stringify({ action: "get" }),
         projectId,
         undefined,
         undefined,
-        undefined
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        conversationId,
       )
       .then((result) => {
         if (!cancelled) {
@@ -187,7 +193,7 @@ export const TodoPanelButton = ({
     return () => {
       cancelled = true;
     };
-  }, [messages, projectId, sessionId]);
+  }, [messages, projectId, sessionId, conversationId]);
 
   useEffect(() => {
     onOpenChange?.(isOpen);
@@ -248,11 +254,17 @@ export const TodoPanelButton = ({
     try {
       const result = await window.snow.callMcpTool(
         "todo-todo-manage",
-        JSON.stringify({ action: "add", sessionId, content }),
+        JSON.stringify({ action: "add", content }),
         projectId,
         undefined,
         undefined,
-        undefined
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        conversationId,
       );
       const newTodos = parseTodos(result);
       if (newTodos) {
@@ -264,7 +276,7 @@ export const TodoPanelButton = ({
     } finally {
       setIsMutating(false);
     }
-  }, [newTodoContent, projectId, sessionId]);
+  }, [newTodoContent, projectId, sessionId, conversationId]);
 
   const handleStatusChange = useCallback(
     async (todo: TodoItem): Promise<void> => {
@@ -278,14 +290,19 @@ export const TodoPanelButton = ({
           "todo-todo-manage",
           JSON.stringify({
             action: "update",
-            sessionId,
             todoId: todo.id,
             status: nextTodoStatus(todo.status),
           }),
           projectId,
           undefined,
           undefined,
-          undefined
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          conversationId,
         );
         const newTodos = parseTodos(result);
         if (newTodos) {
@@ -297,7 +314,7 @@ export const TodoPanelButton = ({
         setIsMutating(false);
       }
     },
-    [projectId, sessionId]
+    [projectId, sessionId, conversationId],
   );
 
   const handleDelete = useCallback(
@@ -310,11 +327,17 @@ export const TodoPanelButton = ({
       try {
         const result = await window.snow.callMcpTool(
           "todo-todo-manage",
-          JSON.stringify({ action: "delete", sessionId, todoId: todoIds }),
+          JSON.stringify({ action: "delete", todoId: todoIds }),
           projectId,
           undefined,
           undefined,
-          undefined
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          conversationId,
         );
         const newTodos = parseTodos(result);
         if (newTodos) {
@@ -326,7 +349,7 @@ export const TodoPanelButton = ({
         setIsMutating(false);
       }
     },
-    [projectId, sessionId]
+    [projectId, sessionId, conversationId],
   );
 
   // 无 TODO 会话时（AI 尚未在会话中使用过待办工具）不渲染按钮。
@@ -350,7 +373,7 @@ export const TodoPanelButton = ({
         ) : null}
       </button>
       {isOpen ? (
-          <div className="top-bar-todo-dropdown">
+        <div className="top-bar-todo-dropdown">
           <div className="top-bar-todo-dropdown-header">
             <span className="top-bar-todo-dropdown-title">
               {t("topBar.todo.title")}
@@ -376,7 +399,9 @@ export const TodoPanelButton = ({
           <ul className="top-bar-todo-list">
             {todos.map((todo) => {
               const StatusIcon = todoStatusIcon(todo.status);
-              const nextStatusLabel = todoStatusLabel(nextTodoStatus(todo.status));
+              const nextStatusLabel = todoStatusLabel(
+                nextTodoStatus(todo.status),
+              );
               return (
                 <li
                   key={todo.id}
@@ -446,7 +471,7 @@ export const TodoPanelButton = ({
               </button>
             </div>
           ) : null}
-          </div>
+        </div>
       ) : null}
       <ConfirmDialog
         open={confirmDeleteIds !== null}

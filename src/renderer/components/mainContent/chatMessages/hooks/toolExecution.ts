@@ -749,24 +749,20 @@ export function createToolExecutor(
           result = validationError;
         } else {
           try {
-            // Force-override sessionId for todo-manage. Only add actions
-            // receive responseId, because rollback tracking applies solely
-            // to TODO items created by that action.
             let toolArgs = toolCall.arguments;
-            if (
-              toolCall.name === "todo-todo-manage" &&
-              !isPendingSessionKey(effectiveKey)
-            ) {
+            // todo-manage 的 add 动作注入当前 assistant responseId（回滚
+            // 跟踪）；会话隔离键由 Rust 分发层注入当前会话 ID，模型传入
+            // 的 sessionId 一律忽略。
+            if (toolCall.name === "todo-todo-manage" && responseId) {
               try {
                 const parsedArgs = JSON.parse(toolArgs) as Record<
                   string,
                   unknown
                 >;
-                parsedArgs.sessionId = effectiveKey;
-                if (parsedArgs.action === "add" && responseId) {
+                if (parsedArgs.action === "add") {
                   parsedArgs.responseId = responseId;
+                  toolArgs = JSON.stringify(parsedArgs);
                 }
-                toolArgs = JSON.stringify(parsedArgs);
               } catch {
                 // If args are not valid JSON, let the tool fail naturally.
               }
