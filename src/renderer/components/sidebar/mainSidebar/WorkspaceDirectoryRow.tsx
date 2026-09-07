@@ -44,14 +44,14 @@ const getDirectoryIcon = (
   directory: WorkspaceDirectoryRecord,
 ): React.JSX.Element => {
   if (directory.isActive) {
-    return <FolderOpen className="list-icon" size={15} />;
+    return <FolderOpen className="list-icon list-icon--local" size={15} />;
   }
 
   if (directory.kind === "ssh") {
-    return <Server className="list-icon" size={15} />;
+    return <Server className="list-icon list-icon--ssh" size={15} />;
   }
 
-  return <Folder className="list-icon" size={15} />;
+  return <Folder className="list-icon list-icon--local" size={15} />;
 };
 
 /**

@@ -4,6 +4,7 @@ import {
   Circle,
   CircleDot,
   CheckCircle2,
+  ExternalLink,
   ListChecks,
   Loader2,
   Plus,
@@ -12,6 +13,7 @@ import {
   Eye,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
+import { shortcutEvents } from "../../../shortcutEvents";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { ToolCallNode } from "./shared/ToolCallNode";
 
@@ -60,7 +62,7 @@ const parseArgs = (args: string): ParsedTodoArgs | null => {
       result.content = parsed.content;
     } else if (Array.isArray(parsed.content)) {
       result.content = parsed.content.filter(
-        (c): c is string => typeof c === "string"
+        (c): c is string => typeof c === "string",
       );
     }
 
@@ -72,7 +74,7 @@ const parseArgs = (args: string): ParsedTodoArgs | null => {
       result.todoId = parsed.todoId;
     } else if (Array.isArray(parsed.todoId)) {
       result.todoId = parsed.todoId.filter(
-        (t): t is string => typeof t === "string"
+        (t): t is string => typeof t === "string",
       );
     }
 
@@ -104,7 +106,7 @@ const parseResult = (result: string | undefined): ParsedTodoResult => {
     if (typeof parsed.sessionId === "string" && Array.isArray(parsed.todos)) {
       const todos = parsed.todos.filter(isRecord);
       const completedCount = todos.filter(
-        (t) => isValidStatus(t.status) && t.status === "completed"
+        (t) => isValidStatus(t.status) && t.status === "completed",
       ).length;
       return {
         type: "success",
@@ -154,11 +156,11 @@ export const TodoToolCall = ({
   const { t } = useI18n();
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const isRunning = toolCall.status === "running";
@@ -204,11 +206,20 @@ export const TodoToolCall = ({
             {actionLabel}
           </span>
           {parsedResult.type === "success" ? (
-            <span className="tool-call-todo-hint">
-              {parsedResult.todoCount === 0
-                ? t("toolCall.todo.empty")
-                : t("toolCall.todo.viewInTopBar")}
-            </span>
+            parsedResult.todoCount === 0 ? (
+              <span className="tool-call-todo-hint">
+                {t("toolCall.todo.empty")}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="tool-call-todo-hint tool-call-todo-hint-link"
+                onClick={() => shortcutEvents.emit("open-todo")}
+              >
+                <span>{t("toolCall.todo.viewInTopBar")}</span>
+                <ExternalLink size={11} aria-hidden="true" />
+              </button>
+            )
           ) : null}
         </div>
 

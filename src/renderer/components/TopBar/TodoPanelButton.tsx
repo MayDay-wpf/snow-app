@@ -206,6 +206,14 @@ export const TodoPanelButton = ({
     });
   }, []);
 
+  // 订阅"打开待办面板"事件：来自聊天消息中 todo 工具调用的"在顶栏查看"入口，
+  // 只打开不切换，避免面板已开时点击反而关闭。
+  useEffect(() => {
+    return shortcutEvents.on("open-todo", () => {
+      setIsOpen(true);
+    });
+  }, []);
+
   useEffect(() => {
     onPinnedChange?.(isPinned);
   }, [isPinned, onPinnedChange]);

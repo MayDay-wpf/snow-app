@@ -11,8 +11,8 @@
   --surface-island: rgba(255, 255, 255, 0.78);
   --surface-island-strong: rgba(255, 255, 255, 1);
   --surface-island-muted: rgba(248, 250, 252, 0.72);
-  --island-shadow: 0 14px 34px rgba(15, 23, 42, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --island-shadow:
+    0 14px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.72);
   --border-color: #e5e7eb;
   --border-light: #d1d2d4;
   --border-subtle: #d1d5db;
@@ -32,6 +32,9 @@
   --accent-color: var(--text-primary);
   --accent-amber-bg: #fef3c7;
   --accent-amber-text: #92400e;
+  --accent-purple: #a855f7;
+  --accent-purple-bg: #f3e8ff;
+  --accent-purple-text: #7e22ce;
   --focus-ring: rgba(17, 24, 39, 0.06);
   --scrollbar-thumb: rgba(148, 163, 184, 0.58);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.78);
@@ -47,10 +50,12 @@
   --traffic-light-safe-area: 132px;
   --right-panel-width: 380px;
   --header-height: 52px;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
-    "Courier New", monospace;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New",
+    monospace;
   /* 大面毛玻璃在 macOS 合成器上无法缓存采样结果，持续重采样导致高 CPU；
      而窗口不透明、背景为纯色（背景图是顶层 overlay，毛玻璃采样不到），
      视觉上无效果，故置为 none 消除常驻开销。 */
@@ -69,8 +74,8 @@
   --surface-island: rgba(17, 17, 17, 0.78);
   --surface-island-strong: rgba(24, 24, 24, 1);
   --surface-island-muted: rgba(20, 20, 20, 0.68);
-  --island-shadow: 0 16px 40px rgba(0, 0, 0, 0.36),
-    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --island-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.035);
   --border-color: #2b2b2b;
   --border-light: #202020;
   --border-subtle: #3a3a3a;
@@ -90,6 +95,9 @@
   --accent-color: var(--text-primary);
   --accent-amber-bg: rgba(245, 158, 11, 0.18);
   --accent-amber-text: #fcd34d;
+  --accent-purple: #c084fc;
+  --accent-purple-bg: rgba(168, 85, 247, 0.18);
+  --accent-purple-text: #d8b4fe;
   --focus-ring: rgba(212, 212, 212, 0.14);
   --scrollbar-thumb: rgba(113, 113, 122, 0.68);
   --scrollbar-thumb-hover: rgba(161, 161, 170, 0.82);

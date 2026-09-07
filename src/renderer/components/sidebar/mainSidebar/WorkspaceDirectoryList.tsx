@@ -382,7 +382,10 @@ export function WorkspaceDirectoryList({
                       }
                       size={12}
                     />
-                    <Library className="list-icon" size={15} />
+                    <Library
+                      className="list-icon list-icon--collection"
+                      size={15}
+                    />
                     <span className="list-label">{collection.name}</span>
                     <span
                       className="project-collection-badge"

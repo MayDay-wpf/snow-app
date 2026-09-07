@@ -1350,7 +1350,7 @@ export function ProjectsSection({
             type="button"
           >
             <span className="project-action-card-icon">
-              <FolderPlus size={20} />
+              <FolderPlus size={16} />
             </span>
             <span className="project-action-card-content">
               <strong>
@@ -1369,7 +1369,7 @@ export function ProjectsSection({
             type="button"
           >
             <span className="project-action-card-icon">
-              <Folder size={20} />
+              <Folder size={16} />
             </span>
             <span className="project-action-card-content">
               <strong>
@@ -1390,7 +1390,7 @@ export function ProjectsSection({
             type="button"
           >
             <span className="project-action-card-icon">
-              <GitFork size={20} />
+              <GitFork size={16} />
             </span>
             <span className="project-action-card-content">
               <strong>
@@ -1411,7 +1411,7 @@ export function ProjectsSection({
             type="button"
           >
             <span className="project-action-card-icon">
-              <Server size={20} />
+              <Server size={16} />
             </span>
             <span className="project-action-card-content">
               <strong>
@@ -1426,13 +1426,14 @@ export function ProjectsSection({
               </span>
             </span>
           </button>
+          <div className="project-action-separator" role="separator" />
           <button
             className="project-action-card"
             onClick={handleCreateCollectionModeOpen}
             type="button"
           >
             <span className="project-action-card-icon">
-              <Library size={20} />
+              <Library size={16} />
             </span>
             <span className="project-action-card-content">
               <strong>
