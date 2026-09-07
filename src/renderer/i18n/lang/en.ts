@@ -3986,6 +3986,8 @@ export const en = {
   "git.pushFailed": "Push Failed",
   "git.pullFailed": "Pull Failed",
   "git.errorDismiss": "OK",
+  "git.operationFailedGeneric":
+    "Git returned no detailed output. Check your network connection and repository configuration.",
   "git.copyPath": "Copy Path",
   "git.copyRelativePath": "Copy Relative Path",
   "git.copyAbsolutePath": "Copy Absolute Path",

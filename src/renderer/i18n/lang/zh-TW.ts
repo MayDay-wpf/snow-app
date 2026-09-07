@@ -3750,6 +3750,8 @@ export const zhTW = {
   "git.pushFailed": "推送失敗",
   "git.pullFailed": "拉取失敗",
   "git.errorDismiss": "確定",
+  "git.operationFailedGeneric":
+    "Git 未回傳任何詳細輸出，請檢查網路連線與倉庫設定。",
   "git.copyPath": "複製路徑",
   "git.copyRelativePath": "複製相對路徑",
   "git.copyAbsolutePath": "複製絕對路徑",

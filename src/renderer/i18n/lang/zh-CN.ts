@@ -3772,6 +3772,8 @@ export const zhCN = {
   "git.pushFailed": "推送失败",
   "git.pullFailed": "拉取失败",
   "git.errorDismiss": "确定",
+  "git.operationFailedGeneric":
+    "Git 未返回任何详细输出，请检查网络连接与仓库配置。",
   "git.copyPath": "复制路径",
   "git.copyRelativePath": "复制相对路径",
   "git.copyAbsolutePath": "复制绝对路径",

@@ -518,6 +518,18 @@ export const GitControl = ({
       .finally(() => setActionInProgress(null));
   }, [repoPath, refresh]);
 
+  // Git 操作失败弹窗：后端会带回 git 的完整输出，空消息时兜底提示，
+  // 保证用户始终能看到失败原因。
+  const reportGitError = useCallback(
+    (title: string, message: string) => {
+      setOperationError({
+        title,
+        message: message || t("git.operationFailedGeneric"),
+      });
+    },
+    [t],
+  );
+
   const handleCommit = useCallback(() => {
     if (!repoPath || !displayedCommitMessage.trim()) {
       return;
@@ -550,20 +562,17 @@ export const GitControl = ({
           if (pushResult.success) {
             refresh();
           } else {
-            setOperationError({
-              title: t("git.pushFailed"),
-              message: pushResult.message,
-            });
+            reportGitError(t("git.pushFailed"), pushResult.message);
           }
         } else {
           refresh();
         }
       })
       .catch((err: unknown) => {
-        setOperationError({
-          title: t("git.pushFailed"),
-          message: err instanceof Error ? err.message : String(err),
-        });
+        reportGitError(
+          t("git.pushFailed"),
+          err instanceof Error ? err.message : String(err),
+        );
       })
       .finally(() => setActionInProgress(null));
   }, [
@@ -573,6 +582,7 @@ export const GitControl = ({
     refresh,
     t,
     applyCommitMessage,
+    reportGitError,
   ]);
 
   const handlePush = useCallback(() => {
@@ -586,20 +596,17 @@ export const GitControl = ({
         if (result.success) {
           refresh();
         } else {
-          setOperationError({
-            title: t("git.pushFailed"),
-            message: result.message,
-          });
+          reportGitError(t("git.pushFailed"), result.message);
         }
       })
       .catch((err: unknown) => {
-        setOperationError({
-          title: t("git.pushFailed"),
-          message: err instanceof Error ? err.message : String(err),
-        });
+        reportGitError(
+          t("git.pushFailed"),
+          err instanceof Error ? err.message : String(err),
+        );
       })
       .finally(() => setActionInProgress(null));
-  }, [repoPath, refresh, t]);
+  }, [repoPath, refresh, t, reportGitError]);
 
   const handlePull = useCallback(() => {
     if (!repoPath) {
@@ -612,20 +619,17 @@ export const GitControl = ({
         if (result.success) {
           refresh();
         } else {
-          setOperationError({
-            title: t("git.pullFailed"),
-            message: result.message,
-          });
+          reportGitError(t("git.pullFailed"), result.message);
         }
       })
       .catch((err: unknown) => {
-        setOperationError({
-          title: t("git.pullFailed"),
-          message: err instanceof Error ? err.message : String(err),
-        });
+        reportGitError(
+          t("git.pullFailed"),
+          err instanceof Error ? err.message : String(err),
+        );
       })
       .finally(() => setActionInProgress(null));
-  }, [repoPath, refresh, t]);
+  }, [repoPath, refresh, t, reportGitError]);
 
   const handleDiscardRequest = useCallback((files: GitFileStatus[]) => {
     if (files.length === 0) {

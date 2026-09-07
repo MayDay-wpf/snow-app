@@ -1,7 +1,10 @@
+use std::process::Stdio;
+
 use napi::bindgen_prelude::*;
 
 use super::{
-    is_git_repo, run_git, GitCheckoutResult, GitCommitResult, GitPushPullResult,
+    build_git_command, is_git_repo, run_git, GitCheckoutResult, GitCommitResult,
+    GitPushPullResult, GIT_NOT_FOUND_MESSAGE,
 };
 
 pub fn commit_changes(repo_path: &str, message: &str) -> Result<GitCommitResult> {
@@ -40,44 +43,69 @@ pub fn commit_changes(repo_path: &str, message: &str) -> Result<GitCommitResult>
     }
 }
 
-pub fn push_changes(repo_path: &str) -> Result<GitPushPullResult> {
-    match run_git(repo_path, &["push"]) {
-        Ok(stdout) => {
-            let msg = if stdout.trim().is_empty() {
-                "Push successful".to_string()
-            } else {
-                stdout.trim().to_string()
-            };
-            Ok(GitPushPullResult {
-                success: true,
-                message: msg,
-            })
+/// 执行 push/pull 并带回 git 的完整输出（log）。
+/// git 的输出分布在两条流上（push 统计在 stderr、pull 冲突详情在
+/// stdout），必须全部捕获；同时禁止终端凭据提示，避免无凭据时挂起。
+fn run_git_network(repo_path: &str, args: &[&str]) -> Result<(bool, String)> {
+    let mut cmd = build_git_command(repo_path, args);
+    cmd.env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null());
+    let output = cmd.output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Error::from_reason(GIT_NOT_FOUND_MESSAGE)
+        } else {
+            Error::from_reason(format!("Failed to execute git: {e}"))
         }
-        Err(e) => Ok(GitPushPullResult {
-            success: false,
-            message: format!("{e}"),
-        }),
+    })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let success = output.status.success();
+    // 失败时 stderr 优先（fatal 原因在前），成功时 stdout 优先（pull 摘要）
+    let combined = if success {
+        join_log(&stdout, &stderr)
+    } else {
+        let detail = join_log(&stderr, &stdout);
+        if detail.is_empty() {
+            format!("git exited with code {}", output.status.code().unwrap_or(-1))
+        } else {
+            detail
+        }
+    };
+    Ok((success, combined))
+}
+
+fn join_log(first: &str, second: &str) -> String {
+    if first.is_empty() {
+        second.to_string()
+    } else if second.is_empty() {
+        first.to_string()
+    } else {
+        format!("{first}\n{second}")
     }
 }
 
+/// push/pull 共用：失败时 message 保证非空；成功且 git 无输出时用 fallback。
+fn push_pull_result(
+    repo_path: &str,
+    args: &[&str],
+    fallback: &str,
+) -> Result<GitPushPullResult> {
+    let (success, log) = run_git_network(repo_path, args)?;
+    Ok(GitPushPullResult {
+        success,
+        message: if success && log.is_empty() {
+            fallback.to_string()
+        } else {
+            log
+        },
+    })
+}
+
+pub fn push_changes(repo_path: &str) -> Result<GitPushPullResult> {
+    push_pull_result(repo_path, &["push"], "Push successful")
+}
+
 pub fn pull_changes(repo_path: &str) -> Result<GitPushPullResult> {
-    match run_git(repo_path, &["pull"]) {
-        Ok(stdout) => {
-            let msg = if stdout.trim().is_empty() {
-                "Pull successful".to_string()
-            } else {
-                stdout.trim().to_string()
-            };
-            Ok(GitPushPullResult {
-                success: true,
-                message: msg,
-            })
-        }
-        Err(e) => Ok(GitPushPullResult {
-            success: false,
-            message: format!("{e}"),
-        }),
-    }
+    push_pull_result(repo_path, &["pull"], "Pull successful")
 }
 
 /// Fetch from the remote without merging. Used by the UI to keep the
