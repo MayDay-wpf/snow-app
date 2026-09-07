@@ -9,6 +9,7 @@ use super::servers::bash::BashService;
 use super::servers::browser::BrowserService;
 use super::servers::codebase::CodebaseService;
 use super::servers::codelens::CodeLensService;
+use super::servers::computer_use::ComputerUseService;
 use super::servers::config::ConfigService;
 use super::servers::filesystem::FilesystemService;
 use super::servers::grep::GrepService;
@@ -48,12 +49,19 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         Arc::new(LspService::new()),
         Arc::new(WorkflowService::new()),
         Arc::new(MemoryService::new()),
+        Arc::new(ComputerUseService::new()),
         // NOTE: new services must be appended to the END of this list to keep
         // the tool order stable (prompt cache); never insert in the middle.
         //
         // SkillsConfigService 已从内置服务注册中移除（硬删除）：技能配置
         // 统一收敛到 config 服务器的 skills scope（config-set/list/delete，
         // 内部委托 SkillsConfigService 实现），skills-config-* 工具不复存在。
+        //
+        // computer-use：纯 Rust 实现（xcap 截屏 + enigo 输入模拟），无需
+        // Electron 桥接，经默认分发路径 spawn_blocking 执行；默认关闭
+        // （collect.rs DEFAULT_DISABLED_SERVER_IDS），需在 MCP 面板按项目
+        // 显式启用。键鼠控制工具天然高危，全部走用户审批，仅 screen-info
+        // 列入 READONLY_TOOL_NAMES。
     ]
 }
 
@@ -93,6 +101,7 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "todo-todo-manage",
     "memory-search",
     "memory-list",
+    "computer-use-screen-info",
 ];
 
 /// 返回仍注册在案的只读工具全名（过滤掉已删除/改名工具的过期条目）。

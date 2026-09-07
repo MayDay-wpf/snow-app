@@ -38,6 +38,11 @@ encoding_rs = "0.8"
 pdf-extract = "0.12"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 oxc = { version = "0.82", features = ["semantic", "ast_visit"] }
+# Computer use: cross-platform screen capture (xcap) + input simulation (enigo).
+# image matches xcap's image 0.25 with jpeg encoding enabled for screenshots.
+enigo = "0.6"
+xcap = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 tree-sitter = "0.25"
 tree-sitter-python = "0.25"
 tree-sitter-rust = "0.23"

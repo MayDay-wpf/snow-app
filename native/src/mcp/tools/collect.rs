@@ -293,7 +293,7 @@ pub async fn collect_allowed_mcp_tools(
 /// Built-in server ids that are disabled by default and must be explicitly
 /// enabled per project. This keeps their tools out of the model context
 /// (saving tokens) until the user opts in.
-const DEFAULT_DISABLED_SERVER_IDS: &[&str] = &["terminal", "lsp"];
+const DEFAULT_DISABLED_SERVER_IDS: &[&str] = &["terminal", "lsp", "computer-use"];
 
 fn tool_is_enabled(
     tool: &McpTool,
@@ -346,6 +346,7 @@ pub(crate) fn builtin_server_name(server_id: &str) -> &str {
         "sub-agents" => "Sub-agents",
         "codebase" => "Codebase",
         "codelens" => "CodeLens",
+        "computer-use" => "Computer Use",
         "terminal" => "Terminal Control",
         "config" => "Config",
         "imagegen" => "Image Generation",

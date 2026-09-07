@@ -20,6 +20,7 @@ import {
   ImageGenToolCall,
   BrowserToolCall,
   TerminalToolCall,
+  ComputerUseToolCall,
   SkillToolCall,
   ConfigToolCall,
   AppControlToolCall,
@@ -379,6 +380,10 @@ export const ToolCallItem = memo(
 
     if (toolCall.name.startsWith("terminal-")) {
       return <TerminalToolCall toolCall={toolCall} />;
+    }
+
+    if (toolCall.name.startsWith("computer-use-")) {
+      return <ComputerUseToolCall toolCall={toolCall} />;
     }
 
     if (toolCall.name === "skills-skill-execute") {

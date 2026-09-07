@@ -128,6 +128,7 @@ const PROJECT_SERVER_DISCOVERY_CONCURRENCY: usize = 4;
 /// server_name 经 `sanitize_name` 后不含 `-`，可安全用第一个 `-` 分割。
 pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "user-interaction",
+    "computer-use",
     "app-control",
     "filesystem",
     "sub-agents",
@@ -150,7 +151,7 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
 /// 用户在 MCP 面板手动重新启用任一服务器时，精简模式自动关闭
 /// （见 set_mcp_project_server_enabled）。
 pub const LITE_MODE_DISABLED_SERVER_IDS: &[&str] =
-    &["browser", "app-control", "terminal"];
+    &["browser", "app-control", "terminal", "computer-use"];
 
 /// 将工具全名 `{server_id}-{tool_name}` 拆分为 `(server_id, tool_name)`。
 /// 先匹配已知内置 server_id 前缀（最长优先），再回退到首个 `-` 分割

@@ -208,12 +208,14 @@ export const ProjectMcpPanel = ({
         enabled,
       );
       // 手动启用被精简模式禁用的内置服务器（browser / app-control /
-      // terminal）时，Rust 侧会自动关闭精简模式；派发事件让会话层重新读取状态。
+      // terminal / computer-use）时，Rust 侧会自动关闭精简模式；派发事件
+      // 让会话层重新读取状态。
       if (
         enabled &&
         (server.id === "builtin:browser" ||
           server.id === "builtin:app-control" ||
-          server.id === "builtin:terminal")
+          server.id === "builtin:terminal" ||
+          server.id === "builtin:computer-use")
       ) {
         window.dispatchEvent(new CustomEvent(LITE_MODE_CHANGED_EVENT));
       }

@@ -779,12 +779,14 @@ export function McpSettingsPanel({
           !server.enabled,
         );
         // 手动启用被精简模式禁用的内置服务器（browser / app-control /
-        // terminal）时，Rust 侧会自动关闭精简模式；派发事件让会话层重新读取状态。
+        // terminal / computer-use）时，Rust 侧会自动关闭精简模式；派发事件
+        // 让会话层重新读取状态。
         if (
           !server.enabled &&
           (server.serverId === "builtin:browser" ||
             server.serverId === "builtin:app-control" ||
-            server.serverId === "builtin:terminal")
+            server.serverId === "builtin:terminal" ||
+            server.serverId === "builtin:computer-use")
         ) {
           window.dispatchEvent(new CustomEvent(LITE_MODE_CHANGED_EVENT));
         }

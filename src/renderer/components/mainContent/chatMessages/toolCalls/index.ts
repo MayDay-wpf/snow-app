@@ -18,6 +18,7 @@ export { ImageGenToolCall } from "./ImageGenToolCall";
 export { ImageGenGallery } from "./ImageGenGallery";
 export { BrowserToolCall } from "./BrowserToolCall";
 export { TerminalToolCall } from "./TerminalToolCall";
+export { ComputerUseToolCall } from "./ComputerUseToolCall";
 export { SkillToolCall } from "./SkillToolCall";
 export { ConfigToolCall } from "./ConfigToolCall";
 export { AppControlToolCall } from "./AppControlToolCall";
