@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.2.29
+
+## New Features
+
+- **Window Pin Button**: The TopBar gains a pin button to toggle always-on-top, using the highest window level so the app stays above others when pinned.
+- Sidebar entries switch to a compact list, with the default color of list item icons adjusted.
+- The right panel tab list uses a custom floating scrollbar.
+- The TODO tool-call card gains an entry to open the TODO panel.
+
+## Improvements
+
+- todo-manage's session ID is now injected automatically by the dispatch layer instead of relying on model-supplied args, making session isolation more reliable.
+- Improved push/pull output capture, with a network and repository-config hint when Git returns no detailed output on failure.
+
 ## v0.2.28
 
 ## New Features
