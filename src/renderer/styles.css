@@ -923,6 +923,24 @@ input {
   -webkit-app-region: no-drag;
 }
 
+/* 图钉置顶按钮：与侧栏切换按钮同组（no-drag），激活时主题色高亮 */
+.always-on-top-btn {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.always-on-top-btn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.always-on-top-btn.active:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -1091,9 +1109,9 @@ input {
   flex-shrink: 0;
 }
 
-/* 项目列表图标语义配色：本地=绿 / SSH=红 / 合集=紫 */
+/* 项目列表图标语义配色：本地=蓝 / SSH=红 / 合集=绿 */
 .list-icon--local {
-  color: var(--accent-green-text);
+  color: var(--accent-blue-text);
 }
 
 .list-icon--ssh {
@@ -1101,7 +1119,7 @@ input {
 }
 
 .list-icon--collection {
-  color: var(--accent-purple-text);
+  color: var(--accent-green-text);
 }
 
 .list-label {

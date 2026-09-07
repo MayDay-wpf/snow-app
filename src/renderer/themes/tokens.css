@@ -32,9 +32,6 @@
   --accent-color: var(--text-primary);
   --accent-amber-bg: #fef3c7;
   --accent-amber-text: #92400e;
-  --accent-purple: #a855f7;
-  --accent-purple-bg: #f3e8ff;
-  --accent-purple-text: #7e22ce;
   --focus-ring: rgba(17, 24, 39, 0.06);
   --scrollbar-thumb: rgba(148, 163, 184, 0.58);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.78);
@@ -95,9 +92,6 @@
   --accent-color: var(--text-primary);
   --accent-amber-bg: rgba(245, 158, 11, 0.18);
   --accent-amber-text: #fcd34d;
-  --accent-purple: #c084fc;
-  --accent-purple-bg: rgba(168, 85, 247, 0.18);
-  --accent-purple-text: #d8b4fe;
   --focus-ring: rgba(212, 212, 212, 0.14);
   --scrollbar-thumb: rgba(113, 113, 122, 0.68);
   --scrollbar-thumb-hover: rgba(161, 161, 170, 0.82);

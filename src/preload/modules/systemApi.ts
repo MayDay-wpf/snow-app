@@ -1234,6 +1234,11 @@ export const windowApi = {
     ipcRenderer.invoke("window:confirm-close"),
   isWindowMaximized: (): Promise<boolean> =>
     ipcRenderer.invoke("window:is-maximized"),
+  /** 窗口置顶（图钉）：设置后返回主进程确认的最新置顶状态。 */
+  setWindowAlwaysOnTop: (alwaysOnTop: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("window:set-always-on-top", alwaysOnTop),
+  isWindowAlwaysOnTop: (): Promise<boolean> =>
+    ipcRenderer.invoke("window:is-always-on-top"),
   clearWindowState: (): Promise<void> =>
     ipcRenderer.invoke("window:clear-state"),
   /** 错误边界"重新加载"：由主进程强制刷新渲染进程（比 location.reload 可靠）。 */

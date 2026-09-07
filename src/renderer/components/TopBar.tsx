@@ -7,6 +7,8 @@ import {
   Maximize2,
   Minimize2,
   Paintbrush,
+  Pin,
+  PinOff,
   SidebarClose,
   SidebarOpen,
   SquarePen,
@@ -82,6 +84,8 @@ export const TopBar = ({
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [isTodoPanelOpen, setIsTodoPanelOpen] = useState(false);
   const [isTodoPanelPinned, setIsTodoPanelPinned] = useState(false);
+  // 窗口置顶（图钉）：挂载时从主进程同步真实状态。
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
   // 项目标签右键菜单：记录触发位置。
   const [branchContextMenu, setBranchContextMenu] = useState<{
     x: number;
@@ -393,6 +397,38 @@ export const TopBar = ({
     setParentConversationTitle(record.summary);
   }, [upsertedConversation, parentConversationId]);
 
+  // 挂载时从主进程读取置顶状态，保证按钮与真实窗口状态一致。
+  useEffect(() => {
+    let cancelled = false;
+    void window.snow
+      .isWindowAlwaysOnTop()
+      .then((pinned) => {
+        if (!cancelled) {
+          setIsAlwaysOnTop(pinned);
+        }
+      })
+      .catch(() => {
+        // 查询失败保持默认关闭态。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleAlwaysOnTop = (): void => {
+    const next = !isAlwaysOnTop;
+    setIsAlwaysOnTop(next);
+    void window.snow
+      .setWindowAlwaysOnTop(next)
+      .then((confirmed) => {
+        setIsAlwaysOnTop(confirmed);
+      })
+      .catch(() => {
+        // 设置失败回滚到原状态。
+        setIsAlwaysOnTop(!next);
+      });
+  };
+
   const SidebarToggleIcon = isSidebarCollapsed ? SidebarOpen : SidebarClose;
   const sidebarToggleLabel = isSidebarCollapsed
     ? "Expand sidebar"
@@ -407,6 +443,10 @@ export const TopBar = ({
   const fullscreenToggleLabel = isRightPanelFullscreen
     ? "Exit right panel fullscreen"
     : "Right panel fullscreen";
+  const AlwaysOnTopIcon = isAlwaysOnTop ? PinOff : Pin;
+  const alwaysOnTopLabel = isAlwaysOnTop
+    ? t("topBar.disableAlwaysOnTop", { defaultValue: "Disable Always on Top" })
+    : t("topBar.alwaysOnTop", { defaultValue: "Always on Top" });
 
   const displayDirectoryName = conversationDirectoryId
     ? conversationDirectoryName
@@ -592,6 +632,15 @@ export const TopBar = ({
             onClick={onToggleSidebar}
           >
             <SidebarToggleIcon size={16} strokeWidth={1.8} />
+          </button>
+          <button
+            className={`icon-btn always-on-top-btn${isAlwaysOnTop ? " active" : ""}`}
+            type="button"
+            aria-label={alwaysOnTopLabel}
+            title={alwaysOnTopLabel}
+            onClick={toggleAlwaysOnTop}
+          >
+            <AlwaysOnTopIcon size={16} strokeWidth={1.8} />
           </button>
           <button
             className="icon-btn new-chat-btn"

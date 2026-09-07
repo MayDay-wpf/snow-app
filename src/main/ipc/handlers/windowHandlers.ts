@@ -230,6 +230,21 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     return win ? win.isMaximized() : false;
   });
 
+  // 窗口置顶（图钉）：level 使用 screen-saver 保证不被其他应用遮挡。
+  ipcMain.handle("window:set-always-on-top", (event, alwaysOnTop: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return false;
+    }
+    win.setAlwaysOnTop(alwaysOnTop === true, "screen-saver");
+    return win.isAlwaysOnTop();
+  });
+
+  ipcMain.handle("window:is-always-on-top", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? win.isAlwaysOnTop() : false;
+  });
+
   // 清除持久化的窗口尺寸/位置缓存（主题重置时一并调用），
   // 下次启动回退到默认窗口尺寸。
   ipcMain.handle("window:clear-state", async () => {
