@@ -10,9 +10,11 @@
 //!   spawn_blocking 线程池中调用，绝不阻塞 Node.js / NAPI 线程
 //! - macOS 权限预检：辅助功能 / 屏幕录制缺失时返回可行动指引
 //!
-//! 安全边界：本服务器默认关闭（collect.rs DEFAULT_DISABLED_SERVER_IDS），
-//! 需在 MCP 面板按项目显式启用；screen-info 为只读工具，其余键鼠控制
-//! 工具均走用户审批流程。
+//! 安全边界：本服务器默认关闭，与 terminal/lsp 同一白名单机制
+//! （system_settings DEFAULT_DISABLED_BUILTIN_SERVERS + collect.rs
+//! DEFAULT_DISABLED_SERVER_IDS），需在 MCP 面板按项目显式启用，
+//! 不受精简模式以外的任何隐式启用路径影响；screen-info 为只读工具，
+//! 其余键鼠控制工具均走用户审批流程。
 
 mod capture;
 mod input;
@@ -32,8 +34,11 @@ const SERVER_ID: &str = "computer-use";
 /// 所有键鼠工具共享的坐标系说明。
 const COORDINATES_DOC: &str = "Coordinates are GLOBAL virtual-desktop pixels: the PRIMARY display's top-left corner is (0,0) and displays left/above it have negative x/y. Call computer-use-screen-info first to learn the display layout and current cursor position.";
 
-/// 截图与鼠标工具配合的标准工作流。
-const WORKFLOW_DOC: &str = "WORKFLOW: screenshot -> locate the target in the image -> convert image pixels to screen coordinates (formula in the screenshot text block) -> act with computer-use-mouse-click / mouse-drag / type-text.";
+/// 截图与鼠标工具配合的标准工作流：一次截图定位全部目标，然后连续执行动作链。
+const WORKFLOW_DOC: &str = "WORKFLOW: screenshot -> locate ALL targets you need in that one image -> convert pixel positions to screen coordinates (formula in the screenshot text block) -> chain the actions (mouse-click / mouse-drag / type-text) back-to-back WITHOUT re-screenshotting in between.";
+
+/// 连续操作效率指引：动作工具的结果自带成功确认，动作之间不插入截图。
+const EFFICIENCY_DOC: &str = "EFFICIENCY: every screenshot costs a full round-trip. Action tools (mouse-click, type-text, key-tap) report success in their own result - do NOT re-screenshot between consecutive actions. Screenshot again ONLY when the screen visibly changed (new window/dialog/page appeared), an action failed, or you need to locate a target that was not visible in the last screenshot. Example task 'send a chat message': ONE screenshot (locate the input box) -> type-text with x/y (focus + type) -> key-tap [\"enter\"] to submit -> done, no screenshot in between.";
 
 pub struct ComputerUseService;
 
@@ -62,7 +67,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "screenshot".to_string(),
-                description: format!("Capture a screenshot of one display (or a region of it) and return a base64 image the model can SEE (multimodal), plus a text block describing how to map image pixels back to screen coordinates. {COORDINATES_DOC} The optional `region` uses DISPLAY-LOCAL LOGICAL coordinates (top-left of the chosen display is 0,0). `maxWidth` downscales the image to control token cost (default 1280). `format` png is lossless but much larger - use it with a small region when you need a sharp close-up of tiny text. {WORKFLOW_DOC}"),
+                description: format!("Capture a screenshot of one display (or a region of it) and return a base64 image the model can SEE (multimodal), plus a text block describing how to map image pixels back to screen coordinates. {COORDINATES_DOC} The optional `region` uses DISPLAY-LOCAL LOGICAL coordinates (top-left of the chosen display is 0,0). `maxWidth` downscales the image to control token cost (default 1280). `format` png is lossless but much larger - use it with a small region when you need a sharp close-up of tiny text. {WORKFLOW_DOC} {EFFICIENCY_DOC}"),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -122,7 +127,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "mouse-click".to_string(),
-                description: format!("Click the mouse: single (clicks=1), double (clicks=2, e.g. open file / select word), triple (clicks=3, e.g. select paragraph), or PRESS-AND-HOLD (holdMs > 0, e.g. long-press context menus / drag handles on touch-like UIs). Optionally pass x/y to move first (durationMs controls that move). {COORDINATES_DOC} {WORKFLOW_DOC}"),
+                description: format!("Click the mouse: single (clicks=1), double (clicks=2, e.g. open file / select word), triple (clicks=3, e.g. select paragraph), or PRESS-AND-HOLD (holdMs > 0, e.g. long-press context menus / drag handles on touch-like UIs). Pass x/y to move-and-click in one step - preferred over a separate mouse-move call (durationMs controls that move). {COORDINATES_DOC} {WORKFLOW_DOC}"),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -258,7 +263,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "key-tap".to_string(),
-                description: "Tap a key or a key combination (chord). Pass a single key (e.g. [\"enter\"], [\"esc\"], [\"a\"]) or a combination pressed in order (e.g. [\"ctrl\",\"shift\",\"t\"], [\"cmd\",\"c\"] on macOS - use ctrl on Windows/Linux). Modifier keys: ctrl, alt/option, shift, win/cmd/meta. Named keys: enter/return, tab, esc, backspace, delete, insert, space, up, down, left, right, home, end, pageup, pagedown, f1-f20, capslock, printscr, pause, numpad0-9, volume/playback media keys. Any other single character is typed as-is.".to_string(),
+                description: "Tap a key or a key combination (chord). Pass a single key (e.g. [\"enter\"], [\"esc\"], [\"a\"]) or a combination pressed in order (e.g. [\"ctrl\",\"shift\",\"t\"], [\"cmd\",\"c\"] on macOS - use ctrl on Windows/Linux). Modifier keys: ctrl, alt/option, shift, win/cmd/meta. Named keys: enter/return, tab, esc, backspace, delete, insert, space, up, down, left, right, home, end, pageup, pagedown, f1-f20, capslock, printscr, pause, numpad0-9, volume/playback media keys. Any other single character is typed as-is. After typing text into an input, submit it directly with key-tap (e.g. [\"enter\"], or [\"ctrl\",\"enter\"] where the app requires it) - no screenshot in between.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -303,7 +308,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "type-text".to_string(),
-                description: format!("Type literal text through the OS text-input channel (supports any Unicode incl. CJK - no per-key layout mapping, so do NOT use it for shortcuts; use key-tap for those). Optionally pass x/y to single-click and focus an input field first. Text longer than a few hundred chars may be slow - prefer clipboard-style batch entry by typing once into a field. {COORDINATES_DOC}"),
+                description: format!("Type literal text through the OS text-input channel (supports any Unicode incl. CJK - no per-key layout mapping, so do NOT use it for shortcuts; use key-tap for those). Pass x/y to single-click an input field and focus it in the SAME call (focus + type in one step). To submit after typing (chat message, search query), call key-tap right after - no screenshot in between. Text longer than a few hundred chars may be slow - prefer clipboard-style batch entry by typing once into a field. {COORDINATES_DOC}"),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -311,8 +316,14 @@ impl McpService for ComputerUseService {
                             "type": "string",
                             "description": "The exact text to type."
                         },
-                        "x": {"type": "number", "description": "Optional global X: single-click here first to focus the target input."},
-                        "y": {"type": "number", "description": "Optional global Y for the focus click."}
+                        "x": {
+                            "type": "number",
+                            "description": "Optional global X: single-click here first to focus the target input."
+                        },
+                        "y": {
+                            "type": "number",
+                            "description": "Optional global Y for the focus click."
+                        }
                     },
                     "required": ["text"]
                 }),

@@ -112,6 +112,10 @@ pub fn parse_key(name: &str) -> Result<Key, String> {
                 if let Some(key) = match other {
                     "insert" => Some(Key::Insert),
                     "numlock" | "num_lock" => Some(Key::Numlock),
+                    // enigo 中 Scroll Lock 变体按平台命名：Windows 为 Scroll，Linux 为 ScrollLock
+                    #[cfg(target_os = "windows")]
+                    "scrolllock" | "scroll_lock" => Some(Key::Scroll),
+                    #[cfg(all(unix, not(target_os = "macos")))]
                     "scrolllock" | "scroll_lock" => Some(Key::ScrollLock),
                     "printscr" | "printscreen" | "print_screen" => Some(Key::PrintScr),
                     "pause" => Some(Key::Pause),

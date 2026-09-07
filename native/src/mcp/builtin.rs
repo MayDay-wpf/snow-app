@@ -59,9 +59,10 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         //
         // computer-use：纯 Rust 实现（xcap 截屏 + enigo 输入模拟），无需
         // Electron 桥接，经默认分发路径 spawn_blocking 执行；默认关闭
-        // （collect.rs DEFAULT_DISABLED_SERVER_IDS），需在 MCP 面板按项目
-        // 显式启用。键鼠控制工具天然高危，全部走用户审批，仅 screen-info
-        // 列入 READONLY_TOOL_NAMES。
+        // （system_settings DEFAULT_DISABLED_BUILTIN_SERVERS + collect.rs
+        // DEFAULT_DISABLED_SERVER_IDS，与 terminal/lsp 同一白名单机制），
+        // 需在 MCP 面板按项目显式启用。键鼠控制工具天然高危，全部走用户
+        // 审批，仅 screen-info 列入 READONLY_TOOL_NAMES。
     ]
 }
 

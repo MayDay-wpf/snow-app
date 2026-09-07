@@ -402,10 +402,10 @@ pub(crate) async fn ensure_project_tool_enabled(
         ));
     };
     let scope = load_project_scope(project_id).await?;
-    // 默认关闭的内置服务器（terminal/lsp）：必须在项目 scope 中显式启用
-    // 才可调用。无项目 scope（无项目上下文）= 用户从未启用，直接拒绝——
-    // 与 collect 阶段 tool_is_enabled 的无 scope 判定保持一致，防止绕过
-    // 工具列表的调用仍被执行。
+    // 默认关闭的内置服务器（terminal/lsp/computer-use）：必须在项目 scope
+    // 中显式启用才可调用。无项目 scope（无项目上下文）= 用户从未启用，直接
+    // 拒绝——与 collect 阶段 tool_is_enabled 的无 scope 判定保持一致，防止
+    // 绕过工具列表的调用仍被执行。
     if DEFAULT_DISABLED_SERVER_IDS.contains(&server_id) {
         let Some(scope) = scope else {
             return Err(Error::new(

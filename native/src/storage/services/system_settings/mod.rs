@@ -92,8 +92,9 @@ const PROJECT_TOOL_APPROVAL_SETTING_CODE_PREFIX: &str = "project_tool_approval_s
 /// the `enabled_server_ids` whitelist. This saves request context tokens
 /// for tools that are only useful on demand (e.g. terminal control, LSP
 /// semantic analysis — the latter requires user opt-in because it spawns
-/// external language-server processes).
-const DEFAULT_DISABLED_BUILTIN_SERVERS: &[&str] = &["terminal", "lsp"];
+/// external language-server processes) and keeps high-risk surfaces off
+/// by default (computer-use controls the user's mouse and keyboard).
+const DEFAULT_DISABLED_BUILTIN_SERVERS: &[&str] = &["terminal", "lsp", "computer-use"];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]

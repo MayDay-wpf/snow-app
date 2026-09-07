@@ -148,7 +148,11 @@ fn list_with_connection(connection: &Connection) -> rusqlite::Result<Vec<Schedul
     )?;
     let runs: Vec<(String, ScheduledTaskRunRecord)> = run_statement
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, map_run_row(row)?))
+            // The SELECT prepends `task_id`, so the run fields start at
+            // column 1 instead of 0. Reading from column 0 makes duration_ms
+            // hit the TEXT column status, failing the entire list whenever
+            // any run history exists (github issue #123).
+            Ok((row.get::<_, String>(0)?, map_run_row_at(row, 1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -321,7 +325,9 @@ fn fetch_run_history(
           LIMIT ?2",
     )?;
     let rows = statement
-        .query_map(params![task_id, MAX_RUN_HISTORY], |row| map_run_row(row))?
+        .query_map(params![task_id, MAX_RUN_HISTORY], |row| {
+            map_run_row_at(row, 0)
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -355,11 +361,19 @@ fn map_task_row(row: &Row) -> rusqlite::Result<ScheduledTaskRecord> {
     })
 }
 
-fn map_run_row(row: &Row) -> rusqlite::Result<ScheduledTaskRunRecord> {
+/// Maps a `scheduled_task_runs` row starting at column `offset`.
+///
+/// `fetch_run_history` selects only the 4 record columns (`run_at, status,
+/// duration_ms, error`), while `list_with_connection` prefixes `task_id` for
+/// grouping. Callers must pass the matching offset — an off-by-one here
+/// surfaces as `Invalid column type Text at index: 2, name: status`, which
+/// fails the whole `scheduled-tasks:list` call whenever any run history
+/// exists (github issue #123).
+fn map_run_row_at(row: &Row, offset: usize) -> rusqlite::Result<ScheduledTaskRunRecord> {
     Ok(ScheduledTaskRunRecord {
-        run_at: row.get(0)?,
-        status: row.get(1)?,
-        duration_ms: row.get(2)?,
-        error: row.get(3)?,
+        run_at: row.get(offset)?,
+        status: row.get(offset + 1)?,
+        duration_ms: row.get(offset + 2)?,
+        error: row.get(offset + 3)?,
     })
 }
