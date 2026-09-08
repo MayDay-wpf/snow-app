@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.2.31
+
+## New Features
+
+- **Close Behavior Settings**: General settings add a "When closing Snow App" option: ask every time (default), exit directly, or minimize to tray.
+- **Device Size Management**: Browser settings support a customizable device display size list.
+- Browser screenshots are shown inline in tool cards again, with click-to-zoom.
+
+## Improvements
+
+- The embedded browser is refactored into a flat single-webview tab model: right-panel tabs are browser tabs, each backed by its own webview instance, making the panel simpler.
+- The SSH directory uses a fixed Server icon, with the active state shown by row highlighting.
+
+## Bug Fixes
+
+- Reverted the global User-Agent cleanup, restoring Google login.
+
 ## v0.2.30
 
 ## New Features
