@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.2.30
+
+## New Features
+
+- **Computer Use Tool**: Mouse, keyboard, and screenshot actions with automatic macOS accessibility and screen-capture permission checks, plus a companion perform-actions chain tool for multi-step sequences. Disabled by default; enable it in MCP settings.
+- **Built-in Browser Bookmarks Bar**: Add, manage, and open bookmarks quickly, with website favicons.
+- **Device Display Size**: The embedded browser can render pages at device sizes.
+- Automatic cookie backups for the embedded browser, reducing the risk of losing login state.
+
+## Bug Fixes
+
+- Fixed an intermittent crash on macOS 26 where keyboard-layout APIs were called off the main queue (the calls are now forwarded to the main queue).
+- Fixed database lock conflicts when child agent sessions activate in parallel (child session creation writes are now serialized).
+- Fixed the column offset in the timed-task runlog.
+- The usage trend chart now fills missing dates with 0 so the timeline no longer skips days without data.
+
 ## v0.2.29
 
 ## New Features
