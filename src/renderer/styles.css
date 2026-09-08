@@ -18104,6 +18104,7 @@ input {
   border: 1px solid var(--border-light);
   object-fit: contain;
   background: var(--bg-primary);
+  cursor: pointer;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;

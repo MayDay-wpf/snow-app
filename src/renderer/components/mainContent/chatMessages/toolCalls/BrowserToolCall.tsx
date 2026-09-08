@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Accessibility,
   Activity,
@@ -73,7 +74,7 @@ type BrowserOperation =
   | "forward";
 
 type ParsedResult =
-  | { type: "success"; data: Record<string, unknown> }
+  | { type: "success"; data: Record<string, unknown>; images: string[] }
   | { type: "error"; message: string }
   | { type: "raw"; text: string }
   | { type: "empty" };
@@ -139,21 +140,46 @@ const parseArgs = (args: string): Record<string, unknown> | null => {
   }
 };
 
+/** 持久化时 formatMcpToolResultForModel 把 image block 的 base64 换成占位符，
+ *  并在 result 尾部追加此标签，直接 JSON.parse 整串会失败，需先剥离。 */
+const INLINE_IMAGE_TAG_RE = /@@image:(data:[^@]+)@@/g;
+
+/** 从 data URL 提取 base64 数据部分。 */
+const base64FromDataUrl = (dataUrl: string): string | null => {
+  const comma = dataUrl.indexOf(",");
+  return comma > 0 ? dataUrl.slice(comma + 1) : null;
+};
+
+/** 剥离内联图片标签，返回剩余文本与 data URL 列表。 */
+const stripInlineImageTags = (
+  result: string,
+): { text: string; images: string[] } => {
+  const images: string[] = [];
+  const text = result
+    .replace(INLINE_IMAGE_TAG_RE, (_match, dataUrl: string) => {
+      images.push(dataUrl);
+      return "";
+    })
+    .trim();
+  return { text, images };
+};
+
 const parseResult = (result: string | undefined): ParsedResult => {
   if (!result) {
     return { type: "empty" };
   }
+  const { text, images } = stripInlineImageTags(result);
   try {
-    const parsed: unknown = JSON.parse(result);
+    const parsed: unknown = JSON.parse(text);
     if (!isRecord(parsed)) {
-      return { type: "raw", text: result };
+      return { type: "raw", text };
     }
     if (typeof parsed.error === "string") {
       return { type: "error", message: parsed.error };
     }
-    return { type: "success", data: parsed };
+    return { type: "success", data: parsed, images };
   } catch {
-    return { type: "raw", text: result };
+    return { type: "raw", text };
   }
 };
 
@@ -292,21 +318,47 @@ const parseBrowserTabs = (value: unknown): BrowserTab[] => {
     }));
 };
 
-const parseScreenshotImage = (value: unknown): ScreenshotImage | null => {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  for (const block of value) {
-    if (
-      isRecord(block) &&
-      block.type === "image" &&
-      typeof block.data === "string" &&
-      typeof block.mimeType === "string"
-    ) {
-      return { data: block.data, mimeType: block.mimeType };
+const parseScreenshotImage = (
+  value: unknown,
+  inlineDataUrls: string[],
+): ScreenshotImage | null => {
+  let image: ScreenshotImage | null = null;
+  if (Array.isArray(value)) {
+    for (const block of value) {
+      if (
+        isRecord(block) &&
+        block.type === "image" &&
+        typeof block.mimeType === "string"
+      ) {
+        let data = typeof block.data === "string" ? block.data : "";
+        // 持久化后 data 为占位符：用内联标签中的 data URL 还原
+        if (
+          (data === "" || data === "[attached as multimodal image]") &&
+          inlineDataUrls.length > 0
+        ) {
+          const dataUrl = inlineDataUrls.shift();
+          data = dataUrl ? (base64FromDataUrl(dataUrl) ?? "") : "";
+        }
+        if (data) {
+          image = { data, mimeType: block.mimeType };
+          break;
+        }
+      }
     }
   }
-  return null;
+  // content 数组缺失 image block 但存在内联标签：直接从标签还原
+  if (!image && inlineDataUrls.length > 0) {
+    const dataUrl = inlineDataUrls[0];
+    const base64 = base64FromDataUrl(dataUrl);
+    if (base64) {
+      const mimeTypeMatch = /^data:([^;,]+)/.exec(dataUrl);
+      image = {
+        mimeType: mimeTypeMatch?.[1] ?? "image/png",
+        data: base64,
+      };
+    }
+  }
+  return image;
 };
 
 const consoleLevelKey = (level: number): string => {
@@ -397,7 +449,10 @@ const PageCard = ({
     <div className="tool-call-browser-page">
       <div className="tool-call-browser-page-title">
         <Globe size={13} aria-hidden="true" />
-        <span className="tool-call-browser-page-title-text" title={title || url}>
+        <span
+          className="tool-call-browser-page-title-text"
+          title={title || url}
+        >
           {title || host}
         </span>
       </div>
@@ -462,7 +517,11 @@ const PendingBlock = ({
     }`}
   >
     {isRunning ? (
-      <Loader2 className="tool-call-icon-spinning" size={14} aria-hidden="true" />
+      <Loader2
+        className="tool-call-icon-spinning"
+        size={14}
+        aria-hidden="true"
+      />
     ) : (
       <Globe size={14} aria-hidden="true" />
     )}
@@ -566,7 +625,9 @@ const ClickView = ({
         <div className="tool-call-browser-target">
           <MousePointerClick size={12} aria-hidden="true" />
           {selector ? (
-            <code className="tool-call-browser-target-selector">{selector}</code>
+            <code className="tool-call-browser-target-selector">
+              {selector}
+            </code>
           ) : null}
           {text ? (
             <span className="tool-call-browser-target-text">"{text}"</span>
@@ -584,7 +645,9 @@ const ClickView = ({
               {element.tagName}
             </span>
             {element.id ? (
-              <span className="tool-call-browser-element-id">#{element.id}</span>
+              <span className="tool-call-browser-element-id">
+                #{element.id}
+              </span>
             ) : null}
             {element.text ? (
               <span
@@ -695,7 +758,9 @@ const TypeView = ({
         <div className="tool-call-browser-target">
           <Keyboard size={12} aria-hidden="true" />
           {selector ? (
-            <code className="tool-call-browser-target-selector">{selector}</code>
+            <code className="tool-call-browser-target-selector">
+              {selector}
+            </code>
           ) : null}
           {ref ? (
             <code className="tool-call-browser-target-selector">{ref}</code>
@@ -724,7 +789,9 @@ const TypeView = ({
               {element.tagName}
             </span>
             {element.id ? (
-              <span className="tool-call-browser-element-id">#{element.id}</span>
+              <span className="tool-call-browser-element-id">
+                #{element.id}
+              </span>
             ) : null}
             {element.text ? (
               <span
@@ -852,7 +919,9 @@ const HoverView = ({
         <div className="tool-call-browser-target">
           <MousePointer size={12} aria-hidden="true" />
           {selector ? (
-            <code className="tool-call-browser-target-selector">{selector}</code>
+            <code className="tool-call-browser-target-selector">
+              {selector}
+            </code>
           ) : null}
           {text ? (
             <span className="tool-call-browser-target-text">"{text}"</span>
@@ -870,7 +939,9 @@ const HoverView = ({
               {element.tagName}
             </span>
             {element.id ? (
-              <span className="tool-call-browser-element-id">#{element.id}</span>
+              <span className="tool-call-browser-element-id">
+                #{element.id}
+              </span>
             ) : null}
             {element.text ? (
               <span
@@ -931,7 +1002,9 @@ const SelectOptionView = ({
         <div className="tool-call-browser-target">
           <ListChecks size={12} aria-hidden="true" />
           {selector ? (
-            <code className="tool-call-browser-target-selector">{selector}</code>
+            <code className="tool-call-browser-target-selector">
+              {selector}
+            </code>
           ) : null}
           {text ? (
             <span className="tool-call-browser-target-text">"{text}"</span>
@@ -967,7 +1040,9 @@ const SelectOptionView = ({
               {element.tagName}
             </span>
             {element.id ? (
-              <span className="tool-call-browser-element-id">#{element.id}</span>
+              <span className="tool-call-browser-element-id">
+                #{element.id}
+              </span>
             ) : null}
             {element.text ? (
               <span
@@ -1076,17 +1151,68 @@ const HistoryView = ({
 const ScreenshotView = ({
   args,
   data,
+  inlineImages,
 }: {
   args: Record<string, unknown> | null;
   data: Record<string, unknown> | null;
+  inlineImages: string[];
 }): React.JSX.Element | null => {
   const { t } = useI18n();
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const fullPageArg = args?.fullPage !== false;
   const fullPage = data ? data.fullPage !== false : fullPageArg;
-  const image = data ? parseScreenshotImage(data.content) : null;
+  const image = data ? parseScreenshotImage(data.content, inlineImages) : null;
+  const imageSrc = image ? `data:${image.mimeType};base64,${image.data}` : null;
   const resultUrl = asString(data?.url);
   const title = asString(data?.title);
   const instanceId = asString(data?.instanceId);
+
+  // Esc 关闭大图
+  useEffect(() => {
+    if (!isLightboxOpen) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsLightboxOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isLightboxOpen]);
+
+  const lightboxElement =
+    isLightboxOpen && imageSrc
+      ? createPortal(
+          <div
+            className="tool-call-imagegen-lightbox"
+            onClick={() => setIsLightboxOpen(false)}
+            role="presentation"
+          >
+            <img
+              src={imageSrc}
+              alt={title || resultUrl || "screenshot"}
+              draggable={false}
+              onClick={(event) => event.stopPropagation()}
+            />
+            <div
+              className="tool-call-imagegen-lightbox-toolbar"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="tool-call-imagegen-lightbox-close"
+                onClick={() => setIsLightboxOpen(false)}
+                aria-label={t("toolCall.imagegen.close")}
+              >
+                ✕
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <>
       <div className="tool-call-browser-tags">
@@ -1107,11 +1233,15 @@ const ScreenshotView = ({
       {image ? (
         <div className="tool-call-browser-shot">
           <img
-            src={`data:${image.mimeType};base64,${image.data}`}
+            src={imageSrc ?? undefined}
             alt={title || resultUrl || "screenshot"}
+            title={t("toolCall.computerUse.clickToZoom")}
+            onClick={() => setIsLightboxOpen(true)}
+            draggable={false}
           />
         </div>
       ) : null}
+      {lightboxElement}
     </>
   );
 };
@@ -1276,7 +1406,7 @@ const parseNetworkRecord = (value: unknown): NetworkRecord | null => {
     status:
       typeof value.status === "number"
         ? value.status
-        : asString(value.status) ?? undefined,
+        : (asString(value.status) ?? undefined),
     resourceType: asString(value.resourceType),
     durationMs: asNumber(value.durationMs),
     requestId: asString(value.requestId),
@@ -1314,7 +1444,8 @@ const DevtoolsNetworkView = ({
   const raw = Array.isArray(data?.requests) ? data.requests : [];
   const records = raw
     .map((item) => {
-      const candidate = isRecord(item) && isRecord(item.record) ? item.record : item;
+      const candidate =
+        isRecord(item) && isRecord(item.record) ? item.record : item;
       return parseNetworkRecord(candidate);
     })
     .filter((record): record is NetworkRecord => record !== null);
@@ -1397,13 +1528,23 @@ const DevtoolsNetworkDetailView = ({
       </div>
     );
   }
-  const detail = isRecord(data.details) ? data.details : isRecord(data.request) ? data.request : data;
+  const detail = isRecord(data.details)
+    ? data.details
+    : isRecord(data.request)
+      ? data.request
+      : data;
   const record = parseNetworkRecord(detail);
-  const requestHeaders = isRecord(detail.requestHeaders) ? detail.requestHeaders : null;
-  const responseHeaders = isRecord(detail.responseHeaders) ? detail.responseHeaders : null;
+  const requestHeaders = isRecord(detail.requestHeaders)
+    ? detail.requestHeaders
+    : null;
+  const responseHeaders = isRecord(detail.responseHeaders)
+    ? detail.responseHeaders
+    : null;
   const requestBody =
     typeof detail.requestBody === "string" ? detail.requestBody : null;
-  const responseBodyRaw = isRecord(detail.responseBody) ? detail.responseBody : null;
+  const responseBodyRaw = isRecord(detail.responseBody)
+    ? detail.responseBody
+    : null;
   const responseBodyText =
     typeof responseBodyRaw?.text === "string" ? responseBodyRaw.text : null;
 
@@ -1426,10 +1567,16 @@ const DevtoolsNetworkDetailView = ({
         </div>
       ) : null}
       {requestHeaders ? (
-        <HeadersBlock label={t("toolCall.browser.requestHeaders")} headers={requestHeaders} />
+        <HeadersBlock
+          label={t("toolCall.browser.requestHeaders")}
+          headers={requestHeaders}
+        />
       ) : null}
       {responseHeaders ? (
-        <HeadersBlock label={t("toolCall.browser.responseHeaders")} headers={responseHeaders} />
+        <HeadersBlock
+          label={t("toolCall.browser.responseHeaders")}
+          headers={responseHeaders}
+        />
       ) : null}
       {requestBody ? (
         <section className="tool-call-section">
@@ -1520,7 +1667,8 @@ const DevtoolsDialogsView = ({
     <div className="tool-call-browser-dialogs">
       {raw.map((item, index) => {
         const dialog = isRecord(item) ? item : null;
-        const type = asString(dialog?.dialogType) ?? asString(dialog?.type) ?? "?";
+        const type =
+          asString(dialog?.dialogType) ?? asString(dialog?.type) ?? "?";
         const message = asString(dialog?.message) ?? "";
         return (
           <div key={index} className="tool-call-browser-dialog">
@@ -1610,7 +1758,8 @@ const DevtoolsAxView = ({
           .filter((node): node is AxTreeLine => node !== null)
       : [];
   const stats = isRecord(data?.stats) ? data.stats : null;
-  const emitted = typeof stats?.emitted === "number" ? stats.emitted : tree.length;
+  const emitted =
+    typeof stats?.emitted === "number" ? stats.emitted : tree.length;
   const truncated = stats?.truncated === true;
   return (
     <>
@@ -1668,9 +1817,7 @@ const DevtoolsView = ({
   const snapshot =
     action === "snapshot" && data ? parseSnapshot(data.snapshot) : null;
   const messages =
-    action === "console" && data
-      ? parseConsoleMessages(data.messages)
-      : null;
+    action === "console" && data ? parseConsoleMessages(data.messages) : null;
   const opened = data?.opened === true;
   const resultUrl = asString(data?.url);
   const title = asString(data?.title);
@@ -1683,7 +1830,10 @@ const DevtoolsView = ({
     switch (action) {
       case "network_clear":
         return (
-          <StatusRow icon={Eraser} label={t("toolCall.browser.networkCleared")} />
+          <StatusRow
+            icon={Eraser}
+            label={t("toolCall.browser.networkCleared")}
+          />
         );
       case "networkState": {
         const offline = data.state === "offline";
@@ -1703,7 +1853,9 @@ const DevtoolsView = ({
         );
       }
       case "route": {
-        const pattern = asString(isRecord(data.rule) ? data.rule.pattern : undefined);
+        const pattern = asString(
+          isRecord(data.rule) ? data.rule.pattern : undefined,
+        );
         return (
           <StatusRow icon={Route} label={t("toolCall.browser.routeActive")}>
             {pattern ? <Tag tone="blue">{pattern}</Tag> : null}
@@ -1716,7 +1868,7 @@ const DevtoolsView = ({
         );
       case "storageSave": {
         const fileName = asString(
-          isRecord(data.storage) ? data.storage.fileName : undefined
+          isRecord(data.storage) ? data.storage.fileName : undefined,
         );
         return (
           <StatusRow icon={Save} label={t("toolCall.browser.storageSaved")}>
@@ -1726,10 +1878,13 @@ const DevtoolsView = ({
       }
       case "storageRestore": {
         const fileName = asString(
-          isRecord(data.storage) ? data.storage.fileName : undefined
+          isRecord(data.storage) ? data.storage.fileName : undefined,
         );
         return (
-          <StatusRow icon={Download} label={t("toolCall.browser.storageRestored")}>
+          <StatusRow
+            icon={Download}
+            label={t("toolCall.browser.storageRestored")}
+          >
             {fileName ? <Tag tone="blue">{fileName}</Tag> : null}
           </StatusRow>
         );
@@ -1738,10 +1893,7 @@ const DevtoolsView = ({
         const name = asString(data.name);
         const domain = asString(data.domain);
         return (
-          <StatusRow
-            icon={Cookie}
-            label={t("toolCall.browser.cookieDeleted")}
-          >
+          <StatusRow icon={Cookie} label={t("toolCall.browser.cookieDeleted")}>
             {name ? <Tag tone="blue">{name}</Tag> : null}
             {domain ? <Tag>{domain}</Tag> : null}
           </StatusRow>
@@ -1778,8 +1930,8 @@ const DevtoolsView = ({
     action === "trace" && data
       ? JSON.stringify(data.trace ?? data, null, 2)
       : !hasDedicatedView && data
-      ? JSON.stringify(data, null, 2)
-      : "";
+        ? JSON.stringify(data, null, 2)
+        : "";
 
   return (
     <>
@@ -1845,8 +1997,7 @@ const CloseFocusView = ({
   data: Record<string, unknown> | null;
 }): React.JSX.Element | null => {
   const { t } = useI18n();
-  const instanceId =
-    asString(data?.instanceId) ?? asString(args?.instanceId);
+  const instanceId = asString(data?.instanceId) ?? asString(args?.instanceId);
   if (!instanceId) {
     return null;
   }
@@ -1860,8 +2011,8 @@ const CloseFocusView = ({
             ? t("toolCall.browser.closed")
             : t("toolCall.browser.focused")
           : operation === "close"
-          ? t("toolCall.browser.closingTarget")
-          : t("toolCall.browser.focusingTarget")
+            ? t("toolCall.browser.closingTarget")
+            : t("toolCall.browser.focusingTarget")
       }
     >
       <InstanceChip instanceId={instanceId} />
@@ -1958,11 +2109,11 @@ export const BrowserToolCall = ({
 
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
-    [toolCall.arguments]
+    [toolCall.arguments],
   );
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
-    [toolCall.result]
+    [toolCall.result],
   );
 
   const isRunning = toolCall.status === "running";
@@ -1996,8 +2147,8 @@ export const BrowserToolCall = ({
       displayName = argSelector
         ? truncateLabel(argSelector, 48)
         : argText
-        ? truncateLabel(`"${argText}"`, 48)
-        : undefined;
+          ? truncateLabel(`"${argText}"`, 48)
+          : undefined;
       break;
     case "evaluate":
       displayName = argExpression
@@ -2008,10 +2159,10 @@ export const BrowserToolCall = ({
       displayName = argSelector
         ? truncateLabel(argSelector, 48)
         : argRef
-        ? truncateLabel(argRef, 48)
-        : argText
-        ? truncateLabel(`"${argText}"`, 48)
-        : undefined;
+          ? truncateLabel(argRef, 48)
+          : argText
+            ? truncateLabel(`"${argText}"`, 48)
+            : undefined;
       break;
     case "wait": {
       const waitText = asString(parsedArgs?.text);
@@ -2020,10 +2171,10 @@ export const BrowserToolCall = ({
       displayName = waitText
         ? truncateLabel(`"${waitText}"`, 48)
         : waitTextGone
-        ? truncateLabel(`"${waitTextGone}"`, 48)
-        : waitTime !== undefined
-        ? `${waitTime}ms`
-        : undefined;
+          ? truncateLabel(`"${waitTextGone}"`, 48)
+          : waitTime !== undefined
+            ? `${waitTime}ms`
+            : undefined;
       break;
     }
     case "press_key":
@@ -2033,19 +2184,21 @@ export const BrowserToolCall = ({
       displayName = argSelector
         ? truncateLabel(argSelector, 48)
         : argText
-        ? truncateLabel(`"${argText}"`, 48)
-        : undefined;
+          ? truncateLabel(`"${argText}"`, 48)
+          : undefined;
       break;
     case "select_option":
       displayName = argSelector
         ? truncateLabel(argSelector, 48)
         : argText
-        ? truncateLabel(`"${argText}"`, 48)
-        : undefined;
+          ? truncateLabel(`"${argText}"`, 48)
+          : undefined;
       break;
     case "upload-file": {
       const files = Array.isArray(parsedArgs?.files)
-        ? parsedArgs.files.filter((item): item is string => typeof item === "string")
+        ? parsedArgs.files.filter(
+            (item): item is string => typeof item === "string",
+          )
         : [];
       displayName =
         files.length > 0 ? truncateLabel(files.join(", "), 48) : undefined;
@@ -2061,7 +2214,8 @@ export const BrowserToolCall = ({
       displayName = resultUrl ? getHost(resultUrl) : undefined;
       break;
     case "devtools":
-      displayName = snapshotHost || (data?.url ? getHost(String(data.url)) : "");
+      displayName =
+        snapshotHost || (data?.url ? getHost(String(data.url)) : "");
       displayName = displayName || undefined;
       break;
     case "close":
@@ -2161,7 +2315,9 @@ export const BrowserToolCall = ({
         return uploaded !== undefined ? (
           <span className="tool-call-browser-meta">
             <Upload size={10} aria-hidden="true" />
-            {t("toolCall.browser.uploadedCount", { values: { count: uploaded } })}
+            {t("toolCall.browser.uploadedCount", {
+              values: { count: uploaded },
+            })}
           </span>
         ) : null;
       }
@@ -2223,8 +2379,8 @@ export const BrowserToolCall = ({
             typeof stats?.emitted === "number"
               ? stats.emitted
               : Array.isArray(data.accessibility)
-              ? data.accessibility.length
-              : 0;
+                ? data.accessibility.length
+                : 0;
           if (count > 0) {
             return (
               <span className="tool-call-browser-meta">
@@ -2301,7 +2457,15 @@ export const BrowserToolCall = ({
       case "navigate_forward":
         return <HistoryView operation={operation} data={data} />;
       case "screenshot":
-        return <ScreenshotView args={parsedArgs} data={data} />;
+        return (
+          <ScreenshotView
+            args={parsedArgs}
+            data={data}
+            inlineImages={
+              parsedResult.type === "success" ? parsedResult.images : []
+            }
+          />
+        );
       case "devtools":
         return <DevtoolsView args={parsedArgs} data={data} />;
       case "close":
