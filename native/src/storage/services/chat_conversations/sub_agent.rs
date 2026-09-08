@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
-use rusqlite::{params, params_from_iter, OptionalExtension};
+use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior};
 
 use super::super::super::database;
 use super::super::super::ChatConversationRecord;
@@ -147,93 +147,101 @@ pub fn create_sub_agent_session(
     captured_thinking_strength: Option<String>,
     captured_responses_fast_mode: Option<bool>,
 ) -> Result<()> {
-    database::open_connection(database_path)
-        .and_then(|mut connection| {
-            let transaction = connection.transaction()?;
-            let parent_runtime: (Option<String>, Option<bool>) = transaction
-                .query_row(
-                    "SELECT thinking_strength, responses_fast_mode
-                       FROM chat_conversations
-                      WHERE conversation_id = ?1
-                      LIMIT 1",
-                    params![parent_conversation_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, Option<String>>(0)?,
-                            row.get::<_, Option<i64>>(1)?.map(|value| value != 0),
-                        ))
-                    },
-                )
-                .optional()?
-                .unwrap_or((None, None));
-            let captured_thinking_strength = captured_thinking_strength.and_then(|value| {
-                let normalized = value.trim().to_string();
-                (!normalized.is_empty()).then_some(normalized)
-            });
-            // Captured effective values are authoritative for this sub-agent
-            // run. Missing values retain the legacy parent-row fallback.
-            let effective_thinking_strength =
-                captured_thinking_strength.or(parent_runtime.0);
-            let effective_responses_fast_mode =
-                captured_responses_fast_mode.or(parent_runtime.1);
-            transaction.execute(
-                "INSERT INTO chat_conversations (
-                   id,
-                   conversation_id,
-                   title,
-                   summary,
-                   last_message_preview,
-                   message_count,
-                   model,
-                   api_profile_name,
-                   thinking_strength,
-                   responses_fast_mode,
-                   last_response_id,
-                   status,
-                   directory_id,
-                   forked_from_conversation_id,
-                   fork_message_count,
-                   created_at,
-                   updated_at
-                 ) VALUES (
-                   ?1, ?2, ?3, ?3, '', 0, ?4, ?5, ?6, ?7, '', 'active', ?8, '', 0, datetime('now', 'localtime'), datetime('now', 'localtime')
-                 )",
-                params![
-                    database::create_snowflake_id(),
-                    conversation_id,
-                    title.trim(),
-                    model.trim(),
-                    api_profile_name.trim(),
-                    effective_thinking_strength,
-                    effective_responses_fast_mode,
-                    directory_id.trim(),
-                ],
-            )?;
-            transaction.execute(
-                "INSERT INTO sub_agent_sessions (
-                   id,
-                   conversation_id,
-                   parent_conversation_id,
-                   agent_id,
-                   agent_name,
-                   run_status,
-                   error_message,
-                   created_at,
-                   updated_at
-                 ) VALUES (
-                   ?1, ?2, ?3, ?4, ?5, 'running', '', datetime('now', 'localtime'), datetime('now', 'localtime')
-                 )",
-                params![
-                    database::create_snowflake_id(),
-                    conversation_id,
-                    parent_conversation_id.trim(),
-                    agent_id.trim(),
-                    agent_name.trim(),
-                ],
-            )?;
-            transaction.commit()
-        })
-        .map_err(|error| database::database_error(database_path, "create sub-agent session", error))
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path).and_then(|mut connection| {
+                    let transaction = connection
+                        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                    let parent_runtime: (Option<String>, Option<bool>) = transaction
+                        .query_row(
+                            "SELECT thinking_strength, responses_fast_mode
+                               FROM chat_conversations
+                              WHERE conversation_id = ?1
+                              LIMIT 1",
+                            params![parent_conversation_id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, Option<String>>(0)?,
+                                    row.get::<_, Option<i64>>(1)?.map(|value| value != 0),
+                                ))
+                            },
+                        )
+                        .optional()?
+                        .unwrap_or((None, None));
+                    let captured_thinking_strength =
+                        captured_thinking_strength.as_ref().and_then(|value| {
+                            let normalized = value.trim().to_string();
+                            (!normalized.is_empty()).then_some(normalized)
+                        });
+                    // Captured effective values are authoritative for this sub-agent
+                    // run. Missing values retain the legacy parent-row fallback.
+                    let effective_thinking_strength =
+                        captured_thinking_strength.or(parent_runtime.0);
+                    let effective_responses_fast_mode =
+                        captured_responses_fast_mode.or(parent_runtime.1);
+                    transaction.execute(
+                        "INSERT INTO chat_conversations (
+                           id,
+                           conversation_id,
+                           title,
+                           summary,
+                           last_message_preview,
+                           message_count,
+                           model,
+                           api_profile_name,
+                           thinking_strength,
+                           responses_fast_mode,
+                           last_response_id,
+                           status,
+                           directory_id,
+                           forked_from_conversation_id,
+                           fork_message_count,
+                           created_at,
+                           updated_at
+                         ) VALUES (
+                           ?1, ?2, ?3, ?3, '', 0, ?4, ?5, ?6, ?7, '', 'active', ?8, '', 0, datetime('now', 'localtime'), datetime('now', 'localtime')
+                         )",
+                        params![
+                            database::create_snowflake_id(),
+                            conversation_id,
+                            title.trim(),
+                            model.trim(),
+                            api_profile_name.trim(),
+                            effective_thinking_strength,
+                            effective_responses_fast_mode,
+                            directory_id.trim(),
+                        ],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO sub_agent_sessions (
+                           id,
+                           conversation_id,
+                           parent_conversation_id,
+                           agent_id,
+                           agent_name,
+                           run_status,
+                           error_message,
+                           created_at,
+                           updated_at
+                         ) VALUES (
+                           ?1, ?2, ?3, ?4, ?5, 'running', '', datetime('now', 'localtime'), datetime('now', 'localtime')
+                         )",
+                        params![
+                            database::create_snowflake_id(),
+                            conversation_id,
+                            parent_conversation_id.trim(),
+                            agent_id.trim(),
+                            agent_name.trim(),
+                        ],
+                    )?;
+                    transaction.commit()
+                })
+            },
+            "create sub-agent session",
+        )
+    })
+    .map_err(|error| database::database_error(database_path, "create sub-agent session", error))
 }
 
 pub fn update_sub_agent_session_status(
