@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertCircle,
+  ListChecks,
   Loader2,
   Monitor,
   MousePointer2,
@@ -243,6 +244,20 @@ const buildArgsSummary = (
       const at = point("x", "y");
       return `${preview}${at ? ` @ ${at}` : ""}`;
     }
+    case "computer-use-perform-actions": {
+      const actions = Array.isArray(args.actions)
+        ? (args.actions as unknown[])
+        : [];
+      if (actions.length === 0) {
+        return "";
+      }
+      const types = actions
+        .map((item) =>
+          isRecord(item) && typeof item.type === "string" ? item.type : "?",
+        )
+        .join(" · ");
+      return `${actions.length} steps: ${types}`;
+    }
     default:
       return "";
   }
@@ -254,6 +269,9 @@ const getToolIconName = (toolName: string) => {
     toolName === "computer-use-screen-info"
   ) {
     return Monitor;
+  }
+  if (toolName === "computer-use-perform-actions") {
+    return ListChecks;
   }
   if (
     toolName === "computer-use-key-tap" ||

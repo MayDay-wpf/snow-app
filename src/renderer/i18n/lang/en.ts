@@ -1386,6 +1386,7 @@ export const en = {
   "toolNames.computer-use-key-tap": "Key tap",
   "toolNames.computer-use-key-button": "Key button",
   "toolNames.computer-use-type-text": "Type text",
+  "toolNames.computer-use-perform-actions": "Perform actions",
   "toolCall.common.arguments": "Arguments",
   "toolCall.common.result": "Result",
   "toolCall.common.charCount": "{{count}} characters",

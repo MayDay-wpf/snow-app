@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 
+use super::chain::{ChainAction, ChainStepOutcome};
 use super::platform;
 
 /// 平滑移动的最小总时长；低于此值直接瞬移（无意义插值）。
@@ -139,26 +140,27 @@ struct InputController {
 
 impl InputController {
     fn new() -> Result<Self, String> {
-        let enigo = Enigo::new(&Settings::default())
+        // 主线程构造：enigo 初始化可能触碰 HIToolbox 键盘布局
+        let enigo = platform::run_on_main(|| Enigo::new(&Settings::default()))
             .map_err(|error| format!("Failed to initialize input controller: {error}"))?;
         Ok(Self { enigo })
     }
 
     fn mouse_location(&self) -> Result<(i32, i32), String> {
-        self.enigo
-            .location()
+        let enigo: *const Enigo = &self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).location() })
             .map_err(|error| format!("Failed to read mouse location: {error}"))
     }
 
     fn main_display_size(&self) -> Result<(i32, i32), String> {
-        self.enigo
-            .main_display()
+        let enigo: *const Enigo = &self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).main_display() })
             .map_err(|error| format!("Failed to read main display size: {error}"))
     }
 
     fn move_to_instant(&mut self, x: i32, y: i32) -> Result<(), String> {
-        self.enigo
-            .move_mouse(x, y, Coordinate::Abs)
+        let enigo: *mut Enigo = &mut self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).move_mouse(x, y, Coordinate::Abs) })
             .map_err(|error| format!("Failed to move mouse to ({x}, {y}): {error}"))
     }
 
@@ -190,8 +192,8 @@ impl InputController {
     }
 
     fn button(&mut self, button: Button, direction: Direction) -> Result<(), String> {
-        self.enigo
-            .button(button, direction)
+        let enigo: *mut Enigo = &mut self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).button(button, direction) })
             .map_err(|error| format!("Failed to send mouse button event: {error}"))
     }
 
@@ -246,14 +248,16 @@ impl InputController {
     }
 
     fn scroll(&mut self, amount: i32, axis: Axis) -> Result<(), String> {
-        self.enigo
-            .scroll(amount, axis)
+        let enigo: *mut Enigo = &mut self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).scroll(amount, axis) })
             .map_err(|error| format!("Failed to scroll: {error}"))
     }
 
     fn key(&mut self, key: Key, direction: Direction) -> Result<(), String> {
-        self.enigo
-            .key(key, direction)
+        // 关键路径：Key::Unicode 等布局相关键会触发 TSMCurrentKeyboard-
+        // InputSourceRefCreate 主队列断言，后台线程执行直接 abort 进程
+        let enigo: *mut Enigo = &mut self.enigo;
+        platform::run_on_main(move || unsafe { (*enigo).key(key, direction) })
             .map_err(|error| format!("Failed to send key event: {error}"))
     }
 
@@ -275,8 +279,10 @@ impl InputController {
     }
 
     fn type_text(&mut self, text: &str) -> Result<(), String> {
-        self.enigo
-            .text(text)
+        // Unicode 文本输入走 HIToolbox 文本通道，同样受主队列约束
+        let enigo: *mut Enigo = &mut self.enigo;
+        let text: String = text.to_string();
+        platform::run_on_main(move || unsafe { (*enigo).text(&text) })
             .map_err(|error| format!("Failed to type text: {error}"))
     }
 }
@@ -447,4 +453,127 @@ pub fn key_button(key: Key, action_press: bool) -> Result<(), String> {
 pub fn type_text(text: &str) -> Result<(), String> {
     ensure_input_permission()?;
     with_controller(|controller| controller.type_text(text))
+}
+
+/// 在单次互斥锁持有下顺序执行整个动作链（perform-actions）：
+/// 链中步骤间不会插入其他键鼠调用（原子性）。失败即停
+/// （continue_on_error=false）或记录后继续；返回已执行步骤
+/// 的结果与结束时鼠标位置。
+pub fn run_action_chain(
+    actions: &[ChainAction],
+    continue_on_error: bool,
+) -> Result<(Vec<ChainStepOutcome>, Option<(i32, i32)>), String> {
+    ensure_input_permission()?;
+    with_controller(|controller| {
+        let mut outcomes = Vec::with_capacity(actions.len());
+        for action in actions {
+            let error = execute_chain_action(controller, action).err();
+            let aborted = error.is_some() && !continue_on_error;
+            outcomes.push(ChainStepOutcome {
+                detail: super::chain::describe_action(action),
+                error,
+            });
+            if aborted {
+                break;
+            }
+        }
+        Ok((outcomes, controller.mouse_location().ok()))
+    })
+}
+
+fn execute_chain_action(
+    controller: &mut InputController,
+    action: &ChainAction,
+) -> Result<(), String> {
+    match action {
+        ChainAction::Move {
+            x,
+            y,
+            duration_ms,
+        } => controller.smooth_move_to(*x, *y, *duration_ms),
+        ChainAction::Click {
+            x,
+            y,
+            button,
+            clicks,
+            interval_ms,
+            hold_ms,
+            move_duration_ms,
+        } => {
+            if let (Some(x), Some(y)) = (x, y) {
+                controller.smooth_move_to(*x, *y, *move_duration_ms)?;
+            }
+            controller.click_times(*button, *clicks, *interval_ms, *hold_ms)
+        }
+        ChainAction::Drag {
+            from,
+            to,
+            button,
+            hold_ms,
+            pre_move_duration_ms,
+            duration,
+            release_at_end,
+        } => {
+            // 省略时长 = 按距离自适应（150-800ms），与 mouse-drag 工具一致
+            let drag_duration = match duration {
+                Some(explicit) => *explicit,
+                None => {
+                    let (start_x, start_y) = match from {
+                        Some(point) => *point,
+                        None => controller.mouse_location().unwrap_or(*to),
+                    };
+                    let distance =
+                        f64::from(to.0 - start_x).hypot(f64::from(to.1 - start_y)) as u64;
+                    distance.clamp(150, 800)
+                }
+            };
+            controller.drag(
+                *from,
+                *to,
+                *button,
+                *hold_ms,
+                *pre_move_duration_ms,
+                drag_duration,
+                *release_at_end,
+            )
+        }
+        ChainAction::Scroll {
+            amount,
+            axis,
+            x,
+            y,
+        } => {
+            if let (Some(x), Some(y)) = (x, y) {
+                controller.move_to_instant(*x, *y)?;
+            }
+            controller.scroll(*amount, *axis)
+        }
+        ChainAction::MousePress { button, x, y } => {
+            if let (Some(x), Some(y)) = (x, y) {
+                controller.move_to_instant(*x, *y)?;
+            }
+            controller.button(*button, Direction::Press)
+        }
+        ChainAction::MouseRelease { button } => controller.button(*button, Direction::Release),
+        ChainAction::KeyTap { keys, .. } => controller.tap_combination(keys),
+        ChainAction::KeyPress { key, .. } => controller.key(*key, Direction::Press),
+        ChainAction::KeyRelease { key, .. } => controller.key(*key, Direction::Release),
+        ChainAction::KeyHold { key, hold_ms, .. } => {
+            controller.key(*key, Direction::Press)?;
+            std::thread::sleep(Duration::from_millis(*hold_ms));
+            controller.key(*key, Direction::Release)
+        }
+        ChainAction::TypeText { text, x, y } => {
+            // 带坐标：先单击聚焦（与 type-text 工具一致）
+            if let (Some(x), Some(y)) = (x, y) {
+                controller.smooth_move_to(*x, *y, 0)?;
+                controller.click_times(Button::Left, 1, 90, 0)?;
+            }
+            controller.type_text(text)
+        }
+        ChainAction::Wait { ms } => {
+            std::thread::sleep(Duration::from_millis(*ms));
+            Ok(())
+        }
+    }
 }

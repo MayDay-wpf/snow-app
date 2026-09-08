@@ -1332,6 +1332,7 @@ export const zhTW = {
   "toolNames.computer-use-key-tap": "按鍵",
   "toolNames.computer-use-key-button": "鍵盤按鍵",
   "toolNames.computer-use-type-text": "輸入文字",
+  "toolNames.computer-use-perform-actions": "連續動作",
   "toolCall.common.arguments": "參數",
   "toolCall.common.result": "結果",
   "toolCall.common.charCount": "{{count}} 字元",

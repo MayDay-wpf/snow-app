@@ -362,13 +362,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       }
       // Reset per-run and per-iteration probes before the first model request.
       resetRunStreamMetrics(ctx, sessionKey);
-      // Anchor the wall-clock start of the accumulating elapsed timer once
-      // per agent loop. StreamMetrics derives its elapsed display from this
-      // timestamp instead of the backend's per-iteration streamElapsedMs
-      // (which resets on every createResponseStream call), so the timer
-      // keeps ticking across iterations and survives conversation switches.
-      // runStartedAt mirrors it locally so the finally block can compute the
-      // finished run's duration even after the field is reset to 0.
+
       const runStartedAt = Date.now();
       ctx.updateSessionField(sessionKey, "streamStartedAt", runStartedAt);
       ctx.addStreamingId(sessionKey);
@@ -445,13 +439,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
 
       const isRunCancelled = createIsRunCancelled(ctx, currentRunId);
 
-      // 为 run 中途刷新的待发消息创建专属 checkpoint 并登记到会话
-      // checkpointIds，保证"回滚到该消息"能恢复到它处理前的文件状态。
-      // createCheckpoint 是异步的：await 期间本 run 可能已被取消或被更新
-      // 的 run 取代（停止按钮、PendingMessages 强制发送会先 handleAbort
-      // 再立即启动新 run），已被取代的 checkpoint 直接删除、不登记。
-      // SSH 目录同样创建（后端经 SFTP 捕获）；创建失败时返回 undefined
-      // （调用方退回无 checkpoint 的旧行为，消息照常刷新）。
+
       const createFlushCheckpoint = async (
         flushKey: string,
         flushDirPath: string | undefined,
@@ -805,12 +793,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             // 迁移前的 pending 槽位 key：自动切换判断必须用它（effectiveKey
             // 在 migrateSession 之后会被赋值为真实 conversationId）。
             const migratingPendingKey = effectiveKey;
-            // Plan Mode approval obtained while the session was still pending
-            // must follow the session to its real conversation id. Otherwise
-            // the approval stays keyed under the pending slot key and the next
-            // agent-loop iteration (effectiveKey = conversationId) hits the
-            // Rust hard gate again — the model sees "Plan Mode write blocked"
-            // even though the user already approved the plan.
+
             if (planApprovedSessionKeysRef.current.has(effectiveKey)) {
               planApprovedSessionKeysRef.current.delete(effectiveKey);
               planApprovedSessionKeysRef.current.add(response.conversationId);
@@ -842,15 +825,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                 migratedRef.goalModeTokenBudget,
               );
             }
-            // Only set active conversation on the first iteration when
-            // migrating from pending. Subsequent tool iterations must NOT
-            // override the active conversation — the user may have switched
-            // to a different conversation while tools are running.
-            // 只当用户仍停留在这个 run 自己的会话视图时才自动切换：用户
-            // 显式新建的会话拥有独立的 pending 槽位 key（activeSessionKeyRef
-            // 指向新槽位），旧会话迁移绝不能把视图拉走；若用户从侧边栏
-            // 点回本 pending 会话（activeSessionKeyRef === migratingPendingKey），
-            // 迁移后视图跟随到真实 conversationId。
+
             if (
               ctx.activeSessionKeyRef.current === migratingPendingKey &&
               !ctx.newChatRequestedRef.current
@@ -997,24 +972,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             : [];
         const visibleToolCalls = toolCalls;
 
-        // Auto-compaction check: when the active API config has
-        // enableAutoCompress=true and the total token usage exceeds the
-        // configured threshold, compact the context so the AI loop can
-        // continue without hitting the context window limit.
-        //
-        // The check ONLY runs while the loop is still alive — i.e. the
-        // response carries tool calls to process, or user messages are queued
-        // and about to be injected. When the loop is finishing naturally (no
-        // tool calls, no pending user messages), compaction must NOT fire even
-        // if the threshold is crossed: it would spawn a fresh runAgentLoop
-        // iteration and wake the AI back up right after it completed. The
-        // over-threshold context is handled instead the next time the user
-        // sends a message, by the pre-send compaction in initCheckpointAndRun.
-        //
-        // The compaction summary is appended as a new user message in the
-        // database (handled by performCompaction). We then start a fresh
-        // runAgentLoop iteration with the compacted context so the AI
-        // picks up from the summary and continues working.
+
         const loopWillContinue =
           toolCalls.length > 0 ||
           (ctx.pendingQueueRef.current.get(effectiveKey)?.length ?? 0) > 0;
@@ -1042,13 +1000,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                 response.tokenUsage.inputTokens +
                 response.tokenUsage.outputTokens;
               if (totalTokens >= thresholdTokens) {
-                // Finalize the assistant message that crossed the threshold so
-                // it does not linger in "sending" state (the normal finalize
-                // step below is skipped when we divert into compaction). Any
-                // tool calls it emitted are abandoned by the handoff; the Rust
-                // compaction boundary plus ensure_tool_pairing keep the
-                // post-compaction context free of orphan tool entries, so the
-                // next request cannot fail with an orphan-tool 400 error.
+
                 ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
                   currentMessages.map((currentMessage) =>
                     currentMessage.id === currentAssistantMessageId
@@ -1087,11 +1039,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                     return;
                   }
 
-                  // performCompaction's finally resets isSending=false, but the
-                  // agent loop is still mid-send. Restore it so handleAbort keeps
-                  // working (it bails out when isSending is false) and the session
-                  // stays locked until the loop finishes — mirroring the pre-send
-                  // compaction path.
                   const sessionRefAfterCompaction =
                     ctx.sessionsRefData.current.get(effectiveKey);
                   if (sessionRefAfterCompaction) {
@@ -1099,17 +1046,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                     sessionRefAfterCompaction.isAbortRequested = false;
                   }
 
-                  // Start a new agent loop iteration with the compacted
-                  // context. The Rust backend uses conversationId to
-                  // reconstruct context from the database, so the
-                  // compaction summary message is automatically included.
-                  // resumeAfterCompaction tells Rust to treat the summary
-                  // passed below as a placeholder: the handoff is already
-                  // persisted as the context_compaction boundary, so it is
-                  // neither sent twice nor re-persisted as a normal user
-                  // message. protectedMessages（压缩前最后一条用户任务原文）
-                  // 紧随占位之后传入，Rust 会注入请求并持久化，确保 AI
-                  // 压缩后仍记得任务与 TODO 状态。
+                  
                   const postCompactionAssistantId =
                     createMessageId("assistant");
                   const postCompactionAssistant: ChatConversationMessage = {
@@ -1873,9 +1810,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             runUsage,
             runDurationMs,
           );
-          // 持久化（Rust 端累加）：重启后打开会话仍可完整回显。
-          // 读取 ref 镜像的累计值（setState 异步可能滞后一拍）。
-          // PENDING 会话尚未迁移出真实 id，跳过持久化。
+    
           if (!isPendingSessionKey(finalSessionKey)) {
             void window.snow
               .setConversationRunStats(
@@ -1922,17 +1857,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               // onStop hook failures must not block cleanup
             });
 
-          // Only the run that still owns the session may reset its runtime
-          // state. If a newer send or abort has incremented runId (e.g. a
-          // pending message forced via "send now" starts a fresh agent loop
-          // right after handleAbort), the newer run owns isSending,
-          // isStreaming and the streaming id — cleaning them up here would
-          // strip the running state from the UI (the stop button disappears)
-          // even though the agent loop is still active.
-          //
-          // 宠物联动放在 ownsSession 守卫之外：本次 run 的回合必须与开始时
-          // 生成的 turnId 一一核销。被中止/顶替的 run 同样要回收自己的回合，
-          // 否则主进程计数泄漏，宠物会永久卡在 busy（多会话并行时尤其明显）。
+
           window.snow.notifyPetTurnEnded(
             petTurnId,
             runFailed || isRunCancelled(finalSessionKey),
@@ -1951,13 +1876,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             ctx.removeStreamingId(finalSessionKey);
           }
 
-          // AI 流程完全结束后，增量同步侧边栏列表中该会话的最新记录
-          // （更新时间/消息数/预览等）。只 upsert 单条，不触发列表全量重拉
-          // —— 每次响应迭代的 conversationVersion bump 仅用于消息区。
-          // 与下方"已完成"徽标保持一致：不依赖 ownsSession 守卫——即使本次
-          // run 已被更新的 run 顶替（守卫内的运行态清理被跳过），侧边栏
-          // 记录也必须刷新，否则长跑会话会带着过期的 updatedAt 留在列表
-          // 里，把同一个时间分组切成多个重复组头（两个"昨天"）。
+
           if (!isPendingSessionKey(finalSessionKey)) {
             void window.snow
               .getChatConversation(finalSessionKey)

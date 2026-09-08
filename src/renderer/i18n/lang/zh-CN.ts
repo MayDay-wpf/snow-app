@@ -1331,6 +1331,7 @@ export const zhCN = {
   "toolNames.computer-use-key-tap": "按键",
   "toolNames.computer-use-key-button": "键盘按键",
   "toolNames.computer-use-type-text": "输入文本",
+  "toolNames.computer-use-perform-actions": "连续动作",
   "toolCall.common.arguments": "参数",
   "toolCall.common.result": "结果",
   "toolCall.common.charCount": "{{count}} 字符",

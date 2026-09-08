@@ -5,6 +5,8 @@
 //! - 全局互斥串行化所有键鼠操作，避免并发事件交错
 //! - 鼠标手势覆盖：点按、双击、三击、长按、长按拖拽、平滑拖拽、
 //!   滚动，以及 mouse-button 底层原语组合任意自定义手势
+//! - perform-actions 连续动作链：单次互斥锁下原子执行多步骤组合
+//!   （点击聚焦 -> 输入 -> 回车等一次完成，步骤间不插入其他事件）
 //! - 坐标统一使用全局虚拟桌面坐标系，截图结果附带像素->屏幕换算系数
 //! - 全部执行体走同步实现，由分发层（call.rs 默认分支）在
 //!   spawn_blocking 线程池中调用，绝不阻塞 Node.js / NAPI 线程
@@ -17,6 +19,7 @@
 //! 其余键鼠控制工具均走用户审批流程。
 
 mod capture;
+mod chain;
 mod input;
 mod platform;
 
@@ -35,10 +38,10 @@ const SERVER_ID: &str = "computer-use";
 const COORDINATES_DOC: &str = "Coordinates are GLOBAL virtual-desktop pixels: the PRIMARY display's top-left corner is (0,0) and displays left/above it have negative x/y. Call computer-use-screen-info first to learn the display layout and current cursor position.";
 
 /// 截图与鼠标工具配合的标准工作流：一次截图定位全部目标，然后连续执行动作链。
-const WORKFLOW_DOC: &str = "WORKFLOW: screenshot -> locate ALL targets you need in that one image -> convert pixel positions to screen coordinates (formula in the screenshot text block) -> chain the actions (mouse-click / mouse-drag / type-text) back-to-back WITHOUT re-screenshotting in between.";
+const WORKFLOW_DOC: &str = "WORKFLOW: screenshot -> locate ALL targets you need in that one image -> convert pixel positions to screen coordinates (formula in the screenshot text block) -> chain the actions back-to-back WITHOUT re-screenshotting in between (prefer ONE perform-actions call for multi-step sequences).";
 
 /// 连续操作效率指引：动作工具的结果自带成功确认，动作之间不插入截图。
-const EFFICIENCY_DOC: &str = "EFFICIENCY: every screenshot costs a full round-trip. Action tools (mouse-click, type-text, key-tap) report success in their own result - do NOT re-screenshot between consecutive actions. Screenshot again ONLY when the screen visibly changed (new window/dialog/page appeared), an action failed, or you need to locate a target that was not visible in the last screenshot. Example task 'send a chat message': ONE screenshot (locate the input box) -> type-text with x/y (focus + type) -> key-tap [\"enter\"] to submit -> done, no screenshot in between.";
+const EFFICIENCY_DOC: &str = "EFFICIENCY: every screenshot costs a full round-trip. Action tools (mouse-click, type-text, key-tap, perform-actions) report success in their own result - do NOT re-screenshot between consecutive actions. Screenshot again ONLY when the screen visibly changed (new window/dialog/page appeared), an action failed, or you need to locate a target that was not visible in the last screenshot. Example task 'send a chat message': ONE screenshot (locate the input box) -> perform-actions [type at x/y, key-tap enter] -> done, no screenshot in between.";
 
 pub struct ComputerUseService;
 
@@ -328,6 +331,105 @@ impl McpService for ComputerUseService {
                     "required": ["text"]
                 }),
             },
+            McpTool {
+                server_id: SERVER_ID.to_string(),
+                name: "perform-actions".to_string(),
+                description: format!(
+                    "Execute a SEQUENCE of mouse/keyboard actions in ONE atomic call under a single input lock - nothing can interleave between steps. Use it whenever consecutive actions belong together (click an input -> type -> tap enter; open a menu -> click an item; press shift -> click -> release shift; drag -> click) instead of issuing one tool call per action. ALL steps are validated BEFORE anything runs - an invalid step rejects the whole call with nothing executed. By default the chain STOPS at the first failing step (the remaining steps usually assume the earlier ones succeeded); set continueOnError=true to run all steps and collect every error. The result lists per-step outcomes (index, detail, ok, error), which steps were skipped, and the final cursor position. Insert a wait step to let the UI animate between actions (menus, dialogs). Max {} steps. {COORDINATES_DOC}",
+                    chain::MAX_CHAIN_ACTIONS
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "actions": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": chain::MAX_CHAIN_ACTIONS,
+                            "description": "Ordered action list. Each item: {\"type\":\"move\",\"x\":..,\"y\":..,\"durationMs\":..} | {\"type\":\"click\",\"x\":..,\"y\":..,\"button\":..,\"clicks\":..,\"holdMs\":..,\"intervalMs\":..,\"moveDurationMs\":..} | {\"type\":\"drag\",\"x\":..,\"y\":..,\"toX\":..,\"toY\":..,\"button\":..,\"holdMs\":..,\"durationMs\":..,\"preMoveDurationMs\":..,\"releaseAtEnd\":..} | {\"type\":\"scroll\",\"amount\":..,\"axis\":..,\"x\":..,\"y\":..} | {\"type\":\"mouse-press\",\"button\":..,\"x\":..,\"y\":..} | {\"type\":\"mouse-release\",\"button\":..} | {\"type\":\"key-tap\",\"keys\":[..]} | {\"type\":\"key-press\",\"key\":\"..\"} | {\"type\":\"key-release\",\"key\":\"..\"} | {\"type\":\"key-hold\",\"key\":\"..\",\"holdMs\":..} | {\"type\":\"type\",\"text\":\"..\",\"x\":..,\"y\":..} | {\"type\":\"wait\",\"ms\":..}. Fields default to the same values as the matching single-action tool. x/y pairs must be given together; for click/type they mean move+single-click first (focus), for scroll/mouse-press they mean hover first, for drag they set the start point. Example: [{\"type\":\"type\",\"text\":\"hello\",\"x\":100,\"y\":200},{\"type\":\"wait\",\"ms\":250},{\"type\":\"key-tap\",\"keys\":[\"enter\"]}].",
+                            "items": {
+                                "type": "object",
+                                "required": ["type"],
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ["move", "click", "drag", "scroll", "mouse-press", "mouse-release", "key-tap", "key-press", "key-release", "key-hold", "type", "wait"]
+                                    },
+                                    "x": {"type": "number", "description": "Global X (move target / click point / drag start / scroll or mouse-press hover)."},
+                                    "y": {"type": "number", "description": "Global Y - always paired with x."},
+                                    "toX": {"type": "number", "description": "drag: end global X (required for drag)."},
+                                    "toY": {"type": "number", "description": "drag: end global Y."},
+                                    "button": {
+                                        "type": "string",
+                                        "enum": ["left", "middle", "right", "back", "forward"],
+                                        "description": "Mouse button for click / drag / mouse-press / mouse-release. Default left.",
+                                        "default": "left"
+                                    },
+                                    "clicks": {
+                                        "type": "number", "minimum": 1, "maximum": 3,
+                                        "description": "click: 1 = single (default), 2 = double, 3 = triple.",
+                                        "default": 1
+                                    },
+                                    "holdMs": {
+                                        "type": "number",
+                                        "description": "click: press-and-hold duration in ms (mutually exclusive with clicks > 1). drag: pause at the start point before traveling (default 120; 500-800 for long-press-then-drag UIs). key-hold: hold duration (default 500)."
+                                    },
+                                    "intervalMs": {
+                                        "type": "number", "minimum": 10, "maximum": 1000,
+                                        "description": "click: gap between successive multi-clicks. Default 90.",
+                                        "default": 90
+                                    },
+                                    "moveDurationMs": {
+                                        "type": "number", "minimum": 0, "maximum": 5000,
+                                        "description": "click: smooth-move duration to (x, y) before clicking. 0 (default) = instant.",
+                                        "default": 0
+                                    },
+                                    "durationMs": {
+                                        "type": "number", "minimum": 0, "maximum": 10000,
+                                        "description": "move: total smooth-move duration (0 = instant). drag: travel duration (omit = auto, 150-800ms scaled by distance; 0 = instant)."
+                                    },
+                                    "preMoveDurationMs": {
+                                        "type": "number", "minimum": 0, "maximum": 5000,
+                                        "description": "drag: smooth-move duration to the start point. 0 (default) = instant.",
+                                        "default": 0
+                                    },
+                                    "releaseAtEnd": {
+                                        "type": "boolean",
+                                        "description": "drag: release the button at the end point. true (default); false keeps it pressed for multi-segment drags (release later with a mouse-release step).",
+                                        "default": true
+                                    },
+                                    "amount": {"type": "number", "description": "scroll: wheel notches; positive = down/right, negative = up/left."},
+                                    "axis": {
+                                        "type": "string",
+                                        "enum": ["vertical", "horizontal"],
+                                        "description": "scroll axis. Default vertical.",
+                                        "default": "vertical"
+                                    },
+                                    "keys": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "minItems": 1,
+                                        "maxItems": 8,
+                                        "description": "key-tap: ordered keys; the last is tapped while the preceding are held (same names as the key-tap tool)."
+                                    },
+                                    "key": {"type": "string", "description": "Single key name for key-press / key-release / key-hold (same names as the key-tap tool)."},
+                                    "text": {"type": "string", "description": "type: exact literal text to type (Unicode; not for shortcuts - use key-tap steps)."},
+                                    "ms": {
+                                        "type": "number", "minimum": 10, "maximum": 2000,
+                                        "description": "wait: pause duration in ms (default 250). Use between steps when the UI needs time (menus, animations).",
+                                        "default": 250
+                                    }
+                                }
+                            }
+                        },
+                        "continueOnError": {
+                            "type": "boolean",
+                            "description": "false (default): stop at the first failing step and skip the rest. true: run all steps and report every error.",
+                            "default": false
+                        }
+                    },
+                    "required": ["actions"]
+                }),
+            },
         ]
     }
 
@@ -343,6 +445,7 @@ impl McpService for ComputerUseService {
             "key-tap" => execute_key_tap(args),
             "key-button" => execute_key_button(args),
             "type-text" => execute_type_text(args),
+            "perform-actions" => execute_perform_actions(args),
             _ => Err(unknown_tool_error(tool_name)),
         }
     }
@@ -713,6 +816,14 @@ fn execute_type_text(args: &Value) -> napi::Result<Value> {
     }))
 }
 
+fn execute_perform_actions(args: &Value) -> napi::Result<Value> {
+    let actions = chain::parse_actions(args)?;
+    let continue_on_error = optional_bool(args, "continueOnError", false);
+    let (outcomes, cursor) = input::run_action_chain(&actions, continue_on_error)
+        .map_err(napi_error)?;
+    Ok(chain::format_result(actions.len(), &outcomes, cursor))
+}
+
 // ---------- 参数辅助 ----------
 
 fn napi_error(message: String) -> Error {
@@ -723,7 +834,7 @@ fn unknown_tool_error(tool_name: &str) -> Error {
     Error::new(
         Status::GenericFailure,
         format!(
-            "Unknown tool: \"{tool_name}\" for MCP server \"computer-use\". Available tools: [screen-info, screenshot, mouse-move, mouse-click, mouse-drag, mouse-scroll, mouse-button, key-tap, key-button, type-text]"
+            "Unknown tool: \"{tool_name}\" for MCP server \"computer-use\". Available tools: [screen-info, screenshot, mouse-move, mouse-click, mouse-drag, mouse-scroll, mouse-button, key-tap, key-button, type-text, perform-actions]"
         ),
     )
 }
