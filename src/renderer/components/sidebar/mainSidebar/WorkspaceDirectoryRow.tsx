@@ -43,12 +43,13 @@ type WorkspaceDirectoryRowProps = {
 const getDirectoryIcon = (
   directory: WorkspaceDirectoryRecord,
 ): React.JSX.Element => {
-  if (directory.isActive) {
-    return <FolderOpen className="list-icon list-icon--local" size={15} />;
-  }
-
+  // SSH 目录始终用 Server 图标：图标表达类型，激活态由行高亮样式承担
   if (directory.kind === "ssh") {
     return <Server className="list-icon list-icon--ssh" size={15} />;
+  }
+
+  if (directory.isActive) {
+    return <FolderOpen className="list-icon list-icon--local" size={15} />;
   }
 
   return <Folder className="list-icon list-icon--local" size={15} />;
