@@ -1417,6 +1417,21 @@ export const windowApi = {
     ipcRenderer.invoke("browser:cookie-delete", webContentsId, name, domain),
   /** 内置浏览器 webview 密码助手 preload 的绝对路径（供 <webview preload> 使用）。 */
   browserWebviewPreloadPath: join(__dirname, "webview-browser.cjs"),
+  /**
+   * 对内置浏览器 webview guest 应用「显示尺寸」设备模拟（主进程
+   * enableDeviceEmulation + UA 覆盖）；params 传 null 关闭模拟并还原 UA。
+   */
+  browserDeviceEmulation: (
+    webContentsId: number,
+    params: {
+      width: number;
+      height: number;
+      dpr: number;
+      mobile: boolean;
+      userAgent: string;
+    } | null,
+  ): Promise<void> =>
+    ipcRenderer.invoke("browser:device-emulation", webContentsId, params),
   /** 列出密码保险库中的全部记录（不含明文密码）。 */
   browserPasswordsList: (): Promise<
     {

@@ -15,6 +15,7 @@ import {
   ScanSearch,
   Search,
   ShieldCheck,
+  Smartphone,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,10 +30,16 @@ import {
   type BrowserLogoId,
 } from "../../icons/browserLogos";
 import { UserscriptsSection } from "./UserscriptsSection";
+import { DisplayDevicesSection } from "./DisplayDevicesSection";
 
 type BrowserSettingsPanelProps = {
   onClose?: () => void;
+  /** 初始 tab（菜单「自定义设备…」经 browser-devices view 直达设备 tab） */
+  initialTab?: BrowserSettingsTab;
 };
+
+/** 面板顶部 tab：浏览器设置 / 显示尺寸设备 / 用户脚本 */
+type BrowserSettingsTab = "settings" | "devices" | "userscripts";
 
 type PasswordRecord = {
   id: string;
@@ -67,6 +74,7 @@ const displayHost = (origin: string): string => {
 
 export function BrowserSettingsPanel({
   onClose,
+  initialTab = "settings",
 }: BrowserSettingsPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const { homepage, setHomepage } = useBrowserHomepage();
@@ -77,10 +85,8 @@ export function BrowserSettingsPanel({
     updateBookmark,
   } = useBrowserBookmarks();
 
-  // ---- 顶部 Tab：浏览器设置 / 用户脚本 ----
-  const [activeTab, setActiveTab] = useState<"settings" | "userscripts">(
-    "settings",
-  );
+  // ---- 顶部 Tab：浏览器设置 / 显示尺寸设备 / 用户脚本 ----
+  const [activeTab, setActiveTab] = useState<BrowserSettingsTab>(initialTab);
 
   // ---- 起始页 ----
   const [homepageDraft, setHomepageDraft] = useState(homepage);
@@ -562,7 +568,7 @@ export function BrowserSettingsPanel({
         )}
       </div>
 
-      {/* 顶部 Tab：浏览器设置 / 用户脚本 */}
+      {/* 顶部 Tab：浏览器设置 / 显示尺寸设备 / 用户脚本 */}
       <div className="import-settings-tabs" role="tablist">
         <button
           type="button"
@@ -574,6 +580,16 @@ export function BrowserSettingsPanel({
           {t("settings.browserSettingsTitle", {
             defaultValue: "Browser settings",
           })}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "devices"}
+          className={`import-settings-tab ${activeTab === "devices" ? "active" : ""}`}
+          onClick={() => setActiveTab("devices")}
+        >
+          <Smartphone size={13} strokeWidth={1.8} />
+          {t("settings.browserDevicesTitle")}
         </button>
         <button
           type="button"
@@ -591,6 +607,8 @@ export function BrowserSettingsPanel({
 
       {activeTab === "userscripts" ? (
         <UserscriptsSection />
+      ) : activeTab === "devices" ? (
+        <DisplayDevicesSection />
       ) : (
         <>
           {/* 概览卡片 */}

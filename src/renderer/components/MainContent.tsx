@@ -204,6 +204,12 @@ export const MainContent = ({
             <ImageLibraryPanel onClose={() => onSelectView("chat")} />
           ) : activeView === "browser-settings" ? (
             <BrowserSettingsPanel onClose={() => onSelectView("chat")} />
+          ) : activeView === "browser-devices" ? (
+            // 菜单「自定义设备…」直达浏览器设置面板的设备 tab。
+            <BrowserSettingsPanel
+              initialTab="devices"
+              onClose={() => onSelectView("chat")}
+            />
           ) : activeView === "proxy-browser-settings" ? (
             <ProxyBrowserSettingsPanel onClose={() => onSelectView("chat")} />
           ) : activeView === "codebase-settings" ? (

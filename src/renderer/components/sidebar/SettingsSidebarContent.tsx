@@ -40,7 +40,13 @@ export function SettingsSidebarContent({
         <div className="sidebar-section settings-menu-section">
           <div className="settings-list">
             {SETTINGS_ITEMS.map((item) => {
-              const isActive = item.view === activeMainView;
+              // browser-devices（显示尺寸设备）是浏览器设置面板内部的 tab，
+              // 侧栏仍高亮「浏览器设置」条目。
+              const activeItemView =
+                activeMainView === "browser-devices"
+                  ? "browser-settings"
+                  : activeMainView;
+              const isActive = item.view === activeItemView;
 
               return (
                 <button

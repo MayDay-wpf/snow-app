@@ -220,7 +220,11 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 /**
  * Set of all MainContentView values backed by a settings panel. Used to detect
  * when the active view is a settings page (e.g. to reset to chat on exit).
+ *
+ * browser-devices 是浏览器设置面板内部的「显示尺寸设备」tab（不单独出现在
+ * 侧栏列表），菜单「自定义设备…」以独立 view 直达，这里放行侧栏路由。
  */
-export const SETTINGS_VIEW_IDS: ReadonlySet<MainContentView> = new Set(
-  SETTINGS_ITEMS.map((item) => item.view),
-);
+export const SETTINGS_VIEW_IDS: ReadonlySet<MainContentView> = new Set([
+  ...SETTINGS_ITEMS.map((item) => item.view),
+  "browser-devices",
+]);

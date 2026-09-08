@@ -10,6 +10,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 import type { BrowserDownloadItemEvent } from "../../../../preload/modules/systemApi";
 import { BrowserMenu } from "./BrowserMenu";
+import type { BrowserDisplayDevice } from "./browserDeviceSize";
 import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
 import { WebsiteFavicon } from "./WebsiteFavicon";
 import { useI18n } from "../../../i18n";
@@ -33,10 +34,15 @@ export type BrowserToolbarProps = {
   // Browser menu
   zoomFactor: number;
   homepage: string;
-  deviceSizeId: string;
+  /** 当前选中的显示尺寸设备 id（"default" = 不约束） */
+  selectedDeviceId: string;
+  /** 菜单「显示尺寸」子菜单展示的设备列表（启用的内置设备 + 自定义设备） */
+  menuDevices: readonly BrowserDisplayDevice[];
   onClearCache: () => void;
   onClearCookies: () => void;
   onOpenSettings: () => void;
+  /** 直达浏览器设置面板的「显示尺寸设备」tab */
+  onManageDevices: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
@@ -77,10 +83,12 @@ export const BrowserToolbar = ({
   onToggleElementPicker,
   zoomFactor,
   homepage,
-  deviceSizeId,
+  selectedDeviceId,
+  menuDevices,
   onClearCache,
   onClearCookies,
   onOpenSettings,
+  onManageDevices,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -271,12 +279,14 @@ export const BrowserToolbar = ({
       <BrowserMenu
         zoomFactor={zoomFactor}
         homepage={homepage}
-        deviceSizeId={deviceSizeId}
+        selectedDeviceId={selectedDeviceId}
+        menuDevices={menuDevices}
         isCapturing={isCapturing}
         onScreenshot={onScreenshot}
         onClearCache={onClearCache}
         onClearCookies={onClearCookies}
         onOpenSettings={onOpenSettings}
+        onManageDevices={onManageDevices}
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
         onZoomReset={onZoomReset}

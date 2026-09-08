@@ -5,6 +5,7 @@ export type MainContentView =
   | "imagegen-settings"
   | "image-library"
   | "browser-settings"
+  | "browser-devices"
   | "proxy-browser-settings"
   | "codebase-settings"
   | "git-settings"

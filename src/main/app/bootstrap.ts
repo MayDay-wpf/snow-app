@@ -27,6 +27,7 @@ import { installWebviewDownloadHandler } from "./downloadManager";
 import { initCookieAutoBackup } from "./cookieAutoBackup";
 import { initUserscriptSyncStore } from "./userscriptSyncStore";
 import { initBrowserPopupHandler } from "../browser/browserPopupWindow";
+import { initBrowserDeviceEmulation } from "../browser/browserDeviceEmulation";
 import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
 import { startScheduledTaskWakeup } from "./scheduledTaskWakeup";
 
@@ -162,6 +163,8 @@ export const bootstrapApplication = (): void => {
     // 浏览器弹出窗口：webview 内 window.open / target=_blank 创建真实窗体
     // （Google 登录等 OAuth 弹窗依赖 window.opener 关系，不能转交系统浏览器）。
     initBrowserPopupHandler();
+    // 浏览器显示尺寸设备模拟：guest webContents 的 DPR / 屏幕类型 / UA 覆盖。
+    initBrowserDeviceEmulation();
     // 浏览器右键菜单：Electron webview 默认无右键菜单，需主进程手动弹出。
     installWebviewContextMenu();
     // webview 下载接管：无 will-download 监听器时 Electron 会静默取消下载，

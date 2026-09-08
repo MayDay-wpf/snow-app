@@ -14,8 +14,8 @@ import {
 import type { BrowserDownloadItemEvent } from "../../../preload/modules/systemApi";
 import { DEFAULT_BROWSER_HOMEPAGE } from "./browser/browserHomepageConstants";
 import {
-  findDeviceSizePreset,
-  useBrowserDeviceSize,
+  resolveDeviceUserAgent,
+  useBrowserDisplayDevices,
 } from "./browser/browserDeviceSize";
 import {
   focusBrowserMcpInstance,
@@ -247,10 +247,17 @@ export const BrowserPanelContent = ({
   const { homepage, loaded, setHomepage } = useBrowserHomepage();
   const homepageRef = useRef(homepage);
   homepageRef.current = homepage;
-  // 设备显示尺寸（移动端界面调试）：全局共享持久化，非 "default" 时
-  // webview 视口约束为所选设备尺寸并居中。
-  const { deviceSizeId, setDeviceSize } = useBrowserDeviceSize();
-  const activeDeviceSize = findDeviceSizePreset(deviceSizeId);
+  // 设备显示尺寸（移动端界面调试）：全局共享持久化。非 "default" 时
+  // webview 视口约束为所选设备尺寸并居中，同时在主进程侧对 guest 应用
+  // DPR / 屏幕类型 / UA 模拟（见 browserDeviceEmulation.ts）。
+  const {
+    selectedDeviceId,
+    selectedDevice: activeDeviceSize,
+    menuDevices,
+    setSelectedDevice: setDeviceSize,
+  } = useBrowserDisplayDevices();
+  const activeDeviceSizeRef = useRef(activeDeviceSize);
+  activeDeviceSizeRef.current = activeDeviceSize;
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
@@ -343,6 +350,48 @@ export const BrowserPanelContent = ({
   }, []);
 
   /**
+   * 把当前选中设备的 DPR / 屏幕类型 / UA 模拟应用到 guest webContents
+   * （主进程 browser:device-emulation；"default" 时传 null 关闭模拟）。
+   * guest 未就绪（getWebContentsId 抛异常）时静默返回，dom-ready 事件里
+   * 会补一次；设备切换时由下方 effect 重新应用。
+   */
+  const applyDeviceEmulation = useCallback(async (): Promise<void> => {
+    const webview = webviewRef.current;
+    if (!webview) {
+      return;
+    }
+    let guestWebContentsId: number;
+    try {
+      guestWebContentsId = webview.getWebContentsId();
+    } catch {
+      // guest 尚未就绪，等待 dom-ready 后由事件处理器补应用。
+      return;
+    }
+    const device = activeDeviceSizeRef.current;
+    try {
+      await window.snow.browserDeviceEmulation(
+        guestWebContentsId,
+        device
+          ? {
+              width: device.width,
+              height: device.height,
+              dpr: device.dpr,
+              mobile: device.mobile,
+              userAgent: resolveDeviceUserAgent(device),
+            }
+          : null,
+      );
+    } catch {
+      // guest 已销毁或主进程校验失败：静默（设备模拟不影响页面功能）。
+    }
+  }, []);
+
+  // 选中设备变化（含其他实例/设置页修改后的全局同步）时重新应用模拟。
+  useEffect(() => {
+    void applyDeviceEmulation();
+  }, [activeDeviceSize, applyDeviceEmulation]);
+
+  /**
    * 为本实例唯一的 webview 绑定事件监听（元素挂载时调用一次）。
    * handler 通过 refs 读取最新状态，闭包仅捕获 instanceId 与 webview。
    */
@@ -357,6 +406,8 @@ export const BrowserPanelContent = ({
         }
         // guest 就绪后补一次静音设置（挂载时 setAudioMuted 可能抛异常）。
         applyMutedState();
+        // guest 就绪后应用设备模拟（挂载早期调用会因 guest 未就绪被跳过）。
+        void applyDeviceEmulation();
       };
 
       const handleNavigationStateUpdate = (): void => {
@@ -829,6 +880,15 @@ export const BrowserPanelContent = ({
     );
   };
 
+  // 跳转到浏览器设置面板的「显示尺寸设备」tab（设备菜单管理入口直达）。
+  const handleManageDevices = (): void => {
+    window.dispatchEvent(
+      new CustomEvent(APP_CONTROL_OPEN_SETTINGS_EVENT, {
+        detail: { view: "browser-devices" },
+      }),
+    );
+  };
+
   // 独立窗口「还原为标签页」：把当前页面（URL + 标题）连同 instanceId 经
   // 主进程转发给主窗口 RightPanel，恢复为右侧面板浏览器 tab（保持实例
   // id，MCP 路由不受影响），随后主进程关闭本独立窗口。
@@ -957,10 +1017,12 @@ export const BrowserPanelContent = ({
         onToggleElementPicker={togglePicker}
         zoomFactor={zoomFactor}
         homepage={homepage}
-        deviceSizeId={deviceSizeId}
+        selectedDeviceId={selectedDeviceId}
+        menuDevices={menuDevices}
         onClearCache={handleClearCache}
         onClearCookies={handleClearCookies}
         onOpenSettings={handleOpenSettings}
+        onManageDevices={handleManageDevices}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onZoomReset={handleZoomReset}

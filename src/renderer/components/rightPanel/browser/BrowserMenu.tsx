@@ -22,24 +22,29 @@ import {
   RefreshCw,
   Search,
   Settings,
+  SlidersHorizontal,
   Smartphone,
   Trash2,
   ZoomIn,
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import {
-  BROWSER_DEVICE_SIZE_PRESETS,
   DEFAULT_BROWSER_DEVICE_SIZE_ID,
+  type BrowserDisplayDevice,
 } from "./browserDeviceSize";
 
 export type BrowserMenuProps = {
   zoomFactor: number;
   homepage: string;
-  /** 当前设备显示尺寸预设 id（"default" 表示不约束，占满内容区） */
-  deviceSizeId: string;
+  /** 当前选中的显示尺寸设备 id（"default" = 不约束，占满内容区） */
+  selectedDeviceId: string;
+  /** 「显示尺寸」子菜单展示的设备列表（启用的内置设备 + 自定义设备） */
+  menuDevices: readonly BrowserDisplayDevice[];
   onClearCache: () => void;
   onClearCookies: () => void;
   onOpenSettings: () => void;
+  /** 直达浏览器设置面板的「显示尺寸设备」tab（设备 flyout 管理入口） */
+  onManageDevices: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
@@ -94,10 +99,12 @@ const formatZoomPercent = (factor: number): string =>
 export const BrowserMenu = ({
   zoomFactor,
   homepage,
-  deviceSizeId,
+  selectedDeviceId,
+  menuDevices,
   onClearCache,
   onClearCookies,
   onOpenSettings,
+  onManageDevices,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -234,11 +241,10 @@ export const BrowserMenu = ({
   const canZoomIn = zoomFactor < ZOOM_MAX;
   const canZoomOut = zoomFactor > ZOOM_MIN;
   const canZoomReset = zoomFactor !== 1;
-  const activeDevicePreset =
-    BROWSER_DEVICE_SIZE_PRESETS.find((preset) => preset.id === deviceSizeId) ??
-    null;
-  const deviceSizeCurrentLabel = activeDevicePreset
-    ? activeDevicePreset.label
+  const activeDevice =
+    menuDevices.find((device) => device.id === selectedDeviceId) ?? null;
+  const deviceSizeCurrentLabel = activeDevice
+    ? activeDevice.name
     : t("browser.deviceSizeDefault");
 
   return (
@@ -424,7 +430,8 @@ export const BrowserMenu = ({
                       }
                     >
                       <span className="browser-menu-check">
-                        {deviceSizeId === DEFAULT_BROWSER_DEVICE_SIZE_ID && (
+                        {selectedDeviceId ===
+                          DEFAULT_BROWSER_DEVICE_SIZE_ID && (
                           <Check size={14} strokeWidth={2} />
                         )}
                       </span>
@@ -432,29 +439,43 @@ export const BrowserMenu = ({
                         {t("browser.deviceSizeDefault")}
                       </span>
                     </button>
-                    {BROWSER_DEVICE_SIZE_PRESETS.map((preset) => (
+                    {menuDevices.map((device) => (
                       <button
-                        key={preset.id}
+                        key={device.id}
                         type="button"
                         className="browser-menu-item"
                         role="menuitem"
+                        title={`${device.name} · ${device.width}×${device.height} · DPR ${device.dpr}`}
                         onClick={() =>
-                          runAction(() => onSetDeviceSize(preset.id))
+                          runAction(() => onSetDeviceSize(device.id))
                         }
                       >
                         <span className="browser-menu-check">
-                          {preset.id === deviceSizeId && (
+                          {device.id === selectedDeviceId && (
                             <Check size={14} strokeWidth={2} />
                           )}
                         </span>
                         <span className="browser-menu-label">
-                          {preset.label}
+                          {device.name}
                         </span>
                         <span className="browser-menu-device-dims">
-                          {preset.width} × {preset.height}
+                          {device.width} × {device.height} · @{device.dpr}
                         </span>
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className="browser-menu-item browser-menu-device-manage"
+                      role="menuitem"
+                      title={t("browser.deviceSizeManage")}
+                      onClick={() => runAction(onManageDevices)}
+                    >
+                      <span className="browser-menu-check" />
+                      <SlidersHorizontal size={14} strokeWidth={1.8} />
+                      <span className="browser-menu-label">
+                        {t("browser.deviceSizeManage")}
+                      </span>
+                    </button>
                   </div>
                 )}
               </div>

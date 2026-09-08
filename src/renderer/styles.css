@@ -33399,6 +33399,207 @@ body.ctrl-held [data-path] {
   cursor: default;
 }
 
+/* ===== 显示尺寸设备（浏览器设置页）===== */
+/* 新增/编辑表单：名称 + 宽×高 + DPR + 移动端开关 + 保存按钮；第二行 UA 独占整行 */
+.browser-settings-device-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.browser-settings-device-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.browser-settings-device-add-input.is-numeric {
+  flex: 0 0 68px;
+}
+
+.browser-settings-device-add-input.is-ua {
+  flex-basis: 100%;
+}
+
+.browser-settings-device-add-input:focus {
+  border-color: var(--border-color);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.browser-settings-device-add-input::placeholder {
+  color: var(--text-muted);
+}
+
+.browser-settings-device-add-input::-webkit-outer-spin-button,
+.browser-settings-device-add-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.browser-settings-device-add-sep {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.browser-settings-device-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.browser-settings-device-toggle input {
+  accent-color: var(--text-primary);
+  margin: 0;
+}
+
+.browser-settings-device-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.browser-settings-device-save-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.browser-settings-device-save-btn.is-ghost {
+  background: transparent;
+}
+
+.browser-settings-device-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.browser-settings-device-error {
+  color: var(--danger, #e5484d);
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
+
+/* 内置设备勾选列表：双列网格 + 纵向滚动 */
+.browser-settings-device-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.browser-settings-device-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+
+.browser-settings-device-item:hover {
+  border-color: var(--border-color);
+}
+
+.browser-settings-device-item.is-active {
+  border-color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.browser-settings-device-item input[type="checkbox"] {
+  accent-color: var(--text-primary);
+  margin: 0;
+}
+
+.browser-settings-device-item-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.browser-settings-device-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.browser-settings-device-item-dims {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 设备徽标：移动端/桌面 + 「使用中」标记 */
+.browser-settings-device-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.browser-settings-device-badge.is-active {
+  background: color-mix(in srgb, var(--accent, #4c8dff) 18%, transparent);
+  color: var(--accent, #4c8dff);
+}
+
+.browser-settings-device-ua-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .browser-bookmark-folder-cell,
 .browser-bookmark-title-cell,
 .browser-bookmark-url-cell {
@@ -33593,9 +33794,23 @@ body.ctrl-held [data-path] {
 }
 
 /* ===== Browser Device Size Submenu (显示尺寸) ===== */
-/* 设备名 + 尺寸标注同行，需要比清除数据 flyout 更宽 */
+/* 设备名 + 尺寸标注同行，需要比清除数据 flyout 更宽；设备较多时纵向滚动 */
 .browser-menu-device-flyout {
-  min-width: 200px;
+  min-width: 230px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* 「自定义设备…」管理入口：与设备列表之间加分隔 */
+.browser-menu-device-manage {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-tertiary);
+}
+
+.browser-menu-device-manage:hover {
+  color: var(--text-primary);
 }
 
 /* 选中标记列：固定宽度占位，未选中时留空保持各项文字对齐 */
