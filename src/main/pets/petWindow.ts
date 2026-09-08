@@ -57,17 +57,14 @@ let currentState: PetActivityState = "idle";
  * 宠物卡在 busy。改为按 turnId 记账后：重复的 end 幂等忽略，缺失的
  * end 由发送方销毁事件兜底回收。
  */
-const activeTurns = new Map<
-  string,
-  { senderId: number; kind: PetTurnKind }
->();
+const activeTurns = new Map<string, { senderId: number; kind: PetTurnKind }>();
 let waitingCount = 0;
 let settleTimer: NodeJS.Timeout | null = null;
 /** 已登记 destroyed 监听的渲染进程（turn 计数的兜底回收）。 */
 const watchedTurnSenders = new Set<number>();
 
 const computeWindowSize = (
-  scale: number
+  scale: number,
 ): { width: number; height: number } => ({
   width: Math.round(PET_FRAME_WIDTH * scale) + PET_WINDOW_PADDING * 2,
   height: Math.round(PET_FRAME_HEIGHT * scale) + PET_WINDOW_PADDING * 2,
@@ -80,7 +77,7 @@ const computeWindowSize = (
  */
 const resolveWakePosition = (
   width: number,
-  height: number
+  height: number,
 ): { x: number; y: number } => {
   const mainWindow = getMainWindow();
   if (!mainWindow) {
@@ -92,16 +89,20 @@ const resolveWakePosition = (
   }
 
   const bounds = mainWindow.getBounds();
-  const { x: areaX, y: areaY, width: areaWidth, height: areaHeight } =
-    screen.getDisplayMatching(bounds).workArea;
+  const {
+    x: areaX,
+    y: areaY,
+    width: areaWidth,
+    height: areaHeight,
+  } = screen.getDisplayMatching(bounds).workArea;
   return {
     x: Math.min(
       Math.max(bounds.x + bounds.width - width - WAKE_EDGE_MARGIN, areaX),
-      areaX + areaWidth - width
+      areaX + areaWidth - width,
     ),
     y: Math.min(
       Math.max(bounds.y + bounds.height - height - WAKE_EDGE_MARGIN, areaY),
-      areaY + areaHeight - height
+      areaY + areaHeight - height,
     ),
   };
 };
@@ -160,7 +161,7 @@ const broadcastConfig = (): void => {
 
 /** 向宠物窗口广播拖拽方向（左/右奔跑），null 表示拖拽停止。 */
 const broadcastDragState = (
-  state: "running-right" | "running-left" | null
+  state: "running-right" | "running-left" | null,
 ): void => {
   if (petWindow && !petWindow.isDestroyed()) {
     safeSend(petWindow.webContents, "pets:drag-state", state);
@@ -170,7 +171,7 @@ const broadcastDragState = (
 /** 解析当前激活宠物的清单（从 Rust 后端的宠物列表中查找）。 */
 const resolveActiveManifest = async (
   native: NativeBridge,
-  settings: PetSettings
+  settings: PetSettings,
 ): Promise<PetManifestRecord | null> => {
   if (!settings.activePetId) {
     return null;
@@ -197,9 +198,7 @@ const destroyPetWindow = (): void => {
 };
 
 /** 刷新配置并按需创建/更新/关闭宠物窗口。 */
-export const refreshPetWindow = async (
-  native: NativeBridge
-): Promise<void> => {
+export const refreshPetWindow = async (native: NativeBridge): Promise<void> => {
   const settings = await loadPetSettings(native);
   const manifest = await resolveActiveManifest(native, settings);
   currentConfig = { settings, manifest };
@@ -246,7 +245,7 @@ const createPetWindow = (settings: PetSettings): void => {
     show: false,
     roundedCorners: false,
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/pet.mjs"),
+      preload: join(import.meta.dirname, "../preload/pet.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -344,7 +343,9 @@ const createPetWindow = (settings: PetSettings): void => {
   } else {
     petWindow
       .loadURL(
-        pathToFileURL(join(import.meta.dirname, "../renderer/pet.html")).toString()
+        pathToFileURL(
+          join(import.meta.dirname, "../renderer/pet.html"),
+        ).toString(),
       )
       .catch((error) => {
         snowLog.error({
@@ -358,9 +359,7 @@ const createPetWindow = (settings: PetSettings): void => {
 };
 
 /** 应用启动后调用：若宠物处于唤醒状态则恢复宠物窗口。 */
-export const restorePetWindow = async (
-  native: NativeBridge
-): Promise<void> => {
+export const restorePetWindow = async (native: NativeBridge): Promise<void> => {
   try {
     await refreshPetWindow(native);
   } catch (error) {
@@ -416,7 +415,7 @@ const watchTurnSender = (sender: WebContents): void => {
 export const reportPetTurnStarted = (
   sender: WebContents,
   turnId: string,
-  kind: PetTurnKind
+  kind: PetTurnKind,
 ): void => {
   watchTurnSender(sender);
   if (!activeTurns.has(turnId)) {

@@ -1,11 +1,4 @@
-import {
-  app,
-  ipcMain,
-  Menu,
-  nativeImage,
-  nativeTheme,
-  session,
-} from "electron";
+import { app, ipcMain, Menu, nativeImage, nativeTheme } from "electron";
 import { APP_ICON_PATH, APP_USER_MODEL_ID, isMacOS } from "./constants";
 import { initializeApplicationServices } from "./applicationServices";
 import { createWindow, getMainWindow } from "./mainWindow";
@@ -115,19 +108,6 @@ export const bootstrapApplication = (): void => {
     if (isMacOS && app.dock) {
       app.dock.setIcon(nativeImage.createFromPath(APP_ICON_PATH));
     }
-
-    // ─── 内置浏览器 UA 统一为标准桌面 Chrome ─────────────────────────────
-    // Electron 默认 UA 在 "Chrome/…" 与 "Safari/537.36" 之间夹带
-    // "SnowApp/x.y.z" 与 "Electron/x.y.z" 非标准 token，知网等按标准
-    // 桌面浏览器 UA 识别客户端的网站会将其归入未知/移动设备，直接下发
-    // wap 移动版页面。移除两个 token 后与同版本 Chrome 完全一致；
-    // defaultSession 覆盖 webview、浏览器弹窗与独立浏览器窗口。
-    // 必须在 createWindow 之前设置，保证首个请求就携带新 UA。
-    session.defaultSession.setUserAgent(
-      app.userAgentFallback
-        .replace(/ [^/()]+\/[\w.-]+(?= Chrome\/)/, "")
-        .replace(/ Electron\/[\w.-]+/, ""),
-    );
 
     // ─── Cookie 自动备份与丢失自愈 ──────────────────────────────────────
     // Keychain "Chromium Safe Storage" 密钥漂移会让 Chromium 启动时静默清空

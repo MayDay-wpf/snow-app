@@ -174,7 +174,7 @@ export const createWindow = (): BrowserWindow => {
     autoHideMenuBar: true,
     backgroundColor: getWindowBackgroundColor(),
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.mjs"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,

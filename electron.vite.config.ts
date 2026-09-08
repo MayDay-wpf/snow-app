@@ -36,6 +36,13 @@ export default defineConfig({
           // 桌面宠物窗口的轻量 preload（输出 pet.mjs）。
           pet: resolve(__dirname, "src/preload/petPreload.ts"),
         },
+        // Electron 37 的 <webview> preload 静默丢弃 ESM（.mjs），
+        // 必须输出 CJS 才能加载。
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs",
+          chunkFileNames: "[name]-[hash].cjs",
+        },
       },
     },
   },

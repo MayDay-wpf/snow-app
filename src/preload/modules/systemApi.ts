@@ -1378,7 +1378,7 @@ export const windowApi = {
   ): Promise<{ deleted: boolean }> =>
     ipcRenderer.invoke("browser:cookie-delete", webContentsId, name, domain),
   /** 内置浏览器 webview 密码助手 preload 的绝对路径（供 <webview preload> 使用）。 */
-  browserWebviewPreloadPath: join(__dirname, "webview-browser.mjs"),
+  browserWebviewPreloadPath: join(__dirname, "webview-browser.cjs"),
   /** 列出密码保险库中的全部记录（不含明文密码）。 */
   browserPasswordsList: (): Promise<
     {

@@ -32,7 +32,7 @@ const getWindowBackgroundColor = (): string =>
 const buildPageUrl = (
   instanceId: string,
   url: string,
-  tabs?: { url: string; title: string }[]
+  tabs?: { url: string; title: string }[],
 ): string => {
   const query = new URLSearchParams({ instanceId, url });
   if (tabs && tabs.length > 0) {
@@ -42,7 +42,7 @@ const buildPageUrl = (
     return `${process.env.ELECTRON_RENDERER_URL}/browserWindow.html?${query.toString()}`;
   }
   const pageUrl = pathToFileURL(
-    join(import.meta.dirname, "../renderer/browserWindow.html")
+    join(import.meta.dirname, "../renderer/browserWindow.html"),
   ).toString();
   return `${pageUrl}?${query.toString()}`;
 };
@@ -57,7 +57,7 @@ const buildPageUrl = (
 export const createDetachedBrowserWindow = (
   instanceId: string,
   url: string,
-  tabs?: { url: string; title: string }[]
+  tabs?: { url: string; title: string }[],
 ): void => {
   const existing = detachedWindows.get(instanceId);
   if (existing && !existing.isDestroyed()) {
@@ -76,7 +76,7 @@ export const createDetachedBrowserWindow = (
     backgroundColor: getWindowBackgroundColor(),
     show: false,
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.mjs"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -123,11 +123,9 @@ export const createDetachedBrowserWindow = (
     event.preventDefault();
   });
 
-  void win
-    .loadURL(buildPageUrl(instanceId, url, tabs))
-    .catch((error) => {
-      console.error("Failed to load detached browser window:", error);
-    });
+  void win.loadURL(buildPageUrl(instanceId, url, tabs)).catch((error) => {
+    console.error("Failed to load detached browser window:", error);
+  });
 };
 
 /** 关闭所有独立浏览器窗口（应用退出时调用，避免残留孤儿窗口）。 */
