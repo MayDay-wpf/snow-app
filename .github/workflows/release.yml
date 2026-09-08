@@ -69,8 +69,10 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          # libpipewire-0.3-dev: xcap 屏幕 capture 经 pipewire crate 链接该系统库
-          sudo apt-get install -y build-essential libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev
+          sudo apt-get install -y build-essential libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo add-apt-repository -y ppa:pipewire-debian/pipewire-upstream
+          sudo apt-get update
+          sudo apt-get install -y libpipewire-0.3-dev
 
       - name: Install npm dependencies
         run: npm ci
