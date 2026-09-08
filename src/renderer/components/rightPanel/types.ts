@@ -44,11 +44,6 @@ export type TerminalTabData = {
 export type BrowserTabData = {
   instanceId: string;
   url: string;
-  /**
-   * 实例内部的标签页快照（独立浏览器窗口「还原为标签页」时携带，
-   * BrowserPanelContent 据此初始化多个内部标签页）。
-   */
-  tabs?: { url: string; title: string }[];
 };
 
 export type FileViewerTabData = {
@@ -104,11 +99,11 @@ export type OpenDiffTabCallback = (
   file: GitFileStatus,
   diffResult: GitDiffResult | null,
   diffLoading: boolean,
-  imageDiff?: GitImageDiff | null
+  imageDiff?: GitImageDiff | null,
 ) => void;
 
 export type OpenFileDiffPreviewTabCallback = (
-  data: FileDiffPreviewTabData
+  data: FileDiffPreviewTabData,
 ) => void;
 
 export type OpenFileTabCallback = (
@@ -116,7 +111,7 @@ export type OpenFileTabCallback = (
   fileName: string,
   isSsh: boolean,
   sshSessionId?: string | null,
-  sshWorkspaceRoot?: string
+  sshWorkspaceRoot?: string,
 ) => void;
 
 export type { FileContentResult };

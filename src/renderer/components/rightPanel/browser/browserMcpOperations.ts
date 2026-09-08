@@ -41,12 +41,12 @@ export const clearBrowserRouteRulesForInstance = (instanceId: string): void => {
 };
 
 /**
- * 每个 webview 标签页最近一次主 Frame 导航状态。
+ * 每个浏览器实例（= 右侧面板一个浏览器 tab）最近一次主 Frame 导航状态。
  *
  * 主 Frame 导航失败后 Chromium 会停留在 chrome-error://chromewebdata/
  * 错误页，此时 capturePage 仍能返回全黑 PNG。Screenshot 等操作在捕获前
  * 检查该状态，失败时直接返回原导航错误，避免把错误页图片当作正常结果。
- * 状态以 tabId（webview 元素）为 key 隔离，标签页关闭时清理。
+ * 状态以 instanceId 为 key 隔离，实例（tab）关闭时清理。
  */
 type MainFrameNavigationState =
   | { status: "success"; url: string }
@@ -61,20 +61,20 @@ const mainFrameNavigationStates = new Map<string, MainFrameNavigationState>();
 
 /** 主 Frame 导航成功（含页面内导航、重定向目标加载）后记录并清除失败状态。 */
 export const recordMainFrameNavigationSuccess = (
-  tabId: string,
-  url: string
+  instanceId: string,
+  url: string,
 ): void => {
-  mainFrameNavigationStates.set(tabId, { status: "success", url });
+  mainFrameNavigationStates.set(instanceId, { status: "success", url });
 };
 
 /** 主 Frame 导航失败时记录，供 screenshot 等操作拒绝执行。 */
 export const recordMainFrameNavigationFailure = (
-  tabId: string,
+  instanceId: string,
   url: string,
   errorCode: number | undefined,
-  errorDescription: string
+  errorDescription: string,
 ): void => {
-  mainFrameNavigationStates.set(tabId, {
+  mainFrameNavigationStates.set(instanceId, {
     status: "failed",
     url,
     ...(errorCode !== undefined ? { errorCode } : {}),
@@ -82,15 +82,15 @@ export const recordMainFrameNavigationFailure = (
   });
 };
 
-/** 标签页关闭或实例卸载时清理对应状态，避免跨实例残留。 */
-export const clearBrowserNavigationState = (tabId: string): void => {
-  mainFrameNavigationStates.delete(tabId);
+/** 实例（tab）关闭或卸载时清理对应状态，避免跨实例残留。 */
+export const clearBrowserNavigationState = (instanceId: string): void => {
+  mainFrameNavigationStates.delete(instanceId);
 };
 
 const getMainFrameNavigationState = (
-  tabId: string | undefined
+  instanceId: string | undefined,
 ): MainFrameNavigationState | undefined =>
-  tabId ? mainFrameNavigationStates.get(tabId) : undefined;
+  instanceId ? mainFrameNavigationStates.get(instanceId) : undefined;
 
 // Electron webview console-message level: 0=verbose, 1=info, 2=warning, 3=error.
 const CONSOLE_LEVEL_MIN: Record<string, number> = {
@@ -113,8 +113,8 @@ const toJsonSafe = (value: unknown): unknown => {
     try {
       return JSON.parse(
         JSON.stringify(value, (_key, item) =>
-          typeof item === "function" ? undefined : item
-        )
+          typeof item === "function" ? undefined : item,
+        ),
       );
     } catch {
       return String(value);
@@ -129,7 +129,7 @@ const buildElementLocatorScript = (
   selector: string | null,
   text: string | null,
   exact: boolean,
-  actionBody: string
+  actionBody: string,
 ): string => `(async () => {
   const selector = ${JSON.stringify(selector)};
   const text = ${JSON.stringify(text)};
@@ -228,7 +228,7 @@ const requiredString = (args: BrowserMcpCommandArgs, field: string): string => {
 const resolveRefHandle = async (
   webview: Electron.WebviewTag,
   webContentsId: number,
-  ref: string
+  ref: string,
 ): Promise<{
   objectId: string;
   info: {
@@ -243,18 +243,18 @@ const resolveRefHandle = async (
   const backend = resolveAxRef(ref);
   if (backend === null) {
     throw new Error(
-      `Ref ${ref} is not in the current snapshot. Capture a new accessibility snapshot (browser-devtools action=ax) first.`
+      `Ref ${ref} is not in the current snapshot. Capture a new accessibility snapshot (browser-devtools action=ax) first.`,
     );
   }
   const resolved = (await window.snow.browserCdpCommand(
     webContentsId,
     "DOM.resolveNode",
-    { backendNodeId: backend }
+    { backendNodeId: backend },
   )) as { object?: { objectId?: string } };
   const objectId = resolved?.object?.objectId;
   if (!objectId) {
     throw new Error(
-      `Element for ref ${ref} no longer exists in the DOM. Capture a new accessibility snapshot.`
+      `Element for ref ${ref} no longer exists in the DOM. Capture a new accessibility snapshot.`,
     );
   }
   const called = (await window.snow.browserCdpCommand(
@@ -283,7 +283,7 @@ const resolveRefHandle = async (
         };
       }`,
       returnByValue: true,
-    }
+    },
   )) as {
     result?: {
       value?: {
@@ -309,7 +309,7 @@ const resolveRefHandle = async (
     info.y >= (info.viewportH ?? 0)
   ) {
     throw new Error(
-      `Element for ref ${ref} is outside the browser viewport; scroll to it first.`
+      `Element for ref ${ref} is outside the browser viewport; scroll to it first.`,
     );
   }
   return {
@@ -327,7 +327,7 @@ const resolveRefHandle = async (
 
 const requiredRawString = (
   args: BrowserMcpCommandArgs,
-  field: string
+  field: string,
 ): string => {
   const value = args[field];
   if (typeof value !== "string") {
@@ -338,7 +338,7 @@ const requiredRawString = (
 
 const optionalString = (
   args: BrowserMcpCommandArgs,
-  field: string
+  field: string,
 ): string | undefined => {
   const value = args[field];
   if (value === undefined || value === null) {
@@ -352,7 +352,7 @@ const optionalString = (
 
 const currentPageMetadata = async (
   webview: Electron.WebviewTag,
-  instanceId: string
+  instanceId: string,
 ): Promise<{ instanceId: string; url: string; title: string }> => ({
   instanceId,
   url: webview.getURL(),
@@ -362,7 +362,7 @@ const currentPageMetadata = async (
 const waitForNavigation = (
   webview: Electron.WebviewTag,
   url: string,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     let sawSuccessfulNavigation = false;
@@ -379,7 +379,7 @@ const waitForNavigation = (
         errorDescription?: string;
         validatedURL?: string;
         isMainFrame?: boolean;
-      }
+      },
     ): void => {
       if (event.isMainFrame === false) {
         return;
@@ -394,8 +394,8 @@ const waitForNavigation = (
       reject(
         new Error(
           event.errorDescription ||
-            `Failed to navigate browser to ${event.validatedURL || url}`
-        )
+            `Failed to navigate browser to ${event.validatedURL || url}`,
+        ),
       );
     };
     const timer = setTimeout(() => {
@@ -406,15 +406,15 @@ const waitForNavigation = (
       clearTimeout(timer);
       webview.removeEventListener(
         "did-navigate",
-        handleNavigate as EventListener
+        handleNavigate as EventListener,
       );
       webview.removeEventListener(
         "did-navigate-in-page",
-        handleNavigate as EventListener
+        handleNavigate as EventListener,
       );
       webview.removeEventListener(
         "did-stop-loading",
-        handleStop as EventListener
+        handleStop as EventListener,
       );
       webview.removeEventListener("did-fail-load", handleFail as EventListener);
     };
@@ -422,7 +422,7 @@ const waitForNavigation = (
     webview.addEventListener("did-navigate", handleNavigate as EventListener);
     webview.addEventListener(
       "did-navigate-in-page",
-      handleNavigate as EventListener
+      handleNavigate as EventListener,
     );
     webview.addEventListener("did-stop-loading", handleStop as EventListener);
     webview.addEventListener("did-fail-load", handleFail as EventListener);
@@ -442,7 +442,7 @@ const waitForNavigation = (
 const navigate = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const url = requiredString(args, "url");
   const timeoutMs =
@@ -462,7 +462,7 @@ const locateElementTarget = async (
   webview: Electron.WebviewTag,
   args: BrowserMcpCommandArgs,
   actionBody: string,
-  exact = false
+  exact = false,
 ): Promise<{ x: number; y: number; element: unknown }> => {
   const selector = optionalString(args, "selector");
   const text = optionalString(args, "text");
@@ -471,7 +471,7 @@ const locateElementTarget = async (
     const { info } = await resolveRefHandle(
       webview,
       webview.getWebContentsId(),
-      ref
+      ref,
     );
     return { x: info.x, y: info.y, element: { tagName: info.tag, ref } };
   }
@@ -479,7 +479,7 @@ const locateElementTarget = async (
     selector ?? null,
     text ?? null,
     exact,
-    actionBody
+    actionBody,
   );
   return (await webview.executeJavaScript(locateScript)) as {
     x: number;
@@ -491,7 +491,7 @@ const locateElementTarget = async (
 const click = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const target = await locateElementTarget(
     webview,
@@ -512,7 +512,7 @@ const click = async (
         href: element.href || null,
       },
     };`,
-    args.exact === true
+    args.exact === true,
   );
   const metadata = await currentPageMetadata(webview, instanceId);
   webview.focus();
@@ -544,7 +544,7 @@ const click = async (
 const evaluate = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const expression = requiredString(args, "expression");
   let result: unknown;
@@ -564,7 +564,10 @@ const evaluate = async (
  * （React 受控组件兼容，与 Playwright fill 同原理）。定位脚本与 ref 回指共用。
  * 注意：本片段不再定义 describe —— selector/text 路径由定位脚本注入，
  * ref 路径由调用方在 functionDeclaration 中注入 DESCRIBE_ELEMENT_SCRIPT。 */
-const buildFillBody = (value: string, submit: boolean): string => `const editable = element.matches(
+const buildFillBody = (
+  value: string,
+  submit: boolean,
+): string => `const editable = element.matches(
     'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"], [contenteditable=""]'
   );
   if (!editable) {
@@ -606,7 +609,7 @@ const buildFillBody = (value: string, submit: boolean): string => `const editabl
 const type = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const selector = optionalString(args, "selector");
   const text = optionalString(args, "text");
@@ -638,7 +641,7 @@ const type = async (
             };
           }`,
           returnByValue: true,
-        }
+        },
       )) as { result?: { value?: { element?: unknown } } };
       target = { element: focused?.result?.value?.element };
     } else {
@@ -653,7 +656,7 @@ const type = async (
             id: element.id || null,
             text: describe(element).slice(0, ${TEXT_PREVIEW_LENGTH}),
           },
-        };`
+        };`,
       );
       target = (await webview.executeJavaScript(focusScript)) as {
         element: unknown;
@@ -692,7 +695,7 @@ const type = async (
           ${buildFillBody(value, submit)}
         }`,
         returnByValue: true,
-      }
+      },
     )) as { result?: { value?: { element?: unknown } } };
     const result = filled?.result?.value;
     return {
@@ -707,7 +710,7 @@ const type = async (
     selector ?? null,
     text ?? null,
     false,
-    buildFillBody(value, submit)
+    buildFillBody(value, submit),
   );
   const result = (await webview.executeJavaScript(fillScript)) as {
     element: unknown;
@@ -726,7 +729,7 @@ const UPLOAD_MARKER = "data-snow-upload";
 const uploadFile = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const files = Array.isArray(args.files)
     ? args.files.filter((item): item is string => typeof item === "string")
@@ -741,13 +744,17 @@ const uploadFile = async (
     const backend = resolveAxRef(ref);
     if (backend === null) {
       throw new Error(
-        `Ref ${ref} is not in the current snapshot. Capture a new accessibility snapshot (browser-devtools action=ax) first.`
+        `Ref ${ref} is not in the current snapshot. Capture a new accessibility snapshot (browser-devtools action=ax) first.`,
       );
     }
-    await window.snow.browserCdpCommand(webContentsId, "DOM.setFileInputFiles", {
-      backendNodeId: backend,
-      files,
-    });
+    await window.snow.browserCdpCommand(
+      webContentsId,
+      "DOM.setFileInputFiles",
+      {
+        backendNodeId: backend,
+        files,
+      },
+    );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
       success: true,
@@ -772,13 +779,13 @@ const uploadFile = async (
         id: element.id || null,
         text: describe(element).slice(0, ${TEXT_PREVIEW_LENGTH}),
       },
-    };`
+    };`,
   );
   try {
     const doc = (await window.snow.browserCdpCommand(
       webContentsId,
       "DOM.getDocument",
-      { depth: -1, pierce: true }
+      { depth: -1, pierce: true },
     )) as { root?: { nodeId?: number } };
     const rootNodeId = doc?.root?.nodeId;
     if (typeof rootNodeId !== "number") {
@@ -787,19 +794,23 @@ const uploadFile = async (
     const query = (await window.snow.browserCdpCommand(
       webContentsId,
       "DOM.querySelector",
-      { nodeId: rootNodeId, selector: `[${UPLOAD_MARKER}="1"]` }
+      { nodeId: rootNodeId, selector: `[${UPLOAD_MARKER}="1"]` },
     )) as { nodeId?: number };
     if (typeof query?.nodeId !== "number" || query.nodeId === 0) {
       throw new Error("Failed to locate the file input element");
     }
-    await window.snow.browserCdpCommand(webContentsId, "DOM.setFileInputFiles", {
-      nodeId: query.nodeId,
-      files,
-    });
+    await window.snow.browserCdpCommand(
+      webContentsId,
+      "DOM.setFileInputFiles",
+      {
+        nodeId: query.nodeId,
+        files,
+      },
+    );
   } finally {
     await webview
       .executeJavaScript(
-        `document.querySelector('[${UPLOAD_MARKER}="1"]')?.removeAttribute('${UPLOAD_MARKER}')`
+        `document.querySelector('[${UPLOAD_MARKER}="1"]')?.removeAttribute('${UPLOAD_MARKER}')`,
       )
       .catch(() => {});
   }
@@ -813,7 +824,7 @@ const uploadFile = async (
 const historyNavigation = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  direction: "back" | "forward"
+  direction: "back" | "forward",
 ): Promise<unknown> => {
   const canGo =
     direction === "back" ? webview.canGoBack() : webview.canGoForward();
@@ -823,7 +834,9 @@ const historyNavigation = async (
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`browser-${direction} timed out waiting for navigation`));
+      reject(
+        new Error(`browser-${direction} timed out waiting for navigation`),
+      );
     }, 10_000);
     const handle = (): void => {
       cleanup();
@@ -834,7 +847,7 @@ const historyNavigation = async (
       webview.removeEventListener("did-navigate", handle as EventListener);
       webview.removeEventListener(
         "did-navigate-in-page",
-        handle as EventListener
+        handle as EventListener,
       );
       webview.removeEventListener("did-stop-loading", handle as EventListener);
     };
@@ -856,15 +869,14 @@ const historyNavigation = async (
 const screenshot = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   // 最近一次主 Frame 导航失败时，页面停留在 Chromium 错误页，capturePage
   // 只会返回全黑 PNG。此时直接返回原导航错误，不把错误页当作正常结果。
-  const tabId = (webview as HTMLElement).dataset.tabId;
-  const navigationState = getMainFrameNavigationState(tabId);
+  const navigationState = getMainFrameNavigationState(instanceId);
   if (navigationState?.status === "failed") {
     throw new Error(
-      `Browser screenshot unavailable: main-frame navigation to ${navigationState.url} failed with ${navigationState.errorDescription}`
+      `Browser screenshot unavailable: main-frame navigation to ${navigationState.url} failed with ${navigationState.errorDescription}`,
     );
   }
   // Viewport-only by default: full-page captures of long pages produce
@@ -881,7 +893,7 @@ const screenshot = async (
   const estimatedBytes = Math.floor((base64.length * 3) / 4);
   if (estimatedBytes > MAX_SCREENSHOT_BYTES) {
     throw new Error(
-      `Browser screenshot is too large to return (${estimatedBytes} bytes, maximum ${MAX_SCREENSHOT_BYTES} bytes)`
+      `Browser screenshot is too large to return (${estimatedBytes} bytes, maximum ${MAX_SCREENSHOT_BYTES} bytes)`,
     );
   }
   const metadata = await currentPageMetadata(webview, instanceId);
@@ -905,7 +917,7 @@ const screenshot = async (
 const wait = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const metadata = await currentPageMetadata(webview, instanceId);
 
@@ -913,7 +925,12 @@ const wait = async (
   if (typeof args.time === "number") {
     const waitTime = Math.min(Math.max(args.time, 100), 30_000);
     await new Promise((resolve) => setTimeout(resolve, waitTime));
-    return { ...metadata, condition: "time", waitedMs: waitTime, success: true };
+    return {
+      ...metadata,
+      condition: "time",
+      waitedMs: waitTime,
+      success: true,
+    };
   }
 
   // 文本出现/消失、元素出现/消失等待：轮询页面，100ms 间隔
@@ -931,7 +948,7 @@ const wait = async (
   const expected = text ?? textGone ?? selector ?? selectorGone;
   if (!expected) {
     throw new Error(
-      "One of time, text, textGone, selector, or selectorGone is required for browser-wait"
+      "One of time, text, textGone, selector, or selectorGone is required for browser-wait",
     );
   }
   const timeoutMs =
@@ -955,12 +972,12 @@ const wait = async (
     let satisfied: boolean;
     if (isSelectorCondition) {
       const found = (await webview.executeJavaScript(
-        selectorQuery(expected)
+        selectorQuery(expected),
       )) as boolean;
       satisfied = condition === "selector" ? found : !found;
     } else {
       const pageText = await webview.executeJavaScript(
-        "String(document.body?.innerText || '')"
+        "String(document.body?.innerText || '')",
       );
       const found = pageText.includes(expected);
       satisfied = condition === "text" ? found : !found;
@@ -995,7 +1012,7 @@ const wait = async (
 const pressKey = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const key = requiredString(args, "key");
   const metadata = await currentPageMetadata(webview, instanceId);
@@ -1025,7 +1042,7 @@ const pressKey = async (
 const hover = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const selector = optionalString(args, "selector");
   const text = optionalString(args, "text");
@@ -1049,7 +1066,7 @@ const hover = async (
         text: describe(element).slice(0, ${TEXT_PREVIEW_LENGTH}),
         href: element.href || null,
       },
-    };`
+    };`,
   );
   const target = (await webview.executeJavaScript(locateScript)) as {
     x: number;
@@ -1070,7 +1087,7 @@ const hover = async (
 const selectOption = async (
   webview: Electron.WebviewTag,
   instanceId: string,
-  args: BrowserMcpCommandArgs
+  args: BrowserMcpCommandArgs,
 ): Promise<unknown> => {
   const selector = optionalString(args, "selector");
   const text = optionalString(args, "text");
@@ -1123,7 +1140,7 @@ const selectOption = async (
         multiple,
       },
       selectedOptions,
-    };`
+    };`,
   );
   const result = (await webview.executeJavaScript(selectScript)) as {
     element: unknown;
@@ -1143,7 +1160,7 @@ const devtools = async (
   webview: Electron.WebviewTag,
   instanceId: string,
   args: BrowserMcpCommandArgs,
-  consoleMessages: readonly unknown[]
+  consoleMessages: readonly unknown[],
 ): Promise<unknown> => {
   const action = typeof args.action === "string" ? args.action : "snapshot";
   if (action === "ax") {
@@ -1152,12 +1169,12 @@ const devtools = async (
     const raw = (await window.snow.browserCdpCommand(
       webview.getWebContentsId(),
       "Accessibility.getFullAXTree",
-      {}
+      {},
     )) as { nodes?: AxNode[] };
     const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
     if (nodes.length === 0) {
       throw new Error(
-        "Accessibility tree is empty; ensure the page is loaded and the browser debugger is available (close page DevTools if open)"
+        "Accessibility tree is empty; ensure the page is loaded and the browser debugger is available (close page DevTools if open)",
       );
     }
     const result = serializeAxTree(nodes, { verbose, maxNodes });
@@ -1177,7 +1194,7 @@ const devtools = async (
       typeof args.durationMs === "number" ? args.durationMs : 3000;
     const result = await window.snow.browserTrace(
       webview.getWebContentsId(),
-      durationMs
+      durationMs,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1193,16 +1210,13 @@ const devtools = async (
   }
   if (action === "console") {
     const level = typeof args.level === "string" ? args.level : undefined;
-    const minLevel =
-      level !== undefined ? CONSOLE_LEVEL_MIN[level] : undefined;
+    const minLevel = level !== undefined ? CONSOLE_LEVEL_MIN[level] : undefined;
     const messages =
       minLevel === undefined
         ? consoleMessages
         : consoleMessages.filter((entry) => {
             const entryLevel = (entry as { level?: unknown }).level;
-            return (
-              typeof entryLevel === "number" && entryLevel >= minLevel
-            );
+            return typeof entryLevel === "number" && entryLevel >= minLevel;
           });
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1219,7 +1233,7 @@ const devtools = async (
       webview.getWebContentsId(),
       filter,
       limit,
-      includeStatic
+      includeStatic,
     );
     // 为每条记录附加序号，便于用 network_detail 按 index 查询
     const numbered = (requests as unknown[]).map((record, index) => ({
@@ -1238,7 +1252,7 @@ const devtools = async (
     const requestId = args.requestId;
     if (typeof requestId !== "number") {
       throw new Error(
-        "requestId is required for browser-devtools network_detail"
+        "requestId is required for browser-devtools network_detail",
       );
     }
     const record = await window.snow.browserNetworkRequest(requestId);
@@ -1259,7 +1273,7 @@ const devtools = async (
   }
   if (action === "network_clear") {
     const result = await window.snow.browserNetworkClear(
-      webview.getWebContentsId()
+      webview.getWebContentsId(),
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1274,7 +1288,7 @@ const devtools = async (
     const details = await window.snow.browserNetworkDetails(
       webview.getWebContentsId(),
       requestId,
-      maxBodyBytes
+      maxBodyBytes,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1284,11 +1298,13 @@ const devtools = async (
   if (action === "networkState") {
     const state = requiredString(args, "state");
     if (state !== "online" && state !== "offline") {
-      throw new Error("state must be online or offline for browser-devtools networkState");
+      throw new Error(
+        "state must be online or offline for browser-devtools networkState",
+      );
     }
     const result = await window.snow.browserNetworkState(
       webview.getWebContentsId(),
-      state === "offline"
+      state === "offline",
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1321,7 +1337,7 @@ const devtools = async (
     browserRouteRulesByInstance.set(instanceId, rules);
     const result = await window.snow.browserRouteSet(
       webview.getWebContentsId(),
-      rules
+      rules,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1332,7 +1348,7 @@ const devtools = async (
   if (action === "routeClear") {
     browserRouteRulesByInstance.delete(instanceId);
     const result = await window.snow.browserRouteClear(
-      webview.getWebContentsId()
+      webview.getWebContentsId(),
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1346,7 +1362,7 @@ const devtools = async (
         : undefined;
     const result = await window.snow.browserStorageSave(
       webview.getWebContentsId(),
-      fileName
+      fileName,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1357,7 +1373,7 @@ const devtools = async (
     const fileName = requiredString(args, "fileName");
     const result = await window.snow.browserStorageRestore(
       webview.getWebContentsId(),
-      fileName
+      fileName,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1370,7 +1386,7 @@ const devtools = async (
     const cookies = await window.snow.browserCookies(
       webview.getWebContentsId(),
       domain,
-      showValues
+      showValues,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1390,7 +1406,7 @@ const devtools = async (
     const result = await window.snow.browserCookieDelete(
       webview.getWebContentsId(),
       name,
-      domain
+      domain,
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1415,7 +1431,7 @@ const devtools = async (
       const responded = await window.snow.browserDialogRespond(
         webview.getWebContentsId(),
         accept,
-        promptText
+        promptText,
       );
       return {
         ...(await currentPageMetadata(webview, instanceId)),
@@ -1423,7 +1439,7 @@ const devtools = async (
       };
     }
     const dialogs = await window.snow.browserDialogs(
-      webview.getWebContentsId()
+      webview.getWebContentsId(),
     );
     return {
       ...(await currentPageMetadata(webview, instanceId)),
@@ -1465,7 +1481,7 @@ export const executeBrowserMcpOperation = async (
   instanceId: string,
   operation: string,
   args: BrowserMcpCommandArgs,
-  consoleMessages: readonly unknown[]
+  consoleMessages: readonly unknown[],
 ): Promise<unknown> => {
   switch (operation) {
     case "navigate":

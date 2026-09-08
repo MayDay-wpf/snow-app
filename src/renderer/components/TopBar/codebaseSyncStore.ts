@@ -1,11 +1,13 @@
 import type { CodebaseSyncStatus } from "../../hooks/useCodebaseWatcher";
 
-/** TopBar 持有的 codebase 同步状态快照（悬浮聊天头部复用展示）。 */
+/** TopBar 持有的 codebase 同步状态快照（悬浮聊天头部、RightPanel 复用展示）。 */
 export type CodebaseSyncSnapshot = {
   syncStatus: CodebaseSyncStatus;
   watchedProjectId: string | undefined;
   activeProjectId: string | undefined;
   isIndexed: boolean;
+  /** TopBar 的 effectiveEnabled：代码库功能已为该 activeProjectId 启用。 */
+  enabled: boolean;
   embedError: string | null;
 };
 
@@ -17,6 +19,7 @@ const isSame = (a: CodebaseSyncSnapshot, b: CodebaseSyncSnapshot): boolean =>
   a.watchedProjectId === b.watchedProjectId &&
   a.activeProjectId === b.activeProjectId &&
   a.isIndexed === b.isIndexed &&
+  a.enabled === b.enabled &&
   a.embedError === b.embedError;
 
 /**

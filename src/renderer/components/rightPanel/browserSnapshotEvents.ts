@@ -1,14 +1,14 @@
 /**
  * 浏览器标签页网页快照（F4）的跨组件事件通道。
  *
- * 请求-响应模式：聊天输入框（ChatInputView）拖入标签页后派发
+ * 请求-响应模式：聊天输入框（ChatInputView）拖入浏览器 tab 后派发
  * WEB_SNAPSHOT_REQUEST_EVENT，浏览器面板（BrowserPanelContent）监听后
- * 定位对应 webview 完成三层提取（整页正文 / 元素区域 / 可视区截图），
- * 再派发 WEB_SNAPSHOT_RESULT_EVENT 回发。requestId 由输入框侧生成，
- * 按递增计数保证多实例 / 多标签页并发不错串。
+ * 定位对应实例的 webview 完成三层提取（整页正文 / 元素区域 / 可视区
+ * 截图），再派发 WEB_SNAPSHOT_RESULT_EVENT 回发。requestId 由输入框侧
+ * 生成，按递增计数保证多浏览器 tab 并发不错串。
  */
 
-/** 输入框 → 浏览器面板：请求对某个标签页生成三层网页快照 */
+/** 输入框 → 浏览器面板：请求对某个浏览器 tab 生成三层网页快照 */
 export const WEB_SNAPSHOT_REQUEST_EVENT = "snow:web-snapshot-request";
 
 /** 浏览器面板 → 输入框：返回快照结果（按 requestId 匹配） */
@@ -21,8 +21,6 @@ export const WEB_SNAPSHOT_TIMEOUT_MS = 5000;
 export type WebSnapshotRequest = {
   requestId: number;
   instanceId: string;
-  /** 内层标签页 id；外层 RightPanel tab 拖入时为空串，浏览器侧以激活标签页兜底 */
-  tabId: string;
   /** 拖拽时记录的 URL，浏览器侧兜底校验实时 URL 仍一致 */
   url: string;
 };

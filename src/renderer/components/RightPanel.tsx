@@ -25,6 +25,7 @@ import { setWebTagDragData } from "./rightPanel/browserDrag";
 import { GitPanelContent } from "./rightPanel/GitPanelContent";
 import { DiffViewer } from "./rightPanel/DiffViewer";
 import { FileDiffPreview } from "./common/FileDiffPreview";
+import { codebaseSyncStore } from "./TopBar/codebaseSyncStore";
 import {
   PlusMenuButton,
   type PlusMenuAction,
@@ -110,7 +111,7 @@ const handleTabDragStart = (
   }
   if (tab.type === "browser") {
     // 浏览器 tab：携带实时 URL（页面内导航后由 onUrlChange 同步到 data.url）
-    // 与实例 id（无内层 tabId → 输入框 drop 后快照请求以该实例激活标签页兜底）。
+    // 与实例 id（输入框 drop 后向该实例的 webview 请求三层网页快照）。
     const browserTab = tab.data as BrowserTabData | undefined;
     const url = browserTab?.url;
     if (!url) {
@@ -264,6 +265,13 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       maxX: number;
     } | null>(null);
 
+    // 订阅 TopBar 发布的代码库同步快照（TopBar 为 watcher 唯一持有者）。
+    // Plus 菜单的“代码库”项据此判定是否对当前项目提供入口。
+    const [codebaseSyncSnapshot, setCodebaseSyncSnapshot] = useState(() =>
+      codebaseSyncStore.get(),
+    );
+    useEffect(() => codebaseSyncStore.subscribe(setCodebaseSyncSnapshot), []);
+
     const handleOpenDiffTab = useCallback<OpenDiffTabCallback>(
       (file, diffResult, diffLoading, imageDiff) => {
         const tabId = `diff:${file.path}`;
@@ -340,7 +348,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     );
 
     const handleOpenBrowserTab = useCallback(
-      (url?: string, requestedInstanceId?: string): string => {
+      (url?: string, requestedInstanceId?: string, activate = true): string => {
         const instanceId =
           requestedInstanceId ??
           `browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -357,7 +365,9 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             data: browserData,
           },
         ]);
-        setActiveTabId(instanceId);
+        if (activate) {
+          setActiveTabId(instanceId);
+        }
         return instanceId;
       },
       [t],
@@ -386,25 +396,6 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         ),
       );
     }, []);
-
-    // 实例内部全部标签页快照同步（BrowserPanelContent 的 onTabsChange 回调，
-    // 激活页置首）。写入 BrowserTabData.tabs，供「在新窗口中打开」/
-    // 「还原为标签页」迁移时完整携带。
-    const handleBrowserTabsChange = useCallback(
-      (tabId: string, tabs: { url: string; title: string }[]) => {
-        setTabs((prev) =>
-          prev.map((tab) =>
-            tab.id === tabId && tab.type === "browser"
-              ? {
-                  ...tab,
-                  data: { ...(tab.data as BrowserTabData), tabs },
-                }
-              : tab,
-          ),
-        );
-      },
-      [],
-    );
 
     // 打开（或切换到已存在的）代码库数据 tab。tab id 固定，避免同一时间
     // 存在多个代码库 tab；切换项目时通过更新 data 复用同一个 tab。
@@ -906,9 +897,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     );
 
     // 浏览器 tab「在新窗口中打开」：主进程创建独立 BrowserWindow 承载
-    // 同一实例（继承 instanceId，browser.rs 工具仍可继续操作），并把
-    // 实例内部的全部标签页快照（tabs）一并携带，独立窗口重建完整标签页，
-    // 成功后关闭原 tab 完成迁移。
+    // 同一实例（继承 instanceId，browser.rs 工具仍可继续操作），携带当前
+    // 页面 URL，独立窗口重建浏览器；成功后关闭原 tab 完成迁移。
     const handleOpenBrowserInNewWindow = useCallback(
       (tabId: string): void => {
         const tab = tabs.find((t) => t.id === tabId && t.type === "browser");
@@ -917,11 +907,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         }
         const browserTab = tab.data as BrowserTabData;
         void window.snow
-          .openDetachedBrowserWindow(
-            browserTab.instanceId,
-            browserTab.url,
-            browserTab.tabs,
-          )
+          .openDetachedBrowserWindow(browserTab.instanceId, browserTab.url)
           .then(() => {
             handleCloseTab(tabId);
           })
@@ -934,34 +920,31 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
 
     // 独立浏览器窗口「还原为标签页」：主进程转发还原请求后，把该实例恢复
     // 为右侧面板浏览器 tab。保持原 instanceId（MCP 浏览器工具按实例路由，
-    // 新 tab 挂载上报后自动接管）；携带的全部内部标签页快照经
-    // initialTabs 初始化，第一个为激活页。
+    // 新 tab 挂载上报后自动接管）；携带的页面 URL / 标题经 initialUrl
+    // 重建浏览器。
     const handleRestoreBrowserFromDetachedWindow = useCallback(
       (payload: BrowserRestorePayload): void => {
         const instanceId = payload.instanceId.trim();
         if (!instanceId) {
           return;
         }
-        const restoredTabs = (payload.tabs ?? [])
-          .map((tab) => ({ url: tab.url, title: tab.title }))
-          .filter((tab) => tab.url.trim());
-        const firstUrl = restoredTabs[0]?.url ?? "";
+        const url = payload.url.trim();
+        const restoredTitle = payload.title.trim();
         setTabs((prev) => {
           const existing = prev.find(
             (t) => t.id === instanceId && t.type === "browser",
           );
           if (existing) {
-            // 同实例 tab 已存在（极端竞态）：刷新快照并激活，不重复创建。
+            // 同实例 tab 已存在（极端竞态）：刷新页面数据并激活，不重复创建。
             const existingData = existing.data as BrowserTabData;
             return prev.map((t) =>
               t.id === instanceId && t.type === "browser"
                 ? {
                     ...t,
-                    title: restoredTabs[0]?.title || existing.title,
+                    title: restoredTitle || existing.title,
                     data: {
                       ...existingData,
-                      url: firstUrl || existingData.url,
-                      tabs: restoredTabs,
+                      url: url || existingData.url,
                     },
                   }
                 : t,
@@ -972,11 +955,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             {
               id: instanceId,
               type: "browser",
-              title: restoredTabs[0]?.title || t("rightPanel.browserTab"),
+              title: restoredTitle || t("rightPanel.browserTab"),
               data: {
                 instanceId,
-                url: firstUrl,
-                tabs: restoredTabs,
+                url,
               },
             },
           ];
@@ -992,6 +974,19 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleRestoreBrowserFromDetachedWindow,
       );
     }, [handleRestoreBrowserFromDetachedWindow]);
+
+    // 独立浏览器窗口内 guest 页面请求打开新标签页（target=_blank /
+    // window.open）：经主进程转发到主窗口后，在右侧面板新建浏览器 tab。
+    useEffect(() => {
+      return window.snow.onOpenBrowserTabInMain((payload) => {
+        const url = payload.url.trim();
+        if (!url) {
+          return;
+        }
+        handleOpenBrowserTab(url);
+        rightPanelEvents.emit("request-expand");
+      });
+    }, [handleOpenBrowserTab]);
 
     const handleFocusBrowserTab = useCallback(
       (instanceId: string): boolean => {
@@ -1035,6 +1030,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         .map((t) => ({
           instanceId: t.id,
           title: t.title,
+          url: (t.data as BrowserTabData)?.url ?? "",
           isActive: t.id === activeTabId,
         }));
     }, [tabs, activeTabId]);
@@ -1183,6 +1179,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
 
     // Windows 下 Plus 菜单与最大化按钮位于 tab 操作区（right-panel-tabs 内），
     // 替代 TopBar 右侧的同名按钮；非 Windows 平台不渲染操作区。
+    // 与 TopBar 一致：代码库功能已为当前项目启用且索引建立完毕后，才在
+    // Plus 菜单中提供“代码库”项；判定数据来自 codebaseSyncStore 快照。
+    const canOpenCodebase =
+      Boolean(activeDirectory?.directoryId) &&
+      codebaseSyncSnapshot !== null &&
+      codebaseSyncSnapshot.enabled &&
+      codebaseSyncSnapshot.isIndexed &&
+      codebaseSyncSnapshot.activeProjectId === activeDirectory?.directoryId;
     const plusMenuItems: PlusMenuItem[] = [
       {
         id: "terminal",
@@ -1199,8 +1203,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         label: t("topBar.plusMenu.drawing", { defaultValue: "Drawing" }),
         icon: Paintbrush,
       },
-      // 代码库项需要具体项目承载；项目不可用时隐藏（与 TopBar 一致）。
-      ...(activeDirectory?.directoryId
+      ...(canOpenCodebase
         ? [
             {
               id: "codebase" as PlusMenuAction,
@@ -1278,11 +1281,12 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             <BrowserPanelContent
               instanceId={(tab.data as BrowserTabData).instanceId}
               initialUrl={(tab.data as BrowserTabData).url}
-              initialTabs={(tab.data as BrowserTabData).tabs}
               isActive={activeTabId === tab.id}
               onTitleChange={(title) => handleBrowserTitleChange(tab.id, title)}
               onUrlChange={(url) => handleBrowserUrlChange(tab.id, url)}
-              onTabsChange={(tabs) => handleBrowserTabsChange(tab.id, tabs)}
+              onOpenNewTab={(url, activate) =>
+                handleOpenBrowserTab(url, undefined, activate)
+              }
             />
           ) : tab.type === "codebase" ? (
             (tab.data as CodebaseTabData) ? (

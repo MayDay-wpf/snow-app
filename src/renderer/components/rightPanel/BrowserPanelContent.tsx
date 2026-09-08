@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
-import { Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BrowserElementPicker,
   BrowserFindBar,
@@ -37,9 +29,6 @@ import {
   recordMainFrameNavigationSuccess,
 } from "./browser/browserMcpOperations";
 import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "../../hooks/useAppControl";
-import { useI18n } from "../../i18n";
-import { setWebTagDragData } from "./browserDrag";
-import { extractUrlHost } from "../mainContent/chatInput/fileTagUtils";
 import {
   WEB_SNAPSHOT_REQUEST_EVENT,
   WEB_SNAPSHOT_RESULT_EVENT,
@@ -56,18 +45,13 @@ export type BrowserPanelContentProps = {
   /** 页面每次导航（含页面内跳转）后的最新 URL 回调，用于上层同步 tab 数据 */
   onUrlChange?: (url: string) => void;
   /**
-   * 实例内部全部标签页快照回调（标签页增删 / 导航 / 切换激活页时触发，
-   * 激活页置首）。上层（RightPanel）据此同步 BrowserTabData.tabs，
-   * 供「在新窗口中打开」与「还原为标签页」迁移时完整携带。
+   * guest 页面请求打开新标签页（window.open / target=_blank）时的回调：
+   * 上层据此新建一个浏览器 tab（RightPanel 模式直接新建；独立窗口模式
+   * 经主进程转发回主窗口新建）。activate=false 时后台打开不切换。
    */
-  onTabsChange?: (tabs: { url: string; title: string }[]) => void;
+  onOpenNewTab?: (url: string, activate: boolean) => void;
   /** 独立浏览器窗口模式：工具栏菜单显示「还原为标签页」（主面板 tab 内为 false/缺省） */
   detached?: boolean;
-  /**
-   * 实例内部标签页快照（独立窗口「还原为标签页」时携带，用于初始化多个
-   * 内部标签页）。提供时优先于 initialUrl，第一个标签页为激活页。
-   */
-  initialTabs?: { url: string; title: string }[];
 };
 
 const normalizeUrl = (input: string, homepage: string): string => {
@@ -220,97 +204,25 @@ const withLayerTimeout = <T,>(
 /** 拖拽时记录的 URL 与 webview 实时 URL 的宽松比较（忽略结尾斜杠差异）。 */
 const normalizeUrlForCompare = (url: string): string => url.replace(/\/+$/, "");
 
-/** 浏览器实例内部的标签页状态（每个标签页对应一个独立 <webview>）。 */
-type BrowserWebviewTab = {
-  id: string;
-  /** 当前加载的 URL，驱动 <webview src> 属性（仅在显式导航时更新） */
-  src: string;
-  /** 地址栏显示值（跟随页面内导航实时更新） */
-  addressInput: string;
-  title: string;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  isLoading: boolean;
-};
-
-const createWebviewTab = (url: string): BrowserWebviewTab => ({
-  id: `browser-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  src: url,
-  addressInput: url,
-  title: "",
-  canGoBack: false,
-  canGoForward: false,
-  isLoading: !!url,
-});
-
 /**
- * 侧边浏览器标签页维度的实现说明：
+ * 侧边浏览器的实现说明（单 webview 模型）：
  *
- * 一个 BrowserPanelContent（右侧面板中的一个浏览器 tab）内部可包含多个
- * 标签页，每个标签页对应一个独立 <webview>（独立的历史记录 / 前进后退 /
- * 缩放，对齐 Chrome 行为）。标签页间切换只切换显示与焦点，各 webview
- * 保持挂载以保留页面状态。
+ * 每个 BrowserPanelContent 承载一个浏览器 tab（右侧面板 RightPanel 的 tab
+ * 即浏览器标签页，独立浏览器窗口固定承载一个实例），内部只有一个
+ * <webview>，不再有实例内部的二级标签页。标签页的增删 / 切换由上层
+ * RightPanel 的 tab 体系承担，实例 id 与 RightPanel tab id 一致。
  *
- * 新标签页的来源：
- * 1. 用户点击标签栏 + 按钮（打开首页）；
- * 2. guest 页面内的标签页级打开请求 —— 主进程 browserPopupWindow 判定后
- *    deny 并通过 browser:open-tab IPC 通知，这里按 guest webContents id
- *    路由到本实例后新建标签页（disposition 为 background-tab 时后台打开，
- *    不切换）。两个上报来源在此汇合：JS window.open（无 features）走主
- *    进程 setWindowOpenHandler；target=_blank 链接点击因 Electron bug
- *    （electron#30886）不触发该 handler，改由 guest preload 拦截点击经
- *    browser:guest-open-tab 中继。窗口级弹出（new-popup / 带
- *    width=height= 等 features）仍由主进程创建真实 BrowserWindow
- *    （OAuth 登录依赖 window.opener）。
+ * guest 页面内 target=_blank / window.open 的标签页级打开请求：主进程
+ * browserPopupWindow 判定后 deny 并通过 browser:open-tab IPC 通知，这里按
+ * guest webContents id 判断是否属于本实例的 webview，是则经 onOpenNewTab
+ * 请求上层新建浏览器 tab（disposition 为 background-tab 时后台打开，不
+ * 切换）。两个上报来源在此汇合：JS window.open（无 features）走主进程
+ * setWindowOpenHandler；target=_blank 链接点击因 Electron bug
+ * （electron#30886）不触发该 handler，改由 guest preload 拦截点击经
+ * browser:guest-open-tab 中继。窗口级弹出（new-popup / 带
+ * width=height= 等 features）仍由主进程创建真实 BrowserWindow
+ * （OAuth 登录依赖 window.opener）。
  */
-
-// ---------------------------------------------------------------------------
-// C1 拖拽预览卡片（单例）：拖动浏览器标签页时以「🌐 标题 + 域名」小卡片
-// 替代浏览器默认的整 tab 拖影。卡片经 setDragImage 截取为拖影位图，
-// 元素以 position: fixed 定位在视口外（见 .drag-preview-card 样式），
-// 不可见但仍参与渲染，可被正常截取。
-// ---------------------------------------------------------------------------
-
-const getDragPreviewCard = (
-  ref: RefObject<HTMLDivElement | null>,
-  title: string,
-  url: string,
-): HTMLDivElement | null => {
-  let el = ref.current;
-  if (!el) {
-    el = document.createElement("div");
-    el.className = "drag-preview-card";
-    const icon = document.createElement("span");
-    icon.className = "drag-preview-icon";
-    icon.textContent = "🌐";
-    const titleEl = document.createElement("span");
-    titleEl.className = "drag-preview-title";
-    const urlEl = document.createElement("span");
-    urlEl.className = "drag-preview-url";
-    el.append(icon, titleEl, urlEl);
-    document.body.appendChild(el);
-    ref.current = el;
-  }
-  const titleEl = el.querySelector<HTMLElement>(".drag-preview-title");
-  const urlEl = el.querySelector<HTMLElement>(".drag-preview-url");
-  if (titleEl) {
-    titleEl.textContent = title;
-  }
-  if (urlEl) {
-    urlEl.textContent = extractUrlHost(url);
-  }
-  return el;
-};
-
-/** 拖拽结束清理预览卡片文本（元素保持挂载复用，避免残留旧数据）。 */
-const clearDragPreviewCard = (ref: RefObject<HTMLDivElement | null>): void => {
-  const el = ref.current;
-  if (!el) {
-    return;
-  }
-  el.querySelector<HTMLElement>(".drag-preview-title")?.replaceChildren();
-  el.querySelector<HTMLElement>(".drag-preview-url")?.replaceChildren();
-};
 
 export const BrowserPanelContent = ({
   instanceId,
@@ -318,19 +230,20 @@ export const BrowserPanelContent = ({
   isActive,
   onTitleChange,
   onUrlChange,
-  onTabsChange,
+  onOpenNewTab,
   detached = false,
-  initialTabs,
 }: BrowserPanelContentProps): React.JSX.Element => {
-  const { t } = useI18n();
-  // onTitleChange 由 RightPanel 内联传入,每次父组件 render 都是新引用。
-  // 通过 ref 持有,事件监听 effect 只需依赖 instanceId,监听器只绑定一次,
-  // 避免多个浏览器实例时每次父组件重渲染都反复卸载/重建 webview 监听器。
+  // onTitleChange / onUrlChange / onOpenNewTab 由 RightPanel 内联传入,每次
+  // 父组件 render 都是新引用。通过 ref 持有,事件监听 effect 只需依赖
+  // instanceId,监听器只绑定一次,避免每次父组件重渲染都反复卸载/重建
+  // webview 监听器。
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
   // onUrlChange 与 onTitleChange 同因,同样经 ref 持有。
   const onUrlChangeRef = useRef(onUrlChange);
   onUrlChangeRef.current = onUrlChange;
+  const onOpenNewTabRef = useRef(onOpenNewTab);
+  onOpenNewTabRef.current = onOpenNewTab;
   const { homepage, loaded, setHomepage } = useBrowserHomepage();
   const homepageRef = useRef(homepage);
   homepageRef.current = homepage;
@@ -340,70 +253,32 @@ export const BrowserPanelContent = ({
   const activeDeviceSize = findDeviceSizePreset(deviceSizeId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
-  // onTabsChange 同因（父组件内联回调，引用每次 render 变化），经 ref 持有，
-  // 快照同步 effect 无需依赖它，避免每次父组件重渲染都重新绑定。
-  const onTabsChangeRef = useRef(onTabsChange);
-  onTabsChangeRef.current = onTabsChange;
 
-  // 初始标签页：显式 initialUrl 立即使用；否则 homepage 已就绪（模块启动
-  // 时预读）则直接以其填充首个标签页，webview 首帧即加载预设起始页；
-  // 尚未就绪时 src 留空，等 homepage 加载完成后的 effect 补导航兜底。
-  // 独立窗口「还原为标签页」时携带 initialTabs（实例内全部标签页快照），
-  // 优先于 initialUrl，逐个重建内部标签页，第一个为激活页。
-  const initialTabIdRef = useRef<string>(
-    `browser-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
-  const [webviewTabs, setWebviewTabs] = useState<BrowserWebviewTab[]>(() => {
-    const snapshotTabs = initialTabs?.filter((tab) => tab.url.trim());
-    if (snapshotTabs && snapshotTabs.length > 0) {
-      return snapshotTabs.map((tab, index) => ({
-        id:
-          index === 0
-            ? initialTabIdRef.current
-            : `browser-tab-${Date.now()}-${index}-${Math.random()
-                .toString(36)
-                .slice(2, 8)}`,
-        src: tab.url,
-        addressInput: tab.url,
-        title: tab.title ?? "",
-        canGoBack: false,
-        canGoForward: false,
-        isLoading: true,
-      }));
+  // 单页面状态：本实例唯一 <webview> 的导航状态。src 驱动 <webview src>
+  // 属性（仅在显式导航时更新），addressInput 跟随页面内导航实时更新。
+  // 初始地址：显式 initialUrl 立即使用；否则 homepage 已就绪（模块启动时
+  // 预读）则直接以其为起始页；尚未就绪时留空，等 homepage 加载完成后的
+  // effect 补导航兜底。
+  const computeStartUrl = useCallback((): string => {
+    if (initialUrl) {
+      return normalizeUrl(initialUrl, homepage);
     }
-    const startUrl = initialUrl
-      ? normalizeUrl(initialUrl, homepage)
-      : loaded && homepage
-        ? homepage
-        : "";
-    return [
-      {
-        id: initialTabIdRef.current,
-        src: startUrl,
-        addressInput: startUrl,
-        title: "",
-        canGoBack: false,
-        canGoForward: false,
-        isLoading: !!startUrl,
-      },
-    ];
-  });
-  const [activeWebviewTabId, setActiveWebviewTabId] = useState<string>(
-    initialTabIdRef.current,
+    return loaded && homepage ? homepage : "";
+  }, [initialUrl, homepage, loaded]);
+
+  const [src, setSrc] = useState<string>(computeStartUrl);
+  const [addressInput, setAddressInput] = useState<string>(computeStartUrl);
+  const [title, setTitle] = useState("");
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(
+    () => !!computeStartUrl(),
   );
-  const activeWebviewTabIdRef = useRef<string>(initialTabIdRef.current);
-  // 事件监听器通过 ref 读取最新标签页数据，避免反复重绑监听器。
-  const webviewTabsRef = useRef(webviewTabs);
-  webviewTabsRef.current = webviewTabs;
-  // tabId -> webview 元素（所有标签页保持挂载以保留页面状态）。
-  const webviewElementsRef = useRef<Map<string, Electron.WebviewTag>>(
-    new Map(),
-  );
-  // guest webContents id -> tabId，用于把主进程 browser:open-tab 事件
-  // 路由到发起请求的那个 webview 所属的浏览器实例。
-  const webviewGuestIdToTabIdRef = useRef<Map<number, string>>(new Map());
-  // 当前激活标签页的 webview（工具栏操作 / MCP / 截图 / 元素选择都作用于它）。
+  // 本实例唯一 webview（工具栏操作 / MCP / 截图 / 元素选择都作用于它）。
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
+  // 本实例 webview 的 guest webContents id：主进程 browser:open-tab 事件
+  // 按此判断发起请求的 guest 是否属于本实例。
+  const guestWebContentsIdRef = useRef<number | null>(null);
   const consoleMessagesRef = useRef<unknown[]>([]);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [findVisible, setFindVisible] = useState(false);
@@ -412,15 +287,6 @@ export const BrowserPanelContent = ({
   // 下载列表（webview JS 弹窗走 Electron 原生对话框，无需自绘）。
   const [downloads, setDownloads] = useState<BrowserDownloadItemEvent[]>([]);
   const browserContentRef = useRef<HTMLDivElement>(null);
-  // C1 拖拽预览卡片单例（挂载于 document.body，跨拖拽复用，卸载时移除）。
-  const dragPreviewRef = useRef<HTMLDivElement | null>(null);
-  // 卸载时移除拖拽预览卡片，避免残留到 document.body。
-  useEffect(() => {
-    return () => {
-      dragPreviewRef.current?.remove();
-      dragPreviewRef.current = null;
-    };
-  }, []);
   const { isCapturing, captureScreenshot } = useWebviewScreenshot(webviewRef);
   const {
     isPicking,
@@ -431,12 +297,9 @@ export const BrowserPanelContent = ({
     applyElementStyle,
   } = useWebviewElementPicker(webviewRef);
   // picked 状态的 ref 镜像：快照请求监听器只绑定一次，经 ref 读取最新值，
-  // 避免闭包捕获到旧的 picked（参考 webviewTabsRef 的 ref 模式）。
+  // 避免闭包捕获到旧的 picked。
   const pickedRef = useRef<PickedElement | null>(null);
   pickedRef.current = picked;
-
-  const activeTab =
-    webviewTabs.find((tab) => tab.id === activeWebviewTabId) ?? webviewTabs[0];
 
   // 计算元素选择备注弹窗的锚点（相对 .browser-content 的左上角）。
   // guest 视口坐标通过 webview 元素的位置偏移到宿主坐标，再换算到
@@ -461,49 +324,34 @@ export const BrowserPanelContent = ({
     };
   }, [picked]);
 
-  const updateWebviewTab = useCallback(
-    (
-      tabId: string,
-      updater: (tab: BrowserWebviewTab) => BrowserWebviewTab,
-    ): void => {
-      setWebviewTabs((prev) =>
-        prev.map((tab) => (tab.id === tabId ? updater(tab) : tab)),
-      );
-    },
-    [],
-  );
-
   /**
-   * 静音状态对齐 Chrome 后台标签页：仅当右侧面板 tab 激活且该标签页为
-   * 当前激活标签页时才允许出声，其余全部静音（避免多个浏览器实例/标签页
-   * 同时播放音频）。webview 方法要求 guest 已 dom-ready，未就绪会抛异常，
-   * 调用方需 try/catch；dom-ready 事件里也会补一次。
+   * 静音状态对齐 Chrome 后台标签页：仅当右侧面板 tab 激活（独立窗口固定
+   * isActive）时允许出声，其余静音（避免多个浏览器 tab 同时播放音频）。
+   * webview 方法要求 guest 已 dom-ready，未就绪会抛异常，调用方需
+   * try/catch；dom-ready 事件里也会补一次。
    */
   const applyMutedState = useCallback((): void => {
-    const mutedForTab = (tabId: string): boolean =>
-      !isActiveRef.current || tabId !== activeWebviewTabIdRef.current;
-    for (const [tabId, webview] of webviewElementsRef.current) {
-      try {
-        webview.setAudioMuted(mutedForTab(tabId));
-      } catch {
-        // guest 尚未就绪(dom-ready 未触发),等待 dom-ready 后重试。
-      }
+    const webview = webviewRef.current;
+    if (!webview) {
+      return;
+    }
+    try {
+      webview.setAudioMuted(!isActiveRef.current);
+    } catch {
+      // guest 尚未就绪(dom-ready 未触发),等待 dom-ready 后重试。
     }
   }, []);
 
   /**
-   * 为某个标签页的 webview 绑定事件监听（元素挂载时调用一次）。
-   * 所有 handler 通过 refs 读取最新状态，闭包仅捕获 tabId 与 webview。
+   * 为本实例唯一的 webview 绑定事件监听（元素挂载时调用一次）。
+   * handler 通过 refs 读取最新状态，闭包仅捕获 instanceId 与 webview。
    */
   const attachWebviewListeners = useCallback(
-    (webview: Electron.WebviewTag, tabId: string): void => {
+    (webview: Electron.WebviewTag): void => {
       const handleDomReady = (): void => {
         try {
-          // 注册 guest id -> tabId 映射：主进程 browser:open-tab 事件按此路由。
-          webviewGuestIdToTabIdRef.current.set(
-            webview.getWebContentsId(),
-            tabId,
-          );
+          // 记录 guest id：主进程 browser:open-tab 事件按此判断归属。
+          guestWebContentsIdRef.current = webview.getWebContentsId();
         } catch {
           // guest 尚未就绪，忽略。
         }
@@ -512,46 +360,42 @@ export const BrowserPanelContent = ({
       };
 
       const handleNavigationStateUpdate = (): void => {
-        const canGoBack = webview.canGoBack();
-        const canGoForward = webview.canGoForward();
-        updateWebviewTab(tabId, (tab) => ({ ...tab, canGoBack, canGoForward }));
+        setCanGoBack(webview.canGoBack());
+        setCanGoForward(webview.canGoForward());
       };
 
       // did-navigate fires for every navigation including server-side redirects
       // and in-page pushState. We update the address bar for display but
-      // deliberately do NOT update tab.src — changing src would trigger a
+      // deliberately do NOT update src — changing src would trigger a
       // fresh loadURL via the webview attribute observer, re-triggering the
       // redirect and creating an infinite loop (e.g. Cloudflare challenges).
       const handleDidNavigate = (e: Electron.DidNavigateEvent): void => {
         // 导航成功（含重定向目标、页面内 pushState）后清除失败状态，
         // 使 screenshot 等 MCP 操作恢复正常执行。
-        recordMainFrameNavigationSuccess(tabId, e.url);
-        updateWebviewTab(tabId, (tab) => ({ ...tab, addressInput: e.url }));
+        recordMainFrameNavigationSuccess(instanceId, e.url);
+        setAddressInput(e.url);
         handleNavigationStateUpdate();
-        // 仅激活标签页驱动工具栏状态与上层（RightPanel tab 标题/URL）同步。
-        if (tabId === activeWebviewTabIdRef.current) {
-          // Keep the menu's zoom display in sync with the webview's actual zoom
-          // (Electron persists zoom per webContents across navigations).
-          setZoomFactor(webview.getZoomFactor());
-          // 上报最新 URL，供 RightPanel 同步 tab.data.url（拖拽引用需要实时地址）
-          onUrlChangeRef.current?.(e.url);
-        }
+        // Keep the menu's zoom display in sync with the webview's actual zoom
+        // (Electron persists zoom per webContents across navigations).
+        setZoomFactor(webview.getZoomFactor());
+        // 上报最新 URL，供 RightPanel 同步 tab.data.url（拖拽引用需要实时地址）
+        onUrlChangeRef.current?.(e.url);
       };
 
       const handleDidStartLoading = (): void => {
-        updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: true }));
+        setIsLoading(true);
       };
 
       const handleDidStopLoading = (): void => {
-        updateWebviewTab(tabId, (tab) => ({ ...tab, isLoading: false }));
+        setIsLoading(false);
         handleNavigationStateUpdate();
       };
 
       const handlePageTitleUpdated = (
         e: Electron.PageTitleUpdatedEvent,
       ): void => {
-        updateWebviewTab(tabId, (tab) => ({ ...tab, title: e.title }));
-        if (tabId === activeWebviewTabIdRef.current && e.title) {
+        setTitle(e.title);
+        if (e.title) {
           onTitleChangeRef.current?.(e.title);
         }
       };
@@ -579,7 +423,7 @@ export const BrowserPanelContent = ({
           return;
         }
         recordMainFrameNavigationFailure(
-          tabId,
+          instanceId,
           e.validatedURL || "",
           e.errorCode,
           e.errorDescription ||
@@ -629,22 +473,18 @@ export const BrowserPanelContent = ({
       webview.addEventListener("found-in-page", handleFoundInPage);
       webview.addEventListener("console-message", handleConsoleMessage);
     },
-    [updateWebviewTab, applyMutedState],
+    [instanceId, applyMutedState],
   );
 
   /**
-   * 所有 webview 共用的稳定 ref callback（React 重渲染时函数引用不变，
-   * 不会触发 detach/attach，监听器只绑定一次）。tabId 通过 data-tab-id
-   * 属性读取，避免为每个 tab 生成独立闭包。
+   * 稳定 ref callback（React 重渲染时函数引用不变，不会触发 detach/
+   * attach，监听器只绑定一次）。
    */
   const handleWebviewRef = useCallback(
     (el: Electron.WebviewTag | null): void => {
       const webview = el as unknown as Electron.WebviewTag | null;
+      webviewRef.current = webview;
       if (!webview) {
-        return;
-      }
-      const tabId = (webview as HTMLElement).dataset.tabId;
-      if (!tabId) {
         return;
       }
       // allowpopups 必须为字符串属性：React 18 对未知 boolean 属性
@@ -653,68 +493,44 @@ export const BrowserPanelContent = ({
       // 在元素挂载时（早于 guest attach）通过 DOM API 写入，否则
       // guest 保持 disablePopups=true，所有 window.open 被拦截。
       webview.setAttribute("allowpopups", "true");
-      const isNew = !webviewElementsRef.current.has(tabId);
-      webviewElementsRef.current.set(tabId, webview);
-      if (isNew) {
-        attachWebviewListeners(webview, tabId);
-      }
-      if (tabId === activeWebviewTabIdRef.current) {
-        webviewRef.current = webview;
-      }
+      attachWebviewListeners(webview);
     },
     [attachWebviewListeners],
   );
 
-  // homepage 加载完成后（且没有显式 initialUrl / initialTabs），让第一个
-  // 标签页导航到真实首页。useState 只评估一次初始值，迟到的 homepage 必须
-  // 在此补上。还原场景已携带显式标签页，无需补导航。
+  // homepage 加载完成后（且没有显式 initialUrl），让页面导航到真实首页。
+  // useState 只评估一次初始值，迟到的 homepage 必须在此补上。
   useEffect(() => {
-    if (!loaded || initialUrl || (initialTabs && initialTabs.length > 0)) {
+    if (!loaded || initialUrl) {
       return;
     }
     const url = normalizeUrl(homepage || DEFAULT_BROWSER_HOMEPAGE, homepage);
-    setWebviewTabs((prev) => {
-      const first = prev[0];
-      if (!first || first.src) {
-        return prev;
-      }
-      return [{ ...first, src: url, addressInput: url, isLoading: true }];
-    });
-  }, [loaded, initialUrl, homepage, initialTabs]);
+    setSrc((prev) => (prev ? prev : url));
+    setAddressInput((prev) => (prev ? prev : url));
+  }, [loaded, initialUrl, homepage]);
 
-  // 新增标签页。activate=false 时在后台打开（background-tab，如 Ctrl+点击）。
-  const addWebviewTab = (url: string, activate: boolean): string => {
-    const normalized = normalizeUrl(url, homepageRef.current);
-    const newTab = createWebviewTab(normalized);
-    setWebviewTabs((prev) => [...prev, newTab]);
-    if (activate) {
-      activeWebviewTabIdRef.current = newTab.id;
-      setActiveWebviewTabId(newTab.id);
-      // 新 webview 挂载后 ref callback 会依据 activeWebviewTabIdRef 接管。
-      webviewRef.current = null;
-      applyMutedState();
+  // src 置位时进入加载态（homepage 迟到补导航时 did-start-loading 尚未
+  // 触发），did-stop-loading 负责清除。
+  useEffect(() => {
+    if (src) {
+      setIsLoading(true);
     }
-    return newTab.id;
-  };
-
-  const handleNewWebviewTab = (): void => {
-    addWebviewTab(homepageRef.current || DEFAULT_BROWSER_HOMEPAGE, true);
-  };
+  }, [src]);
 
   // 主进程 browser:open-tab：guest 内的标签页级打开请求（JS window.open
   // 无 features 走 setWindowOpenHandler；target=_blank 链接点击经 guest
   // preload 拦截 + browser:guest-open-tab 中继）。按 guest webContents id
-  // 路由：属于本实例的 webview 发起时才在此新建标签页（弹出窗口内的
-  // 请求不会命中注册表）。
+  // 判断：属于本实例的 webview 发起时才经 onOpenNewTab 请求上层新建浏览器
+  // tab（弹出窗口内的请求不会命中）。
   useEffect(() => {
     return window.snow.onBrowserOpenTab((event) => {
-      const tabId = webviewGuestIdToTabIdRef.current.get(
-        event.guestWebContentsId,
-      );
-      if (!tabId) {
+      if (guestWebContentsIdRef.current !== event.guestWebContentsId) {
         return;
       }
-      addWebviewTab(event.url, event.disposition !== "background-tab");
+      onOpenNewTabRef.current?.(
+        event.url,
+        event.disposition !== "background-tab",
+      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -743,75 +559,29 @@ export const BrowserPanelContent = ({
     void window.snow.cancelBrowserDownload(id).catch(() => {});
   };
 
-  // MCP 命令桥：页面级操作（navigate/click/devtools 等）作用于「当前激活
-  // 标签页」的 webview（对齐浏览器语义）；标签页级操作（open_tab /
-  // list_tabs / close_tab / focus_tab / get_tab_content）在此直接处理。
+  // MCP 命令桥：所有页面级操作（navigate/click/devtools 等）作用于本实例
+  // 唯一的 webview；get_tab_content 提取页面正文。标签页的增删切换由上层
+  // RightPanel 的 tab 体系承担（browser-create / browser-list /
+  // browser-close / browser-focus）。
   useEffect(() => {
     const unregister = registerBrowserMcpInstance(
       instanceId,
       async (operation, args) => {
-        // 标签页维度操作：与具体页面无关，优先于页面级操作处理。
-        switch (operation) {
-          case "open_tab": {
-            const rawUrl = typeof args.url === "string" ? args.url : "";
-            const url = normalizeUrl(rawUrl, homepageRef.current);
-            const tabId = addWebviewTab(url, true);
-            return { tabId, url, activated: true };
-          }
-          case "list_tabs": {
-            return {
-              tabs: webviewTabsRef.current.map((tab) => ({
-                tabId: tab.id,
-                title: tab.title,
-                url: tab.src || tab.addressInput,
-                isActive: tab.id === activeWebviewTabIdRef.current,
-              })),
-              totalTabs: webviewTabsRef.current.length,
-            };
-          }
-          case "close_tab": {
-            const tabId = typeof args.tabId === "string" ? args.tabId : "";
-            if (!tabId) {
-              throw new Error("tabId is required for browser-close_tab");
-            }
-            if (!webviewTabsRef.current.some((tab) => tab.id === tabId)) {
-              throw new Error(`Browser tab was not found: ${tabId}`);
-            }
-            handleCloseWebviewTab(tabId);
-            return { tabId, closed: true };
-          }
-          case "focus_tab": {
-            const tabId = typeof args.tabId === "string" ? args.tabId : "";
-            if (!tabId) {
-              throw new Error("tabId is required for browser-focus_tab");
-            }
-            if (!webviewTabsRef.current.some((tab) => tab.id === tabId)) {
-              throw new Error(`Browser tab was not found: ${tabId}`);
-            }
-            handleActivateWebviewTab(tabId);
-            return { tabId, focused: true };
-          }
-          case "get_tab_content": {
-            const webview = webviewRef.current;
-            if (!webview) {
-              throw new Error("浏览器当前没有可操作的激活标签页");
-            }
-            const maxLength =
-              typeof args.maxLength === "number" ? args.maxLength : 20000;
-            const content = (await webview.executeJavaScript(
-              "document.body ? document.body.innerText : ''",
-            )) as string;
-            return {
-              url: webview.getURL(),
-              title: webview.getTitle(),
-              content: String(content ?? "").slice(0, maxLength),
-            };
-          }
-        }
-
         const webview = webviewRef.current;
         if (!webview) {
-          throw new Error("浏览器当前没有可操作的激活标签页");
+          throw new Error("浏览器当前没有可操作的页面");
+        }
+        if (operation === "get_tab_content") {
+          const maxLength =
+            typeof args.maxLength === "number" ? args.maxLength : 20000;
+          const content = (await webview.executeJavaScript(
+            "document.body ? document.body.innerText : ''",
+          )) as string;
+          return {
+            url: webview.getURL(),
+            title: webview.getTitle(),
+            content: String(content ?? "").slice(0, maxLength),
+          };
         }
         return executeBrowserMcpOperation(
           webview,
@@ -833,12 +603,9 @@ export const BrowserPanelContent = ({
     );
     return () => {
       unregister();
-      // 实例卸载时清理其累积的路由规则,避免残留规则影响其他实例。
+      // 实例卸载时清理其累积的路由规则与导航状态,避免残留影响其他实例。
       clearBrowserRouteRulesForInstance(instanceId);
-      // 同时清理本实例所有标签页的导航状态。
-      for (const tabId of webviewElementsRef.current.keys()) {
-        clearBrowserNavigationState(tabId);
-      }
+      clearBrowserNavigationState(instanceId);
     };
   }, [instanceId]);
 
@@ -848,13 +615,12 @@ export const BrowserPanelContent = ({
     }
   }, [instanceId, isActive]);
 
-  // F4 网页快照提供方：接收输入框拖入标签页后的快照请求，对目标 webview
-  // 完成三层提取（整页正文 / 元素区域 / 可视区截图）后回发结果事件。
-  // 请求-响应均走全局 CustomEvent：多浏览器实例按 instanceId 分流，
-  // 标签页按 tabId 定位（外层 RightPanel tab 拖入无 tabId → 激活标签页兜底）。
-  // 监听器只绑定一次，状态一律经 ref 读取（webviewElementsRef /
-  // activeWebviewTabIdRef / pickedRef），避免闭包过期。任一环节失败都
-  // 静默降级（回发 snapshot=undefined），不抛异常、不打断拖入流程。
+  // F4 网页快照提供方：接收输入框拖入浏览器 tab 后的快照请求，对本实例
+  // 唯一的 webview 完成三层提取（整页正文 / 元素区域 / 可视区截图）后回发
+  // 结果事件。请求-响应均走全局 CustomEvent：多浏览器 tab 按 instanceId
+  // 分流。监听器只绑定一次，状态一律经 ref 读取（webviewRef /
+  // pickedRef），避免闭包过期。任一环节失败都静默降级（回发
+  // snapshot=undefined），不抛异常、不打断拖入流程。
   useEffect(() => {
     const dispatchSnapshotResult = (
       requestId: number,
@@ -870,7 +636,6 @@ export const BrowserPanelContent = ({
     const collectWebSnapshot = async (
       webview: Electron.WebviewTag,
       requestedUrl: string,
-      tabId: string,
     ): Promise<WebPageSnapshot | undefined> => {
       // URL 兜底校验：页面已导航到其他地址则视为过期引用，直接降级，
       // 避免快照内容与 chip 上的 URL 不一致。
@@ -896,12 +661,11 @@ export const BrowserPanelContent = ({
         SNAPSHOT_LAYER_TIMEOUT_MS,
       );
 
-      // ② 元素区域：picked 由激活标签页的 webview 产生（webviewRef 指向它），
-      // 仅当请求的正是激活标签页时才附带，避免快照错串到其他标签页。
+      // ② 元素区域：picked 由本实例的 webview 产生（webviewRef 指向它）。
       let elementText: string | undefined;
       let elementSelector: string | undefined;
       const picked = pickedRef.current;
-      if (picked && tabId === activeWebviewTabIdRef.current) {
+      if (picked) {
         const sliced = picked.text.slice(0, MAX_ELEMENT_TEXT_LENGTH);
         elementText = sliced || undefined;
         elementSelector = picked.selector;
@@ -944,19 +708,17 @@ export const BrowserPanelContent = ({
       if (!detail || typeof detail.requestId !== "number") {
         return;
       }
-      // 多浏览器实例并存：只响应属于本实例的快照请求。
+      // 多浏览器 tab 并存：只响应属于本实例的快照请求。
       if (detail.instanceId !== instanceId) {
         return;
       }
-      // 外层 RightPanel tab 拖入时无 tabId → 以本实例激活标签页兜底。
-      const tabId = detail.tabId || activeWebviewTabIdRef.current;
-      const webview = webviewElementsRef.current.get(tabId) ?? null;
+      const webview = webviewRef.current;
       if (!webview) {
-        // 标签页已关闭 / webview 不可用：降级纯 URL 引用（不抛错）。
+        // webview 不可用：降级纯 URL 引用（不抛错）。
         dispatchSnapshotResult(detail.requestId, undefined);
         return;
       }
-      void collectWebSnapshot(webview, detail.url, tabId).then(
+      void collectWebSnapshot(webview, detail.url).then(
         (snapshot) => dispatchSnapshotResult(detail.requestId, snapshot),
         () => dispatchSnapshotResult(detail.requestId, undefined),
       );
@@ -971,101 +733,25 @@ export const BrowserPanelContent = ({
     };
   }, [instanceId]);
 
-  // 非激活 tab 的 webview 静音,避免多个浏览器实例时后台页面持续播放
-  // 音频/占用音频设备(对齐 Chrome 后台标签页行为);激活时恢复声音。
-  // 切换内部标签页 / 右侧面板 tab 激活状态变化时重新应用。
+  // 右侧面板 tab 非激活时 webview 静音,避免后台页面持续播放音频/占用
+  // 音频设备(对齐 Chrome 后台标签页行为);激活时恢复声音。
   useEffect(() => {
     applyMutedState();
-  }, [isActive, activeWebviewTabId, applyMutedState]);
-
-  const handleActivateWebviewTab = (tabId: string): void => {
-    if (tabId === activeWebviewTabIdRef.current) {
-      return;
-    }
-    // 切换标签页时退出元素选择模式，避免注入脚本/高亮残留在旧页面。
-    cancelPicker();
-    activeWebviewTabIdRef.current = tabId;
-    setActiveWebviewTabId(tabId);
-    const webview = webviewElementsRef.current.get(tabId) ?? null;
-    webviewRef.current = webview;
-    applyMutedState();
-    setZoomFactor(webview ? webview.getZoomFactor() : 1);
-    webview?.focus();
-    // 上报新激活标签页的标题与 URL，保持 RightPanel tab 数据同步。
-    const tab = webviewTabsRef.current.find((item) => item.id === tabId);
-    if (tab) {
-      onTitleChangeRef.current?.(tab.title);
-      if (tab.src) {
-        onUrlChangeRef.current?.(tab.src);
-      }
-    }
-  };
-
-  const handleCloseWebviewTab = (tabId: string): void => {
-    // 清理 guest id 与元素注册（webview 元素随 React 卸载销毁）。
-    for (const [guestId, mappedTabId] of webviewGuestIdToTabIdRef.current) {
-      if (mappedTabId === tabId) {
-        webviewGuestIdToTabIdRef.current.delete(guestId);
-      }
-    }
-    webviewElementsRef.current.delete(tabId);
-    clearBrowserNavigationState(tabId);
-
-    const tabsBefore = webviewTabsRef.current;
-    const index = tabsBefore.findIndex((tab) => tab.id === tabId);
-    const wasActive = activeWebviewTabIdRef.current === tabId;
-    const remaining = tabsBefore.filter((tab) => tab.id !== tabId);
-
-    if (remaining.length === 0) {
-      // 关闭最后一个标签页：新建一个首页标签页（对齐 Chrome 行为）。
-      const url = normalizeUrl(homepageRef.current, homepageRef.current);
-      const newTab = createWebviewTab(url);
-      setWebviewTabs([newTab]);
-      activeWebviewTabIdRef.current = newTab.id;
-      setActiveWebviewTabId(newTab.id);
-      webviewRef.current = null;
-      applyMutedState();
-      return;
-    }
-
-    setWebviewTabs(remaining);
-
-    if (wasActive) {
-      // 激活左侧相邻标签页；没有则右侧相邻（与原位置 index 对齐）。
-      const nextActive = remaining[index - 1] ?? remaining[index];
-      activeWebviewTabIdRef.current = nextActive.id;
-      setActiveWebviewTabId(nextActive.id);
-      const webview = webviewElementsRef.current.get(nextActive.id) ?? null;
-      webviewRef.current = webview;
-      applyMutedState();
-      setZoomFactor(webview ? webview.getZoomFactor() : 1);
-      webview?.focus();
-      onTitleChangeRef.current?.(nextActive.title);
-      if (nextActive.src) {
-        onUrlChangeRef.current?.(nextActive.src);
-      }
-    }
-  };
+  }, [isActive, applyMutedState]);
 
   const handleNavigate = (rawInput?: string): void => {
-    const currentTab = webviewTabsRef.current.find(
-      (tab) => tab.id === activeWebviewTabIdRef.current,
-    );
-    if (!currentTab) {
-      return;
-    }
-    const input = (rawInput ?? currentTab.addressInput).trim();
+    const input = (rawInput ?? addressInput).trim();
     if (!input) {
       return;
     }
     const url = normalizeUrl(input, homepageRef.current);
-    const webview = webviewRef.current;
     // 地址栏即时回显输入值（即使未命中导航也保持所见即所得）。
-    updateWebviewTab(currentTab.id, (tab) => ({ ...tab, addressInput: url }));
+    setAddressInput(url);
+    const webview = webviewRef.current;
     if (!webview) {
       return;
     }
-    if (url === currentTab.src) {
+    if (url === src) {
       // Same URL — src won't change, so explicitly reload.
       webview.reload();
     } else {
@@ -1073,15 +759,12 @@ export const BrowserPanelContent = ({
       // attribute observer. We intentionally do NOT call loadURL() directly
       // here, as that would race with the src-triggered navigation and cause
       // spurious ERR_ABORTED errors via GUEST_VIEW_MANAGER_CALL.
-      updateWebviewTab(currentTab.id, (tab) => ({ ...tab, src: url }));
+      setSrc(url);
     }
   };
 
   const handleAddressChange = (value: string): void => {
-    updateWebviewTab(activeWebviewTabIdRef.current, (tab) => ({
-      ...tab,
-      addressInput: value,
-    }));
+    setAddressInput(value);
   };
 
   const handleAddressKeyDown = (
@@ -1146,39 +829,16 @@ export const BrowserPanelContent = ({
     );
   };
 
-  // 实例内部全部标签页的快照（激活页置首，其余保持原有顺序）。
-  // 供「在新窗口中打开」与「还原为标签页」迁移时完整携带标签页状态，
-  // 上层还原/重建时第一个标签页即激活页。
-  const buildTabsSnapshot = useCallback((): {
-    url: string;
-    title: string;
-  }[] => {
-    const activeId = activeWebviewTabIdRef.current;
-    const tabs = webviewTabsRef.current;
-    const active = tabs.find((tab) => tab.id === activeId);
-    const rest = tabs.filter((tab) => tab.id !== activeId);
-    return [...(active ? [active] : []), ...rest].map((tab) => ({
-      url: tab.src || tab.addressInput,
-      title: tab.title,
-    }));
-  }, []);
-
-  // 标签页增删 / 导航 / 切换激活页时向上层同步快照（父组件经
-  // BrowserTabData.tabs 持久化，供窗口迁移时携带）。
-  useEffect(() => {
-    onTabsChangeRef.current?.(buildTabsSnapshot());
-  }, [webviewTabs, activeWebviewTabId, buildTabsSnapshot]);
-
-  // 独立窗口「还原为标签页」：把当前实例的全部内部标签页快照
-  // （含激活页），连同 instanceId 经主进程转发给主窗口 RightPanel，
-  // 恢复为右侧面板浏览器 tab（保持实例 id，MCP 路由不受影响），
-  // 随后主进程关闭本独立窗口。
+  // 独立窗口「还原为标签页」：把当前页面（URL + 标题）连同 instanceId 经
+  // 主进程转发给主窗口 RightPanel，恢复为右侧面板浏览器 tab（保持实例
+  // id，MCP 路由不受影响），随后主进程关闭本独立窗口。
   const handleRestoreToTabs = useCallback((): void => {
     window.snow.restoreBrowserToMainWindow({
       instanceId,
-      tabs: buildTabsSnapshot(),
+      url: addressInput || src,
+      title,
     });
-  }, [instanceId, buildTabsSnapshot]);
+  }, [instanceId, addressInput, src, title]);
 
   const applyZoom = (next: number): void => {
     setZoomFactor(next);
@@ -1271,9 +931,9 @@ export const BrowserPanelContent = ({
   // window.open / target=_blank 都会被 Chromium 直接拦截（window.open
   // 返回 null），不会到达主进程 setWindowOpenHandler。放行后由主进程
   // browserPopupWindow 分流：窗口级弹出（OAuth 等带 features 的）创建
-  // 真实弹出窗体；标签页级打开经 browser:open-tab IPC 回到这里新建
-  // 内部标签页（target=_blank 链接点击因 electron#30886 由 guest preload
-  // 拦截中继，见 browserPopupWindow.ts）。
+  // 真实弹出窗体；标签页级打开经 browser:open-tab IPC 回到这里，经
+  // onOpenNewTab 请求上层新建浏览器 tab（target=_blank 链接点击因
+  // electron#30886 由 guest preload 拦截中继，见 browserPopupWindow.ts）。
   //
   // 注意：必须写字符串 "true" 而非布尔值！React 18 对未知 boolean 属性
   // （allowpopups 不在 React 白名单）会丢弃并仅打印告警，导致 guest 保持
@@ -1281,11 +941,11 @@ export const BrowserPanelContent = ({
   return (
     <div className="browser-panel">
       <BrowserToolbar
-        canGoBack={activeTab?.canGoBack ?? false}
-        canGoForward={activeTab?.canGoForward ?? false}
-        isLoading={activeTab?.isLoading ?? false}
-        canPickElement={!(activeTab?.isLoading ?? false) && !!activeTab?.src}
-        addressInput={activeTab?.addressInput ?? ""}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        isLoading={isLoading}
+        canPickElement={!isLoading && !!src}
+        addressInput={addressInput}
         isCapturing={isCapturing}
         isPickingElement={isPicking}
         onAddressChange={handleAddressChange}
@@ -1315,81 +975,9 @@ export const BrowserPanelContent = ({
         onDownloadShowInFolder={handleDownloadShowInFolder}
         onDownloadCancel={handleDownloadCancel}
       />
-      <div className="browser-tab-bar" role="tablist">
-        {webviewTabs.map((tab) => (
-          <div
-            key={tab.id}
-            role="tab"
-            aria-selected={tab.id === activeWebviewTabId}
-            className={`browser-tab ${
-              tab.id === activeWebviewTabId ? "active" : ""
-            }`}
-            onClick={() => handleActivateWebviewTab(tab.id)}
-            draggable={!!(tab.addressInput || tab.src)}
-            onDragStart={(event) => {
-              // 冒泡防护：内层标签页拖拽不得触发外层 right-panel-tab-item 的
-              // onDragStart（外层会用同步 URL 覆盖内层实时 URL，导致引用错页）。
-              event.stopPropagation();
-              const url = tab.addressInput || tab.src;
-              // 携带 instanceId + tabId：输入框 drop 后可请求本标签页的三层网页快照。
-              if (
-                !url ||
-                !setWebTagDragData(event, url, tab.title, {
-                  instanceId,
-                  tabId: tab.id,
-                })
-              ) {
-                event.preventDefault();
-                return;
-              }
-              // C1 自定义拖影：以「🌐 标题 + 域名」预览卡片替代默认整 tab 快照
-              // （偏移到卡片左边缘，跟随鼠标）。
-              const preview = getDragPreviewCard(
-                dragPreviewRef,
-                tab.title,
-                url,
-              );
-              if (preview) {
-                event.dataTransfer.setDragImage(preview, 12, 12);
-              }
-            }}
-            onDragEnd={() => {
-              // C1：拖拽结束清理预览卡片文本（元素保持挂载复用，由卸载 effect 移除）。
-              clearDragPreviewCard(dragPreviewRef);
-            }}
-            title={
-              tab.title || tab.addressInput || t("rightPanel.browserNewTab")
-            }
-          >
-            <span className="browser-tab-title">
-              {tab.title || tab.addressInput || t("rightPanel.browserNewTab")}
-            </span>
-            <button
-              type="button"
-              className="browser-tab-close"
-              aria-label={t("rightPanel.browserCloseTab")}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCloseWebviewTab(tab.id);
-              }}
-            >
-              <X size={11} strokeWidth={2} />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="browser-tab-new"
-          title={t("rightPanel.browserNewTab")}
-          aria-label={t("rightPanel.browserNewTab")}
-          onClick={handleNewWebviewTab}
-        >
-          <Plus size={13} strokeWidth={2} />
-        </button>
-      </div>
       <BrowserBookmarksBar
-        activeUrl={activeTab?.addressInput || activeTab?.src || ""}
-        activeTitle={activeTab?.title || ""}
+        activeUrl={addressInput || src}
+        activeTitle={title}
         onNavigate={(url) => handleNavigate(url)}
       />
       <div
@@ -1404,19 +992,13 @@ export const BrowserPanelContent = ({
             : undefined
         }
       >
-        {webviewTabs.map((tab) => (
-          <webview
-            key={tab.id}
-            data-tab-id={tab.id}
-            ref={handleWebviewRef}
-            src={tab.src}
-            className={`browser-webview ${
-              tab.id === activeWebviewTabId ? "" : "is-hidden"
-            }`}
-            preload={window.snow.browserWebviewPreloadPath}
-            webpreferences="sandbox=no,contextIsolation=yes,nodeIntegration=no"
-          />
-        ))}
+        <webview
+          ref={handleWebviewRef}
+          src={src}
+          className="browser-webview"
+          preload={window.snow.browserWebviewPreloadPath}
+          webpreferences="sandbox=no,contextIsolation=yes,nodeIntegration=no"
+        />
         {pickerAnchor && picked && (
           <BrowserElementPicker
             anchorLeft={pickerAnchor.left}

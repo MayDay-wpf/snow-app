@@ -333,7 +333,6 @@ export const useContentEditableInteractions = ({
               parsed.instanceId.length > 0
                 ? parsed.instanceId
                 : undefined,
-            tabId: typeof parsed.tabId === "string" ? parsed.tabId : "",
           });
           return;
         }

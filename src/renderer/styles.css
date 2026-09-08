@@ -2464,8 +2464,10 @@ input {
 }
 
 @container (min-width: 400px) {
-  .chat-multi-select-bar .tooltip {
-    display: none;
+  /* Tooltip 经 Portal 挂到 body，后代选择器已无法触达；
+     改为声明禁用变量，由 Tooltip 在 hover 时读取后不显示。 */
+  .chat-multi-select-bar .tooltip-wrapper {
+    --tooltip-suppressed: 1;
   }
 }
 
@@ -19367,11 +19369,12 @@ input {
   display: inline-flex;
 }
 
+/* Tooltip 实体经 Portal 渲染到 body，由组件以 position: fixed 内联坐标
+   定位（脱离一切祖先 overflow/z-index 裁剪，不再被侧边栏、滚动容器等
+   遮挡或截断）；本类只负责外观，箭头水平位置由内联变量
+   --tooltip-arrow-x 提供（视口夹紧后仍指向触发元素中心）。 */
 .tooltip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
+  position: fixed;
   max-width: min(280px, 70vw);
   width: max-content;
   padding: 6px 10px;
@@ -19379,7 +19382,7 @@ input {
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   box-shadow: var(--island-shadow);
-  z-index: 100;
+  z-index: 10000;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-secondary);
@@ -19388,16 +19391,16 @@ input {
   animation: tooltip-in 0.14s ease-out;
 }
 
+/* 向下弹出时自上方浮入（箭头方向由下方箭头规则切换）。 */
 .tooltip-bottom {
-  bottom: auto;
-  top: calc(100% + 8px);
+  animation-name: tooltip-in-bottom;
 }
 
 .tooltip::before,
 .tooltip::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: var(--tooltip-arrow-x, 50%);
   transform: translateX(-50%);
   border-style: solid;
   border-color: transparent;
@@ -19432,11 +19435,22 @@ input {
 @keyframes tooltip-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 3px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes tooltip-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -22289,45 +22303,7 @@ input {
   color: var(--accent-color, #4a9eff);
 }
 
-/* ===== 拖拽预览卡片（C1：浏览器标签页拖拽时替代默认整 tab 拖影） =====
-   元素经 setDragImage 截取为拖影位图：定位在视口外但保持渲染，
-   不可见仍可被正常截图。若个别平台对 off-screen 元素截图空白，
-   可改为 visibility: hidden 并置于正常位置。 */
-.drag-preview-card {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-elevated, var(--bg-primary, #fff));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  font-size: 12px;
-  color: var(--text-primary);
-  pointer-events: none;
-  position: fixed;
-  left: -9999px;
-  top: -9999px;
-}
-
-.drag-preview-icon {
-  flex-shrink: 0;
-  font-size: 13px;
-  line-height: 1;
-}
-
-.drag-preview-title {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.drag-preview-url {
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-}
-
+/* ===== 文本片段悬浮预览（TextSnippet chip hover 展示） ===== */
 .text-snippet-preview {
   position: fixed;
   z-index: 10000;
@@ -33150,11 +33126,6 @@ body.ctrl-held [data-path] {
   display: flex;
 }
 
-/* 非激活标签页的 webview 隐藏（guest 继续运行，保留页面状态） */
-.browser-webview.is-hidden {
-  display: none;
-}
-
 /* 设备显示尺寸模拟（移动端界面调试）：webview 视口约束为所选设备的 CSS
    逻辑像素尺寸并居中，内容区小于设备尺寸时按可用空间收缩（min()）。
    box-shadow 描边不占布局空间，guest 视口尺寸不受影响。 */
@@ -33170,122 +33141,6 @@ body.ctrl-held [data-path] {
   box-shadow:
     0 0 0 1px var(--border-light),
     var(--island-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
-}
-
-/* ===== Browser Tabs (标签页维度) ===== */
-.browser-tab-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  flex-shrink: 0;
-  padding: 4px 8px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--surface-island-muted);
-}
-
-.browser-tab-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.browser-tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  max-width: 180px;
-  min-width: 72px;
-  height: 24px;
-  padding: 0 6px 0 8px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  border: 1px solid transparent;
-  border-bottom: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.browser-tab:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-/* 可拖拽标签页（已导航、有 URL）显示抓取光标，提示可拖入聊天输入框 */
-.browser-tab[draggable="true"] {
-  cursor: grab;
-}
-
-.browser-tab[draggable="true"]:active {
-  cursor: grabbing;
-}
-
-.browser-tab.active {
-  background: var(--bg-secondary);
-  border-color: var(--border-light);
-  color: var(--text-primary);
-}
-
-.browser-tab-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.browser-tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.browser-tab-close:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.browser-tab-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.browser-tab-new:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
 }
 
 /* ===== Browser Bookmarks Bar (收藏栏) ===== */

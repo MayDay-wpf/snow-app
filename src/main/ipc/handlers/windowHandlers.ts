@@ -356,34 +356,25 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
   });
 
   // 右侧面板浏览器 tab「在新窗口中打开」：创建独立 BrowserWindow 承载
-  // 同一实例（继承 instanceId），tabs（实例内部全部标签页快照，激活页置首）
-  // 经 query 传给独立窗口入口重建完整标签页。原 tab 由渲染端在成功后关闭。
+  // 同一实例（继承 instanceId），当前页面 URL 经 query 传给独立窗口入口
+  // 重建浏览器。原 tab 由渲染端在成功后关闭。
   ipcMain.handle(
     "browser:open-detached-window",
-    (_event, instanceId: unknown, url: unknown, tabs: unknown) => {
+    (_event, instanceId: unknown, url: unknown) => {
       if (typeof instanceId !== "string" || !instanceId.trim()) {
         throw new Error("A valid browser instanceId is required");
       }
       if (typeof url !== "string") {
         throw new Error("A valid browser URL is required");
       }
-      const tabSnapshot = Array.isArray(tabs)
-        ? tabs.filter(
-            (tab): tab is { url: string; title: string } =>
-              !!tab &&
-              typeof tab === "object" &&
-              typeof (tab as Record<string, unknown>).url === "string" &&
-              typeof (tab as Record<string, unknown>).title === "string",
-          )
-        : undefined;
-      createDetachedBrowserWindow(instanceId.trim(), url.trim(), tabSnapshot);
+      createDetachedBrowserWindow(instanceId.trim(), url.trim());
     },
   );
 
-  // 独立浏览器窗口「还原为标签页」：把实例（含全部内部标签页）转发给
-  // 主窗口恢复为右侧面板浏览器 tab，随后关闭发起请求的独立窗口。
-  // 实例保持原 instanceId，浏览器命令经 browserCommandBroker 按实例
-  // 归属路由，主窗口新 tab 挂载上报后自动接管。
+  // 独立浏览器窗口「还原为标签页」：把实例（当前页面）转发给主窗口恢复为
+  // 右侧面板浏览器 tab，随后关闭发起请求的独立窗口。实例保持原
+  // instanceId，浏览器命令经 browserCommandBroker 按实例归属路由，
+  // 主窗口新 tab 挂载上报后自动接管。
   ipcMain.on("browser:restore-to-main", (event, payload: unknown) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return;
@@ -393,16 +384,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     if (typeof instanceId !== "string" || !instanceId.trim()) {
       return;
     }
-    const rawTabs = record.tabs;
-    if (
-      !Array.isArray(rawTabs) ||
-      !rawTabs.every(
-        (tab) =>
-          !!tab &&
-          typeof tab === "object" &&
-          typeof (tab as Record<string, unknown>).url === "string",
-      )
-    ) {
+    if (typeof record.url !== "string" || typeof record.title !== "string") {
       return;
     }
     const mainWindow = getMainWindow();
@@ -423,6 +405,30 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     ) {
       senderWindow.close();
     }
+  });
+
+  // 独立浏览器窗口内 guest 页面（target=_blank / window.open）请求打开新
+  // 标签页：转发给主窗口由 RightPanel 新建浏览器 tab（独立窗口没有 tab 栏）。
+  ipcMain.on("browser:open-tab-in-main", (_event, payload: unknown) => {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return;
+    }
+    const record = payload as Record<string, unknown>;
+    const url = record.url;
+    if (typeof url !== "string" || !url.trim()) {
+      return;
+    }
+    const mainWindow = getMainWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow.focus();
+    mainWindow.webContents.send("browser:open-tab-in-main-broadcast", {
+      url: url.trim(),
+    });
   });
 
   // 独立浏览器窗口确认元素选择后，把结果转发给主窗口聊天输入框

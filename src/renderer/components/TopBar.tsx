@@ -220,13 +220,15 @@ export const TopBar = ({
     onSyncFinished: loadCodebaseIndexed,
   });
 
-  // 发布同步状态快照：右面板全屏时 TopBar 中部隐藏，悬浮聊天头部订阅展示。
+  // 发布同步状态快照：右面板全屏时 TopBar 中部隐藏，悬浮聊天头部订阅展示；
+  // Windows 下 RightPanel 的 Plus 菜单也据此判断是否提供“代码库”项。
   useEffect(() => {
     codebaseSyncStore.set({
       syncStatus,
       watchedProjectId,
       activeProjectId,
       isIndexed: codebaseIndexed,
+      enabled: effectiveEnabled,
       embedError: codebaseEmbedError,
     });
   }, [
@@ -234,6 +236,7 @@ export const TopBar = ({
     watchedProjectId,
     activeProjectId,
     codebaseIndexed,
+    effectiveEnabled,
     codebaseEmbedError,
   ]);
 

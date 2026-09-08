@@ -47,7 +47,6 @@ type UseInputFileOperationsOptions = {
 
 type WebTagInsertOptions = {
   instanceId?: string;
-  tabId?: string;
 };
 
 export type InputFileOperationsResult = {
@@ -472,7 +471,6 @@ export const useInputFileOperations = ({
           detail: {
             requestId,
             instanceId: options.instanceId,
-            tabId: options.tabId ?? "",
             url: tag.url,
           },
         }),

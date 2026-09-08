@@ -15,6 +15,7 @@ const EXPAND_WAIT_TIMEOUT_MS = 3_000;
 export type BrowserTabInfo = {
   instanceId: string;
   title: string;
+  url: string;
   isActive: boolean;
 };
 
@@ -37,7 +38,7 @@ const resolveInstanceId = (argsJson: string): string | null => {
 
 export const useBrowserMcpCommandBridge = (
   callbacks: BrowserMcpTabCallbacks,
-  isCollapsed: boolean
+  isCollapsed: boolean,
 ): void => {
   // 通过 ref 持有最新的 callbacks，避免 effect 因 callbacks 引用变化
   // 而反复执行 cleanup/setup。cleanup 会触发 browser:renderer-unregister，
@@ -71,7 +72,7 @@ export const useBrowserMcpCommandBridge = (
         return;
       }
       await new Promise((resolve) =>
-        requestAnimationFrame(() => resolve(undefined))
+        requestAnimationFrame(() => resolve(undefined)),
       );
     }
   };
@@ -101,7 +102,7 @@ export const useBrowserMcpCommandBridge = (
             const instanceId = resolveInstanceId(request.argsJson);
             if (!instanceId) {
               throw new Error(
-                "No embedded browser is available to close; open a browser tab first"
+                "No embedded browser is available to close; open a browser tab first",
               );
             }
             const closed = cb.closeTab(instanceId);
@@ -117,9 +118,7 @@ export const useBrowserMcpCommandBridge = (
           case "focus": {
             const args = parseBrowserMcpCommandArgs(request.argsJson);
             const instanceId =
-              typeof args.instanceId === "string"
-                ? args.instanceId.trim()
-                : "";
+              typeof args.instanceId === "string" ? args.instanceId.trim() : "";
             if (!instanceId) {
               throw new Error("instanceId is required for browser-focus");
             }
@@ -144,10 +143,10 @@ export const useBrowserMcpCommandBridge = (
           default:
             return executeBrowserMcpCommand(
               request.operation,
-              request.argsJson
+              request.argsJson,
             );
         }
-      }
+      },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

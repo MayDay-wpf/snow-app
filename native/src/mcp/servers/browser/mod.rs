@@ -85,7 +85,7 @@ impl McpService for BrowserService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "create".to_string(),
-                description: "Create an embedded Electron browser instance in the right panel. Returns an instanceId for explicitly targeting it later. Optionally opens an initial URL.".to_string(),
+                description: "Create a new embedded browser tab in the right panel (each browser tab hosts one page and its instanceId is the tab ID). Returns an instanceId for explicitly targeting it later. Optionally opens an initial URL.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -622,79 +622,8 @@ impl McpService for BrowserService {
             },
             McpTool {
                 server_id: SERVER_ID.to_string(),
-                name: "open_tab".to_string(),
-                description: "Open a new tab inside an embedded browser instance and navigate it to a URL. The new tab becomes the active tab of that instance. Omit instanceId to use the most recently focused browser instance.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "instanceId": {
-                            "type": "string",
-                            "description": "Optional browser instance ID. Omit it or use current to target the most recently focused embedded browser tab."
-                        },
-                        "url": {
-                            "type": "string",
-                            "description": "URL to open in the new tab (http://, https://, or file://)."
-                        }
-                    },
-                    "required": ["url"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "list_tabs".to_string(),
-                description: "List all tabs inside an embedded browser instance with their tab IDs, titles, URLs, and active state. Use this to discover tabs before switching or closing them. Omit instanceId to use the most recently focused browser instance.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "instanceId": {
-                            "type": "string",
-                            "description": "Optional browser instance ID. Omit it or use current to target the most recently focused embedded browser tab."
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "close_tab".to_string(),
-                description: "Close a tab inside an embedded browser instance by its tab ID (from browser-list_tabs). Closing the last tab of an instance opens a fresh homepage tab instead, so the instance always keeps at least one tab. Omit instanceId to use the most recently focused browser instance.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "instanceId": {
-                            "type": "string",
-                            "description": "Optional browser instance ID. Omit it or use current to target the most recently focused embedded browser tab."
-                        },
-                        "tabId": {
-                            "type": "string",
-                            "description": "The tab ID to close (from browser-list_tabs)."
-                        }
-                    },
-                    "required": ["tabId"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "focus_tab".to_string(),
-                description: "Switch to (activate) a tab inside an embedded browser instance by its tab ID (from browser-list_tabs), bringing it to the foreground. Subsequent page-level operations (navigate, click, screenshot, etc.) act on this tab. Omit instanceId to use the most recently focused browser instance.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "instanceId": {
-                            "type": "string",
-                            "description": "Optional browser instance ID. Omit it or use current to target the most recently focused embedded browser tab."
-                        },
-                        "tabId": {
-                            "type": "string",
-                            "description": "The tab ID to activate (from browser-list_tabs)."
-                        }
-                    },
-                    "required": ["tabId"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
                 name: "get_tab_content".to_string(),
-                description: "Extract the visible text content (document.body.innerText) of the active tab in an embedded browser instance, together with its URL and title. Useful for reading article text or page content without a screenshot. Omit instanceId to use the most recently focused browser instance.".to_string(),
+                description: "Extract the visible text content (document.body.innerText) of a browser tab, together with its URL and title. Useful for reading article text or page content without a screenshot. Omit instanceId to use the most recently focused browser tab.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -720,8 +649,7 @@ impl McpService for BrowserService {
             "create" | "navigate" | "click" | "screenshot" | "devtools" | "close" | "focus"
             | "list" | "evaluate" | "type" | "wait" | "press_key"
             | "select_option" | "hover" | "upload-file" | "back"
-            | "forward" | "open_tab"
-            | "list_tabs" | "close_tab" | "focus_tab" | "get_tab_content" => Err(Error::new(
+            | "forward" | "get_tab_content" => Err(Error::new(
                 Status::GenericFailure,
                 "Browser tools must be executed through the asynchronous Electron command bridge"
                     .to_string(),

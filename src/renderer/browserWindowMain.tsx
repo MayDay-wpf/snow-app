@@ -1,9 +1,10 @@
 /**
  * 独立浏览器窗口入口（右侧面板浏览器 tab「在新窗口中打开」）。
  *
- * 复用 BrowserPanelContent 完整浏览器 UI；instanceId 经 query 参数从
- * 主窗口继承，因此 browser.rs 的 MCP 浏览器工具按 instanceId 路由命令时
- * 仍可操作本窗口内的实例（主进程 browserCommandBroker 按实例归属转发）。
+ * 复用 BrowserPanelContent 完整浏览器 UI（单 webview）；instanceId 经
+ * query 参数从主窗口继承，因此 browser.rs 的 MCP 浏览器工具按 instanceId
+ * 路由命令时仍可操作本窗口内的实例（主进程 browserCommandBroker 按实例
+ * 归属转发）。
  */
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useState } from "react";
@@ -40,35 +41,8 @@ function DetachedBrowserWindowApp(): React.JSX.Element {
   const params = new URLSearchParams(window.location.search);
   const instanceId = params.get("instanceId") ?? "";
   const initialUrl = params.get("url") ?? "";
-  // 主窗口「在新窗口中打开」时携带的实例内部标签页快照（激活页置首），
-  // 解析失败或缺失时退化为单标签页（initialUrl）。
-  const initialTabs = useMemo<{ url: string; title: string }[] | undefined>(
-    () => {
-      const raw = params.get("tabs");
-      if (!raw) {
-        return undefined;
-      }
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-          return undefined;
-        }
-        const tabs = parsed.filter(
-          (tab): tab is { url: string; title: string } =>
-            !!tab &&
-            typeof tab === "object" &&
-            typeof (tab as Record<string, unknown>).url === "string" &&
-            typeof (tab as Record<string, unknown>).title === "string"
-        );
-        return tabs.length > 0 ? tabs : undefined;
-      } catch {
-        return undefined;
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
   const [title, setTitle] = useState("");
+  const [pageUrl, setPageUrl] = useState(initialUrl);
 
   // 页面标题（onTitleChange 来自 webview）同步到窗口标题栏。
   useEffect(() => {
@@ -82,7 +56,7 @@ function DetachedBrowserWindowApp(): React.JSX.Element {
     () => ({
       openTab: () => {
         throw new Error(
-          "Cannot create a new browser instance inside a detached browser window"
+          "Cannot create a new browser instance inside a detached browser window",
         );
       },
       closeTab: (targetInstanceId: string): boolean => {
@@ -100,10 +74,15 @@ function DetachedBrowserWindowApp(): React.JSX.Element {
         return true;
       },
       listTabs: () => [
-        { instanceId, title: title || DEFAULT_TITLE, isActive: true },
+        {
+          instanceId,
+          title: title || DEFAULT_TITLE,
+          url: pageUrl,
+          isActive: true,
+        },
       ],
     }),
-    [instanceId, title]
+    [instanceId, title, pageUrl],
   );
 
   // 独立浏览器窗口无右侧面板折叠概念（窗口自身即浏览器），isCollapsed 固定 false。
@@ -138,15 +117,16 @@ function DetachedBrowserWindowApp(): React.JSX.Element {
   useEffect(() => {
     const handleOpenSettings = (event: Event): void => {
       const detail = (event as CustomEvent<{ view?: string }>).detail;
-      window.snow.forwardOpenSettingsToMain(
-        detail?.view ?? "browser-settings"
-      );
+      window.snow.forwardOpenSettingsToMain(detail?.view ?? "browser-settings");
     };
-    window.addEventListener(APP_CONTROL_OPEN_SETTINGS_EVENT, handleOpenSettings);
+    window.addEventListener(
+      APP_CONTROL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+    );
     return () => {
       window.removeEventListener(
         APP_CONTROL_OPEN_SETTINGS_EVENT,
-        handleOpenSettings
+        handleOpenSettings,
       );
     };
   }, []);
@@ -158,10 +138,15 @@ function DetachedBrowserWindowApp(): React.JSX.Element {
       <BrowserPanelContent
         instanceId={instanceId}
         initialUrl={initialUrl}
-        initialTabs={initialTabs}
         isActive
         detached
         onTitleChange={setTitle}
+        onUrlChange={setPageUrl}
+        // guest 页面（target=_blank / window.open）请求打开新标签页：本窗口
+        // 没有 tab 栏，经主进程转发回主窗口右侧面板新建浏览器 tab。
+        onOpenNewTab={(url) => {
+          window.snow.openBrowserTabInMainWindow({ url });
+        }}
       />
     </I18nProvider>
   );

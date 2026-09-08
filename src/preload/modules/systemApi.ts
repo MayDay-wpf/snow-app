@@ -10,7 +10,6 @@ import type {
   BrowserCommandRequest,
   BrowserCommandResponse,
   BrowserRestorePayload,
-  BrowserRestoreTab,
   CheckpointFileChange,
   CheckpointFileDiff,
   CodebaseEmbedProgress,
@@ -25,6 +24,7 @@ import type {
   McpProjectToolStatus,
   McpToolDefinition,
   McpToolStatus,
+  OpenBrowserTabInMainPayload,
   GithubSkillRecord,
   ProjectSkillDefinition,
   ResumableCodebaseSession,
@@ -46,6 +46,10 @@ const BROWSER_OPEN_TAB_CHANNEL = "browser:open-tab";
 const BROWSER_RESTORE_TO_MAIN_CHANNEL = "browser:restore-to-main";
 const BROWSER_RESTORE_TO_MAIN_BROADCAST_CHANNEL =
   "browser:restore-to-main-broadcast";
+// 独立浏览器窗口内 guest 页面请求打开新标签页：窗口 → 主进程 → 主窗口（broadcast）。
+const BROWSER_OPEN_TAB_IN_MAIN_CHANNEL = "browser:open-tab-in-main";
+const BROWSER_OPEN_TAB_IN_MAIN_BROADCAST_CHANNEL =
+  "browser:open-tab-in-main-broadcast";
 // 独立浏览器窗口确认元素选择后转发到主窗口聊天输入框。
 const ELEMENT_TAG_FORWARD_CHANNEL = "element-tag:forward";
 const ELEMENT_TAG_INSERT_CHANNEL = "element-tag:insert";
@@ -264,17 +268,11 @@ const deliverBrowserRestore = (
 const isBrowserRestorePayload = (
   value: unknown,
 ): value is BrowserRestorePayload => {
-  if (!isRecord(value) || typeof value.instanceId !== "string") {
-    return false;
-  }
-  if (!Array.isArray(value.tabs)) {
-    return false;
-  }
-  return value.tabs.every(
-    (tab) =>
-      isRecord(tab) &&
-      typeof tab.url === "string" &&
-      typeof tab.title === "string",
+  return (
+    isRecord(value) &&
+    typeof value.instanceId === "string" &&
+    typeof value.url === "string" &&
+    typeof value.title === "string"
   );
 };
 
@@ -287,6 +285,31 @@ ipcRenderer.on(
     }
     for (const subscriber of browserRestoreSubscribers) {
       deliverBrowserRestore(subscriber, payload);
+    }
+  },
+);
+
+type OpenBrowserTabInMainSubscriber = (
+  payload: OpenBrowserTabInMainPayload,
+) => void;
+
+const openBrowserTabInMainSubscribers =
+  new Set<OpenBrowserTabInMainSubscriber>();
+
+// 主进程转发独立浏览器窗口内 guest 页面的「打开新标签页」请求（仅发送到主窗口）。
+ipcRenderer.on(
+  BROWSER_OPEN_TAB_IN_MAIN_BROADCAST_CHANNEL,
+  (_event: IpcRendererEvent, payload: unknown): void => {
+    if (!isRecord(payload) || typeof payload.url !== "string") {
+      return;
+    }
+    const request: OpenBrowserTabInMainPayload = { url: payload.url };
+    for (const subscriber of openBrowserTabInMainSubscribers) {
+      try {
+        subscriber(request);
+      } catch (error) {
+        console.error("[browser] Open-tab-in-main subscriber failed", error);
+      }
     }
   },
 );
@@ -897,17 +920,13 @@ export const systemApi = {
   },
   /**
    * 右侧面板浏览器 tab「在新窗口中打开」：主进程创建独立 BrowserWindow
-   * 承载同一实例（继承 instanceId），tabs 为实例内部全部标签页快照
-   * （激活页置首），独立窗口据此重建完整标签页。返回后原 tab 由渲染端关闭。
+   * 承载同一实例（继承 instanceId），携带当前页面 URL，独立窗口据此
+   * 重建浏览器。返回后原 tab 由渲染端关闭。
    */
-  openDetachedBrowserWindow: (
-    instanceId: string,
-    url: string,
-    tabs?: BrowserRestoreTab[],
-  ): Promise<void> =>
-    ipcRenderer.invoke("browser:open-detached-window", instanceId, url, tabs),
+  openDetachedBrowserWindow: (instanceId: string, url: string): Promise<void> =>
+    ipcRenderer.invoke("browser:open-detached-window", instanceId, url),
   /**
-   * 独立浏览器窗口「还原为标签页」：把当前实例（含全部内部标签页）
+   * 独立浏览器窗口「还原为标签页」：把当前实例（页面 URL + 标题）
    * 经主进程转发给主窗口，由 RightPanel 恢复为右侧面板浏览器 tab，
    * 随后主进程关闭本窗口。保持原 instanceId，MCP 工具路由不受影响。
    */
@@ -924,6 +943,25 @@ export const systemApi = {
     browserRestoreSubscribers.add(callback);
     return () => {
       browserRestoreSubscribers.delete(callback);
+    };
+  },
+  /**
+   * 独立浏览器窗口内 guest 页面（target=_blank / window.open）请求打开
+   * 新标签页：经主进程转发给主窗口，由 RightPanel 新建浏览器 tab。
+   */
+  openBrowserTabInMainWindow: (payload: OpenBrowserTabInMainPayload): void => {
+    ipcRenderer.send(BROWSER_OPEN_TAB_IN_MAIN_CHANNEL, payload);
+  },
+  /**
+   * 订阅主进程转发过来的「打开新浏览器 tab」请求（主窗口 RightPanel
+   * 使用）。返回取消订阅函数。
+   */
+  onOpenBrowserTabInMain: (
+    callback: (payload: OpenBrowserTabInMainPayload) => void,
+  ): (() => void) => {
+    openBrowserTabInMainSubscribers.add(callback);
+    return () => {
+      openBrowserTabInMainSubscribers.delete(callback);
     };
   },
   /** 上报 MCP 浏览器实例归属（供主进程按 instanceId 路由命令）。 */

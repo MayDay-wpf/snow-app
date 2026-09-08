@@ -348,9 +348,6 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
             optional_non_empty_string(args, "instanceId")?;
             required_non_empty_string(args, "key", tool_name)?;
         }
-        "navigate_back" | "navigate_forward" => {
-            optional_non_empty_string(args, "instanceId")?;
-        }
         "select_option" => {
             optional_non_empty_string(args, "instanceId")?;
             let selector = optional_non_empty_string(args, "selector")?;
@@ -396,18 +393,6 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
             required_non_empty_string(args, "instanceId", tool_name)?;
         }
         "list" => {}
-        "open_tab" => {
-            optional_non_empty_string(args, "instanceId")?;
-            let url = required_non_empty_string(args, "url", tool_name)?;
-            validate_web_url(url)?;
-        }
-        "list_tabs" => {
-            optional_non_empty_string(args, "instanceId")?;
-        }
-        "close_tab" | "focus_tab" => {
-            optional_non_empty_string(args, "instanceId")?;
-            required_non_empty_string(args, "tabId", tool_name)?;
-        }
         "get_tab_content" => {
             optional_non_empty_string(args, "instanceId")?;
             let max_length = bounded_u64(
@@ -525,7 +510,7 @@ pub(crate) fn unknown_tool_error(tool_name: &str) -> Error {
     Error::new(
         Status::GenericFailure,
         format!(
-            "Unknown tool: \"{tool_name}\" for MCP server \"browser\". Available tools: [browser-create, browser-navigate, browser-navigate_back, browser-navigate_forward, browser-click, browser-hover, browser-type, browser-select_option, browser-press_key, browser-screenshot, browser-wait, browser-devtools, browser-close, browser-focus, browser-list, browser-evaluate, browser-open_tab, browser-list_tabs, browser-close_tab, browser-focus_tab, browser-get_tab_content]"
+            "Unknown tool: \"{tool_name}\" for MCP server \"browser\". Available tools: [browser-create, browser-navigate, browser-click, browser-hover, browser-type, browser-select_option, browser-press_key, browser-screenshot, browser-wait, browser-devtools, browser-close, browser-focus, browser-list, browser-evaluate, browser-upload-file, browser-back, browser-forward, browser-get_tab_content]"
         ),
     )
 }

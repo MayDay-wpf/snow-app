@@ -136,11 +136,10 @@ pub(crate) fn upsert_project_mcp_server_config_with_connection(
             "Project MCP server id conflicts with a global server",
         ));
     }
-    if global_servers.iter().any(|server| server.name == name) {
-        return Err(project_mcp_storage_error(
-            "MCP server name already exists in global scope",
-        ));
-    }
+    // 注意：项目 scope 允许与全局 scope 同名（Snow CLI 合法配置：项目覆盖全局），
+    // 同步与导入都会镜像这种结构。运行时 discover_tools / call_tool 通过
+    // assign_unique_names 为同名 server 分配唯一公开名，不会产生冲突，
+    // 因此这里不做全局重名校验。
     if settings
         .servers
         .iter()
