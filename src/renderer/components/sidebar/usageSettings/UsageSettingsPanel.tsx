@@ -345,6 +345,44 @@ export function UsageSettingsPanel({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
+  // 趋势图按筛选区间逐日补零：后端只返回有记录的日期，
+  // 缺失日期填 0，避免时间轴跳过无数据的天。"all" 模式无边界时用首尾日期。
+  const filledTrendData = useMemo<DailyUsageBreakdown[]>(() => {
+    if (trendData.length === 0) return trendData;
+    const startStr = sinceDate || trendData[0].date;
+    const endStr = untilDate || trendData[trendData.length - 1].date;
+    const start = new Date(`${startStr}T00:00:00`);
+    const end = new Date(`${endStr}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return trendData;
+    }
+    const dayCount =
+      Math.floor((end.getTime() - start.getTime()) / ONE_DAY_MS) + 1;
+    // 超过 10 年视为异常区间，直接返回原数据。
+    if (dayCount <= 0 || dayCount > 3650) return trendData;
+    const map = new Map<string, DailyUsageBreakdown>();
+    for (const item of trendData) map.set(item.date, item);
+    const filled: DailyUsageBreakdown[] = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const dateStr = formatDateForInput(cursor);
+      filled.push(
+        map.get(dateStr) ?? {
+          date: dateStr,
+          totalRequests: 0,
+          errorRequests: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCacheCreationInputTokens: 0,
+          totalCacheReadInputTokens: 0,
+          totalTokens: 0,
+        },
+      );
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return filled;
+  }, [trendData, sinceDate, untilDate]);
+
   const heatmapCells = useMemo(() => {
     const map = new Map<string, DailyUsageBreakdown>();
     for (const item of dailyData) {
@@ -878,7 +916,7 @@ export function UsageSettingsPanel({
               </strong>
             </div>
             <DailyTrendChart
-              data={trendData}
+              data={filledTrendData}
               formatTokens={formatTokensLocale}
             />
           </div>
