@@ -1,7 +1,8 @@
 #![allow(non_snake_case)]
 
 //! Local browser credential import: probe installed browsers (Chrome /
-//! Edge / Chromium / Firefox) and decrypt their saved passwords and cookies.
+//! Edge / Chromium / Firefox) and decrypt their saved passwords and cookies,
+//! plus plain-text bookmark (favorites) import.
 //!
 //! Decryption follows each browser's official algorithm:
 //!
@@ -70,6 +71,8 @@ pub struct ImportSourceInfo {
     pub passwordCount: i32,
     /// Number of cookie records
     pub cookieCount: i32,
+    /// Number of bookmark records (Chrome/Edge: Bookmarks JSON; Firefox: places.sqlite)
+    pub bookmarkCount: i32,
     /// Human-readable caveat, e.g. unsupported encryption on this platform
     pub note: String,
 }
@@ -96,6 +99,17 @@ pub struct ImportedCookie {
     pub secure: bool,
     /// "None" | "Lax" | "Strict" | "unspecified"
     pub sameSite: String,
+}
+
+#[napi(object)]
+#[allow(non_snake_case)]
+pub struct ImportedBookmark {
+    /// Page display title
+    pub title: String,
+    /// Full http(s) URL (path/query preserved, unlike passwords' origin)
+    pub url: String,
+    /// Folder path relative to the bookmark root, e.g. "News/Tech"
+    pub folder: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +164,118 @@ fn chromium_cookie_count(profile_dir: &Path) -> (i32, String) {
             String::new()
         },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks (favorites) readers — plain text, no decryption involved
+// ---------------------------------------------------------------------------
+
+/// Bookmarks are only replayable by the embedded browser when http(s).
+fn valid_bookmark_url(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return false;
+    }
+    reqwest::Url::parse(trimmed).is_ok()
+}
+
+fn chromium_bookmark_file(profile_dir: &Path) -> PathBuf {
+    profile_dir.join("Bookmarks")
+}
+
+/// Count url-type nodes in the Chromium Bookmarks JSON without full parsing cost.
+fn chromium_bookmark_count(profile_dir: &Path) -> i32 {
+    let path = chromium_bookmark_file(profile_dir);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return 0;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return 0;
+    };
+    let Some(roots) = json.get("roots").and_then(Value::as_object) else {
+        return 0;
+    };
+    fn count_node(node: &Value) -> i32 {
+        let mut sum = 0;
+        if let Some(children) = node.get("children").and_then(Value::as_array) {
+            for child in children {
+                if child.get("type").and_then(Value::as_str) == Some("url") {
+                    sum += 1;
+                } else {
+                    sum += count_node(child);
+                }
+            }
+        }
+        sum
+    }
+    roots.values().map(count_node).sum()
+}
+
+/// Walk the Chromium Bookmarks JSON tree (bookmark_bar / other / synced roots)
+/// and flatten url nodes into (title, url, folder path) records.
+fn collect_chromium_bookmarks(node: &Value, folder: &str, out: &mut Vec<ImportedBookmark>) {
+    let Some(children) = node.get("children").and_then(Value::as_array) else {
+        return;
+    };
+    for child in children {
+        let name = child
+            .get("name")
+            .or_else(|| child.get("title"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if child.get("type").and_then(Value::as_str) == Some("folder") {
+            let next = if folder.is_empty() {
+                name
+            } else {
+                format!("{folder}/{name}")
+            };
+            collect_chromium_bookmarks(child, &next, out);
+            continue;
+        }
+        let Some(url) = child.get("url").and_then(Value::as_str) else {
+            continue;
+        };
+        if !valid_bookmark_url(url) {
+            continue;
+        }
+        out.push(ImportedBookmark {
+            title: if name.is_empty() { url.to_string() } else { name },
+            url: url.trim().to_string(),
+            folder: folder.to_string(),
+        });
+    }
+}
+
+fn read_chromium_bookmarks(profile_dir: &Path) -> Result<Vec<ImportedBookmark>> {
+    let path = chromium_bookmark_file(profile_dir);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| Error::from_reason(format!("读取书签文件失败: {error}")))?;
+    let json: Value = serde_json::from_str(&text)
+        .map_err(|error| Error::from_reason(format!("解析书签文件失败: {error}")))?;
+    let Some(roots) = json.get("roots").and_then(Value::as_object) else {
+        return Ok(Vec::new());
+    };
+    let mut bookmarks: Vec<ImportedBookmark> = Vec::new();
+    // bookmark_bar 优先（收藏栏），随后 other / synced，顺序与浏览器一致。
+    let order = ["bookmark_bar", "other", "synced"];
+    let mut keys: Vec<&String> = roots.keys().collect();
+    keys.sort_by_key(|key| {
+        order
+            .iter()
+            .position(|candidate| candidate == key)
+            .unwrap_or(order.len())
+    });
+    for key in keys {
+        if let Some(root) = roots.get(key) {
+            collect_chromium_bookmarks(root, "", &mut bookmarks);
+        }
+    }
+    Ok(bookmarks)
 }
 
 fn normalize_origin(raw: &str) -> Option<String> {
@@ -648,6 +774,128 @@ fn read_firefox_cookies_with(conn: &Connection) -> Result<Vec<ImportedCookie>> {
     Ok(cookies)
 }
 
+/// Firefox bookmarks live in places.sqlite (moz_bookmarks + moz_places).
+/// type: 1 = bookmark (fk -> moz_places.id), 2 = folder, 3 = separator.
+fn read_firefox_bookmarks(profile_dir: &Path) -> Result<Vec<ImportedBookmark>> {
+    let db = profile_dir.join("places.sqlite");
+    if !db.exists() {
+        return Ok(Vec::new());
+    }
+    // 常规 → immutable 双尝试（浏览器运行中锁定 WAL 时回退读主库文件）。
+    let mut last_error: Option<Error> = None;
+    for (conn, _immutable) in readonly_attempts(&db) {
+        match read_firefox_bookmarks_with(&conn) {
+            Ok(items) => return Ok(items),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        Error::from_reason(format!(
+            "无法以只读方式打开 places.sqlite（Firefox 可能正在运行，请关闭后重试）: {}",
+            db.display()
+        ))
+    }))
+}
+
+fn read_firefox_bookmarks_with(conn: &Connection) -> Result<Vec<ImportedBookmark>> {
+    // 单次全表读取（按 parent/position 排序），内存建树后从根(id=1) DFS 展开，
+    // 避免递归 SQL；tags 根(id=4)整棵跳过（非用户收藏）。
+    struct Row {
+        r#type: i64,
+        title: Option<String>,
+        fk: Option<i64>,
+    }
+    let mut stmt = conn
+        .prepare("SELECT id, parent, type, title, fk FROM moz_bookmarks ORDER BY parent, position, id")
+        .map_err(|error| Error::from_reason(format!("读取书签表失败: {error}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+            ))
+        })
+        .map_err(|error| Error::from_reason(format!("查询书签表失败: {error}")))?;
+
+    let mut by_id: std::collections::HashMap<i64, Row> = std::collections::HashMap::new();
+    let mut children: std::collections::HashMap<i64, Vec<i64>> = std::collections::HashMap::new();
+    for (id, parent, r#type, title, fk) in rows.flatten() {
+        by_id.insert(id, Row { r#type, title, fk });
+        if let Some(parent) = parent {
+            children.entry(parent).or_default().push(id);
+        }
+    }
+
+    // moz_places 的 id -> url 映射（书签 URL 查询）。
+    let mut places: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    let mut place_stmt = conn
+        .prepare("SELECT id, url FROM moz_places")
+        .map_err(|error| Error::from_reason(format!("读取访问记录表失败: {error}")))?;
+    let place_rows = place_stmt
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| Error::from_reason(format!("查询访问记录表失败: {error}")))?;
+    for (id, url) in place_rows.flatten() {
+        places.insert(id, url);
+    }
+
+    let mut bookmarks: Vec<ImportedBookmark> = Vec::new();
+    // DFS：folder 名入路径；根(id=1)与 tags(id=4) 的名称不进路径。
+    fn walk(
+        node_id: i64,
+        folder: &str,
+        by_id: &std::collections::HashMap<i64, Row>,
+        children: &std::collections::HashMap<i64, Vec<i64>>,
+        places: &std::collections::HashMap<i64, String>,
+        out: &mut Vec<ImportedBookmark>,
+    ) {
+        let Some(child_ids) = children.get(&node_id) else {
+            return;
+        };
+        for child_id in child_ids {
+            let Some(row) = by_id.get(child_id) else {
+                continue;
+            };
+            let name = row.title.clone().unwrap_or_default().trim().to_string();
+            if row.r#type == 2 {
+                let next = if node_id == 1 {
+                    folder.to_string()
+                } else if folder.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{folder}/{name}")
+                };
+                if *child_id != 4 {
+                    walk(*child_id, &next, by_id, children, places, out);
+                }
+                continue;
+            }
+            if row.r#type != 1 {
+                continue;
+            }
+            let Some(url) = row.fk.and_then(|fk| places.get(&fk)) else {
+                continue;
+            };
+            if !valid_bookmark_url(url) {
+                continue;
+            }
+            out.push(ImportedBookmark {
+                title: if name.is_empty() {
+                    url.trim().to_string()
+                } else {
+                    name
+                },
+                url: url.trim().to_string(),
+                folder: folder.to_string(),
+            });
+        }
+    }
+    walk(1, "", &by_id, &children, &places, &mut bookmarks);
+    Ok(bookmarks)
+}
+
 // ---------------------------------------------------------------------------
 // napi entry points (async, spawn_blocking inside)
 // ---------------------------------------------------------------------------
@@ -684,9 +932,11 @@ pub async fn browser_import_list_sources() -> Result<Vec<ImportSourceInfo>> {
             for (profile, dir) in chromium_profiles(&root) {
                 let password_db = dir.join("Login Data");
                 let cookie_db = chromium_cookie_db(&dir);
+                let bookmark_db = chromium_bookmark_file(&dir);
                 let has_password_db = password_db.exists();
                 let has_cookie_db = cookie_db.is_some();
-                if !has_password_db && !has_cookie_db {
+                let has_bookmark_db = bookmark_db.exists();
+                if !has_password_db && !has_cookie_db && !has_bookmark_db {
                     continue;
                 }
                 let (password_count, password_note) = if has_password_db {
@@ -698,6 +948,11 @@ pub async fn browser_import_list_sources() -> Result<Vec<ImportSourceInfo>> {
                     chromium_cookie_count(&dir)
                 } else {
                     (0, String::new())
+                };
+                let bookmark_count = if has_bookmark_db {
+                    chromium_bookmark_count(&dir)
+                } else {
+                    0
                 };
                 let mut notes: Vec<String> = vec![password_note, cookie_note]
                     .into_iter()
@@ -724,6 +979,7 @@ pub async fn browser_import_list_sources() -> Result<Vec<ImportSourceInfo>> {
                     },
                     passwordCount: password_count,
                     cookieCount: cookie_count,
+                    bookmarkCount: bookmark_count,
                     note,
                 });
             }
@@ -731,7 +987,8 @@ pub async fn browser_import_list_sources() -> Result<Vec<ImportSourceInfo>> {
         for (profile, dir) in firefox_profiles() {
             let has_logins = dir.join("logins.json").exists();
             let has_cookies = dir.join("cookies.sqlite").exists();
-            if !has_logins && !has_cookies {
+            let has_places = dir.join("places.sqlite").exists();
+            if !has_logins && !has_cookies && !has_places {
                 continue;
             }
             let master = firefox_has_master_password(&dir);
@@ -766,6 +1023,18 @@ pub async fn browser_import_list_sources() -> Result<Vec<ImportSourceInfo>> {
                         conn.query_row("SELECT COUNT(*) FROM moz_cookies", [], |row| {
                             row.get::<_, i64>(0)
                         })
+                    });
+                    count.unwrap_or(0) as i32
+                } else {
+                    0
+                },
+                bookmarkCount: if has_places {
+                    let (count, _) = query_with_retry(&dir.join("places.sqlite"), |conn| {
+                        conn.query_row(
+                            "SELECT COUNT(*) FROM moz_bookmarks WHERE type = 1 AND fk IS NOT NULL",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )
                     });
                     count.unwrap_or(0) as i32
                 } else {
@@ -864,6 +1133,38 @@ pub async fn browser_import_cookies(
         Error::new(
             Status::GenericFailure,
             format!("Cookie 解析任务失败: {error}"),
+        )
+    })?
+}
+
+#[napi]
+pub async fn browser_import_bookmarks(
+    source_id: String,
+    profile: String,
+) -> Result<Vec<ImportedBookmark>> {
+    tokio::task::spawn_blocking(move || -> Result<Vec<ImportedBookmark>> {
+        if source_id == "firefox" {
+            let dir = firefox_profile_dir(&profile)
+                .ok_or_else(|| Error::from_reason("未找到指定 Firefox 配置文件".to_string()))?;
+            read_firefox_bookmarks(&dir)
+        } else {
+            let (root, _name) = chromium_root_by_id(&source_id)
+                .ok_or_else(|| Error::from_reason("不支持的浏览器类型".to_string()))?;
+            let dir = root.join(&profile);
+            if !dir.is_dir() {
+                return Err(Error::from_reason(format!(
+                    "未找到浏览器配置文件目录: {}",
+                    dir.display()
+                )));
+            }
+            read_chromium_bookmarks(&dir)
+        }
+    })
+    .await
+    .map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("书签解析任务失败: {error}"),
         )
     })?
 }

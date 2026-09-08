@@ -31,6 +31,7 @@ import {
 } from "../ipc/handlers/browserNetworkRecorder";
 import { installWebviewContextMenu } from "../utils/webviewContextMenu";
 import { installWebviewDownloadHandler } from "./downloadManager";
+import { initCookieAutoBackup } from "./cookieAutoBackup";
 import { initUserscriptSyncStore } from "./userscriptSyncStore";
 import { initBrowserPopupHandler } from "../browser/browserPopupWindow";
 import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
@@ -127,6 +128,11 @@ export const bootstrapApplication = (): void => {
         .replace(/ [^/()]+\/[\w.-]+(?= Chrome\/)/, "")
         .replace(/ Electron\/[\w.-]+/, ""),
     );
+
+    // ─── Cookie 自动备份与丢失自愈 ──────────────────────────────────────
+    // Keychain "Chromium Safe Storage" 密钥漂移会让 Chromium 启动时静默清空
+    // 整库 Cookie，此处启动检测骤减并自动恢复，周期加密快照兜底。
+    initCookieAutoBackup();
 
     // ─── 极速出窗口 ─────────────────────────────────────────────────────
     // 第一优先级：创建窗口并加载 boot-loader HTML。

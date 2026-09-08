@@ -529,6 +529,60 @@ input {
   box-shadow: var(--shadow-md);
   overflow: hidden;
   -webkit-app-region: no-drag;
+  transform-origin: top right;
+}
+
+/* 进出场灵动动画：从按钮处弹性展开，收起时缩回 */
+.top-bar-todo-dropdown.is-entering {
+  animation: todo-dropdown-in 0.24s cubic-bezier(0.16, 1, 0.3, 1.35) both;
+}
+
+.top-bar-todo-dropdown.is-leaving {
+  animation: todo-dropdown-out 0.12s cubic-bezier(0.5, 0, 0.75, 0.4) both;
+  pointer-events: none;
+}
+
+@keyframes todo-dropdown-in {
+  from {
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes todo-dropdown-out {
+  from {
+    transform: translateY(0) scale(1);
+  }
+  to {
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+
+/* 进入时条目级联浮现 */
+.top-bar-todo-dropdown.is-entering .top-bar-todo-item {
+  animation: todo-item-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes todo-item-in {
+  from {
+    transform: scale(0.9);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-bar-todo-dropdown.is-entering,
+  .top-bar-todo-dropdown.is-entering .top-bar-todo-item {
+    animation: none;
+  }
+  /* 保留动画名让 animationend 仍触发，保证面板正常卸载 */
+  .top-bar-todo-dropdown.is-leaving {
+    animation-duration: 0s;
+  }
 }
 
 .top-bar-todo-dropdown-header {
@@ -627,6 +681,7 @@ input {
   list-style: none;
   margin: 0;
   padding: 4px;
+  overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -11565,15 +11620,23 @@ input {
 
 /* "N steps" 组的双向展开/收起高度动画：grid-rows 0fr<->1fr 插值。
    列表常挂载（工具卡的 details 关闭态内容由浏览器在 shadow 层隐藏，
-   实际布局开销有限）；收起时再叠加 content-visibility 跳过整棵子树。 */
+   实际布局开销有限）；visibility 延迟 0.22s 才隐藏，保证收起时内容
+   随高度收缩被逐步裁剪（overflow:hidden），而不是瞬间消失。 */
 .tcg-collapse {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.22s ease;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.22s ease,
+    visibility 0s 0.22s;
 }
 
 .tcg-collapse.is-open {
   grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows 0.22s ease,
+    visibility 0s;
 }
 
 .tcg-list {
@@ -11596,10 +11659,6 @@ input {
   left: 10px;
   width: var(--tcn-line-width, 1.5px);
   background: var(--border-light);
-}
-
-.tcg-collapse:not(.is-open) .tcg-list {
-  content-visibility: hidden;
 }
 
 /* 新工具卡片依次浮现：交错延迟让批量出现的卡片有节奏感，
@@ -11807,17 +11866,62 @@ input {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
+  /* 0fr 高度折叠的必要条件：允许被压缩到 0 并裁剪超出内容（同 .tcg-list） */
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* 工具卡展开时 body 柔和下滑浮现。details 关闭态的内容被浏览器在
-   shadow 层隐藏（无前置渲染帧，transition 无法生效），因此展开用
-   单向 animation；收起保持原生瞬时折叠，避免等待动画。 */
-.tcn[open] > .tcn-body {
+/* 工具卡展开/收起的镜像动画，两层同时播放：
+   外层 .tcn-collapse 负责高度（grid 0fr<->1fr 插值，同 .tcg-collapse），
+   内层 .tcn-body 负责淡入淡出+位移。details 关闭态的内容被浏览器在
+   shadow 层隐藏（无前置渲染帧，transition 无法生效），因此双向都用
+   animation；收起由 React 先挂 tcn--closing 播退场动画，animationend 才
+   移除 open 真正折叠——此时高度已是 0fr，无布局跳变（闪跳）。高度层必须
+   双向，否则退场动画期间 body 占满原高、结束瞬间高度骤变。 */
+.tcn-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+
+.tcn[open] > .tcn-collapse {
+  grid-template-rows: 1fr;
+  animation: tcn-collapse-in 0.18s ease-out both;
+}
+
+/* 与 tcn-collapse-in 镜像：同时长，ease-out 反向为 ease-in。 */
+.tcn.tcn--closing > .tcn-collapse {
+  animation: tcn-collapse-out 0.18s ease-in both;
+}
+
+.tcn[open] > .tcn-collapse > .tcn-body {
   animation: tcn-body-in 0.18s ease-out both;
+}
+
+.tcn.tcn--closing > .tcn-collapse > .tcn-body {
+  animation: tcn-body-out 0.18s ease-in both;
+}
+
+@keyframes tcn-collapse-in {
+  from {
+    grid-template-rows: 0fr;
+  }
+}
+
+@keyframes tcn-collapse-out {
+  to {
+    grid-template-rows: 0fr;
+  }
 }
 
 @keyframes tcn-body-in {
   from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes tcn-body-out {
+  to {
     opacity: 0;
     transform: translateY(-3px);
   }
@@ -11835,7 +11939,8 @@ input {
   .ai-response-actions,
   .stream-cursor,
   .stream-stopping,
-  .tcn[open] > .tcn-body,
+  .tcn[open] > .tcn-collapse,
+  .tcn[open] > .tcn-collapse > .tcn-body,
   .tcn-dot--running {
     animation: none;
   }
@@ -32666,6 +32771,24 @@ body.ctrl-held [data-path] {
   flex-shrink: 0;
 }
 
+/* 网站 favicon（img-proxy 代理加载，Globe 回退） */
+.browser-favicon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.browser-favicon-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
 .browser-address-input {
   flex: 1;
   min-width: 0;
@@ -32680,14 +32803,6 @@ body.ctrl-held [data-path] {
 
 .browser-address-input::placeholder {
   color: var(--text-tertiary);
-}
-
-.browser-screenshot-btn.is-success {
-  color: var(--accent);
-}
-
-.browser-screenshot-btn.is-error {
-  color: var(--danger, #e5484d);
 }
 
 .browser-element-pick-btn.is-active,
@@ -33039,6 +33154,23 @@ body.ctrl-held [data-path] {
   display: none;
 }
 
+/* 设备显示尺寸模拟（移动端界面调试）：webview 视口约束为所选设备的 CSS
+   逻辑像素尺寸并居中，内容区小于设备尺寸时按可用空间收缩（min()）。
+   box-shadow 描边不占布局空间，guest 视口尺寸不受影响。 */
+.browser-content.has-device-size {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.browser-content.has-device-size .browser-webview {
+  width: min(var(--device-size-width), 100%);
+  height: min(var(--device-size-height), 100%);
+  box-shadow:
+    0 0 0 1px var(--border-light),
+    var(--island-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
+}
+
 /* ===== Browser Tabs (标签页维度) ===== */
 .browser-tab-bar {
   display: flex;
@@ -33153,6 +33285,292 @@ body.ctrl-held [data-path] {
 .browser-tab-new:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
+}
+
+/* ===== Browser Bookmarks Bar (收藏栏) ===== */
+.browser-bookmarks-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.browser-bookmarks-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.browser-bookmark-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.browser-bookmark-toggle:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.browser-bookmark-toggle.is-active {
+  color: var(--accent, var(--text-primary));
+}
+
+.browser-bookmark-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.browser-bookmark-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 160px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.browser-bookmark-item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.browser-bookmark-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.browser-bookmark-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 删除按钮仅 hover 书签时显示 */
+.browser-bookmark-delete {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.browser-bookmark-item:hover .browser-bookmark-delete {
+  display: flex;
+}
+
+.browser-bookmark-delete:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.browser-bookmarks-empty {
+  flex-shrink: 0;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+/* 收藏栏文件夹按钮（复用 .browser-bookmark-item 基础样式） */
+.browser-bookmark-folder.is-open {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* 文件夹下拉菜单：portal 到 document.body 的 fixed 定位（与 BrowserMenu
+   同模式），不受收藏栏 overflow-x 裁剪。 */
+.browser-bookmark-menu {
+  position: fixed;
+  min-width: 200px;
+  max-width: 260px;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--bg-secondary);
+  box-shadow: var(--island-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
+  z-index: 9999;
+}
+
+.browser-bookmark-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-bookmark-menu-item.has-submenu {
+  cursor: default;
+}
+
+.browser-bookmark-menu-item.has-submenu > .browser-bookmark-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-bookmark-menu-item:not(.has-submenu):hover {
+  background: var(--bg-hover);
+}
+
+.browser-bookmark-menu-item.has-submenu:hover {
+  background: var(--bg-hover);
+}
+
+.browser-bookmark-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 级联子菜单：hover 父项时在其右侧展开 */
+.browser-bookmark-submenu {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: -5px;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--bg-secondary);
+  box-shadow: var(--island-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
+}
+
+.browser-bookmark-menu-item.has-submenu:hover > .browser-bookmark-submenu {
+  display: flex;
+}
+
+/* ===== 书签维护表格（浏览器设置页）===== */
+.browser-settings-bookmark-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-settings-bookmark-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.browser-settings-bookmark-add-input.is-url {
+  flex: 1.6;
+}
+
+.browser-settings-bookmark-add-input:focus {
+  border-color: var(--border-color);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.browser-settings-bookmark-add-input::placeholder {
+  color: var(--text-muted);
+}
+
+.browser-settings-bookmark-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.browser-settings-bookmark-add-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.browser-settings-bookmark-add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.browser-bookmark-folder-cell,
+.browser-bookmark-title-cell,
+.browser-bookmark-url-cell {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-bookmark-url-cell {
+  max-width: 240px;
+}
+
+.browser-bookmark-edit-input {
+  width: 100%;
+  min-width: 80px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.browser-settings-table tr.is-editing td {
+  background: var(--bg-tertiary);
 }
 
 .spin-icon {
@@ -33318,6 +33736,39 @@ body.ctrl-held [data-path] {
   z-index: 10000;
 }
 
+/* ===== Browser Device Size Submenu (显示尺寸) ===== */
+/* 设备名 + 尺寸标注同行，需要比清除数据 flyout 更宽 */
+.browser-menu-device-flyout {
+  min-width: 200px;
+}
+
+/* 选中标记列：固定宽度占位，未选中时留空保持各项文字对齐 */
+.browser-menu-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--accent, #4c8dff);
+}
+
+/* 触发行右侧的当前设备名 */
+.browser-menu-device-current {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.browser-menu-device-dims {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* ===== Browser Homepage Row ===== */
 .browser-menu-homepage-row {
   display: flex;
@@ -33411,7 +33862,7 @@ body.ctrl-held [data-path] {
 
 /* ===== Browser Settings Panel ===== */
 .browser-settings-summary-grid {
-  grid-template-columns: 0.8fr 1fr 1.6fr;
+  grid-template-columns: 0.8fr 1fr 1fr 1.6fr;
 }
 
 .browser-settings-summary-grid .browser-settings-homepage-value {

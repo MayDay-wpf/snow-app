@@ -56,6 +56,8 @@ export const ToolCallNode = ({
 }: ToolCallNodeProps): React.JSX.Element => {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // 收起动画进行中：保留 open 直到退场动画结束，再真正折叠
+  const [isClosing, setIsClosing] = useState(false);
   const isRunning = status === "running";
 
   // When defaultOpen changes from false to true (e.g. an interactive
@@ -86,13 +88,43 @@ export const ToolCallNode = ({
           ? "tcn-dot--error"
           : "tcn-dot--pending";
 
+  // 接管 summary 开合：展开立即生效；收起先播镜像退场动画（tcn--closing），
+  // 动画结束才移除 open —— 原生 details 去 open 会瞬时隐藏，无法播退场动画。
+  const handleSummaryClick = (e: React.MouseEvent<HTMLElement>): void => {
+    if (!children) {
+      return; // 无 body 时无可动画内容，保持原生瞬时开合
+    }
+    e.preventDefault();
+    if (isClosing) {
+      return; // 收起动画期间忽略重复点击，避免打断
+    }
+    if (!isOpen) {
+      setIsOpen(true);
+    } else if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // 减弱动态偏好下 CSS 动画被禁用（animationend 不会触发），直接折叠
+      setIsOpen(false);
+    } else {
+      setIsClosing(true);
+    }
+  };
+
+  // 退场动画结束后才真正折叠（animationend 会冒泡，需按动画名过滤）
+  const handleBodyAnimationEnd = (
+    e: React.AnimationEvent<HTMLDivElement>,
+  ): void => {
+    if (e.animationName === "tcn-body-out") {
+      setIsClosing(false);
+      setIsOpen(false);
+    }
+  };
+
   return (
     <details
-      className={`tcn ${className ?? ""}`}
+      className={`tcn${isClosing ? " tcn--closing" : ""}${className ? ` ${className}` : ""}`}
       open={isOpen}
       onToggle={(e) => setIsOpen(e.currentTarget.open)}
     >
-      <summary className="tcn-header">
+      <summary className="tcn-header" onClick={handleSummaryClick}>
         <span className={`tcn-dot ${dotClass}`} aria-hidden="true" />
         <ToolNameBadge name={resolvedBadgeName} category={category} />
         {displayName ? (
@@ -145,8 +177,14 @@ export const ToolCallNode = ({
         {meta ? <span className="tcn-meta">{meta}</span> : null}
         <ChevronRight className="tcn-chevron" size={12} aria-hidden="true" />
       </summary>
+      {/* 外层 grid 容器负责高度镜像动画（0fr<->1fr），内层 body 只负责
+          淡入淡出+位移；padding 留在内层，0fr 时不残留高度。 */}
       {children && (lazyBody ? isOpen : true) ? (
-        <div className="tcn-body">{children}</div>
+        <div className="tcn-collapse">
+          <div className="tcn-body" onAnimationEnd={handleBodyAnimationEnd}>
+            {children}
+          </div>
+        </div>
       ) : null}
     </details>
   );

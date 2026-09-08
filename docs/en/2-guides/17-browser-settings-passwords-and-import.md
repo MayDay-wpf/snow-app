@@ -95,11 +95,11 @@ flowchart TD
 
 ### 6.1 Platform decryption paths
 
-| Platform | Implementation and boundary |
-| --- | --- |
-| Windows | Reads the encrypted master key from `Local State`, decrypts it with the current Windows user's DPAPI, then decrypts records with AES-256-GCM |
-| macOS | Reads “Chrome Safe Storage” or “Microsoft Edge Safe Storage” from Keychain, derives a key with PBKDF2-HMAC-SHA1, and uses AES-128-CBC; the 32-byte hash prefix used by cookie schema v24 / Chrome 133+ is removed |
-| Linux | Chromium profiles can be detected, but the current implementation cannot obtain Chrome-family keys from GNOME Keyring/KWallet; Chrome passwords and encrypted cookies may not import, while Firefox is supported |
+| Platform | Implementation and boundary                                                                                                                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows  | Reads the encrypted master key from `Local State`, decrypts it with the current Windows user's DPAPI, then decrypts records with AES-256-GCM                                                                      |
+| macOS    | Reads “Chrome Safe Storage” or “Microsoft Edge Safe Storage” from Keychain, derives a key with PBKDF2-HMAC-SHA1, and uses AES-128-CBC; the 32-byte hash prefix used by cookie schema v24 / Chrome 133+ is removed |
+| Linux    | Chromium profiles can be detected, but the current implementation cannot obtain Chrome-family keys from GNOME Keyring/KWallet; Chrome passwords and encrypted cookies may not import, while Firefox is supported  |
 
 These capabilities require the current OS user to have access to the source browser's system credentials. Browser-version changes, enterprise policies, and alternative key backends can make individual records undecryptable.
 
@@ -117,10 +117,10 @@ Firefox and Chromium have different cookie/login formats, and some versions, ext
 
 ## 8. Where passwords and cookies go
 
-| Data | Import destination | Subsequent behavior |
-| --- | --- | --- |
-| Passwords | Snow password vault | Filled by origin; viewable or deletable in settings |
-| Cookies | Current Electron `defaultSession` | Sent to matching domains by the built-in browser and may sign an account in immediately |
+| Data      | Import destination                | Subsequent behavior                                                                     |
+| --------- | --------------------------------- | --------------------------------------------------------------------------------------- |
+| Passwords | Snow password vault               | Filled by origin; viewable or deletable in settings                                     |
+| Cookies   | Current Electron `defaultSession` | Sent to matching domains by the built-in browser and may sign an account in immediately |
 
 Cookies are not stored in `vault.bin`. Importing cookies transfers a login session and can bypass password entry and parts of the normal login flow. Import only profiles you own and trust. If a device is lost, the wrong profile is imported, or the account behaves unexpectedly, revoke the session from the website's security page.
 
@@ -142,8 +142,8 @@ Domain cookies retain the semantics represented by a leading dot so subdomains c
 
 Browser automation tools can also save login-state files under:
 
-- `~/.snow/browser-state/`
-- automatic backups: `~/.snow/browser-state/backups/`
+- `~/.snowapp/browser-state/`
+- automatic backups: `~/.snowapp/browser-state/backups/`
 
 A state archive contains cookies and localStorage for the **current main-frame origin**. The whole file is encrypted by `safeStorage` and validated with an `SNOWSTATE` magic header, version, and schema. Names are restricted to `[A-Za-z0-9._-]{1,100}`. Snow backs up the current state before restoration:
 
@@ -169,13 +169,13 @@ An ordinary directory backup is not a reliable cross-machine password recovery p
 
 ## 12. Security guidance and troubleshooting
 
-| Symptom | Checks and action |
-| --- | --- |
-| Password cannot be saved | Check whether the OS keyring/Keychain/DPAPI is available and the desktop session is unlocked |
-| Autofill does nothing | Confirm HTTP/HTTPS and the correct origin; complex iframe/Shadow DOM sites may be unsupported |
-| Import count is below scan count | Close the source browser, retry, and inspect Primary Password, OS key, and failure counts |
-| Imported cookies do not sign in | Check expiry, domain/path, Secure, and SameSite constraints, then revisit the site |
+| Symptom                             | Checks and action                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Password cannot be saved            | Check whether the OS keyring/Keychain/DPAPI is available and the desktop session is unlocked               |
+| Autofill does nothing               | Confirm HTTP/HTTPS and the correct origin; complex iframe/Shadow DOM sites may be unsupported              |
+| Import count is below scan count    | Close the source browser, retry, and inspect Primary Password, OS key, and failure counts                  |
+| Imported cookies do not sign in     | Check expiry, domain/path, Secure, and SameSite constraints, then revisit the site                         |
 | Vault appears empty after migration | Check for a cross-user copy; do not overwrite the old vault, and export on the old device or sign in again |
-| Cookie leakage is suspected | Revoke affected sessions from each website, remove Snow session data, and rotate passwords |
+| Cookie leakage is suspected         | Revoke affected sessions from each website, remove Snow session data, and rotate passwords                 |
 
 For window isolation, third-party tools, and user responsibility, read [Security, Privacy, and Tool Authorization](16-security-privacy-and-tool-authorization.md) and [Security and Trust Boundaries](../3-reference/5-security-and-trust-boundaries.md). For a storage-directory overview, see [Data Storage Locations](../3-reference/4-data-storage-locations.md).

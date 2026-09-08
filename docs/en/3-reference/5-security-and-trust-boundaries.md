@@ -42,12 +42,12 @@ Every arrow is a boundary requiring identity checks, argument validation, data m
 
 ## 3. Electron window boundary
 
-| Component | Configuration/behavior | Security effect | Residual risk |
-| --- | --- | --- | --- |
-| Main window | `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false`, `webviewTag: true` | Renderer cannot invoke Node directly; native capabilities go through preload/contextBridge | Main window is not sandboxed; bridge APIs, XSS, and webview orchestration still require least privilege |
-| Main-window external link | `window.open` is denied and delegated to `shell.openExternal` | Avoids inheriting Snow capabilities in an ordinary child window | System browser and target site remain external trust parties |
-| webview guest | Loads remote pages in a browser session | Separates web content from Snow UI | Page content, prompt injection, cookies, and downloads still carry risk |
-| OAuth/web popup | `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false` | Restricts direct Node access from the popup | Shares session/cookies with opener and retains `window.opener`/`postMessage` |
+| Component                 | Configuration/behavior                                                                   | Security effect                                                                            | Residual risk                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Main window               | `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false`, `webviewTag: true` | Renderer cannot invoke Node directly; native capabilities go through preload/contextBridge | Main window is not sandboxed; bridge APIs, XSS, and webview orchestration still require least privilege |
+| Main-window external link | `window.open` is denied and delegated to `shell.openExternal`                            | Avoids inheriting Snow capabilities in an ordinary child window                            | System browser and target site remain external trust parties                                            |
+| webview guest             | Loads remote pages in a browser session                                                  | Separates web content from Snow UI                                                         | Page content, prompt injection, cookies, and downloads still carry risk                                 |
+| OAuth/web popup           | `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`                      | Restricts direct Node access from the popup                                                | Shares session/cookies with opener and retains `window.opener`/`postMessage`                            |
 
 A popup may recursively create another popup under the same policy, and Snow closes all popups with the main window. Always distinguish “browser popups are sandboxed” from “the main window is not sandboxed.”
 
@@ -55,20 +55,20 @@ A popup may recursively create another popup under the same policy, and Snow clo
 
 ### 4.1 Password vault
 
-| Layer | Implementation |
-| --- | --- |
-| Files | `~/.snowapp/browser-passwords/vault.key`, `vault.bin` |
-| Master key | Random 32 bytes, wrapped by Electron `safeStorage` |
-| OS backend | macOS Keychain, Windows DPAPI, Linux keyring |
-| Data encryption | AES-256-GCM with 12-byte IV, 16-byte authentication tag, and ciphertext |
-| Writes | Temporary file plus atomic `rename`; best-effort `0600` |
-| Failure | Saving is refused when `safeStorage` is unavailable; no plaintext fallback |
+| Layer           | Implementation                                                             |
+| --------------- | -------------------------------------------------------------------------- |
+| Files           | `~/.snowapp/browser-passwords/vault.key`, `vault.bin`                      |
+| Master key      | Random 32 bytes, wrapped by Electron `safeStorage`                         |
+| OS backend      | macOS Keychain, Windows DPAPI, Linux keyring                               |
+| Data encryption | AES-256-GCM with 12-byte IV, 16-byte authentication tag, and ciphertext    |
+| Writes          | Temporary file plus atomic `rename`; best-effort `0600`                    |
+| Failure         | Saving is refused when `safeStorage` is unavailable; no plaintext fallback |
 
 List operations omit plaintext passwords. Decryption occurs only for reveal-by-ID or autofill-by-origin. Autofill IPC verifies the sender frame's origin, preventing a page from asking for credentials belonging to another origin.
 
 ### 4.2 Login-state archives
 
-`~/.snow/browser-state/` stores cookies and localStorage for the current main-frame origin, encrypted as a whole by `safeStorage`, with pre-restore backups under `backups/`. A magic header, version, schema, filename allowlist, and exact-origin localStorage injection reduce format-confusion and cross-origin restoration risks.
+`~/.snowapp/browser-state/` stores cookies and localStorage for the current main-frame origin, encrypted as a whole by `safeStorage`, with pre-restore backups under `backups/`. A magic header, version, schema, filename allowlist, and exact-origin localStorage injection reduce format-confusion and cross-origin restoration risks.
 
 ### 4.3 Boundary
 
@@ -78,14 +78,14 @@ See [Data Storage Locations](4-data-storage-locations.md) and [Browser Settings,
 
 ## 5. AI, tool, and authorization boundary
 
-| Control | Scope | Protection supplied | Not guaranteed |
-| --- | --- | --- | --- |
-| Per-call authorization | One tool call | User can approve once or reject | User understands arguments; external implementation is safe |
-| Permanent project authorization | Current `directoryId` + tool name | Reduces prompts without crossing project boundaries | Arguments are safe; persistence failure rolls back current approval |
-| YOLO | Persistent global setting | Ordinary tools are auto-approved | Bypass of sensitive-command, Hook, Plan/Rust gates |
-| Sensitive command | Effective global/project regexes | Matching Bash commands require confirmation and a single-use token | Detection of uncovered, encoded, or indirect dangerous commands |
-| Plan Mode | Current conversation | Rust blocks ordinary create/replace writes until approval | A complete sandbox for all tool side effects |
-| Sub-agent allowlist | Sub-agent calls | Limits the available tool set | Business safety of an allowed tool |
+| Control                         | Scope                             | Protection supplied                                                | Not guaranteed                                                      |
+| ------------------------------- | --------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Per-call authorization          | One tool call                     | User can approve once or reject                                    | User understands arguments; external implementation is safe         |
+| Permanent project authorization | Current `directoryId` + tool name | Reduces prompts without crossing project boundaries                | Arguments are safe; persistence failure rolls back current approval |
+| YOLO                            | Persistent global setting         | Ordinary tools are auto-approved                                   | Bypass of sensitive-command, Hook, Plan/Rust gates                  |
+| Sensitive command               | Effective global/project regexes  | Matching Bash commands require confirmation and a single-use token | Detection of uncovered, encoded, or indirect dangerous commands     |
+| Plan Mode                       | Current conversation              | Rust blocks ordinary create/replace writes until approval          | A complete sandbox for all tool side effects                        |
+| Sub-agent allowlist             | Sub-agent calls                   | Limits the available tool set                                      | Business safety of an allowed tool                                  |
 
 A sensitive-command token is bound to the exact command, lasts roughly 60 seconds, and is consumed once. Invalid regexes are skipped. Interactive commands rely on interactive-terminal confirmation. YOLO auto-approves only non-sensitive entries.
 
@@ -95,10 +95,10 @@ Plan Mode passes `planMode` / `planApproved` into the Rust executor. Before appr
 
 Privacy filtering is off by default and processes only selected tool results. It is not global DLP for chat, filesystems, pages, and network traffic.
 
-| Mode | Data path | Failure behavior | New trust party |
-| --- | --- | --- | --- |
-| Local | Rust regex/validation before crossing NAPI | Rules can miss or overmatch; exceptional local-task failure can return original text | No external service |
-| API | Text is sent to the configured HTTP API, which must return `masked_text` | Any API error falls back to local rules | API operator, network, and authentication configuration |
+| Mode  | Data path                                                                | Failure behavior                                                                     | New trust party                                         |
+| ----- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Local | Rust regex/validation before crossing NAPI                               | Rules can miss or overmatch; exceptional local-task failure can return original text | No external service                                     |
+| API   | Text is sent to the configured HTTP API, which must return `masked_text` | Any API error falls back to local rules                                              | API operator, network, and authentication configuration |
 
 Local rules include private keys, JWTs, common API keys, Authorization values, URL tokens, Chinese national IDs, and payment cards. API mode may send both `x-api-key` and Bearer headers. Even with fallback, the original input reaches the API endpoint before filtering, so minimize data first.
 
@@ -116,14 +116,14 @@ Local-browser import reads source profiles. Chromium uses DPAPI + AES-256-GCM on
 
 ## 8. Plugin, Hook, Skill, MCP, and sub-agent boundary
 
-| Extension surface | Execution/source | Key risk | Recommendation |
-| --- | --- | --- | --- |
-| Declarative Plugin | Marketplace declaration; no install script | Malicious configuration, provenance, and update risk | Install only trusted publishers |
-| External Plugin | Isolated utility process with pre-launch warning | Isolation does not imply trust; granted permissions can be abused | Review code, permissions, and updates |
-| Hook | Shell command, context, or prompt | Local code execution, context injection, and flow changes | Pin dependencies, use least privilege, retain output |
-| Skill | Agent workflow/knowledge instructions | Can encourage broader tool calls or data access | Read source and content before enabling |
-| External MCP | Local stdio process or HTTP service | Arbitrary external side effects, retention, misleading tool declarations | Restrict tools, endpoints, and credentials; audit separately |
-| Sub-agent | Independent agent loop plus tool allowlist | Context mistakes and side effects from allowed tools | Provide minimum context and clear file ownership |
+| Extension surface  | Execution/source                                 | Key risk                                                                 | Recommendation                                               |
+| ------------------ | ------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Declarative Plugin | Marketplace declaration; no install script       | Malicious configuration, provenance, and update risk                     | Install only trusted publishers                              |
+| External Plugin    | Isolated utility process with pre-launch warning | Isolation does not imply trust; granted permissions can be abused        | Review code, permissions, and updates                        |
+| Hook               | Shell command, context, or prompt                | Local code execution, context injection, and flow changes                | Pin dependencies, use least privilege, retain output         |
+| Skill              | Agent workflow/knowledge instructions            | Can encourage broader tool calls or data access                          | Read source and content before enabling                      |
+| External MCP       | Local stdio process or HTTP service              | Arbitrary external side effects, retention, misleading tool declarations | Restrict tools, endpoints, and credentials; audit separately |
+| Sub-agent          | Independent agent loop plus tool allowlist       | Context mistakes and side effects from allowed tools                     | Provide minimum context and clear file ownership             |
 
 Hook exit code 0 passes, 1 warns or requests an optional decision, and 2+ blocks at a blockable lifecycle point. Fire-and-forget points such as `onStop` and `onSessionStart` cannot truly block; a pending decision becomes a warning. Tool authorization controls the Snow entry point, not the internal safety of a Plugin, Hook, or MCP server.
 

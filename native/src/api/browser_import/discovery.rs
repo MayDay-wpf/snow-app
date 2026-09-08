@@ -53,7 +53,8 @@ pub(crate) fn chromium_profiles(root: &Path) -> Vec<(String, PathBuf)> {
     profiles
 }
 
-/// Firefox profile directories containing logins.json or cookies.sqlite.
+/// Firefox profile directories containing logins.json / cookies.sqlite /
+/// places.sqlite.
 pub(crate) fn firefox_profiles() -> Vec<(String, PathBuf)> {
     let home = home_dir();
     let roots: Vec<PathBuf> = if cfg!(target_os = "macos") {
@@ -74,7 +75,10 @@ pub(crate) fn firefox_profiles() -> Vec<(String, PathBuf)> {
                 if !path.is_dir() {
                     continue;
                 }
-                if path.join("logins.json").exists() || path.join("cookies.sqlite").exists() {
+                if path.join("logins.json").exists()
+                    || path.join("cookies.sqlite").exists()
+                    || path.join("places.sqlite").exists()
+                {
                     profiles.push((entry.file_name().to_string_lossy().to_string(), path));
                 }
             }

@@ -1459,6 +1459,7 @@ export const en = {
   "common.back": "Back",
   "common.cancel": "Cancel",
   "common.save": "Save",
+  "common.edit": "Edit",
   "common.confirm": "Confirm",
   "common.delete": "Delete",
   "common.retry": "Retry",
@@ -3579,6 +3580,8 @@ export const en = {
   "browser.zoomIn": "Zoom in",
   "browser.zoomOut": "Zoom out",
   "browser.zoomReset": "Reset to 100%",
+  "browser.deviceSize": "Display size",
+  "browser.deviceSizeDefault": "Default",
   "browser.forceReload": "Force reload",
   "browser.findInPage": "Find in page",
   "browser.openDevTools": "Open developer tools",
@@ -3632,6 +3635,26 @@ export const en = {
   "settings.closeBrowserSettings": "Close browser settings",
   "settings.browserSavedPasswords": "Saved passwords",
   "settings.browserLocalCookies": "Cookies on this device",
+  "settings.browserBookmarks": "Bookmarks",
+  "settings.browserBookmarksManageTitle": "Manage bookmarks",
+  "settings.browserBookmarksHint":
+    "Imported from local browsers or saved via the star in the embedded browser, shown in the bookmarks bar",
+  "settings.browserBookmarksEmpty":
+    "No bookmarks yet. Import them above or click the star in the embedded browser",
+  "settings.browserBookmarkSearch": "Search title, URL or folder",
+  "settings.browserBookmarkSearchEmpty": "No bookmarks match your search",
+  "settings.browserBookmarkTitle": "Title",
+  "settings.browserBookmarkUrl": "URL",
+  "settings.browserBookmarkFolder": "Folder",
+  "settings.browserBookmarkFolderPlaceholder":
+    "Folder (optional, e.g. News/Tech)",
+  "settings.browserBookmarkAddAction": "Add bookmark",
+  "settings.browserBookmarkSelectedCount": "{{count}} selected",
+  "settings.browserBookmarkDeleteSelected": "Delete selected",
+  "settings.browserBookmarkBatchDeleteTitle": "Delete selected bookmarks",
+  "settings.browserBookmarkBatchDeleteMessage":
+    "Delete the {{count}} selected bookmarks? This action cannot be undone.",
+  "settings.browserBookmarkSelectRecord": "Select this bookmark",
   "settings.browserHomepage": "Homepage",
   "settings.browserHomepagePlaceholder":
     "Enter URL, leave empty for blank page",
@@ -3658,20 +3681,23 @@ export const en = {
     "Delete the {{count}} selected passwords? This action cannot be undone.",
   "settings.browserImport": "Import",
   "settings.browserImportHint":
-    "Imported passwords are encrypted into the vault; cookies are written into the current browser session",
+    "Imported passwords are encrypted into the vault; cookies are written into the current browser session; bookmarks are merged into the bookmarks bar",
   "settings.browserImportNoSources":
     "No local browser data detected (close the browser first and retry)",
   "settings.browserImportScan": "Scan local browsers",
   "settings.browserImportRescan": "Rescan",
   "settings.browserImportCounts":
-    "{{passwords}} passwords · {{cookies}} cookies",
+    "{{passwords}} passwords · {{cookies}} cookies · {{bookmarks}} bookmarks",
   "settings.browserImportPasswordsOption": "Import passwords ({{count}})",
   "settings.browserImportCookiesOption": "Import cookies ({{count}})",
+  "settings.browserImportBookmarksOption": "Import bookmarks ({{count}})",
   "settings.browserImportAction": "Import selected",
   "settings.browserImportPasswordsResult":
     "Imported {{imported}}/{{total}} passwords",
   "settings.browserImportCookiesResult":
     "Imported {{imported}}/{{total}} cookies",
+  "settings.browserImportBookmarksResult":
+    "Imported {{imported}}/{{total}} bookmarks",
   "settings.browserImportPartialFail": "{{failed}} items failed",
   "settings.browserImportDone": "Import completed",
   "common.close": "Close",
@@ -3681,6 +3707,11 @@ export const en = {
   "rightPanel.browserTab": "Browser",
   "rightPanel.browserNewTab": "New tab",
   "rightPanel.browserCloseTab": "Close tab",
+  "rightPanel.browserAddBookmark": "Bookmark this page",
+  "rightPanel.browserRemoveBookmark": "Remove bookmark",
+  "rightPanel.browserBookmarksDelete": "Delete bookmark",
+  "rightPanel.browserBookmarksEmpty":
+    "No bookmarks yet. Click the star to bookmark this page",
   "rightPanel.codebaseTab": "Codebase",
   "rightPanel.drawingTab": "Drawing Workspace",
   "rightPanel.closeTab": "Close tab",

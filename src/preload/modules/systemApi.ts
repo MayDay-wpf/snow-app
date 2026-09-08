@@ -185,6 +185,31 @@ type BrowserDownloadSubscriber = (items: BrowserDownloadItemEvent[]) => void;
 
 const downloadSubscribers = new Set<BrowserDownloadSubscriber>();
 
+// ===== 浏览器书签（收藏夹）=====
+
+export type BrowserBookmark = {
+  id: string;
+  title: string;
+  url: string;
+  folder: string;
+  createdAt: number;
+};
+
+type BrowserBookmarksChangedSubscriber = () => void;
+
+const browserBookmarksSubscribers =
+  new Set<BrowserBookmarksChangedSubscriber>();
+
+ipcRenderer.on("browser:bookmarks-updated", () => {
+  for (const subscriber of browserBookmarksSubscribers) {
+    try {
+      subscriber();
+    } catch (error) {
+      console.error("[browser] Bookmarks subscriber failed", error);
+    }
+  }
+});
+
 ipcRenderer.on(
   "browser:downloads-updated",
   (_event: IpcRendererEvent, items: unknown): void => {
@@ -1393,6 +1418,7 @@ export const windowApi = {
       cookieDb: string;
       passwordCount: number;
       cookieCount: number;
+      bookmarkCount: number;
       note: string;
     }[]
   > => ipcRenderer.invoke("browser-import:sources"),
@@ -1408,6 +1434,46 @@ export const windowApi = {
     profile: string,
   ): Promise<{ total: number; imported: number; failed: number }> =>
     ipcRenderer.invoke("browser-import:cookies", sourceId, profile),
+  /** 列出全部书签（收藏栏展示）。 */
+  browserBookmarksList: (): Promise<BrowserBookmark[]> =>
+    ipcRenderer.invoke("browser-bookmarks:list"),
+  /** 收藏/更新当前页（同 URL 覆盖标题；folder 可选文件夹路径）。 */
+  browserBookmarkAdd: (
+    url: string,
+    title: string,
+    folder?: string,
+  ): Promise<{ id: string; created: boolean }> =>
+    ipcRenderer.invoke("browser-bookmarks:add", url, title, folder),
+  /** 删除一条书签。 */
+  browserBookmarkDelete: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke("browser-bookmarks:delete", id),
+  /** 批量删除书签，返回实际删除数量。 */
+  browserBookmarkDeleteBatch: (ids: string[]): Promise<number> =>
+    ipcRenderer.invoke("browser-bookmarks:delete-batch", ids),
+  /** 编辑书签（标题 / URL / 文件夹路径），返回更新后的记录。 */
+  browserBookmarkUpdate: (
+    id: string,
+    url: string,
+    title: string,
+    folder: string,
+  ): Promise<BrowserBookmark | null> =>
+    ipcRenderer.invoke("browser-bookmarks:update", id, url, title, folder),
+  /** 从指定浏览器源导入书签（按 URL 去重合并到收藏夹）。 */
+  browserImportBookmarks: (
+    sourceId: string,
+    profile: string,
+  ): Promise<{ total: number; imported: number; skipped: number }> =>
+    ipcRenderer.invoke("browser-bookmarks:import", sourceId, profile),
+  /**
+   * 订阅书签变更（导入/收藏/删除后触发，收藏栏据此重新拉取）。
+   * 返回取消订阅函数。
+   */
+  onBrowserBookmarksUpdated: (callback: () => void): (() => void) => {
+    browserBookmarksSubscribers.add(callback);
+    return () => {
+      browserBookmarksSubscribers.delete(callback);
+    };
+  },
   /** 执行白名单内的 CDP 命令（Accessibility.getFullAXTree / DOM.resolveNode / Runtime.callFunctionOn）。 */
   browserCdpCommand: (
     webContentsId: number,

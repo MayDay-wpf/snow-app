@@ -1633,6 +1633,12 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to import browser cookies"),
         ),
+      browserImportBookmarks: () =>
+        Promise.reject(
+          new Error(
+            "Rust native bridge is required to import browser bookmarks",
+          ),
+        ),
       installPetFromZip: () =>
         Promise.reject(
           new Error("Rust native bridge is required to install pets"),

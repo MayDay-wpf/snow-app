@@ -2342,6 +2342,11 @@ export type NativeBridge = {
     sourceId: string,
     profile: string,
   ) => Promise<ImportedBrowserCookie[]>;
+  /** 解析指定浏览器配置文件的书签（明文收藏夹，无需解密） */
+  browserImportBookmarks: (
+    sourceId: string,
+    profile: string,
+  ) => Promise<ImportedBrowserBookmark[]>;
   // ── Codex 宠物系统 ────────────────────────────────────────────────
   /** 安装 Codex 宠物包（zip），返回安装后的宠物清单 */
   installPetFromZip: (zipPath: string) => Promise<PetManifestRecord>;
@@ -2389,6 +2394,7 @@ export type BrowserImportSource = {
   cookieDb: string;
   passwordCount: number;
   cookieCount: number;
+  bookmarkCount: number;
   note: string;
 };
 
@@ -2409,6 +2415,13 @@ export type ImportedBrowserCookie = {
   httpOnly: boolean;
   secure: boolean;
   sameSite: string;
+};
+
+/** 导入的书签（明文收藏夹）。 */
+export type ImportedBrowserBookmark = {
+  title: string;
+  url: string;
+  folder: string;
 };
 
 /** Codex 宠物清单（pet.json 解析结果 + 安装位置信息）。 */

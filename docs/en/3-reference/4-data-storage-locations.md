@@ -12,9 +12,9 @@ flowchart TB
     APP --> G[Global Snow configuration ~/.snow]
     APP --> W[Project workspace]
     N --> DB[(snowapp.db SQLite WAL)]
-    N --> RES[Images backgrounds checkpoints password vault]
+    N --> RES[Images backgrounds checkpoints password vault login state]
     E --> CH[Chromium session window state plugin private data]
-    G --> CFG[CLI config ROLE Skills file logs browser state]
+    G --> CFG[CLI config ROLE Skills file logs]
     W --> PROJ[ROLE .snow/settings Skills background logs]
 ```
 
@@ -95,6 +95,7 @@ In addition to automatic recovery, **Settings → General Settings** provides **
 | `~/.snowapp/image/`               | Default image-library root                                       | May be replaced by a custom root; files and database index must be backed up together                                                              |
 | `~/.snowapp/workspace/`           | Built-in default workspace                                       | Used to mount conversations when no user workspace is configured                                                                                   |
 | `~/.snowapp/browser-passwords/`   | Browser password vault                                           | OS-bound encryption; see below                                                                                                                     |
+| `~/.snowapp/browser-state/`       | Login-state archives and cookie auto-backup                      | safeStorage-encrypted; see section 2.3                                                                                                             |
 | `~/.snowapp/browser-script/`      | Built-in browser userscript source files (`{script_id}.user.js`) | Metadata lives in the SQLite `userscripts` table; this directory holds only the raw source; files are best-effort removed when a script is deleted |
 
 **Storage usage display**: the storage-location section of **Settings → General Settings** shows the occupied size of each path (runtime database, archive database, checkpoints, uploads, image library, etc., computed via `get_path_size`); entries are hidden when the path does not exist or the size cannot be read.
@@ -120,7 +121,7 @@ Cookies for an embedded browser webContents are managed through its Electron ses
 
 Clearing browser data and exporting login state are different operations. Runtime browser data may contain authentication cookies; exit the application before backing up, sharing, or replacing all of `userData`.
 
-### 2.3 Exported Login State: `~/.snow/browser-state/`
+### 2.3 Exported Login State: `~/.snowapp/browser-state/`
 
 An exported file contains cookies from the current webContents and same-origin localStorage from its main frame:
 
@@ -131,7 +132,9 @@ An exported file contains cookies from the current webContents and same-origin l
 - default names resemble `state-<ISO-time>.bin`;
 - corrupt, forged, modified, or wrong-OS-user files are rejected.
 
-Before restoration, existing cookies/localStorage are backed up in the same encrypted format under `~/.snow/browser-state/backups/`. localStorage is injected only for a matching origin. Cookies can still be restored when the debugging protocol is unavailable.
+Before restoration, existing cookies/localStorage are backed up in the same encrypted format under `~/.snowapp/browser-state/backups/`. localStorage is injected only for a matching origin. Cookies can still be restored when the debugging protocol is unavailable.
+
+All embedded-browser cookies are also snapshotted periodically to an encrypted `auto-cookies` file: a drifting macOS Keychain "Chromium Safe Storage" key can make Chromium silently wipe its cookie store at startup, and the app auto-restores when it detects a sharp drop. Explicitly clearing cookies deletes the auto backup so cleared state stays cleared.
 
 ## 3. Image Library and Custom Root
 
@@ -213,7 +216,6 @@ This directory is shared with Snow CLI and the `config` tool. Main entries inclu
 | `skills/` / `skills-registry.json`               | Global skills and registration metadata                                                           |
 | `docs/`                                          | Synchronized built-in documentation copy                                                          |
 | `plugin-marketplaces/` / `plugins/marketplaces/` | Plugin marketplace cache and installed bodies                                                     |
-| `browser-state/`                                 | Encrypted exported login states and pre-restore backups                                           |
 | `log/`                                           | Daily level files for the config `logs` scope                                                     |
 | `.config-backups/`                               | Temporary pre-write safety net used by the config tool and removed after success                  |
 

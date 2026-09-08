@@ -6,25 +6,25 @@ tools of the built-in `browser` server and typical workflows.
 
 ## 1. Tools Overview
 
-| Tool | Purpose |
-| --- | --- |
-| `browser-create` | Create a browser instance (optional initial URL) |
-| `browser-navigate` | Navigate to a URL |
-| `browser-click` | Click page elements with real mouse events (CSS selector / visible text / accessibility ref) |
-| `browser-type` | Type text into an element (set at once or key by key; ref targeting supported) |
-| `browser-wait` | Wait for text/element to appear or disappear, or a fixed duration |
-| `browser-press_key` | Press a keyboard key or combination (Enter/Tab/Escape/arrows, `Ctrl+A`-style) |
-| `browser-select_option` | Select option(s) in a dropdown (match by value or label) |
-| `browser-hover` | Hover an element (triggers hover overlays) |
-| `browser-upload-file` | Upload file(s) (CDP injection, no dialog) |
-| `browser-back` / `browser-forward` | Browser history back/forward (waits for navigation) |
-| `browser-navigate_back` / `browser-navigate_forward` | Browser history back/forward (no navigation wait) |
-| `browser-evaluate` | Run arbitrary JavaScript in the page and return the result |
-| `browser-screenshot` | Capture the page as PNG (full page supported) |
-| `browser-devtools` | Text/accessibility-tree snapshot / performance trace / console messages / network requests & details / offline simulation / route mocking / encrypted login-state save & restore / cookie management / dialog handling / open DevTools |
-| `browser-close` | Close a browser tab |
-| `browser-focus` | Switch to a tab |
-| `browser-list` | List all open tabs |
+| Tool                                                 | Purpose                                                                                                                                                                                                                                |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser-create`                                     | Create a browser instance (optional initial URL)                                                                                                                                                                                       |
+| `browser-navigate`                                   | Navigate to a URL                                                                                                                                                                                                                      |
+| `browser-click`                                      | Click page elements with real mouse events (CSS selector / visible text / accessibility ref)                                                                                                                                           |
+| `browser-type`                                       | Type text into an element (set at once or key by key; ref targeting supported)                                                                                                                                                         |
+| `browser-wait`                                       | Wait for text/element to appear or disappear, or a fixed duration                                                                                                                                                                      |
+| `browser-press_key`                                  | Press a keyboard key or combination (Enter/Tab/Escape/arrows, `Ctrl+A`-style)                                                                                                                                                          |
+| `browser-select_option`                              | Select option(s) in a dropdown (match by value or label)                                                                                                                                                                               |
+| `browser-hover`                                      | Hover an element (triggers hover overlays)                                                                                                                                                                                             |
+| `browser-upload-file`                                | Upload file(s) (CDP injection, no dialog)                                                                                                                                                                                              |
+| `browser-back` / `browser-forward`                   | Browser history back/forward (waits for navigation)                                                                                                                                                                                    |
+| `browser-navigate_back` / `browser-navigate_forward` | Browser history back/forward (no navigation wait)                                                                                                                                                                                      |
+| `browser-evaluate`                                   | Run arbitrary JavaScript in the page and return the result                                                                                                                                                                             |
+| `browser-screenshot`                                 | Capture the page as PNG (full page supported)                                                                                                                                                                                          |
+| `browser-devtools`                                   | Text/accessibility-tree snapshot / performance trace / console messages / network requests & details / offline simulation / route mocking / encrypted login-state save & restore / cookie management / dialog handling / open DevTools |
+| `browser-close`                                      | Close a browser tab                                                                                                                                                                                                                    |
+| `browser-focus`                                      | Switch to a tab                                                                                                                                                                                                                        |
+| `browser-list`                                       | List all open tabs                                                                                                                                                                                                                     |
 
 ## 2. Typical Workflows
 
@@ -155,9 +155,11 @@ browser-close instanceId=<id>
 
 The embedded browser uses a persistent session, but login state can be
 explicitly archived/restored for multi-account switching and backup. Files are
-encrypted with OS-level encryption (safeStorage) under `~/.snow/browser-state/`
+encrypted with OS-level encryption (safeStorage) under `~/.snowapp/browser-state/`
 and are **never stored as plaintext**; the current state is automatically
-backed up (also encrypted) before every restore.
+backed up (also encrypted) before every restore. All browser cookies are also
+snapshotted periodically to an encrypted `auto-cookies` file in the same
+directory (auto-restored on startup if cookie loss is detected).
 
 ```text
 # Save the current login state (cookies + localStorage of the current origin)

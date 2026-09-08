@@ -11,6 +11,7 @@ import {
   BrowserElementPicker,
   BrowserFindBar,
   type BrowserFindResult,
+  BrowserBookmarksBar,
   BrowserToolbar,
   captureWebviewPage,
   useBrowserHomepage,
@@ -20,6 +21,10 @@ import {
 } from "./browser";
 import type { BrowserDownloadItemEvent } from "../../../preload/modules/systemApi";
 import { DEFAULT_BROWSER_HOMEPAGE } from "./browser/browserHomepageConstants";
+import {
+  findDeviceSizePreset,
+  useBrowserDeviceSize,
+} from "./browser/browserDeviceSize";
 import {
   focusBrowserMcpInstance,
   registerBrowserMcpInstance,
@@ -329,6 +334,10 @@ export const BrowserPanelContent = ({
   const { homepage, loaded, setHomepage } = useBrowserHomepage();
   const homepageRef = useRef(homepage);
   homepageRef.current = homepage;
+  // 设备显示尺寸（移动端界面调试）：全局共享持久化，非 "default" 时
+  // webview 视口约束为所选设备尺寸并居中。
+  const { deviceSizeId, setDeviceSize } = useBrowserDeviceSize();
+  const activeDeviceSize = findDeviceSizePreset(deviceSizeId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
   // onTabsChange 同因（父组件内联回调，引用每次 render 变化），经 ref 持有，
@@ -412,8 +421,7 @@ export const BrowserPanelContent = ({
       dragPreviewRef.current = null;
     };
   }, []);
-  const { isCapturing, feedback, captureScreenshot } =
-    useWebviewScreenshot(webviewRef);
+  const { isCapturing, captureScreenshot } = useWebviewScreenshot(webviewRef);
   const {
     isPicking,
     picked,
@@ -1191,6 +1199,13 @@ export const BrowserPanelContent = ({
     applyZoom(1);
   };
 
+  const handleSetDeviceSize = useCallback(
+    (id: string): void => {
+      void setDeviceSize(id);
+    },
+    [setDeviceSize],
+  );
+
   const handleForceReload = (): void => {
     webviewRef.current?.reloadIgnoringCache();
   };
@@ -1273,7 +1288,6 @@ export const BrowserPanelContent = ({
         addressInput={activeTab?.addressInput ?? ""}
         isCapturing={isCapturing}
         isPickingElement={isPicking}
-        screenshotFeedback={feedback}
         onAddressChange={handleAddressChange}
         onAddressKeyDown={handleAddressKeyDown}
         onBack={handleBack}
@@ -1283,6 +1297,7 @@ export const BrowserPanelContent = ({
         onToggleElementPicker={togglePicker}
         zoomFactor={zoomFactor}
         homepage={homepage}
+        deviceSizeId={deviceSizeId}
         onClearCache={handleClearCache}
         onClearCookies={handleClearCookies}
         onOpenSettings={handleOpenSettings}
@@ -1293,6 +1308,7 @@ export const BrowserPanelContent = ({
         onFindInPage={handleOpenFind}
         onOpenDevTools={handleOpenDevTools}
         onSetHomepage={setHomepage}
+        onSetDeviceSize={handleSetDeviceSize}
         onRestoreToTabs={detached ? handleRestoreToTabs : undefined}
         downloads={downloads}
         onDownloadOpen={handleDownloadOpen}
@@ -1371,7 +1387,23 @@ export const BrowserPanelContent = ({
           <Plus size={13} strokeWidth={2} />
         </button>
       </div>
-      <div className="browser-content" ref={browserContentRef}>
+      <BrowserBookmarksBar
+        activeUrl={activeTab?.addressInput || activeTab?.src || ""}
+        activeTitle={activeTab?.title || ""}
+        onNavigate={(url) => handleNavigate(url)}
+      />
+      <div
+        className={`browser-content${activeDeviceSize ? " has-device-size" : ""}`}
+        ref={browserContentRef}
+        style={
+          activeDeviceSize
+            ? ({
+                "--device-size-width": `${activeDeviceSize.width}px`,
+                "--device-size-height": `${activeDeviceSize.height}px`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
         {webviewTabs.map((tab) => (
           <webview
             key={tab.id}

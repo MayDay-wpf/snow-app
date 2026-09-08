@@ -2,19 +2,16 @@ import { useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  Camera,
-  Check,
   Download,
-  Globe,
   Loader2,
   MousePointer2,
   RotateCw,
 } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
-import type { ScreenshotFeedback } from "./useWebviewScreenshot";
 import type { BrowserDownloadItemEvent } from "../../../../preload/modules/systemApi";
 import { BrowserMenu } from "./BrowserMenu";
 import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
+import { WebsiteFavicon } from "./WebsiteFavicon";
 import { useI18n } from "../../../i18n";
 
 export type BrowserToolbarProps = {
@@ -26,7 +23,6 @@ export type BrowserToolbarProps = {
   addressInput: string;
   isCapturing: boolean;
   isPickingElement: boolean;
-  screenshotFeedback: ScreenshotFeedback;
   onAddressChange: (value: string) => void;
   onAddressKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onBack: () => void;
@@ -37,6 +33,7 @@ export type BrowserToolbarProps = {
   // Browser menu
   zoomFactor: number;
   homepage: string;
+  deviceSizeId: string;
   onClearCache: () => void;
   onClearCookies: () => void;
   onOpenSettings: () => void;
@@ -47,6 +44,7 @@ export type BrowserToolbarProps = {
   onFindInPage: () => void;
   onOpenDevTools: () => void;
   onSetHomepage: (url: string) => Promise<void>;
+  onSetDeviceSize: (id: string) => void;
   /** 独立窗口专属：还原为右侧面板标签页（undefined 时菜单不显示该项） */
   onRestoreToTabs?: () => void;
   // 下载管理
@@ -56,34 +54,9 @@ export type BrowserToolbarProps = {
   onDownloadCancel: (id: number) => void;
 };
 
-const buildScreenshotClassName = (feedback: ScreenshotFeedback): string => {
-  const base = "browser-nav-btn browser-screenshot-btn";
-  if (feedback === "success") {
-    return `${base} is-success`;
-  }
-  if (feedback === "error") {
-    return `${base} is-error`;
-  }
-  return base;
-};
-
-const renderScreenshotIcon = (
-  isCapturing: boolean,
-  feedback: ScreenshotFeedback,
-): React.JSX.Element => {
-  if (isCapturing) {
-    return <Loader2 size={15} strokeWidth={1.8} className="spin-icon" />;
-  }
-  if (feedback === "success") {
-    return <Check size={15} strokeWidth={1.8} />;
-  }
-  return <Camera size={15} strokeWidth={1.8} />;
-};
-
 /**
- * The browser top toolbar: back / forward / reload navigation buttons,
- * an address bar, and a screenshot button that captures the current page
- * image to the clipboard.
+ * The browser top toolbar: back / forward / reload navigation buttons and
+ * an address bar. The screenshot entry lives in the BrowserMenu dropdown.
  *
  * Extracted from BrowserPanelContent for maintainability.
  */
@@ -95,7 +68,6 @@ export const BrowserToolbar = ({
   addressInput,
   isCapturing,
   isPickingElement,
-  screenshotFeedback,
   onAddressChange,
   onAddressKeyDown,
   onBack,
@@ -105,6 +77,7 @@ export const BrowserToolbar = ({
   onToggleElementPicker,
   zoomFactor,
   homepage,
+  deviceSizeId,
   onClearCache,
   onClearCookies,
   onOpenSettings,
@@ -115,6 +88,7 @@ export const BrowserToolbar = ({
   onFindInPage,
   onOpenDevTools,
   onSetHomepage,
+  onSetDeviceSize,
   onRestoreToTabs,
   downloads,
   onDownloadOpen,
@@ -248,7 +222,11 @@ export const BrowserToolbar = ({
         )}
       </button>
       <div className="browser-address-bar">
-        <Globe size={13} strokeWidth={1.6} className="browser-address-icon" />
+        <WebsiteFavicon
+          url={addressInput}
+          size={13}
+          className="browser-address-icon"
+        />
         <input
           ref={addressInputRef}
           type="text"
@@ -277,16 +255,6 @@ export const BrowserToolbar = ({
       )}
       <button
         type="button"
-        className={buildScreenshotClassName(screenshotFeedback)}
-        onClick={onScreenshot}
-        disabled={isCapturing}
-        aria-label={t("browser.screenshot")}
-        title={t("browser.screenshotTitle")}
-      >
-        {renderScreenshotIcon(isCapturing, screenshotFeedback)}
-      </button>
-      <button
-        type="button"
         className={`browser-nav-btn browser-downloads-btn${
           downloadsOpen ? " is-active" : ""
         }`}
@@ -303,6 +271,9 @@ export const BrowserToolbar = ({
       <BrowserMenu
         zoomFactor={zoomFactor}
         homepage={homepage}
+        deviceSizeId={deviceSizeId}
+        isCapturing={isCapturing}
+        onScreenshot={onScreenshot}
         onClearCache={onClearCache}
         onClearCookies={onClearCookies}
         onOpenSettings={onOpenSettings}
@@ -313,6 +284,7 @@ export const BrowserToolbar = ({
         onFindInPage={onFindInPage}
         onOpenDevTools={onOpenDevTools}
         onSetHomepage={onSetHomepage}
+        onSetDeviceSize={onSetDeviceSize}
         onRestoreToTabs={onRestoreToTabs}
       />
       {downloadsOpen && (

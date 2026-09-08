@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bookmark,
+  Check,
   Cookie,
   Download,
   Eye,
@@ -8,6 +10,8 @@ import {
   Globe,
   KeyRound,
   Loader2,
+  Pencil,
+  Plus,
   ScanSearch,
   Search,
   ShieldCheck,
@@ -19,6 +23,7 @@ import { TampermonkeyIcon } from "../../icons/tampermonkeyIcon";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { useBrowserHomepage } from "../../rightPanel/browser/useBrowserHomepage";
+import { useBrowserBookmarks } from "../../rightPanel/browser/useBrowserBookmarks";
 import {
   BROWSER_LOGO_COMPONENTS,
   type BrowserLogoId,
@@ -46,6 +51,7 @@ type ImportSource = {
   cookieDb: string;
   passwordCount: number;
   cookieCount: number;
+  bookmarkCount: number;
   note: string;
 };
 
@@ -64,6 +70,12 @@ export function BrowserSettingsPanel({
 }: BrowserSettingsPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const { homepage, setHomepage } = useBrowserHomepage();
+  const {
+    bookmarks: storedBookmarks,
+    addBookmark,
+    removeBookmark,
+    updateBookmark,
+  } = useBrowserBookmarks();
 
   // ---- 顶部 Tab：浏览器设置 / 用户脚本 ----
   const [activeTab, setActiveTab] = useState<"settings" | "userscripts">(
@@ -215,6 +227,163 @@ export function BrowserSettingsPanel({
     });
   }, [records, searchQuery]);
 
+  // ---- 书签管理 ----
+  const [bookmarkSearchQuery, setBookmarkSearchQuery] = useState("");
+  const [newBookmarkTitle, setNewBookmarkTitle] = useState("");
+  const [newBookmarkUrl, setNewBookmarkUrl] = useState("");
+  const [newBookmarkFolder, setNewBookmarkFolder] = useState("");
+  const [addingBookmark, setAddingBookmark] = useState(false);
+  const [selectedBookmarkIds, setSelectedBookmarkIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const [bookmarkBatchDeleteConfirm, setBookmarkBatchDeleteConfirm] =
+    useState(false);
+  const [deletingBookmarkBatch, setDeletingBookmarkBatch] = useState(false);
+  const [deletingBookmarkId, setDeletingBookmarkId] = useState<string | null>(
+    null,
+  );
+  // 行内编辑：editingBookmarkId 非空时该行三列变输入框。
+  const [editingBookmarkId, setEditingBookmarkId] = useState<string | null>(
+    null,
+  );
+  const [bookmarkEditDraft, setBookmarkEditDraft] = useState({
+    title: "",
+    url: "",
+    folder: "",
+  });
+
+  const filteredBookmarks = useMemo(() => {
+    const query = bookmarkSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return storedBookmarks;
+    }
+    return storedBookmarks.filter(
+      (bookmark) =>
+        bookmark.title.toLowerCase().includes(query) ||
+        bookmark.url.toLowerCase().includes(query) ||
+        bookmark.folder.toLowerCase().includes(query),
+    );
+  }, [storedBookmarks, bookmarkSearchQuery]);
+
+  const handleAddBookmark = async (): Promise<void> => {
+    const url = newBookmarkUrl.trim();
+    if (!url || addingBookmark) {
+      return;
+    }
+    setAddingBookmark(true);
+    try {
+      await addBookmark(url, newBookmarkTitle.trim(), newBookmarkFolder.trim());
+      setNewBookmarkTitle("");
+      setNewBookmarkUrl("");
+      setNewBookmarkFolder("");
+    } catch {
+      // 新增失败（URL 非法等）静默，输入保留可修正
+    } finally {
+      setAddingBookmark(false);
+    }
+  };
+
+  const toggleSelectBookmark = (id: string): void => {
+    setSelectedBookmarkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllBookmarks = (): void => {
+    setSelectedBookmarkIds((prev) => {
+      const allSelected =
+        filteredBookmarks.length > 0 &&
+        filteredBookmarks.every((bookmark) => prev.has(bookmark.id));
+      return allSelected
+        ? new Set()
+        : new Set(filteredBookmarks.map((bookmark) => bookmark.id));
+    });
+  };
+
+  const startEditBookmark = (bookmark: {
+    id: string;
+    title: string;
+    url: string;
+    folder: string;
+  }): void => {
+    setEditingBookmarkId(bookmark.id);
+    setBookmarkEditDraft({
+      title: bookmark.title,
+      url: bookmark.url,
+      folder: bookmark.folder,
+    });
+  };
+
+  const handleSaveBookmark = async (): Promise<void> => {
+    if (!editingBookmarkId) {
+      return;
+    }
+    const url = bookmarkEditDraft.url.trim();
+    if (!url) {
+      return;
+    }
+    try {
+      await updateBookmark(
+        editingBookmarkId,
+        url,
+        bookmarkEditDraft.title,
+        bookmarkEditDraft.folder,
+      );
+    } catch {
+      // 保存失败（URL 非法等）静默，编辑状态退出
+    } finally {
+      setEditingBookmarkId(null);
+    }
+  };
+
+  const handleDeleteBookmark = async (id: string): Promise<void> => {
+    setDeletingBookmarkId(id);
+    try {
+      await removeBookmark(id);
+      setSelectedBookmarkIds((prev) => {
+        if (!prev.has(id)) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setEditingBookmarkId((prev) => (prev === id ? null : prev));
+    } catch {
+      // 删除失败静默
+    } finally {
+      setDeletingBookmarkId(null);
+    }
+  };
+
+  const handleBatchDeleteBookmarks = async (): Promise<void> => {
+    const ids = [...selectedBookmarkIds];
+    if (ids.length === 0) {
+      setBookmarkBatchDeleteConfirm(false);
+      return;
+    }
+    setDeletingBookmarkBatch(true);
+    try {
+      await window.snow.browserBookmarkDeleteBatch(ids);
+      const idSet = new Set(ids);
+      setSelectedBookmarkIds(new Set());
+      setEditingBookmarkId((prev) =>
+        prev !== null && idSet.has(prev) ? null : prev,
+      );
+    } catch {
+      // 删除失败静默
+    } finally {
+      setDeletingBookmarkBatch(false);
+      setBookmarkBatchDeleteConfirm(false);
+    }
+  };
+
   // ---- 导入 ----
   // sources 为 null 表示尚未检测过本机浏览器（进入界面不自动检测）
   const [sources, setSources] = useState<ImportSource[] | null>(null);
@@ -222,6 +391,7 @@ export function BrowserSettingsPanel({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [importPasswords, setImportPasswords] = useState(true);
   const [importCookies, setImportCookies] = useState(true);
+  const [importBookmarksChecked, setImportBookmarksChecked] = useState(true);
   const [importing, setImporting] = useState(false);
   const [status, setStatus] = useState("");
   const [warning, setWarning] = useState("");
@@ -265,7 +435,8 @@ export function BrowserSettingsPanel({
     current !== null &&
     !importing &&
     ((importPasswords && current.passwordCount > 0) ||
-      (importCookies && current.cookieCount > 0));
+      (importCookies && current.cookieCount > 0) ||
+      (importBookmarksChecked && current.bookmarkCount > 0));
 
   const handleImport = async (): Promise<void> => {
     if (!current) {
@@ -286,6 +457,13 @@ export function BrowserSettingsPanel({
       const cookies =
         importCookies && current.cookieCount > 0
           ? await window.snow.browserImportCookies(current.id, current.profile)
+          : null;
+      const bookmarks =
+        importBookmarksChecked && current.bookmarkCount > 0
+          ? await window.snow.browserImportBookmarks(
+              current.id,
+              current.profile,
+            )
           : null;
       if (isMountedRef.current) {
         await loadRecords();
@@ -313,6 +491,17 @@ export function BrowserSettingsPanel({
             }),
           );
           failed += cookies.failed;
+        }
+        if (bookmarks) {
+          parts.push(
+            t("settings.browserImportBookmarksResult", {
+              values: {
+                imported: bookmarks.imported,
+                total: bookmarks.total,
+              },
+            }),
+          );
+          failed += bookmarks.skipped;
         }
         if (parts.length > 0) {
           if (failed > 0) {
@@ -426,6 +615,15 @@ export function BrowserSettingsPanel({
               <small>
                 {t("settings.browserLocalCookies", {
                   defaultValue: "Cookies on this device",
+                })}
+              </small>
+            </div>
+            <div className="api-settings-summary-card">
+              <Bookmark size={15} strokeWidth={1.8} />
+              <span>{storedBookmarks.length}</span>
+              <small>
+                {t("settings.browserBookmarks", {
+                  defaultValue: "Bookmarks",
                 })}
               </small>
             </div>
@@ -577,9 +775,10 @@ export function BrowserSettingsPanel({
                             values: {
                               passwords: source.passwordCount,
                               cookies: source.cookieCount,
+                              bookmarks: source.bookmarkCount,
                             },
                             defaultValue:
-                              "{{passwords}} passwords · {{cookies}} cookies",
+                              "{{passwords}} passwords · {{cookies}} cookies · {{bookmarks}} bookmarks",
                           })}
                         </span>
                       </span>
@@ -623,6 +822,23 @@ export function BrowserSettingsPanel({
                         {t("settings.browserImportCookiesOption", {
                           values: { count: current.cookieCount },
                           defaultValue: "Import cookies ({{count}})",
+                        })}
+                      </span>
+                    </label>
+                    <label className="browser-settings-import-option">
+                      <input
+                        type="checkbox"
+                        checked={importBookmarksChecked}
+                        disabled={current.bookmarkCount === 0}
+                        onChange={(e) =>
+                          setImportBookmarksChecked(e.target.checked)
+                        }
+                      />
+                      <Bookmark size={13} strokeWidth={1.8} />
+                      <span>
+                        {t("settings.browserImportBookmarksOption", {
+                          values: { count: current.bookmarkCount },
+                          defaultValue: "Import bookmarks ({{count}})",
                         })}
                       </span>
                     </label>
@@ -910,6 +1126,441 @@ export function BrowserSettingsPanel({
               </div>
             </div>
           </div>
+
+          {/* 书签管理 */}
+          <div className="browser-settings-section">
+            <div className="api-settings-form-section-header">
+              <span className="api-settings-form-section-title">
+                {t("settings.browserBookmarks", {
+                  defaultValue: "Bookmarks",
+                })}
+              </span>
+            </div>
+
+            <div className="api-settings-manual-form">
+              <div className="api-settings-manual-header">
+                <strong>
+                  {t("settings.browserBookmarksManageTitle", {
+                    defaultValue: "Manage bookmarks",
+                  })}
+                </strong>
+                <span>
+                  {t("settings.browserBookmarksHint", {
+                    defaultValue:
+                      "Imported from local browsers or saved from the embedded browser, shown in the bookmarks bar",
+                  })}
+                </span>
+              </div>
+
+              <div className="api-settings-form-body">
+                {storedBookmarks.length === 0 ? (
+                  <div className="browser-settings-empty">
+                    {t("settings.browserBookmarksEmpty", {
+                      defaultValue:
+                        "No bookmarks yet. Import them above or click the star in the embedded browser",
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <div className="browser-settings-search-row">
+                      <Search size={13} strokeWidth={1.8} />
+                      <input
+                        type="text"
+                        value={bookmarkSearchQuery}
+                        onChange={(e) => setBookmarkSearchQuery(e.target.value)}
+                        placeholder={t("settings.browserBookmarkSearch", {
+                          defaultValue: "Search title, URL or folder",
+                        })}
+                        spellCheck={false}
+                      />
+                      {bookmarkSearchQuery && (
+                        <button
+                          type="button"
+                          className="browser-settings-search-clear"
+                          onClick={() => setBookmarkSearchQuery("")}
+                          aria-label={t("common.clear", {
+                            defaultValue: "Clear",
+                          })}
+                          title={t("common.clear", {
+                            defaultValue: "Clear",
+                          })}
+                        >
+                          <X size={13} strokeWidth={1.8} />
+                        </button>
+                      )}
+                      {bookmarkSearchQuery && (
+                        <span className="browser-settings-search-count">
+                          {filteredBookmarks.length}/{storedBookmarks.length}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 新增行：标题 / URL / 文件夹 + 添加 */}
+                    <div className="browser-settings-bookmark-add-row">
+                      <input
+                        type="text"
+                        className="browser-settings-bookmark-add-input"
+                        value={newBookmarkTitle}
+                        onChange={(e) => setNewBookmarkTitle(e.target.value)}
+                        placeholder={t("settings.browserBookmarkTitle", {
+                          defaultValue: "Title",
+                        })}
+                        spellCheck={false}
+                      />
+                      <input
+                        type="text"
+                        className="browser-settings-bookmark-add-input is-url"
+                        value={newBookmarkUrl}
+                        onChange={(e) => setNewBookmarkUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleAddBookmark();
+                          }
+                        }}
+                        placeholder={t("settings.browserBookmarkUrl", {
+                          defaultValue: "URL",
+                        })}
+                        spellCheck={false}
+                      />
+                      <input
+                        type="text"
+                        className="browser-settings-bookmark-add-input"
+                        value={newBookmarkFolder}
+                        onChange={(e) => setNewBookmarkFolder(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleAddBookmark();
+                          }
+                        }}
+                        placeholder={t(
+                          "settings.browserBookmarkFolderPlaceholder",
+                          {
+                            defaultValue: "Folder (optional, e.g. News/Tech)",
+                          },
+                        )}
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        className="browser-settings-bookmark-add-btn"
+                        onClick={() => void handleAddBookmark()}
+                        disabled={!newBookmarkUrl.trim() || addingBookmark}
+                        aria-label={t("settings.browserBookmarkAddAction", {
+                          defaultValue: "Add bookmark",
+                        })}
+                        title={t("settings.browserBookmarkAddAction", {
+                          defaultValue: "Add bookmark",
+                        })}
+                      >
+                        {addingBookmark ? (
+                          <Loader2
+                            size={13}
+                            strokeWidth={1.8}
+                            className="spin"
+                          />
+                        ) : (
+                          <Plus size={13} strokeWidth={2} />
+                        )}
+                      </button>
+                    </div>
+
+                    {selectedBookmarkIds.size > 0 && (
+                      <div className="browser-settings-batch-bar">
+                        <span>
+                          {t("settings.browserBookmarkSelectedCount", {
+                            values: { count: selectedBookmarkIds.size },
+                            defaultValue: "{{count}} selected",
+                          })}
+                        </span>
+                        <button
+                          type="button"
+                          className="browser-settings-batch-delete"
+                          onClick={() => setBookmarkBatchDeleteConfirm(true)}
+                          disabled={deletingBookmarkBatch}
+                        >
+                          {deletingBookmarkBatch ? (
+                            <Loader2
+                              size={13}
+                              strokeWidth={1.8}
+                              className="spin"
+                            />
+                          ) : (
+                            <Trash2 size={13} strokeWidth={1.8} />
+                          )}
+                          <span>
+                            {t("settings.browserBookmarkDeleteSelected", {
+                              defaultValue: "Delete selected",
+                            })}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {filteredBookmarks.length === 0 ? (
+                      <div className="browser-settings-empty">
+                        {t("settings.browserBookmarkSearchEmpty", {
+                          defaultValue: "No bookmarks match your search",
+                        })}
+                      </div>
+                    ) : (
+                      <div className="browser-settings-table-wrap">
+                        <table className="browser-settings-table">
+                          <thead>
+                            <tr>
+                              <th className="browser-settings-table-select">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    filteredBookmarks.length > 0 &&
+                                    filteredBookmarks.every((bookmark) =>
+                                      selectedBookmarkIds.has(bookmark.id),
+                                    )
+                                  }
+                                  ref={(el) => {
+                                    if (el) {
+                                      el.indeterminate =
+                                        filteredBookmarks.some((bookmark) =>
+                                          selectedBookmarkIds.has(bookmark.id),
+                                        ) &&
+                                        !filteredBookmarks.every((bookmark) =>
+                                          selectedBookmarkIds.has(bookmark.id),
+                                        );
+                                    }
+                                  }}
+                                  onChange={toggleSelectAllBookmarks}
+                                  aria-label={t(
+                                    "settings.browserPasswordSelectAll",
+                                    { defaultValue: "Select all" },
+                                  )}
+                                  title={t(
+                                    "settings.browserPasswordSelectAll",
+                                    {
+                                      defaultValue: "Select all",
+                                    },
+                                  )}
+                                />
+                              </th>
+                              <th>
+                                {t("settings.browserBookmarkFolder", {
+                                  defaultValue: "Folder",
+                                })}
+                              </th>
+                              <th>
+                                {t("settings.browserBookmarkTitle", {
+                                  defaultValue: "Title",
+                                })}
+                              </th>
+                              <th>
+                                {t("settings.browserBookmarkUrl", {
+                                  defaultValue: "URL",
+                                })}
+                              </th>
+                              <th className="browser-settings-table-actions" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredBookmarks.map((bookmark) =>
+                              editingBookmarkId === bookmark.id ? (
+                                <tr key={bookmark.id} className="is-editing">
+                                  <td className="browser-settings-table-select" />
+                                  <td className="browser-bookmark-folder-cell">
+                                    <input
+                                      type="text"
+                                      className="browser-bookmark-edit-input"
+                                      value={bookmarkEditDraft.folder}
+                                      onChange={(e) =>
+                                        setBookmarkEditDraft((prev) => ({
+                                          ...prev,
+                                          folder: e.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          void handleSaveBookmark();
+                                        } else if (e.key === "Escape") {
+                                          e.preventDefault();
+                                          setEditingBookmarkId(null);
+                                        }
+                                      }}
+                                      spellCheck={false}
+                                    />
+                                  </td>
+                                  <td className="browser-bookmark-title-cell">
+                                    <input
+                                      type="text"
+                                      className="browser-bookmark-edit-input"
+                                      value={bookmarkEditDraft.title}
+                                      onChange={(e) =>
+                                        setBookmarkEditDraft((prev) => ({
+                                          ...prev,
+                                          title: e.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          void handleSaveBookmark();
+                                        } else if (e.key === "Escape") {
+                                          e.preventDefault();
+                                          setEditingBookmarkId(null);
+                                        }
+                                      }}
+                                      spellCheck={false}
+                                    />
+                                  </td>
+                                  <td className="browser-bookmark-url-cell">
+                                    <input
+                                      type="text"
+                                      className="browser-bookmark-edit-input is-url"
+                                      value={bookmarkEditDraft.url}
+                                      onChange={(e) =>
+                                        setBookmarkEditDraft((prev) => ({
+                                          ...prev,
+                                          url: e.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          void handleSaveBookmark();
+                                        } else if (e.key === "Escape") {
+                                          e.preventDefault();
+                                          setEditingBookmarkId(null);
+                                        }
+                                      }}
+                                      spellCheck={false}
+                                    />
+                                  </td>
+                                  <td className="browser-settings-table-actions">
+                                    <button
+                                      type="button"
+                                      className="browser-settings-icon-btn is-primary"
+                                      onClick={() => void handleSaveBookmark()}
+                                      aria-label={t("common.save", {
+                                        defaultValue: "Save",
+                                      })}
+                                      title={t("common.save", {
+                                        defaultValue: "Save",
+                                      })}
+                                    >
+                                      <Check size={14} strokeWidth={1.8} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="browser-settings-icon-btn"
+                                      onClick={() => setEditingBookmarkId(null)}
+                                      aria-label={t("common.cancel", {
+                                        defaultValue: "Cancel",
+                                      })}
+                                      title={t("common.cancel", {
+                                        defaultValue: "Cancel",
+                                      })}
+                                    >
+                                      <X size={14} strokeWidth={1.8} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr
+                                  key={bookmark.id}
+                                  className={
+                                    selectedBookmarkIds.has(bookmark.id)
+                                      ? "is-selected"
+                                      : ""
+                                  }
+                                >
+                                  <td className="browser-settings-table-select">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedBookmarkIds.has(
+                                        bookmark.id,
+                                      )}
+                                      onChange={() =>
+                                        toggleSelectBookmark(bookmark.id)
+                                      }
+                                      aria-label={t(
+                                        "settings.browserBookmarkSelectRecord",
+                                        {
+                                          defaultValue: "Select this bookmark",
+                                        },
+                                      )}
+                                    />
+                                  </td>
+                                  <td
+                                    className="browser-bookmark-folder-cell"
+                                    title={bookmark.folder}
+                                  >
+                                    {bookmark.folder || "—"}
+                                  </td>
+                                  <td
+                                    className="browser-bookmark-title-cell"
+                                    title={bookmark.title}
+                                  >
+                                    {bookmark.title}
+                                  </td>
+                                  <td className="browser-bookmark-url-cell">
+                                    <span title={bookmark.url}>
+                                      {bookmark.url}
+                                    </span>
+                                  </td>
+                                  <td className="browser-settings-table-actions">
+                                    <button
+                                      type="button"
+                                      className="browser-settings-icon-btn"
+                                      onClick={() =>
+                                        startEditBookmark(bookmark)
+                                      }
+                                      aria-label={t("common.edit", {
+                                        defaultValue: "Edit",
+                                      })}
+                                      title={t("common.edit", {
+                                        defaultValue: "Edit",
+                                      })}
+                                    >
+                                      <Pencil size={14} strokeWidth={1.8} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="browser-settings-icon-btn is-danger"
+                                      onClick={() =>
+                                        void handleDeleteBookmark(bookmark.id)
+                                      }
+                                      disabled={
+                                        deletingBookmarkId === bookmark.id
+                                      }
+                                      aria-label={t("common.delete", {
+                                        defaultValue: "Delete",
+                                      })}
+                                      title={t("common.delete", {
+                                        defaultValue: "Delete",
+                                      })}
+                                    >
+                                      {deletingBookmarkId === bookmark.id ? (
+                                        <Loader2
+                                          size={14}
+                                          strokeWidth={1.8}
+                                          className="spin"
+                                        />
+                                      ) : (
+                                        <Trash2 size={14} strokeWidth={1.8} />
+                                      )}
+                                    </button>
+                                  </td>
+                                </tr>
+                              ),
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -928,6 +1579,23 @@ export function BrowserSettingsPanel({
         variant="danger"
         onConfirm={() => void handleBatchDelete()}
         onCancel={() => setBatchDeleteConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={bookmarkBatchDeleteConfirm}
+        title={t("settings.browserBookmarkBatchDeleteTitle", {
+          defaultValue: "Delete selected bookmarks",
+        })}
+        message={t("settings.browserBookmarkBatchDeleteMessage", {
+          values: { count: selectedBookmarkIds.size },
+          defaultValue:
+            "Delete the {{count}} selected bookmarks? This action cannot be undone.",
+        })}
+        confirmLabel={t("common.delete", { defaultValue: "Delete" })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        variant="danger"
+        onConfirm={() => void handleBatchDeleteBookmarks()}
+        onCancel={() => setBookmarkBatchDeleteConfirm(false)}
       />
 
       <AutoDismissNotice

@@ -7,26 +7,36 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  Camera,
+  Check,
   ChevronRight,
   Code2,
   Cookie,
   EllipsisVertical,
   Eraser,
   Globe,
+  Loader2,
   Minus,
   PanelLeft,
   Plus,
   RefreshCw,
   Search,
   Settings,
+  Smartphone,
   Trash2,
   ZoomIn,
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
+import {
+  BROWSER_DEVICE_SIZE_PRESETS,
+  DEFAULT_BROWSER_DEVICE_SIZE_ID,
+} from "./browserDeviceSize";
 
 export type BrowserMenuProps = {
   zoomFactor: number;
   homepage: string;
+  /** 当前设备显示尺寸预设 id（"default" 表示不约束，占满内容区） */
+  deviceSizeId: string;
   onClearCache: () => void;
   onClearCookies: () => void;
   onOpenSettings: () => void;
@@ -37,6 +47,12 @@ export type BrowserMenuProps = {
   onFindInPage: () => void;
   onOpenDevTools: () => void;
   onSetHomepage: (url: string) => Promise<void>;
+  /** 切换设备显示尺寸（移动端界面调试） */
+  onSetDeviceSize: (id: string) => void;
+  /** 截取当前页面到剪贴板（截图中禁用入口） */
+  onScreenshot: () => void;
+  /** 截图进行中（true 时截图菜单项禁用并显示加载图标） */
+  isCapturing: boolean;
   /** 独立窗口专属：还原为右侧面板标签页（undefined 时菜单不显示该项） */
   onRestoreToTabs?: () => void;
 };
@@ -50,7 +66,7 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 5;
 const MENU_WIDTH = 200;
 const MENU_GAP = 4;
-const ESTIMATED_MENU_HEIGHT = 268;
+const ESTIMATED_MENU_HEIGHT = 340;
 /** 「还原为标签页」菜单项（独立窗口专属）的高度估算增量 */
 const RESTORE_ITEM_HEIGHT = 36;
 
@@ -68,14 +84,17 @@ const formatZoomPercent = (factor: number): string =>
  * Layout:
  *   - 清除浏览数据: flyout submenu (清除缓存 / 清除 Cookie), opens on hover
  *     to the left of the menu.
+ *   - 显示尺寸: flyout submenu with device viewport presets (移动端调试),
+ *     opens on hover to the left of the menu. Current item is check-marked.
  *   - 缩放: inline row with direct - / % (click to reset) / + controls. The
  *     menu stays open while adjusting so the user can tap +/- repeatedly.
  *   - 设置默认起始页: inline row with click-to-edit input. Empty means blank.
- *   - 强制重新加载, 在页面中查找, 开发者工具: one-shot action items.
+ *   - 截图, 强制重新加载, 在页面中查找, 开发者工具: one-shot action items.
  */
 export const BrowserMenu = ({
   zoomFactor,
   homepage,
+  deviceSizeId,
   onClearCache,
   onClearCookies,
   onOpenSettings,
@@ -86,11 +105,15 @@ export const BrowserMenu = ({
   onFindInPage,
   onOpenDevTools,
   onSetHomepage,
+  onSetDeviceSize,
+  onScreenshot,
+  isCapturing,
   onRestoreToTabs,
 }: BrowserMenuProps): React.JSX.Element => {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [isClearDataSubOpen, setIsClearDataSubOpen] = useState(false);
+  const [isDeviceSizeSubOpen, setIsDeviceSizeSubOpen] = useState(false);
   const [isHomepageEditing, setIsHomepageEditing] = useState(false);
   const [homepageDraft, setHomepageDraft] = useState(homepage);
   const [menuPosition, setMenuPosition] = useState<MenuPosition>(null);
@@ -128,11 +151,13 @@ export const BrowserMenu = ({
       }
       setIsOpen(false);
       setIsClearDataSubOpen(false);
+      setIsDeviceSizeSubOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         setIsOpen(false);
         setIsClearDataSubOpen(false);
+        setIsDeviceSizeSubOpen(false);
       }
     };
     document.addEventListener("mousedown", handlePointerDown);
@@ -168,6 +193,7 @@ export const BrowserMenu = ({
   const close = useCallback((): void => {
     setIsOpen(false);
     setIsClearDataSubOpen(false);
+    setIsDeviceSizeSubOpen(false);
     setIsHomepageEditing(false);
   }, []);
 
@@ -182,6 +208,7 @@ export const BrowserMenu = ({
   const handleTriggerClick = (): void => {
     setIsOpen((prev) => !prev);
     setIsClearDataSubOpen(false);
+    setIsDeviceSizeSubOpen(false);
     setIsHomepageEditing(false);
   };
 
@@ -207,6 +234,12 @@ export const BrowserMenu = ({
   const canZoomIn = zoomFactor < ZOOM_MAX;
   const canZoomOut = zoomFactor > ZOOM_MIN;
   const canZoomReset = zoomFactor !== 1;
+  const activeDevicePreset =
+    BROWSER_DEVICE_SIZE_PRESETS.find((preset) => preset.id === deviceSizeId) ??
+    null;
+  const deviceSizeCurrentLabel = activeDevicePreset
+    ? activeDevicePreset.label
+    : t("browser.deviceSizeDefault");
 
   return (
     <div className="browser-menu-wrapper" ref={containerRef}>
@@ -345,6 +378,87 @@ export const BrowserMenu = ({
                 </button>
               </div>
 
+              {/* 显示尺寸：设备视口预设（移动端界面调试），选中项打勾 */}
+              <div
+                className="browser-menu-submenu"
+                onMouseEnter={() => setIsDeviceSizeSubOpen(true)}
+                onMouseLeave={() => setIsDeviceSizeSubOpen(false)}
+              >
+                <button
+                  type="button"
+                  className="browser-menu-item browser-menu-submenu-trigger"
+                  role="menuitem"
+                  aria-haspopup="true"
+                  aria-expanded={isDeviceSizeSubOpen}
+                  onClick={() => setIsDeviceSizeSubOpen((prev) => !prev)}
+                >
+                  <Smartphone size={14} strokeWidth={1.8} />
+                  <span className="browser-menu-label">
+                    {t("browser.deviceSize")}
+                  </span>
+                  <span
+                    className="browser-menu-device-current"
+                    title={deviceSizeCurrentLabel}
+                  >
+                    {deviceSizeCurrentLabel}
+                  </span>
+                  <ChevronRight
+                    size={13}
+                    strokeWidth={1.8}
+                    className="browser-menu-chevron"
+                  />
+                </button>
+                {isDeviceSizeSubOpen && (
+                  <div
+                    className="browser-menu-flyout browser-menu-device-flyout"
+                    role="menu"
+                  >
+                    <button
+                      type="button"
+                      className="browser-menu-item"
+                      role="menuitem"
+                      onClick={() =>
+                        runAction(() =>
+                          onSetDeviceSize(DEFAULT_BROWSER_DEVICE_SIZE_ID),
+                        )
+                      }
+                    >
+                      <span className="browser-menu-check">
+                        {deviceSizeId === DEFAULT_BROWSER_DEVICE_SIZE_ID && (
+                          <Check size={14} strokeWidth={2} />
+                        )}
+                      </span>
+                      <span className="browser-menu-label">
+                        {t("browser.deviceSizeDefault")}
+                      </span>
+                    </button>
+                    {BROWSER_DEVICE_SIZE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="browser-menu-item"
+                        role="menuitem"
+                        onClick={() =>
+                          runAction(() => onSetDeviceSize(preset.id))
+                        }
+                      >
+                        <span className="browser-menu-check">
+                          {preset.id === deviceSizeId && (
+                            <Check size={14} strokeWidth={2} />
+                          )}
+                        </span>
+                        <span className="browser-menu-label">
+                          {preset.label}
+                        </span>
+                        <span className="browser-menu-device-dims">
+                          {preset.width} × {preset.height}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="browser-menu-homepage-row">
                 <Globe size={14} strokeWidth={1.8} />
                 {isHomepageEditing ? (
@@ -370,6 +484,25 @@ export const BrowserMenu = ({
                   </button>
                 )}
               </div>
+
+              <button
+                type="button"
+                className="browser-menu-item"
+                role="menuitem"
+                onClick={() => runAction(onScreenshot)}
+                disabled={isCapturing}
+                aria-label={t("browser.screenshot")}
+                title={t("browser.screenshotTitle")}
+              >
+                {isCapturing ? (
+                  <Loader2 size={14} strokeWidth={1.8} className="spin-icon" />
+                ) : (
+                  <Camera size={14} strokeWidth={1.8} />
+                )}
+                <span className="browser-menu-label">
+                  {t("browser.screenshot")}
+                </span>
+              </button>
 
               <button
                 type="button"

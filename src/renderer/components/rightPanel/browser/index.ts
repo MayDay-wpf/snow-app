@@ -14,3 +14,8 @@ export type { BrowserFindBarProps, BrowserFindResult } from "./BrowserFindBar";
 export { useBrowserHomepage } from "./useBrowserHomepage";
 export { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
 export type { BrowserDownloadsPanelProps } from "./BrowserDownloadsPanel";
+export { BrowserBookmarksBar } from "./BrowserBookmarksBar";
+export type { BrowserBookmarksBarProps } from "./BrowserBookmarksBar";
+export { useBrowserBookmarks } from "./useBrowserBookmarks";
+export { WebsiteFavicon } from "./WebsiteFavicon";
+export type { WebsiteFaviconProps } from "./WebsiteFavicon";

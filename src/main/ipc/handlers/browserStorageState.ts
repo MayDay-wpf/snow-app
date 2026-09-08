@@ -22,7 +22,8 @@ import { ensureWebContentsDebugger } from "./browserNetworkRecorder";
  * 6. 文件带 magic header + 版本号 + schema 校验，损坏/伪造文件直接拒绝。
  */
 
-const STATE_DIR = join(homedir(), ".snow", "browser-state");
+/** 应用用户数据资产统一放 ~/.snowapp/（与 browser-passwords 等目录约定一致）。 */
+export const STATE_DIR = join(homedir(), ".snowapp", "browser-state");
 const BACKUP_DIR = join(STATE_DIR, "backups");
 
 /** 文件名白名单：纯文件名，最长 100 字符（Rust 入口同步校验）。 */
@@ -30,9 +31,9 @@ export const STATE_FILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 
 /** 文件头：9 字节 magic + 1 字节版本。 */
 const FILE_MAGIC = "SNOWSTATE";
-const FILE_VERSION = 1;
+export const FILE_VERSION = 1;
 
-type StoredCookie = {
+export type StoredCookie = {
   name: string;
   value: string;
   domain: string;
@@ -49,7 +50,7 @@ type StoredOrigin = {
   items: Record<string, string>;
 };
 
-type StorageStateFile = {
+export type StorageStateFile = {
   version: number;
   capturedAt: string;
   capturedUrl: string;
@@ -73,7 +74,7 @@ const restrictFilePermissions = (filePath: string): void => {
 const resolveStateFilePath = (fileName: string): string => {
   if (!STATE_FILE_NAME_PATTERN.test(fileName)) {
     throw new Error(
-      "Invalid state file name: only letters, digits, dot, dash and underscore are allowed (max 100 chars)"
+      "Invalid state file name: only letters, digits, dot, dash and underscore are allowed (max 100 chars)",
     );
   }
   return join(STATE_DIR, fileName);
@@ -81,10 +82,10 @@ const resolveStateFilePath = (fileName: string): string => {
 
 // ===== 收集 =====
 
-const collectCookies = async (
-  contents: Electron.WebContents
+export const collectSessionCookies = async (
+  targetSession: Electron.Session,
 ): Promise<StoredCookie[]> => {
-  const cookies = await contents.session.cookies.get({});
+  const cookies = await targetSession.cookies.get({});
   return cookies.map((cookie) => ({
     name: cookie.name,
     value: cookie.value,
@@ -108,7 +109,7 @@ const collectCookies = async (
 
 /** 提取主 frame 的 localStorage（含同源 iframe 自动共享；跨域 iframe 不收集）。 */
 const collectLocalStorage = async (
-  contents: Electron.WebContents
+  contents: Electron.WebContents,
 ): Promise<StoredOrigin[]> => {
   if (!contents.debugger.isAttached()) {
     return [];
@@ -130,7 +131,10 @@ const collectLocalStorage = async (
     if (result.result?.exceptionDetails) {
       return [];
     }
-    const value = result.result?.value as { origin?: unknown; items?: unknown } | null;
+    const value = result.result?.value as {
+      origin?: unknown;
+      items?: unknown;
+    } | null;
     if (
       value &&
       typeof value.origin === "string" &&
@@ -149,36 +153,44 @@ const collectLocalStorage = async (
 };
 
 const collectBrowserState = async (
-  contents: Electron.WebContents
+  contents: Electron.WebContents,
 ): Promise<StorageStateFile> => ({
   version: FILE_VERSION,
   capturedAt: new Date().toISOString(),
   capturedUrl: contents.getURL(),
-  cookies: await collectCookies(contents),
+  cookies: await collectSessionCookies(contents.session),
   localStorage: await collectLocalStorage(contents),
 });
 
 // ===== 加密落盘 / 读取 =====
 
-const writeEncryptedStateFile = (
+export const writeEncryptedStateFile = (
   filePath: string,
-  state: StorageStateFile
+  state: StorageStateFile,
 ): void => {
   const plain = Buffer.from(JSON.stringify(state), "utf8");
   const encrypted = safeStorage.encryptString(plain.toString("utf8"));
   ensureStateDirs();
-  writeFileSync(filePath, Buffer.concat([Buffer.from(FILE_MAGIC + String(FILE_VERSION), "utf8"), encrypted]));
+  writeFileSync(
+    filePath,
+    Buffer.concat([
+      Buffer.from(FILE_MAGIC + String(FILE_VERSION), "utf8"),
+      encrypted,
+    ]),
+  );
   restrictFilePermissions(filePath);
 };
 
-const readEncryptedStateFile = (filePath: string): StorageStateFile => {
+export const readEncryptedStateFile = (filePath: string): StorageStateFile => {
   if (!existsSync(filePath)) {
     throw new Error("State file does not exist");
   }
   const data = readFileSync(filePath);
   const header = data.subarray(0, FILE_MAGIC.length + 1).toString("utf8");
   if (!header.startsWith(FILE_MAGIC)) {
-    throw new Error("Invalid state file: missing magic header (corrupted or not a Snow state file)");
+    throw new Error(
+      "Invalid state file: missing magic header (corrupted or not a Snow state file)",
+    );
   }
   const version = Number(header[FILE_MAGIC.length] ?? "0");
   if (version !== FILE_VERSION) {
@@ -188,7 +200,9 @@ const readEncryptedStateFile = (filePath: string): StorageStateFile => {
   try {
     plain = safeStorage.decryptString(data.subarray(FILE_MAGIC.length + 1));
   } catch {
-    throw new Error("Failed to decrypt state file (wrong OS user or file modified)");
+    throw new Error(
+      "Failed to decrypt state file (wrong OS user or file modified)",
+    );
   }
   let parsed: unknown;
   try {
@@ -204,7 +218,9 @@ const readEncryptedStateFile = (filePath: string): StorageStateFile => {
     !Array.isArray(state.cookies) ||
     !Array.isArray(state.localStorage)
   ) {
-    throw new Error("State file schema validation failed (corrupted or forged)");
+    throw new Error(
+      "State file schema validation failed (corrupted or forged)",
+    );
   }
   return state;
 };
@@ -212,7 +228,7 @@ const readEncryptedStateFile = (filePath: string): StorageStateFile => {
 // ===== 恢复 =====
 
 const sameSiteToElectron = (
-  sameSite: StoredCookie["sameSite"]
+  sameSite: StoredCookie["sameSite"],
 ): "unspecified" | "no_restriction" | "lax" | "strict" => {
   switch (sameSite) {
     case "None":
@@ -226,46 +242,63 @@ const sameSiteToElectron = (
   }
 };
 
-const restoreCookies = async (
-  contents: Electron.WebContents,
-  cookies: StoredCookie[]
+export const restoreSessionCookies = async (
+  targetSession: Electron.Session,
+  cookies: StoredCookie[],
 ): Promise<{ restored: number; failures: number }> => {
+  const nowSec = Date.now() / 1000;
+  // 已过期的持久 Cookie 恢复无意义，直接跳过（会话 Cookie 无 expires，保留）。
+  const pending = cookies.filter(
+    (cookie) => cookie.expires === undefined || cookie.expires > nowSec,
+  );
+  const restoreOne = async (cookie: StoredCookie): Promise<void> => {
+    const host = cookie.domain.replace(/^\./, "");
+    const scheme = cookie.secure ? "https" : "http";
+    // 域 Cookie（带前导点，如 .google.com）必须显式传 domain，否则 Electron
+    // 会存成 host-only Cookie，不会发送给子域名（mail.google.com 等），
+    // 恢复后登录态失效。
+    const isDomainCookie = cookie.domain.startsWith(".");
+    // Chromium 拒绝 SameSite=None 且非 Secure 的组合；降级保证写入成功。
+    let sameSite = sameSiteToElectron(cookie.sameSite);
+    if (sameSite === "no_restriction" && !cookie.secure) {
+      sameSite = "unspecified";
+    }
+    await targetSession.cookies.set({
+      url: `${scheme}://${host}${cookie.path || "/"}`,
+      name: cookie.name,
+      value: cookie.value,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      ...(isDomainCookie ? { domain: cookie.domain } : {}),
+      ...(cookie.expires !== undefined
+        ? { expirationDate: cookie.expires }
+        : {}),
+      sameSite,
+    });
+  };
   let restored = 0;
   let failures = 0;
-  for (const cookie of cookies) {
-    try {
-      const host = cookie.domain.replace(/^\./, "");
-      const scheme = cookie.secure ? "https" : "http";
-      // 域 Cookie（带前导点，如 .google.com）必须显式传 domain，否则 Electron
-      // 会存成 host-only Cookie，不会发送给子域名（mail.google.com 等），
-      // 恢复后登录态失效。
-      const isDomainCookie = cookie.domain.startsWith(".");
-      // Chromium 拒绝 SameSite=None 且非 Secure 的组合；降级保证写入成功。
-      let sameSite = sameSiteToElectron(cookie.sameSite);
-      if (sameSite === "no_restriction" && !cookie.secure) {
-        sameSite = "unspecified";
+  // 分批并发：数千级 Cookie 秒级完成（逐条 await 过慢）。
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+    const results = await Promise.allSettled(
+      pending.slice(i, i + BATCH_SIZE).map(restoreOne),
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        restored++;
+      } else {
+        failures++;
       }
-      await contents.session.cookies.set({
-        url: `${scheme}://${host}${cookie.path || "/"}`,
-        name: cookie.name,
-        value: cookie.value,
-        secure: cookie.secure,
-        httpOnly: cookie.httpOnly,
-        ...(isDomainCookie ? { domain: cookie.domain } : {}),
-        ...(cookie.expires !== undefined
-          ? { expirationDate: cookie.expires }
-          : {}),
-        sameSite,
-      });
-      restored++;
-    } catch {
-      failures++;
     }
   }
   return { restored, failures };
 };
 
-const LOCAL_STORAGE_INJECTION = (origin: string, items: Record<string, string>): string =>
+const LOCAL_STORAGE_INJECTION = (
+  origin: string,
+  items: Record<string, string>,
+): string =>
   `(() => {
     if (location.origin !== ${JSON.stringify(origin)}) return;
     try {
@@ -277,7 +310,7 @@ const LOCAL_STORAGE_INJECTION = (origin: string, items: Record<string, string>):
 /** 恢复 localStorage：立即注入当前页面 + 注册常驻脚本覆盖后续导航（均带 origin 校验）。 */
 const restoreLocalStorage = async (
   contents: Electron.WebContents,
-  localStorage: StoredOrigin[]
+  localStorage: StoredOrigin[],
 ): Promise<{ origins: number; failures: number }> => {
   let origins = 0;
   let failures = 0;
@@ -287,9 +320,12 @@ const restoreLocalStorage = async (
       await contents.debugger.sendCommand("Runtime.evaluate", {
         expression: script,
       });
-      await contents.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-        source: script,
-      });
+      await contents.debugger.sendCommand(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+          source: script,
+        },
+      );
       origins++;
     } catch {
       failures++;
@@ -302,7 +338,7 @@ const restoreLocalStorage = async (
 
 export const saveBrowserStorageState = async (
   webContentsId: number,
-  fileName?: string
+  fileName?: string,
 ): Promise<{
   ok: boolean;
   file: string;
@@ -360,7 +396,7 @@ export const saveBrowserStorageState = async (
 
 export const restoreBrowserStorageState = async (
   webContentsId: number,
-  fileName: string
+  fileName: string,
 ): Promise<{
   ok: boolean;
   restoredCookies: number;
@@ -421,11 +457,14 @@ export const restoreBrowserStorageState = async (
     await ensureWebContentsDebugger(contents);
   } catch {
     warnings.push(
-      "CDP session unavailable; localStorage restore will be skipped (cookies still restored)"
+      "CDP session unavailable; localStorage restore will be skipped (cookies still restored)",
     );
   }
 
-  const cookieResult = await restoreCookies(contents, state.cookies);
+  const cookieResult = await restoreSessionCookies(
+    contents.session,
+    state.cookies,
+  );
   if (cookieResult.failures > 0) {
     warnings.push(`${cookieResult.failures} cookie(s) failed to restore`);
   }
@@ -434,13 +473,15 @@ export const restoreBrowserStorageState = async (
   if (contents.debugger.isAttached()) {
     originResult = await restoreLocalStorage(contents, state.localStorage);
     if (originResult.failures > 0) {
-      warnings.push(`${originResult.failures} origin(s) failed to restore localStorage`);
+      warnings.push(
+        `${originResult.failures} origin(s) failed to restore localStorage`,
+      );
     }
   }
 
   if (state.localStorage.length > 0 && state.capturedUrl) {
     warnings.push(
-      `State was captured from ${state.capturedUrl}; localStorage only applies to matching origins`
+      `State was captured from ${state.capturedUrl}; localStorage only applies to matching origins`,
     );
   }
 
@@ -458,21 +499,19 @@ export const restoreBrowserStorageState = async (
 export const listBrowserCookies = async (
   webContentsId: number,
   domain?: string,
-  showValues = false
+  showValues = false,
 ): Promise<unknown[]> => {
   const contents = webContents.fromId(webContentsId);
   if (!contents || contents.isDestroyed()) {
     return [];
   }
-  const cookies = await contents.session.cookies.get(
-    domain ? { domain } : {}
-  );
+  const cookies = await contents.session.cookies.get(domain ? { domain } : {});
   return cookies
     .sort(
       (a, b) =>
         (a.domain ?? "").localeCompare(b.domain ?? "") ||
         (a.path ?? "").localeCompare(b.path ?? "") ||
-        a.name.localeCompare(b.name)
+        a.name.localeCompare(b.name),
     )
     .map((cookie) => ({
       name: cookie.name,
@@ -492,7 +531,7 @@ export const listBrowserCookies = async (
 export const deleteBrowserCookie = async (
   webContentsId: number,
   name: string,
-  domain: string
+  domain: string,
 ): Promise<{ deleted: boolean }> => {
   const contents = webContents.fromId(webContentsId);
   if (!contents || contents.isDestroyed()) {

@@ -37,6 +37,7 @@ import {
   openDownload,
   showDownloadInFolder,
 } from "../../app/downloadManager";
+import { deleteCookieAutoBackup } from "../../app/cookieAutoBackup";
 import {
   deleteBrowserCookie,
   listBrowserCookies,
@@ -350,6 +351,8 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
 
   ipcMain.handle("browser:clear-cookies", async () => {
     await session.defaultSession.clearStorageData({ storages: ["cookies"] });
+    // 用户显式清除登录态：删除自动备份，避免下次启动误恢复。
+    deleteCookieAutoBackup();
   });
 
   // 右侧面板浏览器 tab「在新窗口中打开」：创建独立 BrowserWindow 承载
@@ -575,7 +578,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       typeof webContentsId === "number" ? webContentsId : -1,
     ),
   );
-  // 登录态保存：cookie + localStorage → safeStorage 加密落盘（~/.snow/browser-state/）。
+  // 登录态保存：cookie + localStorage → safeStorage 加密落盘（~/.snowapp/browser-state/）。
   ipcMain.handle(
     "browser:storage-save",
     (_event, webContentsId: number, fileName?: string) =>
