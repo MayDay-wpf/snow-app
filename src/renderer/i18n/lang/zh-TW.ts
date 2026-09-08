@@ -3845,6 +3845,12 @@ export const zhTW = {
   "app.closeCancel": "取消",
   "app.closeMinimize": "最小化到系統匣",
   "app.closeMinimizeMac": "僅保留選單列",
+  "app.closeNeverAskAgain": "不再詢問",
+  "settings.closeBehavior": "關閉 Snow APP 時",
+  "settings.closeBehaviorInfo": "選擇關閉應用程式視窗時的行為。",
+  "settings.closeBehaviorAction": "關閉行為",
+  "settings.closeBehaviorAsk": "每次詢問",
+  "settings.closeBehaviorExit": "結束應用程式",
   "settings.usageSettings": "用量統計",
   "settings.usageSettingsInfo":
     "追蹤所有 API 呼叫的 token 用量，包括輸入、輸出和快取統計。",

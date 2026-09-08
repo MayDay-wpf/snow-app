@@ -29,6 +29,10 @@ import { CONVERSATION_SELECTED_EVENT } from "./components/mainContent/chatMessag
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useI18n } from "./i18n";
 import { useTheme } from "./hooks/useTheme";
+import {
+  CLOSE_BEHAVIOR_SETTING_CODE,
+  CLOSE_BEHAVIOR_SETTING_NAME,
+} from "./constants/closeBehavior";
 import type { WorkspaceDirectoryRecord } from "../preload";
 
 const SIDEBAR_MIN_WIDTH = 180;
@@ -50,6 +54,24 @@ const PANEL_RESIZER_WIDTH = 10;
 const AUTO_EXPAND_MARGIN = 80;
 const APP_LAYOUT_HORIZONTAL_PADDING = 20;
 const APP_LAYOUT_GAP_TOTAL = 20;
+
+/**
+ * 勾选「不再询问」时先把行为写入设置（须等待落库完成，退出会中断 IPC），
+ * 再执行后续动作；写入失败不阻断退出/最小化，仅保持询问。
+ */
+const persistCloseBehaviorThen = (
+  behavior: "exit" | "minimize",
+  proceed: () => void,
+): void => {
+  void window.snow
+    .setSystemSetting(
+      CLOSE_BEHAVIOR_SETTING_NAME,
+      CLOSE_BEHAVIOR_SETTING_CODE,
+      behavior,
+    )
+    .catch(() => undefined)
+    .then(() => proceed());
+};
 
 type ResizeTarget = "sidebar" | "right-panel";
 
@@ -176,6 +198,9 @@ export const App = (): React.JSX.Element => {
     useState<ResizeTarget | null>(null);
   const [showSshWizard, setShowSshWizard] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  // 关闭确认弹窗的「不再询问」勾选：勾选后点退出/最小化会把对应行为
+  // 写入设置，之后主进程 close 拦截直接自动执行，不再弹出确认。
+  const [closeNeverAskAgain, setCloseNeverAskAgain] = useState(false);
   const isWindows = navigator.userAgent.includes("Win");
   const isMacOS = navigator.userAgent.includes("Mac");
   const { t } = useI18n();
@@ -193,10 +218,12 @@ export const App = (): React.JSX.Element => {
     };
   }, []);
 
-  // 监听主进程的关闭请求：所有关闭路径（标题栏按钮、Alt+F4、任务栏）
-  // 都会在主进程被拦截并回推 window:close-requested，此处弹出二次确认。
+  // 监听主进程的关闭请求：所有关闭路径（标题栏按钮、Alt+F4、任务栏）都会被
+  // 主进程按「关闭 Snow App 时」设置拦截——退出/最小化已自动执行，仅询问
+  // 行为才回推 window:close-requested，此处弹出二次确认。
   useEffect(() => {
     const dispose = window.snow.onCloseRequested(() => {
+      setCloseNeverAskAgain(false);
       setShowCloseConfirm(true);
     });
     return () => {
@@ -357,8 +384,14 @@ export const App = (): React.JSX.Element => {
 
   const handleConfirmClose = useCallback((): void => {
     setShowCloseConfirm(false);
+    if (closeNeverAskAgain) {
+      persistCloseBehaviorThen("exit", () => {
+        void window.snow.confirmCloseWindow();
+      });
+      return;
+    }
     void window.snow.confirmCloseWindow();
-  }, []);
+  }, [closeNeverAskAgain]);
 
   const handleCancelClose = useCallback((): void => {
     setShowCloseConfirm(false);
@@ -368,8 +401,14 @@ export const App = (): React.JSX.Element => {
   // macOS 则移除 Dock 图标、仅保留菜单栏托盘。会话/任务保持后台运行。
   const handleMinimizeClose = useCallback((): void => {
     setShowCloseConfirm(false);
+    if (closeNeverAskAgain) {
+      persistCloseBehaviorThen("minimize", () => {
+        void window.snow.hideWindowToTray();
+      });
+      return;
+    }
     void window.snow.hideWindowToTray();
-  }, []);
+  }, [closeNeverAskAgain]);
 
   const handleOpenTerminal = useCallback(
     (cwd?: string) => {
@@ -726,7 +765,18 @@ export const App = (): React.JSX.Element => {
             onConfirm={handleConfirmClose}
             onCancel={handleCancelClose}
             variant="warning"
-          />
+          >
+            <label className="confirm-dialog-check">
+              <input
+                type="checkbox"
+                checked={closeNeverAskAgain}
+                onChange={(event) =>
+                  setCloseNeverAskAgain(event.target.checked)
+                }
+              />
+              <span>{t("app.closeNeverAskAgain")}</span>
+            </label>
+          </ConfirmDialog>
         </div>
       </ChatConversationProvider>
     </KeyboardShortcutsProvider>

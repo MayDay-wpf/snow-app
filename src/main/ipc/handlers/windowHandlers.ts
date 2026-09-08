@@ -10,12 +10,18 @@ import {
   type WebContents,
 } from "electron";
 import type { NativeBridge } from "../../native/types";
+import { native } from "../../native/nativeBridge";
 import {
   APP_FAVICON_32_PATH,
   APP_WINDOW_ICON_PATH,
   isMacOS,
 } from "../../app/constants";
-import { markCloseConfirmed, getMainWindow } from "../../app/mainWindow";
+import {
+  getMainWindow,
+  markCloseConfirmed,
+  setCloseRequestHandler,
+} from "../../app/mainWindow";
+import { safeSend } from "../../utils/safeSend";
 import { refreshTrayStats } from "../../app/tray";
 import { registerToggleWindowShortcut } from "../../app/globalShortcuts";
 import { clearWindowState } from "../../app/windowState";
@@ -48,6 +54,73 @@ import { runBrowserTrace } from "./browserTrace";
 import { createDetachedBrowserWindow } from "../../browser/browserWindow";
 
 const browserDevToolsWindows = new Map<number, BrowserWindow>();
+
+// ===== Close behavior（「关闭 Snow App 时」行为设置）=====
+// 设置代码与渲染端 src/renderer/constants/closeBehavior.ts 保持一致，
+// 由 Rust 后端 system_settings 表持久化（native bridge 已做 storageReady 门控）。
+const CLOSE_BEHAVIOR_SETTING_CODE = "close_behavior";
+
+/**
+ * 隐藏窗口到托盘。Windows/Linux 隐藏到系统托盘；macOS 同时移除 Dock 图标
+ * （仅保留菜单栏托盘），从托盘恢复时（tray.ts showMainWindow）会重新显示
+ * Dock 图标。隐藏后立即刷新托盘悬停信息，保证用户第一时间看到最新状态。
+ */
+const hideWindowToTray = (win: BrowserWindow): void => {
+  win.hide();
+  if (process.platform === "darwin") {
+    app.dock?.hide();
+  }
+  refreshTrayStats();
+};
+
+/**
+ * 读取「关闭 Snow App 时」行为设置。未设置、值非法或读取失败（如 Rust
+ * 后端不可用）时回退为 ask（每次询问），不阻断关闭流程。
+ */
+const resolveCloseBehavior = async (): Promise<"ask" | "exit" | "minimize"> => {
+  try {
+    const raw = await native.getSystemSettingValue(CLOSE_BEHAVIOR_SETTING_CODE);
+    if (raw === "exit" || raw === "minimize") {
+      return raw;
+    }
+  } catch {
+    // 回退默认询问
+  }
+  return "ask";
+};
+
+/**
+ * 注入主窗口关闭请求处理器：close 拦截（mainWindow.ts）preventDefault 后
+ * 调用，按用户设置自动执行，只有 ask 才回推 window:close-requested 由
+ * 渲染进程弹出二次确认。通过 setter 注入而非直接 import，避免
+ * mainWindow ↔ windowHandlers 的模块循环依赖。
+ */
+const bindCloseRequestHandler = (): void => {
+  setCloseRequestHandler((win) => {
+    void resolveCloseBehavior()
+      .then((behavior) => {
+        if (win.isDestroyed()) {
+          return;
+        }
+        if (behavior === "exit") {
+          markCloseConfirmed();
+          app.quit();
+          return;
+        }
+        if (behavior === "minimize") {
+          hideWindowToTray(win);
+          return;
+        }
+        safeSend(win.webContents, "window:close-requested");
+      })
+      .catch(() => {
+        // 读取异常回退询问，不阻断关闭
+        if (!win.isDestroyed()) {
+          safeSend(win.webContents, "window:close-requested");
+        }
+      });
+  });
+};
 
 const buildDevToolsTitle = (contents: WebContents): string => {
   const url = contents.getURL();
@@ -176,25 +249,21 @@ export const openBrowserDevTools = (contents: WebContents): void => {
 };
 
 export const registerWindowHandlers = (_native: NativeBridge): void => {
+  // 注入主窗口关闭请求处理器（close 拦截后按设置自动执行：询问/退出/最小化）。
+  bindCloseRequestHandler();
+
   // ===== Window Controls (Windows custom titlebar) =====
   ipcMain.handle("window:minimize", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
   // 关闭提醒中的"最小化"选项：隐藏窗口而非退出。
-  // Windows/Linux 隐藏到系统托盘；macOS 同时移除 Dock 图标（仅保留菜单栏托盘），
-  // 从托盘恢复时（tray.ts showMainWindow）会重新显示 Dock 图标。
   ipcMain.handle("window:hide-to-tray", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
       return;
     }
-    win.hide();
-    if (process.platform === "darwin") {
-      app.dock?.hide();
-    }
-    // 隐藏后立即刷新托盘悬停信息，保证用户第一时间看到最新状态。
-    refreshTrayStats();
+    hideWindowToTray(win);
   });
 
   ipcMain.handle("window:maximize-toggle", (event) => {

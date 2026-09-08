@@ -4048,6 +4048,12 @@ input {
   padding: 4px 10px;
 }
 
+/* 「关闭 Snow APP 时」行为下拉：靠右固定宽度，避免撑满整行 */
+.settings-close-behavior-select {
+  width: 220px;
+  margin-left: auto;
+}
+
 .check-update-btn.checking {
   opacity: 0.7;
   pointer-events: none;
@@ -28811,6 +28817,27 @@ input {
 .confirm-dialog-btn.confirm:hover {
   background: var(--accent-red-text);
   color: #fff;
+}
+
+/* 关闭确认弹窗的「不再询问」勾选行（ConfirmDialog children 插槽） */
+.confirm-dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.confirm-dialog-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent-color, #4a9eff);
+  cursor: pointer;
 }
 
 /* Danger variant is used for operation error alerts (git push/pull

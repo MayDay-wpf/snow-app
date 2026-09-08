@@ -4085,6 +4085,13 @@ export const en = {
   "app.closeCancel": "Cancel",
   "app.closeMinimize": "Minimize to Tray",
   "app.closeMinimizeMac": "Menu Bar Only",
+  "app.closeNeverAskAgain": "Don't ask again",
+  "settings.closeBehavior": "When closing Snow App",
+  "settings.closeBehaviorInfo":
+    "Choose what happens when you close the app window.",
+  "settings.closeBehaviorAction": "Close action",
+  "settings.closeBehaviorAsk": "Ask every time",
+  "settings.closeBehaviorExit": "Quit the app",
   "settings.usageSettings": "Usage statistics",
   "settings.usageSettingsInfo":
     "Track token usage across all API calls, including input, output, and cache statistics.",

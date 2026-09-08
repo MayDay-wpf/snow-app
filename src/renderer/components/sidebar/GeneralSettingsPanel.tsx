@@ -20,11 +20,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { localeLabels, useI18n, type Locale } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { CustomSelect } from "../common/CustomSelect";
 import { OPEN_UPDATE_DIALOG_EVENT } from "./UpdateDialog";
 import {
   TEAM_ENABLED_CHANGED_EVENT,
   TEAM_ENABLED_SETTING,
 } from "../mainContent/team/useTeamData";
+import {
+  CLOSE_BEHAVIOR_SETTING_CODE,
+  CLOSE_BEHAVIOR_SETTING_NAME,
+  normalizeCloseBehavior,
+  type CloseBehavior,
+} from "../../constants/closeBehavior";
 import type { UpdateStatus } from "../../../preload";
 import type {
   DatabaseKind,
@@ -180,6 +187,30 @@ export function GeneralSettingsPanel({
       .then(() => {
         window.dispatchEvent(new CustomEvent(TEAM_ENABLED_CHANGED_EVENT));
       })
+      .catch(() => undefined);
+  };
+
+  // 关闭 Snow App 时的行为（ask / exit / minimize，默认 ask）
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>("ask");
+  const isMacPlatform = navigator.userAgent.includes("Mac");
+
+  useEffect(() => {
+    window.snow
+      .getSystemSettingValue(CLOSE_BEHAVIOR_SETTING_CODE)
+      .then((value) => setCloseBehavior(normalizeCloseBehavior(value)))
+      .catch(() => undefined);
+  }, []);
+
+  /** 切换关闭行为：写入 system_settings，主进程 close 拦截据此自动执行。 */
+  const handleCloseBehaviorChange = (value: string): void => {
+    const next = normalizeCloseBehavior(value);
+    setCloseBehavior(next);
+    void window.snow
+      .setSystemSetting(
+        CLOSE_BEHAVIOR_SETTING_NAME,
+        CLOSE_BEHAVIOR_SETTING_CODE,
+        next,
+      )
       .catch(() => undefined);
   };
 
@@ -838,6 +869,60 @@ export function GeneralSettingsPanel({
                 {localeLabels[supportedLocale]}
               </button>
             ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="api-settings-manual-form">
+        <div className="api-settings-manual-header">
+          <strong>
+            {t("settings.closeBehavior", {
+              defaultValue: "关闭 Snow APP 时",
+            })}
+          </strong>
+          <span>
+            {t("settings.closeBehaviorInfo", {
+              defaultValue: "选择关闭应用窗口时的行为。",
+            })}
+          </span>
+        </div>
+
+        <div className="api-settings-form-body">
+          <div className="settings-about-row">
+            <span className="settings-item-description">
+              {t("settings.closeBehaviorAction", {
+                defaultValue: "关闭行为",
+              })}
+            </span>
+            <div className="settings-close-behavior-select">
+              <CustomSelect
+                value={closeBehavior}
+                options={[
+                  {
+                    value: "ask",
+                    label: t("settings.closeBehaviorAsk", {
+                      defaultValue: "每次询问",
+                    }),
+                  },
+                  {
+                    value: "exit",
+                    label: t("settings.closeBehaviorExit", {
+                      defaultValue: "退出应用",
+                    }),
+                  },
+                  {
+                    value: "minimize",
+                    label: t(
+                      isMacPlatform
+                        ? "app.closeMinimizeMac"
+                        : "app.closeMinimize",
+                      { defaultValue: "最小化到托盘" },
+                    ),
+                  },
+                ]}
+                onChange={handleCloseBehaviorChange}
+              />
+            </div>
           </div>
         </div>
       </div>

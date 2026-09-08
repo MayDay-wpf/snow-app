@@ -3867,6 +3867,12 @@ export const zhCN = {
   "app.closeCancel": "取消",
   "app.closeMinimize": "最小化到托盘",
   "app.closeMinimizeMac": "仅保留菜单栏",
+  "app.closeNeverAskAgain": "不再询问",
+  "settings.closeBehavior": "关闭 Snow APP 时",
+  "settings.closeBehaviorInfo": "选择关闭应用窗口时的行为。",
+  "settings.closeBehaviorAction": "关闭行为",
+  "settings.closeBehaviorAsk": "每次询问",
+  "settings.closeBehaviorExit": "退出应用",
   "settings.usageSettings": "用量统计",
   "settings.usageSettingsInfo":
     "跟踪所有 API 调用的 token 用量，包括输入、输出和缓存统计。",

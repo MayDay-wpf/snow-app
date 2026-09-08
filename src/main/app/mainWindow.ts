@@ -39,6 +39,19 @@ export const markCloseConfirmed = (): void => {
 
 export const isCloseConfirmed = (): boolean => closeConfirmed;
 
+// 关闭请求处理器：由 windowHandlers（registerWindowHandlers 时）注入，close
+// 拦截 preventDefault 后调用，按用户设置决定询问 / 退出 / 最小化到托盘。
+// 通过 setter 注入而非直接 import windowHandlers，避免模块循环依赖；
+// 未注册前（启动极早期）回退为回推 window:close-requested 询问渲染进程。
+type CloseRequestHandler = (win: BrowserWindow) => void;
+let closeRequestHandler: CloseRequestHandler | null = null;
+
+export const setCloseRequestHandler = (
+  handler: CloseRequestHandler | null,
+): void => {
+  closeRequestHandler = handler;
+};
+
 // 模块级主窗口引用：供其他模块（如宠物窗口定位）读取主窗口位置/尺寸。
 // macOS 上主窗口关闭后重建，因此引用在 closed 时清空、重建时更新。
 let mainWindowRef: BrowserWindow | null = null;
@@ -240,15 +253,21 @@ export const createWindow = (): BrowserWindow => {
   }
 
   // Clean up PTY sessions before window is fully destroyed.
-  // 所有平台关闭窗口时均需二次确认：Windows/Linux 关闭即退出进程，
-  // macOS 关闭虽不退出进程但会卸载活动页面，效果与关闭无异。
+  // 所有平台关闭窗口时均需先经关闭行为处理器（询问/退出/最小化，见
+  // windowHandlers.ts）：Windows/Linux 关闭即退出进程，macOS 关闭虽不退出
+  // 进程但会卸载活动页面，效果与关闭无异。
   mainWindow.on("close", (event) => {
-    if (!isCloseConfirmed()) {
-      event.preventDefault();
-      safeSend(mainWindow.webContents, "window:close-requested");
+    if (isCloseConfirmed()) {
+      killAllPtyForWebContents(mainWindow.webContents);
       return;
     }
-    killAllPtyForWebContents(mainWindow.webContents);
+    event.preventDefault();
+    if (closeRequestHandler) {
+      closeRequestHandler(mainWindow);
+      return;
+    }
+    // 处理器尚未注册（启动极早期）时回退为询问渲染进程。
+    safeSend(mainWindow.webContents, "window:close-requested");
   });
 
   // 主窗口真正关闭后清理浏览器弹出窗口：Windows/Linux 上进程即将退出，
