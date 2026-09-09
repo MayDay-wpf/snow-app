@@ -11,6 +11,7 @@ import {
   normalizeWorkspaceDirectoryList,
 } from "../../settings/workspaceDirectories";
 import { startDirectoryWatch, stopDirectoryWatch } from "../../utils/fsWatcher";
+import { startFileWatch, stopFileWatch } from "../../utils/fileWatcher";
 import { safeSend } from "../../utils/safeSend";
 
 const AGENT_SEARCH_PROGRESS_CHANNEL =
@@ -393,6 +394,29 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
       }
 
       stopDirectoryWatch(dirPath.trim());
+    },
+  );
+
+  // 单文件监听（文件阅读器自动刷新）：本地文件走 Rust notify，不轮询。
+  ipcMain.handle(
+    "workspace-directories:start-file-watch",
+    (event, filePath: unknown) => {
+      if (typeof filePath !== "string" || !filePath.trim()) {
+        throw new Error("File path is required");
+      }
+
+      startFileWatch(native, event.sender, filePath.trim());
+    },
+  );
+
+  ipcMain.handle(
+    "workspace-directories:stop-file-watch",
+    (event, filePath: unknown) => {
+      if (typeof filePath !== "string" || !filePath.trim()) {
+        throw new Error("File path is required");
+      }
+
+      stopFileWatch(native, event.sender, filePath.trim());
     },
   );
 

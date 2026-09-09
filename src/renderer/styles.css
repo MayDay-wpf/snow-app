@@ -1105,6 +1105,23 @@ input {
   gap: 1px;
 }
 
+.sidebar-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  flex-shrink: 0;
+  transition: grid-template-rows 0.24s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+.sidebar-collapse.is-open {
+  grid-template-rows: 1fr;
+}
+
+.sidebar-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* 会话拖拽：拖入置顶/普通列表时高亮提示可放置（跟随主题强调色） */
 .section-list.chat-drag-over,
 .sidebar-section.chat-drag-over .section-list {
@@ -1123,10 +1140,10 @@ input {
 /* Chats section: scrollable list with stable scrollbar gutter */
 .sidebar-section.chats-section {
   flex: 1;
-  min-height: 0;
+  min-height: var(--chats-header-h, 26px);
   display: flex;
   flex-direction: column;
-  /* 会话列表是操作型 UI，不允许文本选中，避免拖选列表项时产生误选 */
+  transition: flex-grow 0.24s cubic-bezier(0.33, 0, 0.2, 1);
   user-select: none;
 }
 
@@ -1747,18 +1764,29 @@ input {
  * 会话/置顶区域收起（与项目区域一致的折叠交互）
  * ============================================================ */
 
-/* chats-section 默认 flex:1 占满剩余高度；折叠后收缩为 auto，
-   把空间让给上方区域（列表由 JS 条件渲染隐藏） */
 .sidebar-section.chats-section.collapsed {
-  flex: 0 0 auto;
+  flex-grow: 0;
+}
+
+.sidebar-section.projects-section {
+  transition: flex-grow 0.24s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+.sidebar-section.projects-section.chats-collapsed:not(.collapsed) {
+  flex: 1 1 var(--projects-natural-h, auto);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section.projects-section.chats-collapsed > .sidebar-collapse {
+  flex: 1;
   min-height: 0;
 }
 
-/* 会话区域收起后，剩余高度让给项目区域：项目列表解除 236px 高度上限，
-   跟随区域撑满可用空间（项目自身收起时不撑开，避免空出一大片） */
-.sidebar-section.projects-section.chats-collapsed:not(.collapsed) {
-  flex: 1 1 auto;
-  min-height: 0;
+.sidebar-section.projects-section.chats-collapsed
+  > .sidebar-collapse
+  > .sidebar-collapse-inner {
   display: flex;
   flex-direction: column;
 }
@@ -35101,6 +35129,84 @@ pre.file-viewer-code {
   white-space: pre;
 }
 
+/* 逐行渲染（查看模式）：行换行符存放在隐藏节点里，保证 textContent 与
+   源码一致（文内搜索按字符偏移定位依赖这一点），因此容器自身不需要 pre。 */
+.file-viewer-code-content--lines {
+  white-space: normal;
+}
+
+.file-viewer-code-line {
+  display: block;
+  white-space: pre;
+  /* 空行也要占满一行高度（lh 不支持时退回与 line-height 一致的 em） */
+  min-height: 1.6em;
+  min-height: 1lh;
+}
+
+/* 行号槽逐行渲染：折叠箭头固定在左侧列，行号靠右对齐 */
+.file-viewer-gutter-line {
+  display: flex;
+  align-items: center;
+}
+
+.file-viewer-gutter-num {
+  margin-left: auto;
+}
+.file-viewer-code-line--hidden,
+.file-viewer-gutter-line--hidden,
+.file-viewer-code-nl {
+  display: none;
+}
+
+/* 折叠块首行末尾的占位标记（文案由 data-fold-label 提供） */
+.file-viewer-code-line--folded::after {
+  content: attr(data-fold-label);
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.file-viewer-fold-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease;
+}
+
+.file-viewer-line-numbers:hover .file-viewer-fold-toggle {
+  opacity: 0.9;
+}
+
+.file-viewer-fold-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.file-viewer-fold-toggle svg {
+  transition: transform 0.12s ease;
+}
+
+.file-viewer-fold-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
 .file-viewer-line-highlight {
   position: absolute;
   left: 0;
@@ -35257,6 +35363,54 @@ pre.file-viewer-code {
   font-size: 11.5px;
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
+}
+
+/* 外部修改提示条：编辑中有未保存修改时提示手动重载 */
+.file-viewer-external-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-text);
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.file-viewer-external-change-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-viewer-external-reload,
+.file-viewer-external-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-viewer-external-reload {
+  padding: 2px 8px;
+}
+
+.file-viewer-external-dismiss {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-color: transparent;
+}
+
+.file-viewer-external-reload:hover,
+.file-viewer-external-dismiss:hover {
+  background: var(--bg-hover);
 }
 
 /* ===== File Viewer Search (Ctrl/Cmd+F) ===== */

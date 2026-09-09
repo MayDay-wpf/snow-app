@@ -10,6 +10,7 @@ import type {
 import { ChatItem } from "./ChatItem";
 import type { ExportFormat } from "./ChatItemMenu";
 import { isChatDrag, readChatDragData } from "./chatDrag";
+import { SidebarCollapse } from "./SidebarCollapse";
 
 type PinnedSectionProps = {
   isSwitchingDirectory: boolean;
@@ -38,7 +39,7 @@ export function PinnedSection({
     clearInputDraft,
   } = useChatConversationContext();
   const [conversations, setConversations] = useState<ChatConversationRecord[]>(
-    []
+    [],
   );
   const [isLoading, setIsLoading] = useState(false);
   // 置顶区域收起/展开（localStorage 持久化，与项目区域一致）
@@ -101,14 +102,14 @@ export function PinnedSection({
 
     setConversations((prev) => {
       const existing = prev.find(
-        (item) => item.conversationId === conv.conversationId
+        (item) => item.conversationId === conv.conversationId,
       );
 
       if (existing) {
         // If the conversation was unpinned, remove it from the pinned list
         if (conv.status !== "pin") {
           return prev.filter(
-            (item) => item.conversationId !== conv.conversationId
+            (item) => item.conversationId !== conv.conversationId,
           );
         }
         // 记录内容未变化时保持原引用，避免无意义替换触发重渲染
@@ -117,7 +118,7 @@ export function PinnedSection({
         }
         // Otherwise update in place
         return prev.map((item) =>
-          item.conversationId === conv.conversationId ? conv : item
+          item.conversationId === conv.conversationId ? conv : item,
         );
       }
 
@@ -133,12 +134,12 @@ export function PinnedSection({
   const showLoading = isSwitchingDirectory || (isLoading && directoryId !== "");
 
   const handleUnpin = async (
-    conversation: ChatConversationRecord
+    conversation: ChatConversationRecord,
   ): Promise<void> => {
     try {
       await window.snow.updateConversationStatus(
         conversation.conversationId,
-        "active"
+        "active",
       );
       refreshConversations();
     } catch {
@@ -148,7 +149,7 @@ export function PinnedSection({
 
   const handleRename = async (
     conversation: ChatConversationRecord,
-    newTitle: string
+    newTitle: string,
   ): Promise<void> => {
     await window.snow.renameConversation(conversation.conversationId, newTitle);
     // 同步更新内存中 session 的 summary，让 TopBar 标题即时刷新
@@ -158,20 +159,20 @@ export function PinnedSection({
 
   const handleSetEmoji = async (
     conversation: ChatConversationRecord,
-    emoji: string
+    emoji: string,
   ): Promise<void> => {
     // 乐观更新：直接修改本地 state，异步落库，不刷新列表
     setConversations((prev) =>
       prev.map((item) =>
         item.conversationId === conversation.conversationId
           ? { ...item, emoji }
-          : item
-      )
+          : item,
+      ),
     );
     try {
       await window.snow.updateConversationEmoji(
         conversation.conversationId,
-        emoji
+        emoji,
       );
     } catch {
       // 落库失败时回滚
@@ -179,14 +180,14 @@ export function PinnedSection({
         prev.map((item) =>
           item.conversationId === conversation.conversationId
             ? { ...item, emoji: conversation.emoji }
-            : item
-        )
+            : item,
+        ),
       );
     }
   };
 
   const handleDelete = async (
-    conversation: ChatConversationRecord
+    conversation: ChatConversationRecord,
   ): Promise<void> => {
     try {
       // 置顶列表不维护子代理映射：删除前查询一次，以便级联删除时
@@ -194,7 +195,7 @@ export function PinnedSection({
       let deleteTargetIds = [conversation.conversationId];
       try {
         const subAgents = await window.snow.listSubAgentConversations(
-          conversation.conversationId
+          conversation.conversationId,
         );
         deleteTargetIds = [
           ...deleteTargetIds,
@@ -228,7 +229,7 @@ export function PinnedSection({
 
   const handleExport = async (
     conversation: ChatConversationRecord,
-    format: ExportFormat
+    format: ExportFormat,
   ): Promise<void> => {
     const fileName =
       conversation.summary ||
@@ -237,7 +238,7 @@ export function PinnedSection({
     await window.snow.exportConversation(
       conversation.conversationId,
       format,
-      fileName
+      fileName,
     );
   };
 
@@ -319,69 +320,71 @@ export function PinnedSection({
           </span>
         </button>
       </div>
-      {!isCollapsed && (
-      <div className="section-list">
-        {showLoading ? (
-          <span className="empty-text loading">
-            <Loader2 className="spin" size={13} />
-            {t("sidebar.loadingWorkspaceContent", {
-              defaultValue: "Loading workspace content...",
-            })}
-          </span>
-        ) : !directoryId ? (
-          <span className="empty-text">
-            {t("sidebar.noActiveDirectory", {
-              defaultValue: "No active directory",
-            })}
-          </span>
-        ) : conversations.length === 0 ? (
-          <span className="empty-text">
-            {t("sidebar.noPinnedItems", { defaultValue: "No pinned items" })}
-          </span>
-        ) : (
-          conversations.map((conversation) => (
-            <ChatItem
-              key={conversation.conversationId}
-              conversation={conversation}
-              isDraggable
-              isActive={conversation.conversationId === activeConversationId}
-              isAttentionRequired={attentionRequiredConversationIds.has(
-                conversation.conversationId
-              )}
-              isStreaming={streamingConversationIds.has(
-                conversation.conversationId
-              )}
-              isPaused={sessions[conversation.conversationId]?.isPaused === true}
-              isCompleted={completedConversationIds.has(
-                conversation.conversationId
-              )}
-              onPin={() => void handleUnpin(conversation)}
-              onRename={(newTitle) => handleRename(conversation, newTitle)}
-              onSetEmoji={(emoji) => handleSetEmoji(conversation, emoji)}
-              onDelete={() => void handleDelete(conversation)}
-              onExport={(format) => handleExport(conversation, format)}
-              onFork={() =>
-                void handleForkConversation(conversation.conversationId, "")
-              }
-              onSelect={() =>
-                void handleSelectConversation(
+      <SidebarCollapse open={!isCollapsed}>
+        <div className="section-list">
+          {showLoading ? (
+            <span className="empty-text loading">
+              <Loader2 className="spin" size={13} />
+              {t("sidebar.loadingWorkspaceContent", {
+                defaultValue: "Loading workspace content...",
+              })}
+            </span>
+          ) : !directoryId ? (
+            <span className="empty-text">
+              {t("sidebar.noActiveDirectory", {
+                defaultValue: "No active directory",
+              })}
+            </span>
+          ) : conversations.length === 0 ? (
+            <span className="empty-text">
+              {t("sidebar.noPinnedItems", { defaultValue: "No pinned items" })}
+            </span>
+          ) : (
+            conversations.map((conversation) => (
+              <ChatItem
+                key={conversation.conversationId}
+                conversation={conversation}
+                isDraggable
+                isActive={conversation.conversationId === activeConversationId}
+                isAttentionRequired={attentionRequiredConversationIds.has(
                   conversation.conversationId,
-                  conversation.summary || conversation.title,
-                  {
-                    inputTokens: conversation.inputTokens,
-                    outputTokens: conversation.outputTokens,
-                    cacheCreationInputTokens:
-                      conversation.cacheCreationInputTokens,
-                    cacheReadInputTokens: conversation.cacheReadInputTokens,
-                  },
-                  conversation.directoryId
-                )
-              }
-            />
-          ))
-        )}
-      </div>
-      )}
+                )}
+                isStreaming={streamingConversationIds.has(
+                  conversation.conversationId,
+                )}
+                isPaused={
+                  sessions[conversation.conversationId]?.isPaused === true
+                }
+                isCompleted={completedConversationIds.has(
+                  conversation.conversationId,
+                )}
+                onPin={() => void handleUnpin(conversation)}
+                onRename={(newTitle) => handleRename(conversation, newTitle)}
+                onSetEmoji={(emoji) => handleSetEmoji(conversation, emoji)}
+                onDelete={() => void handleDelete(conversation)}
+                onExport={(format) => handleExport(conversation, format)}
+                onFork={() =>
+                  void handleForkConversation(conversation.conversationId, "")
+                }
+                onSelect={() =>
+                  void handleSelectConversation(
+                    conversation.conversationId,
+                    conversation.summary || conversation.title,
+                    {
+                      inputTokens: conversation.inputTokens,
+                      outputTokens: conversation.outputTokens,
+                      cacheCreationInputTokens:
+                        conversation.cacheCreationInputTokens,
+                      cacheReadInputTokens: conversation.cacheReadInputTokens,
+                    },
+                    conversation.directoryId,
+                  )
+                }
+              />
+            ))
+          )}
+        </div>
+      </SidebarCollapse>
     </div>
   );
 }

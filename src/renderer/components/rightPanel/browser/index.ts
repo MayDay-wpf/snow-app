@@ -1,3 +1,4 @@
+export { attachGuestPointerDismiss } from "./browserGuestDismiss";
 export { BrowserToolbar } from "./BrowserToolbar";
 export type { BrowserToolbarProps } from "./BrowserToolbar";
 export { useWebviewScreenshot } from "./useWebviewScreenshot";

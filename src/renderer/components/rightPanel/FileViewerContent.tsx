@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CaseSensitive,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Code2,
   Copy,
@@ -111,6 +112,107 @@ const makeTextRange = (
 
 const escapeHtml = (str: string): string =>
   str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** 折叠区域：start 为块首行，收起时隐藏 start+1..end（1-based 行号）。 */
+type FoldRegion = { start: number; end: number };
+
+/** 缩进折叠：tab 按 4 列展开。 */
+const FOLD_TAB_WIDTH = 4;
+
+/** 行首缩进列数。 */
+const getIndentColumns = (line: string): number => {
+  let columns = 0;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === " ") {
+      columns += 1;
+    } else if (char === "\t") {
+      columns += FOLD_TAB_WIDTH - (columns % FOLD_TAB_WIDTH);
+    } else {
+      break;
+    }
+  }
+  return columns;
+};
+
+/**
+ * 按缩进计算可折叠区域：某非空行的下一非空行缩进更深时该行可折叠，
+ * 区域持续到下一个缩进不深于起始行的非空行（尾部空行不计入）。
+ */
+const computeFoldRegions = (text: string): FoldRegion[] => {
+  if (text.length === 0) {
+    return [];
+  }
+  const lines = text.split("\n");
+  const indents = lines.map(getIndentColumns);
+  const blanks = lines.map((line) => line.trim().length === 0);
+  const regions: FoldRegion[] = [];
+  const stack: { indent: number; line: number }[] = [];
+  let previous = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (blanks[i]) {
+      continue;
+    }
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indents[i]) {
+      const open = stack.pop() as { indent: number; line: number };
+      if (previous > open.line) {
+        regions.push({ start: open.line + 1, end: previous + 1 });
+      }
+    }
+    if (previous >= 0 && indents[i] > indents[previous]) {
+      stack.push({ indent: indents[previous], line: previous });
+    }
+    previous = i;
+  }
+  while (stack.length > 0) {
+    const open = stack.pop() as { indent: number; line: number };
+    if (previous > open.line) {
+      regions.push({ start: open.line + 1, end: previous + 1 });
+    }
+  }
+  regions.sort((a, b) => a.start - b.start);
+  return regions;
+};
+
+/** 按换行切分高亮 HTML：跨行标签在行尾闭合、下一行开头重开，每行片段独立可用。 */
+const splitHighlightedHtmlLines = (html: string): string[] => {
+  const lines: string[] = [];
+  const openTags: { name: string; raw: string }[] = [];
+  let current = "";
+  let index = 0;
+  while (index < html.length) {
+    const char = html[index];
+    if (char === "\n") {
+      lines.push(current + openTags.map((tag) => `</${tag.name}>`).join(""));
+      current = openTags.map((tag) => tag.raw).join("");
+      index += 1;
+      continue;
+    }
+    if (char === "<") {
+      const end = html.indexOf(">", index);
+      if (end === -1) {
+        current += html.slice(index);
+        break;
+      }
+      const raw = html.slice(index, end + 1);
+      if (raw.startsWith("</")) {
+        openTags.pop();
+      } else if (!raw.endsWith("/>")) {
+        openTags.push({
+          name: /^<([a-zA-Z0-9-]+)/.exec(raw)?.[1] ?? "span",
+          raw,
+        });
+      }
+      current += raw;
+      index = end + 1;
+      continue;
+    }
+    current += char;
+    index += 1;
+  }
+  lines.push(current);
+  return lines;
+};
 
 /** IME 组合输入中的按键（如中文输入法候选词确认的 Enter）：一律忽略。
  * 组合期间 preventDefault 会吞掉候选词上屏，导致中文无法输入
@@ -313,8 +415,18 @@ export function FileViewerContent({
   const [draftStatus, setDraftStatus] = useState<"pending" | "conflict" | null>(
     null,
   );
+  // 磁盘内容被外部修改、但编辑器有未保存修改时的待应用内容（提示用户重载）。
+  const [externalChange, setExternalChange] =
+    useState<FileContentResult | null>(null);
 
   const originalContentRef = useRef("");
+  // 供文件变更订阅（长生命周期）读取最新状态，避免状态变化时反复重订阅。
+  const contentRef = useRef<FileContentResult | null>(null);
+  contentRef.current = content;
+  const editModeRef = useRef(false);
+  editModeRef.current = editMode;
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
   const onDirtyChangeRef = useRef(onDirtyChange);
   // 虚拟文件源保存在 ref 中：宿主每次渲染传入的对象引用都会变化，
   // 但加载/保存只应在挂载与用户操作时读取，避免触发重复加载。
@@ -362,6 +474,10 @@ export function FileViewerContent({
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchIndex, setSearchIndex] = useState(0);
   const [searchMarkRects, setSearchMarkRects] = useState<SearchMarkRect[]>([]);
+  // 已收起的折叠块，以块首行号标识。
+  const [foldedStarts, setFoldedStarts] = useState<Set<number>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     onDirtyChangeRef.current = onDirtyChange;
@@ -382,6 +498,8 @@ export function FileViewerContent({
     setDraftStatus(null);
     setEditedContent("");
     setMdMode("preview");
+    setFoldedStarts(new Set());
+    setExternalChange(null);
     try {
       let result: FileContentResult;
       const virtual = virtualSourceRef.current;
@@ -471,6 +589,100 @@ export function FileViewerContent({
     void loadFile();
   }, [loadFile]);
 
+  // 文本行数：查看模式行号与折叠计算共用。
+  const viewLineCount = useMemo(
+    () =>
+      content && !content.isImage && !content.isBinary
+        ? content.content.split("\n").length
+        : 0,
+    [content],
+  );
+
+  // ===== 代码折叠（缩进折叠） =====
+  // 折叠区域按缩进计算；收起时隐藏区域内的行（DOM 保留、仅 display: none），
+  // 行号槽与代码列逐行渲染且行高一致，因此两侧天然对齐。
+  const foldRegions = useMemo(
+    () => computeFoldRegions(content?.content ?? ""),
+    [content?.content],
+  );
+
+  const foldByStart = useMemo(() => {
+    const map = new Map<number, FoldRegion>();
+    for (const region of foldRegions) {
+      map.set(region.start, region);
+    }
+    return map;
+  }, [foldRegions]);
+
+  const collapsedRegions = useMemo(
+    () => foldRegions.filter((region) => foldedStarts.has(region.start)),
+    [foldRegions, foldedStarts],
+  );
+
+  const hiddenLines = useMemo(() => {
+    const lines = new Set<number>();
+    for (const region of collapsedRegions) {
+      for (let line = region.start + 1; line <= region.end; line += 1) {
+        lines.add(line);
+      }
+    }
+    return lines;
+  }, [collapsedRegions]);
+
+  // 每行之前被折叠隐藏的行数：源码行号换算折叠后的可视序号。
+  const hiddenPrefix = useMemo(() => {
+    const prefix = new Int32Array(viewLineCount + 1);
+    let hidden = 0;
+    for (let line = 1; line <= viewLineCount; line += 1) {
+      if (hiddenLines.has(line)) {
+        hidden += 1;
+      }
+      prefix[line] = hidden;
+    }
+    return prefix;
+  }, [hiddenLines, viewLineCount]);
+
+  const toVisualLine = useCallback(
+    (line: number): number => {
+      const index = Math.min(Math.max(line - 1, 0), hiddenPrefix.length - 1);
+      return line - hiddenPrefix[index];
+    },
+    [hiddenPrefix],
+  );
+
+  const toggleFold = useCallback((start: number) => {
+    setFoldedStarts((prev) => {
+      const next = new Set(prev);
+      if (next.has(start)) {
+        next.delete(start);
+      } else {
+        next.add(start);
+      }
+      return next;
+    });
+  }, []);
+
+  /** 展开包含目标行的折叠块；返回是否需要等待重渲染后再定位。 */
+  const revealLine = useCallback(
+    (line: number): boolean => {
+      const targets = collapsedRegions.filter(
+        (region) => line > region.start && line <= region.end,
+      );
+      if (targets.length === 0) {
+        return false;
+      }
+      setFoldedStarts((prev) => {
+        const next = new Set(prev);
+        for (const region of targets) {
+          next.delete(region.start);
+        }
+        return next;
+      });
+      return true;
+    },
+    [collapsedRegions],
+  );
+
   // focusLine 变化时滚动到目标行并高亮。仅在非编辑、非二进制/图片、
   // 内容已加载且行号有效时生效。每次 focusLine 变化都会重新触发，
   // 即使是同一文件的不同行点击。
@@ -506,7 +718,11 @@ export function FileViewerContent({
 
     const lineCount = content.content.split("\n").length;
     const targetLine = Math.min(focusLine, lineCount);
-    const targetTop = paddingTop + (targetLine - 1) * lineHeight;
+    // 目标行被折叠隐藏时先展开，重渲染后本效果会再次触发完成定位。
+    if (revealLine(targetLine)) {
+      return;
+    }
+    const targetTop = paddingTop + (toVisualLine(targetLine) - 1) * lineHeight;
 
     // 滚动使目标行尽量落在视口上部约 1/3 处。
     const viewportH = scrollEl.clientHeight;
@@ -520,7 +736,7 @@ export function FileViewerContent({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [focusLine, loading, content, editMode]);
+  }, [focusLine, loading, content, editMode, revealLine, toVisualLine]);
 
   const highlightCode = useCallback(
     (code: string): string => {
@@ -542,20 +758,101 @@ export function FileViewerContent({
 
   const highlightedCode = useMemo(() => {
     if (!content || content.isImage || content.isBinary)
-      return { html: "", lineCount: 0 };
+      return { html: "", lineCount: viewLineCount };
     return {
       html: highlightCode(content.content),
-      lineCount: content.content.split("\n").length,
+      lineCount: viewLineCount,
     };
-  }, [content, highlightCode]);
+  }, [content, highlightCode, viewLineCount]);
 
-  const viewLineNumbers = useMemo(
-    () =>
-      Array.from({ length: highlightedCode.lineCount }, (_, i) => i + 1).join(
-        "\n",
-      ),
-    [highlightedCode.lineCount],
+  // 按行切分的高亮 HTML（每行一个块级行容器）。
+  const codeLineHtml = useMemo(
+    () => splitHighlightedHtmlLines(highlightedCode.html),
+    [highlightedCode.html],
   );
+
+  // 查看模式代码行：行尾换行符放入隐藏节点，保证 textContent 与源码一致
+  // （文内搜索按字符偏移定位依赖这一点）；折叠区域内的行只隐藏不卸载。
+  const codeContentRows = useMemo(
+    () =>
+      codeLineHtml.map((html, index) => {
+        const line = index + 1;
+        const hasCr = html.endsWith("\r");
+        const body = hasCr ? html.slice(0, -1) : html;
+        const breakText = `${hasCr ? "\r" : ""}${
+          index < codeLineHtml.length - 1 ? "\n" : ""
+        }`;
+        const inner = breakText
+          ? `${body}<span class="file-viewer-code-nl">${breakText}</span>`
+          : body;
+        const region = foldByStart.get(line);
+        const folded = region != null && foldedStarts.has(line);
+        return (
+          <span
+            key={line}
+            className={`file-viewer-code-line${
+              folded ? " file-viewer-code-line--folded" : ""
+            }${hiddenLines.has(line) ? " file-viewer-code-line--hidden" : ""}`}
+            data-fold-label={
+              folded && region
+                ? t("rightPanel.fileFoldHiddenLines", {
+                    defaultValue: "⋯ {{count}} lines",
+                    values: { count: region.end - region.start },
+                  })
+                : undefined
+            }
+            dangerouslySetInnerHTML={{ __html: inner }}
+          />
+        );
+      }),
+    [codeLineHtml, foldByStart, foldedStarts, hiddenLines, t],
+  );
+
+  // 查看模式行号槽：每行一个行容器，折叠箭头固定在左侧列。
+  const gutterRows = useMemo(() => {
+    const rows: React.JSX.Element[] = [];
+    for (let line = 1; line <= highlightedCode.lineCount; line += 1) {
+      const region = foldByStart.get(line);
+      const folded = region != null && foldedStarts.has(line);
+      rows.push(
+        <span
+          key={line}
+          className={`file-viewer-gutter-line${
+            hiddenLines.has(line) ? " file-viewer-gutter-line--hidden" : ""
+          }`}
+        >
+          {region ? (
+            <button
+              type="button"
+              className={`file-viewer-fold-toggle${folded ? "" : " expanded"}`}
+              tabIndex={-1}
+              onClick={() => toggleFold(line)}
+              title={
+                folded
+                  ? t("rightPanel.fileFoldExpand", {
+                      defaultValue: "Expand block",
+                    })
+                  : t("rightPanel.fileFoldCollapse", {
+                      defaultValue: "Collapse block",
+                    })
+              }
+            >
+              <ChevronRight size={12} strokeWidth={2.2} />
+            </button>
+          ) : null}
+          <span className="file-viewer-gutter-num">{line}</span>
+        </span>,
+      );
+    }
+    return rows;
+  }, [
+    highlightedCode.lineCount,
+    foldByStart,
+    foldedStarts,
+    hiddenLines,
+    toggleFold,
+    t,
+  ]);
 
   const editLineCount = useMemo(
     () => (editMode ? editedContent.split("\n").length : 0),
@@ -574,6 +871,40 @@ export function FileViewerContent({
       window.setTimeout(() => setCopied(false), 2000);
     });
   }, [content]);
+
+  /**
+   * 应用外部修改：原地替换内容，不重建滚动容器，滚动位置与折叠状态保留。
+   * 编辑模式下同步刷新编辑器内容并尽量恢复 textarea 滚动位置。
+   */
+  const applyExternalContent = useCallback(
+    (next: FileContentResult) => {
+      const textarea = editModeRef.current
+        ? document.getElementById(editTextareaId)
+        : null;
+      const textareaScrollTop =
+        textarea instanceof HTMLTextAreaElement ? textarea.scrollTop : null;
+      setContent(next);
+      originalContentRef.current = next.content;
+      setExternalChange(null);
+      if (editModeRef.current) {
+        setEditedContent(next.content);
+        setDirty(false);
+        setSaveError(null);
+        setSavedAt(false);
+        setSaveGuarantee(null);
+        setDraftStatus(null);
+        if (textareaScrollTop != null) {
+          requestAnimationFrame(() => {
+            const element = document.getElementById(editTextareaId);
+            if (element instanceof HTMLTextAreaElement) {
+              element.scrollTop = textareaScrollTop;
+            }
+          });
+        }
+      }
+    },
+    [editTextareaId],
+  );
 
   const handleEnterEditMode = useCallback(() => {
     if (!content || !isEditable(content)) return;
@@ -611,12 +942,25 @@ export function FileViewerContent({
     if (draftSnapshotRef.current) {
       draftSnapshotRef.current.dirty = false;
     }
+    // 本地修改已放弃：若磁盘上有等待中的外部修改，直接应用。
+    if (externalChange) {
+      applyExternalContent(externalChange);
+    }
     setEditMode(false);
     setDirty(false);
     setSaveError(null);
     setSavedAt(false);
     setEditedContent("");
-  }, [canPersistRemoteDraft, dirty, filePath, sshSessionId, sshWorkspaceId, t]);
+  }, [
+    applyExternalContent,
+    canPersistRemoteDraft,
+    dirty,
+    externalChange,
+    filePath,
+    sshSessionId,
+    sshWorkspaceId,
+    t,
+  ]);
 
   const handleValueChange = useCallback((next: string) => {
     setEditedContent(next);
@@ -746,6 +1090,7 @@ export function FileViewerContent({
       if (draftSnapshotRef.current) {
         draftSnapshotRef.current.dirty = false;
       }
+      setExternalChange(null);
       setDirty(false);
       setSavedAt(true);
       setSaveGuarantee(remoteSave?.guarantee ?? null);
@@ -831,6 +1176,75 @@ export function FileViewerContent({
   useEffect(() => {
     sawSshDisconnectRef.current = false;
   }, [sshSessionId]);
+
+  // ===== 外部修改自动刷新 =====
+  // 本地文件由 Rust 端 notify 监听（非轮询，写临时文件 + 改名的原子保存也能捕获），
+  // 变更后只替换内容、不重建滚动容器，因此滚动位置与折叠状态保持不变。
+  useEffect(() => {
+    if (isSsh || virtualSourceRef.current) {
+      return;
+    }
+    let disposed = false;
+    let reading = false;
+    let pending = false;
+
+    // 读取磁盘内容并原地应用；读取期间再次收到事件则排队重读一次。
+    const reload = (): void => {
+      if (disposed) {
+        return;
+      }
+      if (reading) {
+        pending = true;
+        return;
+      }
+      reading = true;
+      void window.snow
+        .readFileContent(filePath)
+        .then((next) => {
+          if (disposed) {
+            return;
+          }
+          const current = contentRef.current;
+          // 内容未变（自身保存或无关事件）时不重渲染。
+          if (!current || next.content === current.content) {
+            return;
+          }
+          if (editModeRef.current && dirtyRef.current) {
+            // 有未保存修改：不覆盖，提示用户重新加载。
+            setExternalChange(next);
+            return;
+          }
+          applyExternalContent(next);
+        })
+        .catch(() => {
+          // 文件被删除或暂时不可读：保留当前内容。
+        })
+        .finally(() => {
+          reading = false;
+          if (pending) {
+            pending = false;
+            reload();
+          }
+        });
+    };
+
+    void window.snow.watchFile(filePath).catch(() => {
+      // 监听不可用（如目录权限不足）时保留手动刷新。
+    });
+    const unsubscribe = window.snow.onFileChanged((changedPath) => {
+      if (disposed || changedPath !== filePath) {
+        return;
+      }
+      reload();
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+      void window.snow.unwatchFile(filePath).catch(() => {
+        // 取消订阅失败不影响后续清理。
+      });
+    };
+  }, [applyExternalContent, filePath, isSsh]);
 
   // Markdown 预览中点击文件链接（相对路径/绝对路径）：解析为绝对路径后
   // 通过 open-file 事件在右侧面板新建文件阅读器 tab，替代 Electron 默认
@@ -1073,6 +1487,10 @@ export function FileViewerContent({
     const match =
       searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
     if (!match) return;
+    // 命中落在折叠区域内：先展开，重渲染后再定位。
+    if (!editMode && revealLine(match.line)) {
+      return;
+    }
     const navigated =
       searchNavTickRef.current !== lastHandledNavTickRef.current;
     if (navigated) {
@@ -1139,7 +1557,7 @@ export function FileViewerContent({
       scrollEl.scrollLeft =
         scrollEl.scrollLeft + first.right - (scrollBox.right - margin);
     }
-  }, [searchOpen, searchMatches, searchIndex, editMode]);
+  }, [searchOpen, searchMatches, searchIndex, editMode, revealLine]);
 
   // 查看模式匹配高亮层：用 Range 取每个匹配文本的渲染矩形，换算为相对
   // .file-viewer-code 的坐标。横向滚动由外层 .file-viewer-code-scroll 承担，
@@ -1192,6 +1610,7 @@ export function FileViewerContent({
     searchMatches,
     searchIndex,
     highlightedCode,
+    hiddenLines,
     svgMode,
   ]);
 
@@ -1244,11 +1663,14 @@ export function FileViewerContent({
   };
 
   const renderCodeBlock = () => {
-    const { html } = highlightedCode;
     // 计算高亮条位置。lineHeight 在 effect 中也测量过，这里为渲染
     // 重新取一次（此时 DOM 已存在）。若取不到则不渲染高亮条。
     let highlightStyle: React.CSSProperties | null = null;
-    if (highlightLine != null && codeScrollRef.current) {
+    if (
+      highlightLine != null &&
+      !hiddenLines.has(highlightLine) &&
+      codeScrollRef.current
+    ) {
       const codeEl = codeScrollRef.current.querySelector(".file-viewer-code");
       if (codeEl) {
         const style = window.getComputedStyle(codeEl);
@@ -1256,7 +1678,7 @@ export function FileViewerContent({
         const paddingTop = parseFloat(style.paddingTop) || 0;
         if (Number.isFinite(lineHeight) && lineHeight > 0) {
           highlightStyle = {
-            top: `${paddingTop + (highlightLine - 1) * lineHeight}px`,
+            top: `${paddingTop + (toVisualLine(highlightLine) - 1) * lineHeight}px`,
             height: `${lineHeight}px`,
           };
         }
@@ -1295,13 +1717,14 @@ export function FileViewerContent({
             </div>
           ) : null}
           <code className="file-viewer-line-numbers" aria-hidden="true">
-            {viewLineNumbers}
+            {gutterRows}
           </code>
           <code
             ref={codeContentRef}
-            className="hljs file-viewer-code-content"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+            className="hljs file-viewer-code-content file-viewer-code-content--lines"
+          >
+            {codeContentRows}
+          </code>
         </pre>
       </div>
     );
@@ -1564,6 +1987,35 @@ export function FileViewerContent({
         <div className="file-viewer-save-error">
           <AlertCircle size={14} />
           <span>{saveError}</span>
+        </div>
+      ) : null}
+      {externalChange ? (
+        <div className="file-viewer-external-change">
+          <AlertCircle size={14} />
+          <span className="file-viewer-external-change-text">
+            {t("rightPanel.fileViewerExternalChange", {
+              defaultValue: "This file was changed on disk.",
+            })}
+          </span>
+          <button
+            type="button"
+            className="file-viewer-external-reload"
+            onClick={() => applyExternalContent(externalChange)}
+          >
+            {t("rightPanel.fileViewerExternalReload", {
+              defaultValue: "Reload",
+            })}
+          </button>
+          <button
+            type="button"
+            className="file-viewer-external-dismiss"
+            onClick={() => setExternalChange(null)}
+            title={t("rightPanel.fileViewerExternalDismiss", {
+              defaultValue: "Dismiss",
+            })}
+          >
+            <X size={13} />
+          </button>
         </div>
       ) : null}
       {searchOpen && canSearch ? (

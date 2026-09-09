@@ -18,6 +18,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -40,6 +41,7 @@ import { ArchivedChatItem } from "./ArchivedChatItem";
 import { ChatItem } from "./ChatItem";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import { isChatDrag, readChatDragData } from "./chatDrag";
+import { SidebarCollapse } from "./SidebarCollapse";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 import { WorkflowNodeListPanel } from "./WorkflowNodeListPanel";
 import {
@@ -302,6 +304,27 @@ export function ChatsSection({
   });
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const sectionListRef = useRef<HTMLDivElement | null>(null);
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const section = sectionRef.current;
+    const header = headerRef.current;
+    if (!section || !header) {
+      return;
+    }
+    const applyHeaderHeight = (): void => {
+      const height =
+        header.getBoundingClientRect().bottom -
+        section.getBoundingClientRect().top;
+      section.style.setProperty("--chats-header-h", `${height}px`);
+    };
+    applyHeaderHeight();
+    const observer = new ResizeObserver(applyHeaderHeight);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+    };
+  }, [isMultiSelectMode]);
   // 始终持有最新 conversations，供子代理加载 effect 读取。
   // effect 仅以会话 id 集合为依赖：upsert/重排（id 不变）不会重查子代理。
   const conversationsRef = useRef<ChatConversationRecord[]>([]);
@@ -623,7 +646,7 @@ export function ChatsSection({
   }, [conversationsRef, directoryId, hasMore, isLoading, isLoadingMore]);
 
   useEffect(() => {
-    if (!hasMore || isLoading) {
+    if (!hasMore || isLoading || isCollapsed) {
       return;
     }
 
@@ -651,7 +674,7 @@ export function ChatsSection({
     return () => {
       observer.disconnect();
     };
-  }, [hasMore, isLoading, loadMore, conversations.length]);
+  }, [hasMore, isLoading, isCollapsed, loadMore, conversations.length]);
 
   // ===== 归档会话（冷数据库）=====
 
@@ -731,7 +754,12 @@ export function ChatsSection({
 
   // 归档列表无限滚动
   useEffect(() => {
-    if (!isArchiveMode || !hasMoreArchived || isArchivedLoading) {
+    if (
+      !isArchiveMode ||
+      !hasMoreArchived ||
+      isArchivedLoading ||
+      isCollapsed
+    ) {
       return;
     }
 
@@ -759,7 +787,13 @@ export function ChatsSection({
     return () => {
       observer.disconnect();
     };
-  }, [isArchiveMode, hasMoreArchived, isArchivedLoading, loadArchivedMore]);
+  }, [
+    isArchiveMode,
+    hasMoreArchived,
+    isArchivedLoading,
+    isCollapsed,
+    loadArchivedMore,
+  ]);
 
   const showLoading = isSwitchingDirectory || (isLoading && directoryId !== "");
 
@@ -1654,9 +1688,10 @@ export function ChatsSection({
       className={`sidebar-section chats-section${
         isCollapsed ? " collapsed" : ""
       }`}
+      ref={sectionRef}
     >
       {isMultiSelectMode ? (
-        <div className="chat-multi-select-bar">
+        <div className="chat-multi-select-bar" ref={headerRef}>
           <button
             type="button"
             className="chat-multi-select-exit-btn"
@@ -1782,7 +1817,7 @@ export function ChatsSection({
           </div>
         </div>
       ) : (
-        <div className="section-header">
+        <div className="section-header" ref={headerRef}>
           <button
             type="button"
             aria-expanded={!isCollapsed}
@@ -1841,7 +1876,7 @@ export function ChatsSection({
           </div>
         </div>
       )}
-      {!isCollapsed && (
+      <>
         <div
           className={`section-list${isChatDragOver ? " chat-drag-over" : ""}`}
           ref={sectionListRef}
@@ -2141,8 +2176,8 @@ export function ChatsSection({
                       })}
                     </span>
                   </button>
-                  {!isCrossProjectCollapsed &&
-                    crossProjectNotifications.map((group) => (
+                  <SidebarCollapse open={!isCrossProjectCollapsed}>
+                    {crossProjectNotifications.map((group) => (
                       <div
                         className="cross-project-notification-group"
                         key={group.directoryId}
@@ -2232,6 +2267,7 @@ export function ChatsSection({
                         })}
                       </div>
                     ))}
+                  </SidebarCollapse>
                 </div>
               )}
               {timeGroups.map((group) => {
@@ -2314,8 +2350,8 @@ export function ChatsSection({
                         </span>
                       )}
                     </button>
-                    {!isGroupCollapsed &&
-                      group.conversations.map((conversation) => {
+                    <SidebarCollapse open={!isGroupCollapsed}>
+                      {group.conversations.map((conversation) => {
                         const subAgentConversations =
                           subAgentMap[conversation.conversationId] ?? [];
                         const isSubAgentPanelExpanded =
@@ -2434,55 +2470,64 @@ export function ChatsSection({
                             />
                             {/* 面板渲染在 ChatItem 外部，作为兄弟节点，
                           完全不继承父级会话项的背景色 */}
-                            {isWorkflow &&
-                              isWorkflowPanelExpanded &&
-                              !isMultiSelectMode && (
-                                <WorkflowNodeListPanel
-                                  conversations={workflowNodeConversations}
-                                  activeConversationId={activeConversationId}
-                                  attentionRequiredConversationIds={
-                                    attentionRequiredConversationIds
-                                  }
-                                  streamingConversationIds={
-                                    streamingConversationIds
-                                  }
-                                  subAgentMap={subAgentMap}
-                                  expandedNodeIds={
-                                    expandedWorkflowNodeConversationIds
-                                  }
-                                  onToggleNode={handleToggleWorkflowNode}
-                                  onSelect={(nodeConvId) =>
-                                    void handleSelectConversation(
-                                      nodeConvId,
-                                      undefined,
-                                      undefined,
-                                      conversation.directoryId,
-                                    )
-                                  }
-                                />
-                              )}
-                            {subAgentConversations.length > 0 &&
-                              isSubAgentPanelExpanded &&
-                              !isMultiSelectMode && (
-                                <SubAgentListPanel
-                                  conversations={subAgentConversations}
-                                  activeConversationId={activeConversationId}
-                                  attentionRequiredConversationIds={
-                                    attentionRequiredConversationIds
-                                  }
-                                  onSelect={(subConvId) =>
-                                    void handleSelectConversation(
-                                      subConvId,
-                                      undefined,
-                                      undefined,
-                                      conversation.directoryId,
-                                    )
-                                  }
-                                />
-                              )}
+                            <SidebarCollapse
+                              open={
+                                isWorkflow &&
+                                isWorkflowPanelExpanded &&
+                                !isMultiSelectMode
+                              }
+                            >
+                              <WorkflowNodeListPanel
+                                conversations={workflowNodeConversations}
+                                activeConversationId={activeConversationId}
+                                attentionRequiredConversationIds={
+                                  attentionRequiredConversationIds
+                                }
+                                streamingConversationIds={
+                                  streamingConversationIds
+                                }
+                                subAgentMap={subAgentMap}
+                                expandedNodeIds={
+                                  expandedWorkflowNodeConversationIds
+                                }
+                                onToggleNode={handleToggleWorkflowNode}
+                                onSelect={(nodeConvId) =>
+                                  void handleSelectConversation(
+                                    nodeConvId,
+                                    undefined,
+                                    undefined,
+                                    conversation.directoryId,
+                                  )
+                                }
+                              />
+                            </SidebarCollapse>
+                            <SidebarCollapse
+                              open={
+                                subAgentConversations.length > 0 &&
+                                isSubAgentPanelExpanded &&
+                                !isMultiSelectMode
+                              }
+                            >
+                              <SubAgentListPanel
+                                conversations={subAgentConversations}
+                                activeConversationId={activeConversationId}
+                                attentionRequiredConversationIds={
+                                  attentionRequiredConversationIds
+                                }
+                                onSelect={(subConvId) =>
+                                  void handleSelectConversation(
+                                    subConvId,
+                                    undefined,
+                                    undefined,
+                                    conversation.directoryId,
+                                  )
+                                }
+                              />
+                            </SidebarCollapse>
                           </Fragment>
                         );
                       })}
+                    </SidebarCollapse>
                   </div>
                 );
               })}
@@ -2523,7 +2568,7 @@ export function ChatsSection({
             </>
           )}
         </div>
-      )}
+      </>
       {/* 单条与批量删除共用同一确认弹窗，并通过 portal 渲染到 body。 */}
       <ChatDeleteConfirmDialog
         conversationCount={selectedIds.size}

@@ -3611,6 +3611,12 @@ export const zhCN = {
   "rightPanel.fileSearchPrevious": "上一个匹配（Shift+Enter）",
   "rightPanel.fileSearchNext": "下一个匹配（Enter）",
   "rightPanel.fileSearchClose": "关闭查找（Esc）",
+  "rightPanel.fileFoldCollapse": "收起代码块",
+  "rightPanel.fileFoldExpand": "展开代码块",
+  "rightPanel.fileFoldHiddenLines": "⋯ 已折叠 {{count}} 行",
+  "rightPanel.fileViewerExternalChange": "文件已在磁盘上被修改。",
+  "rightPanel.fileViewerExternalReload": "重新加载",
+  "rightPanel.fileViewerExternalDismiss": "忽略",
   "rightPanel.aiDrawing.promptPlaceholder":
     "描述你想生成的画面，支持中文；例如：赛博朋克风格的雨夜城市，霓虹灯倒影…",
   "rightPanel.aiDrawing.promptHint": "Ctrl + Enter 快速生成",

@@ -2058,6 +2058,13 @@ export type NativeBridge = {
     onChange: (repoPath: string) => void,
   ) => void;
   stopGitWatch: (repoPath: string) => void;
+  /** 监听单个本地文件变更（父目录非递归监听 + 防抖），用于文件阅读器自动刷新。 */
+  startFileWatch: (
+    filePath: string,
+    debounceMs: number,
+    onChange: (filePath: string) => void,
+  ) => void;
+  stopFileWatch: (filePath: string) => void;
   teamGetIdentity: (repoPath: string) => Promise<TeamIdentity>;
   /** 定位真实仓库路径：向上找 .git，找不到再扫子目录；空串表示非仓库。 */
   teamResolveRepo: (path: string) => Promise<string>;

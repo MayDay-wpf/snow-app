@@ -221,7 +221,26 @@ const setupLinkActivation = (): void => {
   document.addEventListener("auxclick", handleLinkActivation, true);
 };
 
+// ---------------------------------------------------------------------------
+// guest 内点击上报：webview 内的鼠标事件不会冒泡到宿主文档，宿主侧「点击
+// 外部关闭」的下拉/浮层因此收不到点击。这里把 mousedown 经 sendToHost 上报
+// 宿主，由宿主合成一次外部点击事件收起浮层。
+// ---------------------------------------------------------------------------
+
+const GUEST_POINTERDOWN_CHANNEL = "snow:guest-pointerdown";
+
+const setupHostDismissRelay = (): void => {
+  document.addEventListener(
+    "mousedown",
+    () => ipcRenderer.sendToHost(GUEST_POINTERDOWN_CHANNEL),
+    true,
+  );
+};
+
 const setup = (): void => {
+  // guest 内点击上报 → 宿主收起已展开的下拉/浮层。
+  setupHostDismissRelay();
+
   // target=_blank / 中键链接激活拦截 → 侧边浏览器内新建标签页。
   setupLinkActivation();
 

@@ -2,6 +2,7 @@ import { ChevronRight, CircleAlert, Loader2, Workflow } from "lucide-react";
 
 import { useI18n } from "../../../i18n";
 import type { ChatConversationRecord } from "../../../../preload";
+import { SidebarCollapse } from "./SidebarCollapse";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 
 type WorkflowNodeListPanelProps = {
@@ -152,7 +153,7 @@ export function WorkflowNodeListPanel({
                 </span>
               )}
             </div>
-            {isExpanded && subAgents.length > 0 && (
+            <SidebarCollapse open={isExpanded && subAgents.length > 0}>
               <SubAgentListPanel
                 conversations={subAgents}
                 activeConversationId={activeConversationId}
@@ -161,7 +162,7 @@ export function WorkflowNodeListPanel({
                 }
                 onSelect={onSelect}
               />
-            )}
+            </SidebarCollapse>
           </div>
         );
       })}

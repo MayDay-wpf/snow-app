@@ -12,6 +12,7 @@ pub mod context_attachments;
 pub mod conversation_export;
 pub mod custom_header_schemes;
 pub mod file_scanner;
+pub mod file_watcher;
 pub mod fs_explorer;
 pub mod git;
 pub mod git_watcher;

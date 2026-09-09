@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  attachGuestPointerDismiss,
   BrowserElementPicker,
   BrowserFindBar,
   type BrowserFindResult,
@@ -523,6 +524,8 @@ export const BrowserPanelContent = ({
       );
       webview.addEventListener("found-in-page", handleFoundInPage);
       webview.addEventListener("console-message", handleConsoleMessage);
+      // guest 内点击上报 → 宿主合成外部点击，收起已展开的下拉/浮层。
+      attachGuestPointerDismiss(webview);
     },
     [instanceId, applyMutedState],
   );

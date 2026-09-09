@@ -225,6 +225,21 @@ export const workspaceApi = {
       ipcRenderer.removeListener("workspace-directories:changed", handler);
     };
   },
+  watchFile: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke("workspace-directories:start-file-watch", filePath),
+  unwatchFile: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke("workspace-directories:stop-file-watch", filePath),
+  onFileChanged: (callback: (filePath: string) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, filePath: string): void => {
+      callback(filePath);
+    };
+
+    ipcRenderer.on("workspace-directories:file-changed", handler);
+
+    return () => {
+      ipcRenderer.removeListener("workspace-directories:file-changed", handler);
+    };
+  },
   onWorkspaceDirectoryListChanged: (callback: () => void): (() => void) => {
     const handler = (): void => {
       callback();

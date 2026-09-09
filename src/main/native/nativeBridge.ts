@@ -1006,6 +1006,12 @@ export const loadNativeBridge = (): NativeBridge => {
       stopGitWatch: () => {
         throw new Error("Rust native bridge is required to stop git watch");
       },
+      startFileWatch: () => {
+        throw new Error("Rust native bridge is required for file watch");
+      },
+      stopFileWatch: () => {
+        throw new Error("Rust native bridge is required to stop file watch");
+      },
       teamGetIdentity: () =>
         Promise.reject(
           new Error("Rust native bridge is required for team identity"),

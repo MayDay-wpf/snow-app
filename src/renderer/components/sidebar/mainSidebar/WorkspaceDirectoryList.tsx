@@ -7,6 +7,7 @@ import type {
   ProjectCollectionRecord,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
+import { SidebarCollapse } from "./SidebarCollapse";
 import { WorkspaceDirectoryRow } from "./WorkspaceDirectoryRow";
 
 type WorkspaceDirectoryListProps = {
@@ -266,11 +267,7 @@ export function WorkspaceDirectoryList({
 
   const renderCollectionMembers = (
     collection: ProjectCollectionRecord,
-  ): React.JSX.Element | null => {
-    if (!expandedCollectionIds.has(collection.collectionId)) {
-      return null;
-    }
-
+  ): React.JSX.Element => {
     const memberDirectories = collection.memberDirectoryIds
       .map((directoryId) =>
         workspaceDirectories.find((item) => item.directoryId === directoryId),
@@ -428,7 +425,9 @@ export function WorkspaceDirectoryList({
                     </button>
                   </span>
                 </div>
-                {renderCollectionMembers(collection)}
+                <SidebarCollapse open={isExpanded}>
+                  {renderCollectionMembers(collection)}
+                </SidebarCollapse>
               </div>
             );
           })}

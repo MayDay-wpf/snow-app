@@ -303,3 +303,21 @@ pub async fn write_file_content(file_path: String, content: String) -> napi::Res
         .await
         .map_err(map_spawn_error)?
 }
+
+/// 监听本地文件变更（父目录非递归监听 + 防抖），用于文件阅读器自动刷新。
+#[napi(
+    ts_args_type = "filePath: string, debounceMs: number, onChange: (filePath: string) => void",
+    ts_return_type = "void"
+)]
+pub fn start_file_watch(
+    file_path: String,
+    debounce_ms: f64,
+    on_change: crate::storage::services::file_watcher::FileChangeCallback,
+) -> napi::Result<()> {
+    crate::storage::services::file_watcher::start_file_watch(file_path, debounce_ms, on_change)
+}
+
+#[napi]
+pub fn stop_file_watch(file_path: String) -> napi::Result<()> {
+    crate::storage::services::file_watcher::stop_file_watch(file_path)
+}

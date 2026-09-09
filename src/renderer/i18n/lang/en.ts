@@ -3820,6 +3820,12 @@ export const en = {
   "rightPanel.fileSearchPrevious": "Previous match (Shift+Enter)",
   "rightPanel.fileSearchNext": "Next match (Enter)",
   "rightPanel.fileSearchClose": "Close search (Esc)",
+  "rightPanel.fileFoldCollapse": "Collapse block",
+  "rightPanel.fileFoldExpand": "Expand block",
+  "rightPanel.fileFoldHiddenLines": "⋯ {{count}} lines",
+  "rightPanel.fileViewerExternalChange": "This file was changed on disk.",
+  "rightPanel.fileViewerExternalReload": "Reload",
+  "rightPanel.fileViewerExternalDismiss": "Dismiss",
   "rightPanel.aiDrawing.promptPlaceholder":
     "Describe the image you want to generate, Chinese supported; e.g. cyberpunk rainy city at night, neon reflections…",
   "rightPanel.aiDrawing.promptHint": "Ctrl + Enter to generate",

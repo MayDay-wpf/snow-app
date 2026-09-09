@@ -8,7 +8,14 @@ import {
   Plus,
   Server,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useI18n } from "../../../i18n";
 import { shortcutEvents } from "../../shortcutEvents";
@@ -21,6 +28,7 @@ import type {
 } from "../../../../preload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { FormDialog } from "../../common/FormDialog";
+import { SidebarCollapse } from "./SidebarCollapse";
 import { WorkspaceDirectoryList } from "./WorkspaceDirectoryList";
 import type { CrossProjectNotificationGroup } from "./useCrossProjectNotifications";
 
@@ -191,6 +199,30 @@ export function ProjectsSection({
       return false;
     }
   });
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const isChatsCollapsedRef = useRef(isChatsCollapsed);
+  isChatsCollapsedRef.current = isChatsCollapsed;
+  useLayoutEffect(() => {
+    const section = sectionRef.current;
+    if (!section) {
+      return;
+    }
+    const recordNaturalHeight = (): void => {
+      if (isChatsCollapsedRef.current) {
+        return;
+      }
+      section.style.setProperty(
+        "--projects-natural-h",
+        `${section.getBoundingClientRect().height}px`,
+      );
+    };
+    recordNaturalHeight();
+    const observer = new ResizeObserver(recordNaturalHeight);
+    observer.observe(section);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   const toggleProjectsCollapsed = (): void => {
     setIsProjectsCollapsed((prev) => {
@@ -387,7 +419,7 @@ export function ProjectsSection({
   const LOAD_MORE_DISTANCE = 40;
 
   useEffect(() => {
-    if (!hasMoreDirectories) {
+    if (!hasMoreDirectories || isProjectsCollapsed) {
       return;
     }
 
@@ -1293,6 +1325,7 @@ export function ProjectsSection({
       className={`sidebar-section projects-section${
         isProjectsCollapsed ? " collapsed" : ""
       }${isChatsCollapsed ? " chats-collapsed" : ""}`}
+      ref={sectionRef}
     >
       <div className="section-header">
         <button
@@ -1781,7 +1814,7 @@ export function ProjectsSection({
         ) : null}
       </FormDialog>
 
-      {!isProjectsCollapsed ? (
+      <SidebarCollapse open={!isProjectsCollapsed}>
         <div className="workspace-directory-card">
           <span className="workspace-directory-label">
             {t("sidebar.activeDirectory", {
@@ -1840,7 +1873,7 @@ export function ProjectsSection({
             <span className="workspace-directory-error">{directoryError}</span>
           ) : null}
         </div>
-      ) : null}
+      </SidebarCollapse>
     </div>
   );
 }
