@@ -11309,7 +11309,7 @@ input {
   display: flex;
   align-items: center;
   gap: 4px;
-  width: fit-content;
+  width: 100%;
   padding: 0;
   color: var(--text-secondary);
   font-size: 13px;
@@ -11392,6 +11392,22 @@ input {
 
 .thinking-block-meta-label {
   opacity: 0.75;
+}
+
+/* 单行思考内容预览：取尾部文本，纯文本展示，自动后滚
+   （流式输出时 content 增长，尾部自然更新展示最新片段）。
+   white-space: nowrap + overflow: hidden 保证永远单行不折行。 */
+.thinking-block-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  margin-left: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.85;
+  animation: thinking-meta-in 0.24s ease-out both;
 }
 
 @keyframes thinking-meta-in {

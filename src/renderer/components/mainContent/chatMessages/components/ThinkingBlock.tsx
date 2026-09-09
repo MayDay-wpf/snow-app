@@ -5,12 +5,18 @@ import {
   ChevronRight,
   Timer,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { MarkdownBlock } from "./markdownRenderer";
 
 /** 思考完成自动收起后，绿色成功勾替代展开箭头的时长（ms）。 */
 const SUCCESS_CHECK_DURATION = 1500;
+
+/** 单行预览最大字符数，超出后取尾部。 */
+const PREVIEW_MAX_CHARS = 150;
+
+/** 与 CSS .thinking-block-collapse 的 grid-template-rows 过渡时长一致。 */
+const COLLAPSE_ANIMATION_MS = 300;
 
 const formatTokenCount = (count: number): string =>
   count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
@@ -23,6 +29,17 @@ const formatThinkingDuration = (ms: number): string => {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}m${remainingSeconds}s`;
+};
+
+/**
+ * 从思考内容中提取单行预览文本（取尾部），不经过 Markdown 渲染。
+ * 流式输出时 content 持续增长，尾部自然"后滚"展示最新内容。
+ */
+const getPreviewText = (content: string): string => {
+  if (!content) return "";
+  const singleLine = content.replace(/[\n\r\t]+/g, " ");
+  if (singleLine.length <= PREVIEW_MAX_CHARS) return singleLine;
+  return "…" + singleLine.slice(-PREVIEW_MAX_CHARS);
 };
 
 type ThinkingBlockProps = {
@@ -49,12 +66,16 @@ export const ThinkingBlock = ({
   const [isCollapsed, setIsCollapsed] = useState(true);
   // 思考完成自动收起的瞬间，绿色圆勾短暂替代展开箭头，1.5s 后还原。
   const [showSuccessCheck, setShowSuccessCheck] = useState(false);
+  // MarkdownBlock 延迟卸载：展开时立即挂载，收起时等动画播完再卸载，
+  // 保住 grid-template-rows 过渡动画的起始高度，同时释放 worker 内存。
+  const [contentMounted, setContentMounted] = useState(false);
 
   // 用户手动操作过后不再自动收起，避免打断阅读。
   const userInteractedRef = useRef(false);
   // 识别"思考中 → 结束"的真实转变，避免历史消息误判为刚完成。
   const prevThinkingActiveRef = useRef(isThinkingActive);
   const successTimerRef = useRef<number | null>(null);
+  const unmountTimerRef = useRef<number | null>(null);
 
   // 思考结束自动收起，保持对话紧凑；用户手动操作过则跳过。触发瞬间用
   // 绿色圆勾替代展开箭头提示成功，1.5s 后还原（SUCCESS_CHECK_DURATION）。
@@ -78,10 +99,35 @@ export const ThinkingBlock = ({
     }, SUCCESS_CHECK_DURATION);
   }, [isThinkingActive]);
 
+  // 内容区延迟卸载：展开立即挂载，收起等动画结束再卸载。
+  useEffect(() => {
+    if (!isCollapsed) {
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+        unmountTimerRef.current = null;
+      }
+      setContentMounted(true);
+    } else {
+      unmountTimerRef.current = window.setTimeout(() => {
+        unmountTimerRef.current = null;
+        setContentMounted(false);
+      }, COLLAPSE_ANIMATION_MS);
+    }
+    return () => {
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+        unmountTimerRef.current = null;
+      }
+    };
+  }, [isCollapsed]);
+
   useEffect(() => {
     return () => {
       if (successTimerRef.current !== null) {
         window.clearTimeout(successTimerRef.current);
+      }
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
       }
     };
   }, []);
@@ -106,6 +152,12 @@ export const ThinkingBlock = ({
       ? t("chat.thinkingDone")
       : t("chat.thinkingContent");
   const hasStats = durationMs > 0 || tokenCount > 0;
+
+  // 单行预览文本：仅在思考进行中显示，思考完毕后自动收掉。
+  const previewText = useMemo(
+    () => (isThinkingActive ? getPreviewText(content) : ""),
+    [content, isThinkingActive],
+  );
 
   return (
     <div className="thinking-block">
@@ -155,13 +207,18 @@ export const ThinkingBlock = ({
             <span className="thinking-block-meta-label">tokens</span>
           </span>
         ) : null}
+        {previewText ? (
+          <span className="thinking-block-preview" aria-hidden="true">
+            {previewText}
+          </span>
+        ) : null}
         {showSuccessCheck ? (
           <CheckCircle2
             className="thinking-block-check"
             size={16}
             aria-hidden="true"
           />
-        ) : (
+        ) : !isThinkingActive ? (
           <ChevronRight
             className={`thinking-block-chevron${
               !isCollapsed ? " thinking-block-chevron--open" : ""
@@ -169,23 +226,25 @@ export const ThinkingBlock = ({
             size={16}
             aria-hidden="true"
           />
-        )}
+        ) : null}
       </div>
 
-      {/* 内容区常挂载，收起时折叠为 0 高度，让折叠/展开能走高度过渡动画。 */}
+      {/* 内容区：展开时挂载 MarkdownBlock，收起时等 grid 动画播完再卸载，
+          保住过渡动画起始高度，同时释放 worker 解析内存。 */}
       <div
         className={`thinking-block-collapse${
           isCollapsed ? " is-collapsed" : ""
         }`}
       >
         <div className="thinking-block-collapse-inner">
-          {/* 思考过程文本同样支持划词引用（data-quote-source）。 */}
           <div className="thinking-block-content" data-quote-source="true">
-            <MarkdownBlock
-              className="thinking-block-body"
-              content={content}
-              streaming={isStreaming}
-            />
+            {contentMounted && (
+              <MarkdownBlock
+                className="thinking-block-body"
+                content={content}
+                streaming={isStreaming}
+              />
+            )}
           </div>
         </div>
       </div>
