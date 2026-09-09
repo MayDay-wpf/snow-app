@@ -27977,11 +27977,28 @@ input {
   opacity: 1;
 }
 
+.project-mcp-server-info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
 .project-mcp-server-name {
   overflow: hidden;
   color: var(--text-primary);
   font-size: 12.5px;
   font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-mcp-server-desc {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

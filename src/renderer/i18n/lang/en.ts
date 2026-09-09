@@ -3351,6 +3351,31 @@ export const en = {
     "Disabled globally. Enable it in Settings before using it in this project.",
   "projectMcp.serverErrorImagegenNotConfigured":
     "No image generation channel configured. Configure at least one channel in Settings -> Image generation.",
+  "mcpBuiltinServer.desc.filesystem": "Read, create, and edit local files",
+  "mcpBuiltinServer.desc.bash": "Run one-shot shell commands",
+  "mcpBuiltinServer.desc.todo": "Manage the session TODO list",
+  "mcpBuiltinServer.desc.grep": "Search file contents by regex",
+  "mcpBuiltinServer.desc.websearch": "Search the web and fetch page content",
+  "mcpBuiltinServer.desc.browser":
+    "Automate the built-in browser (tabs, DOM, screenshots)",
+  "mcpBuiltinServer.desc.userInteraction":
+    "Ask you questions and wait for your answers",
+  "mcpBuiltinServer.desc.subAgents": "Delegate work to sub-agents",
+  "mcpBuiltinServer.desc.codebase":
+    "Semantic search across the indexed codebase",
+  "mcpBuiltinServer.desc.codelens":
+    "Jump to definitions, references, and file outlines",
+  "mcpBuiltinServer.desc.appControl":
+    "Control Snow App itself (settings, memos, modes)",
+  "mcpBuiltinServer.desc.config": "Read and change app configuration",
+  "mcpBuiltinServer.desc.terminal":
+    "Open interactive terminal sessions in the side panel",
+  "mcpBuiltinServer.desc.imagegen": "Generate and edit images",
+  "mcpBuiltinServer.desc.lsp": "Language server diagnostics and navigation",
+  "mcpBuiltinServer.desc.workflow": "Run multi-step workflows",
+  "mcpBuiltinServer.desc.memory": "Remember project knowledge across sessions",
+  "mcpBuiltinServer.desc.computerUse":
+    "Screenshot and control the desktop (mouse, keyboard)",
   "projectCodebase.title": "Project Codebase",
   "projectCodebase.description": "Codebase indexing for {{project}}",
   "projectCodebase.noProject":

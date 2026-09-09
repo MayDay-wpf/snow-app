@@ -14,6 +14,7 @@ import type {
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { formatMcpError } from "../../sidebar/mcpSettings/mcpErrorMessages";
+import { builtinServerDescriptionKey } from "../../sidebar/mcpSettings/builtinServerDescriptions";
 import { Modal } from "../../common/Modal";
 import { LITE_MODE_CHANGED_EVENT } from "../chatMessages/hooks/useToolAuthorization";
 
@@ -315,6 +316,10 @@ export const ProjectMcpPanel = ({
           const discoveryError =
             toolError ?? (server.error as string | null | undefined);
           const canRetry = server.source !== "system";
+          const descriptionKey = builtinServerDescriptionKey(server.id);
+          const serverDescription = descriptionKey
+            ? t(descriptionKey)
+            : undefined;
           const serverDisabled = !server.globalEnabled;
           const serverClassName = [
             "project-mcp-server",
@@ -345,7 +350,19 @@ export const ProjectMcpPanel = ({
                       server.enabled ? " is-enabled" : ""
                     }`}
                   />
-                  <span className="project-mcp-server-name">{server.name}</span>
+                  <span className="project-mcp-server-info">
+                    <span className="project-mcp-server-name">
+                      {server.name}
+                    </span>
+                    {serverDescription ? (
+                      <span
+                        className="project-mcp-server-desc"
+                        title={serverDescription}
+                      >
+                        {serverDescription}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="project-mcp-tool-count">
                     {toolsRetrying
                       ? t("projectMcp.loadingToolsShort")

@@ -30,6 +30,7 @@ import {
 } from "./mcpSettings/McpSettingsList";
 import { McpSettingsSummary } from "./mcpSettings/McpSettingsSummary";
 import { formatMcpError } from "./mcpSettings/mcpErrorMessages";
+import { builtinServerDescriptionKey } from "./mcpSettings/builtinServerDescriptions";
 import {
   EMPTY_MCP_SERVER_DRAFT,
   createMcpPair,
@@ -683,29 +684,35 @@ export function McpSettingsPanel({
       const projectConfig = projectServerConfigs.find(
         (item) => item.serverId === configServerId,
       );
+      // 内置服务说明：内置服务固定不变，文案来自 i18n
+      const descriptionKey = builtinServerDescriptionKey(server.id);
+      const builtinDescription = descriptionKey ? t(descriptionKey) : "";
+      const sourceDetail =
+        server.source === "system"
+          ? t("settings.mcpProjectSystemServer", {
+              defaultValue: "Built-in system MCP server",
+            })
+          : server.source === "project"
+            ? `${t("settings.mcpProjectOwnedServer", {
+                defaultValue: "Project MCP server",
+              })} · ${
+                projectConfig
+                  ? `${projectConfig.transportType} · ${
+                      getMcpServerEndpoint(projectConfig) || "-"
+                    }`
+                  : "-"
+              }`
+            : t("settings.mcpProjectExternalServer", {
+                defaultValue: "Global external MCP server",
+              });
       return {
         serverId: server.id,
         name: server.name,
         enabled: server.enabled,
         globalEnabled: server.globalEnabled,
-        detail:
-          server.source === "system"
-            ? t("settings.mcpProjectSystemServer", {
-                defaultValue: "Built-in system MCP server",
-              })
-            : server.source === "project"
-              ? `${t("settings.mcpProjectOwnedServer", {
-                  defaultValue: "Project MCP server",
-                })} · ${
-                  projectConfig
-                    ? `${projectConfig.transportType} · ${
-                        getMcpServerEndpoint(projectConfig) || "-"
-                      }`
-                    : "-"
-                }`
-              : t("settings.mcpProjectExternalServer", {
-                  defaultValue: "Global external MCP server",
-                }),
+        detail: builtinDescription
+          ? `${sourceDetail} · ${builtinDescription}`
+          : sourceDetail,
         canManage: server.source === "project",
         importResource: projectConfig
           ? importResources.find(
