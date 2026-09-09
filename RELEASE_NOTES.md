@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.2.33
+
+## Improvements
+
+- Channel / model / thinking intensity / Fast Mode selections are now kept in a unified in-memory store and persisted only on send; unsent selections survive conversation switches.
+- The thinking block shows a single-line live preview while thinking, and the content area is unmounted only after the collapse animation finishes, keeping the transition smooth while freeing memory.
+- Cross-project notifications now cover still-running conversations not yet persisted, so new sessions no longer disappear from the "other projects" block after switching projects.
+
 ## v0.2.32
 
 ## New Features
