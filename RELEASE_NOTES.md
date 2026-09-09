@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.2.32
+
+## New Features
+
+- **File Change Auto-Refresh**: The file viewer watches disk changes and reloads automatically; when the editor has unsaved edits it shows a prompt to reload or ignore.
+- **Code Folding**: The file viewer folds code blocks by indentation, shows the hidden line count, and auto-expands when jumping to a folded line.
+- **Built-in Service Descriptions**: The MCP panel and settings list now show descriptions for built-in services.
+
+## Improvements
+
+- Checkpoint storage moves to a shard layout (checkpoints by date, objects by content-id prefix); existing data is rearranged in place at startup.
+- The thinking block is simplified to two states: collapsed or fully expanded.
+- The run summary uses brand model icons.
+- Smooth animations for sidebar section collapse and Git file list grouping/collapse.
+
 ## v0.2.31
 
 ## New Features
