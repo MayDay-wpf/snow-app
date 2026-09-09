@@ -58,6 +58,14 @@ type UseChatInputControllerParams = {
   clearInputDraft?: (conversationId: string | undefined) => void;
   rollbackInputState?: ConversationInputRuntimeState | null;
   onRuntimeInputStateChange?: (state: ConversationInputRuntimeState) => void;
+  /**
+   * 读取指定会话的内存态输入选择（渠道/模型/思考强度/Fast Mode）。
+   * 内存态是本次运行的权威值：切换后尚未发送的选择必须在会话切换后保留，
+   * 因此 hydration 时优先于数据库里的持久化快照。
+   */
+  getRuntimeInputState?: (
+    conversationId: string,
+  ) => ConversationInputRuntimeState | undefined;
 };
 
 type UseChatInputControllerResult = ChatInputState & ChatInputActions;
@@ -88,6 +96,7 @@ export const useChatInputController = ({
   clearInputDraft,
   rollbackInputState,
   onRuntimeInputStateChange,
+  getRuntimeInputState,
 }: UseChatInputControllerParams): UseChatInputControllerResult => {
   const { t } = useI18n();
   const { sendKeyMode, setSendKeyMode } = useSendKeyMode();
@@ -118,63 +127,16 @@ export const useChatInputController = ({
   // by an empty string in the menu; effectiveThinkingValue is derived below
   // from the selected profile when this is empty.
   const [thinkingOverride, setThinkingOverride] = useState("");
-  const [isSavingThinking, setIsSavingThinking] = useState(false);
   const [thinkingError, setThinkingError] = useState<string | null>(null);
   const [responsesFastModeOverride, setResponsesFastModeOverride] = useState<
     boolean | null
   >(null);
-  const [isSavingFastMode, setIsSavingFastMode] = useState(false);
   const [fastModeError, setFastModeError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Hydration/model requests are scoped to the current project + conversation.
   // A token is stronger than a cancelled flag when the same mounted instance
   // receives a new target before an older model request resolves.
   const hydrationRequestTokenRef = useRef(0);
-  const runtimeMutationTokenRef = useRef(0);
-  // Serialize writes that target the same conversation. Mutation tokens keep
-  // stale results out of the UI, while this queue also prevents an older
-  // request-level setter from completing after a profile-switch clear and
-  // reintroducing the old override in storage.
-  const runtimeWriteChainRef = useRef<Promise<void>>(Promise.resolve());
-
-  const enqueueRuntimeConfigWrite = useCallback(
-    (
-      targetConversationId: string,
-      thinkingStrength: string | null,
-      responsesFastMode: boolean | null,
-    ): Promise<void> => {
-      const write = runtimeWriteChainRef.current
-        .catch(() => {})
-        .then(() =>
-          window.snow.setConversationRuntimeConfig(
-            targetConversationId,
-            thinkingStrength,
-            responsesFastMode,
-          ),
-        );
-      runtimeWriteChainRef.current = write.catch(() => {});
-      return write;
-    },
-    [],
-  );
-  // Profile binding writes are serialized separately from runtime snapshot
-  // writes so two rapid profile selections cannot restore an older binding.
-  const profileWriteChainRef = useRef<Promise<void>>(Promise.resolve());
-  const enqueueConversationProfileWrite = useCallback(
-    (targetConversationId: string, profileName: string): Promise<void> => {
-      const write = profileWriteChainRef.current
-        .catch(() => {})
-        .then(() =>
-          window.snow.updateConversationApiProfile(
-            targetConversationId,
-            profileName,
-          ),
-        );
-      profileWriteChainRef.current = write.catch(() => {});
-      return write;
-    },
-    [],
-  );
 
   const labels = useMemo(
     () => ({
@@ -225,9 +187,6 @@ export const useChatInputController = ({
 
   useEffect(() => {
     const requestToken = ++hydrationRequestTokenRef.current;
-    // A target change also invalidates a pending runtime-config mutation from
-    // the previous conversation. Its result must not write into this target.
-    runtimeMutationTokenRef.current += 1;
     let cancelled = false;
     const isCurrentRequest = (): boolean =>
       !cancelled && hydrationRequestTokenRef.current === requestToken;
@@ -245,8 +204,6 @@ export const useChatInputController = ({
     setResponsesFastModeOverride(null);
     setThinkingError(null);
     setFastModeError(null);
-    setIsSavingThinking(false);
-    setIsSavingFastMode(false);
     setIsModelMenuOpen(false);
     setIsManualMode(false);
     setManualValue("");
@@ -275,8 +232,14 @@ export const useChatInputController = ({
         const subAgentConversation =
           conversation?.conversationType === "sub_agent";
         const rollbackState = !conversationId ? rollbackInputState : null;
+        // 内存态选择（尚未随发送落库）优先于数据库快照：切换会话后必须
+        // 保留用户刚刚做出的选择，而不是回退到上次持久化的旧值。
+        const inMemoryState = conversationId
+          ? getRuntimeInputState?.(conversationId)
+          : undefined;
         const requestedProfile =
           rollbackState?.apiProfile?.trim() ||
+          inMemoryState?.apiProfile?.trim() ||
           conversation?.apiProfileName?.trim() ||
           "";
         let runtimeConfig: ApiConfigRecord | null = null;
@@ -305,13 +268,20 @@ export const useChatInputController = ({
         }
 
         const rememberedModel =
-          rollbackState?.model?.trim() || conversation?.model?.trim() || "";
+          rollbackState?.model?.trim() ||
+          inMemoryState?.model?.trim() ||
+          conversation?.model?.trim() ||
+          "";
         const persistedThinkingOverride = rollbackState
           ? rollbackState.thinkingStrength
-          : (runtimeOverride?.thinkingStrength ?? null);
+          : inMemoryState
+            ? inMemoryState.thinkingStrength
+            : (runtimeOverride?.thinkingStrength ?? null);
         const persistedFastModeOverride = rollbackState
           ? rollbackState.responsesFastMode
-          : (runtimeOverride?.responsesFastMode ?? null);
+          : inMemoryState
+            ? inMemoryState.responsesFastMode
+            : (runtimeOverride?.responsesFastMode ?? null);
 
         setApiConfigs(configs);
         setIsSubAgentConversation(subAgentConversation);
@@ -355,9 +325,14 @@ export const useChatInputController = ({
       if (hydrationRequestTokenRef.current === requestToken) {
         hydrationRequestTokenRef.current += 1;
       }
-      runtimeMutationTokenRef.current += 1;
     };
-  }, [conversationId, projectId, labels, rollbackInputState]);
+  }, [
+    conversationId,
+    projectId,
+    labels,
+    rollbackInputState,
+    getRuntimeInputState,
+  ]);
 
   useEffect(() => {
     if (isLoadingApiConfig || !onRuntimeInputStateChange) {
@@ -798,10 +773,13 @@ export const useChatInputController = ({
       if (renamedSelected) {
         setSelectedApiProfile(savedProfileName);
         if (conversationId && !isSubAgentConversation) {
-          void enqueueConversationProfileWrite(
-            conversationId,
-            savedProfileName,
-          );
+          // 渠道被重命名后，已持久化的旧绑定名会失效；这里同步修复一次，
+          // 避免摘要等读取持久绑定的路径找不到该渠道。
+          void window.snow
+            .updateConversationApiProfile(conversationId, savedProfileName)
+            .catch(() => {
+              // 修复失败不阻断保存流程，下次发送会重新写入绑定。
+            });
         }
       }
       if (savedProfileName !== selectedApiProfile && !renamedSelected) {
@@ -820,13 +798,7 @@ export const useChatInputController = ({
       setModelError(null);
       void loadModels(true, record);
     },
-    [
-      selectedApiProfile,
-      conversationId,
-      isSubAgentConversation,
-      enqueueConversationProfileWrite,
-      loadModels,
-    ],
+    [selectedApiProfile, conversationId, isSubAgentConversation, loadModels],
   );
 
   const handleToggleModelMenu = useCallback(() => {
@@ -840,9 +812,11 @@ export const useChatInputController = ({
   }, [loadModels]);
 
   // Switch the conversation-scoped API profile. A profile switch starts a new
-  // runtime snapshot: old thinking/Fast overrides are never migrated.
+  // runtime snapshot: old thinking/Fast overrides are never migrated. The
+  // selection lives in memory until the next send persists it (same lifecycle
+  // as the model), so switching alone never writes to the database.
   const handleSelectApiProfile = useCallback(
-    async (profileName: string) => {
+    (profileName: string) => {
       const nextConfig = apiConfigs.find(
         (config) => config.profileName === profileName,
       );
@@ -855,17 +829,8 @@ export const useChatInputController = ({
         return;
       }
 
-      const previousState = {
-        apiProfile: selectedApiProfile,
-        model: selectedModel,
-        runtimeConfig: runtimeApiConfig,
-        thinkingOverride,
-        responsesFastModeOverride,
-      };
-      const mutationToken = ++runtimeMutationTokenRef.current;
       // Invalidate an in-flight model request for the previous profile.
       hydrationRequestTokenRef.current += 1;
-      let profileUpdated = false;
 
       setSelectedApiProfile(profileName);
       setIsModelMenuOpen(false);
@@ -879,71 +844,8 @@ export const useChatInputController = ({
       setSelectedModel(nextConfig.advancedModel || "");
       setThinkingOverride("");
       setResponsesFastModeOverride(null);
-
-      if (conversationId && !isSubAgentConversation) {
-        try {
-          await enqueueConversationProfileWrite(conversationId, profileName);
-          profileUpdated = true;
-          await enqueueRuntimeConfigWrite(conversationId, null, null);
-          if (runtimeMutationTokenRef.current !== mutationToken) {
-            return;
-          }
-        } catch (error) {
-          if (runtimeMutationTokenRef.current !== mutationToken) {
-            return;
-          }
-          // Best-effort rollback keeps the UI and storage honest if the
-          // complete runtime snapshot could not be persisted after changing
-          // the binding.
-          if (profileUpdated) {
-            try {
-              await enqueueConversationProfileWrite(
-                conversationId,
-                previousState.apiProfile,
-              );
-            } catch {
-              // The original error remains the actionable message.
-            }
-            try {
-              await enqueueRuntimeConfigWrite(
-                conversationId,
-                previousState.thinkingOverride === ""
-                  ? null
-                  : previousState.thinkingOverride,
-                previousState.responsesFastModeOverride,
-              );
-            } catch {
-              // The original error remains the actionable message.
-            }
-          }
-          if (runtimeMutationTokenRef.current !== mutationToken) {
-            return;
-          }
-          setSelectedApiProfile(previousState.apiProfile);
-          setSelectedModel(previousState.model);
-          setRuntimeApiConfig(previousState.runtimeConfig);
-          setThinkingOverride(previousState.thinkingOverride);
-          setResponsesFastModeOverride(previousState.responsesFastModeOverride);
-          setModelError(
-            error instanceof Error
-              ? error.message
-              : "Failed to update conversation API profile",
-          );
-        }
-      }
     },
-    [
-      apiConfigs,
-      conversationId,
-      enqueueConversationProfileWrite,
-      enqueueRuntimeConfigWrite,
-      isSubAgentConversation,
-      responsesFastModeOverride,
-      runtimeApiConfig,
-      selectedApiProfile,
-      selectedModel,
-      thinkingOverride,
-    ],
+    [apiConfigs, selectedApiProfile],
   );
 
   // Open the API profile picker (a sub-view of the model menu). Driven by the
@@ -992,180 +894,39 @@ export const useChatInputController = ({
   }, [effectiveThinkingValue, thinkingOptions]);
 
   const handleSelectThinking = useCallback(
-    async (nextValue: string) => {
+    (nextValue: string) => {
       if (!runtimeApiConfig) {
         return;
       }
 
-      const previousThinkingOverride = thinkingOverride;
-      const previousFastModeOverride = responsesFastModeOverride;
-      const mutationToken = ++runtimeMutationTokenRef.current;
-      const persistedThinkingValue = nextValue === "" ? null : nextValue;
       setThinkingOverride(nextValue);
       setIsModelMenuOpen(false);
-      setIsSavingThinking(true);
       setThinkingError(null);
-
-      if (!conversationId) {
-        setIsSavingThinking(false);
-        return;
-      }
-
-      try {
-        await enqueueRuntimeConfigWrite(
-          conversationId,
-          persistedThinkingValue,
-          previousFastModeOverride,
-        );
-        if (runtimeMutationTokenRef.current !== mutationToken) {
-          return;
-        }
-      } catch (error) {
-        if (runtimeMutationTokenRef.current !== mutationToken) {
-          return;
-        }
-        setThinkingOverride(previousThinkingOverride);
-        setResponsesFastModeOverride(previousFastModeOverride);
-        setThinkingError(
-          error instanceof Error
-            ? error.message
-            : t("chat.saveThinkingStrengthError"),
-        );
-      } finally {
-        if (runtimeMutationTokenRef.current === mutationToken) {
-          setIsSavingThinking(false);
-        }
-      }
     },
-    [
-      conversationId,
-      enqueueRuntimeConfigWrite,
-      responsesFastModeOverride,
-      runtimeApiConfig,
-      t,
-      thinkingOverride,
-    ],
+    [runtimeApiConfig],
   );
 
-  const handleToggleResponsesFastMode = useCallback(async (): Promise<void> => {
+  const handleToggleResponsesFastMode = useCallback((): void => {
     if (
       !runtimeApiConfig ||
       requestMethod !== "responses" ||
       isStreaming ||
-      isSubAgentConversation ||
-      isSavingFastMode
+      isSubAgentConversation
     ) {
       return;
     }
 
-    const previousThinkingOverride = thinkingOverride;
-    const previousFastModeOverride = responsesFastModeOverride;
-    const mutationToken = ++runtimeMutationTokenRef.current;
-    // Toggle from the effective value, then persist an explicit boolean. In
-    // particular, turning Fast Mode off must persist `false`, not inherit.
-    const nextEnabled = !responsesFastModeEnabled;
-    setResponsesFastModeOverride(nextEnabled);
-    setIsSavingFastMode(true);
+    // Toggle from the effective value, then keep an explicit boolean in
+    // memory. In particular, turning Fast Mode off must stay `false`, not
+    // inherit the profile default. The value is persisted on the next send.
+    setResponsesFastModeOverride(!responsesFastModeEnabled);
     setFastModeError(null);
-
-    if (!conversationId) {
-      setIsSavingFastMode(false);
-      return;
-    }
-
-    try {
-      await enqueueRuntimeConfigWrite(
-        conversationId,
-        previousThinkingOverride === "" ? null : previousThinkingOverride,
-        nextEnabled,
-      );
-      if (runtimeMutationTokenRef.current !== mutationToken) {
-        return;
-      }
-    } catch (error) {
-      if (runtimeMutationTokenRef.current !== mutationToken) {
-        return;
-      }
-      setResponsesFastModeOverride(previousFastModeOverride);
-      setFastModeError(
-        error instanceof Error ? error.message : t("chat.saveFastModeError"),
-      );
-    } finally {
-      if (runtimeMutationTokenRef.current === mutationToken) {
-        setIsSavingFastMode(false);
-      }
-    }
   }, [
-    conversationId,
-    enqueueRuntimeConfigWrite,
-    isSavingFastMode,
     isStreaming,
     isSubAgentConversation,
     requestMethod,
     responsesFastModeEnabled,
-    responsesFastModeOverride,
     runtimeApiConfig,
-    t,
-    thinkingOverride,
-  ]);
-
-  const handleResetResponsesFastMode = useCallback(async (): Promise<void> => {
-    if (
-      !runtimeApiConfig ||
-      requestMethod !== "responses" ||
-      isStreaming ||
-      isSubAgentConversation ||
-      isSavingFastMode ||
-      responsesFastModeOverride === null
-    ) {
-      return;
-    }
-
-    const previousFastModeOverride = responsesFastModeOverride;
-    const previousThinkingOverride = thinkingOverride;
-    const mutationToken = ++runtimeMutationTokenRef.current;
-    setResponsesFastModeOverride(null);
-    setIsSavingFastMode(true);
-    setFastModeError(null);
-
-    if (!conversationId) {
-      setIsSavingFastMode(false);
-      return;
-    }
-
-    try {
-      await enqueueRuntimeConfigWrite(
-        conversationId,
-        previousThinkingOverride === "" ? null : previousThinkingOverride,
-        null,
-      );
-      if (runtimeMutationTokenRef.current !== mutationToken) {
-        return;
-      }
-    } catch (error) {
-      if (runtimeMutationTokenRef.current !== mutationToken) {
-        return;
-      }
-      setResponsesFastModeOverride(previousFastModeOverride);
-      setFastModeError(
-        error instanceof Error ? error.message : t("chat.saveFastModeError"),
-      );
-    } finally {
-      if (runtimeMutationTokenRef.current === mutationToken) {
-        setIsSavingFastMode(false);
-      }
-    }
-  }, [
-    conversationId,
-    enqueueRuntimeConfigWrite,
-    isSavingFastMode,
-    isStreaming,
-    isSubAgentConversation,
-    requestMethod,
-    responsesFastModeOverride,
-    runtimeApiConfig,
-    t,
-    thinkingOverride,
   ]);
 
   useLayoutEffect(() => {
@@ -1198,11 +959,9 @@ export const useChatInputController = ({
     thinkingDefaultLabel,
     ActiveThinkingIcon: activeThinkingOption.icon,
     isLoadingApiConfig,
-    isSavingThinking,
     thinkingError,
     responsesFastModeEnabled,
     responsesFastModeOverride,
-    isSavingFastMode,
     fastModeError,
     labels,
     isStreaming,
@@ -1226,7 +985,6 @@ export const useChatInputController = ({
     handleSelectApiProfile,
     handleSelectThinking,
     handleToggleResponsesFastMode,
-    handleResetResponsesFastMode,
     setSendKeyMode,
     restoreContent,
   };

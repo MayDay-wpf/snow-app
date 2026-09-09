@@ -45,10 +45,8 @@ type ModelSelectorProps = Pick<
   | "thinkingLabel"
   | "ActiveThinkingIcon"
   | "isLoadingApiConfig"
-  | "isSavingThinking"
   | "thinkingError"
   | "responsesFastModeEnabled"
-  | "isSavingFastMode"
   | "fastModeError"
   | "labels"
   | "isStreaming"
@@ -93,10 +91,8 @@ export const ModelSelector = ({
   thinkingLabel,
   ActiveThinkingIcon,
   isLoadingApiConfig,
-  isSavingThinking,
   thinkingError,
   responsesFastModeEnabled,
-  isSavingFastMode,
   fastModeError,
   labels,
   isStreaming,
@@ -342,7 +338,7 @@ export const ModelSelector = ({
                 }))
           }
         >
-          {isLoadingApiConfig || isSavingThinking ? (
+          {isLoadingApiConfig ? (
             <Loader2 size={12} className="spin" />
           ) : thinkingError ? (
             <AlertCircle size={12} />
@@ -356,11 +352,7 @@ export const ModelSelector = ({
             className="model-trigger-fast"
             title={fastModeError ?? t("chat.fastModeEnabled")}
           >
-            {isSavingFastMode ? (
-              <Loader2 size={12} className="spin" />
-            ) : (
-              <Zap size={12} />
-            )}
+            <Zap size={12} />
             <span>Fast</span>
           </span>
         )}
@@ -390,9 +382,7 @@ export const ModelSelector = ({
               </button>
               <button
                 className="model-dropdown-item"
-                disabled={
-                  !runtimeApiConfig || isLoadingApiConfig || isSavingThinking
-                }
+                disabled={!runtimeApiConfig || isLoadingApiConfig}
                 onClick={() => setModelMenuView("thinking")}
                 type="button"
               >
@@ -400,13 +390,7 @@ export const ModelSelector = ({
                   {t("chat.thinkingStrength")}
                 </span>
                 <span className="model-menu-value">
-                  {isSavingThinking ? (
-                    <Loader2 size={12} className="spin" />
-                  ) : (
-                    <span className="model-menu-value-text">
-                      {thinkingLabel}
-                    </span>
-                  )}
+                  <span className="model-menu-value-text">{thinkingLabel}</span>
                   <ChevronRight size={12} />
                 </span>
               </button>
@@ -420,7 +404,6 @@ export const ModelSelector = ({
                   disabled={
                     !runtimeApiConfig ||
                     isLoadingApiConfig ||
-                    isSavingFastMode ||
                     isStreaming ||
                     isSubAgentConversation
                   }
@@ -433,17 +416,13 @@ export const ModelSelector = ({
                     <span>{t("chat.fastMode")}</span>
                   </span>
                   <span className="model-menu-value">
-                    {isSavingFastMode ? (
-                      <Loader2 size={12} className="spin" />
-                    ) : (
-                      <span className="model-menu-value-text">
-                        {t(
-                          responsesFastModeEnabled
-                            ? "chat.fastModeOn"
-                            : "chat.fastModeOff",
-                        )}
-                      </span>
-                    )}
+                    <span className="model-menu-value-text">
+                      {t(
+                        responsesFastModeEnabled
+                          ? "chat.fastModeOn"
+                          : "chat.fastModeOff",
+                      )}
+                    </span>
                   </span>
                 </button>
               )}
@@ -759,7 +738,6 @@ export const ModelSelector = ({
               showBack
               onBack={() => setModelMenuView("root")}
               onSelect={(value) => void handleSelectThinking(value)}
-              saving={isSavingThinking}
             />
           )}
         </div>

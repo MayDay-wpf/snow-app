@@ -237,6 +237,16 @@ export const useChatConversation = (
     },
     [],
   );
+  /**
+   * 读取会话的内存态输入选择（渠道/模型/思考强度/Fast Mode）。
+   * 内存态是本次运行的权威值：切换后尚未发送的选择必须在会话切换后保留，
+   * 因此输入区 hydration 时优先使用它，而不是数据库里的旧快照。
+   */
+  const getRuntimeInputState = useCallback(
+    (conversationId: string): ConversationInputRuntimeState | undefined =>
+      runtimeInputStateRef.current[conversationId],
+    [],
+  );
   const inputDraftKeyFor = useCallback(
     (conversationId: string | undefined): string =>
       conversationId ?? PENDING_SESSION_KEY,
@@ -787,6 +797,7 @@ export const useChatConversation = (
     getInputDraft,
     clearInputDraft,
     updateRuntimeInputState,
+    getRuntimeInputState,
     buildFromContent: (
       content: string,
       directoryId?: string,

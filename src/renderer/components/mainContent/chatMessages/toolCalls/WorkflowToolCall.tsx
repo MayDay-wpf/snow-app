@@ -302,6 +302,7 @@ const WorkflowToolCallInner = ({
     handleSelectConversation,
     refreshConversations,
     conversationDirectoryId: contextDirectoryId,
+    getRuntimeInputState,
   } = useChatConversationContext();
   const { screenToFlowPosition } = useReactFlow();
   const parentConversationId = conversationId ?? "";
@@ -1404,12 +1405,16 @@ const WorkflowToolCallInner = ({
         .getChatConversation(parentConversationId)
         .catch(() => null);
       const targetDirectoryId = record?.directoryId ?? directoryId;
+      // 会话的内存态选择是运行时权威（用户刚切过、尚未随发送落库），优先于
+      // 数据库里的持久化绑定；没有内存态记录时才回落 DB。
+      const runtimeInputState = getRuntimeInputState(parentConversationId);
       const outcome = await executor.runWorkflow({
         parentConversationId,
         interactionId: toolCall.interactionId,
         directoryId: targetDirectoryId,
-        sessionApiProfile: record?.apiProfileName ?? "",
-        sessionModel: record?.model ?? "",
+        sessionApiProfile:
+          runtimeInputState?.apiProfile || record?.apiProfileName || "",
+        sessionModel: runtimeInputState?.model || record?.model || "",
         nodes: workableNodes,
         edges,
         onNodeConversationCreated: () => {
@@ -1443,6 +1448,7 @@ const WorkflowToolCallInner = ({
     directoryId,
     edges,
     refreshConversations,
+    getRuntimeInputState,
     toolCall.interactionId,
   ]);
 

@@ -128,6 +128,7 @@ const ChatContentBody = ({
     rollbackPreview,
     rollbackNewChatState,
     updateRuntimeInputState,
+    getRuntimeInputState,
     confirmRollback,
     cancelRollback,
     pendingMessages,
@@ -1571,6 +1572,7 @@ const ChatContentBody = ({
                 clearInputDraft={clearInputDraft}
                 rollbackInputState={rollbackNewChatState}
                 onRuntimeInputStateChange={handleRuntimeInputStateChange}
+                getRuntimeInputState={getRuntimeInputState}
                 pendingMessages={pendingMessages}
                 onWithdrawPendingMessage={withdrawPendingMessage}
                 onSendPendingMessageNow={sendPendingMessageNow}

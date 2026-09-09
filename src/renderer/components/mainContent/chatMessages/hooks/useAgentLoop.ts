@@ -4,6 +4,7 @@ import type { ChatInputSendOptions } from "../../chatInput/types";
 import type {
   ChatConversationMessage,
   ConversationContextValue,
+  ConversationSessionRef,
   ToolAuthorizationDecision,
   ToolCallInfo,
 } from "../utils/conversationTypes";
@@ -85,38 +86,61 @@ const captureChatInputSendOptions = (
   };
 };
 
-const persistPendingConversationRuntimeConfig = (
+/**
+ * 发送时统一落库：把本次发送携带的选择（渠道绑定、思考强度/Fast Mode 覆盖、
+ * 四种模式）写入会话记录。切换这些选择本身不再写库，只在真正发起会话时
+ * 持久化一次；内存态（session ref / 输入区状态）始终是运行时权威，这里的
+ * 写入只用于重启后恢复，以及标题摘要等后端内部请求读取持久绑定。
+ */
+const persistConversationSelection = (
   conversationId: string,
   options: CapturedChatInputSendOptions,
+  sessionRef: ConversationSessionRef | undefined,
 ): void => {
-  const runtimeOverride = options.conversationRuntimeConfigOverride;
-  if (!runtimeOverride) {
-    return;
-  }
-
   const recordFailure = (error: unknown): void => {
-    // The active run already has its request snapshot. Keep the setter failure
-    // non-blocking so a later hydration can reconcile the UI with the persisted
-    // value rather than treating the snapshot as saved.
+    // 落库失败不阻断发送：本次请求已携带请求级快照，下次发送会重新写入。
     void window.snow.writeLog("WARN", {
       module: "conversation-runtime",
-      func: "setConversationRuntimeConfig",
-      message: "Failed to persist pending conversation runtime config",
+      func: "persistConversationSelection",
+      message: "Failed to persist conversation selection",
       context: JSON.stringify({ conversationId }),
       error: getErrorMessage(error),
     });
   };
 
-  try {
-    void window.snow
-      .setConversationRuntimeConfig(
+  const writes: Promise<unknown>[] = [];
+  if (options.apiProfile) {
+    writes.push(
+      window.snow.updateConversationApiProfile(
+        conversationId,
+        options.apiProfile,
+      ),
+    );
+  }
+  const runtimeOverride = options.conversationRuntimeConfigOverride;
+  if (runtimeOverride) {
+    writes.push(
+      window.snow.setConversationRuntimeConfig(
         conversationId,
         runtimeOverride.thinkingStrength,
         runtimeOverride.responsesFastMode,
-      )
-      .catch(recordFailure);
-  } catch (error) {
-    recordFailure(error);
+      ),
+    );
+  }
+  if (sessionRef) {
+    writes.push(
+      window.snow.setConversationModes(
+        conversationId,
+        sessionRef.planMode,
+        sessionRef.goalMode,
+        sessionRef.worktreeMode,
+        sessionRef.workflowMode,
+        sessionRef.goalModeTokenBudget,
+      ),
+    );
+  }
+  for (const write of writes) {
+    write.catch(recordFailure);
   }
 };
 
@@ -308,6 +332,11 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
 
       ctx.ensureSession(sessionKey, sessionDirId);
       const sessionRef = ctx.sessionsRefData.current.get(sessionKey);
+      // 已有会话：发送时把当前选择统一落库（渠道绑定/思考强度/Fast Mode/模式）。
+      // 切换这些选择本身不再写库；pending 会话在迁移拿到真实 id 后再写。
+      if (!isPendingSessionKey(sessionKey)) {
+        persistConversationSelection(sessionKey, capturedOptions, sessionRef);
+      }
       // Capture the current runId so runAgentLoop can detect when a newer
       // send or abort has superseded this invocation.
       const currentRunId = (sessionRef?.runId ?? 0) + 1;
@@ -438,7 +467,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       let summaryTriggered = false;
 
       const isRunCancelled = createIsRunCancelled(ctx, currentRunId);
-
 
       const createFlushCheckpoint = async (
         flushKey: string,
@@ -800,31 +828,15 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             }
             ctx.migrateSession(effectiveKey, response.conversationId);
             ctx.setRollbackNewChatState(null);
-            // Persist only the explicit pending-session snapshot. Request-level
-            // thinking/Fast Mode values (including scheduled one-shot values)
-            // intentionally stay separate from this durable conversation state.
-            persistPendingConversationRuntimeConfig(
+            // pending 会话的渠道/运行时/模式选择在拿到真实会话 id 后统一落库，
+            // 使其在重启后仍能恢复（迁移前无 conversation_id 无法写入）。
+            persistConversationSelection(
               response.conversationId,
               capturedOptions,
+              ctx.sessionsRefData.current.get(response.conversationId),
             );
             effectiveKey = response.conversationId;
             finalSessionKey = response.conversationId;
-            // The pending session's Plan/Goal Mode (set before the session
-            // had a real id) now has a persisted conversation id: write it
-            // through so the modes survive a restart.
-            const migratedRef = ctx.sessionsRefData.current.get(
-              response.conversationId,
-            );
-            if (migratedRef) {
-              void window.snow.setConversationModes(
-                response.conversationId,
-                migratedRef.planMode,
-                migratedRef.goalMode,
-                migratedRef.worktreeMode,
-                migratedRef.workflowMode,
-                migratedRef.goalModeTokenBudget,
-              );
-            }
 
             if (
               ctx.activeSessionKeyRef.current === migratingPendingKey &&
@@ -972,7 +984,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             : [];
         const visibleToolCalls = toolCalls;
 
-
         const loopWillContinue =
           toolCalls.length > 0 ||
           (ctx.pendingQueueRef.current.get(effectiveKey)?.length ?? 0) > 0;
@@ -1000,7 +1011,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                 response.tokenUsage.inputTokens +
                 response.tokenUsage.outputTokens;
               if (totalTokens >= thresholdTokens) {
-
                 ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
                   currentMessages.map((currentMessage) =>
                     currentMessage.id === currentAssistantMessageId
@@ -1046,7 +1056,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
                     sessionRefAfterCompaction.isAbortRequested = false;
                   }
 
-                  
                   const postCompactionAssistantId =
                     createMessageId("assistant");
                   const postCompactionAssistant: ChatConversationMessage = {
@@ -1810,7 +1819,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             runUsage,
             runDurationMs,
           );
-    
+
           if (!isPendingSessionKey(finalSessionKey)) {
             void window.snow
               .setConversationRunStats(
@@ -1857,7 +1866,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               // onStop hook failures must not block cleanup
             });
 
-
           window.snow.notifyPetTurnEnded(
             petTurnId,
             runFailed || isRunCancelled(finalSessionKey),
@@ -1875,7 +1883,6 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             ctx.pauseControllerRef.current.delete(finalSessionKey);
             ctx.removeStreamingId(finalSessionKey);
           }
-
 
           if (!isPendingSessionKey(finalSessionKey)) {
             void window.snow

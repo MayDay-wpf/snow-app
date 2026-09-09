@@ -56,10 +56,8 @@ export const ChatInputView = ({
   thinkingLabel,
   ActiveThinkingIcon,
   isLoadingApiConfig,
-  isSavingThinking,
   thinkingError,
   responsesFastModeEnabled,
-  isSavingFastMode,
   fastModeError,
   labels,
   isStreaming,
@@ -739,10 +737,8 @@ export const ChatInputView = ({
             thinkingLabel={thinkingLabel}
             ActiveThinkingIcon={ActiveThinkingIcon}
             isLoadingApiConfig={isLoadingApiConfig}
-            isSavingThinking={isSavingThinking}
             thinkingError={thinkingError}
             responsesFastModeEnabled={responsesFastModeEnabled}
-            isSavingFastMode={isSavingFastMode}
             fastModeError={fastModeError}
             labels={labels}
             isStreaming={isStreaming}

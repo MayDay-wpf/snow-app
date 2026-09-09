@@ -865,6 +865,10 @@ export type UseChatConversationResult = {
     conversationId: string | undefined,
     state: ConversationInputRuntimeState,
   ) => void;
+  /** 读取会话的内存态输入选择：输入区 hydration 时优先于数据库快照。 */
+  getRuntimeInputState: (
+    conversationId: string,
+  ) => ConversationInputRuntimeState | undefined;
   isStreaming: boolean;
   isAborting: boolean;
   isPaused: boolean;

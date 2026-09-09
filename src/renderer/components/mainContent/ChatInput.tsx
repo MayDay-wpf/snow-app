@@ -24,6 +24,7 @@ export const ChatInput = ({
   clearInputDraft,
   rollbackInputState,
   onRuntimeInputStateChange,
+  getRuntimeInputState,
   pendingMessages = [],
   onWithdrawPendingMessage,
   onSendPendingMessageNow,
@@ -79,6 +80,7 @@ export const ChatInput = ({
     clearInputDraft,
     rollbackInputState,
     onRuntimeInputStateChange,
+    getRuntimeInputState,
   });
 
   return (

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatConversationContext } from "../../mainContent/chatMessages";
+import { isPendingSessionKey } from "../../mainContent/chatMessages/utils/conversationTypes";
 import type {
   ChatConversationRecord,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
 import { parseDbTimestamp } from "./chatTimeGroup";
+import { buildPendingConversationRecord } from "./pendingConversationRecord";
 
 /**
  * 跨项目通知聚合。
@@ -36,18 +38,22 @@ export type CrossProjectNotificationGroup = {
 const fallbackDirectoryName = (directoryId: string): string => {
   const trimmed = directoryId.trim();
   const separatorIndex = trimmed.indexOf(":");
-  const rawPath = separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
+  const rawPath =
+    separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
   const segments = rawPath.split(/[\\/]/).filter(Boolean);
   return segments.pop() || trimmed;
 };
 
 export const useCrossProjectNotifications = (
-  activeDirectoryId: string
+  activeDirectoryId: string,
 ): CrossProjectNotificationGroup[] => {
   const {
     streamingConversationIds,
     attentionRequiredConversationIds,
     completedConversationIds,
+    // 内存会话状态：pending 槽位（首条 AI 响应未返回、会话行尚未落库）的
+    // 通知记录只能从内存 session 重建，无法按 id 查库。
+    sessions,
     // 会话记录更新广播（LLM 摘要生成、fork 等）：项目内列表依赖它刷新，
     // 跨项目通知的缓存同样需要跟进，否则摘要生成后这里仍显示旧记录
     // （运行中会话的 summary 初始是第一条用户消息，生成摘要后才变成标题）。
@@ -56,6 +62,11 @@ export const useCrossProjectNotifications = (
     // 保证跨项目通知与项目内列表显示的标题始终一致。
     conversationListVersion,
   } = useChatConversationContext();
+
+  // 内存 session 的实时镜像：按 id 查询是异步的，重建 pending 占位记录时
+  // 读取最新值，避免把频繁变化的 sessions 纳入 effect 依赖。
+  const sessionsMirrorRef = useRef(sessions);
+  sessionsMirrorRef.current = sessions;
 
   // 通知会话记录缓存：conversationId → 会话记录（含所属项目 directoryId）。
   const [conversationsById, setConversationsById] = useState<
@@ -74,7 +85,12 @@ export const useCrossProjectNotifications = (
         const directories = await window.snow.listWorkspaceDirectories();
         if (!cancelled) {
           setDirectoriesById(
-            new Map(directories.map((directory) => [directory.directoryId, directory]))
+            new Map(
+              directories.map((directory) => [
+                directory.directoryId,
+                directory,
+              ]),
+            ),
           );
         }
       } catch {
@@ -111,9 +127,40 @@ export const useCrossProjectNotifications = (
     completedConversationIds,
   ]);
 
+  // pending 槽位的内存数据签名：session 状态随每个流式 token 变化，但占位
+  // 记录只依赖所属项目 / 首条用户消息 / 消息数；签名不变时不重建记录，
+  // 避免逐 token 刷新「其他项目」通知区块。
+  const pendingSignature = useMemo(() => {
+    if (!notificationIdsKey) {
+      return "";
+    }
+    const parts: string[] = [];
+    for (const id of notificationIdsKey.split("\u0000")) {
+      if (!isPendingSessionKey(id)) {
+        continue;
+      }
+      const session = sessions[id];
+      if (!session?.directoryId) {
+        continue;
+      }
+      const firstUserMessage = session.messages.find(
+        (message) => message.role === "user",
+      );
+      parts.push(
+        `${id}\u0001${session.directoryId}\u0001${session.messages.length}\u0001${
+          firstUserMessage?.content ?? session.summary
+        }`,
+      );
+    }
+    return parts.join("\u0002");
+  }, [notificationIdsKey, sessions]);
+
   // 跨项目按 id 查询会话记录；状态集合清空时同步清空缓存。
   // conversationListVersion 变化（重命名/置顶/删除等）时也重查，
   // 让跨项目通知的标题与项目内列表保持一致。
+  // pending 槽位（首条 AI 响应未返回、会话行尚未落库）无法按 id 查库：
+  // 从内存 session 重建占位记录一并缓存，否则切走项目后运行中的新会话
+  // 在「其他项目」通知区块中完全不可见。
   useEffect(() => {
     let cancelled = false;
     if (!notificationIdsKey) {
@@ -123,43 +170,64 @@ export const useCrossProjectNotifications = (
 
     const ids = notificationIdsKey.split("\u0000");
     const activeIds = new Set(ids);
-    void window.snow
-      .listChatConversationsByIds(ids)
-      .then((records) => {
-        if (cancelled) {
-          return;
+    const pendingRecords: ChatConversationRecord[] = [];
+    const persistedIds: string[] = [];
+    for (const id of ids) {
+      if (!isPendingSessionKey(id)) {
+        persistedIds.push(id);
+        continue;
+      }
+      const session = sessionsMirrorRef.current[id];
+      if (!session?.directoryId) {
+        continue;
+      }
+      pendingRecords.push(buildPendingConversationRecord(id, session, ""));
+    }
+
+    const load = async (): Promise<void> => {
+      let records: ChatConversationRecord[] = [];
+      if (persistedIds.length > 0) {
+        try {
+          records = await window.snow.listChatConversationsByIds(persistedIds);
+        } catch {
+          records = [];
         }
-        setConversationsById((prev) => {
-          // 内容未变化时保持原引用，避免无意义的缓存替换与列表重渲染
-          let changed = prev.size !== activeIds.size;
-          const next = new Map(prev);
-          for (const key of next.keys()) {
-            if (!activeIds.has(key)) {
-              next.delete(key);
-              changed = true;
-            }
+      }
+      if (cancelled) {
+        return;
+      }
+      setConversationsById((prev) => {
+        // 内容未变化时保持原引用，避免无意义的缓存替换与列表重渲染
+        let changed = prev.size !== activeIds.size;
+        const next = new Map(prev);
+        for (const key of next.keys()) {
+          if (!activeIds.has(key)) {
+            next.delete(key);
+            changed = true;
           }
-          for (const record of records) {
-            const existing = next.get(record.conversationId);
-            if (
-              !existing ||
-              existing.title !== record.title ||
-              existing.summary !== record.summary ||
-              existing.updatedAt !== record.updatedAt
-            ) {
-              next.set(record.conversationId, record);
-              changed = true;
-            }
+        }
+        for (const record of [...records, ...pendingRecords]) {
+          const existing = next.get(record.conversationId);
+          if (
+            !existing ||
+            existing.title !== record.title ||
+            existing.summary !== record.summary ||
+            existing.updatedAt !== record.updatedAt
+          ) {
+            next.set(record.conversationId, record);
+            changed = true;
           }
-          return changed ? next : prev;
-        });
-      })
-      .catch(() => undefined);
+        }
+        return changed ? next : prev;
+      });
+    };
+
+    void load();
 
     return () => {
       cancelled = true;
     };
-  }, [notificationIdsKey, conversationListVersion]);
+  }, [notificationIdsKey, conversationListVersion, pendingSignature]);
 
   // 会话记录更新广播（如 LLM 摘要生成后 upsert 新记录）时，同步更新
   // 缓存中对应记录：运行中会话的 summary 初始为第一条用户消息，
@@ -195,7 +263,7 @@ export const useCrossProjectNotifications = (
       flag: keyof Pick<
         CrossProjectNotification,
         "isStreaming" | "isAttentionRequired" | "isCompleted"
-      >
+      >,
     ): void => {
       const conversation = conversationsById.get(conversationId);
       if (!conversation) {
@@ -217,7 +285,7 @@ export const useCrossProjectNotifications = (
         groups.set(directoryId, group);
       }
       const existing = group.notifications.find(
-        (item) => item.conversation.conversationId === conversationId
+        (item) => item.conversation.conversationId === conversationId,
       );
       if (existing) {
         existing[flag] = true;
@@ -247,7 +315,7 @@ export const useCrossProjectNotifications = (
         notifications: group.notifications.sort(
           (a, b) =>
             parseDbTimestamp(b.conversation.updatedAt).getTime() -
-            parseDbTimestamp(a.conversation.updatedAt).getTime()
+            parseDbTimestamp(a.conversation.updatedAt).getTime(),
         ),
       }))
       .sort((a, b) => a.directoryName.localeCompare(b.directoryName));

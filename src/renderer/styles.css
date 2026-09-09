@@ -2167,10 +2167,11 @@ input {
   border: none;
   cursor: pointer;
   text-align: left;
+  transition: filter 0.15s ease;
 }
 
 .cross-project-notifications-header:hover {
-  background: var(--bg-hover);
+  filter: brightness(1.15);
 }
 
 .cross-project-notifications-header > svg {

@@ -69,6 +69,13 @@ export type ChatInputProps = {
   rollbackInputState?: ConversationInputRuntimeState | null;
   /** 记录当前输入区配置，覆盖未发送前尚未写入会话记录的模型选择。 */
   onRuntimeInputStateChange?: (state: ConversationInputRuntimeState) => void;
+  /**
+   * 读取会话的内存态输入选择（渠道/模型/思考强度/Fast Mode）。
+   * 内存态是本次运行的权威值，hydration 时优先于数据库里的持久化快照。
+   */
+  getRuntimeInputState?: (
+    conversationId: string,
+  ) => ConversationInputRuntimeState | undefined;
   pendingMessages?: string[];
   onWithdrawPendingMessage?: (index: number) => string | null;
   onSendPendingMessageNow?: (index: number) => void;
@@ -149,11 +156,9 @@ export type ChatInputState = {
   thinkingDefaultLabel: string;
   ActiveThinkingIcon: LucideIcon;
   isLoadingApiConfig: boolean;
-  isSavingThinking: boolean;
   thinkingError: string | null;
   responsesFastModeEnabled: boolean;
   responsesFastModeOverride: boolean | null;
-  isSavingFastMode: boolean;
   fastModeError: string | null;
   labels: ChatInputLabels;
   isStreaming: boolean;
@@ -200,10 +205,9 @@ export type ChatInputActions = {
   handleToggleModelMenu: () => void;
   setModelMenuView: (view: ModelMenuView) => void;
   handleOpenApiProfileMenu: () => void;
-  handleSelectApiProfile: (profileName: string) => Promise<void>;
-  handleSelectThinking: (nextValue: string) => Promise<void>;
-  handleToggleResponsesFastMode: () => Promise<void>;
-  handleResetResponsesFastMode: () => Promise<void>;
+  handleSelectApiProfile: (profileName: string) => void;
+  handleSelectThinking: (nextValue: string) => void;
+  handleToggleResponsesFastMode: () => void;
   setSendKeyMode: (mode: SendKeyMode) => void;
   restoreContent: (content: string) => void;
 };

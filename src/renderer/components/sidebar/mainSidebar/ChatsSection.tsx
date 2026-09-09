@@ -41,6 +41,7 @@ import { ArchivedChatItem } from "./ArchivedChatItem";
 import { ChatItem } from "./ChatItem";
 import { ChatItemMenu, type ExportFormat } from "./ChatItemMenu";
 import { isChatDrag, readChatDragData } from "./chatDrag";
+import { buildPendingConversationRecord } from "./pendingConversationRecord";
 import { SidebarCollapse } from "./SidebarCollapse";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 import { WorkflowNodeListPanel } from "./WorkflowNodeListPanel";
@@ -429,46 +430,9 @@ export function ChatsSection({
               if (!session.isStreaming || session.directoryId !== directoryId) {
                 continue;
               }
-              const firstUserMessage = session.messages.find(
-                (message) => message.role === "user",
+              collectPlaceholder(
+                buildPendingConversationRecord(key, session, directoryId),
               );
-              const content = firstUserMessage?.content ?? "";
-              collectPlaceholder({
-                conversationId: key,
-                title: content,
-                summary: "",
-                lastMessagePreview:
-                  content.length > 50 ? `${content.slice(0, 50)}...` : content,
-                messageCount: session.messages.length,
-                model:
-                  session.messages.find(
-                    (message) => message.role === "assistant",
-                  )?.model ?? "",
-                apiProfileName: "",
-                status: "active",
-                directoryId: session.directoryId ?? directoryId,
-                forkedFromConversationId: "",
-                forkMessageCount: 0,
-                conversationType: "main",
-                parentConversationId: "",
-                subAgentId: "",
-                subAgentName: "",
-                subAgentStatus: "",
-                subAgentError: "",
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                inputTokens: 0,
-                outputTokens: 0,
-                cacheCreationInputTokens: 0,
-                cacheReadInputTokens: 0,
-                totalDurationMs: 0,
-                runInputTokens: 0,
-                runOutputTokens: 0,
-                runCacheCreationInputTokens: 0,
-                runCacheReadInputTokens: 0,
-                lastRunDurationMs: 0,
-                emoji: "",
-              });
             }
             if (livePlaceholders.length === 0) {
               return sortConversationsByUpdatedAt(

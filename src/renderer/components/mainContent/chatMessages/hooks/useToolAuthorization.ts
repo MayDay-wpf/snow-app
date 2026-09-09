@@ -6,10 +6,7 @@ import type {
 } from "../utils/conversationTypes";
 import { appendHookExecutionToMessage, runHook } from "./hookOutcome";
 import { directoryIdToPath } from "../utils/conversationHelpers";
-import {
-  PENDING_SESSION_KEY,
-  isPendingSessionKey,
-} from "../utils/conversationTypes";
+import { PENDING_SESSION_KEY } from "../utils/conversationTypes";
 import { APP_CONTROL_MODE_CHANGED_EVENT } from "../../../../hooks/useAppControl";
 
 /** 权限面板增删项目级免审批工具后派发，授权流程据此重新加载合并列表。 */
@@ -119,31 +116,9 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     [applyLiteMode, ctx.isUpdatingLiteMode, ctx.setIsUpdatingLiteMode],
   );
 
-  // Persist the session's current mode overrides to the per-conversation
-  // record. Fire-and-forget: the in-memory session ref is authoritative for
-  // the running loop; the DB row is only for restoring after a restart.
-  // Pending (not yet persisted) sessions skip the DB write — their mode
-  // follows the session through migrateSession and is written afterwards.
-  const persistSessionModes = useCallback(
-    (key: string): void => {
-      if (isPendingSessionKey(key)) {
-        return;
-      }
-      const ref = ctx.sessionsRefData.current.get(key);
-      if (!ref) {
-        return;
-      }
-      void window.snow.setConversationModes(
-        key,
-        ref.planMode,
-        ref.goalMode,
-        ref.worktreeMode,
-        ref.workflowMode,
-        ref.goalModeTokenBudget,
-      );
-    },
-    [ctx.sessionsRefData],
-  );
+  // 模式（Plan/Goal/WorkTree/WorkFlow）只保存在内存 session ref 中，内存态是
+  // 运行时权威；切换模式本身不再写库，选择随下一次发送统一落库
+  // （useAgentLoop 的 persistConversationSelection），避免"只切了一下"就写库。
 
   const applyPlanMode = useCallback(
     (enabled: boolean): void => {
@@ -275,27 +250,20 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
 
   const setGoalModeTokenBudget = useCallback(
     async (budget: number): Promise<void> => {
-      try {
-        applyGoalModeTokenBudget(budget);
-        // Per-conversation override: the current session keeps its own
-        // budget so switching chats restores the right one. The persisted
-        // global default is never touched — strict per-conversation
-        // isolation means other (and new) conversations must not inherit
-        // this conversation's budget.
-        const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-        let ref = ctx.sessionsRefData.current.get(key);
-        if (!ref) {
-          // A fresh new chat has no session ref yet; create one so the
-          // budget survives the first send (migration to a real id).
-          ctx.ensureSession(key, ctx.directoryId);
-          ref = ctx.sessionsRefData.current.get(key);
-        }
-        if (ref) {
-          ref.goalModeTokenBudget = budget;
-          persistSessionModes(key);
-        }
-      } catch {
-        // persist failure - keep current state
+      applyGoalModeTokenBudget(budget);
+      // Per-conversation override: the current session keeps its own budget so
+      // switching chats restores the right one. 只改内存态，随下一次发送落库，
+      // 全局默认值不受影响（其他/新建会话不继承本会话的预算）。
+      const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      let ref = ctx.sessionsRefData.current.get(key);
+      if (!ref) {
+        // A fresh new chat has no session ref yet; create one so the
+        // budget survives the first send (migration to a real id).
+        ctx.ensureSession(key, ctx.directoryId);
+        ref = ctx.sessionsRefData.current.get(key);
+      }
+      if (ref) {
+        ref.goalModeTokenBudget = budget;
       }
     },
     [
@@ -304,7 +272,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.directoryId,
       ctx.activeConversationIdRef,
       ctx.sessionsRefData,
-      persistSessionModes,
     ],
   );
 
@@ -445,7 +412,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             applyWorktreeMode(false);
             applyWorkflowMode(false);
           }
-          persistSessionModes(key);
         }
       } finally {
         ctx.setIsUpdatingPlanMode(false);
@@ -462,7 +428,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.directoryId,
       ctx.activeConversationIdRef,
       ctx.sessionsRefData,
-      persistSessionModes,
     ],
   );
 
@@ -491,7 +456,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             applyWorktreeMode(false);
             applyWorkflowMode(false);
           }
-          persistSessionModes(key);
         }
       } finally {
         ctx.setIsUpdatingGoalMode(false);
@@ -508,7 +472,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.directoryId,
       ctx.activeConversationIdRef,
       ctx.sessionsRefData,
-      persistSessionModes,
     ],
   );
 
@@ -537,7 +500,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             applyGoalMode(false);
             applyWorkflowMode(false);
           }
-          persistSessionModes(key);
         }
       } finally {
         ctx.setIsUpdatingWorktreeMode(false);
@@ -554,7 +516,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.directoryId,
       ctx.activeConversationIdRef,
       ctx.sessionsRefData,
-      persistSessionModes,
     ],
   );
 
@@ -584,7 +545,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             applyGoalMode(false);
             applyWorktreeMode(false);
           }
-          persistSessionModes(key);
         }
       } finally {
         ctx.setIsUpdatingWorkflowMode(false);
@@ -601,7 +561,6 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.directoryId,
       ctx.activeConversationIdRef,
       ctx.sessionsRefData,
-      persistSessionModes,
     ],
   );
 

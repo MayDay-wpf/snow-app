@@ -21,8 +21,6 @@ type ThinkingStrengthMenuProps = {
   onBack?: () => void;
   /** 选中某值："" = 继承 Profile，或任意自定义字符串 */
   onSelect: (value: string) => void;
-  /** 保存中：禁用自定义值确认按钮 */
-  saving?: boolean;
 };
 
 /**
@@ -42,7 +40,6 @@ export function ThinkingStrengthMenu({
   showBack = false,
   onBack,
   onSelect,
-  saving = false,
 }: ThinkingStrengthMenuProps): React.JSX.Element {
   const { t } = useI18n();
   const [isCustomMode, setIsCustomMode] = useState(false);
@@ -56,7 +53,8 @@ export function ThinkingStrengthMenu({
   }, [open]);
 
   // 当前值不在预设选项中（且非继承空值）→ 视为自定义值
-  const isCustomValue = value !== "" && !options.some((option) => option.value === value);
+  const isCustomValue =
+    value !== "" && !options.some((option) => option.value === value);
 
   const handleOpenCustom = (): void => {
     setCustomValue(isCustomValue ? value : "");
@@ -65,7 +63,7 @@ export function ThinkingStrengthMenu({
 
   const handleConfirmCustom = (): void => {
     const nextValue = customValue.trim();
-    if (!nextValue || saving) {
+    if (!nextValue) {
       return;
     }
     onSelect(nextValue);
@@ -74,7 +72,7 @@ export function ThinkingStrengthMenu({
 
   const handleSelect = (
     event: React.MouseEvent<HTMLButtonElement>,
-    nextValue: string
+    nextValue: string,
   ): void => {
     event.preventDefault();
     event.stopPropagation();
@@ -82,7 +80,7 @@ export function ThinkingStrengthMenu({
   };
 
   const handleCustomKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
+    event: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
     if (event.key === "Enter") {
       if (event.nativeEvent.isComposing) {
@@ -144,7 +142,7 @@ export function ThinkingStrengthMenu({
                 event.stopPropagation();
                 handleConfirmCustom();
               }}
-              disabled={!customValue.trim() || saving}
+              disabled={!customValue.trim()}
               type="button"
             >
               {t("common.confirm")}
@@ -186,7 +184,9 @@ export function ThinkingStrengthMenu({
               <Sparkles size={14} className="thinking-option-icon" />
               <span>{inheritLabel}</span>
             </span>
-            {value === "" && <Check size={14} className="model-dropdown-check" />}
+            {value === "" && (
+              <Check size={14} className="model-dropdown-check" />
+            )}
           </button>
         )}
         {options.map((option) => {
@@ -227,7 +227,9 @@ export function ThinkingStrengthMenu({
         >
           <Keyboard size={14} />
           <span>{t("chat.customThinking")}</span>
-          {isCustomValue && <Check size={14} className="model-dropdown-check" />}
+          {isCustomValue && (
+            <Check size={14} className="model-dropdown-check" />
+          )}
         </button>
       </div>
     </>
