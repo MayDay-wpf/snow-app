@@ -28,6 +28,7 @@ const requiredExports = [
   "restoreCheckpoints",
   "listCheckpointChangesBatch",
   "listCheckpointDiffsBatch",
+  "migrateCheckpointLayout",
   "listChatMessagesPaginated",
   "cancelRunningSubAgentSessions",
   // LSP 服务器配置与会话状态（配置中心 / 状态徽章轮询）

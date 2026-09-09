@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use napi::bindgen_prelude::*;
 
@@ -227,9 +229,80 @@ pub(crate) fn should_skip_manifest_path(manifest_path: &str) -> bool {
     should_skip_relative(Path::new(manifest_path))
 }
 
-pub(crate) fn checkpoint_dir(checkpoint_id: &str) -> Result<PathBuf> {
-    Ok(checkpoint_root()?.join(checkpoint_id))
+/// 检查点目录解析缓存：id → 实际目录（日期分片或旧版扁平布局）。
+/// 每个 id 的布局在创建后不再变化，缓存避免热路径重复 stat。
+static CHECKPOINT_DIR_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+const CHECKPOINT_DIR_CACHE_MAX_ENTRIES: usize = 100_000;
+
+fn checkpoint_dir_cache() -> MutexGuard<'static, HashMap<String, PathBuf>> {
+    CHECKPOINT_DIR_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
+
+/// 从 id 内嵌时间戳（`cp-{secs}-{nanos}-{count}`）解析本地日期分片名。
+pub(crate) fn checkpoint_date_dir(checkpoint_id: &str) -> Option<String> {
+    let secs: i64 = checkpoint_id.strip_prefix("cp-")?.split('-').next()?.parse().ok()?;
+    let utc = chrono::DateTime::from_timestamp(secs, 0)?;
+    Some(utc.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+}
+
+/// 兜底查找：日期分片按创建时的本地时区计算，用户改时区后同名 id 会落到
+/// 其他日期目录，此时在各日期目录中扫描一次。
+fn find_sharded_checkpoint_dir(root: &Path, checkpoint_id: &str) -> Option<PathBuf> {
+    for entry in fs::read_dir(root).ok()?.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // 日期目录形如 2026-09-09；跳过 objects 及其他目录
+        if name.len() != 10 || !name.starts_with(|c: char| c.is_ascii_digit()) {
+            continue;
+        }
+        let candidate = entry.path().join(checkpoint_id);
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// 清空检查点目录解析缓存（布局迁移后调用）。
+pub(crate) fn clear_checkpoint_dir_cache() {
+    checkpoint_dir_cache().clear();
+}
+
+/// 检查点目录：新布局为 `<root>/<YYYY-MM-DD>/<id>/`，历史检查点仍在
+/// `<root>/<id>/`（扁平）并保持原位，两种布局都能解析。
+pub(crate) fn checkpoint_dir(checkpoint_id: &str) -> Result<PathBuf> {
+    {
+        let cache = checkpoint_dir_cache();
+        if let Some(cached) = cache.get(checkpoint_id) {
+            return Ok(cached.clone());
+        }
+    }
+    let root = checkpoint_root()?;
+    let legacy = root.join(checkpoint_id);
+    let resolved = match checkpoint_date_dir(checkpoint_id) {
+        Some(date) => {
+            let sharded = root.join(date).join(checkpoint_id);
+            if sharded.is_dir() {
+                sharded
+            } else if legacy.is_dir() {
+                legacy
+            } else {
+                find_sharded_checkpoint_dir(&root, checkpoint_id).unwrap_or(sharded)
+            }
+        }
+        None => legacy,
+    };
+    let mut cache = checkpoint_dir_cache();
+    if cache.len() >= CHECKPOINT_DIR_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(checkpoint_id.to_string(), resolved.clone());
+    Ok(resolved)
+}
+
 pub(crate) fn manifest_path(checkpoint_id: &str) -> Result<PathBuf> {
     Ok(checkpoint_dir(checkpoint_id)?.join("manifest.json"))
 }

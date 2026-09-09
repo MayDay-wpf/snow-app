@@ -9981,6 +9981,11 @@ input {
   opacity: 0.75;
 }
 
+/* 模型品牌 logo 保持原色，不随描边图标降透明度 */
+.chat-run-summary-item .model-brand-icon > svg {
+  opacity: 1;
+}
+
 .chat-run-summary-model {
   max-width: 240px;
   overflow: hidden;
@@ -11260,7 +11265,7 @@ input {
 }
 
 /* ===== Thinking Block ===== */
-/* 无左边框缩进，与消息正文左边缘对齐 */
+/* 头部与消息正文左边缘对齐，只有内容区做竖线缩进 */
 .thinking-block {
   margin: 0 0 14px;
   color: var(--text-tertiary);
@@ -11405,10 +11410,14 @@ input {
   color: var(--text-tertiary);
 }
 
-/* Content wrapper */
-.thinking-block-content-wrapper {
-  position: relative;
-  margin-top: 6px;
+/* Content wrapper：展开即全文，无高度限制。左侧竖线 + 缩进让思考内容
+   与正文明显分层，不再像普通段落。 */
+.thinking-block-content {
+  margin-top: 8px;
+  margin-left: 2px;
+  padding-left: 12px;
+  border-left: 2px solid
+    color-mix(in srgb, var(--text-tertiary) 45%, transparent);
 }
 
 /* 折叠/展开双向高度动画：grid-rows 0fr<->1fr 插值，内容常挂载。
@@ -11438,58 +11447,12 @@ input {
   transition: visibility 0.3s;
 }
 
-/* Scrollable area with fixed height. 半展开预览窗的滚动条方案与 ChatContent
-   一致：默认透明隐藏，悬停滚动条轨道（is-hovering-scrollbar）或滚轮滚动
-   （is-wheelscrolling）时短暂显示 thumb；stable gutter 防止内容增减时宽度跳动。 */
-.thinking-block-scroll {
-  max-height: 200px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
-  scrollbar-color: transparent transparent;
-}
-
-.thinking-block-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-
-.thinking-block-scroll::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  transition: background-color 0.15s ease;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-.thinking-block-scroll.is-hovering-scrollbar,
-.thinking-block-scroll.is-wheelscrolling {
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-}
-
-.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb,
-.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb);
-}
-
-.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb:hover,
-.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb:hover {
-  background-color: var(--scrollbar-thumb-hover);
-}
-
-.thinking-block-scroll.is-hovering-scrollbar::-webkit-scrollbar-thumb:active,
-.thinking-block-scroll.is-wheelscrolling::-webkit-scrollbar-thumb:active {
-  background-color: var(--scrollbar-thumb-active);
-}
-
-/* When expanded, remove height limit but keep scrolling for very long content */
-.thinking-block-scroll--expanded {
-  max-height: none;
-  overflow-y: visible;
-}
-
+/* 思考正文：字号小于正文并拉开行距，与正文形成层级差 */
 .thinking-block-body {
   color: var(--text-secondary);
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
 }
 
 .thinking-block-body p {
@@ -11498,61 +11461,6 @@ input {
 
 .thinking-block-body p:last-child {
   margin-bottom: 0;
-}
-
-/* Feathered gradient mask overlay with "expand all" button */
-.thinking-block-mask {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding-bottom: 4px;
-  height: 60px;
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    var(--bg-primary) 55%,
-    var(--bg-primary) 100%
-  );
-}
-
-.thinking-block-expand-btn,
-.thinking-block-collapse-btn {
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm, 4px);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.45;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  transition:
-    color 0.12s ease,
-    background 0.12s ease,
-    border-color 0.12s ease;
-}
-
-.thinking-block-expand-btn:hover,
-.thinking-block-collapse-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-color: var(--border-color);
-}
-
-/* Collapse button is placed below the expanded content */
-.thinking-block-collapse-btn {
-  margin-top: 6px;
 }
 
 /* Tool Message */

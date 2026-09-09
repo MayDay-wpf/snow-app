@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import {
-  Bot,
   Database,
   Gauge,
   GitFork,
@@ -16,6 +15,7 @@ import {
   Timer,
   Zap,
 } from "lucide-react";
+import { ModelBrandIcon } from "../../../common/ModelBrandIcon";
 import { Tooltip } from "../../../common/Tooltip";
 import { useI18n } from "../../../../i18n";
 import { formatTokens } from "../../../../utils/formatTokens";
@@ -436,7 +436,7 @@ export const ChatMessageList = ({
           })}
         >
           <span className="chat-run-summary-item chat-run-summary-model">
-            <Bot size={12} strokeWidth={1.8} aria-hidden="true" />
+            <ModelBrandIcon model={lastModel} size={12} />
             <span>{lastModel}</span>
           </span>
         </Tooltip>,

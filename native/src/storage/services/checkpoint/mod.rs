@@ -17,6 +17,7 @@ use super::gitignore::GitignoreMatcher;
 
 mod git;
 mod manifest;
+mod migrate;
 mod paths;
 pub(crate) mod remote;
 
@@ -28,6 +29,10 @@ use self::paths::{
     should_skip_manifest_path,
 };
 
+pub use self::migrate::migrate_checkpoint_layout;
+
+/// 内容寻址对象库目录名：对象按 id 前两位十六进制分片存放
+/// （`objects/ab/abcdef...`），历史扁平对象仍可直接读取。
 const OBJECT_DIR_NAME: &str = "objects";
 const MANIFEST_VERSION: u32 = 2;
 
@@ -668,21 +673,77 @@ fn hash_file(path: &Path) -> Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-/// Publish the file's content into the content-addressed object store.
-/// The object id is the BLAKE3 digest, so identical content is stored once
-/// and repeated captures of unchanged files write nothing.
-fn store_object(path: &Path) -> Result<String> {
-    let object_dir = checkpoint_root()?.join(OBJECT_DIR_NAME);
-    fs::create_dir_all(&object_dir).map_err(|error| {
+/// 对象存储分片名：内容 id 的前两位十六进制（256 个桶），避免单目录无限膨胀。
+fn object_shard(object_id: &str) -> &str {
+    object_id.get(..2).unwrap_or("_")
+}
+
+static OBJECT_PATH_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+const OBJECT_PATH_CACHE_MAX_ENTRIES: usize = 100_000;
+
+fn object_path_cache() -> MutexGuard<'static, HashMap<String, PathBuf>> {
+    OBJECT_PATH_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 对象文件路径：分片布局优先，回退旧版扁平布局（历史对象留在原位）。
+pub(crate) fn object_path(object_id: &str) -> Result<PathBuf> {
+    {
+        let cache = object_path_cache();
+        if let Some(cached) = cache.get(object_id) {
+            return Ok(cached.clone());
+        }
+    }
+    let base = checkpoint_root()?.join(OBJECT_DIR_NAME);
+    let sharded = base.join(object_shard(object_id)).join(object_id);
+    let resolved = if sharded.is_file() {
+        sharded
+    } else {
+        let legacy = base.join(object_id);
+        if legacy.is_file() {
+            legacy
+        } else {
+            sharded
+        }
+    };
+    let mut cache = object_path_cache();
+    if cache.len() >= OBJECT_PATH_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(object_id.to_string(), resolved.clone());
+    Ok(resolved)
+}
+
+/// 清空对象路径解析缓存（布局迁移后调用）。
+fn clear_object_path_cache() {
+    object_path_cache().clear();
+}
+
+/// 对象写入目录（分片目录，确保存在）。
+fn object_write_dir(object_id: &str) -> Result<PathBuf> {
+    let directory = checkpoint_root()?
+        .join(OBJECT_DIR_NAME)
+        .join(object_shard(object_id));
+    fs::create_dir_all(&directory).map_err(|error| {
         Error::from_reason(format!(
             "Failed to create checkpoint object directory: {error}"
         ))
     })?;
+    Ok(directory)
+}
+
+/// Publish the file's content into the content-addressed object store.
+/// The object id is the BLAKE3 digest, so identical content is stored once
+/// and repeated captures of unchanged files write nothing.
+fn store_object(path: &Path) -> Result<String> {
     let object_id = hash_file(path)?;
-    let final_path = object_dir.join(&object_id);
-    if final_path.exists() {
+    if object_path(&object_id)?.is_file() {
         return Ok(object_id);
     }
+    let object_dir = object_write_dir(&object_id)?;
+    let final_path = object_dir.join(&object_id);
     let temporary = object_dir.join(format!("{}.tmp", generate_checkpoint_id()));
     fs::copy(path, &temporary).map_err(|error| {
         Error::from_reason(format!(
@@ -712,21 +773,16 @@ fn store_object(path: &Path) -> Result<String> {
 /// Electron via SFTP and is stored with the same BLAKE3 deduplication as
 /// locally captured files.
 fn store_object_bytes(content: &[u8]) -> Result<String> {
-    let object_dir = checkpoint_root()?.join(OBJECT_DIR_NAME);
-    fs::create_dir_all(&object_dir).map_err(|error| {
-        Error::from_reason(format!(
-            "Failed to create checkpoint object directory: {error}"
-        ))
-    })?;
     let object_id = blake3::Hasher::new()
         .update(content)
         .finalize()
         .to_hex()
         .to_string();
-    let final_path = object_dir.join(&object_id);
-    if final_path.exists() {
+    if object_path(&object_id)?.is_file() {
         return Ok(object_id);
     }
+    let object_dir = object_write_dir(&object_id)?;
+    let final_path = object_dir.join(&object_id);
     let temporary = object_dir.join(format!("{}.tmp", generate_checkpoint_id()));
     fs::write(&temporary, content).map_err(|error| {
         Error::from_reason(format!(
@@ -1306,7 +1362,7 @@ fn restore_entry(
             Ok(())
         }
         OriginalState::Object { object_id } => {
-            let source = checkpoint_root()?.join(OBJECT_DIR_NAME).join(object_id);
+            let source = object_path(object_id)?;
             restore_file(&source, &destination)
         }
         OriginalState::Git => {
@@ -1414,7 +1470,15 @@ pub fn delete_checkpoint(checkpoint_id: String) -> Result<()> {
             "Failed to delete checkpoint '{}': {error}",
             checkpoint_id
         ))
-    })
+    })?;
+    // 日期分片目录清空后一并移除（非空时 remove_dir 自然失败；旧扁平布局
+    // 的父目录就是根目录，跳过避免误删）。
+    if let Some(parent) = directory.parent() {
+        if parent != checkpoint_root()?.as_path() {
+            let _ = fs::remove_dir(parent);
+        }
+    }
+    Ok(())
 }
 
 /// A single file change between the checkpoint snapshot and the current
@@ -1648,7 +1712,7 @@ fn read_original_content(
     match original {
         OriginalState::Missing => Ok(None),
         OriginalState::Object { object_id } => {
-            let object = checkpoint_root()?.join(OBJECT_DIR_NAME).join(object_id);
+            let object = object_path(object_id)?;
             fs::read(&object).map(Some).map_err(|error| {
                 Error::from_reason(format!(
                     "Failed to read checkpoint object '{}': {error}",
@@ -1742,7 +1806,7 @@ fn classify_change(
             if !current.exists() {
                 return Ok(Some("deleted".to_string()));
             }
-            let object = checkpoint_root()?.join(OBJECT_DIR_NAME).join(object_id);
+            let object = object_path(object_id)?;
             Ok(files_are_different(current, &object).then(|| "modified".to_string()))
         }
         OriginalState::Git => {

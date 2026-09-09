@@ -509,14 +509,14 @@ pub async fn canonical_work_dir_remote(
 
 use super::{
     bump_restore_epoch, change_owned_by_other_capture, checkpoint_manifest_exists,
-    checkpoint_operation_lock, checkpoint_root, current_restore_epoch, filter_existing_checkpoints,
-    fingerprint_lookup, fingerprint_store, manifest_lock, original_object_id,
+    checkpoint_operation_lock, current_restore_epoch, filter_existing_checkpoints,
+    fingerprint_lookup, fingerprint_store, manifest_lock, object_path, original_object_id,
     pending_state_to_original, read_manifest, register_file_capture_end,
     register_file_capture_start, register_recorded_change, should_skip_manifest_path,
     should_skip_relative, store_object_bytes, work_dir_lock, work_dir_read_guard_async,
     work_dir_write_guard_async, write_manifest, CachedCheckpointDiff, CheckpointEntry,
     CheckpointFileChange, CheckpointFileDiff, CheckpointManifest, CheckpointWorktreeCapture,
-    OriginalState, PendingFileState, DIFF_CACHE_MAX_ENTRIES, OBJECT_DIR_NAME,
+    OriginalState, PendingFileState, DIFF_CACHE_MAX_ENTRIES,
 };
 
 use crate::storage::services::checkpoint_skip::should_skip_pending_copy_size;
@@ -671,7 +671,6 @@ async fn update_expected_state_remote(
 /// 本地加载条目涉及的对象内容（object_id → 内容；缺失为 None），供
 /// 纯本地分类对比使用。条目数少且对象库在本地，代价可忽略。
 fn load_compare_objects(entries: &[&CheckpointEntry]) -> Result<HashMap<String, Option<Vec<u8>>>> {
-    let object_dir = checkpoint_root()?.join(OBJECT_DIR_NAME);
     let mut objects: HashMap<String, Option<Vec<u8>>> = HashMap::new();
     for entry in entries {
         let mut states: Vec<&OriginalState> = vec![&entry.original];
@@ -680,9 +679,11 @@ fn load_compare_objects(entries: &[&CheckpointEntry]) -> Result<HashMap<String, 
         }
         for state in states {
             if let OriginalState::Object { object_id } = state {
-                objects
-                    .entry(object_id.clone())
-                    .or_insert_with(|| fs::read(object_dir.join(object_id)).ok());
+                if objects.contains_key(object_id) {
+                    continue;
+                }
+                let content = fs::read(object_path(object_id)?).ok();
+                objects.insert(object_id.clone(), content);
             }
         }
     }
@@ -1672,7 +1673,7 @@ async fn restore_entry_remote(
     match &entry.original {
         OriginalState::Missing => client.delete_file(destination).await,
         OriginalState::Object { object_id } => {
-            let source = checkpoint_root()?.join(OBJECT_DIR_NAME).join(object_id);
+            let source = object_path(object_id)?;
             let content = fs::read(&source).map_err(|error| {
                 Error::from_reason(format!(
                     "Failed to read checkpoint object '{}': {error}",

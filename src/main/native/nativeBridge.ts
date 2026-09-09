@@ -1159,6 +1159,7 @@ export const loadNativeBridge = (): NativeBridge => {
         Promise.reject(
           new Error("Rust native bridge is required to delete checkpoint"),
         ),
+      migrateCheckpointLayout: () => Promise.resolve(0),
       listCheckpointChanges: () =>
         Promise.reject(
           new Error(

@@ -2117,6 +2117,8 @@ export type NativeBridge = {
     workDir: string,
   ) => Promise<void>;
   deleteCheckpoint: (checkpointId: string) => Promise<void>;
+  /** 整理旧版检查点布局（扁平目录/对象 → 日期分片/哈希分桶）；返回搬移条目数。 */
+  migrateCheckpointLayout: () => Promise<number>;
   listCheckpointChanges: (
     checkpointId: string,
     workDir: string,

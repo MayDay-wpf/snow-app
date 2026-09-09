@@ -46,7 +46,8 @@ fn checkpoint_remote_callback() -> napi::Result<Arc<RemoteWorkspaceCallback>> {
 /// Create a file-system checkpoint (snapshot) of the working directory.
 ///
 /// Returns the generated checkpoint id. The snapshot is stored under
-/// `<app-storage>/checkpoints/<id>/`.
+/// `<app-storage>/checkpoints/<YYYY-MM-DD>/<id>/` (历史检查点仍在
+/// `<app-storage>/checkpoints/<id>/`，两种布局都能读取)。
 ///
 /// For SSH workspaces (`ssh://` URI) the remote directory is validated via
 /// the Electron SSH session; file content is captured lazily before tools
@@ -241,6 +242,20 @@ pub async fn list_checkpoint_diffs_batch(
     })
     .await
     .map_err(map_spawn_error)?
+}
+
+/// 整理旧版检查点布局：扁平检查点目录 → 按创建日期分片
+/// （`<root>/<YYYY-MM-DD>/<id>/`），扁平对象库 → 按内容 id 前两位分桶
+/// （`objects/ab/<id>`）。只做同盘 rename，幂等，应用启动时调用一次。
+/// 返回搬移的条目数。
+#[napi]
+pub async fn migrate_checkpoint_layout() -> napi::Result<u32> {
+    let moved = tokio::task::spawn_blocking(
+        crate::storage::services::checkpoint::migrate_checkpoint_layout,
+    )
+    .await
+    .map_err(map_spawn_error)??;
+    Ok(moved as u32)
 }
 
 /// Convert a tokio JoinError into a napi Error.
