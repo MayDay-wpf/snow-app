@@ -2556,6 +2556,7 @@ input {
   overflow-y: auto;
   padding-left: 10px;
   padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .workspace-directory-list::before {
@@ -26649,6 +26650,30 @@ input {
 .git-file-list-action:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* 分组展开/收起：grid-rows 0fr<->1fr 高度插值，内层 overflow 裁剪；
+   收起动画播完才 visibility:hidden，保证折叠内容不参与聚焦 */
+.git-file-list-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows 0.2s ease,
+    visibility 0s;
+}
+
+.git-file-list-body.collapsed {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.2s ease,
+    visibility 0s 0.2s;
+}
+
+.git-file-list-body-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .git-file-list-empty {

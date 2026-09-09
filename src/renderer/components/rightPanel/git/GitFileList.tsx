@@ -26,11 +26,11 @@ type GitFileListProps = {
   onFileSelect: (
     file: GitFileStatus,
     e: React.MouseEvent,
-    section: "staged" | "unstaged"
+    section: "staged" | "unstaged",
   ) => void;
   onStageToggle: (
     files: GitFileStatus[],
-    section: "staged" | "unstaged"
+    section: "staged" | "unstaged",
   ) => void;
   onStageAll?: () => void;
   onUnstageAll?: () => void;
@@ -144,7 +144,7 @@ export const GitFileList = ({
   const getTargetFiles = (file: GitFileStatus): GitFileStatus[] => {
     if (selectedPaths.has(`${section}:${file.path}`)) {
       const selected = files.filter((f) =>
-        selectedPaths.has(`${section}:${f.path}`)
+        selectedPaths.has(`${section}:${f.path}`),
       );
       return selected.length > 0 ? selected : [file];
     }
@@ -221,10 +221,9 @@ export const GitFileList = ({
           setContextMenu(null);
           const lastSep = Math.max(
             file.path.lastIndexOf("/"),
-            file.path.lastIndexOf("\\\\")
+            file.path.lastIndexOf("\\\\"),
           );
-          const dirPath =
-            lastSep === -1 ? "" : file.path.slice(0, lastSep + 1);
+          const dirPath = lastSep === -1 ? "" : file.path.slice(0, lastSep + 1);
           onOpenTerminal(resolveRepoPath(dirPath));
         },
       });
@@ -319,7 +318,7 @@ export const GitFileList = ({
       event.dataTransfer.setData("application/json", JSON.stringify(tag));
       event.dataTransfer.effectAllowed = "copy";
     },
-    [repoPath, section]
+    [repoPath, section],
   );
 
   return (
@@ -381,112 +380,117 @@ export const GitFileList = ({
               )}
         </div>
       </div>
-      {!collapsed &&
-        (files.length === 0 ? (
-          <div className="git-file-list-empty">
-            {isStaged ? t("git.noStagedChanges") : t("git.noChanges")}
-          </div>
-        ) : (
-          <div className="git-file-list-items">
-            {files.map((file) => {
-              const isSelected = selectedPaths.has(`${section}:${file.path}`);
-              const lastSep = Math.max(
-                file.path.lastIndexOf("/"),
-                file.path.lastIndexOf("\\")
-              );
-              const fileName =
-                lastSep === -1 ? file.path : file.path.slice(lastSep + 1);
-              const dirPath =
-                lastSep === -1 ? "" : file.path.slice(0, lastSep + 1);
-              return (
-                <div
-                  key={`${section}-${file.path}`}
-                  className={`git-file-item${isSelected ? " selected" : ""}`}
-                  onClick={(e) => onFileSelect(file, e, section)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, file });
-                  }}
-                  draggable
-                  onDragStart={(event) => handleFileDragStart(event, file)}
-                >
-                  <span
-                    className={`git-file-status ${getStatusColor(file.status)}`}
-                  >
-                    {getStatusLabel(file.status)}
-                  </span>
-                  <span
-                    className={`git-file-name${
-                      file.status === "D" ? " deleted" : ""
-                    }`}
-                    title={file.path}
-                  >
-                    {getFileTypeIcon(
-                      file.path.split("/").pop() ?? file.path,
-                      false,
-                      false,
-                      { size: 13, className: "git-file-type-icon" }
-                    )}
-                    <span className="git-file-name-text">{fileName}</span>
-                    {dirPath && (
-                      <span className="git-file-path">{dirPath}</span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    className="git-file-action"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const filesToToggle = isSelected
-                        ? files.filter((f) =>
-                            selectedPaths.has(`${section}:${f.path}`)
-                          )
-                        : [file];
-                      onStageToggle(filesToToggle, section);
+      <div className={`git-file-list-body${collapsed ? " collapsed" : ""}`}>
+        <div className="git-file-list-body-inner">
+          {files.length === 0 ? (
+            <div className="git-file-list-empty">
+              {isStaged ? t("git.noStagedChanges") : t("git.noChanges")}
+            </div>
+          ) : (
+            <div className="git-file-list-items">
+              {files.map((file) => {
+                const isSelected = selectedPaths.has(`${section}:${file.path}`);
+                const lastSep = Math.max(
+                  file.path.lastIndexOf("/"),
+                  file.path.lastIndexOf("\\"),
+                );
+                const fileName =
+                  lastSep === -1 ? file.path : file.path.slice(lastSep + 1);
+                const dirPath =
+                  lastSep === -1 ? "" : file.path.slice(0, lastSep + 1);
+                return (
+                  <div
+                    key={`${section}-${file.path}`}
+                    className={`git-file-item${isSelected ? " selected" : ""}`}
+                    onClick={(e) => onFileSelect(file, e, section)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, file });
                     }}
-                    disabled={actionInProgress !== null}
-                    title={isStaged ? t("git.unstageFile") : t("git.stageFile")}
+                    draggable
+                    onDragStart={(event) => handleFileDragStart(event, file)}
                   >
-                    <span>{isStaged ? "-" : "+"}</span>
-                  </button>
-                  {!isStaged && onDiscard && (
+                    <span
+                      className={`git-file-status ${getStatusColor(file.status)}`}
+                    >
+                      {getStatusLabel(file.status)}
+                    </span>
+                    <span
+                      className={`git-file-name${
+                        file.status === "D" ? " deleted" : ""
+                      }`}
+                      title={file.path}
+                    >
+                      {getFileTypeIcon(
+                        file.path.split("/").pop() ?? file.path,
+                        false,
+                        false,
+                        { size: 13, className: "git-file-type-icon" },
+                      )}
+                      <span className="git-file-name-text">{fileName}</span>
+                      {dirPath && (
+                        <span className="git-file-path">{dirPath}</span>
+                      )}
+                    </span>
                     <button
                       type="button"
-                      className="git-file-action git-discard-action"
+                      className="git-file-action"
                       onClick={(e) => {
                         e.stopPropagation();
-                        const filesToDiscard = isSelected
+                        const filesToToggle = isSelected
                           ? files.filter((f) =>
-                              selectedPaths.has(`${section}:${f.path}`)
+                              selectedPaths.has(`${section}:${f.path}`),
                             )
                           : [file];
-                        onDiscard(filesToDiscard);
+                        onStageToggle(filesToToggle, section);
                       }}
                       disabled={actionInProgress !== null}
-                      title={t("git.discardFile")}
+                      title={
+                        isStaged ? t("git.unstageFile") : t("git.stageFile")
+                      }
                     >
-                      <Undo2 size={12} strokeWidth={1.8} />
+                      <span>{isStaged ? "-" : "+"}</span>
                     </button>
-                  )}
-                  {onOpenFile && (
-                    <button
-                      type="button"
-                      className="git-file-action git-open-action"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenFile(file);
-                      }}
-                      disabled={actionInProgress !== null}
-                      title={t("git.openFile")}
-                    >
-                      <FileText size={12} strokeWidth={1.8} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                    {!isStaged && onDiscard && (
+                      <button
+                        type="button"
+                        className="git-file-action git-discard-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const filesToDiscard = isSelected
+                            ? files.filter((f) =>
+                                selectedPaths.has(`${section}:${f.path}`),
+                              )
+                            : [file];
+                          onDiscard(filesToDiscard);
+                        }}
+                        disabled={actionInProgress !== null}
+                        title={t("git.discardFile")}
+                      >
+                        <Undo2 size={12} strokeWidth={1.8} />
+                      </button>
+                    )}
+                    {onOpenFile && (
+                      <button
+                        type="button"
+                        className="git-file-action git-open-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenFile(file);
+                        }}
+                        disabled={actionInProgress !== null}
+                        title={t("git.openFile")}
+                      >
+                        <FileText size={12} strokeWidth={1.8} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}

@@ -1,6 +1,6 @@
 # 7-LSP External Language Server Integration Design (lsp MCP service)
 
-> Status: Design v1 (under review)
+> Status: Design v1 
 > Target version: v0.2.x
 > Chinese original: `docs/zh-CN/4-架构与开发/7-LSP外部语言服务器接入设计.md`
 
