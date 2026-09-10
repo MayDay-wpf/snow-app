@@ -93,27 +93,34 @@ pub(super) fn build_chat_completions_payload(
                         }));
                     }
                 } else {
-                    // Chat Completions `tool` messages only accept a plain
-                    // string content, so the screenshot base64 must travel in
-                    // a following structured user message as image_url blocks.
-                    payload_messages.push(json!({
-                        "role": "tool",
-                        "tool_call_id": tool_result.call_id,
-                        "content": text,
-                    }));
-                    if !tool_result.images.is_empty() {
+                    // Chat Completions `tool` messages accept structured
+                    // multimodal content blocks, so image results stay
+                    // attached to their own tool message. Inserting a
+                    // synthetic user message here would break the required
+                    // pairing (every assistant tool call must be answered by
+                    // consecutive tool messages) and the endpoint rejects the
+                    // request with 400 invalid_request_error — notably when
+                    // several image-reading calls run in parallel.
+                    let content = if tool_result.images.is_empty() {
+                        json!(text)
+                    } else {
                         let mut parts = Vec::new();
+                        if !text.is_empty() {
+                            parts.push(json!({ "type": "text", "text": text }));
+                        }
                         parts.extend(tool_result.images.iter().map(|image| {
                             json!({
                                 "type": "image_url",
                                 "image_url": { "url": image.data_url },
                             })
                         }));
-                        payload_messages.push(json!({
-                            "role": "user",
-                            "content": parts,
-                        }));
-                    }
+                        Value::Array(parts)
+                    };
+                    payload_messages.push(json!({
+                        "role": "tool",
+                        "tool_call_id": tool_result.call_id,
+                        "content": content,
+                    }));
                 }
             }
             continue;

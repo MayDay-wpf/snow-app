@@ -5,6 +5,7 @@ import type { NativeBridge } from "../native/types";
 import {
   IMG_PROXY_SCHEME,
   decodeImageProxyUrl,
+  isAbsoluteImagePath,
   isLocalImageProxyUrl,
 } from "../../renderer/utils/imageProxyUrl";
 
@@ -12,6 +13,9 @@ let registered = false;
 
 /** 代理图片下载的最大字节数，避免被超大响应拖垮主进程内存。 */
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50 MB
+
+/** 绝对路径分支要求的图片扩展名白名单，避免代理协议沦为任意文件读取通道。 */
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|svg|ico|avif)$/i;
 
 /** 按扩展名推断图片 MIME，未知扩展名回退 image/png（与图片 IPC 行为一致）。 */
 const mimeForImagePath = (filePath: string): string => {
@@ -35,20 +39,50 @@ const mimeForImagePath = (filePath: string): string => {
   }
 };
 
+/** 读盘并构造图片响应（大小上限校验；客户端不缓存，避免改图后不刷新）。 */
+const serveImageFile = async (filePath: string): Promise<Response> => {
+  const bytes = await readFile(filePath);
+  if (bytes.byteLength > MAX_IMAGE_BYTES) {
+    return new Response("Image too large", { status: 413 });
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", mimeForImagePath(filePath));
+  headers.set("Cache-Control", "no-store");
+  return new Response(bytes, { status: 200, headers });
+};
+
 /**
- * 本地图片分支：img-proxy://local/<encodeURIComponent(相对路径)>。
+ * 本地图片分支：img-proxy://local/<encodeURIComponent(路径)>。
  *
- * 相对路径必须以 image/（图库）或 upload/（上传）开头，拒绝 `..` 穿越、
- * 绝对路径与超长输入。image/ 以图库根目录为根，upload/ 以数据库目录下的
- * upload 目录为根（相对路径自带 upload/ 前缀，直接基于数据库目录拼接）。
- * 解析后做前缀二次校验，保证读取始终落在允许的目录内。
+ * 两种形态：
+ *  - 绝对路径：模型常引用磁盘上的完整路径（如 D:/proj/src/assets/logo.png），
+ *    仅放行图片扩展名（防 `..`、超长输入），校验后直接读盘。
+ *  - 相对路径：必须以 image/（图库）或 upload/（上传）开头，以对应根目录
+ *    （图库根目录 / 数据库目录下的 upload 目录）为基准拼接；解析后做前缀
+ *    二次校验，保证读取始终落在允许的目录内。
  */
 const serveLocalImage = async (
   proxyUrl: string,
-  native: NativeBridge
+  native: NativeBridge,
 ): Promise<Response> => {
   const relative = decodeImageProxyUrl(proxyUrl);
   const normalized = relative.replace(/\\/g, "/").replace(/^\.\//, "");
+
+  // 绝对路径分支：直接读盘（normalize 统一为平台原生分隔符）。
+  if (isAbsoluteImagePath(normalized)) {
+    if (
+      normalized.length > 512 ||
+      normalized.includes("..") ||
+      !IMAGE_EXT_RE.test(normalized)
+    ) {
+      return new Response("Forbidden: invalid local image path", {
+        status: 403,
+      });
+    }
+    return serveImageFile(normalize(normalized));
+  }
+
   if (
     !normalized ||
     normalized.length > 512 ||
@@ -83,16 +117,7 @@ const serveLocalImage = async (
     return new Response("Forbidden: path escapes root", { status: 403 });
   }
 
-  const bytes = await readFile(filePath);
-  if (bytes.byteLength > MAX_IMAGE_BYTES) {
-    return new Response("Image too large", { status: 413 });
-  }
-
-  const headers = new Headers();
-  headers.set("Content-Type", mimeForImagePath(filePath));
-  // 不允许客户端缓存代理结果，避免改图后不刷新。
-  headers.set("Cache-Control", "no-store");
-  return new Response(bytes, { status: 200, headers });
+  return serveImageFile(filePath);
 };
 
 /** 是否为站点 favicon 请求（`<origin>/favicon.ico`）；favicon 变化频率极低，
@@ -178,7 +203,7 @@ export const registerImageProxyProtocol = (native: NativeBridge): void => {
       // 普通图片 no-store 避免改图不刷新；favicon 允许缓存（站点图标基本不变）。
       headers.set(
         "Cache-Control",
-        isFaviconUrl(originalUrl) ? "public, max-age=86400" : "no-store"
+        isFaviconUrl(originalUrl) ? "public, max-age=86400" : "no-store",
       );
 
       return new Response(buffer, {

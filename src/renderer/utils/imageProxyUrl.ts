@@ -3,8 +3,8 @@
  *
  * 主进程通过 protocol.handle 注册 img-proxy:// 协议：
  *  - `img-proxy://localhost/<encodeURIComponent(http(s) URL)>` 代理外部图片
- *  - `img-proxy://local/<encodeURIComponent(相对路径)>` 读取本地图片
- *    （image/ 图库路径或 upload/ 上传路径），由主进程定位根目录后返回文件
+ *  - `img-proxy://local/<encodeURIComponent(路径)>` 读取本地图片
+ *    （image/ 图库路径、upload/ 上传路径或磁盘绝对路径），由主进程读盘返回
  * 渲染进程通过 imageProxyUrl / localImageProxyUrl 构造代理 URL。
  *
  * 这个文件是纯函数，不依赖 electron 模块，主进程和渲染进程（含 Web Worker）均可导入。
@@ -33,20 +33,26 @@ export const imageProxyUrl = (originalUrl: string): string => {
     return originalUrl;
   }
   return `${IMG_PROXY_SCHEME}://${IMG_PROXY_REMOTE_HOST}/${encodeURIComponent(
-    originalUrl
+    originalUrl,
   )}`;
 };
 
+/** 绝对图片路径判断：Windows 盘符（D:/...）或 POSIX 根路径（/...）。
+ *  调用前需已把反斜杠统一为正斜杠。 */
+export const isAbsoluteImagePath = (path: string): boolean =>
+  /^[a-zA-Z]:\//.test(path) || path.startsWith("/");
+
 /**
- * 将本地图片相对路径（image/... 或 upload/...）转换为 img-proxy:// 代理 URL。
+ * 将本地图片路径（image/... 或 upload/... 相对路径，或磁盘绝对路径如
+ * D:/proj/src/assets/logo.png）转换为 img-proxy:// 代理 URL。
  * 非本地路径原样返回。
  */
-export const localImageProxyUrl = (relativePath: string): string => {
-  if (!relativePath || !/^(image|upload)\//.test(relativePath)) {
-    return relativePath;
+export const localImageProxyUrl = (path: string): string => {
+  if (!path || !(/^(image|upload)\//.test(path) || isAbsoluteImagePath(path))) {
+    return path;
   }
   return `${IMG_PROXY_SCHEME}://${IMG_PROXY_LOCAL_HOST}/${encodeURIComponent(
-    relativePath
+    path,
   )}`;
 };
 

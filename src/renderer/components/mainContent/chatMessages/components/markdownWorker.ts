@@ -18,6 +18,7 @@ import type Token from "markdown-it/lib/token.mjs";
 import texmath from "markdown-it-texmath";
 import {
   imageProxyUrl,
+  isAbsoluteImagePath,
   localImageProxyUrl,
 } from "../../../../utils/imageProxyUrl";
 
@@ -485,10 +486,11 @@ markdown.renderer.rules.md_source_badge = (tokens, idx): string => {
 };
 
 /**
- * 判断是否为本地图片相对路径：图库落盘引用（image/...，安装目录旁图库目录）
- * 或会话上传引用（upload/...，数据库目录旁的 upload 目录）。这两类路径在
- * 渲染进程中没有对应静态资源，直接作为 <img src> 加载必然失败（破损图片），
- * 需要改写为 img-proxy:// 协议 URL，由主进程读取磁盘后返回。
+ * 判断是否为本地图片路径：图库落盘引用（image/...，安装目录旁图库目录）、
+ * 会话上传引用（upload/...，数据库目录旁的 upload 目录），或磁盘绝对路径
+ * （D:/... 或 /...，模型引用项目内图片时常见）。这些路径在渲染进程中没有
+ * 对应静态资源，直接作为 <img src> 加载必然失败（破损图片），需要改写为
+ * img-proxy:// 协议 URL，由主进程读取磁盘后返回。
  */
 const normalizeLocalImagePath = (src: string): string | null => {
   if (!src || src.length > 512 || /\s/.test(src)) {
@@ -503,16 +505,20 @@ const normalizeLocalImagePath = (src: string): string | null => {
     // 保留原值
   }
   const normalized = decoded.replace(/\\/g, "/").replace(/^\.\//, "");
+  // 绝对路径：交给主进程直接读盘（主进程侧限制图片扩展名）。
+  if (isAbsoluteImagePath(normalized)) {
+    return normalized.includes("..") ? null : normalized;
+  }
   if (!/^(image|upload)\//.test(normalized) || normalized.includes("..")) {
     return null;
   }
   return normalized;
 };
 
-// 把图片 src 统一改写为 img-proxy:// 协议：外部 http(s) 图与本地相对路径
-// （image/、upload/）都经主进程协议处理器加载（外部 net.fetch 代理，本地
-// 直接读盘），符合渲染进程 CSP（img-src 允许 img-proxy: 但不允许任意 https:
-// 与本地相对路径）。
+// 把图片 src 统一改写为 img-proxy:// 协议：外部 http(s) 图与本地路径
+// （image/、upload/ 相对路径或磁盘绝对路径）都经主进程协议处理器加载
+// （外部 net.fetch 代理，本地直接读盘），符合渲染进程 CSP（img-src 允许
+// img-proxy: 但不允许任意 https: 与本地相对路径）。
 const defaultImageRule = markdown.renderer.rules.image;
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
