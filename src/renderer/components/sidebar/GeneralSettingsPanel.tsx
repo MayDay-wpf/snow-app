@@ -8,6 +8,7 @@ import {
   HardDrive,
   Image as ImageIcon,
   Images,
+  Info,
   LoaderCircle,
   MemoryStick,
   Recycle,
@@ -95,6 +96,8 @@ type GeneralSettingsPanelProps = {
   onClose?: () => void;
 };
 
+type GeneralSettingsTab = "general" | "storage" | "about";
+
 /** 取文件路径的父目录（跨平台字符串处理，避免在渲染层引入 node:path）。 */
 const parentDirOf = (filePath: string): string =>
   filePath.replace(/[\\\\/][^\\\\/]*$/, "") || filePath;
@@ -119,6 +122,7 @@ export function GeneralSettingsPanel({
   onClose,
 }: GeneralSettingsPanelProps): React.JSX.Element {
   const { locale, setLocale, supportedLocales, t } = useI18n();
+  const [activeTab, setActiveTab] = useState<GeneralSettingsTab>("general");
   const [appVersion, setAppVersion] = useState<string>("");
   const [isChecking, setIsChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(
@@ -821,6 +825,48 @@ export function GeneralSettingsPanel({
         )}
       </div>
 
+      <div className="import-settings-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "general"}
+          className={`import-settings-tab ${
+            activeTab === "general" ? "active" : ""
+          }`}
+          onClick={() => setActiveTab("general")}
+        >
+          {t("settings.generalSettings", {
+            defaultValue: "General settings",
+          })}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "storage"}
+          className={`import-settings-tab ${
+            activeTab === "storage" ? "active" : ""
+          }`}
+          onClick={() => setActiveTab("storage")}
+        >
+          <HardDrive size={13} strokeWidth={1.8} />
+          {t("settings.storageTab", {
+            defaultValue: "Storage & resources",
+          })}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "about"}
+          className={`import-settings-tab ${
+            activeTab === "about" ? "active" : ""
+          }`}
+          onClick={() => setActiveTab("about")}
+        >
+          <Info size={13} strokeWidth={1.8} />
+          {t("settings.about", { defaultValue: "About" })}
+        </button>
+      </div>
+
       <AutoDismissNotice
         message={
           storageError ||
@@ -843,863 +889,880 @@ export function GeneralSettingsPanel({
         }}
       />
 
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.languageSettings", { defaultValue: "Language" })}
-          </strong>
-          <span>
-            {t("settings.languageSettingsInfo", {
-              defaultValue: "Choose the display language for Snow App.",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          <div className="settings-language-options">
-            {supportedLocales.map((supportedLocale) => (
-              <button
-                key={supportedLocale}
-                className={`settings-language-option ${
-                  locale === supportedLocale ? "active" : ""
-                }`}
-                onClick={() => setLocale(supportedLocale as Locale)}
-                type="button"
-              >
-                {localeLabels[supportedLocale]}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.closeBehavior", {
-              defaultValue: "关闭 Snow APP 时",
-            })}
-          </strong>
-          <span>
-            {t("settings.closeBehaviorInfo", {
-              defaultValue: "选择关闭应用窗口时的行为。",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          <div className="settings-about-row">
-            <span className="settings-item-description">
-              {t("settings.closeBehaviorAction", {
-                defaultValue: "关闭行为",
+      {activeTab === "general" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.languageSettings", { defaultValue: "Language" })}
+            </strong>
+            <span>
+              {t("settings.languageSettingsInfo", {
+                defaultValue: "Choose the display language for Snow App.",
               })}
             </span>
-            <div className="settings-close-behavior-select">
-              <CustomSelect
-                value={closeBehavior}
-                options={[
-                  {
-                    value: "ask",
-                    label: t("settings.closeBehaviorAsk", {
-                      defaultValue: "每次询问",
-                    }),
-                  },
-                  {
-                    value: "exit",
-                    label: t("settings.closeBehaviorExit", {
-                      defaultValue: "退出应用",
-                    }),
-                  },
-                  {
-                    value: "minimize",
-                    label: t(
-                      isMacPlatform
-                        ? "app.closeMinimizeMac"
-                        : "app.closeMinimize",
-                      { defaultValue: "最小化到托盘" },
-                    ),
-                  },
-                ]}
-                onChange={handleCloseBehaviorChange}
-              />
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-language-options">
+              {supportedLocales.map((supportedLocale) => (
+                <button
+                  key={supportedLocale}
+                  className={`settings-language-option ${
+                    locale === supportedLocale ? "active" : ""
+                  }`}
+                  onClick={() => setLocale(supportedLocale as Locale)}
+                  type="button"
+                >
+                  {localeLabels[supportedLocale]}
+                </button>
+              ))}
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.resourceUsage", {
-              defaultValue: "Resource usage",
-            })}
-          </strong>
-          <span>
-            {t("settings.resourceUsageInfo", {
-              defaultValue: "App process memory and local data usage.",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          {/* 内存占用：进入面板时查询一次，支持手动刷新，不做后台轮询 */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <MemoryStick
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.resourceMemory", {
-                    defaultValue: "Memory usage",
-                  })}
-                </span>
-                <span className="general-storage-size">
-                  {memoryBytes !== null && memoryBytes >= 0
-                    ? formatBytes(memoryBytes)
-                    : "—"}
-                </span>
-              </div>
-            </div>
-            <div className="general-storage-actions">
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={handleRefreshResources}
-                disabled={memoryLoading || isMigrating}
-                title={t("settings.resourceRefresh", {
-                  defaultValue: "Refresh",
-                })}
-              >
-                {memoryLoading ? (
-                  <LoaderCircle
-                    size={11}
-                    strokeWidth={1.8}
-                    className="tool-call-icon-spinning"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <RefreshCw size={11} aria-hidden="true" />
-                )}
-                <span>
-                  {t("settings.resourceRefresh", {
-                    defaultValue: "Refresh",
-                  })}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* 数据盘占用：下方各存储路径之和，随存储统计自动更新 */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <HardDrive
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.resourceDataDisk", {
-                    defaultValue: "Data on disk",
-                  })}
-                </span>
-                <span className="general-storage-size">
-                  {dataDiskBytes > 0 ? formatBytes(dataDiskBytes) : "—"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 磁盘空间优化：手动触发 VACUUM 回收已删除数据的空闲页 */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <Recycle
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.resourceOptimize", {
-                    defaultValue: "Optimize disk usage",
-                  })}
-                </span>
-                <span className="settings-item-description">
-                  {t("settings.resourceOptimizeInfo", {
-                    defaultValue:
-                      "Rebuild database files to reclaim disk space and compact process memory.",
-                  })}
-                </span>
-              </div>
-            </div>
-            <div className="general-storage-actions">
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={() => void handleOptimizeUsage()}
-                disabled={isOptimizing || isMigrating || isImageLibraryBusy}
-                title={t("settings.resourceOptimizeInfo", {
-                  defaultValue:
-                    "Rebuild database files to reclaim disk space and compact process memory.",
-                })}
-              >
-                {isOptimizing ? (
-                  <LoaderCircle
-                    size={11}
-                    strokeWidth={1.8}
-                    className="tool-call-icon-spinning"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <Recycle size={11} strokeWidth={1.8} aria-hidden="true" />
-                )}
-                <span>
-                  {isOptimizing
-                    ? t("settings.resourceOptimizeWorking", {
-                        defaultValue: "Optimizing...",
-                      })
-                    : t("settings.resourceOptimize", {
-                        defaultValue: "Optimize disk usage",
-                      })}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.teamCollaboration", {
-              defaultValue: "团队协作",
-            })}
-          </strong>
-          <span>
-            {t("settings.teamCollaborationInfo", {
-              defaultValue:
-                "基于 Git 的共享数据平面：团队成员共同维护任务、评审与笔记，无需后端服务。默认关闭。",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          <div className="settings-about-row">
-            <span className="settings-item-description">
-              {t("settings.teamCollaborationEnabled", {
-                defaultValue: "启用团队协作",
+      {activeTab === "general" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.closeBehavior", {
+                defaultValue: "关闭 Snow APP 时",
+              })}
+            </strong>
+            <span>
+              {t("settings.closeBehaviorInfo", {
+                defaultValue: "选择关闭应用窗口时的行为。",
               })}
             </span>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={teamEnabled}
-                onChange={(event) =>
-                  handleTeamEnabledChange(event.target.checked)
-                }
-                hidden
-              />
-              <span className="toggle-slider" aria-hidden="true" />
-              <span>
-                {teamEnabled
-                  ? t("settings.enabled", { defaultValue: "已启用" })
-                  : t("settings.disabled", { defaultValue: "已关闭" })}
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.closeBehaviorAction", {
+                  defaultValue: "关闭行为",
+                })}
               </span>
-            </label>
+              <div className="settings-close-behavior-select">
+                <CustomSelect
+                  value={closeBehavior}
+                  options={[
+                    {
+                      value: "ask",
+                      label: t("settings.closeBehaviorAsk", {
+                        defaultValue: "每次询问",
+                      }),
+                    },
+                    {
+                      value: "exit",
+                      label: t("settings.closeBehaviorExit", {
+                        defaultValue: "退出应用",
+                      }),
+                    },
+                    {
+                      value: "minimize",
+                      label: t(
+                        isMacPlatform
+                          ? "app.closeMinimizeMac"
+                          : "app.closeMinimize",
+                        { defaultValue: "最小化到托盘" },
+                      ),
+                    },
+                  ]}
+                  onChange={handleCloseBehaviorChange}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.storageLocations", {
-              defaultValue: "Storage locations",
-            })}
-          </strong>
-          <span>
-            {t("settings.storageLocationsInfo", {
-              defaultValue:
-                "Where Snow App stores its database, checkpoints and uploaded images.",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          {/* 运行数据库位置 */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <Database
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.storageRuntimeDatabase", {
-                    defaultValue: "Runtime database",
-                  })}
-                </span>
-                <span
-                  className="general-storage-path"
-                  title={locations?.databasePath}
-                >
-                  {locations?.databasePath ?? "—"}
-                </span>
-                {renderSize(locations?.databasePath)}
-              </div>
-            </div>
-            <div className="general-storage-actions">
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={() =>
-                  locations &&
-                  void handleOpenDir(parentDirOf(locations.databasePath))
-                }
-                disabled={!locations || isMigrating}
-                title={t("settings.storageOpenDir", {
-                  defaultValue: "Open folder",
-                })}
-              >
-                <FolderOpen size={11} aria-hidden="true" />
-                <span>
-                  {t("settings.storageOpenDir", {
-                    defaultValue: "Open folder",
-                  })}
-                </span>
-              </button>
-              {renderRepairButton("runtime")}
-            </div>
+      {activeTab === "storage" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.resourceUsage", {
+                defaultValue: "Resource usage",
+              })}
+            </strong>
+            <span>
+              {t("settings.resourceUsageInfo", {
+                defaultValue: "App process memory and local data usage.",
+              })}
+            </span>
           </div>
 
-          {/* 归档数据库位置（archive.db，存放归档会话） */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <DatabaseBackup
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.storageArchiveDatabase", {
-                    defaultValue: "Archive database",
-                  })}
-                </span>
-                <span
-                  className="general-storage-path"
-                  title={locations?.archiveDbPath}
-                >
-                  {locations?.archiveDbPath ?? "—"}
-                </span>
-                {renderSize(locations?.archiveDbPath)}
-              </div>
-            </div>
-            <div className="general-storage-actions">
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={() =>
-                  locations &&
-                  void handleOpenDir(parentDirOf(locations.archiveDbPath))
-                }
-                disabled={!locations || isMigrating}
-                title={t("settings.storageOpenDir", {
-                  defaultValue: "Open folder",
-                })}
-              >
-                <FolderOpen size={11} aria-hidden="true" />
-                <span>
-                  {t("settings.storageOpenDir", {
-                    defaultValue: "Open folder",
-                  })}
-                </span>
-              </button>
-              {renderRepairButton("archive")}
-            </div>
-          </div>
-
-          {/* 检查点 / 上传图片位置 */}
-          {STORAGE_KINDS.map((kind) => {
-            const isCheckpoint = kind === "checkpoint";
-            const root = isCheckpoint
-              ? locations?.checkpointRoot
-              : locations?.uploadRoot;
-            const customDir = isCheckpoint
-              ? locations?.checkpointDir
-              : locations?.uploadDir;
-            const isCustom = (customDir ?? "") !== "";
-
-            return (
-              <div key={kind} className="general-storage-row">
-                <div className="general-storage-info">
-                  {isCheckpoint ? (
-                    <Archive
-                      size={14}
-                      strokeWidth={1.8}
-                      className="general-storage-icon"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <ImageIcon
-                      size={14}
-                      strokeWidth={1.8}
-                      className="general-storage-icon"
-                      aria-hidden="true"
-                    />
-                  )}
-                  <div className="general-storage-text">
-                    <span className="general-storage-label">
-                      {isCheckpoint
-                        ? t("settings.storageCheckpoint", {
-                            defaultValue: "Checkpoints",
-                          })
-                        : t("settings.storageUpload", {
-                            defaultValue: "Uploaded images",
-                          })}
-                    </span>
-                    <span className="general-storage-path" title={root}>
-                      {root ?? "—"}
-                    </span>
-                    {renderSize(root)}
-                  </div>
-                </div>
-                <div className="general-storage-actions">
-                  <button
-                    type="button"
-                    className="general-storage-action"
-                    onClick={() => root && void handleOpenDir(root)}
-                    disabled={!root || isMigrating}
-                    title={t("settings.storageOpenDir", {
-                      defaultValue: "Open folder",
-                    })}
-                  >
-                    <FolderOpen size={11} aria-hidden="true" />
-                    <span>
-                      {t("settings.storageOpenDir", {
-                        defaultValue: "Open folder",
-                      })}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="general-storage-action"
-                    onClick={() => void handleChangeDir(kind)}
-                    disabled={!root || isMigrating}
-                    title={t("settings.storageChangeDir", {
-                      defaultValue: "Change folder",
-                    })}
-                  >
-                    <FolderCog size={11} aria-hidden="true" />
-                    <span>
-                      {t("settings.storageChangeDir", {
-                        defaultValue: "Change folder",
-                      })}
-                    </span>
-                  </button>
-                  {isCustom && (
-                    <button
-                      type="button"
-                      className="general-storage-action"
-                      onClick={() => handleResetDir(kind)}
-                      disabled={isMigrating}
-                      title={t("settings.storageResetDir", {
-                        defaultValue: "Use default",
-                      })}
-                    >
-                      <X size={11} aria-hidden="true" />
-                      <span>
-                        {t("settings.storageResetDir", {
-                          defaultValue: "Use default",
-                        })}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* 迁移进度 */}
-          {migration && (
-            <div className="general-storage-migrate-bar" role="status">
-              <div className="general-storage-migrate-info">
-                <LoaderCircle
-                  size={12}
+          <div className="api-settings-form-body">
+            {/* 内存占用：进入面板时查询一次，支持手动刷新，不做后台轮询 */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <MemoryStick
+                  size={14}
                   strokeWidth={1.8}
-                  className="tool-call-icon-spinning"
+                  className="general-storage-icon"
                   aria-hidden="true"
                 />
-                <span>
-                  {rollingBack
-                    ? t("settings.storageMigrateRollingBack", {
-                        defaultValue: "Rolling back...",
-                      })
-                    : t("settings.storageMigrateProgress", {
-                        values: {
-                          current: migration.copied,
-                          total: migration.total,
-                        },
-                        defaultValue: `Migrating ${migration.copied}/${migration.total}`,
-                      })}
-                </span>
-                {!rollingBack && (
-                  <button
-                    type="button"
-                    className="general-storage-migrate-cancel"
-                    onClick={cancelMigration}
-                  >
-                    {t("settings.cancel", { defaultValue: "Cancel" })}
-                  </button>
-                )}
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.resourceMemory", {
+                      defaultValue: "Memory usage",
+                    })}
+                  </span>
+                  <span className="general-storage-size">
+                    {memoryBytes !== null && memoryBytes >= 0
+                      ? formatBytes(memoryBytes)
+                      : "—"}
+                  </span>
+                </div>
               </div>
-              <div className="general-storage-migrate-progress-bar">
-                <div
-                  className="general-storage-migrate-progress-fill"
-                  style={{
-                    width: `${
-                      migration.total > 0
-                        ? Math.min(
-                            100,
-                            Math.round(
-                              (migration.copied / migration.total) * 100,
-                            ),
-                          )
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* 图片库存储位置 */}
-          <div className="general-storage-row">
-            <div className="general-storage-info">
-              <Images
-                size={14}
-                strokeWidth={1.8}
-                className="general-storage-icon"
-                aria-hidden="true"
-              />
-              <div className="general-storage-text">
-                <span className="general-storage-label">
-                  {t("settings.storageImageLibrary", {
-                    defaultValue: "Image library",
-                  })}
-                </span>
-                <span className="general-storage-path" title={imageLibraryRoot}>
-                  {imageLibraryRoot || "—"}
-                </span>
-                {renderSize(imageLibraryRoot)}
-              </div>
-            </div>
-            <div className="general-storage-actions">
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={() =>
-                  imageLibraryRoot && void handleOpenDir(imageLibraryRoot)
-                }
-                disabled={!imageLibraryRoot || isImageLibraryBusy}
-                title={t("settings.storageOpenDir", {
-                  defaultValue: "Open folder",
-                })}
-              >
-                <FolderOpen size={11} aria-hidden="true" />
-                <span>
-                  {t("settings.storageOpenDir", {
-                    defaultValue: "Open folder",
-                  })}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="general-storage-action"
-                onClick={() => void handleImageLibraryChangeDir()}
-                disabled={!imageLibraryRoot || isImageLibraryBusy}
-                title={t("settings.storageChangeDir", {
-                  defaultValue: "Change folder",
-                })}
-              >
-                <FolderCog size={11} aria-hidden="true" />
-                <span>
-                  {t("settings.storageChangeDir", {
-                    defaultValue: "Change folder",
-                  })}
-                </span>
-              </button>
-              {imageLibraryCustomDir && (
+              <div className="general-storage-actions">
                 <button
                   type="button"
                   className="general-storage-action"
-                  onClick={handleImageLibraryResetDir}
-                  disabled={isImageLibraryBusy}
-                  title={t("settings.storageResetDir", {
-                    defaultValue: "Use default",
+                  onClick={handleRefreshResources}
+                  disabled={memoryLoading || isMigrating}
+                  title={t("settings.resourceRefresh", {
+                    defaultValue: "Refresh",
                   })}
                 >
-                  <X size={11} aria-hidden="true" />
+                  {memoryLoading ? (
+                    <LoaderCircle
+                      size={11}
+                      strokeWidth={1.8}
+                      className="tool-call-icon-spinning"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <RefreshCw size={11} aria-hidden="true" />
+                  )}
                   <span>
-                    {t("settings.storageResetDir", {
+                    {t("settings.resourceRefresh", {
+                      defaultValue: "Refresh",
+                    })}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* 数据盘占用：下方各存储路径之和，随存储统计自动更新 */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <HardDrive
+                  size={14}
+                  strokeWidth={1.8}
+                  className="general-storage-icon"
+                  aria-hidden="true"
+                />
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.resourceDataDisk", {
+                      defaultValue: "Data on disk",
+                    })}
+                  </span>
+                  <span className="general-storage-size">
+                    {dataDiskBytes > 0 ? formatBytes(dataDiskBytes) : "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 磁盘空间优化：手动触发 VACUUM 回收已删除数据的空闲页 */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <Recycle
+                  size={14}
+                  strokeWidth={1.8}
+                  className="general-storage-icon"
+                  aria-hidden="true"
+                />
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.resourceOptimize", {
+                      defaultValue: "Optimize disk usage",
+                    })}
+                  </span>
+                  <span className="settings-item-description">
+                    {t("settings.resourceOptimizeInfo", {
+                      defaultValue:
+                        "Rebuild database files to reclaim disk space and compact process memory.",
+                    })}
+                  </span>
+                </div>
+              </div>
+              <div className="general-storage-actions">
+                <button
+                  type="button"
+                  className="general-storage-action"
+                  onClick={() => void handleOptimizeUsage()}
+                  disabled={isOptimizing || isMigrating || isImageLibraryBusy}
+                  title={t("settings.resourceOptimizeInfo", {
+                    defaultValue:
+                      "Rebuild database files to reclaim disk space and compact process memory.",
+                  })}
+                >
+                  {isOptimizing ? (
+                    <LoaderCircle
+                      size={11}
+                      strokeWidth={1.8}
+                      className="tool-call-icon-spinning"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Recycle size={11} strokeWidth={1.8} aria-hidden="true" />
+                  )}
+                  <span>
+                    {isOptimizing
+                      ? t("settings.resourceOptimizeWorking", {
+                          defaultValue: "Optimizing...",
+                        })
+                      : t("settings.resourceOptimize", {
+                          defaultValue: "Optimize disk usage",
+                        })}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "general" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.teamCollaboration", {
+                defaultValue: "团队协作",
+              })}
+            </strong>
+            <span>
+              {t("settings.teamCollaborationInfo", {
+                defaultValue:
+                  "基于 Git 的共享数据平面：团队成员共同维护任务、评审与笔记，无需后端服务。默认关闭。",
+              })}
+            </span>
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.teamCollaborationEnabled", {
+                  defaultValue: "启用团队协作",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={teamEnabled}
+                  onChange={(event) =>
+                    handleTeamEnabledChange(event.target.checked)
+                  }
+                  hidden
+                />
+                <span className="toggle-slider" aria-hidden="true" />
+                <span>
+                  {teamEnabled
+                    ? t("settings.enabled", { defaultValue: "已启用" })
+                    : t("settings.disabled", { defaultValue: "已关闭" })}
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "storage" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.storageLocations", {
+                defaultValue: "Storage locations",
+              })}
+            </strong>
+            <span>
+              {t("settings.storageLocationsInfo", {
+                defaultValue:
+                  "Where Snow App stores its database, checkpoints and uploaded images.",
+              })}
+            </span>
+          </div>
+
+          <div className="api-settings-form-body">
+            {/* 运行数据库位置 */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <Database
+                  size={14}
+                  strokeWidth={1.8}
+                  className="general-storage-icon"
+                  aria-hidden="true"
+                />
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.storageRuntimeDatabase", {
+                      defaultValue: "Runtime database",
+                    })}
+                  </span>
+                  <span
+                    className="general-storage-path"
+                    title={locations?.databasePath}
+                  >
+                    {locations?.databasePath ?? "—"}
+                  </span>
+                  {renderSize(locations?.databasePath)}
+                </div>
+              </div>
+              <div className="general-storage-actions">
+                <button
+                  type="button"
+                  className="general-storage-action"
+                  onClick={() =>
+                    locations &&
+                    void handleOpenDir(parentDirOf(locations.databasePath))
+                  }
+                  disabled={!locations || isMigrating}
+                  title={t("settings.storageOpenDir", {
+                    defaultValue: "Open folder",
+                  })}
+                >
+                  <FolderOpen size={11} aria-hidden="true" />
+                  <span>
+                    {t("settings.storageOpenDir", {
+                      defaultValue: "Open folder",
+                    })}
+                  </span>
+                </button>
+                {renderRepairButton("runtime")}
+              </div>
+            </div>
+
+            {/* 归档数据库位置（archive.db，存放归档会话） */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <DatabaseBackup
+                  size={14}
+                  strokeWidth={1.8}
+                  className="general-storage-icon"
+                  aria-hidden="true"
+                />
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.storageArchiveDatabase", {
+                      defaultValue: "Archive database",
+                    })}
+                  </span>
+                  <span
+                    className="general-storage-path"
+                    title={locations?.archiveDbPath}
+                  >
+                    {locations?.archiveDbPath ?? "—"}
+                  </span>
+                  {renderSize(locations?.archiveDbPath)}
+                </div>
+              </div>
+              <div className="general-storage-actions">
+                <button
+                  type="button"
+                  className="general-storage-action"
+                  onClick={() =>
+                    locations &&
+                    void handleOpenDir(parentDirOf(locations.archiveDbPath))
+                  }
+                  disabled={!locations || isMigrating}
+                  title={t("settings.storageOpenDir", {
+                    defaultValue: "Open folder",
+                  })}
+                >
+                  <FolderOpen size={11} aria-hidden="true" />
+                  <span>
+                    {t("settings.storageOpenDir", {
+                      defaultValue: "Open folder",
+                    })}
+                  </span>
+                </button>
+                {renderRepairButton("archive")}
+              </div>
+            </div>
+
+            {/* 检查点 / 上传图片位置 */}
+            {STORAGE_KINDS.map((kind) => {
+              const isCheckpoint = kind === "checkpoint";
+              const root = isCheckpoint
+                ? locations?.checkpointRoot
+                : locations?.uploadRoot;
+              const customDir = isCheckpoint
+                ? locations?.checkpointDir
+                : locations?.uploadDir;
+              const isCustom = (customDir ?? "") !== "";
+
+              return (
+                <div key={kind} className="general-storage-row">
+                  <div className="general-storage-info">
+                    {isCheckpoint ? (
+                      <Archive
+                        size={14}
+                        strokeWidth={1.8}
+                        className="general-storage-icon"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ImageIcon
+                        size={14}
+                        strokeWidth={1.8}
+                        className="general-storage-icon"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <div className="general-storage-text">
+                      <span className="general-storage-label">
+                        {isCheckpoint
+                          ? t("settings.storageCheckpoint", {
+                              defaultValue: "Checkpoints",
+                            })
+                          : t("settings.storageUpload", {
+                              defaultValue: "Uploaded images",
+                            })}
+                      </span>
+                      <span className="general-storage-path" title={root}>
+                        {root ?? "—"}
+                      </span>
+                      {renderSize(root)}
+                    </div>
+                  </div>
+                  <div className="general-storage-actions">
+                    <button
+                      type="button"
+                      className="general-storage-action"
+                      onClick={() => root && void handleOpenDir(root)}
+                      disabled={!root || isMigrating}
+                      title={t("settings.storageOpenDir", {
+                        defaultValue: "Open folder",
+                      })}
+                    >
+                      <FolderOpen size={11} aria-hidden="true" />
+                      <span>
+                        {t("settings.storageOpenDir", {
+                          defaultValue: "Open folder",
+                        })}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="general-storage-action"
+                      onClick={() => void handleChangeDir(kind)}
+                      disabled={!root || isMigrating}
+                      title={t("settings.storageChangeDir", {
+                        defaultValue: "Change folder",
+                      })}
+                    >
+                      <FolderCog size={11} aria-hidden="true" />
+                      <span>
+                        {t("settings.storageChangeDir", {
+                          defaultValue: "Change folder",
+                        })}
+                      </span>
+                    </button>
+                    {isCustom && (
+                      <button
+                        type="button"
+                        className="general-storage-action"
+                        onClick={() => handleResetDir(kind)}
+                        disabled={isMigrating}
+                        title={t("settings.storageResetDir", {
+                          defaultValue: "Use default",
+                        })}
+                      >
+                        <X size={11} aria-hidden="true" />
+                        <span>
+                          {t("settings.storageResetDir", {
+                            defaultValue: "Use default",
+                          })}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 迁移进度 */}
+            {migration && (
+              <div className="general-storage-migrate-bar" role="status">
+                <div className="general-storage-migrate-info">
+                  <LoaderCircle
+                    size={12}
+                    strokeWidth={1.8}
+                    className="tool-call-icon-spinning"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {rollingBack
+                      ? t("settings.storageMigrateRollingBack", {
+                          defaultValue: "Rolling back...",
+                        })
+                      : t("settings.storageMigrateProgress", {
+                          values: {
+                            current: migration.copied,
+                            total: migration.total,
+                          },
+                          defaultValue: `Migrating ${migration.copied}/${migration.total}`,
+                        })}
+                  </span>
+                  {!rollingBack && (
+                    <button
+                      type="button"
+                      className="general-storage-migrate-cancel"
+                      onClick={cancelMigration}
+                    >
+                      {t("settings.cancel", { defaultValue: "Cancel" })}
+                    </button>
+                  )}
+                </div>
+                <div className="general-storage-migrate-progress-bar">
+                  <div
+                    className="general-storage-migrate-progress-fill"
+                    style={{
+                      width: `${
+                        migration.total > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                (migration.copied / migration.total) * 100,
+                              ),
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 图片库存储位置 */}
+            <div className="general-storage-row">
+              <div className="general-storage-info">
+                <Images
+                  size={14}
+                  strokeWidth={1.8}
+                  className="general-storage-icon"
+                  aria-hidden="true"
+                />
+                <div className="general-storage-text">
+                  <span className="general-storage-label">
+                    {t("settings.storageImageLibrary", {
+                      defaultValue: "Image library",
+                    })}
+                  </span>
+                  <span
+                    className="general-storage-path"
+                    title={imageLibraryRoot}
+                  >
+                    {imageLibraryRoot || "—"}
+                  </span>
+                  {renderSize(imageLibraryRoot)}
+                </div>
+              </div>
+              <div className="general-storage-actions">
+                <button
+                  type="button"
+                  className="general-storage-action"
+                  onClick={() =>
+                    imageLibraryRoot && void handleOpenDir(imageLibraryRoot)
+                  }
+                  disabled={!imageLibraryRoot || isImageLibraryBusy}
+                  title={t("settings.storageOpenDir", {
+                    defaultValue: "Open folder",
+                  })}
+                >
+                  <FolderOpen size={11} aria-hidden="true" />
+                  <span>
+                    {t("settings.storageOpenDir", {
+                      defaultValue: "Open folder",
+                    })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="general-storage-action"
+                  onClick={() => void handleImageLibraryChangeDir()}
+                  disabled={!imageLibraryRoot || isImageLibraryBusy}
+                  title={t("settings.storageChangeDir", {
+                    defaultValue: "Change folder",
+                  })}
+                >
+                  <FolderCog size={11} aria-hidden="true" />
+                  <span>
+                    {t("settings.storageChangeDir", {
+                      defaultValue: "Change folder",
+                    })}
+                  </span>
+                </button>
+                {imageLibraryCustomDir && (
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={handleImageLibraryResetDir}
+                    disabled={isImageLibraryBusy}
+                    title={t("settings.storageResetDir", {
                       defaultValue: "Use default",
+                    })}
+                  >
+                    <X size={11} aria-hidden="true" />
+                    <span>
+                      {t("settings.storageResetDir", {
+                        defaultValue: "Use default",
+                      })}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 图库迁移进度 */}
+            {imageLibraryMigration && (
+              <div className="general-storage-migrate-bar" role="status">
+                <div className="general-storage-migrate-info">
+                  <LoaderCircle
+                    size={12}
+                    strokeWidth={1.8}
+                    className="tool-call-icon-spinning"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {imageLibraryRollingBack
+                      ? t("settings.imageLibraryMigrateRollingBack")
+                      : t("settings.imageLibraryMigrateProgress", {
+                          values: {
+                            current: imageLibraryMigration.copied,
+                            total: imageLibraryMigration.total,
+                          },
+                        })}
+                  </span>
+                  {!imageLibraryRollingBack && (
+                    <button
+                      type="button"
+                      className="general-storage-migrate-cancel"
+                      onClick={cancelImageLibraryMigration}
+                    >
+                      {t("settings.cancel", { defaultValue: "Cancel" })}
+                    </button>
+                  )}
+                </div>
+                <div className="general-storage-migrate-progress-bar">
+                  <div
+                    className="general-storage-migrate-progress-fill"
+                    style={{
+                      width: `${
+                        imageLibraryMigration.total > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                (imageLibraryMigration.copied /
+                                  imageLibraryMigration.total) *
+                                  100,
+                              ),
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "general" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.attachContextTitle", {
+                defaultValue: "会话上下文注入",
+              })}
+            </strong>
+            <span>
+              {t("settings.attachContextInfo", {
+                defaultValue:
+                  "拖拽历史会话到输入框，可将其注入为当前会话的开头上下文。注入前会自动清洗（剔除思考链与工具执行细节）并按预算裁剪，保护上下文窗口。",
+              })}
+            </span>
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.attachContextSingleBudget", {
+                  defaultValue: "单附件预算（字符）",
+                })}
+              </span>
+              <input
+                className="settings-number-input"
+                type="number"
+                min={ATTACH_CONTEXT_BUDGET_MIN}
+                max={ATTACH_CONTEXT_BUDGET_MAX}
+                step={1000}
+                value={attachSingleBudget}
+                onChange={(event) => setAttachSingleBudget(event.target.value)}
+                onBlur={() =>
+                  saveAttachBudget(
+                    ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
+                    attachSingleBudget,
+                  )
+                }
+                title={t("settings.attachContextBudgetHint", {
+                  defaultValue: "范围 1000-200000，超出自动截断。",
+                })}
+              />
+            </div>
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.attachContextTotalBudget", {
+                  defaultValue: "全部附件合计预算（字符）",
+                })}
+              </span>
+              <input
+                className="settings-number-input"
+                type="number"
+                min={ATTACH_CONTEXT_BUDGET_MIN}
+                max={ATTACH_CONTEXT_BUDGET_MAX}
+                step={1000}
+                value={attachTotalBudget}
+                onChange={(event) => setAttachTotalBudget(event.target.value)}
+                onBlur={() =>
+                  saveAttachBudget(
+                    ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
+                    attachTotalBudget,
+                  )
+                }
+                title={t("settings.attachContextBudgetHint", {
+                  defaultValue: "范围 1000-200000，超出自动截断。",
+                })}
+              />
+            </div>
+            <div className="settings-update-actions">
+              <div className="settings-attach-budget-actions">
+                <button
+                  className="nav-item"
+                  onClick={resetAttachBudgets}
+                  type="button"
+                >
+                  <RotateCcw size={14} strokeWidth={1.8} />
+                  <span>
+                    {t("settings.attachContextReset", {
+                      defaultValue: "恢复默认",
+                    })}
+                  </span>
+                </button>
+                {attachBudgetSaved && (
+                  <span className="settings-update-hint">
+                    {t("settings.attachContextSaved", {
+                      defaultValue: "已保存",
+                    })}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "about" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>{t("settings.about", { defaultValue: "About" })}</strong>
+            <span>
+              {t("settings.aboutInfo", {
+                defaultValue: "Version and update management for Snow App.",
+              })}
+            </span>
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.version", { defaultValue: "Version" })}
+              </span>
+              {appVersion && (
+                <span className="sidebar-version-badge">v{appVersion}</span>
+              )}
+              {/* 检查更新按钮 - 行内右侧，始终可见 */}
+              <button
+                className={`nav-item check-update-btn ${
+                  isChecking ? "checking" : ""
+                }`}
+                onClick={handleCheckForUpdates}
+                type="button"
+                disabled={isChecking || updateStatus.downloading}
+              >
+                <RefreshCw size={14} strokeWidth={1.8} />
+                <span>
+                  {isChecking
+                    ? t("settings.checkingUpdate", {
+                        defaultValue: "Checking for updates...",
+                      })
+                    : t("settings.checkUpdate", {
+                        defaultValue: "Check for updates",
+                      })}
+                </span>
+              </button>
+            </div>
+
+            <div className="settings-update-actions">
+              {/* 发现新版本 → 打开更新弹窗（展示发行说明与下载进度） */}
+              {updateStatus.available &&
+                !updateStatus.downloading &&
+                !updateStatus.downloaded && (
+                  <button
+                    className="nav-item update-ready-btn"
+                    onClick={handleOpenUpdateDialog}
+                    type="button"
+                  >
+                    <Download size={16} strokeWidth={1.8} />
+                    <span>
+                      {t("settings.newVersionAvailable", {
+                        values: { version: updateStatus.version ?? "" },
+                        defaultValue: `Update to ${updateStatus.version ?? ""}`,
+                      })}
+                    </span>
+                  </button>
+                )}
+
+              {/* 下载中：点击重新打开弹窗查看进度 */}
+              {updateStatus.available && updateStatus.downloading && (
+                <button
+                  className="nav-item update-downloading"
+                  onClick={handleOpenUpdateDialog}
+                  type="button"
+                >
+                  <LoaderCircle size={16} strokeWidth={1.8} />
+                  <span>
+                    {t("settings.updateDownloading", {
+                      values: { percent: updateStatus.progress },
+                      defaultValue: `Downloading ${updateStatus.progress}%`,
                     })}
                   </span>
                 </button>
               )}
-            </div>
-          </div>
 
-          {/* 图库迁移进度 */}
-          {imageLibraryMigration && (
-            <div className="general-storage-migrate-bar" role="status">
-              <div className="general-storage-migrate-info">
-                <LoaderCircle
-                  size={12}
-                  strokeWidth={1.8}
-                  className="tool-call-icon-spinning"
-                  aria-hidden="true"
-                />
-                <span>
-                  {imageLibraryRollingBack
-                    ? t("settings.imageLibraryMigrateRollingBack")
-                    : t("settings.imageLibraryMigrateProgress", {
-                        values: {
-                          current: imageLibraryMigration.copied,
-                          total: imageLibraryMigration.total,
-                        },
-                      })}
-                </span>
-                {!imageLibraryRollingBack && (
-                  <button
-                    type="button"
-                    className="general-storage-migrate-cancel"
-                    onClick={cancelImageLibraryMigration}
-                  >
-                    {t("settings.cancel", { defaultValue: "Cancel" })}
-                  </button>
-                )}
-              </div>
-              <div className="general-storage-migrate-progress-bar">
-                <div
-                  className="general-storage-migrate-progress-fill"
-                  style={{
-                    width: `${
-                      imageLibraryMigration.total > 0
-                        ? Math.min(
-                            100,
-                            Math.round(
-                              (imageLibraryMigration.copied /
-                                imageLibraryMigration.total) *
-                                100,
-                            ),
-                          )
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>
-            {t("settings.attachContextTitle", {
-              defaultValue: "会话上下文注入",
-            })}
-          </strong>
-          <span>
-            {t("settings.attachContextInfo", {
-              defaultValue:
-                "拖拽历史会话到输入框，可将其注入为当前会话的开头上下文。注入前会自动清洗（剔除思考链与工具执行细节）并按预算裁剪，保护上下文窗口。",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          <div className="settings-about-row">
-            <span className="settings-item-description">
-              {t("settings.attachContextSingleBudget", {
-                defaultValue: "单附件预算（字符）",
-              })}
-            </span>
-            <input
-              className="settings-number-input"
-              type="number"
-              min={ATTACH_CONTEXT_BUDGET_MIN}
-              max={ATTACH_CONTEXT_BUDGET_MAX}
-              step={1000}
-              value={attachSingleBudget}
-              onChange={(event) => setAttachSingleBudget(event.target.value)}
-              onBlur={() =>
-                saveAttachBudget(
-                  ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
-                  attachSingleBudget,
-                )
-              }
-              title={t("settings.attachContextBudgetHint", {
-                defaultValue: "范围 1000-200000，超出自动截断。",
-              })}
-            />
-          </div>
-          <div className="settings-about-row">
-            <span className="settings-item-description">
-              {t("settings.attachContextTotalBudget", {
-                defaultValue: "全部附件合计预算（字符）",
-              })}
-            </span>
-            <input
-              className="settings-number-input"
-              type="number"
-              min={ATTACH_CONTEXT_BUDGET_MIN}
-              max={ATTACH_CONTEXT_BUDGET_MAX}
-              step={1000}
-              value={attachTotalBudget}
-              onChange={(event) => setAttachTotalBudget(event.target.value)}
-              onBlur={() =>
-                saveAttachBudget(
-                  ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
-                  attachTotalBudget,
-                )
-              }
-              title={t("settings.attachContextBudgetHint", {
-                defaultValue: "范围 1000-200000，超出自动截断。",
-              })}
-            />
-          </div>
-          <div className="settings-update-actions">
-            <div className="settings-attach-budget-actions">
-              <button
-                className="nav-item"
-                onClick={resetAttachBudgets}
-                type="button"
-              >
-                <RotateCcw size={14} strokeWidth={1.8} />
-                <span>
-                  {t("settings.attachContextReset", {
-                    defaultValue: "恢复默认",
-                  })}
-                </span>
-              </button>
-              {attachBudgetSaved && (
-                <span className="settings-update-hint">
-                  {t("settings.attachContextSaved", {
-                    defaultValue: "已保存",
-                  })}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="api-settings-manual-form">
-        <div className="api-settings-manual-header">
-          <strong>{t("settings.about", { defaultValue: "About" })}</strong>
-          <span>
-            {t("settings.aboutInfo", {
-              defaultValue: "Version and update management for Snow App.",
-            })}
-          </span>
-        </div>
-
-        <div className="api-settings-form-body">
-          <div className="settings-about-row">
-            <span className="settings-item-description">
-              {t("settings.version", { defaultValue: "Version" })}
-            </span>
-            {appVersion && (
-              <span className="sidebar-version-badge">v{appVersion}</span>
-            )}
-            {/* 检查更新按钮 - 行内右侧，始终可见 */}
-            <button
-              className={`nav-item check-update-btn ${
-                isChecking ? "checking" : ""
-              }`}
-              onClick={handleCheckForUpdates}
-              type="button"
-              disabled={isChecking || updateStatus.downloading}
-            >
-              <RefreshCw size={14} strokeWidth={1.8} />
-              <span>
-                {isChecking
-                  ? t("settings.checkingUpdate", {
-                      defaultValue: "Checking for updates...",
-                    })
-                  : t("settings.checkUpdate", {
-                      defaultValue: "Check for updates",
-                    })}
-              </span>
-            </button>
-          </div>
-
-          <div className="settings-update-actions">
-            {/* 发现新版本 → 打开更新弹窗（展示发行说明与下载进度） */}
-            {updateStatus.available &&
-              !updateStatus.downloading &&
-              !updateStatus.downloaded && (
+              {/* 下载完成 → 直接重启安装（无需再确认） */}
+              {updateStatus.downloaded && (
                 <button
                   className="nav-item update-ready-btn"
-                  onClick={handleOpenUpdateDialog}
+                  onClick={() => void window.snow.installUpdate()}
                   type="button"
                 >
                   <Download size={16} strokeWidth={1.8} />
                   <span>
-                    {t("settings.newVersionAvailable", {
-                      values: { version: updateStatus.version ?? "" },
-                      defaultValue: `Update to ${updateStatus.version ?? ""}`,
+                    {t("settings.updateReady", {
+                      defaultValue: "Restart to update",
                     })}
                   </span>
                 </button>
               )}
-
-            {/* 下载中：点击重新打开弹窗查看进度 */}
-            {updateStatus.available && updateStatus.downloading && (
-              <button
-                className="nav-item update-downloading"
-                onClick={handleOpenUpdateDialog}
-                type="button"
-              >
-                <LoaderCircle size={16} strokeWidth={1.8} />
-                <span>
-                  {t("settings.updateDownloading", {
-                    values: { percent: updateStatus.progress },
-                    defaultValue: `Downloading ${updateStatus.progress}%`,
-                  })}
-                </span>
-              </button>
-            )}
-
-            {/* 下载完成 → 直接重启安装（无需再确认） */}
-            {updateStatus.downloaded && (
-              <button
-                className="nav-item update-ready-btn"
-                onClick={() => void window.snow.installUpdate()}
-                type="button"
-              >
-                <Download size={16} strokeWidth={1.8} />
-                <span>
-                  {t("settings.updateReady", {
-                    defaultValue: "Restart to update",
-                  })}
-                </span>
-              </button>
-            )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <ConfirmDialog
         open={pendingMigration !== null}

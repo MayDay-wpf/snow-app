@@ -2595,6 +2595,7 @@ export const zhCN = {
   "settings.storageRepairRecovered": "数据库曾损坏，现已修复完成。",
   "settings.generalSettings": "通用设置",
   "settings.generalSettingsInfo": "语言、版本与更新管理。",
+  "settings.storageTab": "存储与资源",
   "settings.resourceUsage": "资源占用",
   "settings.resourceUsageInfo": "应用进程内存与本地数据占用统计。",
   "settings.resourceMemory": "内存占用",

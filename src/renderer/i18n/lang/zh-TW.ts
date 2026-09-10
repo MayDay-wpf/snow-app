@@ -2598,6 +2598,7 @@ export const zhTW = {
   "settings.storageRepairRecovered": "資料庫曾損壞，現已修復完成。",
   "settings.generalSettings": "通用設定",
   "settings.generalSettingsInfo": "語言、版本與更新管理。",
+  "settings.storageTab": "儲存與資源",
   "settings.resourceUsage": "資源佔用",
   "settings.resourceUsageInfo": "應用程式記憶體與本機資料佔用統計。",
   "settings.resourceMemory": "記憶體佔用",

@@ -2726,6 +2726,7 @@ export const en = {
     "Database was damaged and has been repaired.",
   "settings.generalSettings": "General settings",
   "settings.generalSettingsInfo": "Language, version and update management.",
+  "settings.storageTab": "Storage & resources",
   "settings.resourceUsage": "Resource usage",
   "settings.resourceUsageInfo": "App process memory and local data usage.",
   "settings.resourceMemory": "Memory usage",

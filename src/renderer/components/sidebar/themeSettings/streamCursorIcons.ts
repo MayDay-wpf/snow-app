@@ -1,19 +1,23 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Circle,
   Loader2,
-  Sparkles,
-  Zap,
+  Loader,
+  LoaderPinwheel,
+  Aperture,
+  Cog,
+  Fan,
+  Sun,
+  CircleDashed,
+  LifeBuoy,
+  Compass,
+  Disc3,
+  RefreshCw,
+  Crosshair,
+  Shell,
   Orbit,
   Atom,
-  Waves,
-  Brain,
-  Bot,
-  Ghost,
-  Flame,
   Snowflake,
   Star,
-  Heart,
   Diamond,
 } from "lucide-react";
 
@@ -28,20 +32,24 @@ export type StreamCursorLucideIcon = {
 };
 
 export const STREAM_CURSOR_LUCIDE_ICONS: StreamCursorLucideIcon[] = [
-  { name: "Circle", Icon: Circle },
   { name: "Loader2", Icon: Loader2 },
-  { name: "Sparkles", Icon: Sparkles },
-  { name: "Zap", Icon: Zap },
+  { name: "Loader", Icon: Loader },
+  { name: "LoaderPinwheel", Icon: LoaderPinwheel },
+  { name: "Aperture", Icon: Aperture },
+  { name: "Cog", Icon: Cog },
+  { name: "Fan", Icon: Fan },
+  { name: "Sun", Icon: Sun },
+  { name: "CircleDashed", Icon: CircleDashed },
+  { name: "LifeBuoy", Icon: LifeBuoy },
+  { name: "Compass", Icon: Compass },
+  { name: "Disc3", Icon: Disc3 },
+  { name: "RefreshCw", Icon: RefreshCw },
+  { name: "Crosshair", Icon: Crosshair },
+  { name: "Shell", Icon: Shell },
   { name: "Orbit", Icon: Orbit },
   { name: "Atom", Icon: Atom },
-  { name: "Waves", Icon: Waves },
-  { name: "Brain", Icon: Brain },
-  { name: "Bot", Icon: Bot },
-  { name: "Ghost", Icon: Ghost },
-  { name: "Flame", Icon: Flame },
   { name: "Snowflake", Icon: Snowflake },
   { name: "Star", Icon: Star },
-  { name: "Heart", Icon: Heart },
   { name: "Diamond", Icon: Diamond },
 ];
 
@@ -55,7 +63,7 @@ export const findStreamCursorLucideIcon = (name: string): LucideIcon | null => {
     return null;
   }
   const entry = STREAM_CURSOR_LUCIDE_ICONS.find(
-    (item) => item.name === trimmed
+    (item) => item.name === trimmed,
   );
   return entry?.Icon ?? null;
 };

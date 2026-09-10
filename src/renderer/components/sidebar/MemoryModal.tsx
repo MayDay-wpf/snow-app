@@ -590,6 +590,24 @@ export function MemoryModal({
                     )}
                   </div>
                 </div>
+                {!isMultiSelectMode && (
+                  <div className="memo-list-item-actions">
+                    <button
+                      aria-label={t("memory.delete", {
+                        defaultValue: "Delete",
+                      })}
+                      className="memo-icon-btn danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteTarget(record);
+                      }}
+                      title={t("memory.delete", { defaultValue: "Delete" })}
+                      type="button"
+                    >
+                      <Trash2 size={13} strokeWidth={1.9} />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })

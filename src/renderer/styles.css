@@ -43609,12 +43609,21 @@ pre.file-viewer-code {
 
 .memory-list-item {
   margin-bottom: 4px;
+  position: relative;
   flex-direction: column;
   gap: 4px;
 }
 
 .memory-list-item.archived {
   opacity: 0.6;
+}
+
+.memory-list-item .memo-list-item-actions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  flex-direction: row;
 }
 
 .memory-list-item-main {
@@ -43630,6 +43639,7 @@ pre.file-viewer-code {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  padding-right: 22px;
 }
 
 .memory-kind-badge {

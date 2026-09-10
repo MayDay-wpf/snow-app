@@ -10,6 +10,7 @@ import {
   getPresetById,
   resolvePresetId,
 } from "./themePresets";
+import { STREAM_CURSOR_LUCIDE_ICONS } from "./streamCursorIcons";
 import { themeBgUrl } from "../../../utils/themeBgUrl";
 
 export const THEME_SETTING_NAME = "Theme settings";
@@ -299,7 +300,7 @@ export function normalizeCustomTheme(value: unknown): ThemeSettings["custom"] {
 }
 
 export function normalizeThemeBackground(
-  value: unknown
+  value: unknown,
 ): ThemeSettings["background"] {
   const source = isRecord(value) ? value : {};
   const opacity =
@@ -335,7 +336,10 @@ export function normalizeThemeStreamCursor(value: unknown): ThemeStreamCursor {
     return { iconType, lucideName: "", svgPath: "", iconSize };
   }
   if (iconType === "lucide") {
-    if (!lucideName) {
+    const isValidName = STREAM_CURSOR_LUCIDE_ICONS.some(
+      (item) => item.name === lucideName,
+    );
+    if (!lucideName || !isValidName) {
       return { iconType: "dot", lucideName: "", svgPath: "", iconSize };
     }
     return { iconType, lucideName, svgPath: "", iconSize };
@@ -365,7 +369,7 @@ export function normalizeThemeSettings(value: unknown): ThemeSettings {
 
 export function resolveActivePalette(
   settings: ThemeSettings,
-  isDark: boolean
+  isDark: boolean,
 ): ThemePalette {
   const useCustom = settings.presetId === "custom";
   if (useCustom) {
@@ -377,8 +381,8 @@ export function resolveActivePalette(
   }
   const fallback = getPresetById(DEFAULT_THEME_PRESET_ID);
   return isDark
-    ? fallback?.dark ?? settings.custom.dark
-    : fallback?.light ?? settings.custom.light;
+    ? (fallback?.dark ?? settings.custom.dark)
+    : (fallback?.light ?? settings.custom.light);
 }
 
 export function applyPaletteToDocument(palette: ThemePalette): void {
@@ -407,7 +411,7 @@ export function applyThemeModeToDocument(mode: ThemeMode): "light" | "dark" {
 export function applyThemePresetToDocument(presetId: string): void {
   const root = document.documentElement;
   const normalizedPresetId = resolvePresetId(
-    presetId.trim() || DEFAULT_THEME_PRESET_ID
+    presetId.trim() || DEFAULT_THEME_PRESET_ID,
   );
   root.setAttribute("data-theme-preset", normalizedPresetId);
 }
@@ -446,7 +450,7 @@ export function applyStreamCursorToDocument(cursor: ThemeStreamCursor): void {
     root.setAttribute("data-stream-cursor", "custom");
     root.style.setProperty(
       "--stream-cursor-svg",
-      `url("${themeBgUrl(cursor.svgPath)}")`
+      `url("${themeBgUrl(cursor.svgPath)}")`,
     );
   }
 }
@@ -562,7 +566,7 @@ export const applyThemeCacheToDocument = (): "light" | "dark" | null => {
     const blur = Math.max(0, bg.blur);
     root.style.setProperty(
       "--theme-bg-image",
-      `url("${themeBgUrl(bg.imagePath)}")`
+      `url("${themeBgUrl(bg.imagePath)}")`,
     );
     root.style.setProperty("--theme-bg-opacity", String(opacity));
     root.style.setProperty("--theme-bg-blur", `${blur}px`);
