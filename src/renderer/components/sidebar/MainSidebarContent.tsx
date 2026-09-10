@@ -91,7 +91,7 @@ export function MainSidebarContent({
 
   // 跨项目通知：聚合其他项目运行中/需关注/已完成的会话，供项目列表
   // 徽标与对话区域「跨项目通知」区块共同消费（单次查询、共享数据）。
-  const crossProjectNotifications =
+  const { groups: crossProjectNotifications, activeSessionDirectoryIds } =
     useCrossProjectNotifications(activeDirectoryId);
 
   // Scheduled tasks: the hook registers buildFromContent as the AI Loop
@@ -328,6 +328,7 @@ export function MainSidebarContent({
       />
       <ProjectsSection
         activeDirectory={activeDirectory}
+        activeSessionDirectoryIds={activeSessionDirectoryIds}
         notificationGroups={crossProjectNotifications}
         onActiveDirectoryChange={onActiveDirectoryChange}
         onSwitchingDirectoryChange={setIsSwitchingDirectory}

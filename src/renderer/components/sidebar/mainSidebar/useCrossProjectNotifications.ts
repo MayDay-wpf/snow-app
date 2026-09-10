@@ -34,6 +34,11 @@ export type CrossProjectNotificationGroup = {
   notifications: CrossProjectNotification[];
 };
 
+export type CrossProjectNotificationState = {
+  groups: CrossProjectNotificationGroup[];
+  activeSessionDirectoryIds: Set<string>;
+};
+
 /** 项目名称回退：local:/path → 末级目录名；SSH 等特殊格式直接原样返回。 */
 const fallbackDirectoryName = (directoryId: string): string => {
   const trimmed = directoryId.trim();
@@ -46,7 +51,7 @@ const fallbackDirectoryName = (directoryId: string): string => {
 
 export const useCrossProjectNotifications = (
   activeDirectoryId: string,
-): CrossProjectNotificationGroup[] => {
+): CrossProjectNotificationState => {
   const {
     streamingConversationIds,
     attentionRequiredConversationIds,
@@ -257,6 +262,7 @@ export const useCrossProjectNotifications = (
 
   return useMemo(() => {
     const groups = new Map<string, CrossProjectNotificationGroup>();
+    const activeSessionDirectoryIds = new Set<string>();
 
     const visit = (
       conversationId: string,
@@ -266,12 +272,18 @@ export const useCrossProjectNotifications = (
       >,
     ): void => {
       const conversation = conversationsById.get(conversationId);
-      if (!conversation) {
+      const directoryId =
+        conversation?.directoryId ||
+        sessionsMirrorRef.current[conversationId]?.directoryId ||
+        "";
+      if (!directoryId) {
         return;
       }
-      const directoryId = conversation.directoryId;
+      if (flag !== "isCompleted") {
+        activeSessionDirectoryIds.add(directoryId);
+      }
       // 当前项目的动态由对话列表自身展示，这里只聚合其他项目的通知
-      if (!directoryId || directoryId === activeDirectoryId) {
+      if (!conversation || directoryId === activeDirectoryId) {
         return;
       }
       let group = groups.get(directoryId);
@@ -309,16 +321,19 @@ export const useCrossProjectNotifications = (
       visit(id, "isCompleted");
     }
 
-    return [...groups.values()]
-      .map((group) => ({
-        ...group,
-        notifications: group.notifications.sort(
-          (a, b) =>
-            parseDbTimestamp(b.conversation.updatedAt).getTime() -
-            parseDbTimestamp(a.conversation.updatedAt).getTime(),
-        ),
-      }))
-      .sort((a, b) => a.directoryName.localeCompare(b.directoryName));
+    return {
+      groups: [...groups.values()]
+        .map((group) => ({
+          ...group,
+          notifications: group.notifications.sort(
+            (a, b) =>
+              parseDbTimestamp(b.conversation.updatedAt).getTime() -
+              parseDbTimestamp(a.conversation.updatedAt).getTime(),
+          ),
+        }))
+        .sort((a, b) => a.directoryName.localeCompare(b.directoryName)),
+      activeSessionDirectoryIds,
+    };
   }, [
     conversationsById,
     directoriesById,

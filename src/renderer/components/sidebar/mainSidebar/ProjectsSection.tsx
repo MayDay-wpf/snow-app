@@ -35,6 +35,7 @@ import type { CrossProjectNotificationGroup } from "./useCrossProjectNotificatio
 type AddDirectoryMode = "" | WorkspaceDirectoryKind;
 type ProjectsSectionProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
+  activeSessionDirectoryIds?: Set<string>;
   /** 跨项目通知（其他项目的运行中/需关注/已完成会话分组），用于项目条目徽标 */
   notificationGroups?: CrossProjectNotificationGroup[];
   onActiveDirectoryChange?: (
@@ -121,6 +122,7 @@ const joinCloneTargetPath = (parentPath: string, repoName: string): string => {
 
 export function ProjectsSection({
   activeDirectory: externalActiveDirectory,
+  activeSessionDirectoryIds,
   notificationGroups,
   onActiveDirectoryChange,
   onSwitchingDirectoryChange,
@@ -1823,6 +1825,7 @@ export function ProjectsSection({
           </span>
           <WorkspaceDirectoryList
             activeDirectoryId={activeDirectory?.directoryId}
+            activeSessionDirectoryIds={activeSessionDirectoryIds}
             collections={collections}
             directoryListRef={directoryListRef}
             draggedDirectoryId={draggedDirectoryId}

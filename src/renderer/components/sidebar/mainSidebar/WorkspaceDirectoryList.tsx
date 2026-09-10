@@ -12,6 +12,7 @@ import { WorkspaceDirectoryRow } from "./WorkspaceDirectoryRow";
 
 type WorkspaceDirectoryListProps = {
   activeDirectoryId?: string;
+  activeSessionDirectoryIds?: Set<string>;
   /** 项目合集列表（渲染在项目列表上方，支持拖拽项目加入） */
   collections: ProjectCollectionRecord[];
   directoryListRef: RefObject<HTMLDivElement | null>;
@@ -57,6 +58,7 @@ type WorkspaceDirectoryListProps = {
 
 export function WorkspaceDirectoryList({
   activeDirectoryId,
+  activeSessionDirectoryIds,
   collections,
   directoryListRef,
   draggedDirectoryId,
@@ -297,6 +299,9 @@ export function WorkspaceDirectoryList({
               directory.directoryId,
             )}
             editingValue={editingValue}
+            hasActiveSession={
+              activeSessionDirectoryIds?.has(directory.directoryId) ?? false
+            }
             index={0}
             isActionLocked={isActionLocked}
             isEditing={false}
@@ -455,6 +460,9 @@ export function WorkspaceDirectoryList({
               dragOverDirectoryId={dragOverDirectoryId}
               dropIndicatorSide={dropIndicatorSide}
               editingValue={editingValue}
+              hasActiveSession={
+                activeSessionDirectoryIds?.has(directory.directoryId) ?? false
+              }
               index={index}
               isActionLocked={isActionLocked}
               isEditing={editingDirectoryId === directory.directoryId}

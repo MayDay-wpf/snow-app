@@ -18,6 +18,7 @@ type WorkspaceDirectoryRowProps = {
   dropIndicatorSide?: "top" | "bottom" | null;
   /** 行内重命名编辑态（由列表层单例管理，保证同时只编辑一行） */
   isEditing: boolean;
+  hasActiveSession?: boolean;
   /** 该项目的跨项目通知会话数（>0 时显示徽标） */
   notificationCount?: number;
   /** 是否可拖拽（默认 true） */
@@ -70,6 +71,7 @@ export function WorkspaceDirectoryRow({
   dragOverDirectoryId,
   dropIndicatorSide,
   isEditing,
+  hasActiveSession,
   notificationCount,
   draggable = true,
   showIndex = true,
@@ -252,7 +254,7 @@ export function WorkspaceDirectoryRow({
         </button>
       )}
       <WorkspaceDirectoryMenu
-        canDelete={directory.source !== "builtin"}
+        canDelete={directory.source !== "builtin" && !hasActiveSession}
         contextMenuAnchor={contextMenuAnchor}
         directoryPath={directory.path}
         disabled={isActionLocked}
