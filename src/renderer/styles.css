@@ -11482,6 +11482,10 @@ input {
   grid-template-rows: 0fr;
 }
 
+.thinking-block-collapse--instant {
+  transition: none;
+}
+
 .thinking-block-collapse-inner {
   min-height: 0;
   overflow: hidden;
@@ -33287,12 +33291,17 @@ body.ctrl-held [data-path] {
 }
 
 /* 文件夹下拉菜单：portal 到 document.body 的 fixed 定位（与 BrowserMenu
-   同模式），不受收藏栏 overflow-x 裁剪。 */
+   同模式），不受收藏栏 overflow-x 裁剪；left/top/max-height 由 JS 按视口
+   剩余空间写入，放不下时向上翻转并在菜单内部滚动，而非被视口截断。 */
 .browser-bookmark-menu {
   position: fixed;
   min-width: 200px;
   max-width: 260px;
+  max-height: calc(100vh - 16px);
   padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg, 8px);
   background: var(--bg-secondary);
@@ -33344,15 +33353,21 @@ body.ctrl-held [data-path] {
   white-space: nowrap;
 }
 
-/* 级联子菜单：hover 父项时在其右侧展开 */
+/* 级联子菜单：hover 父项时在其旁侧展开。fixed 定位由 positionSubmenu 在
+   hover 时写入坐标，既不被父级菜单（可滚动）裁剪，也能在右侧/下方空间
+   不足时向左翻转并限高滚动；未定位前坐标落在视口外，不会闪现。 */
 .browser-bookmark-submenu {
   display: none;
-  position: absolute;
+  position: fixed;
   left: 100%;
   top: -5px;
   flex-direction: column;
-  min-width: 180px;
+  width: 200px;
+  max-height: calc(100vh - 16px);
   padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg, 8px);
   background: var(--bg-secondary);

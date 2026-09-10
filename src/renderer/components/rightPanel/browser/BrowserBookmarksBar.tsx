@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, Folder, Star, X } from "lucide-react";
 import { useI18n } from "../../../i18n";
@@ -51,7 +58,7 @@ const buildBookmarkTree = (bookmarks: BrowserBookmark[]): BookmarkEntry[] => {
   return root;
 };
 
-/** 文件夹下拉菜单（portal fixed 定位，级联子菜单 hover 展开）。 */
+/** 文件夹下拉菜单条目（子菜单 hover 展开前由 positionSubmenu 写入 fixed 坐标）。 */
 const BookmarkMenuEntries = ({
   entries,
   onNavigate,
@@ -67,6 +74,7 @@ const BookmarkMenuEntries = ({
         <div
           key={`folder-${entry.path}`}
           className="browser-bookmark-menu-item has-submenu"
+          onMouseEnter={(event) => positionSubmenu(event.currentTarget)}
         >
           <Folder size={12} strokeWidth={1.8} />
           <span className="browser-bookmark-menu-label">{entry.name}</span>
@@ -101,11 +109,116 @@ const BookmarkMenuEntries = ({
 );
 
 const FOLDER_MENU_WIDTH = 200;
+/** 子菜单宽度（与 CSS 一致，用于向右放不下时向左翻转）。 */
+const SUBMENU_WIDTH = 200;
+/** 菜单与触发按钮之间的间距。 */
+const MENU_GAP = 2;
+/** 菜单与视口边缘的最小留白。 */
+const VIEWPORT_MARGIN = 8;
+/** 条目行高估算（仅用于判断展开方向，实际高度由 max-height 兜底）。 */
+const MENU_ITEM_HEIGHT = 28;
+/** 空间被极限压缩时仍保留的最小菜单高度。 */
+const MIN_MENU_HEIGHT = 80;
+
+/** 文件夹下拉菜单的定位结果。 */
+type FolderMenuPlacement = {
+  left: number;
+  /** 向下展开时的吸附边（与 bottom 二选一）。 */
+  top?: number;
+  /** 上方空间更充裕时向上翻转，改用 bottom 吸附。 */
+  bottom?: number;
+  /** 视口可用高度上限，超出部分菜单内部滚动。 */
+  maxHeight: number;
+};
+
+/** 下拉菜单状态：定位可随窗口尺寸变化重算，故与内容分开保存。 */
+type FolderMenuState = FolderMenuPlacement & {
+  path: string;
+  entries: BookmarkEntry[];
+};
+
+/** 按条目数估算菜单高度（内容区 4px 内边距上下各一份）。 */
+const estimateMenuHeight = (count: number): number =>
+  count * MENU_ITEM_HEIGHT + 8;
+
+/** 按触发按钮位置与视口剩余空间计算菜单吸附边与限高。 */
+const resolveFolderMenuPlacement = (
+  rect: DOMRect,
+  entryCount: number,
+): FolderMenuPlacement => {
+  const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - VIEWPORT_MARGIN;
+  // 下方整体放不下且上方更宽裕时向上翻转，否则向下展开并限高滚动。
+  const openAbove =
+    estimateMenuHeight(entryCount) > spaceBelow && spaceAbove > spaceBelow;
+  return {
+    left: Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(
+        rect.left,
+        window.innerWidth - FOLDER_MENU_WIDTH - VIEWPORT_MARGIN,
+      ),
+    ),
+    top: openAbove ? undefined : rect.bottom + MENU_GAP,
+    bottom: openAbove ? window.innerHeight - rect.top + MENU_GAP : undefined,
+    maxHeight: Math.max(MIN_MENU_HEIGHT, openAbove ? spaceAbove : spaceBelow),
+  };
+};
+
+/**
+ * 子菜单 hover 展开前写入 fixed 坐标：右侧放不下时向左翻转，下方不足时上移
+ * 并限高。fixed 定位使其不受父级滚动容器裁剪，也始终留在视口内。
+ */
+const positionSubmenu = (item: HTMLElement): void => {
+  const submenu = item.querySelector<HTMLElement>(
+    ":scope > .browser-bookmark-submenu",
+  );
+  if (!submenu) {
+    return;
+  }
+  const rect = item.getBoundingClientRect();
+  // 与父项紧贴，避免鼠标横穿空隙时 hover 中断导致子菜单收起。
+  const left =
+    rect.right + SUBMENU_WIDTH > window.innerWidth - VIEWPORT_MARGIN
+      ? Math.max(VIEWPORT_MARGIN, rect.left - SUBMENU_WIDTH)
+      : rect.right;
+  const top = Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(
+      rect.top - 5,
+      window.innerHeight -
+        VIEWPORT_MARGIN -
+        estimateMenuHeight(submenu.children.length),
+    ),
+  );
+  submenu.style.left = `${left}px`;
+  submenu.style.top = `${top}px`;
+  submenu.style.maxHeight = `${Math.max(
+    MIN_MENU_HEIGHT,
+    window.innerHeight - top - VIEWPORT_MARGIN,
+  )}px`;
+};
+
+/** 窗口尺寸变化后重算当前展开（display 非 none 即 hover 中）的子菜单坐标。 */
+const repositionOpenSubmenus = (): void => {
+  document
+    .querySelectorAll<HTMLElement>(".browser-bookmark-submenu")
+    .forEach((submenu) => {
+      if (getComputedStyle(submenu).display === "none") {
+        return;
+      }
+      const item = submenu.parentElement;
+      if (item) {
+        positionSubmenu(item);
+      }
+    });
+};
 
 /**
  * 浏览器收藏栏：标签栏与页面内容之间的横向书签条。
  * 左侧星标收藏/取消收藏当前页；书签与文件夹按树展示，文件夹点击弹出
- * 级联下拉菜单（portal fixed，不受收藏栏 overflow 裁剪）。
+ * 级联下拉菜单（portal fixed，不受收藏栏 overflow 裁剪；视口高度不足时
+ * 向上翻转并按可用空间限高滚动）。
  * 数据经 useBrowserBookmarks 跨实例共享，导入/增删改后自动同步。
  */
 export const BrowserBookmarksBar = ({
@@ -116,14 +229,11 @@ export const BrowserBookmarksBar = ({
   const { t } = useI18n();
   const { bookmarks, addBookmark, removeBookmark } = useBrowserBookmarks();
 
-  const [openFolder, setOpenFolder] = useState<{
-    path: string;
-    entries: BookmarkEntry[];
-    left: number;
-    top: number;
-  } | null>(null);
+  const [openFolder, setOpenFolder] = useState<FolderMenuState | null>(null);
 
   const barRef = useRef<HTMLDivElement>(null);
+  /** 当前菜单对应的收藏栏按钮，窗口尺寸变化时据此重算位置。 */
+  const folderTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const tree = useMemo(() => buildBookmarkTree(bookmarks), [bookmarks]);
 
@@ -182,6 +292,78 @@ export const BrowserBookmarksBar = ({
     };
   }, [openFolder]);
 
+  /** 按触发按钮当前所在位置重算菜单吸附边与限高（尺寸变化时值不变则不重渲染）。 */
+  const updateFolderMenuPosition = useCallback((): void => {
+    const trigger = folderTriggerRef.current;
+    if (!trigger) {
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    setOpenFolder((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const next = {
+        ...prev,
+        ...resolveFolderMenuPlacement(rect, prev.entries.length),
+      };
+      return prev.left === next.left &&
+        prev.top === next.top &&
+        prev.bottom === next.bottom &&
+        prev.maxHeight === next.maxHeight &&
+        prev.path === next.path
+        ? prev
+        : next;
+    });
+  }, []);
+
+  const isFolderMenuOpen = openFolder !== null;
+
+  // 菜单打开期间跟随窗口尺寸、收藏栏滚动与容器尺寸变化，保持贴住触发按钮。
+  useEffect(() => {
+    if (!isFolderMenuOpen) {
+      return;
+    }
+    let pendingFrame = 0;
+    const handleViewportChange = (): void => {
+      updateFolderMenuPosition();
+      if (pendingFrame) {
+        return;
+      }
+      // 子菜单坐标由主菜单条目位置推导，待 React 提交新位置后再重算。
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = 0;
+        repositionOpenSubmenus();
+      });
+    };
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    const container = barRef.current?.parentElement ?? null;
+    const observer =
+      container && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(handleViewportChange)
+        : null;
+    if (container && observer) {
+      observer.observe(container);
+    }
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      observer?.disconnect();
+      if (pendingFrame) {
+        cancelAnimationFrame(pendingFrame);
+      }
+      folderTriggerRef.current = null;
+    };
+  }, [isFolderMenuOpen, updateFolderMenuPosition]);
+
+  // 主菜单位置变更后，已展开的子菜单跟随其父项重新定位。
+  useLayoutEffect(() => {
+    if (openFolder) {
+      repositionOpenSubmenus();
+    }
+  }, [openFolder]);
+
   const handleToggle = (): void => {
     const url = activeUrl.trim();
     if (!url) {
@@ -207,12 +389,12 @@ export const BrowserBookmarksBar = ({
       setOpenFolder(null);
       return;
     }
+    folderTriggerRef.current = event.currentTarget;
     const rect = event.currentTarget.getBoundingClientRect();
     setOpenFolder({
       path: entry.path,
       entries: entry.entries,
-      left: Math.min(rect.left, window.innerWidth - FOLDER_MENU_WIDTH - 8),
-      top: rect.bottom + 2,
+      ...resolveFolderMenuPlacement(rect, entry.entries.length),
     });
   };
 
@@ -291,7 +473,12 @@ export const BrowserBookmarksBar = ({
           <div
             className="browser-bookmark-menu"
             role="menu"
-            style={{ left: openFolder.left, top: openFolder.top }}
+            style={{
+              left: openFolder.left,
+              top: openFolder.top,
+              bottom: openFolder.bottom,
+              maxHeight: openFolder.maxHeight,
+            }}
           >
             <BookmarkMenuEntries
               entries={openFolder.entries}

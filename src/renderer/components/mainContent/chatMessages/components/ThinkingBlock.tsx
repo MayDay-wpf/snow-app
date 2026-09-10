@@ -5,7 +5,7 @@ import {
   ChevronRight,
   Timer,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { MarkdownBlock } from "./markdownRenderer";
 
@@ -15,8 +15,19 @@ const SUCCESS_CHECK_DURATION = 1500;
 /** 单行预览最大字符数，超出后取尾部。 */
 const PREVIEW_MAX_CHARS = 150;
 
+const PREVIEW_SCAN_CHARS = PREVIEW_MAX_CHARS * 4;
+
+const PREVIEW_UPDATE_INTERVAL_MS = 200;
+
 /** 与 CSS .thinking-block-collapse 的 grid-template-rows 过渡时长一致。 */
 const COLLAPSE_ANIMATION_MS = 300;
+
+const THINKING_RENDER_INTERVAL_MS = 300;
+
+const THINKING_LONG_TEXT_CHARS = 100_000;
+const THINKING_LONG_TEXT_INTERVAL_MS = 600;
+
+const COLLAPSE_ANIMATION_MAX_CHARS = 4000;
 
 const formatTokenCount = (count: number): string =>
   count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
@@ -31,15 +42,17 @@ const formatThinkingDuration = (ms: number): string => {
   return `${minutes}m${remainingSeconds}s`;
 };
 
-/**
- * 从思考内容中提取单行预览文本（取尾部），不经过 Markdown 渲染。
- * 流式输出时 content 持续增长，尾部自然"后滚"展示最新内容。
- */
 const getPreviewText = (content: string): string => {
   if (!content) return "";
-  const singleLine = content.replace(/[\n\r\t]+/g, " ");
-  if (singleLine.length <= PREVIEW_MAX_CHARS) return singleLine;
-  return "…" + singleLine.slice(-PREVIEW_MAX_CHARS);
+  const hasMore = content.length > PREVIEW_SCAN_CHARS;
+  const tail = (hasMore ? content.slice(-PREVIEW_SCAN_CHARS) : content).replace(
+    /[\n\r\t]+/g,
+    " ",
+  );
+  if (tail.length <= PREVIEW_MAX_CHARS) {
+    return hasMore ? "…" + tail : tail;
+  }
+  return "…" + tail.slice(-PREVIEW_MAX_CHARS);
 };
 
 type ThinkingBlockProps = {
@@ -69,6 +82,7 @@ export const ThinkingBlock = ({
   // MarkdownBlock 延迟卸载：展开时立即挂载，收起时等动画播完再卸载，
   // 保住 grid-template-rows 过渡动画的起始高度，同时释放 worker 内存。
   const [contentMounted, setContentMounted] = useState(false);
+  const [previewText, setPreviewText] = useState("");
 
   // 用户手动操作过后不再自动收起，避免打断阅读。
   const userInteractedRef = useRef(false);
@@ -76,6 +90,10 @@ export const ThinkingBlock = ({
   const prevThinkingActiveRef = useRef(isThinkingActive);
   const successTimerRef = useRef<number | null>(null);
   const unmountTimerRef = useRef<number | null>(null);
+  const previewTextRef = useRef("");
+  const pendingPreviewRef = useRef("");
+  const previewTimerRef = useRef<number | null>(null);
+  const lastPreviewAtRef = useRef(0);
 
   // 思考结束自动收起，保持对话紧凑；用户手动操作过则跳过。触发瞬间用
   // 绿色圆勾替代展开箭头提示成功，1.5s 后还原（SUCCESS_CHECK_DURATION）。
@@ -121,6 +139,43 @@ export const ThinkingBlock = ({
     };
   }, [isCollapsed]);
 
+  const flushPreview = useCallback(() => {
+    previewTimerRef.current = null;
+    lastPreviewAtRef.current = Date.now();
+    const next = getPreviewText(pendingPreviewRef.current);
+    if (next === previewTextRef.current) {
+      return;
+    }
+    previewTextRef.current = next;
+    setPreviewText(next);
+  }, []);
+
+  useEffect(() => {
+    if (!isThinkingActive) {
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      pendingPreviewRef.current = "";
+      if (previewTextRef.current !== "") {
+        previewTextRef.current = "";
+        setPreviewText("");
+      }
+      return;
+    }
+    pendingPreviewRef.current = content;
+    if (previewTimerRef.current !== null) {
+      return;
+    }
+    previewTimerRef.current = window.setTimeout(
+      flushPreview,
+      Math.max(
+        0,
+        PREVIEW_UPDATE_INTERVAL_MS - (Date.now() - lastPreviewAtRef.current),
+      ),
+    );
+  }, [content, isThinkingActive, flushPreview]);
+
   useEffect(() => {
     return () => {
       if (successTimerRef.current !== null) {
@@ -128,6 +183,9 @@ export const ThinkingBlock = ({
       }
       if (unmountTimerRef.current !== null) {
         window.clearTimeout(unmountTimerRef.current);
+      }
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
       }
     };
   }, []);
@@ -153,11 +211,11 @@ export const ThinkingBlock = ({
       : t("chat.thinkingContent");
   const hasStats = durationMs > 0 || tokenCount > 0;
 
-  // 单行预览文本：仅在思考进行中显示，思考完毕后自动收掉。
-  const previewText = useMemo(
-    () => (isThinkingActive ? getPreviewText(content) : ""),
-    [content, isThinkingActive],
-  );
+  const bodyRenderIntervalMs =
+    content.length >= THINKING_LONG_TEXT_CHARS
+      ? THINKING_LONG_TEXT_INTERVAL_MS
+      : THINKING_RENDER_INTERVAL_MS;
+  const instantCollapse = content.length > COLLAPSE_ANIMATION_MAX_CHARS;
 
   return (
     <div className="thinking-block">
@@ -207,7 +265,7 @@ export const ThinkingBlock = ({
             <span className="thinking-block-meta-label">tokens</span>
           </span>
         ) : null}
-        {previewText ? (
+        {isThinkingActive && previewText ? (
           <span className="thinking-block-preview" aria-hidden="true">
             {previewText}
           </span>
@@ -234,7 +292,7 @@ export const ThinkingBlock = ({
       <div
         className={`thinking-block-collapse${
           isCollapsed ? " is-collapsed" : ""
-        }`}
+        }${instantCollapse ? " thinking-block-collapse--instant" : ""}`}
       >
         <div className="thinking-block-collapse-inner">
           <div className="thinking-block-content" data-quote-source="true">
@@ -243,6 +301,9 @@ export const ThinkingBlock = ({
                 className="thinking-block-body"
                 content={content}
                 streaming={isStreaming}
+                minRenderIntervalMs={
+                  isStreaming ? bodyRenderIntervalMs : undefined
+                }
               />
             )}
           </div>

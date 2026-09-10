@@ -484,7 +484,7 @@ pub async fn call_mcp_tool(
         let masked =
             super::super::privacy_mask::mask_tool_result_if_needed(&masking_tool_name, &plain_text)
                 .await?;
-        return Ok(limit_tool_result(&masking_tool_name, &masked).await);
+        return Ok(limit_tool_result(&masking_tool_name, masked).await);
     }
 
     let serialized = serde_json::to_string(&result).map_err(|error| {
@@ -496,5 +496,5 @@ pub async fn call_mcp_tool(
     let masked =
         super::super::privacy_mask::mask_tool_result_if_needed(&masking_tool_name, &serialized)
             .await?;
-    Ok(limit_tool_result(&masking_tool_name, &masked).await)
+    Ok(limit_tool_result(&masking_tool_name, masked).await)
 }
