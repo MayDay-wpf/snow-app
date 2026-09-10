@@ -2934,6 +2934,7 @@ export const zhCN = {
   "plusMenu.goalBudgetTitle": "Token 预算",
   "plusMenu.goalBudgetUnlimited": "无上限",
   "plusMenu.goalModeActive": "Goal 模式已启用",
+  "plusMenu.modeLockedRunning": "会话进行中，暂不可切换模式",
   "toolAuthorization.title": "允许工具执行",
   "toolAuthorization.message": "此工具即将执行。请确认是否允许继续。",
   "toolAuthorization.fileTitle": "确认文件变更",

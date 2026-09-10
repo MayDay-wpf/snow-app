@@ -22738,6 +22738,12 @@ input {
   cursor: default;
 }
 
+.plus-menu-item.is-locked .plus-menu-item-icon,
+.plus-menu-item.is-locked .plus-menu-item-label,
+.plus-menu-item.is-locked .plus-menu-item-description {
+  opacity: 0.55;
+}
+
 .plus-menu-goal-budget-row {
   display: flex;
   align-items: center;

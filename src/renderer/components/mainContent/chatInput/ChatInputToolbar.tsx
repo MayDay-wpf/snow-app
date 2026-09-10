@@ -119,11 +119,14 @@ export const ChatInputToolbar = ({
     isLoadingApiConfig,
   } = modelSelectorProps;
 
+  const isSessionRunning = isStreaming || isAborting || isCompacting;
+
   return (
     <div className="input-toolbar">
       <div className="toolbar-left">
         <PlusMenu
           sections={plusMenuSections}
+          modesLocked={isSessionRunning}
           yoloMode={yoloMode}
           isUpdatingYoloMode={isUpdatingYoloMode}
           onYoloModeChange={onYoloModeChange}

@@ -54,6 +54,7 @@ export type PlusMenuProps = {
   isUpdatingWorkflowMode: boolean;
   onWorkflowModeChange?: (enabled: boolean) => void;
   onRefreshWorkflowMode?: () => void | Promise<boolean | void>;
+  modesLocked?: boolean;
   goalModeTokenBudget: number;
   onGoalModeTokenBudgetChange?: (budget: number) => void;
   autoScrollEnabled: boolean;
@@ -89,6 +90,7 @@ export const PlusMenu = ({
   isUpdatingWorkflowMode,
   onWorkflowModeChange,
   onRefreshWorkflowMode,
+  modesLocked = false,
   goalModeTokenBudget,
   onGoalModeTokenBudgetChange,
   autoScrollEnabled,
@@ -145,6 +147,13 @@ export const PlusMenu = ({
     },
     [handleClose],
   );
+
+  const modeItemClassName = `plus-menu-item plus-menu-yolo-item${
+    modesLocked ? " is-locked" : ""
+  }`;
+  const modeItemTitle = modesLocked
+    ? t("plusMenu.modeLockedRunning")
+    : undefined;
 
   useEffect(() => {
     if (!isOpen) {
@@ -280,7 +289,7 @@ export const PlusMenu = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="plus-menu-item plus-menu-yolo-item">
+            <div className={modeItemClassName} title={modeItemTitle}>
               <Feather size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -294,7 +303,9 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.liteMode")}
                   checked={liteMode}
-                  disabled={isUpdatingLiteMode || !onLiteModeChange}
+                  disabled={
+                    modesLocked || isUpdatingLiteMode || !onLiteModeChange
+                  }
                   onChange={() => {
                     void onLiteModeChange?.(!liteMode);
                   }}
@@ -303,7 +314,7 @@ export const PlusMenu = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="plus-menu-item plus-menu-yolo-item">
+            <div className={modeItemClassName} title={modeItemTitle}>
               <ClipboardList size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -317,7 +328,9 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.planMode")}
                   checked={planMode}
-                  disabled={isUpdatingPlanMode || !onPlanModeChange}
+                  disabled={
+                    modesLocked || isUpdatingPlanMode || !onPlanModeChange
+                  }
                   onChange={() => {
                     void onPlanModeChange?.(!planMode);
                   }}
@@ -326,7 +339,7 @@ export const PlusMenu = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="plus-menu-item plus-menu-yolo-item">
+            <div className={modeItemClassName} title={modeItemTitle}>
               <GitBranch size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -340,7 +353,11 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.worktreeMode")}
                   checked={worktreeMode}
-                  disabled={isUpdatingWorktreeMode || !onWorktreeModeChange}
+                  disabled={
+                    modesLocked ||
+                    isUpdatingWorktreeMode ||
+                    !onWorktreeModeChange
+                  }
                   onChange={() => {
                     void onWorktreeModeChange?.(!worktreeMode);
                   }}
@@ -349,7 +366,7 @@ export const PlusMenu = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="plus-menu-item plus-menu-yolo-item">
+            <div className={modeItemClassName} title={modeItemTitle}>
               <Workflow size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -363,7 +380,11 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.workflowMode")}
                   checked={workflowMode}
-                  disabled={isUpdatingWorkflowMode || !onWorkflowModeChange}
+                  disabled={
+                    modesLocked ||
+                    isUpdatingWorkflowMode ||
+                    !onWorkflowModeChange
+                  }
                   onChange={() => {
                     void onWorkflowModeChange?.(!workflowMode);
                   }}
@@ -372,7 +393,7 @@ export const PlusMenu = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="plus-menu-item plus-menu-yolo-item">
+            <div className={modeItemClassName} title={modeItemTitle}>
               <Target size={14} className="plus-menu-item-icon" />
               <div className="plus-menu-item-content">
                 <span className="plus-menu-item-label">
@@ -386,7 +407,9 @@ export const PlusMenu = ({
                 <input
                   aria-label={t("plusMenu.goalMode")}
                   checked={goalMode}
-                  disabled={isUpdatingGoalMode || !onGoalModeChange}
+                  disabled={
+                    modesLocked || isUpdatingGoalMode || !onGoalModeChange
+                  }
                   onChange={() => {
                     void onGoalModeChange?.(!goalMode);
                   }}
@@ -406,7 +429,7 @@ export const PlusMenu = ({
                   min={10000}
                   step={100000}
                   value={goalModeTokenBudget}
-                  disabled={goalModeTokenBudget <= 0}
+                  disabled={modesLocked || goalModeTokenBudget <= 0}
                   onChange={(e) => {
                     const value = parseInt(e.target.value, 10);
                     if (!Number.isNaN(value) && value > 0) {
@@ -420,6 +443,7 @@ export const PlusMenu = ({
                   <input
                     type="checkbox"
                     checked={goalModeTokenBudget <= 0}
+                    disabled={modesLocked}
                     onChange={(e) => {
                       // 0 = unlimited (no budget section is injected into the
                       // Goal Mode system prompt); unchecking restores the

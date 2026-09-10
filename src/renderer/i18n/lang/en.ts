@@ -3087,6 +3087,8 @@ export const en = {
   "plusMenu.goalBudgetTitle": "Token Budget",
   "plusMenu.goalBudgetUnlimited": "Unlimited",
   "plusMenu.goalModeActive": "Goal Mode active",
+  "plusMenu.modeLockedRunning":
+    "Session running — modes are locked until it ends",
   "toolAuthorization.title": "Allow tool execution",
   "toolAuthorization.message":
     "This tool is about to run. Confirm whether to continue.",

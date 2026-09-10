@@ -2910,6 +2910,7 @@ export const zhTW = {
   "plusMenu.goalBudgetTitle": "Token 預算",
   "plusMenu.goalBudgetUnlimited": "無上限",
   "plusMenu.goalModeActive": "Goal 模式已啟用",
+  "plusMenu.modeLockedRunning": "會話進行中，暫不可切換模式",
   "toolAuthorization.title": "允許工具執行",
   "toolAuthorization.message": "此工具即將執行。請確認是否允許繼續。",
   "toolAuthorization.fileTitle": "確認檔案變更",
