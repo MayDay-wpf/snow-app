@@ -36,6 +36,12 @@ type CustomSelectBaseProps = {
    */
   renderOption?: (option: CustomSelectOption) => React.ReactNode;
   /**
+   * Optional custom renderer for the trigger label in single-select mode
+   * (e.g. icon + text next to the selected item). Falls back to the plain
+   * label when omitted or when no matching option exists.
+   */
+  renderLabel?: (option: CustomSelectOption) => React.ReactNode;
+  /**
    * When true, a filter input is shown at the top of the dropdown; typing
    * narrows the visible options by label/value (case-insensitive). The
    * filter resets every time the dropdown opens.
@@ -81,6 +87,7 @@ export function CustomSelect({
   title,
   portal = false,
   renderOption,
+  renderLabel,
   filterable = false,
   filterPlaceholder = "Filter...",
   noMatchText = "No matching options",
@@ -274,7 +281,9 @@ export function CustomSelect({
         title={title}
       >
         <span className="custom-select-label" title={displayLabel}>
-          {displayLabel}
+          {selectedOption && renderLabel
+            ? renderLabel(selectedOption)
+            : displayLabel}
         </span>
         <ChevronDown size={14} />
       </button>

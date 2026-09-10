@@ -5831,6 +5831,13 @@ input {
   color: var(--text-primary);
 }
 
+.search-engine-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .custom-select-empty,
 .model-dropdown-empty {
   padding: 10px 8px;
@@ -12800,6 +12807,13 @@ input {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
+}
+
+.workflow-editor .custom-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .workflow-editor-overlay {

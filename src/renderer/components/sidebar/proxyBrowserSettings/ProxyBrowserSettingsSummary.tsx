@@ -1,5 +1,6 @@
-import { Ban, Globe, MonitorCog, Route, Search } from "lucide-react";
+import { Ban, Globe, MonitorCog, Route } from "lucide-react";
 import { useI18n } from "../../../i18n";
+import { getSearchEngineLabel, SearchEngineIcon } from "./SearchEngineIcon";
 import type { ProxyBrowserSettingsValue } from "./types";
 
 type ProxyBrowserSettingsSummaryProps = {
@@ -36,8 +37,8 @@ export function ProxyBrowserSettingsSummary({
         </small>
       </div>
       <div className="api-settings-summary-card">
-        <Search size={15} strokeWidth={1.8} />
-        <span>{preview.searchEngine}</span>
+        <SearchEngineIcon value={preview.searchEngine} size={15} />
+        <span>{getSearchEngineLabel(preview.searchEngine)}</span>
         <small>
           {t("settings.searchEngine", { defaultValue: "Search engine" })}
         </small>

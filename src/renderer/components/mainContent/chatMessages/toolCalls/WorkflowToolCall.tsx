@@ -33,6 +33,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { CustomSelect } from "../../../common/CustomSelect";
+import { ModelBrandIcon } from "../../../common/ModelBrandIcon";
 import type { ApiConfigRecord, Model } from "../../../../../preload";
 import { useChatConversationContext } from "../components/ChatConversationContext";
 import type { ToolCallInfo } from "../utils/conversationTypes";
@@ -1751,6 +1752,22 @@ const WorkflowToolCallInner = ({
                       options={editingModelOptions}
                       onChange={(value) => updateEditingNode({ model: value })}
                       disabled={isRunning || isModelCatalogLoading}
+                      renderOption={(option) => (
+                        <span className="model-dropdown-item-name with-icon">
+                          <ModelBrandIcon model={option.value} size={16} />
+                          <span className="model-dropdown-item-name-text">
+                            {option.label}
+                          </span>
+                        </span>
+                      )}
+                      renderLabel={(option) => (
+                        <span className="model-dropdown-item-name with-icon">
+                          <ModelBrandIcon model={option.value} size={14} />
+                          <span className="model-dropdown-item-name-text">
+                            {option.label}
+                          </span>
+                        </span>
+                      )}
                     />
                     {isModelCatalogLoading ? (
                       <small className="workflow-editor-hint">

@@ -374,6 +374,7 @@ export const ModelSelector = ({
                   {t("chat.model")}
                 </span>
                 <span className="model-menu-value">
+                  <ModelBrandIcon model={displayModel} size={14} />
                   <span className="model-menu-value-text" title={displayModel}>
                     {displayModel}
                   </span>
@@ -390,6 +391,13 @@ export const ModelSelector = ({
                   {t("chat.thinkingStrength")}
                 </span>
                 <span className="model-menu-value">
+                  {isLoadingApiConfig ? (
+                    <Loader2 size={14} className="spin" />
+                  ) : thinkingError ? (
+                    <AlertCircle size={14} />
+                  ) : (
+                    <ActiveThinkingIcon size={14} />
+                  )}
                   <span className="model-menu-value-text">{thinkingLabel}</span>
                   <ChevronRight size={12} />
                 </span>

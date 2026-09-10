@@ -3,6 +3,7 @@ import { type ChangeEvent } from "react";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
 import { SEARCH_ENGINE_OPTIONS } from "./proxyBrowserSettingsConstants";
+import { SearchEngineIcon } from "./SearchEngineIcon";
 import type { ProxyBrowserSettingsForm as ProxyBrowserSettingsFormValue } from "./types";
 
 type ProxyBrowserSettingsFormProps = {
@@ -10,15 +11,15 @@ type ProxyBrowserSettingsFormProps = {
   isBusy: boolean;
   isSelectingBrowser: boolean;
   onUpdateField: (
-    field: keyof ProxyBrowserSettingsFormValue
+    field: keyof ProxyBrowserSettingsFormValue,
   ) => (
     event: ChangeEvent<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
+    >,
   ) => void;
   onSetValue: (
     field: keyof ProxyBrowserSettingsFormValue,
-    value: string
+    value: string,
   ) => void;
   onBlurSave: () => void;
   onReset: () => void;
@@ -38,6 +39,16 @@ export function ProxyBrowserSettingsForm({
   onApplyRecommended,
 }: ProxyBrowserSettingsFormProps): React.JSX.Element {
   const { t } = useI18n();
+
+  const renderEngineOption = (option: {
+    value: string;
+    label: string;
+  }): React.JSX.Element => (
+    <span className="search-engine-option">
+      <SearchEngineIcon value={option.value} />
+      <span>{option.label}</span>
+    </span>
+  );
 
   return (
     <div className="api-settings-manual-form">
@@ -120,6 +131,8 @@ export function ProxyBrowserSettingsForm({
                   onBlurSave();
                 }}
                 disabled={isBusy}
+                renderOption={renderEngineOption}
+                renderLabel={renderEngineOption}
               />
             </label>
           </div>
