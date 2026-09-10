@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.3.0
+
+## New Features
+
+- **Brand Icons**: Model and search-engine selectors now show brand icons in their options and labels.
+
+## Improvements
+
+- Optimized tool-result throttling and thinking-block rendering performance.
+- Projects with running sessions can no longer be deleted.
+- Mode toggles in the plus menu are locked while a session is running to prevent accidental switches.
+- The memory modal gains a delete action.
+- The stream-cursor icon set is expanded with more spinner-style icons.
+
+## Bug Fixes
+
+- Fixed the bookmark folder menu spilling outside the viewport; it now flips direction and clamps its height when space is tight, and repositions as the window resizes.
+
 ## v0.2.33
 
 ## Improvements
