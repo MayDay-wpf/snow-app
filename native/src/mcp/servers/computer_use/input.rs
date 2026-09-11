@@ -146,16 +146,15 @@ impl InputController {
         Ok(Self { enigo })
     }
 
+    // enigo 的 macOS location() 用 NSEvent 逻辑点减去显示器物理像素高度，
+    // Retina 屏上 y 完全错误，优先走 platform 的 CoreGraphics 实现
     fn mouse_location(&self) -> Result<(i32, i32), String> {
+        if let Some(point) = platform::cursor_position() {
+            return Ok(point);
+        }
         let enigo: *const Enigo = &self.enigo;
         platform::run_on_main(move || unsafe { (*enigo).location() })
             .map_err(|error| format!("Failed to read mouse location: {error}"))
-    }
-
-    fn main_display_size(&self) -> Result<(i32, i32), String> {
-        let enigo: *const Enigo = &self.enigo;
-        platform::run_on_main(move || unsafe { (*enigo).main_display() })
-            .map_err(|error| format!("Failed to read main display size: {error}"))
     }
 
     fn move_to_instant(&mut self, x: i32, y: i32) -> Result<(), String> {
@@ -322,14 +321,11 @@ fn with_controller<R>(
 
 /// 当前鼠标全局坐标。
 pub fn mouse_location() -> Result<(i32, i32), String> {
+    if let Some(point) = platform::cursor_position() {
+        return Ok(point);
+    }
     ensure_input_permission()?;
     with_controller(|controller| controller.mouse_location())
-}
-
-/// 主显示器尺寸。
-pub fn main_display_size() -> Result<(i32, i32), String> {
-    ensure_input_permission()?;
-    with_controller(|controller| controller.main_display_size())
 }
 
 /// 瞬移鼠标到全局坐标。

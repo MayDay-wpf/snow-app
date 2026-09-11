@@ -61,7 +61,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "screen-info".to_string(),
-                description: "Read the computer-use environment: the list of displays (index, id, name, global position, size, scaleFactor, primary), the current mouse cursor position, and platform permission status. Read-only, no side effects. ALWAYS call this first when starting a screen task, when you are unsure which display to capture, or when mouse/keyboard tools fail with a permission or bounds error.".to_string(),
+                description: "Read the computer-use environment: the list of displays (index, id, name, global position, size, scaleFactor, primary), the current mouse cursor position (GLOBAL coordinates, the display it is on, and its display-local position), and platform permission status. Read-only, no side effects. ALWAYS call this first when starting a screen task, when you are unsure which display to capture, or when mouse/keyboard tools fail with a permission or bounds error.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {}
@@ -70,7 +70,7 @@ impl McpService for ComputerUseService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "screenshot".to_string(),
-                description: format!("Capture a screenshot of one display (or a region of it) and return a base64 image the model can SEE (multimodal), plus a text block describing how to map image pixels back to screen coordinates. {COORDINATES_DOC} The optional `region` uses DISPLAY-LOCAL LOGICAL coordinates (top-left of the chosen display is 0,0). `maxWidth` downscales the image to control token cost (default 1280). `format` png is lossless but much larger - use it with a small region when you need a sharp close-up of tiny text. {WORKFLOW_DOC} {EFFICIENCY_DOC}"),
+                description: format!("Capture a screenshot of one display (or a region of it) and return a base64 image the model can SEE (multimodal), plus a text block describing how to map image pixels back to screen coordinates. The text block also reports the CURRENT MOUSE CURSOR position, and when the cursor is inside the captured area a crosshair marks it on the image: treat that crosshair as a reference point of known global coordinates and measure targets as pixel offsets from it (this is far more accurate than estimating absolute positions). {COORDINATES_DOC} The optional `region` uses DISPLAY-LOCAL LOGICAL coordinates (top-left of the chosen display is 0,0). `maxWidth` downscales the image to control token cost (default 1280). `format` png is lossless but much larger - use it with a small region when you need a sharp close-up of tiny text. {WORKFLOW_DOC} {EFFICIENCY_DOC}"),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -455,11 +455,8 @@ impl McpService for ComputerUseService {
 
 fn execute_screen_info() -> napi::Result<Value> {
     let displays = list_displays().map_err(napi_error)?;
-    let cursor = match input::mouse_location() {
-        Ok((x, y)) => json!({"x": x, "y": y}),
-        Err(_) => Value::Null,
-    };
-    let main_display = match input::main_display_size() {
+    let cursor = cursor_info(&displays);
+    let main_display = match capture::primary_display_size() {
         Ok((width, height)) => json!({"width": width, "height": height}),
         Err(_) => Value::Null,
     };
@@ -474,6 +471,32 @@ fn execute_screen_info() -> napi::Result<Value> {
         "platform": std::env::consts::OS,
         "notes": platform::platform_notes(),
     }))
+}
+
+/// 光标位置：全局坐标 + 所在显示器及其屏内坐标（读取失败返回 null）。
+fn cursor_info(displays: &[Value]) -> Value {
+    let Ok((x, y)) = input::mouse_location() else {
+        return Value::Null;
+    };
+    let display = capture::display_containing_point(x, y).ok().flatten();
+    let display_local = display
+        .and_then(|index| displays.get(index))
+        .map(|monitor| {
+            json!({
+                "x": i64::from(x) - monitor.get("x").and_then(Value::as_i64).unwrap_or(0),
+                "y": i64::from(y) - monitor.get("y").and_then(Value::as_i64).unwrap_or(0),
+            })
+        })
+        .unwrap_or(Value::Null);
+    json!({
+        "x": x,
+        "y": y,
+        "display": match display {
+            Some(index) => json!(index),
+            None => Value::Null,
+        },
+        "displayLocal": display_local,
+    })
 }
 
 fn execute_screenshot(args: &Value) -> napi::Result<Value> {
@@ -516,8 +539,21 @@ fn screenshot_result(output: &ScreenshotOutput) -> Value {
         None => (0, 0),
     };
     let scale = output.pixel_to_screen_scale;
+    let cursor_note = match output.cursor.as_ref() {
+        Some(cursor) => match (cursor.image_x, cursor.image_y) {
+            (Some(image_x), Some(image_y)) => format!(
+                " The crosshair marks the CURRENT MOUSE CURSOR at GLOBAL ({}, {}) = image pixel ({image_x}, {image_y}); measure a target as a pixel offset from the crosshair and apply the formula above - relative offsets are much more accurate than estimating absolute positions.",
+                cursor.x, cursor.y
+            ),
+            _ => format!(
+                " The current mouse cursor is at GLOBAL ({}, {}), OUTSIDE this capture (no crosshair is drawn).",
+                cursor.x, cursor.y
+            ),
+        },
+        None => String::new(),
+    };
     let text = format!(
-        "Screenshot of display {} ({}x{} logical). The attached image is {}x{} pixels ({}). To convert a pixel position (px, py) in this image to the GLOBAL screen coordinate used by the mouse tools: screenX = {} + px * {:.5}, screenY = {} + py * {:.5}. Mouse tools expect exactly these global coordinates.",
+        "Screenshot of display {} ({}x{} logical). The attached image is {}x{} pixels ({}). To convert a pixel position (px, py) in this image to the GLOBAL screen coordinate used by the mouse tools: screenX = {} + px * {:.5}, screenY = {} + py * {:.5}. Mouse tools expect exactly these global coordinates.{}",
         output.display_index,
         monitor.get("width").and_then(Value::as_i64).unwrap_or(0),
         monitor.get("height").and_then(Value::as_i64).unwrap_or(0),
@@ -528,35 +564,20 @@ fn screenshot_result(output: &ScreenshotOutput) -> Value {
         scale,
         monitor_y + region_y,
         scale,
+        cursor_note,
     );
 
-    // 光标位置（全局坐标 + 若在截取区域内，给出图中像素位置）
-    let cursor = match input::mouse_location() {
-        Ok((cursor_x, cursor_y)) => {
-            let local_x = i64::from(cursor_x) - monitor_x;
-            let local_y = i64::from(cursor_y) - monitor_y;
-            let in_capture = output.region.map_or(true, |(rx, ry, rw, rh)| {
-                local_x >= i64::from(rx)
-                    && local_y >= i64::from(ry)
-                    && local_x <= i64::from(rx + rw)
-                    && local_y <= i64::from(ry + rh)
-            }) && local_x >= 0
-                && local_y >= 0;
-            let image_pixel = if in_capture && scale > 0.0 {
-                json!({
-                    "x": (local_x as f64 / scale).round(),
-                    "y": (local_y as f64 / scale).round(),
-                })
-            } else {
-                Value::Null
-            };
-            json!({
-                "x": cursor_x,
-                "y": cursor_y,
-                "imagePixel": image_pixel,
-            })
-        }
-        Err(_) => Value::Null,
+    // 光标位置：全局坐标 + 图内像素坐标（不在截取范围内为 null）
+    let cursor = match output.cursor.as_ref() {
+        Some(cursor) => json!({
+            "x": cursor.x,
+            "y": cursor.y,
+            "imagePixel": match (cursor.image_x, cursor.image_y) {
+                (Some(image_x), Some(image_y)) => json!({"x": image_x, "y": image_y}),
+                _ => Value::Null,
+            },
+        }),
+        None => Value::Null,
     };
 
     json!({

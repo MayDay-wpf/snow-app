@@ -143,6 +143,52 @@ pub fn has_screen_capture_permission() -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn request_screen_capture_permission() {}
 
+#[cfg(target_os = "macos")]
+mod cursor {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventCreate(source: *const c_void) -> *mut c_void;
+        fn CGEventGetLocation(event: *mut c_void) -> CGPoint;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(value: *const c_void);
+    }
+
+    pub fn cursor_position() -> Option<(i32, i32)> {
+        super::run_on_main(|| unsafe {
+            let event = CGEventCreate(std::ptr::null());
+            if event.is_null() {
+                return None;
+            }
+            let point = CGEventGetLocation(event);
+            CFRelease(event as *const c_void);
+            Some((point.x as i32, point.y as i32))
+        })
+    }
+}
+
+/// 当前光标全局坐标（逻辑点坐标系，与 CGDisplayBounds、鼠标事件一致，
+/// 读取不需要辅助功能授权）；其他平台返回 None，交由 enigo 兜底。
+#[cfg(target_os = "macos")]
+pub fn cursor_position() -> Option<(i32, i32)> {
+    cursor::cursor_position()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cursor_position() -> Option<(i32, i32)> {
+    None
+}
+
 /// 辅助功能权限缺失时的指引文案（模型可转述给用户）。
 pub fn input_permission_hint() -> String {
     #[cfg(target_os = "macos")]
