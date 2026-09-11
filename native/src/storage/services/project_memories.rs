@@ -508,6 +508,88 @@ pub fn delete_memories_by_conversation_ids(
 }
 
 // ---------------------------------------------------------------------------
+// 系统提示词注入快照（按会话冻结，保证 prompt cache 前缀稳定）
+// ---------------------------------------------------------------------------
+
+pub fn read_prompt_snapshot(database_path: &Path, conversation_id: &str) -> Result<Option<String>> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(None);
+    }
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT section FROM memory_prompt_snapshots WHERE conversation_id = ?1",
+                    params![conversation_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "read memory prompt snapshot", error)
+        })
+}
+
+pub fn write_prompt_snapshot(
+    database_path: &Path,
+    conversation_id: &str,
+    directory_id: &str,
+    section: &str,
+) -> Result<()> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() || section.is_empty() {
+        return Ok(());
+    }
+    let directory_id = directory_id.trim();
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO memory_prompt_snapshots (conversation_id, directory_id, section)
+                     VALUES (?1, ?2, ?3)
+                     ON CONFLICT(conversation_id) DO NOTHING",
+                    params![conversation_id, directory_id, section],
+                )
+                .map(|_| ())
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "store memory prompt snapshot", error)
+        })
+}
+
+/// 会话删除联动钩子：清理这些会话（含级联子会话 ID 集）的注入快照。由
+/// chat_conversations 删除流程在事务内执行。
+pub fn delete_prompt_snapshots(
+    connection: &Connection,
+    conversation_ids: &[String],
+) -> rusqlite::Result<i32> {
+    let ids: Vec<String> = conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0i32;
+    for chunk in ids.chunks(MEMORY_SQL_CHUNK) {
+        let placeholders = chunk
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection.prepare(&format!(
+            "DELETE FROM memory_prompt_snapshots WHERE conversation_id IN ({placeholders})"
+        ))?;
+        deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
+    }
+    Ok(deleted)
+}
+
+// ---------------------------------------------------------------------------
 // 回滚联动（按响应锚点圈定被回滚轮次保存的记忆）
 // ---------------------------------------------------------------------------
 

@@ -375,9 +375,19 @@ that stay alive across multiple calls), complementary to `bash-terminal-execute`
 > chars), and the section tail carries the current conversation id, guiding
 > `memory-save` to pass it as `sessionId` (the per-conversation provenance
 > anchor). An empty bank gets a short bootstrap hint instead. Sub-agents do
-> not receive the section. When a conversation is deleted, the confirm dialog
-> counts the memories saved from it and lets the user choose whether to delete
-> them as well (kept by default).
+> not receive the section.
+>
+> The section is frozen per conversation: it is rendered on the first request
+> and stored as a snapshot (`memory_prompt_snapshots` table), then reused
+> verbatim on every later turn — saving or editing memories mid-session never
+> changes the prompt prefix already sent, so the conversation's prompt cache
+> keeps hitting and new memories only take effect in conversations started
+> afterwards (use `memory-search` for the latest state in the running
+> session).
+>
+> When a conversation is deleted, the confirm dialog counts the memories saved
+> from it and lets the user choose whether to delete them as well (kept by
+> default); its injected snapshot always goes away with the conversation.
 >
 > `memory-delete` is destructive: obtain the user's explicit approval via
 > `user-interaction-askUserQuestion` first, then retry with `confirmed: true`;

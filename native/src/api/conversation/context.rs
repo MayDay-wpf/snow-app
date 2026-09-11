@@ -299,12 +299,18 @@ pub async fn prepare_context_request(
     // builtin:memory（默认启用）且记忆库可用时，在系统提示词末尾追加
     // 「Project Memory」章节——importance 头部条目 + memory-search/save
     // 工具指引。查询失败静默降级为空串。子代理不注入：任务短且上下文
-    // 昂贵，记忆操作由主会话统一决策。追加在末尾：与 LSP/imagegen 同理，
-    // 最小化 prompt cache 前缀失效范围。
+    // 昂贵，记忆操作由主会话统一决策。章节按会话冻结（首轮渲染后存入
+    // 快照，之后每轮复用同一份文本）：会话中新增/修改记忆不改动提示词
+    // 前缀，整个会话的 prompt cache 始终有效，新记忆只对之后新建的会话
+    // 生效。
     let memory_section = if request.is_sub_agent {
         String::new()
     } else {
-        crate::mcp::servers::memory::build_system_prompt_section(request.directory_id).await
+        crate::mcp::servers::memory::build_system_prompt_section(
+            request.directory_id,
+            Some(conversation_id.as_str()),
+        )
+        .await
     };
     let system_prompt = if memory_section.is_empty() {
         system_prompt

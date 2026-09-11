@@ -9,7 +9,9 @@
 //! 系统提示词注入：`build_system_prompt_section` 仿 LSP / imagegen 的
 //! 「方案 B」——域 scope 允许时在系统提示词末尾追加 `## Project Memory`
 //! 章节（importance 头部条目 + 工具指引），查询失败静默降级为空串。
-//! 追加在末尾以最小化 prompt cache 前缀失效范围。
+//! 章节按会话冻结：会话首次注入时渲染并存档（memory_prompt_snapshots
+//! 表），之后每轮复用同一份文本，会话中新增/修改记忆不再改变已发送的
+//! 提示词前缀，prompt cache 全程有效——新记忆只对之后新建的会话生效。
 
 use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
@@ -121,10 +123,13 @@ impl MemoryService {
         .map_err(spawn_error("save memory"))??;
 
         let message = if created {
-            format!("Memory saved as a new entry (id: {}).", record.memory_id)
+            format!(
+                "Memory saved as a new entry (id: {}). It will be injected into the system prompt of NEW conversations only — the injected section of the current session stays frozen so its context cache keeps hitting.",
+                record.memory_id
+            )
         } else {
             format!(
-                "An existing memory with the same title was found and has been MERGED/updated instead of creating a duplicate (id: {}).",
+                "An existing memory with the same title was found and has been MERGED/updated instead of creating a duplicate (id: {}). The injected section of the current session stays frozen; the change shows up in NEW conversations.",
                 record.memory_id
             )
         };
@@ -287,7 +292,7 @@ impl McpService for MemoryService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "save".to_string(),
-                description: "Save a durable, cross-session memory about the CURRENT project to its persistent memory bank (SQLite, scoped to the conversation's project). Use for knowledge worth remembering in FUTURE sessions: key technical decisions, user preferences/conventions, pitfalls and their fixes, project structure facts, task state. NOT for transient session state (use the todo tool for that).\n\nFields:\n- kind (optional): \"fact\" | \"decision\" | \"preference\" | \"pitfall\" | \"task_state\" (default \"fact\")\n- title (required): one concise line; it is the dedup key — saving with an existing title MERGES into that entry instead of creating a duplicate\n- content (required): concrete details (paths, commands, reasons); keep under ~400 chars\n- importance (optional, default 2): 1-5. 1-2 = retrieval-only (found via memory-search, never injected) — the default and correct level for specific, task-bound events (a fixed bug, a one-off decision, current task state). >= 3 = auto-injected into the system prompt of EVERY new conversation — reserve it strictly for general project knowledge useful to nearly all sessions (build/test commands, core conventions, architecture facts); if an entry only matters for one specific topic or task, keep it at 1-2 even if it feels important\n- tags (optional): lowercase keywords for retrieval\n\nWhat to save: architecture choices the user confirmed, build/test conventions, \"don't do X\" lessons, environment quirks, recurring user instructions specific to this project. Do NOT save secrets, one-off facts easily re-derived from code, or content the user asked to forget.".to_string(),
+                description: "Save a durable, cross-session memory about the CURRENT project to its persistent memory bank (SQLite, scoped to the conversation's project). Use for knowledge worth remembering in FUTURE sessions: key technical decisions, user preferences/conventions, pitfalls and their fixes, project structure facts, task state. NOT for transient session state (use the todo tool for that).\n\nFields:\n- kind (optional): \"fact\" | \"decision\" | \"preference\" | \"pitfall\" | \"task_state\" (default \"fact\")\n- title (required): one concise line; it is the dedup key — saving with an existing title MERGES into that entry instead of creating a duplicate\n- content (required): concrete details (paths, commands, reasons); keep under ~400 chars\n- importance (optional, default 2): 1-5. 1-2 = retrieval-only (found via memory-search, never injected) — the default and correct level for specific, task-bound events (a fixed bug, a one-off decision, current task state). >= 3 = auto-injected into the system prompt of EVERY new conversation — reserve it strictly for general project knowledge useful to nearly all sessions (build/test commands, core conventions, architecture facts); if an entry only matters for one specific topic or task, keep it at 1-2 even if it feels important\n- tags (optional): lowercase keywords for retrieval\n\nWhat to save: architecture choices the user confirmed, build/test conventions, \"don't do X\" lessons, environment quirks, recurring user instructions specific to this project. Do NOT save secrets, one-off facts easily re-derived from code, or content the user asked to forget.\n\nInjection timing: entries are injected into the system prompt of conversations started AFTERWARDS only — the running session's injected section is frozen so its prompt cache is never invalidated by saving.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -463,14 +468,28 @@ async fn memory_domain_scope_allowed(project_id: Option<&str>) -> napi::Result<b
 
 /// 构建系统提示词的「Project Memory」章节（方案 B：追加在末尾）。
 ///
-/// - 无项目上下文 / 域被禁用 / 查询失败 → 空串（静默降级）；
+/// 章节按会话冻结：会话首次注入时渲染并写入 memory_prompt_snapshots，
+/// 之后每轮直接复用快照——会话中新增/修改记忆不再改动提示词前缀，
+/// prompt cache 全程有效，新记忆只对之后新建的会话生效。无 conversation_id
+/// 时无法冻结，返回空串不注入。
+///
+/// - 无项目/会话上下文 / 域被禁用 / 查询失败 → 空串（静默降级）；
 /// - 记忆库为空 → 注入简短引导（让 AI 知道可以开始积累记忆）；
 /// - 有记忆 → importance 头部条目 + 检索/保存指引 + 库统计。
 ///
-/// 章节仅在记忆内容变化时改变，稳定于 prompt cache。memory-save 的会话
-/// 溯源由分发层注入（conversation_id），无需在提示词里引导 AI 传会话 ID。
-pub(crate) async fn build_system_prompt_section(project_id: Option<&str>) -> String {
+/// memory-save 的会话溯源由分发层注入（conversation_id），无需在提示词里
+/// 引导 AI 传会话 ID。
+pub(crate) async fn build_system_prompt_section(
+    project_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> String {
     let Some(project_id) = project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return String::new();
+    };
+    let Some(conversation_id) = conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
@@ -486,7 +505,14 @@ pub(crate) async fn build_system_prompt_section(project_id: Option<&str>) -> Str
     }
 
     let project_id_owned = project_id.to_string();
+    let conversation_id_owned = conversation_id.to_string();
     let loaded = crate::mcp::tools::with_database_path(move |database_path| {
+        if let Some(snapshot) = crate::storage::services::project_memories::read_prompt_snapshot(
+            &database_path,
+            &conversation_id_owned,
+        )? {
+            return Ok(snapshot);
+        }
         let records = crate::storage::services::project_memories::top_memories_for_injection(
             &database_path,
             &project_id_owned,
@@ -497,14 +523,18 @@ pub(crate) async fn build_system_prompt_section(project_id: Option<&str>) -> Str
             &database_path,
             &project_id_owned,
         )?;
-        Ok((records, stats))
+        let section = render_memory_section(records, &stats);
+        crate::storage::services::project_memories::write_prompt_snapshot(
+            &database_path,
+            &conversation_id_owned,
+            &project_id_owned,
+            &section,
+        )?;
+        Ok(section)
     })
     .await;
 
-    match loaded {
-        Ok((records, stats)) => render_memory_section(records, &stats),
-        Err(_) => String::new(),
-    }
+    loaded.unwrap_or_default()
 }
 
 /// 渲染注入章节。逐行累计并在 `INJECT_MAX_CHARS` 处截断，保证上下文预算。
@@ -515,7 +545,9 @@ fn render_memory_section(
     let mut section = String::from(
         "## Project Memory\n\nThis project keeps a persistent, cross-session memory bank — \
 knowledge learned about THIS project in earlier sessions. Treat the entries as \
-reference material (not binding rules); verify against the actual code when it matters.\n",
+reference material (not binding rules); verify against the actual code when it matters. \
+This section is a snapshot taken when the session started: memories saved or edited \
+afterwards are NOT listed here, so use `memory-search` to look up recent changes.\n",
     );
 
     if records.is_empty() {

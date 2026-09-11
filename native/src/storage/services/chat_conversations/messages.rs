@@ -214,6 +214,13 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str, delete_m
         })?;
     }
 
+    // 记忆注入快照属于会话自身（与「同时删除记忆」选项无关）：无条件随
+    // 会话一并清理，避免残留行。
+    super::super::project_memories::delete_prompt_snapshots(&transaction, &conversation_ids)
+        .map_err(|error| {
+            database::database_error(database_path, "delete memory prompt snapshots", error)
+        })?;
+
     // 清理子代理与 workflow 节点 bookkeeping 行：覆盖全部级联目标
     // （父会话、直接子代理、workflow 节点、节点派生的子代理）。
     if !conversation_ids.is_empty() {
@@ -454,6 +461,13 @@ pub fn delete_conversations(
             database::database_error(database_path, "delete project memories", error)
         })?;
     }
+
+    // 记忆注入快照属于会话自身（与「同时删除记忆」选项无关）：无条件随
+    // 会话一并清理，避免残留行。
+    super::super::project_memories::delete_prompt_snapshots(&transaction, &all_target_ids)
+        .map_err(|error| {
+            database::database_error(database_path, "delete memory prompt snapshots", error)
+        })?;
 
     // 删除子代理会话关联行：覆盖全部级联目标（父会话、子代理、
     // workflow 节点、节点派生的子代理）。

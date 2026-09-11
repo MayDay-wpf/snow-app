@@ -17,6 +17,7 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 41: memory_prompt_snapshots table (per-conversation frozen Project Memory prompt section).
 /// 40: project_memories.response_id column (rollback memory cleanup anchor).
 /// 39: userscripts / userscript_values tables (userscript engine).
 /// 37: workflow_node_sessions.flow_checkpoint_id column (flow-level file checkpoint).
@@ -27,7 +28,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 40;
+const CURRENT_SCHEMA_VERSION: i64 = 41;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -1076,6 +1077,17 @@ CREATE TABLE IF NOT EXISTS userscripts (
           );
           CREATE INDEX IF NOT EXISTS idx_project_memories_directory
             ON project_memories(directory_id, status, importance DESC, updated_at DESC, id DESC);
+
+          -- Project Memory 注入快照：会话首次注入时冻结一份「## Project
+          -- Memory」章节文本，会话存续期间保持稳定，避免新增/修改记忆改动
+          -- 提示词前缀导致整段 prompt cache 失效；新记忆只对之后新建的会话
+          -- 生效。会话删除时随会话一并清理。
+          CREATE TABLE IF NOT EXISTS memory_prompt_snapshots (
+            conversation_id TEXT PRIMARY KEY NOT NULL,
+            directory_id TEXT NOT NULL DEFAULT '',
+            section TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
      ",
     )?;
 

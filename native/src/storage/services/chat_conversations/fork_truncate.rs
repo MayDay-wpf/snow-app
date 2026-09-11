@@ -545,6 +545,14 @@ fn truncate_conversation_from_id(
             })?;
     }
 
+    // 被删除的节点会话同时清理其记忆注入快照，避免残留行。
+    if !truncated_node_ids.is_empty() {
+        super::super::project_memories::delete_prompt_snapshots(&transaction, &truncated_node_ids)
+            .map_err(|error| {
+                database::database_error(database_path, "delete memory prompt snapshots", error)
+            })?;
+    }
+
     // 被截断 flow 的 run 级状态与画布随截断一并清理：flow 卡片已被删除，
     // 残留的 workflow_runs / workflow_canvases 会让卡片恢复出"幽灵进度"。
     if !truncated_flow_ids.is_empty() {
