@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.3.1
+
+## Improvements
+
+- Computer Use screenshots now mark the mouse cursor position and include its coordinates; macOS cursor coordinate reading is fixed.
+- The image proxy supports disk absolute paths, so images referenced by absolute path in replies now render.
+
+## Bug Fixes
+
+- Fixed image-bearing tool messages breaking tool-call pairing on Chat Completions: images are now attached to the tool message itself instead of a synthetic user message.
+
 ## v0.3.0
 
 ## New Features
