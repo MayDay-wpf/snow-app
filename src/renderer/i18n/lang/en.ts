@@ -1756,7 +1756,7 @@ export const en = {
   "settings.apiAutoCompressThresholdCalculated":
     "Calculated threshold: {tokens} tokens",
   "settings.apiAutoCompressThresholdConflict":
-    "This threshold can never be reached: the context guard stops normal requests at {hardLine} tokens (max context minus max output minus safety margin), so auto-compression never runs in time and you must run /compact manually to recover (compaction reserves only a summary-sized output budget, so it still passes). Lower the threshold below {hardLine} tokens, or reduce max tokens.",
+    "This threshold creates a dead zone between {hardLine} tokens and {threshold}: the context guard stops normal requests in this range (max context minus max output minus safety margin), so auto-compression never runs in time and you must run /compact manually to recover (compaction reserves only a summary-sized output budget, so it still passes). Lower the threshold below {hardLine} tokens, or reduce max tokens.",
   "settings.active": "Enabled",
   "settings.inactive": "Not enabled",
   "settings.activeProfile": "Enabled profile",

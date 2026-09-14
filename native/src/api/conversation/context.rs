@@ -81,6 +81,9 @@ pub enum ReasoningPayload {
     /// Falls back to `thinking` for rows with no persisted blocks (e.g. Gemini
     /// turns whose signatures were never captured).
     Blocks,
+    /// Neither reasoning mirror reaches the wire (interactions: thinking only
+    /// configures generation, it is not replayed back as history).
+    None,
 }
 
 impl ReasoningPayload {
@@ -88,6 +91,7 @@ impl ReasoningPayload {
     pub fn for_request_method(request_method: &str) -> Self {
         match request_method.trim() {
             "chat" => ReasoningPayload::Text,
+            "interactions" => ReasoningPayload::None,
             _ => ReasoningPayload::Blocks,
         }
     }
@@ -194,6 +198,7 @@ fn enforce_context_token_budget(
                 };
                 (thinking, blocks)
             }
+            ReasoningPayload::None => ("", ""),
         };
         let payloads = [
             message.content.as_str(),
@@ -1308,7 +1313,12 @@ mod tests {
             ReasoningPayload::for_request_method("chat"),
             ReasoningPayload::Text
         );
-        for method in ["anthropic", "responses", "gemini", "interactions"] {
+        assert_eq!(
+            ReasoningPayload::for_request_method("interactions"),
+            ReasoningPayload::None,
+            "interactions only configures thinking generation; it never replays it"
+        );
+        for method in ["anthropic", "responses", "gemini"] {
             assert_eq!(
                 ReasoningPayload::for_request_method(method),
                 ReasoningPayload::Blocks,

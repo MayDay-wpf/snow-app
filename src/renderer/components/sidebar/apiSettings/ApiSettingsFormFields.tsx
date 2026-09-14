@@ -1023,7 +1023,7 @@ export function ApiSettingsFormFields({
               >
                 {t("settings.apiAutoCompressThresholdConflict", {
                   defaultValue:
-                    "This threshold can never be reached: the context guard stops normal requests at {hardLine} tokens (max context minus max output minus safety margin), so auto-compression never runs in time and you must run /compact manually to recover. Lower the threshold below {hardLine} tokens, or reduce max tokens.",
+                    "This threshold creates a dead zone between {hardLine} tokens and {threshold}: the context guard stops normal requests in this range (max context minus max output minus safety margin), so auto-compression never runs in time and you must run /compact manually to recover. Lower the threshold below {hardLine} tokens, or reduce max tokens.",
                 }).replaceAll(
                   "{hardLine}",
                   String(autoCompressConflict.hardLine),

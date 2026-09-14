@@ -1683,7 +1683,7 @@ export const zhTW = {
     "請先填寫最大上下文，用於計算 token 閾值。",
   "settings.apiAutoCompressThresholdCalculated": "計算閾值：{tokens} tokens",
   "settings.apiAutoCompressThresholdConflict":
-    "此閾值永遠不會觸發：上下文守衛會在 {hardLine} tokens 處攔截普通請求（最大上下文 − 最大輸出 − 安全餘量），因此自動壓縮來不及執行，你需要手動 /compact 自救（壓縮請求只預留摘要級輸出，因此能通過）。請把閾值調到 {hardLine} tokens 以下，或降低最大輸出 tokens。",
+    "此閾值在 {hardLine} tokens 之後、{threshold} 觸發之前會形成死區：上下文守衛會在此區間攔截普通請求（最大上下文 − 最大輸出 − 安全餘量），自動壓縮來不及執行，需要手動 /compact 自救（壓縮請求只預留摘要級輸出，因此能通過）。請把閾值調到 {hardLine} tokens 以下，或降低最大輸出 tokens。",
   "settings.active": "啟用",
   "settings.inactive": "未啟用",
   "settings.activeProfile": "已啟用配置",
