@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use crate::api::config::{normalize_base_url, resolve_sdk_api_base_url, DEFAULT_OPENAI_BASE_URL};
 use crate::api::conversation::parse_chat_message_content;
+use crate::api::conversation::resolve_effective_max_tokens;
 use crate::api::conversation::tool_messages::{
     normalize_tool_calls, parse_tool_results_with_images,
 };
@@ -241,7 +242,14 @@ pub(super) fn build_interactions_payload(
         generation_config["thinking_summaries"] = json!("auto");
         generation_config["thinking_config"] = thinking_config;
     }
-    if let Some(max_tokens) = api_config.max_tokens {
+    // Compaction emits a handoff summary, not a full answer: cap the output
+    // budget so the provider keeps the input window available (see
+    // conversation/context.rs for the matching guard-side reservation).
+    let effective_max_tokens = resolve_effective_max_tokens(
+        api_config.max_tokens,
+        request.context_compaction.unwrap_or(false),
+    );
+    if let Some(max_tokens) = effective_max_tokens {
         if max_tokens > 0 {
             generation_config["max_output_tokens"] = json!(max_tokens);
         }

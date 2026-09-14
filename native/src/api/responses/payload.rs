@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::common::inject_custom_headers;
 use crate::api::config::{normalize_base_url, resolve_advanced_model, resolve_sdk_api_base_url};
 use crate::api::conversation::parse_chat_message_content;
+use crate::api::conversation::resolve_effective_max_tokens;
 use crate::api::responses::ResponsesApiRequest;
 use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
@@ -344,7 +345,14 @@ pub(super) fn build_responses_payload(
         payload["instructions"] = json!(instructions);
     }
 
-    if let Some(max_tokens) = api_config.max_tokens {
+    // Compaction emits a handoff summary, not a full answer: cap the output
+    // budget so the provider keeps the input window available (see
+    // conversation/context.rs for the matching guard-side reservation).
+    let effective_max_tokens = resolve_effective_max_tokens(
+        api_config.max_tokens,
+        request.context_compaction.unwrap_or(false),
+    );
+    if let Some(max_tokens) = effective_max_tokens {
         if max_tokens > 0 {
             payload["max_output_tokens"] = json!(max_tokens);
         }

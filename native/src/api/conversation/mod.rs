@@ -8,7 +8,7 @@ pub mod stream;
 pub mod sub_agent;
 pub mod tool_messages;
 
-pub use context::{prepare_context_request, PreparedConversationRequest};
+pub use context::{prepare_context_request, resolve_effective_max_tokens, PreparedConversationRequest};
 pub use images::{parse_chat_message_content, ChatImage, ParsedChatMessageContent};
 pub use stream::create_response_stream;
 pub use sub_agent::resolve_sub_agent_tools;
@@ -18,6 +18,27 @@ pub struct ConversationContextRequest<'a> {
     pub conversation_id: Option<&'a str>,
     pub previous_response_id: Option<&'a str>,
     pub messages: &'a [ChatContextMessage],
+    pub max_context_tokens: Option<i32>,
+    /// Configured max output tokens (`max_tokens`) of the active API profile.
+    /// Reserved against the context window by the pre-send token guard; when
+    /// absent the guard assumes no explicit output reservation.
+    pub max_output_tokens: Option<i32>,
+    /// Configured auto-compaction threshold (tokens) of the active API profile.
+    /// The guard uses it to detect a self-contradictory profile: when the
+    /// threshold sits ABOVE the guard's own hard line, auto-compaction can
+    /// never fire before the request is rejected, so the guard reports a
+    /// configuration conflict instead of blaming oversized attachments.
+    pub auto_compress_threshold: Option<i32>,
+    /// Whether the active endpoint accepts native image parts. The pre-send
+    /// guard bills on-disk image refs at a vision-native estimate when true,
+    /// and at the cheaper textify-desciption estimate when false (those
+    /// images are replaced by text descriptions after the guard).
+    pub supports_vision: bool,
+    /// Active profile's `request_method` (`chat` / `responses` / `anthropic` /
+    /// `gemini` / `interactions`). Decides which persisted reasoning field the
+    /// provider actually serializes, so the guard can bill exactly that one
+    /// instead of counting both mirrors of the same reasoning trace.
+    pub request_method: &'a str,
     pub directory_id: Option<&'a str>,
     pub context_compaction: bool,
     /// Internal auto-compaction resume mode: the latest `context_compaction`

@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use crate::api::config::{normalize_base_url, resolve_advanced_model, resolve_sdk_api_base_url};
 use crate::api::conversation::parse_chat_message_content;
+use crate::api::conversation::resolve_effective_max_tokens;
 use crate::api::responses::ResponsesApiRequest;
 use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
@@ -297,7 +298,15 @@ pub(super) fn build_chat_completions_payload(
         },
     });
 
-    if let Some(max_tokens) = api_config.max_tokens {
+    // Compaction emits a handoff summary, not a full answer: sending the
+    // profile's full output budget would both shrink the usable input window
+    // at the provider and waste it on a request that only needs a few
+    // thousand tokens. Cap it for compaction requests.
+    let effective_max_tokens = resolve_effective_max_tokens(
+        api_config.max_tokens,
+        request.context_compaction.unwrap_or(false),
+    );
+    if let Some(max_tokens) = effective_max_tokens {
         if max_tokens > 0 {
             payload["max_tokens"] = json!(max_tokens);
         }

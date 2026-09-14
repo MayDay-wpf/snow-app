@@ -12,6 +12,7 @@ use crate::api::config::{
     DEFAULT_ANTHROPIC_BASE_URL, DEFAULT_OPENAI_BASE_URL,
 };
 use crate::api::conversation::parse_chat_message_content;
+use crate::api::conversation::resolve_effective_max_tokens;
 use crate::api::responses::ResponsesApiRequest;
 use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
@@ -340,7 +341,13 @@ pub(super) fn build_anthropic_payload(
     });
 
     // max_tokens 为用户可选配置：留空（None）时不传该参数，由服务端决定默认值。
-    if let Some(max_tokens) = api_config.max_tokens {
+    // 压缩请求只产出一份 handoff 摘要，因此预留摘要级额度而非档案的完整输出预算
+    // ——否则上游会因 max_tokens 挤占输入窗而拒绝这次唯一的自救请求。
+    let effective_max_tokens = resolve_effective_max_tokens(
+        api_config.max_tokens,
+        request.context_compaction.unwrap_or(false),
+    );
+    if let Some(max_tokens) = effective_max_tokens {
         if max_tokens > 0 {
             payload["max_tokens"] = json!(max_tokens);
         }
