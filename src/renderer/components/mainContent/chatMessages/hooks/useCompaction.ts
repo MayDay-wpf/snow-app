@@ -1,14 +1,12 @@
 import { useCallback } from "react";
 import type {
   ConversationContextValue,
-  ChatConversationMessage,
   CompactionResult,
 } from "../utils/conversationTypes";
 import {
-  createMessageId,
+  buildConversationMessages,
   deleteCheckpoints,
   directoryIdToPath,
-  formatMessageTime,
 } from "../utils/conversationHelpers";
 import { appendHookExecutionToMessage, runHook } from "./hookOutcome";
 
@@ -193,24 +191,25 @@ export const useCompaction = (ctx: ConversationContextValue) => {
           });
         }
 
-        const compactionMessage: ChatConversationMessage = {
-          id: response.id || createMessageId("user"),
-          role: "user",
-          content,
-          timestamp: formatMessageTime(),
-          status: "sent",
-          responseId: response.id || undefined,
-          model: response.model || model,
-          isContextCompaction: true,
-          checkpointId,
-        };
-        ctx.updateSessionMessages(conversationId, (currentMessages) => [
-          ...currentMessages,
-          compactionMessage,
-        ]);
+        // The boundary message is already persisted by the backend, so reload
+        // it instead of pushing a local copy: an optimistic copy can never be
+        // deduped against the stored row, because the only id available here is
+        // the upstream response id, never the row's own id. That duplicate then
+        // survived every reload as a second summary card.
         const latestRecords =
           await window.snow.listChatMessages(conversationId);
         ctx.updateSessionField(conversationId, "messageRecords", latestRecords);
+        // Rebuild the rendered list from persisted records, keeping only local
+        // messages that no record covers (in-flight placeholders) so an active
+        // stream is not dropped.
+        const persistedIds = new Set(latestRecords.map((record) => record.id));
+        ctx.updateSessionMessages(conversationId, (currentMessages) => [
+          ...buildConversationMessages(latestRecords),
+          ...currentMessages.filter(
+            (message) =>
+              !persistedIds.has(message.id) && !message.isContextCompaction,
+          ),
+        ]);
 
         void window.snow.writeLog("INFO", {
           module: "compaction",
