@@ -6647,6 +6647,12 @@ input {
   font-size: 10.5px;
   font-weight: 500;
 }
+/* A threshold the context guard can never reach is a hard configuration
+   error, not a hint — flag it in the error color so it is not skimmed past. */
+.api-settings-field .api-settings-threshold-conflict {
+  color: var(--danger, #e5484d);
+  line-height: 1.45;
+}
 
 .api-settings-form-options,
 .api-settings-form-actions {

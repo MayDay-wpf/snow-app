@@ -1682,6 +1682,8 @@ export const zhCN = {
   "settings.apiAutoCompressThresholdNeedMaxContext":
     "请先填写最大上下文，用于计算 token 阈值。",
   "settings.apiAutoCompressThresholdCalculated": "计算阈值：{tokens} tokens",
+  "settings.apiAutoCompressThresholdConflict":
+    "此阈值永远不会触发：上下文守卫会在 {hardLine} tokens 处拦截普通请求（最大上下文 − 最大输出 − 安全余量），因此自动压缩来不及运行，你需要手动 /compact 自救（压缩请求只预留摘要级输出，因此能通过）。请把阈值调到 {hardLine} tokens 以下，或降低最大输出 tokens。",
   "settings.active": "启用",
   "settings.inactive": "未启用",
   "settings.activeProfile": "已启用配置",

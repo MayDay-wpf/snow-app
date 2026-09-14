@@ -18,6 +18,7 @@ import {
   AUTO_COMPRESS_THRESHOLD_MIN_PERCENT,
   AUTO_COMPRESS_THRESHOLD_STEP_PERCENT,
   calculateAutoCompressThresholdTokens,
+  detectAutoCompressConflict,
   normalizeAutoCompressThresholdPercent,
 } from "./autoCompressThreshold";
 import {
@@ -245,6 +246,16 @@ export function ApiSettingsFormFields({
     data.maxContextTokens,
     autoCompressThresholdPercent
   );
+  // A threshold above the guard's hard line can never fire, because the backend
+  // rejects the request before auto-compaction runs. Surface the conflict here
+  // so the user fixes the profile instead of hunting oversized attachments.
+  const autoCompressConflict = data.enableAutoCompress
+    ? detectAutoCompressConflict(
+        data.maxContextTokens,
+        data.maxTokens,
+        autoCompressThresholdTokens
+      )
+    : null;
 
   const toolResultLimitPercent = normalizeToolResultLimitPercent(
     data.toolResultTokenLimit
@@ -1005,6 +1016,20 @@ export function ApiSettingsFormFields({
                     defaultValue: "Calculated threshold: {tokens} tokens",
                   }).replace("{tokens}", String(autoCompressThresholdTokens))}
             </span>
+            {autoCompressConflict && (
+              <span
+                className="api-settings-threshold-hint api-settings-threshold-conflict"
+                role="alert"
+              >
+                {t("settings.apiAutoCompressThresholdConflict", {
+                  defaultValue:
+                    "This threshold can never be reached: the context guard stops normal requests at {hardLine} tokens (max context minus max output minus safety margin), so auto-compression never runs in time and you must run /compact manually to recover. Lower the threshold below {hardLine} tokens, or reduce max tokens.",
+                }).replaceAll(
+                  "{hardLine}",
+                  String(autoCompressConflict.hardLine),
+                )}
+              </span>
+            )}
           </div>
           <label className="api-settings-field">
             <span>
