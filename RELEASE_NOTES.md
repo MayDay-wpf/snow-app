@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.4.9
+
+## New Features
+
+- **Top Bar and Git Panel Refactor**: The top bar is rearranged and gains a branch selector (branch switching moves out of the Git panel header); the Git panel header becomes the commit area (message input, AI commit-message generation and commit button), and both share one repo watcher (reference-counted).
+- **Persistent PowerShell Sessions**: Consecutive PowerShell commands reuse one warm session, cutting a trivial command from ~400ms to ~40ms; the working directory still resets per command while process-level state (environment variables, `$global:` variables) persists, and idle sessions are reclaimed automatically.
+- **Client Scripts**: The plugin list gains a "Script plugins" tab to create from a template, generate with AI, import, edit in a full-screen editor, delete, and enable/disable client scripts injected into the desktop UI.
+- **Team Avatar Colors and Top Bar Team Info**: Team avatars accept a custom color (mailbox-hash default); the team name, remote address, sync status and identity actions move to the top bar, avoiding duplicate team-data fetches.
+- **Built-in MCP Server Icons**: Built-in MCP servers show dedicated icons in the MCP panel.
+
+## Improvements
+
+- LSP-first routing: prompts hard-bind scenarios to tools — with a language server available, definitions, references, types and impact start from semantic tools while grep handles literal text and annotates results with semantic-tool hints; the investigation-phase tool list in Plan / Goal / WorkFlow modes is injected from the tools actually callable in the project.
+- Stack-aware language servers: LSP sessions start from each language's stack root (Cargo.toml / go.mod / tsconfig.json, ...), resolving mixed-stack projects accurately; languages without a stack marker are no longer started.
+
+## Bug Fixes
+
+- Fixed individually disabled tools still appearing in injected prompts.
+- Fixed codelens tools being hidden wholesale in mixed-stack projects: languages without language-server coverage keep the static-analysis fallback.
+- Fixed duplicate LSP client logs and long lines split at the read-buffer boundary.
+- Fixed skills settings and project memory lists rebuilding after refresh or actions and jumping back to the top.
+
 ## v0.4.8
 
 ## New Features
