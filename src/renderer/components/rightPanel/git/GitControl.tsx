@@ -29,7 +29,6 @@ import { useI18n } from "../../../i18n";
 import { GIT_SETTINGS_CHANGED_EVENT } from "../../../constants/gitEvents";
 import { useGitStatus } from "./useGitStatus";
 import { useRemotePolling } from "./useRemotePolling";
-import { BranchSelector } from "./BranchSelector";
 import { GitConfirmBubble, type GitConfirmAnchor } from "./GitConfirmBubble";
 import { GitFileList } from "./GitFileList";
 import { GitGraph } from "./GitGraph";
@@ -380,10 +379,6 @@ export const GitControl = ({
       return changed ? next : prev;
     });
   }, [status]);
-
-  const handleStatusChange = useCallback(() => {
-    refresh();
-  }, [refresh]);
 
   // Manual refresh: re-fetch status and, when the graph view is active,
   // also force GitGraph to reload its history. The spinner runs until BOTH
@@ -960,11 +955,80 @@ export const GitControl = ({
           </div>
         )}
         <div className="git-control-header">
-          <BranchSelector
-            repoPath={repoPath}
-            currentBranch={status.currentBranch}
-            onBranchChanged={handleStatusChange}
-          />
+          {viewMode === "changes" && (
+            <>
+              <div className="git-commit-input-wrapper">
+                <textarea
+                  ref={commitInputRef}
+                  className={`git-commit-input${
+                    isGeneratingCommitMsg ? " is-generating" : ""
+                  }`}
+                  placeholder={t("git.commitMessagePlaceholder")}
+                  value={displayedCommitMessage}
+                  onChange={(e) => applyCommitMessage(repoPath, e.target.value)}
+                  readOnly={isGeneratingCommitMsg}
+                  rows={1}
+                />
+                <div className="git-commit-input-actions">
+                  <button
+                    type="button"
+                    className="git-commit-btn git-ai-commit-btn"
+                    onClick={
+                      isGeneratingCommitMsg
+                        ? handleAbortCommitMessage
+                        : handleGenerateCommitMessage
+                    }
+                    disabled={
+                      !isGeneratingCommitMsg &&
+                      (actionInProgress !== null || stagedFiles.length === 0)
+                    }
+                  >
+                    {isGeneratingCommitMsg ? (
+                      <Square size={14} strokeWidth={1.8} />
+                    ) : (
+                      <Sparkles size={14} strokeWidth={1.8} />
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div className="git-commit-split-btn">
+                <button
+                  type="button"
+                  className="git-commit-btn"
+                  onClick={handleCommit}
+                  disabled={
+                    actionInProgress !== null ||
+                    isGeneratingCommitMsg ||
+                    !displayedCommitMessage.trim() ||
+                    stagedFiles.length === 0
+                  }
+                >
+                  {actionInProgress === "commit" ? (
+                    <Loader2 size={14} strokeWidth={1.8} className="spin" />
+                  ) : (
+                    <GitCommitHorizontal size={14} strokeWidth={1.8} />
+                  )}
+                  <span>
+                    {commitMode === "commitAndPush"
+                      ? t("git.commitAndPush")
+                      : t("git.commit")}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="git-commit-mode-toggle"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCommitModeMenu({ x: e.clientX, y: e.clientY });
+                  }}
+                  disabled={actionInProgress !== null || isGeneratingCommitMsg}
+                  title={t("git.commitMode")}
+                >
+                  <ChevronDown size={14} strokeWidth={1.8} />
+                </button>
+              </div>
+            </>
+          )}
           <div
             className="git-control-actions"
             onContextMenu={(e) => {
@@ -1116,83 +1180,6 @@ export const GitControl = ({
               onOpenFile={handleOpenFile}
               onOpenTerminal={onOpenTerminal}
             />
-
-            <div className="git-commit-section">
-              <div className="git-commit-input-wrapper">
-                <textarea
-                  ref={commitInputRef}
-                  className={`git-commit-input${
-                    isGeneratingCommitMsg ? " is-generating" : ""
-                  }`}
-                  placeholder={t("git.commitMessagePlaceholder")}
-                  value={displayedCommitMessage}
-                  onChange={(e) => applyCommitMessage(repoPath, e.target.value)}
-                  readOnly={isGeneratingCommitMsg}
-                  rows={1}
-                />
-                <div className="git-commit-input-actions">
-                  <button
-                    type="button"
-                    className="git-commit-btn git-ai-commit-btn"
-                    onClick={
-                      isGeneratingCommitMsg
-                        ? handleAbortCommitMessage
-                        : handleGenerateCommitMessage
-                    }
-                    disabled={
-                      !isGeneratingCommitMsg &&
-                      (actionInProgress !== null || stagedFiles.length === 0)
-                    }
-                  >
-                    {isGeneratingCommitMsg ? (
-                      <Square size={14} strokeWidth={1.8} />
-                    ) : (
-                      <Sparkles size={14} strokeWidth={1.8} />
-                    )}
-                  </button>
-                </div>
-              </div>
-              <div className="git-commit-actions">
-                <div className="git-commit-split-btn">
-                  <button
-                    type="button"
-                    className="git-commit-btn"
-                    onClick={handleCommit}
-                    disabled={
-                      actionInProgress !== null ||
-                      isGeneratingCommitMsg ||
-                      !displayedCommitMessage.trim() ||
-                      stagedFiles.length === 0
-                    }
-                  >
-                    {actionInProgress === "commit" ? (
-                      <Loader2 size={14} strokeWidth={1.8} className="spin" />
-                    ) : (
-                      <GitCommitHorizontal size={14} strokeWidth={1.8} />
-                    )}
-                    <span>
-                      {commitMode === "commitAndPush"
-                        ? t("git.commitAndPush")
-                        : t("git.commit")}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="git-commit-mode-toggle"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCommitModeMenu({ x: e.clientX, y: e.clientY });
-                    }}
-                    disabled={
-                      actionInProgress !== null || isGeneratingCommitMsg
-                    }
-                    title={t("git.commitMode")}
-                  >
-                    <ChevronDown size={14} strokeWidth={1.8} />
-                  </button>
-                </div>
-              </div>
-            </div>
           </>
         ) : (
           <GitGraph

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitStatusResult } from "../../../../preload";
+import { acquireGitWatch, releaseGitWatch } from "./gitWatchRegistry";
 
 // Fallbacks used until the persisted settings load (a few ms).
 const DEFAULT_REMOTE_POLL_INTERVAL_MS = 10_000;
@@ -103,8 +104,9 @@ export const useGitStatus = (
     const debounceMs =
       settingsRef.current?.changeDebounceMs ?? DEFAULT_CHANGE_DEBOUNCE_MS;
 
-    if (repoPath && !isRemote && autoRefresh) {
-      void window.snow.startGitWatch(repoPath);
+    const watchedPath = repoPath && !isRemote && autoRefresh ? repoPath : null;
+    if (watchedPath) {
+      acquireGitWatch(watchedPath);
     }
 
     const unsubscribe = window.snow.onGitStatusChanged((changedRepoPath) => {
@@ -150,8 +152,8 @@ export const useGitStatus = (
         clearTimeout(watcherDebounceRef.current);
         watcherDebounceRef.current = null;
       }
-      if (repoPath && !isRemote && autoRefresh) {
-        void window.snow.stopGitWatch(repoPath);
+      if (watchedPath) {
+        releaseGitWatch(watchedPath);
       }
     };
   }, [repoPath, fetchStatus]);

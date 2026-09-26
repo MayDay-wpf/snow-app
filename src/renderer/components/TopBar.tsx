@@ -2,7 +2,6 @@ import {
   Copy,
   Database,
   FolderOpen,
-  GitBranch,
   Globe,
   Maximize2,
   Minimize2,
@@ -24,6 +23,7 @@ import { OPEN_PROJECT_CODEBASE_PANEL_EVENT } from "./mainContent/chatInput/Proje
 import { CodebaseSyncIndicator } from "./TopBar/CodebaseSyncIndicator";
 import { TeamTopBarActions } from "./TopBar/TeamTopBarActions";
 import { TodoPanelButton } from "./TopBar/TodoPanelButton";
+import { TopBarBranchSelector } from "./TopBar/TopBarBranchSelector";
 import { codebaseSyncStore } from "./TopBar/codebaseSyncStore";
 import { useTeamTopBarSnapshot } from "./TopBar/teamTopBarStore";
 import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
@@ -680,63 +680,128 @@ export const TopBar = ({
     }
   };
 
+  const topBarLogo = isWindows ? (
+    <img className="top-bar-logo" src={appIcon} alt="Snow" draggable={false} />
+  ) : null;
+
+  const sidebarActions = (
+    <div className="top-bar-sidebar-actions" aria-label="Sidebar actions">
+      <button
+        className="icon-btn sidebar-toggle-btn"
+        type="button"
+        aria-label={sidebarToggleLabel}
+        title={sidebarToggleLabel}
+        onClick={onToggleSidebar}
+      >
+        <SidebarToggleIcon size={16} strokeWidth={1.8} />
+      </button>
+      <button
+        className={`icon-btn always-on-top-btn${isAlwaysOnTop ? " active" : ""}`}
+        type="button"
+        aria-label={alwaysOnTopLabel}
+        title={alwaysOnTopLabel}
+        onClick={toggleAlwaysOnTop}
+      >
+        <AlwaysOnTopIcon size={16} strokeWidth={1.8} />
+      </button>
+      <button
+        className="icon-btn new-chat-btn"
+        type="button"
+        aria-label="New chat"
+        title="New chat"
+        onClick={() => {
+          // 新建会话时收回独立页面（备忘录 / 记忆 / 定时任务 / 插件）与
+          // 团队协作视图，让新会话在聊天视图里立即可见。
+          if (isFeaturePageView(activeView) || isTeamView) {
+            onSelectView("chat");
+          }
+          handleNewChat();
+        }}
+      >
+        <SquarePen size={16} strokeWidth={1.8} />
+      </button>
+    </div>
+  );
+
+  const isRightCardMerged = isRightPanelCollapsed && !isRightPanelFullscreen;
+
+  // 右侧区域（项目标签 + 新建/面板/全屏按钮）任意位置右键：提供针对当前项目的
+  // 快捷操作。容器需脱离窗口 drag 区域，否则空白处右键不会触发 contextmenu。
+  const openBranchContextMenu = (event: React.MouseEvent): void => {
+    event.preventDefault();
+    setBranchContextMenu({ x: event.clientX, y: event.clientY });
+  };
+
+  const branchInfo = (
+    <div className="top-bar-branch-info">
+      <TopBarBranchSelector
+        repoPath={activeDirectory?.path ?? null}
+        fallbackName={activeDirectory?.name}
+      />
+    </div>
+  );
+
+  const rightCardActions = (
+    <div className="top-bar-right-actions">
+      <div className="snow-client-slot" data-snow-slot="topbar.actions" />
+      {!isWindows && (
+        <PlusMenuButton
+          items={plusMenuItems}
+          onAction={handlePlusMenuAction}
+          onOpenChange={setIsPlusMenuOpen}
+        />
+      )}
+      {!isRightPanelFullscreen && (
+        <button
+          className="icon-btn ghost right-panel-toggle-btn"
+          type="button"
+          aria-label={rightPanelToggleLabel}
+          title={rightPanelToggleLabel}
+          onClick={onToggleRightPanel}
+        >
+          <RightPanelToggleIcon size={16} strokeWidth={1.8} />
+        </button>
+      )}
+      {!isWindows && (
+        <button
+          className="icon-btn ghost right-panel-fullscreen-btn"
+          type="button"
+          aria-label={fullscreenToggleLabel}
+          title={fullscreenToggleLabel}
+          onClick={onToggleRightPanelFullscreen}
+        >
+          <FullscreenToggleIcon size={16} strokeWidth={1.8} />
+        </button>
+      )}
+      {isWindows && <WindowControlsButtons />}
+    </div>
+  );
+
   const isTodoPanelInteractive = isTodoPanelOpen && !isTodoPanelPinned;
 
   return (
     <header
-      className={`top-bar${isPlusMenuOpen ? " plus-menu-open" : ""}${
+      className={`top-bar${isSidebarCollapsed ? " sidebar-collapsed" : ""}${
+        isRightPanelCollapsed ? " right-panel-collapsed" : ""
+      }${isPlusMenuOpen ? " plus-menu-open" : ""}${
         isTodoPanelOpen ? " todo-panel-open" : ""
       }${isTodoPanelInteractive ? " todo-panel-interactive" : ""}`}
       data-snow-anchor="topbar"
     >
-      <div className="top-bar-left">
-        {isWindows && (
-          <img
-            className="top-bar-logo"
-            src={appIcon}
-            alt="Snow"
-            draggable={false}
-          />
-        )}
-        <div className="top-bar-sidebar-actions" aria-label="Sidebar actions">
-          <button
-            className="icon-btn sidebar-toggle-btn"
-            type="button"
-            aria-label={sidebarToggleLabel}
-            title={sidebarToggleLabel}
-            onClick={onToggleSidebar}
-          >
-            <SidebarToggleIcon size={16} strokeWidth={1.8} />
-          </button>
-          <button
-            className={`icon-btn always-on-top-btn${isAlwaysOnTop ? " active" : ""}`}
-            type="button"
-            aria-label={alwaysOnTopLabel}
-            title={alwaysOnTopLabel}
-            onClick={toggleAlwaysOnTop}
-          >
-            <AlwaysOnTopIcon size={16} strokeWidth={1.8} />
-          </button>
-          <button
-            className="icon-btn new-chat-btn"
-            type="button"
-            aria-label="New chat"
-            title="New chat"
-            onClick={() => {
-              // 新建会话时收回独立页面（备忘录 / 记忆 / 定时任务 / 插件）与
-              // 团队协作视图，让新会话在聊天视图里立即可见。
-              if (isFeaturePageView(activeView) || isTeamView) {
-                onSelectView("chat");
-              }
-              handleNewChat();
-            }}
-          >
-            <SquarePen size={16} strokeWidth={1.8} />
-          </button>
+      {isSidebarCollapsed ? null : (
+        <div className="top-bar-left">
+          {topBarLogo}
+          {sidebarActions}
         </div>
-      </div>
+      )}
 
       <div className="top-bar-main">
+        {isSidebarCollapsed ? (
+          <div className="top-bar-main-leading">
+            {topBarLogo}
+            {sidebarActions}
+          </div>
+        ) : null}
         <div className="header-title-group">
           <h2 className="header-title">
             {featurePage ? featurePageTitle : headerTitle}
@@ -784,60 +849,23 @@ export const TopBar = ({
             />
           </>
         )}
+        {isRightCardMerged ? (
+          <div
+            className="top-bar-main-trailing"
+            onContextMenu={openBranchContextMenu}
+          >
+            {branchInfo}
+            {rightCardActions}
+          </div>
+        ) : null}
       </div>
 
-      <div
-        className="top-bar-right"
-        onContextMenu={(event) => {
-          // 右侧圆角卡片（项目标签 + 新建/面板/全屏按钮）任意位置右键：
-          // 提供针对当前项目的快捷操作。容器已整体脱离窗口 drag 区域，
-          // 否则卡片空白处（标签与按钮的间隙）右键不会触发 contextmenu。
-          event.preventDefault();
-          setBranchContextMenu({ x: event.clientX, y: event.clientY });
-        }}
-      >
-        <div className="top-bar-branch-info">
-          {activeDirectory && (
-            <span className="top-bar-branch-label" title={activeDirectory.name}>
-              <GitBranch size={13} strokeWidth={1.8} />
-              <span>{activeDirectory.name}</span>
-            </span>
-          )}
+      {isRightCardMerged ? null : (
+        <div className="top-bar-right" onContextMenu={openBranchContextMenu}>
+          {branchInfo}
+          {rightCardActions}
         </div>
-        <div className="top-bar-right-actions">
-          <div className="snow-client-slot" data-snow-slot="topbar.actions" />
-          {!isWindows && (
-            <PlusMenuButton
-              items={plusMenuItems}
-              onAction={handlePlusMenuAction}
-              onOpenChange={setIsPlusMenuOpen}
-            />
-          )}
-          {!isRightPanelFullscreen && (
-            <button
-              className="icon-btn ghost right-panel-toggle-btn"
-              type="button"
-              aria-label={rightPanelToggleLabel}
-              title={rightPanelToggleLabel}
-              onClick={onToggleRightPanel}
-            >
-              <RightPanelToggleIcon size={16} strokeWidth={1.8} />
-            </button>
-          )}
-          {!isWindows && (
-            <button
-              className="icon-btn ghost right-panel-fullscreen-btn"
-              type="button"
-              aria-label={fullscreenToggleLabel}
-              title={fullscreenToggleLabel}
-              onClick={onToggleRightPanelFullscreen}
-            >
-              <FullscreenToggleIcon size={16} strokeWidth={1.8} />
-            </button>
-          )}
-          {isWindows && <WindowControlsButtons />}
-        </div>
-      </div>
+      )}
       {branchContextMenu && (
         <ContextMenu
           x={branchContextMenu.x}

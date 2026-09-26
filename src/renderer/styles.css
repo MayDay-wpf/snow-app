@@ -213,6 +213,21 @@ body.is-panel-resizing * {
   gap: 4px;
 }
 
+.top-bar-main-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.top-bar-main-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  -webkit-app-region: no-drag;
+}
+
 .top-bar.plus-menu-open .top-bar-main {
   overflow: visible;
 }
@@ -265,7 +280,8 @@ body.is-panel-resizing * {
 }
 
 @media (max-width: 720px) {
-  .top-bar-branch-label {
+  .top-bar-branch-label,
+  .top-bar-branch-info .branch-selector {
     display: none;
   }
   .top-bar-main {
@@ -323,6 +339,39 @@ body.is-panel-resizing * {
   .app-shell.is-windows.sidebar-collapsed.right-panel-collapsed .top-bar {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
+}
+
+.app-shell.sidebar-collapsed .top-bar.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr) var(--right-panel-width);
+}
+
+.app-shell.sidebar-collapsed.right-panel-collapsed .top-bar.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr) 49px;
+}
+
+.app-shell.is-windows.sidebar-collapsed.right-panel-collapsed
+  .top-bar.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app-shell.sidebar-collapsed.right-panel-fullscreen .top-bar.sidebar-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+.app-shell.sidebar-collapsed:not(.is-windows)
+  .top-bar.sidebar-collapsed
+  .top-bar-main-leading {
+  margin-left: var(--traffic-light-safe-area);
+}
+
+.app-shell.right-panel-collapsed:not(.right-panel-fullscreen)
+  .top-bar.right-panel-collapsed {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.app-shell.sidebar-collapsed.right-panel-collapsed:not(.right-panel-fullscreen)
+  .top-bar.right-panel-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .top-bar-plus-menu {
@@ -775,15 +824,6 @@ body.is-panel-resizing * {
   max-width: 310px;
 }
 
-.app-shell.right-panel-collapsed .top-bar-right {
-  gap: 0;
-}
-
-.app-shell.right-panel-collapsed .top-bar-right .panel-tab-group {
-  max-width: 0;
-  opacity: 0;
-  pointer-events: none;
-}
 .app-shell.right-panel-collapsed .right-panel-fullscreen-btn,
 .app-shell.right-panel-collapsed .top-bar-plus-menu {
   display: none;
@@ -28202,6 +28242,31 @@ body.is-panel-resizing * {
   flex-shrink: 0;
 }
 
+.top-bar-branch-info:has(.branch-dropdown),
+.top-bar-main:has(.top-bar-branch-info .branch-dropdown) {
+  overflow: visible;
+}
+
+.top-bar-branch-info .branch-selector {
+  flex: 0 1 auto;
+  max-width: 200px;
+  -webkit-app-region: no-drag;
+}
+
+.top-bar-branch-info .branch-selector-btn > svg {
+  flex-shrink: 0;
+}
+
+.top-bar-branch-info .branch-selector-name {
+  min-width: 0;
+}
+
+.top-bar-branch-info .branch-dropdown {
+  left: auto;
+  right: 0;
+  min-width: 240px;
+}
+
 .git-panel-container {
   display: flex;
   flex-direction: column;
@@ -28339,10 +28404,9 @@ body.is-panel-resizing * {
 .git-control-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   padding: 8px 12px;
-  /* 面板极窄时分支选择器与操作按钮换行排布，避免溢出裁切。 */
   flex-wrap: wrap;
   row-gap: 6px;
 }
@@ -28351,6 +28415,7 @@ body.is-panel-resizing * {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .git-action-btn {
@@ -31895,18 +31960,13 @@ body.is-panel-resizing * {
 }
 
 /* Commit Section */
-.git-commit-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px 10px;
-}
-
 .git-commit-input-wrapper {
   position: relative;
   display: flex;
   /* 不让 flex 拉伸输入框：高度完全由输入框自身的内容尺寸决定 */
   align-items: flex-start;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .git-commit-input {
@@ -32275,21 +32335,11 @@ body.is-panel-resizing * {
   word-break: break-word;
 }
 
-.git-commit-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.git-commit-actions .git-commit-btn {
-  flex: 1;
-}
-
 /* 提交按钮与模式切换下拉按钮合体：整体一个圆角胶囊，
    左半执行提交，右半弹出模式选择菜单。 */
 .git-commit-split-btn {
   display: flex;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
   border-radius: var(--radius-md);
   background: var(--text-primary);
   color: var(--on-solid);

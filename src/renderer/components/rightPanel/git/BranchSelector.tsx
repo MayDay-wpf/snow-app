@@ -131,7 +131,7 @@ export const BranchSelector = ({
     }
 
     const exists = branches.some(
-      (b) => b.name === trimmed || b.name === `origin/${trimmed}`
+      (b) => b.name === trimmed || b.name === `origin/${trimmed}`,
     );
     if (exists) {
       setCreateError(t("git.createBranchExists"));
@@ -161,7 +161,7 @@ export const BranchSelector = ({
   };
 
   const handleCreateInputKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
+    event: React.KeyboardEvent<HTMLInputElement>,
   ): void => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -227,6 +227,7 @@ export const BranchSelector = ({
         onClick={() => setIsOpen(!isOpen)}
         onContextMenu={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setContextMenu({ x: e.clientX, y: e.clientY });
         }}
         title={currentBranch}
