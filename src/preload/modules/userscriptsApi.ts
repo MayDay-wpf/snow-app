@@ -1,5 +1,8 @@
 import { ipcRenderer } from "electron";
 import type {
+  ClientScriptCommand,
+  ClientScriptContext,
+  ClientScriptFailure,
   GreasyForkSearchResult,
   UserscriptFilePick,
   UserscriptRecord,
@@ -41,4 +44,27 @@ export const userscriptsApi = {
   // ===== GM 值（管理 UI 查看用） =====
   getUserscriptValues: (scriptId: string): Promise<UserscriptValue[]> =>
     ipcRenderer.invoke("userscripts:gm-get-values", scriptId),
+  // ===== 客户端 UI 脚本（桌面窗口定制） =====
+  /** 发布桌面窗口界面上下文：主进程据此匹配客户端脚本并推给 preload 注入。 */
+  publishClientContext: (context: ClientScriptContext): Promise<void> =>
+    ipcRenderer.invoke("userscripts:client-context", context),
+  /** 手动重新应用一次客户端脚本（脚本增删改后立即生效）。 */
+  reapplyClientScripts: (): Promise<void> =>
+    ipcRenderer.invoke("userscripts:client-apply"),
+  /** 客户端脚本经 GM_registerMenuCommand 注册的命令。 */
+  listClientScriptCommands: (): Promise<ClientScriptCommand[]> =>
+    ipcRenderer.invoke("userscripts:client-commands"),
+  runClientScriptCommand: (commandId: number): Promise<void> =>
+    ipcRenderer.invoke("userscripts:client-run-command", commandId),
+  /** 客户端脚本运行失败记录（连续失败会被自动禁用）。 */
+  getClientScriptFailures: (): Promise<ClientScriptFailure[]> =>
+    ipcRenderer.invoke("userscripts:client-errors"),
+  /** 脚本集合变化广播：AI 经 config-set 安装 / 启停 / 删除时同样能感知。 */
+  onUserscriptsChanged: (callback: () => void): (() => void) => {
+    const handler = (): void => callback();
+    ipcRenderer.on("userscripts:changed", handler);
+    return () => {
+      ipcRenderer.removeListener("userscripts:changed", handler);
+    };
+  },
 };

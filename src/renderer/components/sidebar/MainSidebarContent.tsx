@@ -311,7 +311,7 @@ export function MainSidebarContent({
           />
         </div>
       ) : null}
-      <div className="sidebar-search-bar">
+      <div className="sidebar-search-bar" data-snow-anchor="sidebar.nav">
         <button
           className="nav-item sidebar-search-btn"
           onClick={() => setIsSearchOpen(true)}
@@ -403,6 +403,10 @@ export function MainSidebarContent({
             </span>
           )}
         </button>
+        <div
+          className="snow-client-slot"
+          data-snow-slot="sidebar.nav.actions"
+        />
       </div>
       <ProjectsSection
         activeDirectory={activeDirectory}
@@ -422,7 +426,11 @@ export function MainSidebarContent({
         onCollapsedChange={setIsChatsCollapsed}
       />
 
-      <div className="sidebar-footer">
+      <div className="sidebar-footer" data-snow-anchor="sidebar.footer">
+        <div
+          className="snow-client-slot"
+          data-snow-slot="sidebar.footer.actions"
+        />
         <div className="sidebar-footer-row">
           <button
             className="nav-item"

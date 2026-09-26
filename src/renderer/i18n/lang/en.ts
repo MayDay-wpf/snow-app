@@ -5047,6 +5047,42 @@ export const en = {
   "plugins.sidebarEntry": "Plugins",
   "plugins.title": "Plugins",
   "plugins.tabList": "Plugin list",
+  "plugins.tabScripts": "Script plugins",
+  "plugins.tabPlugins": "Panel plugins",
+  "plugins.scripts.create": "New script",
+  "plugins.scripts.createPlaceholder":
+    "e.g. a button next to the chat input that inserts a fixed prompt",
+  "plugins.scripts.createAction": "Build with AI",
+  "plugins.scripts.createPrompt":
+    'Help me build a Snow App client script (a userscript injected into the desktop window).\n\nWhat I want: {{request}}\n\nLoad the snow-app-docs skill (the built-in docs skill) first and read the client-script section of the userscript document at the path it gives - follow the docs instead of searching the app source - then write a complete .user.js: the metadata header must declare @name and @snow-target client, plus @snow-view / @snow-surface / @snow-scope / @run-at as needed; customize the UI like a Chrome userscript by operating the DOM directly: an isolated world shares the page DOM, so native APIs (querySelector / createElement / append / MutationObserver / addEventListener) all work; locate targets via anchors data-snow-anchor (app.root, topbar, sidebar, sidebar.nav, sidebar.footer, main.view, chat.messages, chat.message, chat.input, rightPanel, rightPanel.tabs, rightPanel.content) and slots data-snow-slot (topbar.actions, sidebar.nav.actions, sidebar.footer.actions, chat.input.actions, chat.message.actions), and use a MutationObserver to re-attach when React rebuilds nodes; the host only supplies the snow API for what DOM cannot do (snow.on events, snow.client app actions, GM_*). Install and enable it with config-set scope=userscripts key=new value={sourcePath: "<abs path to the script file>"}, then tell me how to use it and which views it affects.',
+  "plugins.scripts.importFile": "Import file",
+  "plugins.scripts.importPickTitle": "Select a userscript file",
+  "plugins.scripts.urlPlaceholder": "https://example.com/script.user.js",
+  "plugins.scripts.installUrl": "Install URL",
+  "plugins.scripts.hint":
+    "Client scripts run inside this desktop window (sandboxed by default) and share its DOM, so they can customize any part of the UI with native DOM APIs like a Chrome userscript; declare @grant unsafeWindow for full-permission mode.",
+  "plugins.scripts.newTitle": "New client script",
+  "plugins.scripts.editTitle": "Edit client script",
+  "plugins.scripts.empty": "No client scripts installed yet",
+  "plugins.scripts.emptyHint":
+    "Create a script or install a .user.js from a URL to customize this window.",
+  "plugins.scripts.viewBadge": "view:{{name}}",
+  "plugins.scripts.surfaceBadge": "area:{{name}}",
+  "plugins.scripts.badgeSandbox": "Sandboxed",
+  "plugins.scripts.badgeUnsafe": "Full permissions",
+  "plugins.scripts.badgeGlobal": "Always on",
+  "plugins.scripts.badgeFailed": "Errors {{count}}",
+  "plugins.scripts.edit": "Edit",
+  "plugins.scripts.delete": "Delete",
+  "plugins.scripts.deleteTitle": "Delete script",
+  "plugins.scripts.deleteMessage":
+    "Delete “{{name}}”? The script file is removed from disk as well.",
+  "plugins.scripts.autoDisabled":
+    "Auto-disabled after repeated errors: {{message}}",
+  "plugins.scripts.unsafeTitle": "Enable full-permission script",
+  "plugins.scripts.unsafeMessage":
+    "“{{name}}” declares @grant unsafeWindow or @snow-sandbox false. It runs in the page's main world with local-code permissions (window.snow: files, terminal, MCP). Enable it only if you trust the source.",
+  "plugins.scripts.unsafeConfirm": "Enable anyway",
   "plugins.install": "Install from folder",
   "plugins.installing": "Installing…",
   "plugins.installDialogTitle": "Select plugin folder",
@@ -5059,7 +5095,7 @@ export const en = {
     "e.g. a panel that lists this project's recent git commits",
   "plugins.createAction": "Build with AI",
   "plugins.createPrompt":
-    "Help me build a Snow App plugin.\n\nWhat I want: {{request}}\n\nPlease read the plugin development and installation guide (~/.snowapp/docs/en/2-guides/24-plugin-development-and-installation.md) and the metadata domain reference (~/.snowapp/docs/en/3-reference/6-plugin-metadata-domains.md) first, then create a complete plugin folder following the spec (plugin.json, entry file, plus any icon assets, styles or locale files needed). Finally install and enable it with the config-set plugins scope (key=new, with sourceDir pointing at the absolute plugin folder path), and tell me how to use the plugin.",
+    "Help me build a Snow App plugin.\n\nWhat I want: {{request}}\n\nPlease load the snow-app-docs skill (the built-in docs skill) first and read the plugin development & installation guide and the metadata domain reference at the paths it gives - follow the docs instead of searching the app source - then create a complete plugin folder following the spec (plugin.json, entry file, plus any icon assets, styles or locale files needed). Finally install and enable it with the config-set plugins scope (key=new, with sourceDir pointing at the absolute plugin folder path), and tell me how to use the plugin.",
   "plugins.enable": "Enable",
   "plugins.disable": "Disable",
   "plugins.rescan": "Reload manifest",

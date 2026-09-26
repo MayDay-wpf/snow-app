@@ -5,6 +5,7 @@ import { TeamPanel } from "./mainContent/team/TeamPanel";
 import { useI18n } from "../i18n";
 import { useSettingsSearchTarget } from "./sidebar/settingsSearchNavigation";
 import { useConversationNavigation } from "../hooks/useConversationNavigation";
+import { useScriptEditorStore } from "../userscripts/scriptEditorStore";
 import type { MainContentView } from "./mainContent/types";
 import type { WorkspaceDirectoryRecord } from "../../preload";
 
@@ -153,6 +154,11 @@ const ScheduledTasksPanel = lazy(() =>
 const PluginsPanel = lazy(() =>
   import("./sidebar/PluginsPanel").then((m) => ({ default: m.PluginsPanel })),
 );
+const ScriptEditorOverlay = lazy(() =>
+  import("../userscripts/ScriptEditorOverlay").then((m) => ({
+    default: m.ScriptEditorOverlay,
+  })),
+);
 
 type MainContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -188,6 +194,7 @@ export const MainContent = ({
   onSelectView,
 }: MainContentProps): React.JSX.Element => {
   const { t } = useI18n();
+  const editorState = useScriptEditorStore();
   useSettingsSearchTarget(activeView);
   const activeDirectoryId = activeDirectory?.directoryId ?? "";
   // 项目记忆页「来自会话」徽章复用共享的会话跳转管道（校验 → 切项目 → 切视图）。
@@ -198,7 +205,11 @@ export const MainContent = ({
   });
   const closePanel = (): void => onSelectView("chat");
   return (
-    <main className="main-content">
+    <main
+      className="main-content"
+      data-snow-anchor="main.view"
+      data-snow-view={activeView}
+    >
       {isFullscreenPending && (
         <div className="fullscreen-pending-overlay" aria-live="assertive">
           <div className="fullscreen-pending-card">
@@ -330,6 +341,11 @@ export const MainContent = ({
           ) : activeView === "general-settings" ? (
             <GeneralSettingsPanel onClose={() => onSelectView("chat")} />
           ) : null}
+        </Suspense>
+      )}
+      {editorState.session && (
+        <Suspense fallback={null}>
+          <ScriptEditorOverlay />
         </Suspense>
       )}
     </main>

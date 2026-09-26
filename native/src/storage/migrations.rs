@@ -96,6 +96,54 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_workflow_node_sessions_flow_checkpoint_id(connection)?;
     migrate_project_memories_response_id(connection)?;
     migrate_workspace_directory_path_health(connection)?;
+    migrate_userscripts_client_fields(connection)?;
+    Ok(())
+}
+
+/// Adds the client-script columns (`target` / `view_json` / `surface_json` /
+/// `scope` / `sandbox`) to `userscripts` for databases created before the
+/// desktop-UI userscript engine existed, then (re)creates
+/// `idx_userscripts_target`.
+///
+/// Existing rows are legacy browser userscripts, so the `browser` default is
+/// already correct and no backfill is needed. Idempotent: every column is
+/// checked against `PRAGMA table_info` first, and fresh databases get all of
+/// them from the `CREATE TABLE` statement in `create_schema`.
+///
+/// The index MUST live here rather than in the `create_schema` batch: on an
+/// old database the `userscripts` table already exists and the batch's
+/// `CREATE TABLE IF NOT EXISTS` does not add the `target` column, so creating
+/// the index there fails with "no such column: target" before this migration
+/// has a chance to add it.
+fn migrate_userscripts_client_fields(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(userscripts)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+
+    const ADDITIONS: &[(&str, &str)] = &[
+        ("target", "TEXT NOT NULL DEFAULT 'browser'"),
+        ("view_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("surface_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("scope", "TEXT NOT NULL DEFAULT ''"),
+        ("sandbox", "INTEGER NOT NULL DEFAULT 1"),
+    ];
+    for (name, definition) in ADDITIONS {
+        if columns.iter().any(|column| column == name) {
+            continue;
+        }
+        connection.execute(
+            &format!("ALTER TABLE userscripts ADD COLUMN {name} {definition}"),
+            [],
+        )?;
+    }
+
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_userscripts_target
+           ON userscripts(target, enabled)",
+        [],
+    )?;
     Ok(())
 }
 

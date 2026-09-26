@@ -42,15 +42,12 @@ export const AiResponseActions = ({
   const copyBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const copyToClipboard = useCallback(
-    (text: string): void => {
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      });
-    },
-    []
-  );
+  const copyToClipboard = useCallback((text: string): void => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    });
+  }, []);
 
   const handleCopyAsMarkdown = useCallback((): void => {
     copyToClipboard(content);
@@ -185,7 +182,7 @@ export const AiResponseActions = ({
                 </span>
               </button>
             </div>,
-            document.body
+            document.body,
           )
         : null}
       <button
@@ -196,6 +193,7 @@ export const AiResponseActions = ({
       >
         <GitFork size={15} strokeWidth={1.8} />
       </button>
+      <div className="snow-client-slot" data-snow-slot="chat.message.actions" />
     </div>
   );
 };

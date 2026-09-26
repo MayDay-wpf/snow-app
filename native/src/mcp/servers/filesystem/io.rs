@@ -8,13 +8,15 @@ use serde_json::{json, Value};
 use super::office::{extract_office_document_text, office_document_kind};
 use super::text_codec::decode_text_bytes;
 
+use crate::utils::paths::expand_home_dir;
+
 pub(crate) fn normalize_path(path: &str) -> String {
     let mut normalized = path.trim().to_string();
     normalized = normalized.replace('\0', "");
     if normalized.starts_with('\u{FEFF}') {
         normalized = normalized.trim_start_matches('\u{FEFF}').to_string();
     }
-    normalized
+    expand_home_dir(&normalized)
 }
 
 pub(crate) fn read_path(

@@ -524,6 +524,7 @@ const ChatContentBody = ({
           <div
             key={chatRenderKey}
             className={`chat-area ${isLoadingInitialHistory ? "is-loading-history" : ""}`}
+            data-snow-anchor="chat.messages"
             ref={scrollRef}
             onClick={pathClickOpenProps.onClick}
             onAuxClick={pathClickOpenProps.onAuxClick}
@@ -591,7 +592,11 @@ const ChatContentBody = ({
             />
           ) : null}
 
-          <div className="chat-input-region">
+          <div className="chat-input-region" data-snow-anchor="chat.input">
+            <div
+              className="snow-client-slot"
+              data-snow-slot="chat.input.actions"
+            />
             {showScrollToBottom && hasMessages ? (
               <button
                 className={`chat-scroll-to-bottom${

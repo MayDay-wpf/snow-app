@@ -114,7 +114,10 @@ export const Sidebar = ({
   };
 
   return (
-    <aside className={`sidebar ${isCollapsed ? "collapsed" : ""}`}>
+    <aside
+      className={`sidebar ${isCollapsed ? "collapsed" : ""}`}
+      data-snow-anchor="sidebar"
+    >
       <div
         className={`sidebar-content-wrapper ${
           activeContent === "main" ? "" : "is-hidden"

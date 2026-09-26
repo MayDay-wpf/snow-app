@@ -45898,18 +45898,66 @@ pre.file-viewer-code {
   font-variant-numeric: tabular-nums;
 }
 
-/* 编辑器弹窗：复用 FileEditModal 的弹出模式（Modal 大尺寸 + 内容区撑满） */
-.userscripts-editor-modal {
-  width: min(720px, calc(100vw - 48px));
-  height: min(560px, calc(100vh - 48px));
+.script-editor-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  padding: 16px 14px;
+  background: color-mix(in srgb, var(--bg-primary) 62%, transparent);
+  backdrop-filter: blur(3px);
+  animation: script-editor-overlay-in 0.15s ease-out;
 }
 
-.userscripts-editor-modal .app-modal-body {
+@keyframes script-editor-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.script-editor-page {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-xl);
+}
+
+.script-editor-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.script-editor-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-editor-body {
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 0;
   overflow: hidden;
 }
 
@@ -47270,6 +47318,14 @@ pre.file-viewer-code {
   overflow: hidden;
 }
 
+.plugins-tab-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .plugins-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -48051,4 +48107,112 @@ pre.file-viewer-code {
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
+}
+
+.snow-client-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.snow-client-slot:empty {
+  display: none;
+}
+
+.plugin-script-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.plugin-script-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.plugin-script-badge.unsafe {
+  border-color: #d97706;
+  color: #d97706;
+}
+
+.plugin-script-badge.failed {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.plugin-script-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.plugin-script-commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.plugin-script-command {
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.plugin-script-command:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.plugin-list-tabs {
+  margin-bottom: 10px;
+}
+
+.plugin-list-tabs small {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.plugins-scripts-install {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.plugins-scripts-install .plugins-toolbar-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.plugins-scripts-install-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.plugins-scripts-install-input:focus {
+  border-color: var(--accent-color);
+}
+
+.plugins-scripts-install-input::placeholder {
+  color: var(--text-muted);
 }

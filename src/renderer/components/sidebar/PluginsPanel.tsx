@@ -1,5 +1,6 @@
 import {
   Database,
+  FileCode2,
   FolderOpen,
   RefreshCw,
   ShieldAlert,
@@ -24,6 +25,11 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { PluginIcon } from "../common/PluginIcon";
 import { useChatConversationContext } from "../mainContent/chatMessages";
 import { PluginMetadataCatalog } from "./PluginMetadataCatalog";
+import { PluginScriptsSection } from "./PluginScriptsSection";
+import {
+  clientScriptStore,
+  useClientScriptStore,
+} from "../../userscripts/clientScriptStore";
 
 type PluginsPanelProps = {
   onClose: () => void;
@@ -44,6 +50,8 @@ export const PluginsPanel = ({
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [createRequest, setCreateRequest] = useState("");
   const [activeTab, setActiveTab] = useState<"list" | "metadata">("list");
+  const [listTab, setListTab] = useState<"plugins" | "scripts">("plugins");
+  const clientScripts = useClientScriptStore();
   const [metadataPluginId, setMetadataPluginId] = useState("");
   const metadataPlugin = useMemo(
     () =>
@@ -54,6 +62,7 @@ export const PluginsPanel = ({
   // 进入页面时拉取最新插件清单（侧栏徽标只关心数量，清单随页面加载）。
   useEffect(() => {
     void pluginStore.refresh();
+    void clientScriptStore.ensureLoaded();
   }, []);
 
   const openMetadata = useCallback((plugin: PluginView) => {
@@ -240,7 +249,7 @@ export const PluginsPanel = ({
           >
             <Puzzle size={14} strokeWidth={1.8} />
             <span>{t("plugins.tabList", { defaultValue: "Plugin list" })}</span>
-            <small>{state.plugins.length}</small>
+            <small>{state.plugins.length + clientScripts.scripts.length}</small>
           </button>
           <button
             aria-selected={activeTab === "metadata"}
@@ -261,240 +270,289 @@ export const PluginsPanel = ({
 
         {activeTab === "list" ? (
           <>
-            <div className="plugins-toolbar">
+            <div
+              className="import-settings-tabs plugin-list-tabs"
+              role="tablist"
+            >
               <button
-                className="plugins-toolbar-btn primary"
+                aria-selected={listTab === "plugins"}
+                className={`import-settings-tab ${
+                  listTab === "plugins" ? "active" : ""
+                }`}
+                onClick={() => setListTab("plugins")}
+                role="tab"
                 type="button"
-                disabled={isInstalling}
-                onClick={() => void handleInstall()}
               >
-                <Upload size={14} strokeWidth={1.8} />
-                <span>
-                  {isInstalling
-                    ? t("plugins.installing", { defaultValue: "Installing…" })
-                    : t("plugins.install", {
-                        defaultValue: "Install from folder",
-                      })}
-                </span>
+                <Puzzle size={13} strokeWidth={1.8} />
+                {t("plugins.tabPlugins", { defaultValue: "Panel plugins" })}
+                <small>{state.plugins.length}</small>
               </button>
               <button
-                className="plugins-toolbar-btn"
+                aria-selected={listTab === "scripts"}
+                className={`import-settings-tab ${
+                  listTab === "scripts" ? "active" : ""
+                }`}
+                onClick={() => setListTab("scripts")}
+                role="tab"
                 type="button"
-                onClick={() => void pluginStore.refresh()}
               >
-                <RefreshCw size={14} strokeWidth={1.8} />
-                <span>{t("plugins.refresh", { defaultValue: "Refresh" })}</span>
+                <FileCode2 size={13} strokeWidth={1.8} />
+                {t("plugins.tabScripts", { defaultValue: "Script plugins" })}
+                <small>{clientScripts.scripts.length}</small>
               </button>
             </div>
 
-            {error && <div className="plugins-error">{error}</div>}
-
-            {state.status === "loading" && state.plugins.length === 0 && (
-              <div className="plugins-empty">
-                {t("plugins.loading", { defaultValue: "Loading…" })}
-              </div>
-            )}
-
-            {state.status === "ready" && state.plugins.length === 0 && (
-              <div className="plugins-empty">
-                <Puzzle size={22} strokeWidth={1.6} />
-                <span>
-                  {t("plugins.empty", {
-                    defaultValue: "No plugins installed yet",
-                  })}
-                </span>
-                <span className="plugins-empty-hint">
-                  {t("plugins.createHint", {
-                    defaultValue:
-                      "Describe the plugin you want (Enter to send, Shift+Enter for a new line) and AI will build and install it.",
-                  })}
-                </span>
-                <div className="plugins-create">
-                  <textarea
-                    className="plugins-create-input"
-                    value={createRequest}
-                    placeholder={t("plugins.createPlaceholder", {
-                      defaultValue:
-                        "e.g. a panel that lists this project's recent git commits",
-                    })}
-                    onChange={(event) => setCreateRequest(event.target.value)}
-                    onKeyDown={handleCreateKeyDown}
-                  />
-                  <div className="plugins-create-actions">
+            <div className="plugins-tab-content">
+              {listTab === "plugins" ? (
+                <>
+                  <div className="plugins-toolbar">
                     <button
                       className="plugins-toolbar-btn primary"
                       type="button"
-                      disabled={createRequest.trim().length === 0}
-                      onClick={handleCreateWithAi}
+                      disabled={isInstalling}
+                      onClick={() => void handleInstall()}
                     >
-                      <Sparkles size={14} strokeWidth={1.8} />
+                      <Upload size={14} strokeWidth={1.8} />
                       <span>
-                        {t("plugins.createAction", {
-                          defaultValue: "Build with AI",
-                        })}
+                        {isInstalling
+                          ? t("plugins.installing", {
+                              defaultValue: "Installing…",
+                            })
+                          : t("plugins.install", {
+                              defaultValue: "Install from folder",
+                            })}
+                      </span>
+                    </button>
+                    <button
+                      className="plugins-toolbar-btn"
+                      type="button"
+                      onClick={() => void pluginStore.refresh()}
+                    >
+                      <RefreshCw size={14} strokeWidth={1.8} />
+                      <span>
+                        {t("plugins.refresh", { defaultValue: "Refresh" })}
                       </span>
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
 
-            <div className="plugins-list">
-              {state.plugins.map((plugin) => {
-                const isBusy = busyPluginId === plugin.pluginId;
-                const metadata = describeMetadataDomains(plugin);
-                const readableDomains = metadata.filter(
-                  (domain) => domain.granted,
-                ).length;
-                const writeDomains = describeWriteDomains(plugin, locale);
-                const writableActions = writeDomains.reduce(
-                  (total, domain) =>
-                    total +
-                    domain.actions.filter((action) => action.granted).length,
-                  0,
-                );
-                const totalWriteActions = writeDomains.reduce(
-                  (total, domain) => total + domain.actions.length,
-                  0,
-                );
-                return (
-                  <div className="plugins-item" key={plugin.pluginId}>
-                    <div className="plugins-item-head">
-                      <span className="plugins-item-icon">
-                        <PluginIcon
-                          pluginId={plugin.pluginId}
-                          icon={plugin.icon}
-                          size={18}
-                        />
+                  {error && <div className="plugins-error">{error}</div>}
+
+                  {state.status === "loading" && state.plugins.length === 0 && (
+                    <div className="plugins-empty">
+                      {t("plugins.loading", { defaultValue: "Loading…" })}
+                    </div>
+                  )}
+
+                  {state.status === "ready" && state.plugins.length === 0 && (
+                    <div className="plugins-empty">
+                      <Puzzle size={22} strokeWidth={1.6} />
+                      <span>
+                        {t("plugins.empty", {
+                          defaultValue: "No plugins installed yet",
+                        })}
                       </span>
-                      <div className="plugins-item-title">
-                        <span className="plugins-item-name">
-                          {resolveLocalized(plugin.name, locale) ||
-                            plugin.pluginId}
-                        </span>
-                        <span className="plugins-item-meta">
-                          v{plugin.version}
-                          {plugin.author ? ` · ${plugin.author}` : ""}
-                          {` · ${plugin.renderMode}`}
-                        </span>
-                      </div>
-                      <div className="plugins-item-actions">
-                        <button
-                          className="plugins-toggle"
-                          type="button"
-                          role="switch"
-                          aria-checked={plugin.enabled}
-                          disabled={isBusy}
-                          onClick={() => void handleToggleEnabled(plugin)}
-                          title={
-                            plugin.enabled
-                              ? t("plugins.disable", {
-                                  defaultValue: "Disable",
-                                })
-                              : t("plugins.enable", { defaultValue: "Enable" })
+                      <span className="plugins-empty-hint">
+                        {t("plugins.createHint", {
+                          defaultValue:
+                            "Describe the plugin you want (Enter to send, Shift+Enter for a new line) and AI will build and install it.",
+                        })}
+                      </span>
+                      <div className="plugins-create">
+                        <textarea
+                          className="plugins-create-input"
+                          value={createRequest}
+                          placeholder={t("plugins.createPlaceholder", {
+                            defaultValue:
+                              "e.g. a panel that lists this project's recent git commits",
+                          })}
+                          onChange={(event) =>
+                            setCreateRequest(event.target.value)
                           }
-                        >
-                          <span
-                            className={`plugins-toggle-track${
-                              plugin.enabled ? " on" : ""
-                            }`}
+                          onKeyDown={handleCreateKeyDown}
+                        />
+                        <div className="plugins-create-actions">
+                          <button
+                            className="plugins-toolbar-btn primary"
+                            type="button"
+                            disabled={createRequest.trim().length === 0}
+                            onClick={handleCreateWithAi}
                           >
-                            <span className="plugins-toggle-thumb" />
-                          </span>
-                        </button>
-                        <button
-                          className="plugins-icon-btn"
-                          type="button"
-                          disabled={isBusy}
-                          title={t("plugins.rescan", {
-                            defaultValue: "Reload manifest",
-                          })}
-                          onClick={() => void handleRescan(plugin)}
-                        >
-                          <RefreshCw size={13} strokeWidth={1.8} />
-                        </button>
-                        <button
-                          className="plugins-icon-btn"
-                          type="button"
-                          title={t("plugins.openFolder", {
-                            defaultValue: "Show in folder",
-                          })}
-                          onClick={() => void handleOpenFolder(plugin)}
-                        >
-                          <FolderOpen size={13} strokeWidth={1.8} />
-                        </button>
-                        <button
-                          className="plugins-icon-btn danger"
-                          type="button"
-                          disabled={isBusy}
-                          title={t("plugins.uninstall", {
-                            defaultValue: "Uninstall",
-                          })}
-                          onClick={() => setPendingUninstall(plugin)}
-                        >
-                          <Trash2 size={13} strokeWidth={1.8} />
-                        </button>
+                            <Sparkles size={14} strokeWidth={1.8} />
+                            <span>
+                              {t("plugins.createAction", {
+                                defaultValue: "Build with AI",
+                              })}
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  )}
 
-                    {plugin.description.default ||
-                    Object.keys(plugin.description).length > 0 ? (
-                      <div className="plugins-item-description">
-                        {resolveLocalized(plugin.description, locale)}
-                      </div>
-                    ) : null}
+                  <div className="plugins-list">
+                    {state.plugins.map((plugin) => {
+                      const isBusy = busyPluginId === plugin.pluginId;
+                      const metadata = describeMetadataDomains(plugin);
+                      const readableDomains = metadata.filter(
+                        (domain) => domain.granted,
+                      ).length;
+                      const writeDomains = describeWriteDomains(plugin, locale);
+                      const writableActions = writeDomains.reduce(
+                        (total, domain) =>
+                          total +
+                          domain.actions.filter((action) => action.granted)
+                            .length,
+                        0,
+                      );
+                      const totalWriteActions = writeDomains.reduce(
+                        (total, domain) => total + domain.actions.length,
+                        0,
+                      );
+                      return (
+                        <div className="plugins-item" key={plugin.pluginId}>
+                          <div className="plugins-item-head">
+                            <span className="plugins-item-icon">
+                              <PluginIcon
+                                pluginId={plugin.pluginId}
+                                icon={plugin.icon}
+                                size={18}
+                              />
+                            </span>
+                            <div className="plugins-item-title">
+                              <span className="plugins-item-name">
+                                {resolveLocalized(plugin.name, locale) ||
+                                  plugin.pluginId}
+                              </span>
+                              <span className="plugins-item-meta">
+                                v{plugin.version}
+                                {plugin.author ? ` · ${plugin.author}` : ""}
+                                {` · ${plugin.renderMode}`}
+                              </span>
+                            </div>
+                            <div className="plugins-item-actions">
+                              <button
+                                className="plugins-toggle"
+                                type="button"
+                                role="switch"
+                                aria-checked={plugin.enabled}
+                                disabled={isBusy}
+                                onClick={() => void handleToggleEnabled(plugin)}
+                                title={
+                                  plugin.enabled
+                                    ? t("plugins.disable", {
+                                        defaultValue: "Disable",
+                                      })
+                                    : t("plugins.enable", {
+                                        defaultValue: "Enable",
+                                      })
+                                }
+                              >
+                                <span
+                                  className={`plugins-toggle-track${
+                                    plugin.enabled ? " on" : ""
+                                  }`}
+                                >
+                                  <span className="plugins-toggle-thumb" />
+                                </span>
+                              </button>
+                              <button
+                                className="plugins-icon-btn"
+                                type="button"
+                                disabled={isBusy}
+                                title={t("plugins.rescan", {
+                                  defaultValue: "Reload manifest",
+                                })}
+                                onClick={() => void handleRescan(plugin)}
+                              >
+                                <RefreshCw size={13} strokeWidth={1.8} />
+                              </button>
+                              <button
+                                className="plugins-icon-btn"
+                                type="button"
+                                title={t("plugins.openFolder", {
+                                  defaultValue: "Show in folder",
+                                })}
+                                onClick={() => void handleOpenFolder(plugin)}
+                              >
+                                <FolderOpen size={13} strokeWidth={1.8} />
+                              </button>
+                              <button
+                                className="plugins-icon-btn danger"
+                                type="button"
+                                disabled={isBusy}
+                                title={t("plugins.uninstall", {
+                                  defaultValue: "Uninstall",
+                                })}
+                                onClick={() => setPendingUninstall(plugin)}
+                              >
+                                <Trash2 size={13} strokeWidth={1.8} />
+                              </button>
+                            </div>
+                          </div>
 
-                    {renderScopeTags(plugin)}
+                          {plugin.description.default ||
+                          Object.keys(plugin.description).length > 0 ? (
+                            <div className="plugins-item-description">
+                              {resolveLocalized(plugin.description, locale)}
+                            </div>
+                          ) : null}
 
-                    <button
-                      className="plugins-metadata-link"
-                      type="button"
-                      onClick={() => openMetadata(plugin)}
-                    >
-                      <Database size={12} strokeWidth={1.8} />
-                      <span>
-                        {t("plugins.metadata.pluginEntry", {
-                          values: {
-                            granted: readableDomains,
-                            total: metadata.length,
-                          },
-                          defaultValue: "Metadata {{granted}}/{{total}}",
-                        })}
-                      </span>
-                    </button>
+                          {renderScopeTags(plugin)}
 
-                    <button
-                      className="plugins-metadata-link"
-                      type="button"
-                      onClick={() => openMetadata(plugin)}
-                    >
-                      <ShieldAlert size={12} strokeWidth={1.8} />
-                      <span>
-                        {t("plugins.write.entry", {
-                          values: {
-                            granted: writableActions,
-                            total: totalWriteActions,
-                          },
-                          defaultValue: "Write {{granted}}/{{total}}",
-                        })}
-                      </span>
-                    </button>
+                          <button
+                            className="plugins-metadata-link"
+                            type="button"
+                            onClick={() => openMetadata(plugin)}
+                          >
+                            <Database size={12} strokeWidth={1.8} />
+                            <span>
+                              {t("plugins.metadata.pluginEntry", {
+                                values: {
+                                  granted: readableDomains,
+                                  total: metadata.length,
+                                },
+                                defaultValue: "Metadata {{granted}}/{{total}}",
+                              })}
+                            </span>
+                          </button>
 
-                    {plugin.privacyNote && (
-                      <div className="plugins-privacy-note">
-                        {plugin.privacyNote}
-                      </div>
-                    )}
+                          <button
+                            className="plugins-metadata-link"
+                            type="button"
+                            onClick={() => openMetadata(plugin)}
+                          >
+                            <ShieldAlert size={12} strokeWidth={1.8} />
+                            <span>
+                              {t("plugins.write.entry", {
+                                values: {
+                                  granted: writableActions,
+                                  total: totalWriteActions,
+                                },
+                                defaultValue: "Write {{granted}}/{{total}}",
+                              })}
+                            </span>
+                          </button>
 
-                    <div
-                      className="plugins-item-path"
-                      title={plugin.installPath}
-                    >
-                      {plugin.installPath}
-                    </div>
+                          {plugin.privacyNote && (
+                            <div className="plugins-privacy-note">
+                              {plugin.privacyNote}
+                            </div>
+                          )}
+
+                          <div
+                            className="plugins-item-path"
+                            title={plugin.installPath}
+                          >
+                            {plugin.installPath}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </>
+              ) : (
+                <PluginScriptsSection onClose={onClose} />
+              )}
             </div>
           </>
         ) : (

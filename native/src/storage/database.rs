@@ -17,6 +17,8 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 47: userscripts.target / view_json / surface_json / scope / sandbox columns
+/// (client-side desktop UI userscripts via `@snow-target client`).
 /// 46: chat_messages per-request token usage columns (rollback restores the
 /// conversation token snapshot from the latest remaining assistant row).
 /// 45: custom_commands table (global/project scoped user-defined slash commands).
@@ -33,7 +35,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 46;
+const CURRENT_SCHEMA_VERSION: i64 = 47;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -700,6 +702,11 @@ CREATE TABLE IF NOT EXISTS userscripts (
             includes_json TEXT NOT NULL DEFAULT '[]',
             excludes_json TEXT NOT NULL DEFAULT '[]',
             requires_json TEXT NOT NULL DEFAULT '[]',
+            target TEXT NOT NULL DEFAULT 'browser',
+            view_json TEXT NOT NULL DEFAULT '[]',
+            surface_json TEXT NOT NULL DEFAULT '[]',
+            scope TEXT NOT NULL DEFAULT '',
+            sandbox INTEGER NOT NULL DEFAULT 1,
             file_path TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))

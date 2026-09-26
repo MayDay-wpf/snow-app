@@ -18,6 +18,8 @@ use super::remote_workspace::{
     execute_remote_workspace_command, is_ssh_path, RemoteWorkspaceCallback,
 };
 
+use crate::utils::paths::expand_home_dir;
+
 pub struct GrepService;
 
 impl GrepService {
@@ -267,8 +269,8 @@ impl GrepService {
             )
         })?;
 
-        let search_path = args.get("path").and_then(Value::as_str).unwrap_or(".");
-        let metadata = tokio::fs::metadata(search_path).await.map_err(|error| {
+        let search_path = expand_home_dir(args.get("path").and_then(Value::as_str).unwrap_or("."));
+        let metadata = tokio::fs::metadata(&search_path).await.map_err(|error| {
             Error::new(
                 Status::InvalidArg,
                 format!(
@@ -307,7 +309,7 @@ impl GrepService {
         let (backend, output) = if rg_available {
             let result = run_ripgrep(
                 pattern,
-                search_path,
+                &search_path,
                 file_glob,
                 is_regex,
                 case_sensitive,
@@ -320,7 +322,7 @@ impl GrepService {
                     // If rg fails, fall back to native walker.
                     let native_result = run_native_search(
                         pattern,
-                        search_path,
+                        &search_path,
                         is_regex,
                         case_sensitive,
                         max_results,
@@ -334,7 +336,7 @@ impl GrepService {
             }
         } else {
             let out =
-                run_native_search(pattern, search_path, is_regex, case_sensitive, max_results)
+                run_native_search(pattern, &search_path, is_regex, case_sensitive, max_results)
                     .await?;
             ("native", out)
         };

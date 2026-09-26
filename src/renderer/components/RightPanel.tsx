@@ -1591,9 +1591,9 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       tabs.slice(0, contextMenuTargetIndex).some((t) => t.id !== GIT_TAB_ID);
 
     return (
-      <aside className={panelClasses}>
+      <aside className={panelClasses} data-snow-anchor="rightPanel">
         {tabs.length > 0 && (
-          <div className="right-panel-tabs">
+          <div className="right-panel-tabs" data-snow-anchor="rightPanel.tabs">
             <OverlayScrollbar
               ref={tabListRef}
               className="right-panel-tab-list"
@@ -1756,7 +1756,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             )}
           </div>
         )}
-        <div className="right-panel-content-wrapper">
+        <div
+          className="right-panel-content-wrapper"
+          data-snow-anchor="rightPanel.content"
+        >
           {tabs.map((tab) => (
             <div
               key={tab.id}

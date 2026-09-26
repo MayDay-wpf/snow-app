@@ -2888,6 +2888,16 @@ export type UserscriptRecord = {
   includes: string[];
   excludes: string[];
   requires: string[];
+  /** 作用域：`browser`（内置浏览器）/ `client`（桌面客户端 UI）/ `all`。 */
+  target: "browser" | "client" | "all";
+  /** 客户端脚本生效的主内容视图（空 = 全部视图）。 */
+  views: string[];
+  /** 客户端脚本生效的界面区域。 */
+  surfaces: string[];
+  /** 生命周期作用域：`global` = 应用启动即常驻。 */
+  scope: string;
+  /** 是否隔离世界执行（沙箱档）；false = 主世界完全权限档。 */
+  sandbox: boolean;
   /** 脚本文件在磁盘上的绝对路径。 */
   filePath: string;
   createdAt: string;

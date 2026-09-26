@@ -687,6 +687,7 @@ export const TopBar = ({
       className={`top-bar${isPlusMenuOpen ? " plus-menu-open" : ""}${
         isTodoPanelOpen ? " todo-panel-open" : ""
       }${isTodoPanelInteractive ? " todo-panel-interactive" : ""}`}
+      data-snow-anchor="topbar"
     >
       <div className="top-bar-left">
         {isWindows && (
@@ -804,6 +805,7 @@ export const TopBar = ({
           )}
         </div>
         <div className="top-bar-right-actions">
+          <div className="snow-client-slot" data-snow-slot="topbar.actions" />
           {!isWindows && (
             <PlusMenuButton
               items={plusMenuItems}

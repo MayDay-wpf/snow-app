@@ -14,6 +14,7 @@ import { isFeaturePageView } from "./components/featurePages";
 import { NotificationNavigationBridge } from "./components/NotificationNavigationBridge";
 import { RemoteControlBridge } from "./components/RemoteControlBridge";
 import { PluginRuntimeBridge } from "./plugins/PluginRuntimeBridge";
+import { ClientScriptBridge } from "./userscripts/ClientScriptBridge";
 import {
   ChatConversationProvider,
   useChatConversationContext,
@@ -934,7 +935,19 @@ export const App = (): React.JSX.Element => {
         />
         <ShortcutHandlerBridge />
         <PluginRuntimeBridge activeDirectory={activeDirectory} />
-        <div ref={appShellRef} className={shellClasses} style={panelSizeStyle}>
+        <ClientScriptBridge
+          activeDirectory={activeDirectory}
+          activeView={activeMainView}
+          isSidebarCollapsed={isSidebarCollapsed}
+          isRightPanelCollapsed={isRightPanelCollapsed}
+          onSelectMainView={setActiveMainView}
+        />
+        <div
+          ref={appShellRef}
+          className={shellClasses}
+          style={panelSizeStyle}
+          data-snow-anchor="app.root"
+        >
           <TopBar
             activeView={activeMainView}
             isSidebarCollapsed={isSidebarCollapsed}

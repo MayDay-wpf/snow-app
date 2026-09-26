@@ -56,6 +56,7 @@ export const VirtualizedMessage = memo(
     // virtualization (e.g. older browsers without IntersectionObserver).
     const isVisible = visibleIds === null || visibleIds.has(id);
     const cachedHeight = heights.get(id);
+    const messageRole = contentProps.message.role;
 
     // 该消息此前是否已渲染过真实内容：用于区分「首次出现」与「虚拟化回显」。
     // 回显（占位符 → 真实内容的重新挂载）不重播入场动画（见 wrapper 上的
@@ -92,6 +93,8 @@ export const VirtualizedMessage = memo(
           }`}
           ref={setRef}
           data-message-id={id}
+          data-snow-anchor="chat.message"
+          data-snow-message-role={messageRole}
         >
           <div className={itemClassName} data-message-index={itemIndex}>
             <MessageContent {...contentProps} />

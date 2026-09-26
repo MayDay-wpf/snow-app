@@ -314,6 +314,16 @@ pub struct UserscriptMeta {
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
     pub requires: Vec<String>,
+    /// 作用域：`browser`（内置浏览器，默认）/ `client`（桌面客户端 UI）/ `all`。
+    pub target: String,
+    /// 客户端脚本生效的主内容视图（空 = 全部视图；`*` 已在解析阶段归一化）。
+    pub views: Vec<String>,
+    /// 客户端脚本生效的界面区域（chat / sidebar / topbar / right-panel / settings…）。
+    pub surfaces: Vec<String>,
+    /// 生命周期作用域：`global` = 应用启动即常驻，随视图切换不重载。
+    pub scope: String,
+    /// 是否在隔离世界（沙箱档）执行；false = 主世界（完全权限档）。
+    pub sandbox: bool,
 }
 
 /// 用户脚本完整记录（管理 UI 使用）。
@@ -333,6 +343,16 @@ pub struct UserscriptRecord {
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
     pub requires: Vec<String>,
+    /// 作用域：`browser`（内置浏览器，默认）/ `client`（桌面客户端 UI）/ `all`。
+    pub target: String,
+    /// 客户端脚本生效的主内容视图（空 = 全部视图）。
+    pub views: Vec<String>,
+    /// 客户端脚本生效的界面区域。
+    pub surfaces: Vec<String>,
+    /// 生命周期作用域：`global` = 应用启动即常驻。
+    pub scope: String,
+    /// 是否在隔离世界（沙箱档）执行；false = 主世界（完全权限档）。
+    pub sandbox: bool,
     /// 脚本文件在磁盘上的绝对路径（~/.snowapp/browser-script/{script_id}.user.js）。
     pub file_path: String,
     pub created_at: String,

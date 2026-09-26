@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -15,10 +15,12 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
-import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { Modal } from "../../common/Modal";
+import {
+  scriptEditorStore,
+  useScriptEditorStore,
+} from "../../../userscripts/scriptEditorStore";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
-import { FileViewerContent } from "../../rightPanel/FileViewerContent";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 import type {
   GreasyForkSearchItem,
   UserscriptRecord,
@@ -30,15 +32,6 @@ import type {
  */
 
 type Notice = { type: "success" | "error"; text: string } | null;
-
-/**
- * 编辑器状态：新建（含从文件导入，fileName 为编辑器虚拟文件名）/
- * 编辑既有脚本 / 关闭。
- */
-type EditingState =
-  | { mode: "new"; fileName: string }
-  | { mode: "edit"; script: UserscriptRecord }
-  | null;
 
 /** 新脚本默认模板。 */
 const NEW_SCRIPT_TEMPLATE = `// ==UserScript==
@@ -71,8 +64,7 @@ export function UserscriptsSection(): React.JSX.Element {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ---- 编辑器 ----
-  const [editing, setEditing] = useState<EditingState>(null);
-  const [editorValue, setEditorValue] = useState("");
+  const editorState = useScriptEditorStore();
   const [importing, setImporting] = useState(false);
 
   // ---- 搜索 / 安装 ----
@@ -89,7 +81,9 @@ export function UserscriptsSection(): React.JSX.Element {
 
   const loadScripts = useCallback(async (): Promise<void> => {
     try {
-      setScripts(await window.snow.listUserscripts());
+      // 客户端 UI 脚本在「插件 → 脚本插件」标签页管理，这里只列浏览器脚本。
+      const records = await window.snow.listUserscripts();
+      setScripts(records.filter((item) => item.target !== "client"));
     } catch (error) {
       console.error("Failed to list userscripts:", error);
       setNotice({ type: "error", text: t("userscripts.loadFailed") });
@@ -102,14 +96,13 @@ export function UserscriptsSection(): React.JSX.Element {
     void loadScripts();
   }, [loadScripts]);
 
-  const closeEditor = useCallback((): void => {
-    setEditing(null);
-  }, []);
-
   const startCreate = useCallback((): void => {
-    setEditorValue(NEW_SCRIPT_TEMPLATE);
-    setEditing({ mode: "new", fileName: "userscript.user.js" });
-  }, []);
+    scriptEditorStore.openNew("browser", {
+      fileName: "userscript.user.js",
+      title: t("userscripts.createNew"),
+      content: NEW_SCRIPT_TEMPLATE,
+    });
+  }, [t]);
 
   /** 从本地 .user.js 文件导入：选择 → 预填编辑器，保存时才写库。 */
   const startImport = useCallback(async (): Promise<void> => {
@@ -121,8 +114,11 @@ export function UserscriptsSection(): React.JSX.Element {
       if (!picked) {
         return; // 用户取消选择，静默返回。
       }
-      setEditorValue(picked.content);
-      setEditing({ mode: "new", fileName: picked.fileName });
+      scriptEditorStore.openNew("browser", {
+        fileName: picked.fileName,
+        title: t("userscripts.createNew"),
+        content: picked.content,
+      });
     } catch (error) {
       console.error("Failed to import userscript file:", error);
       setNotice({
@@ -141,8 +137,12 @@ export function UserscriptsSection(): React.JSX.Element {
       try {
         // 脚本原文存放在磁盘文件，按需异步读取。
         const content = await window.snow.readUserscriptSource(script.scriptId);
-        setEditorValue(content);
-        setEditing({ mode: "edit", script });
+        scriptEditorStore.openEdit("browser", {
+          scriptId: script.scriptId,
+          fileName: `${script.name}.user.js`,
+          title: `${t("userscripts.edit")} — ${script.name}`,
+          content,
+        });
       } catch (error) {
         console.error("Failed to read userscript source:", error);
         setNotice({ type: "error", text: t("userscripts.readFailed") });
@@ -151,24 +151,26 @@ export function UserscriptsSection(): React.JSX.Element {
     [t],
   );
 
-  /** 编辑器保存（虚拟文件源回调）：写库 + 刷新列表 + 关闭弹窗。 */
-  const handleEditorSave = useCallback(
-    async (content: string): Promise<void> => {
-      if (!editing) {
-        return;
-      }
-      if (editing.mode === "new") {
-        await window.snow.createUserscript(content);
-        setNotice({ type: "success", text: t("userscripts.created") });
-      } else {
-        await window.snow.updateUserscript(editing.script.scriptId, content);
-        setNotice({ type: "success", text: t("userscripts.updated") });
-      }
-      await loadScripts();
-      closeEditor();
-    },
-    [editing, closeEditor, loadScripts, t],
-  );
+  const handledSaveRevision = useRef(editorState.lastSave?.revision ?? 0);
+  useEffect(() => {
+    const saved = editorState.lastSave;
+    if (
+      !saved ||
+      saved.kind !== "browser" ||
+      saved.revision === handledSaveRevision.current
+    ) {
+      return;
+    }
+    handledSaveRevision.current = saved.revision;
+    void loadScripts();
+    setNotice({
+      type: "success",
+      text:
+        saved.action === "created"
+          ? t("userscripts.created")
+          : t("userscripts.updated"),
+    });
+  }, [editorState.lastSave, loadScripts, t]);
 
   const toggleEnabled = useCallback(
     async (script: UserscriptRecord): Promise<void> => {
@@ -601,42 +603,6 @@ export function UserscriptsSection(): React.JSX.Element {
             </div>
           )}
         </>
-      )}
-
-      {/* 编辑器弹窗：复用 FileEditModal 的弹出模式（Modal + FileViewerContent 行号/高亮编辑） */}
-      {editing !== null && (
-        <Modal
-          open
-          title={
-            editing.mode === "new"
-              ? t("userscripts.createNew")
-              : `${t("userscripts.edit")} — ${editing.script.name}`
-          }
-          closeLabel={t("common.close", { defaultValue: "Close" })}
-          onClose={closeEditor}
-          size="large"
-          className="userscripts-editor-modal"
-        >
-          <FileViewerContent
-            filePath={
-              editing.mode === "new"
-                ? editing.fileName
-                : `${editing.script.name}.user.js`
-            }
-            fileName={
-              editing.mode === "new"
-                ? editing.fileName
-                : `${editing.script.name}.user.js`
-            }
-            isSsh={false}
-            initialEditMode
-            virtualSource={{
-              content: editorValue,
-              initialDirty: editing.mode === "new",
-              onSave: handleEditorSave,
-            }}
-          />
-        </Modal>
       )}
 
       {deletingId && (

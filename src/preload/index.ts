@@ -1,4 +1,5 @@
 import { contextBridge } from "electron";
+import { initClientScriptHost } from "./clientScriptHost";
 import { apiConfigApi } from "./modules/apiConfigApi";
 import { appLockApi } from "./modules/appLockApi";
 import { configApi } from "./modules/configApi";
@@ -50,5 +51,8 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld("snow", api);
+
+// 客户端 UI 脚本宿主：接收主进程推送的匹配结果并注入脚本（两档执行模型）。
+initClientScriptHost();
 
 export type SnowApi = typeof api;

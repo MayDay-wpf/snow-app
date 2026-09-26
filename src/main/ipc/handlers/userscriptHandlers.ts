@@ -12,9 +12,13 @@ import { basename } from "node:path";
 import type { NativeBridge, UserscriptRecord } from "../../native/types";
 import { startGmDownload } from "../../app/downloadManager";
 import {
+  applyClientScripts,
   refreshUserscriptSyncStore,
+  setClientScriptContext,
   updateCachedValue,
+  type ClientScriptContext,
 } from "../../app/userscriptSyncStore";
+import { safeSend } from "../../utils/safeSend";
 
 /**
  * 用户脚本（油猴兼容）IPC 通道。
@@ -128,6 +132,19 @@ const contentsCleanupBound = new WeakSet<WebContents>();
 
 /** GM_notification 自增 id（点击/失败事件回传关联）。 */
 let nextNotificationId = 1;
+
+/** 客户端脚本运行失败记录（连续失败达阈值后自动禁用，避免把 UI 改坏后白屏循环）。 */
+type ClientScriptFailure = {
+  count: number;
+  message: string;
+  at: number;
+  disabled: boolean;
+};
+
+const clientScriptFailures = new Map<string, ClientScriptFailure>();
+
+/** 连续失败阈值：达到后自动禁用脚本并向渲染层广播。 */
+const CLIENT_SCRIPT_FAILURE_LIMIT = 5;
 
 /** webContents 销毁时清理其运行时状态（菜单 / 监听器 / Tab 数据）。 */
 const bindContentsCleanup = (contents: WebContents): void => {
@@ -740,4 +757,114 @@ export const registerUserscriptHandlers = (native: NativeBridge): void => {
     }
     return tabs;
   });
+
+  // ===== 客户端 UI 脚本（主窗口桌面定制）=====
+
+  const toStringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+
+  const normalizeClientContext = (raw: object): ClientScriptContext => {
+    const source = raw as Record<string, unknown>;
+    return {
+      view: isNonEmptyString(source.view) ? source.view : "unknown",
+      surfaces: toStringArray(source.surfaces),
+      tabs: toStringArray(source.tabs),
+      theme: isNonEmptyString(source.theme) ? source.theme : "",
+      locale: isNonEmptyString(source.locale) ? source.locale : "",
+      projectId: isNonEmptyString(source.projectId) ? source.projectId : null,
+      appReady: source.appReady === true,
+      conversationId: isNonEmptyString(source.conversationId)
+        ? source.conversationId
+        : null,
+      isStreaming: source.isStreaming === true,
+    };
+  };
+
+  // 渲染层发布上下文（视图 / 区域 / 主题 / 项目 / 会话）：主进程据此重算匹配并推给 preload。
+  ipcMain.handle(
+    "userscripts:client-context",
+    (event, context: unknown): void => {
+      if (context === null || typeof context !== "object") {
+        return;
+      }
+      setClientScriptContext(event.sender, normalizeClientContext(context));
+    },
+  );
+
+  // 手动重新应用一次（脚本增删改后立即生效）。
+  ipcMain.handle("userscripts:client-apply", (): void => {
+    applyClientScripts();
+  });
+
+  // 脚本异常上报：连续失败达阈值自动禁用，避免坏脚本把 UI 改坏后循环白屏。
+  ipcMain.handle(
+    "userscripts:client-report-error",
+    async (event, scriptId: unknown, message: unknown): Promise<void> => {
+      if (!isNonEmptyString(scriptId)) {
+        return;
+      }
+      const previous = clientScriptFailures.get(scriptId);
+      const failure: ClientScriptFailure = {
+        count: (previous?.count ?? 0) + 1,
+        message: typeof message === "string" ? message.slice(0, 500) : "",
+        at: Date.now(),
+        disabled: previous?.disabled ?? false,
+      };
+      if (failure.count >= CLIENT_SCRIPT_FAILURE_LIMIT && !failure.disabled) {
+        failure.disabled = true;
+        try {
+          await native.setUserscriptEnabled(scriptId, false);
+          refreshUserscriptSyncStore(native);
+        } catch {
+          // 脚本已被删除等情形：忽略即可，下次刷新缓存自然收敛。
+        }
+        safeSend(event.sender, "userscripts:changed");
+      }
+      clientScriptFailures.set(scriptId, failure);
+    },
+  );
+
+  // 失败记录（管理面板展示「上次错误 / 已自动禁用」）。
+  ipcMain.handle(
+    "userscripts:client-errors",
+    (): {
+      scriptId: string;
+      count: number;
+      message: string;
+      at: number;
+      disabled: boolean;
+    }[] =>
+      Array.from(clientScriptFailures.entries()).map(([scriptId, failure]) => ({
+        scriptId,
+        ...failure,
+      })),
+  );
+
+  // 脚本经 GM_registerMenuCommand 注册的命令（管理面板以按钮触发）。
+  ipcMain.handle(
+    "userscripts:client-commands",
+    (event): { id: number; scriptId: string; title: string }[] => {
+      const state = runtimeByContents.get(event.sender.id);
+      if (!state) {
+        return [];
+      }
+      return Array.from(state.commands.entries()).map(([id, command]) => ({
+        id,
+        scriptId: command.scriptId,
+        title: command.title,
+      }));
+    },
+  );
+
+  ipcMain.handle(
+    "userscripts:client-run-command",
+    (event, commandId: unknown): void => {
+      if (typeof commandId !== "number") {
+        return;
+      }
+      invokeUserscriptMenuCommand(event.sender, commandId);
+    },
+  );
 };

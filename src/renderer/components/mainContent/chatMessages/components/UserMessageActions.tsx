@@ -86,6 +86,7 @@ export const UserMessageActions = ({
           )}
         </button>
       ) : null}
+      <div className="snow-client-slot" data-snow-slot="chat.message.actions" />
     </div>
   );
 };

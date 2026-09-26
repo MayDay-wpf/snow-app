@@ -42,6 +42,12 @@ pub fn parse_meta(raw: &str) -> UserscriptMeta {
     let mut includes = Vec::new();
     let mut excludes = Vec::new();
     let mut requires = Vec::new();
+    let mut target = String::new();
+    let mut views: Vec<String> = Vec::new();
+    let mut surfaces: Vec<String> = Vec::new();
+    let mut scope = String::new();
+    let mut sandbox = true;
+    let mut client_pattern = false;
 
     // 找到元数据块
     let start = raw.find("// ==UserScript==");
@@ -94,15 +100,44 @@ pub fn parse_meta(raw: &str) -> UserscriptMeta {
                         grant.push(value);
                     }
                 }
-                "match" => {
-                    if !value.is_empty() {
-                        matches.push(value);
+                // `@match` / `@include`：`snow://client/<view>` 形式声明客户端 UI
+                // 脚本（该模式不进 URL 匹配规则），其余原样收进浏览器匹配规则。
+                "match" | "include" => {
+                    if value.is_empty() {
+                        continue;
                     }
-                }
-                "include" => {
-                    if !value.is_empty() {
+                    if let Some(view) = client_view_from_pattern(&value) {
+                        client_pattern = true;
+                        if !view.is_empty() && !views.iter().any(|item| item == &view) {
+                            views.push(view);
+                        }
+                    } else if key == "match" {
+                        matches.push(value);
+                    } else {
                         includes.push(value);
                     }
+                }
+                // ===== 客户端 UI 脚本扩展指令（`@snow-*`）=====
+                "snow-target" | "snow_target" => {
+                    let normalized = value.to_ascii_lowercase();
+                    if matches!(normalized.as_str(), "client" | "browser" | "all") {
+                        target = normalized;
+                    }
+                }
+                "snow-view" | "snow-views" | "snow_view" => {
+                    push_list_values(&mut views, &value);
+                }
+                "snow-surface" | "snow-surfaces" | "snow_surface" => {
+                    push_list_values(&mut surfaces, &value);
+                }
+                "snow-scope" | "snow_scope" => {
+                    scope = value.to_ascii_lowercase();
+                }
+                "snow-sandbox" | "snow_sandbox" => {
+                    sandbox = !matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "false" | "0" | "no"
+                    );
                 }
                 "exclude" | "exclude-match" => {
                     if !value.is_empty() {
@@ -124,6 +159,21 @@ pub fn parse_meta(raw: &str) -> UserscriptMeta {
         name = pick_localized_name(&localized_names, crate::i18n::app_locale_blocking());
     }
 
+    // 作用域：显式 @snow-target 优先；只写了 snow://client 匹配模式时按客户端处理；
+    // 默认 browser，保持历史脚本语义不变。
+    if target.is_empty() {
+        target = if client_pattern {
+            "client".to_string()
+        } else {
+            "browser".to_string()
+        };
+    }
+
+    // 主世界执行档：@grant unsafeWindow（与 Tampermonkey 同义）或 @snow-sandbox false。
+    if grant.iter().any(|item| item.eq_ignore_ascii_case("unsafeWindow")) {
+        sandbox = false;
+    }
+
     UserscriptMeta {
         name,
         version,
@@ -137,6 +187,31 @@ pub fn parse_meta(raw: &str) -> UserscriptMeta {
         includes,
         excludes,
         requires,
+        target,
+        views,
+        surfaces,
+        scope,
+        sandbox,
+    }
+}
+
+/// `snow://client/<view>` 形式的客户端匹配模式 → 视图名。
+/// 返回 `Some("")` 表示全部视图（`snow://client` / `snow://client/*`）。
+fn client_view_from_pattern(pattern: &str) -> Option<String> {
+    let trimmed = pattern.trim().to_ascii_lowercase();
+    let rest = trimmed.strip_prefix("snow://client")?;
+    let rest = rest.trim_start_matches('/').trim_end_matches('*');
+    let view = rest.split('/').next().unwrap_or("").trim();
+    Some(view.to_string())
+}
+
+/// 拆分 `@snow-view chat,plugins` / `@snow-surface chat sidebar` 这类列表值。
+fn push_list_values(target: &mut Vec<String>, value: &str) {
+    for part in value.split([',', ' ', ';']) {
+        let item = part.trim();
+        if !item.is_empty() && !target.iter().any(|existing| existing == item) {
+            target.push(item.to_string());
+        }
     }
 }
 
@@ -201,11 +276,13 @@ pub fn create_userscript(database_path: &Path, raw: &str) -> Result<UserscriptRe
             "INSERT INTO userscripts (
                 script_id, name, version, description, namespace, author,
                 enabled, run_at, noframes, grant_json, matches_json,
-                includes_json, excludes_json, requires_json, file_path
+                includes_json, excludes_json, requires_json,
+                target, view_json, surface_json, scope, sandbox, file_path
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 1, ?7, ?8, ?9, ?10,
-                ?11, ?12, ?13, ?14
+                ?11, ?12, ?13,
+                ?14, ?15, ?16, ?17, ?18, ?19
             )",
             params![
                 script_id,
@@ -221,6 +298,11 @@ pub fn create_userscript(database_path: &Path, raw: &str) -> Result<UserscriptRe
                 serde_json::to_string(&meta.includes).unwrap_or_else(|_| "[]".to_string()),
                 serde_json::to_string(&meta.excludes).unwrap_or_else(|_| "[]".to_string()),
                 serde_json::to_string(&meta.requires).unwrap_or_else(|_| "[]".to_string()),
+                meta.target,
+                serde_json::to_string(&meta.views).unwrap_or_else(|_| "[]".to_string()),
+                serde_json::to_string(&meta.surfaces).unwrap_or_else(|_| "[]".to_string()),
+                meta.scope,
+                meta.sandbox,
                 file_path_str,
             ],
         )
@@ -260,6 +342,8 @@ pub fn update_userscript(database_path: &Path, script_id: &str, raw: &str) -> Re
                 grant_json = ?9, matches_json = ?10,
                 includes_json = ?11, excludes_json = ?12,
                 requires_json = ?13,
+                target = ?14, view_json = ?15, surface_json = ?16,
+                scope = ?17, sandbox = ?18,
                 updated_at = datetime('now', 'localtime')
             WHERE script_id = ?1",
             params![
@@ -276,6 +360,11 @@ pub fn update_userscript(database_path: &Path, script_id: &str, raw: &str) -> Re
                 serde_json::to_string(&meta.includes).unwrap_or_else(|_| "[]".to_string()),
                 serde_json::to_string(&meta.excludes).unwrap_or_else(|_| "[]".to_string()),
                 serde_json::to_string(&meta.requires).unwrap_or_else(|_| "[]".to_string()),
+                meta.target,
+                serde_json::to_string(&meta.views).unwrap_or_else(|_| "[]".to_string()),
+                serde_json::to_string(&meta.surfaces).unwrap_or_else(|_| "[]".to_string()),
+                meta.scope,
+                meta.sandbox,
             ],
         )
         .map_err(|error| database::database_error(database_path, "update userscript", error))?;
@@ -439,7 +528,8 @@ fn query_userscript_record(connection: &Connection, script_id: &str) -> rusqlite
     let row = connection.query_row(
         "SELECT script_id, name, version, description, namespace, author,
                 enabled, run_at, noframes, grant_json, matches_json,
-                includes_json, excludes_json, requires_json, file_path,
+                includes_json, excludes_json, requires_json,
+                target, view_json, surface_json, scope, sandbox, file_path,
                 created_at, updated_at
         FROM userscripts WHERE script_id = ?1",
         [script_id],
@@ -452,15 +542,19 @@ fn query_userscript_record(connection: &Connection, script_id: &str) -> rusqlite
                 row.get::<_, bool>(8)?, row.get::<_, String>(9)?,
                 row.get::<_, String>(10)?, row.get::<_, String>(11)?,
                 row.get::<_, String>(12)?, row.get::<_, String>(13)?,
-                row.get::<_, String>(14)?,
-                row.get::<_, String>(15)?, row.get::<_, String>(16)?,
+                row.get::<_, String>(14)?, row.get::<_, String>(15)?,
+                row.get::<_, String>(16)?, row.get::<_, String>(17)?,
+                row.get::<_, bool>(18)?,
+                row.get::<_, String>(19)?,
+                row.get::<_, String>(20)?, row.get::<_, String>(21)?,
             ))
         },
     ).optional()?;
 
     let Some((script_id, name, version, description, namespace, author,
               enabled, run_at, noframes, grant_json, matches_json,
-              includes_json, excludes_json, requires_json, file_path,
+              includes_json, excludes_json, requires_json,
+              target, view_json, surface_json, scope, sandbox, file_path,
               created_at, updated_at)) = row else {
         return Ok(None);
     };
@@ -480,6 +574,11 @@ fn query_userscript_record(connection: &Connection, script_id: &str) -> rusqlite
         includes: serde_json::from_str(&includes_json).unwrap_or_default(),
         excludes: serde_json::from_str(&excludes_json).unwrap_or_default(),
         requires: serde_json::from_str(&requires_json).unwrap_or_default(),
+        target,
+        views: serde_json::from_str(&view_json).unwrap_or_default(),
+        surfaces: serde_json::from_str(&surface_json).unwrap_or_default(),
+        scope,
+        sandbox,
         file_path,
         created_at,
         updated_at,

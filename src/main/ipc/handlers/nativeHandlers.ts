@@ -37,6 +37,7 @@ import {
   resolveUserQuestion,
   USER_QUESTION_RESPONSE_CHANNEL,
 } from "../userQuestionBroker";
+import { refreshUserscriptSyncStore } from "../../app/userscriptSyncStore";
 import {
   dispatchAppControl,
   resolveAppControl,
@@ -1162,6 +1163,15 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
           readConfigScope(argsJson) === "plugins"
         ) {
           safeSend(event.sender, "plugins:changed");
+        }
+        // 用户脚本（config-set / config-delete 的 userscripts 作用域）：AI 可
+        // 直接安装客户端脚本，刷新匹配缓存并广播，让脚本列表与注入立即生效。
+        if (
+          (toolName === "config-set" || toolName === "config-delete") &&
+          readConfigScope(argsJson) === "userscripts"
+        ) {
+          refreshUserscriptSyncStore(native);
+          safeSend(event.sender, "userscripts:changed");
         }
         return result;
       } finally {

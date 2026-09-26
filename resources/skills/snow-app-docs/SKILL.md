@@ -55,6 +55,10 @@ allowed-tools:
 ## 1. 先读文档（Read the docs first）
 
 文档随应用安装到 `~/.snowapp/docs/`（Windows 为 `C:\Users\<用户名>\.snowapp\docs\`）。
+文件工具（`filesystem-read` / `filesystem-create` / `filesystem-replace_edit` / `filesystem-copy`
+/ `grep-search`）会展开开头的 `~`，直接把 `~/.snowapp/docs/...` 当路径传入即可；若仍报
+「找不到指定路径」，用 `bash-terminal-execute` 执行 `echo $env:USERPROFILE`（Windows）或
+`echo $HOME`（macOS/Linux）取主目录，再拼绝对路径重试。
 **先执行 `config-list scope=language` 读取界面语言**（支持 `en`/`zh-CN`/`zh-TW`；
 旧安装可能存兼容值 `zh`，等同简体中文；无法读取时默认中文分支），
 再选择对应文档分支（无法读取时默认中文分支）：

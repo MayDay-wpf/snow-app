@@ -1,4 +1,4 @@
-import { ipcMain, net } from "electron";
+import { ipcMain, net, type WebContents } from "electron";
 import type {
   NativeBridge,
   UserscriptMatchItem,
@@ -28,6 +28,11 @@ type CachedUserscript = {
   includes: string[];
   excludes: string[];
   requires: string[];
+  target: UserscriptRecord["target"];
+  views: string[];
+  surfaces: string[];
+  scope: string;
+  sandbox: boolean;
   code: string;
   raw: string;
   values: Record<string, string>;
@@ -110,6 +115,11 @@ const loadCache = async (native: NativeBridge): Promise<void> => {
         includes: record.includes,
         excludes: record.excludes,
         requires: record.requires,
+        target: record.target,
+        views: record.views,
+        surfaces: record.surfaces,
+        scope: record.scope,
+        sandbox: record.sandbox,
         code: extractCode(raw),
         raw,
         values,
@@ -129,6 +139,8 @@ const loadCache = async (native: NativeBridge): Promise<void> => {
       }
     }
     cacheReady = true;
+    // 脚本集合变化后重算客户端匹配结果（主窗口尚未发布上下文时为空操作）。
+    applyClientScripts();
   } catch {
     // 存储未就绪时保持旧缓存，等待下次刷新。
   }
@@ -257,6 +269,10 @@ const matchFromCache = (url: string): UserscriptMatchItem[] => {
   }
   const results: UserscriptMatchItem[] = [];
   for (const item of cache.values()) {
+    // 客户端 UI 脚本只注入桌面窗口，不参与内置浏览器的 URL 匹配。
+    if (item.target === "client") {
+      continue;
+    }
     if (!scriptMatchesUrl(url, item.matches, item.includes, item.excludes)) {
       continue;
     }
@@ -304,4 +320,118 @@ const matchFromCache = (url: string): UserscriptMatchItem[] => {
     });
   }
   return results;
+};
+
+// ===== 客户端 UI 脚本（主窗口注入）=====
+
+/** 渲染层发布的客户端上下文（视图 / 区域 / 主题 / 项目 / 会话）。 */
+export type ClientScriptContext = {
+  view: string;
+  surfaces: string[];
+  tabs: string[];
+  theme: string;
+  locale: string;
+  projectId: string | null;
+  appReady: boolean;
+  /** 当前会话 id（null = 新会话 / 无活动会话）。 */
+  conversationId: string | null;
+  /** 当前会话是否正在流式输出。 */
+  isStreaming: boolean;
+};
+
+/** 主窗口 preload 注入脚本所需的载荷。 */
+export type ClientScriptPayload = {
+  scriptId: string;
+  name: string;
+  version: string;
+  description: string;
+  runAt: string;
+  /** true = 隔离世界沙箱档；false = 主世界完全权限档。 */
+  sandbox: boolean;
+  /** `global` = 常驻脚本（应用启动执行，不随视图卸载）。 */
+  scope: string;
+  views: string[];
+  surfaces: string[];
+  code: string;
+  raw: string;
+  gmValues: Record<string, string>;
+};
+
+/** 承载客户端脚本的桌面窗口（渲染层发布上下文时登记）。 */
+let clientContents: WebContents | null = null;
+let clientContext: ClientScriptContext | null = null;
+
+/** 上下文匹配：global 常驻；否则视图与区域白名单需命中（空 = 不限）。 */
+const matchesClientContext = (
+  item: CachedUserscript,
+  context: ClientScriptContext,
+): boolean => {
+  if (item.target !== "client" && item.target !== "all") {
+    return false;
+  }
+  if (item.scope === "global") {
+    return true;
+  }
+  const views = item.views.filter((view) => view.length > 0);
+  if (views.length > 0 && !views.includes(context.view)) {
+    return false;
+  }
+  const surfaces = item.surfaces.filter((surface) => surface.length > 0);
+  if (
+    surfaces.length > 0 &&
+    !surfaces.some((surface) => context.surfaces.includes(surface))
+  ) {
+    return false;
+  }
+  return true;
+};
+
+/** 当前上下文命中的客户端脚本载荷（含 GM 值快照）。 */
+export const collectClientScripts = (): ClientScriptPayload[] => {
+  if (!clientContext) {
+    return [];
+  }
+  const payloads: ClientScriptPayload[] = [];
+  for (const item of cache.values()) {
+    if (!matchesClientContext(item, clientContext)) {
+      continue;
+    }
+    payloads.push({
+      scriptId: item.scriptId,
+      name: item.name,
+      version: item.version,
+      description: item.description,
+      runAt: item.runAt,
+      sandbox: item.sandbox,
+      scope: item.scope,
+      views: item.views,
+      surfaces: item.surfaces,
+      code: item.code,
+      raw: item.raw,
+      gmValues: { ...item.values },
+    });
+  }
+  return payloads;
+};
+
+/** 把匹配结果推给主窗口 preload（preload 自行做注入/清理差量）。 */
+export const applyClientScripts = (): void => {
+  const contents = clientContents;
+  if (!contents || contents.isDestroyed() || !clientContext) {
+    return;
+  }
+  contents.send("client-scripts:apply", {
+    context: clientContext,
+    scripts: collectClientScripts(),
+  });
+};
+
+/** 渲染层发布上下文：登记承载窗口并立即应用一次匹配结果。 */
+export const setClientScriptContext = (
+  contents: WebContents,
+  context: ClientScriptContext,
+): void => {
+  clientContents = contents;
+  clientContext = context;
+  applyClientScripts();
 };
