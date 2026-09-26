@@ -1227,6 +1227,8 @@ export type ResponsesApiRequest = {
   conversationId?: string;
   previousResponseId?: string;
   directoryId?: string;
+  /** Request-local analysis root, independent of directoryId's authorization scope. */
+  analysisWorkspaceRoot?: string;
   checkpointId?: string;
   contextCompaction?: boolean;
   /**
@@ -2023,6 +2025,19 @@ export type NativeBridge = {
   detectProjectStack: (projectRoot: string) => Promise<ProjectStackDetection[]>;
   /** 语言服务器会话运行时状态快照（不触发任何会话创建/回收）。 */
   listLspSessionStatuses: (projectId?: string) => Promise<LspSessionStatus[]>;
+  /** 手动启动（预热）指定项目和语言的 LSP 会话。 */
+  startLspSession: (
+    projectId: string,
+    lang: string,
+  ) => Promise<LspSessionStatus>;
+  /** 手动停止指定项目和语言的 LSP 会话（释放进程与内存）。 */
+  stopLspSession: (projectId: string, lang: string) => Promise<boolean>;
+  /** 手动重启指定项目和语言的 LSP 会话，可选清理持久化诊断缓存。 */
+  restartLspSession: (
+    projectId: string,
+    lang: string,
+    clearCache?: boolean,
+  ) => Promise<LspSessionStatus>;
   listHookConfigs: (
     scope: HookScope,
     projectId?: string,

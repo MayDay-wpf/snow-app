@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use oxc::allocator::Allocator;
@@ -77,18 +77,103 @@ impl SymbolIndex {
         self.index_file(file_path, &source_text);
     }
 
-    /// Index all source files found under `root_dir`.
+    /// 索引整个项目下的源码文件。支持 SQLite 本地持久化与增量文件指纹比对：
+    /// - 未变动文件：毫秒级指纹命中跳过，免去重复 AST 解析；
+    /// - 变动/新增文件：重新解析并写入 SQLite；
+    /// - 删除文件：自动从 SQLite 清理。
     pub fn index_project(&mut self, root_dir: &Path) {
+        let db_opt = crate::storage::initialize_app_storage()
+            .ok()
+            .map(|s| PathBuf::from(s.database_path));
+        let root_str = root_dir.to_string_lossy().to_string();
         let files = discover_source_files(root_dir);
-        for file in files {
-            let path_str = file.to_string_lossy().to_string();
-            self.index_file_from_disk(&path_str);
+
+        if let Some(ref db_path) = db_opt {
+            let cached_map = crate::storage::services::codelens::get_file_cache_map(db_path, &root_str)
+                .unwrap_or_default();
+            let mut current_set = HashSet::new();
+
+            for file in &files {
+                let path_str = file.to_string_lossy().to_string();
+                current_set.insert(path_str.clone());
+
+                let (mtime_ms, size) = match std::fs::metadata(file) {
+                    Ok(meta) => {
+                        let mtime = meta
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_millis() as i64)
+                            .unwrap_or(0);
+                        (mtime, meta.len() as i64)
+                    }
+                    Err(_) => continue,
+                };
+
+                // 增量检查：如果缓存一致，保留文件记录并跳过重度 AST 解析
+                if let Some(&(cached_mtime, cached_size)) = cached_map.get(&path_str) {
+                    if cached_mtime == mtime_ms && cached_size == size {
+                        self.exports_by_file.entry(path_str).or_default();
+                        continue;
+                    }
+                }
+
+                // 发生变动或新文件：从磁盘读取并解析
+                let source_text = match std::fs::read_to_string(&path_str) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                self.index_file(&path_str, &source_text);
+
+                // 收集符号并写入 SQLite
+                if let Some(entries) = self.exports_by_file.get(&path_str) {
+                    let records: Vec<crate::storage::services::codelens::SymbolRecord> = entries
+                        .iter()
+                        .map(|e| crate::storage::services::codelens::SymbolRecord {
+                            symbol_name: e.symbol.name.clone(),
+                            kind: "definition".to_string(),
+                            file_path: e.symbol.location.file_path.clone(),
+                            line: e.symbol.location.line,
+                            column: e.symbol.location.column,
+                            end_line: Some(e.symbol.location.end_line),
+                            end_column: Some(e.symbol.location.end_column),
+                            container_name: e.symbol.container_name.clone(),
+                            is_exported: e.symbol.is_exported,
+                        })
+                        .collect();
+                    let _ = crate::storage::services::codelens::upsert_file_symbols(
+                        db_path,
+                        &root_str,
+                        &path_str,
+                        mtime_ms,
+                        size,
+                        &records,
+                    );
+                }
+            }
+
+            // 清理已从磁盘删除的文件
+            for cached_file in cached_map.keys() {
+                if !current_set.contains(cached_file) {
+                    let _ = crate::storage::services::codelens::remove_file(db_path, cached_file);
+                }
+            }
+        } else {
+            // 降级回退：纯内存解析
+            for file in files {
+                let path_str = file.to_string_lossy().to_string();
+                self.index_file_from_disk(&path_str);
+            }
         }
     }
 
-    /// Find all references to a symbol by name across the entire project.
-    /// Searches every indexed file for occurrences of the given name.
-    pub fn find_references_across_project(&self, name: &str) -> Vec<ReferenceInfo> {
+    /// 在全项目中查找指定名称符号的引用。
+    /// 包含快速子字符串短路优化：未包含目标符号名的文件直接跳过，避免昂贵的无用 AST 遍历。
+    pub fn find_references_across_project(
+        &self,
+        _root_dir: Option<&Path>,
+        name: &str,
+    ) -> Vec<ReferenceInfo> {
         let mut all_refs = Vec::new();
 
         for file_path_str in self.exports_by_file.keys() {
@@ -96,6 +181,11 @@ impl SymbolIndex {
                 Ok(s) => s,
                 Err(_) => continue,
             };
+
+            // 核心短路优化：若文件内容根本不包含该符号名，直接跳过 AST 解析（微秒级）
+            if !source_text.contains(name) {
+                continue;
+            }
 
             let refs = if super::is_js_ts(file_path_str) {
                 super::analyzer::find_references_by_name(file_path_str, &source_text, name)
@@ -113,35 +203,43 @@ impl SymbolIndex {
         all_refs
     }
 
-    /// Find the definition of a symbol by name across the entire project.
-    /// Returns the first match found.
-    pub fn find_definition_across_project(&self, name: &str) -> Option<SymbolInfo> {
-        // First check the symbol index for a fast lookup
-        if let Some(entries) = self.symbols_by_name.get(name) {
-            if let Some(entry) = entries.first() {
-                return Some(entry.symbol.clone());
+    /// 在全项目中查找符号定义。优先走本地 SQLite 倒排索引树（毫秒级命中），降级回退内存。
+    pub fn find_definition_across_project(
+        &self,
+        root_dir: Option<&Path>,
+        name: &str,
+    ) -> Option<SymbolInfo> {
+        // 1. 优先查 SQLite 索引表
+        if let Some(root) = root_dir {
+            if let Ok(storage_info) = crate::storage::initialize_app_storage() {
+                let db_path = PathBuf::from(storage_info.database_path);
+                let root_str = root.to_string_lossy();
+                if let Ok(records) =
+                    crate::storage::services::codelens::query_definitions(&db_path, &root_str, name)
+                {
+                    if let Some(first) = records.into_iter().next() {
+                        return Some(SymbolInfo {
+                            name: first.symbol_name,
+                            kind: first.kind,
+                            location: SymbolLocation {
+                                file_path: first.file_path,
+                                line: first.line,
+                                column: first.column,
+                                end_line: first.end_line.unwrap_or(first.line),
+                                end_column: first.end_column.unwrap_or(first.column),
+                            },
+                            container_name: first.container_name,
+                            is_exported: first.is_exported,
+                        });
+                    }
+                }
             }
         }
 
-        // Fallback: scan every indexed file
-        for file_path_str in self.exports_by_file.keys() {
-            let source_text = match std::fs::read_to_string(file_path_str) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            let def = if super::is_js_ts(file_path_str) {
-                super::analyzer::find_definition_by_name(file_path_str, &source_text, name)
-            } else {
-                super::tree_sitter_analyzer::find_definition_by_name(
-                    file_path_str,
-                    &source_text,
-                    name,
-                )
-            };
-
-            if def.is_some() {
-                return def;
+        // 2. 内存符号表匹配
+        if let Some(entries) = self.symbols_by_name.get(name) {
+            if let Some(entry) = entries.first() {
+                return Some(entry.symbol.clone());
             }
         }
 

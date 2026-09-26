@@ -1,7 +1,7 @@
 pub mod database;
 mod migrations;
 mod models;
-mod paths;
+pub(crate) mod paths;
 pub mod services;
 
 mod agents;
@@ -121,6 +121,9 @@ pub fn initialize_app_storage() -> Result<AppStorageInfo> {
         let db_path = database_path.clone();
         if let Err(error) = services::lsp_server_configs::reconcile_enabled_by_probe(&db_path) {
             eprintln!("Failed to reconcile LSP server install state: {error}");
+        }
+        if let Err(error) = services::lsp_server_configs::reconcile_seed_install_commands(&db_path) {
+            eprintln!("Failed to reconcile LSP seed install commands: {error}");
         }
     });
 

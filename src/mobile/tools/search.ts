@@ -1337,8 +1337,6 @@ const LSP_OPERATIONS = [
   "references",
   "symbols",
   "rename",
-  "code-action",
-  "execute-command",
   "call-hierarchy",
   "type-hierarchy",
   "workspace-symbols",
@@ -1491,16 +1489,6 @@ const renderLsp = (tool: SnowRemoteToolCall): HTMLElement | null => {
   } else if (operation === "vulncheck") {
     if (dir) params.push(kv(tr("label.dir"), dir, true));
     if (pattern) params.push(kv(tr("label.pattern"), pattern, true));
-  } else if (operation === "execute-command") {
-    if (command) params.push(kv(tr("label.command"), command, true));
-    if (filePath) params.push(kv(tr("label.file"), filePath, true));
-    const argumentCount = args
-      ? readArray(args, "arguments")?.length
-      : undefined;
-    if (argumentCount !== undefined) {
-      params.push(kv(tr("label.arguments"), String(argumentCount)));
-    }
-    display = command ?? (filePath ? fileName(filePath) : undefined);
   } else if (filePaths?.length) {
     const paths = filePaths.filter(
       (item): item is string => typeof item === "string",
@@ -1515,29 +1503,12 @@ const renderLsp = (tool: SnowRemoteToolCall): HTMLElement | null => {
     params.push(kv(tr("label.newName"), newName, true));
     display = newName;
   }
-  if (operation === "code-action" && only?.length) {
-    const kinds = only.filter(
-      (item): item is string => typeof item === "string",
-    );
-    if (kinds.length) params.push(kv(tr("label.only"), kinds.join(", "), true));
-  }
   if (params.length) body.append(paramsHost(...params));
 
   // ── 参数开关（预览 / 应用） ──
   const dryRun = args ? readBoolean(args, "dryRun") : undefined;
-  const apply = args ? readBoolean(args, "apply") : undefined;
   if (operation === "rename" && dryRun === true) {
     flags.push(badge(tr("label.dryRun"), { variant: "warn" }));
-  }
-  if (operation === "execute-command" && dryRun === true) {
-    flags.push(badge(tr("label.dryRun"), { variant: "warn" }));
-  }
-  if (operation === "code-action") {
-    if (apply === true)
-      flags.push(badge(tr("label.apply"), { variant: "info" }));
-    else if (apply === false) {
-      flags.push(badge(tr("label.dryRun"), { variant: "warn" }));
-    }
   }
   if (operation === "goto" && args) {
     const kind = optional(readString(args, "kind"));
@@ -1564,9 +1535,6 @@ const renderLsp = (tool: SnowRemoteToolCall): HTMLElement | null => {
     const outgoing = readArray(record, "outgoing");
     const supertypes = readArray(record, "supertypes");
     const subtypes = readArray(record, "subtypes");
-    const actions = readArray(record, "actions");
-    const appliedItems = readArray(record, "applied");
-    const deferred = readArray(record, "deferredCommands");
     const findings = readArray(record, "findings");
     const contents =
       typeof record.contents === "string"
@@ -1607,8 +1575,7 @@ const renderLsp = (tool: SnowRemoteToolCall): HTMLElement | null => {
       // 批量诊断 / 工作区诊断 / 重命名与执行命令的文件列表
       const entries = records(files);
       const batch = readBoolean(record, "batch") === true;
-      const editMode =
-        operation === "rename" || operation === "execute-command";
+      const editMode = operation === "rename";
       if (editMode) {
         const applied = readBoolean(record, "applied") === true;
         const changeCount =
@@ -1954,118 +1921,6 @@ const renderLsp = (tool: SnowRemoteToolCall): HTMLElement | null => {
           ),
         );
       }
-      handled = true;
-    } else if (actions || appliedItems || deferred) {
-      // 代码修复（actions / applied / deferredCommands）
-      const actionItems = records(actions);
-      const appliedList = records(appliedItems);
-      const deferredList = records(deferred);
-      const total = readNumber(record, "count") ?? actionItems.length;
-      const appliedCount =
-        readNumber(record, "appliedCount") ?? appliedList.length;
-      meta.push(
-        badge(tr("lsp.actionCount", { count: total }), {
-          variant: total > 0 ? "ok" : "muted",
-        }),
-      );
-      if (appliedList.length) {
-        meta.push(
-          badge(tr("lsp.appliedCount", { count: appliedCount }), {
-            variant: "ok",
-          }),
-        );
-      }
-      if (!actionItems.length && !appliedList.length && !deferredList.length) {
-        body.append(noteRow("empty", "file-pen", tr("lsp.noActions")));
-      }
-      if (actionItems.length) {
-        const { shown, omitted } = capEntries(actionItems);
-        body.append(
-          section(
-            tr("label.results"),
-            listBlock(
-              shown.map((action) =>
-                row(
-                  iconSpan("file-pen", "tc-search-ico"),
-                  readString(action, "title") ?? "?",
-                  optional(readString(action, "kind"))
-                    ? badge(readString(action, "kind") ?? "")
-                    : "",
-                  readBoolean(action, "isPreferred") === true
-                    ? badge(tr("lsp.preferred"), { variant: "ok" })
-                    : "",
-                  readBoolean(action, "hasEdit") === true
-                    ? badge(tr("lsp.editsAvailable"))
-                    : "",
-                  isRecord(action.command)
-                    ? badge(tr("lsp.commandNotExecuted"), { variant: "warn" })
-                    : "",
-                ),
-              ),
-              omitted,
-            ),
-            "file-pen",
-          ),
-        );
-      }
-      if (appliedList.length) {
-        const { shown, omitted } = capEntries(appliedList);
-        body.append(
-          section(
-            tr("label.applied"),
-            listBlock(
-              shown.map((item) =>
-                row(
-                  iconSpan("circle-check", "tc-search-ico"),
-                  readString(item, "title") ?? "?",
-                  optional(readString(item, "kind"))
-                    ? badge(readString(item, "kind") ?? "")
-                    : "",
-                  badge(
-                    tr("fileCount", {
-                      count: readArray(item, "files")?.length ?? 0,
-                    }),
-                  ),
-                ),
-              ),
-              omitted,
-            ),
-            "circle-check",
-          ),
-        );
-      }
-      if (deferredList.length) {
-        const { shown, omitted } = capEntries(deferredList);
-        body.append(
-          section(
-            tr("label.deferred"),
-            listBlock(
-              shown.map((item) =>
-                row(
-                  iconSpan("shield-alert", "tc-search-ico"),
-                  readString(item, "title") ?? "?",
-                  snippet(
-                    clip(
-                      readString(item, "command") ??
-                        readString(item, "note") ??
-                        tr("lsp.commandNotExecuted"),
-                      NOTE_MAX_CHARS,
-                    ),
-                  ),
-                ),
-              ),
-              omitted,
-            ),
-            "shield-alert",
-          ),
-        );
-      }
-      handled = true;
-    } else if (command) {
-      // 执行命令的非 WorkspaceEdit 结果：command + 服务器原始 result
-      body.append(
-        section(tr("result"), tcPre(formatJson(record.result ?? record))),
-      );
       handled = true;
     }
   }

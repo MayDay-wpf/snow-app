@@ -77,8 +77,7 @@ async fn create_anthropic_response_async(
     // echoed back by the API response body (some providers return aliased or
     // date-stamped names, e.g. `deepseek-flash-0731`, which would otherwise
     // overwrite the chat input's displayed model).
-    let model =
-        resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
+    let model = resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
 
     let endpoint = payload::resolve_anthropic_endpoint(&api_config);
     if endpoint.is_empty() {
@@ -99,12 +98,28 @@ async fn create_anthropic_response_async(
             thinking_blocks_json: message.thinking_blocks_json.clone(),
         })
         .collect::<Vec<_>>();
+    // Collect once, before prompt generation; providers serialize this same snapshot.
+    let allowed_tools = if request.context_compaction.unwrap_or(false)
+        || request.skip_context.unwrap_or(false)
+        || request.disable_tools.unwrap_or(false)
+    {
+        None
+    } else {
+        resolve_sub_agent_tools(&request)
+            .await
+            .map_err(|error| {
+                eprintln!("Failed to prepare request MCP tools: {error}");
+            })
+            .ok()
+    };
     let prepared_request = prepare_context_request(ConversationContextRequest {
+        allowed_tools: allowed_tools.as_deref().unwrap_or_default(),
         database_path: &database_path,
         conversation_id: request.conversation_id.as_deref(),
         previous_response_id: request.previous_response_id.as_deref(),
         messages: &request_messages,
         directory_id: request.directory_id.as_deref(),
+        analysis_workspace_root: request.analysis_workspace_root.as_deref(),
         context_compaction: request.context_compaction.unwrap_or(false),
         resume_after_compaction: request.resume_after_compaction.unwrap_or(false),
         skip_context: request.skip_context.unwrap_or(false),
@@ -117,7 +132,8 @@ async fn create_anthropic_response_async(
         system_prompt_ids_json: &api_config.system_prompt_ids_json,
         remote_role_content: request.remote_role_content.as_deref(),
         remote_include_global_rules: request.remote_include_global_rules,
-    }).await?;
+    })
+    .await?;
 
     // Session-scoped header placeholders (e.g. `{{session_id}}`) resolve to the
     // conversation this request is stored under.
@@ -142,17 +158,9 @@ async fn create_anthropic_response_async(
     )
     .await?;
 
-    let tools = if request.context_compaction.unwrap_or(false)
-        || skip_context
-        || request.disable_tools.unwrap_or(false)
-    {
-        None
-    } else {
-        match resolve_sub_agent_tools(&request).await {
-            Ok(tools) => Some(crate::mcp::tools::tools_as_anthropic_json(&tools)),
-            Err(_) => None,
-        }
-    };
+    let tools = allowed_tools
+        .as_deref()
+        .map(crate::mcp::tools::tools_as_anthropic_json);
     let payload: Value = payload::build_anthropic_payload(
         &prepared_messages,
         &database_path,

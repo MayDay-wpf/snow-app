@@ -13,9 +13,13 @@ use super::types::ServerConfig;
 use crate::storage::services::workspace_directories::get_workspace_directory_path;
 
 /// collect 阶段工具暴露与 description 摘要（一次配置读取 + 一次探测循环）。
+#[derive(Default)]
 pub struct LspToolExposure {
     pub tools: Vec<String>,
-    pub summary: Option<String>,
+    /// Per-tool applicable languages; never advertise every server on every tool.
+    pub tool_summaries: HashMap<String, String>,
+    /// Same discovery/health snapshot used by collect's fallback decision.
+    pub codelens_covered: bool,
 }
 
 /// 探测结果 TTL 缓存：`collect_all_mcp_tools` 每轮对话都会执行（工具列表
@@ -53,7 +57,10 @@ pub async fn load_configs(project_id: Option<&str>) -> napi::Result<Vec<ServerCo
     let project_id = project_id.map(str::to_string);
     tokio::task::spawn_blocking(move || {
         let records = crate::storage::list_effective_lsp_server_configs(project_id)?;
-        Ok(records.into_iter().filter_map(|record| parse_record(record).ok()).collect())
+        Ok(records
+            .into_iter()
+            .filter_map(|record| parse_record(record).ok())
+            .collect())
     })
     .await
     .map_err(|error| {
@@ -64,206 +71,243 @@ pub async fn load_configs(project_id: Option<&str>) -> napi::Result<Vec<ServerCo
     })?
 }
 
-/// 工具暴露与 description 摘要（collect 阶段一次性计算，§8.0/§8.7）。
-///
-/// `project_id` 决定按哪个作用域的有效配置判断（项目配置覆盖全局同 lang，
-/// §8.5）——与工具调用阶段一致：全局未配置但项目级配置了服务器时，
-/// lsp-* 工具照常暴露；项目覆盖禁用时对应能力不再暴露。
-///
-/// 项目感知（§8.7.2）：`lsp-type-hierarchy` 仅 go/java 服务器支持，除能力
-/// 条件外还要求当前项目根目录检测到 Go/Java 技术栈（detect.rs 深度 ≤2 扫描
-/// go.mod / pom.xml / build.gradle(.kts)），否则不暴露——避免在无关项目里
-/// 诱导 AI 安装 gopls/jdtls（2026-08-15 用户反馈）。
-///
-/// 单次配置读取 + 单次探测循环（TTL 缓存），避免每轮 collect 重复 DB 读
-/// 与 PATH 全量扫描。返回完整工具名（`lsp-` 前缀），保序去重（prompt
-/// cache 红线：工具列表顺序稳定）。
+/// Compatibility entry: configuration scope and the default analysis root.
 pub async fn tool_exposure(project_id: Option<&str>) -> napi::Result<LspToolExposure> {
-    // 项目根：SSH 过滤 + 语言一致性过滤用；无项目上下文 / 查询失败 → None
-    //（跳过这两项过滤，与全局工具暴露行为一致）。
-    let project_root = resolve_project_root_str(project_id).await?;
-    // SSH 远程项目：lsp 仅支持本地项目，不暴露任何 lsp-* 工具（调用必然
-    // RemoteNotSupported，避免误导 AI 尝试必然失败的调用）。
-    if project_root.as_deref().is_some_and(is_ssh_path) {
-        return Ok(LspToolExposure {
-            tools: Vec::new(),
-            summary: None,
-        });
-    }
+    tool_exposure_for_workspace(project_id, None).await
+}
 
-    let mut tools: Vec<String> = Vec::new();
-    let mut parts: Vec<String> = Vec::new();
-    for config in load_configs(project_id).await? {
-        // 无效配置（未启用 / 扩展名为空永不匹配 / 命令未安装）不暴露。
-        if !config.enabled
-            || config.file_extensions.is_empty()
-            || !is_command_installed_cached(&config.command)
+/// Discover without starting servers. Explicit analysis roots never change the
+/// project id used to resolve effective configuration or authorization.
+pub(crate) async fn tool_exposure_for_workspace(
+    project_id: Option<&str>,
+    analysis_root: Option<&Path>,
+) -> napi::Result<LspToolExposure> {
+    let Some(root) = resolve_analysis_workspace_root(project_id, analysis_root).await? else {
+        return Ok(LspToolExposure::default());
+    };
+    let configs = load_configs(project_id).await?;
+    let root_for_scan = root.clone();
+    let profile = tokio::task::spawn_blocking(move || {
+        super::detect::detect_project_languages_cached(&root_for_scan.to_string_lossy())
+    })
+    .await
+    .map_err(|error| Error::from_reason(format!("LSP discovery failed: {error}")))?;
+    let manager = super::manager::ServerManager::instance();
+    let mut exposure = LspToolExposure::default();
+    let mut summaries: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        Default::default();
+    let mut covered_langs = std::collections::HashSet::new();
+    let mut covered_extensions = std::collections::HashSet::new();
+    let mut coverage_complete = !profile.incomplete;
+
+    for config in configs
+        .iter()
+        .filter(|config| config.enabled && !config.file_extensions.is_empty())
+    {
+        let scan_root = root.clone();
+        let scan_lang = config.lang.clone();
+        let discovery = tokio::task::spawn_blocking(move || {
+            super::detect::discover_lang_roots(&scan_root, &scan_lang)
+        })
+        .await
+        .map_err(|error| Error::from_reason(format!("LSP stack discovery failed: {error}")))?;
+        coverage_complete &= !discovery.incomplete;
+        let mut roots = discovery.roots;
+        if roots.is_empty()
+            && super::detect::markers_for_lang(&config.lang).is_empty()
+            && super::server_matches_project(config, &root)
         {
+            roots.push(root.clone());
+        }
+        if roots.is_empty() {
             continue;
         }
-        // 项目语言一致性（2026-08-15）：有项目根时只暴露与项目实际语言
-        // 匹配的服务器——项目无编程语言、或服务器语言与项目不一致时不
-        // 暴露（与系统提示词注入共用 server_matches_project，单一事实
-        // 来源，检测结果走 60s TTL 缓存）。
-        if let Some(ref root) = project_root {
-            if !super::server_matches_project(&config, std::path::Path::new(root)) {
-                continue;
+        let installed = is_command_installed_cached(&config.command);
+        // govulncheck is a separate executable, not a gopls capability.
+        let vulncheck_installed = config.lang == "go" && is_command_installed_cached("govulncheck");
+        let mut all_roots_covered = true;
+        for stack_root in roots {
+            let negotiated = if installed {
+                manager.tool_availability(config, &stack_root).await
+            } else {
+                Some(Vec::new())
+            };
+            let available =
+                effective_server_tools(&config.lang, negotiated.as_deref(), vulncheck_installed);
+            all_roots_covered &= ["goto", "references", "symbols"]
+                .iter()
+                .all(|name| available.iter().any(|tool| tool == name));
+            let goto_kinds = std::iter::once("definition")
+                .chain(
+                    ["type-definition", "implementation"]
+                        .into_iter()
+                        .filter(|kind| available.iter().any(|name| name == kind)),
+                )
+                .collect::<Vec<_>>()
+                .join("/");
+            for tool in available {
+                let full = format!("lsp-{tool}");
+                if !exposure.tools.contains(&full) {
+                    exposure.tools.push(full.clone());
+                }
+                let source = if tool == "vulncheck" {
+                    "govulncheck"
+                } else {
+                    config.command.as_str()
+                };
+                let basis = if tool == "vulncheck" {
+                    "separate executable installed"
+                } else if negotiated.is_some() {
+                    "negotiated capability; readiness checked on use"
+                } else {
+                    "static cold-start capability; runtime negotiation required"
+                };
+                let extensions = config
+                    .file_extensions
+                    .iter()
+                    .map(|ext| format!(".{}", ext.trim_start_matches('.')))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let operation = if tool == "goto" {
+                    format!("; kinds: {goto_kinds}")
+                } else {
+                    String::new()
+                };
+                summaries.entry(full).or_default().insert(format!(
+                    "{} ({source}; {extensions}; {basis}{operation})",
+                    config.lang
+                ));
             }
         }
-        for tool in super::capabilities::supported_tools_for_lang(&config.lang) {
-            let full = format!("lsp-{tool}");
-            if !tools.contains(&full) {
-                tools.push(full);
-            }
+        if all_roots_covered {
+            covered_langs.insert(config.lang.as_str());
+            covered_extensions.extend(
+                config
+                    .file_extensions
+                    .iter()
+                    .map(|ext| ext.trim_start_matches('.').to_ascii_lowercase()),
+            );
         }
-        parts.push(format!("{} ({})", config.lang, config.command));
     }
-    // §8.7.2 项目感知过滤：type-hierarchy 仅 go/java 支持，当前项目检测不到
-    // 对应技术栈（或无项目上下文/SSH 远程）时移除，避免无关项目暴露该工具。
-    if tools.iter().any(|t| t == "lsp-type-hierarchy")
-        && !project_has_lang_stack(project_id, &["go", "java"]).await?
-    {
-        tools.retain(|t| t != "lsp-type-hierarchy");
-    }
-    let summary = if parts.is_empty() {
-        None
-    } else {
-        Some(format!("Enabled language servers: {}", parts.join(", ")))
-    };
-    Ok(LspToolExposure { tools, summary })
-}
-
-/// 项目内**全部**被检测到的语言是否都有可用 LSP server 覆盖（2026-09-25）。
-///
-/// codelens 兜底判定用：codelens 提供 tree-sitter/oxc 静态分析，是 LSP 覆盖
-/// 之外语言的兜底。仅当项目里每个检测到的语言都有 enabled + 已安装 + 技术栈
-/// 匹配的 server 时才可隐藏 codelens；只要存在未覆盖语言（如 TS 项目里同时
-/// 有 Python 文件），就保留 codelens——否则那些语言会同时失去 LSP 与静态分析
-/// 两条路径（2026-08-16 全局互斥策略的已知副作用，2026-09-25 修订）。
-///
-/// 保守语义：无项目上下文 / SSH 远程 / 检测不到语言 / 无可用 server / 查询
-/// 失败一律返回 false（保留 codelens 兜底）。
-pub async fn lsp_covers_all_project_languages(project_id: Option<&str>) -> bool {
-    let Some(root) = resolve_project_root_str(project_id).await.ok().flatten() else {
-        return false;
-    };
-    if is_ssh_path(&root) {
-        return false;
-    }
-    let configs = match load_configs(project_id).await {
-        Ok(configs) => configs,
-        Err(_) => return false,
-    };
-    let root_path = PathBuf::from(&root);
-    // 可用 server 覆盖的语言（与 tool_exposure 同一过滤口径：enabled +
-    // 扩展名非空 + 命令已安装 + 项目技术栈匹配）。
-    let covered: Vec<String> = configs
-        .iter()
-        .filter(|config| {
-            config.enabled
-                && !config.file_extensions.is_empty()
-                && is_command_installed_cached(&config.command)
-                && super::server_matches_project(config, &root_path)
+    exposure.tool_summaries = summaries
+        .into_iter()
+        .map(|(tool, descriptions)| {
+            (
+                tool,
+                format!(
+                    "Applicable server configurations: {}",
+                    descriptions.into_iter().collect::<Vec<_>>().join("; ")
+                ),
+            )
         })
-        .map(|config| config.lang.clone())
         .collect();
-    if covered.is_empty() {
-        return false;
-    }
-    // 项目实际检测到的语言（60s TTL 缓存，与工具暴露 / 提示词注入同源）。
-    let root_for_detect = root.clone();
-    let profile = tokio::task::spawn_blocking(move || {
-        super::detect::detect_project_languages_cached(&root_for_detect)
-    })
-    .await
-    .unwrap_or_default();
-    if profile.langs.is_empty() {
-        return false;
-    }
-    profile
-        .langs
-        .iter()
-        .all(|lang| covered.iter().any(|covered_lang| covered_lang == lang))
+    exposure.codelens_covered = coverage_complete
+        && detected_coverage_complete(&profile, &covered_langs, &covered_extensions);
+    Ok(exposure)
 }
 
-/// 解析项目根目录（workspace_directories 表）；无 project_id / 查不到 /
-/// 查询失败 → None（调用方跳过 SSH 与语言一致性过滤，与 collect 全局
-/// 工具暴露行为一致，不因 LSP 状态打挂工具列表收集）。
-async fn resolve_project_root_str(project_id: Option<&str>) -> napi::Result<Option<String>> {
-    let Some(pid) = project_id.map(str::trim).filter(|p| !p.is_empty()) else {
-        return Ok(None);
+/// None means a cold server, not a failed one. A negotiated empty list must
+/// remain empty; only the independent Go scanner can be added separately.
+fn effective_server_tools(
+    lang: &str,
+    negotiated: Option<&[String]>,
+    vulncheck_installed: bool,
+) -> Vec<String> {
+    let mut tools = match negotiated {
+        Some(tools) => tools.to_vec(),
+        None => super::capabilities::supported_tools_for_lang(lang)
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
     };
-    let pid = pid.to_string();
-    match tokio::task::spawn_blocking(move || -> napi::Result<Option<String>> {
-        let Ok(storage_info) = crate::storage::initialize_app_storage() else {
+    tools.retain(|tool| tool != "vulncheck");
+    if lang == "go" && vulncheck_installed {
+        tools.push("vulncheck".to_string());
+    }
+    tools.sort();
+    tools.dedup();
+    tools
+}
+
+/// Compatibility for callers without a request-specific analysis root.
+pub async fn lsp_covers_all_project_languages(project_id: Option<&str>) -> bool {
+    tool_exposure(project_id)
+        .await
+        .map(|exposure| exposure.codelens_covered)
+        .unwrap_or(false)
+}
+
+/// Deliberately conservative: an incomplete scan cannot justify hiding a fallback.
+fn detected_coverage_complete(
+    profile: &super::detect::ProjectLanguageProfile,
+    covered_langs: &std::collections::HashSet<&str>,
+    covered_extensions: &std::collections::HashSet<String>,
+) -> bool {
+    !profile.incomplete
+        && !profile.langs.is_empty()
+        && !profile.extensions.is_empty()
+        && profile
+            .langs
+            .iter()
+            .all(|lang| covered_langs.contains(lang.as_str()))
+        && profile
+            .extensions
+            .iter()
+            .all(|ext| covered_extensions.contains(ext))
+}
+
+/// Missing/invalid default roots fail closed. An explicit root is validated
+/// separately; it never changes the id used for configuration/authorization.
+pub(crate) async fn resolve_analysis_workspace_root(
+    project_id: Option<&str>,
+    explicit_root: Option<&Path>,
+) -> napi::Result<Option<PathBuf>> {
+    let explicit = explicit_root.map(Path::to_path_buf);
+    let project_id = project_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        if let Some(root) = explicit {
+            return validate_analysis_root(&root).map(Some);
+        }
+        let Some(project_id) = project_id else {
             return Ok(None);
         };
-        let database_path = std::path::PathBuf::from(storage_info.database_path);
-        Ok(get_workspace_directory_path(&database_path, &pid)
-            .ok()
-            .flatten())
+        let Ok(storage) = crate::storage::initialize_app_storage() else {
+            return Ok(None);
+        };
+        let Some(root) =
+            get_workspace_directory_path(&PathBuf::from(storage.database_path), &project_id)
+                .ok()
+                .flatten()
+        else {
+            return Ok(None);
+        };
+        Ok(validate_analysis_root(Path::new(&root)).ok())
     })
     .await
-    {
-        Ok(result) => result,
-        Err(error) => {
-            // join 失败（闭包 panic/任务取消，实际几乎不发生）：按 M3 降级
-            // 原则返回 None 跳过过滤，不因 LSP 状态打挂整个工具列表收集；
-            // 原因写入应用日志（app_logs 表）。
-            super::lsp_app_log(
-                "warn",
-                "resolve_project_root_str",
-                "project root join failed, skipping SSH/language filters",
-                Some(&error.to_string()),
-            )
-            .await;
-            Ok(None)
-        }
-    }
+    .map_err(|error| Error::from_reason(format!("Failed to resolve analysis workspace: {error}")))?
 }
 
-/// §8.7.2 项目感知辅助：解析项目根目录（workspace_directories 表），用
-/// `detect_project_stack`（深度 ≤2，跳过 node_modules/.git/target 等）检测
-/// 技术栈，命中任一目标语言返回 true。无 project_id / 查不到根目录 / SSH
-/// 远程 / 目录不可读 → false（保守不暴露；lsp 本身仅本地项目可用）。
-async fn project_has_lang_stack(
-    project_id: Option<&str>,
-    langs: &[&str],
-) -> napi::Result<bool> {
-    let Some(pid) = project_id.filter(|p| !p.trim().is_empty()) else {
-        return Ok(false);
-    };
-    let pid = pid.to_string();
-    let langs: Vec<String> = langs.iter().map(|s| s.to_string()).collect();
-    tokio::task::spawn_blocking(move || {
-        // M3：DB/FS 瞬时故障必须降级为「不暴露」（Ok(false)），不得 `?` 传播
-        // 打挂整个工具列表收集（collect_all_mcp_tools 每轮对话都会执行）。
-        let Ok(storage_info) = crate::storage::initialize_app_storage() else {
-            eprintln!(
-                "[lsp] project_has_lang_stack: initialize_app_storage 失败，降级为不暴露 type-hierarchy 工具"
-            );
-            return Ok(false);
-        };
-        let database_path = PathBuf::from(storage_info.database_path);
-        let Some(root) = get_workspace_directory_path(&database_path, &pid).ok().flatten() else {
-            eprintln!(
-                "[lsp] project_has_lang_stack: 查询项目根目录失败（project {pid}），降级为不暴露 type-hierarchy 工具"
-            );
-            return Ok(false);
-        };
-        if is_ssh_path(&root) {
-            return Ok(false);
-        }
-        let detected = super::detect::detect_project_stack(&root);
-        Ok(detected.iter().any(|d| langs.iter().any(|l| l == &d.lang)))
-    })
-    .await
-    .map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to detect project stack: {error}"),
-        )
-    })?
+fn validate_analysis_root(root: &Path) -> napi::Result<PathBuf> {
+    if !root.is_absolute()
+        || is_ssh_path(&root.to_string_lossy())
+        || root.to_string_lossy().contains("://")
+    {
+        return Err(Error::from_reason(
+            "analysisWorkspaceRoot must be an existing absolute local directory",
+        ));
+    }
+    let physical = std::fs::canonicalize(root).map_err(|_| {
+        Error::from_reason("analysisWorkspaceRoot does not exist or is inaccessible")
+    })?;
+    if !physical.is_dir() {
+        return Err(Error::from_reason(
+            "analysisWorkspaceRoot must be a directory",
+        ));
+    }
+    Ok(physical)
 }
 
 /// 按文件扩展名匹配语言配置。
@@ -302,4 +346,105 @@ fn parse_record(record: crate::storage::LspServerConfigRecord) -> napi::Result<S
         initialization_options,
         enabled: record.enabled,
     })
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn unknown_root_has_no_cwd_fallback() {
+        assert!(resolve_analysis_workspace_root(None, None)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(resolve_analysis_workspace_root(
+            Some("configuration-project"),
+            Some(Path::new("relative/worktree"))
+        )
+        .await
+        .is_err());
+    }
+
+    #[test]
+    fn negotiated_capabilities_can_exceed_static_estimates() {
+        assert_eq!(
+            effective_server_tools("lua", Some(&["call-hierarchy".into()]), false),
+            vec!["call-hierarchy"]
+        );
+    }
+
+    #[test]
+    fn negotiated_empty_is_not_replaced_by_static_core_tools() {
+        assert!(effective_server_tools("rust", Some(&[]), false).is_empty());
+        assert!(effective_server_tools("rust", None, false)
+            .iter()
+            .any(|name| name == "references"));
+        assert_eq!(
+            effective_server_tools("rust", Some(&["hover".into()]), false),
+            vec!["hover"]
+        );
+    }
+
+    #[test]
+    fn govulncheck_installation_is_independent() {
+        assert!(!effective_server_tools("go", None, false)
+            .iter()
+            .any(|name| name == "vulncheck"));
+        assert_eq!(
+            effective_server_tools("go", Some(&[]), true),
+            vec!["vulncheck"]
+        );
+        assert!(effective_server_tools("rust", Some(&[]), true).is_empty());
+    }
+
+    #[test]
+    fn invalid_analysis_roots_never_fall_back_to_cwd() {
+        for root in [
+            "",
+            ".",
+            "relative/project",
+            "ssh://host/project",
+            "https://host/project",
+        ] {
+            assert!(validate_analysis_root(Path::new(root)).is_err(), "{root}");
+        }
+    }
+
+    #[test]
+    fn uncovered_extensions_and_incomplete_scans_keep_fallbacks() {
+        let mut profile = super::super::detect::ProjectLanguageProfile {
+            langs: vec!["typescript".to_string()],
+            extensions: ["ts".to_string()].into_iter().collect(),
+            incomplete: false,
+        };
+        let langs = HashSet::from(["typescript"]);
+        let extensions = HashSet::from(["ts".to_string()]);
+        assert!(detected_coverage_complete(&profile, &langs, &extensions));
+        profile.extensions.insert("py".to_string());
+        assert!(!detected_coverage_complete(&profile, &langs, &extensions));
+        profile.extensions.remove("py");
+        profile.incomplete = true;
+        assert!(!detected_coverage_complete(&profile, &langs, &extensions));
+    }
+
+    #[test]
+    fn empty_or_uncovered_language_profiles_keep_fallbacks() {
+        assert!(!detected_coverage_complete(
+            &Default::default(),
+            &HashSet::new(),
+            &HashSet::new()
+        ));
+        let profile = super::super::detect::ProjectLanguageProfile {
+            langs: vec!["rust".to_string()],
+            extensions: ["rs".to_string()].into_iter().collect(),
+            incomplete: false,
+        };
+        assert!(!detected_coverage_complete(
+            &profile,
+            &HashSet::from(["typescript"]),
+            &HashSet::from(["rs".to_string()])
+        ));
+    }
 }

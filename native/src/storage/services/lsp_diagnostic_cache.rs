@@ -96,7 +96,7 @@ fn upsert_with_connection(
     Ok(())
 }
 
-/// 删除缓存条目（文件被外部写盘后失效，如 format/rename/code-action 落盘）。
+/// 删除缓存条目（文件被外部写盘后失效，如 format/rename 落盘）。
 pub fn remove(database_path: &Path, file_path: &str) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| {
@@ -108,6 +108,22 @@ pub fn remove(database_path: &Path, file_path: &str) -> Result<()> {
         })
         .map_err(|error| {
             database::database_error(database_path, "delete LSP diagnostic cache", error)
+        })
+}
+
+/// 按文件路径前缀批量删除缓存条目（如项目级缓存清理 / 重启刷新）。
+pub fn remove_by_prefix(database_path: &Path, path_prefix: &str) -> Result<usize> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let pattern = format!("{path_prefix}%");
+            let count = connection.execute(
+                "DELETE FROM lsp_diagnostic_cache WHERE file_path LIKE ?1",
+                rusqlite::params![pattern],
+            )?;
+            Ok(count)
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "delete LSP diagnostic cache by prefix", error)
         })
 }
 

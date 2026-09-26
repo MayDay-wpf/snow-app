@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 /// 解析后的语言服务器配置（来自 lsp_server_configs 表）。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServerConfig {
     pub lang: String,
     pub command: String,
@@ -14,6 +14,24 @@ pub struct ServerConfig {
     pub install_command: Option<String>,
     pub initialization_options: Option<Value>,
     pub enabled: bool,
+}
+
+impl ServerConfig {
+    /// 包含全部配置字段的稳定指纹；仅用于内存身份，不把参数/配置秘密暴露到状态。
+    pub(crate) fn fingerprint(&self) -> String {
+        let value = serde_json::json!([
+            self.lang,
+            self.command,
+            self.args,
+            self.file_extensions,
+            self.install_command,
+            self.initialization_options,
+            self.enabled
+        ]);
+        blake3::hash(value.to_string().as_bytes())
+            .to_hex()
+            .to_string()
+    }
 }
 
 /// LSP 服务错误（携带可行动的降级建议，见设计文档 §9）。
@@ -100,3 +118,27 @@ impl From<LspError> for napi::Error {
 
 /// 会话 key：(语言, 项目根)。
 pub type SessionKey = (String, PathBuf);
+
+#[cfg(test)]
+mod config_identity_tests {
+    use super::*;
+    #[test]
+    fn arguments_and_initialization_options_affect_identity() {
+        let config = ServerConfig {
+            lang: "typescript".into(),
+            command: "node".into(),
+            args: vec!["server.js".into()],
+            file_extensions: vec!["ts".into()],
+            install_command: None,
+            initialization_options: None,
+            enabled: true,
+        };
+        let mut changed = config.clone();
+        changed.args.push("--stdio".into());
+        assert_ne!(config, changed);
+        assert_ne!(config.fingerprint(), changed.fingerprint());
+        changed = config.clone();
+        changed.initialization_options = Some(serde_json::json!({"strict":true}));
+        assert_ne!(config, changed);
+    }
+}

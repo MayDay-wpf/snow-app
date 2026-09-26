@@ -154,6 +154,22 @@ pub struct LspSessionStatus {
     pub error: Option<String>,
 }
 
+fn resolve_project_root_from_id(project_id: &str) -> napi::Result<std::path::PathBuf> {
+    let storage_info = crate::storage::initialize_app_storage()?;
+    let database_path = std::path::PathBuf::from(storage_info.database_path);
+    match crate::storage::services::workspace_directories::get_workspace_directory_path(
+        &database_path,
+        project_id,
+    ) {
+        Ok(Some(root)) => Ok(std::path::PathBuf::from(root)),
+        Ok(None) => Err(Error::new(
+            Status::InvalidArg,
+            format!("Project directory not found for ID: {project_id}"),
+        )),
+        Err(err) => Err(err),
+    }
+}
+
 /// 列出 LSP 会话状态快照（(语言 × 项目根) 粒度）。
 /// 仅反映本进程内存态，不触发任何会话创建/回收；查询开销 = 会话数 ×
 /// 一次非阻塞 try_wait。
@@ -168,21 +184,11 @@ pub async fn list_lsp_session_statuses(
 ) -> napi::Result<Vec<LspSessionStatus>> {
     let manager = crate::mcp::servers::lsp::manager::ServerManager::instance();
     let filter_root = match project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        // 未提供 project_id → 不过滤。
         None => None,
-        Some(pid) => {
-            let storage_info = crate::storage::initialize_app_storage()?;
-            let database_path = std::path::PathBuf::from(storage_info.database_path);
-            match crate::storage::services::workspace_directories::get_workspace_directory_path(
-                &database_path,
-                pid,
-            ) {
-                // 解析成功 → 只保留该项目根的会话。
-                Ok(Some(root)) => Some(std::path::PathBuf::from(root)),
-                // 提供了 project_id 但解析失败 → 当前项目无本地 LSP 会话。
-                _ => return Ok(Vec::new()),
-            }
-        }
+        Some(pid) => match resolve_project_root_from_id(pid) {
+            Ok(root) => Some(root),
+            Err(_) => return Ok(Vec::new()),
+        },
     };
     Ok(manager
         .session_statuses(filter_root.as_deref())
@@ -197,4 +203,66 @@ pub async fn list_lsp_session_statuses(
             error: status.error,
         })
         .collect())
+}
+
+/// 手动启动（预热）指定项目和语言的 LSP 会话。
+#[napi]
+pub async fn start_lsp_session(
+    project_id: String,
+    lang: String,
+) -> napi::Result<LspSessionStatus> {
+    let project_root = resolve_project_root_from_id(&project_id)?;
+    let manager = crate::mcp::servers::lsp::manager::ServerManager::instance();
+    let status = manager
+        .start_session(&lang, &project_root, Some(&project_id))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("{e:?}")))?;
+    Ok(LspSessionStatus {
+        lang: status.lang,
+        project_root: status.project_root,
+        status: status.status,
+        restart_count: status.restart_count,
+        last_used_ms: status.last_used_ms as i64,
+        error: status.error,
+    })
+}
+
+/// 手动停止指定项目和语言的 LSP 会话（释放进程与内存）。
+#[napi]
+pub async fn stop_lsp_session(
+    project_id: String,
+    lang: String,
+) -> napi::Result<bool> {
+    let project_root = resolve_project_root_from_id(&project_id)?;
+    let manager = crate::mcp::servers::lsp::manager::ServerManager::instance();
+    let stopped_count = manager.stop_session(&lang, &project_root).await;
+    Ok(stopped_count > 0)
+}
+
+/// 手动重启指定项目和语言的 LSP 会话，可选清理持久化诊断缓存以强制全新索引。
+#[napi]
+pub async fn restart_lsp_session(
+    project_id: String,
+    lang: String,
+    clear_cache: Option<bool>,
+) -> napi::Result<LspSessionStatus> {
+    let project_root = resolve_project_root_from_id(&project_id)?;
+    let manager = crate::mcp::servers::lsp::manager::ServerManager::instance();
+    let status = manager
+        .restart_session(
+            &lang,
+            &project_root,
+            Some(&project_id),
+            clear_cache.unwrap_or(true),
+        )
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("{e:?}")))?;
+    Ok(LspSessionStatus {
+        lang: status.lang,
+        project_root: status.project_root,
+        status: status.status,
+        restart_count: status.restart_count,
+        last_used_ms: status.last_used_ms as i64,
+        error: status.error,
+    })
 }

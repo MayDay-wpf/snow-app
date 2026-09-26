@@ -20,6 +20,11 @@ pub struct ConversationContextRequest<'a> {
     pub previous_response_id: Option<&'a str>,
     pub messages: &'a [ChatContextMessage],
     pub directory_id: Option<&'a str>,
+    /// Optional actual analysis worktree; does not change configuration scope.
+    pub analysis_workspace_root: Option<&'a str>,
+    /// Final request tools, after project switches and sub-agent whitelist.
+    /// Empty when tools are disabled, compaction is active or discovery failed.
+    pub allowed_tools: &'a [crate::mcp::tools::McpTool],
     pub context_compaction: bool,
     /// Internal auto-compaction resume mode: the latest `context_compaction`
     /// boundary message already persisted in the database is the current

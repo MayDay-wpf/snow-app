@@ -2,6 +2,11 @@ import { Loader2, Save, X } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { McpStringListEditor } from "../mcpSettings/McpStringListEditor";
 import { PRESET_LANGS, type LspServerDraft } from "./types";
+import {
+  createLspStringItem,
+  getPresetTemplate,
+  PRESET_SERVER_TEMPLATES,
+} from "./lspSettingsUtils";
 
 type LspSettingsEditorProps = {
   draft: LspServerDraft;
@@ -11,7 +16,7 @@ type LspSettingsEditorProps = {
   onUpdateItem: (
     group: "args" | "fileExtensions",
     itemId: string,
-    value: string
+    value: string,
   ) => void;
   onAddItem: (group: "args" | "fileExtensions") => void;
   onRemoveItem: (group: "args" | "fileExtensions", itemId: string) => void;
@@ -32,6 +37,39 @@ export function LspSettingsEditor({
 }: LspSettingsEditorProps): React.JSX.Element {
   const { t } = useI18n();
 
+  const handleLangChange = (newLang: string): void => {
+    const patch: Partial<LspServerDraft> = { lang: newLang };
+    // 新建未填写命令时，自动填充推荐预设
+    if (!draft.id) {
+      const template = getPresetTemplate(newLang);
+      if (
+        template &&
+        (!draft.command.trim() ||
+          draft.command === "pyright-langserver" ||
+          draft.command === "pylsp")
+      ) {
+        patch.command = template.command;
+        patch.args = template.args.map(createLspStringItem);
+        patch.fileExtensions = template.fileExtensions.map(createLspStringItem);
+        patch.installCommand = template.installCommand;
+      }
+    }
+    onDraftChange(patch);
+  };
+
+  const applyPresetTemplate = (templateKey: string): void => {
+    const template = PRESET_SERVER_TEMPLATES[templateKey];
+    if (!template) return;
+    onDraftChange({
+      command: template.command,
+      args: template.args.map(createLspStringItem),
+      fileExtensions: template.fileExtensions.map(createLspStringItem),
+      installCommand: template.installCommand,
+    });
+  };
+
+  const isPython = draft.lang.trim().toLowerCase() === "python";
+
   return (
     <form
       id="lsp-settings-editor-form"
@@ -43,12 +81,10 @@ export function LspSettingsEditor({
     >
       <div className="api-settings-form-grid">
         <label className="api-settings-field">
-          <span>
-            {t("settings.lspLanguage", { defaultValue: "Language" })}
-          </span>
+          <span>{t("settings.lspLanguage", { defaultValue: "Language" })}</span>
           <input
             value={draft.lang}
-            onChange={(event) => onDraftChange({ lang: event.target.value })}
+            onChange={(event) => handleLangChange(event.target.value)}
             placeholder="rust"
             list="lsp-preset-langs"
             disabled={isBusy}
@@ -61,9 +97,7 @@ export function LspSettingsEditor({
           </datalist>
         </label>
         <label className="api-settings-field">
-          <span>
-            {t("settings.lspCommand", { defaultValue: "Command" })}
-          </span>
+          <span>{t("settings.lspCommand", { defaultValue: "Command" })}</span>
           <input
             value={draft.command}
             onChange={(event) => onDraftChange({ command: event.target.value })}
@@ -72,6 +106,41 @@ export function LspSettingsEditor({
             spellCheck={false}
           />
         </label>
+        {isPython && (
+          <div
+            className="api-settings-field wide"
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              marginTop: "-4px",
+            }}
+          >
+            <span style={{ fontSize: "12px", opacity: 0.75 }}>
+              {t("settings.lspPythonPresetHint", {
+                defaultValue: "Python 预设选择：",
+              })}
+            </span>
+            <button
+              type="button"
+              className={`icon-btn ghost ${draft.command === "pyright-langserver" ? "active" : ""}`}
+              style={{ fontSize: "12px", padding: "2px 8px", height: "auto" }}
+              onClick={() => applyPresetTemplate("python")}
+              disabled={isBusy}
+            >
+              {t("settings.lspPythonRecommended")}
+            </button>
+            <button
+              type="button"
+              className={`icon-btn ghost ${draft.command === "pylsp" ? "active" : ""}`}
+              style={{ fontSize: "12px", padding: "2px 8px", height: "auto" }}
+              onClick={() => applyPresetTemplate("python (pylsp)")}
+              disabled={isBusy}
+            >
+              Pylsp (python-lsp-server)
+            </button>
+          </div>
+        )}
         <label className="api-settings-field wide">
           <span>
             {t("settings.lspInstallCommand", {
@@ -106,22 +175,21 @@ export function LspSettingsEditor({
             rows={4}
           />
         </label>
-        <label className="toggle-switch mcp-enabled-switch">
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            onChange={(event) =>
-              onDraftChange({ enabled: event.target.checked })
-            }
-            disabled={isBusy}
-          />
-          <span className="toggle-slider" />
+        <button
+          type="button"
+          role="switch"
+          className="lsp-accessible-switch"
+          aria-checked={draft.enabled}
+          onClick={() => onDraftChange({ enabled: !draft.enabled })}
+          disabled={isBusy}
+        >
+          <span className="toggle-slider" aria-hidden="true" />
           <span>
             {t("settings.lspServerEnabled", {
               defaultValue: "Enable language server",
             })}
           </span>
-        </label>
+        </button>
       </div>
 
       <McpStringListEditor

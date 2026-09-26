@@ -63,6 +63,7 @@ export type ToolExecutorDeps = {
   checkpointIds: string[];
   sessionDirId: string | undefined;
   directoryPath: string | undefined;
+  analysisWorkspaceRoot: string;
   responseId: string | undefined;
   isRunCancelled: (key: string) => boolean;
   awaitHookDecision: (
@@ -112,6 +113,7 @@ export function createToolExecutor(
     checkpointIds,
     sessionDirId,
     directoryPath,
+    analysisWorkspaceRoot,
     responseId,
     isRunCancelled,
     awaitHookDecision,
@@ -548,7 +550,12 @@ export function createToolExecutor(
             } else {
               parallelResult = await window.snow.callMcpTool(
                 parallelToolCall.name,
-                parallelToolCall.arguments,
+                injectSessionIdIntoToolArgs(
+                  parallelToolCall.name,
+                  parallelToolCall.arguments,
+                  isPendingSessionKey(effectiveKey) ? undefined : effectiveKey,
+                  analysisWorkspaceRoot,
+                ),
                 sessionDirId,
                 checkpointIds,
                 checkpointIds.length > 0 ? sessionDirPath : undefined,
@@ -945,6 +952,7 @@ export function createToolExecutor(
               toolCall.name,
               toolArgs,
               isPendingSessionKey(effectiveKey) ? undefined : effectiveKey,
+              analysisWorkspaceRoot,
             );
 
             // Persist conversation and tool-call binding so bash commands can

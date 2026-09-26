@@ -359,26 +359,73 @@ pub fn normalize_legacy_sort_orders(database_path: &Path) -> Result<()> {
 /// 按平台生成默认种子列表（附录 A / D）。
 fn default_seed_servers() -> Vec<LspServerConfigInput> {
     let is_windows = cfg!(windows);
+    let is_macos = cfg!(target_os = "macos");
+
+    let ts_install =
+        "npm install -g typescript-language-server typescript || pnpm add -g typescript-language-server typescript || yarn global add typescript-language-server typescript";
+
     let clangd_install = if is_windows {
-        "winget install LLVM.LLVM"
-    } else if cfg!(target_os = "macos") {
+        "winget install LLVM.LLVM || scoop install llvm || choco install llvm"
+    } else if is_macos {
         "brew install llvm"
     } else {
-        "apt install clangd"
+        "apt install -y clangd || dnf install -y clang-tools-extra || pacman -S --noconfirm clang || zypper install -y clang"
     };
+
+    let python_install = if is_windows {
+        "npm install -g pyright || pip install pyright"
+    } else if is_macos {
+        "brew install pyright || npm install -g pyright || pip3 install pyright || pip install pyright"
+    } else {
+        "npm install -g pyright || pip install --user pyright || pipx install pyright || pip3 install pyright --break-system-packages || pip install pyright"
+    };
+
+    let rust_install = if is_windows {
+        "rustup component add rust-analyzer || cargo install --locked rust-analyzer || winget install Rustlang.Rustup"
+    } else if is_macos {
+        "rustup component add rust-analyzer || brew install rust-analyzer || cargo install --locked rust-analyzer"
+    } else {
+        "rustup component add rust-analyzer || apt install -y rust-analyzer || pacman -S --noconfirm rust-analyzer || dnf install -y rust-analyzer || cargo install --locked rust-analyzer"
+    };
+
+    let go_install = if is_windows {
+        "(go env -w GOPROXY=https://goproxy.cn,direct) && go install golang.org/x/tools/gopls@latest"
+    } else if is_macos {
+        "brew install gopls || (go env -w GOPROXY=https://goproxy.cn,direct 2>/dev/null; go install golang.org/x/tools/gopls@latest)"
+    } else {
+        "(go env -w GOPROXY=https://goproxy.cn,direct 2>/dev/null; go install golang.org/x/tools/gopls@latest) || apt install -y gopls || pacman -S --noconfirm gopls || brew install gopls"
+    };
+
+    let csharp_install = "dotnet tool install --global csharp-ls || dotnet tool update --global csharp-ls";
+
     let jdtls_install = if is_windows {
-        "scoop install jdtls"
-    } else if cfg!(target_os = "macos") {
+        "scoop install jdtls || choco install eclipse-jdtls || winget install EclipseAdoptium.Temurin.17.JDK"
+    } else if is_macos {
         "brew install jdtls"
     } else {
-        "apt install eclipse-jdtls"
+        "apt install -y eclipse-jdtls || pacman -S --noconfirm jdtls || brew install jdtls"
     };
+
+    let kotlin_install = if is_windows {
+        "scoop install kotlin-language-server || choco install kotlin-language-server"
+    } else if is_macos {
+        "brew install kotlin-language-server"
+    } else {
+        "brew install kotlin-language-server || snap install kotlin-language-server --classic || pacman -S --noconfirm kotlin-language-server"
+    };
+
+    let php_install =
+        "npm install -g intelephense || pnpm add -g intelephense || yarn global add intelephense || brew install intelephense";
+
+    let ruby_install =
+        "gem install --user-install ruby-lsp || gem install ruby-lsp || brew install ruby-lsp";
+
     let lua_install = if is_windows {
-        "winget install lua-language-server"
-    } else if cfg!(target_os = "macos") {
+        "winget install lua-language-server || scoop install lua-language-server || choco install lua-language-server"
+    } else if is_macos {
         "brew install lua-language-server"
     } else {
-        "apt install lua-language-server"
+        "apt install -y lua-language-server || pacman -S --noconfirm lua-language-server || dnf install -y lua-language-server || brew install lua-language-server || snap install lua-language-server --classic"
     };
 
     let mut seeds = vec![
@@ -387,7 +434,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "typescript-language-server".into(),
             args_json: "[\"--stdio\"]".into(),
             file_extensions_json: "[\".ts\",\".tsx\",\".js\",\".jsx\",\".mts\",\".cts\",\".mjs\",\".cjs\"]".into(),
-            install_command: Some("npm install -g typescript-language-server typescript".into()),
+            install_command: Some(ts_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 0,
@@ -398,7 +445,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "pyright-langserver".into(),
             args_json: "[\"--stdio\"]".into(),
             file_extensions_json: "[\".py\",\".pyi\"]".into(),
-            install_command: Some("pip install pyright".into()),
+            install_command: Some(python_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 1,
@@ -409,7 +456,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "gopls".into(),
             args_json: "[]".into(),
             file_extensions_json: "[\".go\"]".into(),
-            install_command: Some("go install golang.org/x/tools/gopls@latest".into()),
+            install_command: Some(go_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 2,
@@ -420,7 +467,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "rust-analyzer".into(),
             args_json: "[]".into(),
             file_extensions_json: "[\".rs\"]".into(),
-            install_command: Some("rustup component add rust-analyzer".into()),
+            install_command: Some(rust_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 3,
@@ -442,7 +489,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "csharp-ls".into(),
             args_json: "[]".into(),
             file_extensions_json: "[\".cs\"]".into(),
-            install_command: Some("dotnet tool install --global csharp-ls".into()),
+            install_command: Some(csharp_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 5,
@@ -461,10 +508,10 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
         },
         LspServerConfigInput {
             lang: "kotlin".into(),
-            command: "kotlin-lsp".into(),
+            command: "kotlin-language-server".into(),
             args_json: "[\"--stdio\"]".into(),
             file_extensions_json: "[\".kt\",\".kts\"]".into(),
-            install_command: Some(String::new()),
+            install_command: Some(kotlin_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 7,
@@ -475,7 +522,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "intelephense".into(),
             args_json: "[\"--stdio\"]".into(),
             file_extensions_json: "[\".php\"]".into(),
-            install_command: Some("npm install -g intelephense".into()),
+            install_command: Some(php_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 8,
@@ -486,7 +533,7 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             command: "ruby-lsp".into(),
             args_json: "[\"--stdio\"]".into(),
             file_extensions_json: "[\".rb\",\".rake\",\".gemspec\",\".ru\",\".erb\"]".into(),
-            install_command: Some("gem install ruby-lsp".into()),
+            install_command: Some(ruby_install.into()),
             initialization_options_json: None,
             enabled: true,
             sort_order: 9,
@@ -511,8 +558,8 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
             lang: "swift".into(),
             command: "sourcekit-lsp".into(),
             args_json: "[]".into(),
-            file_extensions_json: "[\\\".swift\\\"]".into(),
-            install_command: Some("随 Swift toolchain / Xcode 安装".into()),
+            file_extensions_json: "[\".swift\"]".into(),
+            install_command: None,
             initialization_options_json: None,
             enabled: true,
             sort_order: 11,
@@ -528,4 +575,29 @@ fn default_seed_servers() -> Vec<LspServerConfigInput> {
     }
 
     seeds
+}
+
+/// 补充/校正 seed 记录的 install_command 与 command（启动时执行，幂等）：
+/// 自动将 source='seed' 的旧版安装命令升级为最新多包管理器容错降级命令。
+pub fn reconcile_seed_install_commands(database_path: &Path) -> Result<()> {
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "reconcile seed install commands", error))?;
+    let seeds = default_seed_servers();
+    for seed in seeds {
+        if let Some(cmd) = &seed.install_command {
+            if !cmd.trim().is_empty() {
+                connection
+                    .execute(
+                        "UPDATE lsp_server_configs
+                         SET install_command = ?1, command = ?2, args_json = ?3, updated_at = datetime('now', 'localtime')
+                         WHERE lang = ?4 AND source = 'seed' AND (install_command IS NULL OR install_command != ?1)",
+                        params![cmd, &seed.command, &seed.args_json, &seed.lang],
+                    )
+                    .map_err(|error| {
+                        database::database_error(database_path, "reconcile seed install commands", error)
+                    })?;
+            }
+        }
+    }
+    Ok(())
 }

@@ -112,6 +112,8 @@ export type ResponsesApiRequest = {
   conversationId?: string | null;
   previousResponseId?: string | null;
   directoryId?: string | null;
+  /** Request-local analysis root; never changes configuration/authorization scope. */
+  analysisWorkspaceRoot?: string | null;
   checkpointId?: string | null;
   contextCompaction?: boolean | null;
   /**

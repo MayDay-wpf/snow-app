@@ -27,8 +27,8 @@ flowchart TD
 
 ### 1.2 Tool
 
-| Tool | Purpose |
-| --- | --- |
+| Tool              | Purpose                                  |
+| ----------------- | ---------------------------------------- |
 | `codebase-search` | Semantic search over the embedding index |
 
 Parameters: `query` (natural-language query text, required), `topN` (result
@@ -46,9 +46,9 @@ codebase-search query="retry logic" topN=5
 
 ### 1.4 Choosing between grep and codebase
 
-| Scenario | Use |
-| --- | --- |
-| Exact keywords, regex, path-limited search | `grep-search` (faster, precise) |
+| Scenario                                                  | Use                                     |
+| --------------------------------------------------------- | --------------------------------------- |
+| Exact keywords, regex, path-limited search                | `grep-search` (faster, precise)         |
 | Semantic/intent queries ("find the login handling logic") | `codebase-search` (understands meaning) |
 
 ## 2. Code symbol location (codelens)
@@ -59,11 +59,11 @@ running a full LSP.
 
 ### 2.1 Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `codelens-find_definition` | Find a symbol's definition location |
-| `codelens-find_references` | Find a symbol's references within the file |
-| `codelens-file_outline` | Get a file's symbol outline (functions/classes/variables) |
+| Tool                       | Purpose                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| `codelens-find_definition` | Find a symbol's definition location                       |
+| `codelens-find_references` | Find a symbol's references within the file                |
+| `codelens-file_outline`    | Get a file's symbol outline (functions/classes/variables) |
 
 ### 2.2 Examples
 
@@ -98,79 +98,46 @@ Configuration is persisted in the app database table `lsp_server_configs`
 - The legacy `~/.snow/lsp-config.json` (reserved-era file) is imported once on
   first start (source=legacy); never read afterwards.
 
-**Tools are OFF by default**: `lsp-*` tools only appear when the table has at
-least one enabled AND installed language server (seed/migration set `enabled`
-from a PATH probe — uninstalled servers default to off and show a ❌not-installed
-badge in the settings page; after installing a server, turn the toggle on
-manually). SSH/remote projects are not supported yet.
+**Tools are off by default:** enable the LSP domain in project MCP settings and verify that the language server is enabled, installed and stack/capability-matched. Global/project per-tool disabling and sub-agent whitelists still apply. Turning on an installed language server does not expose every tool to every request. SSH/remote projects are unsupported.
 
-**Tool list** (all backed by real semantic analysis from external language
-servers; exposed per the enabled languages' capability subset, §8.7):
+Common tools include `lsp-diagnostics` (file diagnostics), `lsp-hover` (types/docs), `lsp-goto{kind}` (definition/type-definition/implementation), references, symbols, rename, call/type hierarchies and the two workspace tools. The old standalone definition/type-definition/implementation tools are merged into `lsp-goto`; see [built-in tools](../3-reference/2-builtin-tools-reference.md) for full parameters.
 
-| Tool | Purpose |
-|---|---|
-| `lsp-diagnostics` | File diagnostics (errors/warnings with severity/message/exact positions) |
-| `lsp-hover` | Symbol hover info (type signature / docs, Markdown) |
-| `lsp-definition` | Symbol definition location (cross-file semantic jump, more accurate than codelens) |
-| `lsp-references` | All reference locations + one-line code context (cap 100) |
-| `lsp-symbols` | File symbol outline (nested, with type/visibility detail) |
-| `lsp-rename` | Semantic rename (dryRun default previews multi-file edits; false writes) |
-| `lsp-type-definition` | Jump to the definition of a symbol's type |
-| `lsp-implementation` | All implementations of an interface / abstract class / trait |
-| `lsp-code-action` | Quick-fix / refactor menu (apply=true applies; command actions run via lsp-execute-command) |
-| `lsp-execute-command` | Execute server refactor/import commands (WorkspaceEdit results previewable/applicable) |
-| `lsp-call-hierarchy` | **Two-way call chain** (who calls it + what it calls, with call-site context) — the first choice for pre-edit impact analysis |
-| `lsp-type-hierarchy` | **Type hierarchy** (parent chain + all subtypes) — base-type refactor blast radius (exposed only for Go/Java projects) |
-| `lsp-workspace-symbols` | Cross-project fuzzy symbol search (merged across enabled languages, cap 50) |
-| `lsp-workspace-diagnostics` | Project-wide diagnostics (LSP 3.17 pull, grouped by file) |
+Project configurations override global configurations for the same language; Global/Project scopes are managed separately in LSP settings. These are parameter examples only: replace paths with real absolute local paths and first check tool visibility.
 
 ```text
-# Example: agent configures the rust server (skip if already seeded)
-config-get scope=lsp-config key=servers             # view current config
-config-set scope=lsp-config key=servers value={...} # add/update servers
-# then run diagnostics on a file
-lsp-diagnostics filePath=/path/to/main.rs
+lsp-diagnostics filePath=/absolute/project/src/main.rs
+lsp-goto filePath=/absolute/project/src/main.rs line=12 column=4 kind=definition
+lsp-workspace-symbols query=TargetName workspaceRoot=/absolute/project
+lsp-workspace-diagnostics workspaceRoot=/absolute/project
+lsp-hover symbol=TargetName workspaceRoot=/absolute/project
 ```
 
-### 2.5 LSP-preferring behavior & troubleshooting (2026-08-15)
+For partial or ambiguous results, address warnings, narrow scope and verify coordinates instead of assuming uniqueness. Preview rename edits with `dryRun=true` first.
 
-Once LSP is configured, the system **automatically prefers LSP semantic analysis**
-(no extra setup):
+### 2.5 LSP preference and troubleshooting (2026-09-26)
 
-- **System prompt injection**: when the project has an enabled server for a
-  matching language (and the command is installed), a "Language Servers" section
-  is appended to the system prompt — listing available servers with their runtime
-  status (`running` / `crashed; restarts on next use` / `installed; starts on
-  first use`), grouping the `lsp-*` tools (diagnostics / navigation / symbol
-  search / call graph, etc.), and stating **mandatory routing rules**: semantic
-  queries (symbols, types, definitions, references, call graph, diagnostics) MUST
-  use `lsp-*`; `grep-search` is only for literal string/pattern search;
-  `codelens-*` auto-route to LSP. Injection conditions are **identical** to
-  tool exposure: unconfigured, command missing, scope disabled, SSH remote,
-  project without programming languages, or server language not matching the
-  project — any of these suppresses both.
-- **Session pre-warming**: while building the prompt, matching servers are
-  **started in the background** (idempotent reuse; failures degrade silently),
-  removing the cold-start delay of the first `lsp-*` call; idle sessions are
-  reaped after 30 minutes, so they stay resident while the project is in use.
-- **codelens auto-forwarding**: `codelens-find_definition` / `codelens-find_references`
-  / `codelens-file_outline` automatically run through LSP when available (result
-  gains `"engine": "lsp"`, shape unchanged); when LSP is unavailable or fails they
-  fall back to built-in static analysis and the result gains **`"lspFallback": true`**
-  — agents can tell the source of the result; **for semantic-level results call the
-  `lsp-*` tools directly** (their errors carry actionable configuration guidance).
+- **Check actual tools first:** main and sub-agent requests use final `ToolSnapshot` data for the LSP section and analysis list. Global/project tool switches, installation/capabilities and sub-agent whitelists all matter. Disabled grep/read/codebase tools are not an unconditional baseline either.
+- **Choose scope deliberately:** `lsp-workspace-symbols` (Workspace Symbol Search), `lsp-workspace-diagnostics` and symbol-only addressing accept optional `workspaceRoot`. Supply an existing absolute local directory, not a relative path, file or SSH path. When omitted, the current project root is used; without a reliable root, supply one explicitly. This does not search every other project or elevate permissions.
+- **Read completeness first:** partial, warnings, unsupportedOperations, incomplete and `partial_symbol_search` indicate coverage gaps. An empty list does not prove a clean project; a single candidate does not establish uniqueness. `requiresExplicitCoordinates` means inspect the declaration and provide `filePath/line/column`; ordinary ranges are not safe rename coordinates.
+- **Running is not ready:** a running badge describes process/session state; initialization, indexing or diagnostic builds may still take time. Refresh stale snapshots. Neither completed prompt prewarming nor instantaneous first calls are guaranteed.
+- **Document/diagnostic freshness:** `ensure_open` compares full text each time, updates send didChange, and workspace requests close deleted documents. Diagnostics no longer read/write persistent result caches; old tables/data are not deleted. Re-diagnosis cost is preferred to stale results after dependency/configuration changes.
+- **Retain fallbacks:** CodeLens remains for uncovered languages/extensions/operations and incomplete scans. It may forward to an authorized available LSP; failure returns marked static analysis (`lspFallback`) without bypassing a sub-agent whitelist.
+
+Labels are `全局符号搜索` / `全域符號搜尋` / `Workspace Symbol Search`; the tool ID remains `lsp-workspace-symbols`. <!-- docs-check: allow-cjk -->
+
+Collapsing large UI results reduces rendering work without removing warnings or changing completeness. See [LSP design §0](../4-architecture-and-development/7-lsp-external-language-server-design.md) for pending acceptance scenarios.
 
 **Troubleshooting** (check in order when LSP is not working):
 
-| Symptom | Check | Fix |
-|---|---|---|
-| `lsp-*` tools missing | Config exists and enabled (`config-get scope=lsp-config key=servers`) | `config-set scope=lsp-config key=servers value={...}`; enable in Settings → LSP settings |
-| Error "not found or cannot start" | Command in PATH (`which <command>` / ❌ not-installed badge) | Install per the `installCommand` hint; enable in Settings after install |
-| Error "no LSP server configured for x" | File extension in the server's `fileExtensions` | Add the extension (e.g. missing `.tsx`); confirm the project language matches the server |
-| Project has no programming language / mismatch | Project has matching language files (no Language Servers section in the prompt) | Language detection = project markers (Cargo.toml etc.) + extension scan; no match → not injected nor exposed |
-| SSH remote project | `ssh://` path | LSP is local-only; SSH projects never expose lsp-* tools |
-| `crashed; restarts on next use` | Session crashed (≥2 consecutive restarts error out) | Check server install/config; next call restarts automatically |
-| Dig deeper | App logs | `config-get scope=logs` reads `~/.snow/log` (main-process logs); in dev, native `[lsp]`-prefixed fallback logs appear in the terminal |
+| Symptom                                        | Check                                                                           | Fix                                                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `lsp-*` tools missing                          | Config exists and enabled (`config-get scope=lsp-config key=servers`)           | `config-set scope=lsp-config key=servers value={...}`; enable in Settings → LSP settings                                              |
+| Error "not found or cannot start"              | Command in PATH (`which <command>` / ❌ not-installed badge)                    | Install per the `installCommand` hint; enable in Settings after install                                                               |
+| Error "no LSP server configured for x"         | File extension in the server's `fileExtensions`                                 | Add the extension (e.g. missing `.tsx`); confirm the project language matches the server                                              |
+| Project has no programming language / mismatch | Project has matching language files (no Language Servers section in the prompt) | Language detection = project markers (Cargo.toml etc.) + extension scan; no match → not injected nor exposed                          |
+| SSH remote project                             | `ssh://` path                                                                   | LSP is local-only; SSH projects never expose lsp-* tools                                                                              |
+| `crashed; restarts on next use`                | Session crashed (≥2 consecutive restarts error out)                             | Check installation/configuration and startup backoff; do not loop during cooldown                                                                         |
+| Dig deeper                                     | App logs                                                                        | `config-get scope=logs` reads `~/.snow/log` (main-process logs); in dev, native `[lsp]`-prefixed fallback logs appear in the terminal |
 
 **Logging**: LSP fallback/failure reasons are written to the **app log table
 (`app_logs`)** — same source as the System Logs panel; filter by `module=lsp` to
@@ -180,10 +147,33 @@ details). They are also printed to native stderr (visible in the dev terminal).
 `~/.snow/log` holds main-process file logs (readable via `config-get scope=logs`);
 the two complement each other.
 
+### 2.6 Batch diagnostics and safe rename
+
+The 11 semantic labels match across both i18n families and all three locales, with unchanged tool IDs; see the [tool reference](../3-reference/2-builtin-tools-reference.md). Semantic work **MUST** use the corresponding visible LSP tool when it supports the target language/operation. Check languages, capabilities and health per tool, not a global language list. Do not loop during startup backoff; explain unmet conditions and use visible fallbacks.
+
+These are parameter examples, not execution records. Replace paths with real absolute local files:
+
+```json
+{ "filePath": "/absolute/project/src/a.ts" }
+```
+
+```json
+{ "filePaths": ["/absolute/project/src/a.ts", "/absolute/project/src/b.ts"] }
+```
+
+Put every batch file in the list and do not also provide a nonempty `filePath`. The list strictly contains 1..30 nonempty path strings; wrong types, empty arrays/entries and oversized lists are rejected, not silently truncated. A legacy empty `filePath:""` placeholder only means omitted. Validate count before physical-file deduplication, preserving first occurrence in the original request.
+
+Single-file results stay top-level. Batches return `batch:true`, `fileCount/requestedCount/duplicateCount`, status, per-file results and summary (`completedFiles/partialFiles/failedFiles/errorCount/warningCount`). Read completed/partial/failed totals before expanding file warnings and truncation. `error:null` is not an error; empty diagnostics do not prove complete success. Target file-task concurrency is 3 without changing result order; one server may still serialize work.
+
+For rename, first use `dryRun=true`, inspect edits, then pass the returned `previewId` with `dryRun=false` through normal approval. The capability has a 5-minute TTL, at most 32 per session, is single-use and content-bound. Do not paste its raw value into reports. Changed files, expiry, missing/consumed capabilities or `requiresNewPreview` require another preview; the UI never applies automatically. Multi-file writes are not transactional: inspect `appliedFiles/failedFile/error/failedFileMayBeModified`, never claim rollback, and do not replay a capability when files may already have changed.
+
+Concurrency-3 scheduling and related interfaces are under integration. These instructions do not claim builds, fixtures or live acceptance passed; see [LSP design §0.6–0.8](../4-architecture-and-development/7-lsp-external-language-server-design.md).
+
 ## 3. Typical workflow
 
 ```text
-1. Understand    → codelens-file_outline + filesystem-read key files
-2. Locate        → grep-search (keywords) or codebase-search (semantic)
-3. Formal check  → project build commands (tsc / cargo check / npm run check)
+1. Confirm scope/access → current tools, project root; explicit workspaceRoot if needed
+2. Understand/locate    → visible supported LSP; visible CodeLens / raw reads for gaps
+3. Check completeness  → warnings / partial / candidate coordinates; text matches are literal evidence
+4. Formally verify     → project builds/tests, not just empty diagnostics or a running badge
 ```

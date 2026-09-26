@@ -60,10 +60,13 @@ mod serialize;
 pub use super::servers::sub_agents::SUB_AGENT_COMMS_TOOL_FULL_NAMES;
 pub use call::call_mcp_tool;
 pub(crate) use collect::{
-    builtin_scope_server_id, builtin_server_name, is_codebase_available, load_global_scope,
-    load_project_scope, server_id_from_tool_name, tool_name_is_enabled, with_database_path,
+    builtin_scope_server_id, builtin_server_name, load_global_scope, load_project_scope,
+    server_id_from_tool_name, with_database_path,
 };
-pub use collect::{collect_all_mcp_tools, collect_allowed_mcp_tools};
+pub use collect::{
+    collect_all_mcp_tools, collect_all_mcp_tools_for_workspace,
+    collect_allowed_mcp_tools_for_workspace,
+};
 pub use serialize::{
     tools_as_anthropic_json, tools_as_gemini_json, tools_as_interactions_json,
     tools_as_openai_chat_json, tools_as_openai_responses_json,
@@ -242,11 +245,10 @@ async fn collect_project_server_statuses(
     // 精简模式（全局）：启用后 LITE_MODE_DISABLED_SERVER_IDS 中的内置
     // 服务器（browser / app-control / terminal）在所有项目中视为禁用，
     // 前端开关据此显示为关闭。
-    let lite_mode =
-        with_database_path(|database_path| {
-            crate::storage::services::system_settings::get_lite_mode(&database_path)
-        })
-        .await?;
+    let lite_mode = with_database_path(|database_path| {
+        crate::storage::services::system_settings::get_lite_mode(&database_path)
+    })
+    .await?;
 
     let mut servers = get_builtin_servers_with_tools()
         .into_iter()
@@ -428,11 +430,10 @@ pub async fn set_mcp_project_server_enabled(
             .strip_prefix("builtin:")
             .is_some_and(|id| LITE_MODE_DISABLED_SERVER_IDS.contains(&id))
     {
-        let lite_mode =
-            with_database_path(|database_path| {
-                crate::storage::services::system_settings::get_lite_mode(&database_path)
-            })
-            .await?;
+        let lite_mode = with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
         if lite_mode {
             with_database_path(|database_path| {
                 crate::storage::services::system_settings::set_lite_mode(&database_path, false)

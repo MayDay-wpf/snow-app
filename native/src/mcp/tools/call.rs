@@ -6,9 +6,6 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::super::builtin::{execute_builtin_tool, sanitize_tool_full_name};
-use super::collect::ensure_project_tool_enabled;
-use super::plan_write::is_allowed_plan_document_write;
-use super::result_limit::limit_tool_result;
 use super::super::servers::app_control::{AppControlCallback, AppControlService};
 use super::super::servers::bash::{BashService, BashStreamCallback, BashStreamChunk};
 use super::super::servers::browser::{BrowserCommandCallback, BrowserService};
@@ -26,6 +23,9 @@ use super::super::servers::terminal::{TerminalCommandCallback, TerminalService};
 use super::super::servers::todo::TodoService;
 use super::super::servers::user_interaction::{UserInteractionService, UserQuestionCallback};
 use super::super::servers::websearch::{WebSearchCommandCallback, WebSearchService};
+use super::collect::ensure_project_tool_enabled;
+use super::plan_write::is_allowed_plan_document_write;
+use super::result_limit::limit_tool_result;
 
 /// Register a cancellation token for a remote (SSH) tool execution and emit
 /// its id as a `tool_execution` stream chunk so the frontend can abort the
@@ -121,7 +121,9 @@ pub async fn call_mcp_tool(
     if let Some(ref allowed_tools) = sub_agent_allowed_tools {
         let wildcard_enabled = allowed_tools.iter().any(|name| name == "*");
         let comms_allowed = SUB_AGENT_COMMS_TOOL_FULL_NAMES.contains(&tool_full_name.as_str());
-        if !wildcard_enabled && !comms_allowed && !allowed_tools.iter().any(|name| name == &tool_full_name)
+        if !wildcard_enabled
+            && !comms_allowed
+            && !allowed_tools.iter().any(|name| name == &tool_full_name)
         {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -144,9 +146,7 @@ pub async fn call_mcp_tool(
     // 先定 checkpoint 影响范围再捕获：None/Unknown 的工具不校验
     // checkpointWorkDir，Skill / 外部 MCP 等不因缺失上下文被阻断。
     let checkpoint_scope = tool_checkpoint_scope(&tool_full_name);
-    if matches!(checkpoint_scope, ToolCheckpointScope::Unknown)
-        && !checkpoint_ids.is_empty()
-    {
+    if matches!(checkpoint_scope, ToolCheckpointScope::Unknown) && !checkpoint_ids.is_empty() {
         let locale = crate::i18n::app_locale().await;
         emit_stream_chunk(
             &on_chunk,
@@ -281,7 +281,13 @@ pub async fn call_mcp_tool(
         if let Some((tool_execution_id, _)) = remote_cancel {
             crate::api::cancel::unregister_tool_execution(&tool_execution_id);
         }
-        annotate_grep_result_with_semantic_routing(search_result?, &args, project_id.as_deref()).await
+        annotate_grep_result_with_semantic_routing(
+            search_result?,
+            &args,
+            project_id.as_deref(),
+            sub_agent_allowed_tools.as_deref(),
+        )
+        .await
     } else if uses_remote_workspace && tool_full_name.starts_with("codelens-") {
         let codelens_tool = tool_full_name
             .strip_prefix("codelens-")
@@ -316,8 +322,12 @@ pub async fn call_mcp_tool(
         crate::api::cancel::unregister_tool_execution(&tool_execution_id);
         // 无论工具成败都执行 after 捕获（与本地 builtin 分支一致）；
         // after 失败优先于工具错误上报。
-        capture_checkpoint_after_tool_remote(checkpoint_capture, &on_remote_workspace_command, Some(&on_chunk))
-            .await?;
+        capture_checkpoint_after_tool_remote(
+            checkpoint_capture,
+            &on_remote_workspace_command,
+            Some(&on_chunk),
+        )
+        .await?;
         fs_result?
     } else if tool_full_name == "todo-todo-manage" {
         // 会话隔离键由分发层注入当前会话 ID（与 memory 相同模式），
@@ -387,10 +397,24 @@ pub async fn call_mcp_tool(
         // 输出格式，附加 "engine": "lsp" 标记）；LSP 不可用/失败时回退到
         // tree-sitter 静态分析——LSP 只是更优路径，不应阻断代码定位。
         let lsp_service = LspService::new();
-        if let Some(lsp_result) = lsp_service
-            .execute_codelens_preferred(codelens_tool, &args, project_id.as_deref())
-            .await?
-        {
+        let replacement = match codelens_tool {
+            "find_definition" => Some("lsp-goto"),
+            "find_references" => Some("lsp-references"),
+            "file_outline" => Some("lsp-symbols"),
+            _ => None,
+        };
+        // A CodeLens-only sub-agent must not bypass its LSP whitelist through
+        // internal forwarding. Project/global scope is also checked by LSP.
+        let lsp_result = if replacement.is_some_and(|name| {
+            super::collect::request_allows_tool(sub_agent_allowed_tools.as_deref(), name)
+        }) {
+            lsp_service
+                .execute_codelens_preferred(codelens_tool, &args, project_id.as_deref())
+                .await?
+        } else {
+            None
+        };
+        if let Some(lsp_result) = lsp_result {
             lsp_result
         } else {
             let service = CodeLensService::new();
@@ -420,10 +444,7 @@ pub async fn call_mcp_tool(
             // 渲染无感）。需要 LSP 语义结果时 agent 应改调 lsp-* 工具——其
             // 错误信息会给出可行动的配置指引。
             if let serde_json::Value::Object(map) = &mut fallback {
-                map.insert(
-                    "lspFallback".to_string(),
-                    serde_json::json!(true),
-                );
+                map.insert("lspFallback".to_string(), serde_json::json!(true));
             }
             fallback
         }
@@ -438,12 +459,7 @@ pub async fn call_mcp_tool(
         // 远程工作区（SSH）已在 uses_remote_workspace 分支处理，此处不重复；
         // execute_async 内部对 ssh:// 路径仍会转发，保持行为一致。
         let filesystem_result = FilesystemService::new()
-            .execute_async(
-                filesystem_tool,
-                &args,
-                &on_remote_workspace_command,
-                None,
-            )
+            .execute_async(filesystem_tool, &args, &on_remote_workspace_command, None)
             .await;
         // 工具执行后（含自动格式化）捕获检查点，与同步默认分支语义一致；
         // 无论工具成功与否都先完成 after 捕获再传播结果。
@@ -518,6 +534,7 @@ async fn annotate_grep_result_with_semantic_routing(
     result: Value,
     args: &Value,
     project_id: Option<&str>,
+    allowed_tools: Option<&[String]>,
 ) -> Value {
     let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
         return result;
@@ -525,37 +542,60 @@ async fn annotate_grep_result_with_semantic_routing(
     if !looks_like_bare_symbol(pattern) {
         return result;
     }
-    if !super::collect::is_lsp_tooling_active(project_id).await {
+    let analysis_root = match args.get("workspaceRoot") {
+        Some(Value::String(root)) => Some(std::path::Path::new(root)),
+        Some(_) => return result,
+        None => None,
+    };
+    let visible =
+        super::collect::visible_lsp_tool_names(project_id, allowed_tools, analysis_root).await;
+    let snapshot = super::super::servers::lsp::prompt_context::ToolSnapshot::from_names(visible);
+    let Some(hint) = snapshot.grep_hint() else {
         return result;
-    }
+    };
     let mut map = match result {
         Value::Object(map) => map,
         other => return other,
     };
-    map.insert(
-        "semanticRoutingHint".to_string(),
-        Value::String(
-            "This pattern is a bare symbol name. grep matches same-named symbols in other \
-             modules, comments and string literals — it cannot tell a real reference from a \
-             namesake. For semantic questions use the LSP tools instead: `lsp-goto` \
-             (kind=definition), `lsp-references` (all usages), `lsp-hover` (type/signature), \
-             `lsp-workspace-symbols` (symbol by name), `lsp-diagnostics` (after edits). Keep \
-             grep for literal text only: log messages, config keys, comments, string constants."
-                .to_string(),
-        ),
-    );
+    map.insert("semanticRoutingHint".to_string(), Value::String(hint));
     Value::Object(map)
 }
 
-/// 判断搜索模式是否是「裸标识符」——只有这种模式才必然属于语义查询场景。
-/// 收窄到 ASCII 标识符 + 长度 3..=64 + 不在常见字面量停用词表内：正则、路径、
-/// 中文、带空格的短语、`TODO`/`import` 这类常见字面量一律不触发纠偏。
+/// Heuristic for queries that may be semantic; a bare identifier can also be
+/// literal text, so the annotation is advisory rather than a forced reroute.
 fn looks_like_bare_symbol(pattern: &str) -> bool {
     const LITERAL_STOPWORDS: &[&str] = &[
-        "todo", "fixme", "hack", "note", "import", "export", "return", "function", "const",
-        "class", "async", "await", "interface", "struct", "impl", "pub", "use", "mod", "let",
-        "var", "type", "enum", "true", "false", "null", "none", "undefined", "console", "print",
-        "select", "where",
+        "todo",
+        "fixme",
+        "hack",
+        "note",
+        "import",
+        "export",
+        "return",
+        "function",
+        "const",
+        "class",
+        "async",
+        "await",
+        "interface",
+        "struct",
+        "impl",
+        "pub",
+        "use",
+        "mod",
+        "let",
+        "var",
+        "type",
+        "enum",
+        "true",
+        "false",
+        "null",
+        "none",
+        "undefined",
+        "console",
+        "print",
+        "select",
+        "where",
     ];
     let trimmed = pattern.trim();
     if trimmed.len() < 3 || trimmed.len() > 64 {

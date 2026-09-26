@@ -3,50 +3,62 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_lsp::router::Router;
 use async_lsp::{ErrorCode, LanguageServer, MainLoop};
-use lsp_types::notification::{LogMessage, Progress, PublishDiagnostics, ShowMessage, TelemetryEvent};
+use lsp_types::notification::{
+    LogMessage, Progress, PublishDiagnostics, ShowMessage, TelemetryEvent,
+};
 use lsp_types::request::{WorkspaceConfiguration, WorkspaceFoldersRequest};
 use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
     CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand, CodeActionParams,
-    CodeActionTriggerKind, Diagnostic, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+    ClientCapabilities, Diagnostic, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializedParams, Location,
-    PartialResultParams, Position, ProgressParams, Range, ReferenceContext, ReferenceParams,
-    RenameParams, TextDocumentClientCapabilities, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TypeHierarchyItem,
-    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, Url,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, InitializeParams, InitializedParams, Location, PartialResultParams,
+    Position, ProgressParams, ReferenceContext, ReferenceParams, RenameParams,
+    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, Url,
     VersionedTextDocumentIdentifier, WorkDoneProgressParams, WorkspaceEdit, WorkspaceFolder,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use tokio::sync::Mutex;
 
-#[cfg(windows)]
 use super::probe;
 use super::types::{LspError, ServerConfig};
 use crate::utils::process_tree::ProcessTreeGuard;
 
-/// push 诊断共享状态：uri key -> (generation, 诊断列表)。
-///
-/// generation 陈旧防护（M6/R4.3）：每次 prepare_diagnostics / didChange 递增
-/// session 级 push_generation，push 写入带当时 generation；读取/合并只接受
-/// generation == 当前值的条目——旧分析结果（慢速 rustc 诊断）不得被当作新鲜
-/// 诊断返回。
-pub type PushDiagnostics = Arc<Mutex<HashMap<String, PushEntry>>>;
+/// 每URI保留最近若干版本，批量请求互不改变其他文档的预期版本。
+pub type PushDiagnostics = Arc<Mutex<HashMap<String, Vec<PushEntry>>>>;
 
-/// push store 单条条目。
 #[derive(Debug, Clone)]
 pub struct PushEntry {
-    /// 写入时的 session 级 generation（与 push_generation 比较判陈旧）。
-    pub generation: u64,
+    pub version: Option<i32>,
+    pub received_at: Instant,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+fn select_push_entry(
+    entries: &[PushEntry],
+    expected_version: i32,
+    not_before: Instant,
+) -> Option<PushEntry> {
+    entries
+        .iter()
+        .rev()
+        .find(|entry| entry.version == Some(expected_version) && entry.received_at >= not_before)
+        .or_else(|| {
+            entries
+                .iter()
+                .rev()
+                .find(|entry| entry.version.is_none() && entry.received_at >= not_before)
+        })
+        .cloned()
 }
 
 /// 统一的 uri key：Windows 路径大小写不敏感（rust-analyzer 推
@@ -108,10 +120,7 @@ pub fn language_id_for(lang: &str) -> String {
 /// - `.ps1`：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File path args...`。
 /// - 其他（.exe/.com/无扩展名）：直跑。
 #[cfg(windows)]
-fn resolve_windows_spawn(
-    command: &str,
-    args: &[String],
-) -> std::io::Result<(String, Vec<String>)> {
+fn resolve_windows_spawn(command: &str, args: &[String]) -> std::io::Result<(String, Vec<String>)> {
     use std::io::ErrorKind;
 
     // probe::resolve_command 按 PATHEXT(+.PS1) 返回首个存在的候选；找不到 →
@@ -169,8 +178,8 @@ fn escape_cmd_arg(arg: &str) -> String {
 /// spawn 语言服务器进程并建立 async-lsp 客户端。
 ///
 /// 返回 (子进程句柄, mainloop 任务, 客户端 socket, push 诊断共享状态,
-/// mainloop 完成标志, push generation 计数器, 进程树回收 guard)。mainloop 完成
-/// 标志用于会话死亡检测（M5/R2.2）；push generation 随会话创建（M6/R4.3）；
+/// mainloop 完成标志, 进程树回收 guard)。mainloop 完成
+/// 标志用于会话死亡检测；诊断使用服务器原始文档版本关联请求。
 /// ProcessTreeGuard（M2/R4.1，Job Object / 进程组）在会话销毁时兜底杀整棵树，
 /// 消除 cmd/powershell shim 后代孤儿进程（构造失败仅告警，不失败）。
 pub fn spawn_client(
@@ -182,7 +191,6 @@ pub fn spawn_client(
     async_lsp::ServerSocket,
     PushDiagnostics,
     Arc<AtomicBool>,
-    Arc<AtomicU64>,
     ProcessTreeGuard,
 )> {
     // Windows：npm 全局二进制是 .cmd/.ps1 shim（无 .exe），CreateProcess 无法直接
@@ -190,12 +198,16 @@ pub fn spawn_client(
     #[cfg(windows)]
     let (program, parsed_args) = resolve_windows_spawn(&config.command, &config.args)?;
     #[cfg(not(windows))]
-    let (program, parsed_args) = (config.command.clone(), config.args.clone());
+    let (program, parsed_args) = (
+        probe::resolve_command(&config.command).unwrap_or_else(|| config.command.clone()),
+        config.args.clone(),
+    );
 
     let mut command = tokio::process::Command::new(program);
     command
         .args(parsed_args)
         .current_dir(project_root)
+        .env("PATH", probe::augmented_path_os_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -298,12 +310,8 @@ pub fn spawn_client(
         }
     });
 
-    // push 诊断收集（fallback 路径）。generation 计数器随会话创建，session 持有；
-    // mainloop 写入时读当前值——prepare/didChange 递增后旧 push 自然失效（M6）。
     let push_diagnostics: PushDiagnostics = Arc::new(Mutex::new(HashMap::new()));
     let push_clone = push_diagnostics.clone();
-    let push_generation = Arc::new(AtomicU64::new(0));
-    let push_generation_clone = push_generation.clone();
 
     let (mainloop, socket) = MainLoop::new_client(move |_socket| {
         let mut router = Router::new(());
@@ -311,22 +319,27 @@ pub fn spawn_client(
         // 常见通知：诊断收集 + showMessage/logMessage/telemetry 记日志。
         router.notification::<PublishDiagnostics>(move |_, params| {
             let uri = params.uri.clone();
-            let diagnostics = params.diagnostics.clone();
+            let entry = PushEntry {
+                version: params.version,
+                received_at: Instant::now(),
+                diagnostics: params.diagnostics,
+            };
             let store = push_clone.clone();
-            // 在通知处理同步段（而非写入 task 内）读取 generation：写入 task
-            // 可能排队晚于 prepare_diagnostics 的 fetch_add 执行——若在写入时
-            // 才 load，prepare 前到达的旧诊断会误带新 generation 被当作新鲜
-            // 结果（M6/R4.3 陈旧防护失效）。捕获「通知到达时刻」的 generation
-            // 才与递增语义一致：prepare 递增前的旧通知必然带旧值而失效。
-            let generation = push_generation_clone.load(Ordering::Acquire);
             tokio::spawn(async move {
-                store.lock().await.insert(
-                    uri_key(&uri),
-                    PushEntry {
-                        generation,
-                        diagnostics,
-                    },
-                );
+                let mut guard = store.lock().await;
+                let entries = guard.entry(uri_key(&uri)).or_default();
+                if entries
+                    .iter()
+                    .any(|old| old.version == entry.version && old.received_at > entry.received_at)
+                {
+                    return;
+                }
+                entries.retain(|old| old.version != entry.version);
+                entries.push(entry);
+                entries.sort_by_key(|entry| entry.received_at);
+                if entries.len() > 8 {
+                    entries.remove(0);
+                }
             });
             std::ops::ControlFlow::Continue(())
         });
@@ -338,9 +351,7 @@ pub fn spawn_client(
             eprintln!("[lsp] logMessage: {:?}: {}", params.typ, params.message);
             std::ops::ControlFlow::Continue(())
         });
-        router.notification::<TelemetryEvent>(|_, _| {
-            std::ops::ControlFlow::Continue(())
-        });
+        router.notification::<TelemetryEvent>(|_, _| std::ops::ControlFlow::Continue(()));
         router.notification::<Progress>(|_, params: ProgressParams| {
             if let lsp_types::NumberOrString::String(token) = &params.token {
                 eprintln!("[lsp] progress: {token}");
@@ -361,9 +372,28 @@ pub fn spawn_client(
     let main_loop_done = Arc::new(AtomicBool::new(false));
     let done_flag = main_loop_done.clone();
     let mainloop_task = tokio::spawn(async move {
+        use futures::FutureExt;
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-        if let Err(error) = mainloop.run_buffered(stdout.compat(), stdin.compat_write()).await {
-            eprintln!("[lsp:{lang_for_mainloop}] mainloop ended: {error}");
+        let run_fut = std::panic::AssertUnwindSafe(async {
+            mainloop
+                .run_buffered(stdout.compat(), stdin.compat_write())
+                .await
+        });
+        match run_fut.catch_unwind().await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("[lsp:{lang_for_mainloop}] mainloop ended: {error}");
+            }
+            Err(panic_payload) => {
+                let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "panic occurred".to_string()
+                };
+                eprintln!("[lsp:{lang_for_mainloop}] mainloop safely recovered from panic: {msg}");
+            }
         }
         // mainloop 结束 = 会话不可用（进程退出 / 管道断开）：置位供死亡检测。
         done_flag.store(true, Ordering::Release);
@@ -375,30 +405,41 @@ pub fn spawn_client(
         socket,
         push_diagnostics,
         main_loop_done,
-        push_generation,
         process_tree_guard,
     ))
 }
 
 /// LSP initialize 握手（带超时）。
 ///
-/// 返回服务器是否声明 pull 诊断支持（diagnostic_provider），供诊断路径选择。
+/// 返回完整服务器能力；调用方必须保留它用于真实能力校验。
 pub async fn initialize(
     socket: &mut async_lsp::ServerSocket,
     project_root: &Path,
     initialization_options: Option<serde_json::Value>,
     timeout: Duration,
-) -> Result<bool, LspError> {
-    let workspace_uri = Url::from_file_path(project_root)
-        .map_err(|_| LspError::Internal(format!("invalid project root: {}", project_root.display())))?;
+) -> Result<lsp_types::ServerCapabilities, LspError> {
+    let workspace_uri = Url::from_file_path(project_root).map_err(|_| {
+        LspError::Internal(format!("invalid project root: {}", project_root.display()))
+    })?;
+    #[allow(deprecated)]
     let params = InitializeParams {
         process_id: None,
+        root_path: Some(project_root.to_string_lossy().into_owned()),
+        root_uri: Some(workspace_uri.clone()),
         initialization_options,
         capabilities: ClientCapabilities {
             text_document: Some(TextDocumentClientCapabilities {
+                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+                    hierarchical_document_symbol_support: Some(true),
+                    ..Default::default()
+                }),
+                publish_diagnostics: Some(lsp_types::PublishDiagnosticsClientCapabilities {
+                    version_support: Some(true),
+                    ..Default::default()
+                }),
                 diagnostic: Some(lsp_types::DiagnosticClientCapabilities {
                     dynamic_registration: None,
-                    related_document_support: Some(true),
+                    related_document_support: Some(false),
                 }),
                 ..Default::default()
             }),
@@ -427,8 +468,10 @@ pub async fn initialize(
         .did_change_configuration(lsp_types::DidChangeConfigurationParams {
             settings: serde_json::json!({}),
         })
-        .map_err(|error| LspError::ServerFailed(format!("didChangeConfiguration failed: {error:?}")))?;
-    Ok(pull_diagnostics_supported)
+        .map_err(|error| {
+            LspError::ServerFailed(format!("didChangeConfiguration failed: {error:?}"))
+        })?;
+    Ok(result.capabilities)
 }
 
 /// 发送 didOpen（文件已确认未打开时）。
@@ -444,7 +487,17 @@ pub async fn did_open(
         .did_open(DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri: uri.clone(),
-                language_id: language_id_for(lang),
+                language_id: match path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(str::to_ascii_lowercase)
+                    .as_deref()
+                {
+                    Some("js" | "mjs" | "cjs") if lang == "typescript" => "javascript".into(),
+                    Some("jsx") if lang == "typescript" => "javascriptreact".into(),
+                    Some("tsx") if lang == "typescript" => "typescriptreact".into(),
+                    _ => language_id_for(lang),
+                },
                 version: 1,
                 text: text.to_string(),
             },
@@ -501,16 +554,19 @@ pub async fn hover(
 ) -> Result<Option<Hover>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.hover(HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri },
-            position: Position {
-                line: line.saturating_sub(1),
-                character: column.saturating_sub(1),
+    tokio::time::timeout(
+        timeout,
+        socket.hover(HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position {
+                    line: line.saturating_sub(1),
+                    character: column.saturating_sub(1),
+                },
             },
-        },
-        work_done_progress_params: WorkDoneProgressParams::default(),
-    }))
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("hover".into()))?
     .map_err(|error| LspError::ServerFailed(format!("hover failed: {error:?}")))
@@ -524,59 +580,70 @@ pub async fn pull_diagnostics(
     uri: &Url,
     timeout: Duration,
 ) -> Result<Option<Vec<Diagnostic>>, LspError> {
-    let result = tokio::time::timeout(timeout, socket.document_diagnostic(DocumentDiagnosticParams {
-        text_document: TextDocumentIdentifier { uri: uri.clone() },
-        identifier: None,
-        previous_result_id: None,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    let result = tokio::time::timeout(
+        timeout,
+        socket.document_diagnostic(DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            identifier: None,
+            previous_result_id: None,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("diagnostics".into()))?;
 
     match result {
         Ok(report) => match report {
             lsp_types::DocumentDiagnosticReportResult::Report(report) => {
+                if matches!(&report, DocumentDiagnosticReport::Unchanged(_)) {
+                    return Err(LspError::Unsupported(
+                        "unchanged diagnostic response without cached result".into(),
+                    ));
+                }
                 Ok(Some(extract_diagnostic_items(report)))
             }
-            lsp_types::DocumentDiagnosticReportResult::Partial(_) => Ok(Some(Vec::new())),
+            lsp_types::DocumentDiagnosticReportResult::Partial(_) => Err(LspError::Unsupported(
+                "partial diagnostic response without primary document report".into(),
+            )),
         },
         Err(async_lsp::Error::Response(ref response_error))
             if response_error.code == ErrorCode::METHOD_NOT_FOUND =>
         {
             Ok(None)
         }
-        Err(error) => Err(LspError::ServerFailed(format!("diagnostics failed: {error:?}"))),
+        Err(error) => Err(LspError::ServerFailed(format!(
+            "diagnostics failed: {error:?}"
+        ))),
     }
 }
 
-/// push 诊断：等待 publishDiagnostics 通知（≤timeout）。
-///
-/// 只接受 `entry.generation == push_generation 当前值` 的条目（M6/R4.3）：
-/// prepare/didChange 递增 generation 后，旧分析结果（慢速 rustc 诊断）即使
-/// 仍在 store 中也不得被当作新鲜诊断返回；每次轮询读当前值，等待期间
-/// 再次 prepare 也会让已到达的旧条目失效。
+/// 固定URI和请求版本匹配；无版本报告仅作为未验证观察值交给上层标记partial。
 pub async fn wait_push_diagnostics(
     store: &PushDiagnostics,
-    push_generation: &AtomicU64,
     uri: &Url,
+    expected_version: i32,
+    not_before: Instant,
     timeout: Duration,
-) -> Result<Vec<Diagnostic>, LspError> {
+) -> Result<PushEntry, LspError> {
     let key = uri_key(uri);
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         {
             let guard = store.lock().await;
-            if let Some(entry) = guard.get(&key) {
-                if entry.generation == push_generation.load(Ordering::Acquire) {
-                    return Ok(entry.diagnostics.clone());
-                }
+            if let Some(entry) = guard
+                .get(&key)
+                .and_then(|entries| select_push_entry(entries, expected_version, not_before))
+            {
+                return Ok(entry);
             }
         }
         if tokio::time::Instant::now() >= deadline {
-            return Ok(Vec::new());
+            return Err(LspError::RequestTimeout(
+                "publishDiagnostics (no report for requested document version)".into(),
+            ));
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -601,24 +668,28 @@ pub async fn workspace_diagnostics(
     .map_err(|_| LspError::RequestTimeout("workspace-diagnostics".into()))?;
 
     match result {
-        Ok(report) => match report {
-            lsp_types::WorkspaceDiagnosticReportResult::Report(report) => {
-                let mut files: Vec<(Url, Vec<Diagnostic>)> = Vec::new();
-                for item in report.items {
-                    match item {
-                        lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) => {
-                            let items = full.full_document_diagnostic_report.items;
-                            files.push((full.uri, items));
-                        }
-                        lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(unchanged) => {
-                            files.push((unchanged.uri, Vec::new()));
+        Ok(report) => {
+            match report {
+                lsp_types::WorkspaceDiagnosticReportResult::Report(report) => {
+                    let mut files: Vec<(Url, Vec<Diagnostic>)> = Vec::new();
+                    for item in report.items {
+                        match item {
+                            lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) => {
+                                let items = full.full_document_diagnostic_report.items;
+                                files.push((full.uri, items));
+                            }
+                            lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(unchanged) => {
+                                return Err(LspError::Unsupported(format!("unchanged workspace diagnostic report without cached result: {}", unchanged.uri)));
+                            }
                         }
                     }
+                    Ok(Some(files))
                 }
-                Ok(Some(files))
+                lsp_types::WorkspaceDiagnosticReportResult::Partial(_) => Err(
+                    LspError::Unsupported("partial workspace diagnostic response".into()),
+                ),
             }
-            lsp_types::WorkspaceDiagnosticReportResult::Partial(_) => Ok(Some(Vec::new())),
-        },
+        }
         Err(async_lsp::Error::Response(ref response_error))
             if response_error.code == ErrorCode::METHOD_NOT_FOUND =>
         {
@@ -630,23 +701,12 @@ pub async fn workspace_diagnostics(
     }
 }
 
-/// 从 DocumentDiagnosticReport 提取诊断项（含相关文档）。
+/// 仅提取请求文档的诊断；related_documents的URI不能丢弃后归入主文件。
 pub fn extract_diagnostic_items(report: DocumentDiagnosticReport) -> Vec<Diagnostic> {
-    let mut items = Vec::new();
     match report {
-        DocumentDiagnosticReport::Full(report) => {
-            items.extend(report.full_document_diagnostic_report.items);
-            if let Some(related) = report.related_documents {
-                for (_, related_report) in related {
-                    if let lsp_types::DocumentDiagnosticReportKind::Full(full) = related_report {
-                        items.extend(full.items);
-                    }
-                }
-            }
-        }
-        DocumentDiagnosticReport::Unchanged(_) => {}
+        DocumentDiagnosticReport::Full(report) => report.full_document_diagnostic_report.items,
+        DocumentDiagnosticReport::Unchanged(_) => Vec::new(),
     }
-    items
 }
 
 /// goto definition 请求（跨文件语义跳转）。
@@ -659,11 +719,14 @@ pub async fn goto_definition(
 ) -> Result<Option<GotoDefinitionResponse>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.definition(GotoDefinitionParams {
-        text_document_position_params: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.definition(GotoDefinitionParams {
+            text_document_position_params: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("definition".into()))?
     .map_err(|error| LspError::ServerFailed(format!("gotoDefinition failed: {error:?}")))
@@ -680,14 +743,17 @@ pub async fn references(
 ) -> Result<Vec<Location>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    let result = tokio::time::timeout(timeout, socket.references(ReferenceParams {
-        text_document_position: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-        context: ReferenceContext {
-            include_declaration,
-        },
-    }))
+    let result = tokio::time::timeout(
+        timeout,
+        socket.references(ReferenceParams {
+            text_document_position: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: ReferenceContext {
+                include_declaration,
+            },
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("references".into()))?
     .map_err(|error| LspError::ServerFailed(format!("references failed: {error:?}")))?;
@@ -702,22 +768,21 @@ pub async fn document_symbols(
 ) -> Result<Option<DocumentSymbolResponse>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.document_symbol(DocumentSymbolParams {
-        text_document: TextDocumentIdentifier { uri },
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.document_symbol(DocumentSymbolParams {
+            text_document: TextDocumentIdentifier { uri },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("documentSymbols".into()))?
     .map_err(|error| LspError::ServerFailed(format!("documentSymbol failed: {error:?}")))
 }
 
 /// 组装 TextDocumentPositionParams（line/column 1-indexed → 0-indexed）。
-fn text_document_position_params(
-    uri: Url,
-    line: u32,
-    column: u32,
-) -> TextDocumentPositionParams {
+fn text_document_position_params(uri: Url, line: u32, column: u32) -> TextDocumentPositionParams {
     TextDocumentPositionParams {
         text_document: TextDocumentIdentifier { uri },
         position: Position {
@@ -738,53 +803,17 @@ pub async fn rename(
 ) -> Result<Option<WorkspaceEdit>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.rename(RenameParams {
-        text_document_position: text_document_position_params(uri, line, column),
-        new_name: new_name.to_string(),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.rename(RenameParams {
+            text_document_position: text_document_position_params(uri, line, column),
+            new_name: new_name.to_string(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("rename".into()))?
     .map_err(|error| LspError::ServerFailed(format!("rename failed: {error:?}")))
-}
-
-/// codeAction 请求（诊断快速修复 / 重构建议；only 过滤 kind）。
-///
-/// diagnostics 为当前位置所在文件的诊断（quickfix 类 action 依赖
-/// CodeActionContext.diagnostics——VS Code 语义，rust-analyzer 等按此提供
-/// allow/import 修复；传空则只剩不依赖诊断的 refactor 类）。
-pub async fn code_actions(
-    socket: &mut async_lsp::ServerSocket,
-    path: &Path,
-    line: u32,
-    column: u32,
-    only: Option<Vec<CodeActionKind>>,
-    diagnostics: Vec<Diagnostic>,
-    timeout: Duration,
-) -> Result<Option<Vec<CodeActionOrCommand>>, LspError> {
-    let uri = Url::from_file_path(path)
-        .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    let position = Position {
-        line: line.saturating_sub(1),
-        character: column.saturating_sub(1),
-    };
-    tokio::time::timeout(timeout, socket.code_action(CodeActionParams {
-        text_document: TextDocumentIdentifier { uri },
-        range: Range {
-            start: position,
-            end: position,
-        },
-        context: CodeActionContext {
-            diagnostics,
-            only,
-            trigger_kind: Some(CodeActionTriggerKind::INVOKED),
-        },
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
-    .await
-    .map_err(|_| LspError::RequestTimeout("codeAction".into()))?
-    .map_err(|error| LspError::ServerFailed(format!("codeAction failed: {error:?}")))
 }
 
 /// typeDefinition 请求（跳到符号「类型」的定义；参数类型是 GotoDefinitionParams 别名）。
@@ -797,11 +826,14 @@ pub async fn type_definition(
 ) -> Result<Option<GotoDefinitionResponse>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.type_definition(GotoDefinitionParams {
-        text_document_position_params: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.type_definition(GotoDefinitionParams {
+            text_document_position_params: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("typeDefinition".into()))?
     .map_err(|error| LspError::ServerFailed(format!("typeDefinition failed: {error:?}")))
@@ -817,11 +849,14 @@ pub async fn implementation(
 ) -> Result<Option<GotoDefinitionResponse>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.implementation(GotoDefinitionParams {
-        text_document_position_params: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.implementation(GotoDefinitionParams {
+            text_document_position_params: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("implementation".into()))?
     .map_err(|error| LspError::ServerFailed(format!("implementation failed: {error:?}")))
@@ -833,11 +868,14 @@ pub async fn workspace_symbols(
     query: &str,
     timeout: Duration,
 ) -> Result<Option<WorkspaceSymbolResponse>, LspError> {
-    tokio::time::timeout(timeout, socket.symbol(WorkspaceSymbolParams {
-        query: query.to_string(),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.symbol(WorkspaceSymbolParams {
+            query: query.to_string(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("workspaceSymbols".into()))?
     .map_err(|error| LspError::ServerFailed(format!("workspace/symbol failed: {error:?}")))
@@ -853,10 +891,13 @@ pub async fn prepare_call_hierarchy(
 ) -> Result<Option<Vec<CallHierarchyItem>>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.prepare_call_hierarchy(CallHierarchyPrepareParams {
-        text_document_position_params: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.prepare_call_hierarchy(CallHierarchyPrepareParams {
+            text_document_position_params: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("prepareCallHierarchy".into()))?
     .map_err(|error| LspError::ServerFailed(format!("prepareCallHierarchy failed: {error:?}")))
@@ -868,14 +909,19 @@ pub async fn call_hierarchy_incoming_calls(
     item: CallHierarchyItem,
     timeout: Duration,
 ) -> Result<Option<Vec<CallHierarchyIncomingCall>>, LspError> {
-    tokio::time::timeout(timeout, socket.incoming_calls(CallHierarchyIncomingCallsParams {
-        item,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.incoming_calls(CallHierarchyIncomingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("callHierarchy/incomingCalls".into()))?
-    .map_err(|error| LspError::ServerFailed(format!("callHierarchy/incomingCalls failed: {error:?}")))
+    .map_err(|error| {
+        LspError::ServerFailed(format!("callHierarchy/incomingCalls failed: {error:?}"))
+    })
 }
 
 /// callHierarchy/outgoingCalls 请求：该条目调用了谁（被调者 + 调用点位置）。
@@ -884,14 +930,19 @@ pub async fn call_hierarchy_outgoing_calls(
     item: CallHierarchyItem,
     timeout: Duration,
 ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>, LspError> {
-    tokio::time::timeout(timeout, socket.outgoing_calls(CallHierarchyOutgoingCallsParams {
-        item,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.outgoing_calls(CallHierarchyOutgoingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("callHierarchy/outgoingCalls".into()))?
-    .map_err(|error| LspError::ServerFailed(format!("callHierarchy/outgoingCalls failed: {error:?}")))
+    .map_err(|error| {
+        LspError::ServerFailed(format!("callHierarchy/outgoingCalls failed: {error:?}"))
+    })
 }
 
 /// prepareTypeHierarchy 请求（LSP 3.17）：返回位置处的类型层级条目（类/接口/trait）。
@@ -904,10 +955,13 @@ pub async fn prepare_type_hierarchy(
 ) -> Result<Option<Vec<TypeHierarchyItem>>, LspError> {
     let uri = Url::from_file_path(path)
         .map_err(|_| LspError::Internal(format!("invalid file path: {}", path.display())))?;
-    tokio::time::timeout(timeout, socket.prepare_type_hierarchy(TypeHierarchyPrepareParams {
-        text_document_position_params: text_document_position_params(uri, line, column),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.prepare_type_hierarchy(TypeHierarchyPrepareParams {
+            text_document_position_params: text_document_position_params(uri, line, column),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("prepareTypeHierarchy".into()))?
     .map_err(|error| LspError::ServerFailed(format!("prepareTypeHierarchy failed: {error:?}")))
@@ -919,11 +973,14 @@ pub async fn type_hierarchy_supertypes(
     item: TypeHierarchyItem,
     timeout: Duration,
 ) -> Result<Option<Vec<TypeHierarchyItem>>, LspError> {
-    tokio::time::timeout(timeout, socket.supertypes(TypeHierarchySupertypesParams {
-        item,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.supertypes(TypeHierarchySupertypesParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("typeHierarchy/supertypes".into()))?
     .map_err(|error| LspError::ServerFailed(format!("typeHierarchy/supertypes failed: {error:?}")))
@@ -935,32 +992,69 @@ pub async fn type_hierarchy_subtypes(
     item: TypeHierarchyItem,
     timeout: Duration,
 ) -> Result<Option<Vec<TypeHierarchyItem>>, LspError> {
-    tokio::time::timeout(timeout, socket.subtypes(TypeHierarchySubtypesParams {
-        item,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    }))
+    tokio::time::timeout(
+        timeout,
+        socket.subtypes(TypeHierarchySubtypesParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }),
+    )
     .await
     .map_err(|_| LspError::RequestTimeout("typeHierarchy/subtypes".into()))?
     .map_err(|error| LspError::ServerFailed(format!("typeHierarchy/subtypes failed: {error:?}")))
 }
 
-/// workspace/executeCommand 请求：执行服务器定义命令（重构/导入等）。
-///
-/// 命令名与参数为服务器私有格式——agent 通常从 `lsp-code-action` 返回的
-/// action.command 原样透传（如 rust-analyzer.applySourceChange / gopls.add_import）。
-pub async fn execute_command(
-    socket: &mut async_lsp::ServerSocket,
-    command: &str,
-    arguments: Vec<serde_json::Value>,
-    timeout: Duration,
-) -> Result<Option<serde_json::Value>, LspError> {
-    tokio::time::timeout(timeout, socket.execute_command(ExecuteCommandParams {
-        command: command.to_string(),
-        arguments,
-        work_done_progress_params: WorkDoneProgressParams::default(),
-    }))
-    .await
-    .map_err(|_| LspError::RequestTimeout("executeCommand".into()))?
-    .map_err(|error| LspError::ServerFailed(format!("executeCommand failed: {error:?}")))
+#[cfg(test)]
+mod diagnostic_version_tests {
+    use super::*;
+    #[test]
+    fn late_old_version_cannot_match_new_request() {
+        let at = Instant::now();
+        let entries = vec![PushEntry {
+            version: Some(4),
+            received_at: at,
+            diagnostics: vec![],
+        }];
+        assert!(select_push_entry(&entries, 5, at).is_none());
+        assert_eq!(select_push_entry(&entries, 4, at).unwrap().version, Some(4));
+    }
+    #[test]
+    fn unversioned_is_never_promoted_to_expected_version() {
+        let at = Instant::now();
+        let entries = vec![PushEntry {
+            version: None,
+            received_at: at,
+            diagnostics: vec![],
+        }];
+        assert_eq!(select_push_entry(&entries, 8, at).unwrap().version, None);
+    }
+    #[test]
+    fn independent_document_versions_do_not_invalidate_each_other() {
+        let at = Instant::now();
+        let first = vec![PushEntry {
+            version: Some(3),
+            received_at: at,
+            diagnostics: vec![],
+        }];
+        let second = vec![PushEntry {
+            version: Some(20),
+            received_at: at,
+            diagnostics: vec![],
+        }];
+        let store = HashMap::from([("a", first), ("b", second)]);
+        assert!(select_push_entry(&store["a"], 3, at).is_some());
+        assert!(select_push_entry(&store["b"], 20, at).is_some());
+    }
+    #[test]
+    fn related_documents_are_not_misattributed() {
+        let diagnostic = |message: &str| serde_json::json!({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":message});
+        let report: DocumentDiagnosticReport = serde_json::from_value(serde_json::json!({
+            "kind":"full","items":[diagnostic("primary")],
+            "relatedDocuments":{"file:///related.rs":{"kind":"full","items":[diagnostic("related")]}}
+        })).unwrap();
+        let items = extract_diagnostic_items(report);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].message, "primary");
+    }
 }

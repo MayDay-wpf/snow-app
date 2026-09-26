@@ -35,8 +35,7 @@ pub(super) fn build_chat_completions_payload(
     tools: Option<Value>,
     user_system_prompts: &[String],
 ) -> Result<Value> {
-    let model =
-        resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
+    let model = resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
 
     let skip_image_parsing = request.skip_context.unwrap_or(false);
     let has_user_system_prompts = !user_system_prompts.is_empty();
@@ -403,6 +402,7 @@ mod tests {
             conversation_id: None,
             previous_response_id: None,
             directory_id: None,
+            analysis_workspace_root: None,
             checkpoint_id: None,
             context_compaction: None,
             resume_after_compaction: None,
@@ -451,7 +451,7 @@ mod tests {
             partial_retry_max_chars: None,
             system_prompt_ids_json: "[]".to_string(),
             custom_header_scheme_id: "".to_string(),
-config_json: "{}".to_string(),
+            config_json: "{}".to_string(),
             source: "manual".to_string(),
             sort_order: 0,
             updated_at: "".to_string(),
@@ -653,7 +653,10 @@ config_json: "{}".to_string(),
             .iter()
             .map(|m| m["role"].as_str().unwrap())
             .collect();
-        assert_eq!(roles, vec!["user", "assistant", "tool", "tool", "assistant"]);
+        assert_eq!(
+            roles,
+            vec!["user", "assistant", "tool", "tool", "assistant"]
+        );
     }
 
     /// If the last message of the request is a tool result with an image, the

@@ -1609,6 +1609,12 @@ export function createWorkflowRunner(
     const parentConversationId = options.parentConversationId;
     const dirId = options.directoryId;
     const conversationId = resume?.conversationId ?? createNodeConversationId();
+    const analysisWorkspaceRoot =
+      ctx.sessionsRefData.current.get(conversationId)?.analysisWorkspaceRoot ??
+      ctx.sessionsRefData.current.get(parentConversationId)
+        ?.analysisWorkspaceRoot ??
+      directoryIdToPath(dirId) ??
+      "";
     // 登记活跃节点：主会话中断/删除时据此级联停止本节点。
     let set = activeNodeSessions.get(parentConversationId);
     if (!set) {
@@ -1672,6 +1678,7 @@ export function createWorkflowRunner(
     ctx.ensureSession(conversationId, dirId || undefined);
     const sessionRef = ctx.sessionsRefData.current.get(conversationId);
     if (sessionRef) {
+      sessionRef.analysisWorkspaceRoot = analysisWorkspaceRoot;
       sessionRef.isSending = true;
       sessionRef.isAbortRequested = false;
     }
@@ -1862,6 +1869,7 @@ export function createWorkflowRunner(
               messages: requestMessages,
               conversationId,
               directoryId: dirId || undefined,
+              analysisWorkspaceRoot,
               apiProfile: effectiveApiProfile || undefined,
               model: effectiveModel || undefined,
               planMode: false,
@@ -2219,6 +2227,7 @@ export function createWorkflowRunner(
             toolCall.name,
             toolCall.arguments,
             conversationId,
+            analysisWorkspaceRoot,
           );
           // 敏感命令确认后签发授权 token（与子代理一致）。
           let sensitiveAuthorizationToken: string | undefined;

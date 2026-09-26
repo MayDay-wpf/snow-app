@@ -132,6 +132,19 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
   const agentName = runtimeConfig.agentName;
   const subAgentToolsJson = runtimeConfig.toolsJson;
   const allowedTools = parseSubAgentTools(runtimeConfig.toolsJson);
+  // Capture once for this child runtime, including continue/force-send loops.
+  // Restored children inherit only their own parent, never the active UI project.
+  const analysisWorkspaceRoot =
+    ctx.sessionsRefData.current.get(subConvId)?.analysisWorkspaceRoot ??
+    ctx.sessionsRefData.current.get(parentConversationId)
+      ?.analysisWorkspaceRoot ??
+    directoryIdToPath(dirId) ??
+    "";
+  ctx.ensureSession(subConvId, dirId || undefined);
+  const analysisSession = ctx.sessionsRefData.current.get(subConvId);
+  if (analysisSession) {
+    analysisSession.analysisWorkspaceRoot = analysisWorkspaceRoot;
+  }
 
   // ---------------------------------------------------------------------
   // 子代理队友通信（sub-agents-listTeammates / sub-agents-sendMessage）
@@ -286,6 +299,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         messages: subMessages,
         conversationId: subConvId,
         directoryId: dirId,
+        analysisWorkspaceRoot,
         apiProfile: runtimeConfig.apiProfile,
         model: runtimeConfig.model,
         // Use the resolved per-run snapshot so restore/compaction cannot
@@ -688,6 +702,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         subToolCall.name,
         subToolCall.arguments,
         subConvId,
+        analysisWorkspaceRoot,
       );
       let subSensitiveAuthorizationToken: string | undefined;
       if (

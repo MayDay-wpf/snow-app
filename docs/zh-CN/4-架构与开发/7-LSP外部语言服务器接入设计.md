@@ -1,7 +1,80 @@
 # 7-LSP 外部语言服务器接入设计（lsp MCP 服务）
 
-> 状态：设计稿 v1
+> 状态：当前行为说明 + 历史设计档案（2026-09-26 修订）
 > 对应版本：v0.2.x
+> 下文带日期的 Phase、性能实测与早期结构示例是历史记录；与现状冲突时以 §0、§8.10 和当前代码为准。本文不声明本轮构建、测试或运行时验收已通过。
+
+## 0. 当前行为与验收边界（2026-09-26）
+
+### 0.1 请求工具集合是路由文案的事实来源
+
+五个 provider（Chat、Responses、Anthropic、Gemini、Interactions）先解析最终 `allowed_tools`，再把同一列表用于请求 payload 和 `ConversationContextRequest`。`prompt_context.rs::ToolSnapshot` 以纯函数生成 Language Servers 章节、分析工具行和语义路由：
+
+- 最终集合包含全局/项目服务器与工具开关、语言能力及安装/技术栈条件、子代理 `tools_json` 白名单；不能用少数“代表工具”判断整个 LSP 域。
+- 每个被推荐工具逐项检查；只有 hover 可见时可以只推荐 hover。grep 描述在最终白名单过滤之后生成；grep 结果提示还与调用阶段当前 scope 和现有 allowed-tools 求交。
+- Plan / Goal / WorkFlow 分析清单中的 grep、read、codebase 也按最终集合出现，不再有恒定底行。压缩、禁用工具、轻量请求或收集失败时，不通过独立查询重新广告 LSP 工具。
+- 未覆盖语言、扩展名、工具操作，或扫描不完整时保留 CodeLens。隐藏兜底要求三个替代操作均通过 scope 和白名单；CodeLens 内部转发同样不能绕过子代理白名单。
+- 不新增跨会话工具快照缓存。可见性不证明服务器进程已启动，更不证明索引 ready；提示词不保证预热完成或瞬时响应。
+
+### 0.2 文档同步、诊断与缓存取舍
+
+`ServerSession::ensure_open` 每次读取受大小限制的磁盘内容，与该会话保存的全文快照比较；首次发送 `didOpen`，内容改变时递增版本并发送 `didChange`，相同内容才复用。相同 mtime/size 不能替代内容检查。工作区请求前同步已打开文件，删除文件发送 `didClose`。
+
+诊断请求**不再读写 `lsp_diagnostic_cache` 持久诊断结果**。本次变更不删除旧表或历史数据；保留存储兼容结构不意味着继续命中旧缓存。单文件指纹不能证明依赖、配置、服务器版本和其他文件均未变化，因此接受更多服务器请求、初始化或构建等待，以避免把过期诊断当作当前结果。会话内内容快照、push URI/文档版本筛选、安装探测和技术栈探测的短 TTL 缓存是不同机制，不应统称为诊断结果缓存；它们也不保证“零错误 = 全项目编译通过”。
+
+### 0.3 工作区根、完整候选与安全寻址
+
+- `lsp-workspace-symbols`、`lsp-workspace-diagnostics` 以及支持 `symbol` 的工具在 symbol-only 寻址时可传可选 `workspaceRoot`：必须是**显式、存在的绝对本地目录**，拒绝相对路径、文件、SSH/远程路径。省略时使用当前项目根；无可靠根时要求调用者补充，不落到进程工作目录猜测。
+- 多栈项目枚举选定根内各语言栈根，并检查操作能力。范围指的是选定工作区，不是任意其他项目；显式根也不提升 scope/白名单权限。
+- 内部唯一性判断使用完整候选，不使用展示截断后的前 50 条。扫描受限、服务器失败/超时、不支持的操作、结果裁剪等须呈现 `warnings` / `incomplete` / partial 状态；“部分结果中恰好一条”不等于唯一命中。
+- 仅唯一且已验证的 `selectionRange` 可作为自动精确寻址依据。Flat `SymbolInformation` 的普通 range 或其他不精确候选只供导航，返回 `requiresExplicitCoordinates`；多候选返回歧义，搜索不完整可返回 `partial_symbol_search`，不静默猜位置或继续重命名。
+
+### 0.4 UI 语义
+
+`lsp-workspace-symbols` 的工具 ID 不变；简中显示“全局符号搜索”，繁中显示“全域符號搜尋”，英文显示“Workspace Symbol Search”。“全局”仍限定在请求工作区内。结果卡片区分 complete / partial / failed，显示 warnings、未支持操作、截断和作用域；展开正文采用懒渲染，不把折叠或空列表等同成功。状态徽章的 running 只表示进程/会话状态，不承诺语言索引 ready；过期快照应显示过期状态，而非继续显示无条件就绪。
+
+### 0.5 验收矩阵（待统一验证，不是通过记录）
+
+| 场景                                           | 应检查的行为                                               |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| 四个旧代表工具均禁用，仅 hover 可见            | payload、章节、分析清单和 grep 路由仅推荐可见项            |
+| 子代理只允许 grep / CodeLens，或空白名单       | 不广告未授权 LSP，也不经 CodeLens 转发绕过白名单           |
+| 压缩 / disable_tools / 收集失败                | 最终工具为空，动态 LSP/分析行不重新出现                    |
+| 混合扩展名、缺少替代操作、扫描超预算           | 保留 CodeLens 兜底，作用域不扩张                           |
+| 同尺寸文件修改、文件删除、依赖/配置改变        | 文档实际同步，不命中持久诊断缓存；删除文件不留幽灵文档     |
+| 有效 workspaceRoot / 相对路径 / SSH / 无项目根 | 有效绝对本地目录按显式范围执行；无效或缺失范围给可行动错误 |
+| 超过展示上限的同名候选、一个栈失败             | 唯一性基于完整候选；partial 不得自动 Exact                 |
+| Flat 范围、无 selectionRange、重载符号         | 返回候选/显式坐标要求，不猜坐标执行                        |
+| 不支持 workspace diagnostics 或全部服务器失败  | 不渲染成“全项目无问题”；显示失败/警告及覆盖边界            |
+| 切换项目/全局设置、迟到异步响应、徽章过期      | 设置与状态按 scope 隔离，迟到响应不覆盖新 scope            |
+| 三语名称、折叠大结果与警告                     | ID 不变，三语显示名一致，警告不因懒渲染丢失                |
+
+实现锚点：`native/src/mcp/servers/lsp/{prompt_context,session,resolve,detect,manager}.rs`、`native/src/mcp/tools/{collect,call}.rs`、`native/src/api/conversation/context.rs`、`native/src/prompt/tool_hints.rs`。
+
+### 0.6 条件 MUST、逐工具语言能力与启动退避
+
+共享符号修改前的引用检查、符号重命名前的预览，以及源码修改后的文件诊断，在对应工具处于请求最终 `allowed_tools`、且目标语言/工作区操作确实受支持时为 **MUST**；定义定位、类型查询和大纲等调查操作优先使用对应语义工具，不要求每次运行整套工具。禁用、白名单排除、语言/操作未覆盖、能力不支持、启动退避或健康失败时，强制条件不成立：说明局限并使用当前可见的兜底，不扩大权限。grep 仍用于字面检索，文本命中不是语义引用。
+
+语言覆盖、协商能力和健康必须逐工具判断，不能将所有启用语言的并集套到每个工具。配置启用、已安装、栈匹配、运行中、操作可用和索引就绪是不同维度。启动/初始化失败进入受控退避窗口，冷却期不因重复调用立即反复 spawn；先修复安装/配置，再按运行时允许的窗口重试，不把失败伪装为零结果。
+
+11 项名称在 `toolNames.lsp-*` 与 `toolCall.lsp.op.*` 保持一致，三语同步、工具 ID 和历史 key 不删除：文件诊断、类型与文档查询、符号导航、查找引用、文件符号大纲、符号重命名、函数调用关系、类型层次关系、全局符号搜索、工作区诊断、Go依赖漏洞扫描。`goto` 按 kind 可显示定位定义/定位类型定义/查找实现；完整 ID 映射见 [工具参考](../3-参考手册/2-内置工具参考.md)。
+
+### 0.7 严格诊断批次契约
+
+- 单文件传非空字符串 `filePath`；批量传含 **1..30** 个非空路径字符串的 `filePaths`，二者严格互斥。批量须将全部文件放进列表，不能再同时传非空单路径。
+- 拒绝错误类型、非字符串条目、空数组、空条目及超限，不静默过滤或截断到 30。旧空 `filePath: ""` 占位兼容为未提供，可与有效列表同传；不允许借此绕过类型/数量校验。数量在去重前检查。
+- 按物理文件身份去重，保留原请求中首次出现的顺序，每个去重后文件保留一个结果，包括失败结果。
+- 单 `filePath` 保留旧顶层形状；列表请求（即使只有一项）返回 `batch:true`、`fileCount`、`requestedCount`、`duplicateCount`、`status: complete|partial|failed`、`summary`、`files`。三种计数分别为去重后文件数、原请求条目数、物理重复条目数。
+- `summary` 包含 `completedFiles`、`partialFiles`、`failedFiles`、`errorCount`、`warningCount`。每个文件保留 `filePath`、`status`、`diagnostics`、`warnings`、`truncated`、`error` 等字段；`error:null` 不是错误。空诊断或零统计不等于完整成功，UI 展示汇总及逐文件警告/截断。
+- 文件任务目标有界并发为 **3**（本轮在 `diagnostics.rs` 整合），完成先后不改变结果顺序；同服务器会话锁仍可能串行化，不承诺批量耗时等于单文件。
+
+本节是同步契约，并发调度与相关接口仍在整合；不宣称本轮构建、fixture 或真实运行已通过。
+
+### 0.8 内容绑定的重命名预览凭证
+
+`dryRun=true` 返回冻结编辑以及 `previewId`、`previewExpiresAt`（Unix 毫秒），包括零编辑预览。凭证 TTL **5 分钟**，每会话最多 **32 个**、**单次消费**，绑定目标与涉及文件的实际内容。`dryRun=false` 必须携带凭证并仍通过写入授权；应用冻结结果，不重新请求另一套 rename edits。文件改变、凭证过期/丢失/已消费或会话失效时重新预览。不支持的文件操作在发放可应用凭证前拒绝。UI 不展示凭证原值、不自动调用 apply，无凭证不得宣称可直接应用。
+
+跨文件应用**不是事务**：后续 I/O 失败时，之前文件可能已经写入，不能宣称全部回滚。结构化结果保留 `status: partial|failed`、`applied:false`、`partiallyApplied`、`appliedFiles`、`failedFile`、`error`、`requiresNewPreview`；`failedFileMayBeModified:true` 表示失败文件本身也可能已修改。成功可返回 `previewConsumed:true`。先核对实际文件再重新预览，不重放旧凭证。以上不是运行验收通过声明。
 
 ## 1. 背景与动机
 
@@ -11,7 +84,9 @@
 - **v0.1.21（34677584）**：整体移除，共删除 3186 行。原因：单文件静态分析无法理解跨文件语义（imports/模块系统/框架全局），误报结构性无解；10 语言手写分析器维护成本爆炸；不可信诊断对 agent 是负价值。
 - **结论**：诊断能力本身有价值（否则不会专门修误报），问题出在「自研实现」路线。正确路线是**消费外部专业语言服务器**（rust-analyzer/gopls/tsc 等由官方/社区维护）。
 
-### 1.2 现状缺口
+### 1.2 设计初期缺口（历史）
+
+> 本节记录接入前的背景，不代表当前没有 LSP 运行时或设置页；当前行为见 §0。
 
 - `~/.snow/lsp-config.json`（scope `lsp-config`）是**预留配置域**：字段完整（command/args/fileExtensions/installCommand/initializationOptions）、Rust 侧深度校验已实现（`config/mod.rs:985`），6 语言预置，但**无任何消费方**，写入不改变行为。
 - codelens 仅剩符号导航（outline/find_definition/find_references），无诊断/hover/格式化能力。
@@ -169,7 +244,7 @@ stateDiagram-v2
     Ready --> Restarting: 进程崩溃
     Restarting --> Starting: 重启计数 <2
     Restarting --> Failed: 重启计数 ≥2
-    Failed --> Inactive: 下次调用重新尝试（重置计数）
+    Failed --> Inactive: 退避结束且允许重试
     Ready --> Closing: 会话上限淘汰（LRU）
     Closing --> Inactive
 ```
@@ -272,10 +347,10 @@ flowchart LR
 
 ```
 lsp-diagnostics filePath=<绝对路径>            # 单文件
-lsp-diagnostics filePaths=[<路径1>, <路径2>]   # 批量（≤30 文件，互斥）
+lsp-diagnostics filePaths=[<路径1>, <路径2>]   # 批量（1..30 文件，严格互斥）
 ```
 
-**批量语义**（2026-08-14 改进）：`filePaths` 批量时逐文件诊断并合并输出 `{ batch, fileCount, files: [{filePath, language, server, summary, diagnostics} | {filePath, error}] }`——单文件失败记录 error 继续（不中断整批）；输出按文件分组，agent 一次验证多个改动文件。
+**批量契约（2026-09-26 修订）**：单文件顶层兼容、严格互斥的 1..30 输入、物理去重与稳定顺序、请求/去重计数、逐文件状态及 summary、目标并发 3，完整规则见 §0.7；旧缩略输出不代表全部字段。
 
 执行序列（**已按 2026-08-14 实测修订**）：
 
@@ -320,14 +395,11 @@ severity 映射：`1=error, 2=warning, 3=information, 4=hint`（LSP DiagnosticSe
 5. **async-lsp Router 未注册通知默认终止 mainloop**（Break）：必须注册全部常见通知（showMessage/logMessage/telemetry/progress/publishDiagnostics）与请求（workspace/configuration、workspaceFolders）。
 6. **tokio 上下文禁止 `blocking_lock()`**（panic）；`min_by_key` 闭包内不能 await——先收集再求最小。
 
-**性能优化（2026-08-14 实施，任务 08-14-lsp-diagnostics-perf）**：
+**诊断性能与新鲜度（2026-09-26 修订）**：
 
-诊断路径从「单文件 3-8s、批量 10 文件 30-80s」优化到「未修改文件毫秒级、批量 ≈ 单文件耗时」：
+2026-08-14 的性能方案曾使用 `(mtime_ms, size)` 指纹和数据库结果缓存；这属于历史方案，其“未修改文件毫秒级、服务器零参与”结论不再适用于当前实现。
 
-1. **DB 持久化诊断缓存**（`lsp_diagnostic_cache` 表）：指纹 = (mtime_ms, size)。命中直接返回上次结果，**服务器零参与（连冷启动都跳过）**；应用重启 / 会话 LRU 淘汰后缓存仍有效。上限 200 条（LRU，按 updated_at 清理）。写盘类工具（format/rename/code-action）落盘后失效对应条目。
-2. **事件驱动等待**：删除诊断路径的固定 `sleep(1000ms)`——didChange/didSave 后 push 到达或 pull 有结果即返回；pull 轮询间隔 2s → 500ms（首次立即拉取，上限 8 次不变）。双轨合并语义不变（rust-analyzer 仍须等 flycheck push，这是语义硬约束）。
-3. **批量并行**：`filePaths` 批量拆三阶段——①锁内串行准备（缓存检查 + didChange/didSave，快操作）；②锁外并发等待（socket / push store 克隆入 task，`tokio::join!` 等待重叠）；③锁内串行回写缓存。10 文件总耗时 ≈ 单文件耗时。
-4. **push store 旧值 bug 修复**：didChange 前移除该 uri 的旧 key——否则 `wait_push_diagnostics` 会立即返回上次结果（key 存在即返回，不区分新旧），重复诊断拿到过期数据。
+当前诊断不读写 `lsp_diagnostic_cache`，也不删除历史数据。准备阶段同步实际内容及版本，再进行 pull/push 等待和合并；批量并发降低重复等待，但不保证批量耗时等于单文件。依赖、配置、服务器环境或其他文档改变后仍需重新诊断；旧 push 值须按当前版本/代次筛选。这里选择新鲜度优先于无法证明有效的持久缓存命中，验收要求见 §0.5。
 
 ### 8.2 lsp-hover（Phase 1）
 
@@ -385,7 +457,7 @@ lsp-hover filePath=<绝对路径> line=<1-based> column=<1-based>
 
 **校正边界**：只做「未安装 → 停用」单向校正，**绝不反向自动启用**——用户安装服务器后需在设置页手动打开开关（避免覆盖用户的明确意图；也避免用户故意停用已装服务器时被强制启用）。
 
-**探测开销**：PATH 扫描毫秒级；仅对 enabled 记录执行；`get_or_start` 只在首次建会话时探测一次（已有会话直接复用，零开销）。不做 TTL 缓存——保持与真实环境一致，用户装/卸服务器后立即生效。
+**探测与失效边界**：安装探测使用短 TTL 缓存（当前 10 秒），技术栈检测使用短 TTL 缓存（当前 60 秒）；它们减少文件系统扫描，不是诊断结果缓存。环境改变后可能需等待探测过期或刷新。已有会话还需检查有效配置及进程状态，不能承诺零开销、立即 ready 或瞬时响应。
 
 **前端**：`lsp-settings` 页面列表项显示 ✅已安装 / ❌未安装 徽标（`probeLspServerCommands` 并行探测），与 enabled 开关并排，状态一目了然。
 
@@ -435,9 +507,11 @@ lsp-hover filePath=<绝对路径> line=<1-based> column=<1-based>
 3. **prepare 空结果**：位置未命中条目（如点击表达式）返回空 incoming/outgoing 数组而非错误。
 4. **超时/上限**：复用 `REQUEST_TIMEOUT`(10s) 与 `MAX_REFERENCES`(100)；调用点上下文读取失败留空（同 references）。
 
-### 8.9 code-action 恢复 + execute-command（Phase 5.5，2026-08-15 实施）
+### 8.9 code-action 与 execute-command（已废止，2026-09-25 移除）
 
-> 背景：Phase 4.6 精简时移除了 code-action（理由「LLM 本身即补全器」——对**补全**成立，但对**自动修复/重构执行**不成立：诊断错误 → 服务器返回**精确 edit**（补 import、修类型、加参数），AI 手写修复常有行列偏移错误）。Phase 5.5 恢复 code-action 并新增 execute-command 执行器，补齐「修复 + 重构执行」象限。
+> **【已废止 / DEPRECATED（2026-09-25）】**：基于全量会话库数据统计（2026-08-14 ~ 09-25，共 3,761 次 `lsp-*` 调用，二者命中均为 0 次），已于 2026-09-25 全链路删除。光标菜单向交互与 agent 无光标场景存在结构性不匹配；工具总数由 13 降为 11。重新引入前置条件：须出现真实 agent 调用需求证据或交互形态发生根本变化，并提交独立提案评审。下方历史设计仅供归档查阅。
+
+> 背景（历史）：Phase 4.6 精简时移除了 code-action（理由「LLM 本身即补全器」——对**补全**成立，但对**自动修复/重构执行**不成立：诊断错误 → 服务器返回**精确 edit**（补 import、修类型、加参数），AI 手写修复常有行列偏移错误）。Phase 5.5 恢复 code-action 并新增 execute-command 执行器，补齐「修复 + 重构执行」象限。
 
 **工具定义**：
 
@@ -453,27 +527,18 @@ lsp-hover filePath=<绝对路径> line=<1-based> column=<1-based>
 3. **语言定位**：filePath 可选——提供时按扩展名匹配语言并 ensure_open；缺省时仅当**恰好一个**启用服务器才可直接调用（多服务器场景报错提示传 filePath）。
 4. **能力过滤（§8.7）**：code-action 按附录 F ✅ 语言标记（typescript/python/go/rust/c/java/ruby）；execute-command 当前标记 rust/go（2026-08-15 实测核实），其他语言待核实后补充。命令执行有副作用——dryRun 默认 true，false 需 agent 显式传参。
 
-### 8.10 系统提示词动态注入（2026-09-24）
+### 8.10 请求级动态提示词（2026-09-26）
 
-目标：让模型在该用语义工具的场景真正调用 `lsp-*`。背景实测：`lsp-diagnostics` 被调用 134 次，其余 lsp 工具合计仅 11 次，而 `grep-search` 941 次——**泛化的「MUST 用 lsp-\*」规则收效有限**（模型无法稳定自判「我这次算不算语义查询」），有效的是「动作-时机硬绑定 + 明示替代品缺陷」。
+历史上的“LSP 域激活后固定推荐一组工具”已改为最终请求工具集合驱动。五个 provider 先收集一次，再将同一列表交给 payload 与上下文；`ToolSnapshot` 不查询或缓存另一套可见性。
 
-三层注入机制（全部条件生效：lsp 实际激活时才出现，与工具可见性严格一致）：
+| 文案位置                        | 当前依据                                         | 边界                                                    |
+| ------------------------------- | ------------------------------------------------ | ------------------------------------------------------- |
+| Language Servers 章节           | `ToolSnapshot::system_prompt_section`            | 逐工具过滤，空 LSP 集合不注入；不承诺运行态、预热或延迟 |
+| Plan / Goal / WorkFlow 分析清单 | 最终快照中的 LSP、grep、read、codebase、CodeLens | 禁用工具无对应行，不保留固定底行                        |
+| grep 描述                       | `collect.rs` 最终过滤后调用纯路由生成器          | 显式白名单和通配子代理都在最终集合形成后注入            |
+| grep 结果提示                   | 当前暴露/scope 与调用方 allowed-tools 的交集     | 裸标识符只是启发式；提示可用替代项，不强制改道          |
 
-| 层               | 注入点                                                                    | 内容                                                                                                                                                                                                                                                               | 性质                                                                   |
-| ---------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| ① 系统提示词章节 | `build_system_prompt_section`（api/conversation/context.rs 每轮请求注入） | `## Language Servers`：服务器清单 + 运行状态（running / starts on first use）+ 按能力分组的 `lsp-*` 工具清单 + Routing rules（场景→工具硬绑定）+ 预热（后台 spawn 消除首次调用冷启动）                                                                             | 服务器可用时注入                                                       |
-| ② 平替工具反制   | `collect.rs`（每轮工具收集时改写 grep-search 描述）                       | 「Semantic queries are NOT grep's job」+ 场景→工具路由清单（goto/references/hover/workspace-symbols/diagnostics）；只点名**实际暴露**的工具（workspace-symbols 条件渲染）                                                                                          | `lsp_active` 时注入；未激活保持原描述（不影响其他项目与 prompt cache） |
-| ③ 工具时机触发器 | `tool_schemas()`（lsp/mod.rs 静态 schema）                                | 给 goto（「Use INSTEAD OF grep to locate a definition」）、references（「Run this BEFORE renaming/removing any shared symbol」）、hover（「Cheaper than filesystem-read when you only need a type」）、workspace-symbols（「Use INSTEAD OF grep」）加动作-时机引导 | lsp 工具只在激活时暴露 → 天然条件生效                                  |
-
-Routing rules（系统提示词章节内，2026-09-24 场景化重写；2026-09-25 增补优先级总纲）：
-
-- **优先级总纲**：代码语义问题（符号、引用、类型、影响面、结构）一律先用 `lsp-*`；通用只读工具（grep、直接读文件）只承接 LSP 覆盖不到的「非语义」场景——字面文本与原始文件内容。
-- 定位符号定义 → `lsp-goto`；全部引用/重命名影响面 → `lsp-references`；类型/签名 → `lsp-hover`；按名找符号 → `lsp-workspace-symbols`（后两项按 merged 能力条件渲染）。
-- `grep-search` 会命中其他模块的同名符号/注释/字符串——**仅限字面文本**（日志、配置键、注释），语义查询禁用。
-- 行列号来源：`lsp-symbols` / `filesystem-read` 输出的 1-indexed 行号直接喂给 `lsp-goto` / `lsp-references` 的 `line`/`column` 参数（组合技，降低参数成本）。
-- 改完代码 → 对改动文件跑 `lsp-diagnostics`（`filePaths` 批量 ≤30）。
-
-设计约束：注入条件必须与工具可见性一致（不一致会诱导调用不可见工具）；同一项目内 lsp 状态不变则注入文本稳定（prompt cache 友好）。
+对实际可见且目标语言/操作受支持的语义任务执行条件 MUST（见 §0.6）；不支持、退避或失败时使用可见兜底并说明局限。文本命中不证明语义引用；语言服务器诊断不替代项目构建和测试。具体工作区范围、partial 安全和待验收项见 §0。
 
 ## 9. 降级与错误策略
 
@@ -484,7 +549,7 @@ Routing rules（系统提示词章节内，2026-09-24 场景化重写；2026-09-
 | **技术栈不存在（§7.2，2026-09-24）** | 错误：`项目中未检测到 {lang} 技术栈标志文件（Cargo.toml, …）。LSP 服务器只在技术栈真实存在时启动：请确认该技术栈位于此项目内，或检查文件路径与项目根是否匹配`——工具暴露层同一判定（§8.0「暴露 = 可调用」），正常路径下模型看不到此类调用 |
 | 启用但未安装（§8.6）                 | 启动会话前 PATH 探测命中 → 错误 + `installCommand` 提示（不等到 spawn ENOENT）                                                                                                                                                           |
 | 命令不存在（spawn ENOENT）           | 错误 + `installCommand` 提示（如 `rustup component add rust-analyzer`）                                                                                                                                                                  |
-| initialize 超时/崩溃≥2 次            | 错误：`语言服务器 xxx 启动失败，请检查安装与配置`；会话标记 init_failed，本次调用结束；下次调用重置重试                                                                                                                                  |
+| initialize 超时/崩溃≥2 次            | 错误：`语言服务器 xxx 启动失败，请检查安装与配置`；会话标记失败并进入启动退避；冷却期不立即重启，按运行时健康与配置重新检查后再试                                                                                                        |
 | pull 不支持                          | 自动 fallback push（透明）                                                                                                                                                                                                               |
 | 请求超时                             | 错误：`lsp 请求超时（10s）`                                                                                                                                                                                                              |
 | 服务器不支持某请求（§8.7）           | 错误：`当前语言的服务器（xxx）不支持 lsp-yyy`——静态能力表在 collect 阶段已过滤（§8.7.1），此错误仅兜底运行时能力声明与静态表不一致的情况                                                                                                 |
@@ -505,19 +570,22 @@ Routing rules（系统提示词章节内，2026-09-24 场景化重写；2026-09-
 
 ## 11. 分阶段实施计划
 
-| 阶段          | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 验证                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase 0**   | Cargo.toml 依赖；`lsp_server_configs` 表 + storage 服务 + exports；旧文件一次性迁移；`lsp/` 目录骨架；builtin.rs 注册；call.rs 分支；种子逻辑改表（按平台）                                                                                                                                                                                                                                                                                                  | `cargo check` + `npx tsc --noEmit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **Phase 1**   | 会话生命周期（spawn/initialize/回收/重启）+ `lsp-diagnostics` + `lsp-hover`（配置从表读取）                                                                                                                                                                                                                                                                                                                                                                  | rust-analyzer 实测（见 §12）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Phase 1.5** | **lsp-config scope 数据库化**（DB-backed：config-get/set/delete 直读写表，照 subAgents/imagegen）——**agent 配置路径打通**                                                                                                                                                                                                                                                                                                                                    | config-set 后工具立即生效（无需重启）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Phase 2**   | 前端 `lsp-settings` 页面（照 mcp-settings：列表+编辑器+开关+摘要；注册链：app_control VALID_PAGES + types.ts + MainContent lazy + settingsItems.ts + LspSettingsPanel + lspSettings/ 子目录；i18n 三语言同步）                                                                                                                                                                                                                                               | ✅ 已完成（2026-08-14）：页面 CRUD 与表一致，`app-control-openSettings page=lsp-settings` 可用                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| **Phase 3**   | 更多工具（definition/references/symbols/format）+ 项目级作用域（project_lsp_server_configs + config scope projectId + 前端 tab）                                                                                                                                                                                                                                                                                                                             | ✅ 已完成（2026-08-14）：工具实测（跨文件 definition/references/format dryRun）+ 项目覆盖语义实测                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Phase 4**   | **按服务器能力动态暴露子工具**（§8.7：capabilities.rs 静态能力表 + collect 过滤——用户启用了哪些语言的服务器，就暴露这些服务器支持的工具子集）+ 新增高价值工具（completion / rename / code-action / signature-help，优先级见附录 F）                                                                                                                                                                                                                          | ✅ 已完成（2026-08-14）：能力过滤实测（仅 php 启用 → 8 工具无 rename/code-action；恢复后 10 工具）；4 新工具 gopls 实测（completion 9 条 / rename dryRun 3 edits / code-action 6 项 / signature-help 签名）；运行时二次校验实测（php 调 rename 报不支持错误）                                                                                                                                                                                                                                                                |
-| **Phase 4.5** | **补齐 agent 高价值工具**：`lsp-workspace-symbols`（跨所有启用服务器语言合并查询，按内容去重、上限 50）、`lsp-implementation`（接口/trait 实现跳转）、`lsp-type-definition`（类型定义跳转）；附录 F-3 否决项定稿（document-highlight 被 references 超集覆盖、inlay-hints 被 hover 覆盖且输出噪音大、semantic-tokens 价值低）                                                                                                                                 | ✅ 已完成（2026-08-14）：gopls 实测（type-definition 在变量上跳类型 / implementation 返回 2 个实现 / workspace-symbols 合并查询项目符号优先）；工具列表 13 个                                                                                                                                                                                                                                                                                                                                                                |
-| **Phase 4.6** | **工具集精简（13→10）+ 项目级诊断**：移除 4 个编辑器向低价值工具（completion/signature-help/code-action/format——LLM 本身即补全器，agent 无光标场景实测空结果；实现代码保留可恢复）；新增 `lsp-workspace-diagnostics`（LSP 3.17 workspace/diagnostic pull，rust-analyzer/gopls/clangd 支持，TS/pyright 不支持自动跳过，按文件分组聚合，失败降级 warnings）                                                                                                    | ✅ 已完成（2026-08-14，任务 08-14-lsp-tools-trim）：工具列表 10 个 = diagnostics/hover/definition/references/symbols/rename/type-definition/implementation/workspace-symbols/workspace-diagnostics                                                                                                                                                                                                                                                                                                                           |
-| **Phase 5**   | **补齐 agent 高价值层级工具（§8.8）**：`lsp-call-hierarchy`（LSP 3.16 双向调用链——incoming 谁调用它 + outgoing 它调用谁，一次调用拿全，含调用点代码上下文，改前影响分析无需递归 references）、`lsp-type-hierarchy`（LSP 3.17 父类型链 + 全部子类型，重构基类影响面评估）；能力矩阵按服务器源码复核（tsserver callHierarchy ❌ 修正为 ✅；新增 typeHierarchy 行）                                                                                             | ✅ 已完成（2026-08-15，任务 08-15-lsp-hierarchy-tools）：cargo check + tsc + electron-vite build 通过；能力矩阵单元测试；**rust-analyzer 实测**（session.rs 函数上 call-hierarchy：incoming 1 调用者 + outgoing 18 被调者含标准库、带调用点上下文与签名 detail）；**gopls v0.23 实测**（临时 Go 项目：ReadWriter 接口 → supertypes=[Reader] / subtypes=[File]；Reader 接口 → subtypes=[ReadWriter, File, Buffer] 含接口继承者）；能力校验实测（rust 调 type-hierarchy 报「当前语言的服务器（rust）不支持」）；工具列表 12 个 |
-| **Phase 5.5** | **恢复 `lsp-code-action` + 新增 `lsp-execute-command`（§8.9）**：code-action 恢复（快速修复/重构菜单，agent 修 bug 的正确性痛点——服务器给精确 edit 而非 LLM 手写；apply=true 应用 edit 类，command 类列出待 execute）；execute-command（workspace/executeCommand 执行器——rust-analyzer.applySourceChange / gopls.add_import 等，结果识别 WorkspaceEdit → dryRun 预览/应用写盘；filePath 可选，缺省要求唯一启用服务器）                                       | ✅ 已完成（2026-08-15，任务 08-15-lsp-execute-command）：cargo check + tsc + 单元测试（3 passed）通过；**实测发现并修复**：rust-analyzer 的 quickfix 类 action 依赖 `CodeActionContext.diagnostics`（VS Code 语义），空上下文只返回 refactor 类 → code-action 前自动 pull 当前文件诊断传入（client.rs `code_actions` 增 diagnostics 参数）；工具列表 14 个；**实测待重启后补录**（execute-command 全链路）                                                                                                                   |
-| **Phase 6**   | **技术栈感知 + 提示词强化（2026-09-24）**：① 栈根发现（§7.2）——`resolve_lang_root` 以真实技术栈根（如 `native/`）为会话根，16 处会话获取路径全部切换；`NoLangStack` 明确拒绝无栈语言；暴露判定统一（§8.0「暴露 = 可调用」）；状态过滤 `starts_with`。② 系统提示词三层动态注入（§8.10）——Language Servers 章节 + grep-search 描述反制 + 工具时机触发器 + Routing rules 场景化重写。③ `markers_for_lang` 12 语言标志表 + `find_lang_root`（向上找 + 向下扫）。 | ✅ 已完成（2026-09-24）：cargo check 0 警告 + 3 单测全绿（栈根向上 / 无栈拒绝 / 12 语言覆盖）+ build:rust 成功；运行时实测（跨文件 references / TS 栈根 / 无栈拒绝）待应用重启                                                                                                                                                                                                                                                                                                                                               |
+| 阶段          | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 验证                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 0**   | Cargo.toml 依赖；`lsp_server_configs` 表 + storage 服务 + exports；旧文件一次性迁移；`lsp/` 目录骨架；builtin.rs 注册；call.rs 分支；种子逻辑改表（按平台）                                                                                                                                                                                                                                                                                                                                                       | `cargo check` + `npx tsc --noEmit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Phase 1**   | 会话生命周期（spawn/initialize/回收/重启）+ `lsp-diagnostics` + `lsp-hover`（配置从表读取）                                                                                                                                                                                                                                                                                                                                                                                                                       | rust-analyzer 实测（见 §12）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Phase 1.5** | **lsp-config scope 数据库化**（DB-backed：config-get/set/delete 直读写表，照 subAgents/imagegen）——**agent 配置路径打通**                                                                                                                                                                                                                                                                                                                                                                                         | config-set 后工具立即生效（无需重启）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Phase 2**   | 前端 `lsp-settings` 页面（照 mcp-settings：列表+编辑器+开关+摘要；注册链：app_control VALID_PAGES + types.ts + MainContent lazy + settingsItems.ts + LspSettingsPanel + lspSettings/ 子目录；i18n 三语言同步）                                                                                                                                                                                                                                                                                                    | ✅ 已完成（2026-08-14）：页面 CRUD 与表一致，`app-control-openSettings page=lsp-settings` 可用                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Phase 3**   | 更多工具（definition/references/symbols/format）+ 项目级作用域（project_lsp_server_configs + config scope projectId + 前端 tab）                                                                                                                                                                                                                                                                                                                                                                                  | ✅ 已完成（2026-08-14）：工具实测（跨文件 definition/references/format dryRun）+ 项目覆盖语义实测                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Phase 4**   | **按服务器能力动态暴露子工具**（§8.7：capabilities.rs 静态能力表 + collect 过滤——用户启用了哪些语言的服务器，就暴露这些服务器支持的工具子集）+ 新增高价值工具（completion / rename / code-action / signature-help，优先级见附录 F）                                                                                                                                                                                                                                                                               | ✅ 已完成（2026-08-14）：能力过滤实测（仅 php 启用 → 8 工具无 rename/code-action；恢复后 10 工具）；4 新工具 gopls 实测（completion 9 条 / rename dryRun 3 edits / code-action 6 项 / signature-help 签名）；运行时二次校验实测（php 调 rename 报不支持错误）                                                                                                                                                                                                                                                                |
+| **Phase 4.5** | **补齐 agent 高价值工具**：`lsp-workspace-symbols`（跨所有启用服务器语言合并查询，按内容去重、上限 50）、`lsp-implementation`（接口/trait 实现跳转）、`lsp-type-definition`（类型定义跳转）；附录 F-3 否决项定稿（document-highlight 被 references 超集覆盖、inlay-hints 被 hover 覆盖且输出噪音大、semantic-tokens 价值低）                                                                                                                                                                                      | ✅ 已完成（2026-08-14）：gopls 实测（type-definition 在变量上跳类型 / implementation 返回 2 个实现 / workspace-symbols 合并查询项目符号优先）；工具列表 13 个                                                                                                                                                                                                                                                                                                                                                                |
+| **Phase 4.6** | **工具集精简（13→10）+ 项目级诊断**：移除 4 个编辑器向低价值工具（completion/signature-help/code-action/format——LLM 本身即补全器，agent 无光标场景实测空结果；实现代码保留可恢复）；新增 `lsp-workspace-diagnostics`（LSP 3.17 workspace/diagnostic pull，rust-analyzer/gopls/clangd 支持，TS/pyright 不支持自动跳过，按文件分组聚合，失败降级 warnings）                                                                                                                                                         | ✅ 已完成（2026-08-14，任务 08-14-lsp-tools-trim）：工具列表 10 个 = diagnostics/hover/definition/references/symbols/rename/type-definition/implementation/workspace-symbols/workspace-diagnostics                                                                                                                                                                                                                                                                                                                           |
+| **Phase 5**   | **补齐 agent 高价值层级工具（§8.8）**：`lsp-call-hierarchy`（LSP 3.16 双向调用链——incoming 谁调用它 + outgoing 它调用谁，一次调用拿全，含调用点代码上下文，改前影响分析无需递归 references）、`lsp-type-hierarchy`（LSP 3.17 父类型链 + 全部子类型，重构基类影响面评估）；能力矩阵按服务器源码复核（tsserver callHierarchy ❌ 修正为 ✅；新增 typeHierarchy 行）                                                                                                                                                  | ✅ 已完成（2026-08-15，任务 08-15-lsp-hierarchy-tools）：cargo check + tsc + electron-vite build 通过；能力矩阵单元测试；**rust-analyzer 实测**（session.rs 函数上 call-hierarchy：incoming 1 调用者 + outgoing 18 被调者含标准库、带调用点上下文与签名 detail）；**gopls v0.23 实测**（临时 Go 项目：ReadWriter 接口 → supertypes=[Reader] / subtypes=[File]；Reader 接口 → subtypes=[ReadWriter, File, Buffer] 含接口继承者）；能力校验实测（rust 调 type-hierarchy 报「当前语言的服务器（rust）不支持」）；工具列表 12 个 |
+| **Phase 5.5** | **恢复 `lsp-code-action` + 新增 `lsp-execute-command`（§8.9）**：code-action 恢复（快速修复/重构菜单，agent 修 bug 的正确性痛点——服务器给精确 edit 而非 LLM 手写；apply=true 应用 edit 类，command 类列出待 execute）；execute-command（workspace/executeCommand 执行器——rust-analyzer.applySourceChange / gopls.add_import 等，结果识别 WorkspaceEdit → dryRun 预览/应用写盘；filePath 可选，缺省要求唯一启用服务器）                                                                                            | ✅ 已完成（2026-08-15，任务 08-15-lsp-execute-command）：cargo check + tsc + 单元测试（3 passed）通过；**实测发现并修复**：rust-analyzer 的 quickfix 类 action 依赖 `CodeActionContext.diagnostics`（VS Code 语义），空上下文只返回 refactor 类 → code-action 前自动 pull 当前文件诊断传入（client.rs `code_actions` 增 diagnostics 参数）；工具列表 14 个；**实测待重启后补录**（execute-command 全链路）                                                                                                                   |
+| **Phase 6**   | **技术栈感知 + 提示词强化（2026-09-24）**：① 栈根发现（§7.2）——`resolve_lang_root` 以真实技术栈根（如 `native/`）为会话根，16 处会话获取路径全部切换；`NoLangStack` 明确拒绝无栈语言；暴露判定统一（§8.0「暴露 = 可调用」）；状态过滤 `starts_with`。② 系统提示词三层动态注入（§8.10）——Language Servers 章节 + grep-search 描述反制 + 工具时机触发器 + Routing rules 场景化重写。③ `markers_for_lang` 12 语言标志表 + `find_lang_root`（向上找 + 向下扫）。                                                      | ✅ 已完成（2026-09-24）：cargo check 0 警告 + 3 单测全绿（栈根向上 / 无栈拒绝 / 12 语言覆盖）+ build:rust 成功；运行时实测（跨文件 references / TS 栈根 / 无栈拒绝）待应用重启                                                                                                                                                                                                                                                                                                                                               |
+| **Phase 7**   | **LSP 工具集清理与 agent 引导强化（2026-09-25，数据驱动）**：① 全链路移除 `lsp-code-action` 与 `lsp-execute-command`（全量会话库统计 2026-08-14 ~ 09-25 共 3,761 次 `lsp-*` 调用中 0 次命中；二者为编辑器向光标交互模型，与 agent 场景结构性不匹配；工具总数 13→11）；② §8.9 废止；重新引入前置条件：出现真实调用需求证据或交互形态变化，须单独提案评审；③ Routing rules 场景绑定扩容（rename / type-hierarchy / call-hierarchy / vulncheck / workspace-diagnostics 条件渲染）+ rename/hover 工具描述触发器强化。 | ✅ 已完成（2026-09-25）：全链路代码/UI/i18n/文档/样式同步清理，编译检查 0 警告，单测与构建通过                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Phase 8**   | **符号名直接寻址引擎首发（2026-09-25）**：`lsp-hover`、`lsp-references`、`lsp-rename` 引入 `symbol` 参数，AST 优先推测匹配 + 歧义安全拦截（附录 G）。                                                                                                                                                                                                                                                                                                                                                             | ✅ 已完成（2026-09-25）：单测全绿，前端歧义卡片与预览行支持。                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Phase 9**   | **符号直接寻址全覆盖与工作区全局直达（2026-09-25）**：① 寻址覆盖扩展——`symbol` 扩展至 `lsp-goto`、`lsp-call-hierarchy` 与 `lsp-type-hierarchy`；② `filePath` 全面设为可选——支持仅传 `symbol` 跨工作区技术栈自动定位，单命中直达，多命中结构化歧义卡片，零命中精准报错；③ Grep 工具智能反弹与快速直达——严格基于 `is_lsp_tooling_active` 条件注入 `symbol` 直达指引；④ 前端 LspToolCall.tsx 适配无 filePath 展示。                                                                                                  | ✅ 已完成（2026-09-25）：Rust/TS/文档三端一致，单元测试 6/6 全绿，tsc/vite build 全绿。                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **实施红线**：
 
@@ -838,21 +906,21 @@ sequenceDiagram
 
 ### F-3 可补充工具规划（Phase 4 候选，按 Agent 场景价值排序；状态截至 2026-08-14）
 
-| 优先级 | 新工具                   | LSP 请求                                                                                            | 覆盖服务器 | 落地成本 | 状态                                        | 备注                                                                                                                                                                                    |
-| ------ | ------------------------ | --------------------------------------------------------------------------------------------------- | ---------- | -------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🥇     | `lsp-completion`         | `textDocument/completion`                                                                           | 12/12      | 低       | ✅ 已实施（Phase 4）                        | 输出 label/kind/detail/doc + 是否触发 signatureHelp；session/客户端全现成                                                                                                               |
-| 🥈     | `lsp-rename`             | `textDocument/rename`（+prepareRename）                                                             | 9/12       | 低       | ✅ 已实施（Phase 4）                        | 返回 WorkspaceEdit（多文件 edits）；PHP🔒/Kotlin/C# 不暴露（§8.7 过滤）                                                                                                                 |
-| 🥉     | `lsp-code-action`        | `textDocument/codeAction`（+workspace/executeCommand）                                              | 10/12      | 中       | ✅ 已实施（Phase 4）+ **恢复（Phase 5.5）** | 处理 Command 执行（如 organize imports）；PHP🔒 过滤                                                                                                                                    |
-| 🏅     | `lsp-signature-help`     | `textDocument/signatureHelp`                                                                        | 10/12      | 低       | ✅ 已实施（Phase 4）                        | 参数/签名提示；C#/Lua 不暴露                                                                                                                                                            |
-| 5      | `lsp-type-definition`    | `textDocument/typeDefinition`                                                                       | 9/12       | 低       | ✅ 已实施（Phase 4.5）                      | 与 definition 同构，复用输出格式；变量上直接跳类型                                                                                                                                      |
-| 6      | `lsp-implementation`     | `textDocument/implementation`                                                                       | 8/12       | 低       | ✅ 已实施（Phase 4.5）                      | 接口/trait 实现跳转（references 覆盖不到的实现关系）                                                                                                                                    |
-| 7      | `lsp-workspace-symbols`  | `workspace/symbol`                                                                                  | 11/12      | 中       | ✅ 已实施（Phase 4.5）                      | 跨文件按名搜符号；**跨所有启用服务器语言合并查询**、按内容去重、上限 50；C# 不暴露；pyright 需索引                                                                                      |
-| 8      | `lsp-document-highlight` | `textDocument/documentHighlight`                                                                    | 9/12       | 低       | ❌ 否决（评估）                             | 编辑器光标向能力；agent 无光标概念，`lsp-references`（可单文件）已是超集                                                                                                                |
-| 9      | `lsp-inlay-hints`        | `textDocument/inlayHint`                                                                            | 7/12       | 中       | ❌ 否决（评估）                             | 全文件推断类型输出噪音大、污染上下文；点查询用 `lsp-hover` 更精准                                                                                                                       |
-| 10     | `lsp-semantic-tokens`    | `textDocument/semanticTokens`                                                                       | 8/12       | 高       | ❌ 否决（评估）                             | 编辑器着色向，agent 价值低，不建议                                                                                                                                                      |
-| 11     | `lsp-call-hierarchy`     | `textDocument/prepareCallHierarchy` + `callHierarchy/incomingCalls` + `callHierarchy/outgoingCalls` | 5/12       | 低       | ✅ 已实施（Phase 5，2026-08-15）            | **双向调用链一次拿全**（incoming 谁调它 + outgoing 它调谁，含调用点代码上下文）——改前影响分析无需递归 references；TS/gopls/rust-analyzer/jdtls/sourcekit-lsp 暴露                       |
-| 12     | `lsp-type-hierarchy`     | `textDocument/prepareTypeHierarchy` + `typeHierarchy/supertypes` + `typeHierarchy/subtypes`         | 2/12       | 低       | ✅ 已实施（Phase 5，2026-08-15）            | 父类型链 + 全部子类型——重构基类影响面评估；gopls/jdtls 暴露（rust-analyzer 源码确认不支持）；§8.7.2 项目感知：仅 Go/Java 技术栈项目暴露                                                 |
-| 13     | `lsp-execute-command`    | `workspace/executeCommand`                                                                          | 2/12       | 中       | ✅ 已实施（Phase 5.5，2026-08-15）          | 执行服务器命令（rust-analyzer.applySourceChange / gopls.add_import 等）——结果识别 WorkspaceEdit → dryRun 预览/应用；参数经 code-action 中转（服务器私有格式）；rust/go 标记，其他待核实 |
+| 优先级 | 新工具                   | LSP 请求                                                                                            | 覆盖服务器 | 落地成本 | 状态                             | 备注                                                                                                                                                              |
+| ------ | ------------------------ | --------------------------------------------------------------------------------------------------- | ---------- | -------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🥇     | `lsp-completion`         | `textDocument/completion`                                                                           | 12/12      | 低       | ✅ 已实施（Phase 4）             | 输出 label/kind/detail/doc + 是否触发 signatureHelp；session/客户端全现成                                                                                         |
+| 🥈     | `lsp-rename`             | `textDocument/rename`（+prepareRename）                                                             | 9/12       | 低       | ✅ 已实施（Phase 4）             | 返回 WorkspaceEdit（多文件 edits）；PHP🔒/Kotlin/C# 不暴露（§8.7 过滤）                                                                                           |
+| 🥉     | `lsp-code-action`        | `textDocument/codeAction`（+workspace/executeCommand）                                              | 10/12      | 中       | ❌ 已废止（2026-09-25 移除）     | 3,761 次调用 0 命中，编辑器光标向模型与 agent 场景不匹配；重新引入须单独提案评审                                                                                  |
+| 🏅     | `lsp-signature-help`     | `textDocument/signatureHelp`                                                                        | 10/12      | 低       | ✅ 已实施（Phase 4）             | 参数/签名提示；C#/Lua 不暴露                                                                                                                                      |
+| 5      | `lsp-type-definition`    | `textDocument/typeDefinition`                                                                       | 9/12       | 低       | ✅ 已实施（Phase 4.5）           | 与 definition 同构，复用输出格式；变量上直接跳类型                                                                                                                |
+| 6      | `lsp-implementation`     | `textDocument/implementation`                                                                       | 8/12       | 低       | ✅ 已实施（Phase 4.5）           | 接口/trait 实现跳转（references 覆盖不到的实现关系）                                                                                                              |
+| 7      | `lsp-workspace-symbols`  | `workspace/symbol`                                                                                  | 11/12      | 中       | ✅ 已实施（Phase 4.5）           | 跨文件按名搜符号；**跨所有启用服务器语言合并查询**、按内容去重、上限 50；C# 不暴露；pyright 需索引                                                                |
+| 8      | `lsp-document-highlight` | `textDocument/documentHighlight`                                                                    | 9/12       | 低       | ❌ 否决（评估）                  | 编辑器光标向能力；agent 无光标概念，`lsp-references`（可单文件）已是超集                                                                                          |
+| 9      | `lsp-inlay-hints`        | `textDocument/inlayHint`                                                                            | 7/12       | 中       | ❌ 否决（评估）                  | 全文件推断类型输出噪音大、污染上下文；点查询用 `lsp-hover` 更精准                                                                                                 |
+| 10     | `lsp-semantic-tokens`    | `textDocument/semanticTokens`                                                                       | 8/12       | 高       | ❌ 否决（评估）                  | 编辑器着色向，agent 价值低，不建议                                                                                                                                |
+| 11     | `lsp-call-hierarchy`     | `textDocument/prepareCallHierarchy` + `callHierarchy/incomingCalls` + `callHierarchy/outgoingCalls` | 5/12       | 低       | ✅ 已实施（Phase 5，2026-08-15） | **双向调用链一次拿全**（incoming 谁调它 + outgoing 它调谁，含调用点代码上下文）——改前影响分析无需递归 references；TS/gopls/rust-analyzer/jdtls/sourcekit-lsp 暴露 |
+| 12     | `lsp-type-hierarchy`     | `textDocument/prepareTypeHierarchy` + `typeHierarchy/supertypes` + `typeHierarchy/subtypes`         | 2/12       | 低       | ✅ 已实施（Phase 5，2026-08-15） | 父类型链 + 全部子类型——重构基类影响面评估；gopls/jdtls 暴露（rust-analyzer 源码确认不支持）；§8.7.2 项目感知：仅 Go/Java 技术栈项目暴露                           |
+| 13     | `lsp-execute-command`    | `workspace/executeCommand`                                                                          | 2/12       | 中       | ❌ 已废止（2026-09-25 移除）     | 随 code-action 一并废止（3,761 次调用 0 命中，命令名/参数私有格式无法手构）；重新引入须单独提案评审                                                               |
 
 **落地记录**：首批（Phase 4）= completion/rename/code-action/signature-help，配合 §8.7 能力过滤一次交付；第二批（Phase 4.5）= type-definition/implementation/workspace-symbols（workspace-symbols 采用多服务器合并查询，实测项目符号优先）。highlight/inlay-hints/semantic-tokens 经 agent 场景评估后否决（理由见上表状态列）。
 
@@ -866,3 +934,27 @@ sequenceDiagram
 | 仅 csharp-ls                    | 现状 6 个 + completion（**无** rename/code-action/signature-help/workspace-symbols/hierarchy）                                                                         |
 | 仅 intelephense（未购 license） | 现状 6 个 + completion/signature-help/workspace-symbols（**无** rename/code-action/type-definition/implementation）                                                    |
 | gopls + csharp-ls               | 并集：gopls 全能力 + csharp-ls 的 completion——基本全量（rename/code-action 因 gopls 支持而暴露，C# 文件调用时按 §8.7.1 二次校验报错）                                  |
+
+## 附录 G：符号名称直接寻址与工作区全局直达引擎（Phase 8 & Phase 9，2026-09-25）
+
+### G-1 背景与设计动机
+
+在传统 LSP 工具链中，`lsp-hover`、`lsp-goto`、`lsp-references`、`lsp-rename`、`lsp-call-hierarchy` 等要求 Agent 先提供物理 `(line, column)` 坐标与具体 `filePath`。Agent 必须先调用 `lsp-symbols` 或 `filesystem-read` 查询行号才能发起调用，增加了上下文消耗与额外工具往返轮次。
+Phase 8 与 Phase 9 构建了完整的**符号名直接寻址与全局直达引擎（Symbol Address Resolver，`native/src/mcp/servers/lsp/resolve.rs`）**：
+
+1. 覆盖范围扩展至 `lsp-hover`、`lsp-goto`、`lsp-references`、`lsp-rename`、`lsp-call-hierarchy` 与 `lsp-type-hierarchy`；
+2. 全面支持 `filePath` 可选，支持单传 `symbol` 跨工作区多语言技术栈自动寻址与直达。
+
+### G-2 寻址分级与安全机制（2026-09-26 修订）
+
+Phase 8/9 是功能引入里程碑；以下是修订后的安全边界，取代“普通 range 唯一即直达”的早期行为。
+
+1. **坐标寻址**：显式 `filePath` 和有效 1-indexed `line/column` 跳过按名搜索；仍需文档同步、权限与服务器能力校验，并非整个调用零开销。
+2. **单文件按名寻址**：读取完整 `document_symbols` 响应。只有唯一且有效的 `selectionRange` 可产生 Exact；普通 Flat range 只用于候选导航，要求 `requiresExplicitCoordinates`，不把声明块开头当作标识符坐标。
+3. **工作区按名寻址**：`resolve_symbol_workspace_global_in_root` 使用显式 `workspaceRoot` 或当前项目根，枚举该根内候选语言栈；目录必须是存在的绝对本地目录。内部候选不受展示前 50 条限制，按操作检查能力并记录失败/不支持的栈。
+4. **完整性先于唯一性**：任何扫描限制、失败、超时或裁剪都不能被当作完整搜索。返回 `partial_symbol_search`、`incomplete` 和 `warnings`；即使仅剩一条可见候选，也不自动直达。完整但多候选返回 `ambiguous_symbol`。
+5. **定位验证**：工作区符号位置仍须回到目标文件验证 selection range，调用 `ensure_open` 同步当前全文；无法证明精确位置则要求显式坐标，不静默执行重命名。
+6. **结果回显**：成功解析才附加 `resolvedSymbol`；UI 显示候选、范围和 partial/失败信息。完整零命中与查询未完成必须区别对待。
+7. **grep 路由**：描述由最终请求 `ToolSnapshot` 生成；结果提示基于调用阶段 scope 与 allowed-tools 交集。每个建议工具单独过滤，裸标识符仅作为提示启发式，不宣称所有语义操作或语言已覆盖。
+
+验收包括超过展示上限的重复候选、Flat/重载候选、多根部分失败、显式根错误、仅一个 LSP 工具可见及子代理禁用等；见 §0.5，尚不能据本文认定这些场景已运行通过。

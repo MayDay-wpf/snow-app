@@ -1,4 +1,12 @@
-import { Download, Pencil, Trash2 } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Pencil,
+  Play,
+  RotateCw,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { useI18n } from "../../../i18n";
 
 export type LspSettingsListItem = {
@@ -11,6 +19,12 @@ export type LspSettingsListItem = {
   installCommand?: string;
   /** 继承自全局配置（项目作用域下 id 无 project: 前缀的条目）：交互禁用 */
   inherited: boolean;
+  /** 运行时会话状态（仅项目作用域且已安装时有效）: running | idle | dead | exited */
+  runtimeStatus?: "running" | "idle" | "dead" | "exited" | "unknown";
+  /** 运行时错误描述（dead / exited 时） */
+  runtimeError?: string;
+  /** 最近活跃时间戳 */
+  lastUsedMs?: number;
 };
 
 type LspSettingsListProps = {
@@ -20,10 +34,17 @@ type LspSettingsListProps = {
   emptyMessage: string;
   /** command → 是否已安装（PATH 探测结果，undefined = 未探测） */
   installedByCommand?: Readonly<Record<string, boolean>>;
+  /** 是否为项目级视图（仅项目级展示运行时启停操作） */
+  isProjectScope?: boolean;
+  /** 正在执行生命周期操作的语言（例如启动/重启/停止中的 lang） */
+  operatingLang?: string | null;
   onToggleEnabled: (server: LspSettingsListItem) => void;
   onEdit: (server: LspSettingsListItem) => void;
   onDelete: (server: LspSettingsListItem) => void;
   onInstall: (server: LspSettingsListItem) => void;
+  onStart?: (server: LspSettingsListItem) => void;
+  onStop?: (server: LspSettingsListItem) => void;
+  onRestart?: (server: LspSettingsListItem) => void;
 };
 
 export function LspSettingsList({
@@ -32,10 +53,15 @@ export function LspSettingsList({
   listTitle,
   emptyMessage,
   installedByCommand,
+  isProjectScope,
+  operatingLang,
   onToggleEnabled,
   onEdit,
   onDelete,
   onInstall,
+  onStart,
+  onStop,
+  onRestart,
 }: LspSettingsListProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -78,7 +104,9 @@ export function LspSettingsList({
                 "Toggle creates a project-specific override for this project only.",
             });
             const editLabel = t("settings.edit", { defaultValue: "Edit" });
-            const deleteLabel = t("settings.delete", { defaultValue: "Delete" });
+            const deleteLabel = t("settings.delete", {
+              defaultValue: "Delete",
+            });
             const switchTitle = server.inherited
               ? `${activeLabel}. ${inheritedToggleHint}`
               : activeLabel;
@@ -95,21 +123,19 @@ export function LspSettingsList({
                 className={`system-prompt-item ${server.enabled ? "active" : ""}`}
               >
                 <div className="system-prompt-item-main">
-                  <label
-                    className="toggle-switch system-prompt-switch"
-                    aria-label={activeLabel}
+                  <button
+                    type="button"
+                    role="switch"
+                    className="lsp-accessible-switch"
+                    aria-label={`${activeLabel}: ${server.lang}`}
+                    aria-checked={server.enabled}
                     title={switchTitle}
+                    onClick={() => onToggleEnabled(server)}
+                    disabled={isBusy}
                   >
-                    <input
-                      type="checkbox"
-                      checked={server.enabled}
-                      onChange={() => onToggleEnabled(server)}
-                      disabled={isBusy}
-                      hidden
-                    />
-                    <span className="toggle-slider" />
+                    <span className="toggle-slider" aria-hidden="true" />
                     <span>{activeStateLabel}</span>
-                  </label>
+                  </button>
                   <div className="system-prompt-item-info">
                     <div className="lsp-item-title-row">
                       <strong>{server.lang}</strong>
@@ -125,6 +151,95 @@ export function LspSettingsList({
                   </div>
                 </div>
                 <div className="system-prompt-item-actions">
+                  {isProjectScope && installed === true && server.enabled && (
+                    <span
+                      className={`lsp-runtime-badge ${server.runtimeStatus ?? "idle"}`}
+                      title={
+                        server.runtimeError ||
+                        (server.runtimeStatus === "running"
+                          ? t("settings.lspStatusRunning")
+                          : t("settings.lspStatusIdle"))
+                      }
+                    >
+                      <span className="lsp-runtime-badge-dot" />
+                      {server.runtimeStatus === "running"
+                        ? t("settings.lspStatusRunning", {
+                            defaultValue: "Running",
+                          })
+                        : server.runtimeStatus === "unknown"
+                          ? t("settings.lspStatusUnknown")
+                          : server.runtimeStatus === "dead" ||
+                              server.runtimeStatus === "exited"
+                            ? t("settings.lspStatusDead", {
+                                defaultValue: "Stopped",
+                              })
+                            : t("settings.lspStatusIdle", {
+                                defaultValue: "Idle",
+                              })}
+                    </span>
+                  )}
+                  {isProjectScope &&
+                    installed === true &&
+                    server.enabled &&
+                    server.runtimeStatus !== "unknown" && (
+                      <div className="lsp-runtime-actions">
+                        {operatingLang === server.lang ? (
+                          <button
+                            className="icon-btn ghost"
+                            type="button"
+                            disabled
+                          >
+                            <Loader2 size={14} className="animate-spin" />
+                          </button>
+                        ) : server.runtimeStatus === "running" ? (
+                          <>
+                            <button
+                              className="icon-btn ghost"
+                              onClick={() => onRestart?.(server)}
+                              type="button"
+                              aria-label={t("settings.lspRestart", {
+                                defaultValue: "Restart & refresh cache",
+                              })}
+                              title={t("settings.lspRestart", {
+                                defaultValue: "Restart & refresh cache",
+                              })}
+                              disabled={isBusy}
+                            >
+                              <RotateCw size={14} strokeWidth={1.9} />
+                            </button>
+                            <button
+                              className="icon-btn ghost"
+                              onClick={() => onStop?.(server)}
+                              type="button"
+                              aria-label={t("settings.lspStop", {
+                                defaultValue: "Stop",
+                              })}
+                              title={t("settings.lspStop", {
+                                defaultValue: "Stop",
+                              })}
+                              disabled={isBusy}
+                            >
+                              <Square size={14} strokeWidth={1.9} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="icon-btn ghost"
+                            onClick={() => onStart?.(server)}
+                            type="button"
+                            aria-label={t("settings.lspStart", {
+                              defaultValue: "Start",
+                            })}
+                            title={t("settings.lspStart", {
+                              defaultValue: "Start",
+                            })}
+                            disabled={isBusy}
+                          >
+                            <Play size={14} strokeWidth={1.9} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   {installLabel && (
                     <span
                       className={`lsp-install-badge ${

@@ -16,6 +16,46 @@ pub async fn collect_all_mcp_tools(
     include_plan_mode_tool: bool,
     include_workflow_tool: bool,
 ) -> Result<Vec<McpTool>> {
+    collect_all_mcp_tools_for_workspace(
+        project_id,
+        None,
+        include_plan_mode_tool,
+        include_workflow_tool,
+    )
+    .await
+}
+
+pub async fn collect_all_mcp_tools_for_workspace(
+    project_id: Option<&str>,
+    analysis_root: Option<&Path>,
+    include_plan_mode_tool: bool,
+    include_workflow_tool: bool,
+) -> Result<Vec<McpTool>> {
+    let mut tools = collect_mcp_tools(
+        project_id,
+        include_plan_mode_tool,
+        include_workflow_tool,
+        None,
+        analysis_root,
+    )
+    .await?;
+    apply_semantic_routing(&mut tools);
+    Ok(tools)
+}
+
+/// Only final request tools are allowed to contribute routing recommendations.
+fn apply_semantic_routing(tools: &mut [McpTool]) {
+    super::super::servers::lsp::prompt_context::append_tool_guidance(tools);
+}
+
+/// Apply request restrictions before fallback suppression and routing text.
+async fn collect_mcp_tools(
+    project_id: Option<&str>,
+    include_plan_mode_tool: bool,
+    include_workflow_tool: bool,
+    allowed_names: Option<&std::collections::HashSet<String>>,
+    analysis_root: Option<&Path>,
+) -> Result<Vec<McpTool>> {
     let scope = load_project_scope(project_id).await?;
     let global_scope = load_global_scope().await?;
 
@@ -42,22 +82,18 @@ pub async fn collect_all_mcp_tools(
             })??;
     let imagegen_configured = imagegen_context.is_some();
 
-    // LSP tools are off by default in two senses: (1) the lsp server is a
-    // default-disabled server (same as terminal) — it must be explicitly
-    // enabled per project via the MCP panel (checked by tool_is_enabled
-    // below); (2) they are only exposed when at least one *enabled and
-    // installed* language server exists (§8.0/§8.6 — enabled alone is not
-    // enough: a command missing from PATH can never start). Tool-level
-    // filtering follows §8.7: only the tools supported by the union of
-    // enabled servers' capabilities are exposed (e.g. enabling only
-    // csharp-ls hides lsp-rename / lsp-code-action / lsp-signature-help).
-    // Project-scoped: evaluated against the project's effective configs
-    // (project overrides global for the same lang, §8.5), matching the
-    // invocation stage — project-only servers expose tools, and project
-    // overrides that disable a server hide its tools. Single pass: one
-    // config read + one TTL-cached PATH probe (performance: this runs on
-    // every tool-list refresh).
-    let lsp_exposure = super::super::servers::lsp::tool_exposure(project_id).await?;
+    // Configuration/authorization stays project-scoped while stack detection
+    // and negotiated capability/health checks use the actual analysis worktree.
+    // No server is started by discovery; failures keep static fallbacks.
+    let lsp_exposure = super::super::servers::lsp::prompt_context::tool_exposure_for_workspace(
+        project_id,
+        analysis_root,
+    )
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("LSP discovery unavailable; retaining static fallbacks: {error}");
+        Default::default()
+    });
     let lsp_available_tools = lsp_exposure.tools;
 
     // 精简模式（全局开关）：启用后 LITE_MODE_DISABLED_SERVER_IDS 中的
@@ -66,35 +102,34 @@ pub async fn collect_all_mcp_tools(
     // 启用任一服务器时会自动关闭该模式（见 set_mcp_project_server_enabled）。
     // app-control-requestApproval 豁免此限制（Plan Mode 审批必需，仅
     // Plan Mode 请求中暴露，见下方判定）。
-    let lite_mode =
-        with_database_path(|database_path| {
-            crate::storage::services::system_settings::get_lite_mode(&database_path)
-        })
-        .await?;
+    let lite_mode = with_database_path(|database_path| {
+        crate::storage::services::system_settings::get_lite_mode(&database_path)
+    })
+    .await?;
 
     let builtin_tools = get_builtin_tools();
-    // 预计算「LSP 是否实际暴露」（可用能力集合 + scope 双重判定通过），供
-    // codelens 互斥判定使用。lsp 是默认关闭服务器：仅凭「配置了可用服务器」
-    // 就隐藏 codelens，会在用户尚未手动启用 builtin:lsp 时让两套工具同时
-    // 消失，模型失去全部代码语义分析能力。
-    let lsp_active = builtin_tools.iter().any(|tool| {
-        tool.server_id == "lsp"
-            && lsp_available_tools.contains(&tool.full_name())
-            && tool_is_enabled(tool, global_scope.as_ref(), scope.as_ref())
-    });
-
-    // codelens 隐藏判定（2026-09-25 修订，替代此前的全局 `lsp_active` 短路）：
-    // 原先只要项目启用了任意 lsp-* 就隐藏 codelens，导致多语言项目里无 LSP
-    // 覆盖的语言（如 TS 项目中的 Python 文件）同时失去 LSP 与静态分析两条路径。
-    // 现按「语言覆盖度」判定：仅当项目内**全部**被检测到的语言都有可用 server
-    // 时才隐藏 codelens；存在未覆盖语言时保留它作为兜底。
-    // 需要 await → 在 filter 外预计算（filter 闭包是同步的）。
-    let codelens_hidden = lsp_active
-        && super::super::servers::lsp::lsp_covers_all_project_languages(project_id).await;
+    // Only suppress static fallbacks if every replacement operation survives
+    // project/global switches AND this request's sub-agent whitelist.
+    let lsp_replacements_available =
+        ["lsp-goto", "lsp-references", "lsp-symbols"]
+            .iter()
+            .all(|name| {
+                builtin_tools.iter().any(|tool| {
+                    tool.server_id == "lsp"
+                        && tool.full_name() == *name
+                        && lsp_available_tools.contains(&tool.full_name())
+                        && allowed_names.is_none_or(|names| names.contains(*name))
+                        && tool_is_enabled(tool, global_scope.as_ref(), scope.as_ref())
+                })
+            });
+    let codelens_hidden = lsp_replacements_available && lsp_exposure.codelens_covered;
 
     let mut tools = builtin_tools
         .into_iter()
         .filter(|tool| {
+            if allowed_names.is_some_and(|names| !names.contains(&tool.full_name())) {
+                return false;
+            }
             // The dedicated approval tool is request-scoped: it must only be
             // exposed to the model while the current request is in Plan Mode.
             if tool.full_name() == REQUEST_APPROVAL_FULL_NAME {
@@ -107,9 +142,7 @@ pub async fn collect_all_mcp_tools(
             }
             // 精简模式：LITE_MODE_DISABLED_SERVER_IDS 中的服务器整体禁用
             // （requestApproval 已在上方先行处理，保持 Plan Mode 审批可用）。
-            if lite_mode
-                && LITE_MODE_DISABLED_SERVER_IDS.contains(&tool.server_id.as_str())
-            {
+            if lite_mode && LITE_MODE_DISABLED_SERVER_IDS.contains(&tool.server_id.as_str()) {
                 return false;
             }
             // Sub-agent teammate communication tools are only exposed inside
@@ -151,59 +184,21 @@ pub async fn collect_all_mcp_tools(
     // the actual configured channel/provider/model/size/quality.
     if let Some(context) = imagegen_context {
         if let Some(tool) = tools.iter_mut().find(|tool| {
-            tool.server_id == "imagegen" && tool.name == super::super::servers::imagegen::TOOL_GENERATE
+            tool.server_id == "imagegen"
+                && tool.name == super::super::servers::imagegen::TOOL_GENERATE
         }) {
-            tool.description =
-                format!("{}\n\nCurrent configuration:\n{}", tool.description, context);
+            tool.description = format!(
+                "{}\n\nCurrent configuration:\n{}",
+                tool.description, context
+            );
         }
     }
 
-    // Inject the current enabled-and-installed language-server summary into
-    // every exposed lsp-* tool description (mirroring the imagegen pattern
-    // above, §8.0/§8.6), so the agent sees which language servers are
-    // actually active instead of guessing from static text. None when no
-    // server is available — at which point no lsp-* tool is exposed anyway.
-    // Project-scoped like the exposure filter above (§8.5); summary comes
-    // from the same single pass (no second config read / probe).
-    if let Some(summary) = lsp_exposure.summary {
-        for tool in tools.iter_mut().filter(|tool| tool.server_id == "lsp") {
-            tool.description =
-                format!("{}\n\nCurrent configuration:\n{}", tool.description, summary);
-        }
-    }
-
-    // 反制 grep 路径依赖（2026-09-24）：lsp 实际激活（能力可用 + 项目 scope
-    // 已启用）时，给平替工具 grep-search 注入语义路由提示。根因：grep 无法
-    // 区分真实引用与同名符号（其他模块的同名常量、注释、字符串字面量），
-    // 模型拿到"看起来有结果"的匹配集就继续走，不会想到改用 lsp-*。提示只
-    // 点名核心工具（全语言可用），workspace-symbols 非全语言支持（如
-    // csharp），按实际暴露能力条件渲染，避免诱导调用不存在的工具。
-    // lsp 未激活时 grep-search 描述保持原样（不影响其他项目与 prompt cache
-    // 的跨项目稳定性——同一项目内 lsp 状态不变则描述稳定）。
-    if lsp_active {
-        if let Some(grep_tool) = tools
-            .iter_mut()
-            .find(|tool| tool.server_id == "grep" && tool.name == "search")
-        {
-            let mut routes = String::from(
-                "\n\n**Semantic queries are NOT grep's job** — this project has LSP servers \
-                 running, and grep cannot tell a real reference from a same-named symbol in \
-                 another module, a comment or a string literal. Route semantic queries to:\
-                 \n- Where is X defined → `lsp-goto` (kind=definition)\
-                 \n- Every usage of X / impact before renaming → `lsp-references`\
-                 \n- Type or signature of X → `lsp-hover`",
-            );
-            if lsp_available_tools
-                .iter()
-                .any(|tool| tool == "lsp-workspace-symbols")
-            {
-                routes.push_str("\n- Symbols by name across the project → `lsp-workspace-symbols`");
-            }
-            routes.push_str(
-                "\n- Verify edits compile → `lsp-diagnostics`\
-                 \nReserve grep for literal text: log messages, config keys, comments, string constants.",
-            );
-            grep_tool.description = format!("{}{}", grep_tool.description, routes);
+    // Each tool lists only the languages/configurations supporting that operation.
+    for tool in tools.iter_mut().filter(|tool| tool.server_id == "lsp") {
+        if let Some(summary) = lsp_exposure.tool_summaries.get(&tool.full_name()) {
+            tool.description
+                .push_str(&format!("\n\nCurrent tool support:\n{summary}"));
         }
     }
 
@@ -265,6 +260,15 @@ pub async fn collect_allowed_mcp_tools(
     tools_json: &str,
     allow_wildcard: bool,
 ) -> Result<Vec<McpTool>> {
+    collect_allowed_mcp_tools_for_workspace(project_id, None, tools_json, allow_wildcard).await
+}
+
+pub async fn collect_allowed_mcp_tools_for_workspace(
+    project_id: Option<&str>,
+    analysis_root: Option<&Path>,
+    tools_json: &str,
+    allow_wildcard: bool,
+) -> Result<Vec<McpTool>> {
     let configured_names = serde_json::from_str::<Vec<String>>(tools_json).map_err(|error| {
         Error::new(
             Status::InvalidArg,
@@ -284,7 +288,18 @@ pub async fn collect_allowed_mcp_tools(
         ));
     }
 
-    let all_tools = collect_all_mcp_tools(project_id, false, false).await?;
+    let all_tools = collect_mcp_tools(
+        project_id,
+        false,
+        false,
+        if wildcard_enabled {
+            None
+        } else {
+            Some(&configured_names)
+        },
+        analysis_root,
+    )
+    .await?;
     if wildcard_enabled {
         // Every sub-agent carries the teammate communication tools by default,
         // even with the wildcard configuration. The main-session management
@@ -293,6 +308,7 @@ pub async fn collect_allowed_mcp_tools(
         let mut result = all_tools;
         result.retain(|tool| !SUB_AGENT_MAIN_TOOL_FULL_NAMES.contains(&tool.full_name().as_str()));
         result.extend(sub_agent_comms_tools());
+        apply_semantic_routing(&mut result);
         return Ok(result);
     }
 
@@ -330,6 +346,7 @@ pub async fn collect_allowed_mcp_tools(
     // Teammate communication tools are always available to every sub-agent,
     // regardless of its configured tool whitelist.
     result.extend(sub_agent_comms_tools());
+    apply_semantic_routing(&mut result);
     Ok(result)
 }
 
@@ -367,8 +384,7 @@ pub(crate) fn tool_name_is_enabled(
         return true;
     };
 
-    scope.is_server_enabled(&builtin_scope_server_id(server_id))
-        && scope.is_tool_enabled(full_name)
+    scope.is_server_enabled(&builtin_scope_server_id(server_id)) && scope.is_tool_enabled(full_name)
 }
 
 fn tool_is_enabled(
@@ -379,28 +395,77 @@ fn tool_is_enabled(
     tool_name_is_enabled(&tool.full_name(), &tool.server_id, global_scope, scope)
 }
 
-/// 判断 LSP 语义工具在给定项目下是否**实际可用**（与 collect 阶段 `lsp_active`
-/// 的判定同源：可用能力集合非空 + 全局黑名单未禁用 + 项目 scope 已启用
-/// builtin:lsp）。供调用阶段的语义路由纠偏复用——判定失败一律静默返回 false，
-/// 纠偏提示宁可不加，也不能因状态查询失败打断工具调用。
-pub(crate) async fn is_lsp_tooling_active(project_id: Option<&str>) -> bool {
-    let Ok(exposure) = super::super::servers::lsp::tool_exposure(project_id).await else {
-        return false;
+/// Call-time LSP visibility. Use the caller's existing allowed-tools snapshot
+/// and intersect it with current exposure/scope (configuration can change after
+/// the model request). Failure omits advisory text without blocking grep.
+pub(crate) async fn visible_lsp_tool_names(
+    project_id: Option<&str>,
+    allowed_tools: Option<&[String]>,
+    analysis_root: Option<&Path>,
+) -> Vec<String> {
+    let Ok(exposure) = super::super::servers::lsp::prompt_context::tool_exposure_for_workspace(
+        project_id,
+        analysis_root,
+    )
+    .await
+    else {
+        return Vec::new();
     };
-    if exposure.tools.is_empty() {
-        return false;
-    }
     let Ok(global_scope) = load_global_scope().await else {
-        return false;
+        return Vec::new();
     };
     let Ok(scope) = load_project_scope(project_id).await else {
-        return false;
+        return Vec::new();
     };
-    get_builtin_tools().iter().any(|tool| {
-        tool.server_id == "lsp"
-            && exposure.tools.contains(&tool.full_name())
-            && tool_is_enabled(tool, global_scope.as_ref(), scope.as_ref())
-    })
+    get_builtin_tools()
+        .iter()
+        .filter(|tool| {
+            tool.server_id == "lsp"
+                && exposure.tools.contains(&tool.full_name())
+                && request_allows_tool(allowed_tools, &tool.full_name())
+                && tool_is_enabled(tool, global_scope.as_ref(), scope.as_ref())
+        })
+        .map(McpTool::full_name)
+        .collect()
+}
+
+pub(super) fn request_allows_tool(allowed_tools: Option<&[String]>, name: &str) -> bool {
+    allowed_tools.is_none_or(|tools| tools.iter().any(|tool| tool == "*" || tool == name))
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+
+    #[test]
+    fn grep_description_uses_only_final_request_tools() {
+        let make_tool = |server: &str, name: &str| McpTool {
+            server_id: server.to_string(),
+            name: name.to_string(),
+            description: "base description".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        };
+        let mut tools = vec![make_tool("grep", "search"), make_tool("lsp", "hover")];
+        apply_semantic_routing(&mut tools);
+        assert!(tools[0].description.contains("`lsp-hover`"));
+        assert!(!tools[0].description.contains("lsp-goto"));
+        assert!(!tools[0].description.contains("lsp-diagnostics"));
+        let mut grep_only = vec![make_tool("grep", "search")];
+        apply_semantic_routing(&mut grep_only);
+        assert_eq!(grep_only[0].description, "base description");
+    }
+
+    #[test]
+    fn request_whitelists_do_not_expand_semantic_access() {
+        assert!(request_allows_tool(None, "lsp-hover"));
+        assert!(request_allows_tool(Some(&["*".to_string()]), "lsp-hover"));
+        assert!(!request_allows_tool(Some(&[]), "lsp-hover"));
+        let tools = vec!["grep-search".to_string(), "lsp-hover".to_string()];
+        assert!(request_allows_tool(Some(&tools), "lsp-hover"));
+        assert!(!request_allows_tool(Some(&tools), "lsp-goto"));
+        let codelens_only = vec!["codelens-find_definition".to_string()];
+        assert!(!request_allows_tool(Some(&codelens_only), "lsp-goto"));
+    }
 }
 
 pub(crate) fn builtin_scope_server_id(server_id: &str) -> String {
@@ -444,11 +509,10 @@ pub(crate) async fn ensure_project_tool_enabled(
     // 拒绝执行。app-control-requestApproval 豁免——Plan Mode 审批必须
     // 始终可用，且 call_mcp_tool 已用 plan_mode 前置条件守卫该工具。
     if tool_name != REQUEST_APPROVAL_FULL_NAME {
-        let lite_mode =
-            with_database_path(|database_path| {
-                crate::storage::services::system_settings::get_lite_mode(&database_path)
-            })
-            .await?;
+        let lite_mode = with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
         if lite_mode {
             let Some(server_id) = server_id_from_tool_name(tool_name) else {
                 return Err(Error::new(
@@ -459,9 +523,7 @@ pub(crate) async fn ensure_project_tool_enabled(
             if LITE_MODE_DISABLED_SERVER_IDS.contains(&server_id) {
                 return Err(Error::new(
                     Status::GenericFailure,
-                    format!(
-                        "MCP server \"{server_id}\" is disabled by Lite mode: {tool_name}"
-                    ),
+                    format!("MCP server \"{server_id}\" is disabled by Lite mode: {tool_name}"),
                 ));
             }
         }
@@ -517,14 +579,15 @@ pub(crate) async fn ensure_project_tool_enabled(
     {
         (builtin_scope_server_id(server_id), false)
     } else {
-        let resolved_server = super::super::external::resolve_project_scope_server(project_id, tool_name)
-            .await?
-            .ok_or_else(|| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("MCP tool is no longer available: {tool_name}"),
-                )
-            })?;
+        let resolved_server =
+            super::super::external::resolve_project_scope_server(project_id, tool_name)
+                .await?
+                .ok_or_else(|| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("MCP tool is no longer available: {tool_name}"),
+                    )
+                })?;
         (
             resolved_server.scope_server_id,
             resolved_server.project_owned,
@@ -547,7 +610,9 @@ pub(crate) async fn ensure_project_tool_enabled(
     Ok(())
 }
 
-pub(crate) async fn load_project_scope(project_id: Option<&str>) -> Result<Option<McpProjectScopeSettings>> {
+pub(crate) async fn load_project_scope(
+    project_id: Option<&str>,
+) -> Result<Option<McpProjectScopeSettings>> {
     let Some(project_id) = project_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };

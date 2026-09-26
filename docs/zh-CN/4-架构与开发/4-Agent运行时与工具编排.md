@@ -138,10 +138,20 @@ flowchart TD
 
 **工具域系统提示词注入**：工具可见性之外，系统提示词构建（`native/src/api/conversation/context.rs`）还会按工具域动态追加指引章节，且**注入条件与工具可见性保持一致**——用户禁用的工具域绝不注入，避免诱导调用不可见工具：
 
-- **`## Language Servers`**（LSP 域，`native/src/mcp/servers/lsp/mod.rs` 的 `build_system_prompt_section`）：项目启用了可用外部语言服务器（配置 enabled + 命令已安装 + **项目内存在该语言的技术栈标志**，2026-09-24 技术栈感知）且域 scope 允许时注入。列出服务器及运行状态（running / crashed / 未启动），按能力分组列出应优先使用的 `lsp-*` 工具，并以**场景→工具硬绑定**的 Routing rules 引导语义查询走 `lsp-*`（grep 仅限字面文本）；以真实**技术栈根**为会话根对未运行服务器后台预热，消除首次调用的冷启动延迟。
+- **`## Language Servers`**：五个 provider 先收集最终 `allowed_tools`，再让 `ConversationContextRequest` 与 payload 序列化复用同一列表。`native/src/mcp/servers/lsp/prompt_context.rs::ToolSnapshot` 按全局/项目开关、能力与子代理白名单过滤后的实际名称逐项生成章节；不再用四个代表工具判断整个域，不独立重新发现工具。grep 描述也在最终列表形成后生成，结果提示与调用阶段 scope/allowed-tools 求交。可用不代表 running，更不代表索引 ready；提示词不保证预热完成、瞬时响应或诊断等价于构建通过。
 - **`## Image Generation`**（imagegen 域，`native/src/mcp/servers/imagegen/mod.rs` 的 `build_system_prompt_section`）：配置了至少一个可用生图渠道且域 scope 允许时注入。列出可用渠道（id / 名称 / 协议，非敏感摘要），并强制多图 MUST 并行多次调用 `imagegen-generate`（一次一图，legacy 的 `prompts` / `n>1` 不是多图路径）；连续 ≥2 个并行调用由 UI 自动合并为 `ImageGenGallery` 统一网格。
-- **调查阶段工具清单（模板级动态注入，2026-09-24）**：`native/src/prompt/tool_hints.rs` 按当前项目**实际可调用**的工具生成清单——`lsp-*`（域 scope + 服务器可用 + 技术栈存在，与工具暴露同源判定）与 `codebase-search`（索引可用）条件出现，`grep-search` / `filesystem-read` 为恒定只读底行；请求构建时替换 **Plan / Goal / WorkFlow** 模式模板的 `__ANALYSIS_TOOLS_LINES__` 占位符（Plan「分析阶段」/ Goal「Phase 1 Investigate」/ WorkFlow「Step 1 图设计前调查」），不可用工具的行不存在。工具描述层另有条件注入（grep-search 描述反制 + `lsp-*` 工具时机触发器），详见 LSP 设计文档 §8.10。2026-09-25 优先级强化：`lsp-*` 行改述为「use these FIRST for symbols / usages / types / impact」，LSP 可用时 `grep-search` 行改为「literal strings/patterns ONLY …… cannot tell a real reference from a same-named symbol」、`codebase-search` 行注明概念级检索定位（与 §8.10 的 Routing rules 优先级总纲同向）。
-- 各章节都追加在提示词**末尾**（状态变化只影响尾部，最小化 prompt cache 前缀失效），任何查询失败静默降级为空字符串（不打断请求）；普通 / Plan / Goal 三种模式统一注入，子代理系统提示词同样携带。
+- **调查阶段工具清单**：`native/src/prompt/tool_hints.rs` 读取同一个请求级快照，替换 Plan / Goal / WorkFlow 模板的 `__ANALYSIS_TOOLS_LINES__`。LSP、codebase、grep、filesystem-read 和 CodeLens 都逐项判断；禁用底行不出现，工具为空时清单也为空。未覆盖语言/扩展名/操作或扫描不完整时保留 CodeLens，并在内部转发时继续遵守子代理白名单。
+- LSP 章节追加在提示词末尾，稳定顺序避免不必要的前缀变化；工具收集失败时沿用请求的无工具结果，不重新查询放大权限。主请求和子代理使用同一套纯路由生成器，不新增跨会话可见性缓存。
+
+LSP 文档同步与结果可信度是另一层边界：`ensure_open` 比较实际磁盘全文并同步 didOpen/didChange；诊断不再读写持久结果缓存（不删除旧数据）。工作区搜索可用 `workspaceRoot` 显式指定绝对本地目录，完整候选与 `partial_symbol_search` 等元数据约束自动寻址；UI 的 partial/warnings 与 running 徽章都不应被解释为已完整验证。详见 [LSP 当前行为与待验收矩阵](7-LSP外部语言服务器接入设计.md)。
+
+### 5.1 LSP 条件 MUST 与执行边界
+
+语义任务在对应工具实际可见且支持目标语言/操作时 **MUST** 使用 LSP；禁用、权限排除、未覆盖、启动退避或健康失败时说明原因并使用可见兜底。逐工具判断语言覆盖、协商能力和健康，不把全局语言并集或 running 当成全部能力就绪。失败启动进入退避，冷却期避免反复 spawn；grep 仍用于字面检索。11 个语义显示名称及两组 i18n key 与 [工具参考](../3-参考手册/2-内置工具参考.md) 同步，ID 和历史 key 不改。
+
+诊断严格接受互斥 `filePath` 或 1..30 项 `filePaths`，错误类型/空数组/空条目/超限拒绝不截断，旧空 `filePath:""` 占位视为缺省。批量须把全部文件放进列表，不能额外传非空单路径。按物理文件去重、保留原请求首次出现顺序；单文件保持顶层形状，批次携带 `requestedCount/duplicateCount/fileCount`、每文件 status 与 summary（`completedFiles/partialFiles/failedFiles/errorCount/warningCount`）。文件任务目标并发 3，不改变结果顺序。
+
+重命名 apply 必须消费内容绑定的 `previewId`（TTL 5 分钟、每会话最多 32 个、单次），仍须写入授权；内容改变要重做预览。UI 不展示原值、不自动 apply。跨文件应用非事务，模型和 UI 必须保留 `appliedFiles/error/requiresNewPreview`，不得假称回滚。并发与相关接口正在整合，这里不是运行通过声明；完整契约见 [LSP 设计 §0.6–0.8](7-LSP外部语言服务器接入设计.md)。
 
 ## 6. 工具调用与 checkpoint
 

@@ -6,8 +6,8 @@ use napi::bindgen_prelude::*;
 use crate::prompt::goal_mode_system_prompt::build_goal_mode_system_prompt;
 use crate::prompt::plan_mode_system_prompt::build_plan_mode_system_prompt;
 use crate::prompt::system_prompt::build_system_prompt;
-use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_prompt;
 use crate::prompt::workflow_mode_system_prompt::build_workflow_mode_system_prompt;
+use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_prompt;
 use crate::storage::services::chat_conversations::{
     get_conversation_modes, load_context_messages, resolve_conversation_id, ChatContextMessage,
 };
@@ -167,10 +167,8 @@ pub async fn prepare_context_request(
         // 落盘后 payload 层构建 vision part 时从磁盘读回，发送行为不变。
         if let Some(raw) = message.tool_results_json.as_deref() {
             if raw.contains("@@image:data:") {
-                message.tool_results_json = Some(persist_inline_images_to_disk(
-                    raw,
-                    request.database_path,
-                )?);
+                message.tool_results_json =
+                    Some(persist_inline_images_to_disk(raw, request.database_path)?);
             }
         }
     }
@@ -210,35 +208,39 @@ pub async fn prepare_context_request(
     );
 
     // Inject the built-in system prompt as the first message.
-    let working_directory = request
-        .directory_id
-        .and_then(|id| {
-            get_workspace_directory_path(request.database_path, id)
-                .ok()
-                .flatten()
-        })
-        .unwrap_or_default();
+    let working_directory = if let Some(root) = request.analysis_workspace_root {
+        crate::mcp::servers::lsp::prompt_context::resolve_analysis_workspace_root(
+            request.directory_id,
+            Some(Path::new(root)),
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default()
+    } else {
+        request
+            .directory_id
+            .and_then(|id| {
+                get_workspace_directory_path(request.database_path, id)
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_default()
+    };
 
     // Plan Mode: replace the built-in system prompt with the Plan Mode prompt
     // that instructs the AI to analyze, plan, and get user approval before
     // executing any changes.
     let shell_type = resolve_default_shell(request.database_path);
     let sub_agents_section = build_sub_agents_section(request.database_path, request.directory_id);
-    // 调查阶段工具清单（Plan / Goal / WorkFlow 模式动态注入，2026-09-24）：
-    // 只含当前项目实际可调用的工具（LSP 三重判定 / codebase 索引判定），
-    // 不可用工具的行不出现（注入条件 = 工具可见性，见 prompt::tool_hints）。
+    // The final request list already includes project switches, sub-agent
+    // whitelist and tool-less modes. Do not independently rediscover tools.
+    let tool_snapshot =
+        crate::mcp::servers::lsp::prompt_context::ToolSnapshot::from_tools(request.allowed_tools);
     let analysis_tools_section = if request.plan_mode || request.goal_mode || request.workflow_mode
     {
-        crate::prompt::tool_hints::build_analysis_tools_lines(
-            request.directory_id,
-            if working_directory.trim().is_empty() {
-                None
-            } else {
-                Some(std::path::Path::new(&working_directory))
-            },
-        )
-        .await
-        .join("\n")
+        crate::prompt::tool_hints::analysis_tools_lines(&tool_snapshot).join("\n")
     } else {
         String::new()
     };
@@ -295,21 +297,8 @@ pub async fn prepare_context_request(
             &sub_agents_section,
         )
     };
-    // LSP 优先指引（2026-08-15，方案 B）：项目启用了可用的外部 LSP 服务器
-    // 时，在系统提示词末尾注入「Language Servers」章节（列出服务器及其
-    // 会话运行状态，按合并能力分组指引优先使用 lsp-* 工具分析/搜索代码）。
-    // 查询失败返回空字符串（静默降级，不打断请求）。追加在末尾：会话状态
-    // 变化（installed → running）只影响提示词尾部，最小化 prompt cache
-    // 前缀失效范围。普通 / Plan / Goal 三种模式统一注入。
-    let lsp_section = crate::mcp::servers::lsp::build_system_prompt_section(
-        request.directory_id,
-        if working_directory.trim().is_empty() {
-            None
-        } else {
-            Some(std::path::Path::new(&working_directory))
-        },
-    )
-    .await;
+    // Pure rendering of the exact tools serialized by this provider request.
+    let lsp_section = tool_snapshot.system_prompt_section();
     let system_prompt = if lsp_section.is_empty() {
         system_prompt
     } else {

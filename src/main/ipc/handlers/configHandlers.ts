@@ -293,8 +293,52 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
         : undefined,
     ),
   );
-  // 安装语言服务器：执行配置表中的 installCommand。命令来源 = 用户主动配置
-  // 的表（与 bash 工具同级信任），渲染进程必须先经确认对话框展示确切命令；
+  // 手动启动（预热）指定项目和语言的 LSP 会话
+  ipcMain.handle(
+    "lsp-session:start",
+    (_event, projectId: unknown, lang: unknown) => {
+      if (typeof projectId !== "string" || !projectId.trim()) {
+        throw new Error("Project ID is required to start LSP session");
+      }
+      if (typeof lang !== "string" || !lang.trim()) {
+        throw new Error("Language is required to start LSP session");
+      }
+      return native.startLspSession(projectId.trim(), lang.trim());
+    },
+  );
+  // 手动停止指定项目和语言的 LSP 会话
+  ipcMain.handle(
+    "lsp-session:stop",
+    (_event, projectId: unknown, lang: unknown) => {
+      if (typeof projectId !== "string" || !projectId.trim()) {
+        throw new Error("Project ID is required to stop LSP session");
+      }
+      if (typeof lang !== "string" || !lang.trim()) {
+        throw new Error("Language is required to stop LSP session");
+      }
+      return native.stopLspSession(projectId.trim(), lang.trim());
+    },
+  );
+  // 手动重启指定项目和语言的 LSP 会话，可选清空持久化诊断缓存
+  ipcMain.handle(
+    "lsp-session:restart",
+    (_event, projectId: unknown, lang: unknown, clearCache: unknown) => {
+      if (typeof projectId !== "string" || !projectId.trim()) {
+        throw new Error("Project ID is required to restart LSP session");
+      }
+      if (typeof lang !== "string" || !lang.trim()) {
+        throw new Error("Language is required to restart LSP session");
+      }
+      return native.restartLspSession(
+        projectId.trim(),
+        lang.trim(),
+        typeof clearCache === "boolean" ? clearCache : true,
+      );
+    },
+  );
+  // 安装语言服务器：执行配置表中的 installCommand。
+  // 兼容项目覆盖模式与全局继承模式，确保无论当前处于全局还是项目页签均能正确解析 installCommand；
+  // 补充常用 bin PATH 环境变量提高跨平台包管理器执行兼容性；
   // 输出截断（32KB）防长安装日志撑爆内存。不设超时（全局安装可能耗时数分钟）。
   ipcMain.handle(
     "lsp-server-configs:install",
@@ -305,22 +349,71 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
       const normalizedLang = lang.trim();
       const hasProjectId =
         typeof projectId === "string" && projectId.trim().length > 0;
+      // 优先获取有效生效配置（若有 projectId 则包含项目级覆盖和全局继承项）
       const records = hasProjectId
-        ? await native.listProjectLspServerConfigs((projectId as string).trim())
+        ? await native.listEffectiveLspServerConfigs(
+            (projectId as string).trim(),
+          )
         : await native.listLspServerConfigs();
       const record = records.find((item) => item.lang === normalizedLang);
-      const installCommand = record?.installCommand?.trim();
+      let installCommand = record?.installCommand?.trim();
+
+      // 如果有效配置中未配 installCommand，项目模式下尝试回退全局配置兜底
+      if (!installCommand && hasProjectId) {
+        const globalRecords = await native.listLspServerConfigs();
+        const globalRecord = globalRecords.find(
+          (item) => item.lang === normalizedLang,
+        );
+        installCommand = globalRecord?.installCommand?.trim();
+      }
+
       if (!installCommand) {
         throw new Error(
           `No install command configured for language "${normalizedLang}"`,
         );
       }
+
+      // 补充常用环境变量 PATH，确保 pip、npm、cargo、brew 等命令在 GUI 进程中能够被正确调用
+      const home = process.env.HOME || process.env.USERPROFILE || "";
+      const pathSep = process.platform === "win32" ? ";" : ":";
+      const extraPaths =
+        process.platform === "win32"
+          ? [
+              process.env.APPDATA ? `${process.env.APPDATA}\\npm` : "",
+              home ? `${home}\\.cargo\\bin` : "",
+              home ? `${home}\\go\\bin` : "",
+            ].filter(Boolean)
+          : [
+              home ? `${home}/.local/bin` : "",
+              home ? `${home}/.npm-global/bin` : "",
+              home ? `${home}/.cargo/bin` : "",
+              home ? `${home}/go/bin` : "",
+              "/usr/local/bin",
+              "/opt/homebrew/bin",
+              "/home/linuxbrew/.linuxbrew/bin",
+            ].filter(Boolean);
+
+      const currentPath = process.env.PATH || "";
+      const pathSet = new Set(currentPath.split(pathSep).filter(Boolean));
+      const neededPaths = extraPaths.filter((p) => !pathSet.has(p));
+      const augmentedPath =
+        neededPaths.length > 0
+          ? `${currentPath}${pathSep}${neededPaths.join(pathSep)}`
+          : currentPath;
+
       return await new Promise<{
         command: string;
         output: string;
         exitCode: number | null;
       }>((resolve, reject) => {
-        const child = spawn(installCommand, { shell: true, windowsHide: true });
+        const child = spawn(installCommand, {
+          shell: true,
+          windowsHide: true,
+          env: {
+            ...process.env,
+            PATH: augmentedPath,
+          },
+        });
         let output = "";
         const append = (chunk: Buffer): void => {
           output += chunk.toString();

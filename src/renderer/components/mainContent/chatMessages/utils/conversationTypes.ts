@@ -337,6 +337,8 @@ export type ConversationSessionRef = {
   iterationTokenCount: number;
   iterationElapsedMs: number;
   directoryId?: string;
+  /** Runtime-only analysis root captured for this session; not an authorization scope. */
+  analysisWorkspaceRoot?: string;
   checkpointIds: string[];
   /** Conversation ids of sub-agent sessions spawned by this conversation.
    *  Used to propagate an abort from the main flow down to every running

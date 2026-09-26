@@ -104,6 +104,22 @@ export const configApi = {
    *  传入 projectId 时只返回该项目根下的会话（徽章按当前项目过滤）。 */
   listLspSessionStatuses: (projectId?: string): Promise<LspSessionStatus[]> =>
     ipcRenderer.invoke("lsp-session-statuses:list", projectId),
+  /** 手动启动（预热）指定项目和语言的 LSP 会话。 */
+  startLspSession: (
+    projectId: string,
+    lang: string,
+  ): Promise<LspSessionStatus> =>
+    ipcRenderer.invoke("lsp-session:start", projectId, lang),
+  /** 手动停止指定项目和语言的 LSP 会话（释放进程与内存）。 */
+  stopLspSession: (projectId: string, lang: string): Promise<boolean> =>
+    ipcRenderer.invoke("lsp-session:stop", projectId, lang),
+  /** 手动重启指定项目和语言的 LSP 会话，可选清理持久化诊断缓存。 */
+  restartLspSession: (
+    projectId: string,
+    lang: string,
+    clearCache?: boolean,
+  ): Promise<LspSessionStatus> =>
+    ipcRenderer.invoke("lsp-session:restart", projectId, lang, clearCache),
   installLspServer: (
     lang: string,
     projectId?: string,

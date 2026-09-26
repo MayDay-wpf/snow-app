@@ -83,6 +83,10 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
         : undefined,
     directoryId:
       typeof source.directoryId === "string" ? source.directoryId : undefined,
+    analysisWorkspaceRoot:
+      typeof source.analysisWorkspaceRoot === "string"
+        ? source.analysisWorkspaceRoot
+        : undefined,
     checkpointId:
       typeof source.checkpointId === "string" ? source.checkpointId : undefined,
     contextCompaction:

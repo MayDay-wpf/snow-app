@@ -13033,6 +13033,10 @@ body.is-panel-resizing * {
   background: var(--accent-green, #22c55e);
 }
 
+.tool-call-lsp.lsp-result-partial .tcn-dot--completed {
+  background: var(--accent-yellow, #d97706);
+}
+
 .tcn-dot--running {
   background: var(--accent-blue, #3b82f6);
   box-shadow: 0 0 0 2px
@@ -30577,6 +30581,76 @@ body.is-panel-resizing * {
   );
 }
 
+/* LSP 运行时状态徽标与操作 */
+.lsp-runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.lsp-runtime-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lsp-runtime-badge.running {
+  color: var(--success-strong, #2f9e44);
+  background: color-mix(
+    in srgb,
+    var(--success-strong, #2f9e44) 12%,
+    transparent
+  );
+}
+
+.lsp-runtime-badge.running .lsp-runtime-badge-dot {
+  background-color: var(--success-strong, #2f9e44);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--success-strong, #2f9e44) 20%, transparent);
+}
+
+.lsp-runtime-badge.idle {
+  color: var(--text-tertiary, #868e96);
+  background: color-mix(
+    in srgb,
+    var(--text-tertiary, #868e96) 12%,
+    transparent
+  );
+}
+
+.lsp-runtime-badge.idle .lsp-runtime-badge-dot {
+  background-color: var(--text-tertiary, #868e96);
+}
+
+.lsp-runtime-badge.dead,
+.lsp-runtime-badge.exited {
+  color: var(--danger-strong, #e03131);
+  background: color-mix(
+    in srgb,
+    var(--danger-strong, #e03131) 12%,
+    transparent
+  );
+  cursor: help;
+}
+
+.lsp-runtime-badge.dead .lsp-runtime-badge-dot,
+.lsp-runtime-badge.exited .lsp-runtime-badge-dot {
+  background-color: var(--danger-strong, #e03131);
+}
+
+.lsp-runtime-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* LSP 继承徽标（项目作用域下"来自全局"条目）：与语言名同行显示 */
 .lsp-item-title-row {
   display: flex;
@@ -39043,71 +39117,124 @@ pre.file-viewer-code {
   color: var(--text-secondary);
 }
 
-/* Completion view */
-.tool-call-lsp-completion-list {
+/* LSP Progress & Running State */
+.tool-call-lsp-progress-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 320px;
-  overflow: auto;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
 }
 
-.tool-call-lsp-completion-item {
+.tool-call-lsp-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-call-lsp-progress-spinner {
+  color: var(--accent-blue-text);
+  flex-shrink: 0;
+}
+
+.tool-call-lsp-progress-text {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
   min-width: 0;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  font-size: 11px;
+  flex: 1;
 }
 
-.tool-call-lsp-completion-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.tool-call-lsp-completion-label svg {
-  display: block;
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-}
-
-.tool-call-lsp-completion-label code {
-  font-family: var(--font-mono);
+.tool-call-lsp-progress-phase {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 260px;
 }
 
-.tool-call-lsp-completion-detail {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tool-call-lsp-progress-detail {
+  font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--text-secondary);
-  max-width: 220px;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
 }
 
-.tool-call-lsp-completion-doc {
-  flex-basis: 100%;
-  min-width: 0;
+.tool-call-lsp-progress-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.tool-call-lsp-progress-elapsed,
+.tool-call-lsp-progress-timeout {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
   font-size: 10.5px;
-  line-height: 1.5;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.tool-call-lsp-progress-elapsed {
+  color: var(--accent-blue-text);
+  background: var(--accent-blue-bg);
+}
+
+.tool-call-lsp-progress-timeout {
   color: var(--text-tertiary);
-  white-space: pre-wrap;
-  word-break: break-all;
-  user-select: text;
+  background: var(--bg-tertiary);
+}
+
+.tool-call-lsp-progress-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-light);
+  overflow: hidden;
+  position: relative;
+}
+
+.tool-call-lsp-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-blue-bg),
+    var(--accent-blue-text)
+  );
+  animation: lsp-progress-slide 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes lsp-progress-slide {
+  0% {
+    left: 0;
+    width: 25%;
+  }
+  50% {
+    width: 55%;
+  }
+  100% {
+    left: 75%;
+    width: 25%;
+  }
 }
 
 .tool-call-lsp-incomplete-note,
@@ -39244,6 +39371,73 @@ pre.file-viewer-code {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--text-secondary);
+  user-select: text;
+}
+
+/* Completion view */
+.tool-call-lsp-completion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.tool-call-lsp-completion-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  font-size: 11px;
+}
+
+.tool-call-lsp-completion-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tool-call-lsp-completion-label svg {
+  display: block;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.tool-call-lsp-completion-label code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.tool-call-lsp-completion-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  max-width: 220px;
+}
+
+.tool-call-lsp-completion-doc {
+  flex-basis: 100%;
+  min-width: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-all;
   user-select: text;
 }
 
@@ -39443,7 +39637,7 @@ pre.file-viewer-code {
   font-weight: 500;
 }
 
-/* ---- definition-jump（lsp-type-definition / lsp-implementation） ---- */
+/* ---- definition-jump（lsp-goto / lsp-type-definition / lsp-implementation） ---- */
 
 .tool-call-lsp-def-list {
   display: flex;
@@ -39560,6 +39754,87 @@ pre.file-viewer-code {
   font-size: 10.5px;
   color: var(--text-tertiary);
   user-select: text;
+}
+
+/* ---- ambiguous symbol ---- */
+
+.tool-call-lsp-ambiguous-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.tool-call-lsp-ambiguous-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  font-size: 11.5px;
+  color: #d97706;
+}
+
+.tool-call-lsp-ambiguous-banner svg {
+  flex-shrink: 0;
+}
+
+.tool-call-lsp-ambiguous-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 380px;
+  overflow: auto;
+}
+
+.tool-call-lsp-ambiguous-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.tool-call-lsp-ambiguous-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.tool-call-lsp-ambiguous-file {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tool-call-lsp-ambiguous-loc {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.tool-call-lsp-ambiguous-container {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.tool-call-lsp-ambiguous-preview {
+  margin: 0;
+  padding: 4px 8px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-x: auto;
+  color: var(--text-secondary);
 }
 
 /* ---- diagnostics（单文件 + 批量） ---- */
@@ -39710,6 +39985,166 @@ pre.file-viewer-code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10.5px;
+  color: var(--accent-red-text);
+}
+
+/* LSP-only controls and lazy result views. Do not change shared switch semantics. */
+.lsp-accessible-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.lsp-accessible-switch[aria-checked="true"] .toggle-slider {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+.lsp-accessible-switch[aria-checked="true"] .toggle-slider::after {
+  transform: translateX(14px);
+  background: var(--on-solid);
+}
+.lsp-accessible-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.lsp-accessible-switch:focus-visible,
+.lsp-status-badge:focus-visible,
+.tool-call-lsp-show-more:focus-visible,
+.tool-call-lsp-tree-branch > summary:focus-visible,
+.tool-call-lsp-diag-file > summary:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+.lsp-runtime-badge.unknown {
+  color: var(--accent-amber-text);
+}
+.lsp-status-row.stale .lsp-status-dot {
+  background: var(--warning, #f59e0b);
+}
+.tool-call-lsp-result-notice {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.tool-call-lsp-result-notice p {
+  margin: 4px 0;
+}
+.tool-call-lsp-result-notice p > svg {
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.tool-call-lsp-result-notice ul {
+  padding-left: 20px;
+  max-height: 240px;
+  overflow: auto;
+}
+.tool-call-lsp-result-notice [role="alert"] {
+  color: var(--accent-red-text);
+}
+.tool-call-lsp-symbol-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tool-call-lsp-tree-branch > .tool-call-lsp-symbol-tree {
+  margin-left: 16px;
+  border-left: 1px solid var(--border-light);
+  padding-left: 7px;
+}
+.tool-call-lsp-tree-branch > summary,
+.tool-call-lsp-tree-leaf {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.tool-call-lsp-tree-branch > summary,
+.tool-call-lsp-diag-file > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.tool-call-lsp-tree-branch > summary::-webkit-details-marker,
+.tool-call-lsp-diag-file > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-call-lsp-tree-branch[open] > summary > svg:first-child,
+.tool-call-lsp-diag-file[open] > summary > svg:first-child {
+  transform: rotate(90deg);
+}
+.tool-call-lsp-show-more {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.tool-call-lsp-diag-file .tool-call-error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+}
+
+.lsp-diagnostics-summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 9px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+.lsp-diagnostics-summary.is-compact {
+  padding: 0;
+  border: 0;
+  font-size: 10px;
+}
+.lsp-diagnostic-file-status {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.tool-call-lsp-diag-file-header {
+  flex-wrap: wrap;
+}
+.lsp-diagnostic-warning-badge {
+  font-size: 10px;
+  color: var(--accent-amber-text);
+}
+.lsp-diagnostic-partial .lsp-diagnostic-file-status,
+.tool-call-lsp-file-notice {
+  color: var(--accent-amber-text);
+}
+.lsp-diagnostic-failed .lsp-diagnostic-file-status {
+  color: var(--accent-red-text);
+}
+.tool-call-lsp-file-notice {
+  margin: 4px 8px;
+  font-size: 11px;
+}
+.tool-call-lsp-rename-safety {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.tool-call-lsp-rename-safety p {
+  margin: 5px 0;
+}
+.tool-call-lsp-rename-safety ul {
+  max-height: 240px;
+  overflow: auto;
+}
+.tool-call-lsp-rename-safety [role="alert"] {
   color: var(--accent-red-text);
 }
 

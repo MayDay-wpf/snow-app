@@ -1,8 +1,8 @@
 //! LSP 响应 → agent 友好输出（JSON + Markdown，见设计文档 §8.1/§8.2）。
 
 use lsp_types::{
-    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeActionOrCommand,
-    Diagnostic, DiagnosticSeverity, DocumentChanges, DocumentSymbol, DocumentSymbolResponse,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, Diagnostic,
+    DiagnosticSeverity, DocumentChanges, DocumentSymbol, DocumentSymbolResponse,
     GotoDefinitionResponse, Hover, HoverContents, Location, LocationLink, MarkedString,
     NumberOrString, OneOf, SymbolInformation, TextEdit, TypeHierarchyItem, Url, WorkspaceEdit,
 };
@@ -51,20 +51,18 @@ pub fn diagnostics_summary(items: &[Diagnostic]) -> String {
         .count();
     let infos = items
         .iter()
-        .filter(|d| matches!(
-            d.severity,
-            Some(DiagnosticSeverity::INFORMATION) | Some(DiagnosticSeverity::HINT)
-        ))
+        .filter(|d| {
+            matches!(
+                d.severity,
+                Some(DiagnosticSeverity::INFORMATION) | Some(DiagnosticSeverity::HINT)
+            )
+        })
         .count();
     format!("{errors} errors, {warnings} warnings, {infos} infos")
 }
 
 /// 诊断列表 → 工具输出 JSON。
-pub fn diagnostics_to_value(
-    language: &str,
-    server: &str,
-    diagnostics: Vec<Diagnostic>,
-) -> Value {
+pub fn diagnostics_to_value(language: &str, server: &str, diagnostics: Vec<Diagnostic>) -> Value {
     let total = diagnostics.len();
     let shown: Vec<Value> = diagnostics
         .iter()
@@ -72,7 +70,10 @@ pub fn diagnostics_to_value(
         .map(diagnostic_to_json)
         .collect();
     let summary = if total > MAX_DIAGNOSTICS {
-        format!("{} (truncated to {MAX_DIAGNOSTICS})", diagnostics_summary(&diagnostics))
+        format!(
+            "{} (truncated to {MAX_DIAGNOSTICS})",
+            diagnostics_summary(&diagnostics)
+        )
     } else {
         diagnostics_summary(&diagnostics)
     };
@@ -80,6 +81,11 @@ pub fn diagnostics_to_value(
         "language": language,
         "server": server,
         "summary": summary,
+        "total": total,
+        "diagnosticTotal": total,
+        "truncated": total > MAX_DIAGNOSTICS,
+        "partial": total > MAX_DIAGNOSTICS,
+        "status": if total > MAX_DIAGNOSTICS { "partial" } else { "complete" },
         "diagnostics": shown,
     })
 }
@@ -169,7 +175,9 @@ pub fn definition_to_value(
         Some(GotoDefinitionResponse::Array(locations)) => {
             locations.iter().map(location_to_json).collect()
         }
-        Some(GotoDefinitionResponse::Link(links)) => links.iter().map(location_link_to_json).collect(),
+        Some(GotoDefinitionResponse::Link(links)) => {
+            links.iter().map(location_link_to_json).collect()
+        }
         None => Vec::new(),
     };
     json!({
@@ -266,9 +274,10 @@ fn document_symbol_to_json(symbol: &DocumentSymbol) -> Value {
 /// documentSymbol 响应 → 工具输出 JSON（树形大纲）。
 pub fn symbols_to_value(language: &str, response: Option<DocumentSymbolResponse>) -> Value {
     let symbols = match response {
-        Some(DocumentSymbolResponse::Nested(symbols)) => {
-            symbols.iter().map(document_symbol_to_json).collect::<Vec<_>>()
-        }
+        Some(DocumentSymbolResponse::Nested(symbols)) => symbols
+            .iter()
+            .map(document_symbol_to_json)
+            .collect::<Vec<_>>(),
         Some(DocumentSymbolResponse::Flat(symbols)) => symbols
             .iter()
             .map(symbol_information_to_json)
@@ -297,19 +306,22 @@ fn symbol_information_to_json(symbol: &SymbolInformation) -> Value {
     })
 }
 
-/// WorkspaceEdit 是否「空」（三字段全 None）。任意 JSON 对象经 serde 解析
-/// （未知字段默认忽略）都会得到空 WorkspaceEdit——execute_command 用它区分
-/// 真实空编辑与「非 WorkspaceEdit 的普通结果对象」，避免谎报 applied:true（H2）。
-pub fn workspace_edit_is_empty(edit: &WorkspaceEdit) -> bool {
-    edit.changes.is_none() && edit.document_changes.is_none()
-}
-
 /// 从 WorkspaceEdit 提取 (uri, TextEdit 列表)：优先 `document_changes::Edits`，
 /// 回退 `changes` 映射；`Operations` 类变更（create/rename/delete file）不支持
 /// 自动应用 → 返回明确的 Unsupported 错误（不得静默丢弃，R1.2）。
 pub(crate) fn workspace_edit_files(
     edit: &WorkspaceEdit,
 ) -> Result<Vec<(Url, Vec<TextEdit>)>, LspError> {
+    Ok(workspace_edit_files_versioned(edit)?
+        .into_iter()
+        .map(|(uri, _, edits)| (uri, edits))
+        .collect())
+}
+
+/// 保留TextDocumentEdit版本用于安全预览；changes映射没有版本。
+pub(crate) fn workspace_edit_files_versioned(
+    edit: &WorkspaceEdit,
+) -> Result<Vec<(Url, Option<i32>, Vec<TextEdit>)>, LspError> {
     if let Some(doc_changes) = &edit.document_changes {
         match doc_changes {
             DocumentChanges::Edits(edits) => {
@@ -326,7 +338,11 @@ pub(crate) fn workspace_edit_files(
                                 }
                             })
                             .collect::<Vec<_>>();
-                        (text_document_edit.text_document.uri.clone(), edits)
+                        (
+                            text_document_edit.text_document.uri.clone(),
+                            text_document_edit.text_document.version,
+                            edits,
+                        )
                     })
                     .collect());
             }
@@ -344,7 +360,7 @@ pub(crate) fn workspace_edit_files(
         .map(|changes| {
             changes
                 .iter()
-                .map(|(uri, edits)| (uri.clone(), edits.clone()))
+                .map(|(uri, edits)| (uri.clone(), None, edits.clone()))
                 .collect()
         })
         .unwrap_or_default())
@@ -357,12 +373,13 @@ pub(crate) fn workspace_edit_files(
 /// 避免空文件列表被误读为「无变更」。
 pub fn workspace_edit_to_value(edit: &WorkspaceEdit) -> Value {
     let mut unsupported_operations = false;
-    let files: Vec<Value> = match workspace_edit_files(edit) {
+    let files: Vec<Value> = match workspace_edit_files_versioned(edit) {
         Ok(files) => files
             .iter()
-            .map(|(uri, edits)| {
+            .map(|(uri, version, edits)| {
                 json!({
                     "uri": uri.to_string(),
+                    "documentVersion": version,
                     "editCount": edits.len(),
                     "edits": edits.iter().map(|edit| json!({
                         "startLine": edit.range.start.line + 1,
@@ -389,43 +406,7 @@ pub fn workspace_edit_to_value(edit: &WorkspaceEdit) -> Value {
     value
 }
 
-/// codeAction 响应 → 工具输出 JSON（只描述 action，不执行 command）。
-pub fn code_actions_to_value(language: &str, actions: Vec<CodeActionOrCommand>) -> Value {
-    let list: Vec<Value> = actions
-        .iter()
-        .map(|action| match action {
-            CodeActionOrCommand::CodeAction(ca) => json!({
-                "title": ca.title,
-                "kind": ca.kind.as_ref().map(|k| k.as_str().to_string()),
-                "isPreferred": ca.is_preferred,
-                "hasEdit": ca.edit.is_some(),
-                "command": ca.command.as_ref().map(|command| json!({
-                    "command": command.command,
-                    "title": command.title,
-                    "arguments": command.arguments,
-                })),
-            }),
-            CodeActionOrCommand::Command(command) => json!({
-                "title": command.title,
-                "kind": null,
-                "isPreferred": null,
-                "hasEdit": false,
-                "command": json!({
-                    "command": command.command,
-                    "title": command.title,
-                    "arguments": command.arguments,
-                }),
-            }),
-        })
-        .collect();
-    json!({
-        "language": language,
-        "count": list.len(),
-        "actions": list,
-    })
-}
-
-/// workspace/symbol 响应 → 工具输出 JSON（跨文件符号搜索，上限 50 条）。
+/// workspace/symbol 响应 → 完整内部 JSON；展示条数上限仅由工具入口实施。
 ///
 /// 3.17 双形态：`Flat`（SymbolInformation 列表）与 `Nested`（WorkspaceSymbol 列表）。
 /// `project_root` 用于标记符号是否属于当前项目（`inProject`，标准库/依赖为 false）。
@@ -435,7 +416,6 @@ pub fn workspace_symbols_to_value(
     project_root: &std::path::Path,
     response: Option<lsp_types::WorkspaceSymbolResponse>,
 ) -> Value {
-    const MAX_WORKSPACE_SYMBOLS: usize = 50;
     let symbols: Vec<Value> = match response {
         Some(lsp_types::WorkspaceSymbolResponse::Flat(list)) => list
             .iter()
@@ -448,21 +428,31 @@ pub fn workspace_symbols_to_value(
         None => Vec::new(),
     };
     let total = symbols.len();
-    let shown = symbols.into_iter().take(MAX_WORKSPACE_SYMBOLS).collect::<Vec<_>>();
+    // 内部寻址必须消费完整候选集；显示限额由工具入口最后实施。
     json!({
         "language": language,
         "query": query,
-        "count": shown.len(),
+        "count": total,
         "total": total,
-        "symbols": shown,
+        "truncated": false,
+        "symbols": symbols,
     })
 }
 
 /// 判断文件路径是否位于项目根内（Windows 大小写不敏感）。
 fn is_in_project(project_root: &std::path::Path, file_path: &str) -> bool {
-    let root = project_root.to_string_lossy().to_lowercase();
-    let path = file_path.to_lowercase();
-    path.starts_with(&root)
+    let normalize = |path: &str| {
+        let path = path.replace('\\', "/");
+        let path = path.strip_prefix("//?/").unwrap_or(&path);
+        if cfg!(windows) {
+            path.to_ascii_lowercase()
+        } else {
+            path.to_string()
+        }
+    };
+    let root = normalize(&project_root.to_string_lossy());
+    let path = normalize(file_path);
+    std::path::Path::new(&path).starts_with(std::path::Path::new(&root))
 }
 
 /// SymbolInformation（Flat 形态）→ 平铺 JSON（含 filePath / inProject）。
@@ -493,7 +483,10 @@ fn symbol_information_workspace_json(
 ///
 /// location 是 `OneOf<Location, WorkspaceLocation>`：Left 带 range，Right 仅 uri
 /// （WorkspaceLocation 无 range，位置字段输出 0）。
-fn workspace_symbol_json(symbol: &lsp_types::WorkspaceSymbol, project_root: &std::path::Path) -> Value {
+fn workspace_symbol_json(
+    symbol: &lsp_types::WorkspaceSymbol,
+    project_root: &std::path::Path,
+) -> Value {
     let (file_path, line, column, end_line, end_column) = match &symbol.location {
         OneOf::Left(loc) => {
             let path = loc
@@ -682,4 +675,70 @@ fn hierarchy_item_path(uri: &Url) -> String {
     uri.to_file_path()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| uri.as_str().to_string())
+}
+
+#[cfg(test)]
+mod addressing_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_edit_preserves_document_versions() {
+        let edit: WorkspaceEdit = serde_json::from_value(json!({"documentChanges":[{"textDocument":{"uri":"file:///fixture/b.rs","version":7},"edits":[]}]})).unwrap();
+        let files = workspace_edit_files_versioned(&edit).unwrap();
+        assert_eq!(files[0].1, Some(7));
+        assert_eq!(
+            workspace_edit_to_value(&edit)["files"][0]["documentVersion"],
+            7
+        );
+        let unversioned: WorkspaceEdit =
+            serde_json::from_value(json!({"changes":{"file:///fixture/b.rs":[]}})).unwrap();
+        assert_eq!(
+            workspace_edit_files_versioned(&unversioned).unwrap()[0].1,
+            None
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn workspace_response_preserves_more_than_fifty_candidates() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let uri = Url::from_file_path(root.join("src/lib.rs")).unwrap();
+        let symbols = (0..75)
+            .map(|line| SymbolInformation {
+                name: "same_name".into(),
+                kind: lsp_types::SymbolKind::FUNCTION,
+                tags: None,
+                deprecated: None,
+                container_name: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: lsp_types::Range {
+                        start: lsp_types::Position::new(line, 0),
+                        end: lsp_types::Position::new(line, 9),
+                    },
+                },
+            })
+            .collect();
+        let value = workspace_symbols_to_value(
+            "rust",
+            "same_name",
+            root,
+            Some(lsp_types::WorkspaceSymbolResponse::Flat(symbols)),
+        );
+        assert_eq!(value["count"], 75);
+        assert_eq!(value["symbols"].as_array().unwrap().len(), 75);
+        assert_eq!(value["truncated"], false);
+    }
+
+    #[test]
+    fn project_prefix_requires_path_component_boundary() {
+        assert!(!is_in_project(
+            std::path::Path::new("/work/app"),
+            "/work/app-other/src.rs"
+        ));
+        assert!(is_in_project(
+            std::path::Path::new("/work/app"),
+            "/work/app/src.rs"
+        ));
+    }
 }

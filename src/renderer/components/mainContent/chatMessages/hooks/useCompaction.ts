@@ -31,7 +31,15 @@ export const useCompaction = (ctx: ConversationContextValue) => {
       responsesFastMode?: boolean | null,
     ): Promise<CompactionResult | null> => {
       const sessionRef = ctx.sessionsRefData.current.get(conversationId);
+      const analysisWorkspaceRoot =
+        sessionRef?.analysisWorkspaceRoot ??
+        directoryIdToPath(sessionRef?.directoryId) ??
+        (ctx.activeConversationIdRef.current === conversationId
+          ? ctx.directoryPath
+          : undefined) ??
+        "";
       if (sessionRef) {
+        sessionRef.analysisWorkspaceRoot = analysisWorkspaceRoot;
         sessionRef.isSending = true;
         sessionRef.isAbortRequested = false;
       }
@@ -82,6 +90,7 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         model,
         conversationId,
         directoryId: sessionRef?.directoryId ?? ctx.directoryId,
+        analysisWorkspaceRoot,
         contextCompaction: true,
         checkpointId,
         // Per-conversation Goal Mode snapshot: the handoff prompt depends on

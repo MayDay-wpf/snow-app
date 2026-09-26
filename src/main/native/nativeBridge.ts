@@ -579,6 +579,22 @@ export const loadNativeBridge = (): NativeBridge => {
             "Rust native bridge is required to list LSP session statuses",
           ),
         ),
+      startLspSession: (_projectId: string, _lang: string) =>
+        Promise.reject(
+          new Error("Rust native bridge is required to start LSP session"),
+        ),
+      stopLspSession: (_projectId: string, _lang: string) =>
+        Promise.reject(
+          new Error("Rust native bridge is required to stop LSP session"),
+        ),
+      restartLspSession: (
+        _projectId: string,
+        _lang: string,
+        _clearCache?: boolean,
+      ) =>
+        Promise.reject(
+          new Error("Rust native bridge is required to restart LSP session"),
+        ),
       listUserscripts: () =>
         Promise.reject(
           new Error("Rust native bridge is required to list userscripts"),

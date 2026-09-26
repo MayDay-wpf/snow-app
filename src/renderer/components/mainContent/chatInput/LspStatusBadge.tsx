@@ -1,163 +1,208 @@
-import { Braces, CircleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Braces, CircleAlert, Loader2, Settings, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { LspSessionStatus } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 
-/** 会话状态轮询间隔（ms）：会话生命周期变化（启动/退出/回收）秒级感知即可。 */
 const POLL_INTERVAL_MS = 3000;
-
 const STATUS_LABEL_KEY: Record<LspSessionStatus["status"], string> = {
   running: "chatInput.lspBadgeStatusRunning",
   dead: "chatInput.lspBadgeStatusDead",
   exited: "chatInput.lspBadgeStatusExited",
 };
+type Snapshot = {
+  projectId: string;
+  items: LspSessionStatus[];
+  updatedAt?: number;
+  stale: boolean;
+};
 
-/**
- * 浮层中只显示项目名（路径最后一段），不暴露本地完整路径；
- * 完整路径仍保留在行的 title 悬停提示中。
- */
-function projectDisplayName(projectRoot: string): string {
-  const parts = projectRoot.split(/[\\/]+/).filter(Boolean);
-  return parts.length > 0 ? (parts[parts.length - 1] ?? projectRoot) : projectRoot;
-}
-
-/**
- * 输入框工具栏的 LSP 会话状态徽章（截图位置：加号旁的徽章区）。
- *
- * - 实时轮询 native ServerManager 会话快照（不触发任何会话创建/回收）；
- * - `projectId`：当前项目 id（`activeDirectory.directoryId`）。传入时只展示
- *   该项目根下的会话——切换项目后徽章不再显示其他项目的常驻进程；
- * - 无会话 → 灰色待机；有运行中 → 绿色 + 运行数；有异常 → 黄色告警；
- * - 鼠标悬停展示浮层：逐语言状态、项目根、错误信息（纯展示，无设置入口）。
- */
+/** This reports process liveness, not indexing or semantic-query readiness. */
 export function LspStatusBadge({
   projectId,
+  onOpenSettings,
 }: {
   projectId?: string;
+  onOpenSettings?: () => void;
 }): React.JSX.Element | null {
   const { t } = useI18n();
-  const [statuses, setStatuses] = useState<LspSessionStatus[] | null>(null);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverId = useId();
 
   useEffect(() => {
     let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setOpen(false);
+    setSnapshot(null);
+    if (!projectId) return;
     const fetchStatuses = async (): Promise<void> => {
       try {
         const items = await window.snow.listLspSessionStatuses(projectId);
-        if (!disposed) {
-          setStatuses(items);
-        }
+        if (!disposed)
+          setSnapshot({
+            projectId,
+            items,
+            updatedAt: Date.now(),
+            stale: false,
+          });
       } catch {
-        // 静默失败：native 桥不可用/查询失败时保留上次快照，不打扰输入。
+        if (!disposed)
+          setSnapshot((previous) => ({
+            projectId,
+            items: previous?.projectId === projectId ? previous.items : [],
+            updatedAt:
+              previous?.projectId === projectId
+                ? previous.updatedAt
+                : undefined,
+            stale: true,
+          }));
+      } finally {
+        // Schedule only after the previous request settles: no overlap or out-of-order snapshots.
+        if (!disposed)
+          timer = setTimeout(() => void fetchStatuses(), POLL_INTERVAL_MS);
       }
     };
     void fetchStatuses();
-    const timer = window.setInterval(() => void fetchStatuses(), POLL_INTERVAL_MS);
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [projectId]);
 
-  if (statuses === null) {
-    return null;
-  }
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        !rootRef.current?.contains(event.target)
+      )
+        setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
-  const runningCount = statuses.filter((s) => s.status === "running").length;
-  const problemCount = statuses.filter(
-    (s) => s.status === "dead" || s.status === "exited"
-  ).length;
-  const hasProblems = problemCount > 0;
-
-  const title = hasProblems
-    ? t("chatInput.lspBadgeTitleProblems", {
-        defaultValue: "{{count}} language server(s) unhealthy",
-        values: { count: String(problemCount) },
-      })
-    : runningCount > 0
-      ? t("chatInput.lspBadgeTitleRunning", {
-          defaultValue: "{{count}} language server(s) running",
-          values: { count: String(runningCount) },
-        })
-      : t("chatInput.lspBadgeTitleIdle", {
-          defaultValue: "LSP idle (auto-starts on first tool call)",
-        });
-
+  if (!projectId) return null;
+  // A scope switch hides the previous project's snapshot during the very first render.
+  const current = snapshot?.projectId === projectId ? snapshot : null;
+  const items = current?.items ?? [];
+  const runningCount = items.filter((item) => item.status === "running").length;
+  const problemCount = items.filter((item) => item.status !== "running").length;
+  const title = !current
+    ? t("chatInput.lspBadgeLoading")
+    : current.stale
+      ? t("chatInput.lspBadgeStale")
+      : problemCount > 0
+        ? t("chatInput.lspBadgeTitleProblems", {
+            values: { count: problemCount },
+          })
+        : runningCount > 0
+          ? t("chatInput.lspBadgeTitleRunning", {
+              values: { count: runningCount },
+            })
+          : t("chatInput.lspBadgeTitleIdle");
   return (
-    <div
-      className="tooltip-wrapper lsp-status-badge-root"
-      ref={rootRef}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <div className="tooltip-wrapper lsp-status-badge-root" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
-        className={`plan-mode-badge lsp-status-badge${
-          hasProblems
-            ? " has-problems"
-            : runningCount > 0
-              ? " is-active"
-              : " is-idle"
-        }`}
+        className={`plan-mode-badge lsp-status-badge${current?.stale || problemCount > 0 ? " has-problems" : runningCount > 0 ? " is-active" : " is-idle"}`}
         aria-label={title}
         title={title}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={popoverId}
+        onClick={() => setOpen((value) => !value)}
       >
-        {hasProblems ? (
-          <CircleAlert size={14} strokeWidth={1.8} />
+        {!current ? (
+          <Loader2 size={14} className="spin" aria-hidden="true" />
+        ) : current.stale || problemCount > 0 ? (
+          <CircleAlert size={14} aria-hidden="true" />
         ) : (
-          <Braces size={14} strokeWidth={1.8} />
+          <Braces size={14} aria-hidden="true" />
         )}
-        {runningCount > 0 && (
+        {!current?.stale && runningCount > 0 && (
           <span className="lsp-status-badge-count">{runningCount}</span>
         )}
       </button>
-
       {open && (
-        <div className="lsp-status-popover" role="dialog">
+        <div
+          className="lsp-status-popover"
+          id={popoverId}
+          role="dialog"
+          aria-label={t("chatInput.lspBadgeTitle")}
+        >
           <div className="lsp-status-popover-header">
-            <strong>
-              {t("chatInput.lspBadgeTitle", {
-                defaultValue: "LSP language servers",
-              })}
-            </strong>
-            <span>
-              {t("chatInput.lspBadgeRunning", {
-                defaultValue: "{{running}}/{{total}} running",
-                values: {
-                  running: String(runningCount),
-                  total: String(statuses.length),
-                },
-              })}
-            </span>
+            <strong>{t("chatInput.lspBadgeTitle")}</strong>
+            <button
+              type="button"
+              className="icon-btn ghost"
+              aria-label={t("common.close")}
+              onClick={() => {
+                setOpen(false);
+                triggerRef.current?.focus();
+              }}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
           </div>
-
           <div className="lsp-status-popover-list">
-            {statuses.length === 0 ? (
-              <div className="lsp-status-popover-empty">
-                {t("chatInput.lspBadgeEmpty", {
-                  defaultValue:
-                    "No sessions yet — servers auto-start on first tool call.",
+            <p className="lsp-status-popover-empty">
+              {t("chatInput.lspBadgeProcessOnly")}
+            </p>
+            {current?.stale && (
+              <p className="lsp-status-popover-empty" role="status">
+                {t("chatInput.lspBadgeStale")}
+              </p>
+            )}
+            {current?.updatedAt && (
+              <p className="lsp-status-popover-empty">
+                {t("chatInput.lspBadgeUpdated", {
+                  values: {
+                    time: new Date(current.updatedAt).toLocaleTimeString(),
+                  },
                 })}
-              </div>
+              </p>
+            )}
+            {!current ? (
+              <p className="lsp-status-popover-empty" role="status">
+                {title}
+              </p>
+            ) : items.length === 0 ? (
+              <p className="lsp-status-popover-empty">
+                {current.stale
+                  ? t("chatInput.lspBadgeUnknown")
+                  : t("chatInput.lspBadgeEmpty")}
+              </p>
             ) : (
-              statuses.map((session) => (
+              items.map((session) => (
                 <div
                   key={`${session.lang}:${session.projectRoot}`}
-                  className={`lsp-status-row ${session.status}`}
+                  className={`lsp-status-row ${current.stale ? "stale" : session.status}`}
                 >
                   <span className="lsp-status-dot" aria-hidden="true" />
-                  <span className="lsp-status-lang">{session.lang}</span>
+                  <strong className="lsp-status-lang">{session.lang}</strong>
                   <span
                     className="lsp-status-project"
                     title={session.projectRoot}
                   >
-                    {projectDisplayName(session.projectRoot)}
+                    {session.projectRoot}
                   </span>
                   <span className="lsp-status-label">
-                    {t(STATUS_LABEL_KEY[session.status], {
-                      defaultValue: session.status,
-                    })}
+                    {t(STATUS_LABEL_KEY[session.status])}
                   </span>
                   {session.error && (
                     <span className="lsp-status-error" title={session.error}>
@@ -168,6 +213,21 @@ export function LspStatusBadge({
               ))
             )}
           </div>
+          {onOpenSettings && (
+            <div className="lsp-status-popover-footer">
+              <button
+                type="button"
+                className="api-settings-form-btn secondary"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenSettings();
+                }}
+              >
+                <Settings size={13} aria-hidden="true" />
+                {t("chatInput.lspBadgeOpenSettings")}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

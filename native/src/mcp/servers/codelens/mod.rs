@@ -366,7 +366,7 @@ fn analyze_definition_from_source(
     if let Some(project_root) = project_root {
         let mut index = symbol_index::SymbolIndex::new();
         index.index_project(project_root);
-        if let Some(symbol) = index.find_definition_across_project(&symbol_name) {
+        if let Some(symbol) = index.find_definition_across_project(Some(project_root), &symbol_name) {
             return json!({
                 "found": true,
                 "name": symbol.name,
@@ -429,8 +429,8 @@ fn analyze_references_from_source(
     if let Some(project_root) = project_root {
         let mut index = symbol_index::SymbolIndex::new();
         index.index_project(project_root);
-        let references = index.find_references_across_project(&name);
-        let definition = index.find_definition_across_project(&name).map(|symbol| {
+        let references = index.find_references_across_project(Some(project_root), &name);
+        let definition = index.find_definition_across_project(Some(project_root), &name).map(|symbol| {
             json!({
                 "filePath": symbol.location.file_path,
                 "line": symbol.location.line,

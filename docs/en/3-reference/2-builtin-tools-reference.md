@@ -22,7 +22,7 @@ Listed in registration order:
 | `sub-agents`       | Activate sub-agents to run tasks independently                                                                                                                                                                                                          |
 | `codebase`         | Codebase semantic search (embedding index; **only exposed when the project has codebase indexing enabled and an index has been built**)                                                                                                                 |
 | `codelens`         | Code diagnostics and symbol location                                                                                                                                                                                                                    |
-| `lsp`              | External language-server diagnostics & hover (**exposed only when an enabled AND installed server exists — enabled alone is not enough**)                                                                                                               |
+| `lsp`              | External language-server semantic tools (**exposed only when an enabled AND installed server exists — enabled alone is not enough**)                                                                                                               |
 | `app-control`      | App control (memos / mode / settings pages / scheduled tasks / projects)                                                                                                                                                                                |
 | `config`           | Global config read/write (files: settings/snowcfg/proxy/app/custom-headers/system-prompt/theme/language/permissions/buddy/personalization; DB: subAgents/hooks/imagegen/apiProfiles/lsp-config/userscripts/plugins; delegated: skills; read-only: logs) |
 | `terminal`         | Terminal automation (persistent PTY session tabs, unlike bash's one-shot commands)                                                                                                                                                                      |
@@ -143,30 +143,41 @@ Same-session communication is bounded by **session isolation**: `listTeammates` 
 
 ### lsp
 
-Diagnostics & hover driven by external language servers (rust-analyzer /
-gopls / pyright ...); **exposed only when the `lsp_server_configs` table has
-at least one enabled AND installed server** (off by default — enabled only
-expresses intent; a command missing from PATH is treated as unavailable).
-The tool subset follows the union of enabled-server capabilities; **when the project has no stack marker for a language (e.g. no `go.mod`), its tools are not exposed and no server starts** (exposed = callable, 2026-09-24).
-Local projects only (SSH/remote not supported).
+External language servers provide diagnostics, type information, semantic navigation and rename. Final tools are filtered by installation/stack/capabilities, global/project switches and sub-agent whitelists; prompts, analysis lists and provider payloads reuse this set. Exposure does not mean a process has started or an index is ready. Local workspaces only.
 
-| Full tool name              | Purpose                                                                                                                                           | Key parameters                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `lsp-diagnostics`           | File diagnostics (errors/warnings/hints with exact positions & messages)                                                                          | `filePath` (or `filePaths` batch)                           |
-| `lsp-hover`                 | Symbol hover info (type signature / docs, Markdown)                                                                                               | `filePath`, `line`, `column`                                |
-| `lsp-goto`                  | Three-in-one navigation (kind=definition / type-definition / implementation; cross-file semantic jump; use INSTEAD OF grep to locate definitions) | `filePath`, `line`, `column`; optional `kind`               |
-| `lsp-references`            | All reference locations + one-line code context (cap 100)                                                                                         | `filePath`, `line`, `column`; optional `includeDeclaration` |
-| `lsp-symbols`               | File symbol outline (nested name/kind/detail/range/children)                                                                                      | `filePath`                                                  |
-| `lsp-rename`                | Semantic rename (dryRun default true returns multi-file edits; false writes + syncs)                                                              | `filePath`, `line`, `column`, `newName`; optional `dryRun`  |
-| `lsp-code-action`           | Code actions (quick-fix / refactor menu; apply=true applies edit-based actions, command actions listed for execution)                             | `filePath`, `line`, `column`; optional `only`, `apply`      |
-| `lsp-execute-command`       | Execute a server command (e.g. rust-analyzer.applySourceChange; WorkspaceEdit results → dryRun preview / apply)                                   | `command`; optional `arguments`, `filePath`, `dryRun`       |
-| `lsp-call-hierarchy`        | Two-way call chain (incoming callers + outgoing callees with call-site context, cap 100 each)                                                     | `filePath`, `line`, `column`                                |
-| `lsp-type-hierarchy`        | Type hierarchy (supertypes parent chain + subtypes children; exposed only for Go/Java projects)                                                   | `filePath`, `line`, `column`                                |
-| `lsp-workspace-symbols`     | Cross-project fuzzy symbol search (semantic, cap 50, merged across enabled languages)                                                             | `query`                                                     |
-| `lsp-workspace-diagnostics` | Project-wide diagnostics (LSP 3.17 pull, grouped by file, cap 100 files × 200 entries)                                                            | optional `maxFiles`                                         |
-| `lsp-vulncheck`             | Go dependency vulnerability scan (govulncheck: -json -mode source -scan symbol; requires govulncheck in PATH)                                     | optional `dir`, `pattern`                                   |
+| Full tool name              | Purpose                                                       | Key parameters                                                                |
+| --------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `lsp-diagnostics`           | File Diagnostics | `filePath` or `filePaths` (1..30, mutually exclusive) |
+| `lsp-hover`                 | Type and Documentation Lookup | `filePath` + `line`/`column`, or `symbol`                                     |
+| `lsp-goto`                  | Symbol Navigation | Same addressing; `kind=definition/type-definition/implementation`             |
+| `lsp-references`            | Find References | Same addressing; optional `includeDeclaration`                                |
+| `lsp-symbols`               | File Symbol Outline | `filePath`                                                                    |
+| `lsp-rename`                | Rename Symbol | Position or `symbol`; `newName`, `dryRun` (default true); apply requires `previewId` |
+| `lsp-call-hierarchy`        | Function Call Hierarchy | `filePath` + `line`/`column`, or `symbol`                                     |
+| `lsp-type-hierarchy`        | Type Hierarchy | Same addressing; subject to language support                                  |
+| `lsp-workspace-symbols`     | Workspace Symbol Search | `query`; optional `workspaceRoot`                                             |
+| `lsp-workspace-diagnostics` | Workspace Diagnostics | Optional `maxFiles`, `workspaceRoot`                                          |
+| `lsp-vulncheck`             | Go Dependency Vulnerability Scan | Optional `dir`, `pattern`                                                     |
 
-> Note: `lsp-definition` / `lsp-type-definition` / `lsp-implementation` were standalone tools until the 2026-08-16 tool trim merged them into the unified `lsp-goto{kind}`; `lsp-vulncheck` is Go-only (added the same day). The tool set is exposed dynamically as the union of enabled-server capabilities.
+**Scope:** symbol-capable tools also accept optional `workspaceRoot` when resolving without `filePath`. It must be an existing absolute local directory; relative paths, files and SSH are rejected. The current project root is used when omitted; if no reliable root exists, provide one explicitly. It neither grants project/whitelist permissions nor searches every project.
+
+**Result safety:** internal addressing checks complete candidates before deciding uniqueness; a display cap cannot establish uniqueness. Warnings, incompleteness, partial/failed and `partial_symbol_search` do not mean “no problems/only one target.” Without a verified `selectionRange`, candidate ranges are navigation hints with `requiresExplicitCoordinates`; do not use a flat range start as rename coordinates. The UI exposes completeness/warnings; process running is not index readiness.
+
+**Freshness:** `ensure_open` compares actual full text and sends didOpen/didChange; workspace requests synchronize opened documents and close deleted ones. Diagnostics no longer read or write persistent `lsp_diagnostic_cache` results; this change does not delete the old table/data. Re-diagnosis cost is accepted rather than allowing single-file mtime/size to hide dependency/configuration changes.
+
+The ID `lsp-workspace-symbols` is unchanged. Labels are `全局符号搜索` / `全域符號搜尋` / `Workspace Symbol Search`. <!-- docs-check: allow-cjk -->
+
+The former `lsp-definition`, `lsp-type-definition` and `lsp-implementation` tools are merged into `lsp-goto{kind}`. See [LSP design](../4-architecture-and-development/7-lsp-external-language-server-design.md) for current behavior and the pending acceptance matrix.
+
+#### Invocation and result contracts (2026-09-26)
+
+- **Conditional MUST:** semantic tasks must use LSP when the corresponding tool is visible and supports the target language/operation. Report languages, negotiated capabilities and health per tool, not all enabled languages. Do not tightly retry during startup backoff. Explain unavailable cases and use visible fallbacks without expanding permissions.
+- **Strict input:** `filePath` and `filePaths` are mutually exclusive; the list has 1..30 nonempty path strings. Reject wrong types, empty arrays/entries and oversized lists without silent truncation. A legacy empty `filePath:""` placeholder means omitted. Never combine a nonempty single path with a list; include all files in the list. Validate count before physical-file deduplication and preserve first-occurrence request order.
+- **Stable output:** single `filePath` retains the top-level shape; a list returns `batch:true`, `fileCount`, `requestedCount`, `duplicateCount`, `status`, `summary` and `files`. Keep one result per file with complete/partial/failed, warnings, truncated and error; `error:null` is not failure. Summary contains `completedFiles/partialFiles/failedFiles/errorCount/warningCount`. Target file-task concurrency is 3 without changing output order.
+- **Preview capability:** `dryRun=true` returns `previewId/previewExpiresAt`; 5-minute TTL, at most 32 per session, single-use and content-bound. `dryRun=false` requires the capability plus write authorization. Changed contents, expiry or consumption require another preview; never display the raw value or automatically apply.
+- **Partial application:** multi-file writes are not transactional. Inspect `appliedFiles`, `failedFile`, `failedFileMayBeModified`, `error` and `requiresNewPreview`. Written files are not automatically rolled back; never replay the old capability.
+
+Both label families use the 11 semantic names above, preserving IDs/historical keys. Goto may specialize to Go to Definition / Go to Type Definition / Find Implementations by kind. Concurrency 3 and interfaces are under integration, not claimed runtime-verified here. See [LSP design §0.6–0.8](../4-architecture-and-development/7-lsp-external-language-server-design.md).
 
 ### app-control
 

@@ -686,6 +686,34 @@ CREATE INDEX IF NOT EXISTS idx_api_configs_active
          CREATE INDEX IF NOT EXISTS idx_lsp_diagnostic_cache_updated_at
            ON lsp_diagnostic_cache(updated_at);
 
+         CREATE TABLE IF NOT EXISTS codelens_file_cache (
+           file_path   TEXT PRIMARY KEY NOT NULL,
+           project_root TEXT NOT NULL,
+           mtime_ms    INTEGER NOT NULL,
+           size        INTEGER NOT NULL,
+           updated_at  INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_codelens_file_cache_project
+           ON codelens_file_cache(project_root);
+
+         CREATE TABLE IF NOT EXISTS codelens_symbol_index (
+           id          INTEGER PRIMARY KEY AUTOINCREMENT,
+           project_root TEXT NOT NULL,
+           symbol_name TEXT NOT NULL,
+           kind        TEXT NOT NULL,
+           file_path   TEXT NOT NULL,
+           line        INTEGER NOT NULL,
+           column      INTEGER NOT NULL,
+           end_line    INTEGER,
+           end_column  INTEGER,
+           container_name TEXT,
+           is_exported INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE INDEX IF NOT EXISTS idx_codelens_symbol_lookup
+           ON codelens_symbol_index(project_root, symbol_name, kind);
+         CREATE INDEX IF NOT EXISTS idx_codelens_file_symbols
+           ON codelens_symbol_index(file_path);
+
 
 CREATE TABLE IF NOT EXISTS userscripts (
             script_id TEXT PRIMARY KEY NOT NULL,

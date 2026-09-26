@@ -58,6 +58,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
         conversation_id: None,
         previous_response_id: None,
         directory_id: None,
+        analysis_workspace_root: None,
         checkpoint_id: None,
         context_compaction: None,
         resume_after_compaction: None,
