@@ -48,7 +48,7 @@
   --secondary-control-fg: #f5f7fa;
   --disabled-control-bg: #292c31;
   --disabled-control-fg: #777f8b;
-  --mark-bg: #8ef0b7;
+  --mark-bg: #71e6a5;
   --mark-fg: #07130c;
   --scrollbar-thumb: rgba(113, 113, 122, 0.68);
   --scrollbar-thumb-hover: rgba(161, 161, 170, 0.82);
@@ -676,7 +676,7 @@ textarea:focus-visible {
     opacity: 0;
   }
 }
-.composer-shell {
+.composer-dock {
   position: absolute;
   left: 0;
   right: 0;
@@ -915,7 +915,7 @@ textarea:focus-visible {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(13, 13, 14, 0.6);
+  background: rgba(14, 15, 18, 0.6);
   backdrop-filter: blur(4px);
   z-index: 40;
   opacity: 0;
@@ -973,7 +973,7 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
 }
-.thread-list {
+.thread-scroll {
   overflow-y: auto;
   padding: 10px;
 }
@@ -1168,15 +1168,14 @@ textarea:focus-visible {
   }
 }
 
-/* ── 2. 产品密度覆盖（呼应 Codex-Mini 的紧凑层级，不复用其品牌素材） ────── */
+/* ── 2. 产品密度覆盖（更紧凑的视觉密度） ────────────────────────────────── */
 :root {
-  --top: 52px;
-  --bg: #0d0d0e;
-  --panel: #171719;
-  --panel2: #222225;
-  --bubble: #2b2b2e;
+  --top: 54px;
+  --bg: #0e0f12;
+  --panel: #16181d;
+  --panel2: #212329;
+  --bubble: #2a2c33;
   --line: rgba(255, 255, 255, 0.105);
-  --green: #8ef0b7;
 }
 .app {
   background: var(--bg);
@@ -1185,7 +1184,7 @@ textarea:focus-visible {
   padding-left: 10px;
   padding-right: 10px;
   gap: 5px;
-  background: #000;
+  background: #090a0d;
   border-bottom-color: rgba(255, 255, 255, 0.18);
 }
 .status-dot {
@@ -1205,8 +1204,8 @@ textarea:focus-visible {
   min-width: 0;
   padding: 0 9px;
   font-size: 11px;
-  background: rgba(142, 240, 183, 0.1);
-  border-color: rgba(142, 240, 183, 0.25);
+  background: rgba(113, 230, 165, 0.1);
+  border-color: rgba(113, 230, 165, 0.25);
 }
 .icon-button {
   width: 34px;
@@ -1526,7 +1525,7 @@ textarea:focus-visible {
   padding: 8px;
   font-size: 12px;
 }
-.composer-shell {
+.composer-dock {
   /* 底部留白：普通浏览器固定留 14px 呼吸位，全面屏再叠加安全区（env 兜底 0），
    * 输入区始终抬离屏幕下缘，不被浏览器底栏 / 手势条贴住。 */
   padding: 6px max(10px, calc((100vw - 760px) / 2 + 10px))
@@ -1563,7 +1562,7 @@ textarea:focus-visible {
 .sheet-header h2 {
   font-size: 15px;
 }
-.thread-list {
+.thread-scroll {
   padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
 }
 .workspace-group {
@@ -1640,7 +1639,7 @@ textarea:focus-visible {
   gap: 6px;
   overflow-x: auto;
   padding: 0 2px 7px;
-  /* composer-shell 基础层为 none（渐变背景穿透），交互子元素必须显式恢复命中。 */
+  /* composer-dock 基础层为 none（渐变背景穿透），交互子元素必须显式恢复命中。 */
   pointer-events: auto;
   scrollbar-width: none;
 }
@@ -2883,7 +2882,7 @@ html[data-theme="light"] .thinking-body {
   background: rgba(15, 23, 42, 0.035);
   color: #4e5969;
 }
-html[data-theme="light"] .composer-shell {
+html[data-theme="light"] .composer-dock {
   background: linear-gradient(
     transparent,
     rgba(245, 246, 248, 0.94) 28%,
@@ -3029,7 +3028,7 @@ html[data-theme="light"] .scroll-to-bottom {
 .remote-toggle {
   flex: none;
 }
-.composer-shell,
+.composer-dock,
 .composer {
   background: var(--bg) !important;
   background-image: none !important;
@@ -3040,14 +3039,14 @@ html[data-theme="light"] .scroll-to-bottom {
   isolation: isolate;
   contain: paint;
 }
-.composer-shell {
+.composer-dock {
   overflow: hidden;
 }
-.composer-shell:before,
-.composer-shell:after {
+.composer-dock:before,
+.composer-dock:after {
   display: none !important;
 }
-html[data-theme="light"] .composer-shell,
+html[data-theme="light"] .composer-dock,
 html[data-theme="light"] .composer {
   background: var(--bg) !important;
   background-image: none !important;
@@ -3086,7 +3085,7 @@ html[data-theme="light"] .composer {
   justify-self: center;
   margin-bottom: 56px;
 }
-.composer-shell {
+.composer-dock {
   position: relative;
   left: auto;
   right: auto;
@@ -3115,7 +3114,7 @@ html[data-theme="light"] .composer {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-.composer-shell {
+.composer-dock {
   background-color: var(--bg) !important;
   opacity: 1 !important;
   transform: none !important;
@@ -3128,7 +3127,7 @@ body,
 .app,
 .stage,
 .timeline,
-.composer-shell,
+.composer-dock,
 .composer {
   background-image: none !important;
   filter: none !important;
@@ -3140,7 +3139,7 @@ body,
 .app,
 .stage,
 .timeline,
-.composer-shell {
+.composer-dock {
   background-color: var(--bg) !important;
   box-shadow: none !important;
 }
@@ -3155,7 +3154,7 @@ html[data-theme="light"] .timeline {
   background: #f5f6f8 !important;
   background-image: none !important;
 }
-html[data-theme="light"] .composer-shell,
+html[data-theme="light"] .composer-dock,
 html[data-theme="light"] .composer {
   background: #f5f6f8 !important;
   background-image: none !important;
@@ -3801,7 +3800,7 @@ html[data-i18n-pending] body {
   border: 1px solid var(--line);
   border-radius: 22px;
   background-color: var(--panel);
-  /* composer-shell 基础层为 none（渐变背景穿透），交互子元素必须显式恢复命中。 */
+  /* composer-dock 基础层为 none（渐变背景穿透），交互子元素必须显式恢复命中。 */
   pointer-events: auto;
 }
 .readonly-status {

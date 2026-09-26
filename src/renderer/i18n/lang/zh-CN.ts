@@ -2715,16 +2715,9 @@ export const zhCN = {
   "settings.petsInstalledInfo": "点击选择要激活的宠物。",
   "settings.about": "关于",
   "settings.aboutLicense": "开源协议",
-  "settings.aboutLicenseInfo":
-    "Snow App 以 MIT 许可发布，上游项目与第三方署名如下。",
+  "settings.aboutLicenseInfo": "Snow App 以 MIT 许可发布。",
   "settings.aboutLicenseCopyright": "Copyright (c) 2026 MayMay",
-  "settings.aboutThirdParty": "第三方与衍生声明",
-  "settings.aboutThirdPartyDerived":
-    "本项目基于 MayDay-wpf/snow-app 继续开发，原项目 Copyright (c) 2026 MayMay，MIT License。",
-  "settings.aboutThirdPartyCodexMini":
-    "移动端远控体验参考 GPT Mini by CoimgRain（Codex-Mini），仅限非商业使用。",
   "settings.aboutLicenseFull": "查看许可协议全文",
-  "settings.aboutThirdPartyFull": "查看第三方声明全文",
   "settings.aboutPrivacy": "隐私说明",
   "settings.aboutPrivacyInfo": "Snow App 在本机如何处理你的数据。",
   "settings.aboutPrivacyLocalTitle": "数据保存在本机",

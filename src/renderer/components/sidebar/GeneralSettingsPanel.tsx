@@ -9,7 +9,6 @@ import {
   Filter,
   FolderCog,
   FolderOpen,
-  GitFork,
   HardDrive,
   Image as ImageIcon,
   Images,
@@ -145,18 +144,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.`;
-
-/** 第三方声明原文（保留上游署名，不翻译） */
-const THIRD_PARTY_NOTICE_TEXT = `Snow App
-
-This project is derived from MayDay-wpf/snow-app (https://github.com/MayDay-wpf/snow-app), Copyright (c) 2026 MayMay, under the MIT License.
-本项目基于 MayDay-wpf/snow-app 继续开发，原项目 Copyright (c) 2026 MayMay，并保留其 MIT License。
-
-GPT Mini
-
-The mobile remote-control experience references and reproduces ideas from GPT Mini by CoimgRain. Original repository: https://github.com/CoimgRain/Codex-Mini. The applicable notice is preserved in LICENSE-CODEX-MINI. This independent derivative does not imply endorsement or an official partnership.
-
-中文非商业声明：GPT Mini 仅允许个人、学习、研究、评估等非商业用途使用。允许 fork、修改和继续公开发布，但必须保留对原项目和作者的清晰署名：GPT Mini by CoimgRain，并附上原项目链接：https://github.com/CoimgRain/Codex-Mini。未经作者事先书面授权，不得用于商业服务、付费托管、SaaS、中转服务、代部署收费、转售访问权或其他商业化用途。`;
 
 /** 隐私说明条目：图标 + 标题 / 说明文案 key */
 const ABOUT_PRIVACY_ITEMS = [
@@ -2458,8 +2445,7 @@ export function GeneralSettingsPanel({
                 </strong>
                 <span>
                   {t("settings.aboutLicenseInfo", {
-                    defaultValue:
-                      "Snow App 以 MIT 许可发布，上游项目与第三方署名如下。",
+                    defaultValue: "Snow App 以 MIT 许可发布。",
                   })}
                 </span>
               </div>
@@ -2483,36 +2469,6 @@ export function GeneralSettingsPanel({
                 </div>
               </div>
 
-              <div className="general-storage-row">
-                <div className="general-storage-info">
-                  <GitFork
-                    size={14}
-                    strokeWidth={1.8}
-                    className="general-storage-icon"
-                    aria-hidden="true"
-                  />
-                  <div className="general-storage-text">
-                    <span className="general-storage-label">
-                      {t("settings.aboutThirdParty", {
-                        defaultValue: "第三方与衍生声明",
-                      })}
-                    </span>
-                    <span className="settings-item-description">
-                      {t("settings.aboutThirdPartyDerived", {
-                        defaultValue:
-                          "本项目基于 MayDay-wpf/snow-app 继续开发，原项目 Copyright (c) 2026 MayMay，MIT License。",
-                      })}
-                    </span>
-                    <span className="settings-item-description">
-                      {t("settings.aboutThirdPartyCodexMini", {
-                        defaultValue:
-                          "移动端远控体验参考 GPT Mini by CoimgRain（Codex-Mini），仅限非商业使用。",
-                      })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
               <div className="about-legal-details">
                 <details>
                   <summary>
@@ -2521,16 +2477,6 @@ export function GeneralSettingsPanel({
                     })}
                   </summary>
                   <pre className="about-legal-text">{MIT_LICENSE_TEXT}</pre>
-                </details>
-                <details>
-                  <summary>
-                    {t("settings.aboutThirdPartyFull", {
-                      defaultValue: "查看第三方声明全文",
-                    })}
-                  </summary>
-                  <pre className="about-legal-text">
-                    {THIRD_PARTY_NOTICE_TEXT}
-                  </pre>
                 </details>
               </div>
             </div>

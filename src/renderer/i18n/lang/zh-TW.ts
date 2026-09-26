@@ -2718,16 +2718,9 @@ export const zhTW = {
   "settings.petsInstalledInfo": "點擊選擇要啟用的寵物。",
   "settings.about": "關於",
   "settings.aboutLicense": "開源授權",
-  "settings.aboutLicenseInfo":
-    "Snow App 以 MIT 授權發布，上游專案與第三方署名如下。",
+  "settings.aboutLicenseInfo": "Snow App 以 MIT 授權發布。",
   "settings.aboutLicenseCopyright": "Copyright (c) 2026 MayMay",
-  "settings.aboutThirdParty": "第三方與衍生聲明",
-  "settings.aboutThirdPartyDerived":
-    "本專案基於 MayDay-wpf/snow-app 繼續開發，原專案 Copyright (c) 2026 MayMay，MIT License。",
-  "settings.aboutThirdPartyCodexMini":
-    "行動遠端控制體驗參考 GPT Mini by CoimgRain（Codex-Mini），僅限非商業使用。",
   "settings.aboutLicenseFull": "檢視授權條款全文",
-  "settings.aboutThirdPartyFull": "檢視第三方聲明全文",
   "settings.aboutPrivacy": "隱私說明",
   "settings.aboutPrivacyInfo": "Snow App 如何在本機處理你的資料。",
   "settings.aboutPrivacyLocalTitle": "資料保存在本機",

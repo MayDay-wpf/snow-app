@@ -2860,16 +2860,9 @@ export const en = {
   "settings.petsInstalledInfo": "Select a pet to make it the active one.",
   "settings.about": "About",
   "settings.aboutLicense": "Open-source license",
-  "settings.aboutLicenseInfo":
-    "Snow App is released under the MIT License; upstream and third-party attributions are listed below.",
+  "settings.aboutLicenseInfo": "Snow App is released under the MIT License.",
   "settings.aboutLicenseCopyright": "Copyright (c) 2026 MayMay",
-  "settings.aboutThirdParty": "Derivatives and third-party notices",
-  "settings.aboutThirdPartyDerived":
-    "Derived from MayDay-wpf/snow-app; original work Copyright (c) 2026 MayMay, MIT License.",
-  "settings.aboutThirdPartyCodexMini":
-    "The mobile remote-control experience references GPT Mini by CoimgRain (Codex-Mini); non-commercial use only.",
   "settings.aboutLicenseFull": "View full license text",
-  "settings.aboutThirdPartyFull": "View full third-party notices",
   "settings.aboutPrivacy": "Privacy notice",
   "settings.aboutPrivacyInfo": "How Snow App handles your data on this device.",
   "settings.aboutPrivacyLocalTitle": "Data stays on this device",

@@ -331,14 +331,6 @@ const RAW_GROUPS: RawGroup[] = [
         ["license", "许可"],
       ],
       [
-        "general.about.thirdParty",
-        "field",
-        "settings.aboutThirdParty",
-        "第三方与衍生声明",
-        ["general.tab.about"],
-        ["third party", "署名"],
-      ],
-      [
         "general.about.privacy",
         "section",
         "settings.aboutPrivacy",

@@ -29,7 +29,7 @@ export const applyTheme = (preference: ThemePreference): void => {
   applyAccentCssVariables();
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    meta.setAttribute("content", resolved === "dark" ? "#0d0d0e" : "#f5f6f8");
+    meta.setAttribute("content", resolved === "dark" ? "#0e0f12" : "#f5f6f8");
   }
   document
     .querySelectorAll<HTMLElement>("[data-theme-choice]")
