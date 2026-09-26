@@ -65,7 +65,7 @@ pub(crate) fn finalize_accumulated_output(accumulated: &std::sync::Mutex<Vec<u8>
     strip_ansi_codes(&String::from_utf8_lossy(&bytes))
 }
 
-fn emit_complete_utf8_chunks(on_chunk: &BashStreamCallback, stream: &str, pending: &mut Vec<u8>) {
+pub(crate) fn emit_complete_utf8_chunks(on_chunk: &BashStreamCallback, stream: &str, pending: &mut Vec<u8>) {
     loop {
         match std::str::from_utf8(pending) {
             Ok(text) => {
@@ -119,7 +119,7 @@ pub(crate) fn emit_stream_chunk(on_chunk: &BashStreamCallback, stream: &str, dat
 /// by tools like `vite build` / `npm run build` when they detect a TTY
 /// and would otherwise leak as raw `\x1b[...m` bytes into the model
 /// context and the UI.
-fn strip_ansi_codes(input: &str) -> String {
+pub(crate) fn strip_ansi_codes(input: &str) -> String {
     static ANSI_RE: OnceLock<Regex> = OnceLock::new();
     let re = ANSI_RE.get_or_init(|| {
         // CSI sequences: ESC [ ... final byte in 0x40..=0x7E

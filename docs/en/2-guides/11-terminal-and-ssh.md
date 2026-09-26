@@ -9,12 +9,12 @@ Git, and AI tools all operate through the remote channel — just like local.
 
 ### 1.1 Opening a Terminal
 
-| How | Action |
-| --- | --- |
-| New terminal | Right-click the right-panel tab bar → **New terminal** (multiple tabs) |
+| How            | Action                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------- |
+| New terminal   | Right-click the right-panel tab bar → **New terminal** (multiple tabs)                  |
 | In a directory | Right-click in the file viewer / Git panel / file list → **Open in terminal** (auto-cd) |
-| From a project | Right-click a project tab in the top bar → Open terminal / browser / codebase |
-| From chat | When the AI runs `bash-terminal-execute`, outputs offer "open in terminal" |
+| From a project | Right-click a project tab in the top bar → Open terminal / browser / codebase           |
+| From chat      | When the AI runs `bash-terminal-execute`, outputs offer "open in terminal"              |
 
 ### 1.2 Basics
 
@@ -27,9 +27,15 @@ Git, and AI tools all operate through the remote channel — just like local.
 
 ### 1.3 Working with the AI
 
-`bash-terminal-execute` runs one command per invocation; for **long-running
-processes or interactive sessions** (e.g. `npm run dev`, vim, SSH login) the
-AI uses an **interactive terminal session**:
+`bash-terminal-execute` runs one command per invocation; on the PowerShell family
+(pwsh / Windows PowerShell) consecutive commands reuse one persistent warm shell
+session, so they no longer pay a fresh shell cold start each time (measured: ~400ms
+→ ~40ms per trivial command). The working directory is still reset for every
+command, while process-level state (environment variables, `$global:` variables)
+persists between commands like in an interactive terminal, and commands that read
+stdin (`Read-Host`, password prompts) must pass `isInteractive:true`. For
+**long-running processes or interactive sessions** (e.g. `npm run dev`, vim, SSH
+login) the AI uses an **interactive terminal session**:
 
 - The AI opens a session and shows its live output in the conversation; you
   can type into it directly;
@@ -87,12 +93,12 @@ Remote workspaces support Git just like local ones:
 
 ### 2.4 Troubleshooting
 
-| Symptom | Cause & fix |
-| --- | --- |
+| Symptom                    | Cause & fix                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------- |
 | Connection timeout/failure | Check host/port and proxy settings (see [4-configure-proxy](4-configure-proxy.md)) |
-| Auth failure | Check username and password/key path; keys must be standard OpenSSH format |
-| Remote Git stale | Remote repos rely on polling (10s); wait or trigger a refresh |
-| Garbled CJK in terminal | Ensure the remote locale is UTF-8 (`export LANG=en_US.UTF-8`) |
+| Auth failure               | Check username and password/key path; keys must be standard OpenSSH format         |
+| Remote Git stale           | Remote repos rely on polling (10s); wait or trigger a refresh                      |
+| Garbled CJK in terminal    | Ensure the remote locale is UTF-8 (`export LANG=en_US.UTF-8`)                      |
 
 ## 3. References
 

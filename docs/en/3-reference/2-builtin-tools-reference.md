@@ -53,6 +53,15 @@ Listed in registration order:
 > `shellPath` parameter — use `terminal-open` to open an interactive
 > terminal with a specific shell.
 
+> **Warm shell**: on the PowerShell family (pwsh / Windows PowerShell) consecutive
+> commands reuse one persistent warm shell session, so they no longer pay a fresh
+> shell cold start (measured: ~400ms → ~40ms per trivial command). The working
+> directory is still reset for every command, while process-level state
+> (environment variables, `$global:` variables) persists between commands like in
+> an interactive terminal; commands that read stdin (`Read-Host`, password
+> prompts) must pass `isInteractive:true`. `detach` and `isInteractive` still run
+> as one-shot processes.
+
 > **Working directory**: `workingDirectory` may be omitted — it then defaults to
 > the current project's workspace directory (the remote workspace path for SSH
 > projects). It is only mandatory when the session is not bound to a project

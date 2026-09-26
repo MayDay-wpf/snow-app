@@ -27,6 +27,7 @@ use super::remote_workspace::{
 
 mod platform;
 mod safety;
+mod session;
 pub(crate) mod stream_io;
 
 fn set_inherited_env_default(process: &mut tokio::process::Command, key: &str, value: &str) {
@@ -114,6 +115,7 @@ struct BashExecutionTimings {
     shell_resolve_ms: u64,
     login_path_ms: u64,
     spawn_ms: u64,
+    session_ms: Option<u64>,
     first_output_ms: Option<u64>,
     process_wait_ms: u64,
     pipe_drain_ms: u64,
@@ -159,6 +161,7 @@ fn log_bash_execution(entry: BashExecutionLog<'_>) {
             "shellResolveMs": entry.timings.shell_resolve_ms,
             "loginPathMs": entry.timings.login_path_ms,
             "spawnMs": entry.timings.spawn_ms,
+            "sessionMs": entry.timings.session_ms,
             "firstOutputMs": entry.timings.first_output_ms,
             "processWaitMs": entry.timings.process_wait_ms,
             "pipeDrainMs": entry.timings.pipe_drain_ms,
@@ -188,6 +191,94 @@ fn log_bash_execution(entry: BashExecutionLog<'_>) {
             let _ = insert_app_log(&database_path, &input);
         }
     });
+}
+
+/// 常驻会话路径下 SNOW_* 环境变量按次下发：与一次性路径 `set_inherited_env_default`
+/// 的规则一致（宿主进程已有的值优先）；没有会话身份时清理上一条命令可能残留的值。
+fn build_session_env_prelude(session_id: Option<&str>, working_directory: &str) -> String {
+    match session_id {
+        Some(session_id) => {
+            let assignments = [
+                ("SNOW_SESSION_ID", session_id.to_string()),
+                ("TRELLIS_CONTEXT_ID", format!("snow-{session_id}")),
+                ("SNOW_CWD", working_directory.trim().to_string()),
+                ("SNOW_PLATFORM", "snow-app".to_string()),
+            ];
+            assignments
+                .into_iter()
+                .filter(|(key, _)| std::env::var_os(key).is_none())
+                .map(|(key, value)| format!("$env:{key} = '{}'", value.replace('\'', "''")))
+                .collect::<Vec<String>>()
+                .join("; ")
+        }
+        None => {
+            "Remove-Item Env:SNOW_SESSION_ID,Env:TRELLIS_CONTEXT_ID,Env:SNOW_CWD,Env:SNOW_PLATFORM \
+             -ErrorAction SilentlyContinue"
+                .to_string()
+        }
+    }
+}
+
+/// 本地执行结果的统一组装（一次性进程路径与常驻会话路径共用，保证字段与状态文案一致）。
+struct LocalResult<'a> {
+    status: &'a str,
+    reason: Option<&'a str>,
+    error: Option<String>,
+    stdout: String,
+    stderr: String,
+    exit_code: Option<i32>,
+    output_complete: bool,
+    command: &'a str,
+    executed_at: &'a str,
+    is_interactive: bool,
+    elapsed_ms: u64,
+    timeout_ms: u64,
+}
+
+fn build_local_result(result: LocalResult<'_>) -> Value {
+    let mut payload = json!({
+        "status": result.status,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exitCode": result.exit_code,
+        "command": result.command,
+        "executedAt": result.executed_at,
+        "interactive": result.is_interactive,
+        "elapsedMs": result.elapsed_ms,
+        "timeoutMs": result.timeout_ms,
+        "outputComplete": result.output_complete,
+    });
+    if let Some(reason) = result.reason {
+        payload["reason"] = json!(reason);
+    }
+    if let Some(error) = result.error {
+        payload["error"] = json!(error);
+    }
+    payload
+}
+
+fn build_local_spawn_failed_result(
+    error: String,
+    command: &str,
+    working_directory: &str,
+    executed_at: &str,
+    elapsed_ms: u64,
+    timeout_ms: u64,
+) -> Value {
+    json!({
+        "status": "spawn_failed",
+        "reason": "spawn_error",
+        "elapsedMs": elapsed_ms,
+        "timeoutMs": timeout_ms,
+        "exitCode": null,
+        "stdout": "",
+        "stderr": "",
+        "outputComplete": true,
+        "command": command,
+        "workingDirectory": working_directory,
+        "executedAt": executed_at,
+        "error": error
+    })
 }
 
 struct SensitiveCommandAuthorization {
@@ -248,7 +339,7 @@ impl McpService for BashService {
         vec![McpTool {
             server_id: SERVER_ID.to_string(),
             name: "terminal-execute".to_string(),
-            description: "Execute terminal commands like npm, git, build scripts, etc. Commands ALWAYS run in the shell configured in Terminal settings (shellPath); when unset, the auto-detected default terminal is used (PowerShell -> CMD -> Git Bash -> COMSPEC on Windows). BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
+            description: "Execute terminal commands like npm, git, build scripts, etc. Commands ALWAYS run in the shell configured in Terminal settings (shellPath); when unset, the auto-detected default terminal is used (PowerShell -> CMD -> Git Bash -> COMSPEC on Windows). BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nWARM SHELL: the PowerShell family (pwsh / Windows PowerShell) reuses one persistent shell session across calls so consecutive commands start in milliseconds instead of paying a fresh shell startup for every command. The working directory is reset for each command, while process-level state (environment variables, `$global:` variables) persists between commands like in an interactive terminal. Because that session's stdin carries the command protocol, commands that read stdin (Read-Host, password prompts, interactive installers) MUST pass isInteractive:true — in the warm shell they error out or hang instead of seeing end-of-input.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -559,6 +650,164 @@ impl BashService {
         };
         let login_path_ms = login_path_started.elapsed().as_millis() as u64;
 
+        let callback = Arc::new(on_chunk);
+
+        // 常驻会话优先：PowerShell 家族（pwsh / Windows PowerShell）冷启动成本最高
+        // （本机实测 pwsh 7 ≈ 360ms，高压时段新建进程可被拖到十几秒），复用常驻
+        // 会话把这份开销摊薄成一次。交互式命令需要 stdin、detach 要立刻返回、
+        // cmd/Git Bash/WSL 冷启动本身极低，这三类继续走下面的一次性进程路径。
+        if !detach && !is_interactive && shell_family == "powershell" {
+            let effective_timeout = Duration::from_millis(timeout);
+            let tool_execution_id = Uuid::new_v4().to_string();
+            let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
+            stream_io::emit_stream_chunk(&callback, "tool_execution", tool_execution_id.clone());
+            let env_prelude = build_session_env_prelude(session_id.as_deref(), &working_directory);
+            let outcome = session::execute(session::SessionCommand {
+                shell: &shell,
+                working_directory: &working_directory,
+                command: &command,
+                env_prelude: &env_prelude,
+                login_path: login_path.as_deref(),
+                on_chunk: Arc::clone(&callback),
+                cancel_token: &cancel_token,
+                tool_execution_id: &tool_execution_id,
+                timeout: effective_timeout,
+            })
+            .await;
+            crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+            let elapsed_ms = execution_started.elapsed().as_millis() as u64;
+            let effective_timeout_ms = effective_timeout.as_millis() as u64;
+            let (level, status, message, exit_code) = match &outcome.status {
+                session::SessionStatus::Completed { exit_code: 0 } => {
+                    ("INFO", "completed", "Terminal command completed", Some(0))
+                }
+                session::SessionStatus::Completed { exit_code } => (
+                    "WARN",
+                    "non_zero_exit",
+                    "Terminal command exited with a non-zero status",
+                    Some(*exit_code),
+                ),
+                session::SessionStatus::TimedOut { watchdog } => (
+                    "WARN",
+                    "timeout",
+                    if *watchdog {
+                        "Terminal command timed out (renderer watchdog)"
+                    } else {
+                        "Terminal command timed out"
+                    },
+                    None,
+                ),
+                session::SessionStatus::Cancelled { .. } => {
+                    ("INFO", "cancelled", "Terminal command was cancelled", None)
+                }
+                session::SessionStatus::Failed { .. } => {
+                    ("ERROR", "failed", "Terminal process wait failed", None)
+                }
+                session::SessionStatus::SpawnFailed { .. } => (
+                    "ERROR",
+                    "spawn_failed",
+                    "Terminal process failed to spawn",
+                    None,
+                ),
+            };
+            log_bash_execution(BashExecutionLog {
+                level,
+                message,
+                status,
+                route: "local",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: false,
+                session_id: session_id.as_deref(),
+                tool_execution_id: Some(&tool_execution_id),
+                exit_code,
+                captured_stdout_bytes: outcome.stdout.len(),
+                captured_stderr_bytes: outcome.stderr.len(),
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    terminal_settings_ms,
+                    shell_resolve_ms,
+                    login_path_ms,
+                    spawn_ms: outcome.spawn_ms,
+                    session_ms: Some(outcome.session_ms),
+                    first_output_ms: outcome.first_output_ms,
+                    process_wait_ms: outcome.wait_ms,
+                    total_ms: elapsed_ms,
+                    ..BashExecutionTimings::default()
+                },
+            });
+
+            return Ok(match outcome.status {
+                session::SessionStatus::SpawnFailed { error } => build_local_spawn_failed_result(
+                    format!("Failed to spawn process: {error}"),
+                    &command,
+                    &working_directory,
+                    &executed_at,
+                    elapsed_ms,
+                    effective_timeout_ms,
+                ),
+                session::SessionStatus::Completed { exit_code } => build_local_result(LocalResult {
+                    status: "completed",
+                    reason: None,
+                    error: None,
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: Some(exit_code),
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                }),
+                session::SessionStatus::TimedOut { watchdog } => build_local_result(LocalResult {
+                    status: "timed_out",
+                    reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
+                    error: Some(format!("Command timed out after {timeout}ms: {command}")),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                }),
+                session::SessionStatus::Cancelled { reason } => build_local_result(LocalResult {
+                    status: "cancelled",
+                    reason: Some(&reason),
+                    error: Some(format!("Command was stopped by the user: {command}")),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                }),
+                session::SessionStatus::Failed { error } => build_local_result(LocalResult {
+                    status: "failed",
+                    reason: Some("process_wait_failed"),
+                    error: Some(error),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                }),
+            });
+        }
+
         let mut process = crate::utils::process::cmd_async(&shell);
         process
             .args(&shell_args)
@@ -665,20 +914,14 @@ impl BashService {
                         ..BashExecutionTimings::default()
                     },
                 });
-                return Ok(json!({
-                    "status": "spawn_failed",
-                    "reason": "spawn_error",
-                    "elapsedMs": execution_started.elapsed().as_millis() as u64,
-                    "timeoutMs": timeout,
-                    "exitCode": null,
-                    "stdout": "",
-                    "stderr": "",
-                    "outputComplete": true,
-                    "command": command,
-                    "workingDirectory": working_directory,
-                    "executedAt": executed_at,
-                    "error": format!("Failed to spawn process: {error}")
-                }));
+                return Ok(build_local_spawn_failed_result(
+                    format!("Failed to spawn process: {error}"),
+                    &command,
+                    &working_directory,
+                    &executed_at,
+                    execution_started.elapsed().as_millis() as u64,
+                    timeout,
+                ));
             }
         };
         let spawn_ms = spawn_started.elapsed().as_millis() as u64;
@@ -735,8 +978,6 @@ impl BashService {
                 )
             }));
         }
-
-        let callback = Arc::new(on_chunk);
 
         // Register a cancellation token for this execution so the process can
         // be killed on demand instead of waiting for the timeout: the UI
@@ -963,59 +1204,61 @@ impl BashService {
         let elapsed_ms = execution_started.elapsed().as_millis() as u64;
         let effective_timeout_ms = effective_timeout.as_millis() as u64;
         match wait_result {
-            ProcessWaitResult::Completed(exit_code) => Ok(json!({
-                "status": "completed",
-                "stdout": stdout,
-                "stderr": stderr,
-                "exitCode": exit_code,
-                "command": command,
-                "executedAt": executed_at,
-                "interactive": is_interactive,
-                "elapsedMs": elapsed_ms,
-                "timeoutMs": effective_timeout_ms,
-                "outputComplete": output_complete
+            ProcessWaitResult::Completed(exit_code) => Ok(build_local_result(LocalResult {
+                status: "completed",
+                reason: None,
+                error: None,
+                stdout,
+                stderr,
+                exit_code: Some(exit_code),
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
             })),
-            ProcessWaitResult::TimedOut { watchdog } => Ok(json!({
-                "status": "timed_out",
-                "reason": if watchdog { "watchdog_timeout" } else { "timeout" },
-                "elapsedMs": elapsed_ms,
-                "timeoutMs": effective_timeout_ms,
-                "exitCode": null,
-                "stdout": stdout,
-                "stderr": stderr,
-                "outputComplete": output_complete,
-                "command": command,
-                "executedAt": executed_at,
-                "interactive": is_interactive,
-                "error": format!("Command timed out after {timeout}ms: {command}")
+            ProcessWaitResult::TimedOut { watchdog } => Ok(build_local_result(LocalResult {
+                status: "timed_out",
+                reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
+                error: Some(format!("Command timed out after {timeout}ms: {command}")),
+                stdout,
+                stderr,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
             })),
-            ProcessWaitResult::Cancelled(reason) => Ok(json!({
-                "status": "cancelled",
-                "reason": reason,
-                "elapsedMs": elapsed_ms,
-                "timeoutMs": effective_timeout_ms,
-                "exitCode": null,
-                "stdout": stdout,
-                "stderr": stderr,
-                "outputComplete": output_complete,
-                "command": command,
-                "executedAt": executed_at,
-                "interactive": is_interactive,
-                "error": format!("Command was stopped by the user: {command}")
+            ProcessWaitResult::Cancelled(reason) => Ok(build_local_result(LocalResult {
+                status: "cancelled",
+                reason: Some(&reason),
+                error: Some(format!("Command was stopped by the user: {command}")),
+                stdout,
+                stderr,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
             })),
-            ProcessWaitResult::Failed(error) => Ok(json!({
-                "status": "failed",
-                "reason": "process_wait_failed",
-                "elapsedMs": elapsed_ms,
-                "timeoutMs": effective_timeout_ms,
-                "exitCode": null,
-                "stdout": stdout,
-                "stderr": stderr,
-                "outputComplete": output_complete,
-                "command": command,
-                "executedAt": executed_at,
-                "interactive": is_interactive,
-                "error": format!("Failed to wait for process: {error}")
+            ProcessWaitResult::Failed(error) => Ok(build_local_result(LocalResult {
+                status: "failed",
+                reason: Some("process_wait_failed"),
+                error: Some(format!("Failed to wait for process: {error}")),
+                stdout,
+                stderr,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
             })),
         }
     }
