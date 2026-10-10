@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.4.21
+
+## New Features
+
+- **Sidebar Plugin Update Badge**: When an installed panel plugin or script plugin has a newer version in the market, the sidebar plugin entry (and the collapsed "More" entry) shows an upward-arrow badge, so pending updates are visible without opening the page.
+- **Manual Load More in the Tree Session List**: The sidebar's tree project session list replaces infinite scroll with a "Load more chats" button; the infinite-scroll sentinel now rebinds to the node via a callback ref, so it is observed again after the list is remounted and pagination keeps working across view switches.
+
+## Bug Fixes
+
+- Fixed the unified Tooltip staying on screen: a pointer-down now dismisses it (including the click that a modal mask intercepts), since a masked trigger never fires `mouseleave` and a hover-only exit left the hint permanently visible.
+- Fixed the run summary reappearing while a generation is still in progress: a thinking state alone no longer counts as an active generation — only pending or running tool calls keep the summary hidden.
+
 ## v0.4.20
 
 ## New Features
