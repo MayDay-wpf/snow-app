@@ -1,18 +1,22 @@
 import { Loader2 } from "lucide-react";
-import type { RefObject } from "react";
+import type { Ref } from "react";
 
 import { useI18n } from "../../../../i18n";
 
 type ChatListFooterProps = {
-  sentinelRef: RefObject<HTMLDivElement | null>;
   hasMore: boolean;
   isLoadingMore: boolean;
+  sentinelRef?: Ref<HTMLDivElement>;
+  manual?: boolean;
+  onLoadMore?: () => void;
 };
 
 export function ChatListFooter({
   sentinelRef,
   hasMore,
   isLoadingMore,
+  manual = false,
+  onLoadMore,
 }: ChatListFooterProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -22,6 +26,32 @@ export function ChatListFooter({
         {t("sidebar.chatAllLoaded", {
           defaultValue: "All chats loaded",
         })}
+      </div>
+    );
+  }
+
+  if (manual) {
+    return (
+      <div className="chat-load-more is-manual">
+        <button
+          className="chat-load-more-btn"
+          type="button"
+          disabled={isLoadingMore}
+          onClick={onLoadMore}
+        >
+          {isLoadingMore ? (
+            <Loader2 className="spin" size={13} aria-hidden="true" />
+          ) : null}
+          <span>
+            {isLoadingMore
+              ? t("sidebar.chatLoadingMore", {
+                  defaultValue: "Loading more chats...",
+                })
+              : t("sidebar.chatLoadMore", {
+                  defaultValue: "Load more",
+                })}
+          </span>
+        </button>
       </div>
     );
   }

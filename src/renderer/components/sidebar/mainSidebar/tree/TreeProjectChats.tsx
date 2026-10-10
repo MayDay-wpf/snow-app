@@ -71,6 +71,7 @@ export function TreeProjectChats({
     runningConversationIds,
     sessions,
     isCollapsed: false,
+    infiniteScroll: false,
     sectionListRef,
   });
 
@@ -323,7 +324,8 @@ export function TreeProjectChats({
           <ChatListFooter
             hasMore={list.hasMore}
             isLoadingMore={list.isLoadingMore}
-            sentinelRef={list.loadMoreRef}
+            manual
+            onLoadMore={() => void list.loadMore()}
           />
         </>
       )}

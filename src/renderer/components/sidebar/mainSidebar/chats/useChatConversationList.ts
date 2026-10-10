@@ -27,6 +27,7 @@ type UseChatConversationListOptions = {
   runningConversationIds: Set<string>;
   sessions: Record<string, ConversationSessionState>;
   isCollapsed: boolean;
+  infiniteScroll?: boolean;
   sectionListRef: RefObject<HTMLDivElement | null>;
 };
 
@@ -38,6 +39,7 @@ export function useChatConversationList({
   runningConversationIds,
   sessions,
   isCollapsed,
+  infiniteScroll = true,
   sectionListRef,
 }: UseChatConversationListOptions) {
   const { t } = useI18n();
@@ -89,7 +91,14 @@ export function useChatConversationList({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  // 分页哨兵节点：用回调 ref 存进 state，让观察者 effect 依赖「节点身份」。
+  // 列表会因切换项目/显示形态而整块重挂载（哨兵 DOM 被替换），若只读
+  // ref.current，重挂载后 effect 依赖不变、不会重新 observe，无限滚动失效。
+  const [loadMoreSentinel, setLoadMoreSentinel] =
+    useState<HTMLDivElement | null>(null);
+  const loadMoreRef = useCallback((node: HTMLDivElement | null): void => {
+    setLoadMoreSentinel(node);
+  }, []);
 
   // 始终持有最新 conversations，供子代理加载 effect 读取。
   // effect 仅以会话 id 集合为依赖：upsert/重排（id 不变）不会重查子代理。
@@ -371,11 +380,11 @@ export function useChatConversationList({
   ]);
 
   useEffect(() => {
-    if (!hasMore || isLoading || isCollapsed) {
+    if (!infiniteScroll || !hasMore || isLoading || isCollapsed) {
       return;
     }
 
-    const sentinel = loadMoreRef.current;
+    const sentinel = loadMoreSentinel;
 
     if (!sentinel) {
       return;
@@ -403,8 +412,9 @@ export function useChatConversationList({
     hasMore,
     isLoading,
     isCollapsed,
+    infiniteScroll,
     loadMore,
-    conversations.length,
+    loadMoreSentinel,
     sectionListRef,
   ]);
 

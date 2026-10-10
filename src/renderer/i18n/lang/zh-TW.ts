@@ -550,6 +550,7 @@ export const zhTW = {
   "sidebar.chatWeekdayFri": "週五",
   "sidebar.chatWeekdaySat": "週六",
   "sidebar.chatLoadingMore": "正在載入更多對話...",
+  "sidebar.chatLoadMore": "載入更多對話",
   "sidebar.chatAllLoaded": "已載入全部對話",
   "sidebar.chatStatusNeedsAction": "待處理",
   "sidebar.chatStatusWaitingForReviewOrInput": "等待審核或輸入",

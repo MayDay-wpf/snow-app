@@ -549,6 +549,7 @@ export const zhCN = {
   "sidebar.chatWeekdayFri": "周五",
   "sidebar.chatWeekdaySat": "周六",
   "sidebar.chatLoadingMore": "正在加载更多会话...",
+  "sidebar.chatLoadMore": "加载更多会话",
   "sidebar.chatAllLoaded": "已加载全部会话",
   "sidebar.chatStatusNeedsAction": "待处理",
   "sidebar.chatStatusWaitingForReviewOrInput": "等待审核或输入",

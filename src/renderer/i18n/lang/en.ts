@@ -579,6 +579,7 @@ export const en = {
   "sidebar.chatWeekdayFri": "Fri",
   "sidebar.chatWeekdaySat": "Sat",
   "sidebar.chatLoadingMore": "Loading more chats...",
+  "sidebar.chatLoadMore": "Load more chats",
   "sidebar.chatAllLoaded": "All chats loaded",
   "sidebar.chatStatusNeedsAction": "Needs action",
   "sidebar.chatStatusWaitingForReviewOrInput": "Waiting for review or input",

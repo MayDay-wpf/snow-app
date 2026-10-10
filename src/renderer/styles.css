@@ -2609,6 +2609,39 @@ body.is-panel-resizing * {
   flex: 0 0 auto;
 }
 
+.chat-load-more.is-manual {
+  padding: 4px 8px;
+}
+
+.chat-load-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.chat-load-more-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .chat-all-loaded {
   padding: 6px 8px;
   color: var(--text-muted);
