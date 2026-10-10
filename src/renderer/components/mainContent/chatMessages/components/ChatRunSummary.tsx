@@ -60,11 +60,10 @@ export const ChatRunSummary = ({
     (message) =>
       message.status === "sending" ||
       (message.role === "assistant" &&
-        (message.isThinkingActive === true ||
-          message.toolCalls?.some(
-            (toolCall) =>
-              toolCall.status === "pending" || toolCall.status === "running",
-          ))),
+        message.toolCalls?.some(
+          (toolCall) =>
+            toolCall.status === "pending" || toolCall.status === "running",
+        )),
   );
   if (hasActiveGeneration) {
     return null;

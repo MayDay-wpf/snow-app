@@ -1,4 +1,10 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type {
   CSSProperties,
@@ -112,6 +118,19 @@ export const Tooltip = ({
   const handleMouseLeave = useCallback(() => {
     setInternalVisible(false);
   }, []);
+
+  // 指针按下即收起（含被弹窗遮罩拦截的那一次点击）：遮罩盖住触发元素后
+  // 浏览器不会补发 mouseleave，只靠 hover 退出会让提示常驻不消失。
+  useEffect(() => {
+    if (visible !== undefined || !internalVisible) {
+      return;
+    }
+    const handlePointerDown = (): void => setInternalVisible(false);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [visible, internalVisible]);
 
   // 首帧测量定位 + 显示期间持续跟随。Portal 内容挂载后 ref 即可用，
   // layout effect 中的 setPos 在浏览器绘制前完成，不会出现位置闪烁。
