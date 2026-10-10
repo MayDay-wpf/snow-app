@@ -24826,6 +24826,27 @@ body.is-panel-resizing * {
   color: var(--text-primary);
 }
 
+.sidebar-update-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--accent-blue);
+}
+
+.sidebar-update-icon svg {
+  color: var(--accent-blue);
+}
+
+.sidebar-more-btn .sidebar-update-icon,
+.sidebar-plugins-btn .sidebar-update-icon {
+  margin-left: auto;
+}
+
+.sidebar-update-icon ~ .sidebar-more-chevron,
+.sidebar-update-icon ~ .sidebar-memory-badge {
+  margin-left: 0;
+}
+
 .scheduled-tasks-panel-layout {
   display: grid;
   /* 列宽：左栏（可拖拽）/ 中轴拖拽条 / 内容区 */

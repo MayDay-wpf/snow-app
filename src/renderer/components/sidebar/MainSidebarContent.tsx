@@ -1,11 +1,12 @@
 import {
   ChevronDown,
+  CircleArrowUp,
   Download,
   Ellipsis,
   LoaderCircle,
   Settings,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../i18n";
 import { AnimatedMemoIcon } from "../icons/AnimatedMemoIcon";
@@ -15,6 +16,12 @@ import { AnimatedProjectMemoryIcon } from "../icons/AnimatedProjectMemoryIcon";
 import { AnimatedScheduledTasksIcon } from "../icons/AnimatedScheduledTasksIcon";
 import { AnimatedSearchIcon } from "../icons/AnimatedSearchIcon";
 import { pluginStore, usePluginStore } from "../../plugins/pluginStore";
+import { hasMarketUpdate, isMarketEntryTooNew } from "../../plugins/market";
+import {
+  findMarketEntry,
+  marketStore,
+  useMarketStore,
+} from "../../plugins/marketStore";
 import { runtimeSnapshot } from "../../plugins/runtimeSnapshot";
 import {
   clientScriptStore,
@@ -93,9 +100,39 @@ export function MainSidebarContent({
     pluginState.plugins.filter((item) => item.enabled).length +
     clientScriptState.scripts.filter((item) => item.enabled).length;
 
+  // 插件市场更新提示：已安装的面板插件 / 脚本插件在市场中存在更高版本时，
+  // 在插件入口（或收起的「更多」入口）显示向上箭头，用户无需进入页面即可感知。
+  const marketState = useMarketStore();
+  const pluginUpdateCount = useMemo(() => {
+    let count = 0;
+    const check = (id: string, version: string, kind: "plugin" | "script") => {
+      const entry = findMarketEntry(marketState.entries, id, kind);
+      if (
+        entry &&
+        hasMarketUpdate(version, entry.version) &&
+        !isMarketEntryTooNew(entry, marketState.appVersion)
+      ) {
+        count += 1;
+      }
+    };
+    pluginState.plugins.forEach((item) =>
+      check(item.pluginId, item.version, "plugin"),
+    );
+    clientScriptState.scripts.forEach((item) =>
+      check(item.scriptId, item.version, "script"),
+    );
+    return count;
+  }, [
+    pluginState.plugins,
+    clientScriptState.scripts,
+    marketState.entries,
+    marketState.appVersion,
+  ]);
+
   useEffect(() => {
     void pluginStore.ensureLoaded();
     void clientScriptStore.ensureLoaded();
+    void marketStore.ensureLoaded();
   }, []);
 
   // 团队协作入口：仅在当前目录为 Git 仓库且团队协作开关开启时展示
@@ -370,6 +407,17 @@ export function MainSidebarContent({
         >
           <Ellipsis size={16} strokeWidth={1.8} />
           <span>{t("sidebar.more", { defaultValue: "More" })}</span>
+          {!isMoreExpanded && pluginUpdateCount > 0 && (
+            <span
+              className="sidebar-update-icon"
+              title={t("plugins.updateAvailable", {
+                values: { count: pluginUpdateCount },
+                defaultValue: "{{count}} plugin updates available",
+              })}
+            >
+              <CircleArrowUp size={14} strokeWidth={2} />
+            </span>
+          )}
           <ChevronDown
             className="sidebar-more-chevron"
             size={14}
@@ -449,6 +497,17 @@ export function MainSidebarContent({
               <span>
                 {t("plugins.sidebarEntry", { defaultValue: "Plugins" })}
               </span>
+              {pluginUpdateCount > 0 && (
+                <span
+                  className="sidebar-update-icon"
+                  title={t("plugins.updateAvailable", {
+                    values: { count: pluginUpdateCount },
+                    defaultValue: "{{count}} plugin updates available",
+                  })}
+                >
+                  <CircleArrowUp size={14} strokeWidth={2} />
+                </span>
+              )}
               {enabledPluginCount > 0 && (
                 <span className="sidebar-memory-badge">
                   {enabledPluginCount}

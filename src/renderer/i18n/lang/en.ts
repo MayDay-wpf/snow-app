@@ -5825,6 +5825,7 @@ export const en = {
   "remoteControl.deployStage.completed":
     "Public remote control deployed; scan the public QR code to verify",
   "plugins.sidebarEntry": "Plugins",
+  "plugins.updateAvailable": "{{count}} plugin updates available",
   "plugins.title": "Plugins",
   "plugins.tabList": "Plugin list",
   "plugins.market.tab": "Plugin market",

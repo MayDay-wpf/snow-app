@@ -5482,6 +5482,7 @@ export const zhCN = {
   "remoteControl.deployStage.verifying": "正在连接 FRP 并验证公网 HTTPS",
   "remoteControl.deployStage.completed": "公网远控部署完成，可以扫描公网二维码",
   "plugins.sidebarEntry": "插件",
+  "plugins.updateAvailable": "有 {{count}} 个插件可更新",
   "plugins.title": "插件",
   "plugins.tabList": "插件列表",
   "plugins.market.tab": "插件市场",

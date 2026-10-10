@@ -5493,6 +5493,7 @@ export const zhTW = {
   "remoteControl.deployStage.completed":
     "公網遠端控制部署完成，可以掃描公網 QR Code",
   "plugins.sidebarEntry": "外掛",
+  "plugins.updateAvailable": "有 {{count}} 個外掛可更新",
   "plugins.title": "外掛",
   "plugins.tabList": "外掛清單",
   "plugins.market.tab": "外掛市集",
