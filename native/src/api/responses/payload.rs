@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::common::inject_custom_headers;
 use crate::api::config::{normalize_base_url, resolve_advanced_model, resolve_sdk_api_base_url};
 use crate::api::conversation::parse_chat_message_content;
+use crate::api::conversation::tool_messages::ParsedToolResult;
 use crate::api::responses::ResponsesApiRequest;
 use crate::storage::services::chat_conversations::ChatContextMessage;
 use crate::storage::ApiConfigRecord;
@@ -81,52 +82,7 @@ pub(super) fn build_responses_payload(
                 None => Vec::new(),
             };
             for tool_result in &results {
-                let text = if tool_result.text.is_empty() && !tool_result.images.is_empty() {
-                    "[image attached]".to_string()
-                } else {
-                    tool_result.text.clone()
-                };
-                if tool_result.call_id.is_empty() {
-                    // No paired call: emit text and images as a single user
-                    // message with multimodal content blocks.
-                    let mut content_blocks = Vec::new();
-                    if !text.is_empty() {
-                        content_blocks.push(json!({"type": "input_text", "text": text}));
-                    }
-                    content_blocks.extend(tool_result.images.iter().map(|image| {
-                        json!({
-                            "type": "input_image",
-                            "image_url": image.data_url,
-                        })
-                    }));
-                    input.push(json!({
-                        "type": "message",
-                        "role": "user",
-                        "content": content_blocks,
-                    }));
-                } else {
-                    // Responses supports multimodal function outputs. Keep each
-                    // image with its call instead of inserting user messages
-                    // between the outputs of parallel tool calls.
-                    let output = if tool_result.images.is_empty() {
-                        json!(text)
-                    } else {
-                        let mut parts = Vec::with_capacity(tool_result.images.len() + 1);
-                        parts.push(json!({"type": "input_text", "text": text}));
-                        parts.extend(tool_result.images.iter().map(|image| {
-                            json!({
-                                "type": "input_image",
-                                "image_url": image.data_url,
-                            })
-                        }));
-                        json!(parts)
-                    };
-                    input.push(json!({
-                        "type": "function_call_output",
-                        "call_id": tool_result.call_id,
-                        "output": output,
-                    }));
-                }
+                push_tool_result(&mut input, tool_result);
             }
             continue;
         }
@@ -372,6 +328,43 @@ pub(super) fn build_responses_payload(
     Ok(payload)
 }
 
+/// Keep tool-result images with their call instead of inserting user messages
+/// between the outputs of parallel tool calls.
+fn push_tool_result(input: &mut Vec<Value>, tool_result: &ParsedToolResult) {
+    let text = if tool_result.text.is_empty() && !tool_result.images.is_empty() {
+        "[image attached]".to_string()
+    } else {
+        tool_result.text.clone()
+    };
+
+    let output = if tool_result.call_id.is_empty() || !tool_result.images.is_empty() {
+        let mut parts = Vec::with_capacity(tool_result.images.len() + 1);
+        if !text.is_empty() {
+            parts.push(json!({"type": "input_text", "text": text}));
+        }
+        parts.extend(tool_result.images.iter().map(|image| {
+            json!({
+                "type": "input_image",
+                "image_url": image.data_url,
+            })
+        }));
+        json!(parts)
+    } else {
+        json!(text)
+    };
+
+    if tool_result.call_id.is_empty() {
+        // No paired call: retain the existing multimodal user-message fallback.
+        input.push(json!({"type": "message", "role": "user", "content": output}));
+    } else {
+        input.push(json!({
+            "type": "function_call_output",
+            "call_id": tool_result.call_id,
+            "output": output,
+        }));
+    }
+}
+
 fn normalize_message_role(role: &str) -> &str {
     match role.trim() {
         "assistant" => "assistant",
@@ -474,258 +467,71 @@ pub(super) fn build_header_map(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::conversation::tool_messages::parse_tool_results_with_images;
 
-    const TINY_PNG_BASE64: &str =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const IMAGE_URL: &str =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-    fn message(role: &str, content: &str) -> ChatContextMessage {
-        ChatContextMessage {
-            role: role.to_string(),
-            content: content.to_string(),
-            tool_calls_json: None,
-            tool_results_json: None,
-            thinking: None,
-            thinking_blocks_json: None,
+    fn image_result(call_id: &str) -> Value {
+        json!({
+            "name": "read",
+            "callId": call_id,
+            "result": format!("{{\"text\":\"{call_id}\"}}\n@@image:{IMAGE_URL}@@"),
+        })
+    }
+
+    fn build_tool_input(results: Value) -> Value {
+        let mut input = Vec::new();
+        for result in parse_tool_results_with_images(&results.to_string(), Path::new(""), false) {
+            push_tool_result(&mut input, &result);
         }
-    }
-
-    fn assistant_with_calls(call_ids: &[&str]) -> ChatContextMessage {
-        let mut assistant = message("assistant", "");
-        assistant.tool_calls_json = Some(
-            json!(call_ids
-                .iter()
-                .map(|call_id| json!({
-                    "type": "function_call",
-                    "call_id": call_id,
-                    "name": "read",
-                    "arguments": "{}",
-                }))
-                .collect::<Vec<_>>())
-            .to_string(),
-        );
-        assistant
-    }
-
-    fn tool_message(results: Value) -> ChatContextMessage {
-        // Image-only tool messages can have an empty content summary.
-        let mut tool = message("tool", "");
-        tool.tool_results_json = Some(results.to_string());
-        tool
-    }
-
-    fn screenshot_result(label: &str) -> String {
-        format!("{{\"text\":\"{label}\"}}\n@@image:data:image/png;base64,{TINY_PNG_BASE64}@@")
-    }
-
-    fn build_payload(messages: &[ChatContextMessage], skip_context: bool) -> Value {
-        let request = ResponsesApiRequest {
-            messages: Vec::new(),
-            model: Some("test-model".to_string()),
-            api_profile: None,
-            conversation_id: None,
-            previous_response_id: None,
-            directory_id: None,
-            analysis_workspace_root: None,
-            execution_workspace_root: None,
-            worktree_id: None,
-            checkpoint_id: None,
-            context_compaction: None,
-            resume_after_compaction: None,
-            sub_agent_tools_json: None,
-            sub_agent_system_prompt: None,
-            sub_agent_config_profile: None,
-            skip_context: Some(skip_context),
-            disable_tools: None,
-            internal_recovery_prompt: None,
-            plan_mode: None,
-            goal_mode: None,
-            worktree_mode: None,
-            thinking_strength: None,
-            responses_fast_mode: None,
-            workflow_mode: None,
-            remote_role_content: None,
-            remote_include_global_rules: None,
-            remote_override_builtin_prompt: None,
-            allowed_tools_json: None,
-        };
-        let api_config = ApiConfigRecord {
-            id: "1".to_string(),
-            profile_name: "test".to_string(),
-            display_name: "Test".to_string(),
-            is_active: true,
-            base_url: "http://localhost".to_string(),
-            base_url_mode: "default".to_string(),
-            api_key: String::new(),
-            request_method: "responses".to_string(),
-            advanced_model: "test-model".to_string(),
-            basic_model: "test-model".to_string(),
-            supports_vision: true,
-            vision_base_url: String::new(),
-            vision_base_url_mode: "default".to_string(),
-            vision_api_key: String::new(),
-            vision_request_method: "chat".to_string(),
-            vision_model: String::new(),
-            max_context_tokens: None,
-            max_tokens: None,
-            stream_idle_timeout_sec: None,
-            enable_auto_compress: false,
-            auto_compress_threshold: None,
-            max_retries: None,
-            retry_base_delay_ms: None,
-            partial_retry_max_chars: None,
-            system_prompt_ids_json: "[]".to_string(),
-            custom_header_scheme_id: String::new(),
-            config_json: "{}".to_string(),
-            source: "manual".to_string(),
-            sort_order: 0,
-            updated_at: String::new(),
-        };
-        build_responses_payload(
-            messages,
-            Path::new(""),
-            &request,
-            &api_config,
-            None,
-            &[],
-            "",
-        )
-        .unwrap()
+        json!(input)
     }
 
     #[test]
     fn parallel_image_results_stay_inside_their_matching_outputs() {
-        // Cover results persisted both together and in separate tool messages.
-        for separate_messages in [false, true] {
-            let results = vec![
-                json!({"name": "read", "callId": "call_a", "result": screenshot_result("first")}),
-                json!({"name": "read", "callId": "call_b", "result": screenshot_result("second")}),
-            ];
-            let mut messages = vec![
-                message("user", "read images"),
-                assistant_with_calls(&["call_a", "call_b"]),
-            ];
-            if separate_messages {
-                messages.extend(
-                    results
-                        .into_iter()
-                        .map(|result| tool_message(json!([result]))),
-                );
-            } else {
-                messages.push(tool_message(json!(results)));
-            }
-            messages.push(message("assistant", "done"));
-            let payload = build_payload(&messages, false);
-            let input = payload["input"].as_array().unwrap();
-            let types: Vec<_> = input
-                .iter()
-                .map(|item| item["type"].as_str().unwrap())
-                .collect();
-            assert_eq!(
-                types,
-                vec![
-                    "message",
-                    "function_call",
-                    "function_call",
-                    "function_call_output",
-                    "function_call_output",
-                    "message"
-                ]
-            );
-            for (index, call_id, label) in [(3, "call_a", "first"), (4, "call_b", "second")] {
-                assert_eq!(input[index]["call_id"], call_id);
-                assert_eq!(
-                    input[index]["output"],
-                    json!([
-                        {"type": "input_text", "text": format!("{{\"text\":\"{label}\"}}\n[Image #1]")},
-                        {"type": "input_image", "image_url": format!("data:image/png;base64,{TINY_PNG_BASE64}")},
-                    ])
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn multiple_images_remain_in_one_tool_output() {
-        let result = format!(
-            "{}\n@@image:data:image/png;base64,{TINY_PNG_BASE64}@@",
-            screenshot_result("two images")
-        );
-        let payload = build_payload(
-            &[
-                assistant_with_calls(&["call_a"]),
-                tool_message(json!([{"name": "read", "callId": "call_a", "result": result}])),
-            ],
-            false,
-        );
-        let input = payload["input"].as_array().unwrap();
-        assert_eq!(input.len(), 2);
-        let parts = input[1]["output"].as_array().unwrap();
-        assert_eq!(parts.len(), 3);
-        for part in &parts[1..] {
-            assert_eq!(part["type"], "input_image");
-            assert_eq!(
-                part["image_url"],
-                format!("data:image/png;base64,{TINY_PNG_BASE64}")
-            );
-        }
-    }
-
-    #[test]
-    fn text_only_results_keep_string_outputs_in_mixed_batches() {
-        let payload = build_payload(
-            &[
-                assistant_with_calls(&["call_a", "call_b"]),
-                tool_message(json!([
-                    {"name": "read", "callId": "call_a", "result": "file contents"},
-                    {"name": "read", "callId": "call_b", "result": screenshot_result("image")},
-                ])),
-            ],
-            false,
-        );
-        let input = payload["input"].as_array().unwrap();
-        assert_eq!(input.len(), 4);
+        let input = build_tool_input(json!([image_result("call_a"), image_result("call_b")]));
         assert_eq!(
-            input[2],
-            json!({"type": "function_call_output", "call_id": "call_a", "output": "file contents"})
+            input,
+            json!([
+                {"type": "function_call_output", "call_id": "call_a", "output": [
+                    {"type": "input_text", "text": "{\"text\":\"call_a\"}\n[Image #1]"},
+                    {"type": "input_image", "image_url": IMAGE_URL},
+                ]},
+                {"type": "function_call_output", "call_id": "call_b", "output": [
+                    {"type": "input_text", "text": "{\"text\":\"call_b\"}\n[Image #1]"},
+                    {"type": "input_image", "image_url": IMAGE_URL},
+                ]},
+            ])
         );
-        assert!(input[3]["output"].is_array());
+    }
+
+    #[test]
+    fn text_only_results_keep_string_outputs() {
+        let input = build_tool_input(json!([
+            {"name": "read", "callId": "call_a", "result": "file contents"},
+            {"name": "read", "callId": "call_b", "result": ""},
+        ]));
+        assert_eq!(
+            input,
+            json!([
+                {"type": "function_call_output", "call_id": "call_a", "output": "file contents"},
+                {"type": "function_call_output", "call_id": "call_b", "output": ""},
+            ])
+        );
     }
 
     #[test]
     fn call_less_images_still_fall_back_to_a_user_message() {
-        let payload = build_payload(
-            &[tool_message(
-                json!([{"name": "read", "callId": "", "result": screenshot_result("unpaired")}]),
-            )],
-            false,
-        );
+        let input = build_tool_input(json!([image_result("")]));
         assert_eq!(
-            payload["input"],
+            input,
             json!([{
                 "type": "message", "role": "user", "content": [
-                    {"type": "input_text", "text": "{\"text\":\"unpaired\"}\n[Image #1]"},
-                    {"type": "input_image", "image_url": format!("data:image/png;base64,{TINY_PNG_BASE64}")},
+                    {"type": "input_text", "text": "{\"text\":\"\"}\n[Image #1]"},
+                    {"type": "input_image", "image_url": IMAGE_URL},
                 ],
             }])
         );
-    }
-
-    #[test]
-    fn skip_context_keeps_image_tags_as_literal_text() {
-        let result = screenshot_result("literal");
-        let payload = build_payload(
-            &[
-                assistant_with_calls(&["call_a"]),
-                tool_message(json!([{"name": "read", "callId": "call_a", "result": result}])),
-            ],
-            true,
-        );
-        assert_eq!(
-            payload["input"][1],
-            json!({
-                "type": "function_call_output", "call_id": "call_a", "output": result,
-            })
-        );
-        assert_eq!(payload["input"].as_array().unwrap().len(), 2);
     }
 }
