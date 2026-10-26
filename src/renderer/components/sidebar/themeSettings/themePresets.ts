@@ -759,6 +759,68 @@ const compactDark: ThemePalette = {
   focusRing: "rgba(34, 197, 94, 0.28)",
 };
 
+// 问界（Wenjie）：2026-10「翡翠绿改版」之前的老无界（Horizon）配色。
+// 结构与 compact 一致，只把调色板还原成 Arctic Sky 天蓝 + 冷调瓷白 + 极夜蓝黑。
+const wenjieLight: ThemePalette = {
+  bgPrimary: "#ffffff",
+  bgSecondary: "#f8fafc",
+  bgTertiary: "#f1f5f9",
+  bgHover: "#eaf0f6",
+  bgActive: "#dde6f0",
+  chromeBg: "#f8fafc",
+  appBg: "#f1f5f9",
+  borderColor: "#e2e8f0",
+  borderLight: "#edf2f7",
+  borderSubtle: "#cbd5e1",
+  textPrimary: "#0f172a",
+  textSecondary: "#334155",
+  textTertiary: "#64748b",
+  textMuted: "#94a3b8",
+  accentGreen: "#10b981",
+  accentGreenBg: "#ecfdf5",
+  accentGreenText: "#047857",
+  accentRed: "#f43f5e",
+  accentRedBg: "#fff1f2",
+  accentRedText: "#be123c",
+  accentBlue: "#0ea5e9",
+  accentBlueBg: "#f0f9ff",
+  accentBlueText: "#0284c7",
+  accentColor: "#0ea5e9",
+  onSolid: "#ffffff",
+  selectionBg: "rgba(14, 165, 233, 0.16)",
+  focusRing: "rgba(14, 165, 233, 0.28)",
+};
+
+const wenjieDark: ThemePalette = {
+  bgPrimary: "#0f1523",
+  bgSecondary: "#0a0e17",
+  bgTertiary: "#131a26",
+  bgHover: "#1a2332",
+  bgActive: "#222e42",
+  chromeBg: "#0d121c",
+  appBg: "#090d15",
+  borderColor: "#1e293b",
+  borderLight: "#162030",
+  borderSubtle: "#283852",
+  textPrimary: "#f8fafc",
+  textSecondary: "#94a3b8",
+  textTertiary: "#64748b",
+  textMuted: "#475569",
+  accentGreen: "#10b981",
+  accentGreenBg: "rgba(16, 185, 129, 0.14)",
+  accentGreenText: "#34d399",
+  accentRed: "#f43f5e",
+  accentRedBg: "rgba(244, 63, 94, 0.14)",
+  accentRedText: "#fb7185",
+  accentBlue: "#0ea5e9",
+  accentBlueBg: "rgba(14, 165, 233, 0.14)",
+  accentBlueText: "#38bdf8",
+  accentColor: "#0ea5e9",
+  onSolid: "#ffffff",
+  selectionBg: "rgba(14, 165, 233, 0.22)",
+  focusRing: "rgba(14, 165, 233, 0.3)",
+};
+
 const rococoLight: ThemePalette = {
   bgPrimary: "#fffdfa",
   bgSecondary: "#f8f1e9",
@@ -910,6 +972,14 @@ export const THEME_PRESETS: ThemePreset[] = [
     defaultName: "Horizon",
     light: compactLight,
     dark: compactDark,
+  },
+  {
+    // 老无界的配色原貌，独立成项以免覆盖现行的翡翠绿无界。
+    id: "wenjie",
+    nameKey: "settings.themePresetWenjie",
+    defaultName: "Wenjie",
+    light: wenjieLight,
+    dark: wenjieDark,
   },
   {
     id: "rococo",

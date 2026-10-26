@@ -25,6 +25,7 @@ import "./themes/preset-macos.css";
 import "./themes/preset-cyberpunk.css";
 import "./themes/preset-notion.css";
 import "./themes/preset-compact.css";
+import "./themes/preset-wenjie.css";
 import "./themes/preset-rococo.css";
 import "./themes/layout-layered.css";
 import "./themes/layout-flush.css";

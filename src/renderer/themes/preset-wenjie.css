@@ -1,0 +1,2740 @@
+/* ===== Wenjie (问界) Preset =====
+   老「无界」(Horizon) 的配色原貌：Arctic Sky 天蓝 + 冷调瓷白 + 极夜蓝黑。
+   结构与当前主题系统保持一致（含孤岛/层叠/平铺布局、表单对话框体系、插件工具卡、
+   语义变量与语法配色角色），仅调色板回到 2026-10「翡翠绿改版」之前。 */
+
+:root[data-theme-preset="wenjie"] {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-brand-body: var(--font-sans);
+  --font-brand-display: var(--font-sans);
+
+  /* Soft fluid micro-radii: smooth, organic, elegant touch */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* Horizon Brand Accent: Vibrant Emerald & Studio Minimal (Qoder Style) */
+  --compact-accent: #0284c7;
+  --compact-accent-hover: #0369a1;
+  --compact-accent-bg: rgba(2, 132, 199, 0.12);
+  --compact-accent-text: #0369a1;
+  --compact-button-bg: #0369a1;
+  --compact-button-hover: #075985;
+  --accent: #0284c7;
+  --accent-primary: #0284c7;
+  --accent-color: #0284c7;
+  --accent-green: #10b981;
+  --accent-green-hover: #059669;
+  --accent-green-bg: rgba(16, 185, 129, 0.14);
+  --accent-green-text: #047857;
+  --accent-blue: #0284c7;
+  --accent-blue-hover: #0369a1;
+  --accent-blue-bg: rgba(2, 132, 199, 0.12);
+  --accent-blue-text: #0369a1;
+  --accent-primary-bg: rgba(2, 132, 199, 0.12);
+  --accent-primary-text: #0369a1;
+  /* Legacy semantic names that newer components still read. Without these they
+     fall back to hardcoded blue/red/orange instead of the Horizon palette. */
+  --color-primary: var(--compact-accent);
+  --color-success: var(--accent-green);
+  --color-error: var(--compact-danger-text);
+  --danger: var(--compact-danger-text);
+  --success: var(--accent-green);
+  --warning: var(--accent-amber-text);
+  --text-link: var(--compact-accent-text);
+  --accent-secondary: #8b5cf6;
+  --accent-orange: var(--accent-amber-text);
+  --accent-orange-bg: var(--accent-amber-bg);
+  --accent-orange-text: var(--accent-amber-text);
+
+  /* Flat controls and cards; only detached menus/tooltips need a soft shadow. */
+  --island-shadow: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --tooltip-shadow: var(--shadow-md);
+  --tooltip-border: var(--border-light);
+  --backdrop-blur-lg: none;
+
+  /* Density & geometry controls */
+  --compact-header-height: 52px;
+  --compact-control-transition:
+    background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+/* Light Mode: Studio Pure Porcelain & Gentle Mist */
+:root[data-theme-preset="wenjie"][data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --bg-hover: #e8eef5;
+  --bg-active: #dbe5f0;
+  --surface-hover: var(--bg-hover);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-tertiary: #526277;
+  --text-muted: #64748b;
+  --border-light: #dce3ec;
+  --border-color: #cbd5e1;
+  --border-subtle: #b8c5d6;
+  --compact-control-border: #7b8ba1;
+  --compact-focus-color: #0369a1;
+  --compact-selected-bg: #dceefa;
+  --compact-danger-text: #b91c1c;
+  --compact-danger-solid: #b91c1c;
+  --compact-danger-hover: #991b1b;
+  --surface-island: #ffffff;
+  --surface-island-strong: #ffffff;
+  --surface-island-muted: #f8fafc;
+  --island-shadow: none;
+  --app-bg: #f1f5f9;
+  --chrome-bg: #f8fafc;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.4);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
+  --scrollbar-thumb-active: rgba(71, 85, 105, 0.8);
+  --accent-amber-bg: rgba(217, 119, 6, 0.12);
+  --accent-amber-text: #b45309;
+  --compact-running: #0369a1;
+  --focus-ring: rgba(14, 165, 233, 0.32);
+  /* Shared syntax roles: emerald stays the anchor, other hues only separate
+     token classes so code does not collapse into one green. */
+  --syntax-text: var(--text-primary);
+  --syntax-comment: #8a8578;
+  --syntax-keyword: #7c3aed;
+  --syntax-string: #15803d;
+  --syntax-number: #b45309;
+  --syntax-function: #0e7490;
+  --syntax-type: #0f766e;
+  --syntax-tag: #b91c1c;
+  --syntax-attribute: #0e7490;
+  --syntax-variable: var(--text-secondary);
+  --syntax-meta: #92400e;
+  --syntax-regexp: #a21caf;
+  --syntax-selector: #b45309;
+  --syntax-symbol: var(--syntax-number);
+  --syntax-addition: #15803d;
+  --syntax-addition-bg: rgba(22, 163, 74, 0.1);
+  --syntax-deletion: #b91c1c;
+  --syntax-deletion-bg: rgba(185, 28, 28, 0.08);
+}
+
+/* Dark Mode: Arctic Midnight Charcoal & Polar Sky */
+:root[data-theme-preset="wenjie"][data-theme="dark"] {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #0d121c;
+  --bg-tertiary: #141d2b;
+  --bg-hover: #1c293b;
+  --bg-active: #26364b;
+  --surface-hover: var(--bg-hover);
+  --border-light: #263244;
+  --border-color: #35465e;
+  --border-subtle: #475b76;
+  --compact-control-border: #62748c;
+  --compact-focus-color: #38bdf8;
+  --compact-selected-bg: #12364d;
+  --compact-danger-text: #fca5a5;
+  --compact-danger-solid: #b91c1c;
+  --compact-danger-hover: #991b1b;
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.22);
+  --accent: #0ea5e9;
+  --accent-primary: #0ea5e9;
+  --accent-color: #0ea5e9;
+  --accent-primary-bg: rgba(14, 165, 233, 0.14);
+  --compact-accent: #0ea5e9;
+  --compact-accent-hover: #38bdf8;
+  --compact-accent-bg: rgba(14, 165, 233, 0.14);
+  --compact-accent-text: #38bdf8;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #94a3b8;
+  --text-muted: #94a3b8;
+  --accent-primary-text: #38bdf8;
+  --accent-secondary: #a78bfa;
+  --accent-green: #34d399;
+  --accent-green-hover: #6ee7b7;
+  --accent-green-bg: rgba(16, 185, 129, 0.14);
+  --accent-green-text: #34d399;
+  --accent-blue: #0ea5e9;
+  --accent-blue-hover: #38bdf8;
+  --accent-blue-bg: rgba(14, 165, 233, 0.14);
+  --accent-blue-text: #38bdf8;
+  --surface-island: #0f1523;
+  --surface-island-strong: #0f1523;
+  --surface-island-muted: #0a0e17;
+  --island-shadow: none;
+  --app-bg: #090d15;
+  --chrome-bg: #0d121c;
+  --scrollbar-thumb: rgba(100, 116, 139, 0.35);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.55);
+  --scrollbar-thumb-active: rgba(203, 213, 225, 0.75);
+  --accent-amber-bg: rgba(245, 158, 11, 0.18);
+  --accent-amber-text: #fbbf24;
+  --compact-running: #38bdf8;
+  --focus-ring: rgba(56, 189, 248, 0.36);
+  --syntax-text: var(--text-primary);
+  --syntax-comment: #7d8592;
+  --syntax-keyword: #a78bfa;
+  --syntax-string: #4ade80;
+  --syntax-number: #fbbf24;
+  --syntax-function: #67e8f9;
+  --syntax-type: #5eead4;
+  --syntax-tag: #fca5a5;
+  --syntax-attribute: #67e8f9;
+  --syntax-variable: var(--text-secondary);
+  --syntax-meta: #fcd34d;
+  --syntax-regexp: #e879f9;
+  --syntax-selector: #fbbf24;
+  --syntax-symbol: var(--syntax-number);
+  --syntax-addition: #4ade80;
+  --syntax-addition-bg: rgba(34, 197, 94, 0.16);
+  --syntax-deletion: #fca5a5;
+  --syntax-deletion-bg: rgba(239, 68, 68, 0.16);
+}
+
+/* Typography & Base Resets */
+:root[data-theme-preset="wenjie"] body,
+:root[data-theme-preset="wenjie"] button,
+:root[data-theme-preset="wenjie"] input,
+:root[data-theme-preset="wenjie"] select,
+:root[data-theme-preset="wenjie"] textarea {
+  font-family: var(--app-font-family, var(--font-sans));
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.ai-message a, .context-compaction-markdown a, .chat-fork-divider-link) {
+  color: var(--compact-accent-text);
+  text-decoration: none;
+  transition:
+    color 0.14s ease,
+    text-decoration-color 0.14s ease;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .ai-message a,
+    .context-compaction-markdown a,
+    .chat-fork-divider-link
+  ):hover {
+  text-decoration: underline;
+}
+
+:root[data-theme-preset="wenjie"] ::selection {
+  background: var(--compact-accent-bg);
+}
+
+/* ==========================================================================
+   1. Seamless Fluid Shell & Layout (天地无界，零外圈空隙)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .app-shell {
+  background: var(--app-bg);
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .app-layout {
+  padding: 0 !important;
+  gap: 0 !important;
+  background: var(--app-bg);
+}
+
+/* ==========================================================================
+   2. Unified Horizon Header with Aurora Dawn Line (天际破晓极光流动线)
+   ========================================================================== */
+
+@keyframes horizon-aurora-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .top-bar {
+  position: relative;
+  gap: 0 !important;
+  padding: 0 8px !important;
+  height: var(--compact-header-height) !important;
+  min-height: var(--compact-header-height) !important;
+  background: var(--chrome-bg) !important;
+  border-bottom: 1px solid var(--border-light);
+  box-shadow: none !important;
+}
+
+/* 谷歌级灵魂设计：顶栏天际破晓流动渐变线 (Aurora Dawn Stripe) */
+:root[data-theme-preset="wenjie"] .top-bar::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 4;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(2, 132, 199, 0.4) 15%,
+    #0284c7 35%,
+    #38bdf8 50%,
+    #818cf8 65%,
+    rgba(129, 140, 248, 0.4) 85%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: horizon-aurora-flow 12s ease infinite;
+  content: "";
+  pointer-events: none;
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  :is(.top-bar-left, .top-bar-main, .top-bar-right) {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  border: none !important;
+  height: 100% !important;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-left {
+  padding: 0 10px 0 var(--traffic-light-safe-area);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+:root[data-theme-preset="wenjie"] .app-shell.is-custom-frame .top-bar-left {
+  padding: 0 12px !important;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-main {
+  padding: 0 18px !important;
+  gap: 12px !important;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-right {
+  padding: 0 12px !important;
+  gap: 8px !important;
+}
+
+/* Keep the title and its project tag together without turning the tag into a full-width bar. */
+:root[data-theme-preset="wenjie"] .top-bar-main .header-title-group {
+  position: relative;
+  justify-content: center;
+  gap: 3px;
+  padding-left: 13px;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-main .header-title-group::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, #38bdf8, #818cf8);
+  box-shadow: none;
+  content: "";
+  transform: translateY(-50%);
+}
+
+:root[data-theme-preset="wenjie"] .header-title {
+  font-size: 13px !important;
+  font-weight: 650;
+  line-height: 17px;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme-preset="wenjie"] .header-subtitle {
+  box-sizing: border-box;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 9px !important;
+  border: 1px solid color-mix(in srgb, var(--compact-accent) 20%, transparent);
+  border-radius: var(--radius-sm) !important;
+  background: var(--compact-accent-bg) !important;
+  color: var(--compact-accent-text);
+  font-size: 11px !important;
+  font-weight: 550;
+  line-height: 15px;
+}
+
+:root[data-theme-preset="wenjie"]
+  .top-bar-main
+  .header-title-group.is-settings-page
+  .header-subtitle,
+:root[data-theme-preset="wenjie"]
+  .top-bar-main
+  .header-title-group.is-team-page
+  .header-subtitle {
+  border-color: transparent;
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
+  padding: 0 !important;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-branch-label,
+:root[data-theme-preset="wenjie"] .top-bar-branch-info .branch-selector-btn {
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-sm) !important;
+  background: var(--surface-island) !important;
+  color: var(--text-secondary);
+  font-size: 11px !important;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .top-bar-branch-label {
+  padding: 4px 10px !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .top-bar-branch-info
+  .branch-selector-btn:hover {
+  border-color: var(--compact-accent) !important;
+  background: var(--compact-accent-bg) !important;
+}
+
+:root[data-theme-preset="wenjie"] .window-control-btn {
+  height: 100% !important;
+  border-radius: 0 !important;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+:root[data-theme-preset="wenjie"] .window-control-btn:not(.close-btn):hover {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-btn,
+    .top-bar-todo-btn,
+    .top-bar-codebase-sync,
+    .always-on-top-btn
+  ) {
+  border-radius: var(--radius-sm) !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-btn,
+    .top-bar-todo-btn,
+    .top-bar-codebase-sync,
+    .always-on-top-btn
+  ):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-btn,
+    .top-bar-todo-btn,
+    .top-bar-codebase-sync,
+    .always-on-top-btn
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: none;
+}
+
+/* ==========================================================================
+   3. Fluid Flush Panels (无感极淡分隔与空气感层次)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  :is(.sidebar, .main-content, .right-panel) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .sidebar {
+  background: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border-light) !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  border-left: none !important;
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .main-content {
+  background: var(--bg-primary) !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .right-panel {
+  background: var(--bg-secondary) !important;
+  border-left: 1px solid var(--border-light) !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  border-right: none !important;
+}
+
+:root[data-theme-preset="wenjie"]:not([data-layout-style="island"]):not(
+    [data-layout-style="layered"]
+  )
+  .right-panel.fullscreen {
+  width: calc(100% - var(--sidebar-width)) !important;
+}
+
+/* ==========================================================================
+   3b. Horizon in Island Layout (无界主题在「孤岛」风格下的优雅微质感卡片)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"] .app-layout {
+  padding: 0 10px 10px;
+  gap: 8px;
+}
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"] .top-bar {
+  gap: 8px;
+  padding: 8px 10px;
+  height: calc(var(--compact-header-height) + 16px);
+  min-height: calc(var(--compact-header-height) + 16px);
+}
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"]
+  :is(.top-bar-left, .top-bar-main, .top-bar-right) {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"]
+  :is(.sidebar, .main-content, .right-panel) {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: none;
+}
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"] .sidebar,
+:root[data-theme-preset="wenjie"][data-layout-style="island"] .right-panel {
+  background: var(--bg-secondary);
+}
+
+:root[data-theme-preset="wenjie"][data-layout-style="island"] .main-content {
+  background: var(--bg-primary);
+}
+
+:root[data-theme-preset="wenjie"] .panel-resizer {
+  width: 6px !important;
+  min-width: 6px !important;
+  margin-left: -3px;
+  margin-right: -3px;
+  background: transparent !important;
+  z-index: 35;
+}
+
+:root[data-theme-preset="wenjie"] .panel-resizer::before {
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 1px !important;
+  border-radius: 0 !important;
+  background: var(--border-light) !important;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .panel-resizer:hover::before,
+:root[data-theme-preset="wenjie"] .panel-resizer.is-active::before {
+  background: var(--compact-accent) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .sidebar-content-header,
+    .section-header,
+    .codebase-panel-header,
+    .file-viewer-header,
+    .git-control-header
+  ) {
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* ==========================================================================
+   4. Settings Pages Layout (舒展大气的设置页面)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .api-settings-page {
+  padding: 26px 36px 40px !important;
+  gap: 18px !important;
+}
+
+:root[data-theme-preset="wenjie"] .api-settings-description {
+  margin-top: 4px !important;
+  color: var(--text-tertiary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .api-settings-summary-card {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border-light) !important;
+  background: var(--bg-tertiary) !important;
+  padding: 12px 14px !important;
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"] .settings-item {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid transparent !important;
+  padding: 7px 12px !important;
+  margin: 2px 0 !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"] .settings-item:hover {
+  background: var(--bg-hover) !important;
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"] .settings-item.active {
+  background: var(--compact-selected-bg);
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--compact-focus-color);
+}
+
+:root[data-theme-preset="wenjie"][data-theme="light"] .settings-item.active {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.05) !important;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.05),
+    inset 3px 0 0 var(--compact-focus-color) !important;
+}
+
+:root[data-theme-preset="wenjie"] .settings-item.active .settings-item-title {
+  color: var(--compact-accent-text);
+  font-weight: 600;
+}
+
+:root[data-theme-preset="wenjie"][data-theme="light"]
+  .settings-item.active
+  .settings-item-title {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .settings-item.active .settings-item-icon {
+  color: var(--compact-accent) !important;
+}
+
+/* ==========================================================================
+   5. Button Suite: Soft Fluid Touch with Spring Feedback (弹簧触感按键系统)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .browser-settings-scan-action,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn,
+    .git-commit-btn.primary,
+    .git-commit-split-btn .git-commit-btn,
+    .memo-new-btn,
+    .scheduled-tasks-create-btn,
+    .scheduled-tasks-new-btn,
+    .mcp-editor-mode-btn.active,
+    .form-dialog-button.confirm,
+    .send-btn
+  ) {
+  background: var(--compact-button-bg) !important;
+  color: #ffffff !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--radius-md) !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .browser-settings-scan-action,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn,
+    .git-commit-btn.primary,
+    .git-commit-split-btn .git-commit-btn,
+    .memo-new-btn,
+    .scheduled-tasks-create-btn,
+    .scheduled-tasks-new-btn,
+    .mcp-editor-mode-btn.active,
+    .form-dialog-button.confirm,
+    .send-btn
+  ):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover) !important;
+  color: #ffffff !important;
+  transform: none;
+  box-shadow: none !important;
+}
+
+/* 主按钮以颜色反馈交互，不叠加阴影，保持点击区域稳定 */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .api-settings-action-btn.primary,
+    .api-settings-form-btn.primary,
+    .browser-settings-scan-action,
+    .model-manual-btn.primary,
+    .project-codebase-embed-btn.primary,
+    .tool-call-user-question-submit,
+    .tool-call-plan-approval-approve,
+    .project-sensitive-command-save,
+    .personalization-save-btn,
+    .branch-create-submit-btn,
+    .git-commit-btn,
+    .git-commit-btn.primary,
+    .git-commit-split-btn .git-commit-btn,
+    .memo-new-btn,
+    .scheduled-tasks-create-btn,
+    .scheduled-tasks-new-btn,
+    .mcp-editor-mode-btn.active,
+    .form-dialog-button.confirm,
+    .send-btn
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: none !important;
+  box-shadow: none !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .icon-btn,
+    .nav-item,
+    .list-item,
+    .panel-tab,
+    .panel-tab-btn,
+    .toolbar-btn,
+    .chat-item,
+    .codebase-panel-view-btn,
+    .file-viewer-action-btn,
+    .git-action-btn,
+    .browser-nav-btn,
+    .ai-response-action-btn,
+    .code-block-action-btn,
+    .memo-icon-btn:not(.danger):not(.done-toggle),
+    .memo-sort-btn,
+    .memory-multi-select-exit-btn,
+    .memory-multi-select-action-btn:not(.danger),
+    .scheduled-task-action-btn,
+    .scheduled-task-copy-btn,
+    .scheduled-task-edit-btn,
+    .scheduled-tasks-back-btn,
+    .scheduled-tasks-cancel-btn,
+    .confirm-dialog-btn.cancel,
+    .confirm-dialog-btn:not(.confirm):not(.danger),
+    .form-dialog-button.cancel,
+    .form-dialog-browse-button,
+    .memory-editor-btn
+  ) {
+  border-radius: var(--radius-md) !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .icon-btn,
+    .nav-item,
+    .list-item,
+    .panel-tab,
+    .panel-tab-btn,
+    .toolbar-btn,
+    .chat-item,
+    .codebase-panel-view-btn,
+    .file-viewer-action-btn,
+    .git-action-btn,
+    .browser-nav-btn,
+    .ai-response-action-btn,
+    .code-block-action-btn,
+    .memo-icon-btn:not(.danger):not(.done-toggle),
+    .memo-sort-btn,
+    .memory-multi-select-exit-btn,
+    .memory-multi-select-action-btn:not(.danger),
+    .scheduled-task-action-btn,
+    .scheduled-task-copy-btn,
+    .scheduled-task-edit-btn,
+    .scheduled-tasks-back-btn,
+    .scheduled-tasks-cancel-btn,
+    .confirm-dialog-btn.cancel,
+    .confirm-dialog-btn:not(.confirm):not(.danger),
+    .form-dialog-button.cancel,
+    .form-dialog-browse-button
+  ):hover:not(:disabled):not([aria-disabled="true"]):not(.active):not(
+    .selected
+  ) {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 图标与次级按钮保持位置和尺寸稳定 */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .icon-btn,
+    .nav-item,
+    .list-item,
+    .panel-tab,
+    .panel-tab-btn,
+    .toolbar-btn,
+    .browser-nav-btn,
+    .ai-response-action-btn,
+    .code-block-action-btn,
+    .memo-icon-btn,
+    .scheduled-task-action-btn,
+    .confirm-dialog-btn.cancel,
+    .form-dialog-button.cancel,
+    .form-dialog-browse-button
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: none !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.nav-item, .list-item, .chat-item, .panel-tab, .panel-tab-btn).active {
+  border-color: transparent;
+  background: var(--compact-selected-bg);
+  color: var(--compact-accent-text);
+  box-shadow: inset 3px 0 0 var(--compact-focus-color) !important;
+}
+
+:root[data-theme-preset="wenjie"][data-theme="light"]
+  :is(.nav-item, .list-item, .chat-item).active {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.05) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.05),
+    inset 3px 0 0 var(--compact-focus-color) !important;
+}
+
+/* 谷歌级语义设计：多态确认弹窗与操作 */
+:root[data-theme-preset="wenjie"]
+  .confirm-dialog:not(.confirm-dialog-danger):not(.confirm-dialog-warning)
+  .confirm-dialog-btn.confirm {
+  background: var(--compact-button-bg) !important;
+  color: #ffffff !important;
+  border-radius: var(--radius-md) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .confirm-dialog-warning
+  .confirm-dialog-btn.confirm {
+  background: #f59e0b !important;
+  color: #1f2937 !important;
+  border-radius: var(--radius-md) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .confirm-dialog-danger
+  .confirm-dialog-btn.confirm {
+  background: var(--compact-danger-solid) !important;
+  color: #ffffff !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* 谷歌级设计：会话列表项打字流式状态与完成图标 */
+@keyframes horizon-gentle-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.94);
+  }
+}
+
+:root[data-theme-preset="wenjie"] .chat-item-icon.streaming {
+  color: var(--compact-accent) !important;
+  filter: none;
+  animation: horizon-gentle-pulse 2s ease-in-out infinite;
+}
+
+:root[data-theme-preset="wenjie"] .chat-item-icon.completed {
+  color: var(--accent-green) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .confirm-dialog-btn.danger,
+    .btn-danger,
+    .project-collection-delete-btn,
+    .memo-icon-btn.danger,
+    .memory-clear-btn,
+    .memory-multi-select-action-btn.danger
+  ) {
+  border-radius: var(--radius-md) !important;
+  background: color-mix(
+    in srgb,
+    var(--compact-danger-text) 14%,
+    transparent
+  ) !important;
+  color: var(--compact-danger-text) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--compact-danger-text) 25%, transparent) !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .confirm-dialog-btn.danger,
+    .btn-danger,
+    .project-collection-delete-btn,
+    .memo-icon-btn.danger,
+    .memory-clear-btn,
+    .memory-multi-select-action-btn.danger
+  ):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: color-mix(
+    in srgb,
+    var(--compact-danger-text) 24%,
+    transparent
+  ) !important;
+  color: var(--compact-danger-text) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .confirm-dialog-btn.danger,
+    .btn-danger,
+    .project-collection-delete-btn,
+    .memo-icon-btn.danger,
+    .memory-clear-btn,
+    .memory-multi-select-action-btn.danger
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .abort-btn {
+  background: color-mix(
+    in srgb,
+    var(--compact-danger-text) 16%,
+    transparent
+  ) !important;
+  color: var(--compact-danger-text) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: none !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"] .abort-btn:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--compact-danger-text) 26%,
+    transparent
+  ) !important;
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"] .abort-btn:active:not(:disabled) {
+  transform: none;
+}
+
+/* ==========================================================================
+   6. Fluid Message Stream (温润气泡与圆润输入框)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .chat-messages-container {
+  padding: 14px 22px !important;
+}
+
+:root[data-theme-preset="wenjie"] .chat-messages-inner {
+  max-width: 960px !important;
+  gap: 14px !important;
+}
+
+:root[data-theme-preset="wenjie"] .message-row {
+  margin-bottom: 12px !important;
+}
+
+:root[data-theme-preset="wenjie"] .user-message-bubble {
+  border-radius: var(--radius-xl) !important;
+  box-shadow: none !important;
+  padding: 10px 16px !important;
+  border: 1px solid var(--border-light) !important;
+  background: var(--bg-tertiary) !important;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .user-message-bubble:hover {
+  border-color: var(--border-color);
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .assistant-message-content {
+  padding: 4px 0 !important;
+  line-height: 1.65 !important;
+}
+
+:root[data-theme-preset="wenjie"] .input-area {
+  padding: 12px 20px 0;
+}
+
+:root[data-theme-preset="wenjie"] .input-box {
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+  border: 1px solid var(--border-light);
+  background: var(--surface-island-strong);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* The base composer adds an animated rainbow ring; Horizon uses one quiet edge. */
+:root[data-theme-preset="wenjie"] .input-box::before {
+  content: none;
+  animation: none;
+}
+
+:root[data-theme-preset="wenjie"] .input-box:focus-within {
+  border-color: var(--compact-focus-color) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"][data-theme="dark"] .input-box:focus-within {
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .input-field {
+  padding: 0;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+:root[data-theme-preset="wenjie"] .toolbar-btn.model[aria-expanded="true"] {
+  background: var(--compact-selected-bg);
+  color: var(--compact-accent-text);
+  box-shadow: none;
+}
+
+:root[data-theme-preset="wenjie"] .toolbar-btn.model:focus-visible {
+  outline: 1px solid var(--compact-focus-color) !important;
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+:root[data-theme-preset="wenjie"] .chat-float-island {
+  border-radius: var(--radius-pill) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--border-light) !important;
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"] .chat-float-island:hover {
+  transform: none;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   7. Form Inputs & Select Controls (单层边界与聚焦反馈)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input,
+    .api-model-combobox-field
+  ) {
+  border-color: var(--compact-control-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: none !important;
+  transition: border-color 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    .custom-select-trigger,
+    .model-manual-field,
+    .search-modal-input,
+    .git-commit-input,
+    .file-viewer-search-input,
+    .branch-create-input,
+    .api-model-combobox-field
+  ):focus {
+  border-color: var(--compact-focus-color);
+  outline: none;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .range-slider {
+  --range-accent: var(--compact-accent);
+  --range-track-bg: color-mix(
+    in srgb,
+    var(--compact-accent) 18%,
+    var(--bg-tertiary)
+  );
+}
+
+:root[data-theme-preset="wenjie"]
+  .toggle-switch
+  input:checked
+  + .toggle-slider,
+:root[data-theme-preset="wenjie"] .toggle-slider {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-pill);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  .toggle-switch
+  input:checked
+  + .toggle-slider {
+  background: var(--compact-accent);
+}
+
+/* ==========================================================================
+   8. Dropdowns, Overlays & Dialogs (全域浮层与下拉菜单)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-dropdown,
+    .top-bar-todo-dropdown,
+    .plus-menu-dropdown,
+    .model-dropdown,
+    .file-mention-popup,
+    .chat-command-panel,
+    .custom-select-dropdown,
+    .custom-select-dropdown-portal,
+    .browser-menu-dropdown,
+    .branch-dropdown,
+    .app-modal-dialog,
+    .confirm-dialog,
+    .form-dialog-card,
+    .search-modal,
+    .explorer-entry-context-menu,
+    .context-menu,
+    .api-model-combobox-menu,
+    .message-copy-menu
+  ) {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: none;
+}
+
+/* 无界主题原生表单对话框体系规范 (FormDialog) */
+:root[data-theme-preset="wenjie"] .form-dialog-card {
+  border-color: var(--border-light) !important;
+  border-radius: var(--radius-lg) !important;
+  background: var(--surface-island-strong) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-header {
+  border-bottom: 1px solid var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-footer {
+  border-top: 1px solid var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-drop-zone {
+  border-color: var(--border-subtle) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-secondary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-drop-zone:hover {
+  border-color: var(--compact-accent) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-drop-zone.drag-over {
+  border-color: var(--compact-accent) !important;
+  background: var(--compact-accent-bg) !important;
+  color: var(--compact-accent-text);
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-input {
+  border-color: var(--compact-control-border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-input:focus:not([readonly]) {
+  border-color: var(--compact-focus-color) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .form-dialog-input:focus-visible:not([readonly]) {
+  border-color: var(--compact-focus-color) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-input[readonly] {
+  cursor: default;
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-input[readonly]:focus,
+:root[data-theme-preset="wenjie"] .form-dialog-input[readonly]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--compact-control-border) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-button {
+  border-radius: var(--radius-md) !important;
+  font-weight: 500 !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-button.cancel,
+:root[data-theme-preset="wenjie"] .form-dialog-browse-button {
+  border: 1px solid var(--compact-control-border) !important;
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .form-dialog-button.cancel:hover:not(:disabled),
+:root[data-theme-preset="wenjie"]
+  .form-dialog-browse-button:hover:not(:disabled) {
+  border-color: var(--compact-control-border) !important;
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-button.confirm {
+  border: 1px solid transparent !important;
+  background: var(--compact-button-bg) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .form-dialog-button.confirm:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .form-dialog-button.confirm:disabled,
+:root[data-theme-preset="wenjie"]
+  .form-dialog-button.confirm[aria-disabled="true"] {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-muted) !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: 0.65 !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item,
+    .context-menu-item,
+    .api-model-combobox-option,
+    .message-copy-menu-item,
+    .send-key-menu-item
+  ) {
+  --compact-menu-hover-bg: var(--compact-accent-bg);
+  --compact-menu-hover-color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+/* Mouse hover, DOM focus and keyboard active-descendant highlights agree. */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item,
+    .context-menu-item,
+    .api-model-combobox-option,
+    .message-copy-menu-item,
+    .send-key-menu-item
+  ):is(:hover, :focus-visible, .highlighted):not(:disabled):not(.disabled):not(
+    [aria-disabled="true"]
+  ),
+:root[data-theme-preset="wenjie"]
+  :is(.chat-command-item.selected, .mention-entry.selected):not(:disabled):not(
+    .disabled
+  ):not([aria-disabled="true"]) {
+  background: var(--compact-menu-hover-bg);
+  color: var(--compact-menu-hover-color);
+}
+
+/* Persist actual selection without overwriting model-menu drag insertion shadows.
+   CustomSelect exposes selection through its existing direct-child check icon;
+   mention-entry.selected is keyboard navigation, while .checked is selection. */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .model-dropdown-item.active,
+    .branch-dropdown-item.active,
+    .api-model-combobox-option.selected,
+    .custom-select-item:has(> .custom-select-check),
+    .mention-entry.checked,
+    .send-key-menu-item.is-active
+  ):not(:disabled):not(.disabled):not([aria-disabled="true"]) {
+  --compact-menu-hover-bg: var(--compact-selected-bg);
+  --compact-menu-hover-color: var(--compact-accent-text);
+  background: var(--compact-menu-hover-bg);
+  color: var(--compact-menu-hover-color);
+  font-weight: 600;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.context-menu-item.danger, .explorer-entry-context-menu-item.danger):not(
+    :disabled
+  ):not(.disabled):not([aria-disabled="true"]) {
+  color: var(--compact-danger-text);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.context-menu-item.danger, .explorer-entry-context-menu-item.danger):is(
+    :hover,
+    :focus-visible
+  ):not(:disabled):not(.disabled):not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--compact-danger-text) 14%, transparent);
+  color: var(--compact-danger-text);
+}
+
+/* Disabled takes precedence over base-component hover and selected rules.
+   Do not suppress pointer events: tooltip and component behavior stay intact. */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .top-bar-plus-dropdown-item,
+    .top-bar-todo-item,
+    .plus-menu-item,
+    .model-dropdown-item,
+    .custom-select-item,
+    .browser-menu-item,
+    .branch-dropdown-item,
+    .chat-command-item,
+    .mention-entry,
+    .explorer-entry-context-menu-item,
+    .context-menu-item,
+    .api-model-combobox-option,
+    .message-copy-menu-item,
+    .send-key-menu-item
+  ):is(:disabled, .disabled, [aria-disabled="true"]) {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  opacity: 0.6 !important;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   9. Send Key Menu & Groups (发送键快捷菜单群)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .git-commit-split-btn {
+  border: 1px solid var(--compact-button-bg);
+  background: var(--compact-button-bg);
+  color: #ffffff;
+  box-shadow: none;
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme-preset="wenjie"] .git-commit-split-btn .git-commit-btn {
+  border-color: transparent;
+  border-radius: 0 !important;
+  background: var(--compact-button-bg) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .git-commit-split-btn
+  .git-commit-mode-toggle {
+  border-left-color: color-mix(in srgb, #ffffff 40%, transparent);
+  background: var(--compact-button-bg);
+  color: #ffffff;
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .git-commit-split-btn .git-commit-btn,
+    .git-commit-split-btn .git-commit-mode-toggle
+  ):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .send-key-group {
+  border-radius: var(--radius-pill);
+}
+
+:root[data-theme-preset="wenjie"] .send-btn,
+:root[data-theme-preset="wenjie"] .send-key-menu-toggle {
+  background: var(--compact-button-bg);
+  color: #ffffff;
+}
+
+:root[data-theme-preset="wenjie"] .send-key-group .send-btn {
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .send-key-menu-toggle {
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.4);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  .send-btn:hover:not(:disabled):not([aria-disabled="true"]),
+:root[data-theme-preset="wenjie"]
+  .send-key-menu-toggle:hover:not(:disabled):not([aria-disabled="true"]),
+:root[data-theme-preset="wenjie"]
+  .send-key-menu-toggle.is-open:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover);
+  opacity: 1;
+}
+
+:root[data-theme-preset="wenjie"] .send-key-menu {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme-preset="wenjie"] .send-key-menu-item {
+  border-radius: var(--radius-md);
+  transition: var(--compact-control-transition);
+}
+
+/* Send-key menu states share the dropdown suite above. */
+
+/* ==========================================================================
+   10. Thinking Process Collapsible Group (TCG 思考折叠条)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .tcg-toggle {
+  padding: 3px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--surface-island-muted);
+  color: var(--text-tertiary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"] .tcg-toggle:hover {
+  border-color: var(--border-color);
+  background: var(--compact-accent-bg);
+  color: var(--compact-accent-text);
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"] .tcg-toggle:active {
+  background: var(--bg-active);
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"] .tcg-label {
+  font-weight: 500;
+}
+
+:root[data-theme-preset="wenjie"] .tcg-chevron {
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+:root[data-theme-preset="wenjie"] .tcg-list::before {
+  background: var(--border-light);
+}
+
+/* ==========================================================================
+   11. Pending Messages Queue (排队消息池)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .pending-messages-area {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface-island-muted);
+}
+
+:root[data-theme-preset="wenjie"] .pending-message-item {
+  border-radius: var(--radius-md);
+  transition: background 0.14s ease;
+}
+
+:root[data-theme-preset="wenjie"] .pending-message-item:hover {
+  background: var(--compact-accent-bg);
+}
+
+:root[data-theme-preset="wenjie"] .pending-message-send-now {
+  color: var(--compact-button-bg);
+}
+
+:root[data-theme-preset="wenjie"]
+  .pending-message-send-now:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--compact-button-bg) 14%, transparent);
+  color: var(--compact-button-hover);
+}
+
+:root[data-theme-preset="wenjie"] .pending-message-withdraw:hover {
+  background: color-mix(in srgb, var(--compact-danger-text) 14%, transparent);
+  color: var(--compact-danger-text);
+}
+
+/* ==========================================================================
+   12. Chat Empty State & Archetype Quick Cards (卡片分类微浮起)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .chat-empty-greeting-logo {
+  color: var(--compact-accent);
+  filter: none;
+}
+
+:root[data-theme-preset="wenjie"] .chat-empty-greeting-title {
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme-preset="wenjie"] .chat-empty-quick-card {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.15s ease !important;
+}
+
+:root[data-theme-preset="wenjie"] .chat-empty-quick-card.is-api {
+  border-color: rgba(2, 132, 199, 0.25);
+  background: color-mix(
+    in srgb,
+    var(--compact-accent) 6%,
+    var(--surface-island-strong)
+  );
+}
+
+:root[data-theme-preset="wenjie"] .chat-empty-quick-card.is-theme {
+  border-color: rgba(2, 132, 199, 0.25);
+  background: color-mix(
+    in srgb,
+    var(--compact-accent) 6%,
+    var(--surface-island-strong)
+  );
+}
+
+:root[data-theme-preset="wenjie"]
+  .chat-empty-quick-card:hover:not(:disabled):not(.disabled):not(
+    [aria-disabled="true"]
+  ),
+:root[data-theme-preset="wenjie"]
+  .chat-empty-quick-card:focus-visible:not(:disabled):not(.disabled):not(
+    [aria-disabled="true"]
+  ) {
+  border-color: var(--compact-accent);
+  background: var(--compact-accent-bg);
+  transform: translateY(-2.5px) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .chat-empty-quick-card:active:not(:disabled):not(.disabled):not(
+    [aria-disabled="true"]
+  ) {
+  transform: scale(0.98) !important;
+}
+
+/* Suppress base hover tint too, including ARIA- and class-disabled cards. */
+:root[data-theme-preset="wenjie"]
+  .chat-empty-quick-card:is(:disabled, .disabled, [aria-disabled="true"]) {
+  border-color: var(--border-light) !important;
+  background: var(--surface-island-strong) !important;
+  opacity: 0.6 !important;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   13. Tool Calls & Running State (工具卡片与运行中态)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .chat-message-tool,
+    .context-compaction-stream,
+    .file-changes-card,
+    .tool-call-bash-terminal
+  ) {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-muted);
+  transition: border-color 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .chat-message-tool:hover {
+  border-color: var(--border-subtle);
+}
+
+:root[data-theme-preset="wenjie"] .tool-call-card,
+:root[data-theme-preset="wenjie"] .tool-call-group {
+  border-radius: var(--radius-lg) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--border-light) !important;
+  background: var(--bg-tertiary) !important;
+  margin: 8px 0 !important;
+  transition: var(--compact-control-transition) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .tool-call-status-running,
+    .tool-call-browser-pending-running,
+    .tool-call-grep-pending-running
+  ) {
+  color: var(--compact-accent-text);
+  background: var(--compact-accent-bg);
+  animation: horizon-gentle-pulse 2s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   14. Project activity: steady splitter & readable commit timeline
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .h-resizer {
+  height: 16px;
+  min-height: 16px;
+  background: var(--surface-island-muted);
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer::before {
+  background: var(--border-light);
+  transition: background 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer::after {
+  width: 32px;
+  height: 13px;
+  border-color: var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--surface-island-strong);
+  box-shadow: none;
+  /* Keep the base translate(-50%, -50%) at every interaction state.
+     Replacing it with scale alone shifts the grab handle right/down. */
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer:hover::before,
+:root[data-theme-preset="wenjie"] .h-resizer:active::before,
+:root[data-theme-preset="wenjie"]
+  body.is-git-pane-resizing
+  .h-resizer::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--compact-accent) 20%,
+    #38bdf8 50%,
+    var(--compact-accent) 80%,
+    transparent 100%
+  );
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer:hover::after,
+:root[data-theme-preset="wenjie"] .h-resizer:active::after,
+:root[data-theme-preset="wenjie"] body.is-git-pane-resizing .h-resizer::after {
+  border-color: var(--compact-accent);
+  background: var(--compact-selected-bg);
+  box-shadow: none;
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer-icon {
+  color: var(--text-tertiary);
+  transition: color 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer:hover .h-resizer-icon,
+:root[data-theme-preset="wenjie"] .h-resizer:active .h-resizer-icon,
+:root[data-theme-preset="wenjie"] body.is-git-pane-resizing .h-resizer-icon {
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .h-resizer:focus-visible {
+  outline: 2px solid var(--compact-accent);
+  outline-offset: -2px;
+}
+
+:root[data-theme-preset="wenjie"] .git-panel-graph {
+  background: var(--surface-island-strong);
+}
+
+:root[data-theme-preset="wenjie"] .git-graph-row {
+  transition: background 0.14s ease;
+}
+
+:root[data-theme-preset="wenjie"] .git-graph-row:hover {
+  background: var(--surface-island-muted);
+}
+
+:root[data-theme-preset="wenjie"] .git-graph-row.selected {
+  background: var(--compact-accent-bg);
+}
+
+:root[data-theme-preset="wenjie"] .git-graph-ref.local:not(.worktree) {
+  background: var(--compact-accent-bg);
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .git-graph-message {
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   15. Token Usage Rings, Scroll to Bottom & Stream Glow
+   ========================================================================== */
+
+/* One ring track; semantic colors are shared with the tooltip legend. */
+:root[data-theme-preset="wenjie"] .token-usage-ring-wrapper {
+  --compact-token-input: var(--compact-accent);
+  --compact-token-output: #059669;
+  --compact-token-cache-read: #8b5cf6;
+  --compact-token-cache-write: #d97706;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+:root[data-theme-preset="wenjie"][data-theme="dark"]
+  .token-usage-ring-wrapper {
+  --compact-token-input: #38bdf8;
+  --compact-token-output: #34d399;
+  --compact-token-cache-read: #a78bfa;
+  --compact-token-cache-write: #fbbf24;
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-bg {
+  stroke: var(--border-light);
+  opacity: 0.65;
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-input {
+  stroke: var(--compact-token-input);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-output {
+  stroke: var(--compact-token-output);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-cache-write {
+  stroke: var(--compact-token-cache-write);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-cache {
+  stroke: var(--compact-token-cache-read);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-ring-text {
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-tooltip {
+  border-radius: var(--radius-lg);
+  border-color: var(--border-light);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-tooltip::before {
+  border-top-color: var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-tooltip::after {
+  border-top-color: var(--surface-island-strong);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-dot-input {
+  background: var(--compact-token-input);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-dot-output {
+  background: var(--compact-token-output);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-dot-cache {
+  background: var(--compact-token-cache-write);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-dot-cache-read {
+  background: var(--compact-token-cache-read);
+}
+
+/* Keep the dot, label and value aligned with the corresponding ring segment. */
+:root[data-theme-preset="wenjie"]
+  .token-usage-tooltip-row:has(> .token-usage-dot-input) {
+  --compact-token-row-color: var(--compact-token-input);
+}
+
+:root[data-theme-preset="wenjie"]
+  .token-usage-tooltip-row:has(> .token-usage-dot-output) {
+  --compact-token-row-color: var(--compact-token-output);
+}
+
+:root[data-theme-preset="wenjie"]
+  .token-usage-tooltip-row:has(> .token-usage-dot-cache) {
+  --compact-token-row-color: var(--compact-token-cache-write);
+}
+
+:root[data-theme-preset="wenjie"]
+  .token-usage-tooltip-row:has(> .token-usage-dot-cache-read) {
+  --compact-token-row-color: var(--compact-token-cache-read);
+}
+
+:root[data-theme-preset="wenjie"]
+  .token-usage-tooltip-row:has(> .token-usage-dot)
+  :is(.token-usage-label, .token-usage-value) {
+  color: var(--compact-token-row-color);
+}
+
+:root[data-theme-preset="wenjie"] .token-usage-tooltip-divider {
+  background: var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] .chat-scroll-to-bottom {
+  border-radius: var(--radius-pill);
+  border-color: var(--border-light);
+  background: var(--surface-island-strong);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  transform: translate(-50%, calc(-100% - 6px));
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease !important;
+}
+
+:root[data-theme-preset="wenjie"] .chat-scroll-to-bottom:hover {
+  border-color: var(--compact-accent);
+  background: color-mix(
+    in srgb,
+    var(--compact-accent) 13%,
+    var(--surface-island-strong)
+  );
+  color: var(--compact-accent-text);
+  box-shadow: none;
+  transform: translate(-50%, calc(-100% - 6px));
+}
+
+:root[data-theme-preset="wenjie"] .chat-scroll-to-bottom:active {
+  transform: translate(-50%, calc(-100% - 6px));
+  box-shadow: none;
+}
+
+/* Running state uses the existing edge instead of a second rotating halo. */
+:root[data-theme-preset="wenjie"] .chat-scroll-to-bottom.is-streaming {
+  border-color: var(--compact-accent);
+  background: var(--compact-selected-bg);
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .chat-scroll-to-bottom.is-streaming::before {
+  content: none;
+}
+
+/* ==========================================================================
+   16. Theme Preset Card In Settings (极光专属标志条卡片)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .theme-preset-card-compact {
+  position: relative;
+  border-color: rgba(2, 132, 199, 0.4) !important;
+  background: var(--surface-island-muted) !important;
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden;
+  transition:
+    var(--compact-control-transition),
+    transform 0.18s ease !important;
+}
+
+:root[data-theme-preset="wenjie"] .theme-preset-card-compact::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #818cf8 100%);
+  content: "";
+  pointer-events: none;
+}
+
+:root[data-theme-preset="wenjie"] .theme-preset-card-compact:hover {
+  transform: translateY(-2px);
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .theme-preset-card-compact.active {
+  border-color: var(--compact-accent) !important;
+  background: var(--compact-selected-bg);
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   17. Memo, Memory & Scheduled Tasks Panels (备忘录、记忆库与任务)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-sidebar,
+    .memory-sidebar,
+    .scheduled-tasks-sidebar,
+    .scheduled-tasks-sidebar-footer,
+  ) {
+  border-color: var(--border-light);
+  background: var(--surface-island-muted);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-content,
+    .memory-content,
+    .scheduled-tasks-content,
+    .memo-editor-toolbar,
+    .scheduled-task-details-header,
+    .scheduled-tasks-form-header,
+    .scheduled-tasks-form-footer
+  ) {
+  border-color: var(--border-light);
+  background: var(--surface-island-strong);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.scheduled-task-details-section, .scheduled-tasks-form-section) {
+  border-color: var(--border-light);
+  background: var(--surface-island-muted);
+  border-radius: var(--radius-lg);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .scheduled-tasks-filter-tabs,
+    .scheduled-tasks-segmented,
+    .memo-schedule-panel
+  ) {
+  border-color: var(--border-light);
+  background: var(--bg-tertiary) !important;
+  border-radius: var(--radius-md);
+  padding: 2px !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .scheduled-tasks-pre-script-body,
+    .scheduled-task-prompt-content,
+    .scheduled-task-history-item,
+    .scheduled-task-details-grid > div,
+    .scheduled-task-config-grid > div
+  ) {
+  border-color: var(--border-light);
+  background: var(--surface-island-strong);
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-filter-tab.active,
+    .scheduled-tasks-filter-tab.active,
+    .scheduled-tasks-segmented-btn.active,
+    .memo-list-item.selected,
+    .memory-list-item.selected,
+    .scheduled-task-item.selected,
+  ) {
+  border-color: transparent;
+  background: var(--compact-selected-bg);
+  color: var(--compact-accent-text);
+  box-shadow: inset 3px 0 0 var(--compact-focus-color);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+}
+
+/* Qoder 风格分段切换器：浅色下凸起纯白浮雕滑块 */
+:root[data-theme-preset="wenjie"][data-theme="light"]
+  :is(
+    .memo-filter-tab.active,
+    .scheduled-tasks-filter-tab.active,
+    .scheduled-tasks-segmented-btn.active
+  ) {
+  background: #ffffff !important;
+  color: var(--text-primary) !important;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+:root[data-theme-preset="wenjie"][data-theme="dark"]
+  :is(
+    .memo-filter-tab.active,
+    .scheduled-tasks-filter-tab.active,
+    .scheduled-tasks-segmented-btn.active
+  ) {
+  background: #262b32 !important;
+  color: #f2f3f5 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-filter-tab,
+    .memo-list-item,
+    .memory-list-item,
+    .scheduled-task-item,
+    .scheduled-tasks-filter-tab,
+    .scheduled-tasks-segmented-btn,
+    .scheduled-tasks-pre-script-toggle
+  ) {
+  border-radius: var(--radius-md);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-filter-tab,
+    .memo-list-item,
+    .memory-list-item,
+    .scheduled-task-item,
+    .scheduled-tasks-filter-tab,
+    .scheduled-tasks-segmented-btn,
+    .scheduled-tasks-pre-script-toggle
+  ):hover:not(:disabled):not([aria-disabled="true"]):not(.active):not(
+    .selected
+  ) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-icon-btn:not(.danger):not(.done-toggle),
+    .memo-sort-btn,
+    .memory-multi-select-exit-btn,
+    .memory-multi-select-action-btn:not(.danger)
+  ):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-accent-bg);
+  color: var(--text-secondary);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-icon-btn,
+    .memo-sort-btn,
+    .memory-clear-btn,
+    .memory-multi-select-exit-btn,
+    .memory-multi-select-action-btn,
+    .scheduled-task-action-btn,
+    .scheduled-task-copy-btn,
+    .scheduled-task-edit-btn,
+    .scheduled-tasks-back-btn,
+    .scheduled-tasks-cancel-btn
+  ) {
+  border: 1px solid var(--compact-control-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-island-strong);
+  color: var(--text-secondary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-icon-btn,
+    .memo-sort-btn,
+    .memory-clear-btn,
+    .memory-multi-select-exit-btn,
+    .memory-multi-select-action-btn,
+    .scheduled-task-action-btn,
+    .scheduled-task-copy-btn,
+    .scheduled-task-edit-btn,
+    .scheduled-tasks-back-btn,
+    .scheduled-tasks-cancel-btn
+  ):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: none;
+}
+
+:root[data-theme-preset="wenjie"] .memory-editor-btn {
+  border-color: var(--compact-button-bg);
+  background: var(--compact-button-bg);
+  color: #ffffff;
+}
+
+:root[data-theme-preset="wenjie"]
+  .memory-editor-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover) !important;
+  color: #ffffff !important;
+  filter: none;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .scheduled-task-prompt-content,
+    .scheduled-tasks-prompt-textarea,
+    .scheduled-tasks-script-textarea,
+    .thinking-menu-trigger,
+    .memory-editor-title,
+    .memory-editor-content,
+    .memory-editor-tags,
+    .memo-schedule-field input[type="date"],
+    .scheduled-tasks-field input:not([type="checkbox"]):not([type="range"])
+  ) {
+  border-color: var(--compact-control-border);
+  background: var(--surface-island-strong);
+  border-radius: var(--radius-md);
+}
+
+/* ==========================================================================
+   18. Stream Metrics Capsule (流式吞吐指标胶囊)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .stream-metrics {
+  border-color: var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--surface-island-strong);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.stream-metrics-icon, .stream-metrics-label) {
+  color: var(--text-muted);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .stream-metrics-elapsed.is-active,
+    .stream-metrics-tokens.is-active,
+    .stream-metrics-tps.is-active
+  )
+  .stream-metrics-icon {
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .stream-metrics-sep {
+  background: var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] .stream-metrics-pause-btn:hover {
+  background: var(--compact-accent-bg);
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .stream-metrics-pause-btn.is-paused {
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .stream-metrics-pause-btn.is-paused:hover {
+  background: var(--compact-accent-bg);
+  color: var(--compact-accent-text);
+}
+
+:root[data-theme-preset="wenjie"] .stream-metrics-pause-btn:focus-visible {
+  outline-color: var(--compact-accent);
+}
+
+/* ==========================================================================
+   19. Git Diff View & Code Viewers (Git 差异面板与查看器)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .ai-message .code-block-wrapper,
+    .context-compaction-markdown .code-block-wrapper,
+    .file-viewer,
+    .diff-viewer,
+    .git-diff-view,
+    .terminal-container,
+    .browser-panel,
+    .codebase-panel-table-wrap
+  ) {
+  border-color: var(--border-color);
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.15s ease;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .ai-message .code-block-header,
+    .context-compaction-markdown .code-block-header,
+    .codebase-panel-table th,
+    .api-settings-table th,
+    .file-changes-header
+  ) {
+  background: var(--bg-secondary);
+  border-color: var(--border-light);
+}
+
+:root[data-theme-preset="wenjie"] :is(.git-panel-graph, .git-panel-changes) {
+  background: var(--surface-island-muted);
+}
+
+:root[data-theme-preset="wenjie"] .diff-viewer-empty {
+  margin: 6px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+
+/* ==========================================================================
+   20. Keyboard focus, disabled controls & compact-window ergonomics
+   ========================================================================== */
+
+/* Draw keyboard focus on the existing edge, not as a second outer ring.
+   Selected-state inset markers remain independent of this focus indicator. */
+:root[data-theme-preset="wenjie"]
+  :where(
+    button,
+    a[href],
+    input:not([type="hidden"]),
+    select,
+    textarea,
+    [role="button"],
+    [role="tab"],
+    [role="combobox"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 2px solid var(--compact-focus-color) !important;
+  outline-offset: -2px;
+}
+
+/* The composer already exposes focus through its single container border. */
+:root[data-theme-preset="wenjie"] .input-field:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Split-button parents clip their children, so draw the focus ring inside. */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .git-commit-split-btn .git-commit-btn,
+    .git-commit-split-btn .git-commit-mode-toggle,
+    .send-key-group .send-btn,
+    .send-key-menu-toggle
+  ):focus-visible {
+  outline-color: #ffffff !important;
+  outline-offset: -3px;
+}
+
+:root[data-theme-preset="wenjie"]
+  .toggle-switch
+  input:focus-visible
+  + .toggle-slider {
+  outline: 2px solid var(--compact-focus-color);
+  outline-offset: -2px;
+}
+
+/* Visual state only: native disabled / aria-disabled behavior remains component-owned. */
+:root[data-theme-preset="wenjie"]
+  :is(
+    button:disabled,
+    button[aria-disabled="true"],
+    [role="button"][aria-disabled="true"]
+  ) {
+  opacity: 0.6 !important;
+  cursor: not-allowed;
+  box-shadow: none !important;
+  filter: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .memo-icon-btn,
+    .memory-multi-select-exit-btn,
+    .browser-nav-btn,
+    .code-block-action-btn
+  ) {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+:root[data-theme-preset="wenjie"]
+  .confirm-dialog:not(.confirm-dialog-danger):not(.confirm-dialog-warning)
+  .confirm-dialog-btn.confirm:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-button-hover) !important;
+}
+
+:root[data-theme-preset="wenjie"]
+  .confirm-dialog-danger
+  .confirm-dialog-btn.confirm:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--compact-danger-hover) !important;
+}
+
+/* 浏览器地址栏：容器本身已是完整控件外观，内部输入框不再叠加第二层边框与聚焦描边
+   （全局 input 规则与 :focus-visible 焦点环会在此形成双重框，聚焦反馈统一由容器承担）。 */
+:root[data-theme-preset="wenjie"] .browser-address-input {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .browser-address-input:focus,
+:root[data-theme-preset="wenjie"] .browser-address-input:focus-visible {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 1100px) {
+  :root[data-theme-preset="wenjie"] .api-settings-page {
+    padding: 22px 24px 32px !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .chat-messages-container {
+    padding: 12px 16px !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .input-area {
+    padding: 12px 16px 0 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  :root[data-theme-preset="wenjie"] .api-settings-page {
+    padding: 18px 16px 24px !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .chat-messages-container {
+    padding: 10px 12px !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .input-area {
+    padding: 10px 12px 0 !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .top-bar-main {
+    padding: 0 10px !important;
+    gap: 8px !important;
+  }
+}
+
+/* Disable decorative motion, not positioning transforms or component state. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-preset="wenjie"] {
+    --compact-control-transition: none;
+  }
+
+  :root[data-theme-preset="wenjie"] .top-bar::before,
+  :root[data-theme-preset="wenjie"]
+    :is(
+      .chat-item-icon.streaming,
+      .tool-call-status-running,
+      .tool-call-browser-pending-running,
+      .tool-call-grep-pending-running,
+      .chat-scroll-to-bottom,
+      .chat-float-island
+    ),
+  :root[data-theme-preset="wenjie"]
+    .chat-scroll-to-bottom.is-streaming::before {
+    animation: none !important;
+  }
+
+  :root[data-theme-preset="wenjie"]
+    :is(
+      button,
+      input,
+      select,
+      textarea,
+      .settings-item,
+      .nav-item,
+      .list-item,
+      .chat-item,
+      .memo-list-item,
+      .memory-list-item,
+      .scheduled-task-item,
+      .chat-float-island,
+      .theme-preset-card-compact
+    ) {
+    transition: none !important;
+  }
+
+  /* Menus may be non-button elements; reduce their visual transitions as well. */
+  :root[data-theme-preset="wenjie"]
+    :is(
+      .top-bar-plus-dropdown-item,
+      .top-bar-todo-item,
+      .plus-menu-item,
+      .model-dropdown-item,
+      .custom-select-item,
+      .browser-menu-item,
+      .branch-dropdown-item,
+      .chat-command-item,
+      .mention-entry,
+      .explorer-entry-context-menu-item,
+      .context-menu-item,
+      .api-model-combobox-option,
+      .message-copy-menu-item,
+      .send-key-menu-item
+    ),
+  :root[data-theme-preset="wenjie"] .tcg-chevron,
+  :root[data-theme-preset="wenjie"] .toggle-slider,
+  :root[data-theme-preset="wenjie"] .toggle-slider::after {
+    /* Keep final arrow orientation and checked-thumb position. */
+    transition: none !important;
+  }
+
+  :root[data-theme-preset="wenjie"] .theme-preset-card-compact:hover,
+  :root[data-theme-preset="wenjie"]
+    .chat-empty-quick-card:hover:not(:disabled):not(.disabled):not(
+      [aria-disabled="true"]
+    ),
+  :root[data-theme-preset="wenjie"]
+    .chat-empty-quick-card:focus-visible:not(:disabled):not(.disabled):not(
+      [aria-disabled="true"]
+    ),
+  :root[data-theme-preset="wenjie"]
+    .chat-empty-quick-card:active:not(:disabled):not(.disabled):not(
+      [aria-disabled="true"]
+    ) {
+    transform: none !important;
+  }
+
+  :root[data-theme-preset="wenjie"] :is(.chat-messages-container, .chat-area) {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   21. Usage Dashboard & Activity Heatmap (Qoder Style 用量统计与热力图)
+   ========================================================================== */
+
+:root[data-theme-preset="wenjie"] .usage-heatmap-section,
+:root[data-theme-preset="wenjie"] .usage-table-section {
+  border: 1px solid var(--border-light) !important;
+  background: var(--surface-island-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  padding: 18px 20px !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .usage-heatmap-header strong {
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme-preset="wenjie"] .usage-heatmap-cell {
+  border-radius: 2.5px !important;
+  border: 1px solid transparent !important;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease;
+}
+
+:root[data-theme-preset="wenjie"] .usage-heatmap-cell:hover {
+  transform: scale(1.22);
+  border-color: var(--compact-accent) !important;
+  z-index: 2;
+}
+
+:root[data-theme-preset="wenjie"] .usage-date-input {
+  border-radius: var(--radius-md) !important;
+  border-color: var(--border-color) !important;
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"] .usage-date-input:focus {
+  border-color: var(--compact-focus-color) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   22. Project Menu, Repo Wiki, Sub-agent Retry & Run States
+   ========================================================================== */
+
+/* 项目右键菜单（含「仓库 Wiki」入口）：与主题浮层规范一致 */
+:root[data-theme-preset="wenjie"] .workspace-directory-menu {
+  border-color: var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-strong);
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme-preset="wenjie"] .workspace-directory-menu-item {
+  border-radius: var(--radius-sm);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  .workspace-directory-menu-item:is(:hover, :focus-visible):not(.danger) {
+  background: var(--compact-accent-bg);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"] .workspace-directory-menu-item.danger {
+  color: var(--compact-danger-text);
+}
+
+:root[data-theme-preset="wenjie"]
+  .workspace-directory-menu-item.danger:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--compact-danger-text) 14%, transparent);
+  color: var(--compact-danger-text);
+}
+
+/* 仓库 Wiki 工具栏按钮：与主题次级 / 危险按钮规范一致 */
+:root[data-theme-preset="wenjie"]
+  :is(.repo-wiki-btn, .repo-wiki-icon-btn:not(.ghost)) {
+  border-color: var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--surface-island-strong);
+  color: var(--text-secondary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.repo-wiki-btn, .repo-wiki-icon-btn:not(.ghost)):hover:not(:disabled) {
+  border-color: var(--border-color);
+  background: var(--compact-accent-bg);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"] .repo-wiki-icon-btn.ghost {
+  color: var(--text-tertiary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  .repo-wiki-icon-btn.ghost:hover:not(:disabled) {
+  background: var(--compact-accent-bg);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.repo-wiki-btn, .repo-wiki-icon-btn).danger {
+  border-color: color-mix(in srgb, var(--compact-danger-text) 24%, transparent);
+  background: color-mix(in srgb, var(--compact-danger-text) 10%, transparent);
+  color: var(--compact-danger-text);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(.repo-wiki-btn, .repo-wiki-icon-btn).danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--compact-danger-text) 18%, transparent);
+  color: var(--compact-danger-text);
+}
+
+/* 「进行中」统一为一套状态色。
+   accent-blue 并入绿后，running 与 completed 只能靠动画区分，这里统一成天蓝：
+   running/paused = --compact-running，completed = 绿，failed = 红，stopped = 琥珀。 */
+:root[data-theme-preset="wenjie"] .tool-call-run-tone--running {
+  --tool-run-fg: var(--compact-running);
+  --tool-run-bg: color-mix(in srgb, var(--compact-running) 12%, transparent);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .sub-agent-list-item .sub-agent-list-icon svg.sub-agent-status-running,
+    .workflow-node-list-item
+      .workflow-node-list-icon
+      svg.workflow-node-status-running,
+    .tct--running .tct-root-icon,
+    .tct-node--running .tct-node-head > svg,
+    .tct-attempt-status--running,
+    .scheduled-task-history-item.running .scheduled-task-history-status,
+    .task-manager-session-state.is-running,
+    .tool-call-memory-pending-running,
+    .tool-call-skill-pending-running
+  ) {
+  color: var(--compact-running);
+}
+
+/* 徽章 / 状态胶囊：前景 + 12% 淡底 */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .repo-wiki-status.status-running,
+    .repo-wiki-status.status-paused,
+    .tool-call-sub-agent-activity-status-running,
+    .tct-status--running,
+    .tool-call-status-running,
+    .tool-call-bash-pending-running,
+    .tool-call-grep-pending-running,
+    .tool-call-websearch-pending-running,
+    .tool-call-imagegen-describe-pending-running,
+    .tool-call-browser-pending-running,
+    .scheduled-task-item-status-badge.running,
+    .ai-drawing-streaming-count
+  ) {
+  color: var(--compact-running);
+  background: color-mix(in srgb, var(--compact-running) 12%, transparent);
+}
+
+/* 终端占位区：原底色取 accent-blue-text，并入绿后与完成态同色，仅换色源 */
+:root[data-theme-preset="wenjie"] .tool-call-terminal-pending-running {
+  background: color-mix(in srgb, var(--compact-running) 6%, var(--bg-tertiary));
+}
+
+/* 圆点 / 指示条 */
+:root[data-theme-preset="wenjie"]
+  :is(
+    .tcn-dot--running,
+    .scheduled-task-history-item.running .scheduled-task-history-dot,
+    .chat-float-dot.is-streaming
+  ) {
+  background: var(--compact-running);
+}
+
+/* 工作流节点与定时任务运行中：描边跟随状态色 */
+:root[data-theme-preset="wenjie"]
+  :is(.workflow-node.is-running, .scheduled-task-item.is-running) {
+  border-color: var(--compact-running);
+}
+
+:root[data-theme-preset="wenjie"] .scheduled-task-item.is-running {
+  background: color-mix(in srgb, var(--compact-running) 9%, transparent);
+}
+
+/* chips 风格的工具名图标 */
+:root[data-theme-preset="wenjie"][data-tool-card-style="chips"]
+  .tcn--running
+  .tool-call-tool-name-icon {
+  color: var(--compact-running);
+}
+
+/* 会话流式图标：此前与 completed 同为绿色，仅靠脉冲动画区分 */
+:root[data-theme-preset="wenjie"] .chat-item-icon.streaming {
+  color: var(--compact-running) !important;
+  border-color: var(--compact-running) !important;
+}
+
+/* 子代理失败挂起：收尾栏错误态与重试主按钮 */
+:root[data-theme-preset="wenjie"] .sub-agent-finished-bar {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-island-muted);
+  backdrop-filter: none;
+}
+
+:root[data-theme-preset="wenjie"] .sub-agent-finished-bar.is-error {
+  border-color: color-mix(in srgb, var(--compact-danger-text) 26%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--compact-danger-text) 7%,
+    var(--surface-island-muted)
+  );
+}
+
+:root[data-theme-preset="wenjie"] .sub-agent-finished-bar-back {
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: var(--compact-control-transition);
+}
+
+:root[data-theme-preset="wenjie"]
+  .sub-agent-finished-bar-back:hover:not(:disabled) {
+  background: var(--compact-accent-bg);
+  color: var(--text-primary);
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .sub-agent-finished-bar-back.is-primary,
+    .tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary
+  ) {
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--compact-button-bg);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+:root[data-theme-preset="wenjie"]
+  :is(
+    .sub-agent-finished-bar-back.is-primary,
+    .tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary
+  ):hover:not(:disabled) {
+  background: var(--compact-button-hover);
+  color: #ffffff;
+  opacity: 1;
+  box-shadow: none;
+}

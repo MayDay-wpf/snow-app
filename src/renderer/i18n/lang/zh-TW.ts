@@ -3819,6 +3819,7 @@ export const zhTW = {
   "settings.themePresetCyberpunk": "賽博朋克",
   "settings.themePresetNotion": "Notion",
   "settings.themePresetCompact": "無界",
+  "settings.themePresetWenjie": "問界",
   "settings.themePresetRococo": "洛可可玫瑰",
   "settings.themeLayoutStyle": "風格",
   "settings.themeLayoutStyleInfo":
