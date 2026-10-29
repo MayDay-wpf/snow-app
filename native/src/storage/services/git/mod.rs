@@ -49,6 +49,19 @@ fn wsl_cd_path(repo_path: &str) -> String {
     repo_path.to_string()
 }
 
+/// 网络操作的低速熔断。
+///
+/// `git fetch` 连不上远端时会一直重传 SYN，进程挂住几十分钟。git 自己的
+/// HTTP 低速阈值比任何外部计时都可靠：20 秒内低于 1 KB/s 就主动断开。
+/// `GIT_TERMINAL_PROMPT=0` 顺手禁掉凭据交互，否则无凭据时会停在输入提示上。
+///
+/// 对所有 git 子进程生效：这些变量对本地命令是空操作，只在走网络时起作用。
+fn apply_network_guard(cmd: &mut Command) -> &mut Command {
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_HTTP_LOW_SPEED_LIMIT", "1000")
+        .env("GIT_HTTP_LOW_SPEED_TIME", "20")
+}
+
 /// 构造 git 命令执行器。
 ///
 /// 当系统设置的终端 shell 为 WSL 时，通过 `wsl.exe --cd <dir> -e bash
@@ -63,7 +76,13 @@ fn build_git_command(repo_path: &str, args: &[&str]) -> Command {
     if detect_shell_family(&shell_path) == "wsl" {
         // 所有参数统一 shell_quote：`safe.directory=*` 中的 `*` 若不
         // 加引号会被 bash 通配符展开，导致 git 收到错误的配置值。
+        // Windows 侧的环境变量默认不会传进 WSL（除非显式配 WSLENV），所以
+        // 熔断参数必须写成 shell 内联赋值，`cmd.env(...)` 在这里不生效。
         let git_cmd = [
+            "env",
+            "GIT_TERMINAL_PROMPT=0",
+            "GIT_HTTP_LOW_SPEED_LIMIT=1000",
+            "GIT_HTTP_LOW_SPEED_TIME=20",
             "git",
             "-c",
             "core.quotepath=false",
@@ -80,6 +99,7 @@ fn build_git_command(repo_path: &str, args: &[&str]) -> Command {
         let mut cmd = crate::utils::process::cmd(&shell_path);
         cmd.arg("--cd").arg(wsl_cd_path(repo_path));
         cmd.args(["-e", "bash", "-lc", &git_cmd]);
+        apply_network_guard(&mut cmd);
         cmd
     } else {
         let mut cmd = crate::utils::process::cmd("git");
@@ -93,6 +113,7 @@ fn build_git_command(repo_path: &str, args: &[&str]) -> Command {
         ])
         .args(args)
         .current_dir(repo_path);
+        apply_network_guard(&mut cmd);
         cmd
     }
 }

@@ -1,6 +1,10 @@
 import { ipcMain } from "electron";
 import { manageGitBranch } from "./gitBranchManagement";
-import type { NativeBridge, ResponsesApiStreamChunk } from "../../native/types";
+import type {
+  GitPushPullResult,
+  NativeBridge,
+  ResponsesApiStreamChunk,
+} from "../../native/types";
 import {
   remoteCheckoutBranch,
   remoteCommitChanges,
@@ -366,14 +370,28 @@ export const registerGitHandlers = (native: NativeBridge): void => {
     },
   );
 
+  // 同一仓库可能被多个组件同时轮询（右面板 GitControl 与顶栏分支下拉的
+  // 「变更」Tab 各自调用 useRemotePolling）。共享在途请求，保证一个慢远端
+  // 不会被并行 fetch 多次——每次 `git fetch` 都会派生 git.exe +
+  // git-remote-https + 凭据助手，叠加起来会耗尽进程与 socket 句柄。
+  const inFlightFetches = new Map<string, Promise<GitPushPullResult>>();
+
   ipcMain.handle("git:fetch", async (_event, repoPath: unknown) => {
     if (typeof repoPath !== "string" || !repoPath.trim()) {
       throw new Error("Repository path is required");
     }
     const trimmed = repoPath.trim();
-    return isSshPath(trimmed)
-      ? remoteFetchRemote(trimmed)
-      : native.gitFetch(trimmed);
+    const pending = inFlightFetches.get(trimmed);
+    if (pending) {
+      return pending;
+    }
+    const request = (
+      isSshPath(trimmed) ? remoteFetchRemote(trimmed) : native.gitFetch(trimmed)
+    ).finally(() => {
+      inFlightFetches.delete(trimmed);
+    });
+    inFlightFetches.set(trimmed, request);
+    return request;
   });
 
   ipcMain.handle(

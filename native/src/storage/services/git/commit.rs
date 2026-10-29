@@ -1,4 +1,5 @@
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use napi::bindgen_prelude::*;
 
@@ -43,19 +44,63 @@ pub fn commit_changes(repo_path: &str, message: &str) -> Result<GitCommitResult>
     }
 }
 
+// 网络类 git 命令的硬超时。
+//
+// `git fetch/pull/push` 在远端不可达时会一直重传 SYN，`Command::output()`
+// 会无限期阻塞——上层 `spawn_blocking` 的 future 就永远不 settle，调用方
+// （例如 60 秒一次的 ahead/behind 轮询）于是不断叠加新的子进程。
+const NETWORK_GIT_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// 执行 push/pull 并带回 git 的完整输出（log）。
 /// git 的输出分布在两条流上（push 统计在 stderr、pull 冲突详情在
 /// stdout），必须全部捕获；同时禁止终端凭据提示，避免无凭据时挂起。
+///
+/// 超时处理：spawn 后轮询 `try_wait`，到点直接 `kill`，保证每次调用都在
+/// 有限时间内返回。fetch/pull/push 正常输出很少，阻塞式读管道不会撑满
+/// 缓冲区，因此无需额外的读线程。
 fn run_git_network(repo_path: &str, args: &[&str]) -> Result<(bool, String)> {
     let mut cmd = build_git_command(repo_path, args);
-    cmd.env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null());
-    let output = cmd.output().map_err(|e| {
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             Error::from_reason(GIT_NOT_FOUND_MESSAGE)
         } else {
             Error::from_reason(format!("Failed to execute git: {e}"))
         }
     })?;
+
+    let deadline = Instant::now() + NETWORK_GIT_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let verb = args.first().copied().unwrap_or("git");
+                    return Ok((
+                        false,
+                        format!(
+                            "git {verb} timed out after {}s: the remote did not respond",
+                            NETWORK_GIT_TIMEOUT.as_secs()
+                        ),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                return Err(Error::from_reason(format!("Failed to wait for git: {e}")));
+            }
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| Error::from_reason(format!("Failed to read git output: {e}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let success = output.status.success();
@@ -167,16 +212,17 @@ pub fn fetch_remote(repo_path: &str) -> Result<GitPushPullResult> {
         });
     }
 
-    match run_git(repo_path, &["fetch", "--quiet", "--prune"]) {
-        Ok(_) => Ok(GitPushPullResult {
-            success: true,
-            message: "Fetch successful".to_string(),
-        }),
-        Err(e) => Ok(GitPushPullResult {
-            success: false,
-            message: format!("{e}"),
-        }),
-    }
+    // 必须走 run_git_network：这是后台轮询调用的入口，`run_git` 没有超时，
+    // 远端不可达时子进程会一直挂着，轮询于是不停叠加新进程。
+    let (success, log) = run_git_network(repo_path, &["fetch", "--quiet", "--prune"])?;
+    Ok(GitPushPullResult {
+        success,
+        message: if success && log.is_empty() {
+            "Fetch successful".to_string()
+        } else {
+            log
+        },
+    })
 }
 
 pub fn checkout_branch(repo_path: &str, branch_name: &str) -> Result<GitCheckoutResult> {
