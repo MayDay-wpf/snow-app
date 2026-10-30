@@ -9988,17 +9988,14 @@ body.is-panel-resizing * {
   }
 }
 
+/* 头部即搜索栏：标题让位给输入框，省下一整行高度。 */
 .user-message-rail-popover-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 
@@ -10018,17 +10015,7 @@ body.is-panel-resizing * {
   line-height: 1;
 }
 
-.user-message-rail-popover-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.user-message-rail-popover-search input {
+.user-message-rail-popover-header input {
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -10040,7 +10027,7 @@ body.is-panel-resizing * {
   line-height: 1.4;
 }
 
-.user-message-rail-popover-search input::placeholder {
+.user-message-rail-popover-header input::placeholder {
   color: var(--text-tertiary);
 }
 

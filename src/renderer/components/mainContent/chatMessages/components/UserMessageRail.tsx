@@ -137,10 +137,7 @@ const deriveRailItem = (msg: UserMessageSummary): RailItemData => {
     CHIP_TAG_MARKERS.some((marker) => msg.content.includes(marker));
   const summary = summarizeContentAsPlainText(msg.content);
   const segments = hasChips ? parseContentSegments(msg.content) : null;
-  const searchText = [
-    summary,
-    ...(segments?.map(segmentSearchText) ?? []),
-  ]
+  const searchText = [summary, ...(segments?.map(segmentSearchText) ?? [])]
     .join(" ")
     .toLowerCase();
   return {
@@ -965,18 +962,6 @@ export const UserMessageRail = memo(
               onMouseLeave={handleMouseLeave}
             >
               <div className="user-message-rail-popover-header">
-                <span>
-                  {t("chat.userMessageRail.title", {
-                    defaultValue: "User messages",
-                  })}
-                </span>
-                <span className="user-message-rail-popover-count">
-                  {searchTerms.length > 0
-                    ? `${filteredRailItems.length}/${userMessages.length}`
-                    : userMessages.length}
-                </span>
-              </div>
-              <div className="user-message-rail-popover-search">
                 <Search size={12} strokeWidth={2} aria-hidden="true" />
                 <input
                   ref={searchInputRef}
@@ -1007,6 +992,11 @@ export const UserMessageRail = memo(
                     <X size={12} strokeWidth={2} aria-hidden="true" />
                   </button>
                 ) : null}
+                <span className="user-message-rail-popover-count">
+                  {searchTerms.length > 0
+                    ? `${filteredRailItems.length}/${userMessages.length}`
+                    : userMessages.length}
+                </span>
               </div>
               <div className="user-message-rail-popover-list">
                 {filteredRailItems.length === 0 ? (
