@@ -11,6 +11,7 @@
 use napi_derive::napi;
 
 /// 与 Windows SDK 的 DWMWA_COLOR_NONE 一致：不绘制窗口边框。
+#[cfg(target_os = "windows")]
 pub const WINDOW_BORDER_COLOR_NONE: u32 = 0xFFFF_FFFE;
 
 /// 设置窗口外边框颜色（仅 Windows 生效，其他平台直接返回 false）。
