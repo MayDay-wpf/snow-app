@@ -289,6 +289,19 @@ export const useConversationRemovalBridge = (
       await remove();
 
       const current = ctxRef.current;
+      // 旧的增量记录可能在列表刷新后被运行状态变化重新插入。
+      const removedIds = new Set(targetIds);
+      for (const [pendingId, realId] of current.pendingToRealConversationIdRef
+        .current) {
+        if (removedIds.has(realId)) {
+          removedIds.add(pendingId);
+        }
+      }
+      current.setUpsertedConversation((previous) =>
+        previous && removedIds.has(previous.record.conversationId)
+          ? null
+          : previous,
+      );
       for (const targetId of targetIds) {
         current.clearInputDraft(targetId);
       }
