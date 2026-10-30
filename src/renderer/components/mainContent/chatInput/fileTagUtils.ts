@@ -98,6 +98,8 @@ export type WebTag = {
   url: string;
   /** 页面标题（可选，缺失时 chip 仅显示域名） */
   title?: string;
+  /** 拖入的浏览器标签 ID，供浏览器工具直接定位 */
+  instanceId?: string;
   /** 清洗后的整页正文快照（≤8000 字符，随消息发送给 AI，AI 无需再开浏览器） */
   text?: string;
   /** 元素区域文本摘要（可选，来自浏览器元素选择器 picked） */
@@ -529,6 +531,7 @@ export const encodeWebTag = (tag: WebTag): string =>
   `@@web:${JSON.stringify({
     url: tag.url,
     title: tag.title,
+    instanceId: tag.instanceId,
     text: tag.text,
     elementText: tag.elementText,
     elementSelector: tag.elementSelector,
@@ -731,6 +734,10 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
             tag: {
               url,
               title: typeof data.title === "string" ? data.title : undefined,
+              instanceId:
+                typeof data.instanceId === "string"
+                  ? data.instanceId
+                  : undefined,
               text: typeof data.text === "string" ? data.text : undefined,
               elementText:
                 typeof data.elementText === "string"
@@ -1259,6 +1266,7 @@ export const createWebTagChipHtml = (tag: WebTag): string => {
     JSON.stringify({
       url: tag.url,
       title: tag.title,
+      instanceId: tag.instanceId,
       text: tag.text,
       elementText: tag.elementText,
       elementSelector: tag.elementSelector,
@@ -1581,6 +1589,10 @@ const readEditableContentWith = (
             result += serializers.web({
               url,
               title: typeof data.title === "string" ? data.title : undefined,
+              instanceId:
+                typeof data.instanceId === "string"
+                  ? data.instanceId
+                  : undefined,
               text: typeof data.text === "string" ? data.text : undefined,
               elementText:
                 typeof data.elementText === "string"

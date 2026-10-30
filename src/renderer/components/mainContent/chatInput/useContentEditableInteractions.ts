@@ -358,14 +358,13 @@ export const useContentEditableInteractions = ({
               typeof parsed.title === "string" && parsed.title.length > 0
                 ? parsed.title
                 : undefined,
-          };
-          insertWebTag(tag, {
             instanceId:
               typeof parsed.instanceId === "string" &&
               parsed.instanceId.length > 0
                 ? parsed.instanceId
                 : undefined,
-          });
+          };
+          insertWebTag(tag);
           return;
         }
 

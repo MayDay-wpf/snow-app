@@ -48,10 +48,6 @@ type UseInputFileOperationsOptions = {
   handleChange: (content: string) => void;
 };
 
-type WebTagInsertOptions = {
-  instanceId?: string;
-};
-
 export type InputFileOperationsResult = {
   syncContent: () => void;
   insertFileTag: (tag: FileTag | SkillTag) => void;
@@ -61,7 +57,7 @@ export type InputFileOperationsResult = {
   insertImageFiles: (files: File[]) => void;
   insertExternalFiles: (files: File[]) => void;
   insertDroppedPlainText: (text: string) => void;
-  insertWebTag: (tag: WebTag, options?: WebTagInsertOptions) => void;
+  insertWebTag: (tag: WebTag) => void;
   handleSelectFiles: () => Promise<void>;
   handleSelectFolders: () => Promise<void>;
   plusMenuSections: PlusMenuSection[];
@@ -70,6 +66,7 @@ export type InputFileOperationsResult = {
 const findWebChipByUrl = (
   root: HTMLElement,
   url: string,
+  instanceId: string,
   title?: string,
 ): HTMLElement | null => {
   const chips = root.querySelectorAll<HTMLElement>("[data-web-tag='true']");
@@ -78,7 +75,7 @@ const findWebChipByUrl = (
   for (const chip of chips) {
     try {
       const data = JSON.parse(chip.dataset.webData || "{}") as Partial<WebTag>;
-      if (data.url !== url) {
+      if (data.url !== url || data.instanceId !== instanceId) {
         continue;
       }
       fallback = chip;
@@ -98,7 +95,7 @@ export const useInputFileOperations = ({
 }: UseInputFileOperationsOptions): InputFileOperationsResult => {
   const { t } = useI18n();
   const pendingWebSnapshotRef = useRef<
-    Map<number, { url: string; title?: string }>
+    Map<number, { url: string; instanceId: string; title?: string }>
   >(new Map());
   // 记住编辑区最后一次有效光标位置：焦点被浏览器元素选择器/终端等
   // 外部交互夺走后，外部事件插入 chip 前需还原到此位置，否则
@@ -346,7 +343,12 @@ export const useInputFileOperations = ({
       if (!el) {
         return;
       }
-      const webChip = findWebChipByUrl(el, pending.url, pending.title);
+      const webChip = findWebChipByUrl(
+        el,
+        pending.url,
+        pending.instanceId,
+        pending.title,
+      );
       if (!webChip) {
         return;
       }
@@ -357,6 +359,7 @@ export const useInputFileOperations = ({
         webChip.dataset.webData = JSON.stringify({
           url: typeof prev.url === "string" ? prev.url : pending.url,
           title: typeof prev.title === "string" ? prev.title : pending.title,
+          instanceId: prev.instanceId,
           text: snapshot.text || undefined,
           elementText: snapshot.elementText,
           elementSelector: snapshot.elementSelector,
@@ -506,19 +509,20 @@ export const useInputFileOperations = ({
   );
 
   const insertWebTag = useCallback(
-    (tag: WebTag, options?: WebTagInsertOptions) => {
+    (tag: WebTag) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
       insertHtmlAtSelection(createWebTagChipHtml(tag));
       syncContent();
-      if (!options?.instanceId) {
+      if (!tag.instanceId) {
         return;
       }
       const requestId = nextSnapshotRequestId();
       pendingWebSnapshotRef.current.set(requestId, {
         url: tag.url,
         title: tag.title,
+        instanceId: tag.instanceId,
       });
       window.setTimeout(() => {
         pendingWebSnapshotRef.current.delete(requestId);
@@ -527,7 +531,7 @@ export const useInputFileOperations = ({
         new CustomEvent<WebSnapshotRequest>(WEB_SNAPSHOT_REQUEST_EVENT, {
           detail: {
             requestId,
-            instanceId: options.instanceId,
+            instanceId: tag.instanceId,
             url: tag.url,
           },
         }),

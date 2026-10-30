@@ -632,7 +632,7 @@ impl McpService for BrowserService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "close".to_string(),
-                description: "Close an embedded browser tab and destroy its webview. Omit instanceId to close the agent's working browser tab (later calls without instanceId then fail until browser-focus or browser-create selects a new working tab). Use the list tool to see available browser tabs and their IDs.".to_string(),
+                description: "Close an embedded browser tab and destroy its webview. Omit instanceId to close the agent's working browser tab (later calls without instanceId then fail until browser-focus or browser-create selects a new working tab). Use browser-list if the target tab ID is unknown.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -646,7 +646,7 @@ impl McpService for BrowserService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "focus".to_string(),
-                description: "Switch to (activate) an embedded browser tab by its instance ID, bringing it to the foreground, and make it the agent's working tab: later browser calls that omit instanceId target it (the user switching tabs does not change this). Use the list tool to see available browser tabs and their IDs.".to_string(),
+                description: "Switch to (activate) an embedded browser tab by its instance ID, bringing it to the foreground, and make it the agent's working tab: later browser calls that omit instanceId target it (the user switching tabs does not change this). Use browser-list if the target tab ID is unknown.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -661,7 +661,7 @@ impl McpService for BrowserService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "list".to_string(),
-                description: "List all open embedded browser tabs with their instance IDs, titles, URLs, active state, agentTarget (true for the agent's working tab that calls without instanceId target) and agent access flags (shared / isolated / origin). Tabs the user has not shared with the agent only expose their instanceId and a placeholder title (url is null); call browser-request_share to ask the user to share such a tab. Use this to discover available tabs before closing or switching.".to_string(),
+                description: "List all open embedded browser tabs with their instance IDs, titles, URLs, active state, agentTarget (true for the agent's working tab that calls without instanceId target) and agent access flags (shared / isolated / origin). Tabs the user has not shared with the agent only expose their instanceId and a placeholder title (url is null); call browser-request_share to ask the user to share such a tab. If the user has provided an instanceId, pass it directly to the appropriate browser tool; listing tabs first is unnecessary.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {}
@@ -670,7 +670,7 @@ impl McpService for BrowserService {
             McpTool {
                 server_id: SERVER_ID.to_string(),
                 name: "evaluate".to_string(),
-                description: "Evaluate JavaScript in an embedded browser page and return the serialized result. Provide the source via expression (inline) or sourcePath (a local file); with format=function the source is treated as a function and args are passed to it (JSON-serializable). waitForStableDom (default true) waits for the DOM to settle before evaluating; filePath saves the result JSON to a file instead of returning it. Credential/storage access (cookies, localStorage, etc.) is blocked; use browser-devtools cookies for those. Omit instanceId to use the agent's working browser tab.".to_string(),
+                description: "Evaluate JavaScript in an embedded browser page and return the serialized result. Prefer dedicated browser tools for page content, inspection, and interaction; use this tool when custom JavaScript is needed. Provide the source via expression (inline) or sourcePath (a local file); with format=function the source is treated as a function and args are passed to it (JSON-serializable). waitForStableDom (default true) waits for the DOM to settle before evaluating; filePath saves the result JSON to a file instead of returning it. Credential/storage access (cookies, localStorage, etc.) is blocked; use browser-devtools cookies for those. Omit instanceId to use the agent's working browser tab.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
