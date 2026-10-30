@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import type { TaskManagerProcessKind } from "../../../preload";
 import { useI18n } from "../../i18n";
+import { formatDisplayPath } from "../../utils/formatDisplayPath";
+import { DisplayPath } from "../common/DisplayPath";
 import {
   buildProcessForest,
   flattenProcessForest,
@@ -251,15 +253,21 @@ export function TaskManagerProcessTable({
                         <button
                           type="button"
                           className="task-manager-project task-manager-project-link"
-                          title={process.lspSession.projectRoot}
+                          title={formatDisplayPath(
+                            process.lspSession.projectRoot,
+                          )}
                           aria-label={t("taskManager.filterProject", {
-                            values: { project: process.lspSession.projectRoot },
+                            values: {
+                              project: formatDisplayPath(
+                                process.lspSession.projectRoot,
+                              ),
+                            },
                           })}
                           onClick={() =>
                             onProject(process.lspSession!.projectRoot)
                           }
                         >
-                          {process.lspSession.projectRoot}
+                          <DisplayPath path={process.lspSession.projectRoot} />
                         </button>
                       )}
                       <span className="task-manager-name-sub">

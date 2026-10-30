@@ -19,6 +19,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
+import { formatDisplayPath } from "../../../../utils/formatDisplayPath";
 import type {
   DocumentSymbolNode,
   SymbolFileResult,
@@ -32,10 +33,8 @@ import type { LspRenameSafety } from "./lspRenameSafety";
 import type { LspResultMeta } from "./lspResultMeta";
 
 /** 清洗 Windows 设备扩展长路径前缀 \\?\ */
-export const cleanWorkspacePath = (rawPath?: string): string => {
-  if (!rawPath) return "";
-  return rawPath.replace(/^\\\\\?\\/, "");
-};
+export const cleanWorkspacePath = (rawPath?: string): string =>
+  rawPath ? formatDisplayPath(rawPath) : "";
 
 export function LspResultNotice({
   meta,

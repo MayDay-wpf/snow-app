@@ -1,5 +1,6 @@
 import type { TaskManagerProcess } from "../../../preload";
 import type { LspSessionStatus } from "../../../preload/types/lsp";
+import { formatDisplayPath } from "../../utils/formatDisplayPath";
 
 export const LSP_REFRESH_INTERVAL_MS = 5000;
 // A short bounded window, not lastUsedMs: an idle, healthy server is still running.
@@ -193,6 +194,7 @@ export const filterTaskProcesses = (
         row.parentPid,
         row.lspSession?.lang,
         row.lspSession?.projectRoot,
+        row.lspSession && formatDisplayPath(row.lspSession.projectRoot),
       ]
         .join(" ")
         .toLocaleLowerCase()

@@ -5,7 +5,9 @@ import type {
   LspSessionTarget,
 } from "../../../preload/types/lsp";
 import { useI18n } from "../../i18n";
+import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { DisplayPath } from "../common/DisplayPath";
 import {
   processIdentity,
   sessionSampleIsFresh,
@@ -243,7 +245,7 @@ export function TaskManagerSessions({
               >
                 <div className="task-manager-session-heading">
                   <span className="task-manager-badge">{session.lang}</span>
-                  <strong title={session.projectRoot}>
+                  <strong title={formatDisplayPath(session.projectRoot)}>
                     {taskProjectName(session.projectRoot)}
                   </strong>
                   <span className={`task-manager-session-state is-${state}`}>
@@ -253,13 +255,13 @@ export function TaskManagerSessions({
                 <button
                   type="button"
                   className="task-manager-project task-manager-project-link"
-                  title={session.projectRoot}
+                  title={formatDisplayPath(session.projectRoot)}
                   aria-label={t("taskManager.filterProject", {
-                    values: { project: session.projectRoot },
+                    values: { project: formatDisplayPath(session.projectRoot) },
                   })}
                   onClick={() => onProject(session.projectRoot)}
                 >
-                  {session.projectRoot}
+                  <DisplayPath path={session.projectRoot} />
                 </button>
                 <div className="task-manager-session-metrics">
                   <span>PID {session.resources?.pid ?? "—"}</span>
@@ -354,7 +356,7 @@ export function TaskManagerSessions({
                       : "taskManager.stopSession",
                   ),
                   lang: pending.target.lang,
-                  root: pending.target.projectRoot,
+                  root: formatDisplayPath(pending.target.projectRoot),
                   pid: pending.target.expectedPid,
                 },
               })

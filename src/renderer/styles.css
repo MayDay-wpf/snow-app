@@ -25645,6 +25645,26 @@ button.user-message-source:hover {
   color: var(--text-primary);
   flex-shrink: 0;
 }
+.display-path {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.display-path-parent,
+.display-path-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.display-path-parent {
+  flex: 0 1 auto;
+}
+.display-path-name {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
 .lsp-status-project {
   flex: 1;
   min-width: 0;

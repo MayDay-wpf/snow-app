@@ -2,6 +2,7 @@ import { Braces, CircleAlert, Clock, Loader2, Settings, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { LspSessionStatus } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { DisplayPath } from "../../common/DisplayPath";
 import { MCP_SERVER_STATE_CHANGED_EVENT } from "./mcpServerEvents";
 
 const POLL_INTERVAL_MS = 3000;
@@ -247,12 +248,10 @@ export function LspStatusBadge({
                         <span className="lsp-status-lang-badge">
                           {session.lang}
                         </span>
-                        <span
+                        <DisplayPath
                           className="lsp-status-project"
-                          title={session.projectRoot}
-                        >
-                          {session.projectRoot}
-                        </span>
+                          path={session.projectRoot}
+                        />
                       </div>
                       <span className="lsp-status-card-badge">
                         {t(STATUS_LABEL_KEY[session.status])}

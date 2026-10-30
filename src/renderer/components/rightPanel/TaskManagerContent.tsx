@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { LspResourcePanel } from "../sidebar/lspSettings/LspResourcePanel";
@@ -342,7 +343,12 @@ export const TaskManagerContent = ({
       (!project || normalizeTaskProject(session.projectRoot) === project) &&
       (!search ||
         groups.has(session) ||
-        [session.lang, session.projectRoot, session.resources?.pid]
+        [
+          session.lang,
+          session.projectRoot,
+          formatDisplayPath(session.projectRoot),
+          session.resources?.pid,
+        ]
           .join(" ")
           .toLocaleLowerCase()
           .includes(search)),
@@ -366,7 +372,10 @@ export const TaskManagerContent = ({
     if (project && !projects.some(([key]) => key === project))
       options.push({ value: project, label: project });
     for (const [key, root] of projects)
-      options.push({ value: key, label: `${taskProjectName(root)} · ${root}` });
+      options.push({
+        value: key,
+        label: `${taskProjectName(root)} · ${formatDisplayPath(root)}`,
+      });
     return options;
   }, [project, projects, t]);
   const sortedProcesses = useMemo(() => {
@@ -706,10 +715,10 @@ export const TaskManagerContent = ({
                 onChange={setProject}
                 dropdownMinWidth={280}
                 ariaLabel={t("taskManager.projectScope")}
-                title={
+                title={formatDisplayPath(
                   projects.find(([key]) => key === project)?.[1] ||
-                  t("taskManager.allProjects")
-                }
+                    t("taskManager.allProjects"),
+                )}
               />
               {project && (
                 <button
