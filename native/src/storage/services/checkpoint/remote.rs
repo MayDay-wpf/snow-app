@@ -330,9 +330,17 @@ impl<'a> RemoteCheckpointClient<'a> {
         {
             Ok(())
         } else {
-            Err(Error::from_reason(format!(
-                "Failed to delete remote file '{path}'"
-            )))
+            // Electron 侧在删除失败时回传 SFTP 的原始原因；带上它才能区分
+            // 权限不足、目标为目录等不同成因。
+            let reason = result
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty());
+            Err(Error::from_reason(match reason {
+                Some(reason) => format!("Failed to delete remote file '{path}': {reason}"),
+                None => format!("Failed to delete remote file '{path}'"),
+            }))
         }
     }
 

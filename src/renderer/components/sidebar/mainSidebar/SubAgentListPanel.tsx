@@ -110,9 +110,6 @@ export function SubAgentListPanel({
                   agentLabel ||
                   t("sidebar.subAgent", { defaultValue: "Sub-agent" })}
               </span>
-              {summaryLabel && agentLabel ? (
-                <span className="sub-agent-list-agent">{agentLabel}</span>
-              ) : null}
               {isAttentionRequired && (
                 <span
                   className="chat-item-status-label attention-required"

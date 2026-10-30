@@ -1663,25 +1663,9 @@ body.is-panel-resizing * {
   text-overflow: ellipsis;
 }
 
-/* 子代理类型：摘要之后的次要信息，宽度受限避免挤占摘要 */
-.sub-agent-list-agent {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 46%;
-  font-size: 10.5px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .sub-agent-list-item.active .sub-agent-list-name {
   color: var(--text-primary);
   font-weight: 500;
-}
-
-.sub-agent-list-item.active .sub-agent-list-agent {
-  color: var(--text-secondary);
 }
 
 .chat-item-sub-agent-count {
@@ -62628,6 +62612,13 @@ img.plugin-icon {
     var(--surface-island-muted)
   );
   content: "";
+}
+
+/* 项目行铺底向上多铺 1px：高 DPI 缩放（如 125%）下相邻吸顶层各自做像素对齐，
+   取整误差会在合集行底边露出一条细缝。合集行层级更高，多出的部分被其盖住；
+   未吸顶时这 1px 落在行间 gap 里，与侧栏同色，不可见 */
+:where(.sidebar-tree-list) .tree-project-row-wrap::before {
+  top: -1px;
 }
 
 :where(.sidebar-tree-list) .project-collection-row {

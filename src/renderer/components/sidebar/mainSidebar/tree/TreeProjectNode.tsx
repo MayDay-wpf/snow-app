@@ -85,7 +85,20 @@ export function TreeProjectNode({
   } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingValue, setEditingValue] = useState("");
-  const [hasRenderedChats, setHasRenderedChats] = useState(isExpanded);
+  // 会话列表按需挂载：展开时才挂载并加载该项目的会话，收起动画结束后卸载释放。
+  // 否则「打开过一次的项目」会在整个应用生命周期里一直持有整份会话列表。
+  const [hasMountedChats, setHasMountedChats] = useState(isExpanded);
+
+  if (isExpanded && !hasMountedChats) {
+    setHasMountedChats(true);
+  }
+
+  const handleChatsCollapseEnd = (): void => {
+    if (!isExpanded) {
+      setHasMountedChats(false);
+    }
+  };
+
   const editInputRef = useRef<HTMLInputElement>(null);
   const isSubmittingRef = useRef(false);
   const cancelledRef = useRef(false);
@@ -96,12 +109,6 @@ export function TreeProjectNode({
       editInputRef.current.select();
     }
   }, [isEditing]);
-
-  useEffect(() => {
-    if (isExpanded && !hasRenderedChats) {
-      setHasRenderedChats(true);
-    }
-  }, [isExpanded, hasRenderedChats]);
 
   const isDragging = dragAndDrop.draggedDirectoryId === directoryId;
   const isDragOver = dragAndDrop.dragOverDirectoryId === directoryId;
@@ -354,8 +361,11 @@ export function TreeProjectNode({
           />
         ) : null}
       </div>
-      <SidebarCollapse open={isExpanded}>
-        {hasRenderedChats ? (
+      <SidebarCollapse
+        onTransitionEnd={handleChatsCollapseEnd}
+        open={isExpanded}
+      >
+        {hasMountedChats ? (
           <div className="tree-project-chats">
             <TreeProjectChats
               activeConversationId={activeConversationId}

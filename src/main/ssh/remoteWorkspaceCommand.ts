@@ -2365,6 +2365,24 @@ const executeCheckpointWriteFile = async (
   );
 };
 
+/** 远程条目是否已不存在：stat 失败按「仍存在」处理，避免掩盖原始删除失败原因。 */
+const isRemoteEntryGone = async (
+  sessionId: string,
+  remotePath: string,
+): Promise<boolean> => {
+  try {
+    return (await statSshEntry(sessionId, remotePath)) === null;
+  } catch {
+    return false;
+  }
+};
+
+/** 去掉 deleteSshFile 的统一包装前缀，只保留 SFTP 原始失败原因。 */
+const describeRemoteDeleteFailure = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/^Failed to delete remote file:\s*/, "");
+};
+
 const executeCheckpointDeleteFile = async (
   args: RemoteWorkspaceCommandArgs,
   signal?: AbortSignal,
@@ -2376,8 +2394,14 @@ const executeCheckpointDeleteFile = async (
       try {
         await deleteSshFile(sessionId, remotePath);
         return { deleted: true };
-      } catch {
-        return { deleted: false };
+      } catch (error) {
+        // 与本地 restore_entry 的 Missing 语义对齐：条目已经不在远程即视为
+        // 删除成功，回滚恢复因此保持幂等，重复恢复不会被 ENOENT 卡死。
+        if (await isRemoteEntryGone(sessionId, remotePath)) {
+          return { deleted: true };
+        }
+        // 带上真实原因，否则用户只看到笼统的「删除远程文件失败」。
+        return { deleted: false, reason: describeRemoteDeleteFailure(error) };
       }
     },
     { signal },

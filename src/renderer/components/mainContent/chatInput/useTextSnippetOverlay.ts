@@ -37,7 +37,7 @@ export type TextSnippetOverlayApi = {
   preview: TextSnippetPreviewState | null;
   editor: TextSnippetEditorState | null;
   setEditor: Dispatch<SetStateAction<TextSnippetEditorState | null>>;
-  /** 悬停移动：命中片段 chip 时展示原文预览，否则立即收起。 */
+  /** 悬停移动：命中片段 chip 时展示原文预览，否则延迟收起（留出移入浮层的时间）。 */
   showPreview: (event: React.MouseEvent<HTMLElement>) => void;
   /** 指针离开编辑区：延迟收起预览（留出移入浮层的时间）。 */
   scheduleHidePreview: () => void;
@@ -66,7 +66,7 @@ export const useTextSnippetOverlay = ({
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editor, setEditor] = useState<TextSnippetEditorState | null>(null);
 
-  /** 清掉待执行的收起并立即隐藏预览（未命中 chip、数据异常时使用）。 */
+  /** 清掉待执行的收起并立即隐藏预览（数据异常时使用）。 */
   const clearPreview = useCallback(() => {
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current);
@@ -75,14 +75,43 @@ export const useTextSnippetOverlay = ({
     setPreview(null);
   }, []);
 
+  /**
+   * 延迟收起预览：给鼠标从 chip 移入浮层留出缓冲（移入后由浮层的
+   * onMouseEnter 取消）。重复调用只保留最后一个计时器 —— 否则「离开 chip →
+   * 移入浮层」途中的多次 mousemove 会留下多个计时器，取消时只清得掉最后一个，
+   * 旧的仍会到点把浮层收掉。
+   */
+  const scheduleHidePreview = useCallback(() => {
+    if (previewTimerRef.current) {
+      clearTimeout(previewTimerRef.current);
+    }
+    previewTimerRef.current = setTimeout(() => {
+      previewTimerRef.current = null;
+      setPreview(null);
+    }, PREVIEW_HIDE_DELAY_MS);
+  }, []);
+
+  const cancelHidePreview = useCallback(() => {
+    if (previewTimerRef.current) {
+      clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+  }, []);
+
   const showPreview = useCallback(
     (event: React.MouseEvent<HTMLElement>) => {
       const target = event.target as HTMLElement;
       const chip = target.closest(
         "[data-text-snippet-tag='true']",
       ) as HTMLElement | null;
-      const rawData = chip?.dataset.textSnippetData;
-      if (!chip || !rawData) {
+      if (!chip) {
+        // 悬停点不在片段 chip 上（含从 chip 移向浮层时经过的编辑区空白）：
+        // 走延迟收起，给鼠标留出移入浮层继续滚动阅读的缓冲，而不是立即收起。
+        scheduleHidePreview();
+        return;
+      }
+      const rawData = chip.dataset.textSnippetData;
+      if (!rawData) {
         clearPreview();
         return;
       }
@@ -110,21 +139,8 @@ export const useTextSnippetOverlay = ({
         y: rect.top,
       });
     },
-    [clearPreview],
+    [clearPreview, scheduleHidePreview],
   );
-
-  const scheduleHidePreview = useCallback(() => {
-    previewTimerRef.current = setTimeout(() => {
-      setPreview(null);
-    }, PREVIEW_HIDE_DELAY_MS);
-  }, []);
-
-  const cancelHidePreview = useCallback(() => {
-    if (previewTimerRef.current) {
-      clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = null;
-    }
-  }, []);
 
   const handleChipClick = useCallback(
     (event: React.MouseEvent<HTMLElement>) => {

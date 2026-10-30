@@ -5,7 +5,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { RefObject } from "react";
 
 import type {
@@ -88,13 +88,19 @@ export function TreeCollectionNode({
     x: number;
     y: number;
   } | null>(null);
-  const [hasRenderedMembers, setHasRenderedMembers] = useState(isExpanded);
+  // 成员项目行按需挂载：展开时才渲染（其下项目展开后才会加载会话），
+  // 收起动画结束后卸载，避免打开过的合集长期持有整棵成员子树。
+  const [hasMountedMembers, setHasMountedMembers] = useState(isExpanded);
 
-  useEffect(() => {
-    if (isExpanded && !hasRenderedMembers) {
-      setHasRenderedMembers(true);
+  if (isExpanded && !hasMountedMembers) {
+    setHasMountedMembers(true);
+  }
+
+  const handleMembersCollapseEnd = (): void => {
+    if (!isExpanded) {
+      setHasMountedMembers(false);
     }
-  }, [isExpanded, hasRenderedMembers]);
+  };
 
   const isDragOver =
     dragAndDrop.dragOverCollectionId === collection.collectionId;
@@ -279,8 +285,11 @@ export function TreeCollectionNode({
           />
         ) : null}
       </div>
-      <SidebarCollapse open={isExpanded}>
-        {hasRenderedMembers ? (
+      <SidebarCollapse
+        onTransitionEnd={handleMembersCollapseEnd}
+        open={isExpanded}
+      >
+        {hasMountedMembers ? (
           <div className="tree-collection-members">
             {memberDirectories.length === 0 ? (
               <div className="project-collection-empty">

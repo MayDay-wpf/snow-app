@@ -944,10 +944,12 @@ export const useRollback = (ctx: ConversationContextValue) => {
     const preview = ctx.rollbackPreview;
     const identity = rollbackIdentityRef.current;
     if (identity?.phase === "restoring") {
-      if (preview)
+      // 恢复阶段不可取消：提示必须幂等，连点取消不能反复堆叠同一句话。
+      const notice = t("chat.rollbackRetryRequired");
+      if (preview && !(preview.error ?? "").includes(notice))
         ctx.setRollbackPreview({
           ...preview,
-          error: `${preview.error ?? ""} ${t("chat.rollbackRetryRequired")}`,
+          error: preview.error ? `${preview.error} ${notice}` : notice,
         });
       return;
     }
