@@ -1803,6 +1803,12 @@ fn typesafe_custom_body(
     body
 }
 
+/// OpenAI 的 `input` 只接受文本与 `input_text` / `input_image` 内容块：
+/// 结构化数据（state、JSON 证据）一律按 pretty JSON 文本发送。
+fn openai_input_text(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+}
+
 /// OpenAI 请求体：共享证据进 input 的 user 消息，题级图片让 instructions 变成
 /// `input_text` + `input_image` 数组（官方题级图片写法）。
 fn openai_custom_body(
@@ -1815,15 +1821,7 @@ fn openai_custom_body(
         content.push(json!({ "type": "input_text", "text": text }));
     }
     if let Some(data) = &evidence.json {
-        // input_json 只接受对象或对象数组，其它形态包一层。
-        let data = match data {
-            Value::Object(_) => data.clone(),
-            Value::Array(items) if !items.is_empty() && items.iter().all(Value::is_object) => {
-                data.clone()
-            }
-            other => json!({ "value": other }),
-        };
-        content.push(json!({ "type": "input_json", "data": data }));
+        content.push(json!({ "type": "input_text", "text": openai_input_text(data) }));
     }
     for (index, image) in evidence.images.iter().enumerate() {
         content.push(json!({
@@ -1919,7 +1917,8 @@ fn labeled_entry(key: &str, value: &str, description: &Option<String>) -> Value 
 ///
 /// 问题在内部统一保存为「id -> { type, instructions, criteria }」：TypeSafe 侧
 /// 原样发送（predicate 改名为 noul），openai 侧把 criteria 映射成 `choices`
-/// （predicate 只带 type/name/instructions），state 放进 `input` 的 input_json 内容块。
+/// （predicate 只带 type/name/instructions），state 作为 JSON 文本放进 `input` 的
+/// input_text 内容块（OpenAI 的 input 不接受结构化 JSON 内容块）。
 fn build_request_body(
     config: &DecisionModelConfig,
     state: &Value,
@@ -1936,8 +1935,8 @@ fn build_request_body(
             "input": [{
                 "role": "user",
                 "content": [{
-                    "type": "input_json",
-                    "data": state,
+                    "type": "input_text",
+                    "text": openai_input_text(state),
                 }],
             }],
             "questions": openai_questions(questions),

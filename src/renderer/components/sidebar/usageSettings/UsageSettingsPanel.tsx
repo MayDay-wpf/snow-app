@@ -998,89 +998,6 @@ export function UsageSettingsPanel(): React.JSX.Element {
         </div>
       )}
 
-      {modelBreakdown.length > 0 && (
-        <div className="usage-model-breakdown-section">
-          <div className="usage-table-header">
-            <strong>
-              {t("settings.usageModelBreakdownTitle", {
-                defaultValue: "Model usage",
-              })}
-            </strong>
-            <span className="settings-item-description">
-              {t("settings.usageModelBreakdownInfo", {
-                defaultValue: "Token consumption grouped by model.",
-              })}
-            </span>
-          </div>
-          <div className="usage-table-wrapper">
-            <table className="usage-table">
-              <thead>
-                <tr>
-                  <th>
-                    {t("settings.usageColModel", { defaultValue: "Model" })}
-                  </th>
-                  <th>
-                    {t("settings.usageColType", { defaultValue: "Type" })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColRequests", {
-                      defaultValue: "Requests",
-                    })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColInput", { defaultValue: "Input" })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColOutput", { defaultValue: "Output" })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColCacheWrite", {
-                      defaultValue: "Cache W",
-                    })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColCacheRead", {
-                      defaultValue: "Cache R",
-                    })}
-                  </th>
-                  <th className="usage-th-number">
-                    {t("settings.usageColTotal", { defaultValue: "Total" })}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {modelBreakdown.map((item) => (
-                  <tr key={`${item.model}-${item.requestMethod}`}>
-                    <td className="usage-cell-model">{item.model || "-"}</td>
-                    <td className="usage-cell-method">
-                      {translateRequestMethod(item.requestMethod, t)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {item.totalRequests.toLocaleString()}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(item.totalInputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(item.totalOutputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(item.totalCacheCreationInputTokens)}
-                    </td>
-                    <td className="usage-cell-number">
-                      {formatTokens(item.totalCacheReadInputTokens)}
-                    </td>
-                    <td className="usage-cell-number usage-cell-total">
-                      {formatTokens(item.totalTokens)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       <div className="usage-heatmap-section">
         <div className="usage-heatmap-header">
           <strong>
@@ -1196,6 +1113,89 @@ export function UsageSettingsPanel(): React.JSX.Element {
           </span>
         </div>
       </div>
+
+      {modelBreakdown.length > 0 && (
+        <div className="usage-model-breakdown-section">
+          <div className="usage-table-header">
+            <strong>
+              {t("settings.usageModelBreakdownTitle", {
+                defaultValue: "Model usage",
+              })}
+            </strong>
+            <span className="settings-item-description">
+              {t("settings.usageModelBreakdownInfo", {
+                defaultValue: "Token consumption grouped by model.",
+              })}
+            </span>
+          </div>
+          <div className="usage-table-wrapper">
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th>
+                    {t("settings.usageColModel", { defaultValue: "Model" })}
+                  </th>
+                  <th>
+                    {t("settings.usageColType", { defaultValue: "Type" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColRequests", {
+                      defaultValue: "Requests",
+                    })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColInput", { defaultValue: "Input" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColOutput", { defaultValue: "Output" })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColCacheWrite", {
+                      defaultValue: "Cache W",
+                    })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColCacheRead", {
+                      defaultValue: "Cache R",
+                    })}
+                  </th>
+                  <th className="usage-th-number">
+                    {t("settings.usageColTotal", { defaultValue: "Total" })}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {modelBreakdown.map((item) => (
+                  <tr key={`${item.model}-${item.requestMethod}`}>
+                    <td className="usage-cell-model">{item.model || "-"}</td>
+                    <td className="usage-cell-method">
+                      {translateRequestMethod(item.requestMethod, t)}
+                    </td>
+                    <td className="usage-cell-number">
+                      {item.totalRequests.toLocaleString()}
+                    </td>
+                    <td className="usage-cell-number">
+                      {formatTokens(item.totalInputTokens)}
+                    </td>
+                    <td className="usage-cell-number">
+                      {formatTokens(item.totalOutputTokens)}
+                    </td>
+                    <td className="usage-cell-number">
+                      {formatTokens(item.totalCacheCreationInputTokens)}
+                    </td>
+                    <td className="usage-cell-number">
+                      {formatTokens(item.totalCacheReadInputTokens)}
+                    </td>
+                    <td className="usage-cell-number usage-cell-total">
+                      {formatTokens(item.totalTokens)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="usage-table-section">
         <div className="usage-clear-section">

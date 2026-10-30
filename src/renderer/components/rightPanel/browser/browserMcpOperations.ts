@@ -1598,7 +1598,7 @@ type BrowserCaptureResult = Awaited<
   ReturnType<typeof window.snow.browserCaptureScreenshot>
 >;
 
-/** 渲染态刚切换时首帧可能尚未产出，等首帧由主进程探针负责，这里只调用一次。 */
+/** 主进程截图期间持有帧订阅，这里只调用一次，产帧与重试都在主进程内处理。 */
 const captureScreenshot = (
   webContentsId: number,
   request: BrowserCaptureRequest,
@@ -1609,7 +1609,6 @@ const screenshotInRenderMode = async (
   webview: Electron.WebviewTag,
   instanceId: string,
   args: BrowserMcpCommandArgs,
-  waitForFrame: boolean,
 ): Promise<unknown> => {
   // 最近一次主 Frame 导航失败时，页面停留在 Chromium 错误页，截图
   // 只会返回全黑图像。此时直接返回原导航错误，不把错误页当作正常结果。
@@ -1716,7 +1715,6 @@ const screenshotInRenderMode = async (
     fullPage,
     clip: clip ?? undefined,
     filePath,
-    waitForFrame,
   });
   const metadata = await currentPageMetadata(webview, instanceId);
   if (result.savedTo) {
@@ -1754,15 +1752,15 @@ const screenshotInRenderMode = async (
 
 /**
  * 非激活浏览器 tab 的 webview 不产帧，截图会一直挂起；先临时进入渲染态
- * （见 captureRenderMode）再执行，后台 tab 由主进程等首帧后截图。
+ * （见 captureRenderMode）再执行，后台 tab 的产帧由主进程持有帧订阅保证。
  */
 const screenshot = (
   webview: Electron.WebviewTag,
   instanceId: string,
   args: BrowserMcpCommandArgs,
 ): Promise<unknown> =>
-  withCaptureRenderMode(instanceId, (background) =>
-    screenshotInRenderMode(webview, instanceId, args, background),
+  withCaptureRenderMode(instanceId, () =>
+    screenshotInRenderMode(webview, instanceId, args),
   );
 
 const wait = async (

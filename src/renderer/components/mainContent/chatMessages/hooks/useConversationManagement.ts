@@ -915,13 +915,18 @@ export const useConversationManagement = (
         typeof targetSessionKey === "string" && targetSessionKey.length > 0
           ? targetSessionKey
           : (ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY);
-      if (!isPendingSessionKey(key)) {
-        void stopSubAgentParentTask(ctx, key).catch((error) =>
-          reportSubAgentParentError(ctx, key, error),
-        );
-        if (isDurableSubAgentConversation(key)) return;
-      }
       const ref = ctx.sessionsRefData.current.get(key);
+      if (!isPendingSessionKey(key)) {
+        // 子代理的「立即发送」只软中断当前回合（forceSendAbort 已预置），
+        // 不能取消其持久运行：回合收尾后由强行发送循环在本会话继续。
+        const durableChild = isDurableSubAgentConversation(key);
+        if (!durableChild || !ref?.forceSendAbort) {
+          void stopSubAgentParentTask(ctx, key).catch((error) =>
+            reportSubAgentParentError(ctx, key, error),
+          );
+          if (durableChild) return;
+        }
+      }
       if (!ref?.isSending || ref.isAbortRequested) {
         return;
       }
@@ -1127,10 +1132,8 @@ export const useConversationManagement = (
       )
         return false;
 
-      // Abort the target session's streaming run so isSending flips to
-      // false and handleSendMessage will start a new agent loop instead of
-      // re-queuing the message.
-      handleAbort(sessionKey);
+      // 中断目标会话的当前回合放到各分支内：子代理 / Workflow 节点必须先
+      // 预置 forceSendAbort 再中断，否则会被当成用户停止（子代理会被取消）。
 
       // Remove the target message (and its original send options) from
       // the pending queue.
@@ -1171,6 +1174,7 @@ export const useConversationManagement = (
           }
           return true;
         }
+        handleAbort(sessionKey);
         const parentId = subAgentEvent.parentConversationId;
         const parentQueue = ctx.pendingQueueRef.current.get(parentId) ?? [];
         parentQueue.push({
@@ -1215,6 +1219,11 @@ export const useConversationManagement = (
       if (isActiveTarget) {
         ctx.setActivePendingMessages(queue.map((item) => item.text));
       }
+
+      // Abort the target session's streaming run so isSending flips to
+      // false and handleSendMessage will start a new agent loop instead of
+      // re-queuing the message.
+      handleAbort(sessionKey);
 
       // Dispatch the pending message as a fresh send. handleSendMessage
       // will create a new agent loop because handleAbort already reset

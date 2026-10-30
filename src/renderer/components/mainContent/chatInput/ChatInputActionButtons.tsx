@@ -85,6 +85,20 @@ export const ChatInputActionButtons = ({
           defaultValue: "按 Ctrl + Enter 键发送消息",
         });
 
+  // 发送行为项：标签 + 说明，说明写清该行为如何处理待发送消息。
+  const deliveryModeText = (
+    mode: "queue" | "steer",
+  ): { label: string; hint: string } =>
+    mode === "steer"
+      ? {
+          label: t("settings.busySendSteer"),
+          hint: t("chatInput.busySendSteerDesc"),
+        }
+      : {
+          label: t("settings.busySendQueue"),
+          hint: t("chatInput.busySendQueueDesc"),
+        };
+
   return (
     <div className="input-action-buttons">
       {(isStreaming || isAborting) && (
@@ -144,29 +158,48 @@ export const ChatInputActionButtons = ({
         </button>
         {isSendKeyMenuOpen && (
           <div className="send-key-menu" role="menu">
-            {(isStreaming || isAborting) &&
-              (["queue", "steer"] as const).map((mode) => (
-                <button
-                  key={`delivery-${mode}`}
-                  className="send-key-menu-item"
-                  role="menuitem"
-                  disabled={sendDisabled}
-                  onClick={() => {
-                    handleSend(mode);
-                    setIsSendKeyMenuOpen(false);
-                  }}
-                  type="button"
+            {(isStreaming || isAborting) && (
+              <>
+                {(["queue", "steer"] as const).map((mode) => {
+                  const { label, hint } = deliveryModeText(mode);
+                  return (
+                    <button
+                      key={`delivery-${mode}`}
+                      className={`send-key-menu-item has-description${
+                        mode === behavior ? " is-active" : ""
+                      }`}
+                      role="menuitem"
+                      disabled={sendDisabled}
+                      onClick={() => {
+                        handleSend(mode);
+                        setIsSendKeyMenuOpen(false);
+                      }}
+                      type="button"
+                    >
+                      <span className="send-key-menu-check" aria-hidden="true">
+                        {mode === behavior ? <Check size={13} /> : null}
+                      </span>
+                      <span className="send-key-menu-text">
+                        <span>{label}</span>
+                        <span className="send-key-menu-hint">{hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                {/* 分组文字在左、横线填充剩余宽度（与新建下拉菜单一致）。 */}
+                <div
+                  className="send-key-menu-divider labeled"
+                  role="separator"
+                  aria-label={t("chatInput.sendKeyMode", {
+                    defaultValue: "发送快捷键",
+                  })}
                 >
-                  <span className="send-key-menu-check" aria-hidden="true">
-                    {mode === behavior ? <Check size={13} /> : null}
+                  <span className="send-key-menu-divider-label">
+                    {t("chatInput.sendKeyMode", { defaultValue: "发送快捷键" })}
                   </span>
-                  {t(
-                    mode === "steer"
-                      ? "settings.busySendSteer"
-                      : "settings.busySendQueue",
-                  )}
-                </button>
-              ))}
+                </div>
+              </>
+            )}
             {SEND_KEY_MODES.map((mode) => (
               <button
                 key={mode}

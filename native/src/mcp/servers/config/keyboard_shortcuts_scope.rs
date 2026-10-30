@@ -40,6 +40,7 @@ const ACTIONS: &[&str] = &[
     "toggleRightPanel",
     "newChat",
     "sendMessage",
+    "sendMessageNow",
     "stopGeneration",
     "prevConversation",
     "nextConversation",

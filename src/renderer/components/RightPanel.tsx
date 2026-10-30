@@ -18,6 +18,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -325,8 +326,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       detachedWindow ? detachedWindow.initialTab.id : GIT_TAB_ID,
     );
     const activeTabType = tabs.find((tab) => tab.id === activeTabId)?.type;
-    // 上报活动 tab 类型：主窗口按类型切换右面板宽度。
-    useEffect(() => {
+    // 上报活动 tab 类型：主窗口按类型切换右面板宽度。用 layout effect 在本次提交
+    // 绘制前上报，宽度目标值才能和 tab 切换落在同一帧、宽度过渡与内容切换同时开始
+    // （放 useEffect 会等到绘制之后才执行，动画看起来「等页面切完才开始变宽」）。
+    useLayoutEffect(() => {
       if (activeTabType) {
         onActiveTabTypeChange?.(activeTabType);
       }

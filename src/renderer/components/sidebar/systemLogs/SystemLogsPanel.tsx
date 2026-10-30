@@ -9,8 +9,10 @@ import {
   Timer,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
 import { RangeSlider } from "../../common/RangeSlider";
@@ -185,8 +187,8 @@ export function SystemLogsPanel(): React.JSX.Element {
   const [moduleFilter, setModuleFilter] = useState("");
   const [modules, setModules] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [confirmingClear, setConfirmingClear] = useState(false);
-  const clearTimerRef = useRef<number | null>(null);
+  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
+  const [isClearingLogs, setIsClearingLogs] = useState(false);
 
   const [requestLoggingEnabled, setRequestLoggingEnabled] = useState(false);
   const [showRequestLoggingDialog, setShowRequestLoggingDialog] =
@@ -200,6 +202,8 @@ export function SystemLogsPanel(): React.JSX.Element {
 
   /** 勾选用于自定义选择的日志 id（随列表刷新清空）。 */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showClearSelectionConfirm, setShowClearSelectionConfirm] =
+    useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportScope, setExportScope] = useState<LogExportScope>("filtered");
   const [exportFormat, setExportFormat] = useState<LogExportFormat>("text");
@@ -288,9 +292,6 @@ export function SystemLogsPanel(): React.JSX.Element {
 
   useEffect(() => {
     return () => {
-      if (clearTimerRef.current !== null) {
-        window.clearTimeout(clearTimerRef.current);
-      }
       if (copyResetTimerRef.current !== null) {
         window.clearTimeout(copyResetTimerRef.current);
       }
@@ -617,19 +618,8 @@ export function SystemLogsPanel(): React.JSX.Element {
     [exportFormat, runExport],
   );
 
-  const handleClear = useCallback(async () => {
-    if (!confirmingClear) {
-      setConfirmingClear(true);
-      clearTimerRef.current = window.setTimeout(() => {
-        setConfirmingClear(false);
-      }, 3000);
-      return;
-    }
-    if (clearTimerRef.current !== null) {
-      window.clearTimeout(clearTimerRef.current);
-      clearTimerRef.current = null;
-    }
-    setConfirmingClear(false);
+  const confirmClearLogs = useCallback(async () => {
+    setIsClearingLogs(true);
     try {
       await window.snow.clearAppLogs();
       setNotice(
@@ -646,8 +636,11 @@ export function SystemLogsPanel(): React.JSX.Element {
               defaultValue: "Failed to clear system logs.",
             }),
       );
+    } finally {
+      setIsClearingLogs(false);
+      setShowClearLogsConfirm(false);
     }
-  }, [confirmingClear, levelFilter, loadLogs, t]);
+  }, [levelFilter, loadLogs, t]);
 
   usePublishSettingsPageActions(
     "system-logs",
@@ -680,27 +673,12 @@ export function SystemLogsPanel(): React.JSX.Element {
         {
           id: "clear",
           label: t("settings.systemLogsClear", { defaultValue: "Clear logs" }),
-          text: confirmingClear
-            ? t("settings.systemLogsClearConfirm", {
-                defaultValue: "Confirm clear",
-              })
-            : t("settings.systemLogsClear", { defaultValue: "Clear logs" }),
           icon: Trash2,
-          disabled: total === 0 && !confirmingClear,
-          danger: confirmingClear,
-          onClick: () => void handleClear(),
+          disabled: total === 0,
+          onClick: () => setShowClearLogsConfirm(true),
         },
       ],
-      [
-        t,
-        isLoading,
-        handleRefresh,
-        confirmingClear,
-        total,
-        handleClear,
-        isExporting,
-        selectedIds,
-      ],
+      [t, isLoading, handleRefresh, total, isExporting, selectedIds],
     ),
   );
 
@@ -1095,6 +1073,49 @@ export function SystemLogsPanel(): React.JSX.Element {
         </div>
       </Modal>
 
+      <ConfirmDialog
+        open={showClearSelectionConfirm}
+        title={t("settings.systemLogsClearSelectionTitle", {
+          defaultValue: "Clear selection",
+        })}
+        message={t("settings.systemLogsClearSelectionConfirm", {
+          defaultValue: "Deselect the {{count}} selected entries?",
+          values: { count: selectedIds.size.toLocaleString() },
+        })}
+        confirmLabel={t("settings.systemLogsClearSelection", {
+          defaultValue: "Clear",
+        })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => {
+          clearSelection();
+          setShowClearSelectionConfirm(false);
+        }}
+        onCancel={() => setShowClearSelectionConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showClearLogsConfirm}
+        title={t("settings.systemLogsClearConfirmTitle", {
+          defaultValue: "Clear system logs",
+        })}
+        message={t("settings.systemLogsClearConfirmMessage", {
+          defaultValue:
+            "Permanently delete all system logs? This cannot be undone.",
+        })}
+        confirmLabel={t("settings.systemLogsClear", {
+          defaultValue: "Clear logs",
+        })}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        variant="danger"
+        isConfirming={isClearingLogs}
+        onConfirm={() => void confirmClearLogs()}
+        onCancel={() => {
+          if (!isClearingLogs) {
+            setShowClearLogsConfirm(false);
+          }
+        }}
+      />
+
       <div className="system-logs-stream-section">
         <div className="system-logs-stream-meta">
           <div className="system-logs-selection-bar">
@@ -1125,8 +1146,9 @@ export function SystemLogsPanel(): React.JSX.Element {
                 <button
                   type="button"
                   className="system-logs-clear-selection"
-                  onClick={clearSelection}
+                  onClick={() => setShowClearSelectionConfirm(true)}
                 >
+                  <X size={11} strokeWidth={2.4} />
                   {t("settings.systemLogsClearSelection", {
                     defaultValue: "Clear",
                   })}

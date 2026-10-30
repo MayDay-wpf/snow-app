@@ -19,8 +19,6 @@ export type BrowserScreenshotRequest = {
     scale?: number;
   };
   filePath?: string;
-  /** 后台 tab 临时切入渲染态后，先等页面真正产帧再截图。 */
-  waitForFrame?: boolean;
 };
 
 export type BrowserScreenshotResult = {
@@ -38,17 +36,17 @@ const MIME_TYPES: Record<BrowserScreenshotFormat, string> = {
   webp: "image/webp",
 };
 
-// 页面不产帧（webview 被隐藏、窗口被遮挡等）时 Page.captureScreenshot 会一直挂起。
+// 窗口最小化/被遮挡时 Chromium 会停掉合成器产帧，Page.captureScreenshot 要等一个
+// 永远不会「呈现」的帧，于是整条命令挂起（实测最小化窗口下必挂）。截图期间持有帧订阅
+// 即可解：合成器产出的帧直接交给订阅者，强制重绘无需等窗口呈现就能返回（实测最小化/
+// 被遮挡窗口下连续截图全部成功，主窗口与 webview guest 均同）。窗口被真正隐藏
+// （win.hide）时 Chromium 不建输出面，任何手段都取不到帧，只能报错。
+//
 // 视口截图单次超时先等 1.5s 就重试，避免整次截图卡住十几秒；整页/元素裁剪
 // 需要 rasterize 整片内容，给足首轮时间，避免把正常的慢截图判成挂起。
 const CROP_TIMEOUT_STEPS_MS = [4_000, 8_000];
 const VIEWPORT_TIMEOUT_STEPS_MS = [1_500, 2_500];
 const CAPTURE_RETRY_DELAY_MS = 150;
-// 后台 tab 切回渲染态后合成器要过一会儿才产帧：用页面 rAF 作为产帧就绪信号，
-// 就绪即截图，不再盲等固定时长。
-const FRAME_PROBE_TIMEOUT_MS = 1_200;
-const FRAME_PROBE_EXPRESSION =
-  "new Promise((resolve) => requestAnimationFrame(() => resolve(true)))";
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -58,29 +56,28 @@ const delay = (ms: number): Promise<void> =>
 const isTimeoutError = (error: unknown): boolean =>
   error instanceof Error && error.message.includes("timed out");
 
-/** 页面能跑 rAF 说明合成器已在产帧；超时返回 false，交给截图重试兜底。 */
-const waitForPageFrame = async (
+/** 截图期间持有帧订阅；不支持帧订阅的 webContents 直接执行，由重试兜底。 */
+const withFrameSubscription = async <T>(
   contents: Electron.WebContents,
-  timeoutMs: number,
-): Promise<boolean> => {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const probe = contents.debugger
-    .sendCommand("Runtime.evaluate", {
-      expression: FRAME_PROBE_EXPRESSION,
-      awaitPromise: true,
-      returnByValue: true,
-    })
-    .then(() => true)
-    .catch(() => false);
+  run: () => Promise<T>,
+): Promise<T> => {
+  let subscribed = false;
   try {
-    return await Promise.race([
-      probe,
-      new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), timeoutMs);
-      }),
-    ]);
+    contents.beginFrameSubscription(true, () => {});
+    subscribed = true;
+  } catch {
+    // 已有订阅或该 webContents 不支持帧订阅：直接截图。
+  }
+  try {
+    return await run();
   } finally {
-    if (timer) clearTimeout(timer);
+    if (subscribed) {
+      try {
+        contents.endFrameSubscription();
+      } catch {
+        // webContents 已销毁，无需收尾。
+      }
+    }
   }
 };
 
@@ -125,12 +122,7 @@ const captureWithRetry = async (
       if (!isTimeoutError(error) || attempt === timeouts.length - 1) {
         break;
       }
-      // 已超时：确认页面是否恢复产帧；完全不产帧就别再耗后续长超时。
-      if (!(await waitForPageFrame(contents, FRAME_PROBE_TIMEOUT_MS))) {
-        throw new Error(
-          "Browser screenshot timed out: the tab produced no frame (the window may be hidden, minimized or occluded) - bring it to the front and retry",
-        );
-      }
+      // 已超时：给足后续更长的一轮，慢页面（大片 rasterize）能在这轮里完成。
       await delay(CAPTURE_RETRY_DELAY_MS);
     }
   }
@@ -144,7 +136,7 @@ const captureWithRetry = async (
       ? lastError.message
       : "Browser screenshot failed";
   throw new Error(
-    `${message}; the window may be hidden, minimized or occluded - bring it to the front and retry`,
+    `${message}; the browser window is hidden or the tab is not rendering - show the window and retry`,
   );
 };
 
@@ -175,16 +167,14 @@ export const captureBrowserScreenshot = async (
       scale: request.clip.scale ?? 1,
     };
   }
-  if (request.waitForFrame) {
-    // 后台 tab 刚切进渲染态：先等首帧再截图，命中即拍，避免长超时挂起。
-    await waitForPageFrame(contents, FRAME_PROBE_TIMEOUT_MS);
-  }
-  const result = await captureWithRetry(
-    contents,
-    params,
-    request.fullPage || request.clip
-      ? CROP_TIMEOUT_STEPS_MS
-      : VIEWPORT_TIMEOUT_STEPS_MS,
+  const result = await withFrameSubscription(contents, () =>
+    captureWithRetry(
+      contents,
+      params,
+      request.fullPage || request.clip
+        ? CROP_TIMEOUT_STEPS_MS
+        : VIEWPORT_TIMEOUT_STEPS_MS,
+    ),
   );
   if (typeof result.data !== "string" || result.data.length === 0) {
     throw new Error("Browser screenshot did not return image data");

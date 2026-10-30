@@ -222,11 +222,13 @@ export function useChatConversationList({
               return sortConversationsByUpdatedAt(
                 result.items,
                 runningIdsRef.current,
+                pendingToReal,
               );
             }
             return sortConversationsByUpdatedAt(
               [...livePlaceholders, ...result.items],
               runningIdsRef.current,
+              pendingToReal,
             );
           });
           setTotal(result.total);
@@ -275,6 +277,7 @@ export function useChatConversationList({
 
     let isNew = false;
     setConversations((prev) => {
+      const pendingToReal = pendingToRealConversationIdRef.current;
       const existingIndex = prev.findIndex(
         (item) => item.conversationId === conv.conversationId,
       );
@@ -289,17 +292,19 @@ export function useChatConversationList({
         const updated = prev.map((item) =>
           item.conversationId === conv.conversationId ? conv : item,
         );
-        return sortConversationsByUpdatedAt(updated, runningConversationIds);
+        return sortConversationsByUpdatedAt(
+          updated,
+          runningConversationIds,
+          pendingToReal,
+        );
       }
 
       // If the real conversation arrives, replace ITS OWN pending placeholder.
       // 多个 pending 槽位并存时绝不能顶替任意第一个占位：通过迁移映射
       // （pending 槽位 -> 真实 conversationId）精确找到本会话的占位项。
-      const pendingKeyForConv = pendingToRealConversationIdRef.current
-        ? Array.from(pendingToRealConversationIdRef.current.entries()).find(
-            ([, realId]) => realId === conv.conversationId,
-          )?.[0]
-        : undefined;
+      const pendingKeyForConv = Array.from(pendingToReal.entries()).find(
+        ([, realId]) => realId === conv.conversationId,
+      )?.[0];
       const pendingIndex = pendingKeyForConv
         ? prev.findIndex((item) => item.conversationId === pendingKeyForConv)
         : -1;
@@ -307,7 +312,11 @@ export function useChatConversationList({
         const replaced = prev.map((item, index) =>
           index === pendingIndex ? conv : item,
         );
-        return sortConversationsByUpdatedAt(replaced, runningConversationIds);
+        return sortConversationsByUpdatedAt(
+          replaced,
+          runningConversationIds,
+          pendingToReal,
+        );
       }
 
       isNew = true;
@@ -315,6 +324,7 @@ export function useChatConversationList({
       return sortConversationsByUpdatedAt(
         [conv, ...prev],
         runningConversationIds,
+        pendingToReal,
       );
     });
 
@@ -342,9 +352,13 @@ export function useChatConversationList({
       return;
     }
     setConversations((prev) =>
-      sortConversationsByUpdatedAt(prev, runningConversationIds),
+      sortConversationsByUpdatedAt(
+        prev,
+        runningConversationIds,
+        pendingToRealConversationIdRef.current,
+      ),
     );
-  }, [runningConversationIds]);
+  }, [runningConversationIds, pendingToRealConversationIdRef]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (isLoadingMore || !hasMore || !directoryId || isLoading) {
@@ -396,6 +410,7 @@ export function useChatConversationList({
         return sortConversationsByUpdatedAt(
           [...kept, ...fresh],
           runningIdsRef.current,
+          pendingToReal,
         );
       });
       setTotal(result.total);

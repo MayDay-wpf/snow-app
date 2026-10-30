@@ -280,6 +280,9 @@ const ShortcutHandlerBridge = (): null => {
     const unsubSendMessage = registerHandler("sendMessage", () => {
       shortcutEvents.emit("send-message");
     });
+    const unsubSendMessageNow = registerHandler("sendMessageNow", () => {
+      shortcutEvents.emit("send-message-now");
+    });
     const unsubPrevConversation = registerHandler("prevConversation", () => {
       shortcutEvents.emit("prev-conversation");
     });
@@ -352,6 +355,7 @@ const ShortcutHandlerBridge = (): null => {
       unsubNewChatInNewWindow();
       unsubCycleDetachedWindow();
       unsubSendMessage();
+      unsubSendMessageNow();
       unsubPrevConversation();
       unsubNextConversation();
       unsubScrollToTop();
@@ -554,18 +558,24 @@ export const App = (): React.JSX.Element => {
     [isSidebarCollapsed, sidebarWidth],
   );
 
-  // 切换 tab 类型或侧栏占用变化时，应用该类型的宽度；
-  // 面板收起期间保持原宽度，避免窗口缩放把用户的宽度记忆改小。
-  useEffect(() => {
-    if (isRightPanelCollapsed) {
-      return;
-    }
-    setRightPanelWidth(resolveActiveRightPanelWidth(activeRightPanelType));
-  }, [
+  // 切换 tab 类型或侧栏占用变化时，在渲染期就把宽度改成该类型的目标值：宽度变量
+  // 随这次提交一起生效，右面板的宽度过渡才能和 tab 内容切换同帧开始（放 effect 里
+  // 要等这次提交渲染并绘制完才执行，动画会滞后于内容切换）。
+  // 面板收起期间只记账不落宽度，避免窗口缩放把用户的宽度记忆改小。
+  const rightPanelWidthKey = [
     activeRightPanelType,
+    isSidebarCollapsed,
+    sidebarWidth,
     isRightPanelCollapsed,
-    resolveActiveRightPanelWidth,
-  ]);
+  ].join("|");
+  const [appliedRightPanelWidthKey, setAppliedRightPanelWidthKey] =
+    useState(rightPanelWidthKey);
+  if (appliedRightPanelWidthKey !== rightPanelWidthKey) {
+    setAppliedRightPanelWidthKey(rightPanelWidthKey);
+    if (!isRightPanelCollapsed) {
+      setRightPanelWidth(resolveActiveRightPanelWidth(activeRightPanelType));
+    }
+  }
 
   const hasCustomFrame = hasCustomWindowFrame();
   const isMacOS = navigator.userAgent.includes("Mac");

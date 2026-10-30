@@ -13,6 +13,7 @@ import {
   FolderPlus,
   Image as ImageIcon,
   Loader2,
+  MoreVertical,
   Pencil,
   RefreshCw,
   Search,
@@ -54,6 +55,9 @@ const dataUrlToBlob = (dataUrl: string): Blob => {
 
 /** 图片 data URL 进程内缓存，避免重复 IPC */
 const imageDataCache = new Map<string, string>();
+
+/** 卡片「更多操作」菜单宽度（与 ContextMenu 的最小宽度一致，用于按钮右对齐弹出） */
+const CARD_MENU_WIDTH = 150;
 
 const saveBlob = async (dataUrl: string, filename: string): Promise<void> => {
   const blob = dataUrlToBlob(dataUrl);
@@ -143,6 +147,14 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
     y: number;
     record: ImageLibraryRecord;
   } | null>(null);
+  /** 图片卡片「更多操作」菜单（⋮ 按钮弹出，复用右键菜单组件） */
+  const [cardMenu, setCardMenu] = useState<{
+    x: number;
+    y: number;
+    record: ImageLibraryRecord;
+  } | null>(null);
+  /** ⋮ 按钮按下时菜单已展开（此时由菜单自行关闭，随后的 click 不再重新打开） */
+  const cardMenuSuppressOpenRef = useRef(false);
   /** 当前「移入相册」下拉展开中的卡片 id（菜单为 portal，需手动保持卡片悬停态） */
   const [albumMenuCardId, setAlbumMenuCardId] = useState<string | null>(null);
   /** 相册封面 dataUrl 缓存（key = albumId） */
@@ -767,6 +779,19 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
   ): void => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, record });
+  };
+
+  /** 打开卡片「更多操作」菜单（按 ⋮ 按钮右对齐弹出） */
+  const openCardMenu = (
+    trigger: HTMLButtonElement,
+    record: ImageLibraryRecord,
+  ): void => {
+    const rect = trigger.getBoundingClientRect();
+    setCardMenu({
+      x: Math.max(8, rect.right - CARD_MENU_WIDTH),
+      y: rect.bottom + 4,
+      record,
+    });
   };
 
   // ------------------------------------------------------------------
@@ -1545,7 +1570,12 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
                     key={record.id}
                     className={`image-library-card${
                       selected ? " selected" : ""
-                    }${albumMenuCardId === record.id ? " menu-open" : ""}`}
+                    }${
+                      albumMenuCardId === record.id ||
+                      cardMenu?.record.id === record.id
+                        ? " menu-open"
+                        : ""
+                    }`}
                     role="button"
                     tabIndex={0}
                     ref={(element) => {
@@ -1644,28 +1674,24 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
                       <button
                         type="button"
                         className="image-library-card-btn"
-                        onClick={() => void handleCopyImage(record)}
-                        title={t("toolCall.imagegen.copyImageHint")}
-                        aria-label={t("toolCall.imagegen.copyImage")}
-                      >
-                        <Copy size={12} aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="image-library-card-btn"
-                        onClick={() => void handleDownload(record)}
-                        title={t("toolCall.imagegen.download")}
-                        aria-label={t("toolCall.imagegen.download")}
-                      >
-                        <Download size={12} aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="image-library-card-btn danger"
-                        onClick={() => requestDelete(record)}
+                        onPointerDown={() => {
+                          // 菜单已展开时，pointerdown 会先让菜单按「点击外部」关闭，
+                          // 记下这次按下，避免随后的 click 又把它打开。
+                          cardMenuSuppressOpenRef.current =
+                            cardMenu?.record.id === record.id;
+                        }}
+                        onClick={(event) => {
+                          if (cardMenuSuppressOpenRef.current) {
+                            cardMenuSuppressOpenRef.current = false;
+                            return;
+                          }
+                          openCardMenu(event.currentTarget, record);
+                        }}
                         disabled={deletingId === record.id}
-                        title={t("settings.imageLibraryDelete")}
-                        aria-label={t("settings.imageLibraryDelete")}
+                        aria-haspopup="menu"
+                        aria-expanded={cardMenu?.record.id === record.id}
+                        title={t("settings.imageLibraryMoreActions")}
+                        aria-label={t("settings.imageLibraryMoreActions")}
                       >
                         {deletingId === record.id ? (
                           <Loader2
@@ -1674,7 +1700,7 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
                             aria-hidden="true"
                           />
                         ) : (
-                          <Trash2 size={12} aria-hidden="true" />
+                          <MoreVertical size={12} aria-hidden="true" />
                         )}
                       </button>
                     </div>
@@ -1986,6 +2012,46 @@ export const ImageLibraryPanel = (): React.JSX.Element => {
               onClick: () => {
                 setContextMenu(null);
                 requestDelete(contextMenu.record);
+              },
+            },
+          ]}
+        />
+      ) : null}
+
+      {cardMenu ? (
+        <ContextMenu
+          x={cardMenu.x}
+          y={cardMenu.y}
+          onClose={() => setCardMenu(null)}
+          items={[
+            {
+              id: "copy-image",
+              label: t("toolCall.imagegen.copyImage"),
+              icon: <Copy size={12} aria-hidden="true" />,
+              onClick: () => {
+                setCardMenu(null);
+                void handleCopyImage(cardMenu.record);
+              },
+            },
+            {
+              id: "download",
+              label: t("toolCall.imagegen.download"),
+              icon: <Download size={12} aria-hidden="true" />,
+              onClick: () => {
+                setCardMenu(null);
+                void handleDownload(cardMenu.record);
+              },
+            },
+            {
+              id: "delete",
+              label: t("settings.imageLibraryDelete"),
+              icon: <Trash2 size={12} aria-hidden="true" />,
+              danger: true,
+              separator: true,
+              disabled: deletingId === cardMenu.record.id,
+              onClick: () => {
+                setCardMenu(null);
+                requestDelete(cardMenu.record);
               },
             },
           ]}

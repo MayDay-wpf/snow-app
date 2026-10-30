@@ -106,7 +106,12 @@ import {
   isSubAgentEmptyTextRead,
   withSubAgentTerminalFailureOutput,
 } from "./subAgentToolFailure";
-import { detectToolFailure } from "./toolCorrection";
+import { appendToolCorrectionNote, detectToolFailure } from "./toolCorrection";
+import {
+  applyToolCorrectionToCall,
+  correctFailedToolCall,
+  createToolDefinitionLookup,
+} from "./toolCorrectionRunner";
 import { validateToolCall } from "../utils/conversationHelpers";
 import type {
   SubAgentAccepted,
@@ -300,6 +305,12 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       options.conversationRuntimeConfigOverride.responsesFastMode ===
         sendOptions.responsesFastMode);
   let stopped = false;
+  // 用户「立即发送」软中断当前回合：不是取消，回合收尾后由强行发送循环继续。
+  const isForceSendInterrupted = (): boolean => {
+    const ref = ctx.sessionsRefData.current.get(subConvId);
+    return Boolean(ref?.isAbortRequested && ref.forceSendAbort);
+  };
+  const getToolDefinition = createToolDefinitionLookup();
   const diagnosticScope = {
     runId: slotOwner,
     conversationId: subConvId,
@@ -390,6 +401,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
   // Pause only at safe request/compaction boundaries; an already running tool is not interrupted.
   const awaitPauseBoundary = async (): Promise<boolean> => {
     if (isSubCancelled()) return false;
+    if (isForceSendInterrupted()) {
+      stopped = true;
+      return false;
+    }
     deps.budget.check();
     while (true) {
       const controller = ctx.pauseControllerRef.current.get(subConvId);
@@ -629,9 +644,10 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       subResponse.persistedAssistantMessageId,
     );
 
-    if (isSubCancelled()) {
-      const forceSendAbort =
-        !!ctx.sessionsRefData.current.get(subConvId)?.forceSendAbort;
+    const forceSendAbort = isForceSendInterrupted();
+    if (forceSendAbort || isSubCancelled()) {
+      // 软中断结束本回合，外层随即交给强行发送循环处理暂存消息。
+      if (forceSendAbort) stopped = true;
       ctx.updateSessionMessages(subConvId, (currentMessages) =>
         currentMessages.map((currentMessage) =>
           currentMessage.id === subAssistantMessageId
@@ -757,7 +773,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         }
       }
       stopped = true;
-      if (isSubCancelled()) {
+      if (isSubCancelled() || isForceSendInterrupted()) {
         return "Sub-agent interrupted by user";
       }
       // Only the normalized reason may leave the failure channel, never the body.
@@ -1062,6 +1078,91 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         ...toolDiagnosticScope,
         reasonCode: "TOOL_STARTED",
       });
+      // 纠错重试复用同一执行上下文（checkpoint / 白名单 / 流式卡片）。
+      const runMcpTool = (argsJson: string) =>
+        window.snow.callMcpTool(
+          subToolCall.name,
+          argsJson,
+          dirId,
+          [
+            ...parentCheckpointIdsRef.current,
+            ...(activeCheckpointId ? [activeCheckpointId] : []),
+          ],
+          activeCheckpointWorkDir,
+          subSensitiveAuthorizationToken,
+          (chunk) => {
+            if (!chunk.data) {
+              return;
+            }
+            if (
+              chunk.stream === "interactive_session" ||
+              chunk.stream === "tool_execution"
+            ) {
+              ctx.updateSessionMessages(subConvId, (currentMessages) =>
+                currentMessages.map((currentMessage) => {
+                  if (currentMessage.id !== subAssistantMessageId) {
+                    return currentMessage;
+                  }
+                  return {
+                    ...currentMessage,
+                    toolCalls: updateFirstMatchingToolCall(
+                      currentMessage.toolCalls,
+                      subToolCall,
+                      ["pending", "running"],
+                      (currentToolCall) => ({
+                        ...currentToolCall,
+                        interactiveSessionId:
+                          chunk.stream === "interactive_session"
+                            ? chunk.data
+                            : currentToolCall.interactiveSessionId,
+                        toolExecutionId:
+                          chunk.stream === "tool_execution"
+                            ? chunk.data
+                            : currentToolCall.toolExecutionId,
+                      }),
+                    ),
+                  };
+                }),
+              );
+              return;
+            }
+            ctx.updateSessionMessages(subConvId, (currentMessages) =>
+              currentMessages.map((currentMessage) => {
+                if (currentMessage.id !== subAssistantMessageId) {
+                  return currentMessage;
+                }
+                return {
+                  ...currentMessage,
+                  toolCalls: updateFirstMatchingToolCall(
+                    currentMessage.toolCalls,
+                    subToolCall,
+                    ["pending", "running"],
+                    (currentToolCall) => ({
+                      ...currentToolCall,
+                      streamingStdout:
+                        chunk.stream === "stdout"
+                          ? `${currentToolCall.streamingStdout ?? ""}${
+                              chunk.data
+                            }`
+                          : currentToolCall.streamingStdout,
+                      streamingStderr:
+                        chunk.stream === "stderr"
+                          ? `${currentToolCall.streamingStderr ?? ""}${
+                              chunk.data
+                            }`
+                          : currentToolCall.streamingStderr,
+                    }),
+                  ),
+                };
+              }),
+            );
+          },
+          subToolCall.interactionId,
+          allowedTools,
+          // 会话溯源：子代理内 memory-save 溯源到子代理会话（删除主会话
+          // 时级联子会话一并清理）。
+          subConvId,
+        );
       let subResult: string;
       let subToolErrored = false;
       try {
@@ -1077,90 +1178,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
               : "",
           );
         } else {
-          const executeTool = () =>
-            window.snow.callMcpTool(
-              subToolCall.name,
-              subToolArgs,
-              dirId,
-              [
-                ...parentCheckpointIdsRef.current,
-                ...(activeCheckpointId ? [activeCheckpointId] : []),
-              ],
-              activeCheckpointWorkDir,
-              subSensitiveAuthorizationToken,
-              (chunk) => {
-                if (!chunk.data) {
-                  return;
-                }
-                if (
-                  chunk.stream === "interactive_session" ||
-                  chunk.stream === "tool_execution"
-                ) {
-                  ctx.updateSessionMessages(subConvId, (currentMessages) =>
-                    currentMessages.map((currentMessage) => {
-                      if (currentMessage.id !== subAssistantMessageId) {
-                        return currentMessage;
-                      }
-                      return {
-                        ...currentMessage,
-                        toolCalls: updateFirstMatchingToolCall(
-                          currentMessage.toolCalls,
-                          subToolCall,
-                          ["pending", "running"],
-                          (currentToolCall) => ({
-                            ...currentToolCall,
-                            interactiveSessionId:
-                              chunk.stream === "interactive_session"
-                                ? chunk.data
-                                : currentToolCall.interactiveSessionId,
-                            toolExecutionId:
-                              chunk.stream === "tool_execution"
-                                ? chunk.data
-                                : currentToolCall.toolExecutionId,
-                          }),
-                        ),
-                      };
-                    }),
-                  );
-                  return;
-                }
-                ctx.updateSessionMessages(subConvId, (currentMessages) =>
-                  currentMessages.map((currentMessage) => {
-                    if (currentMessage.id !== subAssistantMessageId) {
-                      return currentMessage;
-                    }
-                    return {
-                      ...currentMessage,
-                      toolCalls: updateFirstMatchingToolCall(
-                        currentMessage.toolCalls,
-                        subToolCall,
-                        ["pending", "running"],
-                        (currentToolCall) => ({
-                          ...currentToolCall,
-                          streamingStdout:
-                            chunk.stream === "stdout"
-                              ? `${currentToolCall.streamingStdout ?? ""}${
-                                  chunk.data
-                                }`
-                              : currentToolCall.streamingStdout,
-                          streamingStderr:
-                            chunk.stream === "stderr"
-                              ? `${currentToolCall.streamingStderr ?? ""}${
-                                  chunk.data
-                                }`
-                              : currentToolCall.streamingStderr,
-                        }),
-                      ),
-                    };
-                  }),
-                );
-              },
-              subToolCall.interactionId,
-              allowedTools,
-              // 会话溯源：子代理内 memory-save 溯源到子代理会话（删除主会话
-              // 时级联子会话一并清理）。
-              subConvId,
-            );
+          const executeTool = () => runMcpTool(subToolArgs);
           if (subToolCall.name === "user-interaction-askUserQuestion") {
             ctx.userQuestionTargetRef.current.set(subToolCall.interactionId, {
               sessionKey: subConvId,
@@ -1182,26 +1200,21 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           stopped = true;
           // Cancellation remains cancellation; do not assign a tool failure.
         } else {
-          // Unknown bridge/host exceptions fail closed. Ordinary tool failures
-          // must arrive as structured results, never be inferred from prose.
-          stopped = true;
-          onExecutionError({
-            category: "tool",
-            code: "TOOL_EXECUTION_FAILED",
-            message: errorMessage,
-            retryable: false,
-          });
-          logSubAgentDiagnostic("fatal", {
+          // Tool errors raised by the host (invalid arguments, missing files,
+          // MCP errors) are returned to the model as a failed result, the same
+          // as the main loop, so the next round can repair the call itself.
+          logSubAgentDiagnostic("recovery", {
             ...toolDiagnosticScope,
             reasonCode: "TOOL_EXECUTION_FAILED",
-            decision: "stop",
+            decision: "continue",
             elapsedMs: Math.max(0, Date.now() - toolStartedAt),
           });
         }
         subResult = JSON.stringify({ success: false, error: errorMessage });
       }
       // Returned failures and rejected invocations use the same visible/evidence
-      // status. Only the model's next round may decide how to recover; no replay.
+      // status. The correction agent may repair the arguments first; otherwise
+      // the model's next round decides how to recover.
       subToolErrored = subToolErrored || detectToolFailure(subResult) !== null;
       if (subToolErrored && subToolCall.name === "bash-terminal-execute") {
         const liveTool = ctx.sessionsRef.current?.[subConvId]?.messages
@@ -1216,6 +1229,75 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           liveTool?.streamingStdout ?? "",
           liveTool?.streamingStderr ?? "",
         );
+      }
+      // 失败调用交给纠错 Agent 修正参数并重新执行（与主会话一致，最多 3 次）。
+      let subEffectiveArgs = subToolArgs;
+      let subCorrectionReasoning: string | undefined;
+      if (
+        subToolErrored &&
+        !isSubCancelled() &&
+        !isForceSendInterrupted() &&
+        !SUB_AGENT_COMMS_TOOL_NAMES.has(subToolCall.name)
+      ) {
+        const failedResult = subResult;
+        const corrected = await correctFailedToolCall({
+          toolCall: subToolCall,
+          failedResult,
+          apiProfile: runtimeConfig.apiProfile,
+          conversationId: subConvId,
+          responseId: subResponse.id || undefined,
+          getToolDefinition,
+          authorize: async (authorizationCall) => {
+            const [decision] = await requestToolAuthorizations(
+              [authorizationCall],
+              subConvId,
+              dirId,
+              (confirm) => withWaiting("authorization", confirm),
+            );
+            return decision?.status === "approved";
+          },
+          execute: (argumentsJson) =>
+            runMcpTool(
+              injectSessionIdIntoToolArgs(
+                subToolCall.name,
+                argumentsJson,
+                subConvId,
+              ),
+            ),
+          onUpdate: (correction) =>
+            ctx.updateSessionMessages(subConvId, (currentMessages) =>
+              currentMessages.map((currentMessage) =>
+                currentMessage.id === subAssistantMessageId
+                  ? {
+                      ...currentMessage,
+                      toolCalls: updateFirstMatchingToolCall(
+                        currentMessage.toolCalls,
+                        subToolCall,
+                        ["pending", "running", "completed", "error"],
+                        (currentToolCall) =>
+                          applyToolCorrectionToCall(
+                            currentToolCall,
+                            correction,
+                            false,
+                            failedResult,
+                          ),
+                      ),
+                    }
+                  : currentMessage,
+              ),
+            ),
+          isCancelled: () => isSubCancelled() || isForceSendInterrupted(),
+        });
+        if (corrected) {
+          subResult = corrected.result;
+          subToolErrored = false;
+          subEffectiveArgs = injectSessionIdIntoToolArgs(
+            subToolCall.name,
+            corrected.arguments,
+            subConvId,
+          );
+          subCorrectionReasoning = corrected.reasoning;
+        }
       }
       logSubAgentDiagnostic("toolCompleted", {
         ...toolDiagnosticScope,
@@ -1276,7 +1358,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         }
         const subFileChanges = extractFileChangesFromTool(
           subToolCall.name,
-          subToolArgs,
+          subEffectiveArgs,
           subResult,
         );
         for (const subFileChange of subFileChanges) {
@@ -1291,13 +1373,19 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         }
       }
 
+      const subBaseModelResult = formatMcpToolResultForModel(subResult);
       const subModelResult = withSubAgentEvidence(
         subConvId,
         subToolCall.name,
         subToolCall.callId,
         subToolErrored ? "error" : "completed",
         subResult,
-        formatMcpToolResultForModel(subResult),
+        subCorrectionReasoning === undefined
+          ? subBaseModelResult
+          : appendToolCorrectionNote(
+              subBaseModelResult,
+              subCorrectionReasoning,
+            ),
       );
       subToolResults.push(subModelResult);
       subStructuredResults.push({
@@ -1348,7 +1436,9 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       return "Sub-agent interrupted by user";
     }
     // Permission and fatal gates take precedence over the next model round.
-    if (subAllToolsRejected && !subHasContinuableRejection) {
+    // A force-send interruption also rejects pending authorizations; that is
+    // not a permission failure.
+    if (!stopped && subAllToolsRejected && !subHasContinuableRejection) {
       stopped = true;
       onExecutionError({
         category: "permission",

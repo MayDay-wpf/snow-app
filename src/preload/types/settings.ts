@@ -668,6 +668,7 @@ export type KeyboardShortcutAction =
   | "toggleRightPanel"
   | "newChat"
   | "sendMessage"
+  | "sendMessageNow"
   | "stopGeneration"
   | "prevConversation"
   | "nextConversation"
@@ -715,6 +716,8 @@ export type KeyboardShortcutsSettings = {
   toggleRightPanel: KeyboardShortcutConfig;
   newChat: KeyboardShortcutConfig;
   sendMessage: KeyboardShortcutConfig;
+  /** 立即发送：输入框有内容就立即发出，输入为空则发第一条待发送消息。 */
+  sendMessageNow: KeyboardShortcutConfig;
   stopGeneration: KeyboardShortcutConfig;
   prevConversation: KeyboardShortcutConfig;
   nextConversation: KeyboardShortcutConfig;

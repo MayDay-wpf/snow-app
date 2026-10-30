@@ -222,6 +222,7 @@ export const shouldPreventDefault = (key: string): boolean => {
 export const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
   "cancelSession",
   "sendMessage",
+  "sendMessageNow",
   "stopGeneration",
   "newChat",
   "newChatInNewWindow",
@@ -276,6 +277,11 @@ export const SHORTCUT_META: Record<KeyboardShortcutAction, ShortcutMeta> = {
   sendMessage: {
     descKey: "settings.shortcutSendMessage",
     descDefault: "Send current input",
+    group: "conversation",
+  },
+  sendMessageNow: {
+    descKey: "settings.shortcutSendMessageNow",
+    descDefault: "Send input or first pending message immediately",
     group: "conversation",
   },
   stopGeneration: {

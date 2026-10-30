@@ -948,8 +948,11 @@ const countMatches = (line: string, re: RegExp): number =>
  *   - 切点行：非缩进、非列表/引用/表格/数字起始（见 isSafeChunkStart）。
  * 行尾空行不进入块文本，保证已固化块的文本（以及由它算出的 key）在内容
  * 继续增长时保持稳定，不会被反复重建。
+ * tailInsideBlock 表示内容末尾仍处在未闭合的围栏代码块或 `$$` 公式中。
  */
-const splitMarkdownChunks = (content: string): string[] => {
+const splitMarkdownChunks = (
+  content: string,
+): { texts: string[]; tailInsideBlock: boolean } => {
   const lines = content.split("\n");
   const chunks: string[] = [];
   let chunkStart = 0;
@@ -1006,7 +1009,45 @@ const splitMarkdownChunks = (content: string): string[] => {
   if (lastContentLine >= chunkStart) {
     chunks.push(lines.slice(chunkStart, lastContentLine + 1).join("\n"));
   }
-  return chunks;
+  return {
+    texts: chunks,
+    tailInsideBlock: fence !== null || dollarCount % 2 === 1,
+  };
+};
+
+/**
+ * 流式尾部的未完成语法：原文先按纯文本铺开、闭合后才收成渲染形态，
+ * 高度会在闭合瞬间回落（钉底跟随随之先下拉、再被新内容顶回，表现为
+ * 上下跳动）。这里只在流式请求中、只对尾块的最后一行预先采用闭合后的
+ * 形态——不延后任何正文的显示，只是不把注定会消失的语法原文铺出来：
+ *   - 未闭合的链接 `[文字](地址 "摘要"`：只显示链接文字（闭合后是同样
+ *     文字的链接或来源徽章），地址与摘要原文不上屏；未闭合的图片整体
+ *     不上屏（闭合后由图片占位）；
+ *   - 只有块标记、尚无正文的行（`-`、`1.`、`#`、`>`、`---` 等）：先不上屏，
+ *     避免在段落下方被临时解析成 setext 标题、空标题或空列表后又改回。
+ * 尾块处在围栏代码块或 `$$` 公式内部时原样渲染。
+ */
+const INCOMPLETE_LINK_TAIL_RE =
+  /(!?)\[([^[\]\n`]*)\]\(\s*[^\s()\n`]*(?:\s+(?:"[^"\n]*"?|'[^'\n]*'?))?\s*$/;
+const BARE_BLOCK_MARKER_LINE_RE =
+  /^ {0,3}(?:[-*+=_]+|\d{1,9}[.)]|#{1,6}|>)[ \t]*$/;
+
+const predictStreamingTail = (text: string): string => {
+  const lineStart = text.lastIndexOf("\n") + 1;
+  const lastLine = text.slice(lineStart);
+  if (BARE_BLOCK_MARKER_LINE_RE.test(lastLine)) {
+    return text.slice(0, Math.max(0, lineStart - 1));
+  }
+  const link = INCOMPLETE_LINK_TAIL_RE.exec(lastLine);
+  if (!link) {
+    return text;
+  }
+  // 行内代码未闭合时，`](` 只是代码文本的一部分。
+  const before = lastLine.slice(0, link.index);
+  if ((before.match(/`/g)?.length ?? 0) % 2 === 1) {
+    return text;
+  }
+  return text.slice(0, lineStart) + before + (link[1] ? "" : link[2]);
 };
 
 export type MarkdownChunk = {
@@ -1050,8 +1091,24 @@ const renderChunk = (text: string, streaming: boolean): string => {
 // `self` is the global worker scope (no DOM `window` available).
 self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
   const { id, content, knownKeys, streaming } = event.data;
-  const texts = splitMarkdownChunks(content);
+  const { texts, tailInsideBlock } = splitMarkdownChunks(content);
   const keys = texts.map(chunkKey);
+  // 流式尾块按预判形态渲染；形态与原文不同时使用独立 key，保证终态
+  // 渲染（原文）必然替换掉它，不会因 key 相同被误当作已就位的块复用。
+  // 只有内容的最后一行仍在书写（非空）时才预判：已换行的行语法已定型。
+  const tailIndex = texts.length - 1;
+  if (
+    streaming &&
+    tailIndex >= 0 &&
+    !tailInsideBlock &&
+    content.slice(content.lastIndexOf("\n") + 1).trim().length > 0
+  ) {
+    const predicted = predictStreamingTail(texts[tailIndex]);
+    if (predicted !== texts[tailIndex]) {
+      texts[tailIndex] = predicted;
+      keys[tailIndex] = `${keys[tailIndex]}:p`;
+    }
+  }
   const comparable = Math.min(keys.length, knownKeys.length);
   let changedFrom = 0;
   while (

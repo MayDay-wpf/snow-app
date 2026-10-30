@@ -4,25 +4,13 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../../../i18n";
 import { ContextMenu } from "../../common/ContextMenu";
 import { HoverCopyButton } from "../../common/HoverCopyButton";
-import { Modal } from "../../common/Modal";
+import { TextSnippetOverlay } from "./TextSnippetOverlay";
+import type { TextSnippetOverlayApi } from "./useTextSnippetOverlay";
 
 export type ImagePreviewState = {
   url: string;
   x: number;
   y: number;
-};
-
-export type TextSnippetPreviewState = {
-  content: string;
-  summary: string;
-  x: number;
-  y: number;
-};
-
-export type TextSnippetEditorState = {
-  chip: HTMLElement;
-  content: string;
-  summary: string;
 };
 
 export type WebChipMenuState = {
@@ -54,21 +42,15 @@ type InputOverlayLayerProps = {
   imagePreview: ImagePreviewState | null;
   imageLightbox: string | null;
   setImageLightbox: Dispatch<SetStateAction<string | null>>;
-  textSnippetPreview: TextSnippetPreviewState | null;
-  textSnippetEditor: TextSnippetEditorState | null;
-  setTextSnippetEditor: Dispatch<SetStateAction<TextSnippetEditorState | null>>;
+  textSnippetOverlay: TextSnippetOverlayApi;
   webChipMenu: WebChipMenuState | null;
   setWebChipMenu: Dispatch<SetStateAction<WebChipMenuState | null>>;
   chipDetails: ChipDetailsState | null;
   conversationPreview: ConversationPreviewState | null;
-  cancelHideTextSnippetPreview: () => void;
-  scheduleHideTextSnippetPreview: () => void;
   cancelHideChipDetails: () => void;
   scheduleHideChipDetails: () => void;
   cancelHideConversationPreview: () => void;
   scheduleHideConversationPreview: () => void;
-  handleTextSnippetEditorDelete: () => void;
-  handleTextSnippetEditorSave: () => void;
   syncContent: () => void;
   onOpenWebChip: (url: string) => void;
 };
@@ -77,21 +59,15 @@ export const InputOverlayLayer = ({
   imagePreview,
   imageLightbox,
   setImageLightbox,
-  textSnippetPreview,
-  textSnippetEditor,
-  setTextSnippetEditor,
+  textSnippetOverlay,
   webChipMenu,
   setWebChipMenu,
   chipDetails,
   conversationPreview,
-  cancelHideTextSnippetPreview,
-  scheduleHideTextSnippetPreview,
   cancelHideChipDetails,
   scheduleHideChipDetails,
   cancelHideConversationPreview,
   scheduleHideConversationPreview,
-  handleTextSnippetEditorDelete,
-  handleTextSnippetEditorSave,
   syncContent,
   onOpenWebChip,
 }: InputOverlayLayerProps): React.JSX.Element => {
@@ -123,24 +99,7 @@ export const InputOverlayLayer = ({
           </div>,
           document.body,
         )}
-      {textSnippetPreview &&
-        createPortal(
-          <div
-            className="text-snippet-preview"
-            style={{
-              left: textSnippetPreview.x,
-              top: textSnippetPreview.y,
-              transform: "translate(-50%, calc(-100% - 8px))",
-            }}
-            onMouseEnter={cancelHideTextSnippetPreview}
-            onMouseLeave={scheduleHideTextSnippetPreview}
-          >
-            <pre className="text-snippet-preview-content">
-              {textSnippetPreview.content}
-            </pre>
-          </div>,
-          document.body,
-        )}
+      <TextSnippetOverlay overlay={textSnippetOverlay} />
       {chipDetails &&
         createPortal(
           <div
@@ -248,60 +207,6 @@ export const InputOverlayLayer = ({
               })}
             </div>
           </div>,
-          document.body,
-        )}
-      {textSnippetEditor &&
-        createPortal(
-          <Modal
-            open={true}
-            title={t("chatInput.textSnippetEditorTitle")}
-            description={t("chatInput.textSnippetEditorDescription", {
-              values: { count: textSnippetEditor.content.length },
-            })}
-            closeLabel={t("common.cancel")}
-            onClose={() => setTextSnippetEditor(null)}
-            size="large"
-            footer={
-              <div className="text-snippet-editor-footer">
-                <button
-                  type="button"
-                  className="text-snippet-editor-btn danger"
-                  onClick={handleTextSnippetEditorDelete}
-                >
-                  {t("common.delete")}
-                </button>
-                <div className="text-snippet-editor-footer-right">
-                  <button
-                    type="button"
-                    className="text-snippet-editor-btn secondary"
-                    onClick={() => setTextSnippetEditor(null)}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-snippet-editor-btn primary"
-                    onClick={handleTextSnippetEditorSave}
-                  >
-                    {t("common.confirm")}
-                  </button>
-                </div>
-              </div>
-            }
-          >
-            <div className="text-snippet-editor-body">
-              <textarea
-                className="text-snippet-editor-textarea"
-                value={textSnippetEditor.content}
-                onChange={(event) =>
-                  setTextSnippetEditor((prev) =>
-                    prev ? { ...prev, content: event.target.value } : prev,
-                  )
-                }
-                rows={16}
-              />
-            </div>
-          </Modal>,
           document.body,
         )}
       {webChipMenu && (

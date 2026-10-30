@@ -45,6 +45,8 @@ export const zhTW = {
   "chatInput.interruptAndSend": "中斷並傳送",
   "chatInput.busySendHint":
     "{{behavior}}（{{shortcut}}）；本次反選：{{alternate}}",
+  "chatInput.busySendQueueDesc": "等本輪任務結束後，再依序逐條傳送",
+  "chatInput.busySendSteerDesc": "在下一個安全邊界追加要求，繼續目前任務",
 
   "git.manageActions": "管理分支…",
   "git.manageCreate": "從此分支建立分支…",
@@ -1259,6 +1261,9 @@ export const zhTW = {
   "toolCall.userQuestion.multiSelectHint": "可選擇任意組合",
   "toolCall.userQuestion.cancelledHint": "已取消回答，本輪生成已停止",
   "toolCall.userQuestion.interruptedHint": "提問已中斷，本輪已交由 AI 繼續處理",
+  "toolCall.userQuestion.revert": "撤銷重答",
+  "toolCall.userQuestion.revertHint":
+    "本輪尚有提問未作答，生成尚未繼續，可撤銷本次回答重新作答",
   "toolCall.userQuestion.cancel": "取消回答",
   "toolCall.userQuestion.cancelled": "回答已取消",
   "toolCall.userQuestion.interrupted": "回答已中斷",
@@ -2323,6 +2328,7 @@ export const zhTW = {
   "settings.imageLibraryModelAll": "全部模型",
   "settings.imageLibraryEmpty": "暫無圖片，生成圖片後會自動出現在這裡",
   "settings.imageLibraryDragImportHint": "也可以直接把本機圖片拖入本頁匯入圖庫",
+  "settings.imageLibraryMoreActions": "更多操作",
   "settings.imageLibraryDelete": "刪除",
   "settings.imageLibraryDeleteTitle": "刪除圖片",
   "settings.imageLibraryDeleteConfirm":
@@ -5897,7 +5903,7 @@ export const zhTW = {
   "settings.usageColCacheRead": "快取讀",
   "settings.usageColTotal": "總計",
   "settings.usageColStatus": "狀態",
-  "settings.usageRequestMethodChat": "聊天",
+  "settings.usageRequestMethodChat": "Chat",
   "settings.usageRequestMethodResponses": "Responses",
   "settings.usageRequestMethodAnthropic": "Anthropic",
   "settings.usageRequestMethodGemini": "Gemini",
@@ -5928,7 +5934,9 @@ export const zhTW = {
   "settings.systemLogsInfo": "由主程序和渲染程序統一寫入的診斷日誌。",
   "settings.systemLogsClosePanel": "關閉系統日誌",
   "settings.systemLogsClear": "清空日誌",
-  "settings.systemLogsClearConfirm": "確認清空",
+  "settings.systemLogsClearConfirmTitle": "清空系統日誌",
+  "settings.systemLogsClearConfirmMessage":
+    "將永久刪除全部系統日誌，此操作無法復原。",
   "settings.systemLogsCleared": "系統日誌已清空。",
   "settings.systemLogsClearError": "清空系統日誌失敗。",
   "settings.systemLogsLoadError": "載入系統日誌失敗。",
@@ -5996,6 +6004,9 @@ export const zhTW = {
   "settings.systemLogsSelectPage": "全選本頁",
   "settings.systemLogsSelectedCount": "已選 {{count}} 筆",
   "settings.systemLogsClearSelection": "清除",
+  "settings.systemLogsClearSelectionTitle": "清除已選",
+  "settings.systemLogsClearSelectionConfirm":
+    "取消勾選已選的 {{count}} 筆日誌？",
   "settings.close": "關閉",
   "settings.closePanel": "關閉面板",
   "settings.loadingModels": "正在載入模型...",
@@ -6022,6 +6033,7 @@ export const zhTW = {
   "settings.shortcutToggleSidebar": "收起/展開左側邊欄",
   "settings.shortcutToggleRightPanel": "收起/展開右側面板",
   "settings.shortcutSendMessage": "傳送目前輸入",
+  "settings.shortcutSendMessageNow": "立即傳送（輸入內容或第一條待傳送訊息）",
   "settings.shortcutStopGeneration": "停止產生",
   "settings.shortcutNewChat": "新增對話",
   "settings.shortcutNewChatInNewWindow": "在新視窗中新增對話",

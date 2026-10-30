@@ -117,15 +117,20 @@ export const AskUserQuestionGroup = ({
     }
   };
 
-  // 提交后切到下一个未回答的问题；已无未回答时停在当前题的终态以便回看。
-  const handleSubmitted = useCallback(
+  // 回答与拒答都算结算：切到下一个待作答的问题（其后没有则回到组内第一个
+  // 待作答的）；全组已无待作答时停在当前题的终态以便回看。
+  const handleSettled = useCallback(
     (key: string): void => {
       const currentIndex = questions.findIndex((entry) => entry.key === key);
       const nextIndex = questions.findIndex(
         (entry, index) =>
           index > currentIndex && entry.view.status === "waiting",
       );
-      const target = questions[nextIndex >= 0 ? nextIndex : currentIndex];
+      const firstWaitingIndex = questions.findIndex(
+        (entry) => entry.view.status === "waiting",
+      );
+      const targetIndex = nextIndex >= 0 ? nextIndex : firstWaitingIndex;
+      const target = questions[targetIndex >= 0 ? targetIndex : currentIndex];
       setActiveKey(target ? target.key : null);
     },
     [questions],
@@ -237,7 +242,7 @@ export const AskUserQuestionGroup = ({
             <AskUserQuestionToolCall
               toolCall={entry.toolCall}
               variant="panel"
-              onSubmitted={() => handleSubmitted(entry.key)}
+              onSettled={() => handleSettled(entry.key)}
             />
           </div>
         ))}

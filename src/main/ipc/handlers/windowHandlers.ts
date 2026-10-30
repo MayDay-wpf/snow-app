@@ -858,7 +858,6 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
                 }
               : undefined,
           filePath: typeof raw.filePath === "string" ? raw.filePath : undefined,
-          waitForFrame: raw.waitForFrame === true,
         },
       );
     },

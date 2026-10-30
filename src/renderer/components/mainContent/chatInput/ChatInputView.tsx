@@ -37,6 +37,7 @@ import {
   type TerminalDragPayload,
 } from "../../rightPanel/terminal/terminalMonitor";
 import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
+import { shortcutEvents } from "../../shortcutEvents";
 import { CommandPanel } from "./commands/CommandPanel";
 import { createChatCommands } from "./commands/commandRegistry";
 import {
@@ -770,9 +771,7 @@ export const ChatInputView = ({
     imagePreview,
     imageLightbox,
     setImageLightbox,
-    textSnippetPreview,
-    textSnippetEditor,
-    setTextSnippetEditor,
+    textSnippetOverlay,
     webChipMenu,
     setWebChipMenu,
     chipDetails,
@@ -780,9 +779,6 @@ export const ChatInputView = ({
     showImagePreview,
     scheduleHideImagePreview,
     handleImageChipClick,
-    showTextSnippetPreview,
-    scheduleHideTextSnippetPreview,
-    cancelHideTextSnippetPreview,
     showChipDetails,
     scheduleHideChipDetails,
     cancelHideChipDetails,
@@ -790,11 +786,8 @@ export const ChatInputView = ({
     scheduleHideConversationPreview,
     cancelHideConversationPreview,
     handleChipRemove,
-    handleTextSnippetClick,
     handleWebChipClick,
     handleWebChipContextMenu,
-    handleTextSnippetEditorDelete,
-    handleTextSnippetEditorSave,
   } = chipInteractions;
 
   const handleWithdrawPending = useCallback(
@@ -814,6 +807,39 @@ export const ChatInputView = ({
     },
     [onSendPendingMessageNow],
   );
+
+  // Alt/Option + Enter「立即发送」：输入框有内容就立即发出（正在生成时先中断当前
+  // 回合），输入为空时改为立即发送待发送队列里的第一条。
+  // 生成中的输入内容按队列语义入队后立刻取出，与列表里的「立即发送」按钮走同一条
+  // 通道（子代理 / WorkFlow 节点会话的强行发送特例都在该通道内处理）。
+  const handleSendNow = useCallback((): void => {
+    if (!value.trim()) {
+      if (pendingMessages.length > 0) {
+        onSendPendingMessageNow?.(0);
+      }
+      return;
+    }
+
+    if (!isStreaming && !isAborting) {
+      handleSend();
+      return;
+    }
+
+    const queuedIndex = pendingMessages.length;
+    handleSend("queue");
+    onSendPendingMessageNow?.(queuedIndex);
+  }, [
+    value,
+    isStreaming,
+    isAborting,
+    pendingMessages.length,
+    handleSend,
+    onSendPendingMessageNow,
+  ]);
+
+  useEffect(() => {
+    return shortcutEvents.on("send-message-now", handleSendNow);
+  }, [handleSendNow]);
 
   // 用户消息「写回输入框」入口：注册真实的 restoreContent 供消息侧调用。
   useEffect(() => registerChatInputDraftSink(restoreContent), [restoreContent]);
@@ -1043,13 +1069,13 @@ export const ChatInputView = ({
             onDragLeave={handleDragLeave}
             onMouseMove={(event) => {
               showImagePreview(event);
-              showTextSnippetPreview(event);
+              textSnippetOverlay.showPreview(event);
               showChipDetails(event);
               showConversationPreview(event);
             }}
             onMouseLeave={() => {
               scheduleHideImagePreview();
-              scheduleHideTextSnippetPreview();
+              textSnippetOverlay.scheduleHidePreview();
               scheduleHideChipDetails();
               scheduleHideConversationPreview();
             }}
@@ -1061,7 +1087,7 @@ export const ChatInputView = ({
             onClick={(event) => {
               handleChipRemove(event);
               handleImageChipClick(event);
-              handleTextSnippetClick(event);
+              textSnippetOverlay.handleChipClick(event);
               handleWebChipClick(event);
             }}
           />
@@ -1089,21 +1115,15 @@ export const ChatInputView = ({
             imagePreview={imagePreview}
             imageLightbox={imageLightbox}
             setImageLightbox={setImageLightbox}
-            textSnippetPreview={textSnippetPreview}
-            textSnippetEditor={textSnippetEditor}
-            setTextSnippetEditor={setTextSnippetEditor}
+            textSnippetOverlay={textSnippetOverlay}
             webChipMenu={webChipMenu}
             setWebChipMenu={setWebChipMenu}
             chipDetails={chipDetails}
             conversationPreview={conversationPreview}
-            cancelHideTextSnippetPreview={cancelHideTextSnippetPreview}
-            scheduleHideTextSnippetPreview={scheduleHideTextSnippetPreview}
             cancelHideChipDetails={cancelHideChipDetails}
             scheduleHideChipDetails={scheduleHideChipDetails}
             cancelHideConversationPreview={cancelHideConversationPreview}
             scheduleHideConversationPreview={scheduleHideConversationPreview}
-            handleTextSnippetEditorDelete={handleTextSnippetEditorDelete}
-            handleTextSnippetEditorSave={handleTextSnippetEditorSave}
             syncContent={syncContent}
             onOpenWebChip={(url) => {
               rightPanelEvents.emit("open-browser-tab", { url });

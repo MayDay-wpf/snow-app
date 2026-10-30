@@ -30,6 +30,7 @@ export type ShortcutAction =
   | "new-chat"
   | "new-chat-in-new-window"
   | "send-message"
+  | "send-message-now"
   | "stop-generation"
   | "toggle-pet"
   | "prev-conversation"
@@ -62,6 +63,7 @@ type ListenerMap = {
   "new-chat": Set<() => void>;
   "new-chat-in-new-window": Set<() => void>;
   "send-message": Set<() => void>;
+  "send-message-now": Set<() => void>;
   "stop-generation": Set<() => void>;
   "toggle-pet": Set<() => void>;
   "prev-conversation": Set<() => void>;
@@ -95,6 +97,7 @@ const listeners: ListenerMap = {
   "new-chat": new Set(),
   "new-chat-in-new-window": new Set(),
   "send-message": new Set(),
+  "send-message-now": new Set(),
   "stop-generation": new Set(),
   "toggle-pet": new Set(),
   "prev-conversation": new Set(),

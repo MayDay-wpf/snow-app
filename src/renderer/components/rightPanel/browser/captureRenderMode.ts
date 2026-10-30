@@ -5,7 +5,7 @@
  * styles.css 的 .right-panel-tab-pane.capture-render），用户看不到切换，
  * 结束后立即恢复 display:none。
  *
- * 就绪只等布局 + 两帧：真正的产帧确认交给主进程的帧探针，避免盲等
+ * 就绪只等布局 + 两帧：产帧由主进程在截图期间持有帧订阅保证，避免盲等
  * 固定时长既慢又不保证首帧已就绪。
  */
 
@@ -49,8 +49,6 @@ const waitForPaneLayout = async (pane: HTMLElement): Promise<void> => {
 
 export type CaptureRenderLease = {
   ready: Promise<void>;
-  /** pane 原本不可见，租约临时把它切进了渲染态（后台 tab）。 */
-  background: boolean;
   release: () => void;
 };
 
@@ -67,8 +65,7 @@ export const acquireCaptureRenderLease = (
   instanceId: string,
 ): CaptureRenderLease => {
   const pane = findBrowserPane(instanceId);
-  if (!pane)
-    return { ready: Promise.resolve(), background: false, release: () => {} };
+  if (!pane) return { ready: Promise.resolve(), release: () => {} };
   let state = paneLeases.get(pane);
   if (!state) {
     const background = !pane.classList.contains("active");
@@ -93,7 +90,6 @@ export const acquireCaptureRenderLease = (
   let released = false;
   return {
     ready: leaseState.ready,
-    background: leaseState.background,
     release: () => {
       if (released) return;
       released = true;
@@ -108,12 +104,12 @@ export const acquireCaptureRenderLease = (
 
 export const withCaptureRenderMode = async <T>(
   instanceId: string,
-  run: (background: boolean) => Promise<T>,
+  run: () => Promise<T>,
 ): Promise<T> => {
   const lease = acquireCaptureRenderLease(instanceId);
   try {
     await lease.ready;
-    return await run(lease.background);
+    return await run();
   } finally {
     lease.release();
   }

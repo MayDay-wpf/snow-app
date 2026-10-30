@@ -43,6 +43,9 @@ export const useDetachedWindowShortcuts = (createTabRef: {
       registerHandler("sendMessage", () => {
         shortcutEvents.emit("send-message");
       }),
+      registerHandler("sendMessageNow", () => {
+        shortcutEvents.emit("send-message-now");
+      }),
       registerHandler("scrollToTop", () => {
         shortcutEvents.emit("scroll-to-top");
       }),

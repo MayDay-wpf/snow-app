@@ -49,6 +49,7 @@ const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   toggleRightPanel: "mod+shift+r",
   newChat: "mod+n",
   sendMessage: "mod+enter",
+  sendMessageNow: "alt+enter",
   stopGeneration: "mod+.",
   prevConversation: "alt+left",
   nextConversation: "alt+right",

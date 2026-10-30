@@ -47,6 +47,10 @@ export const en = {
   "chatInput.interruptAndSend": "Interrupt and send",
   "chatInput.busySendHint":
     "{{behavior}} ({{shortcut}}); alternate: {{alternate}}",
+  "chatInput.busySendQueueDesc":
+    "Sent one by one after the current run finishes",
+  "chatInput.busySendSteerDesc":
+    "Appended at the next safe boundary to continue the current task",
 
   "git.manageActions": "Manage branch…",
   "git.manageCreate": "Create branch from here…",
@@ -1352,6 +1356,9 @@ export const en = {
     "Answer cancelled; this generation has stopped",
   "toolCall.userQuestion.interruptedHint":
     "The question was interrupted; the AI continued without an answer",
+  "toolCall.userQuestion.revert": "Undo and re-answer",
+  "toolCall.userQuestion.revertHint":
+    "Other questions in this round are still unanswered and generation has not continued — undo to answer again",
   "toolCall.userQuestion.cancel": "Cancel answer",
   "toolCall.userQuestion.cancelled": "Answer cancelled",
   "toolCall.userQuestion.interrupted": "Answer interrupted",
@@ -2455,6 +2462,7 @@ export const en = {
     "No images yet — generated images will appear here automatically",
   "settings.imageLibraryDragImportHint":
     "You can also drop local images onto this page to import them into the gallery",
+  "settings.imageLibraryMoreActions": "More actions",
   "settings.imageLibraryDelete": "Delete",
   "settings.imageLibraryDeleteTitle": "Delete image",
   "settings.imageLibraryDeleteConfirm":
@@ -4292,6 +4300,8 @@ export const en = {
   "settings.shortcutToggleSidebar": "Collapse/expand left sidebar",
   "settings.shortcutToggleRightPanel": "Collapse/expand right panel",
   "settings.shortcutSendMessage": "Send current input",
+  "settings.shortcutSendMessageNow":
+    "Send input or first pending message immediately",
   "settings.shortcutStopGeneration": "Stop generating",
   "settings.shortcutNewChat": "Start a new conversation",
   "settings.shortcutNewChatInNewWindow":
@@ -6384,7 +6394,9 @@ export const en = {
     "Unified diagnostic logs written by the main process and the renderer.",
   "settings.systemLogsClosePanel": "Close system logs",
   "settings.systemLogsClear": "Clear logs",
-  "settings.systemLogsClearConfirm": "Confirm clear",
+  "settings.systemLogsClearConfirmTitle": "Clear system logs",
+  "settings.systemLogsClearConfirmMessage":
+    "Permanently delete all system logs? This cannot be undone.",
   "settings.systemLogsCleared": "System logs cleared.",
   "settings.systemLogsClearError": "Failed to clear system logs.",
   "settings.systemLogsLoadError": "Failed to load system logs.",
@@ -6458,6 +6470,9 @@ export const en = {
   "settings.systemLogsSelectPage": "Select page",
   "settings.systemLogsSelectedCount": "{{count}} selected",
   "settings.systemLogsClearSelection": "Clear",
+  "settings.systemLogsClearSelectionTitle": "Clear selection",
+  "settings.systemLogsClearSelectionConfirm":
+    "Deselect the {{count}} selected entries?",
   "settings.close": "Close",
   "settings.closePanel": "Close",
   "settings.loadingModels": "Loading models...",

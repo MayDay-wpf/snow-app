@@ -6,20 +6,27 @@ import {
   MessageCircleQuestion,
   Plus,
   Send,
+  Undo2,
   X,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import { keyToDisplay } from "../../../../utils/shortcutUtils";
 import { ContentChips } from "../../chatInput/ContentChips";
+import { TEXT_SNIPPET_THRESHOLD } from "../../chatInput/constants";
 import {
+  buildTextSnippetSummary,
   createImageChipHtml,
+  createTextSnippetChipHtml,
   insertHtmlAtSelection,
   isEditableContentEmpty,
   parseContentSegments,
   readEditableContent,
   summarizeContentAsPlainText,
   type ImageTag,
+  type TextSnippetTag,
 } from "../../chatInput/fileTagUtils";
+import { TextSnippetOverlay } from "../../chatInput/TextSnippetOverlay";
+import { useTextSnippetOverlay } from "../../chatInput/useTextSnippetOverlay";
 import { useChatConversationContext } from "../components/ChatConversationContext";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { ToolNameBadge } from "./shared/ToolNameBadge";
@@ -29,19 +36,20 @@ type AskUserQuestionToolCallProps = {
   toolCall: ToolCallInfo;
   /** panel：嵌在提问 Tab 组内时省略卡片自身 header（组头已给出工具名与进度）。 */
   variant?: "card" | "panel";
-  /** 用户提交回答后回调（Tab 组据此切到下一个未回答的问题）。 */
-  onSubmitted?: () => void;
+  /** 用户提交回答或拒绝回答后回调（Tab 组据此切到下一个未作答的问题）。 */
+  onSettled?: () => void;
 };
 
 export const AskUserQuestionToolCall = ({
   toolCall,
   variant = "card",
-  onSubmitted,
+  onSettled,
 }: AskUserQuestionToolCallProps): React.JSX.Element => {
   const { t } = useI18n();
   const {
     answerUserQuestion,
     cancelUserQuestion,
+    revertUserQuestion,
     getUserQuestionDraft,
     saveUserQuestionDraft,
     clearUserQuestionDraft,
@@ -56,6 +64,7 @@ export const AskUserQuestionToolCall = ({
     status,
     isWaitingForRequest,
     isInteractive,
+    isRevertable,
   } = useMemo(() => resolveUserQuestionView(toolCall), [toolCall]);
   const isAnswered = status === "answered";
   const isCancelled = status === "cancelled";
@@ -84,6 +93,13 @@ export const AskUserQuestionToolCall = ({
     setCustomDraft(encoded);
     el.dataset.empty = isEditableContentEmpty(encoded) ? "true" : "false";
   }, []);
+
+  // 片段 chip 的悬停预览与点击编辑复用聊天输入框那套能力（同一个 hook 与
+  // 浮层组件）；编辑保存 / 删除后回写序列化结果，草稿与提交内容随之更新。
+  const snippetOverlay = useTextSnippetOverlay({
+    containerRef: customInputRef,
+    onChange: syncCustomDraft,
+  });
 
   useEffect(() => {
     const draft = questionId ? getUserQuestionDraft(questionId) : undefined;
@@ -127,6 +143,30 @@ export const AskUserQuestionToolCall = ({
     });
   };
 
+  /**
+   * 把光标收进自定义答案输入框末尾：读取图片是异步的、粘贴也可能发生在
+   * 编辑区失焦时，selection 此时不在编辑区内，需重置避免 chip 插到别处。
+   */
+  const focusCustomInputAtEnd = useCallback((): HTMLDivElement | null => {
+    const el = customInputRef.current;
+    if (!el) {
+      return null;
+    }
+    el.focus();
+    const selection = window.getSelection();
+    const anchor = selection?.rangeCount
+      ? selection.getRangeAt(0).startContainer
+      : null;
+    if (selection && (!anchor || !el.contains(anchor))) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    return el;
+  }, []);
+
   /** 把粘贴的图片文件插入自定义答案输入框（chip 与文字一起提交）。 */
   const insertCustomImage = useCallback(
     (file: File) => {
@@ -141,30 +181,15 @@ export const AskUserQuestionToolCall = ({
           name: `image.${mimeMatch ? mimeMatch[1].split("+")[0] : "png"}`,
           dataUrl,
         };
-        const el = customInputRef.current;
-        if (!el) {
+        if (!focusCustomInputAtEnd()) {
           return;
-        }
-        el.focus();
-        // 光标不在编辑区内（读取图片是异步的，期间焦点可能已移走）时把
-        // range 收到末尾，避免 insertHtmlAtSelection 把 chip 插到别处。
-        const selection = window.getSelection();
-        const anchor = selection?.rangeCount
-          ? selection.getRangeAt(0).startContainer
-          : null;
-        if (selection && (!anchor || !el.contains(anchor))) {
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
         }
         insertHtmlAtSelection(createImageChipHtml(imageTag));
         syncCustomDraft();
       };
       reader.readAsDataURL(file);
     },
-    [syncCustomDraft],
+    [focusCustomInputAtEnd, syncCustomDraft],
   );
 
   const handleCustomPaste = (
@@ -183,28 +208,50 @@ export const AskUserQuestionToolCall = ({
         imageFiles.push(file);
       }
     }
-    if (imageFiles.length === 0) {
+    if (imageFiles.length > 0) {
+      event.preventDefault();
+      for (const file of imageFiles) {
+        insertCustomImage(file);
+      }
+      return;
+    }
+    // 超长文本粘贴折叠为 text-snippet chip（阈值与聊天输入框一致），
+    // 避免 contenteditable 塞入海量文本节点导致渲染卡顿；chip 内容仍会
+    // 随自定义答案一起提交给 AI。
+    const text = event.clipboardData.getData("text/plain");
+    if (text.length <= TEXT_SNIPPET_THRESHOLD) {
       return;
     }
     event.preventDefault();
-    for (const file of imageFiles) {
-      insertCustomImage(file);
+    if (!focusCustomInputAtEnd()) {
+      return;
     }
+    const snippetTag: TextSnippetTag = {
+      content: text,
+      summary: buildTextSnippetSummary(text),
+      charCount: text.length,
+    };
+    insertHtmlAtSelection(createTextSnippetChipHtml(snippetTag));
+    syncCustomDraft();
   };
 
-  /** chip 的移除按钮位于编辑区内，需手动摘除并同步序列化结果。 */
+  /**
+   * chip 的移除按钮位于编辑区内，需手动摘除并同步序列化结果；点击片段 chip
+   * 则打开片段编辑浮层（改内容 / 改摘要 / 删除）。
+   */
   const handleCustomClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (!isInteractive) {
       return;
     }
     const target = event.target as HTMLElement | null;
     const removeBtn = target?.closest("[data-chip-remove='true']");
-    if (!removeBtn) {
+    if (removeBtn) {
+      event.preventDefault();
+      removeBtn.closest(".file-chip")?.remove();
+      syncCustomDraft();
       return;
     }
-    event.preventDefault();
-    removeBtn.closest(".file-chip")?.remove();
-    syncCustomDraft();
+    snippetOverlay.handleChipClick(event);
   };
 
   const clearCustomInput = (): void => {
@@ -271,7 +318,7 @@ export const AskUserQuestionToolCall = ({
         ? [...customAnswers, pending]
         : customAnswers,
     );
-    onSubmitted?.();
+    onSettled?.();
   };
 
   /**
@@ -307,6 +354,19 @@ export const AskUserQuestionToolCall = ({
       clearUserQuestionDraft(questionId);
     }
     cancelUserQuestion(questionState.questionId);
+    // 拒答与回答同样算结算：Tab 组据此切到下一个未作答的问题，保持操作连贯。
+    onSettled?.();
+  };
+
+  /**
+   * 撤销已提交的回答 / 拒答：仅在结算仍暂存（同一批还有提问未作答、agent loop
+   * 尚未续上）时可用，撤销后卡片回到待作答状态，已提交的答案回到草稿中。
+   */
+  const revertAnswer = (): void => {
+    if (!questionState || !isRevertable) {
+      return;
+    }
+    revertUserQuestion(questionState.questionId);
   };
 
   const statusLabel =
@@ -421,6 +481,8 @@ export const AskUserQuestionToolCall = ({
               onPaste={handleCustomPaste}
               onClick={handleCustomClick}
               onKeyDown={handleCustomKeyDown}
+              onMouseMove={snippetOverlay.showPreview}
+              onMouseLeave={snippetOverlay.scheduleHidePreview}
             />
             <button
               type="button"
@@ -489,11 +551,24 @@ export const AskUserQuestionToolCall = ({
           <span>
             {isInterrupted
               ? t("toolCall.userQuestion.interruptedHint")
-              : isCancelled
-                ? t("toolCall.userQuestion.cancelledHint")
-                : t("toolCall.userQuestion.multiSelectHint")}
+              : isRevertable
+                ? t("toolCall.userQuestion.revertHint")
+                : isCancelled
+                  ? t("toolCall.userQuestion.cancelledHint")
+                  : t("toolCall.userQuestion.multiSelectHint")}
           </span>
           <div className="tool-call-user-question-actions">
+            {isRevertable ? (
+              <button
+                type="button"
+                className="tool-call-user-question-revert"
+                title={t("toolCall.userQuestion.revertHint")}
+                onClick={revertAnswer}
+              >
+                <Undo2 size={14} aria-hidden="true" />
+                <span>{t("toolCall.userQuestion.revert")}</span>
+              </button>
+            ) : null}
             {isInteractive ? (
               <button
                 type="button"
@@ -532,6 +607,7 @@ export const AskUserQuestionToolCall = ({
           </div>
         </div>
       </div>
+      <TextSnippetOverlay overlay={snippetOverlay} />
     </div>
   );
 };

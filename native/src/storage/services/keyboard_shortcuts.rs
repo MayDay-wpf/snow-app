@@ -111,6 +111,16 @@ fn default_send_message_config() -> KeyboardShortcutConfig {
     }
 }
 
+/// sendMessageNow 的默认配置：alt+enter（macOS ⌥Enter / 其他 Alt+Enter）。
+/// foreground_only 默认 true：立即发送作用于聊天输入区，仅台前生效。
+fn default_send_message_now_config() -> KeyboardShortcutConfig {
+    KeyboardShortcutConfig {
+        key: DEFAULT_SEND_MESSAGE_NOW_KEY.to_string(),
+        enabled: true,
+        foreground_only: true,
+    }
+}
+
 fn default_stop_generation_config() -> KeyboardShortcutConfig {
     KeyboardShortcutConfig {
         key: DEFAULT_STOP_GENERATION_KEY.to_string(),
@@ -326,6 +336,11 @@ pub struct KeyboardShortcutsSettings {
     pub new_chat: KeyboardShortcutConfig,
     #[serde(default = "default_send_message_config")]
     pub send_message: KeyboardShortcutConfig,
+    /// 立即发送：输入框有内容就立即发出（正在生成时先中断当前回合），
+    /// 输入为空时立即发送待发送队列的第一条。旧 JSON 缺少该字段时回退到
+    /// 默认配置（alt+enter，见 default_send_message_now_config）。
+    #[serde(default = "default_send_message_now_config")]
+    pub send_message_now: KeyboardShortcutConfig,
     #[serde(default = "default_stop_generation_config")]
     pub stop_generation: KeyboardShortcutConfig,
     #[serde(default = "default_prev_conversation_config")]
@@ -427,6 +442,7 @@ impl Default for KeyboardShortcutsSettings {
             toggle_right_panel: default_toggle_right_panel_config(),
             new_chat: default_new_chat_config(),
             send_message: default_send_message_config(),
+            send_message_now: default_send_message_now_config(),
             stop_generation: default_stop_generation_config(),
             prev_conversation: default_prev_conversation_config(),
             next_conversation: default_next_conversation_config(),
@@ -479,6 +495,8 @@ const DEFAULT_TOGGLE_SIDEBAR_KEY: &str = "mod+shift+l";
 const DEFAULT_TOGGLE_RIGHT_PANEL_KEY: &str = "mod+shift+r";
 const DEFAULT_NEW_CHAT_KEY: &str = "mod+n";
 const DEFAULT_SEND_MESSAGE_KEY: &str = "mod+enter";
+/// 立即发送（输入内容 / 第一条待发送消息），仅台前生效。
+const DEFAULT_SEND_MESSAGE_NOW_KEY: &str = "alt+enter";
 const DEFAULT_STOP_GENERATION_KEY: &str = "mod+.";
 const DEFAULT_PREV_CONVERSATION_KEY: &str = "alt+left";
 const DEFAULT_NEXT_CONVERSATION_KEY: &str = "alt+right";
@@ -558,6 +576,9 @@ impl KeyboardShortcutsSettings {
         if !is_valid_key(&self.send_message.key) {
             self.send_message.key = DEFAULT_SEND_MESSAGE_KEY.to_string();
         }
+        if !is_valid_key(&self.send_message_now.key) {
+            self.send_message_now.key = DEFAULT_SEND_MESSAGE_NOW_KEY.to_string();
+        }
         if !is_valid_key(&self.stop_generation.key) {
             self.stop_generation.key = DEFAULT_STOP_GENERATION_KEY.to_string();
         }
@@ -620,7 +641,7 @@ impl KeyboardShortcutsSettings {
 /// 平台相关，动态构造。
 fn default_keyboard_shortcuts_value() -> String {
     format!(
-        r#"{{"cancelSession":{{"key":"escape","enabled":true,"foregroundOnly":true}},"openSearch":{{"key":"mod+f","enabled":true,"foregroundOnly":true}},"openMemo":{{"key":"mod+b","enabled":true,"foregroundOnly":true}},"openTodo":{{"key":"mod+t","enabled":true,"foregroundOnly":true}},"cycleProject":{{"key":"mod+backtick","enabled":true,"foregroundOnly":true}},"openProjectExplorer":{{"key":"mod+d","enabled":true,"foregroundOnly":true}},"openProjectMemory":{{"key":"mod+shift+m","enabled":true,"foregroundOnly":true}},"openScheduledTasks":{{"key":"mod+shift+t","enabled":true,"foregroundOnly":true}},"openPlugins":{{"key":"mod+shift+x","enabled":true,"foregroundOnly":true}},"cycleApiProfile":{{"key":"{DEFAULT_CYCLE_API_PROFILE_KEY}","enabled":true,"foregroundOnly":true}},"toggleWindow":{{"key":"mod+shift+h","enabled":true,"foregroundOnly":false}},"togglePet":{{"key":"mod+shift+p","enabled":true,"foregroundOnly":true}},"focusInput":{{"key":"mod+i","enabled":true,"foregroundOnly":true}},"toggleSidebar":{{"key":"mod+shift+l","enabled":true,"foregroundOnly":true}},"toggleRightPanel":{{"key":"mod+shift+r","enabled":true,"foregroundOnly":true}},"newChat":{{"key":"mod+n","enabled":true,"foregroundOnly":true}},"sendMessage":{{"key":"mod+enter","enabled":true,"foregroundOnly":true}},"stopGeneration":{{"key":"mod+.","enabled":true,"foregroundOnly":true}},"prevConversation":{{"key":"alt+left","enabled":true,"foregroundOnly":true}},"nextConversation":{{"key":"alt+right","enabled":true,"foregroundOnly":true}},"scrollToTop":{{"key":"mod+up","enabled":true,"foregroundOnly":true}},"scrollToBottom":{{"key":"mod+down","enabled":true,"foregroundOnly":true}},"openSettings":{{"key":"mod+,","enabled":true,"foregroundOnly":true}},"copyLastResponse":{{"key":"mod+shift+c","enabled":true,"foregroundOnly":true}},"toggleRightPanelFullscreen":{{"key":"mod+shift+f","enabled":true,"foregroundOnly":true}},"showShortcutHelp":{{"key":"mod+/","enabled":true,"foregroundOnly":true}},"toggleMessageTime":{{"key":"mod+shift+y","enabled":true,"foregroundOnly":true}},"uiZoomIn":{{"key":"mod+=","enabled":true,"foregroundOnly":true}},"uiZoomOut":{{"key":"mod+-","enabled":true,"foregroundOnly":true}},"uiZoomReset":{{"key":"mod+0","enabled":true,"foregroundOnly":true}},"newChatInNewWindow":{{"key":"mod+shift+n","enabled":true,"foregroundOnly":true}},"cycleDetachedWindow":{{"key":"mod+shift+w","enabled":true,"foregroundOnly":true}},"browserToggleShareWithAgent":{{"key":"mod+shift+a","enabled":true,"foregroundOnly":true}},"browserPickElement":{{"key":"mod+shift+e","enabled":true,"foregroundOnly":true}}}}"#
+        r#"{{"cancelSession":{{"key":"escape","enabled":true,"foregroundOnly":true}},"openSearch":{{"key":"mod+f","enabled":true,"foregroundOnly":true}},"openMemo":{{"key":"mod+b","enabled":true,"foregroundOnly":true}},"openTodo":{{"key":"mod+t","enabled":true,"foregroundOnly":true}},"cycleProject":{{"key":"mod+backtick","enabled":true,"foregroundOnly":true}},"openProjectExplorer":{{"key":"mod+d","enabled":true,"foregroundOnly":true}},"openProjectMemory":{{"key":"mod+shift+m","enabled":true,"foregroundOnly":true}},"openScheduledTasks":{{"key":"mod+shift+t","enabled":true,"foregroundOnly":true}},"openPlugins":{{"key":"mod+shift+x","enabled":true,"foregroundOnly":true}},"cycleApiProfile":{{"key":"{DEFAULT_CYCLE_API_PROFILE_KEY}","enabled":true,"foregroundOnly":true}},"toggleWindow":{{"key":"mod+shift+h","enabled":true,"foregroundOnly":false}},"togglePet":{{"key":"mod+shift+p","enabled":true,"foregroundOnly":true}},"focusInput":{{"key":"mod+i","enabled":true,"foregroundOnly":true}},"toggleSidebar":{{"key":"mod+shift+l","enabled":true,"foregroundOnly":true}},"toggleRightPanel":{{"key":"mod+shift+r","enabled":true,"foregroundOnly":true}},"newChat":{{"key":"mod+n","enabled":true,"foregroundOnly":true}},"sendMessage":{{"key":"mod+enter","enabled":true,"foregroundOnly":true}},"sendMessageNow":{{"key":"alt+enter","enabled":true,"foregroundOnly":true}},"stopGeneration":{{"key":"mod+.","enabled":true,"foregroundOnly":true}},"prevConversation":{{"key":"alt+left","enabled":true,"foregroundOnly":true}},"nextConversation":{{"key":"alt+right","enabled":true,"foregroundOnly":true}},"scrollToTop":{{"key":"mod+up","enabled":true,"foregroundOnly":true}},"scrollToBottom":{{"key":"mod+down","enabled":true,"foregroundOnly":true}},"openSettings":{{"key":"mod+,","enabled":true,"foregroundOnly":true}},"copyLastResponse":{{"key":"mod+shift+c","enabled":true,"foregroundOnly":true}},"toggleRightPanelFullscreen":{{"key":"mod+shift+f","enabled":true,"foregroundOnly":true}},"showShortcutHelp":{{"key":"mod+/","enabled":true,"foregroundOnly":true}},"toggleMessageTime":{{"key":"mod+shift+y","enabled":true,"foregroundOnly":true}},"uiZoomIn":{{"key":"mod+=","enabled":true,"foregroundOnly":true}},"uiZoomOut":{{"key":"mod+-","enabled":true,"foregroundOnly":true}},"uiZoomReset":{{"key":"mod+0","enabled":true,"foregroundOnly":true}},"newChatInNewWindow":{{"key":"mod+shift+n","enabled":true,"foregroundOnly":true}},"cycleDetachedWindow":{{"key":"mod+shift+w","enabled":true,"foregroundOnly":true}},"browserToggleShareWithAgent":{{"key":"mod+shift+a","enabled":true,"foregroundOnly":true}},"browserPickElement":{{"key":"mod+shift+e","enabled":true,"foregroundOnly":true}}}}"#
     )
 }
 

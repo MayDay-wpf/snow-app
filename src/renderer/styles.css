@@ -9490,23 +9490,10 @@ body.is-panel-resizing * {
   color: var(--text-muted);
   font-size: 13px;
   user-select: none;
-  animation: main-content-loading-in 0.18s ease-out;
 }
 
 .main-content-loading .spin {
   color: var(--text-tertiary);
-}
-
-@keyframes main-content-loading-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 /* ===== 独立页面（备忘录 / 项目记忆 / 定时任务 / 插件） ===== */
@@ -10376,7 +10363,11 @@ body.is-panel-resizing * {
 /* 流光走 transform（合成线程驱动）而非 background-position（主线程逐帧重绘）：
    骨架屏出现时主线程往往正忙于翻页挂载与布局（定位遮罩、首屏历史加载），
    重绘驱动的动画会随之卡顿，失去加载反馈的意义。底色在行本身，高光是
-   ::after 上的一条渐变带，整体平移扫过。 */
+   ::after 上的一条渐变带，整体平移扫过。
+   行程取 ±60% 而非 ±100%：按 ±100% 时开头 0.26s 高光整条都在行外，而首屏
+   历史加载的骨架屏往往只活几百毫秒（命中缓存时仅两帧），那段时间看起来就是
+   一块静止的灰条；收窄行程后首帧起高光就已压在行内。定位遮罩要停留数秒，
+   两种行程都看得出动效，两处共用同一份动画。 */
 .chat-message-skeleton-line {
   position: relative;
   height: 12px;
@@ -10395,9 +10386,23 @@ body.is-panel-resizing * {
     var(--border-subtle) 50%,
     transparent 66%
   );
-  transform: translateX(-100%);
+  transform: translateX(-60%);
   animation: chat-skeleton-sweep 1.5s linear infinite;
   will-change: transform;
+}
+
+/* 三块消息占位错相：任何时刻至少有一块的高光明显落在行内，短窗口（首屏历史
+   加载）下也能立刻看出骨架屏在动；定位遮罩复用同一组件，同样受益。 */
+.chat-initial-history-skeleton
+  .chat-message-skeleton:nth-child(2)
+  .chat-message-skeleton-line::after {
+  animation-delay: -0.4s;
+}
+
+.chat-initial-history-skeleton
+  .chat-message-skeleton:nth-child(3)
+  .chat-message-skeleton-line::after {
+  animation-delay: -0.8s;
 }
 
 .chat-message-skeleton-line.is-primary {
@@ -10426,10 +10431,10 @@ body.is-panel-resizing * {
 
 @keyframes chat-skeleton-sweep {
   from {
-    transform: translateX(-100%);
+    transform: translateX(-60%);
   }
   to {
-    transform: translateX(100%);
+    transform: translateX(60%);
   }
 }
 
@@ -13757,10 +13762,6 @@ body.is-panel-resizing * {
   padding-left: 26px;
 }
 
-.ai-message li {
-  padding-left: 2px;
-}
-
 .ai-message li strong {
   color: var(--text-primary);
   font-weight: 760;
@@ -16120,6 +16121,7 @@ body.is-panel-resizing * {
   margin-left: auto;
 }
 
+.tool-call-user-question-revert,
 .tool-call-user-question-cancel,
 .tool-call-user-question-submit {
   display: inline-flex;
@@ -16132,6 +16134,17 @@ body.is-panel-resizing * {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.tool-call-user-question-revert {
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.tool-call-user-question-revert:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .tool-call-user-question-cancel {
@@ -16154,6 +16167,7 @@ body.is-panel-resizing * {
   opacity: 0.88;
 }
 
+.tool-call-user-question-revert:focus-visible,
 .tool-call-user-question-cancel:focus-visible,
 .tool-call-user-question-submit:focus-visible {
   outline: 2px solid currentColor;
@@ -29883,6 +29897,9 @@ button.user-message-source:hover {
   right: 0;
   bottom: calc(100% + 8px);
   min-width: 200px;
+  /* 带说明的菜单项需要按内容撑开，超出上限时说明换行。 */
+  width: max-content;
+  max-width: 280px;
   padding: 4px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
@@ -29915,12 +29932,58 @@ button.user-message-source:hover {
   color: var(--accent, var(--text-primary));
 }
 
+/* 带说明的菜单项：勾号与标签首行对齐，说明换行显示在标签下方。 */
+.send-key-menu-item.has-description {
+  align-items: flex-start;
+}
+
+.send-key-menu-item.has-description .send-key-menu-check {
+  margin-top: 2px;
+}
+
+.send-key-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.send-key-menu-hint {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
 .send-key-menu-check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 14px;
   flex-shrink: 0;
+}
+
+/* 带分组文字的分隔线：文字在左，横线填充剩余宽度（与新建下拉菜单一致）。 */
+.send-key-menu-divider.labeled {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 10px 2px;
+}
+
+.send-key-menu-divider.labeled::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle, var(--border-light));
+}
+
+.send-key-menu-divider-label {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .input-action-buttons {
@@ -53488,18 +53551,36 @@ pre.file-viewer-code {
 }
 
 .system-logs-clear-selection {
-  padding: 1px 6px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-pill);
+  background: var(--accent-red-bg);
+  color: var(--accent-red-text);
+  font: inherit;
   font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.6;
   cursor: pointer;
+  transition:
+    background 0.14s,
+    border-color 0.14s,
+    color 0.14s;
+}
+
+.system-logs-clear-selection svg {
+  flex-shrink: 0;
 }
 
 .system-logs-clear-selection:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent-red) 26%, transparent);
+  border-color: var(--accent-red-text);
+}
+
+.system-logs-clear-selection:active {
+  background: color-mix(in srgb, var(--accent-red) 36%, transparent);
 }
 
 /* 导出对话框 */
@@ -55680,6 +55761,7 @@ pre.file-viewer-code {
 .image-library-card-actions .custom-select {
   width: auto;
   max-width: 90px;
+  min-width: 0;
 }
 
 .image-library-card-actions .custom-select-trigger {
@@ -55964,6 +56046,7 @@ pre.file-viewer-code {
   aspect-ratio: 1 / 1;
   object-fit: cover;
   background: var(--bg-tertiary);
+  transition: opacity 0.15s ease;
 }
 
 .image-library-card-placeholder {
@@ -56004,6 +56087,8 @@ pre.file-viewer-code {
   right: 6px;
   display: flex;
   gap: 4px;
+  /* 左侧留出勾选框宽度，避免窄卡片上悬停操作与勾选框重叠 */
+  max-width: calc(100% - 38px);
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -56018,6 +56103,7 @@ pre.file-viewer-code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -56032,10 +56118,6 @@ pre.file-viewer-code {
 
 .image-library-card-btn:hover {
   background: rgba(0, 0, 0, 0.75);
-}
-
-.image-library-card-btn.danger:hover {
-  background: var(--accent-red);
 }
 
 /* ---- 批量操作工具栏（有选中时显示） ---- */
@@ -56217,13 +56299,15 @@ pre.file-viewer-code {
 
 .image-library-card-check.checked {
   background: var(--accent-color);
-  border-color: var(--accent-color);
+  border-color: color-mix(in srgb, var(--accent-color) 60%, transparent);
+  /* 勾选图标用「实底之上的前景色」：深色主题 accent 接近白色，
+     沿用 #fff 会让勾选看不见（与其他复选框保持一致） */
+  color: var(--on-solid);
 }
 
-/* 选中卡片高亮 */
-.image-library-card.selected {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px var(--accent-color);
+/* 选中卡片：图片轻微降低不透明度（选中态不再加边框强调） */
+.image-library-card.selected img {
+  opacity: 0.7;
 }
 
 /* 相册 Tab 封面缩略图（圆形小图，与 13px 图标同高） */

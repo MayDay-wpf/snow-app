@@ -525,6 +525,7 @@ export type KeyboardShortcutsSettings = {
   toggleRightPanel: KeyboardShortcutConfig;
   newChat: KeyboardShortcutConfig;
   sendMessage: KeyboardShortcutConfig;
+  sendMessageNow: KeyboardShortcutConfig;
   stopGeneration: KeyboardShortcutConfig;
   prevConversation: KeyboardShortcutConfig;
   nextConversation: KeyboardShortcutConfig;

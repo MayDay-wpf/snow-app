@@ -93,6 +93,11 @@ const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
     enabled: true,
     foregroundOnly: true,
   },
+  sendMessageNow: {
+    key: "alt+enter",
+    enabled: true,
+    foregroundOnly: true,
+  },
   stopGeneration: {
     key: "mod+.",
     enabled: true,

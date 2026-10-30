@@ -25,6 +25,8 @@ export type UserQuestionView = {
   /** 工具已运行但题目尚未下发（userQuestion 快照未到）。 */
   isWaitingForRequest: boolean;
   isInteractive: boolean;
+  /** 结算仍处于暂存态（同一批还有提问未作答、agent loop 未续上），可撤销重答。 */
+  isRevertable: boolean;
 };
 
 export const parseUserQuestionArgs = (
@@ -140,6 +142,14 @@ export const resolveUserQuestionView = (
       questionState &&
       !isSettled &&
       !isInterrupted &&
+      (toolCall.status === "running" || toolCall.status === "pending"),
+    ),
+    // 撤销入口只在结算尚未回传给 agent loop 时出现：工具已结束（终态 / 结果
+    // 已到）说明 loop 已续上，此时撤销已无意义（运行时也会忽略）。
+    isRevertable: Boolean(
+      questionState?.revertable === true &&
+      !isInterrupted &&
+      !parsedResult &&
       (toolCall.status === "running" || toolCall.status === "pending"),
     ),
   };

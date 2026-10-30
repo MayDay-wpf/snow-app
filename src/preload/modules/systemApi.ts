@@ -1643,8 +1643,6 @@ export const windowApi = {
         scale?: number;
       };
       filePath?: string;
-      /** 后台 tab 临时进入渲染态后，先等页面产帧再截图。 */
-      waitForFrame?: boolean;
     },
   ): Promise<{
     mimeType: string;

@@ -5,18 +5,13 @@ import {
   type ChipDetailsState,
   type ConversationPreviewState,
   type ImagePreviewState,
-  type TextSnippetEditorState,
-  type TextSnippetPreviewState,
   type WebChipMenuState,
 } from "./InputOverlayLayer";
+import { base64ToUtf8, type ChangeTag, type CommitTag } from "./fileTagUtils";
 import {
-  base64ToUtf8,
-  buildTextSnippetSummary,
-  createTextSnippetChipHtml,
-  type ChangeTag,
-  type CommitTag,
-  type TextSnippetTag,
-} from "./fileTagUtils";
+  useTextSnippetOverlay,
+  type TextSnippetOverlayApi,
+} from "./useTextSnippetOverlay";
 import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
 
 /**
@@ -62,9 +57,8 @@ export type ChipInteractionsResult = {
   setImagePreview: Dispatch<SetStateAction<ImagePreviewState | null>>;
   imageLightbox: string | null;
   setImageLightbox: Dispatch<SetStateAction<string | null>>;
-  textSnippetPreview: TextSnippetPreviewState | null;
-  textSnippetEditor: TextSnippetEditorState | null;
-  setTextSnippetEditor: Dispatch<SetStateAction<TextSnippetEditorState | null>>;
+  /** 片段 chip 的悬停预览与点击编辑（与提问卡片等复用同一 hook 与浮层）。 */
+  textSnippetOverlay: TextSnippetOverlayApi;
   webChipMenu: WebChipMenuState | null;
   setWebChipMenu: Dispatch<SetStateAction<WebChipMenuState | null>>;
   chipDetails: ChipDetailsState | null;
@@ -72,9 +66,6 @@ export type ChipInteractionsResult = {
   showImagePreview: (event: React.MouseEvent<HTMLDivElement>) => void;
   scheduleHideImagePreview: () => void;
   handleImageChipClick: (event: React.MouseEvent<HTMLDivElement>) => void;
-  showTextSnippetPreview: (event: React.MouseEvent<HTMLDivElement>) => void;
-  scheduleHideTextSnippetPreview: () => void;
-  cancelHideTextSnippetPreview: () => void;
   showChipDetails: (event: React.MouseEvent<HTMLDivElement>) => void;
   scheduleHideChipDetails: () => void;
   cancelHideChipDetails: () => void;
@@ -82,11 +73,8 @@ export type ChipInteractionsResult = {
   scheduleHideConversationPreview: () => void;
   cancelHideConversationPreview: () => void;
   handleChipRemove: (event: React.MouseEvent<HTMLDivElement>) => void;
-  handleTextSnippetClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   handleWebChipClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   handleWebChipContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
-  handleTextSnippetEditorDelete: () => void;
-  handleTextSnippetEditorSave: () => void;
 };
 
 export const useChipInteractions = ({
@@ -101,13 +89,11 @@ export const useChipInteractions = ({
     null,
   );
   const [imageLightbox, setImageLightbox] = useState<string | null>(null);
-  const [textSnippetPreview, setTextSnippetPreview] =
-    useState<TextSnippetPreviewState | null>(null);
-  const textSnippetPreviewTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const [textSnippetEditor, setTextSnippetEditor] =
-    useState<TextSnippetEditorState | null>(null);
+  // 片段 chip 的悬停预览与点击编辑走共用 hook（提问卡片复用同一套）。
+  const textSnippetOverlay = useTextSnippetOverlay({
+    containerRef: textareaRef,
+    onChange: syncContent,
+  });
   const [webChipMenu, setWebChipMenu] = useState<WebChipMenuState | null>(null);
   const [chipDetails, setChipDetails] = useState<ChipDetailsState | null>(null);
   const chipDetailsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -208,107 +194,6 @@ export const useChipInteractions = ({
     [textareaRef],
   );
 
-  const showTextSnippetPreview = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement;
-      const chip = target.closest(
-        "[data-text-snippet-tag='true']",
-      ) as HTMLElement | null;
-      if (!chip) {
-        if (textSnippetPreviewTimerRef.current) {
-          clearTimeout(textSnippetPreviewTimerRef.current);
-          textSnippetPreviewTimerRef.current = null;
-        }
-        setTextSnippetPreview(null);
-        return;
-      }
-      const rawData = chip.dataset.textSnippetData;
-      if (!rawData) {
-        if (textSnippetPreviewTimerRef.current) {
-          clearTimeout(textSnippetPreviewTimerRef.current);
-          textSnippetPreviewTimerRef.current = null;
-        }
-        setTextSnippetPreview(null);
-        return;
-      }
-      let parsed: { content?: string; summary?: string };
-      try {
-        parsed = JSON.parse(rawData) as { content?: string; summary?: string };
-      } catch {
-        if (textSnippetPreviewTimerRef.current) {
-          clearTimeout(textSnippetPreviewTimerRef.current);
-          textSnippetPreviewTimerRef.current = null;
-        }
-        setTextSnippetPreview(null);
-        return;
-      }
-      if (textSnippetPreviewTimerRef.current) {
-        clearTimeout(textSnippetPreviewTimerRef.current);
-        textSnippetPreviewTimerRef.current = null;
-      }
-      const rect = chip.getBoundingClientRect();
-      const halfW = 440 / 2;
-      const clampedX = Math.max(
-        halfW + 4,
-        Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4),
-      );
-      setTextSnippetPreview({
-        content: parsed.content ?? "",
-        summary: parsed.summary ?? "text",
-        x: clampedX,
-        y: rect.top,
-      });
-    },
-    [],
-  );
-
-  const scheduleHideTextSnippetPreview = useCallback(() => {
-    textSnippetPreviewTimerRef.current = setTimeout(() => {
-      setTextSnippetPreview(null);
-    }, 200);
-  }, []);
-
-  const cancelHideTextSnippetPreview = useCallback(() => {
-    if (textSnippetPreviewTimerRef.current) {
-      clearTimeout(textSnippetPreviewTimerRef.current);
-      textSnippetPreviewTimerRef.current = null;
-    }
-  }, []);
-
-  const handleTextSnippetClick = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement;
-      if (target.closest("[data-chip-remove='true']")) {
-        return;
-      }
-      const chip = target.closest(
-        "[data-text-snippet-tag='true']",
-      ) as HTMLElement | null;
-      if (!chip || !textareaRef.current?.contains(chip)) {
-        return;
-      }
-      const rawData = chip.dataset.textSnippetData;
-      if (!rawData) {
-        return;
-      }
-      try {
-        const parsed = JSON.parse(rawData) as {
-          content?: string;
-          summary?: string;
-        };
-        setTextSnippetEditor({
-          chip,
-          content: parsed.content ?? "",
-          summary:
-            parsed.summary ?? buildTextSnippetSummary(parsed.content ?? ""),
-        });
-      } catch {
-        // Ignore malformed data
-      }
-    },
-    [textareaRef],
-  );
-
   const handleWebChipClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
@@ -372,37 +257,6 @@ export const useChipInteractions = ({
     },
     [textareaRef],
   );
-
-  const handleTextSnippetEditorSave = useCallback(() => {
-    if (!textSnippetEditor) {
-      return;
-    }
-    const { chip, content, summary } = textSnippetEditor;
-    const trimmedSummary = summary.trim() || buildTextSnippetSummary(content);
-    const tag: TextSnippetTag = {
-      content,
-      summary: trimmedSummary,
-      charCount: content.length,
-    };
-    const fragment = document
-      .createRange()
-      .createContextualFragment(createTextSnippetChipHtml(tag));
-    const newChip = fragment.firstChild as HTMLElement | null;
-    if (newChip) {
-      chip.replaceWith(newChip);
-    }
-    setTextSnippetEditor(null);
-    syncContent();
-  }, [syncContent, textSnippetEditor]);
-
-  const handleTextSnippetEditorDelete = useCallback(() => {
-    if (!textSnippetEditor) {
-      return;
-    }
-    textSnippetEditor.chip.remove();
-    setTextSnippetEditor(null);
-    syncContent();
-  }, [syncContent, textSnippetEditor]);
 
   const showChipDetails = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -893,9 +747,7 @@ export const useChipInteractions = ({
     setImagePreview,
     imageLightbox,
     setImageLightbox,
-    textSnippetPreview,
-    textSnippetEditor,
-    setTextSnippetEditor,
+    textSnippetOverlay,
     webChipMenu,
     setWebChipMenu,
     chipDetails,
@@ -903,9 +755,6 @@ export const useChipInteractions = ({
     showImagePreview,
     scheduleHideImagePreview,
     handleImageChipClick,
-    showTextSnippetPreview,
-    scheduleHideTextSnippetPreview,
-    cancelHideTextSnippetPreview,
     showChipDetails,
     scheduleHideChipDetails,
     cancelHideChipDetails,
@@ -913,10 +762,7 @@ export const useChipInteractions = ({
     scheduleHideConversationPreview,
     cancelHideConversationPreview,
     handleChipRemove,
-    handleTextSnippetClick,
     handleWebChipClick,
     handleWebChipContextMenu,
-    handleTextSnippetEditorDelete,
-    handleTextSnippetEditorSave,
   };
 };

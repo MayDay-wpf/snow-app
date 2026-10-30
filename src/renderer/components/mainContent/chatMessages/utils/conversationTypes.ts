@@ -35,6 +35,9 @@ export type UserQuestionState = {
    *  不同 —— 取消会终止 agent loop，中断后 loop 继续。卡片据此显示
    *  "已中断"终态并停止交互，避免停在"等待回答"且点击无反馈。 */
   interrupted?: boolean;
+  /** 撤销标记：用户已作答/拒答，但结算仍处于暂存态（同一批还有其他提问未
+   *  作答，agent loop 尚未续上），此时可撤销重答。loop 续上时由运行时清除。 */
+  revertable?: boolean;
 };
 
 export type HookExecutionStatus =
@@ -649,6 +652,17 @@ export type PendingUserQuestion = {
   interactionId: string;
   resolve: (resultJson: string) => void;
   reject: (error: Error) => void;
+  /** 已结算但尚未回传给 agent loop 的暂存答案：同一批还有提问未作答时，
+   *  先暂存（用户可撤销重答），等最后一个提问结算后再统一 resolve。 */
+  stagedSettlement?: UserQuestionSettlement;
+};
+
+/** 提问的结算结果（回答或拒答），也是回传给 agent loop 的工具结果载荷。 */
+export type UserQuestionSettlement = {
+  cancelled: boolean;
+  answers: string[];
+  selectedOptions: string[];
+  customAnswers: string[];
 };
 
 /** 用户在提问工具卡片上未提交的交互草稿（按 questionId 索引）。卡片因会话
@@ -1232,6 +1246,9 @@ export type UseChatConversationResult = {
     customAnswers: string[],
   ) => void;
   cancelUserQuestion: (questionId: string) => void;
+  /** 撤销已提交的回答/拒答：仅当该题的结算仍在暂存（同批还有其他提问未作答、
+   *  agent loop 未续上）时生效，撤销后卡片回到待作答并保留原答案草稿。 */
+  revertUserQuestion: (questionId: string) => void;
   /** 读取/保存/清除提问卡片未提交的交互草稿（按 questionId）。卡片因会话
    *  切换等重挂载时据此恢复已勾选的选项与自定义回答。 */
   getUserQuestionDraft: (questionId: string) => UserQuestionDraft | undefined;

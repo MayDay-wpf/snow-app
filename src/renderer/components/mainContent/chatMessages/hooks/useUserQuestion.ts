@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import type {
   ConversationContextValue,
+  PendingUserQuestion,
   UserQuestionDraft,
   UserQuestionRequest,
+  UserQuestionSettlement,
 } from "../utils/conversationTypes";
 
 /**
@@ -38,7 +40,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
   // t → notifyUserInteractionRequired）都不再重跑 effect，自然也不会把等待中
   // 的提问"连坐"结算。
   const notifyUserInteractionRequiredRef = useRef(
-    notifyUserInteractionRequired
+    notifyUserInteractionRequired,
   );
   notifyUserInteractionRequiredRef.current = notifyUserInteractionRequired;
   const updateSessionMessagesRef = useRef(updateSessionMessages);
@@ -102,12 +104,13 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
                             interrupted: true,
                             selectedOptions: [],
                             customAnswers: [],
+                            revertable: false,
                           },
                         }
-                      : toolCall
+                      : toolCall,
                   ),
                 };
-              })
+              }),
           );
         }
 
@@ -138,7 +141,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
       pendingUserQuestionRef,
       reconcilePendingUserQuestionConversationIds,
       userQuestionTargetRef,
-    ]
+    ],
   );
 
   // 注册全局 UserQuestion handler，将问题挂到对应工具卡片
@@ -159,7 +162,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
             }),
           });
           return Promise.reject(
-            new Error("No active tool call matches this user question")
+            new Error("No active tool call matches this user question"),
           );
         }
 
@@ -184,10 +187,10 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
                         customAnswers: [],
                       },
                     }
-                  : toolCall
+                  : toolCall,
               ),
             };
-          })
+          }),
         );
 
         // 通知系统：用户交互工具需要用户回答时触发系统通知
@@ -208,7 +211,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
           });
           reconcilePendingUserQuestionConversationIds();
         });
-      }
+      },
     );
 
     return () => {
@@ -228,21 +231,159 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
     userQuestionTargetRef,
   ]);
 
+  /**
+   * 把一次结算写进消息状态：Tab 与卡片据此显示已回答 / 已取消。revertable=true
+   * 表示结算仍处于暂存态（同一批还有提问未作答、agent loop 未续上），卡片据此
+   * 提供"撤销重答"入口。
+   */
+  const applyUserQuestionSettlement = useCallback(
+    (
+      pending: PendingUserQuestion,
+      questionId: string,
+      settlement: UserQuestionSettlement,
+      revertable: boolean,
+    ): void => {
+      const target = userQuestionTargetRef.current.get(pending.interactionId);
+      if (!target) {
+        return;
+      }
+
+      updateSessionMessages(target.sessionKey, (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== target.assistantMessageId) {
+            return message;
+          }
+
+          return {
+            ...message,
+            toolCalls: message.toolCalls?.map((toolCall) =>
+              toolCall.interactionId === pending.interactionId &&
+              toolCall.userQuestion?.questionId === questionId
+                ? {
+                    ...toolCall,
+                    userQuestion: {
+                      ...toolCall.userQuestion,
+                      status: settlement.cancelled
+                        ? ("cancelled" as const)
+                        : ("answered" as const),
+                      selectedOptions: settlement.selectedOptions,
+                      customAnswers: settlement.customAnswers,
+                      revertable,
+                    },
+                  }
+                : toolCall,
+            ),
+          };
+        }),
+      );
+    },
+    [updateSessionMessages, userQuestionTargetRef],
+  );
+
+  /**
+   * 提交同一会话（同一批）内所有暂存结算：这批提问已全部作答 / 拒答，agent loop
+   * 即将续上、撤销窗口随之关闭，逐个 resolve 把答案回传给工具调用。
+   */
+  const flushStagedUserQuestionSettlements = useCallback(
+    (sessionKey: string, settled: PendingUserQuestion): void => {
+      const staged: Array<
+        [string, PendingUserQuestion, UserQuestionSettlement]
+      > = [];
+      for (const [questionId, pending] of pendingUserQuestionRef.current) {
+        if (pending.sessionKey !== sessionKey || !pending.stagedSettlement) {
+          continue;
+        }
+        staged.push([questionId, pending, pending.stagedSettlement]);
+      }
+
+      for (const [questionId, pending, settlement] of staged) {
+        // 刚结算的这一题已按"不可撤销"写入消息状态，无需重复更新。
+        if (pending !== settled) {
+          applyUserQuestionSettlement(pending, questionId, settlement, false);
+        }
+        pendingUserQuestionRef.current.delete(questionId);
+        userQuestionTargetRef.current.delete(pending.interactionId);
+        pending.resolve(JSON.stringify(settlement));
+      }
+
+      reconcilePendingUserQuestionConversationIds();
+    },
+    [
+      applyUserQuestionSettlement,
+      pendingUserQuestionRef,
+      reconcilePendingUserQuestionConversationIds,
+      userQuestionTargetRef,
+    ],
+  );
+
+  /**
+   * 撤销已提交的回答 / 拒答：只在结算仍暂存（agent loop 未续上）时生效 ——
+   * 卡片恢复为待作答，原答案写回草稿，用户可在原答案上修改后重新提交。
+   */
+  const revertUserQuestion = useCallback(
+    (questionId: string): void => {
+      const pending = pendingUserQuestionRef.current.get(questionId);
+      const settlement = pending?.stagedSettlement;
+      if (!pending || !settlement) {
+        return;
+      }
+
+      delete pending.stagedSettlement;
+      userQuestionDraftsRef.current.set(questionId, {
+        selectedOptions: settlement.selectedOptions,
+        customAnswers: settlement.customAnswers,
+      });
+
+      const target = userQuestionTargetRef.current.get(pending.interactionId);
+      if (!target) {
+        return;
+      }
+
+      updateSessionMessages(target.sessionKey, (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== target.assistantMessageId) {
+            return message;
+          }
+
+          return {
+            ...message,
+            toolCalls: message.toolCalls?.map((toolCall) =>
+              toolCall.interactionId === pending.interactionId &&
+              toolCall.userQuestion?.questionId === questionId
+                ? {
+                    ...toolCall,
+                    userQuestion: {
+                      ...toolCall.userQuestion,
+                      status: "waiting" as const,
+                      selectedOptions: [],
+                      customAnswers: [],
+                      revertable: false,
+                    },
+                  }
+                : toolCall,
+            ),
+          };
+        }),
+      );
+    },
+    [updateSessionMessages, userQuestionTargetRef],
+  );
+
   const settleUserQuestion = useCallback(
     (
       questionId: string,
       cancelled: boolean,
       selectedOptions: string[],
-      customAnswers: string[]
+      customAnswers: string[],
     ): void => {
       const pending = pendingUserQuestionRef.current.get(questionId);
-      if (!pending) {
+      if (!pending || pending.stagedSettlement) {
         return;
       }
 
       const normalizeAnswers = (values: string[]): string[] =>
         Array.from(
-          new Set(values.map((value) => value.trim()).filter(Boolean))
+          new Set(values.map((value) => value.trim()).filter(Boolean)),
         );
       const normalizedSelected = cancelled
         ? []
@@ -256,93 +397,77 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
         return;
       }
 
-      const target = userQuestionTargetRef.current.get(pending.interactionId);
-      if (target) {
-        updateSessionMessages(target.sessionKey, (currentMessages) =>
-          currentMessages.map((message) => {
-            if (message.id !== target.assistantMessageId) {
-              return message;
-            }
+      const settlement: UserQuestionSettlement = {
+        cancelled,
+        answers,
+        selectedOptions: normalizedSelected,
+        customAnswers: normalizedCustom,
+      };
+      pending.stagedSettlement = settlement;
 
-            return {
-              ...message,
-              toolCalls: message.toolCalls?.map((toolCall) =>
-                toolCall.interactionId === pending.interactionId &&
-                toolCall.userQuestion?.questionId === questionId
-                  ? {
-                      ...toolCall,
-                      userQuestion: {
-                        ...toolCall.userQuestion,
-                        status: cancelled
-                          ? ("cancelled" as const)
-                          : ("answered" as const),
-                        selectedOptions: normalizedSelected,
-                        customAnswers: normalizedCustom,
-                      },
-                    }
-                  : toolCall
-              ),
-            };
-          })
-        );
+      // 同一批（同一会话）还有提问未作答 → agent loop 仍被阻塞，先暂存结算并
+      // 开放撤销；这批全部结算后才把答案回传给 loop（撤销窗口同时关闭）。
+      const stillWaiting = Array.from(
+        pendingUserQuestionRef.current.values(),
+      ).some(
+        (entry) =>
+          entry.sessionKey === pending.sessionKey && !entry.stagedSettlement,
+      );
+      applyUserQuestionSettlement(
+        pending,
+        questionId,
+        settlement,
+        stillWaiting,
+      );
+      if (stillWaiting) {
+        return;
       }
 
-      pendingUserQuestionRef.current.delete(questionId);
-      reconcilePendingUserQuestionConversationIds();
-      userQuestionTargetRef.current.delete(pending.interactionId);
-      pending.resolve(
-        JSON.stringify({
-          cancelled,
-          answers,
-          selectedOptions: normalizedSelected,
-          customAnswers: normalizedCustom,
-        })
-      );
+      flushStagedUserQuestionSettlements(pending.sessionKey, pending);
     },
     [
+      applyUserQuestionSettlement,
+      flushStagedUserQuestionSettlements,
       pendingUserQuestionRef,
-      reconcilePendingUserQuestionConversationIds,
-      updateSessionMessages,
-      userQuestionTargetRef,
-    ]
+    ],
   );
 
   const answerUserQuestion = useCallback(
     (
       questionId: string,
       selectedOptions: string[],
-      customAnswers: string[]
+      customAnswers: string[],
     ): void => {
       settleUserQuestion(questionId, false, selectedOptions, customAnswers);
     },
-    [settleUserQuestion]
+    [settleUserQuestion],
   );
 
   const cancelUserQuestion = useCallback(
     (questionId: string): void => {
       settleUserQuestion(questionId, true, [], []);
     },
-    [settleUserQuestion]
+    [settleUserQuestion],
   );
 
   const rejectPendingUserQuestions = useCallback(
     (sessionKey?: string): void => {
       interruptPendingUserQuestions("User question interrupted", sessionKey);
     },
-    [interruptPendingUserQuestions]
+    [interruptPendingUserQuestions],
   );
 
   const getUserQuestionDraft = useCallback(
     (questionId: string): UserQuestionDraft | undefined =>
       userQuestionDraftsRef.current.get(questionId),
-    []
+    [],
   );
 
   const saveUserQuestionDraft = useCallback(
     (questionId: string, draft: UserQuestionDraft): void => {
       userQuestionDraftsRef.current.set(questionId, draft);
     },
-    []
+    [],
   );
 
   const clearUserQuestionDraft = useCallback((questionId: string): void => {
@@ -353,6 +478,7 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
     settleUserQuestion,
     answerUserQuestion,
     cancelUserQuestion,
+    revertUserQuestion,
     rejectPendingUserQuestions,
     getUserQuestionDraft,
     saveUserQuestionDraft,

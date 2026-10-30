@@ -45,6 +45,8 @@ export const zhCN = {
   "chatInput.interruptAndSend": "中断并发送",
   "chatInput.busySendHint":
     "{{behavior}}（{{shortcut}}）；本次反选：{{alternate}}",
+  "chatInput.busySendQueueDesc": "等本轮任务结束后，再按顺序逐条发送",
+  "chatInput.busySendSteerDesc": "在下一个安全边界追加要求，继续当前任务",
 
   "git.manageActions": "管理分支…",
   "git.manageCreate": "从此分支创建分支…",
@@ -1258,6 +1260,9 @@ export const zhCN = {
   "toolCall.userQuestion.multiSelectHint": "可选择任意组合",
   "toolCall.userQuestion.cancelledHint": "已取消回答，本轮生成已停止",
   "toolCall.userQuestion.interruptedHint": "提问已中断，本轮已交由 AI 继续处理",
+  "toolCall.userQuestion.revert": "撤销重答",
+  "toolCall.userQuestion.revertHint":
+    "本轮尚有提问未作答，生成尚未继续，可撤销本次回答重新作答",
   "toolCall.userQuestion.cancel": "取消回答",
   "toolCall.userQuestion.cancelled": "回答已取消",
   "toolCall.userQuestion.interrupted": "回答已中断",
@@ -2322,6 +2327,7 @@ export const zhCN = {
   "settings.imageLibraryModelAll": "全部模型",
   "settings.imageLibraryEmpty": "暂无图片，生成图片后会自动出现在这里",
   "settings.imageLibraryDragImportHint": "也可以直接把本地图片拖入本页导入图库",
+  "settings.imageLibraryMoreActions": "更多操作",
   "settings.imageLibraryDelete": "删除",
   "settings.imageLibraryDeleteTitle": "删除图片",
   "settings.imageLibraryDeleteConfirm":
@@ -4038,6 +4044,7 @@ export const zhCN = {
   "settings.shortcutToggleSidebar": "收起/展开左侧边栏",
   "settings.shortcutToggleRightPanel": "收起/展开右侧面板",
   "settings.shortcutSendMessage": "发送当前输入",
+  "settings.shortcutSendMessageNow": "立即发送（输入内容或第一条待发送消息）",
   "settings.shortcutStopGeneration": "停止生成",
   "settings.shortcutNewChat": "新建会话",
   "settings.shortcutNewChatInNewWindow": "在新窗口中新建会话",
@@ -5952,7 +5959,7 @@ export const zhCN = {
   "settings.usageColCacheRead": "缓存读",
   "settings.usageColTotal": "总计",
   "settings.usageColStatus": "状态",
-  "settings.usageRequestMethodChat": "聊天",
+  "settings.usageRequestMethodChat": "Chat",
   "settings.usageRequestMethodResponses": "Responses",
   "settings.usageRequestMethodAnthropic": "Anthropic",
   "settings.usageRequestMethodGemini": "Gemini",
@@ -5983,7 +5990,9 @@ export const zhCN = {
   "settings.systemLogsInfo": "由主进程和渲染进程统一写入的诊断日志。",
   "settings.systemLogsClosePanel": "关闭系统日志",
   "settings.systemLogsClear": "清空日志",
-  "settings.systemLogsClearConfirm": "确认清空",
+  "settings.systemLogsClearConfirmTitle": "清空系统日志",
+  "settings.systemLogsClearConfirmMessage":
+    "将永久删除全部系统日志，此操作无法撤销。",
   "settings.systemLogsCleared": "系统日志已清空。",
   "settings.systemLogsClearError": "清空系统日志失败。",
   "settings.systemLogsLoadError": "加载系统日志失败。",
@@ -6051,6 +6060,9 @@ export const zhCN = {
   "settings.systemLogsSelectPage": "全选本页",
   "settings.systemLogsSelectedCount": "已选 {{count}} 条",
   "settings.systemLogsClearSelection": "清除",
+  "settings.systemLogsClearSelectionTitle": "清除已选",
+  "settings.systemLogsClearSelectionConfirm":
+    "取消勾选已选的 {{count}} 条日志？",
   "settings.close": "关闭",
   "settings.closePanel": "关闭面板",
   "settings.loadingModels": "正在加载模型...",
