@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Search, X } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import type { UserMessageSummary } from "../../../../../preload";
 import { ContentChips } from "../../chatInput/ContentChips";
@@ -110,6 +110,18 @@ type RailItemData = {
   summary: string;
   /** 含 chip 标签时的解析结果，否则为 null（走纯文本摘要）。 */
   segments: ContentSegment[] | null;
+  /** 搜索归一化文本：摘要 + chip 标签的可读字段，已转小写。 */
+  searchText: string;
+};
+
+/** 把 chip 分段里的可读字符串拼进搜索文本（文件路径、网页标题、引用摘要等）。 */
+const segmentSearchText = (segment: ContentSegment): string => {
+  if (segment.type === "text") {
+    return segment.content;
+  }
+  return Object.values(segment.tag as Record<string, unknown>)
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
 };
 
 type RailItemCacheEntry = {
@@ -123,11 +135,20 @@ const deriveRailItem = (msg: UserMessageSummary): RailItemData => {
   const hasChips =
     !isContextCompaction &&
     CHIP_TAG_MARKERS.some((marker) => msg.content.includes(marker));
+  const summary = summarizeContentAsPlainText(msg.content);
+  const segments = hasChips ? parseContentSegments(msg.content) : null;
+  const searchText = [
+    summary,
+    ...(segments?.map(segmentSearchText) ?? []),
+  ]
+    .join(" ")
+    .toLowerCase();
   return {
     id: msg.id,
     isContextCompaction,
-    summary: summarizeContentAsPlainText(msg.content),
-    segments: hasChips ? parseContentSegments(msg.content) : null,
+    summary,
+    segments,
+    searchText,
   };
 };
 
@@ -173,6 +194,8 @@ type RailItemProps = {
   item: RailItemData;
   index: number;
   isVisible: boolean;
+  /** 键盘搜索当前高亮项（与「滚动可见」高亮是两套语义）。 */
+  isActive: boolean;
   compactionLabel: string;
   onSelect: (messageId: string) => Promise<void>;
 };
@@ -182,6 +205,7 @@ const RailItem = memo(
     item,
     index,
     isVisible,
+    isActive,
     compactionLabel,
     onSelect,
   }: RailItemProps): React.JSX.Element => {
@@ -196,7 +220,10 @@ const RailItem = memo(
     return (
       <button
         type="button"
-        className={`user-message-rail-popover-item${isVisible ? " is-visible" : ""}`}
+        data-rail-index={index}
+        className={`user-message-rail-popover-item${
+          isVisible ? " is-visible" : ""
+        }${isActive ? " is-active" : ""}`}
         onClick={() => void onSelect(item.id)}
         title={item.isContextCompaction ? itemLabel : summary}
       >
@@ -234,6 +261,13 @@ export const UserMessageRail = memo(
     const [userMessages, setUserMessages] = useState<UserMessageSummary[]>([]);
     const [hovered, setHovered] = useState(false);
     const [loading, setLoading] = useState(false);
+    // 本地搜索：列表数据本身就是全量用户消息摘要（listUserMessages），
+    // 过滤在渲染层完成，不额外请求后端；点击结果复用现有翻页定位。
+    const [query, setQuery] = useState("");
+    const [activeIndex, setActiveIndex] = useState(0);
+    const searchInputRef = useRef<HTMLInputElement | null>(null);
+    /** 点击图标打开面板时置位：等面板提交后再聚焦，避免 hover 打开也抢焦点。 */
+    const focusSearchOnOpenRef = useRef(false);
     const [popoverPos, setPopoverPos] = useState<{
       top: number;
       left: number;
@@ -500,6 +534,25 @@ export const UserMessageRail = memo(
         setPopoverHeight(0);
       }, 200);
     }, []);
+
+    // 点击图标 = 明确要搜索：打开面板并把焦点交给搜索框。
+    // hover 打开不走这里，避免鼠标扫过图标就抢走别处的输入焦点。
+    const handleRailClick = useCallback((): void => {
+      if (hovered) {
+        searchInputRef.current?.focus();
+        return;
+      }
+      focusSearchOnOpenRef.current = true;
+      handleMouseEnter();
+    }, [handleMouseEnter, hovered]);
+
+    useEffect(() => {
+      if (!hovered || !focusSearchOnOpenRef.current) {
+        return;
+      }
+      focusSearchOnOpenRef.current = false;
+      searchInputRef.current?.focus();
+    }, [hovered]);
 
     useEffect(() => {
       return () => {
@@ -814,6 +867,82 @@ export const UserMessageRail = memo(
       return items;
     }, [hovered, userMessages]);
 
+    // 搜索词按空白切分做 AND 匹配：多个词分别命中即可，适合「路径 + 关键词」这种组合。
+    const searchTerms = useMemo(
+      () => query.trim().toLowerCase().split(/\s+/).filter(Boolean),
+      [query],
+    );
+
+    /** 过滤结果保留原始索引：编号、滚动可见高亮、定位都以它为准。 */
+    const filteredRailItems = useMemo(() => {
+      const indexed = railItems.map((item, index) => ({ item, index }));
+      if (searchTerms.length === 0) {
+        return indexed;
+      }
+      return indexed.filter(({ item }) =>
+        searchTerms.every((term) => item.searchText.includes(term)),
+      );
+    }, [railItems, searchTerms]);
+
+    // 搜索词变化时回到第一条结果。
+    useEffect(() => {
+      setActiveIndex(0);
+    }, [query]);
+
+    // 结果集缩短后把高亮索引夹回有效范围。
+    useEffect(() => {
+      setActiveIndex((prev) =>
+        prev < filteredRailItems.length
+          ? prev
+          : Math.max(0, filteredRailItems.length - 1),
+      );
+    }, [filteredRailItems.length]);
+
+    // 键盘移动高亮时把该项滚进可视区（不做整列滚动，保持贴近当前结果）。
+    useEffect(() => {
+      if (!hovered || searchTerms.length === 0) return;
+      const target = filteredRailItems[activeIndex];
+      if (!target) return;
+      popoverRef.current
+        ?.querySelector<HTMLElement>(`[data-rail-index="${target.index}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }, [activeIndex, filteredRailItems, hovered, searchTerms.length]);
+
+    const handleSearchKeyDown = (
+      event: React.KeyboardEvent<HTMLInputElement>,
+    ): void => {
+      // 中文/日文输入法确认候选词的 Enter 不应被当成「跳转」。
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (filteredRailItems.length === 0) return;
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        setActiveIndex((prev) =>
+          Math.min(Math.max(prev + delta, 0), filteredRailItems.length - 1),
+        );
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = filteredRailItems[activeIndex];
+        if (target) {
+          void handleItemClick(target.item.id);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        if (query.length > 0) {
+          setQuery("");
+        } else {
+          setHovered(false);
+          setPopoverPos(null);
+        }
+      }
+    };
+
     if (userMessages.length === 0 && !loading) {
       return null;
     }
@@ -842,20 +971,65 @@ export const UserMessageRail = memo(
                   })}
                 </span>
                 <span className="user-message-rail-popover-count">
-                  {userMessages.length}
+                  {searchTerms.length > 0
+                    ? `${filteredRailItems.length}/${userMessages.length}`
+                    : userMessages.length}
                 </span>
               </div>
+              <div className="user-message-rail-popover-search">
+                <Search size={12} strokeWidth={2} aria-hidden="true" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={t("chat.userMessageRail.searchPlaceholder", {
+                    defaultValue: "Search user messages",
+                  })}
+                  aria-label={t("chat.userMessageRail.searchPlaceholder", {
+                    defaultValue: "Search user messages",
+                  })}
+                  spellCheck={false}
+                />
+                {query.length > 0 ? (
+                  <button
+                    type="button"
+                    className="user-message-rail-popover-search-clear"
+                    onClick={() => {
+                      setQuery("");
+                      searchInputRef.current?.focus();
+                    }}
+                    aria-label={t("chat.userMessageRail.searchClear", {
+                      defaultValue: "Clear search",
+                    })}
+                  >
+                    <X size={12} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
               <div className="user-message-rail-popover-list">
-                {railItems.map((item, index) => (
-                  <RailItem
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    isVisible={visibleUserIndices.has(index)}
-                    compactionLabel={compactionLabel}
-                    onSelect={handleItemClick}
-                  />
-                ))}
+                {filteredRailItems.length === 0 ? (
+                  <div className="user-message-rail-popover-empty">
+                    {t("chat.userMessageRail.searchEmpty", {
+                      defaultValue: "No matching user messages",
+                    })}
+                  </div>
+                ) : (
+                  filteredRailItems.map(({ item, index }, position) => (
+                    <RailItem
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      isVisible={visibleUserIndices.has(index)}
+                      isActive={
+                        searchTerms.length > 0 && position === activeIndex
+                      }
+                      compactionLabel={compactionLabel}
+                      onSelect={handleItemClick}
+                    />
+                  ))
+                )}
               </div>
             </div>,
             document.body,
@@ -890,6 +1064,7 @@ export const UserMessageRail = memo(
           className="user-message-rail"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
+          onClick={handleRailClick}
           aria-label={t("chat.userMessageRail.title", {
             defaultValue: "User messages",
           })}

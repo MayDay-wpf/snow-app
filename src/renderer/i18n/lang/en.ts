@@ -850,6 +850,9 @@ export const en = {
   "chat.float.island.filesChanged": "{{count}} files changed",
   "chat.float.island.tokens": "{{count}} tokens",
   "chat.userMessageRail.title": "User messages",
+  "chat.userMessageRail.searchPlaceholder": "Search user messages",
+  "chat.userMessageRail.searchEmpty": "No matching user messages",
+  "chat.userMessageRail.searchClear": "Clear search",
   "chat.hook.unknownWarning": "The hook reported an unknown warning",
   "chat.hook.unknownBlock": "Hook blocked the action",
   "chat.responseFailedFallback":

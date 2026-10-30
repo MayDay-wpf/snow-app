@@ -10018,6 +10018,69 @@ body.is-panel-resizing * {
   line-height: 1;
 }
 
+.user-message-rail-popover-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.user-message-rail-popover-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.user-message-rail-popover-search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.user-message-rail-popover-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.user-message-rail-popover-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.user-message-rail-popover-empty {
+  padding: 18px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.user-message-rail-popover-item.is-active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.user-message-rail-popover-item.is-active
+  .user-message-rail-popover-item-index {
+  background: var(--accent-primary, var(--text-tertiary));
+  color: var(--on-solid);
+}
+
 .user-message-rail-popover-list {
   flex: 1;
   overflow-y: auto;
