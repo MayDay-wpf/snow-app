@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.5.10
+
+## New Features
+
+- **User Message Search**: the in-conversation user-message rail filters by keyword - multi-term AND matching over message summaries and chip labels, arrow keys to move, Enter to jump, Esc to clear then close; the separate title and search rows are merged into a single header line.
+- **Send Now (Alt+Enter)**: with text in the input it sends immediately; with an empty input it sends the first queued message and soft-interrupts the running sub-agent / WorkFlow so this round continues.
+- **Decision Model Providers and Tools**: the decision model gains an OpenAI Decisions provider alongside TypeSafe Jev, each with its own context budget (Jev 48k characters / 50 judgments, OpenAI 200k characters / 50 judgments); a default-off `decision-evaluate` MCP server answers predicate, choice and score questions from text, JSON and local PNG/JPEG evidence.
+- **Sensitive Command Risk Levels and Session Context**: confirmation cards show the low/medium/high level and score returned by the model (display and logging only, never part of the verdict); an optional "reference recent session" setting (off by default, 8 messages) attaches already-rendered recent messages and tool-call summaries so the model can tell user-requested actions from AI-initiated ones.
+- **Codebase Review Relevance Threshold**: with a threshold configured the model asks a probability question per result and keeps those that meet it instead of using binary verdicts, and the probabilities flow back into the review output and tool cards.
+- **Redesigned Theme Settings**: every section is its own card with an accent title bar and a capped reading width, and the AI / user avatars become side-by-side cards with an always-visible Reset button (disabled while the default avatar is in use).
+
+## Improvements
+
+- Decision-model calls are recorded in the usage page (`request_method=decisions`, grouped by model and request method with a new type column), covering codebase review, the `decision-evaluate` tool and sensitive-command judgment.
+- Embedded ultra-long input is sliced by a conservative token budget instead, splitting in batches and retrying by halves when the endpoint reports the input as too long, skipping unprocessable blocks with a WARN log carrying the failed file and the progress before the failure; file reading and token counting move off the async runtime.
+- Browser screenshots use frame subscriptions, so capturing a minimized or occluded tab no longer hangs; OpenAI requests send structured data as JSON text uniformly.
+- Failed tool calls can be corrected and retried and `askUserQuestion` answers can be undone and re-answered; sidebar items and collection members are unloaded once the collapse animation ends, LSP and task paths drop the Windows extended-length prefix (`\\?\`) for display, and the picture library menu, log-clearing confirmation, panel widths and skeleton animation were polished.
+
+## Bug Fixes
+
+- Remote deletion failures report the original SFTP reason, a missing entry counts as deleted and rollback stays idempotent; the "cannot cancel" prompt during recovery is idempotent as well and no longer re-triggers the spinner.
+- `git status` parses with `porcelain -z`, so staging or discarding files whose names contain quotes or backslashes no longer misaligns; discarding changes verifies that `git clean` really removed untracked files and returns the git output on leftovers, and the front end refreshes on both success and failure while showing git's original message.
+
 ## v0.5.9
 
 ## New Features
