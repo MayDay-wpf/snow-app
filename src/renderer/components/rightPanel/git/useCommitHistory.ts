@@ -46,9 +46,15 @@ export function useCommitHistory(
     async (skip: number, isInitial: boolean) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
+      // 分页请求在途时可能发生仓库 / 分支切换（整体重载会让世代自增）：响应
+      // 返回后必须比对世代，否则上一仓库的条目会被追加进新仓库的列表，并把
+      // 旧仓库的 offset 写进分页游标。整体重载自己会收尾 loading 状态，这里
+      // 不能再动 loadingRef / isLoading，否则会提前解除新仓库的加载态。
+      const generation = generationRef.current;
 
       try {
         const entries = await window.snow.gitLog(repoPath, skip, PAGE_SIZE);
+        if (generationRef.current !== generation) return;
         if (entries.length < PAGE_SIZE) {
           setHasMore(false);
         }
@@ -63,11 +69,14 @@ export function useCommitHistory(
           setHasMore(false);
         }
       } catch (err) {
+        if (generationRef.current !== generation) return;
         setError(String(err));
         setHasMore(false);
       } finally {
-        loadingRef.current = false;
-        setIsLoading(false);
+        if (generationRef.current === generation) {
+          loadingRef.current = false;
+          setIsLoading(false);
+        }
       }
     },
     [repoPath],
@@ -77,6 +86,12 @@ export function useCommitHistory(
   const reloadFromStart = useCallback(
     async (isCancelled: () => boolean): Promise<void> => {
       generationRef.current += 1;
+      // 旧列表整体作废，滚动偏移一并归零：否则切换仓库后视口仍停在旧列表的
+      // 位置（新仓库首屏直接落在底部，sentinel 立刻可见还会连锁触发分页）。
+      const scroller = containerRef.current?.parentElement;
+      if (scroller) {
+        scroller.scrollTop = 0;
+      }
       setCommits([]);
       setHasMore(true);
       setError(null);
