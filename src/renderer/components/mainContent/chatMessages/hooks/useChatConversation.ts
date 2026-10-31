@@ -376,13 +376,19 @@ export const useChatConversation = (
   );
   const [compactionPreview, setCompactionPreview] = useState("");
   const [compactionError, setCompactionError] = useState<string | null>(null);
-  const dismissCompactionError = useCallback(() => {
-    setCompactionError(null);
-  }, []);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactingConversationId, setCompactingConversationId] = useState<
     string | null
   >(null);
+  // 点 × 必须把 compactingConversationId 一起复位：压缩失败时该标记被故意
+  // 保留在会话上让错误条持续可见（见 useCompaction 的 finally），用户主动
+  // 关闭提示后残留标记会让回滚、远控快照继续引用一条已关闭的提示。
+  // 错误条只在压缩结束（isCompacting 已复位）后才出现，因此这里不存在
+  // 清掉进行中压缩标记的竞态。
+  const dismissCompactionError = useCallback(() => {
+    setCompactionError(null);
+    setCompactingConversationId(null);
+  }, []);
 
   // --- Refs ---
   const sessionsRefData = useRef<

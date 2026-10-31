@@ -858,6 +858,18 @@ export const useRollback = (ctx: ConversationContextValue) => {
           });
         }
 
+        // 回滚截断/删除了该会话的消息：残留的压缩失败提示一并复位。错误条
+        // 粘在 compactingConversationId 上（见 useCompaction 的 finally），
+        // 不清会让消息已回滚的会话永远挂着一条与现状无关的提示。
+        if (
+          ctx.compactingConversationId != null &&
+          (ctx.compactingConversationId === key ||
+            ctx.compactingConversationId === convId)
+        ) {
+          ctx.setCompactionError(null);
+          ctx.setCompactingConversationId(null);
+        }
+
         const targetWasActive = isActiveSessionKey(key);
         if (isFirstMessage && !isContextCompaction && convId) {
           // 会话已被删除：刷新侧边栏列表，移除该会话。只有目标仍是活动会话
@@ -959,6 +971,9 @@ export const useRollback = (ctx: ConversationContextValue) => {
       ctx.activeSessionKeyRef,
       ctx.pendingSessionSeqRef,
       isActiveSessionKey,
+      ctx.compactingConversationId,
+      ctx.setCompactionError,
+      ctx.setCompactingConversationId,
       t,
     ],
   );
