@@ -563,8 +563,20 @@ pub struct ManualToolExchangeRequest {
     pub model: Option<String>,
     pub api_profile: Option<String>,
     pub checkpoint_id: Option<String>,
-    pub user_content: String,
-    pub tool_name: String,
+    pub messages: Vec<ManualExchangeMessage>,
+    pub tool_calls: Vec<ManualExchangeToolCall>,
+}
+
+#[napi(object)]
+pub struct ManualExchangeMessage {
+    pub role: String,
+    pub content: String,
+    pub tool_results_json: Option<String>,
+}
+
+#[napi(object)]
+pub struct ManualExchangeToolCall {
+    pub name: String,
     pub arguments_json: String,
 }
 
@@ -576,6 +588,18 @@ pub async fn store_manual_tool_exchange(
 ) -> napi::Result<crate::api::responses::ResponsesApiResult> {
     tokio::task::spawn_blocking(move || {
         let model = request.model.unwrap_or_default();
+        let messages: Vec<_> = request.messages.into_iter().map(|message| {
+            crate::storage::services::chat_conversations::ChatContextMessage {
+                role: message.role,
+                content: message.content,
+                tool_calls_json: None,
+                tool_results_json: message.tool_results_json,
+                thinking: None,
+                thinking_blocks_json: None,
+            }
+        }).collect();
+        let tool_calls: Vec<_> = request.tool_calls.into_iter()
+            .map(|call| (call.name, call.arguments_json)).collect();
         let exchange = crate::storage::store_manual_tool_exchange(
             &crate::storage::services::chat_conversations::ManualToolExchangeInput {
                 conversation_id: request.conversation_id.as_deref(),
@@ -583,9 +607,8 @@ pub async fn store_manual_tool_exchange(
                 model: &model,
                 api_profile_name: request.api_profile.as_deref().unwrap_or(""),
                 checkpoint_id: request.checkpoint_id.as_deref().unwrap_or(""),
-                user_content: &request.user_content,
-                tool_name: &request.tool_name,
-                arguments_json: &request.arguments_json,
+                messages: &messages,
+                tool_calls: &tool_calls,
             },
         )?;
         Ok(crate::api::responses::ResponsesApiResult {

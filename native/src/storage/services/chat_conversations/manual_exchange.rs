@@ -20,9 +20,8 @@ pub struct ManualToolExchangeInput<'a> {
     pub model: &'a str,
     pub api_profile_name: &'a str,
     pub checkpoint_id: &'a str,
-    pub user_content: &'a str,
-    pub tool_name: &'a str,
-    pub arguments_json: &'a str,
+    pub messages: &'a [ChatContextMessage],
+    pub tool_calls: &'a [(String, String)],
 }
 
 pub struct ManualToolExchange {
@@ -37,43 +36,42 @@ pub fn store_manual_tool_exchange(
     database_path: &Path,
     input: &ManualToolExchangeInput<'_>,
 ) -> Result<ManualToolExchange> {
-    let user_content = input.user_content.trim();
-    let tool_name = input.tool_name.trim();
-    if user_content.is_empty() || tool_name.is_empty() {
-        return Err(Error::from_reason(
-            "Manual tool exchange requires user content and a tool name",
-        ));
+    if input.tool_calls.is_empty() || input.messages.iter().any(|message| {
+        !matches!(message.role.as_str(), "user" | "tool") || message.content.trim().is_empty()
+    }) || (input.conversation_id.is_none() && !input.messages.iter().any(|message| message.role == "user")) {
+        return Err(Error::from_reason("Invalid manual tool exchange messages or tool calls"));
     }
-    let arguments: Value = serde_json::from_str(input.arguments_json)
-        .map_err(|error| Error::from_reason(format!("Invalid tool arguments JSON: {error}")))?;
-    if !arguments.is_object() {
-        return Err(Error::from_reason("Tool arguments must be a JSON object"));
-    }
-
     let conversation_id = resolve_conversation_id(database_path, input.conversation_id, None)?;
     let snowflake = database::create_snowflake_id();
     let response_id = format!("manual_{snowflake}");
-    // OpenAI Chat 规范化格式，各 provider 回放历史时自行转换
-    let tool_calls_json = json!([{
-        "id": format!("call_manual_{snowflake}"),
-        "type": "function",
-        "function": { "name": tool_name, "arguments": arguments.to_string() },
-    }])
-    .to_string();
-
-    let request_messages = [ChatContextMessage {
-        role: "user".to_string(),
-        content: user_content.to_string(),
-        tool_calls_json: None,
-        tool_results_json: None,
-        thinking: None,
-        thinking_blocks_json: None,
-    }];
+    let tool_calls: Vec<Value> = input.tool_calls.iter().enumerate().map(|(index, (name, arguments_json))| {
+        if name.trim().is_empty() {
+            return Err(Error::from_reason("Manual tool name is required"));
+        }
+        let arguments: Value = serde_json::from_str(arguments_json)
+            .map_err(|error| Error::from_reason(format!("Invalid tool arguments JSON: {error}")))?;
+        if !arguments.is_object() {
+            return Err(Error::from_reason("Tool arguments must be a JSON object"));
+        }
+        Ok(json!({
+            "id": format!("call_manual_{snowflake}_{index}"),
+            "type": "function",
+            "function": { "name": name.trim(), "arguments": arguments.to_string() },
+        }))
+    }).collect::<Result<_>>()?;
+    let tool_calls_json = serde_json::to_string(&tool_calls)
+        .map_err(|error| Error::from_reason(format!("Cannot serialize manual tool calls: {error}")))?;
+    let mut request_messages = input.messages.to_vec();
+    for message in &mut request_messages {
+        message.content = crate::api::conversation::images::persist_inline_images_to_disk(&message.content, database_path)?;
+        if let Some(raw) = message.tool_results_json.as_deref() {
+            message.tool_results_json = Some(crate::api::conversation::images::persist_inline_images_to_disk(raw, database_path)?);
+        }
+    }
     let title = create_title(&request_messages);
-    let preview = create_snippet(
-        &expand_display_tags_in_content(user_content).unwrap_or_else(|| user_content.to_string()),
-        180,
-    );
+    let preview = request_messages.iter().rev().find(|message| message.role == "user").map(|message| {
+        create_snippet(&expand_display_tags_in_content(&message.content).unwrap_or_else(|| message.content.clone()), 180)
+    }).unwrap_or_default();
 
     let persisted = database::open_connection(database_path)
         .and_then(|mut connection| {
@@ -113,28 +111,33 @@ pub fn store_manual_tool_exchange(
                     input.directory_id,
                 ],
             )?;
-            let user_message_id = insert_message(
-                &transaction,
-                &conversation_id,
-                "user",
-                user_content,
-                "",
-                input.checkpoint_id,
-                input.model,
-                "sent",
-                None,
-                None,
-                "{}",
-                "",
-                "[]",
-                0,
-                0,
-                "[]",
-                None,
-                0,
-                0,
-                "",
-            )?;
+            let mut user_message_ids = Vec::new();
+            for (index, message) in request_messages.iter().enumerate() {
+                let is_user = message.role == "user";
+                let message_id = insert_message(
+                    &transaction,
+                    &conversation_id,
+                    &message.role,
+                    &message.content,
+                    "",
+                    if is_user { input.checkpoint_id } else { "" },
+                    input.model,
+                    "sent",
+                    None,
+                    None,
+                    if is_user { "{}" } else { message.tool_results_json.as_deref().unwrap_or("{}") },
+                    "",
+                    "[]",
+                    0,
+                    0,
+                    "[]",
+                    None,
+                    index,
+                    0,
+                    "",
+                )?;
+                if is_user { user_message_ids.push(message_id); }
+            }
             // 无模型调用：不写 token 快照，保留会话已有的上下文用量
             let assistant_message_id = insert_message(
                 &transaction,
@@ -154,7 +157,7 @@ pub fn store_manual_tool_exchange(
                 0,
                 &tool_calls_json,
                 None,
-                1,
+                request_messages.len(),
                 0,
                 "",
             )?;
@@ -162,7 +165,7 @@ pub fn store_manual_tool_exchange(
                 "UPDATE chat_conversations
                     SET title = CASE WHEN title = '' THEN ?2 ELSE title END,
                         summary = CASE WHEN summary = '' THEN ?2 ELSE summary END,
-                        last_message_preview = ?3,
+                        last_message_preview = CASE WHEN ?3 <> '' THEN ?3 ELSE last_message_preview END,
                         message_count = (
                           SELECT COUNT(*)
                             FROM chat_messages
@@ -184,13 +187,13 @@ pub fn store_manual_tool_exchange(
                 ],
             )?;
             transaction.commit()?;
-            Ok(Some((user_message_id, assistant_message_id)))
+            Ok(Some((user_message_ids, assistant_message_id)))
         })
         .map_err(|error| {
             database::database_error(database_path, "store manual tool exchange", error)
         })?;
 
-    let Some((user_message_id, assistant_message_id)) = persisted else {
+    let Some((user_message_ids, assistant_message_id)) = persisted else {
         return Err(Error::from_reason("Conversation has been deleted or archived"));
     };
 
@@ -198,7 +201,7 @@ pub fn store_manual_tool_exchange(
         conversation_id,
         response_id,
         tool_calls_json,
-        persisted_user_message_ids: vec![user_message_id],
+        persisted_user_message_ids: user_message_ids,
         persisted_assistant_message_id: assistant_message_id,
     })
 }

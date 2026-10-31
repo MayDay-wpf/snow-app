@@ -67,6 +67,7 @@ export type ToolExecutionResult = {
   hookAbortMessage: string;
   userQuestionCancelled: boolean;
   pendingHookWarnings: string[];
+  forcedSkillError: string;
 };
 
 /** 子代理工具（激活 / 重新激活）失败判定：结果 JSON 的 success === false
@@ -147,6 +148,7 @@ export type ToolExecutorDeps = {
   responseId: string | undefined;
   /** 会话绑定的 API 档案（纠错请求使用同一档案的基础模型）。 */
   apiProfile: string | undefined;
+  forcedSkillLoad?: boolean;
   isRunCancelled: (key: string) => boolean;
   requestToolAuthorizations: (
     toolCalls: ToolCallInfo[],
@@ -202,6 +204,7 @@ export function createToolExecutor(
     directoryPath,
     responseId,
     apiProfile,
+    forcedSkillLoad,
     isRunCancelled,
     requestToolAuthorizations,
     awaitHookDecision,
@@ -331,6 +334,7 @@ export function createToolExecutor(
         result: string;
       }[] = [];
       let userQuestionCancelled = false;
+      let forcedSkillError = "";
       let hookAborted = false;
       let hookAbortMessage = "";
       const pendingHookWarnings: string[] = [];
@@ -662,6 +666,7 @@ export function createToolExecutor(
         settle: boolean,
       ): Promise<ToolCorrectionSuccess | null> => {
         if (
+          forcedSkillLoad ||
           !isToolCorrectionEligible(correctedCall.name) ||
           !isValidToolName(correctedCall.name) ||
           !(await ensureToolCorrectionPreference())
@@ -1144,6 +1149,7 @@ export function createToolExecutor(
           isPendingSessionKey(effectiveKey);
         if (
           (isParallelizable || isReadonlyTool) &&
+          !forcedSkillLoad &&
           !skipPendingSubAgent &&
           !(name === "imagegen-generate" && imageRegistrationError) &&
           authorizationDecisions[i].status !== "rejected" &&
@@ -1365,6 +1371,7 @@ export function createToolExecutor(
         }
 
         let result: string | undefined;
+        let skillLoadFailure: string | null = null;
         let fileTrackingRecorded = false;
         let correctedExecution = false;
         let correctedReasoning: string | undefined;
@@ -1710,6 +1717,9 @@ export function createToolExecutor(
                   result !== undefined
                 )
                   runtime.watchReceipt(effectiveKey, toolCall, result);
+                // Capture the raw failure before hooks append context to the result.
+                if (forcedSkillLoad)
+                  skillLoadFailure = detectToolFailure(result);
                 // Capture actual execution before hooks can append/replace output
                 // or abort the loop. The final settlement covers thrown errors.
                 recordFileTracking();
@@ -1723,7 +1733,10 @@ export function createToolExecutor(
                     const afterHookContext = JSON.stringify({
                       toolName: toolCall.name,
                       args: JSON.parse(toolArgs),
-                      result: JSON.parse(result),
+                      result:
+                        forcedSkillLoad && !skillLoadFailure
+                          ? result
+                          : JSON.parse(result),
                       cwd: sessionDirPath ?? "",
                     });
                     const afterHookResult = await runHook(
@@ -1836,6 +1849,9 @@ export function createToolExecutor(
             }
           }
 
+          if (forcedSkillLoad) {
+            skillLoadFailure ??= detectToolFailure(result);
+          }
           ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
             currentMessages.map((currentMessage) => {
               if (currentMessage.id !== currentAssistantMessageId) {
@@ -1854,13 +1870,14 @@ export function createToolExecutor(
                       ? settleImageGenerationReceipt(currentToolCall, result)
                       : {
                           ...currentToolCall,
-                          status: validationFailed
-                            ? ("error" as const)
-                            : (toolCall.name === "sub-agents-activate" ||
-                                  toolCall.name === "sub-agents-continue") &&
-                                isFailedSubAgentResult(result)
+                          status:
+                            validationFailed || !!skillLoadFailure
                               ? ("error" as const)
-                              : ("completed" as const),
+                              : (toolCall.name === "sub-agents-activate" ||
+                                    toolCall.name === "sub-agents-continue") &&
+                                  isFailedSubAgentResult(result)
+                                ? ("error" as const)
+                                : ("completed" as const),
                           result,
                         },
                 ),
@@ -1869,6 +1886,10 @@ export function createToolExecutor(
           );
         }
 
+        if (forcedSkillLoad && !forcedSkillError) {
+          const failure = skillLoadFailure ?? detectToolFailure(result);
+          if (failure) forcedSkillError = result || failure;
+        }
         if (toolCall.name === "user-interaction-askUserQuestion") {
           registerUserQuestionSettlement(toolIndex, result!);
         }
@@ -1900,6 +1921,7 @@ export function createToolExecutor(
         hookAbortMessage,
         userQuestionCancelled,
         pendingHookWarnings,
+        forcedSkillError,
       };
     } finally {
       executorClosed = true;

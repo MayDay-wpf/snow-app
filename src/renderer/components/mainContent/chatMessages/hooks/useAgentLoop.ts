@@ -22,7 +22,10 @@ import {
 import { useI18n } from "../../../../i18n";
 import { acquireSshWorkspaceLease } from "../../../../ssh/sshConnectionStore";
 import type { ChatInputSendOptions } from "../../chatInput/types";
-import { summarizeContentAsPlainText } from "../../chatInput/fileTagUtils";
+import {
+  parseContentSegments,
+  summarizeContentAsPlainText,
+} from "../../chatInput/fileTagUtils";
 import type {
   ChatConversationMessage,
   ConversationContextValue,
@@ -863,16 +866,39 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         // Request-local system-level recovery instruction. This deliberately
         // does not become a conversation message or persisted user content.
         internalRecoveryPrompt?: string,
+        skipCompactionGate = false,
       ): Promise<void> => {
         taskHistory.endResponseId = "";
         const iterSessionKey = currentConversationId ?? sessionKey;
         let effectiveKey = iterSessionKey;
-        const manualToolArgsJson =
+        const selectedSkills =
           resumeAfterCompaction || disableTools
+            ? []
+            : requestMessages.flatMap((message) =>
+                message.role === "user"
+                  ? parseContentSegments(message.content).flatMap((segment) =>
+                      segment.type === "skill" ? [segment.tag.skillId] : [],
+                    )
+                  : [],
+              );
+        const isManualSkillExchange = selectedSkills.length > 0;
+        const manualToolArgsJson =
+          resumeAfterCompaction || disableTools || isManualSkillExchange
             ? undefined
             : pendingManualWorkflowArgs;
-        pendingManualWorkflowArgs = undefined;
-        const isManualExchange = manualToolArgsJson !== undefined;
+        if (manualToolArgsJson !== undefined)
+          pendingManualWorkflowArgs = undefined;
+        const manualToolCalls = selectedSkills.map((skill) => ({
+          name: "skills-skill-execute",
+          argumentsJson: JSON.stringify({ skill }),
+        }));
+        if (manualToolArgsJson !== undefined) {
+          manualToolCalls.push({
+            name: WORKFLOW_GENERATE_TOOL_NAME,
+            argumentsJson: manualToolArgsJson,
+          });
+        }
+        const isManualExchange = manualToolCalls.length > 0;
 
         if (resumeAfterCompaction) {
           readonlyGuard.clearAll();
@@ -911,9 +937,9 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         // 工具续跑、插话续跑、Goal 自动续跑、晚到插话、队列回合）都在这里汇合，
         // 因此阈值检查不再依赖各分支自己的「循环是否继续」推断。
         // The tool-free recovery request must remain a single terminal round.
-        // 手动编排首轮不发模型请求，压缩留给工具结果续跑时的闸门。
+        // 手动工具调用及其结果续跑不在此压缩，确保工具结果先交给模型。
         const gateCompaction =
-          disableTools || isManualExchange
+          disableTools || isManualExchange || skipCompactionGate
             ? null
             : await runAutoCompactionGate(ctx, {
                 conversationId: effectiveKey,
@@ -995,9 +1021,18 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             model: capturedOptions.model,
             apiProfile: capturedOptions.apiProfile,
             checkpointId,
-            userContent: requestMessages[0]?.content ?? userMessageContent,
-            toolName: WORKFLOW_GENERATE_TOOL_NAME,
-            argumentsJson: manualToolArgsJson,
+            messages: requestMessages.flatMap((message) =>
+              message.role === "user" || message.role === "tool"
+                ? [
+                    {
+                      role: message.role,
+                      content: message.content,
+                      toolResultsJson: message.toolResultsJson,
+                    },
+                  ]
+                : [],
+            ),
+            toolCalls: manualToolCalls,
           });
           const manualRef = ctx.sessionsRefData.current.get(effectiveKey);
           if (manualRef) {
@@ -1573,7 +1608,9 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         // readonly calls is terminal: its duplicate results are persisted, but
         // sending them back to a provider that already ignored the prior result
         // would only create an unbounded request loop.
-        const readonlyToolNames = await getReadonlyToolNames();
+        const readonlyToolNames = isManualSkillExchange
+          ? new Set<string>()
+          : await getReadonlyToolNames();
         const { executableToolCalls, duplicateReadonlyResults } =
           await readonlyGuard.filterToolCalls(toolCalls, readonlyToolNames);
 
@@ -1610,7 +1647,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
 
         // 手动编排的调用由用户亲手提交，免授权弹窗，直接进入卡片确认执行。
         const authorizationDecisions: ToolAuthorizationDecision[] =
-          isManualExchange
+          isManualExchange && !isManualSkillExchange
             ? executableToolCalls.map(() => ({ status: "approved" as const }))
             : await requestToolAuthorizations(
                 executableToolCalls,
@@ -1642,6 +1679,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           directoryPath: ctx.directoryPath,
           responseId: response.id,
           apiProfile: capturedOptions.apiProfile,
+          forcedSkillLoad: isManualSkillExchange,
           isRunCancelled,
           requestToolAuthorizations,
           awaitHookDecision,
@@ -1663,6 +1701,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           hookAbortMessage,
           userQuestionCancelled,
           pendingHookWarnings,
+          forcedSkillError,
         } = toolExecResult;
 
         const structuredToolResults: {
@@ -1753,6 +1792,28 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         ]);
         const toolResultsJson = JSON.stringify(structuredToolResults);
 
+        if (isManualSkillExchange && forcedSkillError) {
+          runFailed = true;
+          ctx.updateSessionMessages(effectiveKey, (messages) =>
+            messages.map((message) =>
+              message.id === currentAssistantMessageId
+                ? {
+                    ...message,
+                    status: "error" as const,
+                    failureReason: forcedSkillError,
+                  }
+                : message,
+            ),
+          );
+          if (response.conversationId) {
+            await window.snow.appendToolMessage(
+              response.conversationId,
+              toolResultContent,
+            );
+          }
+          return;
+        }
+
         // 仅当只读工具调用触发死循环熔断（isLoopAbort: true），且没有任何其他可执行工具时，
         // 才触发一次 tool-free 的恢复请求以阻断死循环。
         // 正常的只读缓存命中（fromCache: true）已复用返回真实内容，允许模型像普通调用完成
@@ -1841,6 +1902,14 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
             // 保证异步子代理通知不会重写可缓存的 prompt 前缀。
             [{ role: "developer", content: SUB_AGENT_RESULT_CONTINUATION }]
           : [{ role: "tool", content: toolResultContent, toolResultsJson }];
+        if (isManualExchange) {
+          nextMessages.push(
+            ...requestMessages.filter(
+              (message) =>
+                message.role === "system" || message.role === "developer",
+            ),
+          );
+        }
         if (isRunCancelled(effectiveKey)) return;
         // All tool results are settled before steering is appended. Queue is
         // intentionally not touched at this boundary.
@@ -1871,6 +1940,10 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
           nextMessages,
           response.conversationId,
           pendingFlushCheckpointId ?? checkpointId,
+          undefined,
+          false,
+          undefined,
+          isManualExchange,
         );
       };
 

@@ -266,28 +266,64 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       const optionalText = (value: unknown): string | undefined =>
         typeof value === "string" && value.trim() ? value.trim() : undefined;
       if (
-        typeof source.userContent !== "string" ||
-        !source.userContent.trim()
+        !Array.isArray(source.messages) ||
+        !Array.isArray(source.toolCalls) ||
+        !source.toolCalls.length
       ) {
-        throw new Error("User content is required for a manual tool exchange");
-      }
-      if (typeof source.toolName !== "string" || !source.toolName.trim()) {
-        throw new Error("Tool name is required for a manual tool exchange");
-      }
-      if (typeof source.argumentsJson !== "string") {
         throw new Error(
-          "Tool arguments are required for a manual tool exchange",
+          "Messages and tool calls are required for a manual tool exchange",
         );
       }
+      const messages = source.messages.map(
+        (
+          value: unknown,
+        ): {
+          role: "user" | "tool";
+          content: string;
+          toolResultsJson?: string;
+        } => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new Error("Invalid manual exchange message");
+          }
+          const message = value as Record<string, unknown>;
+          if (
+            (message.role !== "user" && message.role !== "tool") ||
+            typeof message.content !== "string" ||
+            !message.content.trim() ||
+            (message.toolResultsJson !== undefined &&
+              typeof message.toolResultsJson !== "string")
+          ) {
+            throw new Error("Invalid manual exchange message");
+          }
+          return {
+            role: message.role,
+            content: message.content,
+            toolResultsJson: message.toolResultsJson,
+          };
+        },
+      );
+      const toolCalls = source.toolCalls.map((value: unknown) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Invalid manual exchange tool call");
+        }
+        const call = value as Record<string, unknown>;
+        if (
+          typeof call.name !== "string" ||
+          !call.name.trim() ||
+          typeof call.argumentsJson !== "string"
+        ) {
+          throw new Error("Invalid manual exchange tool call");
+        }
+        return { name: call.name.trim(), argumentsJson: call.argumentsJson };
+      });
       return native.storeManualToolExchange({
         conversationId: optionalText(source.conversationId),
         directoryId: optionalText(source.directoryId),
         model: optionalText(source.model),
         apiProfile: optionalText(source.apiProfile),
         checkpointId: optionalText(source.checkpointId),
-        userContent: source.userContent,
-        toolName: source.toolName.trim(),
-        argumentsJson: source.argumentsJson,
+        messages,
+        toolCalls,
       });
     },
   );

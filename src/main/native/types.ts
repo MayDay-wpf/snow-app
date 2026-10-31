@@ -1757,9 +1757,12 @@ export type ManualToolExchangeRequest = {
   model?: string;
   apiProfile?: string;
   checkpointId?: string;
-  userContent: string;
-  toolName: string;
-  argumentsJson: string;
+  messages: {
+    role: "user" | "tool";
+    content: string;
+    toolResultsJson?: string;
+  }[];
+  toolCalls: { name: string; argumentsJson: string }[];
 };
 
 export type ResponsesApiStreamChunk = {
