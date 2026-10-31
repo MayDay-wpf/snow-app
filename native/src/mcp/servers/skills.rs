@@ -16,6 +16,10 @@ const SERVER_ID: &str = "skills";
 const TOOL_NAME: &str = "skill-execute";
 pub const SKILL_FILE_NAME: &str = "SKILL.md";
 
+/// 单次本地扫描的目录数量上限：符号链接（junction）可能把扫描带到大树上，
+/// 用预算兜住每轮扫描的成本。
+const MAX_SKILL_SCAN_DIRECTORIES: usize = 2000;
+
 /// 技能目录位置：本地文件系统目录，或 SSH 工作区内的 `ssh://` URI。
 #[derive(Clone)]
 enum SkillDirectory {
@@ -620,14 +624,29 @@ fn load_skills_from_directory(
         return;
     }
 
-    let mut pending_dirs = vec![base_skills_dir.to_path_buf()];
-    while let Some(current_dir) = pending_dirs.pop() {
+    // 链接形式的目录可能成环（a -> b -> a），入栈时用祖先链的真实路径
+    // （canonicalize 会解析链接）判断该目录是否已经在自己的祖先中出现过；
+    // 同时限制扫描的目录数量，避免某个链接指向大树时本轮扫描成本爆炸。
+    let base_key =
+        fs::canonicalize(base_skills_dir).unwrap_or_else(|_| base_skills_dir.to_path_buf());
+    let mut pending_dirs = vec![(base_skills_dir.to_path_buf(), vec![base_key])];
+    let mut remaining_dirs = MAX_SKILL_SCAN_DIRECTORIES;
+    while let Some((current_dir, ancestor_keys)) = pending_dirs.pop() {
+        if remaining_dirs == 0 {
+            eprintln!(
+                "[skills] reached the {MAX_SKILL_SCAN_DIRECTORIES}-directory scan budget at {}; the rest of the tree is skipped",
+                base_skills_dir.display()
+            );
+            break;
+        }
+        remaining_dirs -= 1;
+
         let Ok(entries) = fs::read_dir(&current_dir) else {
             continue;
         };
 
         for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else {
+            let Some(file_type) = resolve_entry_file_type(&entry) else {
                 continue;
             };
             let entry_name = entry.file_name().to_string_lossy().into_owned();
@@ -636,7 +655,14 @@ fn load_skills_from_directory(
                 if should_skip_skill_directory(&entry_name) {
                     continue;
                 }
-                pending_dirs.push(entry.path());
+                let dir_path = entry.path();
+                let dir_key = fs::canonicalize(&dir_path).unwrap_or_else(|_| dir_path.clone());
+                if ancestor_keys.contains(&dir_key) {
+                    continue;
+                }
+                let mut child_ancestor_keys = ancestor_keys.clone();
+                child_ancestor_keys.push(dir_key);
+                pending_dirs.push((dir_path, child_ancestor_keys));
                 continue;
             }
 
@@ -689,6 +715,27 @@ fn load_skills_from_directory(
 
 fn should_skip_skill_directory(name: &str) -> bool {
     name == "templates" || name == "examples" || name == "node_modules" || name.starts_with('.')
+}
+
+/// 解析目录项的真实类型：符号链接 / junction 会跟随链接解析到目标类型，
+/// 悬空链接返回 `None`（跳过）。`DirEntry::file_type()` 不跟随链接，链接目录在其上
+/// 既不是文件也不是目录，链接形式的技能目录会因此被静默忽略，所以这里补一次
+/// `metadata()`（它会跟随链接）。
+fn resolve_entry_file_type(entry: &fs::DirEntry) -> Option<fs::FileType> {
+    let file_type = entry.file_type().ok()?;
+    if file_type.is_dir() || file_type.is_file() {
+        return Some(file_type);
+    }
+    fs::metadata(entry.path())
+        .ok()
+        .map(|metadata| metadata.file_type())
+}
+
+/// 目录项是否为目录（跟随符号链接 / junction）。
+fn entry_is_directory(entry: &fs::DirEntry) -> bool {
+    resolve_entry_file_type(entry)
+        .map(|file_type| file_type.is_dir())
+        .unwrap_or(false)
 }
 
 fn read_skill_file(skill_path: &Path) -> Option<(SkillMetadata, String)> {
@@ -981,8 +1028,8 @@ fn build_local_skill_tree(skill_path: &Path) -> String {
     };
     let mut entries = entries.flatten().collect::<Vec<_>>();
     entries.sort_by(|left, right| {
-        let left_is_dir = left.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
-        let right_is_dir = right.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+        let left_is_dir = entry_is_directory(left);
+        let right_is_dir = entry_is_directory(right);
         right_is_dir
             .cmp(&left_is_dir)
             .then_with(|| left.file_name().cmp(&right.file_name()))
@@ -991,7 +1038,7 @@ fn build_local_skill_tree(skill_path: &Path) -> String {
     let tree_entries = entries
         .iter()
         .map(|entry| {
-            let is_directory = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+            let is_directory = entry_is_directory(entry);
             let children = if is_directory {
                 let mut children = fs::read_dir(entry.path())
                     .map(|sub_entries| sub_entries.flatten().collect::<Vec<_>>())
@@ -1002,7 +1049,7 @@ fn build_local_skill_tree(skill_path: &Path) -> String {
                     .map(|child| {
                         (
                             child.file_name().to_string_lossy().into_owned(),
-                            child.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
+                            entry_is_directory(child),
                         )
                     })
                     .collect()

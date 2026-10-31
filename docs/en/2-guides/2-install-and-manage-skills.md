@@ -36,6 +36,8 @@ Without a project context, only the two global directories are scanned. Scanning
 
 The Skill ID is `team/release`, not the frontmatter `name`. Directories whose names start with `.` and directories named `templates`, `examples`, or `node_modules` are not traversed.
 
+Skill directories that exist as symbolic links (symlinks on Linux/macOS, junctions on Windows) are followed and registered normally; the Skill ID is still the link's path relative to the scan root, and a dangling link that points at nothing is skipped silently.
+
 > A same-ID override replaces the whole Skill—metadata, body, path, and tool restrictions are not merged. When troubleshooting, inspect the effective `path`, `location`, and `source` first.
 
 ## 2. Install from GitHub

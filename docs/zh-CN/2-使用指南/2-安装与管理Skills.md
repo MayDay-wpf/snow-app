@@ -36,6 +36,8 @@ flowchart LR
 
 该 Skill 的 ID 是 `team/release`，不是 frontmatter 中的 `name`。以 `.` 开头的目录以及 `templates`、`examples`、`node_modules` 目录不会被递归扫描。
 
+以符号链接（Linux/macOS 的 symlink、Windows 的 junction）形式存在的技能目录会跟随链接正常注册，技能 ID 仍是链接相对扫描根的路径；指向不存在目标的悬空链接会被静默跳过。
+
 > 同 ID 覆盖会替换整份 Skill（元数据、正文、路径和工具限制），不会合并文件或字段。排错时应先查看实际返回的 `path`、`location` 和 `source`。
 
 ## 2. 从 GitHub 安装
