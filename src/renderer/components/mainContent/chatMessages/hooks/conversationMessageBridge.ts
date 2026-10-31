@@ -292,6 +292,20 @@ export const useConversationRemovalBridge = (
       for (const targetId of targetIds) {
         current.clearInputDraft(targetId);
       }
+      // 通知状态随会话一起清理：后台完成的会话 id 在回合结束时被加入
+      // completedConversationIds，删除 / 归档后若不在这里移除，项目徽标与
+      // 「其他项目」通知区块会一直展示已经不存在的会话（只有重载窗口才清空）。
+      // 待授权 / 待回答的残留由上方 abortConversation 按会话逐个结算。
+      current.setCompletedConversationIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const targetId of targetIds) {
+          if (next.delete(targetId)) {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
       const activeId = current.activeConversationIdRef.current;
       if (activeId && targetIds.includes(activeId)) {
         newChatRef.current();

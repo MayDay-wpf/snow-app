@@ -192,10 +192,12 @@ export const useCrossProjectNotifications = (
 
     const load = async (): Promise<void> => {
       let records: ChatConversationRecord[] = [];
+      let querySucceeded = true;
       if (persistedIds.length > 0) {
         try {
           records = await window.snow.listChatConversationsByIds(persistedIds);
         } catch {
+          querySucceeded = false;
           records = [];
         }
       }
@@ -210,6 +212,21 @@ export const useCrossProjectNotifications = (
           if (!activeIds.has(key)) {
             next.delete(key);
             changed = true;
+          }
+        }
+        // 防御性裁剪：查询成功却没返回的 id（会话已删除，或已归档 / 变为
+        // 子代理会话而不在按 id 查询范围内）说明它有记录也已失效，必须从
+        // 缓存移除。只按「id 是否还在通知集合里」裁剪会把这类旧记录永久
+        // 留在缓存中，项目徽标与「其他项目」区块因此展示已经不存在的会话。
+        // 仅在 IPC 成功时裁剪：一次瞬时读失败不能清空全部通知。
+        if (querySucceeded) {
+          const returnedIds = new Set(
+            records.map((record) => record.conversationId),
+          );
+          for (const id of persistedIds) {
+            if (!returnedIds.has(id) && next.delete(id)) {
+              changed = true;
+            }
           }
         }
         for (const record of [...records, ...pendingRecords]) {

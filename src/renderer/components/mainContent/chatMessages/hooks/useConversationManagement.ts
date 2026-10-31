@@ -131,6 +131,16 @@ export const useConversationManagement = (
       }
       window.dispatchEvent(new CustomEvent(CONVERSATION_SELECTED_EVENT));
       const selectionRequestId = ++ctx.selectionRequestIdRef.current;
+      // 选中会话即视为已读：无论历史是否命中缓存都清除该会话的「已完成」
+      // 通知状态（后台完成时由 agent loop 加入）。此前只在命中已加载缓存的
+      // 分支里清除，首次打开（缓存未命中）的已完成会话会一直留在跨项目通知
+      // 与项目徽标中，直到重载窗口。
+      ctx.setCompletedConversationIds((prev) => {
+        if (!prev.has(trimmedId)) return prev;
+        const next = new Set(prev);
+        next.delete(trimmedId);
+        return next;
+      });
       const cachedSession = ctx.sessionsRef.current[trimmedId];
       const hasLoadedCachedHistory =
         cachedSession !== undefined &&
@@ -203,12 +213,6 @@ export const useConversationManagement = (
 
       if (hasLoadedCachedHistory) {
         ctx.updateSessionField(trimmedId, "hasNewContent", false);
-        ctx.setCompletedConversationIds((prev) => {
-          if (!prev.has(trimmedId)) return prev;
-          const next = new Set(prev);
-          next.delete(trimmedId);
-          return next;
-        });
 
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => {
