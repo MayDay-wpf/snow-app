@@ -89,7 +89,7 @@ The sidebar **Conversations** section normally shows only the **current project'
 - Type `@` to search workspace files. Browse into folders, use breadcrumbs to jump to a parent, or press the left arrow to go up one level;
 - Type `@@<query>` to **search file contents**: only files whose body matches the keyword are listed, each annotated with the matching line numbers and text; selecting one inserts a line-numbered file reference (`file.ts:L5,L20`) and the matching lines are sent to the AI with the message;
 - Type `@?<query>` for a **natural-language file search** (see [Git and Code Browsing](12-git-and-code-browsing.md));
-- Type `@!<query>` to search and reference **enabled Skills**: selecting one inserts a Skill chip into the composer that is sent to the AI as-is, letting the AI read the Skill's name and description and load it on demand;
+- Type `#` to list and search **enabled Skills**, or use `@!<query>`. Select one or more with the arrow keys and Enter or by clicking. When a sent, queued, or steering message is processed, the host loads each selected Skill before the model handles the task. Tool enablement, authorization, and Hooks still apply; rejection or loading failure stops the current task;
 - Select or drag a whole directory when the AI should inspect its contents;
 - Paste or drag one or more images into the input. If the main model has no vision support, the auxiliary vision model produces a text description while retaining a safe `upload/...` reference to the original for later image editing;
 - See [Image Generation](9-image-generation.md) for generation and reference-image rules.

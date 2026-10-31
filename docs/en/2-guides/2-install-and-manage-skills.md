@@ -4,7 +4,7 @@ A Skill is an instruction package whose entry point is `SKILL.md`. Snow App scan
 
 This guide covers scanning, installation, toggles, agent-based management, and uninstallation. To author a Skill from scratch, continue with [Create and Author Skills](21-create-and-author-skills.md).
 
-Type `@!<query>` in the chat input to search **enabled Skills**; selecting one inserts a Skill chip into the composer that is sent to the AI as-is. The AI reads the Skill's name and description, then loads the `SKILL.md` body on demand. See [Using Chat and the AI Assistant](10-using-chat-and-ai.md) for Skill references.
+Type `#` in the chat input to list **enabled Skills**, then search their names, IDs, or descriptions. `@!<query>` also works. Select one or more with the arrow keys and Enter or by clicking. When a sent, queued, or steering message is processed, the host loads each selected Skill through `skills-skill-execute` before the model handles the task. Tool enablement, authorization, and Hooks still apply; a rejection or loading failure stops the current task and displays the error. Loading instructions does not guarantee that the model follows every step, and `allowed-tools` is not an operating-system sandbox. See [Using Chat and the AI Assistant](10-using-chat-and-ai.md).
 
 ## 1. Scan directories and override precedence
 
