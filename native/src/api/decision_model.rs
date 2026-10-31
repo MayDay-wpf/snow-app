@@ -13,11 +13,16 @@
 //! -> 同一段解释代码。任何传输或协议失败都返回错误，由调用方决定回退。
 //!
 //! `evaluate_custom` 是 `decision-evaluate` 工具的通用入口，支持图片证据：
-//! OpenAI 走 `input_image`（共享证据进 input，题级图片进 instructions 数组），
+//! OpenAI 走 `input_image`（共享证据进 input，题级图片按 GA 形态进 instructions 数组），
 //! TypeSafe Jev 走顶层 `assets` + 引用串，并带 `TypeSafe-Danger-Zone-Images` 头。
 //!
-//! 敏感命令判定可选附带会话片段：OpenAI 用原生多轮 `input`（消息 + 工具调用/输出），
-//! TypeSafe Jev 没有多轮协议，按官方 state 用法放进 state 的 `recentConversation`。
+//! 敏感命令判定可选附带会话片段：TypeSafe Jev 没有多轮协议，按官方 state 用法放进
+//! state 的 `recentConversation`；OpenAI Decisions 按 GA 形态发原生多轮 `input`。
+//!
+//! 官方 Decisions 端点在 GA 前只接受纯文本与 user 消息的 `input_text` / `input_image`
+//! 内容块（多轮消息、`function_call` 项、题级图片的 `instructions` 数组都会被判为
+//! 非法请求）。这类端点由 `send_request` 的兼容请求体兜底：先发 GA 形态，只有被按
+//! 非法请求拒绝时才改发纯文本形态，并记住该端点，后续直接用兼容形态。
 //!
 //! 题数与 state 字符预算按 provider 区分（`DecisionProvider::limits`），超预算的结果
 //! 不提问、按保留处理。
@@ -25,8 +30,9 @@
 //! 全部异步执行，不阻塞 Node.js 主线程。请求完成后把响应的 usage 写入
 //! usage_records（request_method = decisions）；Jev 不返回 usage，不写 0 值记录。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use napi::bindgen_prelude::*;
@@ -709,13 +715,13 @@ pub fn resolve_context_message_count(configured: Option<u32>) -> usize {
 /// OpenAI function name 只允许字母数字、`_`、`-`，最长 64。
 const MAX_OPENAI_FUNCTION_NAME_CHARS: usize = 64;
 
-/// 工具调用没有输出时的占位（OpenAI 要求调用与输出按 call_id 配对）。
+/// 工具调用没有输出时的占位。
 const MISSING_TOOL_OUTPUT: &str = "[no output recorded]";
 
-/// TypeSafe state 里会话片段的说明。
-const TYPESAFE_CONTEXT_NOTE: &str = "Recent conversation before this command, oldest first. User messages show what the user actually asked for; the command under review was proposed by the assistant, not typed by the user.";
+/// 会话片段的说明：TypeSafe 放进 state，OpenAI 的兼容形态渲染成 input 文本。
+const CONVERSATION_CONTEXT_NOTE: &str = "Recent conversation before this command, oldest first. User messages show what the user actually asked for; the command under review was proposed by the assistant, not typed by the user.";
 
-/// OpenAI 末尾 developer 消息的前缀：待判定命令放这里，避免被当成用户请求。
+/// OpenAI 待判定命令的前缀：GA 形态放在末尾的 developer 消息里，兼容形态接在会话文本之后，避免被当成用户请求。
 const OPENAI_PENDING_COMMAND_PREFIX: &str = "The conversation above is context only. The assistant now proposes the command below; the user did not type it. Judge this pending command (JSON):";
 
 /// 渲染层裁剪后的一条会话消息（JSON 数组元素，camelCase）。
@@ -880,30 +886,19 @@ fn typesafe_conversation(messages: &[ConversationMessage]) -> Value {
             Value::Object(entry)
         })
         .collect();
-    json!({ "note": TYPESAFE_CONTEXT_NOTE, "messages": messages })
+    json!({ "note": CONVERSATION_CONTEXT_NOTE, "messages": messages })
 }
 
-fn openai_function_name(name: &str) -> String {
-    let sanitized: String = name
-        .trim()
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .take(MAX_OPENAI_FUNCTION_NAME_CHARS)
-        .collect();
-    if sanitized.is_empty() {
-        "tool".to_string()
-    } else {
-        sanitized
-    }
+/// OpenAI 会话上下文的两种写法。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OpenaiContextForm {
+    /// GA 形态：原生多轮 `input`。
+    Native,
+    /// GA 前端点兼容形态：全部渲染成同一条 user 消息的 `input_text` 文本。
+    Text,
 }
 
-/// OpenAI：原生多轮 input（消息 + function_call / function_call_output 按 call_id 配对）。
+/// GA 形态：原生多轮 input（消息 + function_call / function_call_output 按 call_id 配对）。
 fn openai_conversation_items(messages: &[ConversationMessage]) -> Vec<Value> {
     let mut items = Vec::new();
     for message in messages {
@@ -933,13 +928,55 @@ fn openai_conversation_items(messages: &[ConversationMessage]) -> Vec<Value> {
     items
 }
 
-/// 带会话上下文的请求体（只在开关打开且有内容时使用；关闭时走原请求体）。
+fn openai_function_name(name: &str) -> String {
+    let sanitized: String = name
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .take(MAX_OPENAI_FUNCTION_NAME_CHARS)
+        .collect();
+    if sanitized.is_empty() {
+        "tool".to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// 兼容形态：会话片段渲染成带角色标注的文本。
+fn openai_conversation_text(messages: &[ConversationMessage]) -> String {
+    let mut text = String::from(CONVERSATION_CONTEXT_NOTE);
+    for message in messages {
+        if !message.text.trim().is_empty() {
+            text.push_str(&format!("\n{}: {}", message.role, message.text));
+        }
+        for call in &message.tool_calls {
+            text.push_str(&format!(
+                "\nTool call {} with arguments {} returned: {}",
+                call.name,
+                call.arguments.trim(),
+                call.output.as_deref().unwrap_or(MISSING_TOOL_OUTPUT)
+            ));
+        }
+    }
+    text
+}
+
+/// 带会话上下文的请求体：`(GA 形态, 兼容形态)`。
+///
+/// TypeSafe 只有一种写法，兼容形态为 None；OpenAI 的兼容形态把会话渲染成文本，
+/// 供只支持 GA 前协议的端点回退。
 fn build_context_request_body(
     config: &DecisionModelConfig,
     state: &Value,
     questions: &Value,
     messages: &[ConversationMessage],
-) -> Value {
+) -> (Value, Option<Value>) {
     match config.provider {
         DecisionProvider::Typesafe => {
             let mut state = state.clone();
@@ -949,24 +986,57 @@ fn build_context_request_body(
                     typesafe_conversation(messages),
                 );
             }
-            build_request_body(config, &state, questions)
+            (build_request_body(config, &state, questions), None)
         }
-        DecisionProvider::Openai => {
-            let mut input = openai_conversation_items(messages);
-            input.push(json!({
-                "role": "developer",
-                "content": format!(
-                    "{OPENAI_PENDING_COMMAND_PREFIX}\n{}",
-                    serde_json::to_string_pretty(state).unwrap_or_else(|_| state.to_string())
-                ),
-            }));
-            json!({
-                "model": config.model,
-                "input": input,
-                "questions": openai_questions(questions),
-            })
-        }
+        DecisionProvider::Openai => (
+            openai_context_body(config, state, questions, messages, OpenaiContextForm::Native),
+            Some(openai_context_body(
+                config,
+                state,
+                questions,
+                messages,
+                OpenaiContextForm::Text,
+            )),
+        ),
     }
+}
+
+/// OpenAI 带会话上下文的请求体：会话片段 + 待判定命令（含 state 的 JSON 文本）。
+fn openai_context_body(
+    config: &DecisionModelConfig,
+    state: &Value,
+    questions: &Value,
+    messages: &[ConversationMessage],
+    form: OpenaiContextForm,
+) -> Value {
+    let pending = format!(
+        "{OPENAI_PENDING_COMMAND_PREFIX}\n{}",
+        serde_json::to_string_pretty(state).unwrap_or_else(|_| state.to_string())
+    );
+    let input = match form {
+        OpenaiContextForm::Native => {
+            let mut input = openai_conversation_items(messages);
+            input.push(json!({ "role": "developer", "content": pending }));
+            input
+        }
+        OpenaiContextForm::Text => {
+            let mut content: Vec<Value> = Vec::new();
+            if !messages.is_empty() {
+                content.push(json!({
+                    "type": "input_text",
+                    "text": openai_conversation_text(messages),
+                }));
+            }
+            content.push(json!({ "type": "input_text", "text": pending }));
+            vec![json!({ "role": "user", "content": content })]
+        }
+    };
+
+    json!({
+        "model": config.model,
+        "input": input,
+        "questions": openai_questions(questions),
+    })
 }
 
 /// 询问决策模型：命中敏感规则的命令能否直接执行，以及理由分类。
@@ -1063,9 +1133,9 @@ pub async fn evaluate_command(
             ((!kept.is_empty()).then_some(kept), Some(usage))
         }
     };
-    let body = match conversation {
+    let (body, fallback) = match conversation {
         Some(messages) => build_context_request_body(config, &state, &questions, messages),
-        None => build_request_body(config, &state, &questions),
+        None => (build_request_body(config, &state, &questions), None),
     };
 
     let decision = send_request(
@@ -1073,6 +1143,7 @@ pub async fn evaluate_command(
         Some(usage_scope),
         "evaluate_command",
         body,
+        fallback,
         RequestOptions {
             with_images: false,
             allow_refusal: false,
@@ -1335,7 +1406,7 @@ async fn evaluate_state<T, I>(
     interpret: I,
 ) -> ModelCallReport<T>
 where
-    I: FnOnce(Value) -> std::result::Result<T, String>,
+    I: Fn(Value) -> std::result::Result<T, String>,
 {
     let body = build_request_body(config, state, questions);
     send_request(
@@ -1343,6 +1414,7 @@ where
         usage_scope,
         func,
         body,
+        None,
         RequestOptions {
             with_images: false,
             allow_refusal: false,
@@ -1391,17 +1463,120 @@ fn parse_token_usage(parsed: &Value) -> Option<DecisionTokenUsage> {
     })
 }
 
+/// 已确认只支持 GA 前协议的端点（`<endpoint>|<model>`）：进程内记住，后续请求直接发
+/// 兼容形态，不再先撞一次 400；重启后重新探测。
+static LEGACY_ENDPOINTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn legacy_endpoints() -> &'static Mutex<HashSet<String>> {
+    LEGACY_ENDPOINTS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn is_legacy_endpoint(endpoint: &str, model: &str) -> bool {
+    let endpoints = legacy_endpoints()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    endpoints.contains(&legacy_endpoint_key(endpoint, model))
+}
+
+fn remember_legacy_endpoint(endpoint: &str, model: &str) {
+    let mut endpoints = legacy_endpoints()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    endpoints.insert(legacy_endpoint_key(endpoint, model));
+}
+
+fn legacy_endpoint_key(endpoint: &str, model: &str) -> String {
+    format!("{endpoint}|{model}")
+}
+
+/// 端点只支持 GA 前协议的错误特征：`input` 只接受纯文本与 user 消息的
+/// `input_text` / `input_image`，其余形态返回 400 `invalid_parameter`。
+fn is_legacy_protocol_rejection(error: &ModelRequestError) -> bool {
+    error.http_status == Some(400)
+        && (error.message.contains("Invalid decision request")
+            || error.message.contains("invalid_parameter"))
+}
+
+/// 端点拒绝了 GA 请求体、改用兼容形态：写一条 WARN 日志，便于识别端点协议版本。
+async fn log_protocol_fallback(func: &str, provider: DecisionProvider, model: &str) {
+    let Ok(Ok(database_path)) =
+        tokio::task::spawn_blocking(crate::storage::ensure_database_file).await
+    else {
+        return;
+    };
+
+    crate::storage::services::app_logs::log_api_warning(
+        &database_path,
+        func,
+        "The decision model endpoint rejected the GA request body; retried with the compatible form",
+        &format!("provider: {}; model: {model}", provider.as_str()),
+    )
+    .await;
+}
+
+/// 发送一次决策请求：解析响应、折叠答案并交给 `interpret`。
+async fn post_decision_request<T, I>(
+    config: &DecisionModelConfig,
+    endpoint: &str,
+    body: Value,
+    timeout: Duration,
+    options: RequestOptions,
+    interpret: &I,
+) -> std::result::Result<(DecisionResponse<T>, u16), ModelRequestError>
+where
+    I: Fn(Value) -> std::result::Result<T, String>,
+{
+    let provider = config.provider;
+    let (status, text) = post_json(
+        ModelKind::Decision,
+        endpoint,
+        build_headers(&config.api_key, provider, options.with_images),
+        &body,
+        timeout,
+    )
+    .await
+    .map_err(|error| {
+        ModelRequestError::new(
+            error.http_status,
+            format!("{} (provider: {})", error.message, provider.as_str()),
+        )
+    })?;
+
+    let parsed: Value = serde_json::from_str(&text).map_err(|error| {
+        ModelRequestError::new(
+            Some(status),
+            format!(
+                "Failed to parse the {} decision model response: {error}",
+                provider.as_str()
+            ),
+        )
+    })?;
+    let usage = parse_token_usage(&parsed);
+
+    let answers = normalize_answers(provider, &parsed, options.allow_refusal)
+        .map_err(|message| ModelRequestError::new(Some(status), message))?;
+    let normalized = json!({ "answers": answers });
+
+    let value =
+        interpret(normalized).map_err(|message| ModelRequestError::new(Some(status), message))?;
+    Ok((DecisionResponse { value, usage }, status))
+}
+
 /// 发送已构建好的请求体，响应折叠后交给 `interpret`。
+///
+/// `fallback` 是给只支持 GA 前协议的端点准备的兼容请求体：先发 `body`，只有端点按
+/// 非法请求拒绝时才改发 `fallback`（并记住该端点，之后直接用兼容形态）。
 async fn send_request<T, I>(
     config: &DecisionModelConfig,
     usage_scope: Option<&DecisionUsageScope>,
     func: &str,
     body: Value,
+    fallback: Option<Value>,
     options: RequestOptions,
     interpret: I,
 ) -> ModelCallReport<T>
 where
-    I: FnOnce(Value) -> std::result::Result<T, String>,
+    I: Fn(Value) -> std::result::Result<T, String>,
 {
     let endpoint = config.endpoint();
     let endpoint_ref = endpoint.as_str();
@@ -1417,40 +1592,38 @@ where
         func,
         endpoint_ref,
         &config.model,
-        async move {
-            let (status, text) = post_json(
-                ModelKind::Decision,
-                endpoint_ref,
-                build_headers(&config.api_key, provider, options.with_images),
-                &body,
-                timeout,
-            )
-            .await
-            .map_err(|error| {
-                ModelRequestError::new(
-                    error.http_status,
-                    format!("{} (provider: {})", error.message, provider.as_str()),
-                )
-            })?;
+        async {
+            // 已知只支持 GA 前协议的端点：直接发兼容形态。
+            let (body, fallback) = match fallback {
+                Some(fallback) if is_legacy_endpoint(endpoint_ref, &config.model) => {
+                    (fallback, None)
+                }
+                other => (body, other),
+            };
 
-            let parsed: Value = serde_json::from_str(&text).map_err(|error| {
-                ModelRequestError::new(
-                    Some(status),
-                    format!(
-                        "Failed to parse the {} decision model response: {error}",
-                        provider.as_str()
-                    ),
-                )
-            })?;
-            let usage = parse_token_usage(&parsed);
+            let outcome =
+                post_decision_request(config, endpoint_ref, body, timeout, options, &interpret)
+                    .await;
+            let Some(fallback) = fallback else {
+                return outcome;
+            };
 
-            let answers = normalize_answers(provider, &parsed, options.allow_refusal)
-                .map_err(|message| ModelRequestError::new(Some(status), message))?;
-            let normalized = json!({ "answers": answers });
-
-            let value = interpret(normalized)
-                .map_err(|message| ModelRequestError::new(Some(status), message))?;
-            Ok((DecisionResponse { value, usage }, status))
+            match outcome {
+                Err(error) if is_legacy_protocol_rejection(&error) => {
+                    remember_legacy_endpoint(endpoint_ref, &config.model);
+                    log_protocol_fallback(func, provider, &config.model).await;
+                    post_decision_request(
+                        config,
+                        endpoint_ref,
+                        fallback,
+                        timeout,
+                        options,
+                        &interpret,
+                    )
+                    .await
+                }
+                other => other,
+            }
         },
     )
     .await;
@@ -1644,9 +1817,23 @@ pub async fn evaluate_custom(
 ) -> Result<Map<String, Value>> {
     let with_images = !evidence.images.is_empty()
         || questions.iter().any(|question| !question.images.is_empty());
-    let body = match config.provider {
-        DecisionProvider::Typesafe => typesafe_custom_body(config, evidence, questions),
-        DecisionProvider::Openai => openai_custom_body(config, evidence, questions),
+    let (body, fallback) = match config.provider {
+        DecisionProvider::Typesafe => (typesafe_custom_body(config, evidence, questions), None),
+        DecisionProvider::Openai => (
+            openai_custom_body(config, evidence, questions, OpenaiQuestionImagesForm::Instructions),
+            // 题级图片只有 GA 形态能表达；没有题级图片时请求体本身已兼容。
+            questions
+                .iter()
+                .any(|question| !question.images.is_empty())
+                .then(|| {
+                    openai_custom_body(
+                        config,
+                        evidence,
+                        questions,
+                        OpenaiQuestionImagesForm::SharedInput,
+                    )
+                }),
+        ),
     };
     let provider = config.provider;
 
@@ -1655,6 +1842,7 @@ pub async fn evaluate_custom(
         Some(usage_scope),
         "evaluate_custom",
         body,
+        fallback,
         RequestOptions {
             with_images,
             allow_refusal: true,
@@ -1809,12 +1997,27 @@ fn openai_input_text(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
-/// OpenAI 请求体：共享证据进 input 的 user 消息，题级图片让 instructions 变成
-/// `input_text` + `input_image` 数组（官方题级图片写法）。
+/// OpenAI 题级图片的两种写法。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OpenaiQuestionImagesForm {
+    /// GA 形态：题级图片进该题 `instructions` 的 `input_text` + `input_image` 数组。
+    Instructions,
+    /// GA 前端点兼容形态：题级图片进共享 `input`（按题名标注），`instructions` 退回文本。
+    SharedInput,
+}
+
+/// 兼容形态下题级图片在共享 input 里的标注。
+fn openai_shared_image_label(question: &str, image: &str) -> String {
+    format!("Image for question \"{question}\" ({image})")
+}
+
+/// OpenAI 请求体：共享证据进 input 的 user 消息，题级图片按 `form` 决定放
+/// `instructions` 数组（官方写法）还是共享 input（GA 前端点的兼容写法）。
 fn openai_custom_body(
     config: &DecisionModelConfig,
     evidence: &EvidenceInput,
     questions: &[CustomQuestion],
+    form: OpenaiQuestionImagesForm,
 ) -> Value {
     let mut content: Vec<Value> = Vec::new();
     if let Some(text) = &evidence.text {
@@ -1829,6 +2032,17 @@ fn openai_custom_body(
             "text": format!("Image {} ({})", index + 1, image.label),
         }));
         content.push(json!({ "type": "input_image", "image_url": image.data_url() }));
+    }
+    if form == OpenaiQuestionImagesForm::SharedInput {
+        for question in questions {
+            for image in &question.images {
+                content.push(json!({
+                    "type": "input_text",
+                    "text": openai_shared_image_label(&question.name, &image.label),
+                }));
+                content.push(json!({ "type": "input_image", "image_url": image.data_url() }));
+            }
+        }
     }
     let input = if content.is_empty() {
         Value::String(String::new())
@@ -1855,6 +2069,18 @@ fn openai_custom_body(
             }
 
             let instructions = if question.images.is_empty() {
+                Value::String(text)
+            } else if form == OpenaiQuestionImagesForm::SharedInput {
+                // 兼容形态：题级图片在共享 input 里，按标注指给本题。
+                let labels: Vec<String> = question
+                    .images
+                    .iter()
+                    .map(|image| openai_shared_image_label(&question.name, &image.label))
+                    .collect();
+                text.push_str(&format!(
+                    "\nThis question's images are in the shared input, labelled: {}.",
+                    labels.join("; ")
+                ));
                 Value::String(text)
             } else {
                 let mut parts = vec![json!({ "type": "input_text", "text": text })];

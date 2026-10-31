@@ -91,6 +91,16 @@ export type OpenExplorerPayload = {
   directoryId: string;
 };
 
+/** 资源管理器双击文件打开快速编辑弹窗：请求关闭该文件在右侧面板的阅读器 tab */
+export type CloseFileTabPayload = {
+  /** 文件路径（本地绝对路径或 SSH 裸远端路径，与打开时同一口径） */
+  filePath: string;
+  /** 是否为远程（SSH）文件 */
+  isSsh: boolean;
+  /** 远程会话 ID，需与打开该 tab 时使用的一致（本地忽略） */
+  sshSessionId?: string | null;
+};
+
 /** 顶栏 Git 变更视图请求打开文件差异 */
 export type OpenGitDiffPayload = {
   repoPath: string;
@@ -114,6 +124,8 @@ type RightPanelEventMap = {
   "open-terminal-command": (payload: OpenTerminalCommandPayload) => void;
   "open-plugin-panel": (payload: OpenPluginPanelPayload) => void;
   "open-explorer": (payload: OpenExplorerPayload) => void;
+  /** 关闭某个文件在右侧面板的阅读器 tab（快速编辑弹窗接管该文件时使用） */
+  "close-file": (payload: CloseFileTabPayload) => void;
   /** 切换资源管理器：已打开则关闭，否则打开（快捷键专用） */
   "toggle-explorer": (payload: OpenExplorerPayload) => void;
   "open-git-diff": (payload: OpenGitDiffPayload) => void;
@@ -132,6 +144,7 @@ const listeners: {
   "open-terminal-command"?: Set<(payload: OpenTerminalCommandPayload) => void>;
   "open-plugin-panel"?: Set<(payload: OpenPluginPanelPayload) => void>;
   "open-explorer"?: Set<(payload: OpenExplorerPayload) => void>;
+  "close-file"?: Set<(payload: CloseFileTabPayload) => void>;
   "toggle-explorer"?: Set<(payload: OpenExplorerPayload) => void>;
   "open-git-diff"?: Set<(payload: OpenGitDiffPayload) => void>;
   "open-git-file"?: Set<(payload: OpenGitFilePayload) => void>;

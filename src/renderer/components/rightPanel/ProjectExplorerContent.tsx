@@ -747,6 +747,19 @@ export function ProjectExplorerContent({
     [isSsh, rootPath, onOpenTerminal],
   );
 
+  // 双击文件打开快速编辑弹窗：请求关闭该文件在右侧面板的阅读器 tab，
+  // 避免同一文件同时存在「阅读器 tab」与「编辑弹窗」两份视图。
+  const requestCloseFileTab = useCallback(
+    (filePath: string): void => {
+      rightPanelEvents.emit("close-file", {
+        filePath,
+        isSsh,
+        sshSessionId: sshProfileIdRef.current,
+      });
+    },
+    [isSsh],
+  );
+
   const handleEntryContextMenu = useCallback(
     (
       event: React.MouseEvent<HTMLDivElement>,
@@ -1933,6 +1946,7 @@ export function ProjectExplorerContent({
               );
               return;
             }
+            requestCloseFileTab(node.path);
             setEditingEntry({ path: node.path, name: node.name });
           }}
           onContextMenu={(event) => handleEntryContextMenu(event, node)}
@@ -2475,6 +2489,7 @@ export function ProjectExplorerContent({
                           );
                           return;
                         }
+                        requestCloseFileTab(result.path);
                         setEditingEntry({
                           path: result.path,
                           name: result.name,

@@ -250,6 +250,16 @@ const getTabFileIcon = (tab: RightPanelTab): React.ReactNode => {
   return null;
 };
 
+// 文件 tab 的唯一 id：本地按路径区分，远程再带上会话 id（同一远端路径可能来自不同会话）。
+const toFileTabId = (
+  filePath: string,
+  isSsh: boolean,
+  sshSessionId?: string | null,
+): string =>
+  isSsh
+    ? `file:ssh:${sshSessionId ?? "unknown"}:${filePath}`
+    : `file:${filePath}`;
+
 const toLocalBrowserUrl = (url: string | undefined): string => {
   const trimmed = url?.trim() ?? "";
   return /^https?:\/\//i.test(trimmed) ? trimmed : "";
@@ -789,9 +799,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         if (!isSsh && isPdfFilePath(filePath) && openBrowserFile(filePath)) {
           return;
         }
-        const tabId = isSsh
-          ? `file:ssh:${sshSessionId ?? "unknown"}:${filePath}`
-          : `file:${filePath}`;
+        const tabId = toFileTabId(filePath, isSsh, sshSessionId);
         setTabs((prev) => {
           const existing = prev.find((t) => t.id === tabId);
           if (existing) {
@@ -1192,6 +1200,22 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       },
       [tabs, isDetachedWindow],
     );
+
+    // 资源管理器双击文件打开快速编辑弹窗：同一文件的阅读器 tab 自动关闭，
+    // 避免「右侧阅读器 + 编辑弹窗」两份视图并存；阅读器里有未保存修改时保留 tab。
+    useEffect(() => {
+      return rightPanelEvents.on("close-file", (payload) => {
+        const tabId = toFileTabId(
+          payload.filePath,
+          payload.isSsh,
+          payload.sshSessionId,
+        );
+        if (!tabs.some((tab) => tab.id === tabId) || dirtyTabs.has(tabId)) {
+          return;
+        }
+        handleCloseTab(tabId);
+      });
+    }, [tabs, dirtyTabs, handleCloseTab]);
 
     // 快捷键切换资源管理器：折叠时先展开；已停在该 tab 时关闭（切到相邻 tab）。
     useEffect(() => {

@@ -507,8 +507,12 @@ Parameters:
 >
 > **Both providers support images**: OpenAI Decisions uses `input_image`
 > (shared evidence in `input`; question-level images turn `instructions` into an
-> `input_text` + `input_image` array). TypeSafe Jev (1.13 and later) uses the
-> top-level `assets` map with reference strings, and the
+> `input_text` + `input_image` array). An endpoint that only speaks the
+> pre-GA protocol rejects that array with a 400; the request then falls back to
+> a compatible form — question-level images move into the shared `input` labelled
+> `Image for question "<name>" (<file>)`, and the question's instructions point
+> at those labels — and that endpoint keeps using that form. TypeSafe Jev (1.13
+> and later) uses the top-level `assets` map with reference strings, and the
 > `TypeSafe-Danger-Zone-Images: true` header is sent automatically. Jev also
 > requires both sides of an image to be at least 280 px; smaller images are
 > rejected locally. A refused question returns `refused: true` while the other
