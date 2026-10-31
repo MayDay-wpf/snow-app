@@ -9931,23 +9931,54 @@ body.is-panel-resizing * {
 }
 
 /* Floating popover (portaled to body). Position is set inline via JS so it
-   hugs the rail's left edge and opens leftward. */
+   hugs the rail's left edge and opens leftward. 宽度按可用空间夹取，避免窄窗口
+   下超出左缘；高度只封顶不封底，搜索过滤后列表自然变矮但 top 不再回缩。 */
 .user-message-rail-popover {
   position: fixed;
   z-index: 10000;
   display: flex;
   flex-direction: column;
-  width: 260px;
-  max-height: min(60vh, 520px);
+  width: min(340px, calc(100vw - 24px));
+  min-width: 240px;
+  /* 固定高度而非仅 max-height：搜索过滤后结果条数变化时面板尺寸保持稳定，
+     列表内部滚动。否则 26 条缩到 1 条会让面板瞬间塌成一行，体感就是"缩回去"。 */
+  height: min(72vh, 520px);
+  max-height: min(72vh, 520px);
   border-radius: var(--radius-lg);
-  background: var(--surface-island-strong);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--island-shadow);
+  background: var(--surface-island-strong, var(--bg-primary));
+  border: 1px solid var(--border-subtle, var(--border-color));
+  box-shadow:
+    var(--island-shadow, 0 12px 32px rgba(15, 23, 42, 0.12)),
+    0 2px 8px rgba(15, 23, 42, 0.04);
   /* 小面积元素保留毛玻璃（--backdrop-blur-lg 已置 none 以消除大面开销） */
   backdrop-filter: blur(18px) saturate(1.16);
   overflow: hidden;
+  /* 隔离布局与绘制：面板内部尺寸变化不会传播到 appShell（否则会触发
+     App 的 ResizeObserver → 自动收起侧边栏，表现为"输入时侧边栏回收"）。 */
+  contain: layout paint;
   animation: user-message-rail-popover-in 0.14s ease-out;
   -webkit-app-region: no-drag;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .user-message-rail-popover {
+    background: var(--surface-island-strong, var(--bg-primary));
+  }
+}
+
+@media (max-width: 640px) {
+  .user-message-rail-popover {
+    width: min(300px, calc(100vw - 20px));
+    min-width: 220px;
+    height: min(68vh, 440px);
+    max-height: min(68vh, 440px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-message-rail-popover {
+    animation: none;
+  }
 }
 
 @keyframes user-message-rail-popover-in {
@@ -9959,24 +9990,42 @@ body.is-panel-resizing * {
   }
 }
 
-/* 头部即搜索栏：标题让位给输入框，省下一整行高度。 */
+/* 头部即搜索栏：标题让位给输入框，省下一整行高度。
+   用 :focus-within 提供明显的焦点反馈，而不是依赖浏览器默认 outline。 */
 .user-message-rail-popover-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-tertiary);
   flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.user-message-rail-popover-header:focus-within {
+  border-bottom-color: var(--accent-primary, var(--border-color));
+  background: color-mix(
+    in srgb,
+    var(--accent-primary-bg, var(--bg-hover)) 45%,
+    transparent
+  );
+}
+
+.user-message-rail-popover-header > svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .user-message-rail-popover-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -9984,18 +10033,32 @@ body.is-panel-resizing * {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .user-message-rail-popover-header input {
   flex: 1;
   min-width: 0;
-  padding: 0;
+  padding: 2px 0;
   border: none;
-  outline: none;
+  border-radius: 0;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* 焦点反馈做在 header 上（底部强调线 + 微亮底色），输入框自身不画任何焦点环。
+   否则 Chromium 会按系统强调色绘制原生 focus ring，在面板圆角里再套一圈圆角
+   描边，形成"双圆角"视觉；Windows 强调色为绿色时尤其明显。 */
+.user-message-rail-popover-header input:focus,
+.user-message-rail-popover-header input:focus-visible,
+.user-message-rail-popover-header input:focus-within {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  background: transparent !important;
 }
 
 .user-message-rail-popover-header input::placeholder {
@@ -10006,14 +10069,18 @@ body.is-panel-resizing * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 }
 
 .user-message-rail-popover-search-clear:hover {
@@ -10021,11 +10088,44 @@ body.is-panel-resizing * {
   color: var(--text-primary);
 }
 
+.user-message-rail-popover-search-clear:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-tertiary));
+  outline-offset: 1px;
+}
+
 .user-message-rail-popover-empty {
-  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 16px;
   color: var(--text-tertiary);
   font-size: 12px;
   text-align: center;
+}
+
+.user-message-rail-empty-reset {
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.user-message-rail-empty-reset:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.user-message-rail-empty-reset:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-tertiary));
+  outline-offset: 2px;
 }
 
 .user-message-rail-popover-item.is-active {
@@ -10054,13 +10154,13 @@ body.is-panel-resizing * {
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
   text-align: left;
   cursor: pointer;
   transition:
@@ -10071,6 +10171,11 @@ body.is-panel-resizing * {
 .user-message-rail-popover-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.user-message-rail-popover-item:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-tertiary));
+  outline-offset: -2px;
 }
 
 .user-message-rail-popover-item.is-visible {
@@ -10120,6 +10225,99 @@ body.is-panel-resizing * {
 
 .user-message-rail-popover-item-text .user-message-file-chip {
   max-width: 180px;
+}
+
+/* 「#12」数字定位提示条：搜索词恰为消息序号时给出直达入口。 */
+.user-message-rail-numeric-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-primary-bg, var(--border-color));
+  border-radius: var(--radius-md);
+  background: color-mix(
+    in srgb,
+    var(--accent-primary-bg, var(--bg-hover)) 55%,
+    transparent
+  );
+  color: var(--accent-primary-text, var(--text-primary));
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.user-message-rail-numeric-hint:hover {
+  background: var(--accent-primary-bg, var(--bg-hover));
+  border-color: var(--accent-primary, var(--border-color));
+}
+
+.user-message-rail-numeric-hint:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-tertiary));
+  outline-offset: 2px;
+}
+
+.user-message-rail-numeric-hint svg {
+  flex-shrink: 0;
+}
+
+/* 底部快捷键提示：仅在搜索态出现，避免与结果列表抢高度。 */
+.user-message-rail-popover-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--border-light, var(--border-color));
+  color: var(--text-tertiary);
+  font-size: 11px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.user-message-rail-key-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.user-message-rail-key-hint svg {
+  opacity: 0.75;
+}
+
+/* 结果列表的滚动条与 overscroll：长列表滚动时不把页面一起带走。 */
+.user-message-rail-popover-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(100, 116, 139, 0.4)) transparent;
+  overscroll-behavior: contain;
+}
+
+.user-message-rail-popover-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.user-message-rail-popover-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(100, 116, 139, 0.4));
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.user-message-rail-popover-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(100, 116, 139, 0.6));
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-message-rail-popover-item,
+  .user-message-rail-popover-header,
+  .user-message-rail-numeric-hint {
+    transition: none;
+  }
 }
 
 /* ===== 用户消息定位遮罩 =====

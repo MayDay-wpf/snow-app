@@ -857,6 +857,9 @@ export const en = {
   "chat.userMessageRail.searchPlaceholder": "Search user messages",
   "chat.userMessageRail.searchEmpty": "No matching user messages",
   "chat.userMessageRail.searchClear": "Clear search",
+  "chat.userMessageRail.goToMessageNumber": "Jump to message #{{number}}",
+  "chat.userMessageRail.navigateHint": "navigate",
+  "chat.userMessageRail.jumpHint": "jump",
   "chat.hook.unknownWarning": "The hook reported an unknown warning",
   "chat.hook.unknownBlock": "Hook blocked the action",
   "chat.responseFailedFallback":

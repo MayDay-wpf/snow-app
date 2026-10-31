@@ -8,7 +8,14 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Search, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  CornerDownLeft,
+  MessageSquare,
+  Search,
+  X,
+} from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import type { UserMessageSummary } from "../../../../../preload";
 import { ContentChips } from "../../chatInput/ContentChips";
@@ -85,6 +92,15 @@ const LOCATE_MAX_LOAD_ROUNDS = 400;
 /** 落位判定：连续若干帧位置与 scrollHeight 不变即视为稳定。 */
 const LOCATE_STABLE_FRAMES = 5;
 const LOCATE_SETTLE_MAX_FRAMES = 90;
+
+/** 浮层布局常量：宽度的上/下限与 CSS 变量保持一致，JS 只负责夹取与定位。 */
+const POPOVER_WIDTH_MIN = 240;
+const POPOVER_WIDTH_MAX = 420;
+/** 视口留白：浮层不会贴到窗口边沿，右侧空间不足时自动向左侧补位。 */
+const POPOVER_VIEWPORT_MARGIN = 12;
+/** 首屏估算高度，拿到真实布局后立刻由 ResizeObserver 覆盖。 */
+const POPOVER_DEFAULT_HEIGHT = 360;
+const POPOVER_MAX_VIEWPORT_HEIGHT_FRACTION = 0.72;
 
 const CHIP_TAG_MARKERS = [
   "@@file-selection:",
@@ -217,6 +233,9 @@ const RailItem = memo(
     return (
       <button
         type="button"
+        id={`user-message-rail-option-${item.id}`}
+        role="option"
+        aria-selected={isActive}
         data-rail-index={index}
         className={`user-message-rail-popover-item${
           isVisible ? " is-visible" : ""
@@ -270,6 +289,21 @@ export const UserMessageRail = memo(
       left: number;
     } | null>(null);
     const [popoverHeight, setPopoverHeight] = useState<number>(0);
+    /** 展开时冻结的锚点：上边沿不动，过滤结果变少时面板只向上/下收缩，
+     *  而不是像旧实现那样整框朝导轨中心“缩回去”。 */
+    const popoverAnchorRef = useRef<{
+      railTop: number;
+      railHeight: number;
+    } | null>(null);
+    /** 记录上一次提交的面板尺寸，避免 ResizeObserver 回调形成回环。 */
+    const lastPopoverSizeRef = useRef<{ width: number; height: number }>({
+      width: 0,
+      height: 0,
+    });
+    /** 搜索框是否持有焦点：为 true 时鼠标移出（含移到 IME 候选窗）不关闭面板。 */
+    const searchLockedRef = useRef(false);
+    /** IME 组合输入中（拼音尚未上屏）：期间任何鼠标离开都不关闭面板。 */
+    const composingRef = useRef(false);
     const [visibleUserIndices, setVisibleUserIndices] = useState<Set<number>>(
       new Set(),
     );
@@ -480,36 +514,78 @@ export const UserMessageRail = memo(
       };
     }, [scrollContainerRef, containerKey, conversationId, conversationVersion]);
 
-    // Compute popover position relative to the rail element so it opens to
-    // the left, hugging the rail's left edge. The popover top is clamped to
-    // keep the entire popover within the viewport so it never overflows or
-    // grows infinitely off-screen when there are many messages.
-    const computePopoverPosition = useCallback((): {
-      top: number;
-      left: number;
-    } | null => {
+    // 统一观测 + 夹取定位：
+    //  - 宽度按「导轨左侧可用空间」夹取，窄屏自动收窄，右侧不足时向左侧补位；
+    //  - top 在展开时冻结一次，之后只随「上限」变化，不再跟随内容高度重算，
+    //    这是「敲几个字符就缩回去」的根因修复点；
+    //  - ResizeObserver 订阅浮层真实尺寸，过滤/字体/主题变化都会同步。
+    const repositionPopover = useCallback((): void => {
       const rail = railRef.current;
-      if (!rail) return null;
+      if (!rail) return;
       const railRect = rail.getBoundingClientRect();
-      const POPOVER_WIDTH = 260;
-      const POPOVER_GAP = 8;
-      const VIEWPORT_MARGIN = 8;
+      const el = popoverRef.current;
+      const margin = POPOVER_VIEWPORT_MARGIN;
 
-      // Prefer to center the popover vertically on the rail, but clamp it
-      // so the popover never extends beyond the viewport. We need the
-      // popover's actual height for this; if not yet measured, fall back
-      // to a reasonable estimate.
-      const measuredH = popoverRef.current?.offsetHeight ?? 0;
-      const approxH = measuredH > 0 ? measuredH : popoverHeight;
-      const effectiveH = approxH > 0 ? approxH : 400;
+      const availableLeft = railRect.left - margin * 2;
+      const desiredWidth = Math.max(
+        POPOVER_WIDTH_MIN,
+        Math.min(320, availableLeft),
+      );
+      const width = Math.min(
+        POPOVER_WIDTH_MAX,
+        Math.max(POPOVER_WIDTH_MIN, Math.min(desiredWidth, availableLeft)),
+      );
+      const gap = 10;
+      let left = railRect.left - width - gap;
+      // 右侧空间不够时改为贴着导轨左缘向左展开；仍不够则夹到视口内。
+      if (left < margin) {
+        left = Math.max(margin, railRect.left - width - gap);
+        left = Math.max(
+          margin,
+          Math.min(left, window.innerWidth - width - margin),
+        );
+      }
 
-      const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
-      const minTop = VIEWPORT_MARGIN;
-      const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
-      const top = Math.max(minTop, Math.min(desiredTop, maxTop));
+      const maxHeight = Math.min(
+        560,
+        window.innerHeight * POPOVER_MAX_VIEWPORT_HEIGHT_FRACTION,
+      );
+      const measuredH = el?.offsetHeight ?? 0;
+      const effectiveH = Math.min(
+        measuredH > 0
+          ? measuredH
+          : popoverHeight > 0
+            ? popoverHeight
+            : POPOVER_DEFAULT_HEIGHT,
+        maxHeight,
+      );
 
-      const left = railRect.left - POPOVER_WIDTH - POPOVER_GAP;
-      return { top, left };
+      const anchor = popoverAnchorRef.current ?? {
+        railTop: railRect.top,
+        railHeight: railRect.height,
+      };
+      popoverAnchorRef.current = anchor;
+      const idealTop = anchor.railTop + anchor.railHeight / 2 - effectiveH / 2;
+      const maxTop = Math.max(margin, window.innerHeight - effectiveH - margin);
+      const top = Math.max(margin, Math.min(idealTop, maxTop));
+
+      setPopoverPos((prev) => {
+        if (
+          prev &&
+          Math.abs(prev.top - top) < 0.5 &&
+          Math.abs(prev.left - left) < 0.5
+        ) {
+          return prev;
+        }
+        return { top, left };
+      });
+
+      const nextSize = { width, height: effectiveH };
+      const last = lastPopoverSizeRef.current;
+      if (last.width !== nextSize.width || last.height !== nextSize.height) {
+        lastPopoverSizeRef.current = nextSize;
+        setPopoverHeight(effectiveH);
+      }
     }, [popoverHeight]);
 
     const handleMouseEnter = useCallback((): void => {
@@ -517,20 +593,71 @@ export const UserMessageRail = memo(
         clearTimeout(hideTimerRef.current);
         hideTimerRef.current = null;
       }
-      setPopoverPos(computePopoverPosition());
+      const rail = railRef.current;
+      if (rail) {
+        const railRect = rail.getBoundingClientRect();
+        popoverAnchorRef.current = {
+          railTop: railRect.top,
+          railHeight: railRect.height,
+        };
+      }
+      setPopoverPos((prev) => prev ?? { top: 0, left: 0 });
       setHovered(true);
-    }, [computePopoverPosition]);
+      repositionPopover();
+    }, [repositionPopover]);
+
+    // 「输入态锁定」：搜索框获得焦点后，面板不再由鼠标移出关闭。
+    //
+    // 原因：Windows 输入法候选窗是独立的系统窗口，鼠标指向它时 Electron 会判定
+    // 指针离开了面板 → 触发 mouseleave → 200ms 后关闭。用户打拼音（如 wo）时
+    // 鼠标正好在候选窗上，于是按空格确认候选词的瞬间面板消失，输入内容却还留着。
+    // 锁定后用 Esc 或点击面板外部来关闭，输入过程不再被鼠标位置打断。
+    const closePopover = useCallback((): void => {
+      // 关闭时统一清掉输入/组合标记，避免下次 hover 打开带着残留锁定。
+      searchLockedRef.current = false;
+      composingRef.current = false;
+      setHovered(false);
+      setPopoverPos(null);
+      setPopoverHeight(0);
+      popoverAnchorRef.current = null;
+      lastPopoverSizeRef.current = { width: 0, height: 0 };
+    }, []);
 
     const handleMouseLeave = useCallback((): void => {
       if (hideTimerRef.current) {
         clearTimeout(hideTimerRef.current);
       }
       hideTimerRef.current = setTimeout(() => {
-        setHovered(false);
-        setPopoverPos(null);
-        setPopoverHeight(0);
+        // 输入中（含 IME 组合）保持打开。
+        if (searchLockedRef.current || composingRef.current) {
+          return;
+        }
+        // 焦点仍在面板内（输入框或内部按钮）同样不关闭。
+        const active = document.activeElement as HTMLElement | null;
+        if (active && popoverRef.current?.contains(active)) {
+          return;
+        }
+        closePopover();
       }, 200);
-    }, []);
+    }, [closePopover]);
+
+    // 输入态锁定后，关闭只走两条路：Esc 或点击面板外部。
+    // 用捕获阶段监听，确保比列表项的 click 更早执行，避免"点了外面却先触发别的动作"。
+    useEffect(() => {
+      if (!hovered) return;
+      const onPointerDown = (event: PointerEvent): void => {
+        const target = event.target as Node | null;
+        if (!target) return;
+        if (popoverRef.current?.contains(target)) return;
+        if (railRef.current?.contains(target)) return;
+        searchLockedRef.current = false;
+        composingRef.current = false;
+        closePopover();
+      };
+      document.addEventListener("pointerdown", onPointerDown, true);
+      return () =>
+        document.removeEventListener("pointerdown", onPointerDown, true);
+    }, [hovered, closePopover]);
 
     // 点击图标 = 明确要搜索：打开面板并把焦点交给搜索框。
     // hover 打开不走这里，避免鼠标扫过图标就抢走别处的输入焦点。
@@ -607,75 +734,25 @@ export const UserMessageRail = memo(
       };
     }, []);
 
-    // After the popover mounts (hovered becomes true), measure its real
-    // height on the next frame and compute the final clamped position. This
-    // runs once per open — it reads offsetHeight synchronously after layout
-    // so the initial estimate is corrected to exact centering + viewport
-    // clamping.
-    useEffect(() => {
+    // 浮层尺寸/视口变化的统一观测：过滤结果、字号、主题、窗口大小任一变化
+    // 都重新夹取，但 top 只随上限变化，不会再朝导轨中心塌缩。
+    useLayoutEffect(() => {
       if (!hovered) return;
-      const rail = railRef.current;
-      if (!rail) return;
-      let cancelled = false;
-
-      const measureAndPosition = (): void => {
-        if (cancelled) return;
-        const el = popoverRef.current;
-        const railRect = rail.getBoundingClientRect();
-        const POPOVER_WIDTH = 260;
-        const POPOVER_GAP = 8;
-        const VIEWPORT_MARGIN = 8;
-
-        const effectiveH =
-          el?.offsetHeight && el.offsetHeight > 0 ? el.offsetHeight : 400;
-
-        const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
-        const minTop = VIEWPORT_MARGIN;
-        const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
-        const top = Math.max(minTop, Math.min(desiredTop, maxTop));
-        const left = railRect.left - POPOVER_WIDTH - POPOVER_GAP;
-
-        setPopoverPos({ top, left });
-        if (el && el.offsetHeight > 0) {
-          setPopoverHeight(el.offsetHeight);
-        }
-      };
-
-      // Defer one frame so the portaled popover has been laid out.
-      const raf = requestAnimationFrame(measureAndPosition);
+      repositionPopover();
+      const el = popoverRef.current;
+      let observer: ResizeObserver | null = null;
+      if (el && typeof ResizeObserver !== "undefined") {
+        observer = new ResizeObserver(() => {
+          repositionPopover();
+        });
+        observer.observe(el);
+      }
+      window.addEventListener("resize", repositionPopover);
       return () => {
-        cancelled = true;
-        cancelAnimationFrame(raf);
+        observer?.disconnect();
+        window.removeEventListener("resize", repositionPopover);
       };
-    }, [hovered, userMessages]);
-
-    // Recompute on viewport resize so the clamp stays correct.
-    useEffect(() => {
-      if (!hovered) return;
-      const onResize = (): void => {
-        const rail = railRef.current;
-        if (!rail) return;
-        const railRect = rail.getBoundingClientRect();
-        const POPOVER_WIDTH = 260;
-        const POPOVER_GAP = 8;
-        const VIEWPORT_MARGIN = 8;
-        const effectiveH =
-          popoverRef.current?.offsetHeight &&
-          popoverRef.current.offsetHeight > 0
-            ? popoverRef.current.offsetHeight
-            : popoverHeight > 0
-              ? popoverHeight
-              : 400;
-        const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
-        const minTop = VIEWPORT_MARGIN;
-        const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
-        const top = Math.max(minTop, Math.min(desiredTop, maxTop));
-        const left = railRect.left - POPOVER_WIDTH - POPOVER_GAP;
-        setPopoverPos({ top, left });
-      };
-      window.addEventListener("resize", onResize);
-      return () => window.removeEventListener("resize", onResize);
-    }, [hovered, popoverHeight]);
+    }, [hovered, repositionPopover, userMessages.length]);
 
     // Scroll to a target user message. The frontend replaces temporary ids
     // with real DB ids after persistence, so the DOM's data-message-id always
@@ -881,6 +958,52 @@ export const UserMessageRail = memo(
       );
     }, [railItems, searchTerms]);
 
+    /** 「#12」或纯数字直接定位到第 N 条用户消息；长会话不用逐词猜。 */
+    const numericTarget = useMemo(() => {
+      const match = query.trim().match(/^#?(\d{1,6})$/);
+      if (!match) return null;
+      const ordinal = Number(match[1]);
+      if (!Number.isFinite(ordinal) || ordinal < 1) return null;
+      const item = railItems[ordinal - 1];
+      return item ? { item, ordinal } : null;
+    }, [query, railItems]);
+
+    /** 键盘循环步进：到头再按一次回绕，长列表不必反向走一遍。 */
+    const stepActive = useCallback(
+      (delta: number): void => {
+        const total = filteredRailItems.length;
+        if (total === 0) return;
+        setActiveIndex((prev) => {
+          const next = prev + delta;
+          if (next < 0) return total - 1;
+          if (next >= total) return 0;
+          return next;
+        });
+      },
+      [filteredRailItems.length],
+    );
+
+    const jumpToActive = useCallback((): void => {
+      const target = filteredRailItems[activeIndex];
+      if (target) {
+        void handleItemClick(target.item.id);
+      }
+    }, [activeIndex, filteredRailItems, handleItemClick]);
+
+    const goToEdge = useCallback(
+      (edge: "first" | "last"): void => {
+        const total = filteredRailItems.length;
+        if (total === 0) return;
+        const nextIndex = edge === "first" ? 0 : total - 1;
+        setActiveIndex(nextIndex);
+        const target = filteredRailItems[nextIndex];
+        if (target) {
+          void handleItemClick(target.item.id);
+        }
+      },
+      [filteredRailItems, handleItemClick],
+    );
+
     // 搜索词变化时回到第一条结果。
     useEffect(() => {
       setActiveIndex(0);
@@ -915,28 +1038,37 @@ export const UserMessageRail = memo(
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         if (filteredRailItems.length === 0) return;
-        const delta = event.key === "ArrowDown" ? 1 : -1;
-        setActiveIndex((prev) =>
-          Math.min(Math.max(prev + delta, 0), filteredRailItems.length - 1),
-        );
+        stepActive(event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      // Ctrl / Cmd + Home / End：直接落到结果集两端并定位。
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        (event.key === "Home" || event.key === "End")
+      ) {
+        event.preventDefault();
+        goToEdge(event.key === "Home" ? "first" : "last");
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const target = filteredRailItems[activeIndex];
-        if (target) {
-          void handleItemClick(target.item.id);
+        if (numericTarget) {
+          void handleItemClick(numericTarget.item.id);
+          return;
         }
+        jumpToActive();
         return;
       }
       if (event.key === "Escape") {
         event.stopPropagation();
         if (query.length > 0) {
           setQuery("");
-        } else {
-          setHovered(false);
-          setPopoverPos(null);
+          return;
         }
+        // 关闭面板并解除输入锁定（否则下次 hover 打开可能仍带锁定标记）。
+        searchLockedRef.current = false;
+        composingRef.current = false;
+        closePopover();
       }
     };
 
@@ -954,6 +1086,11 @@ export const UserMessageRail = memo(
             <div
               ref={popoverRef}
               className="user-message-rail-popover"
+              role="dialog"
+              data-local-shortcuts=""
+              aria-label={t("chat.userMessageRail.title", {
+                defaultValue: "User messages",
+              })}
               style={{
                 top: `${popoverPos.top}px`,
                 left: `${popoverPos.left}px`,
@@ -962,20 +1099,41 @@ export const UserMessageRail = memo(
               onMouseLeave={handleMouseLeave}
             >
               <div className="user-message-rail-popover-header">
-                <Search size={12} strokeWidth={2} aria-hidden="true" />
+                <Search size={13} strokeWidth={2} aria-hidden="true" />
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
+                  // 锁定面板：聚焦后鼠标移到 IME 候选窗不再触发关闭。
+                  onFocus={() => {
+                    searchLockedRef.current = true;
+                  }}
+                  onBlur={() => {
+                    searchLockedRef.current = false;
+                  }}
+                  // 组合输入期间（拼音未上屏）双保险：任何 mouseleave 都不关闭。
+                  onCompositionStart={() => {
+                    composingRef.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    composingRef.current = false;
+                  }}
                   placeholder={t("chat.userMessageRail.searchPlaceholder", {
                     defaultValue: "Search user messages",
                   })}
                   aria-label={t("chat.userMessageRail.searchPlaceholder", {
                     defaultValue: "Search user messages",
                   })}
+                  aria-controls="user-message-rail-results"
+                  aria-activedescendant={
+                    filteredRailItems[activeIndex]
+                      ? `user-message-rail-option-${filteredRailItems[activeIndex].item.id}`
+                      : undefined
+                  }
                   spellCheck={false}
+                  autoComplete="off"
                 />
                 {query.length > 0 ? (
                   <button
@@ -992,18 +1150,61 @@ export const UserMessageRail = memo(
                     <X size={12} strokeWidth={2} aria-hidden="true" />
                   </button>
                 ) : null}
-                <span className="user-message-rail-popover-count">
+                <span
+                  className="user-message-rail-popover-count"
+                  aria-live="polite"
+                >
                   {searchTerms.length > 0
                     ? `${filteredRailItems.length}/${userMessages.length}`
                     : userMessages.length}
                 </span>
               </div>
-              <div className="user-message-rail-popover-list">
+              {numericTarget ? (
+                <button
+                  type="button"
+                  className="user-message-rail-numeric-hint"
+                  onClick={() => void handleItemClick(numericTarget.item.id)}
+                >
+                  <CornerDownLeft
+                    size={12}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
+                  {t("chat.userMessageRail.goToMessageNumber", {
+                    defaultValue: "Jump to message #{{number}}",
+                    values: { number: numericTarget.ordinal },
+                  })}
+                </button>
+              ) : null}
+              <div
+                id="user-message-rail-results"
+                className="user-message-rail-popover-list"
+                role="listbox"
+                aria-label={t("chat.userMessageRail.title", {
+                  defaultValue: "User messages",
+                })}
+              >
                 {filteredRailItems.length === 0 ? (
                   <div className="user-message-rail-popover-empty">
-                    {t("chat.userMessageRail.searchEmpty", {
-                      defaultValue: "No matching user messages",
-                    })}
+                    <span>
+                      {t("chat.userMessageRail.searchEmpty", {
+                        defaultValue: "No matching user messages",
+                      })}
+                    </span>
+                    {query.length > 0 ? (
+                      <button
+                        type="button"
+                        className="user-message-rail-empty-reset"
+                        onClick={() => {
+                          setQuery("");
+                          searchInputRef.current?.focus();
+                        }}
+                      >
+                        {t("chat.userMessageRail.searchClear", {
+                          defaultValue: "Clear search",
+                        })}
+                      </button>
+                    ) : null}
                   </div>
                 ) : (
                   filteredRailItems.map(({ item, index }, position) => (
@@ -1012,15 +1213,35 @@ export const UserMessageRail = memo(
                       item={item}
                       index={index}
                       isVisible={visibleUserIndices.has(index)}
-                      isActive={
-                        searchTerms.length > 0 && position === activeIndex
-                      }
+                      isActive={position === activeIndex}
                       compactionLabel={compactionLabel}
                       onSelect={handleItemClick}
                     />
                   ))
                 )}
               </div>
+              {searchTerms.length > 0 && filteredRailItems.length > 0 ? (
+                <div className="user-message-rail-popover-footer">
+                  <span className="user-message-rail-key-hint">
+                    <ChevronUp size={11} strokeWidth={2} aria-hidden="true" />
+                    <ChevronDown size={11} strokeWidth={2} aria-hidden="true" />
+                    {t("chat.userMessageRail.navigateHint", {
+                      defaultValue: "navigate",
+                    })}
+                  </span>
+                  <span className="user-message-rail-key-hint">
+                    <CornerDownLeft
+                      size={11}
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                    {t("chat.userMessageRail.jumpHint", {
+                      defaultValue: "jump",
+                    })}
+                  </span>
+                  <span className="user-message-rail-key-hint">Esc</span>
+                </div>
+              ) : null}
             </div>,
             document.body,
           )
