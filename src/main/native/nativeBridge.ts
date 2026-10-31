@@ -26,6 +26,9 @@ const STORAGE_INDEPENDENT_METHODS = new Set<string>([
   // OAuth 插件宿主回调与 provider 声明是进程内状态，不依赖 SQLite。
   "setOAuthPluginHandler",
   "setOAuthPluginProviders",
+  // fetch 钩子的流式通道同样是进程内状态，必须保持同步返回布尔值。
+  "pushOAuthPluginStreamChunk",
+  "endOAuthPluginStream",
   // Git（本地仓库子进程操作）
   "getGitStatus",
   "getGitBranches",
@@ -172,6 +175,8 @@ const createUnavailableBridge = (): NativeBridge => {
     setRepoWikiEventHandler: () => {},
     setOAuthPluginHandler: () => {},
     setOAuthPluginProviders: () => 0,
+    pushOAuthPluginStreamChunk: () => false,
+    endOAuthPluginStream: () => false,
   };
   return new Proxy(overrides as NativeBridge, {
     get(target, prop) {

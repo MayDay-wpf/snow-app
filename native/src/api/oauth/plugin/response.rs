@@ -3,7 +3,8 @@
 //! 三档能力（后一档叠加前一档）：
 //! - `transformResponse`：非 SSE 整段响应在协议解析前改写；
 //! - `onResponseChunk`：SSE 事件逐条改写；
-//! - `fetch`：插件接管传输层，原生层只保留事件解析、usage 记账与取消。
+//! - `fetch`：插件接管传输层，原生层只保留事件解析、usage 记账与取消；返回的 SSE
+//!   响应正文由主进程逐块推入（`stream`），事件仍按到达顺序解析，打字机输出保留。
 //!
 //! 请求上下文由 `record` 在发出请求前写入 task-local 会话；各协议适配器只需在
 //! 发送前调用 `takeover`、在响应流处调用 `wrap_stream`。未声明响应钩子的档案
@@ -22,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::host;
 use super::registry::PluginHooks;
+use super::stream;
 use crate::api::request_proxy::ByteStream;
 use crate::api::sse::find_sse_separator;
 
@@ -53,10 +55,19 @@ struct ResponseHook {
 }
 
 /// 插件 `fetch` 钩子返回的合成响应。
-pub(crate) struct SyntheticBody {
-    pub status: u16,
-    pub headers: Vec<(String, String)>,
-    pub body: String,
+pub(crate) enum SyntheticBody {
+    /// 整段正文（字符串、`{ body }` 或非事件流 `Response`）：一次交付，按旧行为解析。
+    Whole {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: String,
+    },
+    /// SSE 正文：主进程读一块推一块，这边以字节流消费，事件一到就上行。
+    Stream {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: ByteStream,
+    },
 }
 
 /// 待解析的上游响应：原生 HTTP 或插件接管。
@@ -311,6 +322,8 @@ pub(crate) async fn takeover(cancel_token: &CancellationToken) -> Result<Option<
     if !hook.hooks.fetch {
         return Ok(None);
     }
+    // 先开通道再调用插件：插件读到的第一块可能早于本次调用返回。
+    let (stream_id, receiver) = stream::open();
     let ctx = json!({
         "protocol": hook.protocol,
         "model": &hook.model,
@@ -319,19 +332,38 @@ pub(crate) async fn takeover(cancel_token: &CancellationToken) -> Result<Option<
         "headers": &hook.request_headers,
         "body": &hook.request_body,
         "account": &hook.account,
+        "streamId": stream_id,
     });
     let reply = tokio::select! {
         biased;
         _ = cancel_token.cancelled() => {
+            stream::discard(stream_id);
             return Err(Error::from_reason("OAuth plugin fetch hook cancelled"));
         }
-        reply = host::call(HOOK_FETCH, &hook.provider, ctx, FETCH_HOOK_TIMEOUT) => reply?,
+        reply = host::call(HOOK_FETCH, &hook.provider, ctx, FETCH_HOOK_TIMEOUT) => reply,
+    };
+    let reply = match reply {
+        Ok(value) => value,
+        Err(error) => {
+            stream::discard(stream_id);
+            return Err(error);
+        }
     };
     let status = reply
         .get("status")
         .and_then(Value::as_u64)
         .map(|value| value as u16)
         .unwrap_or(200);
+    let headers = header_pairs_from_reply(reply.get("headers"));
+    // 插件按流式返回（SSE 的 Response）：正文由主进程逐块推入，这边按字节流消费。
+    if reply.get("streaming").and_then(Value::as_bool) == Some(true) && (200..300).contains(&status) {
+        return Ok(Some(SyntheticBody::Stream {
+            status,
+            headers,
+            body: stream::into_byte_stream(receiver),
+        }));
+    }
+    stream::discard(stream_id);
     let body = reply
         .get("body")
         .and_then(Value::as_str)
@@ -349,9 +381,9 @@ pub(crate) async fn takeover(cancel_token: &CancellationToken) -> Result<Option<
             crate::api::failure::bounded_provider_detail(&body, 512, Some(access_token))
         )));
     }
-    Ok(Some(SyntheticBody {
+    Ok(Some(SyntheticBody::Whole {
         status,
-        headers: header_pairs_from_reply(reply.get("headers")),
+        headers,
         body,
     }))
 }
@@ -629,7 +661,7 @@ pub(crate) fn wrap_stream(
 ) -> ByteStream {
     let hook = current();
     let (status, headers, inner) = match upstream {
-        UpstreamBody::Synthetic(SyntheticBody {
+        UpstreamBody::Synthetic(SyntheticBody::Whole {
             status,
             headers,
             body,
@@ -640,6 +672,11 @@ pub(crate) fn wrap_stream(
             }));
             (status, headers, body_stream)
         }
+        UpstreamBody::Synthetic(SyntheticBody::Stream {
+            status,
+            headers,
+            body,
+        }) => (status, headers, body),
         UpstreamBody::Http(response) => {
             let status = response.status().as_u16();
             let headers = header_pairs_from_response(response.headers());

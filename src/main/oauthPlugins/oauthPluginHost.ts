@@ -22,6 +22,8 @@ type NativeOAuthPluginBridge = Pick<
   | "upsertOAuthPluginHeaderScheme"
   | "bindOAuthPluginHeaderScheme"
   | "deleteOAuthPluginHeaderScheme"
+  | "pushOAuthPluginStreamChunk"
+  | "endOAuthPluginStream"
 >;
 
 type HookName =
@@ -677,15 +679,63 @@ const isFetchResponse = (value: unknown): value is Response =>
   typeof (value as Response).text === "function" &&
   typeof (value as Response).headers === "object";
 
+/** 事件流响应按流逐块交给 Rust；其余响应仍整段读取。 */
+const isEventStream = (headers: Headers): boolean =>
+  (headers.get("content-type") ?? "")
+    .toLowerCase()
+    .includes("text/event-stream");
+
+/** 读一块推一块，正文因此按到达顺序进入原生解析（打字机输出保留）。 */
+const pumpFetchStream = (response: Response, streamId: number): void => {
+  void (async () => {
+    try {
+      const reader = response.body?.getReader();
+      if (!reader) return;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        // 通道关闭说明对话已取消或本请求已结束：立即停止读取上游。
+        if (
+          !nativeRef?.pushOAuthPluginStreamChunk(streamId, Buffer.from(value))
+        ) {
+          await reader.cancel().catch(() => undefined);
+          return;
+        }
+      }
+    } catch (error) {
+      snowLog.warn({
+        module: MODULE_NAME,
+        func: "fetch",
+        message: "OAuth plugin fetch stream failed",
+        error: describeError(error),
+      });
+    } finally {
+      // 无论正常读完还是出错，都要让 Rust 侧流结束，避免请求悬挂。
+      nativeRef?.endOAuthPluginStream(streamId);
+    }
+  })();
+};
+
 /** `fetch(ctx)` 可返回 Response、字符串或 `{ status, headers, body }`。 */
 const normalizeFetchResult = async (
   value: unknown,
+  streamId: number | null,
 ): Promise<Record<string, unknown>> => {
   if (isFetchResponse(value)) {
     const headers: Record<string, string> = {};
     value.headers.forEach((headerValue, name) => {
       headers[name] = headerValue;
     });
+    // SSE 的 2xx 响应交给流式通道，其余（JSON、非 2xx、无正文）仍整段读取。
+    if (
+      streamId !== null &&
+      value.ok &&
+      value.body &&
+      isEventStream(value.headers)
+    ) {
+      pumpFetchStream(value, streamId);
+      return { status: value.status, headers, streaming: true };
+    }
     return { status: value.status, headers, body: await value.text() };
   }
   if (typeof value === "string") {
@@ -715,7 +765,7 @@ const normalizeFetchResult = async (
 
 const NORMALIZERS: Record<
   HookName,
-  (value: unknown) => unknown | Promise<unknown>
+  (value: unknown, streamId: number | null) => unknown | Promise<unknown>
 > = {
   authorize: normalizeAuthorize,
   exchange: normalizeTokens,
@@ -736,6 +786,18 @@ const findProvider = async (id: string): Promise<LoadedProvider | null> => {
   return providerIndex.get(id) ?? null;
 };
 
+/**
+ * 取走 Rust 为 `fetch` 钩子分配的流式通道 id（宿主内部字段，不交给插件）。
+ */
+const takeStreamId = (ctx: unknown): number | null => {
+  if (!isPlainObject(ctx)) return null;
+  const value = ctx.streamId;
+  delete ctx.streamId;
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : null;
+};
+
 const dispatch = async (message: HostMessage): Promise<unknown> => {
   const providerId = text(message.provider).toLowerCase();
   if (message.method === "describe") {
@@ -747,6 +809,8 @@ const dispatch = async (message: HostMessage): Promise<unknown> => {
   if (!normalize) {
     throw new Error(`Unknown OAuth plugin method: ${message.method}`);
   }
+  // fetch 钩子的流式通道 id 只在本函数内使用，插件看到的 ctx 与文档一致。
+  const streamId = method === "fetch" ? takeStreamId(message.ctx) : null;
   const provider = await findProvider(providerId);
   if (!provider) {
     throw new Error(
@@ -770,7 +834,7 @@ const dispatch = async (message: HostMessage): Promise<unknown> => {
           isPlainObject(message.ctx) ? message.ctx.chunk : undefined,
         )
       : await fn.call(provider.definition, ctx);
-  return await normalize(result);
+  return await normalize(result, streamId);
 };
 
 /** Rust 回调入口：返回 `{ ok, result }` 或 `{ ok: false, error }` 的 JSON 字符串。 */

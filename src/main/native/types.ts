@@ -2530,6 +2530,10 @@ export type NativeBridge = ImageGenerationNativeApi & {
   bindOAuthPluginHeaderScheme: (payloadJson: string) => Promise<void>;
   /** OAuth 插件钩子：删除自定义请求头方案。 */
   deleteOAuthPluginHeaderScheme: (schemeId: string) => Promise<boolean>;
+  /** OAuth 插件 fetch 钩子的流式正文：推入一块字节，返回 false 表示通道已关闭。 */
+  pushOAuthPluginStreamChunk: (streamId: number, chunk: Buffer) => boolean;
+  /** OAuth 插件 fetch 钩子的流式正文结束（正常读完或读取出错）。 */
+  endOAuthPluginStream: (streamId: number) => boolean;
   getOAuthQuota: (profileName: string) => Promise<OAuthQuotaSnapshot>;
   listApiConfigs: () => Promise<ApiConfigRecord[]>;
   /** 重试错误分类默认关键词（JSON 字符串，单一来源在 Rust api::retry）。 */

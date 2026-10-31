@@ -160,6 +160,18 @@ pub async fn delete_oauth_plugin_header_scheme(scheme_id: String) -> Result<bool
     plugin::schemes::remove(scheme_id).await
 }
 
+/// `fetch` 钩子的流式正文：主进程每读到一块就推入，返回 false 表示通道已关闭。
+#[napi(js_name = "pushOAuthPluginStreamChunk")]
+pub fn push_oauth_plugin_stream_chunk(stream_id: u32, chunk: Buffer) -> bool {
+    plugin::stream::push(stream_id, chunk.to_vec())
+}
+
+/// `fetch` 钩子的流式正文结束（正常读完或读取出错），返回 false 表示通道已关闭。
+#[napi(js_name = "endOAuthPluginStream")]
+pub fn end_oauth_plugin_stream(stream_id: u32) -> bool {
+    plugin::stream::close(stream_id)
+}
+
 #[napi(js_name = "startOAuthLogin")]
 pub async fn start_oauth_login(
     provider: String,
