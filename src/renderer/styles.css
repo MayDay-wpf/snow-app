@@ -31942,6 +31942,25 @@ button.user-message-source:hover {
   transition: none;
 }
 
+/* 收起/全屏隐藏态的面板彻底停用原生滚动条绘制：滚动条不参与祖先
+   opacity 的合成淡出，部分平台上会以收起前的几何残留在面板上方
+   （右面板全屏时中部泄露的「对话区滚动条」竖条）。聊天悬浮卡片
+   仍可见，需排除在外。 */
+.app-shell.sidebar-collapsed .sidebar,
+.app-shell.right-panel-fullscreen:not(.chat-float-enabled) .main-content {
+  scrollbar-width: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar::-webkit-scrollbar,
+.app-shell.sidebar-collapsed .sidebar ::-webkit-scrollbar,
+.app-shell.right-panel-fullscreen:not(.chat-float-enabled)
+  .main-content::-webkit-scrollbar,
+.app-shell.right-panel-fullscreen:not(.chat-float-enabled)
+  .main-content
+  ::-webkit-scrollbar {
+  display: none;
+}
+
 /* ===== 右侧面板全屏：聊天视图悬浮为底部卡片 =====
    chat-float-enabled 仅在 activeView 为 chat 时由 App 添加，
    其他视图（设置页等）仍走上方 .main-content 的隐藏规则。
