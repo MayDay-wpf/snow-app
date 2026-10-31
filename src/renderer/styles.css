@@ -29379,18 +29379,20 @@ button.user-message-source:hover {
   color: #fff;
 }
 
+/* flex-basis 需为 auto：basis 0% 会让 inline-flex 芯片的固有宽度取名称的
+   min-content（连字符处断开），短名称被截断成省略号；超宽时仍靠 shrink+ellipsis 收敛。 */
 .file-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
 }
 
 .user-message-file-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
 }
 
 /* WorkFlow 编排标签的节点/连线计数 */
