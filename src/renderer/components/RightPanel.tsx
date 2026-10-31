@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  Fragment,
   forwardRef,
   lazy,
   Suspense,
@@ -21,6 +22,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 
 import { useI18n } from "../i18n";
@@ -102,6 +105,36 @@ import {
   toDetachedTabPayload,
   toRightPanelTab,
 } from "./rightPanel/detachedPanelTab";
+import {
+  activateTabInWorkspace,
+  applyLayoutVars,
+  collectLeaves,
+  computeRects,
+  computeSplitters,
+  createWorkspace,
+  equalizeSplitInWorkspace,
+  findSplitById,
+  focusPaneInWorkspace,
+  moveTabToPaneInWorkspace,
+  paneLayoutVars,
+  paneRectVar,
+  resizeSplitInWorkspace,
+  setSplitSizes,
+  syncWorkspaceTabs,
+  workspaceActiveTabId,
+  type PaneEdge,
+  type PaneSplitter,
+  type RightPanelWorkspace,
+} from "./rightPanel/layout/paneLayout";
+
+/** 右侧面板内拖拽 tab 的 MIME（携带 { tabId }）：拖到别的组即合并/拆分。 */
+const RIGHT_PANE_TAB_MIME = "application/x-snow-right-pane-tab";
+
+/** 拖到内容区边缘的比例阈值：以内为拆分新组，以外为合并进该组。 */
+const DROP_EDGE_RATIO = 0.26;
+
+/** 分隔条拖拽时每组在分割轴上的最小尺寸（px）。 */
+const MIN_PANE_PX = 120;
 
 /** 可拖拽到聊天输入框的 tab 类型（git / codebase 为固定面板，不参与） */
 const DRAGGABLE_TAB_TYPES = new Set([
@@ -322,14 +355,80 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       "toggleRightPanelFullscreen",
     );
     const isDetachedWindow = detachedWindow !== undefined;
-    const [tabs, setTabs] = useState<RightPanelTab[]>(() =>
-      detachedWindow
-        ? [detachedWindow.initialTab]
-        : [{ id: GIT_TAB_ID, type: "git", title: t("rightPanel.gitTab") }],
+    // 面板工作区 = tab 注册表 + 分屏布局 + 当前聚焦的组。两者放在同一状态里，
+    // 保证任何一次增删改都不会让布局与 tab 列表错位；原调用点继续使用同名适配器
+    // setTabs / setActiveTabId，语义保持不变。
+    const [workspace, setWorkspace] = useState<RightPanelWorkspace>(() =>
+      createWorkspace(
+        detachedWindow
+          ? [detachedWindow.initialTab]
+          : [{ id: GIT_TAB_ID, type: "git", title: t("rightPanel.gitTab") }],
+      ),
     );
-    const [activeTabId, setActiveTabId] = useState<string>(() =>
-      detachedWindow ? detachedWindow.initialTab.id : GIT_TAB_ID,
+    // tab 拖拽提示：落点组与位置（内容区四边=拆分成新组，中心=合并进该组）。
+    const [dropTarget, setDropTarget] = useState<{
+      paneId: string;
+      edge: PaneEdge;
+    } | null>(null);
+    // tab 栏内的插入位置提示（同组内重排 / 跨组合并都用它）。
+    const [tabDropIndex, setTabDropIndex] = useState<{
+      paneId: string;
+      index: number;
+    } | null>(null);
+    const layoutRef = useRef<HTMLDivElement>(null);
+    const panelRef = useRef<HTMLElement>(null);
+
+    const tabs = workspace.tabs;
+    const paneModel = useMemo(() => {
+      const leaves = collectLeaves(workspace.layout);
+      const activeByLeaf = new Map<string, string | null>();
+      for (const leaf of leaves) {
+        activeByLeaf.set(leaf.id, leaf.activeTabId);
+      }
+      return {
+        leaves,
+        activeByLeaf,
+        splitters: computeSplitters(workspace.layout),
+        activeTabId: workspaceActiveTabId(workspace),
+        tabById: new Map(workspace.tabs.map((tab) => [tab.id, tab])),
+        layoutVars: paneLayoutVars(workspace.layout) as React.CSSProperties,
+        // 承载操作区（新建 + 全屏）的组：优先 Git 固定 tab 所在的组，切分屏时不会跳动。
+        primaryPaneId:
+          (leaves.find((leaf) => leaf.tabIds.includes(GIT_TAB_ID)) ?? leaves[0])
+            ?.id ?? "",
+      };
+    }, [workspace]);
+    const activeTabId = paneModel.activeTabId;
+    const layoutVars = paneModel.layoutVars;
+    // tab 注册表更新：同步把新 tab 放进聚焦组、把已关闭的 tab 从布局移除。
+    const setTabs = useCallback<Dispatch<SetStateAction<RightPanelTab[]>>>(
+      (action) => {
+        setWorkspace((prev) => {
+          const nextTabs =
+            typeof action === "function" ? action(prev.tabs) : action;
+          return nextTabs === prev.tabs
+            ? prev
+            : syncWorkspaceTabs(prev, nextTabs);
+        });
+      },
+      [],
     );
+    const setActiveTabId = useCallback<Dispatch<SetStateAction<string>>>(
+      (action) => {
+        setWorkspace((prev) => {
+          const nextId =
+            typeof action === "function"
+              ? action(workspaceActiveTabId(prev))
+              : action;
+          return activateTabInWorkspace(prev, nextId);
+        });
+      },
+      [],
+    );
+    // 聚焦某个组：该组当前激活的 tab 即成为面板激活 tab（点击内容区、点 tab 都会走到这里）。
+    const focusPane = useCallback((paneId: string): void => {
+      setWorkspace((prev) => focusPaneInWorkspace(prev, paneId));
+    }, []);
     // 「+」菜单「新建会话」入口（由 DetachedConversationSync 注册，仅独立窗口生效）。
     const createConversationTabRef = useRef<(() => void) | null>(null);
     // 终端 tab 当前绑定的 PTY id（会话建立时上报）。仅用于 tab 迁移时交接会话，
@@ -359,12 +458,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       tabId: string | null;
     } | null>(null);
     // 关闭二次确认 tooltip：terminal / browser tab 点 X 后先弹出确认浮层，
-    // 定位在关闭按钮下方（相对 tab-list 的坐标），避免误关。
+    // 定位在关闭按钮下方（相对面板的坐标，支持任意分组）。
     const [closeConfirm, setCloseConfirm] = useState<{
       tabId: string;
       x: number;
       y: number;
-      maxX: number;
     } | null>(null);
 
     // 订阅 TopBar 发布的代码库同步快照（TopBar 为 watcher 唯一持有者）。
@@ -1556,26 +1654,28 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
 
     useTerminalMcpCommandBridge(terminalMcpCallbacks, activeDirectory);
 
-    const tabListRef = useRef<HTMLDivElement>(null);
-
+    // tab 栏横向滚轮：多组 tab 共用一个委托监听（纵向滚轮转成横向滚动）。
     useEffect(() => {
-      const el = tabListRef.current;
-      if (!el) {
+      const container = layoutRef.current;
+      if (!container) {
         return;
       }
-      const onWheel = (e: WheelEvent) => {
-        if (e.deltaY === 0) {
+      const onWheel = (event: WheelEvent) => {
+        if (event.deltaY === 0) {
           return;
         }
-        const canScroll = el.scrollWidth > el.clientWidth;
-        if (!canScroll) {
+        const target = event.target as HTMLElement | null;
+        const list = target?.closest(
+          ".right-panel-tab-list",
+        ) as HTMLElement | null;
+        if (!list || list.scrollWidth <= list.clientWidth) {
           return;
         }
-        e.preventDefault();
-        el.scrollLeft += e.deltaY;
+        event.preventDefault();
+        list.scrollLeft += event.deltaY;
       };
-      el.addEventListener("wheel", onWheel, { passive: false });
-      return () => el.removeEventListener("wheel", onWheel);
+      container.addEventListener("wheel", onWheel, { passive: false });
+      return () => container.removeEventListener("wheel", onWheel);
     }, [tabs.length]);
 
     // 用户主动关闭 tab（标签按钮、中键、右键菜单）的统一入口：独立窗口的最后一个 tab
@@ -1597,25 +1697,24 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     );
 
     // tab 关闭按钮点击：terminal / browser 需要二次确认（tooltip 浮层），
-    // 其余类型（file / diff 等）直接关闭。浮层坐标基于关闭按钮相对
-    // tab-list 的位置计算，maxX 用于防止浮层超出 tab 栏右边界。
+    // 其余类型（file / diff 等）直接关闭。浮层定位在关闭按钮下方（相对面板的
+    // 坐标），与 tab 属于哪一组无关。
     const handleTabCloseClick = useCallback(
       (event: React.MouseEvent<HTMLButtonElement>, tab: RightPanelTab) => {
         if (tab.type !== "terminal" && tab.type !== "browser") {
           requestCloseTab(tab.id);
           return;
         }
-        const listRect = tabListRef.current?.getBoundingClientRect();
-        if (!listRect) {
+        const panelRect = panelRef.current?.getBoundingClientRect();
+        if (!panelRect) {
           requestCloseTab(tab.id);
           return;
         }
         const rect = event.currentTarget.getBoundingClientRect();
         setCloseConfirm({
           tabId: tab.id,
-          x: rect.left - listRect.left,
-          y: rect.bottom - listRect.top,
-          maxX: listRect.width - 4,
+          x: rect.left - panelRect.left,
+          y: rect.bottom - panelRect.top,
         });
       },
       [requestCloseTab],
@@ -1792,7 +1891,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       .filter(Boolean)
       .join(" ");
 
-    const renderTabContent = (tab: RightPanelTab): React.ReactNode => {
+    // 激活状态按「所属组内是否为当前 tab」判定：分屏后每个组都有自己的激活 tab。
+    const renderTabContent = (
+      tab: RightPanelTab,
+      isTabActive: boolean,
+    ): React.ReactNode => {
       if (tab.type === "git") {
         return (
           <GitPanelContent
@@ -1815,7 +1918,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               shellPath={(tab.data as TerminalTabData).shellPath}
               sessionId={(tab.data as TerminalTabData).sessionId}
               projectId={activeDirectory?.directoryId}
-              isActive={activeTabId === tab.id}
+              isActive={isTabActive}
               onTitleChange={(title) =>
                 handleTerminalTitleChange(tab.id, title)
               }
@@ -1840,7 +1943,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             <BrowserPanelContent
               instanceId={(tab.data as BrowserTabData).instanceId}
               initialUrl={(tab.data as BrowserTabData).url}
-              isActive={activeTabId === tab.id}
+              isActive={isTabActive}
               isPanelCollapsed={isCollapsed && !isDetachedWindow}
               projectId={activeDirectory?.directoryId}
               agentAccess={(tab.data as BrowserTabData).agentAccess}
@@ -1873,7 +1976,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             />
           ) : tab.type === "drawing" ? (
             <DrawingPanelContent
-              isActive={activeTabId === tab.id}
+              isActive={isTabActive}
               onOpenImageGenSettings={
                 onSelectMainView
                   ? () => onSelectMainView("imagegen-settings")
@@ -1881,11 +1984,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               }
             />
           ) : tab.type === "tasks" ? (
-            <TaskManagerContent isActive={activeTabId === tab.id} />
+            <TaskManagerContent isActive={isTabActive} />
           ) : tab.type === "conversation" ? (
             <ConversationTabPane
               conversationId={(tab.data as ConversationTabData).conversationId}
-              isActive={activeTabId === tab.id}
+              isActive={isTabActive}
               activeDirectory={activeDirectory}
             />
           ) : tab.type === "plugin" ? (
@@ -1893,7 +1996,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               <PluginPanelContent
                 pluginId={(tab.data as PluginTabData).pluginId}
                 panelId={(tab.data as PluginTabData).panelId}
-                isActive={activeTabId === tab.id}
+                isActive={isTabActive}
               />
             ) : null
           ) : tab.type === "diff" ? (
@@ -1958,6 +2061,280 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       );
     };
 
+    // ===== 分屏几何与交互 =====
+
+    const paneBoxStyle = (paneId: string): React.CSSProperties => ({
+      left: `var(${paneRectVar(paneId, "l")})`,
+      top: `var(${paneRectVar(paneId, "t")})`,
+      width: `var(${paneRectVar(paneId, "w")})`,
+      height: `var(${paneRectVar(paneId, "h")})`,
+    });
+
+    // tab 内容面板：顶上让出 tab 栏高度，其余按所属组的矩形铺满。
+    const paneContentStyle = (paneId: string): React.CSSProperties => ({
+      left: `var(${paneRectVar(paneId, "l")})`,
+      top: `calc(var(${paneRectVar(paneId, "t")}) + var(--rp-tabbar-h))`,
+      width: `var(${paneRectVar(paneId, "w")})`,
+      height: `calc(var(${paneRectVar(paneId, "h")}) - var(--rp-tabbar-h))`,
+    });
+
+    // 分隔条贴在前一个子节点的右（下）边缘：该子节点的矩形变量在拖拽分隔条时
+    // 会被实时改写，所以定位线跟着鼠标走（分割节点自身的矩形是不变的）。
+    const splitterStyle = (splitter: PaneSplitter): React.CSSProperties =>
+      splitter.orientation === "row"
+        ? {
+            left: `calc(var(${paneRectVar(splitter.childId, "l")}) + var(${paneRectVar(splitter.childId, "w")}))`,
+            top: `var(${paneRectVar(splitter.childId, "t")})`,
+            height: `var(${paneRectVar(splitter.childId, "h")})`,
+          }
+        : {
+            top: `calc(var(${paneRectVar(splitter.childId, "t")}) + var(${paneRectVar(splitter.childId, "h")}))`,
+            left: `var(${paneRectVar(splitter.childId, "l")})`,
+            width: `var(${paneRectVar(splitter.childId, "w")})`,
+          };
+
+    const hasPaneTabDrag = (event: React.DragEvent): boolean =>
+      event.dataTransfer.types.includes(RIGHT_PANE_TAB_MIME);
+
+    /**
+     * 落点反馈只能取效果集合允许的值：tab 拖到聊天输入框时终端用 link、文件用
+     * copy，若在这里强行写 move 会被浏览器判为不可放置（drop 不触发）。
+     */
+    const resolveDropEffect = (
+      effectAllowed: string,
+    ): "move" | "copy" | "link" => {
+      if (effectAllowed === "link") {
+        return "link";
+      }
+      if (effectAllowed === "copy" || effectAllowed === "copyLink") {
+        return "copy";
+      }
+      return "move";
+    };
+
+    const readDraggedTabId = (event: React.DragEvent): string | null => {
+      const raw = event.dataTransfer.getData(RIGHT_PANE_TAB_MIME);
+      if (!raw) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw) as { tabId?: string };
+        return parsed.tabId ?? null;
+      } catch {
+        return null;
+      }
+    };
+
+    // 内容区落点：靠近四边 → 拆分成新组；中间 → 合并进该组。
+    const resolveDropEdge = (
+      event: React.DragEvent,
+      element: HTMLElement,
+    ): PaneEdge => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return "center";
+      }
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      const candidates: { edge: PaneEdge; distance: number }[] = [
+        { edge: "left", distance: x },
+        { edge: "right", distance: 1 - x },
+        { edge: "top", distance: y },
+        { edge: "bottom", distance: 1 - y },
+      ];
+      let best = candidates[0];
+      for (const candidate of candidates) {
+        if (candidate.distance < best.distance) {
+          best = candidate;
+        }
+      }
+      return best.distance < DROP_EDGE_RATIO ? best.edge : "center";
+    };
+
+    // 仅当拖的是本面板的 tab 时才接管；资源管理器 / 终端自身的拖放不受影响。
+    const handlePaneDragOver = (
+      event: React.DragEvent<HTMLDivElement>,
+      paneId: string,
+    ): void => {
+      if (!hasPaneTabDrag(event)) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = resolveDropEffect(
+        event.dataTransfer.effectAllowed,
+      );
+      const edge = resolveDropEdge(event, event.currentTarget);
+      setDropTarget((prev) =>
+        prev && prev.paneId === paneId && prev.edge === edge
+          ? prev
+          : { paneId, edge },
+      );
+    };
+
+    const handlePaneDragLeave = (
+      event: React.DragEvent<HTMLDivElement>,
+    ): void => {
+      if (!hasPaneTabDrag(event)) {
+        return;
+      }
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        return;
+      }
+      setDropTarget(null);
+    };
+
+    const handlePaneDrop = (
+      event: React.DragEvent<HTMLDivElement>,
+      paneId: string,
+    ): void => {
+      const tabId = readDraggedTabId(event);
+      if (!tabId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const edge = resolveDropEdge(event, event.currentTarget);
+      setDropTarget(null);
+      setTabDropIndex(null);
+      setWorkspace((prev) =>
+        moveTabToPaneInWorkspace(prev, tabId, paneId, null, edge),
+      );
+    };
+
+    // tab 栏插入位置：与各 tab 中点比较，得到插入下标。
+    const resolveTabDropIndex = (
+      event: React.DragEvent<HTMLElement>,
+      element: HTMLElement,
+    ): number => {
+      const items = Array.from(
+        element.querySelectorAll<HTMLElement>(".right-panel-tab-item"),
+      );
+      for (let index = 0; index < items.length; index += 1) {
+        const rect = items[index].getBoundingClientRect();
+        if (event.clientX < rect.left + rect.width / 2) {
+          return index;
+        }
+      }
+      return items.length;
+    };
+
+    const handleTabBarDragOver = (
+      event: React.DragEvent<HTMLDivElement>,
+      paneId: string,
+    ): void => {
+      if (!hasPaneTabDrag(event)) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = resolveDropEffect(
+        event.dataTransfer.effectAllowed,
+      );
+      const index = resolveTabDropIndex(event, event.currentTarget);
+      setDropTarget(null);
+      setTabDropIndex((prev) =>
+        prev && prev.paneId === paneId && prev.index === index
+          ? prev
+          : { paneId, index },
+      );
+    };
+
+    const handleTabBarDrop = (
+      event: React.DragEvent<HTMLDivElement>,
+      paneId: string,
+    ): void => {
+      const tabId = readDraggedTabId(event);
+      if (!tabId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const index = resolveTabDropIndex(event, event.currentTarget);
+      setTabDropIndex(null);
+      setDropTarget(null);
+      setWorkspace((prev) =>
+        moveTabToPaneInWorkspace(prev, tabId, paneId, index, "center"),
+      );
+    };
+
+    // 分隔条拖拽：逐帧只改 CSS 变量（不触发 React 渲染），松手才提交尺寸。
+    const handleSplitterPointerDown = (
+      event: React.PointerEvent<HTMLDivElement>,
+      splitter: PaneSplitter,
+    ): void => {
+      if (event.button !== 0) {
+        return;
+      }
+      const container = layoutRef.current;
+      const split = findSplitById(workspace.layout, splitter.splitId);
+      if (!container || !split || split.children.length < 2) {
+        return;
+      }
+      const horizontal = splitter.orientation === "row";
+      const containerRect = container.getBoundingClientRect();
+      const splitRect = computeRects(workspace.layout).get(split.id);
+      if (!splitRect) {
+        return;
+      }
+      const axisPx = horizontal
+        ? splitRect.width * containerRect.width
+        : splitRect.height * containerRect.height;
+      if (axisPx <= 0) {
+        return;
+      }
+      const total = split.sizes.reduce((sum, size) => sum + size, 0) || 1;
+      const firstPx = (split.sizes[splitter.index] / total) * axisPx;
+      const secondPx = (split.sizes[splitter.index + 1] / total) * axisPx;
+      const pairPx = firstPx + secondPx;
+      if (pairPx <= 0) {
+        return;
+      }
+      const minPx = Math.max(48, Math.min(MIN_PANE_PX, pairPx / 2 - 1));
+      const start = horizontal ? event.clientX : event.clientY;
+      const target = event.currentTarget;
+      let pendingSizes: number[] | null = null;
+
+      const handleMove = (moveEvent: PointerEvent): void => {
+        const delta =
+          (horizontal ? moveEvent.clientX : moveEvent.clientY) - start;
+        const nextFirst = Math.min(
+          Math.max(firstPx + delta, minPx),
+          pairPx - minPx,
+        );
+        const sizes = [...split.sizes];
+        sizes[splitter.index] = (nextFirst / axisPx) * total;
+        sizes[splitter.index + 1] = ((pairPx - nextFirst) / axisPx) * total;
+        pendingSizes = sizes;
+        applyLayoutVars(
+          container,
+          setSplitSizes(workspace.layout, split.id, sizes),
+        );
+      };
+      const handleEnd = (): void => {
+        target.removeEventListener("pointermove", handleMove);
+        target.removeEventListener("pointerup", handleEnd);
+        target.removeEventListener("pointercancel", handleEnd);
+        document.body.classList.remove(
+          "is-right-pane-resizing",
+          "is-right-pane-resizing-x",
+          "is-right-pane-resizing-y",
+        );
+        const sizes = pendingSizes;
+        if (sizes) {
+          setWorkspace((prev) => resizeSplitInWorkspace(prev, split.id, sizes));
+        }
+      };
+
+      event.preventDefault();
+      target.setPointerCapture(event.pointerId);
+      target.addEventListener("pointermove", handleMove);
+      target.addEventListener("pointerup", handleEnd);
+      target.addEventListener("pointercancel", handleEnd);
+      document.body.classList.add("is-right-pane-resizing");
+      document.body.classList.add(
+        horizontal ? "is-right-pane-resizing-x" : "is-right-pane-resizing-y",
+      );
+    };
+
     // tab 右键菜单的派生状态：目标 tab 在 tabs 中的下标（无目标或
     // 空白区域右键时为 -1）与各关闭项是否适用（Git 固定 tab 除外）。
     const contextMenuTargetIndex =
@@ -2008,202 +2385,330 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       contextMenuTargetIndex >= 0 &&
       tabs.slice(0, contextMenuTargetIndex).some((t) => t.id !== GIT_TAB_ID);
 
+    // 关闭确认浮层相对面板的横向位置（贴边时向内收，避免被面板裁掉）。
+    const closeConfirmLeft = closeConfirm
+      ? Math.max(
+          4,
+          Math.min(
+            closeConfirm.x,
+            Math.max(4, (panelRef.current?.clientWidth ?? 0) - 172),
+          ),
+        )
+      : 0;
+
     return (
-      <aside className={panelClasses} data-snow-anchor="rightPanel">
-        {tabs.length > 0 && (
-          <div className="right-panel-tabs" data-snow-anchor="rightPanel.tabs">
-            <OverlayScrollbar
-              ref={tabListRef}
-              className="right-panel-tab-list"
-              orientation="horizontal"
-              onScroll={() => setCloseConfirm(null)}
-              onContextMenu={(event) => {
-                // 仅空白区域触发：tab 项上已有各自的右键菜单。
-                if (
-                  (event.target as HTMLElement).closest(".right-panel-tab-item")
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                setCloseConfirm(null);
-                setTabContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  tabId: null,
-                });
-              }}
-            >
-              {tabs.map((tab) => (
+      <aside
+        ref={panelRef}
+        className={panelClasses}
+        data-snow-anchor="rightPanel"
+      >
+        <div
+          ref={layoutRef}
+          className="right-panel-content-wrapper"
+          data-snow-anchor="rightPanel.content"
+          style={layoutVars}
+        >
+          {tabs.length > 0 && (
+            <>
+              {paneModel.leaves.map((leaf) => (
                 <div
-                  key={tab.id}
-                  className={`right-panel-tab-item ${
-                    activeTabId === tab.id ? "active" : ""
-                  }`}
-                  onClick={() => {
-                    setCloseConfirm(null);
-                    setActiveTabId(tab.id);
-                  }}
-                  onMouseDown={(event) => {
-                    // 中键快速关闭（Git 固定 tab 除外）；preventDefault 阻止自动滚动
-                    if (event.button === 1) {
-                      event.preventDefault();
-                      if (tab.id !== GIT_TAB_ID) {
-                        setCloseConfirm(null);
-                        requestCloseTab(tab.id);
-                      }
-                    }
-                  }}
-                  draggable={DRAGGABLE_TAB_TYPES.has(tab.type)}
-                  onDragStart={(event) => handleTabDragStart(event, tab)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setCloseConfirm(null);
-                    setActiveTabId(tab.id);
-                    setTabContextMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      tabId: tab.id,
-                    });
-                  }}
+                  key={leaf.id}
+                  className="right-pane-box"
+                  style={paneBoxStyle(leaf.id)}
+                  onPointerDown={() => focusPane(leaf.id)}
                 >
-                  {getTabFileIcon(tab)}
-                  {tab.type === "browser" &&
-                    getBrowserAgentAccess(tab.id)?.shared && (
-                      <span
-                        className="right-panel-tab-agent-badge"
-                        title={t("browser.sharedBadge")}
-                        aria-hidden="true"
-                      />
-                    )}
-                  <span className="right-panel-tab-title" title={tab.title}>
-                    {dirtyTabs.has(tab.id) && (
-                      <span
-                        className="right-panel-tab-dirty-dot"
-                        aria-hidden="true"
-                      />
-                    )}
-                    {tab.title}
-                  </span>
-                  {tab.id !== GIT_TAB_ID && (
-                    <button
-                      type="button"
-                      className="right-panel-tab-close"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTabCloseClick(e, tab);
+                  <div
+                    className="right-panel-tabs"
+                    data-snow-anchor={
+                      leaf.id === paneModel.primaryPaneId
+                        ? "rightPanel.tabs"
+                        : undefined
+                    }
+                    onDragOver={(event) => handleTabBarDragOver(event, leaf.id)}
+                    onDrop={(event) => handleTabBarDrop(event, leaf.id)}
+                    onDragLeave={(event) => {
+                      if (
+                        event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        return;
+                      }
+                      setTabDropIndex(null);
+                    }}
+                  >
+                    <OverlayScrollbar
+                      className="right-panel-tab-list"
+                      orientation="horizontal"
+                      onScroll={() => setCloseConfirm(null)}
+                      onContextMenu={(event) => {
+                        // 仅空白区域触发：tab 项上已有各自的右键菜单。
+                        if (
+                          (event.target as HTMLElement).closest(
+                            ".right-panel-tab-item",
+                          )
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        setCloseConfirm(null);
+                        setTabContextMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          tabId: null,
+                        });
                       }}
-                      aria-label={t("rightPanel.closeTab")}
                     >
-                      <X size={12} strokeWidth={1.8} />
-                    </button>
+                      {leaf.tabIds.map((tabId, index) => {
+                        const tab = paneModel.tabById.get(tabId);
+                        if (!tab) {
+                          return null;
+                        }
+                        const isTabActive =
+                          paneModel.activeByLeaf.get(leaf.id) === tab.id;
+                        return (
+                          <Fragment key={tab.id}>
+                            {tabDropIndex?.paneId === leaf.id &&
+                              tabDropIndex.index === index && (
+                                <div
+                                  className="right-panel-tab-drop-line"
+                                  aria-hidden="true"
+                                />
+                              )}
+                            <div
+                              key={tab.id}
+                              className={`right-panel-tab-item ${
+                                isTabActive ? "active" : ""
+                              }`}
+                              onClick={() => {
+                                setCloseConfirm(null);
+                                setActiveTabId(tab.id);
+                              }}
+                              onMouseDown={(event) => {
+                                // 中键快速关闭（Git 固定 tab 除外）；preventDefault 阻止自动滚动
+                                if (event.button === 1) {
+                                  event.preventDefault();
+                                  if (tab.id !== GIT_TAB_ID) {
+                                    setCloseConfirm(null);
+                                    requestCloseTab(tab.id);
+                                  }
+                                }
+                              }}
+                              draggable
+                              onDragStart={(event) => {
+                                handleTabDragStart(event, tab);
+                                // 面板内部拖拽：用独立 MIME 携带 tab id——拖到别组
+                                // tab 栏即合并进该组，拖到内容区边缘即拆分成新组。
+                                event.dataTransfer.setData(
+                                  RIGHT_PANE_TAB_MIME,
+                                  JSON.stringify({ tabId: tab.id }),
+                                );
+                                if (
+                                  !DRAGGABLE_TAB_TYPES.has(tab.type) &&
+                                  event.dataTransfer.effectAllowed ===
+                                    "uninitialized"
+                                ) {
+                                  event.dataTransfer.effectAllowed = "move";
+                                }
+                              }}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                setCloseConfirm(null);
+                                setActiveTabId(tab.id);
+                                setTabContextMenu({
+                                  x: event.clientX,
+                                  y: event.clientY,
+                                  tabId: tab.id,
+                                });
+                              }}
+                            >
+                              {getTabFileIcon(tab)}
+                              {tab.type === "browser" &&
+                                getBrowserAgentAccess(tab.id)?.shared && (
+                                  <span
+                                    className="right-panel-tab-agent-badge"
+                                    title={t("browser.sharedBadge")}
+                                    aria-hidden="true"
+                                  />
+                                )}
+                              <span
+                                className="right-panel-tab-title"
+                                title={tab.title}
+                              >
+                                {dirtyTabs.has(tab.id) && (
+                                  <span
+                                    className="right-panel-tab-dirty-dot"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                {tab.title}
+                              </span>
+                              {tab.id !== GIT_TAB_ID && (
+                                <button
+                                  type="button"
+                                  className="right-panel-tab-close"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTabCloseClick(e, tab);
+                                  }}
+                                  aria-label={t("rightPanel.closeTab")}
+                                >
+                                  <X size={12} strokeWidth={1.8} />
+                                </button>
+                              )}
+                            </div>
+                          </Fragment>
+                        );
+                      })}
+                      {tabDropIndex?.paneId === leaf.id &&
+                        tabDropIndex.index >= leaf.tabIds.length && (
+                          <div
+                            className="right-panel-tab-drop-line"
+                            aria-hidden="true"
+                          />
+                        )}
+                    </OverlayScrollbar>
+                    {leaf.id === paneModel.primaryPaneId &&
+                      (hasCustomFrame || isDetachedWindow) && (
+                        <div className="right-panel-tab-actions">
+                          <PlusMenuButton
+                            items={plusMenuItems}
+                            onAction={handlePlusMenuAction}
+                          />
+                          {!isDetachedWindow && (
+                            <button
+                              className="icon-btn ghost right-panel-fullscreen-btn"
+                              type="button"
+                              aria-label={fullscreenToggleLabel}
+                              title={
+                                fullscreenShortcutLabel
+                                  ? `${fullscreenToggleLabel} (${fullscreenShortcutLabel})`
+                                  : fullscreenToggleLabel
+                              }
+                              onClick={() => onToggleRightPanelFullscreen?.()}
+                            >
+                              <FullscreenToggleIcon
+                                size={16}
+                                strokeWidth={1.8}
+                              />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                  </div>
+                  {dropTarget?.paneId === leaf.id && (
+                    <div
+                      className={`right-pane-drop-indicator edge-${dropTarget.edge}`}
+                      aria-hidden="true"
+                    />
                   )}
                 </div>
               ))}
-            </OverlayScrollbar>
-            {(hasCustomFrame || isDetachedWindow) && (
-              <div className="right-panel-tab-actions">
-                <PlusMenuButton
-                  items={plusMenuItems}
-                  onAction={handlePlusMenuAction}
+              {paneModel.splitters.map((splitter) => (
+                <div
+                  key={splitter.key}
+                  className={`right-pane-splitter ${splitter.orientation}`}
+                  style={splitterStyle(splitter)}
+                  role="separator"
+                  aria-orientation={
+                    splitter.orientation === "row" ? "vertical" : "horizontal"
+                  }
+                  onPointerDown={(event) =>
+                    handleSplitterPointerDown(event, splitter)
+                  }
+                  onDoubleClick={() =>
+                    setWorkspace((prev) =>
+                      equalizeSplitInWorkspace(prev, splitter.splitId),
+                    )
+                  }
                 />
-                {!isDetachedWindow && (
-                  <button
-                    className="icon-btn ghost right-panel-fullscreen-btn"
-                    type="button"
-                    aria-label={fullscreenToggleLabel}
-                    title={
-                      fullscreenShortcutLabel
-                        ? `${fullscreenToggleLabel} (${fullscreenShortcutLabel})`
-                        : fullscreenToggleLabel
+              ))}
+              <div className="right-pane-content-layer">
+                {paneModel.leaves.flatMap((leaf) =>
+                  leaf.tabIds.map((tabId) => {
+                    const tab = paneModel.tabById.get(tabId);
+                    if (!tab) {
+                      return null;
                     }
-                    onClick={() => onToggleRightPanelFullscreen?.()}
-                  >
-                    <FullscreenToggleIcon size={16} strokeWidth={1.8} />
-                  </button>
+                    const paneActive =
+                      paneModel.activeByLeaf.get(leaf.id) === tab.id;
+                    return (
+                      <div
+                        key={tab.id}
+                        className={`right-panel-tab-pane ${
+                          paneActive ? "active" : ""
+                        }`}
+                        style={paneContentStyle(leaf.id)}
+                        data-browser-instance-id={
+                          tab.type === "browser"
+                            ? (tab.data as BrowserTabData | undefined)
+                                ?.instanceId
+                            : undefined
+                        }
+                        onDragOver={(event) =>
+                          handlePaneDragOver(event, leaf.id)
+                        }
+                        onDragLeave={handlePaneDragLeave}
+                        onDrop={(event) => handlePaneDrop(event, leaf.id)}
+                        onPointerDownCapture={() => focusPane(leaf.id)}
+                      >
+                        {renderTabContent(tab, paneActive)}
+                      </div>
+                    );
+                  }),
                 )}
               </div>
-            )}
-            {closeConfirm && (
-              <div
-                className="right-panel-close-confirm"
-                style={{
-                  left: Math.max(
-                    4,
-                    Math.min(closeConfirm.x, closeConfirm.maxX - 168),
-                  ),
-                  top: closeConfirm.y + 5,
-                }}
-                role="tooltip"
-                onMouseDown={(e) => e.stopPropagation()}
+            </>
+          )}
+        </div>
+        {closeConfirm && (
+          <div
+            className="right-panel-close-confirm"
+            style={{
+              left: closeConfirmLeft,
+              top: closeConfirm.y + 5,
+            }}
+            role="tooltip"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <span
+              className="right-panel-close-confirm-arrow"
+              style={{
+                left: Math.max(
+                  10,
+                  Math.min(closeConfirm.x + 8 - closeConfirmLeft, 148),
+                ),
+              }}
+              aria-hidden="true"
+            />
+            <span className="right-panel-close-confirm-text">
+              {tabs.find((t) => t.id === closeConfirm.tabId)?.type ===
+              "terminal"
+                ? t("rightPanel.confirmCloseTerminal", {
+                    defaultValue: "关闭终端？",
+                  })
+                : t("rightPanel.confirmCloseBrowser", {
+                    defaultValue: "关闭浏览器？",
+                  })}
+            </span>
+            <div className="right-panel-close-confirm-actions">
+              <button
+                type="button"
+                className="right-panel-close-confirm-btn danger"
+                onClick={confirmCloseTab}
               >
-                <span
-                  className="right-panel-close-confirm-arrow"
-                  style={{
-                    left: Math.max(
-                      10,
-                      Math.min(
-                        closeConfirm.x +
-                          8 -
-                          Math.max(
-                            4,
-                            Math.min(closeConfirm.x, closeConfirm.maxX - 168),
-                          ),
-                        148,
-                      ),
-                    ),
-                  }}
-                  aria-hidden="true"
-                />
-                <span className="right-panel-close-confirm-text">
-                  {tabs.find((t) => t.id === closeConfirm.tabId)?.type ===
-                  "terminal"
-                    ? t("rightPanel.confirmCloseTerminal", {
-                        defaultValue: "关闭终端？",
-                      })
-                    : t("rightPanel.confirmCloseBrowser", {
-                        defaultValue: "关闭浏览器？",
-                      })}
-                </span>
-                <div className="right-panel-close-confirm-actions">
-                  <button
-                    type="button"
-                    className="right-panel-close-confirm-btn danger"
-                    onClick={confirmCloseTab}
-                  >
-                    {t("common.close")}
-                  </button>
-                  <button
-                    type="button"
-                    className="right-panel-close-confirm-btn"
-                    onClick={() => setCloseConfirm(null)}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </div>
-              </div>
-            )}
+                {t("common.close")}
+              </button>
+              <button
+                type="button"
+                className="right-panel-close-confirm-btn"
+                onClick={() => setCloseConfirm(null)}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
           </div>
         )}
-        <div
-          className="right-panel-content-wrapper"
-          data-snow-anchor="rightPanel.content"
-        >
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={`right-panel-tab-pane ${
-                activeTabId === tab.id ? "active" : ""
-              }`}
-              data-browser-instance-id={
-                tab.type === "browser"
-                  ? (tab.data as BrowserTabData | undefined)?.instanceId
-                  : undefined
-              }
-            >
-              {renderTabContent(tab)}
-            </div>
-          ))}
-        </div>
         {tabContextMenu && (
           <RightPanelTabContextMenu
             x={tabContextMenu.x}

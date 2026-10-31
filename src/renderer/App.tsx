@@ -48,7 +48,9 @@ import { useI18n } from "./i18n";
 import { useTheme } from "./hooks/useTheme";
 import {
   readPanelCollapsedState,
+  readPanelWidthState,
   writePanelCollapsedState,
+  writePanelWidthState,
 } from "./utils/layoutPanelState";
 import { ThemeBackgroundPetLayer } from "./components/pet/ThemeBackgroundPetLayer";
 import { ThemeBackgroundImageLayer } from "./components/sidebar/themeSettings/ThemeBackgroundImageLayer";
@@ -161,6 +163,47 @@ type PanelSizeStyle = CSSProperties & {
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
+
+type PanelLayoutMetrics = {
+  sidebarWidth: number;
+  rightPanelWidth: number;
+  isSidebarCollapsed: boolean;
+  isRightPanelCollapsed: boolean;
+};
+
+/**
+ * 面板宽度的上限：受窗口可用空间与主内容区最小宽度约束，
+ * 大屏下按比例放宽，小屏行为不变。
+ */
+const getMaxPanelWidth = (
+  target: ResizeTarget,
+  layout: PanelLayoutMetrics,
+): number => {
+  const visibleSidebarWidth = layout.isSidebarCollapsed
+    ? 0
+    : layout.sidebarWidth;
+  const visibleRightPanelWidth = layout.isRightPanelCollapsed
+    ? 0
+    : layout.rightPanelWidth;
+  const otherPanelWidth =
+    target === "sidebar" ? visibleRightPanelWidth : visibleSidebarWidth;
+  const minWidth =
+    target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
+  const availableWidth =
+    window.innerWidth - APP_LAYOUT_HORIZONTAL_PADDING - APP_LAYOUT_GAP_TOTAL;
+  const mainSafeMax = availableWidth - otherPanelWidth - MAIN_CONTENT_MIN_WIDTH;
+  // On large screens, allow panels to grow proportionally instead of being
+  // capped at a fixed pixel value. The original max is kept as a floor so
+  // small-screen behaviour is unchanged.
+  const ratioMax =
+    target === "sidebar" ? availableWidth * 0.3 : availableWidth * 0.6;
+  const absoluteMax =
+    target === "sidebar"
+      ? Math.max(SIDEBAR_MAX_WIDTH, ratioMax)
+      : Math.max(RIGHT_PANEL_MAX_WIDTH, ratioMax);
+
+  return Math.max(minWidth, Math.min(absoluteMax, mainSafeMax));
+};
 
 /**
  * 快捷键处理器桥接组件。
@@ -471,9 +514,36 @@ export const App = (): React.JSX.Element => {
   // 拖拽中被收起的面板：手势结束前保持分隔条挂载，避免丢失指针捕获。
   const [collapseHoldTarget, setCollapseHoldTarget] =
     useState<ResizeTarget | null>(null);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  // 面板宽度同样是全局偏好：首屏恢复上次拖拽后的宽度，并按当前窗口
+  // 可用空间收敛到允许范围；没有记录时使用默认宽度。
+  const [initialPanelWidths] = useState(() => {
+    const stored = readPanelWidthState();
+    const layout: PanelLayoutMetrics = {
+      sidebarWidth: stored?.sidebar ?? SIDEBAR_DEFAULT_WIDTH,
+      rightPanelWidth: stored?.rightPanel ?? RIGHT_PANEL_DEFAULT_WIDTH,
+      isSidebarCollapsed: initialPanelState.sidebar,
+      isRightPanelCollapsed: initialPanelState.rightPanel,
+    };
+    return {
+      sidebar: Math.round(
+        clamp(
+          layout.sidebarWidth,
+          SIDEBAR_MIN_WIDTH,
+          getMaxPanelWidth("sidebar", layout),
+        ),
+      ),
+      rightPanel: Math.round(
+        clamp(
+          layout.rightPanelWidth,
+          RIGHT_PANEL_MIN_WIDTH,
+          getMaxPanelWidth("right-panel", layout),
+        ),
+      ),
+    };
+  });
+  const [sidebarWidth, setSidebarWidth] = useState(initialPanelWidths.sidebar);
   const [rightPanelWidth, setRightPanelWidth] = useState(
-    RIGHT_PANEL_DEFAULT_WIDTH,
+    initialPanelWidths.rightPanel,
   );
   const [showSshWizard, setShowSshWizard] = useState(false);
   // SSH 向导取消回调：向导经合集右键「添加项目」打开时需要清理目标合集
@@ -514,6 +584,24 @@ export const App = (): React.JSX.Element => {
       rightPanel: isRightPanelCollapsed,
     });
   }, [isSidebarCollapsed, isRightPanelCollapsed]);
+
+  // 面板宽度变化后写入全局记忆（拖拽结束提交新宽度时经过这里）。
+  // 首屏恢复的值若因窗口尺寸被收敛，不比对上一条记录，避免覆盖用户偏好。
+  const persistedWidthsRef = useRef(initialPanelWidths);
+  useEffect(() => {
+    const previous = persistedWidthsRef.current;
+    if (
+      previous.sidebar === sidebarWidth &&
+      previous.rightPanel === rightPanelWidth
+    ) {
+      return;
+    }
+    persistedWidthsRef.current = {
+      sidebar: sidebarWidth,
+      rightPanel: rightPanelWidth,
+    };
+    writePanelWidthState(persistedWidthsRef.current);
+  }, [sidebarWidth, rightPanelWidth]);
 
   const hasCustomFrame = hasCustomWindowFrame();
   const isMacOS = navigator.userAgent.includes("Mac");
@@ -1021,30 +1109,6 @@ export const App = (): React.JSX.Element => {
     "--right-panel-width": `${rightPanelWidth}px`,
   };
 
-  const getMaxPanelWidth = (target: ResizeTarget): number => {
-    const visibleSidebarWidth = isSidebarCollapsed ? 0 : sidebarWidth;
-    const visibleRightPanelWidth = isRightPanelCollapsed ? 0 : rightPanelWidth;
-    const otherPanelWidth =
-      target === "sidebar" ? visibleRightPanelWidth : visibleSidebarWidth;
-    const minWidth =
-      target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
-    const availableWidth =
-      window.innerWidth - APP_LAYOUT_HORIZONTAL_PADDING - APP_LAYOUT_GAP_TOTAL;
-    const mainSafeMax =
-      availableWidth - otherPanelWidth - MAIN_CONTENT_MIN_WIDTH;
-    // On large screens, allow panels to grow proportionally instead of being
-    // capped at a fixed pixel value. The original max is kept as a floor so
-    // small-screen behaviour is unchanged.
-    const ratioMax =
-      target === "sidebar" ? availableWidth * 0.3 : availableWidth * 0.6;
-    const absoluteMax =
-      target === "sidebar"
-        ? Math.max(SIDEBAR_MAX_WIDTH, ratioMax)
-        : Math.max(RIGHT_PANEL_MAX_WIDTH, ratioMax);
-
-    return Math.max(minWidth, Math.min(absoluteMax, mainSafeMax));
-  };
-
   const startPanelResize = (
     target: ResizeTarget,
     event: ReactPointerEvent<HTMLDivElement>,
@@ -1078,7 +1142,12 @@ export const App = (): React.JSX.Element => {
     const startWidth = target === "sidebar" ? sidebarWidth : rightPanelWidth;
     const minWidth =
       target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
-    const maxWidth = getMaxPanelWidth(target);
+    const maxWidth = getMaxPanelWidth(target, {
+      sidebarWidth,
+      rightPanelWidth,
+      isSidebarCollapsed,
+      isRightPanelCollapsed,
+    });
     const linkedFullscreenPanel =
       target === "sidebar" && isRightPanelFullscreen ? rightPanelElement : null;
     const floatingCardElement =

@@ -1,10 +1,11 @@
 /**
- * 左右面板展开/收起状态的全局记忆。
+ * 左右面板展开/收起状态与宽度的全局记忆。
  *
  * 属于全局 UI 偏好（不区分项目与会话），持久化在 localStorage，
  * 应用下次启动时直接恢复。
  */
 const STORAGE_KEY = "snow.layout.panel-collapsed";
+const WIDTH_STORAGE_KEY = "snow.layout.panel-widths";
 
 export type PanelCollapsedState = {
   sidebar: boolean;
@@ -34,6 +35,46 @@ export const readPanelCollapsedState = (): PanelCollapsedState | null => {
 export const writePanelCollapsedState = (state: PanelCollapsedState): void => {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // 持久化失败时仅本次会话生效。
+  }
+};
+
+export type PanelWidthState = {
+  sidebar: number;
+  rightPanel: number;
+};
+
+/** 读取拖拽调整后的面板宽度；缺省或记录非法时返回 null，由调用方决定默认值。 */
+export const readPanelWidthState = (): PanelWidthState | null => {
+  try {
+    const raw = window.localStorage.getItem(WIDTH_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<PanelWidthState> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const sidebar = Number(parsed.sidebar);
+    const rightPanel = Number(parsed.rightPanel);
+    if (
+      !Number.isFinite(sidebar) ||
+      !Number.isFinite(rightPanel) ||
+      sidebar <= 0 ||
+      rightPanel <= 0
+    ) {
+      return null;
+    }
+    return { sidebar, rightPanel };
+  } catch {
+    return null;
+  }
+};
+
+export const writePanelWidthState = (state: PanelWidthState): void => {
+  try {
+    window.localStorage.setItem(WIDTH_STORAGE_KEY, JSON.stringify(state));
   } catch {
     // 持久化失败时仅本次会话生效。
   }

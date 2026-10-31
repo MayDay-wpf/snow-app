@@ -32258,6 +32258,160 @@ button.user-message-source:hover {
   z-index: 2;
 }
 
+/* ===== 右侧面板分屏（同面板多组 tab：拖拽合并 / 拆分 + 可拖拽分隔条） =====
+   几何全部由容器上的 CSS 变量（--rp-<节点 id>-l/t/w/h）决定，拖拽分隔条时
+   只改这些变量即可实时重排，不需要逐帧渲染。 */
+
+.right-panel-content-wrapper {
+  /* tab 栏固定高度：内容面板按它换算顶部偏移，必须与实际渲染高度一致。 */
+  --rp-tabbar-h: 33px;
+}
+
+/* 组盒子：只承载本组的 tab 栏；内容面板统一挂在内容层里，用同一矩形定位，
+   这样把 tab 拖到别的组不会重建终端 / 浏览器 / 画布等重组件。 */
+.right-pane-box {
+  position: absolute;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.right-pane-box > .right-panel-tabs {
+  height: var(--rp-tabbar-h);
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.right-pane-content-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.right-pane-content-layer .right-panel-tab-pane {
+  right: auto;
+  bottom: auto;
+  pointer-events: auto;
+}
+
+/* 分隔条：贴在相邻两组的交界线上；命中区 6px，视觉上是 1px 细线。 */
+.right-pane-splitter {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.right-pane-splitter.row {
+  width: 6px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+
+.right-pane-splitter.column {
+  height: 6px;
+  transform: translateY(-50%);
+  cursor: row-resize;
+}
+
+.right-pane-splitter::before {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: var(--accent-color);
+  /* 常态淡显、悬停/拖拽时满色，颜色始终跟随主题强调色 */
+  opacity: 0.7;
+  transition: opacity 0.12s ease;
+}
+
+.right-pane-splitter.row::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.right-pane-splitter.column::before {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.right-pane-splitter:hover::before,
+.right-pane-splitter:active::before,
+body.is-right-pane-resizing .right-pane-splitter::before {
+  opacity: 1;
+}
+
+body.is-right-pane-resizing {
+  user-select: none;
+}
+
+body.is-right-pane-resizing-x,
+body.is-right-pane-resizing-x * {
+  cursor: col-resize !important;
+}
+
+body.is-right-pane-resizing-y,
+body.is-right-pane-resizing-y * {
+  cursor: row-resize !important;
+}
+
+/* tab 拖拽落点提示：中间=合并进该组，四边=拆分成新组。 */
+.right-pane-drop-indicator {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border: 1px dashed var(--accent-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+}
+
+.right-pane-drop-indicator.edge-center {
+  inset: 3px;
+}
+
+.right-pane-drop-indicator.edge-left {
+  left: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 44%;
+}
+
+.right-pane-drop-indicator.edge-right {
+  right: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 44%;
+}
+
+.right-pane-drop-indicator.edge-top {
+  left: 3px;
+  right: 3px;
+  top: 3px;
+  height: 44%;
+}
+
+.right-pane-drop-indicator.edge-bottom {
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: 44%;
+}
+
+/* tab 栏内的插入位置提示线（同组重排 / 跨组合并） */
+.right-panel-tab-drop-line {
+  flex-shrink: 0;
+  width: 2px;
+  align-self: stretch;
+  margin: 3px 0;
+  border-radius: 1px;
+  background: var(--accent-color);
+}
+
 /* 懒加载 tab chunk 就绪前的占位 loading（如文件查看器/终端首次打开）。 */
 .right-panel-tab-loading {
   flex: 1;
