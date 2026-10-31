@@ -1,11 +1,16 @@
 import { app, session, webContents } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { redactBrowserText } from "../../../shared/browserRedaction";
 import { snowLog } from "../../../utils/snowLogger";
 import {
   clearBrowserDialogs,
   handleBrowserDialogMessage,
 } from "../../browser/browserDialogs";
+import {
+  frameCdpDeadline,
+  getFrameTargetManager,
+} from "../../browser/frameTargetManager";
 
 /**
  * 内置浏览器调试数据收集：
@@ -22,12 +27,23 @@ import {
 
 const browserWebContentsIds = new Set<number>();
 
-/** 供 browserTrace 等扩展模块注册 debugger 消息监听（避免与 recorder 的循环依赖）。 */
+/** 供 browserTrace 等扩展模块注册 debugger 消息监听（避免与 recorder 的循环依赖）。
+ * sessionId 为空串表示根 session；跨域/OOPIF iframe 事件带子 session。 */
 const debuggerMessageListeners = new Set<
-  (webContentsId: number, method: string, params: unknown) => void
+  (
+    webContentsId: number,
+    method: string,
+    params: unknown,
+    sessionId: string,
+  ) => void
 >();
 export const registerDebuggerMessageListener = (
-  listener: (webContentsId: number, method: string, params: unknown) => void,
+  listener: (
+    webContentsId: number,
+    method: string,
+    params: unknown,
+    sessionId: string,
+  ) => void,
 ): void => {
   debuggerMessageListeners.add(listener);
 };
@@ -36,10 +52,11 @@ const notifyDebuggerMessageListeners = (
   webContentsId: number,
   method: string,
   params: unknown,
+  sessionId: string,
 ): void => {
   for (const listener of debuggerMessageListeners) {
     try {
-      listener(webContentsId, method, params);
+      listener(webContentsId, method, params, sessionId);
     } catch {
       // 扩展监听器失败不影响核心调试功能。
     }
@@ -61,8 +78,14 @@ export type BrowserNetworkRecord = {
   recordedAt: string;
   /** 记录来源：cdp（主，含 requestId 可查详情）或 webrequest（降级）。 */
   source: "cdp" | "webrequest";
-  /** CDP 请求 ID，用于查询请求/响应体（仅 cdp 记录）。 */
+  /** 详情查询键：根会话为 CDP requestId；跨域/OOPIF 帧为 `${sessionId}:${requestId}`。 */
   requestId?: string;
+  /** 跨域/OOPIF 帧的原始 CDP requestId（Network.getRequestPostData / getResponseBody 使用）。 */
+  cdpRequestId?: string;
+  /** 记录所属 CDP frame（含同进程子 frame 与 OOPIF）；不是 browser-frames 的不透明 frameId。 */
+  cdpFrameId?: string;
+  /** 记录所属帧 CDP session（仅跨域/OOPIF 帧）；详情命令按此会话发送。 */
+  frameSession?: string;
   mimeType?: string;
   fromCache?: boolean;
   error?: string;
@@ -79,7 +102,8 @@ let nextRecordId = 1;
 let networkRecorderInitialized = false;
 
 // ===== CDP 网络记录（主数据源）=====
-// webContentsId -> 当前导航代际的 CDP 记录（requestId -> record）；主帧导航时归档，保留最近 3 代。
+// webContentsId -> 当前导航代际的 CDP 记录；键为「帧会话 + requestId」组合
+// （根会话沿用裸 requestId）。主帧导航时归档，保留最近 3 代。
 type CdpNetworkState = {
   current: Map<string, BrowserNetworkRecord>;
   archived: Map<string, BrowserNetworkRecord>[];
@@ -89,6 +113,10 @@ const cdpNetworkRecords = new Map<number, CdpNetworkState>();
 const mainFrameIds = new Map<number, string>();
 const MAX_ARCHIVED_GENERATIONS = 3;
 // CDP and webRequest records share nextRecordId, preventing ambiguous detail IDs.
+
+/** CDP 请求只在所属帧会话内唯一；根会话（空 sessionId）沿用裸 requestId。 */
+const cdpNetworkKey = (sessionId: string, requestId: string): string =>
+  sessionId ? `${sessionId}:${requestId}` : requestId;
 
 const findCdpRecord = (
   webContentsId: number,
@@ -241,6 +269,8 @@ export type NetworkQueryOptions = {
   pageIdx?: number;
   pageSize?: number;
   includePreserved?: boolean;
+  /** 仅返回该 CDP frame 发起的请求；webRequest 回退没有帧归属，会显式失败。 */
+  cdpFrameId?: string;
 };
 
 export type NetworkQueryResult = {
@@ -285,6 +315,16 @@ export const queryNetworkRecords = (
     source = "webrequest";
   }
   let filtered = rows;
+  if (options.cdpFrameId) {
+    if (source === "webrequest") {
+      throw new Error(
+        "Frame-scoped network records require CDP capture; the webRequest fallback has no frame attribution",
+      );
+    }
+    filtered = filtered.filter(
+      (record) => record.cdpFrameId === options.cdpFrameId,
+    );
+  }
   if (options.includeStatic !== true) {
     filtered = filtered.filter(
       (record) =>
@@ -417,16 +457,165 @@ let dialogHandlerInitialized = false;
  * 已启用的实例，幂等跳过（attach 重置后自动失效重启用）。 */
 const debuggerDomainsEnabled = new Set<number>();
 
-/** 已启用 Network 记录（Network.enable）的 webContents 集合。
- * 网络记录按需启用：只有真正查询网络调试数据的实例才开启 Network
- * 事件流，其余 webview（含用户手动新建、从未调试的 tab）保持零网络
- * CDP 开销。 */
-const networkRecordingEnabled = new Set<number>();
+/** 与共享 FrameTargetManager 共用的 Fetch 拦截参数（根会话与 iframe 会话一致）。 */
+const FETCH_INTERCEPT_PARAMS = {
+  patterns: [{ urlPattern: "*", requestStage: "Request" }],
+};
 
-/** 确保 webview 的 CDP debugger 会话可用（attach + 启用 Page/Runtime/Log 域）。
+/** 每个 webview 的 iframe 会话状态。
+ * FrameTargetManager 持有真实 CDP session；这里只记录哪些域已下发，避免重复 enable。
+ * Page/Runtime/Log 供弹窗与控制台使用；Network/Fetch 仍按需启用。 */
+type FrameTargetState = {
+  manager: ReturnType<typeof getFrameTargetManager>;
+  base: Map<string, Promise<void>>;
+  network: Map<string, Promise<void>>;
+  fetch: Map<string, Promise<void>>;
+  recordingNetwork: boolean;
+  interceptingFetch: boolean;
+  rootNetwork: boolean;
+  rootFetch: boolean;
+  unsubscribe: () => void;
+};
+
+const frameTargetStates = new Map<number, FrameTargetState>();
+
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const sessionCommand = (
+  contents: Electron.WebContents,
+  method: string,
+  params: Record<string, unknown>,
+  sessionId?: string,
+): Promise<any> =>
+  frameCdpDeadline(method, () =>
+    contents.debugger.sendCommand(method, params, sessionId),
+  );
+
+const ensureTask = (
+  tasks: Map<string, Promise<void>>,
+  sessionId: string,
+  run: () => Promise<void>,
+): Promise<void> => {
+  const existing = tasks.get(sessionId);
+  if (existing) return existing;
+  const task = run().catch((error) => {
+    tasks.delete(sessionId);
+    throw error;
+  });
+  tasks.set(sessionId, task);
+  return task;
+};
+
+/** 在同一帧会话内启用共享域；已启用的域不重复下发。 */
+const configureFrameSession = async (
+  contents: Electron.WebContents,
+  state: FrameTargetState,
+  sessionId: string,
+): Promise<void> => {
+  await ensureTask(state.base, sessionId, async () => {
+    await sessionCommand(contents, "Page.enable", {}, sessionId);
+    await sessionCommand(contents, "Runtime.enable", {}, sessionId);
+    await sessionCommand(contents, "Log.enable", {}, sessionId);
+  });
+  if (state.recordingNetwork) {
+    await ensureTask(state.network, sessionId, async () => {
+      await sessionCommand(contents, "Network.enable", {}, sessionId);
+    });
+  }
+  if (state.interceptingFetch) {
+    await ensureTask(state.fetch, sessionId, async () => {
+      await sessionCommand(
+        contents,
+        "Fetch.enable",
+        FETCH_INTERCEPT_PARAMS,
+        sessionId,
+      );
+    });
+  }
+};
+
+/** 取得（必要时创建）共享管理器订阅，并把现有 iframe 会话配置到位。 */
+const ensureFrameTargetState = async (
+  contents: Electron.WebContents,
+): Promise<FrameTargetState | undefined> => {
+  if (contents.isDestroyed() || !contents.debugger.isAttached()) {
+    return undefined;
+  }
+  let state = frameTargetStates.get(contents.id);
+  if (!state) {
+    const manager = getFrameTargetManager(contents);
+    const created: FrameTargetState = {
+      manager,
+      base: new Map(),
+      network: new Map(),
+      fetch: new Map(),
+      recordingNetwork: false,
+      interceptingFetch: false,
+      rootNetwork: false,
+      rootFetch: false,
+      unsubscribe: () => {},
+    };
+    frameTargetStates.set(contents.id, created);
+    try {
+      created.unsubscribe = manager.subscribe((change) => {
+        if (change.type === "detached") {
+          created.base.delete(change.sessionId);
+          created.network.delete(change.sessionId);
+          created.fetch.delete(change.sessionId);
+          // 帧 target 已消失，其弹窗无法再响应，避免留下不可处理的 pending。
+          clearBrowserDialogs(contents.id, change.sessionId);
+          return;
+        }
+        return configureFrameSession(
+          contents,
+          created,
+          change.session.sessionId,
+        );
+      });
+    } catch (error) {
+      frameTargetStates.delete(contents.id);
+      throw error;
+    }
+    state = created;
+  }
+  try {
+    await state.manager.ensure();
+  } catch (error) {
+    snowLog.warn({
+      module: "browser/network-recorder",
+      func: "ensureFrameTargetState",
+      message: "iframe target auto-attach unavailable",
+      context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+    });
+  }
+  for (const sessionId of state.manager.sessionIds()) {
+    try {
+      await configureFrameSession(contents, state, sessionId);
+    } catch (error) {
+      snowLog.warn({
+        module: "browser/network-recorder",
+        func: "ensureFrameTargetState",
+        message: "iframe session domain setup failed",
+        context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+      });
+    }
+  }
+  return state;
+};
+
+const releaseFrameTargetState = (webContentsId: number): void => {
+  const state = frameTargetStates.get(webContentsId);
+  if (!state) return;
+  frameTargetStates.delete(webContentsId);
+  state.unsubscribe();
+};
+
+/** 确保 webview 的 CDP debugger 会话可用（attach + 启用根域与 iframe 共享域）。
  * CDP 网络记录、路由 mock、登录态注入共用同一会话；
  * DevTools 打开时会话被占用，devtools-closed 后自动重连。
- * Runtime/Log 域为控制台采集（含堆栈）提供事件流；Network.enable 由
+ * Runtime/Log 域为控制台采集（含堆栈）提供事件流；Page 域为弹窗捕获；
+ * iframe 会话交给共享 FrameTargetManager，Network.enable 由
  * ensureNetworkRecording 按需启用。 */
 export const ensureWebContentsDebugger = async (
   contents: Electron.WebContents,
@@ -439,7 +628,7 @@ export const ensureWebContentsDebugger = async (
       contents.debugger.attach("1.3");
       // 重新 attach 后域配置失效，需要重新启用。
       debuggerDomainsEnabled.delete(contents.id);
-      networkRecordingEnabled.delete(contents.id);
+      releaseFrameTargetState(contents.id);
     }
     if (!debuggerDomainsEnabled.has(contents.id)) {
       await contents.debugger.sendCommand("Page.enable");
@@ -447,21 +636,23 @@ export const ensureWebContentsDebugger = async (
       await contents.debugger.sendCommand("Log.enable");
       debuggerDomainsEnabled.add(contents.id);
     }
-  } catch {
+    await ensureFrameTargetState(contents);
+  } catch (error) {
     // DevTools 或其他调试客户端可能暂时占用 CDP；devtools-closed 后会重试。
     debuggerDomainsEnabled.delete(contents.id);
     snowLog.warn({
       module: "browser/network-recorder",
       func: "ensureWebContentsDebugger",
       message: "CDP debugger attach unavailable",
-      context: `webContentsId=${contents.id}`,
+      context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
     });
   }
 };
 
 /** 按需启用 Network 网络记录（网络查询/详情/状态模拟前调用）。
- * 多个浏览器实例时，只有真正使用网络调试的实例才开启事件流，
- * 其余 webview 保持零网络 CDP 开销。 */
+ * 根会话与当前 iframe 会话都开启 Network 事件流；后续新 attach 的
+ * iframe target 由 FrameTargetManager 订阅在恢复运行前配置。
+ * 未使用网络调试的 webview 保持零网络 CDP 开销。 */
 export const ensureNetworkRecording = async (
   contents: Electron.WebContents,
 ): Promise<void> => {
@@ -469,14 +660,39 @@ export const ensureNetworkRecording = async (
   if (contents.isDestroyed() || !contents.debugger.isAttached()) {
     return;
   }
-  if (networkRecordingEnabled.has(contents.id)) {
+  const state =
+    frameTargetStates.get(contents.id) ??
+    (await ensureFrameTargetState(contents));
+  if (!state) {
     return;
   }
+  state.recordingNetwork = true;
   try {
-    await contents.debugger.sendCommand("Network.enable");
-    networkRecordingEnabled.add(contents.id);
-  } catch {
-    // DevTools 占用等场景；下次调用时重试。
+    if (!state.rootNetwork) {
+      await sessionCommand(contents, "Network.enable", {});
+      state.rootNetwork = true;
+    }
+  } catch (error) {
+    snowLog.warn({
+      module: "browser/network-recorder",
+      func: "ensureNetworkRecording",
+      message: "Network.enable unavailable",
+      context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+    });
+  }
+  for (const sessionId of state.manager.sessionIds()) {
+    try {
+      await ensureTask(state.network, sessionId, async () => {
+        await sessionCommand(contents, "Network.enable", {}, sessionId);
+      });
+    } catch (error) {
+      snowLog.warn({
+        module: "browser/network-recorder",
+        func: "ensureNetworkRecording",
+        message: "iframe Network.enable unavailable",
+        context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+      });
+    }
   }
 };
 
@@ -502,36 +718,44 @@ export const initBrowserWebviewRegistry = (): void => {
 
     browserWebContentsIds.add(contents.id);
 
-    contents.debugger.on("message", (_event, method, params) => {
+    contents.debugger.on("message", (_event, method, params, sessionId) => {
+      const session = sessionId ?? "";
       switch (method) {
         case "Page.javascriptDialogOpening":
         case "Page.javascriptDialogClosed":
-          handleBrowserDialogMessage(contents, method, params);
+          handleBrowserDialogMessage(contents, method, params, session);
           break;
         case "Network.requestWillBeSent":
-          handleNetworkRequestWillBeSent(contents.id, params);
+          handleNetworkRequestWillBeSent(contents.id, params, session);
           break;
         case "Network.responseReceived":
-          handleNetworkResponseReceived(contents.id, params);
+          handleNetworkResponseReceived(contents.id, params, session);
           break;
         case "Network.loadingFailed":
-          handleNetworkLoadingFailed(contents.id, params);
+          handleNetworkLoadingFailed(contents.id, params, session);
           break;
         case "Fetch.requestPaused":
-          handleFetchRequestPaused(contents, params);
+          handleFetchRequestPaused(contents, params, session);
           break;
         case "Page.frameNavigated": {
           const frame = (
             params as { frame?: { id?: unknown; parentId?: unknown } } | null
           )?.frame;
-          if (frame && frame.parentId == null && typeof frame.id === "string") {
+          // 只有根会话的主 frame 导航才更新主 frame 归属；iframe 会话的
+          // frameNavigated 不代表整页导航。
+          if (
+            !session &&
+            frame &&
+            frame.parentId == null &&
+            typeof frame.id === "string"
+          ) {
             mainFrameIds.set(contents.id, frame.id);
           }
-          notifyDebuggerMessageListeners(contents.id, method, params);
+          notifyDebuggerMessageListeners(contents.id, method, params, session);
           break;
         }
         default:
-          notifyDebuggerMessageListeners(contents.id, method, params);
+          notifyDebuggerMessageListeners(contents.id, method, params, session);
           break;
       }
     });
@@ -548,13 +772,13 @@ export const initBrowserWebviewRegistry = (): void => {
     contents.debugger.on("detach", () => {
       clearBrowserDialogs(contents.id);
       debuggerDomainsEnabled.delete(contents.id);
-      networkRecordingEnabled.delete(contents.id);
+      releaseFrameTargetState(contents.id);
     });
     contents.once("destroyed", () => {
       clearBrowserDialogs(contents.id);
       browserWebContentsIds.delete(contents.id);
       debuggerDomainsEnabled.delete(contents.id);
-      networkRecordingEnabled.delete(contents.id);
+      releaseFrameTargetState(contents.id);
       cdpNetworkRecords.delete(contents.id);
       mainFrameIds.delete(contents.id);
       routeRules.delete(contents.id);
@@ -646,17 +870,22 @@ const pushCdpRecord = (
 const handleNetworkRequestWillBeSent = (
   webContentsId: number,
   params: unknown,
+  sessionId: string,
 ): void => {
   const p = params as CdpRequestWillBeSent;
   const requestId = p?.requestId;
   if (typeof requestId !== "string") {
     return;
   }
+  const key = cdpNetworkKey(sessionId, requestId);
+  const frameId = typeof p?.frameId === "string" ? p.frameId : undefined;
   // 主帧文档请求 = 新一次导航：当前代际归档（includePreserved 可见）。
+  // 仅限根会话，iframe/OOPIF 的文档导航不归档整页记录。
   if (
+    !sessionId &&
     p?.type === "Document" &&
-    typeof p?.frameId === "string" &&
-    p.frameId === mainFrameIds.get(webContentsId)
+    frameId !== undefined &&
+    frameId === mainFrameIds.get(webContentsId)
   ) {
     archiveNetworkGeneration(webContentsId);
   }
@@ -664,7 +893,7 @@ const handleNetworkRequestWillBeSent = (
   const method = typeof p?.request?.method === "string" ? p.request.method : "";
   const requestHeaders = toHeaderRecord(p?.request?.headers);
   const resourceType = typeof p?.type === "string" ? p.type : "";
-  const existing = cdpNetworkRecords.get(webContentsId)?.current.get(requestId);
+  const existing = cdpNetworkRecords.get(webContentsId)?.current.get(key);
   if (existing && p?.redirectResponse) {
     // 重定向链：更新为目标请求与响应信息，不新建记录。
     existing.url = url;
@@ -688,7 +917,9 @@ const handleNetworkRequestWillBeSent = (
   pushCdpRecord(webContentsId, {
     id: nextRecordId++,
     webContentsId,
-    requestId,
+    requestId: key,
+    ...(sessionId ? { cdpRequestId: requestId, frameSession: sessionId } : {}),
+    ...(frameId ? { cdpFrameId: frameId } : {}),
     url,
     method,
     status: "pending",
@@ -704,13 +935,16 @@ const handleNetworkRequestWillBeSent = (
 const handleNetworkResponseReceived = (
   webContentsId: number,
   params: unknown,
+  sessionId: string,
 ): void => {
   const p = params as CdpResponseReceived;
   const requestId = p?.requestId;
   if (typeof requestId !== "string") {
     return;
   }
-  const record = cdpNetworkRecords.get(webContentsId)?.current.get(requestId);
+  const record = cdpNetworkRecords
+    .get(webContentsId)
+    ?.current.get(cdpNetworkKey(sessionId, requestId));
   if (!record) {
     return;
   }
@@ -730,13 +964,16 @@ const handleNetworkResponseReceived = (
 const handleNetworkLoadingFailed = (
   webContentsId: number,
   params: unknown,
+  sessionId: string,
 ): void => {
   const p = params as CdpLoadingFailed;
   const requestId = p?.requestId;
   if (typeof requestId !== "string") {
     return;
   }
-  const record = cdpNetworkRecords.get(webContentsId)?.current.get(requestId);
+  const record = cdpNetworkRecords
+    .get(webContentsId)
+    ?.current.get(cdpNetworkKey(sessionId, requestId));
   if (!record) {
     return;
   }
@@ -840,12 +1077,23 @@ export const queryNetworkDetails = async (
         "Browser debugger is unavailable; close the page DevTools and retry",
     };
   }
+  // requestId 是记录里的详情键；跨域/OOPIF 帧的原始 CDP ID 与所属会话单独保存。
+  const cdpRequestId = record.cdpRequestId ?? record.requestId;
+  if (!cdpRequestId) {
+    return {
+      found: true,
+      record,
+      error: "CDP request id is unavailable for this record",
+    };
+  }
+  const sessionId = record.frameSession;
 
   const details: BrowserNetworkDetails = { found: true, record };
   try {
     const result = (await contents.debugger.sendCommand(
       "Network.getRequestPostData",
-      { requestId },
+      { requestId: cdpRequestId },
+      sessionId,
     )) as { postData?: unknown };
     if (typeof result.postData === "string") {
       if (options.requestFilePath) {
@@ -866,7 +1114,8 @@ export const queryNetworkDetails = async (
   try {
     const result = (await contents.debugger.sendCommand(
       "Network.getResponseBody",
-      { requestId },
+      { requestId: cdpRequestId },
+      sessionId,
     )) as { body?: unknown; base64Encoded?: unknown };
     if (typeof result.body === "string") {
       const base64Encoded = result.base64Encoded === true;
@@ -890,9 +1139,10 @@ export const queryNetworkDetails = async (
         };
       }
     }
-  } catch {
-    details.responseBodyError =
-      "Response body unavailable (request too old or not yet finished)";
+  } catch (error) {
+    details.responseBodyError = `Response body unavailable (request too old, not yet finished, or its frame target is gone): ${redactBrowserText(
+      describeError(error),
+    )}`;
   }
   return details;
 };
@@ -946,15 +1196,73 @@ const matchesPattern = (url: string, pattern: string): boolean => {
   return url.includes(pattern);
 };
 
+/** 在根会话与所有 iframe 会话启用 Fetch 拦截；后续新 target 由
+ * FrameTargetManager 订阅在恢复运行前配置。 */
 const enableFetchInterception = async (
   contents: Electron.WebContents,
 ): Promise<void> => {
   if (!contents.debugger.isAttached()) {
     return;
   }
-  await contents.debugger.sendCommand("Fetch.enable", {
-    patterns: [{ urlPattern: "*", requestStage: "Request" }],
-  });
+  const state =
+    frameTargetStates.get(contents.id) ??
+    (await ensureFrameTargetState(contents));
+  if (!state) {
+    return;
+  }
+  state.interceptingFetch = true;
+  if (!state.rootFetch) {
+    await sessionCommand(contents, "Fetch.enable", FETCH_INTERCEPT_PARAMS);
+    state.rootFetch = true;
+  }
+  for (const sessionId of state.manager.sessionIds()) {
+    await ensureTask(state.fetch, sessionId, async () => {
+      await sessionCommand(
+        contents,
+        "Fetch.enable",
+        FETCH_INTERCEPT_PARAMS,
+        sessionId,
+      );
+    });
+  }
+};
+
+/** 关闭根会话与 iframe 会话的 Fetch 拦截；会话已断开时只记录告警。 */
+const disableFetchInterception = async (
+  contents: Electron.WebContents,
+): Promise<void> => {
+  const state = frameTargetStates.get(contents.id);
+  if (!state) {
+    return;
+  }
+  state.interceptingFetch = false;
+  state.fetch.clear();
+  const sessions = state.manager.sessionIds();
+  if (state.rootFetch) {
+    state.rootFetch = false;
+    try {
+      await sessionCommand(contents, "Fetch.disable", {});
+    } catch (error) {
+      snowLog.warn({
+        module: "browser/network-recorder",
+        func: "disableFetchInterception",
+        message: "Fetch.disable unavailable",
+        context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+      });
+    }
+  }
+  for (const sessionId of sessions) {
+    try {
+      await sessionCommand(contents, "Fetch.disable", {}, sessionId);
+    } catch (error) {
+      snowLog.warn({
+        module: "browser/network-recorder",
+        func: "disableFetchInterception",
+        message: "iframe Fetch.disable unavailable",
+        context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+      });
+    }
+  }
 };
 
 /** 设置路由 mock 规则（全量替换；空数组 = 清除并恢复真实网络）。 */
@@ -973,11 +1281,7 @@ export const setBrowserRouteRules = async (
   if (rules.length > 0) {
     await enableFetchInterception(contents);
   } else {
-    try {
-      await contents.debugger.sendCommand("Fetch.disable");
-    } catch {
-      // 会话可能已断开，忽略。
-    }
+    await disableFetchInterception(contents);
   }
   return { active: rules.length };
 };
@@ -986,9 +1290,23 @@ export const clearBrowserRouteRules = async (
   webContentsId: number,
 ): Promise<{ active: number }> => setBrowserRouteRules(webContentsId, []);
 
+const logFetchFailure = (
+  contents: Electron.WebContents,
+  func: string,
+  error: unknown,
+): void => {
+  snowLog.warn({
+    module: "browser/network-recorder",
+    func,
+    message: "Fetch interception command failed",
+    context: `webContentsId=${contents.id}, error=${redactBrowserText(describeError(error))}`,
+  });
+};
+
 const handleFetchRequestPaused = (
   contents: Electron.WebContents,
   params: unknown,
+  sessionId: string,
 ): void => {
   const requestId = (params as { requestId?: unknown } | null)?.requestId;
   if (typeof requestId !== "string") {
@@ -998,10 +1316,16 @@ const handleFetchRequestPaused = (
   const urlText = typeof url === "string" ? url : "";
   const rules = routeRules.get(contents.id);
   const rule = rules?.find((r) => matchesPattern(urlText, r.pattern));
+  const targetSession = sessionId || undefined;
   if (!rule) {
-    void contents.debugger
-      .sendCommand("Fetch.continueRequest", { requestId })
-      .catch(() => {});
+    void sessionCommand(
+      contents,
+      "Fetch.continueRequest",
+      { requestId },
+      targetSession,
+    ).catch((error) =>
+      logFetchFailure(contents, "handleFetchRequestPaused", error),
+    );
     return;
   }
   const headers: { name: string; value: string }[] = Object.entries(
@@ -1010,8 +1334,10 @@ const handleFetchRequestPaused = (
   if (rule.contentType) {
     headers.push({ name: "Content-Type", value: rule.contentType });
   }
-  void contents.debugger
-    .sendCommand("Fetch.fulfillRequest", {
+  void sessionCommand(
+    contents,
+    "Fetch.fulfillRequest",
+    {
       requestId,
       responseCode: rule.status ?? 200,
       responseHeaders: headers,
@@ -1019,6 +1345,9 @@ const handleFetchRequestPaused = (
         rule.body !== undefined
           ? Buffer.from(rule.body, "utf8").toString("base64")
           : undefined,
-    })
-    .catch(() => {});
+    },
+    targetSession,
+  ).catch((error) =>
+    logFetchFailure(contents, "handleFetchRequestPaused", error),
+  );
 };
