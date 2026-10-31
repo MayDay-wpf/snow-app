@@ -932,7 +932,7 @@ impl McpService for BrowserService {
                         },
                         "colorScheme": {
                             "type": ["string", "null"],
-                            "enum": ["dark", "light", "auto", null],
+                            "enum": ["dark", "light", "auto"],
                             "description": "Emulate prefers-color-scheme; auto or null clears the override."
                         },
                         "cpuThrottlingRate": {
@@ -958,7 +958,7 @@ impl McpService for BrowserService {
                         },
                         "networkConditions": {
                             "type": ["string", "null"],
-                            "enum": ["Offline", "Slow 3G", "Fast 3G", "Slow 4G", "Fast 4G", null],
+                            "enum": ["Offline", "Slow 3G", "Fast 3G", "Slow 4G", "Fast 4G"],
                             "description": "Network throttling preset; null restores online."
                         },
                         "userAgent": {

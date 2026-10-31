@@ -62,13 +62,22 @@
     border-color 0.15s ease;
 }
 
-.theme-preset-card:hover:not(:disabled) {
+.theme-preset-card:hover:not(:disabled):not(.active) {
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
   border-color: var(--border-subtle);
 }
 .theme-preset-card.active {
   border-color: var(--text-primary);
   box-shadow: 0 0 0 1px var(--text-primary);
+}
+
+/* 悬停已选中的卡片：保留选中描边，只额外叠加一层轻微抬升阴影，
+   避免悬停样式把选中态的边框和描边环一起抹掉。 */
+.theme-preset-card.active:hover:not(:disabled) {
+  border-color: var(--text-primary);
+  box-shadow:
+    0 0 0 1px var(--text-primary),
+    0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
 .theme-preset-card:disabled {
