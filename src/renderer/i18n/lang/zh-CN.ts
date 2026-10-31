@@ -4269,6 +4269,7 @@ export const zhCN = {
   "fileMention.dragToInput": "拖拽到输入框",
   "fileMention.skillSearching": "正在搜索技能...",
   "fileMention.skillHint": "输入以搜索技能",
+  "fileMention.skillEmpty": "没有已启用的技能",
   "fileMention.skillNoResults": "未找到相关技能",
   "fileMention.directoryNoResults": "未找到匹配的工作目录",
   "fileMention.currentDirectory": "当前",

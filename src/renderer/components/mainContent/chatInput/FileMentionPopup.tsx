@@ -525,6 +525,8 @@ export const FileMentionPopup = forwardRef<
       }
       lastQueryRef.current = rawTrimmed;
 
+      setSkills([]);
+      setSkillError(false);
       setIsSearching(true);
       const seq = ++searchSeqRef.current;
 
@@ -551,9 +553,10 @@ export const FileMentionPopup = forwardRef<
           setSkills(filtered);
           setIsSearching(false);
           setSelectedIndex(0);
-        } catch {
+        } catch (error) {
+          console.error("Failed to load skills:", error);
           if (seq === searchSeqRef.current) {
-            setSkills([]);
+            setSkillError(true);
             setIsSearching(false);
           }
         }
@@ -1266,12 +1269,14 @@ export const FileMentionPopup = forwardRef<
                 <Loader2 className="spin" size={14} />
                 <span>{t("fileMention.skillSearching")}</span>
               </div>
-            ) : skills.length === 0 ? (
+            ) : skillError || skills.length === 0 ? (
               <div className="file-mention-empty">
                 <span>
-                  {skillQuery
-                    ? t("fileMention.skillNoResults")
-                    : t("fileMention.skillHint")}
+                  {skillError
+                    ? t("settings.skillsLoadError")
+                    : skillQuery
+                      ? t("fileMention.skillNoResults")
+                      : t("fileMention.skillEmpty")}
                 </span>
               </div>
             ) : (
@@ -1497,9 +1502,11 @@ export const FileMentionPopup = forwardRef<
           <span className="file-mention-hint">
             <kbd>Esc</kbd> {t("fileMention.close")}
           </span>
-          <span className="file-mention-hint drag-hint">
-            {t("fileMention.dragToInput")}
-          </span>
+          {!isSkillMode && (
+            <span className="file-mention-hint drag-hint">
+              {t("fileMention.dragToInput")}
+            </span>
+          )}
         </div>
       </div>
     ) : null;

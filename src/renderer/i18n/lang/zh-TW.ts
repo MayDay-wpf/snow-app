@@ -4206,6 +4206,7 @@ export const zhTW = {
   "fileMention.dragToInput": "拖曳到輸入框",
   "fileMention.skillSearching": "正在搜尋技能...",
   "fileMention.skillHint": "輸入以搜尋技能",
+  "fileMention.skillEmpty": "沒有已啟用的技能",
   "fileMention.skillNoResults": "未找到相關技能",
   "fileMention.directoryNoResults": "找不到符合的工作目錄",
   "fileMention.currentDirectory": "目前",

@@ -4547,6 +4547,7 @@ export const en = {
   "fileMention.dragToInput": "Drag to input",
   "fileMention.skillSearching": "Searching skills...",
   "fileMention.skillHint": "Type to search skills",
+  "fileMention.skillEmpty": "No enabled skills",
   "fileMention.skillNoResults": "No matching skills found",
   "fileMention.directoryNoResults": "No matching working directories",
   "fileMention.currentDirectory": "Current",
