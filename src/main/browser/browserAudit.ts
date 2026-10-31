@@ -14,6 +14,15 @@ import { queryConsoleRecords } from "../ipc/handlers/browserConsoleRecorder";
 
 export type AuditCategories = "accessibility" | "seo" | "best-practices";
 
+/** 帧作用域审计：在目标帧的 execution context 内运行，不读取其他文档。 */
+export type AuditFrameScope = {
+  sessionId?: string;
+  contextId: number;
+  cdpFrameId: string;
+  url: string;
+  title: string;
+};
+
 export type AuditCheck = {
   id: string;
   severity: "error" | "warning" | "info";
@@ -93,11 +102,15 @@ type RawAxeResult = {
 
 const runAccessibilityAudit = async (
   contents: Electron.WebContents,
+  frame?: AuditFrameScope,
 ): Promise<AuditResult["accessibility"]> => {
   const axeSource = await loadAxeSource();
   const evaluated = (await withTimeout(
-    contents.debugger.sendCommand("Runtime.evaluate", {
-      expression: `(async () => {
+    contents.debugger.sendCommand(
+      "Runtime.evaluate",
+      {
+        ...(frame ? { contextId: frame.contextId } : {}),
+        expression: `(async () => {
         ${axeSource}
         const engine = window.axe;
         if (!engine) { throw new Error('axe-core did not load'); }
@@ -119,9 +132,11 @@ const runAccessibilityAudit = async (
           testEngine: { name: results.testEngine.name, version: results.testEngine.version },
         });
       })()`,
-      awaitPromise: true,
-      returnByValue: true,
-    }),
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      frame?.sessionId,
+    ),
     AUDIT_TIMEOUT_MS,
     `Accessibility audit timed out after ${AUDIT_TIMEOUT_MS}ms`,
   )) as {
@@ -183,10 +198,14 @@ type PageFacts = {
 
 const collectPageFacts = async (
   contents: Electron.WebContents,
+  frame?: AuditFrameScope,
 ): Promise<PageFacts> => {
   const evaluated = (await withTimeout(
-    contents.debugger.sendCommand("Runtime.evaluate", {
-      expression: `(() => {
+    contents.debugger.sendCommand(
+      "Runtime.evaluate",
+      {
+        ...(frame ? { contextId: frame.contextId } : {}),
+        expression: `(() => {
         const ids = new Set();
         let duplicateIds = 0;
         for (const element of document.querySelectorAll('[id]')) {
@@ -209,8 +228,10 @@ const collectPageFacts = async (
           ogTitle: document.querySelector('meta[property="og:title"]')?.content || null,
         };
       })()`,
-      returnByValue: true,
-    }),
+        returnByValue: true,
+      },
+      frame?.sessionId,
+    ),
     AUDIT_TIMEOUT_MS,
     "Page facts collection timed out",
   )) as { result?: { value?: unknown } };
@@ -351,6 +372,7 @@ const buildBestPracticeChecks = (facts: PageFacts): AuditCheck[] => {
 export const runBrowserAudit = async (
   webContentsId: number,
   categories: AuditCategories[],
+  frame?: AuditFrameScope,
 ): Promise<AuditResult> => {
   const contents = getBrowserWebContents(webContentsId);
   await ensureWebContentsDebugger(contents);
@@ -361,11 +383,12 @@ export const runBrowserAudit = async (
   }
   const selected = new Set(categories);
   const result: AuditResult = {
-    url: contents.getURL(),
-    title: contents.getTitle(),
+    url: frame?.url ?? contents.getURL(),
+    title: frame?.title ?? contents.getTitle(),
     consoleErrors: queryConsoleRecords(webContentsId, {
       level: 3,
       includePreserved: true,
+      ...(frame ? { cdpFrameId: frame.cdpFrameId } : {}),
     }).total,
   };
   if (
@@ -373,9 +396,9 @@ export const runBrowserAudit = async (
     selected.has("seo") ||
     selected.has("best-practices")
   ) {
-    const facts = await collectPageFacts(contents);
+    const facts = await collectPageFacts(contents, frame);
     if (selected.has("accessibility")) {
-      result.accessibility = await runAccessibilityAudit(contents);
+      result.accessibility = await runAccessibilityAudit(contents, frame);
     }
     if (selected.has("seo")) {
       const checks = buildSeoChecks(facts);

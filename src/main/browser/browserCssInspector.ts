@@ -11,6 +11,10 @@ import {
 export type CssStylesQuery = {
   selector?: string;
   backendNodeId?: number;
+  /** 已解析的元素对象（帧内定位）；优先于 selector/backendNodeId。 */
+  objectId?: string;
+  /** 帧 CDP 会话；省略时使用根会话。 */
+  sessionId?: string;
   pageIdx?: number;
   pageSize?: number;
 };
@@ -202,7 +206,8 @@ export const getCssStyles = async (
   const send = (
     method: string,
     params: Record<string, unknown>,
-  ): Promise<unknown> => contents.debugger.sendCommand(method, params);
+  ): Promise<unknown> =>
+    contents.debugger.sendCommand(method, params, query.sessionId);
   await send("DOM.enable", {});
   await send("CSS.enable", {});
   // CDP requires the document to be requested before backend nodes can be pushed.
@@ -211,7 +216,15 @@ export const getCssStyles = async (
   };
 
   let nodeId = 0;
-  if (typeof query.backendNodeId === "number" && query.backendNodeId > 0) {
+  if (query.objectId) {
+    const requested = (await send("DOM.requestNode", {
+      objectId: query.objectId,
+    })) as { nodeId?: number };
+    nodeId = requested.nodeId ?? 0;
+  } else if (
+    typeof query.backendNodeId === "number" &&
+    query.backendNodeId > 0
+  ) {
     const pushed = (await send("DOM.pushNodesByBackendIdsToFrontend", {
       backendNodeIds: [query.backendNodeId],
     })) as { nodeIds?: number[] };

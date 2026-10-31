@@ -8,6 +8,7 @@ import {
   ensureWebContentsDebugger,
 } from "../ipc/handlers/browserNetworkRecorder";
 import { buildElementLocatorScript } from "../../shared/browserElementLocator";
+import { SCROLL_FUNCTION } from "../../shared/browserScroll";
 import { serializeAxTree, type AxNode } from "../../shared/browserAxSnapshot";
 import {
   describeBrowserUrlRedaction,
@@ -16,6 +17,9 @@ import {
   redactBrowserUrl,
 } from "../../shared/browserRedaction";
 import { buildTabContentScript } from "./browserTabContent";
+import { getCssStyles } from "./browserCssInspector";
+import { runBrowserAudit, type AuditCategories } from "./browserAudit";
+import { frameCdpDeadline, getFrameTargetManager } from "./frameTargetManager";
 
 type Args = Record<string, unknown>;
 type FrameEntry = {
@@ -23,6 +27,8 @@ type FrameEntry = {
   frame: WebFrameMain;
   marker: string;
   refs: Map<string, number>;
+  /** CDP target of the validated document; reused until the document/context probe fails. */
+  cdp?: CdpFrame;
 };
 type State = { entries: Map<string, FrameEntry>; tail: Promise<unknown> };
 type CdpFrame = { frameId: string; contextId: number; sessionId?: string };
@@ -41,6 +47,11 @@ const frameOperations = new Set([
   "devtools",
   "drag",
   "fill_form",
+  "scroll",
+  "press_key",
+  "get_css_styles",
+  "audit",
+  "observe",
 ]);
 const bounded = (
   args: Args,
@@ -78,30 +89,6 @@ const alive = (contents: WebContents, entry: FrameEntry): void => {
     throw new Error(
       "FRAME_STALE: frame was detached or replaced; enumerate frames again",
     );
-};
-const frameCdpDeadline = async <T>(
-  method: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation(),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `FRAME_CDP_TIMEOUT: ${method} did not finish within 10 seconds`,
-              ),
-            ),
-          10000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 };
 const frameCommand = (
   contents: WebContents,
@@ -238,7 +225,8 @@ const enumerate = async (
 };
 
 /** Map only frames descended from this guest. A temporary DOM marker correlates isolated CDP worlds
- * to WebFrameMain without inspecting URLs, cookies or storage. OOPIF sessions are per operation. */
+ * to WebFrameMain without inspecting URLs, cookies or storage. Cross-origin frames live in their own
+ * CDP targets; the shared manager owns their sessions and this probe verifies the exact document. */
 const withCdpFrame = async <T>(
   contents: WebContents,
   entry: FrameEntry,
@@ -249,92 +237,151 @@ const withCdpFrame = async <T>(
   );
   if (!contents.debugger.isAttached())
     throw new Error("FRAME_CDP_UNAVAILABLE: close page DevTools and retry");
+  // Reuse the CDP target of this exact document instead of re-probing every session and
+  // frame per operation. The document marker still gates reuse; a destroyed context or
+  // detached session falls back to full discovery rather than being retried.
+  const cached = entry.cdp;
+  if (cached) {
+    let usable = false;
+    try {
+      await execute(contents, entry, "true");
+      const probe = (await frameCommand(
+        contents,
+        "Runtime.evaluate",
+        {
+          contextId: cached.contextId,
+          expression: "true",
+          returnByValue: true,
+        },
+        cached.sessionId,
+      )) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+      usable = !probe.exceptionDetails && probe.result?.value === true;
+    } catch {
+      usable = false;
+    }
+    if (usable) return await action(cached);
+    entry.cdp = undefined;
+  }
   const attribute = `data-snow-frame-${randomUUID()}`;
-  const sessions: string[] = [];
   const objectGroup = `snow-frame-${randomUUID()}`;
-  await execute(
-    contents,
-    entry,
-    `(() => { if (!document.documentElement) throw new Error('Frame document is not ready'); document.documentElement.setAttribute(${JSON.stringify(attribute)}, '1'); return true; })()`,
-  );
+  const discoveryErrors: string[] = [];
+  const probedSessions = new Set<string>();
+  let framesProbed = 0;
+  let probeFailures = 0;
+  let lastProbeError = "";
   const command = (
     method: string,
     params: Record<string, unknown>,
     sessionId?: string,
   ): Promise<any> => frameCommand(contents, method, params, sessionId);
-  try {
-    const queue: (string | undefined)[] = [undefined];
-    const seenFrames = new Set<string>();
-    for (let index = 0; index < queue.length && index < 256; index++) {
-      const sessionId = queue[index];
-      const tree = (await command("Page.getFrameTree", {}, sessionId)) as {
-        frameTree: FrameTree;
+  const describe = (error: unknown): string =>
+    redactBrowserText(error instanceof Error ? error.message : String(error))
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+  await execute(
+    contents,
+    entry,
+    `(() => { if (!document.documentElement) throw new Error('Frame document is not ready'); document.documentElement.setAttribute(${JSON.stringify(attribute)}, '1'); return true; })()`,
+  );
+  const probeSession = async (
+    sessionId: string | undefined,
+  ): Promise<CdpFrame | undefined> => {
+    if (sessionId) probedSessions.add(sessionId);
+    let tree: { frameTree?: FrameTree };
+    try {
+      tree = (await command("Page.getFrameTree", {}, sessionId)) as {
+        frameTree?: FrameTree;
       };
-      const list: FrameTree[] = [];
-      const walk = (node: FrameTree): void => {
-        list.push(node);
-        for (const child of node.childFrames ?? []) walk(child);
-      };
-      walk(tree.frameTree);
-      for (const node of list) {
-        let matched: CdpFrame | undefined;
-        try {
-          const world = await command(
-            "Page.createIsolatedWorld",
-            {
-              frameId: node.frame.id,
-              worldName: "snow-frame-tools",
-              grantUniveralAccess: false,
-            },
+    } catch (error) {
+      probeFailures += 1;
+      lastProbeError = describe(error);
+      return undefined;
+    }
+    if (!tree.frameTree) {
+      probeFailures += 1;
+      lastProbeError = "empty frame tree";
+      return undefined;
+    }
+    const list: FrameTree[] = [];
+    const walk = (node: FrameTree): void => {
+      list.push(node);
+      for (const child of node.childFrames ?? []) walk(child);
+    };
+    walk(tree.frameTree);
+    for (const node of list) {
+      framesProbed += 1;
+      try {
+        const world = await command(
+          "Page.createIsolatedWorld",
+          {
+            frameId: node.frame.id,
+            worldName: "snow-frame-tools",
+            grantUniveralAccess: false,
+          },
+          sessionId,
+        );
+        if (typeof world.executionContextId !== "number")
+          throw new Error("Frame context unavailable");
+        const probe = await command(
+          "Runtime.evaluate",
+          {
+            contextId: world.executionContextId,
+            expression: `document.documentElement?.getAttribute(${JSON.stringify(attribute)}) === '1'`,
+            returnByValue: true,
+            objectGroup,
+          },
+          sessionId,
+        );
+        if (!probe.exceptionDetails && probe.result?.value === true)
+          return {
+            frameId: node.frame.id,
+            contextId: world.executionContextId,
             sessionId,
-          );
-          if (typeof world.executionContextId !== "number")
-            throw new Error("Frame context unavailable");
-          const probe = await command(
-            "Runtime.evaluate",
-            {
-              contextId: world.executionContextId,
-              expression: `document.documentElement?.getAttribute(${JSON.stringify(attribute)}) === '1'`,
-              returnByValue: true,
-              objectGroup,
-            },
-            sessionId,
-          );
-          if (!probe.exceptionDetails && probe.result?.value === true)
-            matched = {
-              frameId: node.frame.id,
-              contextId: world.executionContextId,
-              sessionId,
-            };
-        } catch {
-          // Discovery may require the OOPIF's own session; action errors are never swallowed.
-        }
-        if (matched) {
-          await execute(contents, entry, "true");
-          return await action(matched);
-        }
-        if (
-          node.frame.id !== tree.frameTree.frame.id &&
-          !seenFrames.has(node.frame.id)
-        ) {
-          seenFrames.add(node.frame.id);
-          try {
-            const attached = await command("Target.attachToTarget", {
-              targetId: node.frame.id,
-              flatten: true,
-            });
-            if (typeof attached.sessionId === "string") {
-              sessions.push(attached.sessionId);
-              queue.push(attached.sessionId);
-            }
-          } catch {
-            /* Same-process frames have no standalone Target. */
-          }
-        }
+          };
+      } catch (error) {
+        probeFailures += 1;
+        lastProbeError = describe(error);
       }
     }
+    return undefined;
+  };
+  try {
+    const rootTarget = await probeSession(undefined);
+    if (rootTarget) {
+      await execute(contents, entry, "true");
+      entry.cdp = rootTarget;
+      return await action(rootTarget);
+    }
+    const manager = getFrameTargetManager(contents);
+    try {
+      await manager.ensure();
+    } catch (error) {
+      discoveryErrors.push(`iframe targets: ${describe(error)}`);
+    }
+    for (const sessionId of manager.sessionIds()) {
+      const targetFrame = await probeSession(sessionId);
+      if (!targetFrame) continue;
+      await execute(contents, entry, "true");
+      entry.cdp = targetFrame;
+      return await action(targetFrame);
+    }
+    const diagnostics = manager.diagnostics();
+    for (const error of diagnostics.errors.slice(0, 2))
+      discoveryErrors.push(`discovery: ${describe(error)}`);
+    // Distinguish a replaced document from a missing CDP context; never fall back to the main frame.
+    await execute(contents, entry, "true");
+    const details = [
+      `targets=${diagnostics.sessions}`,
+      `frames=${framesProbed}`,
+      `probeFailures=${probeFailures}`,
+      ...(discoveryErrors.length
+        ? [`discovery=${discoveryErrors.slice(0, 2).join(" | ")}`]
+        : []),
+      ...(lastProbeError ? [`lastProbe=${lastProbeError}`] : []),
+    ].join(", ");
     throw new Error(
-      "FRAME_CDP_UNAVAILABLE: no isolated CDP context matched this frame; no main-frame fallback",
+      `FRAME_CDP_UNAVAILABLE: no isolated CDP context matched this frame; no main-frame fallback (${details})`,
     );
   } finally {
     await execute(
@@ -342,15 +389,23 @@ const withCdpFrame = async <T>(
       entry,
       `(() => { document.documentElement?.removeAttribute(${JSON.stringify(attribute)}); return true; })()`,
     ).catch(() => {});
-    for (const sessionId of [undefined, ...sessions])
+    for (const sessionId of [undefined, ...probedSessions])
       await command(
         "Runtime.releaseObjectGroup",
         { objectGroup },
         sessionId,
       ).catch(() => {});
-    for (const sessionId of sessions.reverse())
-      await command("Target.detachFromTarget", { sessionId }).catch(() => {});
   }
+};
+/** Resolve an opaque frameId to the CDP frame id of its exact document, for page-level
+ * record queries (console/network) that filter by frame. Uses the same document probe as
+ * frame operations; an unmatched frame fails instead of falling back to the main frame. */
+export const resolveFrameCdpId = async (
+  contents: WebContents,
+  frameId: unknown,
+): Promise<string> => {
+  const entry = await selectFrame(contents, frameId);
+  return withCdpFrame(contents, entry, async (target) => target.frameId);
 };
 const elementHandle = async (
   contents: WebContents,
@@ -630,6 +685,174 @@ const dragElementPoint = async (
     }
   });
 
+type FrameKeyStroke = {
+  key: string;
+  code?: string;
+  windowsVirtualKeyCode?: number;
+  text?: string;
+};
+
+const FRAME_MODIFIER_BITS: Record<string, number> = {
+  Alt: 1,
+  Control: 2,
+  Meta: 4,
+  Shift: 8,
+};
+
+const FRAME_NAMED_KEYS: Record<string, FrameKeyStroke> = {
+  Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
+  Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
+  Backspace: { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
+  Delete: { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 },
+  Insert: { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45 },
+  Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  PageUp: { key: "PageUp", code: "PageUp", windowsVirtualKeyCode: 33 },
+  PageDown: { key: "PageDown", code: "PageDown", windowsVirtualKeyCode: 34 },
+  ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+  ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
+  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+  ArrowRight: {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+  },
+  Space: { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
+  Shift: { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 },
+  Control: { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17 },
+  Alt: { key: "Alt", code: "AltLeft", windowsVirtualKeyCode: 18 },
+  Meta: { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91 },
+};
+for (let index = 1; index <= 12; index++) {
+  FRAME_NAMED_KEYS[`F${index}`] = {
+    key: `F${index}`,
+    code: `F${index}`,
+    windowsVirtualKeyCode: 111 + index,
+  };
+}
+
+const normalizeFrameModifier = (value: string): string => {
+  switch (value.toLowerCase()) {
+    case "ctrl":
+    case "control":
+      return "Control";
+    case "shift":
+      return "Shift";
+    case "alt":
+    case "option":
+      return "Alt";
+    case "meta":
+    case "cmd":
+    case "command":
+      return "Meta";
+    default:
+      return value;
+  }
+};
+
+const frameKeyStroke = (value: string): FrameKeyStroke => {
+  const named = FRAME_NAMED_KEYS[value];
+  if (named) return named;
+  if (value.length !== 1)
+    throw new Error(`Unsupported key for frame press_key: ${value}`);
+  const upper = value.toUpperCase();
+  if (/^[A-Z]$/.test(upper)) {
+    return {
+      key: value,
+      text: value,
+      code: `Key${upper}`,
+      windowsVirtualKeyCode: upper.charCodeAt(0),
+    };
+  }
+  if (/^[0-9]$/.test(value)) {
+    return {
+      key: value,
+      text: value,
+      code: `Digit${value}`,
+      windowsVirtualKeyCode: value.charCodeAt(0),
+    };
+  }
+  return { key: value, text: value };
+};
+
+/** 向指定帧会话派发按键；命中已聚焦元素，不依赖 webview 主帧焦点。 */
+const dispatchFrameKey = async (
+  contents: WebContents,
+  sessionId: string | undefined,
+  key: string,
+): Promise<void> => {
+  const parts = key
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const mainKey = parts.pop();
+  if (!mainKey) throw new Error("key must not be empty for browser-press_key");
+  const send = (params: Record<string, unknown>): Promise<unknown> =>
+    frameCommand(contents, "Input.dispatchKeyEvent", params, sessionId);
+  const modifiers: { name: string; bit: number }[] = [];
+  for (const part of parts) {
+    const name = normalizeFrameModifier(part);
+    const bit = FRAME_MODIFIER_BITS[name];
+    if (bit === undefined)
+      throw new Error(`Unsupported modifier for frame press_key: ${part}`);
+    modifiers.push({ name, bit });
+  }
+  let active = 0;
+  for (const { name, bit } of modifiers) {
+    active |= bit;
+    const stroke = frameKeyStroke(name);
+    await send({
+      type: "keyDown",
+      key: stroke.key,
+      ...(stroke.code ? { code: stroke.code } : {}),
+      ...(stroke.windowsVirtualKeyCode !== undefined
+        ? { windowsVirtualKeyCode: stroke.windowsVirtualKeyCode }
+        : {}),
+      modifiers: active,
+    });
+  }
+  const stroke = frameKeyStroke(mainKey);
+  const text =
+    stroke.text !== undefined &&
+    (active & FRAME_MODIFIER_BITS.Shift) !== 0 &&
+    /^[a-z]$/.test(stroke.text)
+      ? stroke.text.toUpperCase()
+      : stroke.text;
+  await send({
+    type: text ? "keyDown" : "rawKeyDown",
+    key: text && text !== stroke.text ? text : stroke.key,
+    ...(stroke.code ? { code: stroke.code } : {}),
+    ...(stroke.windowsVirtualKeyCode !== undefined
+      ? { windowsVirtualKeyCode: stroke.windowsVirtualKeyCode }
+      : {}),
+    ...(text ? { text } : {}),
+    modifiers: active,
+  });
+  await send({
+    type: "keyUp",
+    key: stroke.key,
+    ...(stroke.code ? { code: stroke.code } : {}),
+    ...(stroke.windowsVirtualKeyCode !== undefined
+      ? { windowsVirtualKeyCode: stroke.windowsVirtualKeyCode }
+      : {}),
+    modifiers: active,
+  });
+  for (const { name, bit } of [...modifiers].reverse()) {
+    active &= ~bit;
+    const modifierStroke = frameKeyStroke(name);
+    await send({
+      type: "keyUp",
+      key: modifierStroke.key,
+      ...(modifierStroke.code ? { code: modifierStroke.code } : {}),
+      ...(modifierStroke.windowsVirtualKeyCode !== undefined
+        ? { windowsVirtualKeyCode: modifierStroke.windowsVirtualKeyCode }
+        : {}),
+      modifiers: active,
+    });
+  }
+};
+
 const perform = async (
   contents: WebContents,
   entry: FrameEntry,
@@ -774,6 +997,67 @@ const perform = async (
       );
     }
   }
+  if (operation === "observe") {
+    const rawExpect = args.expect;
+    const expect =
+      rawExpect !== null &&
+      typeof rawExpect === "object" &&
+      !Array.isArray(rawExpect)
+        ? (rawExpect as Record<string, unknown>)
+        : {};
+    const readExpect = (field: string): string | undefined => {
+      const value = expect[field];
+      return typeof value === "string" && value.trim()
+        ? value.trim()
+        : undefined;
+    };
+    const conditions = {
+      urlIncludes: readExpect("urlIncludes"),
+      selector: readExpect("selector"),
+      text: readExpect("text"),
+    };
+    const sampleText = args.sampleText === true;
+    const maxChars = bounded(args, "maxChars", 4000, 100, 20000);
+    return withCdpFrame(contents, entry, async (target) => {
+      // 条件值只作为 JSON 字面量进入脚本；不拼接调用方提供的代码。
+      const evaluated = (await frameCommand(
+        contents,
+        "Runtime.evaluate",
+        {
+          contextId: target.contextId,
+          expression: `(() => {
+        const conditions = ${JSON.stringify(conditions)};
+        const bodyText = String(document.body ? document.body.innerText : '');
+        const checks = {};
+        if (conditions.urlIncludes !== undefined) checks.urlIncludes = String(location.href).includes(conditions.urlIncludes);
+        if (conditions.selector !== undefined) { try { checks.selector = !!document.querySelector(conditions.selector); } catch (error) { checks.selector = false; } }
+        if (conditions.text !== undefined) checks.text = bodyText.includes(conditions.text);
+        const values = Object.keys(checks).map((key) => checks[key]);
+        return {
+          url: location.href,
+          title: String(document.title || ''),
+          matches: values.length > 0 && values.every(Boolean),
+          ...(${JSON.stringify(sampleText)} ? { text: bodyText.replace(/[ \\t]+\\n/g, '\\n').trim().slice(0, ${maxChars}) } : {}),
+        };
+      })()`,
+          returnByValue: true,
+        },
+        target.sessionId,
+      )) as {
+        result?: { value?: Record<string, unknown> };
+        exceptionDetails?: unknown;
+      };
+      const value = evaluated.result?.value;
+      if (
+        evaluated.exceptionDetails ||
+        !value ||
+        typeof value.url !== "string" ||
+        typeof value.matches !== "boolean"
+      )
+        throw new Error("Frame observation failed");
+      return { ...metadata, ...value };
+    });
+  }
   if (operation === "devtools") {
     if (args.action !== "ax")
       throw new Error("frameId is supported only for devtools snapshot/ax");
@@ -801,6 +1085,153 @@ const perform = async (
         },
       });
       return { ...metadata, ...snapshot, valuesRedacted: true };
+    });
+  }
+  if (operation === "press_key") {
+    const key = args.key;
+    if (typeof key !== "string" || !key.trim())
+      throw new Error("key must not be empty for browser-press_key");
+    return withCdpFrame(contents, entry, async (target) => {
+      contents.focus();
+      await dispatchFrameKey(contents, target.sessionId, key);
+      return { ...metadata, success: true, key };
+    });
+  }
+  if (operation === "scroll") {
+    const position =
+      args.position === "top" || args.position === "bottom"
+        ? args.position
+        : null;
+    const deltaY =
+      position === null && typeof args.deltaY === "number" ? args.deltaY : null;
+    if (position === null && deltaY === null)
+      throw new Error(
+        "Either deltaY or position is required for browser-scroll",
+      );
+    const hasTarget =
+      (typeof args.selector === "string" && args.selector.length > 0) ||
+      typeof args.ref === "string";
+    return withCdpFrame(contents, entry, async (target) => {
+      let result: unknown;
+      if (hasTarget) {
+        const objectId = await elementHandle(contents, entry, target, args);
+        try {
+          const called = (await frameCommand(
+            contents,
+            "Runtime.callFunctionOn",
+            {
+              objectId,
+              functionDeclaration: `function(deltaY, position) { return (${SCROLL_FUNCTION})(this, deltaY, position); }`,
+              arguments: [{ value: deltaY }, { value: position }],
+              awaitPromise: true,
+              returnByValue: true,
+            },
+            target.sessionId,
+          )) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+          if (called.exceptionDetails)
+            throw new Error(
+              "Frame scroll failed: target is not scrollable or is stale",
+            );
+          result = called.result?.value;
+        } finally {
+          await frameCommand(
+            contents,
+            "Runtime.releaseObject",
+            { objectId },
+            target.sessionId,
+          ).catch(() => {});
+        }
+      } else {
+        const called = (await frameCommand(
+          contents,
+          "Runtime.evaluate",
+          {
+            contextId: target.contextId,
+            expression: `(${SCROLL_FUNCTION})(null, ${JSON.stringify(deltaY)}, ${JSON.stringify(position)})`,
+            awaitPromise: true,
+            returnByValue: true,
+          },
+          target.sessionId,
+        )) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+        if (called.exceptionDetails) throw new Error("Frame scroll failed");
+        result = called.result?.value;
+      }
+      if (!result || typeof result !== "object")
+        throw new Error("Browser scroll did not return a result");
+      return {
+        ...metadata,
+        ...(position ? { position } : { deltaY }),
+        ...(result as Record<string, unknown>),
+      };
+    });
+  }
+  if (operation === "get_css_styles") {
+    const pageIdx = typeof args.pageIdx === "number" ? args.pageIdx : undefined;
+    const pageSize =
+      typeof args.pageSize === "number" ? args.pageSize : undefined;
+    return withCdpFrame(contents, entry, async (target) => {
+      const objectId = await elementHandle(contents, entry, target, args);
+      try {
+        const result = await getCssStyles(contents.id, {
+          objectId,
+          sessionId: target.sessionId,
+          pageIdx,
+          pageSize,
+        });
+        return { ...metadata, ...result };
+      } finally {
+        await frameCommand(
+          contents,
+          "Runtime.releaseObject",
+          { objectId },
+          target.sessionId,
+        ).catch(() => {});
+      }
+    });
+  }
+  if (operation === "audit") {
+    const selected = Array.isArray(args.categories)
+      ? args.categories.filter(
+          (item): item is AuditCategories =>
+            item === "accessibility" ||
+            item === "seo" ||
+            item === "best-practices",
+        )
+      : [];
+    const categories: AuditCategories[] =
+      selected.length > 0
+        ? selected
+        : ["accessibility", "seo", "best-practices"];
+    return withCdpFrame(contents, entry, async (target) => {
+      // 审计必须使用被扫描文档自身的 URL/标题，避免元数据与帧文档导航错位。
+      const scope = (await frameCommand(
+        contents,
+        "Runtime.evaluate",
+        {
+          contextId: target.contextId,
+          expression: `({ url: location.href, title: String(document.title || '') })`,
+          returnByValue: true,
+        },
+        target.sessionId,
+      )) as {
+        result?: { value?: { url?: unknown; title?: unknown } };
+        exceptionDetails?: unknown;
+      };
+      const documentInfo = scope.result?.value;
+      if (
+        scope.exceptionDetails ||
+        typeof documentInfo?.url !== "string" ||
+        typeof documentInfo?.title !== "string"
+      )
+        throw new Error("Audit document context is unavailable");
+      const result = await runBrowserAudit(contents.id, categories, {
+        sessionId: target.sessionId,
+        contextId: target.contextId,
+        cdpFrameId: target.frameId,
+        url: documentInfo.url,
+        title: documentInfo.title,
+      });
+      return { ...metadata, ...result };
     });
   }
   if (operation === "drag") {
