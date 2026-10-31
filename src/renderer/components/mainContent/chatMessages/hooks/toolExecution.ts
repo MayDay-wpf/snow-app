@@ -53,6 +53,7 @@ import {
   type ToolCorrectionToolDefinition,
 } from "./toolCorrection";
 import { ensureToolCorrectionPreference } from "../utils/toolCorrectionPreference";
+import { summarizeContentAsPlainText } from "../../chatInput/fileTagUtils";
 
 export type ToolExecutionResult = {
   structuredToolResults: {
@@ -1406,10 +1407,16 @@ export function createToolExecutor(
         if (authorizationDecision.status === "rejected") {
           const rejectionReason =
             authorizationDecision.reason || "User declined tool execution";
+          // 理由可能是富文本：用户粘贴的图片 / 长文本以 chip 承载，完整负载只放在
+          // reason 字段（图片由 Rust 解析为多模态块、长文本片段随 JSON 交给模型）。
+          // message 是同一段理由的副本，用可读摘要，避免同一张图片与同一段长文本
+          // 在工具结果里重复出现（重复计费 + 上下文膨胀）。
           result = JSON.stringify({
             success: false,
             error: "TOOL_EXECUTION_DENIED",
-            message: `Tool execution rejected. Reason: ${rejectionReason}`,
+            message: `Tool execution rejected. Reason: ${summarizeContentAsPlainText(
+              rejectionReason,
+            )}`,
             reason: rejectionReason,
             toolName: toolCall.name,
           });

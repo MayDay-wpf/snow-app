@@ -199,11 +199,13 @@ pub fn parse_tool_results_with_images(
         .collect()
 }
 
-/// 判断工具结果是否携带图片标签，识别三种格式：
+/// 判断工具结果是否携带图片标签，识别四种格式：
 /// 1. 前端 `formatMcpToolResultForModel` 追加的尾部标签行：`JSON\n@@image:...@@`；
 /// 2. filesystem-read 读取图片的 `{"content":"@@image:...@@","isImage":true}`；
 /// 3. askUserQuestion 的结果 JSON：用户在自定义回答里粘贴的图片以 `@@image:...@@`
-///    承载在 `answers` / `customAnswers` 数组元素中。
+///    承载在 `answers` / `customAnswers` 数组元素中；
+/// 4. 工具授权 / 敏感命令的拒绝结果：用户在拒绝理由里粘贴的图片以 `@@image:...@@`
+///    承载在 `reason` 字段中（见 `is_tool_rejection_result`）。
 ///
 /// 不能只靠 `contains("@@image:")` 判定——grep 等搜索结果 JSON 内嵌的匹配行
 /// 文本可能恰好含该字样，会把非图片 base64 发给视觉模型；因此命中该字样后
@@ -249,7 +251,7 @@ pub(crate) fn has_image_tags(result: &str) -> bool {
 
     // Case 3: askUserQuestion 结果——只认用户回答字段，避免问题/选项文本
     // 里字面出现的 `@@image:` 被当成图片负载。
-    ["answers", "customAnswers"].iter().any(|field| {
+    if ["answers", "customAnswers"].iter().any(|field| {
         value
             .get(*field)
             .and_then(Value::as_array)
@@ -259,6 +261,27 @@ pub(crate) fn has_image_tags(result: &str) -> bool {
                         .is_some_and(|answer| answer.contains("@@image:"))
                 })
             })
+    }) {
+        return true;
+    }
+
+    // Case 4: 工具授权 / 敏感命令的拒绝结果。
+    is_tool_rejection_result(&value)
+}
+
+/// 工具授权 / 敏感命令的拒绝结果：`error` 为拒绝错误码，用户粘贴到拒绝理由里的
+/// 图片以 `@@image:...@@` 标签承载在 `reason`（以及旧数据可能携带标签的
+/// `message`）字段中。只认带该错误码的结果，避免其它工具的普通文本里字面出现的
+/// `@@image:` 被当成图片负载。
+fn is_tool_rejection_result(value: &Value) -> bool {
+    if value.get("error").and_then(Value::as_str) != Some("TOOL_EXECUTION_DENIED") {
+        return false;
+    }
+    ["reason", "message"].iter().any(|field| {
+        value
+            .get(*field)
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.contains("@@image:"))
     })
 }
 

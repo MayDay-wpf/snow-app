@@ -4,6 +4,8 @@ import { useI18n } from "../../../../i18n";
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import { getCompareDiffStats } from "../../../../utils/generateComparePatch";
 import { keyToDisplay } from "../../../../utils/shortcutUtils";
+import { isEditableContentEmpty } from "../../chatInput/fileTagUtils";
+import { RichContentInput } from "../../chatInput/RichContentInput";
 import { getFileName } from "../toolCalls/shared/formatters";
 import { MiniDiffViewer } from "../toolCalls/shared/MiniDiffViewer";
 import type { ToolCallInfo } from "../utils/conversationTypes";
@@ -208,7 +210,11 @@ const AuthorizationToolItem = ({
     [toolCall],
   );
   const isFileMutation = filePreview !== null;
-  const trimmedReason = rejectionReason.trim();
+  // 拒绝理由是富文本：空态下 contenteditable 会残留换行符，需按编辑区口径判空，
+  // 否则「未填写理由」会被当成用户理由（不再回落到默认理由）。
+  const trimmedReason = isEditableContentEmpty(rejectionReason)
+    ? ""
+    : rejectionReason.trim();
 
   /** 拒绝：理由为空时回落到默认理由（与「拒绝」按钮一致）。 */
   const handleReject = (): void => {
@@ -227,7 +233,7 @@ const AuthorizationToolItem = ({
    * 免去移动鼠标。
    */
   const handleReasonKeyDown = (
-    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    event: React.KeyboardEvent<HTMLDivElement>,
   ): void => {
     if (
       event.key !== "Enter" ||
@@ -263,24 +269,24 @@ const AuthorizationToolItem = ({
           </div>
         </>
       )}
-      <label className="tool-authorization-rejection-reason">
+      <div className="tool-authorization-rejection-reason">
         <span className="tool-authorization-tool-label">
           {t("toolAuthorization.rejectionReason")}
         </span>
-        <textarea
+        <RichContentInput
+          className="tool-authorization-rejection-input"
           disabled={isSubmitting}
-          onChange={(event) => setRejectionReason(event.target.value)}
-          onKeyDown={handleReasonKeyDown}
           placeholder={t("toolAuthorization.rejectionReasonPlaceholder")}
-          rows={2}
-          value={rejectionReason}
+          ariaLabel={t("toolAuthorization.rejectionReason")}
+          onChange={setRejectionReason}
+          onKeyDown={handleReasonKeyDown}
         />
         <span className="tool-authorization-rejection-hint">
           {t("toolAuthorization.rejectionShortcutHint", {
             values: { keys: keyToDisplay("mod+enter") },
           })}
         </span>
-      </label>
+      </div>
       <div className="tool-authorization-actions">
         <button
           className="tool-authorization-action tool-authorization-reject"

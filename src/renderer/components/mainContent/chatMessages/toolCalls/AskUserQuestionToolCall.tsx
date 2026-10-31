@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CircleAlert,
@@ -12,21 +12,15 @@ import {
 import { useI18n } from "../../../../i18n";
 import { keyToDisplay } from "../../../../utils/shortcutUtils";
 import { ContentChips } from "../../chatInput/ContentChips";
-import { TEXT_SNIPPET_THRESHOLD } from "../../chatInput/constants";
 import {
-  buildTextSnippetSummary,
-  createImageChipHtml,
-  createTextSnippetChipHtml,
-  insertHtmlAtSelection,
   isEditableContentEmpty,
   parseContentSegments,
-  readEditableContent,
   summarizeContentAsPlainText,
-  type ImageTag,
-  type TextSnippetTag,
 } from "../../chatInput/fileTagUtils";
-import { TextSnippetOverlay } from "../../chatInput/TextSnippetOverlay";
-import { useTextSnippetOverlay } from "../../chatInput/useTextSnippetOverlay";
+import {
+  RichContentInput,
+  type RichContentInputHandle,
+} from "../../chatInput/RichContentInput";
 import { useChatConversationContext } from "../components/ChatConversationContext";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { ToolNameBadge } from "./shared/ToolNameBadge";
@@ -79,27 +73,11 @@ export const AskUserQuestionToolCall = ({
   const [customAnswers, setCustomAnswers] = useState<string[]>(() =>
     questionId ? (getUserQuestionDraft(questionId)?.customAnswers ?? []) : [],
   );
-  // 自定义答案输入框是可编辑富文本：粘贴的图片以 @@image:...@@ chip 与文字
-  // 一起提交，序列化结果保存在 customDraft（同时用于提交按钮可用性判定）。
+  // 自定义答案输入框是可编辑富文本（RichContentInput）：粘贴的图片以
+  // @@image:...@@ chip、超长文本折叠为 @@text-snippet:...@@ chip，与文字一起
+  // 提交；序列化结果保存在 customDraft（同时用于提交按钮可用性判定）。
   const [customDraft, setCustomDraft] = useState("");
-  const customInputRef = useRef<HTMLDivElement | null>(null);
-
-  const syncCustomDraft = useCallback((): void => {
-    const el = customInputRef.current;
-    if (!el) {
-      return;
-    }
-    const encoded = readEditableContent(el);
-    setCustomDraft(encoded);
-    el.dataset.empty = isEditableContentEmpty(encoded) ? "true" : "false";
-  }, []);
-
-  // 片段 chip 的悬停预览与点击编辑复用聊天输入框那套能力（同一个 hook 与
-  // 浮层组件）；编辑保存 / 删除后回写序列化结果，草稿与提交内容随之更新。
-  const snippetOverlay = useTextSnippetOverlay({
-    containerRef: customInputRef,
-    onChange: syncCustomDraft,
-  });
+  const customInputRef = useRef<RichContentInputHandle | null>(null);
 
   useEffect(() => {
     const draft = questionId ? getUserQuestionDraft(questionId) : undefined;
@@ -115,11 +93,8 @@ export const AskUserQuestionToolCall = ({
         parsedResult?.customAnswers ??
         [],
     );
-    if (customInputRef.current) {
-      customInputRef.current.innerHTML = "";
-      customInputRef.current.dataset.empty = "true";
-    }
-    setCustomDraft("");
+    // clear 会按空内容回调，customDraft 随之复位。
+    customInputRef.current?.clear();
   }, [
     parsedResult?.customAnswers,
     parsedResult?.selectedOptions,
@@ -143,125 +118,6 @@ export const AskUserQuestionToolCall = ({
     });
   };
 
-  /**
-   * 把光标收进自定义答案输入框末尾：读取图片是异步的、粘贴也可能发生在
-   * 编辑区失焦时，selection 此时不在编辑区内，需重置避免 chip 插到别处。
-   */
-  const focusCustomInputAtEnd = useCallback((): HTMLDivElement | null => {
-    const el = customInputRef.current;
-    if (!el) {
-      return null;
-    }
-    el.focus();
-    const selection = window.getSelection();
-    const anchor = selection?.rangeCount
-      ? selection.getRangeAt(0).startContainer
-      : null;
-    if (selection && (!anchor || !el.contains(anchor))) {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-    return el;
-  }, []);
-
-  /** 把粘贴的图片文件插入自定义答案输入框（chip 与文字一起提交）。 */
-  const insertCustomImage = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        if (!dataUrl) {
-          return;
-        }
-        const mimeMatch = file.type.match(/^image\/([a-z0-9+.-]+)$/i);
-        const imageTag: ImageTag = {
-          name: `image.${mimeMatch ? mimeMatch[1].split("+")[0] : "png"}`,
-          dataUrl,
-        };
-        if (!focusCustomInputAtEnd()) {
-          return;
-        }
-        insertHtmlAtSelection(createImageChipHtml(imageTag));
-        syncCustomDraft();
-      };
-      reader.readAsDataURL(file);
-    },
-    [focusCustomInputAtEnd, syncCustomDraft],
-  );
-
-  const handleCustomPaste = (
-    event: React.ClipboardEvent<HTMLDivElement>,
-  ): void => {
-    if (!isInteractive) {
-      return;
-    }
-    const imageFiles: File[] = [];
-    for (const item of event.clipboardData.items) {
-      if (item.kind !== "file" || !item.type.startsWith("image/")) {
-        continue;
-      }
-      const file = item.getAsFile();
-      if (file) {
-        imageFiles.push(file);
-      }
-    }
-    if (imageFiles.length > 0) {
-      event.preventDefault();
-      for (const file of imageFiles) {
-        insertCustomImage(file);
-      }
-      return;
-    }
-    // 超长文本粘贴折叠为 text-snippet chip（阈值与聊天输入框一致），
-    // 避免 contenteditable 塞入海量文本节点导致渲染卡顿；chip 内容仍会
-    // 随自定义答案一起提交给 AI。
-    const text = event.clipboardData.getData("text/plain");
-    if (text.length <= TEXT_SNIPPET_THRESHOLD) {
-      return;
-    }
-    event.preventDefault();
-    if (!focusCustomInputAtEnd()) {
-      return;
-    }
-    const snippetTag: TextSnippetTag = {
-      content: text,
-      summary: buildTextSnippetSummary(text),
-      charCount: text.length,
-    };
-    insertHtmlAtSelection(createTextSnippetChipHtml(snippetTag));
-    syncCustomDraft();
-  };
-
-  /**
-   * chip 的移除按钮位于编辑区内，需手动摘除并同步序列化结果；点击片段 chip
-   * 则打开片段编辑浮层（改内容 / 改摘要 / 删除）。
-   */
-  const handleCustomClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-    if (!isInteractive) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    const removeBtn = target?.closest("[data-chip-remove='true']");
-    if (removeBtn) {
-      event.preventDefault();
-      removeBtn.closest(".file-chip")?.remove();
-      syncCustomDraft();
-      return;
-    }
-    snippetOverlay.handleChipClick(event);
-  };
-
-  const clearCustomInput = (): void => {
-    if (customInputRef.current) {
-      customInputRef.current.innerHTML = "";
-      customInputRef.current.dataset.empty = "true";
-    }
-    setCustomDraft("");
-  };
-
   const addCustomAnswer = (): void => {
     if (!isInteractive || !questionId) {
       return;
@@ -276,7 +132,7 @@ export const AskUserQuestionToolCall = ({
       ? customAnswers
       : [...customAnswers, value];
     setCustomAnswers(next);
-    clearCustomInput();
+    customInputRef.current?.clear();
     saveUserQuestionDraft(questionId, {
       selectedOptions,
       customAnswers: next,
@@ -468,21 +324,14 @@ export const AskUserQuestionToolCall = ({
             {t("toolCall.userQuestion.customLabel")}
           </span>
           <div className="tool-call-user-question-custom-form">
-            <div
+            <RichContentInput
               ref={customInputRef}
               className="tool-call-user-question-custom-input"
-              contentEditable={isInteractive}
-              role="textbox"
-              aria-multiline="true"
-              aria-label={t("toolCall.userQuestion.customLabel")}
-              data-empty="true"
-              data-placeholder={t("toolCall.userQuestion.customPlaceholder")}
-              onInput={syncCustomDraft}
-              onPaste={handleCustomPaste}
-              onClick={handleCustomClick}
+              placeholder={t("toolCall.userQuestion.customPlaceholder")}
+              ariaLabel={t("toolCall.userQuestion.customLabel")}
+              disabled={!isInteractive}
+              onChange={setCustomDraft}
               onKeyDown={handleCustomKeyDown}
-              onMouseMove={snippetOverlay.showPreview}
-              onMouseLeave={snippetOverlay.scheduleHidePreview}
             />
             <button
               type="button"
@@ -607,7 +456,6 @@ export const AskUserQuestionToolCall = ({
           </div>
         </div>
       </div>
-      <TextSnippetOverlay overlay={snippetOverlay} />
     </div>
   );
 };
