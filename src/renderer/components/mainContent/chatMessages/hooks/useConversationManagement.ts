@@ -3,7 +3,7 @@ import {
   reportSubAgentParentError,
   stopSubAgentParentTask,
 } from "./subAgentParentInbox";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type {
   ConversationContextValue,
   ConversationSessionState,
@@ -34,7 +34,10 @@ import {
   toNonBlockingRecord,
 } from "./hookOutcome";
 import { prefetchMarkdown } from "../components/markdownRenderer";
-import { demotePendingSteering } from "../utils/pendingInputs";
+import {
+  demotePendingSteering,
+  refreshPendingMessages,
+} from "../utils/pendingInputs";
 import { cancelSubAgentRunWaits } from "./subAgentRunControl";
 import { imageGenerationRuntime } from "./imageGenerationRuntime";
 import {
@@ -93,15 +96,9 @@ export const useConversationManagement = (
       if (queue.length === 0) {
         ctx.pendingQueueRef.current.delete(sessionKey);
       }
-      // 显示镜像只反映当前激活会话的队列（会话隔离）：目标为后台会话时
-      // 不更新镜像，等切回该会话时再从队列重载。激活基准同样经迁移映射
-      // 解析（槽位迁移后 activeSessionKey 与队列 key 可能相差一层映射）。
-      const activeSessionKey = resolvePendingQueueKey(
-        ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY,
-      );
-      if (sessionKey === activeSessionKey) {
-        ctx.setActivePendingMessages(queue.map((item) => item.text));
-      }
+      // 显示镜像：主视图只反映当前激活会话的队列；按会话隔离的镜像（会话面板
+      // 用）始终同步，否则面板里的队列会残留已撤回的消息。
+      refreshPendingMessages(ctx, sessionKey);
       return removed?.text ?? null;
     },
     [],
@@ -117,6 +114,136 @@ export const useConversationManagement = (
       Date.now() - session.lastAccessedAt > ttlMs
     );
   };
+
+  /** 会话面板发起的按会话加载（不切换主视图）：与选择路径各自的在途表隔离。 */
+  const scopeLoadPromisesRef = useRef(new Map<string, Promise<void>>());
+
+  /**
+   * 为指定会话加载初始历史，但不切换主视图（右侧面板的会话面板使用）。
+   * - 已加载过（内存中标记已完成初始历史，或已有实时消息）直接返回；
+   * - 否则拉取首页消息 + 会话记录 + 会话模式，写入该会话的内存态；
+   * - 不写主视图的选择态（isLoadingInitialHistory / 模式显示态 / 队列镜像的
+   *   激活语义），也不做文件变更统计的历史重建（面板只做只读展示）。
+   */
+  const loadConversationScope = useCallback(
+    async (conversationId: string, directoryId?: string): Promise<void> => {
+      const trimmedId = conversationId.trim();
+      if (!trimmedId) {
+        return;
+      }
+      const cached = ctx.sessionsRef.current[trimmedId];
+      if (cached?.isInitialHistoryLoaded) {
+        ctx.updateSessionField(trimmedId, "lastAccessedAt", Date.now());
+        return;
+      }
+      if (cached && cached.messages.length > 0) {
+        ctx.updateSessionField(trimmedId, "isInitialHistoryLoaded", true);
+        ctx.updateSessionField(trimmedId, "lastAccessedAt", Date.now());
+        return;
+      }
+      const inFlight = scopeLoadPromisesRef.current.get(trimmedId);
+      if (inFlight) {
+        await inFlight;
+        return;
+      }
+
+      const loadPromise = (async () => {
+        try {
+          const [page, record, storedModes] = await Promise.all([
+            window.snow.listChatMessagesPaginated(
+              trimmedId,
+              "",
+              CHAT_MESSAGE_PAGE_SIZE,
+            ),
+            window.snow.getChatConversation(trimmedId),
+            window.snow.getConversationModes(trimmedId).catch(() => null),
+          ]);
+          const defaults = ctx.globalModeDefaultsRef.current;
+          const targetDirId =
+            directoryId ?? record?.directoryId ?? ctx.directoryId;
+          ctx.ensureSession(trimmedId, targetDirId);
+          const ref = ctx.sessionsRefData.current.get(trimmedId);
+          if (ref && storedModes) {
+            ref.goalMode = storedModes.goalMode ?? ref.goalMode;
+            ref.worktreeMode = storedModes.worktreeMode ?? ref.worktreeMode;
+            ref.workflowMode = storedModes.workflowMode ?? ref.workflowMode;
+            ref.goalModeTokenBudget =
+              storedModes.goalModeTokenBudget ?? ref.goalModeTokenBudget;
+          } else if (ref) {
+            ref.goalMode = ref.goalMode ?? defaults.goalMode;
+          }
+          ctx.setSessions((prev) => {
+            const existing = prev[trimmedId];
+            // 注意：上面的 ensureSession 会在同一批次里把该会话标记为「初始历史
+            // 已加载」的空占位（messages 为空），那不是真的加载过。守卫只能看
+            // 「是否已有内容 / 是否正在运行」，否则首次在会话面板打开任何会话
+            // （子代理、Workflow 节点等未在主视图加载过的会话）都会永远空白。
+            const liveRef = ctx.sessionsRefData.current.get(trimmedId);
+            if (
+              existing &&
+              (existing.messages.length > 0 ||
+                existing.isStreaming ||
+                liveRef?.isSending)
+            ) {
+              return prev;
+            }
+            const isCurrentlyStreaming = Boolean(existing?.isStreaming);
+            return {
+              ...prev,
+              [trimmedId]: {
+                messages: buildConversationMessages(page.items),
+                messageRecords: toMessageRecordRefs(page.items),
+                summary: record?.summary || record?.title || "",
+                isStreaming: isCurrentlyStreaming,
+                isAborting: existing?.isAborting ?? false,
+                isPaused: existing?.isPaused ?? false,
+                isLoadingOlderMessages: false,
+                hasMoreMessages: page.hasMore,
+                isInitialHistoryLoaded: true,
+                lastAccessedAt: Date.now(),
+                tokenUsage:
+                  tokenUsageFromMessageRecords(page.items) ??
+                  existing?.tokenUsage ??
+                  null,
+                directoryId: existing?.directoryId ?? targetDirId,
+                hasNewContent: false,
+                forkedFromConversationId:
+                  record?.forkedFromConversationId || undefined,
+                forkMessageCount: record?.forkMessageCount || undefined,
+                streamTokenCount: existing?.streamTokenCount ?? 0,
+                streamElapsedMs: existing?.streamElapsedMs ?? 0,
+                streamTtftMs: existing?.streamTtftMs ?? 0,
+                runTtftMs: existing?.runTtftMs ?? 0,
+                runTtftSumMs: existing?.runTtftSumMs ?? 0,
+                runRequestCount: existing?.runRequestCount ?? 0,
+                baselineCheckpointId:
+                  page.checkpointIds[0] ?? existing?.baselineCheckpointId,
+                streamStartedAt: existing?.streamStartedAt ?? 0,
+                runTokenUsage: existing?.runTokenUsage ?? null,
+                conversationTokenUsage: existing?.conversationTokenUsage ?? {
+                  inputTokens: record?.runInputTokens ?? 0,
+                  outputTokens: record?.runOutputTokens ?? 0,
+                  cacheCreationInputTokens:
+                    record?.runCacheCreationInputTokens ?? 0,
+                  cacheReadInputTokens: record?.runCacheReadInputTokens ?? 0,
+                },
+                lastRunDurationMs: record?.lastRunDurationMs ?? 0,
+                conversationTtftSumMs: record?.runTtftSumMs ?? 0,
+                conversationRequestCount: record?.runRequestCount ?? 0,
+              },
+            };
+          });
+        } catch {
+          // 加载失败时静默处理：面板显示空列表，不影响主视图。
+        } finally {
+          scopeLoadPromisesRef.current.delete(trimmedId);
+        }
+      })();
+      scopeLoadPromisesRef.current.set(trimmedId, loadPromise);
+      await loadPromise;
+    },
+    [],
+  );
 
   const handleSelectConversation = useCallback(
     async (
@@ -601,13 +728,13 @@ export const useConversationManagement = (
   );
 
   const loadOlderMessages = useCallback(
-    async (pageSize?: number): Promise<void> => {
+    async (pageSize?: number, sessionKey?: string): Promise<void> => {
       // 可能被直接当事件回调调用，非数字参数一律回落默认页长。
       const limit =
         typeof pageSize === "number" && pageSize > 0
           ? Math.floor(pageSize)
           : CHAT_MESSAGE_PAGE_SIZE;
-      const conversationId = ctx.activeConversationIdRef.current;
+      const conversationId = sessionKey ?? ctx.activeConversationIdRef.current;
       if (!conversationId) {
         return;
       }
@@ -1306,6 +1433,7 @@ export const useConversationManagement = (
     withdrawPendingMessage,
     sendPendingMessageNow,
     handleSelectConversation,
+    loadConversationScope,
     loadOlderMessages,
     handleNewChat,
     handleAbort,

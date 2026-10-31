@@ -15,8 +15,9 @@ type SubAgentListPanelProps = {
  * 子代理图标：静态状态使用 Bot 象形图标（与 Workflow 节点图标区分），
  * 运行中改用 Loader2 旋转指示器；完成绿色 / 失败红色 / 待执行灰色 /
  * 需关注黄色感叹号，与 Workflow 节点保持同一套状态配色。
+ * 右侧面板的会话 tab 下拉复用本函数（状态配色由各自的容器样式提供）。
  */
-function renderStatusIcon(
+export function renderStatusIcon(
   status: string,
   isAttentionRequired: boolean,
 ): React.ReactNode {

@@ -57,13 +57,22 @@ type ChatContentProps = {
   /** 右侧面板全屏时以悬浮卡片呈现 */
   isFloating?: boolean;
   onNavigateToView?: (view: MainContentView) => void;
+  /**
+   * 聊天表面身份：main = 主内容区的聊天视图（缺省）；panel = 右侧面板里的
+   * 会话面板。会话面板的会话由外层 ChatSessionScope 注入，这里只负责关闭
+   * 「每窗口唯一」的行为（宠物快照上报、全局快捷键订阅、项目切换自动选中、
+   * 消息窗口裁剪门控）。
+   */
+  surface?: "main" | "panel";
 };
 
 const ChatContentBody = ({
   activeDirectory,
   isFloating = false,
   onNavigateToView,
+  surface = "main",
 }: ChatContentProps): React.JSX.Element => {
+  const isMainSurface = surface === "main";
   const scrollToBottomShortcut = useShortcutLabel("scrollToBottom");
   const {
     messages,
@@ -182,6 +191,8 @@ const ChatContentBody = ({
     attentionRequiredConversationIds,
     handleSelectConversation,
     handleNewChat,
+    // 项目切换自动选中只属于主视图：会话面板绑定的会话不随主视图项目切换。
+    enabled: isMainSurface,
   });
 
   // 悬浮只有两种形态：灵动岛胶囊（收起）/ 完整会话面板（展开）。
@@ -282,16 +293,20 @@ const ChatContentBody = ({
   // 上报空快照，宠物聊天转为纯闲聊。
   const conversationWorkspacePath =
     directoryIdToPath(conversationDirectoryId) ?? activeDirectory?.path;
-  usePetChatSnapshot({
-    conversationId: activeConversationId ?? null,
-    title: activeConversationMeta?.title?.trim() || null,
-    directoryId:
-      conversationDirectoryId ?? activeDirectory?.directoryId ?? null,
-    workspacePath: conversationWorkspacePath ?? null,
-    isStreaming,
-    isPaused,
-    messages,
-  });
+  usePetChatSnapshot(
+    {
+      conversationId: activeConversationId ?? null,
+      title: activeConversationMeta?.title?.trim() || null,
+      directoryId:
+        conversationDirectoryId ?? activeDirectory?.directoryId ?? null,
+      workspacePath: conversationWorkspacePath ?? null,
+      isStreaming,
+      isPaused,
+      messages,
+    },
+    // 宠物快照每窗口只上报一份：会话面板不参与，避免两份上下文互相覆盖。
+    isMainSurface,
+  );
 
   const liveSubAgentEvent = activeConversationId
     ? subAgentSessionEvents[activeConversationId]
@@ -471,6 +486,8 @@ const ChatContentBody = ({
     isChatAreaRendered,
     isCompactingActive,
     autoScrollEnabled,
+    // 消息窗口裁剪门控是模块级单例：只由主聊天表面注册。
+    registerViewGate: isMainSurface,
   });
 
   // 覆盖整个中间输出区：文件变更统计、消息正文、Thinking、工具调用和压缩输出。
@@ -511,7 +528,12 @@ const ChatContentBody = ({
   );
 
   // 快捷键：滚动到顶部 / 底部；复制最后一条 AI 回复。
+  // 这些动作作用于「当前聊天表面」，同一窗口只应由主聊天视图响应，
+  // 否则会话面板也会跟着滚动 / 复制。
   useEffect(() => {
+    if (!isMainSurface) {
+      return;
+    }
     const unsubTop = shortcutEvents.on("scroll-to-top", () => {
       const el = scrollRef.current;
       if (el) {

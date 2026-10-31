@@ -70,3 +70,21 @@ export const useChatConversationSessions = (): ChatConversationSessions => {
 
   return sessions;
 };
+
+/**
+ * 用给定值重新提供会话上下文（不新建运行时）：右侧面板的「会话面板」据此把
+ * 自己会话的视图注入子树，使深层组件（消息列表、工具卡片、输入区）全部按该
+ * 会话解析字段与动作，而底层运行时仍是同一个 ChatConversationProvider 实例。
+ * 实时会话表（sessions）继续沿用外层 Provider 的值。
+ */
+export const ChatConversationValueProvider = ({
+  value,
+  children,
+}: {
+  value: ChatConversationContextValue;
+  children: ReactNode;
+}): React.JSX.Element => (
+  <ChatConversationContext.Provider value={value}>
+    {children}
+  </ChatConversationContext.Provider>
+);

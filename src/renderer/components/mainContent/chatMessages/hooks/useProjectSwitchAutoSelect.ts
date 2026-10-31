@@ -18,6 +18,11 @@ type UseProjectSwitchAutoSelectParams = {
   attentionRequiredConversationIds: Set<string>;
   handleSelectConversation: UseChatConversationResult["handleSelectConversation"];
   handleNewChat: UseChatConversationResult["handleNewChat"];
+  /**
+   * false = 不参与自动选中（会话面板：绑定的会话不随主视图项目切换）。
+   * 缺省 true，即主聊天视图的原有行为。
+   */
+  enabled?: boolean;
 };
 
 type RunningConversationCandidate = {
@@ -42,6 +47,7 @@ export const useProjectSwitchAutoSelect = ({
   attentionRequiredConversationIds,
   handleSelectConversation,
   handleNewChat,
+  enabled = true,
 }: UseProjectSwitchAutoSelectParams): void => {
   const requestIdRef = useRef(0);
   const sessionsRef = useRef(sessions);
@@ -60,6 +66,9 @@ export const useProjectSwitchAutoSelect = ({
   handleNewChatRef.current = handleNewChat;
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     const targetDirectoryId = directoryId;
     if (!targetDirectoryId) {
       return;

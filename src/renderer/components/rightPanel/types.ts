@@ -100,11 +100,14 @@ export type PluginTabData = {
 export type TaskManagerTabData = Record<string, never>;
 
 /**
- * 会话 tab 数据：仅出现在独立面板窗口中（「在新窗口中打开」会话）。
- * 会话运行时由独立窗口的 ChatConversationProvider 承载，tab 只记录所属会话。
+ * 会话 tab 数据：主窗口的会话面板与独立面板窗口共用。
+ * conversationId 是 tab 身份（拖入面板的那个会话）；viewConversationId 是
+ * 通过 tab 标题下拉切换后当前展示的会话（子代理 / Workflow 节点），
+ * 缺省或等于 conversationId 时展示根会话。
  */
 export type ConversationTabData = {
   conversationId: string;
+  viewConversationId?: string;
 };
 
 export type RightPanelTabType =

@@ -65,11 +65,23 @@ export const useRollback = (ctx: ConversationContextValue) => {
   /** 每次打开/取消回滚都会推进序号，异步变更/TODO 查询只能提交自己的结果。 */
   const rollbackRequestIdRef = useRef(0);
 
+  /** 目标会话是否就是主视图当前激活会话（只有它是时才同步主视图显示态）。 */
+  const isActiveSessionKey = useCallback(
+    (key: string): boolean =>
+      key === (ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY),
+    [ctx.activeSessionKeyRef],
+  );
+
   const handleRollback = useCallback(
-    (messageId: string): void => {
+    (messageId: string, targetSessionKey?: string): void => {
       // Never replace the only releasable identity or hide a partial restoration.
       if (rollbackConfirmingRef.current || rollbackIdentityRef.current) return;
-      const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      // 显式目标会话优先（会话面板指定会话回滚）；省略时沿用主视图当前
+      // 激活会话，保持原有行为。
+      const key =
+        targetSessionKey ??
+        ctx.activeSessionKeyRef.current ??
+        PENDING_SESSION_KEY;
       const requestId = ++rollbackRequestIdRef.current;
 
       // Revoke wake admission synchronously; rollback must never revive the
@@ -433,10 +445,20 @@ export const useRollback = (ctx: ConversationContextValue) => {
           }
 
           // 异步查询完成时用户可能已切换到同项目的另一个会话，或又发起了
-          // 一次回滚。只允许仍属于当前活动会话的最新请求打开弹窗。
+          // 一次回滚。只允许最新请求打开弹窗：
+          // - 主视图路径要求目标会话仍是当前活动会话；
+          // - 显式目标（会话面板）不受主视图切换影响，但要求该会话仍在内存中，
+          //   避免为已释放（面板已关闭）的会话弹出回滚确认。
+          const isTargetStillValid =
+            targetSessionKey === undefined
+              ? isActiveSessionKey(key)
+              : Boolean(
+                  ctx.sessionsRef.current[key] ??
+                  ctx.sessionsRefData.current.get(key),
+                );
           if (
             rollbackRequestIdRef.current !== requestId ||
-            ctx.activeSessionKeyRef.current !== key
+            !isTargetStillValid
           ) {
             return;
           }
@@ -471,10 +493,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
           // the project root. Keep rollback closed and leave diagnostics in app logs.
           if (rollbackRequestIdRef.current === requestId) {
             ctx.setRollbackPreview(null);
-            if (
-              isWorktreeBindingError(error) &&
-              ctx.activeSessionKeyRef.current === key
-            ) {
+            if (isWorktreeBindingError(error) && isActiveSessionKey(key)) {
               ctx.setWorktreeModeNotice(
                 t("chat.rollbackWorktreeBindingMissing"),
               );
@@ -512,6 +531,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
       ctx.setRollbackPreview,
       ctx.abortWorkflowNodes,
       ctx.setWorktreeModeNotice,
+      isActiveSessionKey,
       t,
     ],
   );
@@ -838,7 +858,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
           });
         }
 
-        const targetWasActive = ctx.activeSessionKeyRef.current === key;
+        const targetWasActive = isActiveSessionKey(key);
         if (isFirstMessage && !isContextCompaction && convId) {
           // 会话已被删除：刷新侧边栏列表，移除该会话。只有目标仍是活动会话
           // 时才清空 activeId，不能影响用户已切换到的另一个并行会话。
@@ -856,6 +876,8 @@ export const useRollback = (ctx: ConversationContextValue) => {
             // 会话配置（模型/API/模式）迁移到该槽位。
             ctx.pendingSessionSeqRef.current += 1;
             ctx.setActiveId(undefined);
+            // 仅当被回滚会话就是主视图激活会话（targetWasActive）才走到这里：
+            // 会话面板回滚其他会话时不改写主视图的新会话槽位。
             const pendingKey = ctx.activeSessionKeyRef.current!;
             ctx.ensureSession(pendingKey, directoryId ?? ctx.directoryId);
             const pendingRef = ctx.sessionsRefData.current.get(pendingKey);
@@ -936,6 +958,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
       ctx.setSessions,
       ctx.activeSessionKeyRef,
       ctx.pendingSessionSeqRef,
+      isActiveSessionKey,
       t,
     ],
   );

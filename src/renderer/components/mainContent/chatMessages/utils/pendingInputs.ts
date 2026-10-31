@@ -2,18 +2,56 @@ import type {
   ConversationContextValue,
   PendingQueueItem,
 } from "./conversationTypes";
+
+/**
+ * 同步某会话的待发送队列显示镜像：
+ * - 该会话是主视图当前激活会话时，同时更新主视图的 activePendingMessages；
+ * - 始终更新按会话隔离的镜像（会话面板据此渲染自己会话的队列）。
+ */
+const writePendingMirror = (
+  ctx: ConversationContextValue,
+  sessionKey: string,
+  queue: PendingQueueItem[],
+): void => {
+  const messages = queue.map((item) => item.text);
+  const modes = queue.map((item) =>
+    item.options.deliveryMode === "steer"
+      ? ("steer" as const)
+      : ("queue" as const),
+  );
+  ctx.setPendingQueueMirrors((prev) => {
+    const previous = prev[sessionKey];
+    if (
+      previous &&
+      previous.messages.length === messages.length &&
+      previous.messages.every((text, index) => text === messages[index]) &&
+      (previous.modes?.length ?? 0) === modes.length &&
+      (previous.modes ?? []).every((mode, index) => mode === modes[index])
+    ) {
+      return prev;
+    }
+    if (queue.length === 0) {
+      if (!previous) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionKey];
+      return next;
+    }
+    return { ...prev, [sessionKey]: { messages, modes } };
+  });
+};
+
 /** Keep the visible queue scoped to its owning conversation. */
 export const refreshPendingMessages = (
   ctx: ConversationContextValue,
   sessionKey: string,
 ): void => {
+  const queue = ctx.pendingQueueRef.current.get(sessionKey) ?? [];
   if (ctx.activeSessionKeyRef.current === sessionKey) {
-    ctx.setActivePendingMessages(
-      (ctx.pendingQueueRef.current.get(sessionKey) ?? []).map(
-        (item) => item.text,
-      ),
-    );
+    ctx.setActivePendingMessages(queue.map((item) => item.text));
   }
+  writePendingMirror(ctx, sessionKey, queue);
 };
 
 export const hasPendingSteering = (

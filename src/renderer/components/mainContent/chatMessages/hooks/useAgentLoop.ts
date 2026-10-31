@@ -373,7 +373,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       // one-shot target set by handleNewChat(directoryId) — it applies to this
       // send only.
       let pendingDirId: string | undefined;
-      if (!isBackgroundStart) {
+      if (!isBackgroundStart && !options.targetSessionKey) {
         pendingDirId = ctx.pendingDirectoryIdRef.current;
         ctx.pendingDirectoryIdRef.current = undefined;
       }

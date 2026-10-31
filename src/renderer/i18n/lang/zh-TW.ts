@@ -5445,6 +5445,8 @@ export const zhTW = {
     "反向提示詞 · 僅 Gemini Imagen 生效",
   "rightPanel.aiDrawing.negativePromptClear": "清空",
   "rightPanel.openInNewWindow": "在新視窗中開啟",
+  "rightPanel.conversationTabGroupSubAgents": "子代理",
+  "rightPanel.conversationTabGroupWorkflowNodes": "Workflow 節點",
   "detachedPanel.closeConfirmTitle": "關閉獨立視窗",
   "detachedPanel.closeConfirmMessage":
     "確定要關閉此獨立視窗嗎？視窗中正在執行的對話將會停止。",

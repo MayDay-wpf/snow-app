@@ -41,6 +41,7 @@ import {
   type PlusMenuItem,
 } from "./common/PlusMenuButton";
 import { RightPanelTabContextMenu } from "./rightPanel/RightPanelTabContextMenu";
+import { ConversationTabSwitcher } from "./rightPanel/ConversationTabSwitcher";
 import { DetachedConversationSync } from "./rightPanel/DetachedConversationSync";
 import { OverlayScrollbar } from "./common/OverlayScrollbar";
 import { PluginIcon } from "./common/PluginIcon";
@@ -80,6 +81,11 @@ import { isPdfFilePath, openBrowserFile } from "../utils/browserFileOpen";
 import { hasCustomWindowFrame } from "../utils/platform";
 import { getFileTypeIcon } from "../utils/fileIcons";
 import { buildSshConnectParams } from "./sidebar/personalization/roleFileUtils";
+import {
+  CONVERSATION_DRAG_MIME,
+  readConversationDragPayload,
+} from "./sidebar/mainSidebar/conversationDrag";
+import { subscribePanelConversationFocus } from "./common/conversationPanelOwnership";
 import type {
   BrowserTabData,
   CodebaseTabData,
@@ -245,11 +251,22 @@ const ConversationTabPane = lazy(() =>
     default: m.ConversationTabPane,
   })),
 );
+// 主窗口的「会话面板」：与独立面板窗口的会话 tab 不同，它自带独立的会话视图
+// （见 ConversationPanel / ChatSessionScope），可与其它面板并排、同时运行。
+const ConversationPanel = lazy(() =>
+  import("./rightPanel/ConversationPanel").then((m) => ({
+    default: m.ConversationPanel,
+  })),
+);
 
 const GIT_TAB_ID = "git";
 const CODEBASE_TAB_ID = "codebase";
 const EXPLORER_TAB_ID = "explorer";
 const TASKS_TAB_ID = "tasks";
+
+/** 会话面板 tab 的 id：按会话稳定（与独立面板窗口的会话 tab 同一约定）。 */
+const conversationPanelTabId = (conversationId: string): string =>
+  `conversation:${conversationId}`;
 
 // 文件类 tab(diff / file / file-diff-preview)在标题前显示对应的文件类型图标。
 const getTabFileIcon = (tab: RightPanelTab): React.ReactNode => {
@@ -710,6 +727,100 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       return tabId;
     }, [t]);
 
+    /**
+     * 打开（或激活）会话面板 tab：把一个会话挂成右侧面板里的独立聊天视图，
+     * 可与其他会话面板 / 终端 / 浏览器等并排显示并同时运行。
+     * 已存在同一会话的 tab 时只激活，不重复创建（同一会话不会有两个面板实例）。
+     */
+    const handleOpenConversationTab = useCallback(
+      (conversationId: string, title?: string): string => {
+        const trimmedId = conversationId.trim();
+        const tabId = conversationPanelTabId(trimmedId);
+        const fallbackTitle =
+          title?.trim() ||
+          t("sidebar.untitledChat", { defaultValue: "Untitled" });
+        setTabs((prev) =>
+          prev.some((tab) => tab.id === tabId)
+            ? prev.map((tab) =>
+                tab.id === tabId && title?.trim()
+                  ? { ...tab, title: title.trim() }
+                  : tab,
+              )
+            : [
+                ...prev,
+                {
+                  id: tabId,
+                  type: "conversation",
+                  title: fallbackTitle,
+                  data: { conversationId: trimmedId } as ConversationTabData,
+                },
+              ],
+        );
+        setActiveTabId(tabId);
+        return tabId;
+      },
+      [t],
+    );
+
+    /** 会话摘要变化后回写 tab 标题（面板上报，未变化时不触发状态更新）。 */
+    const handleConversationPanelTitleChange = useCallback(
+      (tabId: string, title: string): void => {
+        const nextTitle = title.trim();
+        if (!nextTitle) {
+          return;
+        }
+        setTabs((prev) => {
+          const target = prev.find((tab) => tab.id === tabId);
+          if (!target || target.title === nextTitle) {
+            return prev;
+          }
+          return prev.map((tab) =>
+            tab.id === tabId ? { ...tab, title: nextTitle } : tab,
+          );
+        });
+      },
+      [],
+    );
+
+    /**
+     * 会话 tab 标题下拉切换展示的会话（子代理 / Workflow 节点）：
+     * 只改写该 tab 的展示目标与标题，不新建 tab、不影响其它面板。
+     * 切回根会话时清除 viewConversationId（回到 tab 的默认绑定）。
+     */
+    const handleSelectConversationTabView = useCallback(
+      (tabId: string, conversationId: string, title: string): void => {
+        setTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.id !== tabId || tab.type !== "conversation") {
+              return tab;
+            }
+            const data = tab.data as ConversationTabData | undefined;
+            if (!data) {
+              return tab;
+            }
+            const rootConversationId = data.conversationId;
+            const nextViewConversationId =
+              conversationId === rootConversationId
+                ? undefined
+                : conversationId;
+            const nextTitle = title.trim() || tab.title;
+            if (
+              data.viewConversationId === nextViewConversationId &&
+              tab.title === nextTitle
+            ) {
+              return tab;
+            }
+            return {
+              ...tab,
+              title: nextTitle,
+              data: { ...data, viewConversationId: nextViewConversationId },
+            };
+          }),
+        );
+      },
+      [],
+    );
+
     // 打开（或切换到已存在的）应用任务管理器 tab：全局唯一固定 tab。
     const handleOpenTaskManagerTab = useCallback((): void => {
       setTabs((prev) =>
@@ -766,6 +877,18 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         handleOpenExplorerTab(payload.directoryId);
       });
     }, [handleOpenExplorerTab]);
+
+    // 会话面板聚焦请求（选中被面板承载的会话时由会话运行时发出）：激活承载它的
+    // tab 并展开右侧面板 —— 同一会话只保留面板这一个聊天表面。承载 tab 由归属
+    // 注册表给出（面板可在同一 tab 内切换展示的会话，tab id 不一定等于会话 id）。
+    useEffect(
+      () =>
+        subscribePanelConversationFocus((_conversationId, tabId) => {
+          setActiveTabId(tabId);
+          rightPanelEvents.emit("request-expand");
+        }),
+      [],
+    );
 
     const pluginState = usePluginStore();
 
@@ -1986,11 +2109,40 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           ) : tab.type === "tasks" ? (
             <TaskManagerContent isActive={isTabActive} />
           ) : tab.type === "conversation" ? (
-            <ConversationTabPane
-              conversationId={(tab.data as ConversationTabData).conversationId}
-              isActive={isTabActive}
-              activeDirectory={activeDirectory}
-            />
+            isDetachedWindow ? (
+              <ConversationTabPane
+                conversationId={
+                  (tab.data as ConversationTabData).conversationId
+                }
+                isActive={isTabActive}
+                activeDirectory={activeDirectory}
+              />
+            ) : (
+              // 主窗口：会话面板自带独立的会话视图（同一运行时 + 会话作用域），
+              // 可与其它面板并排、同时收发消息；展示的会话可由 tab 标题下拉
+              // 切到该会话的子代理 / Workflow 节点。
+              <ConversationPanel
+                conversationId={
+                  (tab.data as ConversationTabData).conversationId
+                }
+                viewConversationId={
+                  (tab.data as ConversationTabData).viewConversationId
+                }
+                tabId={tab.id}
+                activeDirectory={activeDirectory}
+                onTitleChange={handleConversationPanelTitleChange}
+                onSelectConversationInTab={(
+                  targetConversationId,
+                  targetTitle,
+                ) =>
+                  handleSelectConversationTabView(
+                    tab.id,
+                    targetConversationId,
+                    targetTitle,
+                  )
+                }
+              />
+            )
           ) : tab.type === "plugin" ? (
             (tab.data as PluginTabData) ? (
               <PluginPanelContent
@@ -2096,6 +2248,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     const hasPaneTabDrag = (event: React.DragEvent): boolean =>
       event.dataTransfer.types.includes(RIGHT_PANE_TAB_MIME);
 
+    /** 侧边栏会话行拖入面板：落点即新建（或激活）会话面板 tab。 */
+    const hasConversationPanelDrag = (event: React.DragEvent): boolean =>
+      event.dataTransfer.types.includes(CONVERSATION_DRAG_MIME);
+
     /**
      * 落点反馈只能取效果集合允许的值：tab 拖到聊天输入框时终端用 link、文件用
      * copy，若在这里强行写 move 会被浏览器判为不可放置（drop 不触发）。
@@ -2151,12 +2307,13 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       return best.distance < DROP_EDGE_RATIO ? best.edge : "center";
     };
 
-    // 仅当拖的是本面板的 tab 时才接管；资源管理器 / 终端自身的拖放不受影响。
+    // 仅当拖的是本面板的 tab 或侧边栏会话行时才接管；资源管理器 / 终端自身的
+    // 拖放不受影响。
     const handlePaneDragOver = (
       event: React.DragEvent<HTMLDivElement>,
       paneId: string,
     ): void => {
-      if (!hasPaneTabDrag(event)) {
+      if (!hasPaneTabDrag(event) && !hasConversationPanelDrag(event)) {
         return;
       }
       event.preventDefault();
@@ -2174,7 +2331,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     const handlePaneDragLeave = (
       event: React.DragEvent<HTMLDivElement>,
     ): void => {
-      if (!hasPaneTabDrag(event)) {
+      if (!hasPaneTabDrag(event) && !hasConversationPanelDrag(event)) {
         return;
       }
       if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -2187,6 +2344,28 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       event: React.DragEvent<HTMLDivElement>,
       paneId: string,
     ): void => {
+      // 侧边栏会话行：落点中心=并入该组，落点四边=拆分成新组。
+      if (hasConversationPanelDrag(event)) {
+        const payload = readConversationDragPayload(event.dataTransfer);
+        if (!payload) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const edge = resolveDropEdge(event, event.currentTarget);
+        setDropTarget(null);
+        setTabDropIndex(null);
+        const panelTabId = handleOpenConversationTab(
+          payload.conversationId,
+          payload.title,
+        );
+        if (edge !== "center") {
+          setWorkspace((prev) =>
+            moveTabToPaneInWorkspace(prev, panelTabId, paneId, null, edge),
+          );
+        }
+        return;
+      }
       const tabId = readDraggedTabId(event);
       if (!tabId) {
         return;
@@ -2222,7 +2401,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       event: React.DragEvent<HTMLDivElement>,
       paneId: string,
     ): void => {
-      if (!hasPaneTabDrag(event)) {
+      if (!hasPaneTabDrag(event) && !hasConversationPanelDrag(event)) {
         return;
       }
       event.preventDefault();
@@ -2242,6 +2421,26 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       event: React.DragEvent<HTMLDivElement>,
       paneId: string,
     ): void => {
+      // 侧边栏会话行：落到 tab 栏即在该组内新建（或激活）会话面板 tab。
+      if (hasConversationPanelDrag(event)) {
+        const payload = readConversationDragPayload(event.dataTransfer);
+        if (!payload) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const index = resolveTabDropIndex(event, event.currentTarget);
+        setTabDropIndex(null);
+        setDropTarget(null);
+        const panelTabId = handleOpenConversationTab(
+          payload.conversationId,
+          payload.title,
+        );
+        setWorkspace((prev) =>
+          moveTabToPaneInWorkspace(prev, panelTabId, paneId, index, "center"),
+        );
+        return;
+      }
       const tabId = readDraggedTabId(event);
       if (!tabId) {
         return;
@@ -2531,18 +2730,42 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                                     aria-hidden="true"
                                   />
                                 )}
-                              <span
-                                className="right-panel-tab-title"
-                                title={tab.title}
-                              >
-                                {dirtyTabs.has(tab.id) && (
-                                  <span
-                                    className="right-panel-tab-dirty-dot"
-                                    aria-hidden="true"
-                                  />
-                                )}
-                                {tab.title}
-                              </span>
+                              {tab.type === "conversation" &&
+                              !isDetachedWindow ? (
+                                // 主窗口的会话 tab：标题即下拉，可在根会话与其
+                                // 子代理 / Workflow 节点（含节点下的子代理）之间切换。
+                                <ConversationTabSwitcher
+                                  rootConversationId={
+                                    (tab.data as ConversationTabData)
+                                      .conversationId
+                                  }
+                                  viewConversationId={
+                                    (tab.data as ConversationTabData)
+                                      .viewConversationId ?? ""
+                                  }
+                                  title={tab.title}
+                                  onSelect={(conversationId, nextTitle) =>
+                                    handleSelectConversationTabView(
+                                      tab.id,
+                                      conversationId,
+                                      nextTitle,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <span
+                                  className="right-panel-tab-title"
+                                  title={tab.title}
+                                >
+                                  {dirtyTabs.has(tab.id) && (
+                                    <span
+                                      className="right-panel-tab-dirty-dot"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  {tab.title}
+                                </span>
+                              )}
                               {tab.id !== GIT_TAB_ID && (
                                 <button
                                   type="button"
@@ -2596,12 +2819,14 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                         </div>
                       )}
                   </div>
-                  {dropTarget?.paneId === leaf.id && (
-                    <div
-                      className={`right-pane-drop-indicator edge-${dropTarget.edge}`}
-                      aria-hidden="true"
-                    />
-                  )}
+                  <div
+                    className={`right-pane-drop-indicator ${
+                      dropTarget?.paneId === leaf.id
+                        ? `edge-${dropTarget.edge} active`
+                        : "edge-center"
+                    }`}
+                    aria-hidden="true"
+                  />
                 </div>
               ))}
               {paneModel.splitters.map((splitter) => (

@@ -608,45 +608,35 @@ export const UserMessageRail = memo(
     }, []);
 
     // After the popover mounts (hovered becomes true), measure its real
-    // height on the next frame and compute the final clamped position. This
-    // runs once per open — it reads offsetHeight synchronously after layout
-    // so the initial estimate is corrected to exact centering + viewport
-    // clamping.
-    useEffect(() => {
+    // height and compute the final clamped position. 布局阶段同步测量：首帧
+    // 渲染时只有估算高度（兜底 400px，可能与真实高度差上百像素），若留到
+    // 下一帧再校正，浏览器会先把估算位置画出来、再瞬移到真实位置，肉眼即
+    // 「先显示在偏上位置、随后跳一下」。在 layout effect 里测量并在同一帧
+    // 内重渲染，估算位置永远不会被绘制。
+    useLayoutEffect(() => {
       if (!hovered) return;
       const rail = railRef.current;
-      if (!rail) return;
-      let cancelled = false;
+      const el = popoverRef.current;
+      if (!rail || !el) return;
 
-      const measureAndPosition = (): void => {
-        if (cancelled) return;
-        const el = popoverRef.current;
-        const railRect = rail.getBoundingClientRect();
-        const POPOVER_WIDTH = 260;
-        const POPOVER_GAP = 8;
-        const VIEWPORT_MARGIN = 8;
+      const height = el.offsetHeight;
+      if (height <= 0) return;
 
-        const effectiveH =
-          el?.offsetHeight && el.offsetHeight > 0 ? el.offsetHeight : 400;
+      const railRect = rail.getBoundingClientRect();
+      const POPOVER_WIDTH = 260;
+      const POPOVER_GAP = 8;
+      const VIEWPORT_MARGIN = 8;
 
-        const desiredTop = railRect.top + railRect.height / 2 - effectiveH / 2;
-        const minTop = VIEWPORT_MARGIN;
-        const maxTop = window.innerHeight - effectiveH - VIEWPORT_MARGIN;
-        const top = Math.max(minTop, Math.min(desiredTop, maxTop));
-        const left = railRect.left - POPOVER_WIDTH - POPOVER_GAP;
+      const desiredTop = railRect.top + railRect.height / 2 - height / 2;
+      const minTop = VIEWPORT_MARGIN;
+      const maxTop = window.innerHeight - height - VIEWPORT_MARGIN;
+      const top = Math.max(minTop, Math.min(desiredTop, maxTop));
+      const left = railRect.left - POPOVER_WIDTH - POPOVER_GAP;
 
-        setPopoverPos({ top, left });
-        if (el && el.offsetHeight > 0) {
-          setPopoverHeight(el.offsetHeight);
-        }
-      };
-
-      // Defer one frame so the portaled popover has been laid out.
-      const raf = requestAnimationFrame(measureAndPosition);
-      return () => {
-        cancelled = true;
-        cancelAnimationFrame(raf);
-      };
+      setPopoverPos((prev) =>
+        prev && prev.top === top && prev.left === left ? prev : { top, left },
+      );
+      setPopoverHeight((prev) => (prev === height ? prev : height));
     }, [hovered, userMessages]);
 
     // Recompute on viewport resize so the clamp stays correct.

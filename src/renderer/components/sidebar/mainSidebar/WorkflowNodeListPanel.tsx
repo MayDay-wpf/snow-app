@@ -25,8 +25,9 @@ type WorkflowNodeListPanelProps = {
  * 节点图标：静态状态使用 Workflow 图标（与子代理的 Bot 图标区分），
  * 运行中改用 Loader2 旋转指示器表达 loading；
  * 完成绿色 / 失败红色 / 待执行灰色 / 需关注黄色感叹号。
+ * 右侧面板的会话 tab 下拉复用本函数（状态配色由各自的容器样式提供）。
  */
-function renderNodeIcon(
+export function renderNodeIcon(
   runStatus: string,
   isAttentionRequired: boolean,
 ): React.ReactNode {

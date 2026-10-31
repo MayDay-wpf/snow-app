@@ -26,6 +26,7 @@ import type {
   FileChangeRecord,
   PauseController,
   PendingQueueItem,
+  SessionRuntimeSnapshot,
   UseChatConversationResult,
 } from "../utils/conversationTypes";
 import {
@@ -63,6 +64,11 @@ import {
   isFileChangeHydrationReleased,
   releaseFileChangeHydration,
 } from "./fileChangeTracking";
+import {
+  focusPanelConversation,
+  isConversationOwnedByPanel,
+  subscribePanelConversationChange,
+} from "../../../common/conversationPanelOwnership";
 
 /** 已结束的子代理会话在内存中的保留时长上限：仍可随时从数据库重新载入。 */
 const ENDED_SUB_AGENT_SESSION_TTL_MS = 3 * 60_000;
@@ -341,6 +347,20 @@ export const useChatConversation = (
   const [pendingToolAuthorizations, setPendingToolAuthorizations] = useState<
     ConversationContextValue["pendingToolAuthorizations"]
   >([]);
+  // 按会话隔离的待授权镜像：会话面板据此渲染自己会话的授权卡片。
+  const [
+    pendingToolAuthorizationsBySession,
+    setPendingToolAuthorizationsBySession,
+  ] = useState<ConversationContextValue["pendingToolAuthorizationsBySession"]>(
+    {},
+  );
+  // 按会话隔离的待发送队列显示镜像：会话面板据此渲染自己会话的队列。
+  const [pendingQueueMirrors, setPendingQueueMirrors] = useState<
+    ConversationContextValue["pendingQueueMirrors"]
+  >({});
+  // 被会话面板打开并钉住的会话：缓存 TTL 回收与释放跳过它们（面板仍在使用
+  // 这些会话的内存态，释放后需要重新从数据库加载）。
+  const pinnedSessionKeysRef = useRef<Set<string>>(new Set());
   const attentionRequiredConversationIds = useMemo(() => {
     const conversationIds = new Set(pendingUserQuestionConversationIds);
     for (const toolCall of pendingToolAuthorizations) {
@@ -603,7 +623,13 @@ export const useChatConversation = (
       const expiredKeys: string[] = [];
       let nextDueAt = Number.POSITIVE_INFINITY;
       for (const [key, session] of Object.entries(sessionsRef.current)) {
-        if (key === activeKey || key === activeSlotKey) {
+        // 主视图激活的会话与「被会话面板钉住」的会话永不回收：它们的内存态
+        // 正在被某个聊天表面使用。
+        if (
+          key === activeKey ||
+          key === activeSlotKey ||
+          pinnedSessionKeysRef.current.has(key)
+        ) {
           continue;
         }
         if (
@@ -842,6 +868,10 @@ export const useChatConversation = (
     worktreeModeNotice,
     setWorktreeModeNotice,
     pendingToolAuthorizations,
+    pendingToolAuthorizationsBySession,
+    setPendingToolAuthorizationsBySession,
+    pendingQueueMirrors,
+    setPendingQueueMirrors,
     activePendingMessages,
     compactionPreview,
     compactionError,
@@ -850,6 +880,7 @@ export const useChatConversation = (
 
     sessionsRefData,
     activeConversationIdRef,
+    pinnedSessionKeysRef,
     pendingSessionSeqRef,
     activeSessionKeyRef,
     pendingDirectoryIdRef,
@@ -991,6 +1022,8 @@ export const useChatConversation = (
   // 主窗口据此拦截对它们的选中（改为聚焦所在窗口），并释放本地缓存，避免主窗口加载到过期数据。
   // 独立窗口自身的运行时不拦截，也不订阅归属变化。
   const detachedOwnedIdsRef = useRef<Set<string>>(new Set());
+  // 同窗口右侧面板里「会话面板」接管的会话（见 common/conversationPanelOwnership）。
+  const panelOwnedIdsRef = useRef<Set<string>>(new Set());
   const handleNewChatRef = useRef(conversationManagementApi.handleNewChat);
   handleNewChatRef.current = conversationManagementApi.handleNewChat;
 
@@ -1003,6 +1036,10 @@ export const useChatConversation = (
       const activeId = activeConversationIdRef.current;
       const releasableIds = conversationIds.filter((id) => {
         if (keepActive && id === activeId) {
+          return false;
+        }
+        // 被会话面板钉住的会话仍在被使用：释放后需要重新加载，直接跳过。
+        if (pinnedSessionKeysRef.current.has(id)) {
           return false;
         }
         if (streamingConversationIdsRef.current.has(id)) {
@@ -1044,42 +1081,51 @@ export const useChatConversation = (
     [dropSessionCaches],
   );
 
+  /**
+   * 会话归属变化：被接管的会话（跨窗口的独立面板窗口 / 同窗口的会话面板）只能由
+   * 归属方运行。这里统一处理主视图侧的两个后果：
+   * - 当前视图刚被接管 → 切到新会话，不再展示该会话（避免同一会话两个聊天视图）；
+   * - 释放被接管会话的本地缓存，避免主视图加载到过期数据。
+   */
+  const applyOwnedConversations = (
+    ownedIdsRef: { current: Set<string> },
+    conversationIds: string[],
+  ): void => {
+    const next = new Set(conversationIds);
+    const previous = ownedIdsRef.current;
+    ownedIdsRef.current = next;
+    // Cancel this renderer's in-flight parent wakes before any view/cache work.
+    // Persisted input and child execution owners remain untouched.
+    for (const id of next) revokeSubAgentParentOwnership(id);
+    const changedIds = [
+      ...conversationIds.filter((id) => !previous.has(id)),
+      ...[...previous].filter((id) => !next.has(id)),
+    ];
+    if (changedIds.length === 0) {
+      return;
+    }
+    const activeId = activeConversationIdRef.current;
+    if (activeId && next.has(activeId)) {
+      handleNewChatRef.current();
+    }
+    dropSessionCaches(changedIds, false);
+  };
+
   useEffect(() => {
     if (isDetachedWindow) {
       return;
     }
     let disposed = false;
-    const applyOwners = (conversationIds: string[]): void => {
-      const next = new Set(conversationIds);
-      const previous = detachedOwnedIdsRef.current;
-      detachedOwnedIdsRef.current = next;
-      // Cancel this renderer's in-flight parent wakes before any view/cache work.
-      // Persisted input and child execution owners remain untouched.
-      for (const id of next) revokeSubAgentParentOwnership(id);
-      const changedIds = [
-        ...conversationIds.filter((id) => !previous.has(id)),
-        ...[...previous].filter((id) => !next.has(id)),
-      ];
-      if (changedIds.length === 0) {
-        return;
-      }
-      // 当前视图刚被独立窗口接管：切到新会话，不再展示该会话。
-      const activeId = activeConversationIdRef.current;
-      if (activeId && next.has(activeId)) {
-        handleNewChatRef.current();
-      }
-      dropSessionCaches(changedIds, false);
-    };
     const unsubscribe = window.snow.onDetachedConversationOwnersChanged(
       (conversationIds) => {
-        applyOwners(conversationIds);
+        applyOwnedConversations(detachedOwnedIdsRef, conversationIds);
       },
     );
     void window.snow
       .takeDetachedConversationOwners()
       .then((conversationIds) => {
         if (!disposed) {
-          applyOwners(conversationIds);
+          applyOwnedConversations(detachedOwnedIdsRef, conversationIds);
         }
       })
       .catch(() => undefined);
@@ -1089,19 +1135,35 @@ export const useChatConversation = (
     };
   }, [isDetachedWindow, dropSessionCaches]);
 
+  // 会话面板归属（同一窗口内）：面板接管的会话由面板承载，主内容区让出
+  // （激活会话被拖进面板时切到新会话），与独立窗口归属同一套处理。
+  useEffect(() => {
+    if (isDetachedWindow) {
+      return;
+    }
+    return subscribePanelConversationChange((conversationIds) =>
+      applyOwnedConversations(panelOwnedIdsRef, [...conversationIds]),
+    );
+  }, [isDetachedWindow, dropSessionCaches]);
+
   const handleSelectConversationGuarded = useCallback<
     UseChatConversationResult["handleSelectConversation"]
   >(
     async (conversationId, title, tokenUsage, directoryId) => {
       const trimmedId = conversationId.trim();
-      if (
-        !isDetachedWindow &&
-        trimmedId &&
-        detachedOwnedIdsRef.current.has(trimmedId)
-      ) {
-        const focused = await window.snow.focusDetachedConversation(trimmedId);
-        if (focused) {
+      if (!isDetachedWindow && trimmedId) {
+        // 会话面板承载的会话：聚焦承载它的面板 tab，不把主内容区也切过去
+        // （否则同一会话会出现两个聊天视图）。
+        if (isConversationOwnedByPanel(trimmedId)) {
+          focusPanelConversation(trimmedId);
           return;
+        }
+        if (detachedOwnedIdsRef.current.has(trimmedId)) {
+          const focused =
+            await window.snow.focusDetachedConversation(trimmedId);
+          if (focused) {
+            return;
+          }
         }
       }
       await conversationManagementApi.handleSelectConversation(
@@ -1215,50 +1277,99 @@ export const useChatConversation = (
   // handlePause marks the active session as paused. The agent loop checks
   // the pause controller at the start of each iteration and blocks on a
   // promise until handleResume is called or the loop is cancelled.
-  const handlePause = useCallback((): void => {
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const ref = ctx.sessionsRefData.current.get(key);
-    if (!ref?.isSending) {
-      return;
-    }
-    let controller = ctx.pauseControllerRef.current.get(key);
-    if (!controller) {
-      controller = { paused: false, resolve: null };
-      ctx.pauseControllerRef.current.set(key, controller);
-    }
-    if (controller.paused) {
-      return;
-    }
-    controller.paused = true;
-    ctx.updateSessionField(key, "isPaused", true);
-    // 依赖只取 ctx 上的稳定引用（ref 对象 / useCallback 回调），避免 ctx
-    // 每次渲染重建导致 onPause 引用变化，击穿 StreamMetrics 的 memo 保护。
-  }, [
-    ctx.activeConversationIdRef,
-    ctx.sessionsRefData,
-    ctx.pauseControllerRef,
-    ctx.updateSessionField,
-  ]);
+  const handlePause = useCallback(
+    (sessionKey?: string): void => {
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const ref = ctx.sessionsRefData.current.get(key);
+      if (!ref?.isSending) {
+        return;
+      }
+      let controller = ctx.pauseControllerRef.current.get(key);
+      if (!controller) {
+        controller = { paused: false, resolve: null };
+        ctx.pauseControllerRef.current.set(key, controller);
+      }
+      if (controller.paused) {
+        return;
+      }
+      controller.paused = true;
+      ctx.updateSessionField(key, "isPaused", true);
+      // 依赖只取 ctx 上的稳定引用（ref 对象 / useCallback 回调），避免 ctx
+      // 每次渲染重建导致 onPause 引用变化，击穿 StreamMetrics 的 memo 保护。
+    },
+    [
+      ctx.activeConversationIdRef,
+      ctx.sessionsRefData,
+      ctx.pauseControllerRef,
+      ctx.updateSessionField,
+    ],
+  );
 
-  const handleResume = useCallback((): void => {
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const controller = ctx.pauseControllerRef.current.get(key);
-    // 控制器缺失时（循环未在检查点阻塞）也要清除展示态，避免按钮卡在暂停
-    ctx.updateSessionField(key, "isPaused", false);
-    if (!controller) {
-      return;
-    }
-    controller.paused = false;
-    const resolve = controller.resolve;
-    controller.resolve = null;
-    if (resolve) {
-      resolve();
-    }
-  }, [
-    ctx.activeConversationIdRef,
-    ctx.pauseControllerRef,
-    ctx.updateSessionField,
-  ]);
+  const handleResume = useCallback(
+    (sessionKey?: string): void => {
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const controller = ctx.pauseControllerRef.current.get(key);
+      // 控制器缺失时（循环未在检查点阻塞）也要清除展示态，避免按钮卡在暂停
+      ctx.updateSessionField(key, "isPaused", false);
+      if (!controller) {
+        return;
+      }
+      controller.paused = false;
+      const resolve = controller.resolve;
+      controller.resolve = null;
+      if (resolve) {
+        resolve();
+      }
+    },
+    [
+      ctx.activeConversationIdRef,
+      ctx.pauseControllerRef,
+      ctx.updateSessionField,
+    ],
+  );
+
+  /** 钉住 / 解除钉住会话缓存：会话面板打开期间据此跳过 TTL 回收。 */
+  const pinSessionScope = useCallback(
+    (conversationId: string, pinned: boolean): void => {
+      const key = conversationId.trim();
+      if (!key) {
+        return;
+      }
+      const pinnedKeys = pinnedSessionKeysRef.current;
+      if (pinned) {
+        if (pinnedKeys.has(key)) {
+          return;
+        }
+        pinnedKeys.add(key);
+        return;
+      }
+      pinnedKeys.delete(key);
+      // 解除钉住后立刻触发一次回收调度：面板关闭的会话按 TTL 正常过期。
+      sweepScheduleRef.current();
+    },
+    [],
+  );
+
+  /** 读取指定会话的运行时快照（ref 镜像，供会话面板展示与展示态兜底）。 */
+  const readSessionRuntime = useCallback(
+    (conversationId: string): SessionRuntimeSnapshot => {
+      const ref = ctx.sessionsRefData.current.get(conversationId);
+      return {
+        worktreeMode: ref?.worktreeMode ?? false,
+        worktreeId: ref?.worktreeId ?? null,
+        goalMode: ref?.goalMode ?? false,
+        workflowMode: ref?.workflowMode ?? false,
+        goalModeTokenBudget:
+          ref?.goalModeTokenBudget ??
+          ctx.globalModeDefaultsRef.current.goalModeTokenBudget,
+        checkpointIds: ref?.checkpointIds ?? EMPTY_CHECKPOINT_IDS,
+        isSending: ref?.isSending ?? false,
+      };
+    },
+    [ctx.sessionsRefData, ctx.globalModeDefaultsRef],
+  );
 
   // 重命名会话后同步更新内存 session 的 summary，使 TopBar 标题即时刷新。
   // 会话尚未加载过（session 不存在）时 updateSessionField 安全地不执行任何操作。
@@ -1625,6 +1736,12 @@ export const useChatConversation = (
       getUserQuestionDraft: userQuestionApi.getUserQuestionDraft,
       saveUserQuestionDraft: userQuestionApi.saveUserQuestionDraft,
       clearUserQuestionDraft: userQuestionApi.clearUserQuestionDraft,
+      // ===== 会话面板（主视图之外的第二个聊天表面）=====
+      loadConversationScope: conversationManagementApi.loadConversationScope,
+      pinSessionScope,
+      pendingToolAuthorizationsBySession,
+      pendingQueueMirrors,
+      readSessionRuntime,
       isDetachedWindow,
     }),
     [
@@ -1683,9 +1800,14 @@ export const useChatConversation = (
       pendingWorktreeId,
       worktreeModeNotice,
       pendingToolAuthorizations,
+      pendingToolAuthorizationsBySession,
+      pendingQueueMirrors,
+      readSessionRuntime,
+      pinSessionScope,
       isDetachedWindow,
       prefillComposer,
       conversationManagementApi.loadOlderMessages,
+      conversationManagementApi.loadConversationScope,
       agentLoopApi.handleSendMessage,
       conversationManagementApi.withdrawPendingMessage,
       conversationManagementApi.sendPendingMessageNow,

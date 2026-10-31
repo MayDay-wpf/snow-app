@@ -5320,6 +5320,8 @@ export const zhCN = {
   "rightPanel.tabContextGroupPlugins": "插件",
   "rightPanel.tabContextGroupClose": "关闭",
   "rightPanel.openInNewWindow": "在新窗口中打开",
+  "rightPanel.conversationTabGroupSubAgents": "子代理",
+  "rightPanel.conversationTabGroupWorkflowNodes": "Workflow 节点",
   "detachedPanel.closeConfirmTitle": "关闭独立窗口",
   "detachedPanel.closeConfirmMessage":
     "确定要关闭此独立窗口吗？窗口中正在运行的会话将会停止。",

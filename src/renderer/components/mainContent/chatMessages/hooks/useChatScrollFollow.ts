@@ -87,6 +87,11 @@ export type ChatScrollFollowOptions = {
   isCompactingActive: boolean;
   /** 自动滚动偏好：关闭时不钉底，但首屏初始定位不受影响。 */
   autoScrollEnabled: boolean;
+  /**
+   * 是否注册消息窗口裁剪门控（模块级单例）。主聊天表面为 true（缺省）；
+   * 会话面板传 false，避免把裁剪依据切到面板的会话上。
+   */
+  registerViewGate?: boolean;
 };
 
 export type ChatScrollFollowResult = {
@@ -126,6 +131,7 @@ export const useChatScrollFollow = ({
   isChatAreaRendered,
   isCompactingActive,
   autoScrollEnabled,
+  registerViewGate = true,
 }: ChatScrollFollowOptions): ChatScrollFollowResult => {
   const {
     messages,
@@ -202,22 +208,25 @@ export const useChatScrollFollow = ({
 
   // 消息窗口裁剪门控：仅在自动滚动钉底时允许卸载当前会话的头部历史，
   // 用户上翻阅读、翻页恢复或首屏定位期间一律暂停。
-  useEffect(
-    () =>
-      registerMessageWindowViewGate({
-        sessionKey: () =>
-          isChatAreaRenderedRef.current
-            ? activeConversationIdRef.current
-            : undefined,
-        isFollowingBottom: () =>
-          autoScrollEnabledRef.current &&
-          shouldStickToBottomRef.current &&
-          !isLoadingOlderWithScrollRef.current &&
-          pendingScrollRestoreRef.current === null &&
-          !isInitialBottomPositioningRef.current,
-      }),
-    [],
-  );
+  useEffect(() => {
+    // 消息窗口裁剪门控是模块级单例：只有主聊天表面注册它。会话面板（同一窗口
+    // 内的第二个聊天表面）不注册，避免把裁剪依据切到面板的会话上。
+    if (!registerViewGate) {
+      return;
+    }
+    return registerMessageWindowViewGate({
+      sessionKey: () =>
+        isChatAreaRenderedRef.current
+          ? activeConversationIdRef.current
+          : undefined,
+      isFollowingBottom: () =>
+        autoScrollEnabledRef.current &&
+        shouldStickToBottomRef.current &&
+        !isLoadingOlderWithScrollRef.current &&
+        pendingScrollRestoreRef.current === null &&
+        !isInitialBottomPositioningRef.current,
+    });
+  }, [registerViewGate]);
 
   // 跟随路径统一入口：即时把滚动位置贴到容器底部。写入发生在内容生长的
   // 同一帧内（ResizeObserver 回调在 paint 前触发），视口不会滞后于内容。

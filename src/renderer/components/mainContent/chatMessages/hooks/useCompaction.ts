@@ -363,8 +363,12 @@ export const useCompaction = (ctx: ConversationContextValue) => {
   ctx.performCompactionRef.current = performCompaction;
 
   const compactConversation = useCallback(
-    async (model?: string, apiProfile?: string): Promise<void> => {
-      const conversationId = ctx.activeConversationIdRef.current;
+    async (
+      model?: string,
+      apiProfile?: string,
+      sessionKey?: string,
+    ): Promise<void> => {
+      const conversationId = sessionKey ?? ctx.activeConversationIdRef.current;
       if (
         !conversationId ||
         ctx.sessionsRefData.current.get(conversationId)?.isSending

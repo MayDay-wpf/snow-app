@@ -59,6 +59,57 @@ export const TOOL_APPROVALS_CHANGED_EVENT = "tool-approvals:changed";
  *  自动关闭）后派发，会话层据此重新读取精简模式状态。 */
 export const LITE_MODE_CHANGED_EVENT = "lite-mode:changed";
 
+/** 待授权项的会话归属 key：授权请求发生时的会话 key（可能是新会话槽位）。 */
+const authorizationSessionKey = (
+  ctx: ConversationContextValue,
+  toolCall: ToolCallInfo,
+): string =>
+  toolCall.authorizationConversationId ||
+  ctx.activeSessionKeyRef.current ||
+  PENDING_SESSION_KEY;
+
+/**
+ * 把一条待授权项记入「按会话隔离」的镜像。会话面板据此渲染自己会话的授权卡片；
+ * 主视图仍读 pendingToolAuthorizations（当前激活会话的切片）。
+ */
+const addPendingAuthorizationMirror = (
+  ctx: ConversationContextValue,
+  toolCall: ToolCallInfo,
+): void => {
+  const key = authorizationSessionKey(ctx, toolCall);
+  ctx.setPendingToolAuthorizationsBySession((prev) => ({
+    ...prev,
+    [key]: [...(prev[key] ?? []), toolCall],
+  }));
+};
+
+/** 从「按会话隔离」的镜像中移除若干待授权项（按 authorizationId 匹配）。 */
+const removePendingAuthorizationMirror = (
+  ctx: ConversationContextValue,
+  authorizationIds: string[],
+): void => {
+  if (authorizationIds.length === 0) {
+    return;
+  }
+  const ids = new Set(authorizationIds);
+  ctx.setPendingToolAuthorizationsBySession((prev) => {
+    let changed = false;
+    const next: Record<string, ToolCallInfo[]> = {};
+    for (const [key, entries] of Object.entries(prev)) {
+      const kept = entries.filter(
+        (entry) => !entry.authorizationId || !ids.has(entry.authorizationId),
+      );
+      if (kept.length !== entries.length) {
+        changed = true;
+      }
+      if (kept.length > 0) {
+        next[key] = kept;
+      }
+    }
+    return changed ? next : prev;
+  });
+};
+
 /**
  * 工具授权逻辑：YOLO 模式、敏感命令检查、批量授权闸门等。
  * 同轮工具调用分别显示为对话内卡片，所有授权完成前不执行。
@@ -90,6 +141,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     approvedAuthorizationIds.forEach((authorizationId) =>
       pendingEntries.delete(authorizationId),
     );
+    removePendingAuthorizationMirror(ctx, approvedAuthorizationIds);
     ctx.setPendingToolAuthorizations((current) =>
       current.filter(
         (toolCall) =>
@@ -97,7 +149,11 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           !approvedAuthorizationIds.includes(toolCall.authorizationId),
       ),
     );
-  }, [ctx.pendingToolAuthorizationRef, ctx.setPendingToolAuthorizations]);
+  }, [
+    ctx.pendingToolAuthorizationRef,
+    ctx.setPendingToolAuthorizations,
+    ctx.setPendingToolAuthorizationsBySession,
+  ]);
 
   const applyYoloMode = useCallback(
     (enabled: boolean): void => {
@@ -163,107 +219,145 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
   // 模式（Goal/WorkTree/WorkFlow）只保存在内存 session ref 中，内存态是
   // 运行时权威；切换模式本身不再写库，选择随下一次发送统一落库
   // （useAgentLoop 的 persistConversationSelection），避免"只切了一下"就写库。
+  // 会话面板可传入目标会话 key：此时只改该会话的 ref，不动主视图的显示态。
+
+  /** 目标会话是否就是主视图当前激活会话（只有它是时才同步显示态）。 */
+  const isActiveSessionKey = useCallback(
+    (key: string): boolean =>
+      key === (ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY),
+    [ctx.activeSessionKeyRef],
+  );
 
   const applyGoalMode = useCallback(
-    (enabled: boolean): void => {
+    (enabled: boolean, syncDisplay = true): void => {
+      if (!syncDisplay) {
+        return;
+      }
       ctx.goalModeRef.current = enabled;
       ctx.setGoalModeState(enabled);
     },
     [ctx.goalModeRef, ctx.setGoalModeState],
   );
 
-  const refreshGoalMode = useCallback(async (): Promise<boolean> => {
-    // Per-conversation isolation: the session's own ref is the runtime
-    // authority, falling back to the neutral default (disabled) for cold
-    // sessions. Mode toggles never touch the persisted global settings, so
-    // there is nothing global to re-read here.
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const ref = ctx.sessionsRefData.current.get(key);
-    const effective =
-      ref?.goalMode ?? ctx.globalModeDefaultsRef.current.goalMode;
-    applyGoalMode(effective);
-    return effective;
-  }, [
-    applyGoalMode,
-    ctx.globalModeDefaultsRef,
-    ctx.activeConversationIdRef,
-    ctx.sessionsRefData,
-  ]);
+  const refreshGoalMode = useCallback(
+    async (sessionKey?: string): Promise<boolean> => {
+      // Per-conversation isolation: the session's own ref is the runtime
+      // authority, falling back to the neutral default (disabled) for cold
+      // sessions. Mode toggles never touch the persisted global settings, so
+      // there is nothing global to re-read here.
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const ref = ctx.sessionsRefData.current.get(key);
+      const effective =
+        ref?.goalMode ?? ctx.globalModeDefaultsRef.current.goalMode;
+      applyGoalMode(effective, isActiveSessionKey(key));
+      return effective;
+    },
+    [
+      applyGoalMode,
+      isActiveSessionKey,
+      ctx.globalModeDefaultsRef,
+      ctx.sessionsRefData,
+    ],
+  );
 
   const applyWorktreeMode = useCallback(
-    (enabled: boolean): void => {
+    (enabled: boolean, syncDisplay = true): void => {
+      if (!syncDisplay) {
+        return;
+      }
       ctx.worktreeModeRef.current = enabled;
       ctx.setWorktreeModeState(enabled);
     },
     [ctx.worktreeModeRef, ctx.setWorktreeModeState],
   );
 
-  const refreshWorktreeMode = useCallback(async (): Promise<boolean> => {
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const ref = ctx.sessionsRefData.current.get(key);
-    const effective =
-      ref?.worktreeMode ?? ctx.globalModeDefaultsRef.current.worktreeMode;
-    applyWorktreeMode(effective);
-    return effective;
-  }, [
-    applyWorktreeMode,
-    ctx.globalModeDefaultsRef,
-    ctx.activeConversationIdRef,
-    ctx.sessionsRefData,
-  ]);
+  const refreshWorktreeMode = useCallback(
+    async (sessionKey?: string): Promise<boolean> => {
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const ref = ctx.sessionsRefData.current.get(key);
+      const effective =
+        ref?.worktreeMode ?? ctx.globalModeDefaultsRef.current.worktreeMode;
+      applyWorktreeMode(effective, isActiveSessionKey(key));
+      return effective;
+    },
+    [
+      applyWorktreeMode,
+      isActiveSessionKey,
+      ctx.globalModeDefaultsRef,
+      ctx.sessionsRefData,
+    ],
+  );
 
   const applyWorkflowMode = useCallback(
-    (enabled: boolean): void => {
+    (enabled: boolean, syncDisplay = true): void => {
+      if (!syncDisplay) {
+        return;
+      }
       ctx.workflowModeRef.current = enabled;
       ctx.setWorkflowModeState(enabled);
     },
     [ctx.workflowModeRef, ctx.setWorkflowModeState],
   );
 
-  const refreshWorkflowMode = useCallback(async (): Promise<boolean> => {
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const ref = ctx.sessionsRefData.current.get(key);
-    const effective =
-      ref?.workflowMode ?? ctx.globalModeDefaultsRef.current.workflowMode;
-    applyWorkflowMode(effective);
-    return effective;
-  }, [
-    applyWorkflowMode,
-    ctx.globalModeDefaultsRef,
-    ctx.activeConversationIdRef,
-    ctx.sessionsRefData,
-  ]);
+  const refreshWorkflowMode = useCallback(
+    async (sessionKey?: string): Promise<boolean> => {
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const ref = ctx.sessionsRefData.current.get(key);
+      const effective =
+        ref?.workflowMode ?? ctx.globalModeDefaultsRef.current.workflowMode;
+      applyWorkflowMode(effective, isActiveSessionKey(key));
+      return effective;
+    },
+    [
+      applyWorkflowMode,
+      isActiveSessionKey,
+      ctx.globalModeDefaultsRef,
+      ctx.sessionsRefData,
+    ],
+  );
 
   const applyGoalModeTokenBudget = useCallback(
-    (budget: number): void => {
+    (budget: number, syncDisplay = true): void => {
+      if (!syncDisplay) {
+        return;
+      }
       ctx.setGoalModeTokenBudgetState(budget);
     },
     [ctx.setGoalModeTokenBudgetState],
   );
 
-  const refreshGoalModeTokenBudget = useCallback(async (): Promise<void> => {
-    // Per-conversation isolation: the session's own override wins, falling
-    // back to the neutral default budget for cold sessions.
-    const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
-    const ref = ctx.sessionsRefData.current.get(key);
-    applyGoalModeTokenBudget(
-      ref?.goalModeTokenBudget ??
-        ctx.globalModeDefaultsRef.current.goalModeTokenBudget,
-    );
-  }, [
-    applyGoalModeTokenBudget,
-    ctx.globalModeDefaultsRef,
-    ctx.activeConversationIdRef,
-    ctx.sessionsRefData,
-  ]);
+  const refreshGoalModeTokenBudget = useCallback(
+    async (sessionKey?: string): Promise<void> => {
+      // Per-conversation isolation: the session's own override wins, falling
+      // back to the neutral default budget for cold sessions.
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const ref = ctx.sessionsRefData.current.get(key);
+      applyGoalModeTokenBudget(
+        ref?.goalModeTokenBudget ??
+          ctx.globalModeDefaultsRef.current.goalModeTokenBudget,
+        isActiveSessionKey(key),
+      );
+    },
+    [
+      applyGoalModeTokenBudget,
+      isActiveSessionKey,
+      ctx.globalModeDefaultsRef,
+      ctx.sessionsRefData,
+    ],
+  );
 
   const setGoalModeTokenBudget = useCallback(
-    async (budget: number): Promise<void> => {
-      applyGoalModeTokenBudget(budget);
+    async (budget: number, sessionKey?: string): Promise<void> => {
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      applyGoalModeTokenBudget(budget, isActiveSessionKey(key));
       // Per-conversation override: the current session keeps its own budget so
       // switching chats restores the right one. 只改内存态，随下一次发送落库，
       // 全局默认值不受影响（其他/新建会话不继承本会话的预算）。
-      const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
       let ref = ctx.sessionsRefData.current.get(key);
       if (!ref) {
         // A fresh new chat has no session ref yet; create one so the
@@ -277,9 +371,9 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     },
     [
       applyGoalModeTokenBudget,
+      isActiveSessionKey,
       ctx.ensureSession,
       ctx.directoryId,
-      ctx.activeConversationIdRef,
       ctx.sessionsRefData,
     ],
   );
@@ -412,15 +506,17 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
   );
 
   const setGoalMode = useCallback(
-    async (enabled: boolean): Promise<void> => {
+    async (enabled: boolean, sessionKey?: string): Promise<void> => {
       if (ctx.isUpdatingGoalMode) {
         return;
       }
 
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const syncDisplay = isActiveSessionKey(key);
       ctx.setIsUpdatingGoalMode(true);
       try {
-        applyGoalMode(enabled);
-        const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+        applyGoalMode(enabled, syncDisplay);
         let ref = ctx.sessionsRefData.current.get(key);
         if (!ref) {
           ctx.ensureSession(key, ctx.directoryId);
@@ -431,8 +527,8 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.worktreeMode = false;
             ref.workflowMode = false;
-            applyWorktreeMode(false);
-            applyWorkflowMode(false);
+            applyWorktreeMode(false, syncDisplay);
+            applyWorkflowMode(false, syncDisplay);
           }
         }
       } finally {
@@ -443,24 +539,26 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyGoalMode,
       applyWorktreeMode,
       applyWorkflowMode,
+      isActiveSessionKey,
       ctx.isUpdatingGoalMode,
       ctx.setIsUpdatingGoalMode,
       ctx.ensureSession,
       ctx.directoryId,
-      ctx.activeConversationIdRef,
       ctx.sessionsRefData,
     ],
   );
 
   const setWorktreeMode = useCallback(
-    async (enabled: boolean): Promise<void> => {
+    async (enabled: boolean, sessionKey?: string): Promise<void> => {
       if (ctx.isUpdatingWorktreeMode) {
         return;
       }
 
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const syncDisplay = isActiveSessionKey(key);
       ctx.setIsUpdatingWorktreeMode(true);
       try {
-        const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
         // 已有会话必须先绑定工作树再开启，否则发送时会 fail-closed
         if (enabled && !isPendingSessionKey(key)) {
           const directoryId =
@@ -471,14 +569,19 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
             directoryId,
           ).catch(() => false);
           if (!bound) {
-            if (ctx.activeSessionKeyRef.current === key) {
+            if (syncDisplay) {
               ctx.setWorktreeModeNotice(t("git.worktreesBindRequiredHint"));
             }
             return;
           }
-          if (ctx.activeSessionKeyRef.current !== key) return;
+          if (
+            sessionKey === undefined &&
+            ctx.activeSessionKeyRef.current !== key
+          ) {
+            return;
+          }
         }
-        applyWorktreeMode(enabled);
+        applyWorktreeMode(enabled, syncDisplay);
         let ref = ctx.sessionsRefData.current.get(key);
         if (!ref) {
           ctx.ensureSession(key, ctx.directoryId);
@@ -489,8 +592,8 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.goalMode = false;
             ref.workflowMode = false;
-            applyGoalMode(false);
-            applyWorkflowMode(false);
+            applyGoalMode(false, syncDisplay);
+            applyWorkflowMode(false, syncDisplay);
           }
         }
       } finally {
@@ -501,27 +604,29 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyWorktreeMode,
       applyGoalMode,
       applyWorkflowMode,
+      isActiveSessionKey,
       ctx.isUpdatingWorktreeMode,
       ctx.setIsUpdatingWorktreeMode,
       ctx.setWorktreeModeNotice,
       ctx.ensureSession,
       ctx.directoryId,
-      ctx.activeConversationIdRef,
       ctx.sessionsRefData,
       t,
     ],
   );
 
   const setWorkflowMode = useCallback(
-    async (enabled: boolean): Promise<void> => {
+    async (enabled: boolean, sessionKey?: string): Promise<void> => {
       if (ctx.isUpdatingWorkflowMode) {
         return;
       }
 
+      const key =
+        sessionKey ?? ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+      const syncDisplay = isActiveSessionKey(key);
       ctx.setIsUpdatingWorkflowMode(true);
       try {
-        applyWorkflowMode(enabled);
-        const key = ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY;
+        applyWorkflowMode(enabled, syncDisplay);
         let ref = ctx.sessionsRefData.current.get(key);
         if (!ref) {
           ctx.ensureSession(key, ctx.directoryId);
@@ -533,8 +638,8 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           if (enabled) {
             ref.goalMode = false;
             ref.worktreeMode = false;
-            applyGoalMode(false);
-            applyWorktreeMode(false);
+            applyGoalMode(false, syncDisplay);
+            applyWorktreeMode(false, syncDisplay);
           }
         }
       } finally {
@@ -545,11 +650,11 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       applyWorkflowMode,
       applyGoalMode,
       applyWorktreeMode,
+      isActiveSessionKey,
       ctx.isUpdatingWorkflowMode,
       ctx.setIsUpdatingWorkflowMode,
       ctx.ensureSession,
       ctx.directoryId,
-      ctx.activeConversationIdRef,
       ctx.sessionsRefData,
     ],
   );
@@ -570,6 +675,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       // Resolve only this tool's authorization. Rejecting one tool in a
       // parallel batch must not cascade-reject the remaining tools.
       ctx.pendingToolAuthorizationRef.current.delete(authorizationId);
+      removePendingAuthorizationMirror(ctx, [authorizationId]);
       ctx.setPendingToolAuthorizations((current) =>
         current.filter((item) => item.authorizationId !== authorizationId),
       );
@@ -655,6 +761,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
     [
       ctx.pendingToolAuthorizationRef,
       ctx.setPendingToolAuthorizations,
+      ctx.setPendingToolAuthorizationsBySession,
       ctx.updateSessionMessages,
     ],
   );
@@ -691,6 +798,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         pendingEntries.delete(authorizationId),
       );
       if (targetAuthorizationIds.length > 0) {
+        removePendingAuthorizationMirror(ctx, targetAuthorizationIds);
         ctx.setPendingToolAuthorizations((current) =>
           current.filter(
             (toolCall) =>
@@ -700,7 +808,11 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         );
       }
     },
-    [ctx.pendingToolAuthorizationRef, ctx.setPendingToolAuthorizations],
+    [
+      ctx.pendingToolAuthorizationRef,
+      ctx.setPendingToolAuthorizations,
+      ctx.setPendingToolAuthorizationsBySession,
+    ],
   );
 
   /**
@@ -962,6 +1074,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
                   toolCall: pendingToolCall,
                   resolve,
                 });
+                addPendingAuthorizationMirror(ctx, pendingToolCall);
                 ctx.setPendingToolAuthorizations((current) => [
                   ...current,
                   pendingToolCall,
@@ -1006,6 +1119,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
               toolCall: pendingToolCall,
               resolve,
             });
+            addPendingAuthorizationMirror(ctx, pendingToolCall);
             ctx.setPendingToolAuthorizations((current) => [
               ...current,
               pendingToolCall,

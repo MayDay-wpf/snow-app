@@ -189,7 +189,11 @@ const buildSignature = (snapshot: PetChatSnapshot): string => {
   ].join("|");
 };
 
-export const usePetChatSnapshot = (inputs: PetChatSnapshotInputs): void => {
+export const usePetChatSnapshot = (
+  inputs: PetChatSnapshotInputs,
+  /** false = 该聊天表面不上报宠物快照（同一窗口只允许主聊天表面上报）。 */
+  enabled = true,
+): void => {
   const { todos, completedCount, totalCount } = useTodoPanel(inputs.messages);
   const latestRef = useRef<{
     inputs: PetChatSnapshotInputs;
@@ -247,6 +251,9 @@ export const usePetChatSnapshot = (inputs: PetChatSnapshotInputs): void => {
   // 每次渲染后记录最新输入并按节流节奏上报（无依赖数组：流式期间
   // 消息每帧都在变，需要在最新一帧上重建）。
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     latestRef.current = {
       inputs,
       todoSummary: buildTodoSummary(todos, completedCount, totalCount),

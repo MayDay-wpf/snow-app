@@ -31852,6 +31852,18 @@ button.user-message-source:hover {
   padding-bottom: 12px;
 }
 
+/* 右侧面板里的「会话面板」：聊天区占满面板块，底部留白避免输入框贴边。
+   与独立面板窗口的会话 tab 同构，但挂在主窗口的某一组面板矩形内。 */
+.right-panel-conversation {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 8px;
+  overflow: hidden;
+}
+
 /* 独立面板窗口顶部操作栏（系统标题栏已隐藏）：整栏可拖拽，窗口控制按钮保持可点击。 */
 .detached-panel-titlebar {
   display: flex;
@@ -32274,6 +32286,13 @@ button.user-message-source:hover {
   z-index: 3;
   overflow: hidden;
   pointer-events: none;
+  /* 拆分 / 合并 / 关闭分组时的几何变化走过渡，避免硬切；拖拽分隔条期间
+     由 body.is-right-pane-resizing 关闭过渡。 */
+  transition:
+    left 0.16s ease,
+    top 0.16s ease,
+    width 0.16s ease,
+    height 0.16s ease;
 }
 
 .right-pane-box > .right-panel-tabs {
@@ -32293,6 +32312,12 @@ button.user-message-source:hover {
   right: auto;
   bottom: auto;
   pointer-events: auto;
+  /* 与所属组盒子同步过渡：tab 换组 / 拆组时内容跟着滑过去。 */
+  transition:
+    left 0.16s ease,
+    top 0.16s ease,
+    width 0.16s ease,
+    height 0.16s ease;
 }
 
 /* 分隔条：贴在相邻两组的交界线上；命中区 6px，视觉上是 1px 细线。 */
@@ -32300,6 +32325,12 @@ button.user-message-source:hover {
   position: absolute;
   z-index: 6;
   touch-action: none;
+  /* 贴边定位跟着相邻两组走，布局变化时一起过渡。 */
+  transition:
+    left 0.16s ease,
+    top 0.16s ease,
+    width 0.16s ease,
+    height 0.16s ease;
 }
 
 .right-pane-splitter.row {
@@ -32346,6 +32377,13 @@ body.is-right-pane-resizing .right-pane-splitter::before {
   opacity: 1;
 }
 
+/* 拖拽分隔条时逐帧改写几何变量，必须关掉过渡，否则面板会滞后于指针。 */
+body.is-right-pane-resizing .right-pane-box,
+body.is-right-pane-resizing .right-pane-content-layer .right-panel-tab-pane,
+body.is-right-pane-resizing .right-pane-splitter {
+  transition: none;
+}
+
 body.is-right-pane-resizing {
   user-select: none;
 }
@@ -32360,7 +32398,9 @@ body.is-right-pane-resizing-y * {
   cursor: row-resize !important;
 }
 
-/* tab 拖拽落点提示：中间=合并进该组，四边=拆分成新组。 */
+/* tab 拖拽落点提示：中间=合并进该组，四边=拆分成新组。
+   元素常驻、靠 .active 淡入淡出；几何一律用 left/top/width/height 表达
+   （不用 inset/right/bottom 的 auto 值），切换落点边时才能平滑过渡。 */
 .right-pane-drop-indicator {
   position: absolute;
   z-index: 5;
@@ -32368,41 +32408,58 @@ body.is-right-pane-resizing-y * {
   border: 1px dashed var(--accent-color);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  opacity: 0;
+  transform: scale(0.98);
+  transition:
+    left 0.16s ease,
+    top 0.16s ease,
+    width 0.16s ease,
+    height 0.16s ease,
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.right-pane-drop-indicator.active {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .right-pane-drop-indicator.edge-center {
-  inset: 3px;
+  left: 3px;
+  top: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
 }
 
 .right-pane-drop-indicator.edge-left {
   left: 3px;
   top: 3px;
-  bottom: 3px;
   width: 44%;
+  height: calc(100% - 6px);
 }
 
 .right-pane-drop-indicator.edge-right {
-  right: 3px;
+  left: calc(56% - 3px);
   top: 3px;
-  bottom: 3px;
   width: 44%;
+  height: calc(100% - 6px);
 }
 
 .right-pane-drop-indicator.edge-top {
   left: 3px;
-  right: 3px;
   top: 3px;
+  width: calc(100% - 6px);
   height: 44%;
 }
 
 .right-pane-drop-indicator.edge-bottom {
   left: 3px;
-  right: 3px;
-  bottom: 3px;
+  top: calc(56% - 3px);
+  width: calc(100% - 6px);
   height: 44%;
 }
 
-/* tab 栏内的插入位置提示线（同组重排 / 跨组合并） */
+/* tab 栏内的插入位置提示线（同组重排 / 跨组合并）：出现时轻微展开。 */
 .right-panel-tab-drop-line {
   flex-shrink: 0;
   width: 2px;
@@ -32410,6 +32467,30 @@ body.is-right-pane-resizing-y * {
   margin: 3px 0;
   border-radius: 1px;
   background: var(--accent-color);
+  animation: right-panel-tab-drop-line-in 0.14s ease;
+}
+
+@keyframes right-panel-tab-drop-line-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* 分屏几何与落点提示的过渡：跟随系统「减少动态效果」设置关闭。 */
+@media (prefers-reduced-motion: reduce) {
+  .right-pane-box,
+  .right-pane-content-layer .right-panel-tab-pane,
+  .right-pane-splitter,
+  .right-pane-drop-indicator,
+  .right-panel-tab-drop-line {
+    transition: none;
+    animation: none;
+  }
 }
 
 /* 懒加载 tab chunk 就绪前的占位 loading（如文件查看器/终端首次打开）。 */
@@ -42819,6 +42900,189 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 .right-panel-tab-close:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* 会话 tab 的标题下拉：会话拖入面板后把它的子代理与 Workflow 节点
+   （含节点下派生的子代理）一并带过来，在同一个 tab 内切换查看 */
+.conversation-tab-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 120px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-tab-switcher-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-tab-switcher-caret {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.12s ease;
+}
+
+.conversation-tab-switcher-caret.expanded {
+  transform: rotate(180deg);
+}
+
+.conversation-tab-switcher-menu {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 220px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.conversation-tab-switcher-group {
+  margin: 6px 8px 2px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.conversation-tab-switcher-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation-tab-switcher-row {
+  display: flex;
+  align-items: center;
+}
+
+.conversation-tab-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.conversation-tab-switcher-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.conversation-tab-switcher-item.active {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.conversation-tab-switcher-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.conversation-tab-switcher-icon svg {
+  color: var(--text-muted);
+}
+
+/* 状态配色与侧边栏子代理 / Workflow 节点列表保持一致 */
+.conversation-tab-switcher-icon svg.sub-agent-status-running,
+.conversation-tab-switcher-icon svg.workflow-node-status-running {
+  color: var(--accent, #3b82f6);
+}
+
+.conversation-tab-switcher-icon svg.sub-agent-status-completed,
+.conversation-tab-switcher-icon svg.workflow-node-status-completed {
+  color: var(--accent-green, #22c55e);
+}
+
+.conversation-tab-switcher-icon svg.sub-agent-status-failed,
+.conversation-tab-switcher-icon svg.workflow-node-status-failed {
+  color: var(--accent-red-text, #ef4444);
+}
+
+.conversation-tab-switcher-icon svg.sub-agent-status-pending,
+.conversation-tab-switcher-icon svg.workflow-node-status-pending {
+  color: var(--text-tertiary);
+}
+
+.conversation-tab-switcher-icon svg.sub-agent-attention {
+  color: var(--warning, #f59e0b);
+}
+
+.conversation-tab-switcher-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-tab-switcher-check {
+  flex-shrink: 0;
+  color: var(--accent, #3b82f6);
+}
+
+.conversation-tab-switcher-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.conversation-tab-switcher-expand:hover {
+  color: var(--text-primary);
+}
+
+.conversation-tab-switcher-expand svg {
+  transition: transform 0.15s ease;
+}
+
+.conversation-tab-switcher-expand svg.expanded {
+  transform: rotate(90deg);
+}
+
+/* Workflow 节点下的子代理层：缩进 + 竖线，与侧边栏会话树层级一致 */
+.conversation-tab-switcher-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 3px 12px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-color);
 }
 
 /* Drawing Workbench (AI 绘图工作台) */

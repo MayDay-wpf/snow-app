@@ -5682,6 +5682,8 @@ export const en = {
   "rightPanel.tabContextGroupPlugins": "Plugins",
   "rightPanel.tabContextGroupClose": "Close",
   "rightPanel.openInNewWindow": "Open in new window",
+  "rightPanel.conversationTabGroupSubAgents": "Sub-agents",
+  "rightPanel.conversationTabGroupWorkflowNodes": "Workflow nodes",
   "detachedPanel.closeConfirmTitle": "Close detached window",
   "detachedPanel.closeConfirmMessage":
     "Close this detached window? Conversations running in it will stop.",

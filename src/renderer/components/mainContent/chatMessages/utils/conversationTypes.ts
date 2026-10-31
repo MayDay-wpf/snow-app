@@ -811,6 +811,20 @@ export type ConversationContextValue = {
   /** 无会话时预选的 WorkTree ID，新会话发送首条消息时自动完成绑定。 */
   pendingWorktreeId: string | null;
   setPendingWorktreeId: (worktreeId: string | null) => void;
+  /** 各会话的待授权工具列表（按会话隔离）。主视图读 pendingToolAuthorizations
+   *  （= 当前激活会话的切片）；会话面板读自己会话的切片。 */
+  pendingToolAuthorizationsBySession: Record<string, ToolCallInfo[]>;
+  setPendingToolAuthorizationsBySession: Dispatch<
+    SetStateAction<Record<string, ToolCallInfo[]>>
+  >;
+  /** 被会话面板钉住的会话 key：缓存 TTL 回收与释放跳过它们。 */
+  pinnedSessionKeysRef: RefValue<Set<string>>;
+  /** 各会话的待发送队列显示镜像（会话面板据此渲染队列；主视图读
+   *  activePendingMessages）。 */
+  pendingQueueMirrors: Record<string, PendingQueueMirror>;
+  setPendingQueueMirrors: Dispatch<
+    SetStateAction<Record<string, PendingQueueMirror>>
+  >;
   /** WorkTree 模式已开启但未绑定工作树时的内置提示文案（非空即弹出）。 */
   worktreeModeNotice: string | null;
   setWorktreeModeNotice: (message: string | null) => void;
@@ -997,6 +1011,23 @@ export type ConversationContextValue = {
   ) => void;
 };
 
+/** 待发送队列的显示镜像（按会话隔离；主视图的镜像见 activePendingMessages）。 */
+export type PendingQueueMirror = {
+  messages: string[];
+  modes?: ("queue" | "steer")[];
+};
+
+/** 会话的运行时快照（供主视图之外的会话面板读取 ref 态字段）。 */
+export type SessionRuntimeSnapshot = {
+  worktreeMode: boolean;
+  worktreeId: string | null | undefined;
+  goalMode: boolean;
+  workflowMode: boolean;
+  goalModeTokenBudget: number;
+  checkpointIds: string[];
+  isSending: boolean;
+};
+
 /** 会话内存态实时表（每个流式帧都会更换引用）：单独走一个 context 提供。
  *  放进主 context 值会让聊天区整棵树、侧边栏、远控桥等全部消费者随后台
  *  会话的每个流式帧重渲染。 */
@@ -1093,8 +1124,9 @@ export type UseChatConversationResult = {
   hasMoreMessages: boolean;
   isInitialHistoryLoaded: boolean;
   isLoadingInitialHistory: boolean;
-  /** pageSize 缺省为 CHAT_MESSAGE_PAGE_SIZE；用户消息定位会放大页长减少轮次。 */
-  loadOlderMessages: (pageSize?: number) => Promise<void>;
+  /** pageSize 缺省为 CHAT_MESSAGE_PAGE_SIZE；用户消息定位会放大页长减少轮次。
+   *  sessionKey 缺省为当前激活会话，会话面板传入自己绑定的会话。 */
+  loadOlderMessages: (pageSize?: number, sessionKey?: string) => Promise<void>;
   handleSendMessage: (message: string, options: ChatInputSendOptions) => void;
   pendingMessages: string[];
   pendingMessageModes?: ("queue" | "steer")[];
@@ -1109,7 +1141,12 @@ export type UseChatConversationResult = {
   /** 立即发送一条待发送消息（中断目标会话当前运行并直接发出）。
    *  targetSessionKey 语义同上；返回是否命中队列条目。 */
   sendPendingMessageNow: (index: number, targetSessionKey?: string) => boolean;
-  compactConversation: (model?: string) => Promise<void>;
+  /** sessionKey 缺省为当前激活会话；会话面板传入自己绑定的会话。 */
+  compactConversation: (
+    model?: string,
+    apiProfile?: string,
+    sessionKey?: string,
+  ) => Promise<void>;
   compactionPreview: string;
   compactionError: string | null;
   /** 手动关闭压缩失败提示。 */
@@ -1149,8 +1186,9 @@ export type UseChatConversationResult = {
   isAborting: boolean;
   isPaused: boolean;
   handleAbort: () => void;
-  handlePause: () => void;
-  handleResume: () => void;
+  /** sessionKey 缺省为当前激活会话；会话面板传入自己绑定的会话。 */
+  handlePause: (sessionKey?: string) => void;
+  handleResume: (sessionKey?: string) => void;
   abortConversation: (conversationId: string) => void;
   /** 级联中止该会话运行中的 WorkFlow 节点并结算挂起的 workflow-generate。 */
   abortWorkflowNodes: (conversationId: string) => void;
@@ -1205,7 +1243,8 @@ export type UseChatConversationResult = {
     content: string,
     options?: { newChat?: boolean; directoryId?: string },
   ) => void;
-  handleRollback: (messageId: string) => void;
+  /** 回滚入口：sessionKey 缺省为当前激活会话，会话面板传入自己绑定的会话。 */
+  handleRollback: (messageId: string, sessionKey?: string) => void;
   /** 回滚变更计算中（弹窗弹出前）的消息 id，入口按钮据此显示 loading。 */
   rollbackPreparingMessageId: string | null;
   rollbackPreview: RollbackPreview | null;
@@ -1224,10 +1263,12 @@ export type UseChatConversationResult = {
   isUpdatingLiteMode: boolean;
   setLiteMode: (enabled: boolean) => Promise<void>;
   refreshLiteMode: () => Promise<boolean>;
+  /** Goal/WorkTree/WorkFlow 模式与预算：sessionKey 缺省为当前激活会话，
+   *  会话面板传入自己绑定的会话（此时不更新主视图的显示态）。 */
   goalMode: boolean;
   isUpdatingGoalMode: boolean;
-  setGoalMode: (enabled: boolean) => Promise<void>;
-  refreshGoalMode: () => Promise<boolean>;
+  setGoalMode: (enabled: boolean, sessionKey?: string) => Promise<void>;
+  refreshGoalMode: (sessionKey?: string) => Promise<boolean>;
   worktreeMode: boolean;
   isUpdatingWorktreeMode: boolean;
   pendingWorktreeId: string | null;
@@ -1235,16 +1276,20 @@ export type UseChatConversationResult = {
   /** WorkTree 模式已开启但未绑定工作树时的内置提示文案（非空即弹出）。 */
   worktreeModeNotice: string | null;
   setWorktreeModeNotice: (message: string | null) => void;
-  setWorktreeMode: (enabled: boolean) => Promise<void>;
-  refreshWorktreeMode: () => Promise<boolean>;
+  setWorktreeMode: (enabled: boolean, sessionKey?: string) => Promise<void>;
+  refreshWorktreeMode: (sessionKey?: string) => Promise<boolean>;
   workflowMode: boolean;
   isUpdatingWorkflowMode: boolean;
-  setWorkflowMode: (enabled: boolean) => Promise<void>;
-  refreshWorkflowMode: () => Promise<boolean>;
+  setWorkflowMode: (enabled: boolean, sessionKey?: string) => Promise<void>;
+  refreshWorkflowMode: (sessionKey?: string) => Promise<boolean>;
   goalModeTokenBudget: number;
-  setGoalModeTokenBudget: (budget: number) => Promise<void>;
-  refreshGoalModeTokenBudget: () => Promise<void>;
+  setGoalModeTokenBudget: (
+    budget: number,
+    sessionKey?: string,
+  ) => Promise<void>;
+  refreshGoalModeTokenBudget: (sessionKey?: string) => Promise<void>;
   pendingToolAuthorizations: ToolCallInfo[];
+  /** 授权结算按授权项自身的会话归属生效；无需调用方指定会话。 */
   approveToolAuthorization: (toolCall: ToolCallInfo) => void;
   approveToolAuthorizationAlways: (toolCall: ToolCallInfo) => void;
   rejectToolAuthorization: (toolCall: ToolCallInfo, reason: string) => void;
@@ -1262,6 +1307,24 @@ export type UseChatConversationResult = {
   getUserQuestionDraft: (questionId: string) => UserQuestionDraft | undefined;
   saveUserQuestionDraft: (questionId: string, draft: UserQuestionDraft) => void;
   clearUserQuestionDraft: (questionId: string) => void;
+  /**
+   * ===== 会话面板（右侧面板内的独立会话视图）=====
+   * 以下 API 让「主视图之外的第二个聊天表面」复用同一个运行时：不切换主视图
+   * 即可为某个会话加载历史、查看其待发送队列与待授权工具，并保留其缓存。
+   */
+  /** 为指定会话加载初始历史（不切换主视图）；已加载时直接返回。 */
+  loadConversationScope: (
+    conversationId: string,
+    directoryId?: string,
+  ) => Promise<void>;
+  /** 钉住 / 解除钉住会话的内存缓存：钉住期间跳过缓存 TTL 回收。 */
+  pinSessionScope: (conversationId: string, pinned: boolean) => void;
+  /** 各会话的待授权工具列表（按会话隔离；主视图读 pendingToolAuthorizations）。 */
+  pendingToolAuthorizationsBySession: Record<string, ToolCallInfo[]>;
+  /** 各会话的待发送队列显示镜像（会话面板据此渲染队列）。 */
+  pendingQueueMirrors: Record<string, PendingQueueMirror>;
+  /** 读取指定会话的运行时快照（ref 镜像，供会话面板展示）。 */
+  readSessionRuntime: (conversationId: string) => SessionRuntimeSnapshot;
   /** 当前运行时是否位于独立面板窗口（独立窗口隐藏不可用的入口卡片等）。 */
   isDetachedWindow: boolean;
 };
