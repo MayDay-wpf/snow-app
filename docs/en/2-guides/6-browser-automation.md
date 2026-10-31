@@ -92,6 +92,8 @@ browser-devtools action=networkState state=offline instanceId=<id>
 → simulate offline (all requests fail); state=online restores connectivity
 ```
 
+Cross-origin/OOPIF iframe network records, console entries and dialogs are captured and answered per frame CDP session: the network list includes `cdpFrameId` and `requestId` is a frame-scoped detail key, console entries carry `cdpFrameId`, and the dialog list marks `frame` as `main`/`iframe`. A missing frame session fails explicitly instead of falling back to the main frame.
+
 ### 2.3 Mock APIs (route interception)
 
 ```text
