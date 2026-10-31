@@ -93,6 +93,8 @@ export function ApiSettingsEditModal({
         editForm,
         editForm.isActive,
         configs.length,
+        // 原档案的 source（如 oauth-<provider id>）是 OAuth 标记，保存时不能丢。
+        config?.source,
       );
       // 配置名变化时携带原配置名,由后端在同一事务内完成原子重命名
       const previousProfileName = config?.profileName;

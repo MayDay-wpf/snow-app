@@ -433,6 +433,12 @@ export function toApiConfigPayload(
   data: ApiConfigFormData,
   isActive: boolean,
   configCount: number,
+  /**
+   * 档案来源标记（source）：编辑既有档案时必须回传原值，否则 OAuth 档案
+   * （source = oauth-<provider id>）会被改写成 manual，依赖该标记的订阅配额
+   * 面板将不再渲染；新建档案使用默认值 manual。
+   */
+  source = "manual",
 ): ApiConfigInput {
   const profileName = data.profileName.trim();
   const displayName = data.displayName.trim() || profileName;
@@ -522,6 +528,6 @@ export function toApiConfigPayload(
     systemPromptIdsJson: data.systemPromptIdsJson,
     customHeaderSchemeId: data.customHeaderSchemeId,
     configJson,
-    source: "manual",
+    source,
   };
 }

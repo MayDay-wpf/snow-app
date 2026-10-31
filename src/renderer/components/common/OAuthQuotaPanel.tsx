@@ -96,14 +96,28 @@ const refreshQuota = async (profileName: string): Promise<void> => {
   }
 };
 
-/** source 为 oauth-<provider>，或 configJson 含 oauth 元数据。 */
+/** source 为 oauth-<provider>，或 configJson 含 oauth / oauthPlugin 元数据。 */
 const isOAuthApiConfig = (config: ApiConfigRecord): boolean => {
   if (config.source.startsWith(OAUTH_SOURCE_PREFIX)) {
     return true;
   }
   try {
     const parsed: unknown = JSON.parse(config.configJson || "{}");
-    return typeof parsed === "object" && parsed !== null && "oauth" in parsed;
+    if (typeof parsed !== "object" || parsed === null) {
+      return false;
+    }
+    if ("oauth" in parsed) {
+      return true;
+    }
+    // configJson.oauthPlugin 是宿主为插件 OAuth 档案写入的建档标记（provider 非空），
+    // 与 source 不同，它不会被编辑表单覆盖，因此也能识别历史档案里已被改写为
+    // manual 的插件 OAuth 档案。
+    const metadata = (parsed as { oauthPlugin?: unknown }).oauthPlugin;
+    return (
+      typeof metadata === "object" &&
+      metadata !== null &&
+      typeof (metadata as { provider?: unknown }).provider === "string"
+    );
   } catch {
     return false;
   }
