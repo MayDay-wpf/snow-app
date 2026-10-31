@@ -48,15 +48,8 @@ import { useI18n } from "./i18n";
 import { useTheme } from "./hooks/useTheme";
 import {
   readPanelCollapsedState,
-  readRightPanelWidthOverride,
   writePanelCollapsedState,
-  writeRightPanelWidthOverride,
 } from "./utils/layoutPanelState";
-import {
-  getRightPanelWidthProfile,
-  RIGHT_PANEL_FALLBACK_WIDTH_PROFILE,
-} from "./components/rightPanel/panelWidthProfiles";
-import type { RightPanelTabType } from "./components/rightPanel/types";
 import { ThemeBackgroundPetLayer } from "./components/pet/ThemeBackgroundPetLayer";
 import { ThemeBackgroundImageLayer } from "./components/sidebar/themeSettings/ThemeBackgroundImageLayer";
 import { adjustUiFontSize, resetUiFontSize } from "./utils/uiZoom";
@@ -71,6 +64,9 @@ import type { WorkspaceDirectoryRecord } from "../preload";
 const SIDEBAR_MIN_WIDTH = 180;
 const SIDEBAR_MAX_WIDTH = 420;
 const SIDEBAR_DEFAULT_WIDTH = 248;
+const RIGHT_PANEL_MIN_WIDTH = 280;
+const RIGHT_PANEL_MAX_WIDTH = 640;
+const RIGHT_PANEL_DEFAULT_WIDTH = 320;
 // 右面板拖宽越过最大宽度此距离进入"待全屏区"，持续拖拽保持 500ms 后出现
 // 遮罩提示；此后不回拉、松开鼠标即进入全屏。
 const RIGHT_PANEL_FULLSCREEN_OVERDRAG = 56;
@@ -165,31 +161,6 @@ type PanelSizeStyle = CSSProperties & {
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
-
-/**
- * 解析右面板宽度：该类型的用户覆盖值优先，否则用推荐默认值；
- * 再按窗口与侧栏占用收敛，保证聊天区不小于最小宽度。
- */
-const resolveRightPanelWidth = (
-  type: RightPanelTabType,
-  sidebarCollapsed: boolean,
-  currentSidebarWidth: number,
-): number => {
-  const profile = getRightPanelWidthProfile(type);
-  const desiredWidth =
-    readRightPanelWidthOverride(type) ?? profile.defaultWidth;
-  const availableWidth =
-    window.innerWidth - APP_LAYOUT_HORIZONTAL_PADDING - APP_LAYOUT_GAP_TOTAL;
-  const visibleSidebarWidth = sidebarCollapsed ? 0 : currentSidebarWidth;
-  const mainSafeMax =
-    availableWidth - visibleSidebarWidth - MAIN_CONTENT_MIN_WIDTH;
-  const upperBound = Math.min(
-    profile.maxWidth,
-    Math.max(RIGHT_PANEL_FALLBACK_WIDTH_PROFILE.minWidth, mainSafeMax),
-  );
-  const lowerBound = Math.min(profile.minWidth, upperBound);
-  return Math.round(clamp(desiredWidth, lowerBound, upperBound));
-};
 
 /**
  * 快捷键处理器桥接组件。
@@ -501,15 +472,8 @@ export const App = (): React.JSX.Element => {
   const [collapseHoldTarget, setCollapseHoldTarget] =
     useState<ResizeTarget | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  // 右面板宽度按活动 tab 类型记忆：有用户覆盖用覆盖值，否则用推荐默认值。
-  const [activeRightPanelType, setActiveRightPanelType] =
-    useState<RightPanelTabType>("git");
-  const [rightPanelWidth, setRightPanelWidth] = useState(() =>
-    resolveRightPanelWidth(
-      "git",
-      initialPanelState.sidebar,
-      SIDEBAR_DEFAULT_WIDTH,
-    ),
+  const [rightPanelWidth, setRightPanelWidth] = useState(
+    RIGHT_PANEL_DEFAULT_WIDTH,
   );
   const [showSshWizard, setShowSshWizard] = useState(false);
   // SSH 向导取消回调：向导经合集右键「添加项目」打开时需要清理目标合集
@@ -550,32 +514,6 @@ export const App = (): React.JSX.Element => {
       rightPanel: isRightPanelCollapsed,
     });
   }, [isSidebarCollapsed, isRightPanelCollapsed]);
-
-  // 按类型解析右面板宽度（覆盖值优先，其次推荐默认值），并随侧栏占用收敛。
-  const resolveActiveRightPanelWidth = useCallback(
-    (type: RightPanelTabType): number =>
-      resolveRightPanelWidth(type, isSidebarCollapsed, sidebarWidth),
-    [isSidebarCollapsed, sidebarWidth],
-  );
-
-  // 切换 tab 类型或侧栏占用变化时，在渲染期就把宽度改成该类型的目标值：宽度变量
-  // 随这次提交一起生效，右面板的宽度过渡才能和 tab 内容切换同帧开始（放 effect 里
-  // 要等这次提交渲染并绘制完才执行，动画会滞后于内容切换）。
-  // 面板收起期间只记账不落宽度，避免窗口缩放把用户的宽度记忆改小。
-  const rightPanelWidthKey = [
-    activeRightPanelType,
-    isSidebarCollapsed,
-    sidebarWidth,
-    isRightPanelCollapsed,
-  ].join("|");
-  const [appliedRightPanelWidthKey, setAppliedRightPanelWidthKey] =
-    useState(rightPanelWidthKey);
-  if (appliedRightPanelWidthKey !== rightPanelWidthKey) {
-    setAppliedRightPanelWidthKey(rightPanelWidthKey);
-    if (!isRightPanelCollapsed) {
-      setRightPanelWidth(resolveActiveRightPanelWidth(activeRightPanelType));
-    }
-  }
 
   const hasCustomFrame = hasCustomWindowFrame();
   const isMacOS = navigator.userAgent.includes("Mac");
@@ -1085,27 +1023,26 @@ export const App = (): React.JSX.Element => {
 
   const getMaxPanelWidth = (target: ResizeTarget): number => {
     const visibleSidebarWidth = isSidebarCollapsed ? 0 : sidebarWidth;
+    const visibleRightPanelWidth = isRightPanelCollapsed ? 0 : rightPanelWidth;
+    const otherPanelWidth =
+      target === "sidebar" ? visibleRightPanelWidth : visibleSidebarWidth;
+    const minWidth =
+      target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
     const availableWidth =
       window.innerWidth - APP_LAYOUT_HORIZONTAL_PADDING - APP_LAYOUT_GAP_TOTAL;
-    if (target === "right-panel") {
-      // 右面板上限随内容类型变化（浏览器/绘图/并排 diff 可拉得更宽）。
-      const profile = getRightPanelWidthProfile(activeRightPanelType);
-      const mainSafeMax =
-        availableWidth - visibleSidebarWidth - MAIN_CONTENT_MIN_WIDTH;
-      return Math.max(
-        profile.minWidth,
-        Math.min(profile.maxWidth, mainSafeMax),
-      );
-    }
-    const visibleRightPanelWidth = isRightPanelCollapsed ? 0 : rightPanelWidth;
     const mainSafeMax =
-      availableWidth - visibleRightPanelWidth - MAIN_CONTENT_MIN_WIDTH;
+      availableWidth - otherPanelWidth - MAIN_CONTENT_MIN_WIDTH;
     // On large screens, allow panels to grow proportionally instead of being
     // capped at a fixed pixel value. The original max is kept as a floor so
     // small-screen behaviour is unchanged.
-    const ratioMax = availableWidth * 0.3;
-    const absoluteMax = Math.max(SIDEBAR_MAX_WIDTH, ratioMax);
-    return Math.max(SIDEBAR_MIN_WIDTH, Math.min(absoluteMax, mainSafeMax));
+    const ratioMax =
+      target === "sidebar" ? availableWidth * 0.3 : availableWidth * 0.6;
+    const absoluteMax =
+      target === "sidebar"
+        ? Math.max(SIDEBAR_MAX_WIDTH, ratioMax)
+        : Math.max(RIGHT_PANEL_MAX_WIDTH, ratioMax);
+
+    return Math.max(minWidth, Math.min(absoluteMax, mainSafeMax));
   };
 
   const startPanelResize = (
@@ -1140,9 +1077,7 @@ export const App = (): React.JSX.Element => {
     const startX = event.clientX;
     const startWidth = target === "sidebar" ? sidebarWidth : rightPanelWidth;
     const minWidth =
-      target === "sidebar"
-        ? SIDEBAR_MIN_WIDTH
-        : getRightPanelWidthProfile(activeRightPanelType).minWidth;
+      target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
     const maxWidth = getMaxPanelWidth(target);
     const linkedFullscreenPanel =
       target === "sidebar" && isRightPanelFullscreen ? rightPanelElement : null;
@@ -1322,10 +1257,6 @@ export const App = (): React.JSX.Element => {
         setSidebarWidth(committedWidth);
       } else {
         setRightPanelWidth(committedWidth);
-        // 宽度确有变化才写入覆盖值；记住当前内容类型的宽度。
-        if (committedWidth !== startWidth) {
-          writeRightPanelWidthOverride(activeRightPanelType, committedWidth);
-        }
       }
       for (const entry of overrideStack) {
         if (entry.previous === "" && entry.priority === "") {
@@ -1498,7 +1429,6 @@ export const App = (): React.JSX.Element => {
               isFullscreen={isRightPanelFullscreen}
               activeDirectory={activeDirectory}
               onSelectMainView={setActiveMainView}
-              onActiveTabTypeChange={setActiveRightPanelType}
               onToggleRightPanelFullscreen={() =>
                 setIsRightPanelFullscreen((isFullscreen) => !isFullscreen)
               }
