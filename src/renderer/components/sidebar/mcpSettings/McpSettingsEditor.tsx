@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { CustomSelect } from "../../common/CustomSelect";
+import { resolveToolDisplayName } from "../../mainContent/chatMessages/toolCalls/shared/toolDisplayName";
 import { McpApiEndpointsEditor } from "./McpApiEndpointsEditor";
 import { McpKeyValueEditor } from "./McpKeyValueEditor";
 import { McpStringListEditor } from "./McpStringListEditor";
@@ -123,10 +124,10 @@ export function McpSettingsEditor({
     if (!trimmed) return tools;
     return tools.filter(
       (tool) =>
-        tool.name.toLowerCase().includes(trimmed) ||
+        resolveToolDisplayName(t, tool.name).toLowerCase().includes(trimmed) ||
         (tool.description || "").toLowerCase().includes(trimmed),
     );
-  }, [tools, toolFilter]);
+  }, [tools, toolFilter, t]);
 
   // 与保存行为保持一致的实时校验：能被容错解析为服务器配置即视为有效；
   // 新建服务未填名称的初始默认 JSON 模板视为空态，避免一打开就弹红字报错。
@@ -553,7 +554,7 @@ export function McpSettingsEditor({
                   {filteredTools.map((tool) => (
                     <details className="mcp-tool-detail-item" key={tool.name}>
                       <summary>
-                        <strong>{tool.name}</strong>
+                        <strong>{resolveToolDisplayName(t, tool.name)}</strong>
                         <span>{tool.description || "-"}</span>
                       </summary>
                       <div className="mcp-tool-detail-content">

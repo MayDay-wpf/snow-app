@@ -49,7 +49,6 @@ export const browserToolErrorTranslations: Record<
       "此标签页尚未共享给助手，请先请求用户共享。",
     "toolCall.browser.errors.noFrames":
       "录屏未捕获到画面，请确认标签页正在渲染后重试。",
-    "toolNames.browser-request_share": "请求共享",
   },
   "zh-TW": {
     "toolCall.browser.errors.technicalDetails": "技術詳情（已遮蔽敏感資料）",
@@ -95,7 +94,6 @@ export const browserToolErrorTranslations: Record<
       "此分頁尚未共用給助理，請先請求使用者共用。",
     "toolCall.browser.errors.noFrames":
       "錄影未擷取到畫面，請確認分頁正在繪製後重試。",
-    "toolNames.browser-request_share": "請求共用",
   },
   en: {
     "toolCall.browser.errors.technicalDetails": "Technical details (redacted)",
@@ -143,6 +141,5 @@ export const browserToolErrorTranslations: Record<
       "This tab is not shared with the agent. Ask the user to share it first.",
     "toolCall.browser.errors.noFrames":
       "The recording captured no frames. Make sure the tab is rendering before retrying.",
-    "toolNames.browser-request_share": "Request sharing",
   },
 };

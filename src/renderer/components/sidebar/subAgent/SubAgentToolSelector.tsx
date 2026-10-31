@@ -1,6 +1,7 @@
 import { ChevronRight, Wrench } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../../i18n";
+import { resolveToolDisplayName } from "../../mainContent/chatMessages/toolCalls/shared/toolDisplayName";
 import { McpSearchInput, matchesMcpQuery } from "../mcpSettings/McpSearchInput";
 import { usesAllTools } from "./subAgentUtils";
 import type { SubAgentToolOption } from "./types";
@@ -52,7 +53,7 @@ export function SubAgentToolSelector({
       visibleTools: group.tools.filter((tool) =>
         matchesMcpQuery(
           toolQuery,
-          tool.name,
+          resolveToolDisplayName(t, tool.name),
           tool.serverName,
           tool.description,
         ),
@@ -181,7 +182,7 @@ export function SubAgentToolSelector({
                           type="checkbox"
                           checked={selectedToolNames.has(tool.name)}
                           disabled={isBusy}
-                          aria-label={tool.name}
+                          aria-label={resolveToolDisplayName(t, tool.name)}
                           onChange={(event) =>
                             setToolsSelected([tool], event.target.checked)
                           }
@@ -190,7 +191,9 @@ export function SubAgentToolSelector({
                         <Wrench size={14} aria-hidden="true" />
                         <span className="sub-agent-tool-option-content">
                           <span className="sub-agent-tool-option-title">
-                            <strong title={tool.name}>{tool.name}</strong>
+                            <strong>
+                              {resolveToolDisplayName(t, tool.name)}
+                            </strong>
                             {tool.projectDisabled ? (
                               <span
                                 className="sub-agent-tool-badge"

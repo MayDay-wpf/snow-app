@@ -17,6 +17,7 @@ import { useI18n } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
+import { resolveToolDisplayName } from "../mainContent/chatMessages/toolCalls/shared/toolDisplayName";
 import { notifyMcpServerStateChanged } from "../mainContent/chatInput/mcpServerEvents";
 import { LITE_MODE_CHANGED_EVENT } from "../mainContent/chatMessages/hooks/useToolAuthorization";
 import {
@@ -939,7 +940,11 @@ export function McpSettingsPanel({
     (server) =>
       matchesMcpQuery(serverQuery, server.name, server.detail) ||
       (toolsByServerId[server.serverId] ?? []).some((tool) =>
-        matchesMcpQuery(serverQuery, tool.name, tool.description),
+        matchesMcpQuery(
+          serverQuery,
+          resolveToolDisplayName(t, tool.name),
+          tool.description,
+        ),
       ),
   );
   const enabledCount = activeServers.filter(

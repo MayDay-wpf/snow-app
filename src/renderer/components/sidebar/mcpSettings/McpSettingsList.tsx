@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../../i18n";
+import { resolveToolDisplayName } from "../../mainContent/chatMessages/toolCalls/shared/toolDisplayName";
 import type { McpServerTool } from "./types";
 
 export type McpSettingsListItem = {
@@ -134,7 +135,9 @@ export function McpSettingsList({
             const filteredTools = (tools ?? []).filter(
               (tool) =>
                 !normalizedFilter ||
-                tool.name.toLowerCase().includes(normalizedFilter) ||
+                resolveToolDisplayName(t, tool.name)
+                  .toLowerCase()
+                  .includes(normalizedFilter) ||
                 tool.description.toLowerCase().includes(normalizedFilter),
             );
             const fetchToolsLabel = t("settings.mcpFetchTools", {
@@ -334,7 +337,9 @@ export function McpSettingsList({
                               >
                                 <Wrench size={14} strokeWidth={1.9} />
                                 <div className="mcp-tool-row-content">
-                                  <strong>{tool.name}</strong>
+                                  <strong>
+                                    {resolveToolDisplayName(t, tool.name)}
+                                  </strong>
                                   <span>{tool.description || "-"}</span>
                                 </div>
                                 <ChevronRight
