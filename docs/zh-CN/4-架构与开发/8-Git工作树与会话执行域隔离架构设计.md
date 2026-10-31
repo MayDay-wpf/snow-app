@@ -74,7 +74,7 @@
 ### 2.4 维度四：Checkpoint 变更消费与底层快照严格对称
 
 - **变更消费端注入真实物理工作区**：
-  `useConversationFileChanges.ts` 在调用底层 `window.snow.listCheckpointDiffsBatch(chainIds, workDir, false)` 前，若处于 `worktreeMode` 或指定了 `worktreeId`，自动通过 `resolveConversationWorkspacePath` 决议出有效的物理工作树路径。
+  `useConversationFileChanges.ts` 在调用底层 `window.snow.listCheckpointSummariesBatch(chainIds, workDir, false)` 前，若处于 `worktreeMode` 或指定了 `worktreeId`，自动通过 `resolveConversationWorkspacePath` 决议出有效的物理工作树路径。
 - **防御机制闭环**：
   保证底层 Checkpoint 写入时所记录的 `manifest.work_dir` 与前端展示面板读取时所请求的 `work_dir` 100% 对称，在守住“跨工作树防代码污染”安全红线的同时，根除了路径比对失败的报警。
 
@@ -103,9 +103,9 @@ sequenceDiagram
     Loop->>DB: 顺序 await persistConversationSelection (modes -> worktree 绑定)
     Note over DB: database::with_write_lock 保证排队无锁冲突
     Loop->>UI: 触发变更面板 useConversationFileChanges
-    UI->>Rust: listCheckpointDiffsBatch (带决议后的工作树路径)
+    UI->>Rust: listCheckpointSummariesBatch (带决议后的工作树路径)
     Rust->>Rust: validate_manifest_work_dir 校验通过 (requested == recorded)
-    Rust-->>UI: 返回精准的文件变更 Diff 列表
+    Rust-->>UI: 返回文件变更摘要列表（diff 明细查看时按页读取）
 ```
 
 ---

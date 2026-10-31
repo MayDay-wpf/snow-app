@@ -122,6 +122,7 @@ export const zhTW: Record<string, string> = {
   "remote.rollback.previewEmpty": "沒有可預覽的變更",
   "remote.rollback.previewTruncatedFiles": "僅顯示前 {{count}} 個檔案的變更",
   "remote.rollback.binaryFile": "二進位檔案，無法預覽",
+  "remote.rollback.tooLargeFile": "檔案超過 SSH 傳輸上限（32 MB），無法預覽",
   "remote.rollback.cancelAction": "取消",
   "remote.rollback.conversationOnlyAction": "僅回滾會話",
   "remote.rollback.conversationAndFilesAction": "回滾會話和檔案",

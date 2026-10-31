@@ -1,6 +1,7 @@
 import type {
   SnowRemoteRollbackChange,
   SnowRemoteRollbackDiff,
+  SnowRemoteRollbackFile,
   SnowRemoteRollbackMode,
   SnowRemoteRollbackPreview,
   SnowRemoteRollbackState,
@@ -8,7 +9,8 @@ import type {
 import {
   cancelRollback,
   confirmRollback,
-  fetchRollbackDiffs,
+  fetchRollbackFileDiff,
+  fetchRollbackFiles,
   fetchRollbackState,
   startRollback,
 } from "./api";
@@ -34,7 +36,8 @@ import type { AppContext } from "./types";
  * （GET /api/rollback 轮询），手机端只做展示与确认——
  * - 预览计算期间（桌面中止运行 + 遍历检查点，SSH 下较慢）显示计算中；
  * - 预览就绪后展示文件变更清单、TODO、项目记忆清理选项与 WorkFlow 提示；
- * - 文件 diff 由 Rust 检查点服务直接计算（POST action=diff），按需加载；
+ * - 文件变更由 Rust 检查点服务直接计算（POST action=diff 只返回摘要，选中
+ *   文件时再按 action=diff-page 拉取该文件 diff 的首页）；
  * - 确认复用桌面 confirmRollback（文件恢复 → 会话截断 / 删除 → 清理检查点与记忆）。
  *
  * 电脑端会同时弹出同一次预览的对话框：在电脑端取消同样结束手机端这次回滚，
@@ -64,10 +67,14 @@ let deleteMemories = false;
 let showTodos = false;
 let showMemories = false;
 let view: "summary" | "diffs" = "summary";
-let diffs: SnowRemoteRollbackDiff[] | null = null;
-let diffsLoading = false;
-let diffsError = false;
-let selectedDiff = 0;
+let files: SnowRemoteRollbackFile[] | null = null;
+let filesLoading = false;
+let filesError = false;
+let selectedFile = 0;
+/** 已加载的单文件 diff（按路径缓存，切回看过的文件不再请求）。 */
+const fileDiffs = new Map<string, SnowRemoteRollbackDiff>();
+let diffLoadingPath: string | null = null;
+let diffErrorPath: string | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 /** 请求代际：关闭 / 重开弹层即自增，使在途轮询与 diff 请求失效。 */
 let generation = 0;
@@ -181,6 +188,17 @@ const clearPoll = (): void => {
   pollTimer = null;
 };
 
+/** 清空 diff 视图状态（文件摘要与已加载的单文件 diff）。 */
+const resetDiffState = (): void => {
+  files = null;
+  filesLoading = false;
+  filesError = false;
+  selectedFile = 0;
+  fileDiffs.clear();
+  diffLoadingPath = null;
+  diffErrorPath = null;
+};
+
 const resetState = (): void => {
   active = false;
   targetMessageId = "";
@@ -191,10 +209,7 @@ const resetState = (): void => {
   showTodos = false;
   showMemories = false;
   view = "summary";
-  diffs = null;
-  diffsLoading = false;
-  diffsError = false;
-  selectedDiff = 0;
+  resetDiffState();
   renderedSignature = "";
   generation += 1;
   clearPoll();
@@ -431,20 +446,6 @@ const renderSummary = (
   }
 };
 
-/** 增删行统计（unified diff 文本里的 +/- 行，忽略文件头）。 */
-const diffStats = (
-  content: string,
-): { additions: number; deletions: number } => {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of content.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions += 1;
-    else if (line.startsWith("-")) deletions += 1;
-  }
-  return { additions, deletions };
-};
-
 const diffLineClass = (line: string): string => {
   if (line.startsWith("@@")) return "hunk";
   if (
@@ -461,11 +462,39 @@ const diffLineClass = (line: string): string => {
   return "ctx";
 };
 
-/** 单个文件的 unified diff（逐行着色；超出行数上限时截断并提示）。 */
-const diffContent = (diff: SnowRemoteRollbackDiff): HTMLElement => {
+const retryButton = (action: string): HTMLButtonElement => {
+  const retry = el(
+    "button",
+    "rollback-secondary-action",
+    t("remote.rollback.previewRetry"),
+  );
+  retry.type = "button";
+  retry.dataset.rollbackAction = action;
+  return retry;
+};
+
+/** 选中文件的 unified diff（逐行着色；超出行数上限时截断并提示）。
+ *  diff 正文按需拉取：未加载时显示加载中，失败时提供重试。 */
+const fileDiffContent = (file: SnowRemoteRollbackFile): HTMLElement => {
   const wrapper = el("div", "rollback-diff");
-  if (diff.isBinary) {
+  const diff = fileDiffs.get(file.path);
+  if (file.isBinary || diff?.isBinary) {
     wrapper.append(noteRow(t("remote.rollback.binaryFile")));
+    return wrapper;
+  }
+  if (file.tooLarge || diff?.tooLarge) {
+    wrapper.append(noteRow(t("remote.rollback.tooLargeFile")));
+    return wrapper;
+  }
+  if (!diff) {
+    if (diffErrorPath === file.path) {
+      wrapper.append(
+        noteRow(t("remote.rollback.previewError"), "error"),
+        retryButton("retry-file-diff"),
+      );
+    } else {
+      wrapper.append(spinnerRow(t("remote.rollback.previewLoading")));
+    }
     return wrapper;
   }
   if (!diff.content.trim()) {
@@ -491,55 +520,49 @@ const diffContent = (diff: SnowRemoteRollbackDiff): HTMLElement => {
 };
 
 const diffFileButton = (
-  diff: SnowRemoteRollbackDiff,
+  file: SnowRemoteRollbackFile,
   index: number,
 ): HTMLButtonElement => {
   const button = el(
     "button",
-    `rollback-diff-file${index === selectedDiff ? " active" : ""}`,
+    `rollback-diff-file${index === selectedFile ? " active" : ""}`,
   );
   button.type = "button";
   button.dataset.rollbackFile = String(index);
-  const stats = diffStats(diff.content);
-  const path = el("span", "rollback-diff-file-path", diff.path);
-  path.title = diff.path;
+  const path = el("span", "rollback-diff-file-path", file.path);
+  path.title = file.path;
   button.append(
-    iconSpan(CHANGE_ICON[diff.changeType], "rollback-change-icon"),
+    iconSpan(CHANGE_ICON[file.changeType], "rollback-change-icon"),
     path,
     el(
       "span",
       "rollback-diff-file-stats",
       t("remote.toolCall.diff.stats", {
-        additions: stats.additions,
-        deletions: stats.deletions,
+        additions: file.additions,
+        deletions: file.deletions,
       }),
     ),
   );
   return button;
 };
 
-/** diff 视图：文件列表 + 选中文件的 unified diff。 */
+/** diff 视图：文件列表（摘要）+ 选中文件的 unified diff。 */
 const renderDiffs = (
   host: HTMLElement,
   value: SnowRemoteRollbackPreview,
 ): void => {
-  if (diffsLoading) {
+  if (filesLoading) {
     host.append(spinnerRow(t("remote.rollback.previewLoading")));
     return;
   }
-  if (diffsError) {
-    host.append(noteRow(t("remote.rollback.previewError"), "error"));
-    const retry = el(
-      "button",
-      "rollback-secondary-action",
-      t("remote.rollback.previewRetry"),
+  if (filesError) {
+    host.append(
+      noteRow(t("remote.rollback.previewError"), "error"),
+      retryButton("retry-diffs"),
     );
-    retry.type = "button";
-    retry.dataset.rollbackAction = "retry-diffs";
-    host.append(retry);
     return;
   }
-  if (!diffs || diffs.length === 0) {
+  if (!files || files.length === 0) {
     host.append(noteRow(t("remote.rollback.previewEmpty")));
     return;
   }
@@ -547,17 +570,17 @@ const renderDiffs = (
     value.changeTotals.added +
     value.changeTotals.modified +
     value.changeTotals.deleted;
-  const files = el("div", "rollback-diff-files");
-  diffs.forEach((diff, index) => files.append(diffFileButton(diff, index)));
-  host.append(files);
-  if (total > diffs.length) {
+  const list = el("div", "rollback-diff-files");
+  files.forEach((file, index) => list.append(diffFileButton(file, index)));
+  host.append(list);
+  if (total > files.length) {
     host.append(
       noteRow(
-        t("remote.rollback.previewTruncatedFiles", { count: diffs.length }),
+        t("remote.rollback.previewTruncatedFiles", { count: files.length }),
       ),
     );
   }
-  host.append(diffContent(diffs[Math.min(selectedDiff, diffs.length - 1)]));
+  host.append(fileDiffContent(files[Math.min(selectedFile, files.length - 1)]));
 };
 
 const renderBody = (value: SnowRemoteRollbackPreview | null): void => {
@@ -647,10 +670,13 @@ const renderSignature = (value: SnowRemoteRollbackPreview | null): string =>
     deleteMemories ? "m1" : "m0",
     showTodos ? "t1" : "t0",
     showMemories ? "y1" : "y0",
-    diffsLoading ? "l1" : "l0",
-    diffsError ? "e1" : "e0",
-    diffs ? String(diffs.length) : "-",
-    String(selectedDiff),
+    filesLoading ? "l1" : "l0",
+    filesError ? "e1" : "e0",
+    files ? String(files.length) : "-",
+    String(selectedFile),
+    `d${fileDiffs.size}`,
+    diffLoadingPath ?? "",
+    diffErrorPath ?? "",
   ].join("|");
 
 const render = (): void => {
@@ -666,26 +692,67 @@ const render = (): void => {
 
 // ── 交互 ──────────────────────────────────────────────────────────────────
 
-const loadDiffs = async (value: SnowRemoteRollbackPreview): Promise<void> => {
-  if (!canPreviewDiffs(value)) return;
+/** 拉取当前选中文件的 diff 首页（已加载 / 加载中 / 无内容可预览时跳过）。 */
+const loadSelectedFileDiff = async (
+  value: SnowRemoteRollbackPreview,
+): Promise<void> => {
+  const file = files?.[Math.min(selectedFile, files.length - 1)];
+  if (
+    !file ||
+    file.isBinary ||
+    file.tooLarge ||
+    fileDiffs.has(file.path) ||
+    diffLoadingPath === file.path
+  ) {
+    return;
+  }
   const requestGeneration = generation;
-  diffsLoading = true;
-  diffsError = false;
+  diffLoadingPath = file.path;
+  diffErrorPath = null;
   render();
   try {
-    const result = await fetchRollbackDiffs(value.checkpointIds, value.workDir);
+    const diff = await fetchRollbackFileDiff(
+      value.checkpointIds,
+      value.workDir,
+      file.path,
+    );
     if (!active || requestGeneration !== generation) return;
-    diffs = result.diffs;
-    selectedDiff = 0;
+    fileDiffs.set(file.path, diff);
   } catch (error) {
     if (!active || requestGeneration !== generation) return;
-    diffsError = true;
+    diffErrorPath = file.path;
     showNotice((error as Error).message, true);
   } finally {
     if (active && requestGeneration === generation) {
-      diffsLoading = false;
+      if (diffLoadingPath === file.path) diffLoadingPath = null;
       render();
     }
+  }
+};
+
+const loadFiles = async (value: SnowRemoteRollbackPreview): Promise<void> => {
+  if (!canPreviewDiffs(value)) return;
+  const requestGeneration = generation;
+  filesLoading = true;
+  filesError = false;
+  render();
+  try {
+    const result = await fetchRollbackFiles(value.checkpointIds, value.workDir);
+    if (!active || requestGeneration !== generation) return;
+    files = result.files;
+    selectedFile = 0;
+  } catch (error) {
+    if (!active || requestGeneration !== generation) return;
+    filesError = true;
+    showNotice((error as Error).message, true);
+  } finally {
+    if (active && requestGeneration === generation) {
+      filesLoading = false;
+      render();
+    }
+  }
+  if (active && requestGeneration === generation) {
+    void loadSelectedFileDiff(value);
   }
 };
 
@@ -694,7 +761,7 @@ const openDiffs = (): void => {
   if (!value || !canPreviewDiffs(value)) return;
   view = "diffs";
   render();
-  if (!diffs && !diffsLoading) void loadDiffs(value);
+  if (!files && !filesLoading) void loadFiles(value);
 };
 
 const handleConfirm = async (mode: SnowRemoteRollbackMode): Promise<void> => {
@@ -748,10 +815,7 @@ export const openRollbackSheet = async (
   showTodos = false;
   showMemories = false;
   view = "summary";
-  diffs = null;
-  diffsLoading = false;
-  diffsError = false;
-  selectedDiff = 0;
+  resetDiffState();
   renderedSignature = "";
   generation += 1;
   rememberOverlayTrigger(trigger);
@@ -816,7 +880,12 @@ export const initRollback = (appCtx: AppContext): void => {
           return;
         case "retry-diffs": {
           const value = preview();
-          if (value) void loadDiffs(value);
+          if (value) void loadFiles(value);
+          return;
+        }
+        case "retry-file-diff": {
+          const value = preview();
+          if (value) void loadSelectedFileDiff(value);
           return;
         }
         default:
@@ -826,8 +895,10 @@ export const initRollback = (appCtx: AppContext): void => {
     const fileIndex = target.closest<HTMLElement>("[data-rollback-file]")
       ?.dataset.rollbackFile;
     if (fileIndex !== undefined) {
-      selectedDiff = Number(fileIndex) || 0;
+      selectedFile = Number(fileIndex) || 0;
       render();
+      const value = preview();
+      if (value) void loadSelectedFileDiff(value);
     }
   };
 

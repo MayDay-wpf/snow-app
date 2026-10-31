@@ -2,13 +2,19 @@ import { useState } from "react";
 import { FilePen, FilePlus, FileX, type LucideIcon } from "lucide-react";
 
 import { DiffViewer } from "../rightPanel/DiffViewer";
+import {
+  CheckpointDiffViewer,
+  type CheckpointDiffSource,
+} from "./CheckpointDiffViewer";
 
+/** 预览项：直接携带 diff 文本，或携带检查点链来源（明细按页读取）。 */
 export type FileDiffPreviewItem = {
   path: string;
   changeType: string;
-  content: string;
-  isBinary: boolean;
-};
+} & (
+  | { content: string; isBinary: boolean }
+  | { checkpointSource: CheckpointDiffSource }
+);
 
 export type FileDiffPreviewLabels = {
   loading: string;
@@ -102,7 +108,18 @@ export const FileDiffPreview = ({
         </div>
       ) : null}
       <div className="file-diff-preview-diff">
-        {selectedDiff ? (
+        {!selectedDiff ? (
+          <div className="file-diff-preview-state">
+            {isLoading ? labels.loading : labels.selectFile}
+          </div>
+        ) : "checkpointSource" in selectedDiff ? (
+          <CheckpointDiffViewer
+            key={selectedDiff.path}
+            source={selectedDiff.checkpointSource}
+            displayPath={selectedDiff.path}
+            changeType={selectedDiff.changeType}
+          />
+        ) : (
           <DiffViewer
             key={selectedDiff.path}
             selectedFile={{
@@ -119,10 +136,6 @@ export const FileDiffPreview = ({
             }}
             diffLoading={false}
           />
-        ) : (
-          <div className="file-diff-preview-state">
-            {isLoading ? labels.loading : labels.selectFile}
-          </div>
         )}
       </div>
     </div>

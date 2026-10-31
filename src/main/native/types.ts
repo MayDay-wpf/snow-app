@@ -2174,9 +2174,24 @@ export type CheckpointFileChange = {
   changeType: CheckpointChangeType;
 };
 
-export type CheckpointFileDiff = CheckpointFileChange & {
-  content: string;
+/** 回滚链上单个文件的变更摘要（不含 diff 正文）。 */
+export type CheckpointFileSummary = CheckpointFileChange & {
   isBinary: boolean;
+  /** SSH 工作区中超过传输上限、未读取内容的文件：无行数统计、不提供明细。 */
+  tooLarge: boolean;
+  additions: number;
+  deletions: number;
+};
+
+/** 单个文件 diff 明细的一页；按顺序拼接各页 content 即完整 unified diff。 */
+export type CheckpointDiffPage = {
+  isBinary: boolean;
+  tooLarge: boolean;
+  content: string;
+  totalRows: number;
+  nextRow: number;
+  /** 内容版本：基线或当前文件变化后改变，调用方据此丢弃已加载的页。 */
+  revision: string;
 };
 
 /** 远控渲染进程桥的调用请求（Rust → Node，argsJson 为 JSON.stringify 后的参数数组）。 */
@@ -3316,16 +3331,19 @@ export type NativeBridge = ImageGenerationNativeApi & {
     workDir: string,
     includeAll?: boolean,
   ) => Promise<CheckpointFileChange[]>;
-  listCheckpointDiffs: (
-    checkpointId: string,
-    workDir: string,
-    includeAll?: boolean,
-  ) => Promise<CheckpointFileDiff[]>;
-  listCheckpointDiffsBatch: (
+  listCheckpointSummariesBatch: (
     checkpointIds: string[],
     workDir: string,
     includeAll?: boolean,
-  ) => Promise<CheckpointFileDiff[]>;
+  ) => Promise<CheckpointFileSummary[]>;
+  readCheckpointDiffPage: (
+    checkpointIds: string[],
+    workDir: string,
+    path: string,
+    startRow: number,
+    maxRows: number,
+    maxBytes: number,
+  ) => Promise<CheckpointDiffPage>;
   truncateConversationFromResponse: (
     conversationId: string,
     responseId: string,

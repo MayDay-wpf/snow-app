@@ -295,6 +295,10 @@ export type FileChangeRecord = {
   /** Diff payload for the "view changes" action; absent when unavailable
    *  (e.g. the tool arguments carried no content). */
   diff?: FileChangeDiff;
+  /** 回滚链计算出的增删行数（摘要阶段由 Rust 统计，无需 diff 文本）。 */
+  lineStats?: { additions: number; deletions: number };
+  /** 回滚链来源：存在时「查看变更」按页从检查点服务读取明细（path 为链上路径）。 */
+  checkpointSource?: { checkpointIds: string[]; workDir: string; path: string };
 };
 
 export type SubAgentSessionEvent = {

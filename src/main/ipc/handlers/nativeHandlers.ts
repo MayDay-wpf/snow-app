@@ -1551,26 +1551,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
     },
   );
   ipcMain.handle(
-    "checkpoint:list-diffs",
-    (_event, checkpointId: unknown, workDir: unknown, includeAll: unknown) => {
-      if (typeof checkpointId !== "string" || !checkpointId.trim()) {
-        throw new Error("Checkpoint id is required to list diffs");
-      }
-      if (typeof workDir !== "string" || !workDir.trim()) {
-        throw new Error(
-          "Working directory path is required to list checkpoint diffs",
-        );
-      }
-      return native.listCheckpointDiffs(
-        checkpointId.trim(),
-        workDir,
-        includeAll === true,
-      );
-    },
-  );
-
-  ipcMain.handle(
-    "checkpoint:list-diffs-batch",
+    "checkpoint:list-summaries-batch",
     (_event, checkpointIds: unknown, workDir: unknown, includeAll: unknown) => {
       if (
         !Array.isArray(checkpointIds) ||
@@ -1581,16 +1562,64 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       }
       if (typeof workDir !== "string" || !workDir.trim()) {
         throw new Error(
-          "Working directory path is required to list checkpoint diffs",
+          "Working directory path is required to list checkpoint summaries",
         );
       }
       if (includeAll !== undefined && typeof includeAll !== "boolean") {
         throw new Error("includeAll must be a boolean when provided");
       }
-      return native.listCheckpointDiffsBatch(
+      return native.listCheckpointSummariesBatch(
         checkpointIds.map((id) => id.trim()),
         workDir.trim(),
         includeAll === true,
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "checkpoint:read-diff-page",
+    (
+      _event,
+      checkpointIds: unknown,
+      workDir: unknown,
+      path: unknown,
+      startRow: unknown,
+      maxRows: unknown,
+      maxBytes: unknown,
+    ) => {
+      if (
+        !Array.isArray(checkpointIds) ||
+        checkpointIds.length === 0 ||
+        checkpointIds.some((id) => typeof id !== "string" || !id.trim())
+      ) {
+        throw new Error("Checkpoint ids must be a non-empty string array");
+      }
+      if (typeof workDir !== "string" || !workDir.trim()) {
+        throw new Error(
+          "Working directory path is required to read checkpoint diff",
+        );
+      }
+      if (typeof path !== "string" || !path) {
+        throw new Error("File path is required to read checkpoint diff");
+      }
+      const isRowCount = (value: unknown): value is number =>
+        typeof value === "number" && Number.isInteger(value) && value >= 0;
+      if (
+        !isRowCount(startRow) ||
+        !isRowCount(maxRows) ||
+        !isRowCount(maxBytes)
+      ) {
+        throw new Error(
+          "startRow, maxRows and maxBytes must be non-negative integers",
+        );
+      }
+      return native.readCheckpointDiffPage(
+        checkpointIds.map((id) => id.trim()),
+        workDir.trim(),
+        path,
+        startRow,
+        maxRows,
+        maxBytes,
       );
     },
   );

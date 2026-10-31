@@ -5080,6 +5080,11 @@ export const en = {
   "chat.fileChanges.diffTitle": "Change preview",
   "chat.fileChanges.diffEmpty": "No changes to display",
   "chat.fileChanges.selectFile": "Select a file to view changes",
+  "chat.fileChanges.loadMore": "Load more",
+  "chat.fileChanges.loadingMore": "Loading…",
+  "chat.fileChanges.rowsProgress": "Showing {{shown}} / {{total}} lines",
+  "chat.fileChanges.tooLargeRemote":
+    "File exceeds the SSH transfer limit (32 MB); change preview is unavailable",
   "chat.memory.title": "Conversation memories",
   "chat.memory.description":
     "Memories this conversation (and its sub-agents / WorkFlow nodes) saved or merged.",

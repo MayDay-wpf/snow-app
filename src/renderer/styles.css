@@ -41966,6 +41966,45 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   line-height: 1.5;
 }
 
+/* 检查点 diff 分页加载区：位于 diff 内容末尾，进入可视范围时自动追加下一页 */
+.checkpoint-diff-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-light);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.checkpoint-diff-more-error {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-red-text, #ef4444);
+}
+
+.checkpoint-diff-more-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.checkpoint-diff-more-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.checkpoint-diff-more-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* 就地切换 diff 显示模式与评论操作 */
 .diff-viewer-header-actions {
   display: flex;

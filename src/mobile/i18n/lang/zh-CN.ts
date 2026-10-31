@@ -127,6 +127,7 @@ export const zhCN: Record<string, string> = {
   "remote.rollback.previewEmpty": "没有可预览的变更",
   "remote.rollback.previewTruncatedFiles": "仅显示前 {{count}} 个文件的变更",
   "remote.rollback.binaryFile": "二进制文件，无法预览",
+  "remote.rollback.tooLargeFile": "文件超过 SSH 传输上限（32 MB），无法预览",
   "remote.rollback.cancelAction": "取消",
   "remote.rollback.conversationOnlyAction": "仅回滚会话",
   "remote.rollback.conversationAndFilesAction": "回滚会话和文件",

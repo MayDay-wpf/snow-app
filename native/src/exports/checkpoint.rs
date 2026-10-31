@@ -8,10 +8,12 @@ use crate::mcp::servers::remote_workspace::{
 };
 use crate::storage::services::checkpoint::remote::{
     create_checkpoint_remote, list_checkpoint_changes_batch_remote, list_checkpoint_changes_remote,
-    list_checkpoint_diffs_batch_remote, list_checkpoint_diffs_remote, restore_checkpoint_remote,
-    restore_checkpoints_remote, RemoteCheckpointClient,
+    list_checkpoint_summaries_batch_remote, read_checkpoint_diff_page_remote,
+    restore_checkpoint_remote, restore_checkpoints_remote, RemoteCheckpointClient,
 };
-use crate::storage::services::checkpoint::{CheckpointFileChange, CheckpointFileDiff};
+use crate::storage::services::checkpoint::{
+    CheckpointDiffPage, CheckpointFileChange, CheckpointFileSummary,
+};
 
 /// 注册（或清除）全局 SSH 远程命令回调。renderer 通过独立的 checkpoint 导出
 /// API（create/restore/list）操作 SSH 工作区、以及仓库 Wiki 后台任务读取 SSH
@@ -166,48 +168,21 @@ pub async fn list_checkpoint_changes_batch(
     .map_err(map_spawn_error)?
 }
 
-/// Return unified diffs for all files that would be affected by rollback.
+/// 回滚链上每个文件的变更摘要（变更类型 + 增删行数），不含 diff 正文。
 ///
 /// `includeAll` (optional, default false):
-/// - `false`: only files still in the checkpoint's post-change state (rollback
+/// - `false`: only files still in the chain's post-change state (rollback
 ///   preview and `/changes` panel semantics — matches what
-///   `restore_checkpoint` would restore).
+///   `restore_checkpoints` would restore).
 /// - `true`: every captured entry whose current state differs from its
 ///   pre-change state (include-all listing — later runs drifting the shared
 ///   working tree never erase an earlier conversation's modifications).
 #[napi]
-pub async fn list_checkpoint_diffs(
-    checkpoint_id: String,
-    work_dir: String,
-    include_all: Option<bool>,
-) -> napi::Result<Vec<CheckpointFileDiff>> {
-    let include_all = include_all.unwrap_or(false);
-    // diff 同样只读：持共享读锁，可与文件工具并行；实际 restore 由独占写锁保护。
-    let operation_lock =
-        crate::storage::services::checkpoint::checkpoint_operation_lock(&work_dir)?;
-    let _operation_guard = operation_lock.read_owned().await;
-    if is_ssh_path(&work_dir) {
-        let callback = checkpoint_remote_callback()?;
-        let client = RemoteCheckpointClient::new(&callback);
-        return list_checkpoint_diffs_remote(&client, checkpoint_id, work_dir, include_all).await;
-    }
-    tokio::task::spawn_blocking(move || {
-        crate::storage::services::checkpoint::list_checkpoint_diffs(
-            checkpoint_id,
-            work_dir,
-            include_all,
-        )
-    })
-    .await
-    .map_err(map_spawn_error)?
-}
-
-#[napi]
-pub async fn list_checkpoint_diffs_batch(
+pub async fn list_checkpoint_summaries_batch(
     checkpoint_ids: Vec<String>,
     work_dir: String,
     include_all: Option<bool>,
-) -> napi::Result<Vec<CheckpointFileDiff>> {
+) -> napi::Result<Vec<CheckpointFileSummary>> {
     let include_all = include_all.unwrap_or(false);
     // 只读查询持共享读锁（与恢复的独占写锁互斥）。
     let operation_lock =
@@ -216,7 +191,7 @@ pub async fn list_checkpoint_diffs_batch(
     if is_ssh_path(&work_dir) {
         let callback = checkpoint_remote_callback()?;
         let client = RemoteCheckpointClient::new(&callback);
-        return list_checkpoint_diffs_batch_remote(
+        return list_checkpoint_summaries_batch_remote(
             &client,
             checkpoint_ids,
             work_dir,
@@ -225,10 +200,52 @@ pub async fn list_checkpoint_diffs_batch(
         .await;
     }
     tokio::task::spawn_blocking(move || {
-        crate::storage::services::checkpoint::list_checkpoint_diffs_batch(
+        crate::storage::services::checkpoint::list_checkpoint_summaries_batch(
             checkpoint_ids,
             work_dir,
             include_all,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+/// 回滚链上单个文件 diff 的一页：从 `startRow` 展示行开始，最多 `maxRows`
+/// 行、约 `maxBytes` 字节。按顺序拼接各页即完整 unified diff。
+#[napi]
+pub async fn read_checkpoint_diff_page(
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    path: String,
+    start_row: u32,
+    max_rows: u32,
+    max_bytes: u32,
+) -> napi::Result<CheckpointDiffPage> {
+    let operation_lock =
+        crate::storage::services::checkpoint::checkpoint_operation_lock(&work_dir)?;
+    let _operation_guard = operation_lock.read_owned().await;
+    if is_ssh_path(&work_dir) {
+        let callback = checkpoint_remote_callback()?;
+        let client = RemoteCheckpointClient::new(&callback);
+        return read_checkpoint_diff_page_remote(
+            &client,
+            checkpoint_ids,
+            work_dir,
+            path,
+            start_row,
+            max_rows,
+            max_bytes,
+        )
+        .await;
+    }
+    tokio::task::spawn_blocking(move || {
+        crate::storage::services::checkpoint::read_checkpoint_diff_page(
+            checkpoint_ids,
+            work_dir,
+            path,
+            start_row,
+            max_rows,
+            max_bytes,
         )
     })
     .await

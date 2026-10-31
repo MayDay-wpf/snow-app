@@ -74,7 +74,7 @@ For the "lifecycle gap" in which a pending new conversation has no associated da
 ### 2.4 Dimension four: checkpoint change consumption strictly symmetric with low-level snapshots
 
 - **Change consumers inject the real physical workspace**:
-  Before calling `window.snow.listCheckpointDiffsBatch(chainIds, workDir, false)`, `useConversationFileChanges.ts` resolves the effective physical worktree path through `resolveConversationWorkspacePath` whenever `worktreeMode` is on or a `worktreeId` is specified.
+  Before calling `window.snow.listCheckpointSummariesBatch(chainIds, workDir, false)`, `useConversationFileChanges.ts` resolves the effective physical worktree path through `resolveConversationWorkspacePath` whenever `worktreeMode` is on or a `worktreeId` is specified.
 - **Closed defensive loop**:
   The `manifest.work_dir` recorded when the checkpoint is written and the `work_dir` requested when the frontend panel reads are guaranteed to be 100% symmetric, which eradicates the path-comparison alarms while preserving the "no cross-worktree code pollution" safety red line.
 
@@ -103,9 +103,9 @@ sequenceDiagram
     Loop->>DB: Sequentially await persistConversationSelection (modes -> worktree binding)
     Note over DB: database::with_write_lock guarantees queued writes with no lock conflict
     Loop->>UI: Trigger the change panel useConversationFileChanges
-    UI->>Rust: listCheckpointDiffsBatch (with the resolved worktree path)
+    UI->>Rust: listCheckpointSummariesBatch (with the resolved worktree path)
     Rust->>Rust: validate_manifest_work_dir passes (requested == recorded)
-    Rust-->>UI: Return the accurate file change diff list
+    Rust-->>UI: Return the file change summaries (diff details are paged on demand)
 ```
 
 ---

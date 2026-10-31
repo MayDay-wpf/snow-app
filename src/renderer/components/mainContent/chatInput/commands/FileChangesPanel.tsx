@@ -54,22 +54,38 @@ export const FileChangesPanel = ({
   );
 
   // Records without a diff payload (e.g. tool arguments carried no content)
-  // stay in the list but are excluded from the diff preview.
+  // stay in the list but are excluded from the diff preview. Rollback-chain
+  // records carry a checkpoint source instead: their diff is paged on demand.
   const diffItems = useMemo<FileDiffPreviewItem[]>(
     () =>
-      changes
-        .filter((change) => change.diff?.patch)
-        .map((change) => ({
-          path: change.filePath,
-          changeType:
-            change.kind === "create"
-              ? "added"
-              : change.kind === "delete"
-                ? "deleted"
-                : "modified",
-          content: change.diff?.patch ?? "",
-          isBinary: change.diff?.isBinary ?? false,
-        })),
+      changes.flatMap((change): FileDiffPreviewItem[] => {
+        const changeType =
+          change.kind === "create"
+            ? "added"
+            : change.kind === "delete"
+              ? "deleted"
+              : "modified";
+        if (change.checkpointSource) {
+          return [
+            {
+              path: change.filePath,
+              changeType,
+              checkpointSource: change.checkpointSource,
+            },
+          ];
+        }
+        if (!change.diff?.patch) {
+          return [];
+        }
+        return [
+          {
+            path: change.filePath,
+            changeType,
+            content: change.diff.patch,
+            isBinary: change.diff.isBinary ?? false,
+          },
+        ];
+      }),
     [changes],
   );
 
@@ -191,7 +207,9 @@ export const FileChangesPanel = ({
               const fileName =
                 change.filePath.split(/[\\/]/).pop() || change.filePath;
               const stats = lineStats[index];
-              const hasDiff = Boolean(change.diff?.patch);
+              const hasDiff = Boolean(
+                change.checkpointSource || change.diff?.patch,
+              );
               return (
                 <li
                   className="file-changes-row"

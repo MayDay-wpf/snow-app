@@ -13,10 +13,7 @@ import {
   Loader2,
   Workflow,
 } from "lucide-react";
-import type {
-  CheckpointFileChange,
-  CheckpointFileDiff,
-} from "../../../../../preload";
+import type { CheckpointFileChange } from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
 import type {
   RollbackMemoryItem,
@@ -27,6 +24,7 @@ import {
   FileChangeIcon,
   FileDiffPreview,
   getFileChangeClassName,
+  type FileDiffPreviewItem,
 } from "../../../common/FileDiffPreview";
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import { getFileName } from "../toolCalls/shared/formatters";
@@ -73,9 +71,6 @@ export const RollbackConfirmDialog = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [diffs, setDiffs] = useState<CheckpointFileDiff[]>([]);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
   const [isTodoExpanded, setIsTodoExpanded] = useState(false);
   /** 记忆清理选项：默认不勾选（保留记忆，与删除会话弹窗语义一致）。 */
   const [deleteMemories, setDeleteMemories] = useState(false);
@@ -122,29 +117,25 @@ export const RollbackConfirmDialog = ({
   );
   const hiddenCount = changes.length - visibleChanges.length;
 
+  // 预览项只携带检查点链来源：选中文件时才由 Rust 按页计算 diff，与实际
+  // 回滚范围一致（changes 本身就是 includeAll=false 的回滚链变更列表）。
+  const previewItems = useMemo<FileDiffPreviewItem[]>(
+    () =>
+      workDir
+        ? changes.map((change) => ({
+            path: change.path,
+            changeType: change.changeType,
+            checkpointSource: { checkpointIds, workDir, path: change.path },
+          }))
+        : [],
+    [changes, checkpointIds, workDir],
+  );
+
   const openPreview = (): void => {
     if (checkpointIds.length === 0 || !workDir) {
       return;
     }
     setIsPreviewOpen(true);
-    if (diffs.length > 0 || previewLoading) {
-      return;
-    }
-    setPreviewLoading(true);
-    setPreviewError(false);
-    void window.snow
-      // includeAll=false：diff 预览与实际回滚范围一致（Rust 侧按路径合并
-      // 整条回滚链后，只显示仍处于链尾后状态、确认回滚时会被恢复的文件）。
-      .listCheckpointDiffsBatch(checkpointIds, workDir, false)
-      .then((result) => {
-        setDiffs(result);
-      })
-      .catch(() => {
-        setPreviewError(true);
-      })
-      .finally(() => {
-        setPreviewLoading(false);
-      });
   };
 
   return createPortal(
@@ -199,9 +190,9 @@ export const RollbackConfirmDialog = ({
         </div>
         {isPreviewOpen ? (
           <FileDiffPreview
-            diffs={diffs}
-            isLoading={previewLoading}
-            hasError={previewError}
+            diffs={previewItems}
+            isLoading={false}
+            hasError={false}
             labels={{
               loading: t("chat.rollbackPreviewLoading"),
               error: t("chat.rollbackPreviewError"),

@@ -9,12 +9,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use similar::TextDiff;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
-use super::checkpoint_skip::should_skip_pending_copy;
+use super::checkpoint_skip::{should_skip_pending_copy, PENDING_COPY_SIZE_LIMIT};
 use super::gitignore::GitignoreMatcher;
 
+mod diff_view;
 mod gc;
 mod git;
 mod manifest;
@@ -22,6 +22,10 @@ mod migrate;
 mod paths;
 pub(crate) mod remote;
 
+use self::diff_view::{
+    build_plan, cached_plan, compute_stats, diff_revision, render_page, store_plan, DiffStats,
+    LineSource,
+};
 use self::gc::{object_writer_guard, release_objects, ObjectWriterGuard};
 use self::git::{read_git_object, update_checkpoint_git_ref};
 use self::manifest::{read_manifest, write_manifest};
@@ -31,6 +35,7 @@ use self::paths::{
     resolve_manifest_path, should_skip_manifest_path,
 };
 
+pub use self::diff_view::{CheckpointDiffPage, CheckpointFileSummary};
 pub use self::gc::schedule_orphan_object_sweep;
 pub use self::migrate::migrate_checkpoint_layout;
 
@@ -122,8 +127,8 @@ static CHECKPOINT_MANIFEST_LOCKS: OnceLock<
 static CHECKPOINT_RESTORE_EPOCHS: OnceLock<Mutex<HashMap<String, Weak<AtomicU64>>>> =
     OnceLock::new();
 
-/// 进程内 diff 缓存上限：超过后整体清空（LRU 之外的简单防膨胀手段，
-/// diff 成本远低于全量重算，清空后逐次重建即可）。
+/// 进程内变更统计缓存上限：超过后整体清空（LRU 之外的简单防膨胀手段，
+/// 单条只有几十字节，清空后逐次重建即可）。
 const DIFF_CACHE_MAX_ENTRIES: usize = 2048;
 
 struct CachedCheckpointDiff {
@@ -131,14 +136,13 @@ struct CachedCheckpointDiff {
     original_digest: String,
     current_mtime_ms: u64,
     current_size: u64,
-    content: String,
-    is_binary: bool,
+    stats: DiffStats,
 }
 
-/// 进程内 diff 缓存：key = "{checkpoint_id}:{path}"。
+/// 进程内变更统计缓存：key = "{checkpoint_id}:{path}"。
 /// 命中条件：original 摘要一致 + 磁盘文件 mtime/size 未变。
-/// 工具高频循环下，list_checkpoint_diffs 对未变化文件直接复用已生成的
-/// unified diff，避免反复读文件 + TextDiff 全量计算（P0-4 性能优化）。
+/// 工具高频循环下，变更摘要对未变化文件直接复用已算好的增删行数，
+/// 避免反复扫描文件 + 行级比对（P0-4 性能优化）。
 static DIFF_CACHE: OnceLock<Mutex<HashMap<String, CachedCheckpointDiff>>> = OnceLock::new();
 
 fn diff_cache() -> MutexGuard<'static, HashMap<String, CachedCheckpointDiff>> {
@@ -146,6 +150,25 @@ fn diff_cache() -> MutexGuard<'static, HashMap<String, CachedCheckpointDiff>> {
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 读取变更统计缓存：original 摘要与当前文件 mtime/size 全部一致才命中。
+fn cached_stats(cache_key: &str, digest: &str, mtime_ms: u64, size: u64) -> Option<DiffStats> {
+    diff_cache().get(cache_key).and_then(|cached_entry| {
+        (cached_entry.original_digest == digest
+            && cached_entry.current_mtime_ms == mtime_ms
+            && cached_entry.current_size == size)
+            .then_some(cached_entry.stats)
+    })
+}
+
+/// 写入变更统计缓存：条目数将超限时先整体清空（本地与远程共用）。
+fn store_cached_stats(cache_key: String, entry: CachedCheckpointDiff) {
+    let mut cache = diff_cache();
+    if cache.len() >= DIFF_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(cache_key, entry);
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
@@ -156,14 +179,12 @@ fn mtime_ms(meta: &fs::Metadata) -> u64 {
         .unwrap_or(0)
 }
 
-fn original_digest(original: &OriginalState, git: Option<&GitBaseline>, path: &str) -> String {
+/// original 状态摘要：diff 统计缓存与分页计划的失效依据之一（缓存键已含路径）。
+fn original_digest(original: &OriginalState) -> String {
     match original {
         OriginalState::Missing => "missing".to_string(),
         OriginalState::Object { object_id } => format!("obj:{object_id}"),
-        OriginalState::Git => format!(
-            "git:{}:{path}",
-            git.map(|baseline| baseline.head.as_str()).unwrap_or("?")
-        ),
+        OriginalState::Git => "git".to_string(),
     }
 }
 
@@ -1484,12 +1505,15 @@ pub fn record_checkpoint_worktree_after(capture: CheckpointWorktreeCapture) -> R
                 let before_state = capture.before_states.get(relative_path);
 
                 // 变更检测：before 存在时 mtime+size/hash 对比；before 不
-                // 存在且命令后存在 → 命令新建。
+                // 存在且命令后存在 → 命令新建。新建文件超过内容抓取上限时
+                // 与 before 侧一致不抓取内容、不记录（变更不可回滚），避免
+                // 把超大文件整份复制进对象库。
                 let changed_now = match before_state {
                     // 内容抓取被跳过：无法恢复命令前内容，不记录变更
                     Some(state) if state.skipped => false,
                     Some(state) => !pending_state_matches_current(state, &absolute)?,
-                    None => absolute.is_file(),
+                    None => fs::metadata(&absolute)
+                        .is_ok_and(|meta| meta.is_file() && meta.len() <= PENDING_COPY_SIZE_LIMIT),
                 };
                 if !changed_now {
                     continue;
@@ -1845,15 +1869,6 @@ pub struct CheckpointFileChange {
     pub change_type: String,
 }
 
-/// A file change with a unified diff suitable for rollback preview.
-#[napi(object)]
-pub struct CheckpointFileDiff {
-    pub path: String,
-    pub change_type: String,
-    pub content: String,
-    pub is_binary: bool,
-}
-
 fn collect_tracked_entries(manifest: &CheckpointManifest) -> Vec<CheckpointEntry> {
     manifest.entries.clone()
 }
@@ -1915,141 +1930,144 @@ pub fn list_checkpoint_changes(
     Ok(changes)
 }
 
-/// 单个文件的 unified diff：original 摘要 + 磁盘 mtime/size 均未变时复用进程内
-/// 缓存，避免高频工具循环下反复读文件与 TextDiff 全量计算（P0-4 性能优化）。
+/// 单个文件的变更统计：original 摘要 + 磁盘 mtime/size 均未变时复用进程内
+/// 缓存，避免高频工具循环下反复扫描文件（P0-4 性能优化）。
 /// `cache_key` 由调用方按「条目所属检查点 + 路径」构造。
-fn checkpoint_file_diff(
+fn checkpoint_file_stats(
     cache_key: String,
-    relative: &str,
     original: &OriginalState,
-    baseline: Option<&GitBaseline>,
     current: &Path,
-) -> Result<(String, bool)> {
-    let digest = original_digest(original, baseline, relative);
-    let cached = {
-        let cache = diff_cache();
-        let meta = fs::metadata(current).ok();
-        cache.get(&cache_key).and_then(|cached_entry| {
-            let meta = meta.as_ref()?;
-            (cached_entry.original_digest == digest
-                && cached_entry.current_mtime_ms == mtime_ms(meta)
-                && cached_entry.current_size == meta.len())
-            .then_some((cached_entry.content.clone(), cached_entry.is_binary))
-        })
-    };
-    if let Some(cached) = cached {
-        return Ok(cached);
-    }
-    let original_content = read_original_content(original, baseline, relative)?;
-    let current_content = read_current_content(current)?;
-    let (content, is_binary) =
-        build_unified_diff(relative, original_content.as_deref(), current_content.as_deref());
+) -> Result<DiffStats> {
+    let digest = original_digest(original);
     let meta = fs::metadata(current).ok();
-    let mut cache = diff_cache();
-    if cache.len() >= DIFF_CACHE_MAX_ENTRIES {
-        cache.clear();
+    let cached = meta
+        .as_ref()
+        .and_then(|meta| cached_stats(&cache_key, &digest, mtime_ms(meta), meta.len()));
+    if let Some(stats) = cached {
+        return Ok(stats);
     }
-    cache.insert(
+    let stats = compute_stats(&original_line_source(original)?, &current_line_source(current)?)?;
+    store_cached_stats(
         cache_key,
         CachedCheckpointDiff {
             original_digest: digest,
             current_mtime_ms: meta.as_ref().map(mtime_ms).unwrap_or(0),
             current_size: meta.as_ref().map(|meta| meta.len()).unwrap_or(0),
-            content: content.clone(),
-            is_binary,
+            stats,
         },
     );
-    Ok((content, is_binary))
+    Ok(stats)
 }
 
-/// Build unified diffs from checkpoint content to the current working state.
-/// This is read-only and is used by the renderer's rollback preview and the
-/// file-changes panel (`/changes` command).
-///
-/// `include_all` controls which captured entries are reported:
-/// - `false` (rollback preview and `/changes` panel): only files whose current
-///   state still matches the checkpoint's post-change state. These are exactly
-///   the files rollback would restore, so both renderer views match the
-///   restore behaviour.
-/// - `true` (include-all listing): every captured entry is reported as long as
-///   its current state differs from the pre-change state. Files that were
-///   re-modified by later runs in a shared working tree stay visible.
-pub fn list_checkpoint_diffs(
-    checkpoint_id: String,
-    work_dir: String,
-    include_all: bool,
-) -> Result<Vec<CheckpointFileDiff>> {
-    let root = canonical_work_dir(&work_dir)?;
-    let work_dir_lock = work_dir_lock(&root)?;
-    let _work_dir_guard = work_dir_read_guard(&work_dir_lock)?;
-    let manifest_lock = manifest_lock(&checkpoint_id)?;
-    let _manifest_guard = manifest_lock.blocking_lock();
-    if !checkpoint_manifest_exists(&checkpoint_id) {
-        return Ok(Vec::new());
-    }
-    let manifest = read_manifest(&checkpoint_id)?;
-    validate_manifest_work_dir(&manifest, &work_dir)?;
-
-    let mut diffs = Vec::new();
-    for entry in &manifest.entries {
-        if should_skip_manifest_path(&entry.path) {
-            continue;
-        }
-        let Some(expected) = entry.expected.as_ref() else {
-            continue;
-        };
-        let current = resolve_manifest_path(&root, &entry.path);
-        if !include_all && !states_match(&current, expected, manifest.git.as_ref(), &entry.path)? {
-            continue;
-        }
-        let Some(change_type) = classify_change(
-            &current,
-            &entry.original,
-            manifest.git.as_ref(),
-            &entry.path,
-        )?
-        else {
-            continue;
-        };
-        let (content, is_binary) = match checkpoint_file_diff(
-            format!("{}:{}", checkpoint_id, entry.path),
-            &entry.path,
-            &entry.original,
-            manifest.git.as_ref(),
-            &current,
-        ) {
-            Ok(diff) => diff,
-            Err(error) => {
-                eprintln!(
-                    "[checkpoint] Warning: failed to compute diff for '{}': {error}",
-                    entry.path
-                );
-                (String::new(), false)
-            }
-        };
-        diffs.push(CheckpointFileDiff {
-            path: display_entry_path(&root, &entry.path),
-            change_type,
-            content,
-            is_binary,
-        });
-    }
-    diffs.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(diffs)
-}
-
-/// 回滚链（目标消息及其之后所有轮次的检查点）的变更/diff 列表：按路径合并
-/// 整条链——original 取最早、expected 取最新。先新建再编辑的文件因此显示为
+/// 回滚链（目标消息及其之后所有轮次的检查点）的变更摘要：按路径合并整条链
+/// ——original 取最早、expected 取最新。先新建再编辑的文件因此显示为
 /// 「新增（回滚会删除它）」，而不是「修改」，与实际恢复结果完全一致。
+/// 只返回变更类型与增删行数，diff 正文由 `read_checkpoint_diff_page` 按需分页读取。
 ///
 /// `include_all=false`（回滚预览与 /changes 面板）只报告仍处于链尾后状态、
 /// 回滚真正会恢复的文件；`true`（include-all 列表）报告相对链首 pre-change
 /// 状态仍有差异的文件。
-pub fn list_checkpoint_diffs_batch(
+pub fn list_checkpoint_summaries_batch(
     checkpoint_ids: Vec<String>,
     work_dir: String,
     include_all: bool,
-) -> Result<Vec<CheckpointFileDiff>> {
+) -> Result<Vec<CheckpointFileSummary>> {
+    collect_chain_changes(
+        checkpoint_ids,
+        work_dir,
+        include_all,
+        |root, entry, current, change_type| {
+            let stats = checkpoint_file_stats(
+                format!("{}:{}", entry.source_checkpoint_id, entry.path),
+                &entry.original,
+                current,
+            )
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "[checkpoint] Warning: failed to compute diff stats for '{}': {error}",
+                    entry.path
+                );
+                DiffStats::default()
+            });
+            stats.into_summary(display_entry_path(root, &entry.path), change_type)
+        },
+    )
+}
+
+/// 回滚链上单个文件 diff 的一页（`path` 为摘要返回的路径）。分页计划缓存
+/// 两侧行偏移与比对结果，翻页只读取当前页涉及的行。
+pub fn read_checkpoint_diff_page(
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    path: String,
+    start_row: u32,
+    max_rows: u32,
+    max_bytes: u32,
+) -> Result<CheckpointDiffPage> {
+    let root = canonical_work_dir(&work_dir)?;
+    let work_dir_lock = work_dir_lock(&root)?;
+    let _work_dir_guard = work_dir_read_guard(&work_dir_lock)?;
+    let chained = collect_chained_entries(&checkpoint_ids, |manifest| {
+        validate_manifest_work_dir(manifest, &work_dir).map(|_| ())
+    })?;
+    let requested_key = manifest_merge_key(&path);
+    let entry = chained
+        .iter()
+        .find(|entry| {
+            manifest_merge_key(&entry.path) == requested_key
+                || display_entry_path(&root, &entry.path) == path
+        })
+        .ok_or_else(|| {
+            Error::from_reason(format!("Checkpoint chain does not track '{path}'"))
+        })?;
+    let current = resolve_manifest_path(&root, &entry.path);
+    let meta = fs::metadata(&current).ok();
+    let revision = diff_revision(
+        &original_digest(&entry.original),
+        meta.as_ref().map(mtime_ms).unwrap_or(0),
+        meta.as_ref().map(|meta| meta.len()).unwrap_or(0),
+    );
+    let cache_key = format!("{}:{}", entry.source_checkpoint_id, entry.path);
+    let plan = match cached_plan(&cache_key, &revision) {
+        Some(plan) => plan,
+        None => store_plan(
+            cache_key,
+            build_plan(
+                &entry.path,
+                original_line_source(&entry.original)?,
+                current_line_source(&current)?,
+                revision,
+            )?,
+        ),
+    };
+    render_page(&plan, start_row, max_rows, max_bytes)
+}
+
+/// 回滚链变更列表：只需路径与变更类型，不生成 diff 文本。
+pub fn list_checkpoint_changes_batch(
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    include_all: bool,
+) -> Result<Vec<CheckpointFileChange>> {
+    collect_chain_changes(
+        checkpoint_ids,
+        work_dir,
+        include_all,
+        |root, entry, _current, change_type| CheckpointFileChange {
+            path: display_entry_path(root, &entry.path),
+            change_type,
+        },
+    )
+}
+
+/// 回滚链上需要报告的条目：按 `include_all` 语义门控并分类变更类型，
+/// 再交给 `map` 构造结果（diff 列表与变更列表共用同一套筛选）。
+fn collect_chain_changes<T>(
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    include_all: bool,
+    mut map: impl FnMut(&Path, &ChainedEntry, &Path, String) -> T,
+) -> Result<Vec<T>> {
     let root = canonical_work_dir(&work_dir)?;
     let work_dir_lock = work_dir_lock(&root)?;
     let _work_dir_guard = work_dir_read_guard(&work_dir_lock)?;
@@ -2057,7 +2075,7 @@ pub fn list_checkpoint_diffs_batch(
         validate_manifest_work_dir(manifest, &work_dir).map(|_| ())
     })?;
 
-    let mut diffs = Vec::new();
+    let mut results = Vec::new();
     for entry in &chained {
         let current = resolve_manifest_path(&root, &entry.path);
         if !include_all && !states_match(&current, &entry.expected, None, &entry.path)? {
@@ -2066,81 +2084,35 @@ pub fn list_checkpoint_diffs_batch(
         let Some(change_type) = classify_change(&current, &entry.original, None, &entry.path)? else {
             continue;
         };
-        let (content, is_binary) = match checkpoint_file_diff(
-            format!("{}:{}", entry.source_checkpoint_id, entry.path),
-            &entry.path,
-            &entry.original,
-            None,
-            &current,
-        ) {
-            Ok(diff) => diff,
-            Err(error) => {
-                eprintln!(
-                    "[checkpoint] Warning: failed to compute diff for '{}': {error}",
-                    entry.path
-                );
-                (String::new(), false)
-            }
-        };
-        diffs.push(CheckpointFileDiff {
-            path: display_entry_path(&root, &entry.path),
-            change_type,
-            content,
-            is_binary,
-        });
+        results.push(map(&root, entry, &current, change_type));
     }
-    Ok(diffs)
+    Ok(results)
 }
 
-pub fn list_checkpoint_changes_batch(
-    checkpoint_ids: Vec<String>,
-    work_dir: String,
-    include_all: bool,
-) -> Result<Vec<CheckpointFileChange>> {
-    Ok(list_checkpoint_diffs_batch(checkpoint_ids, work_dir, include_all)?
-        .into_iter()
-        .map(|diff| CheckpointFileChange {
-            path: diff.path,
-            change_type: diff.change_type,
-        })
-        .collect())
-}
-
-fn read_original_content(
-    original: &OriginalState,
-    baseline: Option<&GitBaseline>,
-    relative: &str,
-) -> Result<Option<Vec<u8>>> {
+/// original 状态的行内容来源：对象库对象直接按文件流式读取，不整读进内存。
+/// 回滚链 manifest 不记录 Git 基线（见 create_checkpoint），与 classify_change
+/// 在无基线时的行为一致。
+pub(crate) fn original_line_source(original: &OriginalState) -> Result<LineSource> {
     match original {
-        OriginalState::Missing => Ok(None),
+        OriginalState::Missing => Ok(LineSource::Missing),
         OriginalState::Object { object_id } => {
             let object = object_path(object_id)?;
-            match fs::read(&object) {
-                Ok(bytes) => Ok(Some(bytes)),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    eprintln!(
-                        "[checkpoint] Warning: checkpoint object '{}' not found on disk ({error}); falling back to None",
-                        object.display()
-                    );
-                    Ok(None)
-                }
-                Err(error) => Err(Error::from_reason(format!(
-                    "Failed to read checkpoint object '{}': {error}",
-                    object.display()
-                ))),
+            if object.is_file() {
+                return Ok(LineSource::File(object));
             }
+            eprintln!(
+                "[checkpoint] Warning: checkpoint object '{}' not found on disk; falling back to None",
+                object.display()
+            );
+            Ok(LineSource::Missing)
         }
-        OriginalState::Git => {
-            let baseline =
-                baseline.ok_or_else(|| Error::from_reason("Checkpoint Git baseline is missing"))?;
-            read_git_object(baseline, relative)
-        }
+        OriginalState::Git => Err(Error::from_reason("Checkpoint Git baseline is missing")),
     }
 }
 
-fn read_current_content(path: &Path) -> Result<Option<Vec<u8>>> {
+fn current_line_source(path: &Path) -> Result<LineSource> {
     if !path.exists() {
-        return Ok(None);
+        return Ok(LineSource::Missing);
     }
     if !path.is_file() {
         return Err(Error::from_reason(format!(
@@ -2148,60 +2120,7 @@ fn read_current_content(path: &Path) -> Result<Option<Vec<u8>>> {
             path.display()
         )));
     }
-    fs::read(path).map(Some).map_err(|error| {
-        Error::from_reason(format!(
-            "Failed to read current checkpoint file '{}': {error}",
-            path.display()
-        ))
-    })
-}
-
-fn build_unified_diff(
-    relative: &str,
-    original: Option<&[u8]>,
-    current: Option<&[u8]>,
-) -> (String, bool) {
-    let original_bytes = original.unwrap_or_default();
-    let current_bytes = current.unwrap_or_default();
-    let Ok(original_text) = std::str::from_utf8(original_bytes) else {
-        return (String::new(), true);
-    };
-    let Ok(current_text) = std::str::from_utf8(current_bytes) else {
-        return (String::new(), true);
-    };
-    if original_bytes.contains(&0) || current_bytes.contains(&0) {
-        return (String::new(), true);
-    }
-
-    // 行尾归一化后再做行级 diff：Windows 下工具/编辑器常把文件落盘为
-    // CRLF，而 original 来自 git/checkpoint 对象（LF）。直接按字节对比
-    // 会让每个 CRLF 文件呈现"整文件改动"的数万行假 diff（仓库
-    // .gitattributes 注释记载过同类现象）。仅当文本确实含 \r 时才替换，
-    // LF-only 文件走零拷贝路径。此处仅归一化展示用的 diff，不修改任何
-    // 落盘内容。
-    let original_text = if original_text.contains('\r') {
-        std::borrow::Cow::Owned(original_text.replace("\r\n", "\n"))
-    } else {
-        std::borrow::Cow::Borrowed(original_text)
-    };
-    let current_text = if current_text.contains('\r') {
-        std::borrow::Cow::Owned(current_text.replace("\r\n", "\n"))
-    } else {
-        std::borrow::Cow::Borrowed(current_text)
-    };
-
-    let original_header = original
-        .map(|_| format!("a/{relative}"))
-        .unwrap_or_else(|| "/dev/null".to_string());
-    let current_header = current
-        .map(|_| format!("b/{relative}"))
-        .unwrap_or_else(|| "/dev/null".to_string());
-    let content = TextDiff::from_lines(&original_text, &current_text)
-        .unified_diff()
-        .context_radius(3)
-        .header(&original_header, &current_header)
-        .to_string();
-    (content, false)
+    Ok(LineSource::File(path.to_path_buf()))
 }
 
 fn classify_change(
@@ -2251,7 +2170,9 @@ fn file_differs_from_bytes(path: &Path, expected: &[u8]) -> bool {
 
 /// Compare two files by size first, then by content. Returns true if they
 /// differ (or if either file cannot be read).
+/// 内容按固定大小分块流式比较，超大文件也不会整读进内存。
 fn files_are_different(a: &Path, b: &Path) -> bool {
+    const COMPARE_CHUNK_SIZE: usize = 64 * 1024;
     let meta_a = match fs::metadata(a) {
         Ok(m) => m,
         Err(_) => return true,
@@ -2265,15 +2186,23 @@ fn files_are_different(a: &Path, b: &Path) -> bool {
         return true;
     }
 
-    // Same size — compare content byte-by-byte.
-    let content_a = match fs::read(a) {
-        Ok(c) => c,
-        Err(_) => return true,
+    let (Ok(mut file_a), Ok(mut file_b)) = (File::open(a), File::open(b)) else {
+        return true;
     };
-    let content_b = match fs::read(b) {
-        Ok(c) => c,
-        Err(_) => return true,
-    };
-
-    content_a != content_b
+    let mut chunk_a = vec![0u8; COMPARE_CHUNK_SIZE];
+    let mut chunk_b = vec![0u8; COMPARE_CHUNK_SIZE];
+    let mut remaining = meta_a.len();
+    while remaining > 0 {
+        let length = remaining.min(COMPARE_CHUNK_SIZE as u64) as usize;
+        if file_a.read_exact(&mut chunk_a[..length]).is_err()
+            || file_b.read_exact(&mut chunk_b[..length]).is_err()
+        {
+            return true;
+        }
+        if chunk_a[..length] != chunk_b[..length] {
+            return true;
+        }
+        remaining -= length as u64;
+    }
+    false
 }

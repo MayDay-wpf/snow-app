@@ -14,7 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -515,19 +515,27 @@ pub async fn canonical_work_dir_remote(
 // 逻辑完全复用本地实现。
 // ============================================================================
 
+use super::diff_view::{
+    build_plan, cached_plan, compute_stats, diff_revision, render_page, store_plan,
+    too_large_page, CheckpointDiffPage, CheckpointFileSummary, DiffStats, LineSource,
+    REMOTE_DIFF_CONTENT_LIMIT,
+};
 use super::{
-    bump_restore_epoch, change_owned_by_other_capture, checkpoint_manifest_exists,
+    bump_restore_epoch, cached_stats, change_owned_by_other_capture, checkpoint_manifest_exists,
     checkpoint_operation_lock, current_restore_epoch, filter_existing_checkpoints,
-    fingerprint_lookup, fingerprint_store, manifest_lock, merge_chained_manifests, object_path,
+    fingerprint_lookup, fingerprint_store, manifest_lock, manifest_merge_key,
+    merge_chained_manifests, object_path, original_digest, original_line_source,
     original_object_id, pending_state_to_original, read_manifest, register_file_capture_end,
     register_file_capture_start, register_recorded_change, should_skip_manifest_path,
-    should_skip_relative, store_object_bytes, work_dir_lock, work_dir_read_guard_async,
-    work_dir_write_guard_async, write_manifest, CachedCheckpointDiff, ChainedEntry,
-    CheckpointEntry, CheckpointFileChange, CheckpointFileDiff, CheckpointManifest,
-    CheckpointWorktreeCapture, OriginalState, PendingFileState, DIFF_CACHE_MAX_ENTRIES,
+    should_skip_relative, store_cached_stats, store_object_bytes, work_dir_lock,
+    work_dir_read_guard_async, work_dir_write_guard_async, write_manifest, CachedCheckpointDiff,
+    ChainedEntry, CheckpointEntry, CheckpointFileChange, CheckpointManifest,
+    CheckpointWorktreeCapture, OriginalState, PendingFileState,
 };
 
-use crate::storage::services::checkpoint_skip::should_skip_pending_copy_size;
+use crate::storage::services::checkpoint_skip::{
+    should_skip_pending_copy_size, PENDING_COPY_SIZE_LIMIT,
+};
 
 /// 远程工作目录校验：URI 规范化后与 manifest 记录值比较。
 fn validate_manifest_work_dir_remote(
@@ -752,10 +760,8 @@ fn classify_remote_state(
     }
 }
 
-/// 批量探测追踪条目的当前状态：一次批量 stat + 至多两次批量内容读取
-/// （第一次为分类所需的大小一致对比；第二次仅当 read_changed_contents
-/// 为 true 时按需补齐变更文件内容，供 diff 文本构建），替代旧版的全树
-/// 扫描 + 逐文件串行读取。
+/// 批量探测追踪条目的当前状态：一次批量 stat + 一次批量内容读取（只读取
+/// 分类所需的大小一致对比内容），替代旧版的全树扫描 + 逐文件串行读取。
 struct ProbedEntries {
     /// 与输入条目一一对应：stat、已读内容（若有）。
     items: Vec<EntryProbe>,
@@ -773,7 +779,6 @@ async fn probe_tracked_entries(
     root: &str,
     entries: Vec<CheckpointEntry>,
     compare_states: &[(usize, OriginalState)],
-    read_changed_contents: bool,
 ) -> Result<ProbedEntries> {
     let absolute_paths: Vec<String> = entries
         .iter()
@@ -783,7 +788,7 @@ async fn probe_tracked_entries(
     let entry_refs: Vec<&CheckpointEntry> = entries.iter().collect();
     let objects = load_compare_objects(&entry_refs)?;
 
-    // 第一轮读取：分类所需（存在且大小与对象一致的对比状态）。
+    // 分类所需的读取：存在且大小与对象一致的对比状态。
     let mut read_requests: Vec<RemoteReadRequest> = Vec::new();
     let mut requested: HashSet<String> = HashSet::new();
     for (index, state) in compare_states {
@@ -801,41 +806,6 @@ async fn probe_tracked_entries(
         }
     }
     let mut contents = client.read_files(&read_requests).await?;
-
-    // 第二轮读取：分类后仍缺内容但当前存在的文件（如大小变化的修改、
-    // 新增文件）——仅 diff 流程需要其内容构建文本。
-    let mut extra_requests: Vec<RemoteReadRequest> = Vec::new();
-    if read_changed_contents {
-        for (index, absolute) in absolute_paths.iter().enumerate() {
-            if contents.contains_key(absolute) {
-                continue;
-            }
-            let Some(stat) = stats.get(absolute) else {
-                continue;
-            };
-            let entry = &entries[index];
-            let entry_states: Vec<&OriginalState> = compare_states
-                .iter()
-                .filter(|(state_index, _)| *state_index == index)
-                .map(|(_, state)| state)
-                .collect();
-            let classified = entry_states.iter().any(|state| {
-                classify_remote_state(Some(stat), None, state, &objects, &entry.path)
-                    .ok()
-                    .flatten()
-                    .is_some()
-            });
-            if classified {
-                extra_requests.push(RemoteReadRequest {
-                    path: absolute.clone(),
-                    size_hint: stat.size,
-                });
-            }
-        }
-    }
-    if !extra_requests.is_empty() {
-        contents.extend(client.read_files(&extra_requests).await?);
-    }
 
     let items = entries
         .into_iter()
@@ -1101,7 +1071,10 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
                     }
                 }
             },
-            None => after_stat.map(|_| OriginalState::Missing),
+            // 命令新建：超过内容抓取上限时与 before 侧一致不记录（不可回滚）。
+            None => after_stat
+                .filter(|stat| stat.size <= PENDING_COPY_SIZE_LIMIT)
+                .map(|_| OriginalState::Missing),
         };
         let Some(original) = change else {
             continue;
@@ -1346,7 +1319,7 @@ pub(crate) async fn list_checkpoint_changes_remote(
         }
         compare_states.push((index, entry.original.clone()));
     }
-    let probed = probe_tracked_entries(client, &root, tracked, &compare_states, false).await?;
+    let probed = probe_tracked_entries(client, &root, tracked, &compare_states).await?;
 
     let mut changes = Vec::new();
     for probe in &probed.items {
@@ -1381,143 +1354,76 @@ pub(crate) async fn list_checkpoint_changes_remote(
     Ok(changes)
 }
 
-/// 远程版单文件 diff：original 摘要 + 远程 mtime/size 均未变时复用进程内缓存。
-/// `cache_key` 由调用方按「条目所属检查点 + 路径」构造。
-fn checkpoint_file_diff_remote(
-    cache_key: String,
-    relative: &str,
-    original: &OriginalState,
-    stat: Option<&RemoteFileStat>,
-    content: Option<Option<Vec<u8>>>,
-) -> Result<(String, bool)> {
-    let digest = super::original_digest(original, None, relative);
-    let cached = {
-        let cache = super::diff_cache();
-        cache.get(&cache_key).and_then(|cached_entry| {
-            let stat = stat?;
-            (cached_entry.original_digest == digest
-                && cached_entry.current_mtime_ms == stat.mtime_ms
-                && cached_entry.current_size == stat.size)
-                .then_some((cached_entry.content.clone(), cached_entry.is_binary))
-        })
-    };
-    if let Some(cached) = cached {
-        return Ok(cached);
-    }
-    let original_content = super::read_original_content(original, None, relative)?;
-    let current_content = if stat.is_some() {
-        content.flatten()
-    } else {
-        None
-    };
-    let (content, is_binary) = super::build_unified_diff(
-        relative,
-        original_content.as_deref(),
-        current_content.as_deref(),
-    );
-    let mut cache = super::diff_cache();
-    if cache.len() >= DIFF_CACHE_MAX_ENTRIES {
-        cache.clear();
-    }
-    cache.insert(
-        cache_key,
-        CachedCheckpointDiff {
-            original_digest: digest,
-            current_mtime_ms: stat.map(|stat| stat.mtime_ms).unwrap_or(0),
-            current_size: stat.map(|stat| stat.size).unwrap_or(0),
-            content: content.clone(),
-            is_binary,
-        },
-    );
-    Ok((content, is_binary))
+/// 回滚链上一个已分类的远程条目。
+struct ClassifiedRemoteEntry {
+    path: String,
+    original: OriginalState,
+    source_checkpoint_id: String,
+    stat: Option<RemoteFileStat>,
+    /// 分类阶段已读取的当前内容（仅大小与对象一致、需要逐字节对比时才有）。
+    content: Option<Arc<Vec<u8>>>,
+    change_type: String,
 }
 
-/// 远程版 diff 列表（回滚预览 / 文件变更面板）：只对追踪条目做批量
-/// stat + 批量内容读取，不再全树扫描。
-pub(crate) async fn list_checkpoint_diffs_remote(
+fn join_error(error: tokio::task::JoinError) -> Error {
+    Error::from_reason(format!("Checkpoint diff task failed: {error}"))
+}
+
+/// 远程文件当前内容的行来源：分类阶段已读过的直接复用，否则单独读取一次。
+async fn remote_line_source(
     client: &RemoteCheckpointClient<'_>,
-    checkpoint_id: String,
-    work_dir: String,
-    include_all: bool,
-) -> Result<Vec<CheckpointFileDiff>> {
-    let root = canonical_work_dir_remote(client, &work_dir).await?;
-    let root_path = PathBuf::from(&root);
-    let work_dir_lock = work_dir_lock(&root_path)?;
-    let _work_dir_guard = work_dir_read_guard_async(&work_dir_lock).await;
-    let manifest_lock = manifest_lock(&checkpoint_id)?;
-    let _manifest_guard = manifest_lock.lock().await;
-    if !checkpoint_manifest_exists(&checkpoint_id) {
-        return Ok(Vec::new());
+    root: &str,
+    entry: &ClassifiedRemoteEntry,
+) -> Result<LineSource> {
+    if entry.stat.is_none() {
+        return Ok(LineSource::Missing);
     }
-    let manifest = read_manifest(&checkpoint_id)?;
-    validate_manifest_work_dir_remote(&manifest, &work_dir)?;
+    if let Some(content) = &entry.content {
+        return Ok(LineSource::Bytes(Arc::clone(content)));
+    }
+    let snapshot = client
+        .read_file_with_stat(&resolve_remote_manifest_path(root, &entry.path))
+        .await?;
+    Ok(snapshot
+        .content
+        .map(|content| LineSource::Bytes(Arc::new(content)))
+        .unwrap_or(LineSource::Missing))
+}
 
-    let tracked: Vec<CheckpointEntry> = manifest
-        .entries
-        .iter()
-        .filter(|entry| !should_skip_manifest_path(&entry.path) && entry.expected.is_some())
-        .cloned()
-        .collect();
-    if tracked.is_empty() {
-        return Ok(Vec::new());
-    }
-    // !include_all 时先用 expected 过滤（回滚预览语义）；original 对比恒定需要。
-    let mut compare_states: Vec<(usize, OriginalState)> = Vec::new();
-    for (index, entry) in tracked.iter().enumerate() {
-        if !include_all {
-            if let Some(expected) = entry.expected.as_ref() {
-                compare_states.push((index, expected.clone()));
-            }
+/// 远程版单文件变更统计：original 摘要 + 远程 mtime/size 均未变时复用进程内
+/// 缓存。超过传输上限的文件不读取内容，只标记 too_large。
+async fn remote_file_stats(
+    client: &RemoteCheckpointClient<'_>,
+    root: &str,
+    entry: &ClassifiedRemoteEntry,
+) -> Result<DiffStats> {
+    let cache_key = format!("{}:{}", entry.source_checkpoint_id, entry.path);
+    let digest = original_digest(&entry.original);
+    if let Some(stat) = &entry.stat {
+        if let Some(stats) = cached_stats(&cache_key, &digest, stat.mtime_ms, stat.size) {
+            return Ok(stats);
         }
-        compare_states.push((index, entry.original.clone()));
-    }
-    let probed = probe_tracked_entries(client, &root, tracked, &compare_states, true).await?;
-
-    let mut diffs = Vec::new();
-    for probe in &probed.items {
-        if !include_all {
-            let expected = probe.entry.expected.as_ref().ok_or_else(|| {
-                Error::from_reason("Checkpoint entry lost its expected state during probe")
-            })?;
-            let expected_differs = classify_remote_state(
-                probe.stat.as_ref(),
-                probe.content.as_ref().map(|content| content.as_deref()),
-                expected,
-                &probed.objects,
-                &probe.entry.path,
-            )?
-            .is_some();
-            if expected_differs {
-                continue;
-            }
+        if stat.size > REMOTE_DIFF_CONTENT_LIMIT {
+            return Ok(DiffStats::too_large());
         }
-        let Some(change_type) = classify_remote_state(
-            probe.stat.as_ref(),
-            probe.content.as_ref().map(|content| content.as_deref()),
-            &probe.entry.original,
-            &probed.objects,
-            &probe.entry.path,
-        )?
-        else {
-            continue;
-        };
-
-        let (content, is_binary) = checkpoint_file_diff_remote(
-            format!("{}:{}", checkpoint_id, probe.entry.path),
-            &probe.entry.path,
-            &probe.entry.original,
-            probe.stat.as_ref(),
-            probe.content.clone(),
-        )?;
-        diffs.push(CheckpointFileDiff {
-            path: probe.entry.path.clone(),
-            change_type,
-            content,
-            is_binary,
-        });
     }
-    diffs.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(diffs)
+    let original = original_line_source(&entry.original)?;
+    let current = remote_line_source(client, root, entry).await?;
+    let stats = tokio::task::spawn_blocking(move || compute_stats(&original, &current))
+        .await
+        .map_err(join_error)??;
+    if let Some(stat) = &entry.stat {
+        store_cached_stats(
+            cache_key,
+            CachedCheckpointDiff {
+                original_digest: digest,
+                current_mtime_ms: stat.mtime_ms,
+                current_size: stat.size,
+                stats,
+            },
+        );
+    }
+    Ok(stats)
 }
 
 /// 远程读取回滚链上的 manifest 并合并：与本地 `collect_chained_entries` 共用
@@ -1552,15 +1458,125 @@ fn chained_probe_entries(chained: &[ChainedEntry]) -> Vec<CheckpointEntry> {
         .collect()
 }
 
-/// 远程版回滚链 diff / 变更列表：与本地 `list_checkpoint_diffs_batch` 同语义
+/// 远程版回滚链变更摘要：与本地 `list_checkpoint_summaries_batch` 同语义
 /// ——按路径合并整条链（original 取最早、expected 取最新），先新建再编辑的
-/// 文件显示为「新增（回滚会删除它）」，与实际恢复结果一致。
-pub(crate) async fn list_checkpoint_diffs_batch_remote(
+/// 文件显示为「新增（回滚会删除它）」，与实际恢复结果一致。逐个文件读取
+/// 内容统计增删行数，同一时刻只持有一个文件的内容。
+pub(crate) async fn list_checkpoint_summaries_batch_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_ids: Vec<String>,
     work_dir: String,
     include_all: bool,
-) -> Result<Vec<CheckpointFileDiff>> {
+) -> Result<Vec<CheckpointFileSummary>> {
+    let (root, classified) =
+        collect_chain_changes_remote(client, checkpoint_ids, work_dir, include_all).await?;
+    let mut summaries = Vec::with_capacity(classified.len());
+    for entry in classified {
+        let stats = remote_file_stats(client, &root, &entry)
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "[checkpoint] Warning: failed to compute remote diff stats for '{}': {error}",
+                    entry.path
+                );
+                DiffStats::default()
+            });
+        summaries.push(stats.into_summary(entry.path, entry.change_type));
+    }
+    Ok(summaries)
+}
+
+/// 远程版回滚链变更列表：只需路径与变更类型，不读取变更文件内容、不生成 diff。
+pub(crate) async fn list_checkpoint_changes_batch_remote(
+    client: &RemoteCheckpointClient<'_>,
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    include_all: bool,
+) -> Result<Vec<CheckpointFileChange>> {
+    let (_, classified) =
+        collect_chain_changes_remote(client, checkpoint_ids, work_dir, include_all).await?;
+    Ok(classified
+        .into_iter()
+        .map(|entry| CheckpointFileChange {
+            path: entry.path,
+            change_type: entry.change_type,
+        })
+        .collect())
+}
+
+/// 远程版单个文件 diff 的一页：与本地 `read_checkpoint_diff_page` 同语义。
+/// 超过传输上限的文件不读取内容，返回 too_large 页。
+pub(crate) async fn read_checkpoint_diff_page_remote(
+    client: &RemoteCheckpointClient<'_>,
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    path: String,
+    start_row: u32,
+    max_rows: u32,
+    max_bytes: u32,
+) -> Result<CheckpointDiffPage> {
+    let root = canonical_work_dir_remote(client, &work_dir).await?;
+    let root_path = PathBuf::from(&root);
+    let work_dir_lock = work_dir_lock(&root_path)?;
+    let _work_dir_guard = work_dir_read_guard_async(&work_dir_lock).await;
+    let chained = collect_chained_entries_remote(&checkpoint_ids, |manifest| {
+        validate_manifest_work_dir_remote(manifest, &work_dir).map(|_| ())
+    })
+    .await?;
+    let requested_key = manifest_merge_key(&path);
+    let entry = chained
+        .into_iter()
+        .find(|entry| entry.path == path || manifest_merge_key(&entry.path) == requested_key)
+        .ok_or_else(|| Error::from_reason(format!("Checkpoint chain does not track '{path}'")))?;
+    let absolute = resolve_remote_manifest_path(&root, &entry.path);
+    let stat = client.stat(&absolute).await?;
+    let revision = diff_revision(
+        &original_digest(&entry.original),
+        stat.as_ref().map(|stat| stat.mtime_ms).unwrap_or(0),
+        stat.as_ref().map(|stat| stat.size).unwrap_or(0),
+    );
+    if stat
+        .as_ref()
+        .is_some_and(|stat| stat.size > REMOTE_DIFF_CONTENT_LIMIT)
+    {
+        return Ok(too_large_page(revision));
+    }
+    let cache_key = format!("{}:{}", entry.source_checkpoint_id, entry.path);
+    let plan = match cached_plan(&cache_key, &revision) {
+        Some(plan) => plan,
+        None => {
+            let current = match stat {
+                Some(_) => client
+                    .read_file_with_stat(&absolute)
+                    .await?
+                    .content
+                    .map(|content| LineSource::Bytes(Arc::new(content)))
+                    .unwrap_or(LineSource::Missing),
+                None => LineSource::Missing,
+            };
+            let original = original_line_source(&entry.original)?;
+            let relative = entry.path.clone();
+            let plan = tokio::task::spawn_blocking(move || {
+                build_plan(&relative, original, current, revision)
+            })
+            .await
+            .map_err(join_error)??;
+            store_plan(cache_key, plan)
+        }
+    };
+    tokio::task::spawn_blocking(move || render_page(&plan, start_row, max_rows, max_bytes))
+        .await
+        .map_err(join_error)?
+}
+
+/// 远程回滚链上需要报告的条目：按 `include_all` 语义门控并分类变更类型。
+/// 只读取分类所需的内容（大小一致时的逐字节对比），返回规范化后的根路径。
+async fn collect_chain_changes_remote(
+    client: &RemoteCheckpointClient<'_>,
+    checkpoint_ids: Vec<String>,
+    work_dir: String,
+    include_all: bool,
+) -> Result<(String, Vec<ClassifiedRemoteEntry>)> {
     let root = canonical_work_dir_remote(client, &work_dir).await?;
     let root_path = PathBuf::from(&root);
     let work_dir_lock = work_dir_lock(&root_path)?;
@@ -1570,7 +1586,7 @@ pub(crate) async fn list_checkpoint_diffs_batch_remote(
     })
     .await?;
     if chained.is_empty() {
-        return Ok(Vec::new());
+        return Ok((root, Vec::new()));
     }
 
     // !include_all 时先用 expected 过滤（回滚预览语义）；original 对比恒定需要。
@@ -1584,10 +1600,11 @@ pub(crate) async fn list_checkpoint_diffs_batch_remote(
         }
         compare_states.push((index, entry.original.clone()));
     }
-    let probed = probe_tracked_entries(client, &root, entries, &compare_states, true).await?;
+    let ProbedEntries { items, objects } =
+        probe_tracked_entries(client, &root, entries, &compare_states).await?;
 
-    let mut diffs = Vec::new();
-    for (probe, chained_entry) in probed.items.iter().zip(chained.iter()) {
+    let mut results = Vec::new();
+    for (probe, chained_entry) in items.into_iter().zip(chained) {
         if !include_all {
             let expected = probe.entry.expected.as_ref().ok_or_else(|| {
                 Error::from_reason("Checkpoint entry lost its expected state during probe")
@@ -1596,7 +1613,7 @@ pub(crate) async fn list_checkpoint_diffs_batch_remote(
                 probe.stat.as_ref(),
                 probe.content.as_ref().map(|content| content.as_deref()),
                 expected,
-                &probed.objects,
+                &objects,
                 &probe.entry.path,
             )?
             .is_some();
@@ -1608,46 +1625,22 @@ pub(crate) async fn list_checkpoint_diffs_batch_remote(
             probe.stat.as_ref(),
             probe.content.as_ref().map(|content| content.as_deref()),
             &probe.entry.original,
-            &probed.objects,
+            &objects,
             &probe.entry.path,
         )?
         else {
             continue;
         };
-
-        let (content, is_binary) = checkpoint_file_diff_remote(
-            format!("{}:{}", chained_entry.source_checkpoint_id, probe.entry.path),
-            &probe.entry.path,
-            &probe.entry.original,
-            probe.stat.as_ref(),
-            probe.content.clone(),
-        )?;
-        diffs.push(CheckpointFileDiff {
-            path: probe.entry.path.clone(),
+        results.push(ClassifiedRemoteEntry {
+            path: probe.entry.path,
+            original: probe.entry.original,
+            source_checkpoint_id: chained_entry.source_checkpoint_id,
+            stat: probe.stat,
+            content: probe.content.flatten().map(Arc::new),
             change_type,
-            content,
-            is_binary,
         });
     }
-    Ok(diffs)
-}
-
-pub(crate) async fn list_checkpoint_changes_batch_remote(
-    client: &RemoteCheckpointClient<'_>,
-    checkpoint_ids: Vec<String>,
-    work_dir: String,
-    include_all: bool,
-) -> Result<Vec<CheckpointFileChange>> {
-    Ok(
-        list_checkpoint_diffs_batch_remote(client, checkpoint_ids, work_dir, include_all)
-            .await?
-            .into_iter()
-            .map(|diff| CheckpointFileChange {
-                path: diff.path,
-                change_type: diff.change_type,
-            })
-            .collect(),
-    )
+    Ok((root, results))
 }
 
 /// 远程版回滚：把工作区恢复到 checkpoint 记录的 pre-change 状态。
@@ -1696,7 +1689,7 @@ pub(crate) async fn restore_checkpoints_remote(
                 .map(|expected| (index, expected.clone()))
         })
         .collect();
-    let probed = probe_tracked_entries(client, &root, entries, &compare_states, false).await?;
+    let probed = probe_tracked_entries(client, &root, entries, &compare_states).await?;
 
     let mut restored_paths = Vec::new();
     for probe in &probed.items {

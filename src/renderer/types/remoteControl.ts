@@ -305,12 +305,22 @@ export type SnowRemoteRollbackState = {
   preview: SnowRemoteRollbackPreview | null;
 };
 
-/** 回滚预览中单个文件的 unified diff（由 Rust 检查点服务直接计算）。 */
-export type SnowRemoteRollbackDiff = {
+/** 回滚预览中单个文件的变更摘要（由 Rust 检查点服务直接计算，不含 diff 正文）。 */
+export type SnowRemoteRollbackFile = {
   path: string;
   changeType: "added" | "modified" | "deleted";
+  isBinary: boolean;
+  /** SSH 工作区中超过传输上限、未读取内容的文件：无行数统计、不提供明细。 */
+  tooLarge: boolean;
+  additions: number;
+  deletions: number;
+};
+
+/** 回滚预览中单个文件 diff 的首页（选中文件时按需拉取）。 */
+export type SnowRemoteRollbackDiff = {
   content: string;
   isBinary: boolean;
+  tooLarge: boolean;
   /** 内容超过手机端下发上限被截断（截断提示展示用）。 */
   truncated: boolean;
 };

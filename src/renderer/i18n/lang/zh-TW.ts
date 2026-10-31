@@ -4687,6 +4687,11 @@ export const zhTW = {
   "chat.fileChanges.diffTitle": "變更預覽",
   "chat.fileChanges.diffEmpty": "沒有可顯示的變更內容",
   "chat.fileChanges.selectFile": "選擇檔案檢視變更",
+  "chat.fileChanges.loadMore": "載入更多",
+  "chat.fileChanges.loadingMore": "正在載入…",
+  "chat.fileChanges.rowsProgress": "已顯示 {{shown}} / {{total}} 行",
+  "chat.fileChanges.tooLargeRemote":
+    "檔案超過 SSH 傳輸上限（32 MB），不提供變更預覽",
   "chat.memory.title": "本次對話記憶",
   "chat.memory.description":
     "本會話（含子代理與 WorkFlow 節點）儲存或更新的專案記憶。",

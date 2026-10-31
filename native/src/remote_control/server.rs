@@ -61,8 +61,9 @@ const MAX_SEND_ATTACHMENTS: usize = 4;
 /// 回滚 diff：单次请求携带的检查点数量、返回的文件数上限。
 const MAX_ROLLBACK_CHECKPOINTS: usize = 300;
 const MAX_ROLLBACK_DIFF_FILES: usize = 50;
-/// 单个文件 diff 下发给手机端的字符上限（手机屏幕消费不了更长的内容）。
-const MAX_ROLLBACK_DIFF_CHARS: usize = 20_000;
+/// 单个文件 diff 下发给手机端的行数 / 字节上限（手机屏幕消费不了更长的内容）。
+const MAX_ROLLBACK_DIFF_ROWS: u32 = 400;
+const MAX_ROLLBACK_DIFF_BYTES: u32 = 64 * 1024;
 /// 变更面板单条文件路径的长度上限（与桥的回滚清单一致）。
 const MAX_CHANGE_PATH_LENGTH: usize = 400;
 /// 令牌解锁尝试限流：窗口与窗口内允许的失败次数。
@@ -556,24 +557,6 @@ fn find_change_attribution<'a>(
         .map(|(_, item)| item)
 }
 
-/// 变更行数统计：与桌面 countFileChangeLines 一致（跳过前两行 diff 头，
-/// 二进制内容不统计）。
-fn count_patch_lines(content: &str, is_binary: bool) -> (usize, usize) {
-    if is_binary {
-        return (0, 0);
-    }
-    let mut additions = 0;
-    let mut deletions = 0;
-    for line in content.split('\n').skip(2) {
-        if line.starts_with('+') {
-            additions += 1;
-        } else if line.starts_with('-') {
-            deletions += 1;
-        }
-    }
-    (additions, deletions)
-}
-
 /// 检查点变更类型映射：与桌面 toFileChangeKind 一致。
 fn change_kind(change_type: &str) -> &'static str {
     match change_type {
@@ -620,9 +603,12 @@ async fn build_changes_payload(descriptor: Value) -> Value {
         && checkpoint_ids.iter().all(|id| is_checkpoint_id(id));
 
     if chain_usable {
-        if let Ok(diffs) =
-            crate::exports::checkpoint::list_checkpoint_diffs_batch(checkpoint_ids, work_dir, Some(false))
-                .await
+        if let Ok(summaries) = crate::exports::checkpoint::list_checkpoint_summaries_batch(
+            checkpoint_ids,
+            work_dir,
+            Some(false),
+        )
+        .await
         {
             let attributed: Vec<(String, Value)> = fallback
                 .iter()
@@ -635,22 +621,21 @@ async fn build_changes_payload(descriptor: Value) -> Value {
                     )
                 })
                 .collect();
-            let changes: Vec<Value> = diffs
+            let changes: Vec<Value> = summaries
                 .into_iter()
-                .map(|diff| {
-                    let normalized = normalize_change_path(&diff.path);
+                .map(|summary| {
+                    let normalized = normalize_change_path(&summary.path);
                     let matched = find_change_attribution(&normalized, &attributed);
-                    let (additions, deletions) = count_patch_lines(&diff.content, diff.is_binary);
                     json!({
-                        "path": truncate_chars(&diff.path, MAX_CHANGE_PATH_LENGTH),
-                        "kind": change_kind(&diff.change_type),
+                        "path": truncate_chars(&summary.path, MAX_CHANGE_PATH_LENGTH),
+                        "kind": change_kind(&summary.change_type),
                         "agent": matched
                             .and_then(|item| item.get("agent").and_then(Value::as_str))
                             .unwrap_or("main"),
                         "subAgentName": matched
                             .and_then(|item| item.get("subAgentName").and_then(Value::as_str)),
-                        "additions": additions,
-                        "deletions": deletions,
+                        "additions": summary.additions,
+                        "deletions": summary.deletions,
                     })
                 })
                 .collect();
@@ -1892,10 +1877,10 @@ async fn handle_api(
         let payload = read_json_body(body.take()).await?;
         let action = payload.get("action").and_then(Value::as_str);
 
-        if action == Some("diff") {
-            // 文件变更 diff 直接在原生侧计算：与桌面 listCheckpointDiffsBatch
-            // 共用同一套检查点服务（含 SSH/SFTP 通道与执行级目录锁），
-            // 无需把渲染进程拉进这次只读查询。
+        if action == Some("diff") || action == Some("diff-page") {
+            // 文件变更直接在原生侧计算：与桌面共用同一套检查点服务（含
+            // SSH/SFTP 通道与执行级目录锁），无需把渲染进程拉进这次只读查询。
+            // diff 返回文件摘要列表；diff-page 按文件读取明细的首页。
             let Some(work_dir) = payload
                 .get("workDir")
                 .and_then(Value::as_str)
@@ -1929,39 +1914,71 @@ async fn handle_api(
                     Vec::new(),
                 ));
             };
+            let to_conflict = |error: napi::Error| {
+                ApiError::conflict(truncate_chars(&error.to_string(), MAX_IDENTIFIER_LENGTH))
+            };
+
+            if action == Some("diff-page") {
+                let Some(file_path) = payload
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .filter(|value| is_bounded_string(value, false))
+                else {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "回滚文件路径无效" }),
+                        Vec::new(),
+                    ));
+                };
+                ensure_current_pairing(context, request_generation)?;
+                let page = crate::exports::checkpoint::read_checkpoint_diff_page(
+                    checkpoint_ids,
+                    work_dir.to_string(),
+                    file_path.to_string(),
+                    0,
+                    MAX_ROLLBACK_DIFF_ROWS,
+                    MAX_ROLLBACK_DIFF_BYTES,
+                )
+                .await
+                .map_err(to_conflict)?;
+                return Ok(json_response(
+                    StatusCode::OK,
+                    &json!({
+                        "content": page.content,
+                        "isBinary": page.is_binary,
+                        "tooLarge": page.too_large,
+                        "truncated": page.next_row < page.total_rows,
+                    }),
+                    Vec::new(),
+                ));
+            }
+
             ensure_current_pairing(context, request_generation)?;
             // include_all=false：与确认回滚时实际会恢复的文件范围一致。
-            let diffs = crate::exports::checkpoint::list_checkpoint_diffs_batch(
+            let summaries = crate::exports::checkpoint::list_checkpoint_summaries_batch(
                 checkpoint_ids,
                 work_dir.to_string(),
                 Some(false),
             )
             .await
-            .map_err(|error| {
-                ApiError::conflict(truncate_chars(&error.to_string(), MAX_IDENTIFIER_LENGTH))
-            })?;
-            let items: Vec<Value> = diffs
+            .map_err(to_conflict)?;
+            let items: Vec<Value> = summaries
                 .into_iter()
                 .take(MAX_ROLLBACK_DIFF_FILES)
-                .map(|diff| {
-                    let truncated = diff.content.chars().count() > MAX_ROLLBACK_DIFF_CHARS;
-                    let content = if truncated {
-                        truncate_chars(&diff.content, MAX_ROLLBACK_DIFF_CHARS)
-                    } else {
-                        diff.content
-                    };
+                .map(|summary| {
                     json!({
-                        "path": diff.path,
-                        "changeType": diff.change_type,
-                        "content": content,
-                        "isBinary": diff.is_binary,
-                        "truncated": truncated,
+                        "path": summary.path,
+                        "changeType": summary.change_type,
+                        "isBinary": summary.is_binary,
+                        "tooLarge": summary.too_large,
+                        "additions": summary.additions,
+                        "deletions": summary.deletions,
                     })
                 })
                 .collect();
             return Ok(json_response(
                 StatusCode::OK,
-                &json!({ "diffs": items }),
+                &json!({ "files": items }),
                 Vec::new(),
             ));
         }
@@ -1983,7 +2000,7 @@ async fn handle_api(
         ) {
             return Ok(json_response(
                 StatusCode::BAD_REQUEST,
-                &json!({ "error": "action 必须是 preview / confirm / cancel / diff" }),
+                &json!({ "error": "action 必须是 preview / confirm / cancel / diff / diff-page" }),
                 Vec::new(),
             ));
         }

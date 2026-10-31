@@ -2,6 +2,7 @@ import type {
   SnowRemoteControlApi,
   SnowRemoteModeId,
   SnowRemoteRollbackDiff,
+  SnowRemoteRollbackFile,
   SnowRemoteRollbackMode,
   SnowRemoteState,
   SnowRemoteTodoStatus,
@@ -35,7 +36,7 @@ type ConversationsPageResponse = Awaited<
 type RollbackStateResponse = Awaited<
   ReturnType<SnowRemoteControlApi["getRollbackState"]>
 >;
-type RollbackDiffsResponse = { diffs: SnowRemoteRollbackDiff[] };
+type RollbackFilesResponse = { files: SnowRemoteRollbackFile[] };
 
 export class RemoteHttpError extends Error {
   readonly status: number;
@@ -431,16 +432,28 @@ export const cancelRollback = (messageId: string): Promise<{ ok: true }> =>
   });
 
 /**
- * 拉取回滚预览的文件 diff：由 Rust 检查点服务直接计算（含 SSH/SFTP 通道），
- * 范围与确认回滚时实际恢复的文件一致，最多返回 50 个文件。
+ * 拉取回滚预览的文件变更摘要（类型 + 增删行数）：由 Rust 检查点服务直接计算
+ * （含 SSH/SFTP 通道），范围与确认回滚时实际恢复的文件一致，最多返回 50 个文件。
  */
-export const fetchRollbackDiffs = (
+export const fetchRollbackFiles = (
   checkpointIds: string[],
   workDir: string,
-): Promise<RollbackDiffsResponse> =>
+): Promise<RollbackFilesResponse> =>
   request("/api/rollback", {
     method: "POST",
     body: JSON.stringify({ action: "diff", checkpointIds, workDir }),
-    // 大仓库 / SSH 工作区的逐文件 diff 需要更宽松的超时。
+    // 大仓库 / SSH 工作区的逐文件统计需要更宽松的超时。
+    timeoutMs: 60_000,
+  });
+
+/** 按需拉取单个文件 diff 的首页（选中文件时才计算）。 */
+export const fetchRollbackFileDiff = (
+  checkpointIds: string[],
+  workDir: string,
+  path: string,
+): Promise<SnowRemoteRollbackDiff> =>
+  request("/api/rollback", {
+    method: "POST",
+    body: JSON.stringify({ action: "diff-page", checkpointIds, workDir, path }),
     timeoutMs: 60_000,
   });

@@ -18,13 +18,14 @@ type UseConversationFileChangesParams = {
   directoryId?: string;
 };
 
-type CheckpointDiffs = Awaited<
-  ReturnType<typeof window.snow.listCheckpointDiffsBatch>
+type CheckpointSummaries = Awaited<
+  ReturnType<typeof window.snow.listCheckpointSummariesBatch>
 >;
 
-type CheckpointDiffState = {
+type CheckpointSummaryState = {
   conversationKey: string;
-  diffs: CheckpointDiffs | null;
+  summaries: CheckpointSummaries | null;
+  source: { checkpointIds: string[]; workDir: string } | null;
 };
 
 const normalizePath = (filePath: string): string =>
@@ -60,6 +61,7 @@ const toFileChangeKind = (changeType: string): FileChangeRecord["kind"] => {
 /**
  * 会话文件变更 = 回滚本会话时真正会恢复的文件：检查点链取整条会话（加上
  * WorkFlow 节点 flow 检查点），includeAll=false 与 rollback 弹窗完全一致。
+ * 只拉取变更摘要（类型 + 增删行数），diff 明细在查看时按页读取。
  * 工具记录的统计只用于补齐代理归属，不再追加条目，保证两个入口列表一致；
  * 只有在检查点链不可用（无检查点、读取失败，如子代理会话）时才退回统计。
  */
@@ -129,10 +131,12 @@ export const useConversationFileChanges = ({
       orderedCheckpointIds,
     ],
   );
-  const [checkpointState, setCheckpointState] = useState<CheckpointDiffState>({
-    conversationKey: "",
-    diffs: null,
-  });
+  const [checkpointState, setCheckpointState] =
+    useState<CheckpointSummaryState>({
+      conversationKey: "",
+      summaries: null,
+      source: null,
+    });
 
   useEffect(() => {
     if (!canUseCheckpoint || !workDir) {
@@ -140,7 +144,7 @@ export const useConversationFileChanges = ({
     }
 
     let cancelled = false;
-    const loadCheckpointDiffs = async (): Promise<void> => {
+    const loadCheckpointSummaries = async (): Promise<void> => {
       try {
         const chain = await resolveConversationChangeChain({
           conversationId,
@@ -154,27 +158,42 @@ export const useConversationFileChanges = ({
         });
         if (!chain) {
           if (!cancelled) {
-            setCheckpointState({ conversationKey, diffs: null });
+            setCheckpointState({
+              conversationKey,
+              summaries: null,
+              source: null,
+            });
           }
           return;
         }
         // includeAll=false：与回滚弹窗同一语义，只列出回滚真正会恢复的文件。
-        const diffs = await window.snow.listCheckpointDiffsBatch(
+        const summaries = await window.snow.listCheckpointSummariesBatch(
           chain.checkpointIds,
           chain.workDir,
           false,
         );
         if (!cancelled) {
-          setCheckpointState({ conversationKey, diffs });
+          setCheckpointState({
+            conversationKey,
+            summaries,
+            source: {
+              checkpointIds: chain.checkpointIds,
+              workDir: chain.workDir,
+            },
+          });
         }
       } catch {
         if (!cancelled) {
-          setCheckpointState({ conversationKey, diffs: null });
+          setCheckpointState({
+            conversationKey,
+            summaries: null,
+            source: null,
+          });
         }
       }
     };
 
-    void loadCheckpointDiffs();
+    void loadCheckpointSummaries();
 
     return () => {
       cancelled = true;
@@ -190,29 +209,33 @@ export const useConversationFileChanges = ({
   ]);
 
   return useMemo(() => {
+    const { summaries, source } = checkpointState;
     if (
       !canUseCheckpoint ||
-      checkpointState.diffs === null ||
+      summaries === null ||
+      source === null ||
       checkpointState.conversationKey !== conversationKey
     ) {
       return fallbackChanges;
     }
 
-    return checkpointState.diffs.map((diff, index) => {
-      const fallback = findFallbackChange(diff.path, fallbackChanges);
+    return summaries.map((summary, index) => {
+      const fallback = findFallbackChange(summary.path, fallbackChanges);
       return {
-        filePath: fallback?.filePath ?? diff.path,
+        filePath: fallback?.filePath ?? summary.path,
         fileKey: fallback?.fileKey,
         source: fallback?.source,
         root: fallback?.root,
-        kind: toFileChangeKind(diff.changeType),
+        kind: toFileChangeKind(summary.changeType),
         agent: fallback?.agent ?? "main",
         subAgentName: fallback?.subAgentName,
         timestamp: fallback?.timestamp ?? index,
-        diff: {
-          patch: diff.content,
-          isBinary: diff.isBinary,
+        lineStats: {
+          additions: summary.additions,
+          deletions: summary.deletions,
         },
+        // 明细按检查点链路径读取（filePath 可能是工具记录里的展示路径）。
+        checkpointSource: { ...source, path: summary.path },
       };
     });
   }, [canUseCheckpoint, checkpointState, conversationKey, fallbackChanges]);

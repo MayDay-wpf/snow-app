@@ -22,8 +22,9 @@ import type {
   BrowserCommandRequest,
   BrowserCommandResponse,
   BrowserFrameOperationArgs,
+  CheckpointDiffPage,
   CheckpointFileChange,
-  CheckpointFileDiff,
+  CheckpointFileSummary,
   CodebaseEmbedFailure,
   CodebaseEmbedProgress,
   CodebaseIndexedFilePage,
@@ -1401,27 +1402,33 @@ export const systemApi = {
       workDir,
       includeAll ?? false,
     ),
-  listCheckpointDiffs: (
-    checkpointId: string,
-    workDir: string,
-    includeAll?: boolean,
-  ): Promise<CheckpointFileDiff[]> =>
-    ipcRenderer.invoke(
-      "checkpoint:list-diffs",
-      checkpointId,
-      workDir,
-      includeAll ?? false,
-    ),
-  listCheckpointDiffsBatch: (
+  listCheckpointSummariesBatch: (
     checkpointIds: string[],
     workDir: string,
     includeAll?: boolean,
-  ): Promise<CheckpointFileDiff[]> =>
+  ): Promise<CheckpointFileSummary[]> =>
     ipcRenderer.invoke(
-      "checkpoint:list-diffs-batch",
+      "checkpoint:list-summaries-batch",
       checkpointIds,
       workDir,
       includeAll ?? false,
+    ),
+  readCheckpointDiffPage: (
+    checkpointIds: string[],
+    workDir: string,
+    path: string,
+    startRow: number,
+    maxRows: number,
+    maxBytes: number,
+  ): Promise<CheckpointDiffPage> =>
+    ipcRenderer.invoke(
+      "checkpoint:read-diff-page",
+      checkpointIds,
+      workDir,
+      path,
+      startRow,
+      maxRows,
+      maxBytes,
     ),
   writeLog: (level: string, entry: unknown): Promise<void> =>
     ipcRenderer.invoke("debug:write-log", level, entry),

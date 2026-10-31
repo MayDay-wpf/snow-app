@@ -140,6 +140,8 @@ export const en: Record<string, string> = {
   "remote.rollback.previewTruncatedFiles":
     "Showing the first {{count}} files only",
   "remote.rollback.binaryFile": "Binary file — preview unavailable",
+  "remote.rollback.tooLargeFile":
+    "File exceeds the SSH transfer limit (32 MB) — preview unavailable",
   "remote.rollback.cancelAction": "Cancel",
   "remote.rollback.conversationOnlyAction": "Roll back conversation only",
   "remote.rollback.conversationAndFilesAction":

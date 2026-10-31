@@ -4744,6 +4744,11 @@ export const zhCN = {
   "chat.fileChanges.diffTitle": "变更预览",
   "chat.fileChanges.diffEmpty": "没有可显示的变更内容",
   "chat.fileChanges.selectFile": "选择文件查看变更",
+  "chat.fileChanges.loadMore": "加载更多",
+  "chat.fileChanges.loadingMore": "正在加载…",
+  "chat.fileChanges.rowsProgress": "已显示 {{shown}} / {{total}} 行",
+  "chat.fileChanges.tooLargeRemote":
+    "文件超过 SSH 传输上限（32 MB），不提供变更预览",
   "chat.memory.title": "本次对话记忆",
   "chat.memory.description":
     "本会话（含子代理与 WorkFlow 节点）保存或更新的项目记忆。",

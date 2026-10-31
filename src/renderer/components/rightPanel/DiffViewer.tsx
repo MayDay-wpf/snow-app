@@ -28,6 +28,10 @@ type DiffViewerProps = {
   imageDiff?: GitImageDiff | null;
   /** 评论所属项目（工作目录）；未提供时停用行内评论。 */
   directoryId?: string | null;
+  /** 渲染在 diff 内容末尾（同一滚动容器内），如分页加载区。 */
+  contentFooter?: React.ReactNode;
+  /** 无 diff 内容时的提示文案；缺省为「没有可显示的变更」。 */
+  emptyMessage?: string;
 };
 
 /** 图片内容转 data URL（svg 为 utf8 文本，其余为 base64）。 */
@@ -111,6 +115,8 @@ export function DiffViewer({
   diffLoading,
   imageDiff,
   directoryId,
+  contentFooter,
+  emptyMessage,
 }: DiffViewerProps): React.JSX.Element {
   const { t } = useI18n();
   const viewMode = useDiffViewMode();
@@ -278,10 +284,11 @@ export function DiffViewer({
             wrapLines={wrapLines}
             commentContext={commentContext}
           />
+          {contentFooter}
         </div>
       ) : (
         <div className="diff-viewer-empty">
-          {t("rightPanel.noChangesToDisplay")}
+          {emptyMessage ?? t("rightPanel.noChangesToDisplay")}
         </div>
       )}
     </div>

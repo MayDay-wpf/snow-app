@@ -366,8 +366,9 @@ export type FileChangeLineStats = {
 };
 
 /**
- * Sum added and deleted lines from the unified diffs captured for file tools.
- * The first two lines are diff headers and are intentionally excluded.
+ * Sum added and deleted lines: checkpoint records carry precomputed stats;
+ * tool records are counted from their unified diffs (the first two lines are
+ * diff headers and are intentionally excluded).
  */
 export function countFileChangeLines(
   changes: FileChangeRecord[],
@@ -376,6 +377,11 @@ export function countFileChangeLines(
   let deletions = 0;
 
   for (const change of changes) {
+    if (change.lineStats) {
+      additions += change.lineStats.additions;
+      deletions += change.lineStats.deletions;
+      continue;
+    }
     if (!change.diff?.patch || change.diff.isBinary) {
       continue;
     }

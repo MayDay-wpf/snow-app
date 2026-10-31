@@ -30,10 +30,10 @@ const requiredExports = [
   "updateProjectCollectionColor",
   // 关联项目组成员开关（断连后仍留在合集里）
   "setProjectCollectionMemberLinked",
-  "listCheckpointDiffs",
+  "listCheckpointSummariesBatch",
   "restoreCheckpoints",
   "listCheckpointChangesBatch",
-  "listCheckpointDiffsBatch",
+  "readCheckpointDiffPage",
   "migrateCheckpointLayout",
   "listChatMessagesPaginated",
   // 应用锁：允许用身份验证器动态码解锁手机远控
