@@ -78,7 +78,7 @@
     "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^5.0.2",
     "electron": "^37.10.3",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.18.1",
     "electron-vite": "^4.0.0",
     "prettier": "^3.9.6",
     "typescript": "^5.9.2",
