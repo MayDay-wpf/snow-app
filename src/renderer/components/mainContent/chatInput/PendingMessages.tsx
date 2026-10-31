@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  BookOpen,
   Clock,
   CornerDownRight,
   FileText,
@@ -28,6 +27,7 @@ import {
   type ContentSegment,
 } from "./fileTagUtils";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
+import { getSkillIcon } from "../../../utils/skillIcons";
 
 type PendingMessagesProps = {
   messages: string[];
@@ -258,11 +258,11 @@ const renderSegments = (content: string): React.ReactNode => {
           className="user-message-file-chip skill-chip"
           title={skillTitle}
         >
-          <BookOpen
-            size={12}
-            className="user-message-file-chip-icon"
-            style={{ color: "#a855f7" }}
-          />
+          {getSkillIcon(segment.tag.skillId, {
+            size: 12,
+            className: "user-message-file-chip-icon",
+            style: { color: "var(--accent-secondary)" },
+          })}
           <span className="user-message-file-chip-name">
             {segment.tag.name}
           </span>

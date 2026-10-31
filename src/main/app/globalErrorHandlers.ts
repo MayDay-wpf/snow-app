@@ -1,5 +1,6 @@
 import { app, crashReporter } from "electron";
 import { flushLogs, snowLog } from "../../utils/snowLogger";
+import { appendTrace } from "./runtimeTrace";
 
 const REPEAT_WINDOW_MS = 5000;
 const MAX_RECENT_FAILURES = 100;
@@ -89,6 +90,7 @@ export const installGlobalErrorHandlers = (): void => {
   });
 
   app.on("child-process-gone", (_event, details) => {
+    appendTrace({ ev: "child-process-gone", details });
     snowLog.error({
       module: "app/globalErrorHandlers",
       func: "child-process-gone",

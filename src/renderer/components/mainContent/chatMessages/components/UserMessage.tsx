@@ -9,7 +9,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  BookOpen,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -38,6 +37,7 @@ import {
   parseContentSegments,
 } from "../../chatInput/fileTagUtils";
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
+import { getSkillIcon } from "../../../../utils/skillIcons";
 import { useI18n } from "../../../../i18n";
 import { getPromptStats, renderPromptInline } from "./PromptPreview";
 
@@ -509,11 +509,11 @@ export const UserMessage = memo(
                     key={index}
                     title={skillTitle}
                   >
-                    <BookOpen
-                      size={12}
-                      className="user-message-file-chip-icon"
-                      style={{ color: "#a855f7" }}
-                    />
+                    {getSkillIcon(segment.tag.skillId, {
+                      size: 12,
+                      className: "user-message-file-chip-icon",
+                      style: { color: "var(--accent-secondary)" },
+                    })}
                     <span className="user-message-file-chip-name">
                       {segment.tag.name}
                     </span>

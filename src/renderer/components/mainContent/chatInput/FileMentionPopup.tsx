@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  BookOpen,
   Check,
   ChevronRight,
   Folder,
@@ -29,6 +28,7 @@ import type {
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
+import { getSkillIcon } from "../../../utils/skillIcons";
 import type { FileTag, SkillTag } from "./fileTagUtils";
 
 export type FileMentionPopupHandle = {
@@ -303,6 +303,7 @@ export const FileMentionPopup = forwardRef<
     useState<WorkspaceDirectoryRecord | null>(null);
   const [entries, setEntries] = useState<FileSearchResult[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [skillError, setSkillError] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isAgentPending, setIsAgentPending] = useState(false);
@@ -1204,7 +1205,7 @@ export const FileMentionPopup = forwardRef<
         style={style}
         data-esc-panel
       >
-        {(pathSegments.length > 0 || scopedDirectory) && (
+        {!isSkillMode && (pathSegments.length > 0 || scopedDirectory) && (
           <div className="file-mention-breadcrumbs">
             <button
               type="button"
@@ -1239,14 +1240,17 @@ export const FileMentionPopup = forwardRef<
             ))}
           </div>
         )}
-        {activeResultCount > 0 && (
+        {(isSkillMode || activeResultCount > 0) && (
           <span className="file-mention-count">
             {isSearching && !isSkillMode && displayEntries.length > 0 && (
               <Loader2 className="spin" size={11} />
             )}
-            {t("fileMention.results", {
-              values: { count: activeResultCount },
-            })}
+            {isSkillMode && t("settings.skillsEnabledCount")}
+            {isSkillMode && activeResultCount > 0 && " · "}
+            {activeResultCount > 0 &&
+              t("fileMention.results", {
+                values: { count: activeResultCount },
+              })}
             {!isSkillMode &&
               !isDirectoryPicker &&
               checkedPaths.size > 0 &&
@@ -1285,7 +1289,10 @@ export const FileMentionPopup = forwardRef<
                     title={skill.description}
                   >
                     <span className="mention-entry-check" />
-                    <BookOpen size={14} className="mention-entry-icon" />
+                    {getSkillIcon(skill.id, {
+                      size: 14,
+                      className: "mention-entry-icon",
+                    })}
                     <span className="mention-entry-name">{skill.name}</span>
                     <span className="mention-entry-path">
                       {skill.description || skill.id}

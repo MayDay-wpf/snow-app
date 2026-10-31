@@ -59,6 +59,7 @@ import { remoteTunnelManager } from "../remoteControl/remoteTunnelManager";
 import { disposeWebSearchService } from "../websearch/webSearchRegistry";
 import { isInstallerQuitRequest } from "./installerQuit";
 import { sanitizeLauncherEnvironment } from "./launcherEnvironment";
+import { appendTrace, initRuntimeTrace } from "./runtimeTrace";
 
 /** 队长服务是否正在运行（决定关窗后是否托盘常驻）。 */
 const isTeamHostRunning = (): boolean => {
@@ -101,6 +102,10 @@ export const bootstrapApplication = (): void => {
     return;
   }
 
+  // 拿锁成功后立即安装运行时追踪：此后的退出、卡死、窗口销毁都会留痕。
+  // 拿锁失败的第二实例不初始化，保持零日志静默退出。
+  initRuntimeTrace();
+
   // The installer can launch the executable only to ask an existing instance
   // to quit. If there is no existing instance, do not open the full app.
   if (isInstallerQuitRequest(process.platform, process.argv)) {
@@ -110,6 +115,7 @@ export const bootstrapApplication = (): void => {
 
   app.on("second-instance", (_event, commandLine) => {
     if (isInstallerQuitRequest(process.platform, commandLine)) {
+      appendTrace({ ev: "second-instance-installer-quit" });
       snowLog.info({
         module: "app/bootstrap",
         func: "second-instance",
@@ -122,6 +128,7 @@ export const bootstrapApplication = (): void => {
 
     // 系统调度唤醒时应用已在运行：调度器自行触发，不打扰用户
     if (isScheduledWakeLaunch(commandLine)) {
+      appendTrace({ ev: "second-instance-scheduled-wake" });
       snowLog.info({
         module: "app/bootstrap",
         func: "second-instance",
@@ -130,6 +137,7 @@ export const bootstrapApplication = (): void => {
       return;
     }
 
+    appendTrace({ ev: "second-instance-focus" });
     snowLog.info({
       module: "app/bootstrap",
       func: "second-instance",

@@ -1,5 +1,4 @@
 import {
-  BookOpen,
   FileText,
   GitCommitHorizontal,
   GitCompare,
@@ -13,6 +12,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
+import { getSkillIcon } from "../../../utils/skillIcons";
 import {
   formatLinesStr,
   getChipDisplayLabel,
@@ -250,11 +250,11 @@ export const ContentChips = ({
             className="user-message-file-chip skill-chip"
             title={skillTitle}
           >
-            <BookOpen
-              size={12}
-              className="user-message-file-chip-icon"
-              style={{ color: "#a855f7" }}
-            />
+            {getSkillIcon(segment.tag.skillId, {
+              size: 12,
+              className: "user-message-file-chip-icon",
+              style: { color: "var(--accent-secondary)" },
+            })}
             <span className="user-message-file-chip-name">
               {getChipDisplayLabel(segment)}
             </span>

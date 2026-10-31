@@ -4674,7 +4674,7 @@ export const en = {
   "sensitiveCommand.decision.reason.unclear":
     "Effect is unclear, judge it yourself",
   "chatInput.placeholder":
-    "Ask me anything. Type / for commands or @ for files...",
+    "Type a message, / for commands, @ for files, # for skills...",
   "chatCommand.title": "Chat commands",
   "chatCommand.clearDescription": "Start a new chat",
   "chatCommand.helpDescription": "Ask how to use Snow, using the built-in docs",

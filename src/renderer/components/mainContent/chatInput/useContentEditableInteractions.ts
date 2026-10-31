@@ -577,13 +577,13 @@ export const useContentEditableInteractions = ({
       setCommandQuery(queryText);
       return;
     }
-    const mentionMatch = textBefore.match(/(?:^|\s)@([^\s]*)$/);
+    const mentionMatch = textBefore.match(/(?:^|\s)([@#])([^\s]*)$/);
     if (mentionMatch) {
-      const queryText = mentionMatch[1];
-      const atOffset = offset - queryText.length - 1;
+      const [, trigger, queryText] = mentionMatch;
+      const triggerOffset = offset - queryText.length - 1;
       setIsMentionOpen(true);
-      mentionStartOffsetRef.current = atOffset + 1;
-      setMentionQuery(queryText);
+      mentionStartOffsetRef.current = triggerOffset + 1;
+      setMentionQuery(trigger === "#" ? `!${queryText}` : queryText);
       handleCloseCommand();
       return;
     }

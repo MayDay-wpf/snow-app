@@ -28,6 +28,7 @@ import {
 } from "./windowState";
 import { safeSend } from "../utils/safeSend";
 import { snowLog } from "../../utils/snowLogger";
+import { appendTrace } from "./runtimeTrace";
 import { closeAllBrowserPopups } from "../browser/browserPopupWindow";
 import {
   closeAllDetachedPanelWindows,
@@ -315,6 +316,7 @@ export const createWindow = (
   // windowHandlers.ts）：Windows/Linux 关闭即退出进程，macOS 关闭虽不退出
   // 进程但会卸载活动页面，效果与关闭无异。
   mainWindow.on("close", (event) => {
+    appendTrace({ ev: "window-close", closeConfirmed: isCloseConfirmed() });
     if (isCloseConfirmed()) {
       killAllPtyForWebContents(mainWindow.webContents);
       return;
@@ -331,14 +333,22 @@ export const createWindow = (
   // 主窗口真正关闭后清理浏览器弹出窗口：Windows/Linux 上进程即将退出，
   // macOS 上则避免关闭主窗口后残留孤儿弹出窗口。
   mainWindow.on("closed", () => {
+    appendTrace({ ev: "window-closed" });
     mainWindowRef = null;
     closeAllBrowserPopups();
     closeAllDetachedPanelWindows();
   });
 
+  // 窗口可见性事件落盘：闪退排查需要区分窗口被隐藏、销毁还是进程死亡。
+  mainWindow.on("hide", () => appendTrace({ ev: "window-hidden" }));
+  mainWindow.on("show", () => appendTrace({ ev: "window-shown" }));
+  mainWindow.on("minimize", () => appendTrace({ ev: "window-minimized" }));
+  mainWindow.on("restore", () => appendTrace({ ev: "window-restored" }));
+
   // 渲染进程异常退出（崩溃/被系统回收）时自动重新加载，避免前端黑屏卡死。
   // 崩溃细节记录到应用日志便于排查；reload 后 preload/React 会重新初始化。
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    appendTrace({ ev: "renderer-gone", details });
     snowLog.error({
       module: "app/mainWindow",
       func: "render-process-gone",

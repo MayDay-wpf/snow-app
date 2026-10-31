@@ -3,6 +3,7 @@ import {
   getCommitIconHtml,
   getFileTypeIconHtml,
 } from "../../../utils/fileIcons";
+import { getSkillIconHtml } from "../../../utils/skillIcons";
 
 export type FileTag = {
   path: string;
@@ -1315,8 +1316,7 @@ export const createSkillChipHtml = (tag: SkillTag): string => {
       location: tag.location,
     }),
   );
-  const icon =
-    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
+  const icon = getSkillIconHtml(tag.skillId);
   const title = tag.description ? `${tag.name} - ${tag.description}` : tag.name;
   return `<span class="file-chip skill-chip" contenteditable="false" data-skill-tag="true" data-skill-data="${skillData}" title="${escapeHtml(
     title,

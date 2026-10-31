@@ -4381,8 +4381,7 @@ export const zhCN = {
   "sensitiveCommand.decision.reason.systemState": "会修改系统或环境状态",
   "sensitiveCommand.decision.reason.externalEffect": "会发布或外发数据",
   "sensitiveCommand.decision.reason.unclear": "影响范围不明确，建议自行判断",
-  "chatInput.placeholder":
-    "问我任何问题，输入 / 打开指令面板，输入 @ 打开文件面板...",
+  "chatInput.placeholder": "输入消息，/ 指令，@ 文件，# 技能...",
   "chatCommand.title": "聊天指令",
   "chatCommand.clearDescription": "新建会话",
   "chatCommand.helpDescription": "问 Snow 怎么用，查阅内置文档",
