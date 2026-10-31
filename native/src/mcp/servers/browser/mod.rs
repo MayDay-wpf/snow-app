@@ -434,7 +434,7 @@ impl McpService for BrowserService {
                         },
                         "dialogResponse": {
                             "type": "object",
-                            "description": "Response for the dialog action: { accept: boolean, promptText?: string }. When provided, the most recent pending dialog is answered instead of listing dialogs.",
+                            "description": "Response for the dialog action: { accept: boolean, promptText?: string, dialogId?: string }. When provided, it answers pending dialogs instead of listing them. dialogId targets one dialog returned by the list; without it every pending dialog receives the same response.",
                             "properties": {
                                 "accept": {
                                     "type": "boolean",
@@ -443,6 +443,10 @@ impl McpService for BrowserService {
                                 "promptText": {
                                     "type": "string",
                                     "description": "Text to enter for prompt dialogs."
+                                },
+                                "dialogId": {
+                                    "type": "string",
+                                    "description": "Optional dialogId from the dialog list; answers only that dialog. Omit to answer all pending dialogs with the same response."
                                 }
                             },
                             "required": ["accept"]
@@ -1501,11 +1505,15 @@ impl McpService for BrowserService {
                     | "select_option"
                     | "upload-file"
                     | "devtools"
+                    | "scroll"
+                    | "press_key"
+                    | "get_css_styles"
+                    | "audit"
             ) {
                 tool.input_schema["properties"]["frameId"] = json!({
                     "type": "string",
                     "pattern": "^frame-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                    "description": "Optional opaque frameId from browser-frames. Omit for the main frame. IDs are bound to this tab/document; stale IDs fail without fallback. For devtools only snapshot/ax support frameId. Frame AX never returns input values."
+                    "description": "Optional opaque frameId from browser-frames. Omit for the main frame. IDs are bound to this tab/document; stale IDs fail without fallback. For devtools only snapshot/ax/console/network support frameId. When frameId is set and the tool accepts ref, ref must come from that frame's browser-devtools action=ax snapshot. Frame AX never returns input values."
                 });
                 if matches!(tool.name.as_str(), "hover" | "select_option") {
                     tool.input_schema["properties"]["ref"] = json!({"type": "string", "description": "Optional frame AX ref; requires frameId from the same snapshot."});

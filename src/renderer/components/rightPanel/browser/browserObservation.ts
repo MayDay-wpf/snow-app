@@ -44,11 +44,23 @@ export type BrowserObservationRequest = {
   expect?: BrowserObservationExpect;
 };
 
+/** 目标帧内的观察结果；error 表示帧已失效或 CDP 不可用。 */
+type FrameObservation = {
+  url?: string;
+  title?: string;
+  matches?: boolean;
+  text?: string;
+  error?: string;
+};
+
 export type BrowserObservationStatus =
   "changed" | "unchanged" | "navigating" | "blocked" | "expect-timeout";
 
 export type BrowserActionObservation = {
   mode: "brief" | "snapshot";
+  /** 带 frameId 的动作：expect 在目标帧内评估，其余信号仍来自顶层页面。 */
+  scope?: "frame";
+  frame?: FrameObservation;
   status: BrowserObservationStatus;
   waitedMs: number;
   changes: string[];
@@ -154,6 +166,40 @@ const runPageScript = async <T>(
     return null;
   } finally {
     if (timer) clearTimeout(timer);
+  }
+};
+
+/** 在目标帧内评估 expect / 采样文本；帧失效或 CDP 不可用时返回 error，不伪造满足。 */
+const readFrameObservation = async (
+  webview: Electron.WebviewTag,
+  frameId: string,
+  expect: BrowserObservationExpect | undefined,
+  sampleText: boolean,
+  maxChars: number,
+): Promise<FrameObservation> => {
+  try {
+    const result = (await window.snow.browserFrameOperation(
+      webview.getWebContentsId(),
+      "observe",
+      {
+        frameId,
+        ...(expect ? { expect } : {}),
+        ...(sampleText ? { sampleText: true, maxChars } : {}),
+      },
+    )) as Record<string, unknown> | null;
+    const record = result !== null && typeof result === "object" ? result : {};
+    return {
+      ...(typeof record.url === "string" ? { url: record.url } : {}),
+      ...(typeof record.title === "string" ? { title: record.title } : {}),
+      ...(typeof record.matches === "boolean"
+        ? { matches: record.matches }
+        : {}),
+      ...(typeof record.text === "string" ? { text: record.text } : {}),
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 };
 
@@ -372,13 +418,15 @@ export const startActionObservation = async (
   request: BrowserObservationRequest,
   getConsoleMessages: () => readonly unknown[],
   startedAt: number,
+  frameId?: string,
 ): Promise<BrowserActionObservationHandle> => {
   const beforeUrl = webview.getURL();
   const beforeTitle = webview.getTitle();
   const sinceIso = new Date(startedAt).toISOString();
   const dialogsBefore = await readPendingDialogs(webview);
   const downloadCursor = await readDownloadCursor();
-  const probeScript = buildProbeScript(request.expect);
+  // 帧作用域下 expect 由目标帧评估，顶层探针不再重复检查。
+  const probeScript = buildProbeScript(frameId ? undefined : request.expect);
   // 期望条件的数量：探针返回值必须完整覆盖，避免空检查对象被误判为满足。
   const expectCount = request.expect
     ? [
@@ -402,6 +450,7 @@ export const startActionObservation = async (
     let expectEvaluated = !request.expect;
     let expectSatisfied = false;
     let probeMisses = 0;
+    let frameObservation: FrameObservation = {};
     const addChange = (name: string): void => {
       if (!changes.includes(name)) changes.push(name);
     };
@@ -447,8 +496,23 @@ export const startActionObservation = async (
       }
 
       if (request.expect) {
-        // 探针随文档销毁时无法评估条件（空检查对象不能当作满足）。
-        if (probe.alive) {
+        if (frameId) {
+          // expect 在目标帧内评估；帧失效时保持「未评估」，最终按 expect-timeout 回报。
+          const frame = await readFrameObservation(
+            webview,
+            frameId,
+            request.expect,
+            false,
+            SNAPSHOT_TEXT_LENGTH,
+          );
+          frameObservation = frame;
+          if (typeof frame.matches === "boolean") {
+            expectEvaluated = true;
+            expectSatisfied = frame.matches;
+            if (expectSatisfied) break;
+          }
+        } else if (probe.alive) {
+          // 探针随文档销毁时无法评估条件（空检查对象不能当作满足）。
           expectEvaluated = true;
           const checks = Object.values(probe.expect ?? {});
           expectSatisfied =
@@ -465,6 +529,23 @@ export const startActionObservation = async (
     }
 
     const waitedMs = Math.max(0, Date.now() - windowStart);
+    if (frameId) {
+      const finalFrame = await readFrameObservation(
+        webview,
+        frameId,
+        undefined,
+        request.mode === "snapshot",
+        SNAPSHOT_TEXT_LENGTH,
+      );
+      // 无 expect 的采样返回 matches=false；保留轮询期间已评估的满足状态。
+      frameObservation = {
+        ...frameObservation,
+        ...finalFrame,
+        ...(frameObservation.matches !== undefined
+          ? { matches: frameObservation.matches }
+          : {}),
+      };
+    }
     const dialogsPending = await readPendingDialogs(webview);
     const dialogsOpened = Math.max(0, dialogsPending - dialogsBefore);
     const downloadsStarted = await countNewDownloads(downloadCursor);
@@ -491,8 +572,15 @@ export const startActionObservation = async (
               ? "changed"
               : "unchanged";
 
+    const noteBase =
+      status === "blocked"
+        ? STATUS_NOTES.blocked
+        : request.expect && expectEvaluated && expectSatisfied
+          ? EXPECT_SATISFIED_NOTE
+          : STATUS_NOTES[status];
     const observation: BrowserActionObservation = {
       mode: request.mode,
+      ...(frameId ? { scope: "frame" as const, frame: frameObservation } : {}),
       status,
       waitedMs,
       changes,
@@ -536,15 +624,18 @@ export const startActionObservation = async (
             },
           }
         : {}),
-      ...(request.mode === "snapshot" && typeof state?.text === "string"
-        ? { text: state.text }
+      ...(request.mode === "snapshot"
+        ? frameId
+          ? typeof frameObservation.text === "string"
+            ? { text: frameObservation.text }
+            : {}
+          : typeof state?.text === "string"
+            ? { text: state.text }
+            : {}
         : {}),
-      note:
-        status === "blocked"
-          ? STATUS_NOTES.blocked
-          : request.expect && expectEvaluated && expectSatisfied
-            ? EXPECT_SATISFIED_NOTE
-            : STATUS_NOTES[status],
+      note: frameId
+        ? `${noteBase} Frame scope: expect is evaluated in the target frame; URL/title/loading/events are observed at the top level.`
+        : noteBase,
     };
     // 观察结束即清理探针，避免长期占用页面观察器（不等待，页面可能已导航）。
     void runPageScript(

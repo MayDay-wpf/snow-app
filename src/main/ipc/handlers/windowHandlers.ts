@@ -67,7 +67,10 @@ import {
   startBrowserTrace,
   stopBrowserTrace,
 } from "./browserTrace";
-import { registerBrowserFrameHandlers } from "../../browser/browserFrames";
+import {
+  registerBrowserFrameHandlers,
+  resolveFrameCdpId,
+} from "../../browser/browserFrames";
 import {
   confirmDetachedPanelClose,
   focusDetachedPanelConversation,
@@ -769,13 +772,22 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     "browser:network-requests",
     async (_event, webContentsId: number, options?: unknown) => {
       const id = typeof webContentsId === "number" ? webContentsId : -1;
-      if (id >= 0) {
-        await ensureNetworkRecording(getBrowserWebContents(id));
+      const contents = id >= 0 ? getBrowserWebContents(id) : undefined;
+      if (contents) {
+        await ensureNetworkRecording(contents);
       }
       const raw =
         options !== null && typeof options === "object"
           ? (options as Record<string, unknown>)
           : {};
+      const frameId =
+        typeof raw.frameId === "string" && raw.frameId
+          ? raw.frameId
+          : undefined;
+      const cdpFrameId =
+        frameId && contents
+          ? await resolveFrameCdpId(contents, frameId)
+          : undefined;
       return queryNetworkRecords(id, {
         filter: typeof raw.filter === "string" ? raw.filter : undefined,
         resourceTypes: Array.isArray(raw.resourceTypes)
@@ -792,6 +804,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         pageIdx: typeof raw.pageIdx === "number" ? raw.pageIdx : undefined,
         pageSize: typeof raw.pageSize === "number" ? raw.pageSize : undefined,
         includePreserved: raw.includePreserved === true,
+        ...(cdpFrameId ? { cdpFrameId } : {}),
       });
     },
   );
@@ -867,9 +880,9 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     "browser:console-records",
     async (_event, webContentsId: number, options?: unknown) => {
       const id = typeof webContentsId === "number" ? webContentsId : -1;
+      const contents = id >= 0 ? getBrowserWebContents(id) : undefined;
       let cdpAvailable = false;
-      if (id >= 0) {
-        const contents = getBrowserWebContents(id);
+      if (contents) {
         await ensureWebContentsDebugger(contents);
         cdpAvailable = contents.debugger.isAttached();
       }
@@ -877,6 +890,14 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         options !== null && typeof options === "object"
           ? (options as Record<string, unknown>)
           : {};
+      const frameId =
+        typeof raw.frameId === "string" && raw.frameId
+          ? raw.frameId
+          : undefined;
+      const cdpFrameId =
+        frameId && contents
+          ? await resolveFrameCdpId(contents, frameId)
+          : undefined;
       const result = queryConsoleRecords(id, {
         level: typeof raw.level === "number" ? raw.level : undefined,
         types: Array.isArray(raw.types)
@@ -885,6 +906,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
         pageIdx: typeof raw.pageIdx === "number" ? raw.pageIdx : undefined,
         pageSize: typeof raw.pageSize === "number" ? raw.pageSize : undefined,
         includePreserved: raw.includePreserved === true,
+        ...(cdpFrameId ? { cdpFrameId } : {}),
       });
       return { ...result, cdpAvailable };
     },
@@ -1302,7 +1324,13 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
   );
   ipcMain.handle(
     "browser:dialog-respond",
-    (event, webContentsId: number, accept: unknown, promptText?: unknown) => {
+    (
+      event,
+      webContentsId: number,
+      accept: unknown,
+      promptText?: unknown,
+      dialogId?: unknown,
+    ) => {
       const contents = getBrowserWebContents(webContentsId);
       if (
         contents.hostWebContents?.id !== event.sender.id ||
@@ -1312,11 +1340,17 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
       }
       if (
         typeof accept !== "boolean" ||
-        (promptText !== undefined && typeof promptText !== "string")
+        (promptText !== undefined && typeof promptText !== "string") ||
+        (dialogId !== undefined && typeof dialogId !== "string")
       ) {
         throw new Error("Invalid JavaScript dialog response");
       }
-      return respondBrowserDialog(contents, accept, promptText);
+      return respondBrowserDialog(
+        contents,
+        accept,
+        promptText,
+        dialogId || undefined,
+      );
     },
   );
 

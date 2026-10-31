@@ -85,6 +85,10 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
                 | "select_option"
                 | "upload-file"
                 | "devtools"
+                | "scroll"
+                | "press_key"
+                | "get_css_styles"
+                | "audit"
         ) {
             return Err(Error::new(
                 Status::InvalidArg,
@@ -97,12 +101,12 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
                 args.get("action")
                     .and_then(Value::as_str)
                     .unwrap_or("snapshot"),
-                "snapshot" | "ax"
+                "snapshot" | "ax" | "console" | "network"
             )
         {
             return Err(Error::new(
                 Status::InvalidArg,
-                "frameId supports only devtools snapshot/ax".to_string(),
+                "frameId supports only devtools snapshot/ax/console/network".to_string(),
             ));
         }
         normalized.insert("frameId".to_string(), json!(frame_id));

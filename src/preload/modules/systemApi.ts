@@ -1608,6 +1608,8 @@ export const windowApi = {
       pageIdx?: number;
       pageSize?: number;
       includePreserved?: boolean;
+      /** Opaque frameId from browser-frames; only CDP-captured requests of that frame. */
+      frameId?: string;
     },
   ): Promise<{
     records: unknown[];
@@ -1667,6 +1669,8 @@ export const windowApi = {
       pageIdx?: number;
       pageSize?: number;
       includePreserved?: boolean;
+      /** Opaque frameId from browser-frames; only messages attributed to that frame. */
+      frameId?: string;
     },
   ): Promise<{
     messages: unknown[];
@@ -2056,12 +2060,14 @@ export const windowApi = {
     webContentsId: number,
     accept: boolean,
     promptText?: string,
+    dialogId?: string,
   ): Promise<{ responded: boolean; remaining: number; error?: string }> =>
     ipcRenderer.invoke(
       "browser:dialog-respond",
       webContentsId,
       accept,
       promptText,
+      dialogId,
     ),
   onWindowMaximizeStateChanged: (
     callback: (isMaximized: boolean) => void,

@@ -3,6 +3,7 @@ import {
   COLLECT_ROOTS_SCRIPT,
   DESCRIBE_ELEMENT_SCRIPT,
 } from "../../../../shared/browserElementLocator";
+import { SCROLL_FUNCTION } from "../../../../shared/browserScroll";
 import {
   describeBrowserUrlRedaction,
   type BrowserUrlRedactionInfo,
@@ -331,6 +332,7 @@ const currentPageMetadata = async (
 const NETWORK_LIST_FIELDS = [
   "id",
   "requestId",
+  "cdpFrameId",
   "method",
   "url",
   "status",
@@ -373,6 +375,8 @@ const actionReceipt = async (
 ): Promise<Record<string, unknown>> => {
   const request = parseObservationRequest(args);
   const before = await currentPageMetadata(webview, instanceId);
+  const frameId =
+    typeof args.frameId === "string" && args.frameId ? args.frameId : undefined;
   const startedAt = Date.now();
   let handle: Awaited<ReturnType<typeof startActionObservation>> | null = null;
   if (request) {
@@ -382,6 +386,7 @@ const actionReceipt = async (
         request,
         getConsoleMessages,
         startedAt,
+        frameId,
       );
     } catch {
       // 探针不可用时退化为「派发回执」，不影响动作本身。
@@ -1804,92 +1809,6 @@ const pressKey = async (
     return { key };
   });
 
-/**
- * 页面上下文的滚动函数（issue #252）：(start, deltaY, position) => 回执。
- * start 自身不可滚动时沿父节点（穿透 shadow host）找最近的可滚动祖先；未指定
- * start 时滚动文档，文档不可滚动则选视口内可见面积最大的可滚动容器。滚动采用
- * 程序化 scrollBy/scrollTo（可作用于内部容器），返回前后位置供核验是否移动。
- */
-const SCROLL_FUNCTION = `async (start, deltaY, position) => {
-  const scrollingRoot = document.scrollingElement || document.documentElement;
-  const canScroll = (element) => {
-    if (element.scrollHeight <= element.clientHeight) return false;
-    if (element === scrollingRoot) return true;
-    return /(auto|scroll|overlay)/.test(getComputedStyle(element).overflowY);
-  };
-  let container = null;
-  let auto = false;
-  if (start) {
-    let node = start;
-    while (node) {
-      if (canScroll(node)) {
-        container = node;
-        break;
-      }
-      const root = node.getRootNode();
-      node = node.parentElement || (root instanceof ShadowRoot ? root.host : null);
-    }
-  } else if (canScroll(scrollingRoot)) {
-    container = scrollingRoot;
-  } else {
-    ${COLLECT_ROOTS_SCRIPT}
-    let bestArea = 0;
-    for (const root of roots) {
-      for (const element of root.querySelectorAll('*')) {
-        if (!canScroll(element)) continue;
-        const rect = element.getBoundingClientRect();
-        const width = Math.min(rect.right, innerWidth) - Math.max(rect.left, 0);
-        const height = Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0);
-        const area = Math.max(0, width) * Math.max(0, height);
-        if (area > bestArea) {
-          bestArea = area;
-          container = element;
-        }
-      }
-    }
-    auto = container !== null;
-  }
-  if (!container) container = scrollingRoot;
-  const read = () => ({
-    scrollTop: Math.round(container.scrollTop),
-    scrollHeight: container.scrollHeight,
-    clientHeight: container.clientHeight,
-  });
-  const before = read();
-  if (position === 'top') {
-    container.scrollTo({ top: 0, behavior: 'instant' });
-  } else if (position === 'bottom') {
-    container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
-  } else {
-    container.scrollBy({ top: deltaY, behavior: 'instant' });
-  }
-  await new Promise((resolve) => {
-    // 等两帧让滚动生效并触发懒加载监听；后台 webview 可能不调度动画帧。
-    const timer = setTimeout(resolve, 100);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      clearTimeout(timer);
-      resolve();
-    }));
-  });
-  const after = read();
-  const className = container !== scrollingRoot && typeof container.className === 'string'
-    ? container.className.trim().slice(0, 80)
-    : '';
-  return {
-    moved: after.scrollTop !== before.scrollTop,
-    before,
-    after,
-    atTop: after.scrollTop <= 0,
-    atBottom: after.scrollTop >= after.scrollHeight - after.clientHeight - 1,
-    container: {
-      tagName: container === scrollingRoot ? 'document' : container.tagName.toLowerCase(),
-      id: container === scrollingRoot ? null : container.id || null,
-      className: className || null,
-      auto,
-    },
-  };
-}`;
-
 const scroll = async (
   webview: Electron.WebviewTag,
   instanceId: string,
@@ -2141,6 +2060,10 @@ const devtools = async (
     const pageSize =
       typeof args.pageSize === "number" ? args.pageSize : undefined;
     const includePreserved = args.includePreserved === true;
+    const frameId =
+      typeof args.frameId === "string" && args.frameId
+        ? args.frameId
+        : undefined;
     const webviewFallback = async (
       note: string,
     ): Promise<Record<string, unknown>> => {
@@ -2184,16 +2107,30 @@ const devtools = async (
       try {
         result = await window.snow.browserConsoleRecords(
           webview.getWebContentsId(),
-          { level: minLevel, types, pageIdx, pageSize, includePreserved },
+          {
+            level: minLevel,
+            types,
+            pageIdx,
+            pageSize,
+            includePreserved,
+            frameId,
+          },
         );
-      } catch {
+      } catch (error) {
+        // 帧作用域要求帧归属；不得回退到没有帧信息的 webview 控制台流。
+        if (frameId) throw error;
         // CDP 不可用时仍应用相同 level/types 过滤，并共用 finally 清理。
       }
       if (!result) {
+        if (frameId)
+          throw new Error(
+            "Frame-scoped console records require CDP capture; the webview console fallback has no frame attribution",
+          );
         response = await webviewFallback(
           "CDP console capture is unavailable; falling back to the webview console-message stream (no stack traces).",
         );
       } else if (
+        !frameId &&
         result.total === 0 &&
         consoleMessages.length > 0 &&
         !includePreserved
@@ -2212,6 +2149,7 @@ const devtools = async (
           hasMore: result.hasMore,
           archivedGenerations: result.archivedGenerations,
           level,
+          ...(frameId ? { frameId } : {}),
         };
       }
     } finally {
@@ -2285,6 +2223,10 @@ const devtools = async (
     const includePreserved = args.includePreserved === true;
     // 默认精简列表；includeHeaders=true 兼容需要请求/响应头的调用方。
     const includeHeaders = args.includeHeaders === true;
+    const frameId =
+      typeof args.frameId === "string" && args.frameId
+        ? args.frameId
+        : undefined;
     const result = await window.snow.browserNetworkRequests(
       webview.getWebContentsId(),
       {
@@ -2295,6 +2237,7 @@ const devtools = async (
         pageIdx,
         pageSize,
         includePreserved,
+        frameId,
       },
     );
     const pageRecords = result.records.slice(0, pageSize);
@@ -2316,9 +2259,10 @@ const devtools = async (
       static: includeStatic,
       headersIncluded: includeHeaders,
       preflightTotal: result.preflightTotal,
+      ...(frameId ? { frameId } : {}),
       note: includeHeaders
-        ? "Full records include requestHeaders and responseHeaders; bodies are still omitted. Use action=networkDetails requestId=<requestId> for bodies (only cdp records have a requestId)."
-        : 'Compact list: id, method, url, status, resourceType, durationMs, source, error. Headers and bodies are omitted: call action=network_detail requestId=<id> for the full record, or action=networkDetails requestId=<CDP requestId> for headers plus bodies (only cdp records have a requestId). Pass includeHeaders=true to include headers in the list, and methods=["OPTIONS"] to inspect CORS preflight requests.',
+        ? "Full records include requestHeaders and responseHeaders; bodies are still omitted. Use action=networkDetails requestId=<requestId from action=network> for bodies (only cdp records have a requestId; iframe/OOPIF records use a frame-scoped key)."
+        : 'Compact list: id, requestId, cdpFrameId, method, url, status, resourceType, durationMs, source, error. Headers and bodies are omitted: call action=network_detail requestId=<id> for the full record, or action=networkDetails requestId=<requestId from action=network> for headers plus bodies (only cdp records have a requestId; iframe/OOPIF records use a frame-scoped key). Pass includeHeaders=true to include headers in the list, and methods=["OPTIONS"] to inspect CORS preflight requests.',
     };
   }
   if (action === "network_detail") {
@@ -2513,14 +2457,21 @@ const devtools = async (
         "string"
           ? (dialogResponse as { promptText: string }).promptText
           : undefined;
+      const dialogId =
+        typeof (dialogResponse as { dialogId?: unknown }).dialogId ===
+          "string" && (dialogResponse as { dialogId: string }).dialogId
+          ? (dialogResponse as { dialogId: string }).dialogId
+          : undefined;
       const responded = await window.snow.browserDialogRespond(
         webview.getWebContentsId(),
         accept,
         promptText,
+        dialogId,
       );
       return {
         ...(await currentPageMetadata(webview, instanceId)),
         responded,
+        ...(dialogId ? { dialogId } : {}),
       };
     }
     const dialogs = await window.snow.browserDialogs(
@@ -2578,7 +2529,12 @@ export const executeBrowserMcpOperation = async (
   args: BrowserMcpCommandArgs,
   getConsoleMessages: () => readonly unknown[],
 ): Promise<unknown> => {
-  const frameRouted = args.frameId !== undefined && args.frameId !== null;
+  // console/network 是整页记录接口：帧作用域在数据查询层过滤，不能走帧操作分支。
+  const pageRecordAction =
+    operation === "devtools" &&
+    (args.action === "console" || args.action === "network");
+  const frameRouted =
+    args.frameId !== undefined && args.frameId !== null && !pageRecordAction;
   if (operation === "frames" || operation === "drag") {
     return window.snow.browserFrameOperation(
       webview.getWebContentsId(),
