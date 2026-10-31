@@ -4055,6 +4055,7 @@ export const en = {
   "settings.themePresetCyberpunk": "Cyberpunk",
   "settings.themePresetNotion": "Notion",
   "settings.themePresetCompact": "Horizon",
+  "settings.themePresetWenjie": "Wenjie",
   "settings.themePresetRococo": "Rose Rococo",
   "settings.themeLayoutStyle": "Layout style",
   "settings.themeLayoutStyleInfo":
