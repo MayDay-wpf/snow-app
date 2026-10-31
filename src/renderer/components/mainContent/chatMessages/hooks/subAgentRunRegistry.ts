@@ -29,6 +29,7 @@ type OwnedRun = {
 // Renderer-lifetime ownership, independent of the selected chat or React tree.
 const ownedRuns = new Map<string, OwnedRun>();
 const listeners = new Set<() => void>();
+const settledCancel = (): Promise<void> => Promise.resolve();
 
 export const subscribeSubAgentRunChanges = (
   listener: () => void,
@@ -162,17 +163,22 @@ export const startOwnedSubAgentRun = (
   const promise = Promise.resolve().then(execute);
   const owner: OwnedRun = { promise, cancel, finished: false };
   ownedRuns.set(runId, owner);
+  // 终态后不会再调用 cancel：换成空实现，释放其闭包（运行状态、会话引用等）。
+  const settle = (): void => {
+    owner.finished = true;
+    owner.cancel = settledCancel;
+  };
   // This rejection observer is owned by the registry. The original promise
   // still rejects for sync callers, wait-for-delete and cancellation callers.
   owner.observer = promise
     .then(
       () => {
-        owner.finished = true;
+        settle();
         notifySubAgentRunChanges();
       },
       (error: unknown) => {
         owner.error = error instanceof Error ? error : new Error(String(error));
-        owner.finished = true;
+        settle();
         console.error("[sub-agent-run] owner failed", {
           runId,
           code: "SUB_AGENT_OWNER_FAILED",

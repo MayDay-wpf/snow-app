@@ -210,9 +210,7 @@ pub(super) fn try_extract_svg_source(value: &str, database_path: &Path) -> Optio
 pub fn persist_inline_images_to_disk(content: &str, database_path: &Path) -> Result<String> {
     const IMAGE_TAG_PREFIX: &str = "@@image:";
 
-    let upload_root = resolve_upload_root(database_path)?;
-    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let date_dir = upload_root.join(&date);
+    let date_dir = upload_date_dir(database_path);
 
     let mut result = String::with_capacity(content.len());
     let mut remaining = content;
@@ -242,9 +240,12 @@ pub fn persist_inline_images_to_disk(content: &str, database_path: &Path) -> Res
     Ok(result)
 }
 
-fn resolve_upload_root(database_path: &Path) -> Result<PathBuf> {
+/// 当天的图片落盘目录：`<数据库所在目录>/upload/<YYYY-MM-DD>`。
+fn upload_date_dir(database_path: &Path) -> PathBuf {
     let parent = database_path.parent().unwrap_or_else(|| Path::new("."));
-    Ok(parent.join("upload"))
+    parent
+        .join("upload")
+        .join(chrono::Local::now().format("%Y-%m-%d").to_string())
 }
 
 fn persist_base64_image(data_url: &str, date_dir: &Path) -> Result<Option<String>> {
@@ -257,14 +258,27 @@ fn persist_base64_image(data_url: &str, date_dir: &Path) -> Result<Option<String
         Some(media_type) => media_type.trim(),
         None => return Ok(None),
     };
-    if media_type.len() <= "image/".len()
-        || !media_type.starts_with("image/")
-        || data.trim().is_empty()
-    {
+    if media_type.len() <= "image/".len() || !media_type.starts_with("image/") {
         return Ok(None);
     }
+    persist_base64_payload(data, date_dir)
+}
 
-    let decoded = match base64::engine::general_purpose::STANDARD.decode(data.trim()) {
+/// 把纯 base64 图片（MCP image 块的 `data`）落盘到当天的 upload 目录，返回
+/// `upload/<日期>/<hash>.<ext>` 相对路径；内容不是受支持的图片时返回 None。
+pub(crate) fn persist_base64_image_data(
+    data: &str,
+    database_path: &Path,
+) -> Result<Option<String>> {
+    persist_base64_payload(data, &upload_date_dir(database_path))
+}
+
+fn persist_base64_payload(data: &str, date_dir: &Path) -> Result<Option<String>> {
+    let data = data.trim();
+    if data.is_empty() {
+        return Ok(None);
+    }
+    let decoded = match base64::engine::general_purpose::STANDARD.decode(data) {
         Ok(bytes) => bytes,
         Err(_) => return Ok(None),
     };
@@ -422,4 +436,49 @@ pub(crate) fn media_type_for_upload_path(path: &str) -> Option<&'static str> {
         "svg" => Some("image/svg+xml"),
         _ => None,
     }
+}
+
+/// 读取 upload 目录下按内容哈希命名的落盘图片（远控工具卡片取图）。
+///
+/// 只接受 `upload/<YYYY-MM-DD>/<blake3>.<ext>` 形态，杜绝目录穿越；返回按
+/// 落盘扩展名还原的 MIME 与原始字节，文件缺失或为空时返回 None。
+pub fn read_upload_image(
+    relative_path: &str,
+    database_path: &Path,
+) -> Option<(&'static str, Vec<u8>)> {
+    if !is_hashed_upload_path(relative_path) {
+        return None;
+    }
+    let media_type = media_type_for_upload_path(relative_path)?;
+    let file_path = database_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(relative_path);
+    let bytes = fs::read(file_path).ok()?;
+    (!bytes.is_empty()).then_some((media_type, bytes))
+}
+
+fn is_hashed_upload_path(path: &str) -> bool {
+    let mut parts = path.split('/');
+    let (Some("upload"), Some(date), Some(file), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let date_valid = date.len() == 10
+        && date.bytes().enumerate().all(|(index, byte)| {
+            if index == 4 || index == 7 {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit()
+            }
+        });
+    let Some((hash, extension)) = file.split_once('.') else {
+        return false;
+    };
+    date_valid
+        && hash.len() == 64
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !extension.is_empty()
+        && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }

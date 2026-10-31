@@ -15,11 +15,12 @@
  * 见 RemoteControlBridge.tsx + remoteControlRedaction.ts）：内联 base64 会完整
  * 抵达手机；脱敏会替换密钥类字面量（可能破坏 base64 载荷），因此可达性判据
  * 集中在 resolveImageSrc()：载荷必须是完整的 data URL（CSP 的 img-src 放行
- * data:，外链 https 一律被拦）且 base64 长度为 4 的整数倍。移动端唯一的图片
- * 端点是 `/api/message-images/{messageId}/{index}`（native/src/remote_control/
- * server.rs），它只服务**用户消息** contentBlocks 的附件（SnowRemoteToolCall
- * 无图片字段、无 streamingImages）；图库/磁盘引用（image/…、upload/…）需要
- * 主进程 IPC，移动端读不到。不可达的图片一律给明确提示 + 替代信息，绝不渲染破图。
+ * data:，外链 https 一律被拦）且 base64 长度为 4 的整数倍。移动端的图片端点有
+ * 两个：`/api/message-images/{messageId}/{index}` 只服务**用户消息** contentBlocks
+ * 的附件；`/api/upload-images/{date}/{file}` 服务桌面端 Rust 落盘的工具结果图
+ * （截图 / 抓取图，标签或图片块里是 `upload/…` 路径），均在 native/src/remote_control/
+ * server.rs。图库引用（image/…）需要主进程 IPC，移动端读不到。不可达的图片一律
+ * 给明确提示 + 替代信息，绝不渲染破图。
  *
  * 其他约定：数据一律 createElement + textContent（不拼 innerHTML）；URL 只做
  * 纯文本展示（不做外跳链接）；未登记的操作 / 无法解析的输入返回 null 交给兜底卡。
@@ -40,6 +41,7 @@ import {
   tcPre,
   tcSection,
   type JsonRecord,
+  uploadImageUrl,
 } from "./ui";
 
 /** 本模块词条（remote.toolCall.web.*，三语同键）。 */
@@ -241,11 +243,11 @@ const rowList = (rows: Node[], className = "tc-web-list"): HTMLElement => {
 
 // ── 图片可达性 ─────────────────────────────────────────────────────────────
 
-/** 候选图：data 可以是完整 data URL、纯 base64，或（占位场景下）空串。 */
+/** 候选图：data 可以是完整 data URL、纯 base64、upload/ 落盘路径，或（占位场景下）空串。 */
 type RemoteImage = {
   data: string;
   mimeType?: string;
-  /** 图库 / 磁盘引用（image/…、upload/…）：移动端需要主进程 IPC，不可直接读取。 */
+  /** 磁盘引用：upload/… 经远控端点读取；图库 image/… 需要主进程 IPC，不可直接读取。 */
   path?: string;
 };
 
@@ -253,12 +255,14 @@ type RemoteImage = {
 const DATA_URL_RE = /^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/i;
 
 /**
- * 图片可达性判定：返回可直接用于 <img src> 的 data URL，不可达返回 null。
- * 判据（任一不满足即不可达）：
+ * 图片可达性判定：返回可直接用于 <img src> 的地址，不可达返回 null。
+ * upload/ 落盘路径走远控取图端点；其余判据（任一不满足即不可达）：
  *   1. 载荷形如完整 data URL（CSP 的 img-src 放行 data:，外链 https 不放行）；
  *   2. 载荷非空且长度为 4 的整数倍（脱敏插入的 [REDACTED…] 会破坏 base64）。
  */
 const resolveImageSrc = (image: RemoteImage): string | null => {
+  const uploaded = uploadImageUrl(image.data) ?? uploadImageUrl(image.path);
+  if (uploaded) return uploaded;
   const raw = image.data.trim();
   if (raw === "") return null;
   const dataUrl = raw.startsWith("data:")
@@ -513,7 +517,7 @@ const renderSearch = (tool: SnowRemoteToolCall): HTMLElement | null => {
 
 // ── websearch-websearch-fetch ──────────────────────────────────────────────
 
-type FetchedImage = { data: string; mimeType: string };
+type FetchedImage = { data: string; mimeType: string; path?: string };
 
 type FetchResult =
   | {
@@ -558,7 +562,7 @@ const parseFetchResult = (raw?: string): FetchResult => {
         const mimeType = readString(block, "mimeType");
         const data = readString(block, "data");
         if (mimeType !== undefined && data !== undefined)
-          image = { data, mimeType };
+          image = { data, mimeType, path: optional(readString(block, "path")) };
       }
     }
   }
@@ -713,8 +717,8 @@ type ImageGenResult =
   | { kind: "raw"; text: string }
   | { kind: "none" };
 
-/** 持久化时 image block 的 base64 被占位符替换，真实 data URL 追加为 `@@image:…@@`。 */
-const INLINE_IMAGE_TAG_RE = /@@image:(data:[^@]+)@@/g;
+/** 持久化时 image block 的 base64 被占位符替换，图片追加为 `@@image:…@@`（data URL 或 upload/ 路径）。 */
+const INLINE_IMAGE_TAG_RE = /@@image:([^@]+)@@/g;
 
 const PLACEHOLDER_DATA = "[attached as multimodal image]";
 

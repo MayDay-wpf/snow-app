@@ -1,18 +1,23 @@
-import type { ChatMessageRecord } from "../../../../../preload";
 import type {
   ChatConversationMessage,
   ConversationSessionState,
+  MessageRecordRef,
 } from "./conversationTypes";
+import { archiveSubAgentRunActivity } from "./subAgentRunActivity";
 
 /**
  * 会话消息窗口：长会话（含运行中）只在渲染进程保留尾部窗口，更早的消息
  * 卸载回数据库，由 loadOlderMessages 按游标翻页取回。
  * 裁剪时机：新 AI 消息追加时；视图正在查看该会话且未钉底（阅读历史）时跳过。
+ * 后台会话（含子代理会话）不在视图中，使用更小的窗口：切回时首屏仍是尾部
+ * 消息，向上滚动按游标取回，观看体验不变。
  */
 
-/** 超过该条数才裁剪；裁剪后保留尾部约 KEEP 条（滞回，避免逐条裁剪）。 */
-export const MESSAGE_WINDOW_LIMIT = 80;
-export const MESSAGE_WINDOW_KEEP = 40;
+/** 超过 limit 条才裁剪；裁剪后保留尾部约 keep 条（滞回，避免逐条裁剪）。 */
+export type MessageWindowSize = { limit: number; keep: number };
+
+const VIEWED_MESSAGE_WINDOW: MessageWindowSize = { limit: 80, keep: 40 };
+const BACKGROUND_MESSAGE_WINDOW: MessageWindowSize = { limit: 30, keep: 16 };
 /** 单次至少卸载的条数，收益太小不裁。 */
 const MESSAGE_WINDOW_MIN_TRIM = 10;
 
@@ -39,13 +44,21 @@ export const registerMessageWindowViewGate = (
   };
 };
 
-/** 视图未展示该会话（后台会话 / 聊天区未挂载）时直接放行。 */
-export const canTrimMessageWindow = (sessionKey: string): boolean => {
+/**
+ * 本次可用的裁剪窗口：视图正在查看且未钉底（阅读历史）时返回 null 不裁；
+ * 视图展示的会话（或聊天区未挂载）用常规窗口，其余后台会话用小窗口。
+ */
+export const resolveMessageWindow = (
+  sessionKey: string,
+): MessageWindowSize | null => {
   const gate = viewGate;
-  if (!gate || gate.sessionKey() !== sessionKey) {
-    return true;
+  if (!gate) {
+    return VIEWED_MESSAGE_WINDOW;
   }
-  return gate.isFollowingBottom();
+  if (gate.sessionKey() !== sessionKey) {
+    return BACKGROUND_MESSAGE_WINDOW;
+  }
+  return gate.isFollowingBottom() ? VIEWED_MESSAGE_WINDOW : null;
 };
 
 /** 本次更新是否在尾部追加了一条新的 AI 消息。 */
@@ -101,12 +114,10 @@ const isMessageSettled = (message: ChatConversationMessage): boolean =>
  */
 export const trimSessionMessageWindow = (
   session: ConversationSessionState,
+  size: MessageWindowSize,
 ): ConversationSessionState | null => {
   const { messages } = session;
-  if (
-    messages.length <= MESSAGE_WINDOW_LIMIT ||
-    session.isLoadingOlderMessages
-  ) {
+  if (messages.length <= size.limit || session.isLoadingOlderMessages) {
     return null;
   }
 
@@ -114,7 +125,7 @@ export const trimSessionMessageWindow = (
     (message) => !isMessageSettled(message),
   );
   const protectFrom = firstUnsettled < 0 ? messages.length - 1 : firstUnsettled;
-  const target = Math.min(messages.length - MESSAGE_WINDOW_KEEP, protectFrom);
+  const target = Math.min(messages.length - size.keep, protectFrom);
 
   let cut = -1;
   let cursor: string | undefined;
@@ -129,10 +140,12 @@ export const trimSessionMessageWindow = (
     return null;
   }
 
+  // 卸载的子代理消息先归档工具调用摘要，父会话卡片的进度列表不随裁剪丢失。
+  archiveSubAgentRunActivity(messages.slice(0, cut));
   const retained = messages.slice(cut);
   const retainedIds = new Set(retained.map((message) => message.id));
   // 只保留与窗口内消息对应的记录；tool 记录跟随其前一条助手记录。
-  const records: ChatMessageRecord[] = [];
+  const records: MessageRecordRef[] = [];
   let keepFollowingTools = false;
   for (const record of session.messageRecords) {
     if (compareRecordIds(record.id, cursor) < 0) {

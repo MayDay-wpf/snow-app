@@ -1337,6 +1337,45 @@ async fn handle_api(
         ));
     }
 
+    // 工具结果图片（截图 / 抓取图）由 Rust 落盘为 upload/<日期>/<hash>.<ext>，
+    // 手机端工具卡片按该路径取图；路径形态在存储层严格校验，拒绝越界访问。
+    if method == Method::GET && path.starts_with("/api/upload-images/") {
+        let relative_path = percent_decode(&path["/api/upload-images/".len()..])
+            .map(|rest| format!("upload/{rest}"));
+        ensure_current_pairing(context, request_generation)?;
+        let image = match relative_path {
+            Some(relative_path) => tokio::task::spawn_blocking(move || {
+                crate::storage::read_upload_image(relative_path)
+            })
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .flatten(),
+            None => None,
+        };
+        ensure_current_pairing(context, request_generation)?;
+        let Some((mime_type, bytes)) = image.filter(|(mime_type, bytes)| {
+            MESSAGE_IMAGE_TYPES.contains(&mime_type.as_str())
+                && bytes.len() <= MAX_MESSAGE_IMAGE_BYTES
+        }) else {
+            return Ok(json_response(
+                StatusCode::NOT_FOUND,
+                &json!({ "error": "图片不可用" }),
+                Vec::new(),
+            ));
+        };
+        return Ok(build_response(
+            StatusCode::OK,
+            &mime_type,
+            bytes,
+            vec![
+                ("Cache-Control", "private, no-store".to_string()),
+                ("X-Content-Type-Options", "nosniff".to_string()),
+                ("Referrer-Policy", "no-referrer".to_string()),
+            ],
+        ));
+    }
+
     if method == Method::GET && path == "/api/skills" {
         ensure_current_pairing(context, request_generation)?;
         let value = bridge_call("getSkills", json!([])).await?;

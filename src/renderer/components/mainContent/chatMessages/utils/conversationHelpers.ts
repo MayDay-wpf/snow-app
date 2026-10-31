@@ -13,6 +13,7 @@ import {
   isResponseHtmlPreviewEligible,
   resolveResponseDisposition,
 } from "./responseDisposition";
+import { IMAGE_DATA_PLACEHOLDER, isUploadImagePath } from "./inlineImages";
 
 export const deleteCheckpoints = (checkpointIds: string[]): void => {
   for (const checkpointId of checkpointIds) {
@@ -272,10 +273,12 @@ export const isResponseErrorStatus = (status: string): boolean =>
 
 type McpImageContentBlock = {
   type: "image";
-  data: string;
+  data?: string;
+  path?: string;
   mimeType: string;
 };
 
+/** 图片块：带真实 base64，或 data 为占位符、图片已由 Rust 落盘到 upload/。 */
 const isMcpImageContentBlock = (
   value: unknown,
 ): value is McpImageContentBlock => {
@@ -283,14 +286,25 @@ const isMcpImageContentBlock = (
     return false;
   }
   const block = value as Record<string, unknown>;
-  return (
-    block.type === "image" &&
+  if (
+    block.type !== "image" ||
+    typeof block.mimeType !== "string" ||
+    !block.mimeType.startsWith("image/")
+  ) {
+    return false;
+  }
+  const hasInlineData =
     typeof block.data === "string" &&
     block.data.length > 0 &&
-    typeof block.mimeType === "string" &&
-    block.mimeType.startsWith("image/")
-  );
+    block.data !== IMAGE_DATA_PLACEHOLDER;
+  return hasInlineData || isUploadImagePath(block.path);
 };
+
+/** 图片块转为模型可见的内联标签：落盘路径优先，Rust 组装请求时按路径读盘。 */
+const imageBlockTag = (block: McpImageContentBlock): string =>
+  isUploadImagePath(block.path)
+    ? `@@image:${block.path}@@`
+    : `@@image:data:${block.mimeType};base64,${block.data}@@`;
 
 export const formatMcpToolResultForModel = (result: string): string => {
   try {
@@ -312,13 +326,11 @@ export const formatMcpToolResultForModel = (result: string): string => {
         ? {
             type: "image",
             mimeType: block.mimeType,
-            data: "[attached as multimodal image]",
+            data: IMAGE_DATA_PLACEHOLDER,
           }
         : block,
     );
-    const imageTags = images.map(
-      (image) => `@@image:data:${image.mimeType};base64,${image.data}@@`,
-    );
+    const imageTags = images.map(imageBlockTag);
     return `${JSON.stringify({
       ...record,
       content: sanitizedContent,

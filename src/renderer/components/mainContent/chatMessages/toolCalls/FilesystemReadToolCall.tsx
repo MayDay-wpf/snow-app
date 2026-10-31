@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { AlertCircle, Hash } from "lucide-react";
 import type { ToolCallInfo } from "../utils/conversationTypes";
+import { inlineImageSrc } from "../utils/inlineImages";
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import { useI18n } from "../../../../i18n";
 import { ToolCallNode } from "./shared/ToolCallNode";
@@ -341,9 +342,9 @@ const renderFileContent = (
             <span>{result.mediaType}</span>
           </div>
           <img
-            src={
-              result.content.match(/@@image:([^@]+)@@/)?.[1] ?? result.content
-            }
+            src={inlineImageSrc(
+              result.content.match(/@@image:([^@]+)@@/)?.[1] ?? result.content,
+            )}
             alt={`Image preview (${result.mediaType})`}
             className="tool-call-image-preview"
           />

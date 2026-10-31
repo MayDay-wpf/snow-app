@@ -161,6 +161,18 @@ export const parseJsonRecord = (text?: string): JsonRecord | null => {
   }
 };
 
+/**
+ * 工具结果落盘图片（`upload/<日期>/<hash>.<ext>`）→ 远控取图端点；其他值返回 null。
+ * 桌面端 Rust 把截图 / 抓取图等 base64 落盘后只下发路径，手机端经此端点按需读取。
+ */
+export const uploadImageUrl = (value?: string): string | null => {
+  const match =
+    /^upload\/(\d{4}-\d{2}-\d{2})\/([0-9a-f]{64}\.[a-z0-9]+)$/i.exec(
+      value?.trim() ?? "",
+    );
+  return match ? `/api/upload-images/${match[1]}/${match[2]}` : null;
+};
+
 /** 美化 JSON（2 空格缩进；循环引用等异常回退为字符串）。 */
 export const formatJson = (value: unknown): string => {
   try {

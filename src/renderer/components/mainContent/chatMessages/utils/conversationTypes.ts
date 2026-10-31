@@ -329,9 +329,13 @@ export type VisionAnalysisState = {
   error?: string;
 };
 
+/** 已加载数据库记录的轻量元数据：分页游标与窗口裁剪只需要 id / role，
+ *  正文、工具调用 JSON 等已解析进 messages，不再重复驻留内存。 */
+export type MessageRecordRef = Pick<ChatMessageRecord, "id" | "role">;
+
 export type ConversationSessionState = {
   messages: ChatConversationMessage[];
-  messageRecords: ChatMessageRecord[];
+  messageRecords: MessageRecordRef[];
   summary: string;
   isStreaming: boolean;
   isAborting: boolean;
@@ -1286,3 +1290,16 @@ export const isPendingSessionKey = (key: string | undefined | null): boolean =>
   !!key &&
   (key === PENDING_SESSION_KEY || key.startsWith(PENDING_SESSION_KEY_PREFIX));
 export const CHAT_MESSAGE_PAGE_SIZE = 10;
+
+export const toMessageRecordRefs = (
+  records: ChatMessageRecord[],
+): MessageRecordRef[] => records.map(({ id, role }) => ({ id, role }));
+
+/**
+ * 向前翻页游标：跳过窗口头部的孤立 tool 记录（其所属助手消息在更早一页），
+ * 让它们随上一页一并取回，结果才能挂到对应的工具调用上。
+ */
+export const olderPageCursorOf = (
+  records: MessageRecordRef[],
+): string | undefined =>
+  (records.find((record) => record.role !== "tool") ?? records[0])?.id;

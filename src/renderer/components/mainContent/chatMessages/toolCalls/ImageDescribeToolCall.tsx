@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
+import { localImageProxyUrl } from "../../../../utils/imageProxyUrl";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { isRecord, truncateLabel } from "./imagegenUtils";
 import { ToolCallNode } from "./shared/ToolCallNode";
@@ -30,8 +31,6 @@ type ParsedDescribeResult =
   | { type: "error"; message: string }
   | { type: "raw"; text: string }
   | { type: "empty" };
-
-const describeImageCache = new Map<string, string>();
 
 const parseDescribeArgs = (args: string): ParsedDescribeArgs | null => {
   try {
@@ -110,36 +109,9 @@ export const ImageDescribeToolCall = ({
   const effectiveStatus =
     isFailed || parsedResult.type === "error" ? "error" : toolCall.status;
 
-  const [thumbSrc, setThumbSrc] = useState("");
-
-  useEffect(() => {
-    if (!path) {
-      return;
-    }
-    const cached = describeImageCache.get(path);
-    if (cached !== undefined) {
-      setThumbSrc(cached);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      let dataUrl: string | null = null;
-      try {
-        dataUrl = await window.snow.resolveUploadImage(path);
-      } catch (error) {
-        console.warn("[imagegen] resolveUploadImage failed for", path, error);
-      }
-      if (cancelled) {
-        return;
-      }
-      const src = dataUrl ?? "";
-      describeImageCache.set(path, src);
-      setThumbSrc(src);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+  // 缩略图经 img-proxy 按需读盘（不在内存缓存 data URL）；读取失败时隐藏预览。
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+  const thumbSrc = path && failedPath !== path ? localImageProxyUrl(path) : "";
 
   // 点击缩略图放大查看（Esc / 点击背景关闭）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -236,6 +208,7 @@ export const ImageDescribeToolCall = ({
               alt={fileName || t("toolCall.imagegen.describeImage")}
               title={t("toolCall.computerUse.clickToZoom")}
               onClick={() => setIsLightboxOpen(true)}
+              onError={() => setFailedPath(path)}
               draggable={false}
             />
           </div>

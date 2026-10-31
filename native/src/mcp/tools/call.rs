@@ -781,21 +781,86 @@ pub async fn call_mcp_tool(
         return Ok(limit_tool_result(&masking_tool_name, masked).await);
     }
 
-    let serialized = serde_json::to_string(&result).map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to serialize result: {error}"),
-        )
-    })?;
     // Image generation already masked its free text before persisting the task.
     // Never send its routing UUIDs, image refs or snapshot JSON through a text masker/truncator.
     if masking_tool_name == "imagegen-generate" {
-        return Ok(serialized);
+        return serialize_tool_result(&result);
     }
+    let serialized = persist_result_images(result).await?;
     let masked =
         super::super::privacy_mask::mask_tool_result_if_needed(&masking_tool_name, &serialized)
             .await?;
     Ok(limit_tool_result(&masking_tool_name, masked).await)
+}
+
+fn serialize_tool_result(result: &Value) -> napi::Result<String> {
+    serde_json::to_string(result).map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to serialize result: {error}"),
+        )
+    })
+}
+
+/// 顶层 `content` 数组里带真实 base64 的 MCP 图片块。
+fn has_inline_image_blocks(result: &Value) -> bool {
+    result
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|blocks| blocks.iter().any(is_inline_image_block))
+}
+
+fn is_inline_image_block(block: &Value) -> bool {
+    block.get("type").and_then(Value::as_str) == Some("image")
+        && block
+            .get("data")
+            .and_then(Value::as_str)
+            .is_some_and(|data| !data.is_empty() && data != INLINE_IMAGE_PLACEHOLDER)
+}
+
+/// 与前端 `IMAGE_DATA_PLACEHOLDER` 一致：图片已落盘，`path` 指向 upload 引用。
+const INLINE_IMAGE_PLACEHOLDER: &str = "[attached as multimodal image]";
+
+/// 工具结果里的图片 base64（MCP 图片块 / `@@image:data:` 标签）落盘为 upload
+/// 引用后再交给渲染进程：会话内存、数据库与后续请求都只携带短路径，视觉负载
+/// 在组装模型请求时由 payload 层按路径读盘。落盘失败时保留原始内容。
+async fn persist_result_images(mut result: Value) -> napi::Result<String> {
+    if has_inline_image_blocks(&result) {
+        result = super::collect::with_database_path(move |database_path| {
+            if let Some(blocks) = result.get_mut("content").and_then(Value::as_array_mut) {
+                for block in blocks.iter_mut().filter(|block| is_inline_image_block(block)) {
+                    let data = block.get("data").and_then(Value::as_str).unwrap_or("");
+                    if let Ok(Some(path)) =
+                        crate::api::conversation::images::persist_base64_image_data(
+                            data,
+                            &database_path,
+                        )
+                    {
+                        block["data"] = Value::String(INLINE_IMAGE_PLACEHOLDER.to_string());
+                        block["path"] = Value::String(path);
+                    }
+                }
+            }
+            Ok(result)
+        })
+        .await?;
+    }
+    let serialized = serialize_tool_result(&result)?;
+    if !serialized.contains("@@image:data:") {
+        return Ok(serialized);
+    }
+    super::collect::with_database_path(move |database_path| {
+        Ok(
+            match crate::api::conversation::images::persist_inline_images_to_disk(
+                &serialized,
+                &database_path,
+            ) {
+                Ok(persisted) => persisted,
+                Err(_) => serialized,
+            },
+        )
+    })
+    .await
 }
 
 /// 语义路由纠偏（2026-09-24，配合 LSP 系统提示词章节与 grep-search 描述注入）：

@@ -1,10 +1,13 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useState } from "react";
 import { localImageProxyUrl } from "../../utils/imageProxyUrl";
 
-/** 图片缓存（代理 URL / data URL）LRU 上限，避免长会话内存持续增长。 */
-const IMAGE_CACHE_MAX = 300;
+/** 代理 URL 缓存条数上限（只存短字符串，按条数限制即可）。 */
+const PROXY_CACHE_MAX = 300;
 
-/** 带 LRU 上限的 Map 写入：超限时删除最旧的条目。 */
+/** 每个 data URL 缓存的字节预算：data URL 为单字节字符串，长度即占用。 */
+const DATA_CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
+
+/** 带条数上限的 Map 写入：超限时删除最旧的条目。 */
 const cacheSet = <K, V>(
   map: Map<K, V>,
   key: K,
@@ -22,6 +25,45 @@ const cacheSet = <K, V>(
   }
 };
 
+/** 按字节预算淘汰的 data URL LRU：大图不会因为条数上限宽松而长期驻留。 */
+class DataUrlCache {
+  private readonly entries = new Map<string, string>();
+  private bytes = 0;
+
+  get(key: string): string | undefined {
+    const value = this.entries.get(key);
+    if (value !== undefined) {
+      this.entries.delete(key);
+      this.entries.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: string, value: string): void {
+    this.delete(key);
+    if (value.length > DATA_CACHE_BUDGET_BYTES) {
+      return;
+    }
+    this.entries.set(key, value);
+    this.bytes += value.length;
+    for (const [oldestKey, oldestValue] of this.entries) {
+      if (this.bytes <= DATA_CACHE_BUDGET_BYTES) break;
+      this.entries.delete(oldestKey);
+      this.bytes -= oldestValue.length;
+    }
+  }
+
+  delete(key: string): boolean {
+    const value = this.entries.get(key);
+    if (value === undefined) {
+      return false;
+    }
+    this.entries.delete(key);
+    this.bytes -= value.length;
+    return true;
+  }
+}
+
 /** 生成结果中图库落盘引用（image/... 前缀）的代理 URL 缓存。 */
 export const libraryProxyCache = new Map<string, string>();
 
@@ -29,30 +71,29 @@ export const libraryProxyCache = new Map<string, string>();
 export const proxyForLibraryPath = (path: string): string => {
   const cached = libraryProxyCache.get(path);
   if (cached) {
-    cacheSet(libraryProxyCache, path, cached, IMAGE_CACHE_MAX);
+    cacheSet(libraryProxyCache, path, cached, PROXY_CACHE_MAX);
     return cached;
   }
   const url = localImageProxyUrl(path);
-  cacheSet(libraryProxyCache, path, url, IMAGE_CACHE_MAX);
+  cacheSet(libraryProxyCache, path, url, PROXY_CACHE_MAX);
   return url;
 };
 
 /** 图库图片的 data URL 缓存（IPC resolveLibraryImage，删除图片时同步失效）。 */
-export const libraryDataCache = new Map<string, string>();
+export const libraryDataCache = new DataUrlCache();
 
-/** 异步读取图库图片为 data URL（带 LRU 缓存；失败返回 null）。 */
+/** 异步读取图库图片为 data URL（带字节预算 LRU；失败返回 null）。 */
 export const resolveLibraryDataUrl = async (
   path: string,
 ): Promise<string | null> => {
   const cached = libraryDataCache.get(path);
   if (cached) {
-    cacheSet(libraryDataCache, path, cached, IMAGE_CACHE_MAX);
     return cached;
   }
   try {
     const dataUrl = await window.snow.resolveLibraryImage(path);
     if (dataUrl) {
-      cacheSet(libraryDataCache, path, dataUrl, IMAGE_CACHE_MAX);
+      libraryDataCache.set(path, dataUrl);
     }
     return dataUrl;
   } catch {
@@ -61,21 +102,20 @@ export const resolveLibraryDataUrl = async (
 };
 
 /** 上传/任意本地路径图片的 data URL 缓存（绝对路径或 upload/...，参考图用）。 */
-export const uploadDataCache = new Map<string, string>();
+export const uploadDataCache = new DataUrlCache();
 
-/** 异步读取 upload/ 相对路径或绝对路径图片为 data URL（带 LRU 缓存；失败返回 null）。 */
+/** 异步读取 upload/ 相对路径或绝对路径图片为 data URL（带字节预算 LRU；失败返回 null）。 */
 export const resolveUploadDataUrl = async (
   path: string,
 ): Promise<string | null> => {
   const cached = uploadDataCache.get(path);
   if (cached) {
-    cacheSet(uploadDataCache, path, cached, IMAGE_CACHE_MAX);
     return cached;
   }
   try {
     const dataUrl = await window.snow.resolveUploadImage(path);
     if (dataUrl) {
-      cacheSet(uploadDataCache, path, dataUrl, IMAGE_CACHE_MAX);
+      uploadDataCache.set(path, dataUrl);
     }
     return dataUrl;
   } catch {
@@ -119,8 +159,9 @@ export type LibraryImageProps = {
 };
 
 /**
- * 图库图片渲染组件：优先使用 img-proxy:// 协议（与聊天 markdown 图片同一链路），
- * 加载失败时自动回退到 IPC 读取的 data URL（聊天生成结果图链路），保证不出现破损图。
+ * 图库图片渲染组件：始终使用 img-proxy:// 协议（与聊天 markdown 图片同一链路），
+ * 只有代理加载失败时才按需回退到 IPC 读取的 data URL，保证不出现破损图的同时
+ * 不让每张可正常显示的图片都在渲染进程常驻一份 base64。
  */
 export const LibraryImage = memo(function LibraryImage({
   path,
@@ -131,27 +172,10 @@ export const LibraryImage = memo(function LibraryImage({
   loading,
   onClick,
 }: LibraryImageProps): React.JSX.Element {
-  const [resolved, setResolved] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!path) {
-      setResolved(null);
-      return;
-    }
-    let cancelled = false;
-    const load = path.startsWith("image/")
-      ? resolveLibraryDataUrl
-      : resolveUploadDataUrl;
-    setResolved(null);
-    void load(path).then((dataUrl) => {
-      if (!cancelled && dataUrl) {
-        setResolved(dataUrl);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+  const [fallback, setFallback] = useState<{
+    path: string;
+    dataUrl: string;
+  } | null>(null);
 
   if (!path) {
     return (
@@ -166,10 +190,11 @@ export const LibraryImage = memo(function LibraryImage({
     );
   }
 
-  const primarySrc = path.startsWith("image/")
-    ? proxyForLibraryPath(path)
-    : undefined;
-  const effectiveSrc = primarySrc ?? resolved ?? undefined;
+  const isLibraryPath = path.startsWith("image/");
+  const fallbackSrc = fallback?.path === path ? fallback.dataUrl : null;
+  const effectiveSrc =
+    fallbackSrc ??
+    (isLibraryPath ? proxyForLibraryPath(path) : localImageProxyUrl(path));
 
   return (
     <img
@@ -179,10 +204,18 @@ export const LibraryImage = memo(function LibraryImage({
       className={className}
       loading={loading}
       onClick={onClick}
-      onError={(event) => {
-        if (resolved && event.currentTarget.src !== resolved) {
-          event.currentTarget.src = resolved;
+      onError={() => {
+        if (fallbackSrc) {
+          return;
         }
+        const load = isLibraryPath
+          ? resolveLibraryDataUrl
+          : resolveUploadDataUrl;
+        void load(path).then((dataUrl) => {
+          if (dataUrl) {
+            setFallback({ path, dataUrl });
+          }
+        });
       }}
     />
   );

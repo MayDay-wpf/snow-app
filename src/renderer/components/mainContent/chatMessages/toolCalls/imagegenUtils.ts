@@ -8,6 +8,12 @@
 /** 上游服务商不支持单次调用多图（n>1 / prompts 数组）时，多图场景完全由
  *  并行独立调用构成；本文件同时支撑两种数据形态的解析。 */
 
+import { localImageProxyUrl } from "../../../../utils/imageProxyUrl";
+import {
+  IMAGE_DATA_PLACEHOLDER,
+  stripInlineImageTags,
+} from "../utils/inlineImages";
+
 export type ParsedImageGenArgs = {
   prompt: string;
   /** 执行模式：auto / sync / async */
@@ -49,9 +55,27 @@ export type ParsedImageGenArgs = {
 export type GeneratedImage = {
   data: string;
   mimeType: string;
-  /** 图库相对路径引用（image/...，图片已落盘到图库目录），经 IPC 读取；优先于 data */
+  /** 落盘相对路径引用（image/ 图库或 upload/ 上传），经 img-proxy 读盘；优先于 data */
   path?: string;
 };
+
+/** 生成图片的展示地址：落盘引用经 img-proxy 按需读盘，渲染进程不持有图片数据。 */
+export const generatedImageSrc = (image: GeneratedImage): string =>
+  image.path
+    ? localImageProxyUrl(image.path)
+    : `data:${image.mimeType};base64,${image.data}`;
+
+/** 参考图展示地址：内联数据用 data URL，路径引用（upload/ 或绝对路径）经 img-proxy 读盘。 */
+export const referenceImageSrc = (image: {
+  data: string;
+  mimeType: string;
+  path?: string;
+}): string =>
+  image.data
+    ? `data:${image.mimeType};base64,${image.data}`
+    : image.path
+      ? localImageProxyUrl(image.path)
+      : "";
 
 export type ParsedImageGenResult =
   | {
@@ -233,12 +257,6 @@ export const parseImageGenArgs = (args: string): ParsedImageGenArgs | null => {
   }
 };
 
-/** 匹配 result 文本中追加的内联图片标签（@@image:data:...@@）。该标签由
- *  formatMcpToolResultForModel 在持久化时生成（真实 base64 换占位符 +
- *  标签），历史回放时由 Rust resolve_inline_images_from_disk 还原为
- *  data URL。剥离标签后 result 才是纯 JSON。 */
-const INLINE_IMAGE_TAG_RE = /@@image:(data:[^@]+)@@/g;
-
 export const parseImageGenResult = (
   result: string | undefined,
 ): ParsedImageGenResult => {
@@ -246,16 +264,10 @@ export const parseImageGenResult = (
     return { type: "empty" };
   }
 
-  // 历史消息回放时 result 形如 "{JSON}\n@@image:data:...@@\n..."，
-  // 直接 JSON.parse 会失败 → 走 raw 兜底把 JSON + base64 当文本展示
-  // （表现为生图结果区域渲染出大量乱码/重复字符）。先提取并剥离标签。
-  const inlineDataUrls: string[] = [];
-  const stripped = result
-    .replace(INLINE_IMAGE_TAG_RE, (_match, dataUrl: string) => {
-      inlineDataUrls.push(dataUrl);
-      return "";
-    })
-    .trim();
+  // 交给模型的格式化结果形如 "{JSON}\n@@image:...@@\n..."（标签值为 data URL
+  // 或落盘路径），直接 JSON.parse 会失败 → 走 raw 兜底把 JSON + base64 当文本
+  // 展示（表现为生图结果区域渲染出大量乱码/重复字符）。先提取并剥离标签。
+  const { text: stripped, values: inlineValues } = stripInlineImageTags(result);
 
   try {
     const parsed: unknown = JSON.parse(stripped);
@@ -289,36 +301,31 @@ export const parseImageGenResult = (
           block.type === "image" &&
           typeof block.mimeType === "string"
         ) {
+          const mimeType = block.mimeType;
           const data = typeof block.data === "string" ? block.data : "";
-          // 存储时真实 base64 被替换为占位符，这里用标签中的 data URL 还原
-          let resolvedData = data;
-          if (
-            (data === "" || data === "[attached as multimodal image]") &&
-            inlineIndex < inlineDataUrls.length
-          ) {
-            const dataUrl = inlineDataUrls[inlineIndex];
-            const comma = dataUrl.indexOf(",");
-            if (comma > 0) {
-              resolvedData = dataUrl.slice(comma + 1);
-            }
-          }
+          const isPlaceholder = data === "" || data === IMAGE_DATA_PLACEHOLDER;
+          // 存储时 data 换成占位符，真实图片按序在内联标签里（data URL 或落盘路径）
+          const inlineValue = isPlaceholder
+            ? inlineValues[inlineIndex]
+            : undefined;
           inlineIndex += 1;
-          if (
-            typeof block.path === "string" &&
-            block.path.trim() !== "" &&
-            resolvedData === ""
-          ) {
-            // 图库落盘引用（image/...）：渲染时经 IPC 读取文件
+          const blockPath =
+            typeof block.path === "string" ? block.path.trim() : "";
+          if (inlineValue?.startsWith("data:")) {
+            const comma = inlineValue.indexOf(",");
+            images.push({
+              data: comma > 0 ? inlineValue.slice(comma + 1) : "",
+              mimeType,
+            });
+          } else if (inlineValue || (isPlaceholder && blockPath)) {
+            // 落盘引用（image/ 图库、upload/ 上传）：渲染时经 img-proxy 读盘
             images.push({
               data: "",
-              mimeType: block.mimeType as string,
-              path: block.path.trim(),
+              mimeType,
+              path: inlineValue ?? blockPath,
             });
           } else {
-            images.push({
-              data: resolvedData,
-              mimeType: block.mimeType as string,
-            });
+            images.push({ data, mimeType });
           }
         }
       }

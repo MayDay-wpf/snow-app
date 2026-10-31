@@ -14,6 +14,7 @@ import { useI18n } from "../../../../i18n";
 import { imageProxyUrl } from "../../../../utils/imageProxyUrl";
 import { rightPanelEvents } from "../../../rightPanel/rightPanelEvents";
 import type { ToolCallInfo } from "../utils/conversationTypes";
+import { imageBlockSrc, stripInlineImageTags } from "../utils/inlineImages";
 import { ToolCallNode } from "./shared/ToolCallNode";
 import { localizeToolError } from "./shared/toolErrorDisplay";
 
@@ -55,8 +56,8 @@ type ParsedSearchResult =
   | { type: "empty" };
 
 type FetchedImage = {
-  data: string;
-  mimeType: string;
+  /** <img> 地址：data URL，或落盘路径的 img-proxy 地址。 */
+  src: string;
 };
 
 type ParsedFetchResult =
@@ -203,8 +204,10 @@ const parseFetchResult = (result: string | undefined): ParsedFetchResult => {
     return { type: "empty" };
   }
 
+  // 交给模型的格式化结果在 JSON 尾部追加图片标签，先剥离再解析。
+  const { text: stripped, values: inlineValues } = stripInlineImageTags(result);
   try {
-    const parsed: unknown = JSON.parse(result);
+    const parsed: unknown = JSON.parse(stripped);
     if (!isRecord(parsed)) {
       return { type: "raw", text: result };
     }
@@ -227,15 +230,11 @@ const parseFetchResult = (result: string | undefined): ParsedFetchResult => {
         }
         if (block.type === "text" && typeof block.text === "string") {
           content = content ? `${content}\n${block.text}` : block.text;
-        } else if (
-          block.type === "image" &&
-          typeof block.data === "string" &&
-          typeof block.mimeType === "string"
-        ) {
-          image = {
-            data: block.data as string,
-            mimeType: block.mimeType as string,
-          };
+        } else if (block.type === "image") {
+          const src = imageBlockSrc(block, inlineValues);
+          if (src) {
+            image = { src };
+          }
         }
       }
     }
@@ -772,7 +771,7 @@ const FetchToolCall = ({
             {parsedResult.image ? (
               <div className="tool-call-websearch-image">
                 <img
-                  src={`data:${parsedResult.image.mimeType};base64,${parsedResult.image.data}`}
+                  src={parsedResult.image.src}
                   alt={parsedResult.title || host}
                 />
               </div>

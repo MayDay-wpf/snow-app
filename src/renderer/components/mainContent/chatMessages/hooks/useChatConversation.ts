@@ -58,6 +58,29 @@ import {
   PLUGIN_CONVERSATION_LIST_CHANGED_EVENT,
   type PluginConversationListChangedDetail,
 } from "../../../../plugins/pluginEvents";
+import { archiveSubAgentRunActivity } from "../utils/subAgentRunActivity";
+import {
+  isFileChangeHydrationReleased,
+  releaseFileChangeHydration,
+} from "./fileChangeTracking";
+
+/** 已结束的子代理会话在内存中的保留时长上限：仍可随时从数据库重新载入。 */
+const ENDED_SUB_AGENT_SESSION_TTL_MS = 3 * 60_000;
+
+/** 去掉指定会话的条目；没有命中时返回原对象，避免无意义的状态更新。 */
+const omitKeys = <T>(
+  record: Record<string, T>,
+  keys: string[],
+): Record<string, T> => {
+  if (!keys.some((key) => key in record)) {
+    return record;
+  }
+  const next = { ...record };
+  for (const key of keys) {
+    delete next[key];
+  }
+  return next;
+};
 
 /** 空数组常量：避免"无当前会话 / 无队列"时每次渲染都产生新引用，击穿下游 memo。 */
 const EMPTY_MESSAGES: ChatConversationMessage[] = [];
@@ -148,18 +171,24 @@ export const useChatConversation = (
   // pipeline (recordFileChange marks the id, so live sessions never get
   // double-counted by a later history re-hydration).
   const fileChangeStatsHydratedRef = useRef<Set<string>>(new Set());
+  // 被 TTL 释放过统计的会话在重新打开重建前，实时记录只是增量。
+  const markFileChangesLive = useCallback((conversationId: string): void => {
+    if (!isFileChangeHydrationReleased(conversationId)) {
+      fileChangeStatsHydratedRef.current.add(conversationId);
+    }
+  }, []);
   const recordFileChange = useCallback(
     (
       conversationId: string,
       record: ConversationContextValue["fileChangeStats"][string][number],
     ) => {
-      fileChangeStatsHydratedRef.current.add(conversationId);
+      markFileChangesLive(conversationId);
       setFileChangeStats((prev) => ({
         ...prev,
         [conversationId]: [...(prev[conversationId] ?? []), record],
       }));
     },
-    [],
+    [markFileChangesLive],
   );
   const mergeFileChangeStats = useCallback(
     (conversationId: string, records: FileChangeRecord[]): void => {
@@ -212,13 +241,13 @@ export const useChatConversation = (
       conversationId: string,
       record: ConversationContextValue["fileChangeCoverage"][string][number],
     ) => {
-      fileChangeStatsHydratedRef.current.add(conversationId);
+      markFileChangesLive(conversationId);
       setFileChangeCoverage((prev) => ({
         ...prev,
         [conversationId]: [...(prev[conversationId] ?? []), record],
       }));
     },
-    [],
+    [markFileChangesLive],
   );
   const mergeFileChangeCoverage = useCallback(
     (
@@ -592,7 +621,12 @@ export const useChatConversation = (
         ) {
           continue;
         }
-        const dueAt = session.lastAccessedAt + ttlMs;
+        const subAgentStatus = subAgentSessionEventsRef.current[key]?.status;
+        const sessionTtlMs =
+          subAgentStatus && subAgentStatus !== "running"
+            ? Math.min(ttlMs, ENDED_SUB_AGENT_SESSION_TTL_MS)
+            : ttlMs;
+        const dueAt = session.lastAccessedAt + sessionTtlMs;
         if (dueAt <= now) {
           expiredKeys.push(key);
         } else if (dueAt < nextDueAt) {
@@ -600,11 +634,21 @@ export const useChatConversation = (
         }
       }
       if (expiredKeys.length > 0) {
+        // 文件变更统计（含 diff 补丁）随会话一并释放，重新打开时从数据库重建。
+        for (const key of expiredKeys) {
+          fileChangeStatsHydratedRef.current.delete(key);
+          releaseFileChangeHydration(key);
+        }
+        setFileChangeStats((prev) => omitKeys(prev, expiredKeys));
+        setFileChangeCoverage((prev) => omitKeys(prev, expiredKeys));
         setSessions((prev) => {
           let changed = false;
           const next = { ...prev };
           for (const key of expiredKeys) {
-            if (next[key]) {
+            const expired = next[key];
+            if (expired) {
+              // 父会话子代理卡片的进度列表来自子会话消息：回收前先归档摘要。
+              archiveSubAgentRunActivity(expired.messages);
               delete next[key];
               changed = true;
             }
@@ -730,7 +774,29 @@ export const useChatConversation = (
   );
 
   // --- Build context object ---
-  const ctx: ConversationContextValue = {
+  // ctx 是跨渲染稳定的同一个对象，每次渲染原地刷新字段。agent loop、子代理
+  // 恢复器、运行注册表、工作流执行器等长生命周期闭包持有的始终是它：读到的
+  // 是最新值，也不会把某次渲染时的 sessions 快照钉在内存里（否则 TTL 清理与
+  // 消息窗口裁剪释放的消息仍被旧快照引用，内存无法回收）。
+  // API 函数占位只在首次创建时写入，随后由下方各子 hook 每次渲染回填。
+  const ctxObjectRef = useRef<ConversationContextValue | null>(null);
+  const ctx = (ctxObjectRef.current ??= {
+    setActiveId: () => {},
+    ensureSession: () => {},
+    updateSessionMessages: () => {},
+    updateSessionField: () => {},
+    migrateSession: () => {},
+    addStreamingId: () => {},
+    removeStreamingId: () => {},
+    saveInputDraft: () => {},
+    getInputDraft: () => undefined,
+    clearInputDraft: () => {},
+    updateRuntimeInputState: () => {},
+    notifyAiComplete: (_options) => {},
+    notifySensitiveCommandIntercepted: (_options) => {},
+    notifyUserInteractionRequired: (_options) => {},
+  } as Partial<ConversationContextValue> as ConversationContextValue);
+  Object.assign(ctx, {
     directoryId,
     directoryPath,
     sessions,
@@ -848,23 +914,7 @@ export const useChatConversation = (
     setCompactionError,
     setIsCompacting,
     setCompactingConversationId,
-
-    // These will be filled in after sub-hooks are called
-    setActiveId: () => {},
-    ensureSession: () => {},
-    updateSessionMessages: () => {},
-    updateSessionField: () => {},
-    migrateSession: () => {},
-    addStreamingId: () => {},
-    removeStreamingId: () => {},
-    saveInputDraft: () => {},
-    getInputDraft: () => undefined,
-    clearInputDraft: () => {},
-    updateRuntimeInputState: () => {},
-    notifyAiComplete: (_options) => {},
-    notifySensitiveCommandIntercepted: (_options) => {},
-    notifyUserInteractionRequired: (_options) => {},
-  };
+  } satisfies Partial<ConversationContextValue>);
 
   // --- 1. Conversation session management ---
   const sessionApi = useConversationSession(ctx);

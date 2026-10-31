@@ -29,11 +29,13 @@ import { imageGenerationStatusKey } from "../utils/imageGenerationState";
 import {
   classifyImageGenError,
   columnsForCount,
+  generatedImageSrc,
   imageGenErrorTitleKey,
   IMG_TALL_RATIO,
   IMG_WIDE_RATIO,
   parseImageGenArgs,
   parseImageGenResult,
+  referenceImageSrc,
   truncateLabel,
   type GalleryItem,
   type LightboxTarget,
@@ -42,13 +44,6 @@ import {
 type ImageGenToolCallProps = {
   toolCall: ToolCallInfo;
 };
-
-/**
- * 参考图路径（绝对磁盘路径或 upload/ 相对路径）→ data URL 的进程内缓存。
- * path 引用（纯文本主模型场景的 [Reference image #N ...] 块）需要经主进程
- * 读取文件，同一图片在历史消息中会反复渲染，缓存避免重复 IPC。
- */
-const uploadImageCache = new Map<string, string>();
 
 /** 失败重试状态：组件内自持，不写回会话（避免与 agent loop 状态机竞争）。 */
 type RetryState =
@@ -277,124 +272,6 @@ export const ImageGenToolCall = ({
     [effectiveResult],
   );
 
-  // 收集 path 引用参考图（无内联 data 的项），挂载后经主进程读取真实缩略图
-  const referencePaths = useMemo(() => {
-    const paths: string[] = [];
-    for (const image of parsedArgs?.images ?? []) {
-      if (!image.data && image.path && !paths.includes(image.path)) {
-        paths.push(image.path);
-      }
-    }
-    return paths;
-  }, [parsedArgs]);
-
-  const [resolvedRefs, setResolvedRefs] = useState<Record<string, string>>({});
-
-  // 收集图库落盘引用（image/... 前缀），挂载后经 IPC 读取真实图片数据
-  const libraryPaths = useMemo(() => {
-    const paths: string[] = [];
-    if (parsedResult.type === "success") {
-      for (const image of parsedResult.images) {
-        if (
-          image.path &&
-          image.path.startsWith("image/") &&
-          !paths.includes(image.path)
-        ) {
-          paths.push(image.path);
-        }
-      }
-    }
-    return paths;
-  }, [parsedResult]);
-
-  const [resolvedLibrary, setResolvedLibrary] = useState<
-    Record<string, string>
-  >({});
-
-  useEffect(() => {
-    if (libraryPaths.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const next: Record<string, string> = {};
-      for (const path of libraryPaths) {
-        if (cancelled) {
-          return;
-        }
-        const cached = uploadImageCache.get(path);
-        if (cached) {
-          next[path] = cached;
-          continue;
-        }
-        let dataUrl: string | null = null;
-        try {
-          dataUrl = await window.snow.resolveLibraryImage(path);
-        } catch (error) {
-          console.warn(
-            "[imagegen] resolveLibraryImage failed for",
-            path,
-            error,
-          );
-        }
-        if (cancelled) {
-          return;
-        }
-        if (dataUrl) {
-          uploadImageCache.set(path, dataUrl);
-          next[path] = dataUrl;
-        }
-      }
-      if (!cancelled && Object.keys(next).length > 0) {
-        setResolvedLibrary((prev) => ({ ...prev, ...next }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [libraryPaths]);
-
-  useEffect(() => {
-    if (referencePaths.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const next: Record<string, string> = {};
-      for (const path of referencePaths) {
-        if (cancelled) {
-          return;
-        }
-        const cached = uploadImageCache.get(path);
-        if (cached) {
-          next[path] = cached;
-          continue;
-        }
-        let dataUrl: string | null = null;
-        try {
-          dataUrl = await window.snow.resolveUploadImage(path);
-        } catch (error) {
-          // IPC 失败（如主进程未注册 handler / native 未就绪）不应中断其余
-          // 参考图的解析；记录日志便于排查，当前项回退为占位展示。
-          console.warn("[imagegen] resolveUploadImage failed for", path, error);
-        }
-        if (cancelled) {
-          return;
-        }
-        if (dataUrl) {
-          uploadImageCache.set(path, dataUrl);
-          next[path] = dataUrl;
-        }
-      }
-      if (!cancelled && Object.keys(next).length > 0) {
-        setResolvedRefs((prev) => ({ ...prev, ...next }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [referencePaths]);
-
   const hasError = parsedResult.type === "error";
   const effectiveStatus = hasError ? "error" : toolCall.status;
 
@@ -415,9 +292,7 @@ export const ImageGenToolCall = ({
     for (const image of parsedResult.images) {
       items.push({
         key: image.path ?? `img-${image.data.length}`,
-        src: image.path
-          ? (resolvedLibrary[image.path] ?? "")
-          : `data:${image.mimeType};base64,${image.data}`,
+        src: generatedImageSrc(image),
         image,
       });
     }
@@ -429,7 +304,7 @@ export const ImageGenToolCall = ({
       });
     }
     return items;
-  }, [parsedResult, resolvedLibrary]);
+  }, [parsedResult]);
 
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [copyingImage, setCopyingImage] = useState(false);
@@ -445,7 +320,9 @@ export const ImageGenToolCall = ({
     try {
       const ok = await copyImageToClipboard({
         src: first.src,
-        libraryPath: first.image?.path,
+        libraryPath: first.image?.path?.startsWith("image/")
+          ? first.image.path
+          : undefined,
       });
       if (!ok) {
         return;
@@ -469,13 +346,8 @@ export const ImageGenToolCall = ({
       const blobs: Blob[] = [];
       for (const item of galleryItems) {
         try {
-          let src = item.src;
-          if (!src && item.image?.path) {
-            src =
-              (await window.snow.resolveLibraryImage(item.image.path)) ?? "";
-          }
-          if (src) {
-            blobs.push(await srcToBlob(src));
+          if (item.src) {
+            blobs.push(await srcToBlob(item.src));
           }
         } catch (error) {
           console.warn("[imagegen] downloadAll failed for", item.key, error);
@@ -700,11 +572,7 @@ export const ImageGenToolCall = ({
           </span>
           <div className="tool-call-imagegen-refs-grid">
             {refImages.map((image, index) => {
-              const src = image.data
-                ? `data:${image.mimeType};base64,${image.data}`
-                : image.path
-                  ? (resolvedRefs[image.path] ?? "")
-                  : "";
+              const src = referenceImageSrc(image);
               return (
                 <div
                   key={`${index}-${image.path ?? image.data.length}`}
@@ -786,44 +654,8 @@ export const ImageGenToolCall = ({
   const lightboxSrc = lightbox
     ? lightbox.kind === "remote"
       ? imageProxyUrl(lightbox.url)
-      : lightbox.image.path
-        ? (resolvedLibrary[lightbox.image.path] ?? "")
-        : `data:${lightbox.image.mimeType};base64,${lightbox.image.data}`
+      : generatedImageSrc(lightbox.image)
     : "";
-
-  // 灯箱打开时若图片数据尚未解析（path 引用），立即兜底解析，
-  // 避免 src 为空导致破图图标闪烁
-  useEffect(() => {
-    if (lightbox?.kind !== "image" || !lightbox.image.path) {
-      return;
-    }
-    const targetPath = lightbox.image.path;
-    if (resolvedLibrary[targetPath]) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const dataUrl = await window.snow.resolveLibraryImage(targetPath);
-        if (!cancelled && dataUrl) {
-          setResolvedLibrary((prev) => ({ ...prev, [targetPath]: dataUrl }));
-        }
-      } catch (error) {
-        console.warn(
-          "[imagegen] resolveLibraryImage failed for lightbox",
-          targetPath,
-          error,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    lightbox?.kind,
-    lightbox?.kind === "image" ? lightbox.image.path : undefined,
-    resolvedLibrary,
-  ]);
 
   // Esc 关闭灯箱；方向键在同批次图片间上下/左右切换
   useEffect(() => {
@@ -911,23 +743,11 @@ export const ImageGenToolCall = ({
               type="button"
               className="tool-call-imagegen-download"
               onClick={() => {
-                void (async () => {
-                  let src = lightboxSrc;
-                  if (
-                    !src &&
-                    lightbox.kind === "image" &&
-                    lightbox.image.path
-                  ) {
-                    src =
-                      (await window.snow.resolveLibraryImage(
-                        lightbox.image.path,
-                      )) ?? "";
-                  }
-                  if (src) {
-                    // data URL / http(s) / img-proxy:// 统一由工具函数解析为 Blob 保存
-                    await downloadImageSrc(src);
-                  }
-                })().catch((error) => {
+                if (!lightboxSrc) {
+                  return;
+                }
+                // data URL / http(s) / img-proxy:// 统一由工具函数解析为 Blob 保存
+                downloadImageSrc(lightboxSrc).catch((error) => {
                   console.error("[imagegen] save image failed:", error);
                 });
               }}
@@ -942,30 +762,12 @@ export const ImageGenToolCall = ({
               className="tool-call-imagegen-download"
               title={t("toolCall.imagegen.copyImageHint")}
               onClick={() => {
-                void (async () => {
-                  let src = lightboxSrc;
-                  if (
-                    !src &&
-                    lightbox.kind === "image" &&
-                    lightbox.image.path
-                  ) {
-                    src =
-                      (await window.snow.resolveLibraryImage(
-                        lightbox.image.path,
-                      )) ?? "";
-                  }
-                  if (!src) {
-                    return;
-                  }
-                  try {
-                    await copyImageToClipboard({ src });
-                  } catch (error) {
-                    console.warn(
-                      "[imagegen] copy lightbox image failed:",
-                      error,
-                    );
-                  }
-                })();
+                if (!lightboxSrc) {
+                  return;
+                }
+                copyImageToClipboard({ src: lightboxSrc }).catch((error) => {
+                  console.warn("[imagegen] copy lightbox image failed:", error);
+                });
               }}
             >
               <Copy size={13} aria-hidden="true" />

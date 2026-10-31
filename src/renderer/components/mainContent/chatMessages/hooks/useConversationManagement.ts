@@ -13,6 +13,8 @@ import {
   PENDING_SESSION_KEY,
   CHAT_MESSAGE_PAGE_SIZE,
   isPendingSessionKey,
+  olderPageCursorOf,
+  toMessageRecordRefs,
 } from "../utils/conversationTypes";
 import {
   buildConversationMessages,
@@ -22,7 +24,10 @@ import {
   tokenUsageFromMessageRecords,
 } from "../utils/conversationHelpers";
 import { settleInterruptedMessages } from "../utils/messageSettlement";
-import { extractFileTrackingFromRecords } from "./fileChangeTracking";
+import {
+  extractFileTrackingFromRecords,
+  settleFileChangeHydration,
+} from "./fileChangeTracking";
 import {
   appendHookExecutionToMessage,
   runHook,
@@ -380,6 +385,7 @@ export const useConversationManagement = (
                 }
               }
               ctx.fileChangeStatsHydratedRef.current.add(trimmedId);
+              settleFileChangeHydration(trimmedId);
             }
 
             // Cache the fetched page even when this request was superseded
@@ -448,7 +454,7 @@ export const useConversationManagement = (
                   ...prev,
                   [trimmedId]: {
                     messages: historyMessages,
-                    messageRecords: page.items,
+                    messageRecords: toMessageRecordRefs(page.items),
                     summary: nextTitle,
                     isStreaming: isCurrentlyStreaming,
                     isAborting: false,
@@ -603,9 +609,10 @@ export const useConversationManagement = (
       }
 
       const session = ctx.sessionsRef.current[conversationId];
-      // 窗口裁剪过则沿裁剪游标翻页，否则取已加载的最早记录。
+      // 窗口裁剪过则沿裁剪游标翻页，否则取已加载的最早（非孤立 tool）记录。
       const beforeMessageId =
-        session?.olderCursorId ?? session?.messageRecords[0]?.id;
+        session?.olderCursorId ??
+        (session ? olderPageCursorOf(session.messageRecords) : undefined);
       if (
         !session ||
         !beforeMessageId ||
@@ -674,7 +681,8 @@ export const useConversationManagement = (
           }
           // 加载期间窗口被裁剪或重置：本页与当前窗口不再相邻，丢弃。
           const latestCursor =
-            latestSession.olderCursorId ?? latestSession.messageRecords[0]?.id;
+            latestSession.olderCursorId ??
+            olderPageCursorOf(latestSession.messageRecords);
           if (latestCursor !== beforeMessageId) {
             return {
               ...prev,
@@ -688,25 +696,27 @@ export const useConversationManagement = (
             latestSession.messageRecords.map((record) => record.id),
           );
           const combinedRecords = [
-            ...olderRecords.filter((record) => !persistedIds.has(record.id)),
+            ...toMessageRecordRefs(
+              page.items.filter((record) => !persistedIds.has(record.id)),
+            ),
             ...latestSession.messageRecords,
           ];
-          const transientMessages = latestSession.messages.filter(
-            (message) => !persistedIds.has(message.id),
-          );
+          // 本页只构建更早的消息（游标之前的孤立 tool 记录随页取回，用于挂结果），
+          // 窗口内已有消息原样保留，无需持有完整记录重建。
           return {
             ...prev,
             [conversationId]: {
               ...latestSession,
               messages: projectImages([
-                ...buildConversationMessages(combinedRecords),
-                ...transientMessages,
+                ...buildConversationMessages(page.items),
+                ...latestSession.messages,
               ]),
               messageRecords: combinedRecords,
               isLoadingOlderMessages: false,
               hasMoreMessages: page.hasMore,
               olderCursorId:
-                combinedRecords[0]?.id ?? latestSession.olderCursorId,
+                olderPageCursorOf(combinedRecords) ??
+                latestSession.olderCursorId,
               lastAccessedAt: Date.now(),
             },
           };

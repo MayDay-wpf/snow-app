@@ -48,6 +48,11 @@ import {
 import { useI18n } from "../../../../i18n";
 import { rightPanelEvents } from "../../../rightPanel/rightPanelEvents";
 import type { ToolCallInfo } from "../utils/conversationTypes";
+import {
+  imageBlockSrc,
+  inlineImageSrc,
+  stripInlineImageTags,
+} from "../utils/inlineImages";
 import { ToolCallNode } from "./shared/ToolCallNode";
 import { BrowserToolError } from "./BrowserToolError";
 import {
@@ -137,11 +142,6 @@ type BrowserTab = {
   isActive: boolean;
 };
 
-type ScreenshotImage = {
-  data: string;
-  mimeType: string;
-};
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -160,35 +160,13 @@ const parseArgs = (args: string): Record<string, unknown> | null => {
   }
 };
 
-/** 持久化时 formatMcpToolResultForModel 把 image block 的 base64 换成占位符，
- *  并在 result 尾部追加此标签，直接 JSON.parse 整串会失败，需先剥离。 */
-const INLINE_IMAGE_TAG_RE = /@@image:(data:[^@]+)@@/g;
-
-/** 从 data URL 提取 base64 数据部分。 */
-const base64FromDataUrl = (dataUrl: string): string | null => {
-  const comma = dataUrl.indexOf(",");
-  return comma > 0 ? dataUrl.slice(comma + 1) : null;
-};
-
-/** 剥离内联图片标签，返回剩余文本与 data URL 列表。 */
-const stripInlineImageTags = (
-  result: string,
-): { text: string; images: string[] } => {
-  const images: string[] = [];
-  const text = result
-    .replace(INLINE_IMAGE_TAG_RE, (_match, dataUrl: string) => {
-      images.push(dataUrl);
-      return "";
-    })
-    .trim();
-  return { text, images };
-};
-
+/** 交给模型的格式化结果在 JSON 尾部追加内联图片标签，直接 JSON.parse 整串
+ *  会失败，需先剥离。 */
 const parseResult = (result: string | undefined): ParsedResult => {
   if (!result) {
     return { type: "empty" };
   }
-  const { text, images } = stripInlineImageTags(result);
+  const { text, values: images } = stripInlineImageTags(result);
   try {
     const parsed: unknown = JSON.parse(text);
     if (!isRecord(parsed)) {
@@ -342,47 +320,23 @@ const parseBrowserTabs = (value: unknown): BrowserTab[] => {
     }));
 };
 
-const parseScreenshotImage = (
+/** 截图地址：取首个可显示的图片块；content 缺失图片块时直接用内联标签。 */
+const parseScreenshotSrc = (
   value: unknown,
-  inlineDataUrls: string[],
-): ScreenshotImage | null => {
-  let image: ScreenshotImage | null = null;
+  inlineValues: string[],
+): string | null => {
+  const pending = [...inlineValues];
   if (Array.isArray(value)) {
     for (const block of value) {
-      if (
-        isRecord(block) &&
-        block.type === "image" &&
-        typeof block.mimeType === "string"
-      ) {
-        let data = typeof block.data === "string" ? block.data : "";
-        // 持久化后 data 为占位符：用内联标签中的 data URL 还原
-        if (
-          (data === "" || data === "[attached as multimodal image]") &&
-          inlineDataUrls.length > 0
-        ) {
-          const dataUrl = inlineDataUrls.shift();
-          data = dataUrl ? (base64FromDataUrl(dataUrl) ?? "") : "";
-        }
-        if (data) {
-          image = { data, mimeType: block.mimeType };
-          break;
+      if (isRecord(block) && block.type === "image") {
+        const src = imageBlockSrc(block, pending);
+        if (src) {
+          return src;
         }
       }
     }
   }
-  // content 数组缺失 image block 但存在内联标签：直接从标签还原
-  if (!image && inlineDataUrls.length > 0) {
-    const dataUrl = inlineDataUrls[0];
-    const base64 = base64FromDataUrl(dataUrl);
-    if (base64) {
-      const mimeTypeMatch = /^data:([^;,]+)/.exec(dataUrl);
-      image = {
-        mimeType: mimeTypeMatch?.[1] ?? "image/png",
-        data: base64,
-      };
-    }
-  }
-  return image;
+  return pending.length > 0 ? inlineImageSrc(pending[0]) : null;
 };
 
 const consoleLevelKey = (level: number): string => {
@@ -1341,8 +1295,7 @@ const ScreenshotView = ({
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const fullPageArg = args?.fullPage !== false;
   const fullPage = data ? data.fullPage !== false : fullPageArg;
-  const image = data ? parseScreenshotImage(data.content, inlineImages) : null;
-  const imageSrc = image ? `data:${image.mimeType};base64,${image.data}` : null;
+  const imageSrc = data ? parseScreenshotSrc(data.content, inlineImages) : null;
   const resultUrl = asString(data?.url);
   const title = asString(data?.title);
   const instanceId = asString(data?.instanceId);
@@ -1426,10 +1379,10 @@ const ScreenshotView = ({
           instanceId={instanceId}
         />
       ) : null}
-      {image ? (
+      {imageSrc ? (
         <div className="tool-call-browser-shot">
           <img
-            src={imageSrc ?? undefined}
+            src={imageSrc}
             alt={title || resultUrl || "screenshot"}
             title={t("toolCall.computerUse.clickToZoom")}
             onClick={() => setIsLightboxOpen(true)}

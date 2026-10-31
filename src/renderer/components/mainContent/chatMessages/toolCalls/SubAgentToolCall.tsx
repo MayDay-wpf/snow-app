@@ -31,7 +31,10 @@ import {
   useSubAgentFailurePending,
 } from "../hooks/subAgentRunControl";
 import type { ToolCallInfo } from "../utils/conversationTypes";
-import type { ChatConversationMessage } from "../utils/conversationTypes";
+import {
+  subAgentRunActivity,
+  type SubAgentToolCallEntry,
+} from "../utils/subAgentRunActivity";
 import type { HookExecutionRecord } from "../utils/conversationTypes";
 import type { SubAgentAcceptanceSnapshot } from "../hooks/subAgentAcceptance";
 import {
@@ -210,84 +213,6 @@ const getSummaryPreview = (summary: string): string =>
     ? `${summary.slice(0, SUMMARY_PREVIEW_MAX)}...`
     : summary;
 
-type SubAgentToolCallEntry = {
-  id: string;
-  name: string;
-  status: "pending" | "running" | "completed" | "error";
-  summary: string;
-};
-
-const getToolSummary = (name: string, args: string): string => {
-  try {
-    const parsed: unknown = JSON.parse(args);
-    if (!isRecord(parsed)) {
-      return "";
-    }
-    const shortName = name.replace(/^.*?-/, "");
-    switch (shortName) {
-      case "read":
-      case "replace_edit":
-      case "create":
-        return typeof parsed.filePath === "string" ? parsed.filePath : "";
-      case "terminal-execute":
-        if (typeof parsed.command === "string") {
-          const firstLine = parsed.command.split("\n")[0];
-          return firstLine.length > 80
-            ? `${firstLine.slice(0, 80)}...`
-            : firstLine;
-        }
-        return "";
-      case "search":
-        return typeof parsed.pattern === "string" ? parsed.pattern : "";
-      case "todo-manage":
-        return typeof parsed.action === "string" ? parsed.action : "";
-      case "askUserQuestion":
-        return typeof parsed.question === "string" ? parsed.question : "";
-      case "agents-sendMessage": {
-        const message =
-          typeof parsed.message === "string" ? parsed.message.trim() : "";
-        if (!message) {
-          return "";
-        }
-        const firstLine = message.split("\n")[0];
-        return firstLine.length > 80
-          ? `${firstLine.slice(0, 80)}...`
-          : firstLine;
-      }
-      default:
-        return "";
-    }
-  } catch {
-    return "";
-  }
-};
-
-const extractSubAgentToolCalls = (
-  messages: ChatConversationMessage[] | undefined,
-): SubAgentToolCallEntry[] => {
-  const entries: SubAgentToolCallEntry[] = [];
-
-  if (!messages) {
-    return entries;
-  }
-
-  for (const message of messages) {
-    if (message.role !== "assistant" || !message.toolCalls) {
-      continue;
-    }
-    for (const tc of message.toolCalls) {
-      entries.push({
-        id: tc.callId ?? `${tc.name}-${entries.length}`,
-        name: tc.name,
-        status: tc.status,
-        summary: getToolSummary(tc.name, tc.arguments),
-      });
-    }
-  }
-
-  return entries;
-};
-
 export const SubAgentToolCall = ({
   toolCall,
   parentConversationId,
@@ -377,15 +302,12 @@ export const SubAgentToolCall = ({
     ? sessions[subConversationId]
     : undefined;
   // A continued conversation contains multiple runs. Do not show later activity
-  // as progress of an earlier, already completed dispatch.
-  const runMessages = useMemo(
-    () =>
-      run
-        ? subSession?.messages.filter(
-            (message) => message.subAgentRunId === run.runId,
-          )
-        : undefined,
-    [run, subSession?.messages],
+  // as progress of an earlier, already completed dispatch. Activity unloaded
+  // from memory (window trim / cache sweep) is merged back from the archive.
+  const subSessionMessages = subSession?.messages;
+  const toolCallEntries = useMemo(
+    () => (run ? subAgentRunActivity(run.runId, subSessionMessages) : []),
+    [run, subSessionMessages],
   );
   const isEmptyResultError =
     parsedResult.type === "empty" && toolCall.status === "error";
@@ -403,10 +325,6 @@ export const SubAgentToolCall = ({
           : "subAgentRun.unavailable"
         : null
     : null;
-  const toolCallEntries = useMemo(
-    () => extractSubAgentToolCalls(runMessages),
-    [runMessages],
-  );
 
   const completedCount = toolCallEntries.filter(
     (e) => e.status === "completed",

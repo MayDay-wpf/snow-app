@@ -213,18 +213,17 @@ fn payment_card_pattern() -> Regex {
     Regex::new(r"\b(?:\d[ -]*?){13,19}\b").unwrap()
 }
 
+/// 保留前 `visible_prefix` / 后 `visible_suffix` 个字符，其余替换为 `*`。
+/// 按字符而非字节切分：多字节字符（中文等）落在字节切点上会 panic。
 fn mask_secret_value(value: &str, visible_prefix: usize, visible_suffix: usize) -> String {
     let visible_length = visible_prefix + visible_suffix;
-    if value.len() <= visible_length {
-        return "*".repeat(value.len());
+    let char_count = value.chars().count();
+    if char_count <= visible_length {
+        return "*".repeat(char_count);
     }
-    let prefix = &value[..visible_prefix];
-    let masked = "*".repeat(value.len() - visible_length);
-    let suffix = if visible_suffix > 0 {
-        &value[value.len() - visible_suffix..]
-    } else {
-        ""
-    };
+    let prefix: String = value.chars().take(visible_prefix).collect();
+    let suffix: String = value.chars().skip(char_count - visible_suffix).collect();
+    let masked = "*".repeat(char_count - visible_length);
     format!("{prefix}{masked}{suffix}")
 }
 

@@ -18,8 +18,8 @@ import {
   isPendingSessionKey,
 } from "../utils/conversationTypes";
 import {
-  canTrimMessageWindow,
   isAssistantMessageAppended,
+  resolveMessageWindow,
   trimSessionMessageWindow,
 } from "../utils/messageWindow";
 
@@ -166,12 +166,14 @@ export const useConversationSession = (ctx: ConversationContextValue) => {
           lastAccessedAt: Date.now(),
         };
         // 新 AI 消息追加时裁剪消息窗口；视图阅读历史（未钉底）时跳过。
-        const trimmed =
+        const windowSize =
           !isPendingSessionKey(key) &&
-          isAssistantMessageAppended(session.messages, messages) &&
-          canTrimMessageWindow(key)
-            ? trimSessionMessageWindow(updated)
+          isAssistantMessageAppended(session.messages, messages)
+            ? resolveMessageWindow(key)
             : null;
+        const trimmed = windowSize
+          ? trimSessionMessageWindow(updated, windowSize)
+          : null;
         return {
           ...prev,
           [key]: trimmed ?? updated,

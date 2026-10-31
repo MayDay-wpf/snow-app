@@ -50,6 +50,7 @@ import {
   tcPre,
   tcSection,
   type JsonRecord,
+  uploadImageUrl,
 } from "./ui";
 
 // ── 通用小件 ──────────────────────────────────────────────────────────────
@@ -512,10 +513,11 @@ const readMetaLabel = (args: ReadArgs | null, result: ReadResult): string => {
   return "";
 };
 
-/** 图片预览（内容可能是 data URL，也可能是 @@image:<src>@@ 包裹的地址）。 */
+/** 图片预览（内容可能是 data URL，也可能是 @@image:<src>@@ 包裹的地址或 upload/ 落盘路径）。 */
 const imagePreview = (content: string, mediaType: string): HTMLElement => {
   const img = el("img", "tc-image tc-fs-image");
-  img.src = content.match(/@@image:([^@]+)@@/)?.[1] ?? content;
+  const src = content.match(/@@image:([^@]+)@@/)?.[1] ?? content;
+  img.src = uploadImageUrl(src) ?? src;
   img.alt = t("remote.toolCall.filesystem.imagePreview", { mediaType });
   img.loading = "lazy";
   return img;

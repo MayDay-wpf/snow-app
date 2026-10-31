@@ -59,6 +59,7 @@ import {
   extractFileChangeCoverageFromTool,
 } from "./fileChangeTracking";
 import { injectSessionIdIntoToolArgs } from "../utils/toolSessionMetadata";
+import { appendStreamTail } from "../utils/streamTail";
 import type { SubAgentRuntimeConfig } from "./subAgentRuntimeConfig";
 import {
   buildUnavailableToolsPrompt,
@@ -1141,15 +1142,17 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
                       ...currentToolCall,
                       streamingStdout:
                         chunk.stream === "stdout"
-                          ? `${currentToolCall.streamingStdout ?? ""}${
-                              chunk.data
-                            }`
+                          ? appendStreamTail(
+                              currentToolCall.streamingStdout,
+                              chunk.data,
+                            )
                           : currentToolCall.streamingStdout,
                       streamingStderr:
                         chunk.stream === "stderr"
-                          ? `${currentToolCall.streamingStderr ?? ""}${
-                              chunk.data
-                            }`
+                          ? appendStreamTail(
+                              currentToolCall.streamingStderr,
+                              chunk.data,
+                            )
                           : currentToolCall.streamingStderr,
                     }),
                   ),

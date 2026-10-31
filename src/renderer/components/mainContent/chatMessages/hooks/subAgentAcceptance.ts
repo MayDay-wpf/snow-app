@@ -225,8 +225,8 @@ export const mergeSubAgentAcceptanceCriteria = (
 
 const normalizeEvidencePreview = (result: string): string =>
   result
-    // 截图/图片工具结果里的 base64 不进入回执预览。
-    .replace(/@@image:data:[^@]*@@/g, "[image]")
+    // 截图/图片工具结果里的图片标签（base64 或落盘路径）不进入回执预览。
+    .replace(/@@image:[^@]*@@/g, "[image]")
     .replace(/[A-Za-z0-9+/=]{200,}/g, "[data]")
     .replace(/\s+/g, " ")
     .trim()

@@ -5,6 +5,7 @@ import type {
   ChatConversationMessage,
   CompactionResult,
 } from "../utils/conversationTypes";
+import { toMessageRecordRefs } from "../utils/conversationTypes";
 import {
   createMessageId,
   deleteCheckpoints,
@@ -226,7 +227,11 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         ]);
         const latestRecords =
           await window.snow.listChatMessages(conversationId);
-        ctx.updateSessionField(conversationId, "messageRecords", latestRecords);
+        ctx.updateSessionField(
+          conversationId,
+          "messageRecords",
+          toMessageRecordRefs(latestRecords),
+        );
 
         void window.snow.writeLog("INFO", {
           module: "compaction",

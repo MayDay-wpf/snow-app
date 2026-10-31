@@ -29,6 +29,7 @@ import type { ToolCallInfo } from "../utils/conversationTypes";
 import { imageGenerationStatusKey } from "../utils/imageGenerationState";
 import {
   columnsForCount,
+  generatedImageSrc,
   parseImageGenArgs,
   parseImageGenResult,
   truncateLabel,
@@ -61,9 +62,6 @@ type GallerySlot =
     }
   | { kind: "error"; key: string; message: string; promptLabel: string }
   | { kind: "empty"; key: string; promptLabel: string };
-
-/** 远程图加载失败（链接过期/403 等）降级占位；本地图 path 引用经 IPC 解析。 */
-const uploadImageCache = new Map<string, string>();
 
 export const ImageGenGallery = ({
   toolCalls,
@@ -161,69 +159,6 @@ export const ImageGenGallery = ({
     return result;
   }, [toolCalls]);
 
-  // 图库落盘引用（image/... 前缀）→ 经 IPC 读取真实图片数据
-  const libraryPaths = useMemo(() => {
-    const paths: string[] = [];
-    for (const slot of slots) {
-      if (
-        slot.kind === "image" &&
-        slot.image?.path &&
-        slot.image.path.startsWith("image/") &&
-        !paths.includes(slot.image.path)
-      ) {
-        paths.push(slot.image.path);
-      }
-    }
-    return paths;
-  }, [slots]);
-
-  const [resolvedLibrary, setResolvedLibrary] = useState<
-    Record<string, string>
-  >({});
-
-  useEffect(() => {
-    if (libraryPaths.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const next: Record<string, string> = {};
-      for (const path of libraryPaths) {
-        if (cancelled) {
-          return;
-        }
-        const cached = uploadImageCache.get(path);
-        if (cached) {
-          next[path] = cached;
-          continue;
-        }
-        let dataUrl: string | null = null;
-        try {
-          dataUrl = await window.snow.resolveLibraryImage(path);
-        } catch (error) {
-          console.warn(
-            "[imagegen] resolveLibraryImage failed for",
-            path,
-            error,
-          );
-        }
-        if (cancelled) {
-          return;
-        }
-        if (dataUrl) {
-          uploadImageCache.set(path, dataUrl);
-          next[path] = dataUrl;
-        }
-      }
-      if (!cancelled && Object.keys(next).length > 0) {
-        setResolvedLibrary((prev) => ({ ...prev, ...next }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [libraryPaths]);
-
   // 远程图加载失败的记录：按 slot key 降级为占位展示
   const [failedRemotes, setFailedRemotes] = useState<Set<string>>(new Set());
   const handleRemoteError = useCallback((key: string) => {
@@ -298,43 +233,8 @@ export const ImageGenGallery = ({
   const lightboxSrc = lightbox
     ? lightbox.kind === "remote"
       ? imageProxyUrl(lightbox.url)
-      : lightbox.image.path
-        ? (resolvedLibrary[lightbox.image.path] ?? "")
-        : `data:${lightbox.image.mimeType};base64,${lightbox.image.data}`
+      : generatedImageSrc(lightbox.image)
     : "";
-
-  // 灯箱打开时若图片数据尚未解析（path 引用），立即兜底解析
-  useEffect(() => {
-    if (lightbox?.kind !== "image" || !lightbox.image.path) {
-      return;
-    }
-    const targetPath = lightbox.image.path;
-    if (resolvedLibrary[targetPath]) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const dataUrl = await window.snow.resolveLibraryImage(targetPath);
-        if (!cancelled && dataUrl) {
-          setResolvedLibrary((prev) => ({ ...prev, [targetPath]: dataUrl }));
-        }
-      } catch (error) {
-        console.warn(
-          "[imagegen] resolveLibraryImage failed for lightbox",
-          targetPath,
-          error,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    lightbox?.kind,
-    lightbox?.kind === "image" ? lightbox.image.path : undefined,
-    resolvedLibrary,
-  ]);
 
   // Esc 关闭灯箱；方向键在同批次图片间上下/左右切换
   useEffect(() => {
@@ -427,22 +327,10 @@ export const ImageGenGallery = ({
               type="button"
               className="tool-call-imagegen-download"
               onClick={() => {
-                void (async () => {
-                  let src = lightboxSrc;
-                  if (
-                    !src &&
-                    lightbox.kind === "image" &&
-                    lightbox.image.path
-                  ) {
-                    src =
-                      (await window.snow.resolveLibraryImage(
-                        lightbox.image.path,
-                      )) ?? "";
-                  }
-                  if (src) {
-                    await downloadImageSrc(src);
-                  }
-                })().catch((error) => {
+                if (!lightboxSrc) {
+                  return;
+                }
+                downloadImageSrc(lightboxSrc).catch((error) => {
                   console.error("[imagegen] save image failed:", error);
                 });
               }}
@@ -522,13 +410,11 @@ export const ImageGenGallery = ({
           const failed =
             isImage && slot.remoteUrl ? failedRemotes.has(slot.key) : false;
           const resolvedSrc =
-            isImage && slot.image?.path
-              ? (resolvedLibrary[slot.image.path] ?? "")
-              : isImage && slot.image?.data
-                ? `data:${slot.image.mimeType};base64,${slot.image.data}`
-                : isImage && slot.remoteUrl
-                  ? imageProxyUrl(slot.remoteUrl)
-                  : "";
+            isImage && slot.image
+              ? generatedImageSrc(slot.image)
+              : isImage && slot.remoteUrl
+                ? imageProxyUrl(slot.remoteUrl)
+                : "";
           return (
             <figure
               key={slot.key}

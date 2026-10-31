@@ -19,8 +19,10 @@ import {
   extractFileChangeCoverageFromTool,
 } from "./fileChangeTracking";
 import { SUB_AGENT_MAIN_TOOL_NAMES } from "./subAgentActivation";
+import { loadSubAgentExecutionMode } from "./subAgentExecutionMode";
 import { isPendingSessionKey } from "../utils/conversationTypes";
 import { injectSessionIdIntoToolArgs } from "../utils/toolSessionMetadata";
+import { appendStreamTail } from "../utils/streamTail";
 import type {
   ConversationContextValue,
   HookExecutionRecord,
@@ -245,9 +247,7 @@ export function createToolExecutor(
         call.name === "sub-agents-activate" ||
         call.name === "sub-agents-continue",
     )
-      ? await import("./subAgentExecutionMode").then((module) =>
-          module.loadSubAgentExecutionMode(),
-        )
+      ? await loadSubAgentExecutionMode()
       : undefined;
     const executeSubAgentActivation = (
       ...args: Parameters<ToolExecutorDeps["executeSubAgentActivation"]>
@@ -406,12 +406,18 @@ export function createToolExecutor(
                     if (chunk.stream === "stdout")
                       return {
                         ...call,
-                        streamingStdout: `${call.streamingStdout ?? ""}${chunk.data}`,
+                        streamingStdout: appendStreamTail(
+                          call.streamingStdout,
+                          chunk.data,
+                        ),
                       };
                     if (chunk.stream === "stderr")
                       return {
                         ...call,
-                        streamingStderr: `${call.streamingStderr ?? ""}${chunk.data}`,
+                        streamingStderr: appendStreamTail(
+                          call.streamingStderr,
+                          chunk.data,
+                        ),
                       };
                     if (chunk.stream === "imagegen") {
                       try {

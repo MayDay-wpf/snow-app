@@ -10,6 +10,7 @@ import {
 } from "../utils/conversationHelpers";
 import {
   CHAT_MESSAGE_PAGE_SIZE,
+  toMessageRecordRefs,
   type ConversationContextValue,
 } from "../utils/conversationTypes";
 
@@ -95,7 +96,7 @@ const prepareBackgroundSession = async (
       [conversationId]: {
         ...session,
         messages: buildConversationMessages(page.items),
-        messageRecords: page.items,
+        messageRecords: toMessageRecordRefs(page.items),
         summary: record.title || record.summary,
         hasMoreMessages: page.hasMore,
         tokenUsage: tokenUsageFromMessageRecords(page.items),

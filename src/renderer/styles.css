@@ -23529,18 +23529,9 @@ body.is-panel-resizing * {
 .tool-call-log-entry {
   min-width: 0;
   border: 1px solid var(--border-light);
-  border-left: 3px solid var(--border-medium, var(--border-light));
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   padding: 7px 9px;
-}
-
-.tool-call-log-entry-error {
-  border-left-color: var(--accent-red-text);
-}
-
-.tool-call-log-entry-warn {
-  border-left-color: var(--accent-yellow-text);
 }
 
 .tool-call-log-head {

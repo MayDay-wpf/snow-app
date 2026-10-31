@@ -12,6 +12,7 @@ import { buildConversationMessages } from "../utils/conversationHelpers";
 import {
   CHAT_MESSAGE_PAGE_SIZE,
   isPendingSessionKey,
+  toMessageRecordRefs,
   type ChatConversationMessage,
   type ConversationContextValue,
   type ToolCallInfo,
@@ -341,13 +342,9 @@ class ImageGenerationRuntime {
           ),
         );
         for (const task of receipts) if (task) this.consumeTask(task);
-        const session = this.ctx.sessionsRef.current[conversationId];
-        const replayMessages = session
-          ? [
-              ...session.messages,
-              ...buildConversationMessages(session.messageRecords),
-            ]
-          : [];
+        // 非终态投影保留回执字段（taskId / deadlineAt），内存消息即可恢复截止监听。
+        const replayMessages =
+          this.ctx.sessionsRef.current[conversationId]?.messages ?? [];
         for (const message of replayMessages) {
           for (const call of message.toolCalls ?? []) {
             if (call.name === "imagegen-generate" && call.result)
@@ -523,7 +520,7 @@ class ImageGenerationRuntime {
             [conversationId]: {
               ...session,
               messages,
-              messageRecords: page.items,
+              messageRecords: toMessageRecordRefs(page.items),
               summary: record.title || record.summary,
               hasMoreMessages: page.hasMore,
             },

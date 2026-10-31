@@ -19,6 +19,25 @@ const FILE_MODIFYING_TOOLS = new Set([
   "filesystem-copy",
 ]);
 
+/**
+ * 随会话缓存 TTL 释放过文件变更统计（含 diff 补丁）的会话。重新打开并从
+ * 数据库完整重建之前，期间的实时记录只是增量，不能把会话标记为已完整加载。
+ */
+const releasedFileChangeIds = new Set<string>();
+
+export const releaseFileChangeHydration = (conversationId: string): void => {
+  releasedFileChangeIds.add(conversationId);
+};
+
+export const isFileChangeHydrationReleased = (
+  conversationId: string,
+): boolean => releasedFileChangeIds.has(conversationId);
+
+/** 从数据库重建完成：恢复「实时记录即视为已加载」的常规语义。 */
+export const settleFileChangeHydration = (conversationId: string): void => {
+  releasedFileChangeIds.delete(conversationId);
+};
+
 /** 单次工具调用产生的文件变更（归属与时间戳由调用方补齐）。 */
 type ExtractedFileMutation = Pick<
   FileChangeRecord,

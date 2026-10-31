@@ -492,9 +492,18 @@ pub fn list_chat_messages(conversation_id: String) -> Result<Vec<ChatMessageReco
     let mut records =
         services::chat_conversations::list_chat_messages(&database_path, &conversation_id)?;
     for record in &mut records {
-        record.content = resolve_inline_images_from_disk(&record.content, &database_path);
+        resolve_record_images(record, &database_path);
     }
     Ok(records)
+}
+
+/// 用户 / 助手消息的图片标签还原为 data URL（聊天 chip 与远控桥依赖）；工具
+/// 结果保留 `upload/...` 引用，由工具卡片经 img-proxy 按需读盘，避免截图等
+/// base64 常驻渲染进程内存。
+fn resolve_record_images(record: &mut ChatMessageRecord, database_path: &std::path::Path) {
+    if record.role != "tool" {
+        record.content = resolve_inline_images_from_disk(&record.content, database_path);
+    }
 }
 
 /// Lightweight summary of a single user message, used by the chat UI's
@@ -534,7 +543,7 @@ pub fn list_chat_messages_paginated(
         limit,
     )?;
     for record in &mut page.items {
-        record.content = resolve_inline_images_from_disk(&record.content, &database_path);
+        resolve_record_images(record, &database_path);
     }
     Ok(page)
 }
@@ -571,6 +580,15 @@ pub fn get_chat_message_image(
         mime_type: image.media_type,
         base64: image.data,
     }))
+}
+
+/// 读取工具结果落盘到 upload 目录的图片（远控工具卡片取图）：返回 MIME 与原始字节。
+pub fn read_upload_image(relative_path: String) -> Result<Option<(String, Vec<u8>)>> {
+    let database_path = ensure_database_file()?;
+    Ok(
+        crate::api::conversation::images::read_upload_image(&relative_path, &database_path)
+            .map(|(media_type, bytes)| (media_type.to_string(), bytes)),
+    )
 }
 
 pub fn find_latest_tool_result(

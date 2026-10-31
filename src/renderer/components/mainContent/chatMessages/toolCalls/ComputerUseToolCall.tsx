@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import type { ToolCallInfo } from "../utils/conversationTypes";
+import {
+  imageBlockSrc,
+  inlineImageSrc,
+  stripInlineImageTags,
+} from "../utils/inlineImages";
 import { ToolCallNode } from "./shared/ToolCallNode";
 import { localizeToolError } from "./shared/toolErrorDisplay";
 
@@ -19,13 +24,9 @@ type ComputerUseToolCallProps = {
   toolCall: ToolCallInfo;
 };
 
-type ImageBlock = {
-  mimeType: string;
-  data: string;
-};
-
 type ScreenshotResult = {
-  image: ImageBlock | null;
+  /** 截图的 <img> 地址（data URL 或落盘路径的 img-proxy 地址）。 */
+  imageSrc: string | null;
   text: string | null;
   display?: number;
   imageWidth?: number;
@@ -67,27 +68,10 @@ const getResultErrorMessage = (result: string): string | null => {
   return null;
 };
 
-/** 匹配 result 文本中追加的内联图片标签（@@image:data:...@@）。
- *  持久化时 formatMcpToolResultForModel 把 image block 的真实 base64
- *  替换为占位符并追加此标签，直接 JSON.parse 整串会失败，需先剥离。 */
-const INLINE_IMAGE_TAG_RE = /@@image:(data:[^@]+)@@/g;
-
-/** 从 data URL 提取 base64 数据部分（"data:image/jpeg;base64,..." -> "..."）。 */
-const base64FromDataUrl = (dataUrl: string): string | null => {
-  const comma = dataUrl.indexOf(",");
-  return comma > 0 ? dataUrl.slice(comma + 1) : null;
-};
-
-/** 解析 screenshot 结果：content 数组中的 image / text block + 元数据。 */
+/** 解析 screenshot 结果：content 数组中的 image / text block + 元数据。
+ *  交给模型的格式化结果在 JSON 尾部追加内联图片标签，需先剥离再解析。 */
 const parseScreenshotResult = (result: string): ScreenshotResult | null => {
-  // 先提取并剥离内联图片标签（真实 base64 在标签中，JSON 内是占位符）
-  const inlineDataUrls: string[] = [];
-  const stripped = result
-    .replace(INLINE_IMAGE_TAG_RE, (_match, dataUrl: string) => {
-      inlineDataUrls.push(dataUrl);
-      return "";
-    })
-    .trim();
+  const { text: stripped, values: inlineValues } = stripInlineImageTags(result);
 
   try {
     const parsed: unknown = JSON.parse(stripped);
@@ -95,7 +79,7 @@ const parseScreenshotResult = (result: string): ScreenshotResult | null => {
       return null;
     }
     const screenshot: ScreenshotResult = {
-      image: null,
+      imageSrc: null,
       text: null,
       region: isRecord(parsed.region)
         ? {
@@ -133,38 +117,17 @@ const parseScreenshotResult = (result: string): ScreenshotResult | null => {
         if (!isRecord(block)) {
           continue;
         }
-        if (block.type === "image" && typeof block.mimeType === "string") {
-          let data = typeof block.data === "string" ? block.data : "";
-          // 持久化时真实 base64 被替换为占位符，用标签中的 data URL 还原
-          if (
-            (data === "" || data === "[attached as multimodal image]") &&
-            inlineDataUrls.length > 0
-          ) {
-            const dataUrl = inlineDataUrls.shift();
-            data = dataUrl ? (base64FromDataUrl(dataUrl) ?? "") : "";
-          }
-          if (data) {
-            screenshot.image = {
-              mimeType: block.mimeType,
-              data,
-            };
-          }
+        if (block.type === "image") {
+          screenshot.imageSrc =
+            imageBlockSrc(block, inlineValues) ?? screenshot.imageSrc;
         } else if (block.type === "text" && typeof block.text === "string") {
           screenshot.text = block.text;
         }
       }
     }
     // content 数组缺失 image block 但存在内联标签：直接从标签还原
-    if (!screenshot.image && inlineDataUrls.length > 0) {
-      const dataUrl = inlineDataUrls[0];
-      const base64 = base64FromDataUrl(dataUrl);
-      if (base64) {
-        const mimeTypeMatch = /^data:([^;,]+)/.exec(dataUrl);
-        screenshot.image = {
-          mimeType: mimeTypeMatch?.[1] ?? "image/jpeg",
-          data: base64,
-        };
-      }
+    if (!screenshot.imageSrc && inlineValues.length > 0) {
+      screenshot.imageSrc = inlineImageSrc(inlineValues[0]);
     }
     return screenshot;
   } catch {
@@ -325,9 +288,7 @@ export const ComputerUseToolCall = ({
 
   // 点击截图放大查看（Esc / 点击背景关闭）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const screenshotSrc = screenshotResult?.image
-    ? `data:${screenshotResult.image.mimeType};base64,${screenshotResult.image.data}`
-    : null;
+  const screenshotSrc = screenshotResult?.imageSrc ?? null;
 
   useEffect(() => {
     if (!isLightboxOpen) {
@@ -404,14 +365,14 @@ export const ComputerUseToolCall = ({
         ) : null}
 
         {/* 截图预览（点击放大） */}
-        {screenshotResult?.image ? (
+        {screenshotResult && screenshotSrc ? (
           <div className="tool-call-section">
             <span className="tool-call-section-label">
               {t("toolCall.computerUse.screenshot")}
             </span>
             <img
               className="computer-use-screenshot-img"
-              src={screenshotSrc ?? undefined}
+              src={screenshotSrc}
               alt={t("toolCall.computerUse.screenshot")}
               title={t("toolCall.computerUse.clickToZoom")}
               onClick={() => setIsLightboxOpen(true)}
@@ -491,7 +452,7 @@ export const ComputerUseToolCall = ({
         {/* 截图但无图片（错误或权限缺失）：展示 badge 提示 */}
         {isScreenshot &&
         toolCall.status === "completed" &&
-        !screenshotResult?.image &&
+        !screenshotSrc &&
         !hasError ? (
           <div className="computer-use-pending">
             <Monitor size={14} aria-hidden="true" />
