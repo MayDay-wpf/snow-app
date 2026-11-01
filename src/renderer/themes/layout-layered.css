@@ -150,7 +150,13 @@
   backdrop-filter: none !important;
 }
 
-:root[data-layout-style="layered"] .main-content {
+/* 悬浮聊天卡片需保留自身定位、边框、圆角与投影（同 layout-flush.css 的
+   处理）：全屏态不覆盖。否则 position: relative !important 会压掉卡片的
+   absolute 定位，main-content 留在 flex 流里被全屏右面板压成一条窄片，
+   连同滚动条以 --chat-float-region-left 的偏移画在右侧面板上方。 */
+:root[data-layout-style="layered"]
+  .app-shell:not(.right-panel-fullscreen)
+  .main-content {
   position: relative !important;
   /* 不加 !important：全屏聊天悬浮卡片依赖更高优先级的 z-index: 40 */
   z-index: 21;
