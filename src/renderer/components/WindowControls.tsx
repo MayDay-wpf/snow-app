@@ -1,5 +1,6 @@
 import { Minus, Square, X, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 
 /**
  * Windows 自定义窗口操作按钮组 (最小化 / 最大化 / 关闭)
@@ -7,6 +8,7 @@ import { useEffect, useState } from "react";
  * macOS 使用原生 traffic lights，不渲染此组件。
  */
 export const WindowControlsButtons = (): React.JSX.Element => {
+  const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -41,14 +43,26 @@ export const WindowControlsButtons = (): React.JSX.Element => {
   };
 
   const MaximizeIcon = isMaximized ? Copy : Square;
+  const minimizeLabel = t("windowControls.minimize", {
+    defaultValue: "Minimize",
+  });
+  const maximizeLabel = isMaximized
+    ? t("windowControls.restore", { defaultValue: "Restore" })
+    : t("windowControls.maximize", { defaultValue: "Maximize" });
+  const closeLabel = t("common.close", { defaultValue: "Close" });
 
   return (
-    <div className="window-controls-buttons" aria-label="Window controls">
+    <div
+      className="window-controls-buttons"
+      aria-label={t("windowControls.ariaLabel", {
+        defaultValue: "Window controls",
+      })}
+    >
       <button
         type="button"
         className="window-control-btn minimize-btn"
-        aria-label="Minimize"
-        title="Minimize"
+        aria-label={minimizeLabel}
+        title={minimizeLabel}
         onClick={handleMinimize}
       >
         <Minus size={16} strokeWidth={1.5} />
@@ -56,8 +70,8 @@ export const WindowControlsButtons = (): React.JSX.Element => {
       <button
         type="button"
         className="window-control-btn maximize-btn"
-        aria-label={isMaximized ? "Restore" : "Maximize"}
-        title={isMaximized ? "Restore" : "Maximize"}
+        aria-label={maximizeLabel}
+        title={maximizeLabel}
         onClick={handleToggleMaximize}
       >
         <MaximizeIcon size={14} strokeWidth={1.5} />
@@ -65,8 +79,8 @@ export const WindowControlsButtons = (): React.JSX.Element => {
       <button
         type="button"
         className="window-control-btn close-btn"
-        aria-label="Close"
-        title="Close"
+        aria-label={closeLabel}
+        title={closeLabel}
         onClick={handleClose}
       >
         <X size={16} strokeWidth={1.5} />

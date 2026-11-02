@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { useI18n } from "../../../i18n";
 
 export type TokenPreset = {
   value: string;
@@ -38,6 +45,7 @@ export function TokenPresetInput({
   noMatchText = "No matching presets",
   onChange,
 }: TokenPresetInputProps): React.JSX.Element {
+  const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   // true = 箭头/方向键展开显示全部预设;false = 按当前输入过滤提示
@@ -56,7 +64,7 @@ export function TokenPresetInput({
     return presets.filter(
       (preset) =>
         preset.value.toLowerCase().includes(keyword) ||
-        preset.label.toLowerCase().includes(keyword)
+        preset.label.toLowerCase().includes(keyword),
     );
   }, [presets, value, showAll]);
 
@@ -106,7 +114,7 @@ export function TokenPresetInput({
         return;
       }
       setHighlightedIndex((index) =>
-        Math.min(index + 1, Math.max(visiblePresets.length - 1, 0))
+        Math.min(index + 1, Math.max(visiblePresets.length - 1, 0)),
       );
       return;
     }
@@ -128,7 +136,7 @@ export function TokenPresetInput({
   // 过滤结果变化时防止高亮越界
   const clampedHighlightedIndex = Math.min(
     highlightedIndex,
-    Math.max(visiblePresets.length - 1, 0)
+    Math.max(visiblePresets.length - 1, 0),
   );
 
   return (
@@ -158,7 +166,9 @@ export function TokenPresetInput({
               openAll();
             }
           }}
-          aria-label="Toggle token presets"
+          aria-label={t("settings.tokenPresetToggle", {
+            defaultValue: "Toggle token presets",
+          })}
         >
           <ChevronDown size={14} />
         </button>

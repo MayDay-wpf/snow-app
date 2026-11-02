@@ -508,21 +508,26 @@ export const TopBar = ({
 
   const SidebarToggleIcon = isSidebarCollapsed ? SidebarOpen : SidebarClose;
   const sidebarToggleLabel = isSidebarCollapsed
-    ? "Expand sidebar"
-    : "Collapse sidebar";
+    ? t("topBar.expandSidebar", { defaultValue: "Expand sidebar" })
+    : t("topBar.collapseSidebar", { defaultValue: "Collapse sidebar" });
   const RightPanelToggleIcon = isRightPanelCollapsed
     ? SidebarClose
     : SidebarOpen;
   const rightPanelToggleLabel = isRightPanelCollapsed
-    ? "Expand right panel"
-    : "Collapse right panel";
+    ? t("topBar.expandRightPanel", { defaultValue: "Expand right panel" })
+    : t("topBar.collapseRightPanel", { defaultValue: "Collapse right panel" });
   const FullscreenToggleIcon = isRightPanelFullscreen ? Minimize2 : Maximize2;
   const fullscreenToggleLabel = isRightPanelFullscreen
-    ? "Exit right panel fullscreen"
-    : "Right panel fullscreen";
+    ? t("topBar.exitFullscreenRightPanel", {
+        defaultValue: "Exit right panel fullscreen",
+      })
+    : t("topBar.fullscreenRightPanel", {
+        defaultValue: "Right panel fullscreen",
+      });
   const alwaysOnTopLabel = isAlwaysOnTop
     ? t("topBar.disableAlwaysOnTop", { defaultValue: "Disable Always on Top" })
     : t("topBar.alwaysOnTop", { defaultValue: "Always on Top" });
+  const newChatLabel = t("topBar.newChat", { defaultValue: "New chat" });
 
   const displayDirectoryName = conversationDirectoryId
     ? conversationDirectoryName
@@ -542,6 +547,10 @@ export const TopBar = ({
   const subAgentDisplayName =
     liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
 
+  const fallbackChatTitle = t("chat.float.untitled", {
+    defaultValue: "New chat",
+  });
+
   // 团队协作视图：标题与副标题取自 TeamPanel 发布的团队数据（团队名 + 远端地址），
   // 数据未就绪时退回项目名与功能名，与备忘录等独立页面的顶栏标题保持一致。
   const headerTitle = isTeamView
@@ -552,8 +561,8 @@ export const TopBar = ({
       ? activeConversationMeta?.title ||
         summary ||
         displayDirectoryName ||
-        "New Chat"
-      : summary || displayDirectoryName || "New Chat";
+        fallbackChatTitle
+      : summary || displayDirectoryName || fallbackChatTitle;
   const headerSubtitle = isTeamView
     ? teamTopBar
       ? teamTopBar.endpoint ||
@@ -801,7 +810,12 @@ export const TopBar = ({
     ) : null;
 
   const sidebarActions = (
-    <div className="top-bar-sidebar-actions" aria-label="Sidebar actions">
+    <div
+      className="top-bar-sidebar-actions"
+      aria-label={t("topBar.sidebarActions", {
+        defaultValue: "Sidebar actions",
+      })}
+    >
       <button
         className="icon-btn sidebar-toggle-btn"
         type="button"
@@ -823,9 +837,9 @@ export const TopBar = ({
       <button
         className="icon-btn new-chat-btn"
         type="button"
-        aria-label="New chat"
+        aria-label={newChatLabel}
         aria-disabled={sshGate.blocked}
-        title={sshGate.blocked ? sshGateLabel : "New chat"}
+        title={sshGate.blocked ? sshGateLabel : newChatLabel}
         onClick={() => {
           // SSH 项目未连接：拦下入口，点击即显式重连
           if (sshGate.blocked) {

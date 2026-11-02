@@ -311,9 +311,15 @@ export const UserMessage = memo(
                   lastSep === -1
                     ? segment.tag.path
                     : segment.tag.path.slice(lastSep + 1);
-                const chipTitle = `${
-                  segment.tag.section === "staged" ? "Staged" : "Unstaged"
-                } ${segment.tag.status} ${segment.tag.path}`;
+                const sectionLabel =
+                  segment.tag.section === "staged"
+                    ? t("chatInput.chipDetailsStaged", {
+                        defaultValue: "Staged",
+                      })
+                    : t("chatInput.chipDetailsUnstaged", {
+                        defaultValue: "Unstaged",
+                      });
+                const chipTitle = `${sectionLabel} ${segment.tag.status} ${segment.tag.path}`;
                 return (
                   <span
                     className="user-message-file-chip change-chip"

@@ -35,6 +35,7 @@ export const ChatInputActionButtons = ({
   const sendShortcut = useShortcutLabel("sendMessage");
   const { behavior } = useBusySendBehavior();
   const modifier = navigator.userAgent.includes("Mac") ? "Cmd" : "Ctrl";
+  const sendLabel = t("common.send", { defaultValue: "Send" });
   const sendTitle =
     isStreaming || isAborting
       ? t("chatInput.busySendHint", {
@@ -52,9 +53,20 @@ export const ChatInputActionButtons = ({
           },
         })
       : sendShortcut
-        ? `Send (${sendShortcut})`
-        : "Send";
+        ? `${sendLabel} (${sendShortcut})`
+        : sendLabel;
   const stopShortcut = useShortcutLabel("stopGeneration");
+  const stoppingLabel = t("chatInput.stoppingGeneration", {
+    defaultValue: "Stopping generation",
+  });
+  const stopLabel = t("chatInput.stopGeneration", {
+    defaultValue: "Stop generating",
+  });
+  const abortTitle = isAborting
+    ? stoppingLabel
+    : stopShortcut
+      ? `${stopLabel} (${stopShortcut})`
+      : stopLabel;
   const [isSendKeyMenuOpen, setIsSendKeyMenuOpen] = useState(false);
   const groupRef = useRef<HTMLDivElement>(null);
 
@@ -104,20 +116,8 @@ export const ChatInputActionButtons = ({
       {(isStreaming || isAborting) && (
         <button
           className={`abort-btn ${isAborting ? "is-aborting" : ""}`}
-          aria-label={
-            isAborting
-              ? "Stopping generation"
-              : stopShortcut
-                ? `Stop generating (${stopShortcut})`
-                : "Stop generating"
-          }
-          title={
-            isAborting
-              ? "Stopping generation"
-              : stopShortcut
-                ? `Stop generating (${stopShortcut})`
-                : "Stop generating"
-          }
+          aria-label={abortTitle}
+          title={abortTitle}
           // 必须以无参形式调用：handleAbort 实现接受可选的 targetSessionKey，
           // 直接绑定会把 MouseEvent 当作会话 key，导致中断静默失效。
           onClick={() => handleAbort()}
