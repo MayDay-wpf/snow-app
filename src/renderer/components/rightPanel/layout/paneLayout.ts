@@ -696,3 +696,89 @@ export const equalizeSplitInWorkspace = (
     layout: updateSplitNode(workspace.layout, splitId, equalizeSplit),
   };
 };
+
+/** 布局快照（持久化格式）：节点 id 不落盘，恢复时重新生成。 */
+export type PaneLayoutSnapshot =
+  | { kind: "leaf"; tabIds: string[]; activeTabId: string | null }
+  | {
+      kind: "split";
+      orientation: "row" | "column";
+      sizes: number[];
+      children: PaneLayoutSnapshot[];
+    };
+
+/**
+ * 从持久化快照重建工作区：节点 id 全部重新生成（避免与本次进程内新建的
+ * 节点冲突），快照中已不存在的 tab 与因此变空的组被丢弃。
+ */
+export const createWorkspaceFromSnapshot = (
+  tabs: RightPanelTab[],
+  snapshot: PaneLayoutSnapshot | null,
+  activeTabId: string,
+): RightPanelWorkspace => {
+  const validTabIds = new Set(tabs.map((tab) => tab.id));
+  const build = (node: PaneLayoutSnapshot): RightPaneNode | null => {
+    if (node.kind === "leaf") {
+      const tabIds = node.tabIds.filter((id) => validTabIds.has(id));
+      if (tabIds.length === 0) {
+        return null;
+      }
+      return {
+        kind: "leaf",
+        id: nextPaneNodeId("pane"),
+        tabIds,
+        activeTabId:
+          node.activeTabId && tabIds.includes(node.activeTabId)
+            ? node.activeTabId
+            : tabIds[0],
+      };
+    }
+    const children: RightPaneNode[] = [];
+    const sizes: number[] = [];
+    node.children.forEach((child, index) => {
+      const next = build(child);
+      if (next) {
+        children.push(next);
+        sizes.push(node.sizes[index] ?? 1);
+      }
+    });
+    if (children.length === 0) {
+      return null;
+    }
+    if (children.length === 1) {
+      return children[0];
+    }
+    const total = sizes.reduce((sum, size) => sum + size, 0) || 1;
+    return {
+      kind: "split",
+      id: nextPaneNodeId("split"),
+      orientation: node.orientation,
+      children,
+      sizes: sizes.map((size) => size / total),
+    };
+  };
+
+  let layout =
+    (snapshot ? build(snapshot) : null) ??
+    createLeaf(
+      tabs.map((tab) => tab.id),
+      tabs[0]?.id ?? null,
+    );
+  // 快照未覆盖的 tab（快照损坏 / 状态不同步）补进首组，避免丢 tab。
+  const placed = new Set(flattenTabIds(layout));
+  const missing = tabs
+    .filter((tab) => !placed.has(tab.id))
+    .map((tab) => tab.id);
+  if (missing.length > 0) {
+    const first = collectLeaves(layout)[0];
+    layout = first
+      ? appendTabsToLeaf(layout, first.id, missing)
+      : createLeaf(missing);
+  }
+  const restored = finalizeWorkspace({
+    tabs,
+    layout,
+    activePaneId: collectLeaves(layout)[0].id,
+  });
+  return activeTabId ? activateTabInWorkspace(restored, activeTabId) : restored;
+};
