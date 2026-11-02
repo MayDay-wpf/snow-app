@@ -2313,6 +2313,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       }
     };
 
+    // 只有一个 tab 时没有可布局的内容：面板内 tab 拖到内容区不产生落点
+    // （拖到 tab 栏仍可重排），避免出现无意义的拆分反馈。
+    const canSplitPanes = tabs.length > 1;
+
     // 内容区落点：靠近四边 → 拆分成新组；中间 → 合并进该组。
     const resolveDropEdge = (
       event: React.DragEvent,
@@ -2346,6 +2350,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       paneId: string,
     ): void => {
       if (!hasPaneTabDrag(event) && !hasConversationPanelDrag(event)) {
+        return;
+      }
+      // 只有一个 tab：面板内 tab 无处可分，不接管拖拽（不给落点提示）。
+      if (!canSplitPanes && hasPaneTabDrag(event)) {
         return;
       }
       event.preventDefault();
@@ -2399,7 +2407,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         return;
       }
       const tabId = readDraggedTabId(event);
-      if (!tabId) {
+      // 只有一个 tab：不落布局（拖回 tab 栏仍可重排）。
+      if (!tabId || !canSplitPanes) {
         return;
       }
       event.preventDefault();

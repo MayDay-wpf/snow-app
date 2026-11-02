@@ -12,7 +12,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { WorkspaceDirectoryRecord } from "../../../preload";
-import { useAutoScrollPreference } from "../../hooks/useAutoScrollPreference";
 import { useI18n } from "../../i18n";
 import { useShortcutLabel } from "../../hooks/useShortcutLabel";
 import { shortcutEvents } from "../shortcutEvents";
@@ -162,7 +161,6 @@ const ChatContentBody = ({
     },
     [activeConversationId, updateRuntimeInputState],
   );
-  const { autoScrollEnabled, setAutoScrollEnabled } = useAutoScrollPreference();
 
   const [autoFormatEnabled, setAutoFormatEnabled] = useState(false);
   const refreshAutoFormat = useCallback(async (): Promise<boolean> => {
@@ -485,7 +483,6 @@ const ChatContentBody = ({
     chatRenderKey,
     isChatAreaRendered,
     isCompactingActive,
-    autoScrollEnabled,
     // 消息窗口裁剪门控是模块级单例：只由主聊天表面注册。
     registerViewGate: isMainSurface,
   });
@@ -515,17 +512,6 @@ const ChatContentBody = ({
     }
     dismissQuote();
   }, [quoteState, dismissQuote]);
-  // 开启自动滚动偏好是显式的“我要跟随”动作：立即平滑吸底并恢复跟随，
-  // 让开关有即时的视觉反馈；关闭则保持当前位置不动。
-  const handleAutoScrollChange = useCallback(
-    (enabled: boolean): void => {
-      setAutoScrollEnabled(enabled);
-      if (enabled) {
-        handleScrollToBottom();
-      }
-    },
-    [setAutoScrollEnabled, handleScrollToBottom],
-  );
 
   // 快捷键：滚动到顶部 / 底部；复制最后一条 AI 回复。
   // 这些动作作用于「当前聊天表面」，同一窗口只应由主聊天视图响应，
@@ -796,8 +782,6 @@ const ChatContentBody = ({
                 onRefreshWorkflowMode={refreshWorkflowMode}
                 goalModeTokenBudget={goalModeTokenBudget}
                 onGoalModeTokenBudgetChange={setGoalModeTokenBudget}
-                autoScrollEnabled={autoScrollEnabled}
-                onAutoScrollChange={handleAutoScrollChange}
                 autoFormatEnabled={autoFormatEnabled}
                 onAutoFormatChange={handleAutoFormatChange}
                 onRefreshAutoFormat={refreshAutoFormat}

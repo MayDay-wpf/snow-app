@@ -56,8 +56,6 @@ export const ChatInput = ({
   onRefreshWorkflowMode,
   goalModeTokenBudget = 2000000,
   onGoalModeTokenBudgetChange,
-  autoScrollEnabled = true,
-  onAutoScrollChange,
   autoFormatEnabled = false,
   onAutoFormatChange,
   onRefreshAutoFormat,
@@ -126,8 +124,6 @@ export const ChatInput = ({
       onRefreshWorkflowMode={onRefreshWorkflowMode}
       goalModeTokenBudget={goalModeTokenBudget}
       onGoalModeTokenBudgetChange={onGoalModeTokenBudgetChange}
-      autoScrollEnabled={autoScrollEnabled}
-      onAutoScrollChange={onAutoScrollChange}
       autoFormatEnabled={autoFormatEnabled}
       onAutoFormatChange={onAutoFormatChange}
       onRefreshAutoFormat={onRefreshAutoFormat}

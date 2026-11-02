@@ -171,8 +171,6 @@ export type ChatInputProps = {
   onRefreshWorkflowMode?: () => Promise<boolean | void>;
   goalModeTokenBudget?: number;
   onGoalModeTokenBudgetChange?: (budget: number) => void;
-  autoScrollEnabled?: boolean;
-  onAutoScrollChange?: (enabled: boolean) => void;
   autoFormatEnabled?: boolean;
   onAutoFormatChange?: (enabled: boolean) => void;
   onRefreshAutoFormat?: () => void | Promise<boolean | void>;
@@ -325,8 +323,6 @@ export type ChatInputViewProps = ChatInputState &
     onRefreshWorkflowMode?: () => Promise<boolean | void>;
     goalModeTokenBudget: number;
     onGoalModeTokenBudgetChange?: (budget: number) => void;
-    autoScrollEnabled: boolean;
-    onAutoScrollChange?: (enabled: boolean) => void;
     autoFormatEnabled: boolean;
     onAutoFormatChange?: (enabled: boolean) => void;
     onRefreshAutoFormat?: () => void | Promise<boolean | void>;

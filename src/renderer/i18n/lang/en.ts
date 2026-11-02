@@ -4575,8 +4575,6 @@ export const en = {
   "plusMenu.sectionMode": "Mode",
   "plusMenu.sectionPreferences": "Preferences",
   "plusMenu.modeNone": "None enabled",
-  "plusMenu.autoScroll": "Auto scroll",
-  "plusMenu.autoScrollDescription": "Scroll to bottom while responding",
   "plusMenu.autoFormat": "Auto format",
   "plusMenu.autoFormatDescription": "Format edited files automatically",
   "plusMenu.replyPrediction": "Reply prediction",

@@ -53,8 +53,6 @@ type ChatInputToolbarProps = ComponentProps<typeof ModelSelector> &
     | "onRefreshWorkflowMode"
     | "goalModeTokenBudget"
     | "onGoalModeTokenBudgetChange"
-    | "autoScrollEnabled"
-    | "onAutoScrollChange"
     | "autoFormatEnabled"
     | "onAutoFormatChange"
     | "onRefreshAutoFormat"
@@ -115,8 +113,6 @@ export const ChatInputToolbar = ({
     onRefreshWorkflowMode,
     goalModeTokenBudget,
     onGoalModeTokenBudgetChange,
-    autoScrollEnabled,
-    onAutoScrollChange,
     autoFormatEnabled,
     onAutoFormatChange,
     onRefreshAutoFormat,
@@ -175,8 +171,6 @@ export const ChatInputToolbar = ({
           onGoalModeTokenBudgetChange={
             isSubAgentConversation ? undefined : onGoalModeTokenBudgetChange
           }
-          autoScrollEnabled={autoScrollEnabled}
-          onAutoScrollChange={onAutoScrollChange}
           autoFormatEnabled={autoFormatEnabled}
           onAutoFormatChange={onAutoFormatChange}
           onRefreshAutoFormat={onRefreshAutoFormat}

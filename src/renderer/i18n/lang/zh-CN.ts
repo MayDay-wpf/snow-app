@@ -4297,8 +4297,6 @@ export const zhCN = {
   "plusMenu.sectionMode": "模式",
   "plusMenu.sectionPreferences": "偏好",
   "plusMenu.modeNone": "未启用",
-  "plusMenu.autoScroll": "自动滚动",
-  "plusMenu.autoScrollDescription": "响应时自动滚到底部",
   "plusMenu.autoFormat": "自动格式化",
   "plusMenu.autoFormatDescription": "编辑后自动格式化",
   "plusMenu.replyPrediction": "回复预测",

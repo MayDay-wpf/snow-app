@@ -4239,8 +4239,6 @@ export const zhTW = {
   "plusMenu.sectionMode": "模式",
   "plusMenu.sectionPreferences": "偏好",
   "plusMenu.modeNone": "未啟用",
-  "plusMenu.autoScroll": "自動捲動",
-  "plusMenu.autoScrollDescription": "回應時自動捲到底部",
   "plusMenu.autoFormat": "自動格式化",
   "plusMenu.autoFormatDescription": "編輯後自動格式化",
   "plusMenu.replyPrediction": "回覆預測",

@@ -85,8 +85,6 @@ export type ChatScrollFollowOptions = {
   isChatAreaRendered: boolean;
   /** 当前会话是否正在压缩（压缩是显式操作，预览与边界强制保持可见）。 */
   isCompactingActive: boolean;
-  /** 自动滚动偏好：关闭时不钉底，但首屏初始定位不受影响。 */
-  autoScrollEnabled: boolean;
   /**
    * 是否注册消息窗口裁剪门控（模块级单例）。主聊天表面为 true（缺省）；
    * 会话面板传 false，避免把裁剪依据切到面板的会话上。
@@ -124,13 +122,12 @@ export type ChatScrollFollowResult = {
  * 滚动恢复（多轮收敛）、ResizeObserver 钉底、事件 handlers 与滚动到底部
  * 按钮补间。从 ChatContent 抽出，依赖的会话状态直接取自
  * ChatConversationContext；外部仅传入视图层状态（渲染 key、挂载态、
- * 压缩态、自动滚动偏好）。
+ * 压缩态）。
  */
 export const useChatScrollFollow = ({
   chatRenderKey,
   isChatAreaRendered,
   isCompactingActive,
-  autoScrollEnabled,
   registerViewGate = true,
 }: ChatScrollFollowOptions): ChatScrollFollowResult => {
   const {
@@ -190,7 +187,6 @@ export const useChatScrollFollow = ({
   const hasMessagesRef = useRef(hasMessages);
   const hasMoreMessagesRef = useRef(hasMoreMessages);
   const messagesRef = useRef(messages);
-  const autoScrollEnabledRef = useRef(autoScrollEnabled);
   const isStreamingRef = useRef(isStreaming);
   // Run 收尾宽限窗口：时间戳，期间 RO 钉底视同流式输出。
   const followGraceUntilRef = useRef(0);
@@ -201,12 +197,11 @@ export const useChatScrollFollow = ({
   hasMessagesRef.current = hasMessages;
   hasMoreMessagesRef.current = hasMoreMessages;
   messagesRef.current = messages;
-  autoScrollEnabledRef.current = autoScrollEnabled;
   isStreamingRef.current = isStreaming;
   const isChatAreaRenderedRef = useRef(isChatAreaRendered);
   isChatAreaRenderedRef.current = isChatAreaRendered;
 
-  // 消息窗口裁剪门控：仅在自动滚动钉底时允许卸载当前会话的头部历史，
+  // 消息窗口裁剪门控：仅在跟随钉底时允许卸载当前会话的头部历史，
   // 用户上翻阅读、翻页恢复或首屏定位期间一律暂停。
   useEffect(() => {
     // 消息窗口裁剪门控是模块级单例：只有主聊天表面注册它。会话面板（同一窗口
@@ -220,7 +215,6 @@ export const useChatScrollFollow = ({
           ? activeConversationIdRef.current
           : undefined,
       isFollowingBottom: () =>
-        autoScrollEnabledRef.current &&
         shouldStickToBottomRef.current &&
         !isLoadingOlderWithScrollRef.current &&
         pendingScrollRestoreRef.current === null &&
@@ -255,11 +249,10 @@ export const useChatScrollFollow = ({
   }, []);
 
   // 消息区平滑增长的放行条件：只在「正在跟随最新输出」时平滑——用户已
-  // 离开底部、自动滚动关闭、翻页恢复 / 底部补间 / 首屏定位进行中，都要求
-  // 内容高度即时生效（这些路径按真实几何计算 scrollTop）。
+  // 离开底部、翻页恢复 / 底部补间 / 首屏定位进行中，都要求内容高度即时
+  // 生效（这些路径按真实几何计算 scrollTop）。
   const canSmoothGrowth = useCallback(
     (): boolean =>
-      autoScrollEnabledRef.current &&
       shouldStickToBottomRef.current &&
       !isSmoothScrollingToBottomRef.current &&
       !isInitialBottomPositioningRef.current &&
@@ -638,10 +631,8 @@ export const useChatScrollFollow = ({
     isUserScrollIntentRef.current = false;
     shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
-    if (autoScrollEnabledRef.current) {
-      followGraceUntilRef.current =
-        performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
-    }
+    followGraceUntilRef.current =
+      performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
     scrollToBottom();
     rafId1 = requestAnimationFrame(() => {
       scrollToBottom();
@@ -733,10 +724,9 @@ export const useChatScrollFollow = ({
       // hides it again, restarting its entrance animation every frame.
       if (
         shouldStickToBottomRef.current &&
-        (isInitialBottomPositioningRef.current ||
-          (autoScrollEnabledRef.current && isFollowActive))
+        (isInitialBottomPositioningRef.current || isFollowActive)
       ) {
-        if (autoScrollEnabledRef.current && isFollowActive) {
+        if (isFollowActive) {
           followGraceUntilRef.current =
             performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
         }
@@ -845,20 +835,14 @@ export const useChatScrollFollow = ({
     });
   }, [activeConversationId, pendingToolAuthorizations, pinToBottom]);
 
-  // Keep the chat pinned to the latest AI output while streaming, unless the
-  // user scrolls away or has disabled the preference entirely.
+  // 流式输出期间保持贴底，除非用户已上翻离开底部。
   useLayoutEffect(() => {
-    if (
-      !autoScrollEnabled ||
-      !isStreaming ||
-      !shouldStickToBottomRef.current ||
-      !scrollRef.current
-    ) {
+    if (!isStreaming || !shouldStickToBottomRef.current || !scrollRef.current) {
       return;
     }
 
     pinToBottom();
-  }, [autoScrollEnabled, isStreaming, messages, chatRenderKey, pinToBottom]);
+  }, [isStreaming, messages, chatRenderKey, pinToBottom]);
 
   // Run 结束瞬间（isStreaming true→false）消息集中定稿：showActions 按钮、
   // run summary 摘要条、Thinking 折叠、markdown 定稿，高度逐帧变化，而流式
@@ -892,7 +876,7 @@ export const useChatScrollFollow = ({
           performance.now() < followGraceUntilRef.current);
     };
     const runFollowCatchUp = (): void => {
-      if (!shouldStickToBottomRef.current || !autoScrollEnabledRef.current) {
+      if (!shouldStickToBottomRef.current) {
         return;
       }
       if (
@@ -1388,12 +1372,9 @@ export const useChatScrollFollow = ({
       lastUserScrollInputAtRef.current = -Infinity;
       lastUserScrollInputDirectionRef.current = 0;
       setShowScrollToBottom(false);
-      // 手动吸底后的虚拟节点仍可能在下一帧展开；短暂保留跟随资格，
-      // 但不改变关闭自动滚动时的偏好。
-      if (autoScrollEnabledRef.current) {
-        followGraceUntilRef.current =
-          performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
-      }
+      // 手动吸底后的虚拟节点仍可能在下一帧展开；短暂保留跟随资格。
+      followGraceUntilRef.current =
+        performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
 
       // 补间按真实几何追赶底部：先交还平滑视口的自然高度。
       growthSmootherRef.current?.release();
@@ -1485,11 +1466,9 @@ export const useChatScrollFollow = ({
       setShowScrollToBottom(false);
       // 发送即进入跟随：提前开启跟随窗口并武装平滑视口，新消息的出现
       // 本身就走平滑增长，而不是先瞬移一截再开始平滑。
-      if (autoScrollEnabledRef.current) {
-        followGraceUntilRef.current =
-          performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
-        growthSmootherRef.current?.arm();
-      }
+      followGraceUntilRef.current =
+        performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
+      growthSmootherRef.current?.arm();
       requestAnimationFrame(() => {
         pinToBottom();
       });

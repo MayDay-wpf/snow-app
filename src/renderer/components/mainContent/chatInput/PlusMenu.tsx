@@ -1,5 +1,4 @@
 import {
-  ArrowDownToLine,
   ChevronRight,
   ClipboardList,
   Drill,
@@ -65,8 +64,6 @@ export type PlusMenuProps = {
   modesLocked?: boolean;
   goalModeTokenBudget: number;
   onGoalModeTokenBudgetChange?: (budget: number) => void;
-  autoScrollEnabled: boolean;
-  onAutoScrollChange?: (enabled: boolean) => void;
   autoFormatEnabled: boolean;
   onAutoFormatChange?: (enabled: boolean) => void;
   onRefreshAutoFormat?: () => void | Promise<boolean | void>;
@@ -148,8 +145,6 @@ export const PlusMenu = ({
   modesLocked = false,
   goalModeTokenBudget,
   onGoalModeTokenBudgetChange,
-  autoScrollEnabled,
-  onAutoScrollChange,
   autoFormatEnabled,
   onAutoFormatChange,
   onRefreshAutoFormat,
@@ -396,16 +391,6 @@ export const PlusMenu = ({
             <div className="plus-menu-section-title">
               {t("plusMenu.sectionPreferences")}
             </div>
-            <PlusToggleRow
-              icon={ArrowDownToLine}
-              label={t("plusMenu.autoScroll")}
-              description={t("plusMenu.autoScrollDescription")}
-              checked={autoScrollEnabled}
-              disabled={!onAutoScrollChange}
-              onChange={() => {
-                onAutoScrollChange?.(!autoScrollEnabled);
-              }}
-            />
             <PlusToggleRow
               icon={Wand2}
               label={t("plusMenu.autoFormat")}
