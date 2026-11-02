@@ -1,5 +1,5 @@
-import { AlertTriangle, RotateCcw } from "lucide-react";
-import { type ChangeEvent } from "react";
+import { AlertTriangle, Eye, EyeOff, RotateCcw } from "lucide-react";
+import { useState, type ChangeEvent } from "react";
 import { useI18n } from "../../../i18n";
 import {
   enabledDecisionModels,
@@ -13,7 +13,6 @@ import {
   ModelTestButton,
 } from "../modelHealth/ModelConnectionStatus";
 import { EMBEDDING_TYPE_OPTIONS } from "./codebaseSettingsConstants";
-import { maskSecret } from "./codebaseSettingsUtils";
 import type {
   CodebaseSettingsForm as CodebaseSettingsFormValue,
   ModelTestKind,
@@ -52,6 +51,9 @@ export function CodebaseSettingsForm({
   onReset,
 }: CodebaseSettingsFormProps): React.JSX.Element {
   const { t } = useI18n();
+  // 密钥字段与 API 配置编辑弹窗一致：回填已保存的密钥，并提供明文查看按钮。
+  const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
+  const [showRerankingKey, setShowRerankingKey] = useState(false);
 
   // 保存前就能发现的明显不可用配置：只提示、不阻止保存（本地 Ollama 等无需密钥）。
   const embeddingWarning =
@@ -122,7 +124,7 @@ export function CodebaseSettingsForm({
     field: keyof CodebaseSettingsFormValue,
     label: string,
     placeholder = "",
-    type: "text" | "password" | "number" = "text",
+    type: "text" | "number" = "text",
     min?: number,
     hint?: string,
   ) => (
@@ -138,6 +140,36 @@ export function CodebaseSettingsForm({
         disabled={isBusy}
       />
       {hint ? <span className="api-settings-field-hint">{hint}</span> : null}
+    </label>
+  );
+
+  // 密钥字段：明文回填 + 眼睛按钮切换显示，复用 API 配置编辑弹窗的密码框样式。
+  const renderSecretInput = (
+    field: "embeddingApiKey" | "rerankingApiKey",
+    label: string,
+    visible: boolean,
+    onToggleVisibility: () => void,
+  ) => (
+    <label className="api-settings-field">
+      <span>{label}</span>
+      <div className="api-settings-password-wrap">
+        <input
+          value={form[field]}
+          onChange={onUpdateField(field)}
+          onBlur={() => onBlurSave()}
+          placeholder="sk-..."
+          type={visible ? "text" : "password"}
+          disabled={isBusy}
+        />
+        <button
+          type="button"
+          className="api-settings-password-toggle"
+          onClick={onToggleVisibility}
+          tabIndex={-1}
+        >
+          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
     </label>
   );
 
@@ -208,13 +240,13 @@ export function CodebaseSettingsForm({
                   "Leave empty to omit the dimensions parameter (some models do not support it).",
               }),
             )}
-            {renderTextInput(
+            {renderSecretInput(
               "embeddingApiKey",
               t("settings.codebaseEmbeddingApiKey", {
                 defaultValue: "Embedding API key",
               }),
-              maskSecret(form.embeddingApiKey),
-              "password",
+              showEmbeddingKey,
+              () => setShowEmbeddingKey((value) => !value),
             )}
             {renderTextInput(
               "modelContextLength",
@@ -272,13 +304,13 @@ export function CodebaseSettingsForm({
               "number",
               1,
             )}
-            {renderTextInput(
+            {renderSecretInput(
               "rerankingApiKey",
               t("settings.codebaseRerankingApiKey", {
                 defaultValue: "Reranking API key",
               }),
-              maskSecret(form.rerankingApiKey),
-              "password",
+              showRerankingKey,
+              () => setShowRerankingKey((value) => !value),
             )}
           </div>
           {renderHealth("reranking", rerankingHealth, rerankingWarning)}

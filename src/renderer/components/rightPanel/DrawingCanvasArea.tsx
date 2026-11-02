@@ -428,9 +428,6 @@ export const DrawingCanvasArea = memo(function DrawingCanvasArea({
   if (showEmptyHint) {
     return (
       <div className="ai-drawing-status ai-drawing-status-empty">
-        <div className="ai-drawing-empty-icon" aria-hidden="true">
-          <Sparkles size={22} strokeWidth={1.6} />
-        </div>
         <span className="ai-drawing-empty-title">
           {t("rightPanel.aiDrawing.emptyHint")}
         </span>

@@ -33052,6 +33052,7 @@ body.is-right-pane-resizing-y * {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 6px 12px;
   flex-shrink: 0;
@@ -33061,8 +33062,11 @@ body.is-right-pane-resizing-y * {
 
 .task-manager-tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  max-width: 100%;
   padding: 3px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
@@ -33122,21 +33126,30 @@ body.is-right-pane-resizing-y * {
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .task-manager-sampling-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   color: var(--text-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
+/* 极窄面板下允许采样状态文本截断，避免把刷新控件挤出可视区 */
+.task-manager-status-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .task-manager-pulse-dot {
   width: 6px;
   height: 6px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--accent-green);
   box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
@@ -34474,12 +34487,23 @@ body.is-right-pane-resizing-y * {
     grid-template-columns: 1fr;
   }
   .task-manager-nav-bar {
-    flex-wrap: wrap;
     gap: 6px;
   }
   .task-manager-nav-controls {
     width: 100%;
     justify-content: flex-end;
+  }
+  /* 压缩标签尺寸，保证 5 个标签在窄面板中单行放下 */
+  .task-manager-tab-btn {
+    gap: 5px;
+    padding: 4px 7px;
+    font-size: 10.5px;
+  }
+  .task-manager-tab-badge {
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 9px;
   }
 }
 
@@ -34495,6 +34519,7 @@ body.is-right-pane-resizing-y * {
     justify-content: space-between;
   }
   .task-manager-tab-btn {
+    gap: 4px;
     padding: 4px 6px;
     font-size: 10px;
   }
@@ -41203,6 +41228,17 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   word-break: break-all;
 }
 
+/* 敏感命令拦截提示：命令中命中规则的关键字标红加粗 */
+.sensitive-command-keyword {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--accent-red-bg);
+  color: var(--accent-red-text);
+  font-weight: 700;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .sensitive-command-description {
   display: grid;
   gap: 4px;
@@ -44352,7 +44388,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   color: var(--warning-color, #d29922);
 }
 
-/* 是否开启流：现代精致 Switch 切换胶囊设计，与工作台高度完美对齐 */
+/* 是否开启流 / 高级开关：复用全局 toggle-switch + toggle-slider，与设置页开关保持一致 */
 .ai-drawing-param-stream {
   position: relative;
   display: inline-flex;
@@ -44396,50 +44432,6 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 .ai-drawing-param-stream.is-disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.ai-drawing-param-stream input[type="checkbox"] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  margin: 0;
-}
-
-.ai-drawing-switch-pill {
-  position: relative;
-  display: inline-block;
-  width: 26px;
-  height: 14px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--border-color) 80%, var(--bg-secondary));
-  border: 1px solid var(--border-color);
-  flex-shrink: 0;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.ai-drawing-param-stream.is-active .ai-drawing-switch-pill {
-  background: var(--accent-color);
-  border-color: var(--accent-color);
-}
-
-.ai-drawing-switch-dot {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-drawing-param-stream.is-active .ai-drawing-switch-dot {
-  transform: translateX(12px);
 }
 
 /* 参考图缩略图条（画布区顶部常驻；图生图入口） */
@@ -44889,25 +44881,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 .ai-drawing-status-empty {
   flex-direction: column;
   gap: 6px;
-  /* 轻量空状态：无大边框，仅靠图标/文字层级引导，避免占面积 */
-}
-
-.ai-drawing-empty-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 2px;
-  border-radius: 14px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent-color) 22%, transparent),
-    color-mix(in srgb, var(--accent-color) 7%, transparent)
-  );
-  color: color-mix(in srgb, var(--accent-color) 85%, #ffffff);
-  box-shadow: 0 2px 10px
-    color-mix(in srgb, var(--accent-color) 16%, transparent);
+  /* 轻量空状态：无大边框，仅靠文字层级引导，避免占面积 */
 }
 
 .ai-drawing-empty-title {

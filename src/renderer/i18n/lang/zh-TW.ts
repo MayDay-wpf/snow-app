@@ -2560,6 +2560,7 @@ export const zhTW = {
   "settings.save": "儲存",
   "settings.saveApiConfig": "儲存 API 配置",
   "settings.apiManualProfileRequired": "請填寫配置名稱。",
+  "settings.apiProfileNameExists": "配置名稱「{{name}}」已存在，請換一個名稱。",
   "settings.apiManualAddSuccess": "已新增 API 配置 {name}。",
   "settings.apiImportSuccess": "已匯入 {count} 個 Snow CLI 配置。",
   "settings.apiExportSelected": "匯出選取",

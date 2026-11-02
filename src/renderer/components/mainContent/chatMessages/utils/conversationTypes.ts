@@ -150,6 +150,8 @@ export type ToolCallInfo = {
     commandId: string;
     pattern: string;
     description: string;
+    /** 命令文本中的命中区间（UTF-16 偏移），拦截提示据此高亮关键字。 */
+    ranges?: Array<{ start: number; end: number }>;
   }>;
   /** 决策模型辅助：对这条敏感命令的判定（拦截提示与工具卡片共用）。 */
   sensitiveCommandDecision?: {

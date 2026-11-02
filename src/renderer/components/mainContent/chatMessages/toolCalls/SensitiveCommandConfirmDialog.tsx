@@ -1,5 +1,5 @@
 import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { keyToDisplay } from "../../../../utils/shortcutUtils";
 import { isEditableContentEmpty } from "../../chatInput/fileTagUtils";
@@ -12,6 +12,63 @@ type SensitiveCommandMatch = {
   commandId: string;
   pattern: string;
   description: string;
+  /** 规则在命令文本中的命中区间（UTF-16 偏移，由 Rust 匹配时给出）。 */
+  ranges: Array<{ start: number; end: number }>;
+};
+
+/** 命令文本切片：labels 非空表示该片段命中了敏感规则（值为命中规则的说明）。 */
+type CommandSegment = {
+  text: string;
+  labels: string[];
+};
+
+/**
+ * 按各规则的命中区间把命令切成普通片段与高亮片段。多条规则的区间可能重叠，
+ * 以所有区间端点为切分点，每个最小片段记录覆盖它的规则；相邻且命中规则相同的
+ * 片段再合并，避免产生多余节点。
+ */
+const buildCommandSegments = (
+  command: string,
+  matches: SensitiveCommandMatch[],
+): CommandSegment[] => {
+  const length = command.length;
+  const marks = matches.flatMap((match) =>
+    match.ranges
+      .map((range) => ({
+        start: Math.max(0, Math.min(range.start, length)),
+        end: Math.max(0, Math.min(range.end, length)),
+        label: match.description || match.pattern,
+      }))
+      .filter((mark) => mark.end > mark.start),
+  );
+  if (marks.length === 0) {
+    return [{ text: command, labels: [] }];
+  }
+
+  const points = Array.from(
+    new Set([0, length, ...marks.flatMap((mark) => [mark.start, mark.end])]),
+  ).sort((a, b) => a - b);
+
+  const segments: CommandSegment[] = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const labels = Array.from(
+      new Set(
+        marks
+          .filter((mark) => mark.start <= start && mark.end >= end)
+          .map((mark) => mark.label),
+      ),
+    );
+    const text = command.slice(start, end);
+    const previous = segments[segments.length - 1];
+    if (previous && previous.labels.join("\n") === labels.join("\n")) {
+      previous.text += text;
+    } else {
+      segments.push({ text, labels });
+    }
+  }
+  return segments;
 };
 
 type SensitiveCommandDecision = {
@@ -95,6 +152,11 @@ const SensitiveCommandItem = ({
   const command =
     parseBashArgument(toolCall, "command") ?? toolCall.arguments ?? "";
   const description = parseBashArgument(toolCall, "description");
+  // 命中的敏感关键字在命令里高亮，长命令中也能一眼定位危险操作。
+  const commandSegments = useMemo(
+    () => buildCommandSegments(command, matches),
+    [command, matches],
+  );
   // 拒绝理由是富文本：空态下 contenteditable 会残留换行符，需按编辑区口径判空，
   // 否则「未填写理由」会被当成用户理由（不再回落到默认理由）。
   const trimmedReason = isEditableContentEmpty(rejectionReason)
@@ -158,7 +220,21 @@ const SensitiveCommandItem = ({
           <span className="tool-call-bash-prompt" aria-hidden="true">
             $
           </span>
-          <code>{command}</code>
+          <code>
+            {commandSegments.map((segment, index) =>
+              segment.labels.length > 0 ? (
+                <mark
+                  key={index}
+                  className="sensitive-command-keyword"
+                  title={segment.labels.join("\n")}
+                >
+                  {segment.text}
+                </mark>
+              ) : (
+                <Fragment key={index}>{segment.text}</Fragment>
+              ),
+            )}
+          </code>
         </pre>
       </div>
 
@@ -343,6 +419,7 @@ export const SensitiveCommandConfirmDialog = ({
             commandId: match.commandId,
             pattern: match.pattern,
             description: match.description,
+            ranges: match.ranges ?? [],
           }));
           // 决策模型辅助的判定（未启用辅助 / 请求失败时为空，只显示规则命中）。
           const decision: SensitiveCommandDecision | undefined =

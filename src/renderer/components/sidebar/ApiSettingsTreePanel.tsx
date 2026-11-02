@@ -143,10 +143,22 @@ export function ApiSettingsTreePanel({
   };
 
   const handleAddSubmit = async () => {
-    if (!addForm.profileName.trim()) {
+    const profileName = addForm.profileName.trim();
+    if (!profileName) {
       setError(
         t("settings.apiManualProfileRequired", {
           defaultValue: "Profile name is required.",
+        }),
+      );
+      return;
+    }
+
+    // 同名时后端 upsert 会静默覆盖既有档案，先提示用户改名。
+    if (configs.some((item) => item.profileName === profileName)) {
+      setError(
+        t("settings.apiProfileNameExists", {
+          defaultValue: 'Profile name "{{name}}" already exists.',
+          values: { name: profileName },
         }),
       );
       return;
@@ -166,7 +178,7 @@ export function ApiSettingsTreePanel({
       setStatus(
         t("settings.apiManualAddSuccess", {
           defaultValue: "Added API profile {name}.",
-        }).replace("{name}", addForm.profileName.trim()),
+        }).replace("{name}", profileName),
       );
     } catch (e) {
       setError(

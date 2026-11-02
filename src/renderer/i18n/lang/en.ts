@@ -2708,6 +2708,8 @@ export const en = {
   "settings.save": "Save",
   "settings.saveApiConfig": "Save API profile",
   "settings.apiManualProfileRequired": "Profile name is required.",
+  "settings.apiProfileNameExists":
+    'Profile name "{{name}}" already exists. Choose another name.',
   "settings.apiManualAddSuccess": "Added API profile {name}.",
   "settings.apiImportSuccess": "Imported {count} Snow CLI profiles.",
   "settings.apiExportSelected": "Export selected",

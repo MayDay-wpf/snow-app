@@ -182,15 +182,51 @@ pub fn check_sensitive_command_match(
                 Some(ref path) => format!("{description} (via script {path})"),
                 None => description.clone(),
             };
+            // 只有命令本身的命中才能在拦截提示里定位高亮；脚本内容不在命令文本中。
+            let ranges = if source.is_none() {
+                collect_match_ranges(&regex, &text)
+            } else {
+                Vec::new()
+            };
             matches.push(SensitiveCommandMatchResult {
                 command_id: command_id.clone(),
                 pattern: pattern.clone(),
                 description,
+                ranges,
             });
         }
     }
 
     Ok(matches)
+}
+
+/// 单条规则最多回传的命中区间数，防止宽泛规则在超长命令上产生过大的负载。
+const MAX_MATCH_RANGES_PER_RULE: usize = 64;
+
+/// 收集规则在文本中的全部命中区间（跳过空匹配），字节偏移换算为 UTF-16 偏移。
+/// `find_iter` 的结果互不重叠且递增，按游标累加即可线性完成换算。
+fn collect_match_ranges(regex: &regex::Regex, text: &str) -> Vec<SensitiveCommandMatchRange> {
+    let mut ranges = Vec::new();
+    let mut cursor_byte = 0usize;
+    let mut cursor_utf16 = 0u32;
+    for found in regex.find_iter(text) {
+        if found.start() == found.end() {
+            continue;
+        }
+        let start = cursor_utf16 + utf16_len(&text[cursor_byte..found.start()]);
+        let end = start + utf16_len(found.as_str());
+        ranges.push(SensitiveCommandMatchRange { start, end });
+        cursor_byte = found.end();
+        cursor_utf16 = end;
+        if ranges.len() >= MAX_MATCH_RANGES_PER_RULE {
+            break;
+        }
+    }
+    ranges
+}
+
+fn utf16_len(text: &str) -> u32 {
+    text.encode_utf16().count() as u32
 }
 
 pub fn list_hook_configs(

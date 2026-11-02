@@ -2560,6 +2560,7 @@ export const zhCN = {
   "settings.save": "保存",
   "settings.saveApiConfig": "保存 API 配置",
   "settings.apiManualProfileRequired": "请填写配置名称。",
+  "settings.apiProfileNameExists": "配置名称「{{name}}」已存在，请换一个名称。",
   "settings.apiManualAddSuccess": "已添加 API 配置 {name}。",
   "settings.apiImportSuccess": "已导入 {count} 个 Snow CLI 配置。",
   "settings.apiExportSelected": "导出选中",

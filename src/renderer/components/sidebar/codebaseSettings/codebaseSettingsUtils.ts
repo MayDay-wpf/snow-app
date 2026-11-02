@@ -266,5 +266,3 @@ export const toCodebaseSettings = (
     configJson: toSnowCliCodebaseConfigJson(settings),
   };
 };
-
-export const maskSecret = (value: string): string => (value ? "********" : "-");

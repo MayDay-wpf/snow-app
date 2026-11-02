@@ -2756,7 +2756,7 @@ export function DrawingPanelContent({
           {/* 流式预览（是否开启流）：模型不支持时隐藏（如 xAI Grok） */}
           {capabilities?.supportsStream !== false && (
             <label
-              className={`ai-drawing-param ai-drawing-param-stream${
+              className={`ai-drawing-param ai-drawing-param-stream toggle-switch${
                 effectiveStream ? " is-active" : ""
               }${streamDisabled ? " is-disabled" : ""}`}
               title={
@@ -2773,9 +2773,7 @@ export function DrawingPanelContent({
                 disabled={streamDisabled}
                 onChange={(event) => setStream(event.target.checked)}
               />
-              <span className="ai-drawing-switch-pill" aria-hidden="true">
-                <span className="ai-drawing-switch-dot" />
-              </span>
+              <span className="toggle-slider" aria-hidden="true" />
               <span className="ai-drawing-param-label">
                 {t("rightPanel.aiDrawing.stream")}
               </span>
@@ -2837,12 +2835,17 @@ export function DrawingPanelContent({
                 </label>
                 {/* Google 搜索 grounding：仅 3.1 Flash + 3 Pro 支持（Lite / 2.5 隐藏） */}
                 {capabilities?.supportsWebSearch !== false ? (
-                  <label className="ai-drawing-param ai-drawing-param-stream">
+                  <label
+                    className={`ai-drawing-param ai-drawing-param-stream toggle-switch${
+                      webSearch ? " is-active" : ""
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       checked={webSearch}
                       onChange={(event) => setWebSearch(event.target.checked)}
                     />
+                    <span className="toggle-slider" aria-hidden="true" />
                     <span className="ai-drawing-param-label">
                       {t("rightPanel.aiDrawing.webSearch")}
                     </span>
@@ -2876,12 +2879,17 @@ export function DrawingPanelContent({
                   </label>
                 ) : null}
                 {capabilities?.supportsImageSearch ? (
-                  <label className="ai-drawing-param ai-drawing-param-stream">
+                  <label
+                    className={`ai-drawing-param ai-drawing-param-stream toggle-switch${
+                      imageSearch ? " is-active" : ""
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       checked={imageSearch}
                       onChange={(event) => setImageSearch(event.target.checked)}
                     />
+                    <span className="toggle-slider" aria-hidden="true" />
                     <span className="ai-drawing-param-label">
                       {t("rightPanel.aiDrawing.imageSearch")}
                     </span>

@@ -2890,6 +2890,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
       commandId: string;
       pattern: string;
       description: string;
+      /** 命令文本中的命中区间（UTF-16 偏移），用于高亮关键字。 */
+      ranges: Array<{ start: number; end: number }>;
     }>
   >;
   /** 用决策模型判定一条命中敏感规则的命令是否可直接放行（辅助 / 托管）。
