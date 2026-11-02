@@ -6,6 +6,7 @@ import {
   createTextSnippetChipHtml,
   insertHtmlAtSelection,
   isEditableContentEmpty,
+  placeCaretAtEditableEnd,
   readEditableContent,
   type ImageTag,
   type TextSnippetTag,
@@ -88,11 +89,7 @@ export const RichContentInput = forwardRef<
       ? selection.getRangeAt(0).startContainer
       : null;
     if (selection && (!anchor || !el.contains(anchor))) {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
+      placeCaretAtEditableEnd(el);
     }
   }, []);
 

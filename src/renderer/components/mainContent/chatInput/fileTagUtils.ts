@@ -1824,6 +1824,57 @@ export const readEditableContentAsPlainText = (el: HTMLElement): string =>
     },
   });
 
+const findLastEditableTextNode = (node: Node): Text | null => {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node as Text;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return null;
+  }
+  const element = node as HTMLElement;
+  // chip 等不可编辑子树不能承载输入法组合
+  if (element.isContentEditable === false) {
+    return null;
+  }
+  let child = element.lastChild;
+  while (child) {
+    const found = findLastEditableTextNode(child);
+    if (found) {
+      return found;
+    }
+    child = child.previousSibling;
+  }
+  return null;
+};
+
+/**
+ * 光标落到编辑区末尾的文本节点内部。Chromium 的输入法组合锚定在起始
+ * DOM 边界上：停在元素边界时首个中文按键会被当英文直接插入，只有文本
+ * 节点内才能正常组合。
+ */
+export const placeCaretAtEditableEnd = (element: HTMLElement): void => {
+  const selection = window.getSelection();
+  if (!selection) {
+    return;
+  }
+  const lastChild = element.lastChild;
+  // 末尾是 <br> 时不往前找，否则光标会回到上一行文本
+  let textNode =
+    lastChild && lastChild.nodeName !== "BR"
+      ? findLastEditableTextNode(lastChild)
+      : null;
+  if (!textNode) {
+    // 末尾是 chip / <br> / 空区：补空文本节点承接组合输入
+    textNode = document.createTextNode("");
+    element.appendChild(textNode);
+  }
+  const range = document.createRange();
+  range.setStart(textNode, textNode.length);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+};
+
 export const insertHtmlAtSelection = (html: string): void => {
   const selection = window.getSelection();
   if (!selection || !selection.rangeCount) {
@@ -1848,8 +1899,16 @@ export const insertHtmlAtSelection = (html: string): void => {
       caretAnchor = space;
     }
 
-    range.setStartAfter(caretAnchor);
-    range.setEndAfter(caretAnchor);
+    // 必须落进文本节点内部：停在元素边界时光标虽在同一视觉位置，
+    // 但输入法首个按键不进组合，中文字母会被当英文插入。
+    if (caretAnchor.nodeType === Node.TEXT_NODE) {
+      const offset = (caretAnchor as Text).length;
+      range.setStart(caretAnchor, offset);
+      range.setEnd(caretAnchor, offset);
+    } else {
+      range.setStartAfter(caretAnchor);
+      range.setEndAfter(caretAnchor);
+    }
     selection.removeAllRanges();
     selection.addRange(range);
   }

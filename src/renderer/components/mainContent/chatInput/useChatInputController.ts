@@ -42,6 +42,7 @@ import {
   buildSegmentsHtml,
   isEditableContentEmpty,
   parseContentSegments,
+  placeCaretAtEditableEnd,
   renumberImageChips,
 } from "./fileTagUtils";
 type UseChatInputControllerParams = {
@@ -91,15 +92,7 @@ const focusEditableAtEnd = (element: HTMLElement | null): void => {
     return;
   }
   element.focus();
-  const selection = window.getSelection();
-  if (!selection) {
-    return;
-  }
-  const range = document.createRange();
-  range.selectNodeContents(element);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  placeCaretAtEditableEnd(element);
 };
 
 export const useChatInputController = ({
