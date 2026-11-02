@@ -91,6 +91,14 @@ export type OpenExplorerPayload = {
   directoryId: string;
 };
 
+/** bash 卡片点击「后台运行」徽章：打开任务管理器并定位该后台任务 */
+export type FocusBackgroundTaskPayload = {
+  /** 后台任务 id（工具结果里的 taskId；应用重启前的旧结果没有该字段） */
+  taskId?: string | null;
+  /** 任务进程 id：taskId 缺失时的回退定位依据 */
+  pid?: number | null;
+};
+
 /** 资源管理器双击文件打开快速编辑弹窗：请求关闭该文件在右侧面板的阅读器 tab */
 export type CloseFileTabPayload = {
   /** 文件路径（本地绝对路径或 SSH 裸远端路径，与打开时同一口径） */
@@ -130,6 +138,8 @@ type RightPanelEventMap = {
   "toggle-explorer": (payload: OpenExplorerPayload) => void;
   "open-git-diff": (payload: OpenGitDiffPayload) => void;
   "open-git-file": (payload: OpenGitFilePayload) => void;
+  /** 打开任务管理器并定位某个 detach 后台任务 */
+  "focus-background-task": (payload: FocusBackgroundTaskPayload) => void;
   "request-expand": () => void;
 };
 
@@ -148,6 +158,7 @@ const listeners: {
   "toggle-explorer"?: Set<(payload: OpenExplorerPayload) => void>;
   "open-git-diff"?: Set<(payload: OpenGitDiffPayload) => void>;
   "open-git-file"?: Set<(payload: OpenGitFilePayload) => void>;
+  "focus-background-task"?: Set<(payload: FocusBackgroundTaskPayload) => void>;
   "request-expand"?: Set<() => void>;
 } = {};
 

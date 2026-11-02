@@ -1,6 +1,7 @@
 mod api;
 pub(crate) mod checkpoint;
 pub(crate) mod codebase;
+mod detached_tasks;
 mod engine;
 mod formatting;
 mod git;

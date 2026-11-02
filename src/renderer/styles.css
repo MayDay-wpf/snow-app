@@ -18951,6 +18951,23 @@ body.is-panel-resizing * {
   );
 }
 
+/* 可点击态（跳到任务管理器定位该后台任务） */
+.tool-call-bash-detached-badge.is-action {
+  border: none;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.tool-call-bash-detached-badge.is-action:hover {
+  filter: brightness(1.12);
+  text-decoration: underline;
+}
+
+.tool-call-bash-detached-badge.is-action:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
 /* 决策模型判定徽章（卡片头部）：托管自动放行/拒绝的敏感命令 */
 .tool-call-bash-decision-badge {
   display: inline-flex;
@@ -33604,6 +33621,213 @@ body.is-right-pane-resizing-y * {
   font-size: 11.5px;
 }
 
+/* 后台任务（bash detach）：卡片列表 + 徽章定位高亮 */
+.task-manager-background-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.task-manager-background-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.task-manager-background-list.is-stale {
+  opacity: 0.58;
+}
+
+.task-manager-background-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--surface-island);
+  scroll-margin: 8px;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.task-manager-background-item:hover {
+  border-color: var(--border-color);
+}
+
+/* 定位脉冲：强调色在 2.4s 内淡回常态，不常驻强调边框 */
+.task-manager-background-item.is-located {
+  animation: task-manager-locate 2.4s ease-out forwards;
+}
+
+@keyframes task-manager-locate {
+  0% {
+    border-color: var(--accent-color);
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 14%,
+      var(--surface-island)
+    );
+    box-shadow: 0 0 0 1px var(--accent-color);
+  }
+  70% {
+    border-color: var(--accent-color);
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 6%,
+      var(--surface-island)
+    );
+    box-shadow: 0 0 0 1px
+      color-mix(in srgb, var(--accent-color) 45%, transparent);
+  }
+  100% {
+    border-color: var(--border-light);
+    background: var(--surface-island);
+    box-shadow: none;
+  }
+}
+
+.task-manager-background-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-manager-background-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent-blue-text, #4a9eff);
+  background: color-mix(
+    in srgb,
+    var(--accent-blue-text, #4a9eff) 14%,
+    transparent
+  );
+}
+
+.task-manager-background-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.task-manager-background-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager-background-command {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager-background-status {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 9.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.task-manager-background-status.is-running {
+  color: var(--accent-green-text);
+  background: var(--accent-green-bg);
+}
+
+.task-manager-background-status.is-exited {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.task-manager-background-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-manager-background-workdir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager-background-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-manager-background-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.task-manager-background-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.task-manager-background-action.is-danger:hover:not(:disabled) {
+  color: var(--accent-red-text);
+  border-color: var(--accent-red-text);
+}
+
+.task-manager-background-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-manager-background-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+
 @container (max-width: 420px) {
   .task-manager-search {
     flex-basis: 100%;
@@ -33888,15 +34112,9 @@ body.is-right-pane-resizing-y * {
 .task-manager-top-bar-fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.3s ease;
-}
-
-.task-manager-top-bar-fill.is-cpu {
-  background: var(--accent-amber-text);
-}
-
-.task-manager-top-bar-fill.is-mem {
-  background: var(--accent-blue);
+  transition:
+    width 0.3s ease,
+    background 0.3s ease;
 }
 
 /* 进程类型分布条卡片 */
@@ -38490,6 +38708,10 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 .git-file-list-action:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.git-file-list-action.danger:hover {
+  color: var(--accent-red-text);
 }
 
 /* 分组展开/收起：grid-rows 0fr<->1fr 高度插值，内层 overflow 裁剪；
@@ -45928,6 +46150,19 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 .git-confirm-bubble-btn.primary:hover {
   background: color-mix(in srgb, var(--accent-color) 88%, white);
   border-color: color-mix(in srgb, var(--accent-color) 88%, white);
+}
+
+/* 破坏性操作（如放弃全部修改）的确认按钮用危险色 */
+.git-confirm-bubble-btn.danger {
+  background: var(--danger, #e5484d);
+  border-color: var(--danger, #e5484d);
+  color: var(--on-solid);
+}
+
+.git-confirm-bubble-btn.danger:hover {
+  background: color-mix(in srgb, var(--danger, #e5484d) 86%, #000);
+  border-color: color-mix(in srgb, var(--danger, #e5484d) 86%, #000);
+  color: var(--on-solid);
 }
 
 /* Ctrl+点击打开文件：按住 Ctrl 悬停路径时给出可点击提示。

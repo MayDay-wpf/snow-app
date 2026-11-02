@@ -193,6 +193,13 @@ const requirePid = (value: unknown): number => {
   return value;
 };
 
+const requireTaskId = (value: unknown): string => {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("A valid background task id is required");
+  }
+  return value.trim();
+};
+
 export const registerProcessHandlers = (native: NativeBridge): void => {
   ipcMain.handle("processes:snapshot", () => buildSnapshot(native));
 
@@ -210,4 +217,17 @@ export const registerProcessHandlers = (native: NativeBridge): void => {
     }
     await native.killProcessTree(targetPid);
   });
+
+  // bash 工具 detach 启动的后台任务：登记表在 Rust 侧（含存活探测），这里只透传。
+  ipcMain.handle("processes:background-tasks", () =>
+    native.listDetachedTasks(),
+  );
+
+  ipcMain.handle("processes:background-task-kill", (_event, id: unknown) =>
+    native.killDetachedTask(requireTaskId(id)),
+  );
+
+  ipcMain.handle("processes:background-task-forget", (_event, id: unknown) =>
+    native.forgetDetachedTask(requireTaskId(id)),
+  );
 };

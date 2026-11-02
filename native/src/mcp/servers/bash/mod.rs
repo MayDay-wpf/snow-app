@@ -25,6 +25,7 @@ use super::remote_workspace::{
     RemoteWorkspaceCallback,
 };
 
+pub(crate) mod detached;
 mod platform;
 mod safety;
 mod session;
@@ -455,6 +456,8 @@ impl BashService {
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_TIMEOUT_MS);
         let executed_at = chrono::Local::now().to_rfc3339();
+        // 进程身份校验用的毫秒时间戳（与 executed_at 同源，避免两次取时差）。
+        let executed_at_ms = chrono::Local::now().timestamp_millis();
 
         // Optional session identity injected by the renderer (never supplied by
         // the model). Exposed to child processes as SNOW_SESSION_ID /
@@ -950,11 +953,25 @@ impl BashService {
         };
 
         // detach 模式：不等待、不注册取消 token、不读取输出。拿到 PID 后
-        // 立即返回；child 在此 drop（kill_on_drop=false，进程孤儿化后继续
-        // 运行，日志句柄由子进程持有继续写入）。返回值携带 pid / logPath /
-        // hint，agent 据此监控日志与终止进程。
+        // 立即返回；child 句柄移交后台任务登记表（kill_on_drop=false 保证进程
+        // 继续运行，登记表用 try_wait 判定存活并回收），返回值携带
+        // taskId / pid / logPath / hint，agent 据此监控日志与终止进程。
         if let Some(log_path) = detach_log_path {
             let pid = child.id().unwrap_or(0);
+            let log_path_text = log_path.to_string_lossy().replace('\\', "/");
+            // 登记到后台任务表：任务管理器据此列出 / 终止该进程。taskId 随结果
+            // 返回，前端点击「后台运行」徽章即可定位到对应任务。
+            let task_id = detached::register(
+                child,
+                pid,
+                command.clone(),
+                description.clone(),
+                working_directory.clone(),
+                log_path_text.clone(),
+                executed_at.clone(),
+                executed_at_ms,
+                session_id.clone(),
+            );
             // WSL 命令的 pid 是 wsl.exe 壳进程：taskkill /PID 只会杀掉壳，
             // WSL 实例内的 Linux 进程可能残留，需要额外给出 Linux 侧的
             // 停止方式（pkill / wsl --terminate）。
@@ -990,8 +1007,9 @@ impl BashService {
             });
             return Ok(json!({
                 "detached": true,
+                "taskId": task_id,
                 "pid": pid,
-                "logPath": log_path.to_string_lossy().replace('\\', "/"),
+                "logPath": log_path_text,
                 "command": command,
                 "workingDirectory": working_directory,
                 "startedAt": executed_at,

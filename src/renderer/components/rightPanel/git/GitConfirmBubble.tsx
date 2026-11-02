@@ -26,6 +26,10 @@ type GitConfirmBubbleProps = {
   onToggleSetUpstream?: (checked: boolean) => void;
   setUpstreamLabel?: string;
   confirmDisabled?: boolean;
+  /** 自定义气泡宽度，默认按是否含选项自适应。 */
+  width?: number;
+  /** 确认按钮改用危险色（放弃修改等破坏性操作）。 */
+  danger?: boolean;
 };
 
 const ARROW_SIZE = 8;
@@ -51,12 +55,14 @@ export function GitConfirmBubble({
   onToggleSetUpstream,
   setUpstreamLabel = "Set upstream (-u)",
   confirmDisabled = false,
+  width,
+  danger = false,
 }: GitConfirmBubbleProps): React.JSX.Element {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const hasOptions =
     (remotes && remotes.length > 1) ||
     (showSetUpstreamOption && onToggleSetUpstream !== undefined);
-  const bubbleWidth = hasOptions ? 220 : 168;
+  const bubbleWidth = width ?? (hasOptions ? 220 : 168);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent): void => {
@@ -136,7 +142,7 @@ export function GitConfirmBubble({
       <div className="git-confirm-bubble-actions">
         <button
           type="button"
-          className="git-confirm-bubble-btn primary"
+          className={`git-confirm-bubble-btn ${danger ? "danger" : "primary"}`}
           onClick={onConfirm}
           disabled={confirmDisabled}
         >

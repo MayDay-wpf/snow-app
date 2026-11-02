@@ -25,6 +25,7 @@ import { AnsiOutput } from "./shared/AnsiOutput";
 import { localizeToolError } from "./shared/toolErrorDisplay";
 import { SensitiveCommandSeverityBadge } from "./shared/SensitiveCommandSeverityBadge";
 import { SensitiveCommandContextNote } from "./shared/SensitiveCommandContextNote";
+import { rightPanelEvents } from "../../../rightPanel/rightPanelEvents";
 
 type BashToolCallProps = {
   toolCall: ToolCallInfo;
@@ -54,7 +55,7 @@ type ParsedBashResult =
   | { type: "timeout"; message: string; output: string }
   | { type: "cancelled"; message: string; output: string }
   | { type: "error"; message: string; output: string }
-  | { type: "detached"; pid: number; logPath: string }
+  | { type: "detached"; pid: number; logPath: string; taskId: string | null }
   | { type: "raw"; text: string }
   | { type: "empty" };
 
@@ -134,6 +135,10 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
         type: "detached",
         pid: typeof parsed.pid === "number" ? parsed.pid : 0,
         logPath: typeof parsed.logPath === "string" ? parsed.logPath : "",
+        taskId:
+          typeof parsed.taskId === "string" && parsed.taskId.trim()
+            ? parsed.taskId
+            : null,
       };
     }
 
@@ -655,12 +660,26 @@ export const BashToolCall = ({
             </span>
           ) : null}
           {parsedResult.type === "detached" ? (
-            <span className="tool-call-bash-detached-badge">
+            <button
+              type="button"
+              className="tool-call-bash-detached-badge is-action"
+              title={t("toolCall.bash.openInTaskManager", {
+                defaultValue: "Open in task manager",
+              })}
+              onClick={(event) => {
+                // 徽章是独立操作入口：不参与卡片开合
+                event.stopPropagation();
+                rightPanelEvents.emit("focus-background-task", {
+                  taskId: parsedResult.taskId,
+                  pid: parsedResult.pid,
+                });
+              }}
+            >
               <Activity size={11} aria-hidden="true" />
               {t("toolCall.bash.detached", {
                 values: { pid: parsedResult.pid },
               })}
-            </span>
+            </button>
           ) : null}
           {parsedResult.type === "timeout" ? (
             <span className="tool-call-bash-timeout-badge">

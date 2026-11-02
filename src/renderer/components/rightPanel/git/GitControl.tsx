@@ -168,6 +168,21 @@ export const GitControl = ({
   );
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [discardTarget, setDiscardTarget] = useState<GitFileStatus[]>([]);
+  // 变更区“全部放弃修改”的二次确认浮层锚点，非空即显示。
+  const [discardAllAnchor, setDiscardAllAnchor] =
+    useState<GitConfirmAnchor | null>(null);
+  // 变更区未暂存文件数：用于确认浮层文案。
+  const discardableCount = useMemo(
+    () =>
+      status
+        ? status.files.filter(
+            (f) =>
+              f.workdirStatus === "?" ||
+              (f.workdirStatus !== " " && f.workdirStatus !== ""),
+          ).length
+        : 0,
+    [status],
+  );
   // 拉取/推送二次确认：开关值来自 Git 设置面板，保存后通过自定义事件同步。
   const [confirmPullPush, setConfirmPullPush] = useState(true);
   const [remotes, setRemotes] = useState<GitRemoteInfo[]>([]);
@@ -268,6 +283,11 @@ export const GitControl = ({
     setIsGeneratingCommitMsg(
       repoPath != null && commitMsgGenerations.has(repoPath),
     );
+  }, [repoPath]);
+
+  // 切换仓库时收起放弃确认浮层，避免确认后误伤新仓库。
+  useEffect(() => {
+    setDiscardAllAnchor(null);
   }, [repoPath]);
 
   // 读取“拉取/推送二次确认”开关；设置面板保存后经自定义事件通知刷新，
@@ -950,6 +970,35 @@ export const GitControl = ({
     setDiscardTarget([]);
   }, []);
 
+  const handleDiscardAllRequest = useCallback((anchor: GitConfirmAnchor) => {
+    setDiscardAllAnchor(anchor);
+  }, []);
+
+  const handleDiscardAllCancel = useCallback(() => {
+    setDiscardAllAnchor(null);
+  }, []);
+
+  // 放弃变更区全部修改：未跟踪文件由后端 git clean 删除，其余恢复到 HEAD。
+  const handleDiscardAllConfirm = useCallback(() => {
+    setDiscardAllAnchor(null);
+    if (!repoPath || !status) {
+      return;
+    }
+    const paths = status.files
+      .filter(
+        (f) =>
+          f.workdirStatus === "?" ||
+          (f.workdirStatus !== " " && f.workdirStatus !== ""),
+      )
+      .map((f) => f.path);
+    if (paths.length === 0) {
+      return;
+    }
+    runFileAction("discard", t("git.discardFailed"), () =>
+      window.snow.gitDiscardChanges(repoPath, paths),
+    );
+  }, [repoPath, status, runFileAction, t]);
+
   const handleDismissError = useCallback(() => {
     setOperationError(null);
   }, []);
@@ -1410,6 +1459,7 @@ export const GitControl = ({
           onFileActivate={handleFileActivate}
           onStageToggle={handleStageToggle}
           onStageAll={handleStageAll}
+          onDiscardAll={handleDiscardAllRequest}
           onDiscard={handleDiscardRequest}
           onOpenFile={handleOpenFile}
           onOpenTerminal={onOpenTerminal}
@@ -1427,6 +1477,22 @@ export const GitControl = ({
         onConfirm={handleDiscardConfirm}
         onCancel={handleDiscardCancel}
       />
+
+      {discardAllAnchor && (
+        <GitConfirmBubble
+          anchor={discardAllAnchor}
+          message={t("git.discardAllConfirm", {
+            values: { count: discardableCount },
+          })}
+          confirmLabel={t("git.discardConfirmBtn")}
+          cancelLabel={t("common.cancel")}
+          onConfirm={handleDiscardAllConfirm}
+          onCancel={handleDiscardAllCancel}
+          width={200}
+          danger
+          confirmDisabled={actionInProgress !== null}
+        />
+      )}
 
       {actionsContextMenu && (
         <ContextMenu

@@ -107,6 +107,7 @@ import {
 } from "./rightPanel/terminal/terminalMonitor";
 import type { MainContentView } from "./mainContent/types";
 import type { DetachedPanelTabPayload } from "../../shared/detachedPanel";
+import type { BackgroundTaskFocus } from "./rightPanel/TaskManagerBackgroundTasks";
 import {
   toDetachedTabPayload,
   toRightPanelTab,
@@ -837,6 +838,24 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       );
       setActiveTabId(TASKS_TAB_ID);
     }, [t]);
+
+    // 后台任务定位请求（bash 卡片徽章点击）：nonce 变化触发列表重新定位。
+    const [taskFocus, setTaskFocus] = useState<BackgroundTaskFocus | null>(
+      null,
+    );
+    useEffect(
+      () =>
+        rightPanelEvents.on("focus-background-task", (payload) => {
+          handleOpenTaskManagerTab();
+          setTaskFocus({
+            taskId: payload.taskId?.trim() ?? "",
+            pid: payload.pid ?? 0,
+            nonce: Date.now(),
+          });
+          rightPanelEvents.emit("request-expand");
+        }),
+      [handleOpenTaskManagerTab],
+    );
 
     // 插件面板 tab：同一插件的同一面板复用同一个 tab（避免重复实例）。
     const handleOpenPluginPanel = useCallback(
@@ -2139,7 +2158,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               }
             />
           ) : tab.type === "tasks" ? (
-            <TaskManagerContent isActive={isTabActive} />
+            <TaskManagerContent
+              isActive={isTabActive}
+              focusRequest={taskFocus}
+            />
           ) : tab.type === "conversation" ? (
             isDetachedWindow ? (
               <ConversationTabPane

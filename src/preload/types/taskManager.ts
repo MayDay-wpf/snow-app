@@ -25,3 +25,24 @@ export type TaskManagerProcess = {
   /** 是否允许结束：Electron 自身进程只展示，应用派生的子进程可结束 */
   killable: boolean;
 };
+
+/** bash 工具 detach 启动的后台任务（Rust 内存登记表；应用重启后不保留） */
+export type DetachedTaskInfo = {
+  /** 任务 id：bash 工具结果里的 taskId，用于 UI 定位 */
+  id: string;
+  pid: number;
+  command: string;
+  /** 模型写的命令说明（用户语言），可能为空串 */
+  description: string;
+  workingDirectory: string;
+  /** 输出日志绝对路径（正斜杠形式） */
+  logPath: string;
+  /** 启动时刻（RFC3339） */
+  startedAt: string;
+  /** 退出时刻（RFC3339）；仍在运行时为 null（运行时长按此定格，不随当前时间累加） */
+  endedAt: string | null;
+  /** 发起该命令的会话 id；非会话内启动时为 null */
+  sessionId: string | null;
+  /** 进程是否仍在运行（每次查询实时探测） */
+  alive: boolean;
+};

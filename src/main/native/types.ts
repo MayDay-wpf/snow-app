@@ -1425,6 +1425,27 @@ export type ProcessSnapshotEntry = {
   threadCount: number;
 };
 
+/** bash 工具 detach 启动的后台任务（Rust 内存登记表；应用重启后不保留） */
+export type DetachedTaskInfo = {
+  /** 任务 id：bash 工具结果里的 taskId，用于 UI 定位 */
+  id: string;
+  pid: number;
+  command: string;
+  /** 模型写的命令说明（用户语言），可能为空串 */
+  description: string;
+  workingDirectory: string;
+  /** 输出日志绝对路径（正斜杠形式） */
+  logPath: string;
+  /** 启动时刻（RFC3339） */
+  startedAt: string;
+  /** 退出时刻（RFC3339）；仍在运行时为 null（运行时长按此定格，不随当前时间累加） */
+  endedAt: string | null;
+  /** 发起该命令的会话 id；非会话内启动时为 null */
+  sessionId: string | null;
+  /** 进程是否仍在运行（每次查询实时探测） */
+  alive: boolean;
+};
+
 /** 数据清理：可清理的分类 id（与 Rust 侧 cleanup 服务一一对应） */
 export type CleanupCategoryId =
   | "checkpoints"
@@ -3770,6 +3791,12 @@ export type NativeBridge = ImageGenerationNativeApi & {
   listProcessTree: (rootPid: number) => Promise<ProcessSnapshotEntry[]>;
   /** 结束指定进程树（任务管理器面板的「结束进程」；仅用于应用派生的子进程） */
   killProcessTree: (pid: number) => Promise<void>;
+  /** 列出 bash 工具 detach 启动的后台任务（任务管理器「后台任务」页；存活状态实时探测） */
+  listDetachedTasks: () => Promise<DetachedTaskInfo[]>;
+  /** 终止指定后台任务的整棵进程树；返回 false 表示进程已自行退出 */
+  killDetachedTask: (id: string) => Promise<boolean>;
+  /** 移除已完成的后台任务记录（连同日志文件一起删除）；仍在运行的任务返回 false */
+  forgetDetachedTask: (id: string) => Promise<boolean>;
   /** 整理本进程内存（仅 Windows 支持）：配合主进程 V8 GC 收缩 OS 工作集 */
   optimizeMemory: () => Promise<MemoryOptimizeResult>;
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */

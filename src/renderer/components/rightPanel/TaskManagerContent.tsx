@@ -11,6 +11,7 @@ import {
   MemoryStick,
   RefreshCw,
   Search,
+  Terminal,
   X,
 } from "lucide-react";
 import { useI18n } from "../../i18n";
@@ -18,7 +19,7 @@ import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { LspResourcePanel } from "../sidebar/lspSettings/LspResourcePanel";
-import type { TaskManagerProcess } from "../../../preload";
+import type { DetachedTaskInfo, TaskManagerProcess } from "../../../preload";
 import {
   associateLspProcesses,
   captureSessions,
@@ -41,6 +42,11 @@ import {
 import { TaskManagerProcessTable } from "./TaskManagerProcessTable";
 import { TaskManagerSessions } from "./TaskManagerSessions";
 import {
+  TaskManagerBackgroundTasks,
+  type BackgroundTaskFocus,
+} from "./TaskManagerBackgroundTasks";
+import { rightPanelEvents } from "./rightPanelEvents";
+import {
   TaskManagerAlerts,
   alertTriggeredText,
   useUsageAlerts,
@@ -59,15 +65,26 @@ import {
 } from "./taskManagerPresentation";
 
 const REFRESH_INTERVAL_MS = 1000;
+
+/** 后台任务显示名：优先用命令说明，回退到命令首行。 */
+const backgroundTaskLabel = (task: DetachedTaskInfo): string =>
+  task.description ||
+  task.command.trim().split(/\r?\n/, 1)[0] ||
+  `PID ${task.pid}`;
+
 type SortField = "name" | "kind" | "pid" | "cpu" | "memory" | "threads";
 type SortDirection = "asc" | "desc";
-type TaskManagerTab = "processes" | "performance" | "sessions" | "alerts";
+type TaskManagerTab =
+  "processes" | "background" | "performance" | "sessions" | "alerts";
 
 /** One process sampler serves rows, scoped trends and optional inline alerts. */
 export const TaskManagerContent = ({
   isActive,
+  focusRequest,
 }: {
   isActive: boolean;
+  /** 从 bash 卡片徽章跳转过来的后台任务定位请求（nonce 变化即重新定位） */
+  focusRequest?: BackgroundTaskFocus | null;
 }): React.JSX.Element => {
   const { t, locale } = useI18n();
   const [processes, setProcesses] = useState<TaskManagerProcess[]>([]);
@@ -94,6 +111,21 @@ export const TaskManagerContent = ({
   const [isKilling, setIsKilling] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
   const [killError, setKillError] = useState<string | null>(null);
+  // detach 后台任务：列表 + 结束确认（与进程「结束进程」互不影响）
+  const [backgroundTasks, setBackgroundTasks] = useState<DetachedTaskInfo[]>(
+    [],
+  );
+  const [backgroundSampledAtMs, setBackgroundSampledAtMs] = useState(0);
+  const [backgroundError, setBackgroundError] = useState(false);
+  const [pendingTaskKill, setPendingTaskKill] =
+    useState<DetachedTaskInfo | null>(null);
+  const [isTaskKilling, setIsTaskKilling] = useState(false);
+  const [taskKillError, setTaskKillError] = useState<string | null>(null);
+  // 移除记录会连日志一起删除，必须二次确认
+  const [pendingTaskForget, setPendingTaskForget] =
+    useState<DetachedTaskInfo | null>(null);
+  const [isTaskForgetting, setIsTaskForgetting] = useState(false);
+  const [taskForgetError, setTaskForgetError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
   const forceQueuedRef = useRef(false);
   const refreshWaitersRef = useRef<Array<() => void>>([]);
@@ -135,16 +167,20 @@ export const TaskManagerContent = ({
         Date.now() - lastLspAttemptRef.current >= LSP_REFRESH_INTERVAL_MS;
       if (fetchLsp) lastLspAttemptRef.current = Date.now();
       try {
-        const [processResult, sessionResult] = await Promise.allSettled([
-          window.snow
-            .getProcessSnapshot()
-            .then((value) => ({ value, receivedAtMs: Date.now() })),
-          fetchLsp
-            ? window.snow
-                .listLspSessionStatuses()
-                .then((value) => ({ value, receivedAtMs: Date.now() }))
-            : Promise.resolve(null),
-        ]);
+        const [processResult, sessionResult, taskResult] =
+          await Promise.allSettled([
+            window.snow
+              .getProcessSnapshot()
+              .then((value) => ({ value, receivedAtMs: Date.now() })),
+            fetchLsp
+              ? window.snow
+                  .listLspSessionStatuses()
+                  .then((value) => ({ value, receivedAtMs: Date.now() }))
+              : Promise.resolve(null),
+            window.snow
+              .listDetachedTasks()
+              .then((value) => ({ value, receivedAtMs: Date.now() })),
+          ]);
         if (!mountedRef.current) return;
         const snapshot =
           processResult.status === "fulfilled"
@@ -191,6 +227,13 @@ export const TaskManagerContent = ({
             previous ? reconcileSessionRoots(previous, snapshot) : null,
           );
         }
+        if (taskResult.status === "fulfilled") {
+          setBackgroundTasks(taskResult.value.value);
+          setBackgroundSampledAtMs(taskResult.value.receivedAtMs);
+          setBackgroundError(false);
+        } else {
+          setBackgroundError(true);
+        }
         setNow(Date.now());
       } finally {
         inFlightRef.current = false;
@@ -230,6 +273,12 @@ export const TaskManagerContent = ({
   useEffect(() => {
     breakSampling();
   }, [scopeKey, breakSampling]);
+  // bash 卡片徽章跳转：切到「后台任务」页，具体定位由列表组件按 focus 处理。
+  useEffect(() => {
+    if (focusRequest) {
+      setActiveTab("background");
+    }
+  }, [focusRequest]);
   useEffect(() => {
     breakSampling();
     if (!isActive || hidden) return;
@@ -444,6 +493,50 @@ export const TaskManagerContent = ({
       setIsKilling(false);
     }
   };
+  // 后台任务终止：与进程「结束进程」同一只手（Rust 侧杀整棵进程树），
+  // 只是入口是任务 id，击杀后记录按真实存活状态刷新。
+  const taskKillLockRef = useRef(false);
+  const handleConfirmTaskKill = async (): Promise<void> => {
+    if (!pendingTaskKill || taskKillLockRef.current) return;
+    taskKillLockRef.current = true;
+    setIsTaskKilling(true);
+    setTaskKillError(null);
+    try {
+      await window.snow.killDetachedTask(pendingTaskKill.id);
+      setPendingTaskKill(null);
+      breakSampling();
+      await refresh(true);
+    } catch (error) {
+      setTaskKillError(error instanceof Error ? error.message : String(error));
+    } finally {
+      taskKillLockRef.current = false;
+      setIsTaskKilling(false);
+    }
+  };
+  const taskForgetLockRef = useRef(false);
+  const handleConfirmTaskForget = async (): Promise<void> => {
+    if (!pendingTaskForget || taskForgetLockRef.current) return;
+    taskForgetLockRef.current = true;
+    setIsTaskForgetting(true);
+    setTaskForgetError(null);
+    try {
+      await window.snow.forgetDetachedTask(pendingTaskForget.id);
+      setPendingTaskForget(null);
+      breakSampling();
+      await refresh(true);
+    } catch (error) {
+      setTaskForgetError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      taskForgetLockRef.current = false;
+      setIsTaskForgetting(false);
+    }
+  };
+  const handleOpenTaskLog = (task: DetachedTaskInfo): void => {
+    const fileName = task.logPath.split("/").pop() || `${task.id}.log`;
+    rightPanelEvents.emit("open-file", { filePath: task.logPath, fileName });
+  };
   const sortableHeader = (
     field: SortField,
     label: string,
@@ -572,6 +665,19 @@ export const TaskManagerContent = ({
             <Layers size={13} aria-hidden="true" />
             <span>{t("taskManager.tabProcesses")}</span>
             <span className="task-manager-tab-badge">{visibleRows.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "background"}
+            className={`task-manager-tab-btn ${activeTab === "background" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("background")}
+          >
+            <Terminal size={13} aria-hidden="true" />
+            <span>{t("taskManager.tabBackground")}</span>
+            <span className="task-manager-tab-badge">
+              {backgroundTasks.filter((task) => task.alive).length}
+            </span>
           </button>
           <button
             type="button"
@@ -795,6 +901,46 @@ export const TaskManagerContent = ({
         </div>
       )}
 
+      {/* Tab: bash detach 启动的后台任务（可查可停，支持从卡片徽章定位） */}
+      {activeTab === "background" && (
+        <>
+          {backgroundError && (
+            <div
+              className="task-manager-notice task-manager-error"
+              role="status"
+            >
+              {t("taskManager.backgroundError")}
+            </div>
+          )}
+          <TaskManagerBackgroundTasks
+            tasks={backgroundTasks}
+            loaded={backgroundSampledAtMs > 0 || backgroundError}
+            stale={
+              backgroundError ||
+              !backgroundSampledAtMs ||
+              now - backgroundSampledAtMs > SNAPSHOT_FRESHNESS_MS
+            }
+            now={now}
+            focus={focusRequest ?? null}
+            actionsDisabled={
+              isTaskKilling ||
+              isTaskForgetting ||
+              pendingTaskKill !== null ||
+              pendingTaskForget !== null
+            }
+            onKill={(task) => {
+              setTaskKillError(null);
+              setPendingTaskKill(task);
+            }}
+            onForget={(task) => {
+              setTaskForgetError(null);
+              setPendingTaskForget(task);
+            }}
+            onOpenLog={handleOpenTaskLog}
+          />
+        </>
+      )}
+
       {/* Tab 2: 性能趋势大屏与图表 */}
       {activeTab === "performance" && (
         <div className="task-manager-tab-content is-scrollable">
@@ -877,6 +1023,66 @@ export const TaskManagerContent = ({
         variant="danger"
       >
         {killError && <p className="task-manager-kill-error">{killError}</p>}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={pendingTaskKill !== null}
+        title={t("taskManager.endBackgroundTaskTitle")}
+        message={
+          pendingTaskKill
+            ? t("taskManager.endBackgroundTaskConfirm", {
+                values: {
+                  name: backgroundTaskLabel(pendingTaskKill),
+                  pid: pendingTaskKill.pid,
+                },
+              })
+            : ""
+        }
+        confirmLabel={t("taskManager.endProcess")}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => void handleConfirmTaskKill()}
+        onCancel={() => {
+          if (!taskKillLockRef.current) {
+            setPendingTaskKill(null);
+            setTaskKillError(null);
+          }
+        }}
+        isConfirming={isTaskKilling}
+        variant="danger"
+      >
+        {taskKillError && (
+          <p className="task-manager-kill-error">{taskKillError}</p>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={pendingTaskForget !== null}
+        title={t("taskManager.backgroundForgetTitle")}
+        message={
+          pendingTaskForget
+            ? t("taskManager.backgroundForgetConfirm", {
+                values: {
+                  name: backgroundTaskLabel(pendingTaskForget),
+                  path: pendingTaskForget.logPath,
+                },
+              })
+            : ""
+        }
+        confirmLabel={t("taskManager.backgroundForget")}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => void handleConfirmTaskForget()}
+        onCancel={() => {
+          if (!taskForgetLockRef.current) {
+            setPendingTaskForget(null);
+            setTaskForgetError(null);
+          }
+        }}
+        isConfirming={isTaskForgetting}
+        variant="danger"
+      >
+        {taskForgetError && (
+          <p className="task-manager-kill-error">{taskForgetError}</p>
+        )}
       </ConfirmDialog>
     </div>
   );

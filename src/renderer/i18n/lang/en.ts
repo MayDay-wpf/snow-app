@@ -1054,6 +1054,7 @@ export const en = {
   "toolCall.bash.errorWithoutDetails": "Command failed without error details",
   "toolCall.bash.exitCode": "exit {{code}}",
   "toolCall.bash.detached": "background · PID {{pid}}",
+  "toolCall.bash.openInTaskManager": "Open in task manager",
   "toolCall.bash.logPath": "Log: {{path}}",
   "toolCall.bash.timeout": "timeout",
   "toolCall.bash.cancelled": "stopped",
@@ -5530,6 +5531,24 @@ export const en = {
   "rightPanel.explorerTab": "Explorer",
   "rightPanel.tasksTab": "Task Manager",
   "taskManager.tabProcesses": "Processes",
+  "taskManager.tabBackground": "Background",
+  "taskManager.backgroundSearch":
+    "Search command / PID / working directory / log path",
+  "taskManager.backgroundSummary": "{{running}} running · {{total}} recorded",
+  "taskManager.backgroundEmpty":
+    "No background tasks. Commands started with detach appear here.",
+  "taskManager.backgroundUptime": "Uptime",
+  "taskManager.backgroundLog": "View log",
+  "taskManager.backgroundForget": "Remove",
+  "taskManager.backgroundForgetTitle": "Remove background task record",
+  "taskManager.backgroundForgetConfirm":
+    'Delete the record for "{{name}}" and its log file {{path}}? This cannot be undone.',
+  "taskManager.backgroundFocusMissing":
+    "This background task is no longer listed (its record or log file may have been removed).",
+  "taskManager.backgroundError": "Failed to read background tasks",
+  "taskManager.endBackgroundTaskTitle": "Stop background task",
+  "taskManager.endBackgroundTaskConfirm":
+    'Stop "{{name}}" (PID {{pid}}) and its child processes?',
   "taskManager.tabPerformance": "Performance",
   "taskManager.tabSessions": "LSP Sessions",
   "taskManager.tabAlerts": "Alerts",
@@ -6090,6 +6109,9 @@ export const en = {
   "git.changes": "Changes",
   "git.unstageAll": "Unstage all",
   "git.stageAll": "Stage all",
+  "git.discardAll": "Discard all changes",
+  "git.discardAllConfirm":
+    "Discard all {{count}} changes? This cannot be undone.",
   "git.showAsList": "Show as List",
   "git.showAsTree": "Show as Tree",
   "git.noStagedChanges": "No staged changes",

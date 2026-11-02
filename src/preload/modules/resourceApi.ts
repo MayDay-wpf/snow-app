@@ -1,6 +1,9 @@
 import { ipcRenderer } from "electron";
 import type { MemoryOptimizeResult } from "../types/storage";
-import type { TaskManagerProcess } from "../types/taskManager";
+import type {
+  DetachedTaskInfo,
+  TaskManagerProcess,
+} from "../types/taskManager";
 
 /** 应用资源占用查询 API。 */
 export const resourceApi = {
@@ -11,6 +14,18 @@ export const resourceApi = {
   /** 结束指定子进程树（Electron 自身进程会被主进程拒绝） */
   killProcessTree: (pid: number): Promise<void> =>
     ipcRenderer.invoke("processes:kill", pid),
+
+  /** bash 工具 detach 启动的后台任务列表（任务管理器「后台任务」页） */
+  listDetachedTasks: (): Promise<DetachedTaskInfo[]> =>
+    ipcRenderer.invoke("processes:background-tasks"),
+
+  /** 终止后台任务（整棵进程树）；返回 false 表示进程已自行退出 */
+  killDetachedTask: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke("processes:background-task-kill", id),
+
+  /** 移除已完成的后台任务记录（连同日志文件一起删除）；仍在运行的任务返回 false */
+  forgetDetachedTask: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke("processes:background-task-forget", id),
 
   /** 整理本进程内存（仅 Windows 支持；其它平台快速失败），返回整理前后常驻内存 */
   optimizeMemory: (): Promise<MemoryOptimizeResult> =>

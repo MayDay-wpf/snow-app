@@ -17,6 +17,7 @@ import type { GitFileStatus } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
+import type { GitConfirmAnchor } from "./GitConfirmBubble";
 
 type GitFileListProps = {
   repoPath: string;
@@ -39,6 +40,8 @@ type GitFileListProps = {
   ) => void;
   onStageAll?: () => void;
   onUnstageAll?: () => void;
+  /** 放弃变更区全部修改（需上层弹二次确认浮层）。 */
+  onDiscardAll?: (anchor: GitConfirmAnchor) => void;
   onDiscard?: (files: GitFileStatus[]) => void;
   onOpenFile?: (file: GitFileStatus) => void;
   /** 在文件所在目录打开终端。 */
@@ -191,6 +194,7 @@ export const GitFileList = ({
   onStageToggle,
   onStageAll,
   onUnstageAll,
+  onDiscardAll,
   onDiscard,
   onOpenFile,
   onOpenTerminal,
@@ -387,6 +391,23 @@ export const GitFileList = ({
           onStageAll?.();
         },
       });
+      if (onDiscardAll) {
+        items.push({
+          id: "discard-all",
+          label: t("git.discardAll"),
+          icon: <Undo2 size={13} strokeWidth={1.8} />,
+          danger: true,
+          onClick: () => {
+            const point = headerContextMenu;
+            setHeaderContextMenu(null);
+            onDiscardAll({
+              left: point?.x ?? 0,
+              right: point?.x ?? 0,
+              bottom: point?.y ?? 0,
+            });
+          },
+        });
+      }
     }
     return items;
   };
@@ -612,15 +633,35 @@ export const GitFileList = ({
                 </button>
               )
             : headerCount > 0 && (
-                <button
-                  type="button"
-                  className="git-file-list-action"
-                  onClick={onStageAll}
-                  disabled={actionInProgress !== null}
-                  title={t("git.stageAll")}
-                >
-                  <Plus size={13} strokeWidth={1.8} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="git-file-list-action"
+                    onClick={onStageAll}
+                    disabled={actionInProgress !== null}
+                    title={t("git.stageAll")}
+                  >
+                    <Plus size={13} strokeWidth={1.8} />
+                  </button>
+                  {onDiscardAll && (
+                    <button
+                      type="button"
+                      className="git-file-list-action danger"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        onDiscardAll({
+                          left: rect.left,
+                          right: rect.right,
+                          bottom: rect.bottom,
+                        });
+                      }}
+                      disabled={actionInProgress !== null}
+                      title={t("git.discardAll")}
+                    >
+                      <Undo2 size={13} strokeWidth={1.8} />
+                    </button>
+                  )}
+                </>
               )}
         </div>
       </div>

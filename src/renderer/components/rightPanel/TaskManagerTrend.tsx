@@ -356,6 +356,8 @@ export function TopProcessesChart({
             const val = isCpu ? item.cpuPercent : item.memoryBytes;
             const percent = Math.min(100, Math.max(4, (val / maxVal) * 100));
             const Icon = KIND_ICONS[item.kind] ?? Cpu;
+            // 与类型分布条同色，便于对照
+            const kindColor = KIND_COLORS[item.kind] ?? "var(--text-muted)";
             return (
               <div key={item.pid} className="task-manager-top-row">
                 <div className="task-manager-top-meta">
@@ -367,7 +369,11 @@ export function TopProcessesChart({
                         className="task-manager-process-icon"
                       />
                     ) : (
-                      <Icon size={12} className="task-manager-process-icon" />
+                      <Icon
+                        size={12}
+                        className="task-manager-process-icon"
+                        style={{ color: kindColor }}
+                      />
                     )}
                     <span
                       className="task-manager-top-name"
@@ -385,8 +391,11 @@ export function TopProcessesChart({
                 </div>
                 <div className="task-manager-top-bar-bg">
                   <div
-                    className={`task-manager-top-bar-fill ${isCpu ? "is-cpu" : "is-mem"}`}
-                    style={{ width: `${percent}%` }}
+                    className="task-manager-top-bar-fill"
+                    style={{
+                      width: `${percent}%`,
+                      background: kindColor,
+                    }}
                   />
                 </div>
               </div>
