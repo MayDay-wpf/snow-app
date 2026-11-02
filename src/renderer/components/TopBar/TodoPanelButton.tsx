@@ -25,6 +25,11 @@ type TodoPanelButtonProps = {
   isRunning?: boolean;
   onOpenChange?: (open: boolean) => void;
   onPinnedChange?: (pinned: boolean) => void;
+  /**
+   * popover：顶栏图标按钮 + 浮层列表（缺省）；
+   * inline：面板内嵌态，仅图标入口，列表在面板内以浮层展开。
+   */
+  variant?: "popover" | "inline";
 };
 
 const todoStatusIcon = (status: TodoStatus): typeof Circle => {
@@ -82,8 +87,10 @@ export const TodoPanelButton = ({
   isRunning = false,
   onOpenChange,
   onPinnedChange,
+  variant = "popover",
 }: TodoPanelButtonProps): React.JSX.Element | null => {
   const { t } = useI18n();
+  const isInline = variant === "inline";
   const openTodoShortcut = useShortcutLabel("openTodo");
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -220,20 +227,27 @@ export const TodoPanelButton = ({
     return () => window.clearTimeout(timer);
   }, [isClosing]);
 
-  // 订阅快捷键事件：Ctrl/Cmd+T 切换待办面板。
+  // 订阅快捷键事件：Ctrl/Cmd+T 切换待办面板。内嵌实例不订阅：分屏下多个
+  // 会话面板会同时响应，快捷键统一由顶栏入口处理。
   useEffect(() => {
+    if (isInline) {
+      return undefined;
+    }
     return shortcutEvents.on("toggle-todo", () => {
       setIsOpen((prev) => !prev);
     });
-  }, []);
+  }, [isInline]);
 
   // 订阅"打开待办面板"事件：来自聊天消息中 todo 工具调用的"在顶栏查看"入口，
   // 只打开不切换，避免面板已开时点击反而关闭。
   useEffect(() => {
+    if (isInline) {
+      return undefined;
+    }
     return shortcutEvents.on("open-todo", () => {
       setIsOpen(true);
     });
-  }, []);
+  }, [isInline]);
 
   useEffect(() => {
     onPinnedChange?.(isPinned);
@@ -381,15 +395,20 @@ export const TodoPanelButton = ({
   }
 
   return (
-    <div className="top-bar-todo-menu" ref={panelRef}>
+    <div
+      className={`top-bar-todo-menu${isInline ? " is-inline" : ""}`}
+      ref={panelRef}
+    >
       <button
         className={`icon-btn ghost top-bar-todo-btn${isOpen ? " active" : ""}`}
         type="button"
         aria-label={t("topBar.todo.title")}
         title={
-          openTodoShortcut
-            ? `${t("topBar.todo.title")} (${openTodoShortcut})`
-            : t("topBar.todo.title")
+          isInline
+            ? t("topBar.todo.title")
+            : openTodoShortcut
+              ? `${t("topBar.todo.title")} (${openTodoShortcut})`
+              : t("topBar.todo.title")
         }
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
@@ -401,7 +420,9 @@ export const TodoPanelButton = ({
       </button>
       {isPanelVisible ? (
         <div
-          className={`top-bar-todo-dropdown${isClosing ? " is-closing" : ""}`}
+          className={`top-bar-todo-dropdown${isClosing ? " is-closing" : ""}${
+            isInline ? " is-inline" : ""
+          }`}
         >
           <div className="top-bar-todo-dropdown-header">
             <span className="top-bar-todo-dropdown-title">

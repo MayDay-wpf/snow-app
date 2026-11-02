@@ -1019,6 +1019,23 @@ body.is-panel-resizing * {
   outline-offset: 1px;
 }
 
+/* 待办面板内嵌态（右侧面板会话面板）：仅一个图标入口，列表在面板内浮层展开 */
+.top-bar-todo-menu.is-inline {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* 浮层宽度贴合面板，避免固定的 260px 超出窄面板；展开/收起沿用下拉动画 */
+.top-bar-todo-menu.is-inline .top-bar-todo-dropdown {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  max-height: min(320px, 50vh);
+  transform-origin: top left;
+}
+
 .top-bar-right .panel-tab-group {
   overflow: hidden;
   opacity: 1;
@@ -32021,6 +32038,20 @@ button.user-message-source:hover {
   min-height: 0;
   padding-bottom: 8px;
   overflow: hidden;
+}
+
+/* 会话面板顶部的会话待办条：补上顶栏在面板内不可见的 TODO 入口。 */
+.right-panel-conversation-todo {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.right-panel-conversation-todo:empty {
+  display: none;
 }
 
 /* 独立面板窗口顶部操作栏（系统标题栏已隐藏）：整栏可拖拽，窗口控制按钮保持可点击。 */

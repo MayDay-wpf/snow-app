@@ -35,6 +35,23 @@ const HOVER_TOOLTIP_DELAY = 120;
 const ROW_SWITCH_WINDOW = 400;
 let lastRowLeaveAt = 0;
 
+/** 焦点变化后浏览器会补发 hover 事件：先有真实指针移动才允许弹出卡片。 */
+let pointerMovedSinceFocus = true;
+let pointerMoveTracked = false;
+const trackPointerMove = (): void => {
+  if (pointerMoveTracked) {
+    return;
+  }
+  pointerMoveTracked = true;
+  window.addEventListener(
+    "pointermove",
+    () => {
+      pointerMovedSinceFocus = true;
+    },
+    { capture: true, passive: true },
+  );
+};
+
 type ChatItemProps = {
   conversation: ChatConversationRecord;
   isActive?: boolean;
@@ -239,8 +256,9 @@ export function ChatItem({
     contextMenuAnchor === null;
 
   const handleTitleHover = (): void => {
-    // 遮罩打开期间不安排显示，否则关闭弹窗后卡片会残留在行旁
-    if (overlayOpen) {
+    // 遮罩打开期间不安排显示，否则关闭弹窗后卡片会残留在行旁；
+    // 焦点刚变化时浏览器补发的 hover 也不可信，等真实指针移动后再显示。
+    if (overlayOpen || !pointerMovedSinceFocus) {
       return;
     }
     if (tooltipTimerRef.current !== null) {
@@ -274,6 +292,26 @@ export function ChatItem({
     },
     [],
   );
+
+  // 窗口失焦（如会话在独立窗口打开、之后关闭）后指针位置已失效：
+  // 收起卡片，并要求先有真实指针移动才允许再次弹出，避免卡片残留在行旁。
+  useEffect(() => {
+    trackPointerMove();
+    const handleFocusChange = (): void => {
+      pointerMovedSinceFocus = false;
+      if (tooltipTimerRef.current !== null) {
+        window.clearTimeout(tooltipTimerRef.current);
+        tooltipTimerRef.current = null;
+      }
+      setIsHovered(false);
+    };
+    window.addEventListener("blur", handleFocusChange);
+    window.addEventListener("focus", handleFocusChange);
+    return () => {
+      window.removeEventListener("blur", handleFocusChange);
+      window.removeEventListener("focus", handleFocusChange);
+    };
+  }, []);
 
   // 遮罩打开或关闭都重置：关闭后必须重新悬停才会再显示，避免取消弹窗后卡片残留
   // 用 layout effect 保证在绘制前收起，关闭弹窗时不会闪一帧卡片

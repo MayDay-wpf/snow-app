@@ -5,6 +5,7 @@ import { ChatContent } from "../mainContent/ChatContent";
 import { ChatSessionScope } from "../mainContent/chatMessages/components/ChatSessionScope";
 import { useChatConversationContext } from "../mainContent/chatMessages";
 import type { UseChatConversationResult } from "../mainContent/chatMessages/utils/conversationTypes";
+import { TodoPanelButton } from "../TopBar/TodoPanelButton";
 import { loadTabTreeConversation } from "./useConversationTabTree";
 
 type ConversationPanelProps = {
@@ -33,7 +34,14 @@ const ConversationPanelBody = ({
   activeDirectory,
   onTitleChange,
 }: ConversationPanelProps): React.JSX.Element => {
-  const { summary, upsertedConversation } = useChatConversationContext();
+  const {
+    summary,
+    upsertedConversation,
+    messages,
+    activeConversationId,
+    conversationDirectoryId,
+    isStreaming,
+  } = useChatConversationContext();
 
   // 标题优先取刚落库的会话记录（AI 摘要生成后即时刷新），否则用内存中的摘要。
   const upsertedRecord = upsertedConversation?.record;
@@ -50,6 +58,17 @@ const ConversationPanelBody = ({
 
   return (
     <div className="right-panel-conversation">
+      {/* 面板内的会话待办条：顶栏的 TODO 入口在面板里不可见，这里补齐，
+          列表内联展开以适配窄面板宽度。 */}
+      <div className="right-panel-conversation-todo">
+        <TodoPanelButton
+          messages={messages}
+          conversationId={activeConversationId}
+          projectId={conversationDirectoryId ?? activeDirectory?.directoryId}
+          isRunning={isStreaming}
+          variant="inline"
+        />
+      </div>
       <ChatContent activeDirectory={activeDirectory} surface="panel" />
     </div>
   );
