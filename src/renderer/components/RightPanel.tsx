@@ -115,6 +115,7 @@ import {
 import {
   activateTabInWorkspace,
   applyLayoutVars,
+  closeTabsInWorkspace,
   collectLeaves,
   computeRects,
   computeSplitters,
@@ -1401,19 +1402,20 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       ],
     );
 
+    // 关闭 tab：布局裁剪与激活位置在同一次工作区更新内完成，关闭激活 tab 后由
+    // 左侧相邻 tab 接管（而非回落到组内第一个）。
     const handleCloseTab = useCallback(
       (tabId: string) => {
         terminalPtyIdsRef.current.delete(tabId);
-        setTabs((prev) => {
+        setWorkspace((prev) => {
           if (tabId === GIT_TAB_ID) {
             return prev;
           }
-          const filtered = prev.filter((t) => t.id !== tabId);
-          // 独立面板窗口允许清空（清空即关闭窗口）；主面板至少保留一个 tab。
-          if (filtered.length === 0 && !isDetachedWindow) {
+          // 主面板至少保留一个 tab；独立面板窗口允许清空（清空即关闭窗口）。
+          if (prev.tabs.length <= 1 && !isDetachedWindow) {
             return prev;
           }
-          return filtered;
+          return closeTabsInWorkspace(prev, new Set([tabId]));
         });
         setDirtyTabs((prev) => {
           if (!prev.has(tabId)) {
@@ -1423,22 +1425,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           next.delete(tabId);
           return next;
         });
-        setActiveTabId((currentActive) => {
-          if (currentActive !== tabId) {
-            return currentActive;
-          }
-          // 关闭当前激活的 tab：优先向左顺延选择相邻 tab，
-          // 仅当左侧没有其他 tab 时才回退到 Git tab。
-          const currentIndex = tabs.findIndex((t) => t.id === tabId);
-          if (currentIndex > 0) {
-            return tabs[currentIndex - 1].id;
-          }
-          // currentIndex === 0：左侧无 tab，回退到 Git tab（若存在）
-          const gitTab = tabs.find((t) => t.id === GIT_TAB_ID);
-          return gitTab ? GIT_TAB_ID : (tabs[1]?.id ?? currentActive);
-        });
       },
-      [tabs, isDetachedWindow],
+      [isDetachedWindow],
     );
 
     // 资源管理器双击文件打开快速编辑弹窗：同一文件的阅读器 tab 自动关闭，
@@ -1483,34 +1471,27 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       setActiveTabId(GIT_TAB_ID);
     }, []);
 
-    // 批量关闭：移除 closed 中的 tab 并清理 dirty 标记；
-    // 若当前激活的 tab 也在关闭列表内，则切换到 fallbackTabId。
-    const batchCloseTabs = useCallback(
-      (closed: RightPanelTab[], fallbackTabId: string) => {
-        if (closed.length === 0) {
-          return;
-        }
-        const closedIds = new Set(closed.map((t) => t.id));
-        closed.forEach((t) => terminalPtyIdsRef.current.delete(t.id));
-        setTabs((prev) => prev.filter((t) => !closedIds.has(t.id)));
-        setDirtyTabs((prev) => {
-          const next = new Set(prev);
-          closed.forEach((t) => next.delete(t.id));
-          return next;
-        });
-        setActiveTabId((current) =>
-          closedIds.has(current) ? fallbackTabId : current,
-        );
-      },
-      [],
-    );
+    // 批量关闭：移除 closed 中的 tab 并清理 dirty 标记；各组的激活位置由
+    // 左邻 tab 接管（见 closeTabsInWorkspace）。
+    const batchCloseTabs = useCallback((closed: RightPanelTab[]) => {
+      if (closed.length === 0) {
+        return;
+      }
+      const closedIds = new Set(closed.map((t) => t.id));
+      closedIds.forEach((id) => terminalPtyIdsRef.current.delete(id));
+      setWorkspace((prev) => closeTabsInWorkspace(prev, closedIds));
+      setDirtyTabs((prev) => {
+        const next = new Set(prev);
+        closedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }, []);
 
     // 关闭除指定 tab（与 Git 固定 tab）外的所有 tab。
     const handleCloseOthers = useCallback(
       (tabId: string) => {
         batchCloseTabs(
           tabs.filter((t) => t.id !== GIT_TAB_ID && t.id !== tabId),
-          tabId,
         );
       },
       [tabs, batchCloseTabs],
@@ -1523,10 +1504,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         if (idx < 0) {
           return;
         }
-        batchCloseTabs(
-          tabs.slice(idx + 1).filter((t) => t.id !== GIT_TAB_ID),
-          tabId,
-        );
+        batchCloseTabs(tabs.slice(idx + 1).filter((t) => t.id !== GIT_TAB_ID));
       },
       [tabs, batchCloseTabs],
     );
@@ -1538,10 +1516,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         if (idx < 0) {
           return;
         }
-        batchCloseTabs(
-          tabs.slice(0, idx).filter((t) => t.id !== GIT_TAB_ID),
-          tabId,
-        );
+        batchCloseTabs(tabs.slice(0, idx).filter((t) => t.id !== GIT_TAB_ID));
       },
       [tabs, batchCloseTabs],
     );

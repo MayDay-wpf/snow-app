@@ -553,6 +553,64 @@ export const activateTabInWorkspace = (
   return finalizeWorkspace({ ...workspace, layout }, leaf.id);
 };
 
+/** 关闭后接管的邻居：优先左邻，其次右邻（跳过同批关闭的 tab）。 */
+const nearestSurvivingTabId = (
+  tabIds: string[],
+  from: number,
+  closedIds: ReadonlySet<string>,
+): string | null => {
+  for (let index = from - 1; index >= 0; index -= 1) {
+    if (!closedIds.has(tabIds[index])) {
+      return tabIds[index];
+    }
+  }
+  for (let index = from + 1; index < tabIds.length; index += 1) {
+    if (!closedIds.has(tabIds[index])) {
+      return tabIds[index];
+    }
+  }
+  return null;
+};
+
+/**
+ * 关闭一组 tab：注册表与布局一次更新内同步移除；被关闭的是某组的激活 tab 时，
+ * 由左邻（无左邻取右邻）接管该组激活位置，而不是回落到组内第一个 tab。
+ */
+export const closeTabsInWorkspace = (
+  workspace: RightPanelWorkspace,
+  closedIds: ReadonlySet<string>,
+): RightPanelWorkspace => {
+  const nextTabs = workspace.tabs.filter((tab) => !closedIds.has(tab.id));
+  if (nextTabs.length === workspace.tabs.length) {
+    return workspace;
+  }
+  // 必须在裁剪布局前记录接管者：裁剪会把组内激活项退回首项。
+  const replacements = new Map<string, string>();
+  for (const leaf of collectLeaves(workspace.layout)) {
+    const activeId = leaf.activeTabId;
+    if (!activeId || !closedIds.has(activeId)) {
+      continue;
+    }
+    const neighborId = nearestSurvivingTabId(
+      leaf.tabIds,
+      leaf.tabIds.indexOf(activeId),
+      closedIds,
+    );
+    if (neighborId) {
+      replacements.set(leaf.id, neighborId);
+    }
+  }
+  const synced = syncWorkspaceTabs(workspace, nextTabs);
+  let layout = synced.layout;
+  for (const [leafId, tabId] of replacements) {
+    layout = updateLeaf(layout, leafId, (leaf) => ({
+      ...leaf,
+      activeTabId: tabId,
+    }));
+  }
+  return layout === synced.layout ? synced : { ...synced, layout };
+};
+
 /** 聚焦某个组（该组当前激活的 tab 成为面板激活 tab）。 */
 export const focusPaneInWorkspace = (
   workspace: RightPanelWorkspace,
