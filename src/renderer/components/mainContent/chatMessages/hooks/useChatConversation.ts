@@ -1252,6 +1252,7 @@ export const useChatConversation = (
         status: "approved",
         sensitiveCommandConfirmed:
           (toolCall.sensitiveCommandMatches?.length ?? 0) > 0,
+        sensitiveSubject: toolCall.sensitiveOperation?.subject,
       }),
     [toolAuthApi.settleToolAuthorization],
   );

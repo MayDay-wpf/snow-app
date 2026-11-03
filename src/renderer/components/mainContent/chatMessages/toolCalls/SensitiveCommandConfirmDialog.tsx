@@ -98,6 +98,9 @@ type SensitiveCommandConfirmDialogProps = {
 };
 const COMMAND_TOOL_NAMES = new Set(["bash-terminal-execute"]);
 
+/** 内置判定（检查出错、脚本无法检查、修改敏感规则）的规则 ID 前缀，与 Rust 守卫一致。 */
+const BUILTIN_RULE_PREFIX = "snow:";
+
 const parseBashArgument = (
   toolCall: ToolCallInfo,
   key: "command" | "description",
@@ -149,9 +152,21 @@ const SensitiveCommandItem = ({
 }): React.JSX.Element => {
   const { t } = useI18n();
   const [rejectionReason, setRejectionReason] = useState("");
+  // 展示的是 Rust 守卫算出的操作主体（授权令牌绑定的就是这段文本）。
+  const operationKind = toolCall.sensitiveOperation?.kind ?? "command";
   const command =
-    parseBashArgument(toolCall, "command") ?? toolCall.arguments ?? "";
+    toolCall.sensitiveOperation?.subject ??
+    parseBashArgument(toolCall, "command") ??
+    toolCall.arguments ??
+    "";
   const description = parseBashArgument(toolCall, "description");
+  const subjectLabel =
+    operationKind === "protected"
+      ? t("sensitiveCommand.subject.protected")
+      : operationKind === "config"
+        ? t("sensitiveCommand.subject.config")
+        : t("sensitiveCommand.command");
+  const showShellPrompt = COMMAND_TOOL_NAMES.has(toolCall.name);
   // 命中的敏感关键字在命令里高亮，长命令中也能一眼定位危险操作。
   const commandSegments = useMemo(
     () => buildCommandSegments(command, matches),
@@ -213,13 +228,18 @@ const SensitiveCommandItem = ({
           </div>
         ) : null}
 
-        <span className="tool-authorization-tool-label">
-          {t("sensitiveCommand.command")}
-        </span>
+        <span className="tool-authorization-tool-label">{subjectLabel}</span>
+        {operationKind === "protected" ? (
+          <p className="sensitive-command-description">
+            {t("sensitiveCommand.subject.protectedNotice")}
+          </p>
+        ) : null}
         <pre className="sensitive-command-command-pre">
-          <span className="tool-call-bash-prompt" aria-hidden="true">
-            $
-          </span>
+          {showShellPrompt ? (
+            <span className="tool-call-bash-prompt" aria-hidden="true">
+              $
+            </span>
+          ) : null}
           <code>
             {commandSegments.map((segment, index) =>
               segment.labels.length > 0 ? (
@@ -243,18 +263,31 @@ const SensitiveCommandItem = ({
           {t("sensitiveCommand.matchedRules")}
         </span>
         <ul className="sensitive-command-match-list">
-          {matches.map((match) => (
-            <li key={match.commandId} className="sensitive-command-match-entry">
-              <code className="sensitive-command-match-pattern">
-                {match.pattern}
-              </code>
-              {match.description ? (
-                <span className="sensitive-command-match-desc">
-                  {match.description}
-                </span>
-              ) : null}
-            </li>
-          ))}
+          {matches.map((match, matchIndex) => {
+            const isBuiltin = match.commandId.startsWith(BUILTIN_RULE_PREFIX);
+            return (
+              <li
+                key={`${match.commandId}-${matchIndex}`}
+                className="sensitive-command-match-entry"
+              >
+                <code className="sensitive-command-match-pattern">
+                  {isBuiltin
+                    ? t(
+                        `sensitiveCommand.builtinRule.${match.commandId.slice(
+                          BUILTIN_RULE_PREFIX.length,
+                        )}`,
+                        { defaultValue: match.commandId },
+                      )
+                    : match.pattern}
+                </code>
+                {match.description ? (
+                  <span className="sensitive-command-match-desc">
+                    {match.description}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
 

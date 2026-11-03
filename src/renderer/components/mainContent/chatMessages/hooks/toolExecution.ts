@@ -1494,20 +1494,15 @@ export function createToolExecutor(
 
               let sensitiveAuthorizationToken: string | undefined;
               if (
-                toolCall.name === "bash-terminal-execute" &&
                 authorizationDecision.status === "approved" &&
                 authorizationDecision.sensitiveCommandConfirmed === true
               ) {
-                const parsedArgs = JSON.parse(toolArgs) as Record<
-                  string,
-                  unknown
-                >;
-                if (typeof parsedArgs.command !== "string") {
-                  throw new Error("Sensitive command argument is missing");
+                if (!authorizationDecision.sensitiveSubject) {
+                  throw new Error("Sensitive operation subject is missing");
                 }
                 sensitiveAuthorizationToken =
                   await window.snow.issueSensitiveCommandAuthorization(
-                    parsedArgs.command,
+                    authorizationDecision.sensitiveSubject,
                   );
               }
 

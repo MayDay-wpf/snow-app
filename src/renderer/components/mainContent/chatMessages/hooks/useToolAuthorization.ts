@@ -22,6 +22,9 @@ import { buildSensitiveCommandContext } from "../utils/sensitiveCommandContext";
 /** 敏感命令复核日志里命令文本的最大长度（超出截断）。 */
 const SENSITIVE_COMMAND_LOG_MAX_CHARS = 200;
 
+/** 预检查本身失败时的内置命中规则 ID（与 Rust 守卫的 `snow:check-failed` 一致）。 */
+const SENSITIVE_CHECK_FAILED_RULE_ID = "snow:check-failed";
+
 /** 判定里的风险等级（provider 未给出时为空，不写字段，UI 不显示徽标）。 */
 const pickSeverity = (decision: {
   severity?: string | null;
@@ -723,15 +726,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       // 记录用户对模型拒绝的复核结果，便于统计「模型拒绝但用户放行」的比例，
       // 反推是模型提示词过于保守还是敏感规则写得太宽。命令文本截断避免日志过长。
       if (isDenyReview && decisionInfo) {
-        let command = "";
-        try {
-          const parsed = JSON.parse(toolCall.arguments || "{}");
-          if (typeof parsed?.command === "string") {
-            command = parsed.command;
-          }
-        } catch {
-          // ignore parse error
-        }
+        const command = toolCall.sensitiveOperation?.subject ?? "";
         writeRendererLog("INFO", {
           module: "sensitive_command",
           func: "settleToolAuthorization",
@@ -880,254 +875,271 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         ctx.yoloModeRef.current ||
         ctx.alwaysApprovedToolsRef.current.has(toolCall.name);
 
-      // Sensitive command check: even in YOLO mode, bash commands that match
-      // the current project's merged rules must be confirmed.
-      const checkSensitiveBash = async (): Promise<
+      // Sensitive operation check: even in YOLO mode, commands, terminal input,
+      // typed text and executable config writes that match the current
+      // project's merged rules must be confirmed, and every change to the
+      // sensitive rules themselves always needs the user. The Rust guard runs
+      // the same check again right before execution.
+      const checkSensitiveOperation = async (): Promise<
         | ToolAuthorizationDecision
         | (() => Promise<ToolAuthorizationDecision>)
         | "needs-dialog"
       > => {
-        if (toolCall.name !== "bash-terminal-execute") {
-          return shouldAutoApprove() ? { status: "approved" } : "needs-dialog";
-        }
-
-        let command = "";
         let description = "";
         let workingDirectory = "";
-        try {
-          const parsed = JSON.parse(toolCall.arguments || "{}");
-          if (typeof parsed?.command === "string") {
-            command = parsed.command;
+        if (toolCall.name === "bash-terminal-execute") {
+          try {
+            const parsed = JSON.parse(toolCall.arguments || "{}");
+            if (typeof parsed?.description === "string") {
+              description = parsed.description;
+            }
+            if (typeof parsed?.workingDirectory === "string") {
+              workingDirectory = parsed.workingDirectory;
+            }
+          } catch {
+            // ignore parse error
           }
-          if (typeof parsed?.description === "string") {
-            description = parsed.description;
-          }
-          if (typeof parsed?.workingDirectory === "string") {
-            workingDirectory = parsed.workingDirectory;
-          }
-        } catch {
-          // ignore parse error
         }
 
-        // Interactive commands are checked the same way as regular ones: the
-        // isInteractive flag is model-controlled and must not be allowed to
-        // bypass the sensitive-command gate (the Rust side enforces this too).
-        // The flag only changes how the terminal session is presented.
-        if (!command) {
+        // 预检查失败时按命中处理（fail-closed）：无法确认安全就交给用户，
+        // 绝不因检查出错而落到 YOLO / 免审批的自动放行。
+        let check: Awaited<
+          ReturnType<typeof window.snow.checkToolSensitiveOperation>
+        >;
+        let checkFailed = false;
+        try {
+          check = await window.snow.checkToolSensitiveOperation(
+            toolCall.name,
+            toolCall.arguments || "{}",
+            projectId,
+          );
+        } catch (error) {
+          checkFailed = true;
+          check = {
+            subject: toolCall.arguments || "",
+            kind: "command",
+            matches: [
+              {
+                commandId: SENSITIVE_CHECK_FAILED_RULE_ID,
+                pattern: "",
+                description:
+                  error instanceof Error ? error.message : String(error),
+                ranges: [],
+              },
+            ],
+          };
+        }
+        if (!check || check.matches.length === 0) {
           return shouldAutoApprove() ? { status: "approved" } : "needs-dialog";
         }
 
-        try {
-          const matches = await window.snow.checkSensitiveCommandMatch(
-            command,
-            projectId,
-          );
-          if (matches.length > 0) {
-            // 风险判定需要上下文：命令自身的说明 + 实际执行目录（工具没给时
-            // 回落到项目目录）。只看命令文本容易把所有规则命中都判成风险。
-            // 会话片段只在设置开启时由 Rust 使用，关闭时被忽略。
-            const decision = await requestSensitiveCommandDecision(
-              command,
-              projectId,
-              workingDirectory || directoryIdToPath(projectId) || "",
-              description,
-              buildSensitiveCommandContext(
-                ctx.sessionsRef.current[conversationId]?.messages ?? [],
-                toolCall,
-              ),
-            );
-
-            // 托管模式：判定直接生效，不再弹拦截提示 —— 允许则放行（等价于
-            // 用户点了「确认执行」）；拒绝则只拒绝这条命令并把模型的理由交回
-            // AI，AI 流程继续（模型可换一种做法），任何情况下都不中断会话。
-            // 决策模型不可用（error）时判定无效，必须回退人工确认。
-            // 开启「拒绝时仍让我确认」（askOnDeny）时，托管拒绝不直接生效，
-            // 而是落到下方的人工确认，由用户复核模型的拒绝后决定是否执行。
-            const isDenyReview = Boolean(
-              decision?.delegate &&
-              !decision.error &&
-              !decision.allow &&
-              decision.askOnDeny,
-            );
-            if (decision?.delegate && !decision.error && !isDenyReview) {
-              // 判定不经过拦截提示，直接回写到工具卡片上，让用户能看到
-              // 这条命令是被决策模型放行/拒绝的、置信度与理由。
-              const delegatedDecision = {
-                allow: decision.allow,
-                reason: decision.reason,
-                confidence: decision.confidence,
-                ...pickSeverity(decision),
-                ...pickContextUsage(decision),
-                modelName: decision.modelName,
-              };
-              ctx.updateSessionMessages(conversationId, (currentMessages) =>
-                currentMessages.map((currentMessage) =>
-                  currentMessage.toolCalls
-                    ? {
-                        ...currentMessage,
-                        toolCalls: updateFirstMatchingToolCall(
-                          currentMessage.toolCalls,
-                          toolCall,
-                          ["pending", "running"],
-                          (currentToolCall) => ({
-                            ...currentToolCall,
-                            sensitiveCommandMatches: matches,
-                            sensitiveCommandDecision: delegatedDecision,
-                            sensitiveCommandDelegated: true,
-                          }),
-                        ),
-                      }
-                    : currentMessage,
+        const matches = check.matches;
+        const sensitiveOperation = {
+          subject: check.subject,
+          kind: check.kind,
+        };
+        // 风险判定需要上下文：命令自身的说明 + 实际执行目录（工具没给时
+        // 回落到项目目录）。只看命令文本容易把所有规则命中都判成风险。
+        // 会话片段只在设置开启时由 Rust 使用，关闭时被忽略。
+        // 修改敏感规则本身不交给决策模型：每次都必须由用户确认；预检查
+        // 失败时主体不可信，同样只走人工确认。
+        const decision =
+          check.kind === "protected" || checkFailed
+            ? null
+            : await requestSensitiveCommandDecision(
+                check.subject,
+                projectId,
+                workingDirectory || directoryIdToPath(projectId) || "",
+                description,
+                buildSensitiveCommandContext(
+                  ctx.sessionsRef.current[conversationId]?.messages ?? [],
+                  toolCall,
                 ),
               );
 
-              if (decision.allow) {
-                return {
-                  status: "approved",
-                  sensitiveCommandConfirmed: true,
-                  sensitiveCommandDecision: delegatedDecision,
-                  sensitiveCommandDelegated: true,
-                };
-              }
-
-              return {
-                status: "rejected",
-                reasonForModel: true,
-                sensitiveCommandDecision: delegatedDecision,
-                sensitiveCommandDelegated: true,
-                reason: t("sensitiveCommand.decisionRejectedReason", {
-                  values: {
-                    model: decision.modelName,
-                    reason: t(
-                      `sensitiveCommand.decision.reason.${decision.reason}`,
-                      { defaultValue: decision.reason },
-                    ),
-                  },
-                  defaultValue:
-                    "Rejected by the decision model ({{model}}): {{reason}}",
-                }),
-              };
-            }
-
-            // 敏感命令检测到 —— 强制授权对话框，即使 YOLO 模式也要确认。
-            const authorizationId = `${
-              toolCall.callId ?? toolCall.name
-            }-${index}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            const pendingToolCall: ToolCallInfo = {
-              ...toolCall,
-              authorizationId,
-              authorizationConversationId: conversationId,
-              sensitiveCommandMatches: matches,
-              // 托管拒绝转人工复核：拦截提示据此标注「你正在覆盖模型判定」，
-              // 结算时据此记录覆盖行为。
-              ...(isDenyReview ? { sensitiveCommandDelegated: true } : {}),
-              // 非托管时判定只作为建议，连同拦截提示一起展示给用户；决策模型
-              // 不可用时展示回退原因。
-              ...(decision
+        // 托管模式：判定直接生效，不再弹拦截提示 —— 允许则放行（等价于
+        // 用户点了「确认执行」）；拒绝则只拒绝这条命令并把模型的理由交回
+        // AI，AI 流程继续（模型可换一种做法），任何情况下都不中断会话。
+        // 决策模型不可用（error）时判定无效，必须回退人工确认。
+        // 开启「拒绝时仍让我确认」（askOnDeny）时，托管拒绝不直接生效，
+        // 而是落到下方的人工确认，由用户复核模型的拒绝后决定是否执行。
+        const isDenyReview = Boolean(
+          decision?.delegate &&
+          !decision.error &&
+          !decision.allow &&
+          decision.askOnDeny,
+        );
+        if (decision?.delegate && !decision.error && !isDenyReview) {
+          // 判定不经过拦截提示，直接回写到工具卡片上，让用户能看到
+          // 这条命令是被决策模型放行/拒绝的、置信度与理由。
+          const delegatedDecision = {
+            allow: decision.allow,
+            reason: decision.reason,
+            confidence: decision.confidence,
+            ...pickSeverity(decision),
+            ...pickContextUsage(decision),
+            modelName: decision.modelName,
+          };
+          ctx.updateSessionMessages(conversationId, (currentMessages) =>
+            currentMessages.map((currentMessage) =>
+              currentMessage.toolCalls
                 ? {
-                    sensitiveCommandDecision: {
-                      allow: decision.allow,
-                      reason: decision.reason,
-                      confidence: decision.confidence,
-                      ...pickSeverity(decision),
-                      ...pickContextUsage(decision),
-                      modelName: decision.modelName,
-                      ...(decision.error ? { error: decision.error } : {}),
-                    },
+                    ...currentMessage,
+                    toolCalls: updateFirstMatchingToolCall(
+                      currentMessage.toolCalls,
+                      toolCall,
+                      ["pending", "running"],
+                      (currentToolCall) => ({
+                        ...currentToolCall,
+                        sensitiveOperation,
+                        sensitiveCommandMatches: matches,
+                        sensitiveCommandDecision: delegatedDecision,
+                        sensitiveCommandDelegated: true,
+                      }),
+                    ),
                   }
-                : {}),
-            };
+                : currentMessage,
+            ),
+          );
 
-            return async () => {
-              if (
-                ctx.sessionsRefData.current.get(conversationId)
-                  ?.isAbortRequested
-              ) {
-                return {
-                  status: "rejected" as const,
-                  reason: "Tool execution interrupted",
-                };
-              }
-
-              // YOLO skips the batch-level toolConfirmation hook, yet a
-              // sensitive command still opens this confirmation dialog. Run
-              // the hook here so it fires before the dialog on that path too.
-              if (ctx.yoloModeRef.current) {
-                try {
-                  const toolConfirmContext = JSON.stringify({
-                    toolName: toolCall.name,
-                    args: JSON.parse(toolCall.arguments || "{}"),
-                    cwd:
-                      directoryIdToPath(projectId) ?? ctx.directoryPath ?? "",
-                  });
-                  const confirmResult = await runHook(
-                    "toolConfirmation",
-                    projectId || undefined,
-                    toolConfirmContext,
-                  );
-                  if (confirmResult) {
-                    ctx.updateSessionMessages(
-                      conversationId,
-                      (currentMessages) =>
-                        appendHookExecutionToMessage(
-                          currentMessages,
-                          confirmResult.record,
-                        ),
-                    );
-                    if (confirmResult.outcome.kind === "abort") {
-                      return {
-                        status: "rejected" as const,
-                        reason: confirmResult.outcome.message,
-                      };
-                    }
-                  }
-                } catch {
-                  // Hook execution failed — continue with the sensitive
-                  // confirmation dialog.
-                }
-              }
-
-              // Notify only when confirmation actually starts, outside the
-              // sensitive-check catch so waiting failures cannot auto-approve.
-              ctx.notifySensitiveCommandIntercepted({
-                conversationId,
-                directoryId:
-                  projectId ??
-                  ctx.sessionsRefData.current.get(conversationId)?.directoryId,
-                toolName: toolCall.name,
-              });
-
-              return new Promise<ToolAuthorizationDecision>((resolve) => {
-                if (
-                  ctx.sessionsRefData.current.get(conversationId)
-                    ?.isAbortRequested
-                ) {
-                  resolve({
-                    status: "rejected",
-                    reason: "Tool execution interrupted",
-                  });
-                  return;
-                }
-                ctx.pendingToolAuthorizationRef.current.set(authorizationId, {
-                  toolCall: pendingToolCall,
-                  resolve,
-                });
-                addPendingAuthorizationMirror(ctx, pendingToolCall);
-                ctx.setPendingToolAuthorizations((current) => [
-                  ...current,
-                  pendingToolCall,
-                ]);
-              });
+          if (decision.allow) {
+            return {
+              status: "approved",
+              sensitiveCommandConfirmed: true,
+              sensitiveSubject: sensitiveOperation.subject,
+              sensitiveCommandDecision: delegatedDecision,
+              sensitiveCommandDelegated: true,
             };
           }
-        } catch {
-          // If the check fails, fall through to normal authorization flow.
+
+          return {
+            status: "rejected",
+            reasonForModel: true,
+            sensitiveCommandDecision: delegatedDecision,
+            sensitiveCommandDelegated: true,
+            reason: t("sensitiveCommand.decisionRejectedReason", {
+              values: {
+                model: decision.modelName,
+                reason: t(
+                  `sensitiveCommand.decision.reason.${decision.reason}`,
+                  { defaultValue: decision.reason },
+                ),
+              },
+              defaultValue:
+                "Rejected by the decision model ({{model}}): {{reason}}",
+            }),
+          };
         }
 
-        return shouldAutoApprove() ? { status: "approved" } : "needs-dialog";
+        // 敏感操作检测到 —— 强制授权对话框，即使 YOLO 模式也要确认。
+        const authorizationId = `${
+          toolCall.callId ?? toolCall.name
+        }-${index}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const pendingToolCall: ToolCallInfo = {
+          ...toolCall,
+          authorizationId,
+          authorizationConversationId: conversationId,
+          sensitiveOperation,
+          sensitiveCommandMatches: matches,
+          // 托管拒绝转人工复核：拦截提示据此标注「你正在覆盖模型判定」，
+          // 结算时据此记录覆盖行为。
+          ...(isDenyReview ? { sensitiveCommandDelegated: true } : {}),
+          // 非托管时判定只作为建议，连同拦截提示一起展示给用户；决策模型
+          // 不可用时展示回退原因。
+          ...(decision
+            ? {
+                sensitiveCommandDecision: {
+                  allow: decision.allow,
+                  reason: decision.reason,
+                  confidence: decision.confidence,
+                  ...pickSeverity(decision),
+                  ...pickContextUsage(decision),
+                  modelName: decision.modelName,
+                  ...(decision.error ? { error: decision.error } : {}),
+                },
+              }
+            : {}),
+        };
+
+        return async () => {
+          if (
+            ctx.sessionsRefData.current.get(conversationId)?.isAbortRequested
+          ) {
+            return {
+              status: "rejected" as const,
+              reason: "Tool execution interrupted",
+            };
+          }
+
+          // YOLO skips the batch-level toolConfirmation hook, yet a
+          // sensitive command still opens this confirmation dialog. Run
+          // the hook here so it fires before the dialog on that path too.
+          if (ctx.yoloModeRef.current) {
+            try {
+              const toolConfirmContext = JSON.stringify({
+                toolName: toolCall.name,
+                args: JSON.parse(toolCall.arguments || "{}"),
+                cwd: directoryIdToPath(projectId) ?? ctx.directoryPath ?? "",
+              });
+              const confirmResult = await runHook(
+                "toolConfirmation",
+                projectId || undefined,
+                toolConfirmContext,
+              );
+              if (confirmResult) {
+                ctx.updateSessionMessages(conversationId, (currentMessages) =>
+                  appendHookExecutionToMessage(
+                    currentMessages,
+                    confirmResult.record,
+                  ),
+                );
+                if (confirmResult.outcome.kind === "abort") {
+                  return {
+                    status: "rejected" as const,
+                    reason: confirmResult.outcome.message,
+                  };
+                }
+              }
+            } catch {
+              // Hook execution failed — continue with the sensitive
+              // confirmation dialog.
+            }
+          }
+
+          // Notify only when confirmation actually starts, outside the
+          // sensitive-check catch so waiting failures cannot auto-approve.
+          ctx.notifySensitiveCommandIntercepted({
+            conversationId,
+            directoryId:
+              projectId ??
+              ctx.sessionsRefData.current.get(conversationId)?.directoryId,
+            toolName: toolCall.name,
+          });
+
+          return new Promise<ToolAuthorizationDecision>((resolve) => {
+            if (
+              ctx.sessionsRefData.current.get(conversationId)?.isAbortRequested
+            ) {
+              resolve({
+                status: "rejected",
+                reason: "Tool execution interrupted",
+              });
+              return;
+            }
+            ctx.pendingToolAuthorizationRef.current.set(authorizationId, {
+              toolCall: pendingToolCall,
+              resolve,
+            });
+            addPendingAuthorizationMirror(ctx, pendingToolCall);
+            ctx.setPendingToolAuthorizations((current) => [
+              ...current,
+              pendingToolCall,
+            ]);
+          });
+        };
       };
 
-      return checkSensitiveBash().then((decision) => {
+      return checkSensitiveOperation().then((decision) => {
         if (decision !== "needs-dialog") {
           return decision;
         }

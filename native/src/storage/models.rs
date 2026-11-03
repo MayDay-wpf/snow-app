@@ -665,6 +665,17 @@ pub struct SensitiveCommandMatchResult {
     pub ranges: Vec<SensitiveCommandMatchRange>,
 }
 
+/// 一次工具调用的敏感操作预检查结果（命中时才返回）。
+#[napi(object)]
+pub struct SensitiveOperationCheckRecord {
+    /// 授权令牌绑定的操作主体文本，同时是拦截提示展示的内容。
+    pub subject: String,
+    /// 主体类别：command（可交给决策模型判定）/ config（写入会被执行的配置）/
+    /// protected（修改敏感规则本身，每次都需用户确认）。
+    pub kind: String,
+    pub matches: Vec<SensitiveCommandMatchResult>,
+}
+
 /// 决策模型对一条命中敏感规则的命令的判定结果。
 #[napi(object)]
 pub struct SensitiveCommandDecisionRecord {

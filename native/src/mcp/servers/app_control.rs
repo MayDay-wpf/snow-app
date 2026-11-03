@@ -237,7 +237,7 @@ pub fn route_config_set(
 }
 
 /// 兼容模型把 value 序列化成 JSON 字符串的情况。
-fn decode_config_value(raw: Option<&Value>) -> Value {
+pub(crate) fn decode_config_value(raw: Option<&Value>) -> Value {
     match raw {
         Some(Value::String(text)) => serde_json::from_str::<Value>(text.trim())
             .unwrap_or_else(|_| Value::String(text.clone())),

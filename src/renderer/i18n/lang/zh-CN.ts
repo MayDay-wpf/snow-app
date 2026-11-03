@@ -4354,6 +4354,13 @@ export const zhCN = {
   "sensitiveCommand.command": "命令",
   "sensitiveCommand.description": "命令释义",
   "sensitiveCommand.matchedRules": "匹配的规则",
+  "sensitiveCommand.subject.config": "将写入的可执行配置",
+  "sensitiveCommand.subject.protected": "敏感规则修改",
+  "sensitiveCommand.subject.protectedNotice":
+    "本次调用会修改敏感命令规则。每次修改都必须由你确认，YOLO 模式与决策模型托管下同样如此。",
+  "sensitiveCommand.builtinRule.check-failed": "敏感检查出错（已按命中拦截）",
+  "sensitiveCommand.builtinRule.script-unreadable": "被执行的脚本无法检查",
+  "sensitiveCommand.builtinRule.protected-rules": "修改敏感规则",
   "sensitiveCommand.confirmExecution": "确认执行",
   "sensitiveCommand.decisionLabel": "决策模型判定",
   "sensitiveCommand.decisionAllow": "允许执行",

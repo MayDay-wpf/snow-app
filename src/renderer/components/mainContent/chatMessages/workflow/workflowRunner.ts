@@ -2403,23 +2403,17 @@ export function createWorkflowRunner(
             toolCall.arguments,
             conversationId,
           );
-          // 敏感命令确认后签发授权 token（与子代理一致）。
+          // 敏感操作确认后签发授权 token（与子代理一致）。
           let sensitiveAuthorizationToken: string | undefined;
           if (
-            toolCall.name === "bash-terminal-execute" &&
-            decision.sensitiveCommandConfirmed === true
+            decision.sensitiveCommandConfirmed === true &&
+            decision.sensitiveSubject
           ) {
             try {
-              const parsedArgs = JSON.parse(toolArgs) as Record<
-                string,
-                unknown
-              >;
-              if (typeof parsedArgs.command === "string") {
-                sensitiveAuthorizationToken =
-                  await window.snow.issueSensitiveCommandAuthorization(
-                    parsedArgs.command,
-                  );
-              }
+              sensitiveAuthorizationToken =
+                await window.snow.issueSensitiveCommandAuthorization(
+                  decision.sensitiveSubject,
+                );
             } catch {
               // 签发失败时让工具自然失败
             }

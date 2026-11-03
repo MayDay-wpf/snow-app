@@ -23,7 +23,6 @@ use crate::api::tool_correction::{
 };
 use crate::mcp::servers::app_control::AppControlCallback;
 use crate::mcp::servers::bash::{
-    authorize_sensitive_command as authorize_command,
     write_interactive_stdin as write_interactive_stdin_impl, BashStreamCallback,
 };
 use crate::mcp::servers::browser::BrowserCommandCallback;
@@ -49,9 +48,10 @@ use crate::mcp::tools::{
     set_mcp_tools_enabled as set_tools_enabled, McpProjectServerStatus, McpProjectToolStatus,
     McpToolDefinition, McpToolStatus, SubAgentUnavailableTool,
 };
+use crate::mcp::tools::sensitive_guard::{authorize_sensitive_operation, check_tool_call};
 use crate::storage::initialize_app_storage;
 use crate::storage::services::fs_explorer::FileSearchResult;
-use crate::storage::SensitiveCommandDecisionRecord;
+use crate::storage::{SensitiveCommandDecisionRecord, SensitiveOperationCheckRecord};
 
 #[napi]
 pub async fn fetch_available_models() -> napi::Result<Vec<Model>> {
@@ -435,9 +435,22 @@ pub async fn set_mcp_project_tools_enabled(
     set_project_tools_enabled(project_id, tool_names, enabled).await
 }
 
+/// 登记一次性授权令牌（用户确认或决策模型托管放行后由主进程调用），令牌绑定
+/// `check_tool_sensitive_operation` 返回的操作主体文本。
 #[napi]
-pub async fn authorize_sensitive_command(command: String, token: String) -> napi::Result<()> {
-    authorize_command(command, token).await
+pub async fn authorize_sensitive_command(subject: String, token: String) -> napi::Result<()> {
+    authorize_sensitive_operation(subject, token).await
+}
+
+/// 工具调用授权前的敏感操作预检查：命令、终端输入、键入文本与会被执行的配置
+/// 写入命中规则（或修改敏感规则本身、检查出错）时返回主体与命中项，否则 null。
+#[napi]
+pub async fn check_tool_sensitive_operation(
+    tool_name: String,
+    args_json: String,
+    project_id: Option<String>,
+) -> napi::Result<Option<SensitiveOperationCheckRecord>> {
+    Ok(check_tool_call(tool_name, args_json, project_id).await)
 }
 
 /// Evaluate a command that matched a sensitive rule with the configured decision

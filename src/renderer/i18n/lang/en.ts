@@ -4640,6 +4640,15 @@ export const en = {
   "sensitiveCommand.command": "Command",
   "sensitiveCommand.description": "What it does",
   "sensitiveCommand.matchedRules": "Matched rules",
+  "sensitiveCommand.subject.config": "Executable config to be written",
+  "sensitiveCommand.subject.protected": "Sensitive rule change",
+  "sensitiveCommand.subject.protectedNotice":
+    "This call changes the sensitive command rules. Every change must be confirmed by you, even in YOLO mode or with decision model delegation.",
+  "sensitiveCommand.builtinRule.check-failed":
+    "Sensitive check failed (blocked for safety)",
+  "sensitiveCommand.builtinRule.script-unreadable":
+    "Executed script could not be inspected",
+  "sensitiveCommand.builtinRule.protected-rules": "Modifies sensitive rules",
   "sensitiveCommand.confirmExecution": "Confirm execution",
   "sensitiveCommand.decisionLabel": "Decision model verdict",
   "sensitiveCommand.decisionAllow": "Allow",

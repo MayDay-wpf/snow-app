@@ -663,16 +663,21 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
-    "sensitive-command-configs:check-match",
-    async (_event, command: unknown, projectId: unknown) => {
-      if (typeof command !== "string" || !command.trim()) {
-        return [];
+    "sensitive-command-configs:check-tool",
+    async (
+      _event,
+      toolName: unknown,
+      argsJson: unknown,
+      projectId: unknown,
+    ) => {
+      if (typeof toolName !== "string" || !toolName.trim()) {
+        return null;
       }
-      const normalizedProjectId =
-        typeof projectId === "string" && projectId.trim()
-          ? projectId.trim()
-          : undefined;
-      return native.checkSensitiveCommandMatch(command, normalizedProjectId);
+      return native.checkToolSensitiveOperation(
+        toolName,
+        typeof argsJson === "string" ? argsJson : "{}",
+        normalizeOptionalText(projectId),
+      );
     },
   );
 

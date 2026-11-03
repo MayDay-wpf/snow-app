@@ -1026,21 +1026,14 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       );
       let subSensitiveAuthorizationToken: string | undefined;
       if (
-        subToolCall.name === "bash-terminal-execute" &&
         subAuthorizationDecision.status === "approved" &&
-        subAuthorizationDecision.sensitiveCommandConfirmed === true
+        subAuthorizationDecision.sensitiveCommandConfirmed === true &&
+        subAuthorizationDecision.sensitiveSubject
       ) {
         try {
-          const subParsedArgs = JSON.parse(subToolArgs) as Record<
-            string,
-            unknown
-          >;
-          if (typeof subParsedArgs.command !== "string") {
-            throw new Error("Sensitive command argument is missing");
-          }
           subSensitiveAuthorizationToken =
             await window.snow.issueSensitiveCommandAuthorization(
-              subParsedArgs.command,
+              subAuthorizationDecision.sensitiveSubject,
             );
         } catch {
           // If authorization fails, let the tool fail naturally.

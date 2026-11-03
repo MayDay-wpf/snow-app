@@ -50,6 +50,7 @@ mod call;
 mod collect;
 mod remote_path;
 mod result_limit;
+pub(crate) mod sensitive_guard;
 mod serialize;
 mod worktree_execution;
 

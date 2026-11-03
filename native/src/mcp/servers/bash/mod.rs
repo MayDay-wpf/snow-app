@@ -106,7 +106,6 @@ impl BashService {
 
 const SERVER_ID: &str = "bash";
 const DEFAULT_TIMEOUT_MS: u64 = 30000;
-const SENSITIVE_AUTHORIZATION_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct BashExecutionTimings {
@@ -287,55 +286,6 @@ fn build_local_spawn_failed_result(
         "executedAt": executed_at,
         "error": error
     })
-}
-
-struct SensitiveCommandAuthorization {
-    command: String,
-    expires_at: Instant,
-}
-
-static SENSITIVE_COMMAND_AUTHORIZATIONS: OnceLock<
-    tokio::sync::Mutex<HashMap<String, SensitiveCommandAuthorization>>,
-> = OnceLock::new();
-
-fn sensitive_command_authorizations(
-) -> &'static tokio::sync::Mutex<HashMap<String, SensitiveCommandAuthorization>> {
-    SENSITIVE_COMMAND_AUTHORIZATIONS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
-}
-
-pub async fn authorize_sensitive_command(command: String, token: String) -> napi::Result<()> {
-    if command.trim().is_empty() || token.trim().is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Sensitive command and authorization token are required".to_string(),
-        ));
-    }
-
-    let now = Instant::now();
-    let mut authorizations = sensitive_command_authorizations().lock().await;
-    authorizations.retain(|_, authorization| authorization.expires_at > now);
-    authorizations.insert(
-        token,
-        SensitiveCommandAuthorization {
-            command,
-            expires_at: now + SENSITIVE_AUTHORIZATION_TTL,
-        },
-    );
-    Ok(())
-}
-
-async fn consume_sensitive_command_authorization(command: &str, token: Option<&str>) -> bool {
-    let Some(token) = token.filter(|value| !value.is_empty()) else {
-        return false;
-    };
-
-    let now = Instant::now();
-    let mut authorizations = sensitive_command_authorizations().lock().await;
-    authorizations.retain(|_, authorization| authorization.expires_at > now);
-    authorizations
-        .remove(token)
-        .map(|authorization| authorization.command == command && authorization.expires_at > now)
-        .unwrap_or(false)
 }
 
 impl McpService for BashService {
@@ -520,32 +470,23 @@ impl BashService {
         // Sensitive commands require a short-lived, one-time authorization
         // token issued after explicit user confirmation. The token travels
         // outside the model-controlled tool arguments and is bound to this
-        // exact command.
+        // exact command. The check is the same unified guard every other
+        // command-executing entry point goes through.
         //
         // Interactive commands are checked the same way: the isInteractive
         // flag is model-controlled and must not be allowed to bypass the
         // sensitive-command gate. Legitimate interactive commands (npm init,
         // git add -i, ...) do not match any rule and are unaffected.
         let sensitive_check_started = Instant::now();
-        let sensitive_matches =
-            safety::check_sensitive_commands(&command, Some(&working_directory), project_id).await;
-        let sensitive_authorized = sensitive_matches.is_empty()
-            || consume_sensitive_command_authorization(&command, sensitive_authorization_token)
-                .await;
+        let sensitive_gate = crate::mcp::tools::sensitive_guard::enforce(
+            "bash-terminal-execute",
+            args,
+            project_id,
+            sensitive_authorization_token,
+        )
+        .await;
         let sensitive_check_ms = sensitive_check_started.elapsed().as_millis() as u64;
-        if !sensitive_authorized {
-            let error_payload = json!({
-                "error": "SENSITIVE_COMMAND_DETECTED",
-                "message": "Command matched a sensitive command rule and requires confirmation",
-                "command": command,
-                "description": description,
-                "matches": sensitive_matches,
-            });
-            return Err(Error::new(
-                Status::GenericFailure,
-                error_payload.to_string(),
-            ));
-        }
+        sensitive_gate?;
 
         let remote_resolve_started = Instant::now();
         let remote_working_directory = if is_ssh_path(&working_directory) {

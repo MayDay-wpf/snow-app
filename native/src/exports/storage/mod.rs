@@ -36,7 +36,7 @@ pub(crate) use crate::storage::{
     ProjectSensitiveCommandConfigInput, ProjectSensitiveCommandConfigRecord,
     RemoteDraftInput, RemoteDraftRecord,
     ScheduledTaskRecord, ScheduledTaskRecordInput,
-    SensitiveCommandConfigInput, SensitiveCommandConfigRecord, SensitiveCommandMatchResult,
+    SensitiveCommandConfigInput, SensitiveCommandConfigRecord,
     SubAgentConfigInput, SubAgentConfigRecord, SystemPromptItemInput, SystemPromptItemRecord,
 UserMessageSummary, UserscriptRecord, UserscriptValue,
     WorkflowCanvasRecord, WorkflowNodeSessionRecord, WorkflowRunRecord, WorkspaceDirectoryInput, WorkspaceDirectoryRecord,

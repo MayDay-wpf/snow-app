@@ -146,6 +146,13 @@ export type ToolCallInfo = {
   userQuestion?: UserQuestionState;
   authorizationId?: string;
   authorizationConversationId?: string;
+  /** 敏感操作预检查得到的操作主体：授权令牌绑定 subject，拦截提示展示 subject。
+   *  kind：command = 会被执行的命令文本；config = 写入会被执行的配置；
+   *  protected = 修改敏感规则本身（每次都需用户确认，不走 YOLO 与决策模型托管）。 */
+  sensitiveOperation?: {
+    subject: string;
+    kind: "command" | "config" | "protected";
+  };
   sensitiveCommandMatches?: Array<{
     commandId: string;
     pattern: string;
@@ -619,6 +626,8 @@ export type ToolAuthorizationDecision =
   | {
       status: "approved";
       sensitiveCommandConfirmed?: boolean;
+      /** 已确认的敏感操作主体：执行前据此签发一次性授权令牌。 */
+      sensitiveSubject?: string;
       /** 决策模型判定（托管放行时携带，工具卡片据此展示判定情况）。 */
       sensitiveCommandDecision?: SensitiveCommandDecisionInfo;
       /** 判定由决策模型托管生效（未弹拦截提示）。 */

@@ -4296,6 +4296,13 @@ export const zhTW = {
   "sensitiveCommand.command": "命令",
   "sensitiveCommand.description": "命令說明",
   "sensitiveCommand.matchedRules": "匹配的規則",
+  "sensitiveCommand.subject.config": "將寫入的可執行設定",
+  "sensitiveCommand.subject.protected": "敏感規則修改",
+  "sensitiveCommand.subject.protectedNotice":
+    "本次呼叫會修改敏感命令規則。每次修改都必須由你確認，YOLO 模式與決策模型託管下同樣如此。",
+  "sensitiveCommand.builtinRule.check-failed": "敏感檢查出錯（已按命中攔截）",
+  "sensitiveCommand.builtinRule.script-unreadable": "被執行的腳本無法檢查",
+  "sensitiveCommand.builtinRule.protected-rules": "修改敏感規則",
   "sensitiveCommand.confirmExecution": "確認執行",
   "sensitiveCommand.decisionLabel": "決策模型判定",
   "sensitiveCommand.decisionAllow": "允許執行",

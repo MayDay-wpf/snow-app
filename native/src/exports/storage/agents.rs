@@ -117,16 +117,3 @@ pub async fn delete_project_sensitive_command_config(
     .await
     .map_err(map_spawn_error)?
 }
-
-#[napi]
-pub async fn check_sensitive_command_match(
-    command: String,
-    project_id: Option<String>,
-) -> napi::Result<Vec<SensitiveCommandMatchResult>> {
-    tokio::task::spawn_blocking(move || {
-        // 前端授权预检查只针对命令本身；脚本内容的强校验在 bash 服务内完成。
-        crate::storage::check_sensitive_command_match(vec![(command, None)], project_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
-}

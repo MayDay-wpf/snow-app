@@ -567,6 +567,21 @@ export type ProjectSensitiveCommandConfigRecord =
     source: string;
   };
 
+/** 敏感操作预检查结果：令牌绑定的操作主体、主体类别与命中项。 */
+export type SensitiveOperationCheckRecord = {
+  subject: string;
+  /** command = 会被执行的命令文本；config = 写入会被执行的配置；
+   *  protected = 修改敏感规则本身（每次都需用户确认）。 */
+  kind: "command" | "config" | "protected";
+  matches: Array<{
+    commandId: string;
+    pattern: string;
+    description: string;
+    /** 主体文本中的命中区间（UTF-16 偏移），用于高亮关键字。 */
+    ranges: Array<{ start: number; end: number }>;
+  }>;
+};
+
 /** 决策模型对一条命中敏感规则的命令的判定结果。 */
 export type SensitiveCommandDecisionRecord = {
   /** true = 判定可以直接放行。 */

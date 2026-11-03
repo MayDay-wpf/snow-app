@@ -336,6 +336,16 @@ pub async fn call_mcp_tool(
             .as_deref()
             .map(Value::from)
             .unwrap_or(Value::Null);
+    } else {
+        // 敏感操作统一闸门：终端输入、键入文本、会被执行的配置写入与敏感规则修改
+        // 在分发前拦截；bash 在执行器内部（自我保护检查之后）调用同一守卫。
+        super::sensitive_guard::enforce(
+            &tool_full_name,
+            &args,
+            project_id.as_deref(),
+            sensitive_authorization_token.as_deref(),
+        )
+        .await?;
     }
 
     // 先定 checkpoint 影响范围再捕获：None 的工具不校验

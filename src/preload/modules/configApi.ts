@@ -29,6 +29,7 @@ import type {
   SensitiveCommandConfigInput,
   SensitiveCommandConfigRecord,
   SensitiveCommandDecisionRecord,
+  SensitiveOperationCheckRecord,
   SubAgentConfigInput,
   SubAgentConfigRecord,
   SystemPromptItemInput,
@@ -238,21 +239,17 @@ export const configApi = {
       projectId,
       commandId,
     ),
-  checkSensitiveCommandMatch: (
-    command: string,
+  /** 工具调用授权前的敏感操作预检查（与执行侧闸门同一套判定）：命中时返回
+   *  令牌绑定的操作主体、主体类别与命中项；未命中返回 null。 */
+  checkToolSensitiveOperation: (
+    toolName: string,
+    argsJson: string,
     projectId?: string,
-  ): Promise<
-    Array<{
-      commandId: string;
-      pattern: string;
-      description: string;
-      /** 命令文本中的命中区间（UTF-16 偏移），用于高亮关键字。 */
-      ranges: Array<{ start: number; end: number }>;
-    }>
-  > =>
+  ): Promise<SensitiveOperationCheckRecord | null> =>
     ipcRenderer.invoke(
-      "sensitive-command-configs:check-match",
-      command,
+      "sensitive-command-configs:check-tool",
+      toolName,
+      argsJson,
       projectId,
     ),
   /** 决策模型辅助：判定命中敏感规则的命令是否可直接放行（null = 未启用；
