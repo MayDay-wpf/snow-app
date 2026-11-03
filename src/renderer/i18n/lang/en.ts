@@ -2950,6 +2950,54 @@ export const en = {
   "settings.apiTabImageModels": "Image models",
   "settings.apiTabDecisionModels": "Decision models",
   "settings.apiTabRetry": "Retry policy",
+  "settings.apiTabEmbeddingModels": "Embedding models",
+  "settings.apiTabRerankingModels": "Reranking models",
+  "settings.embeddingModelsInfo":
+    "Embedding models turn code chunks into vectors for codebase indexing and semantic search. Configure several models here, then pick the one to use in Codebase settings.",
+  "settings.rerankingModelsInfo":
+    "Reranking models reorder search results to improve relevance. Configure several models here, then pick the one to use (or none) in Codebase settings.",
+  "settings.embeddingModelsEmpty":
+    "No embedding model yet. Add one to use it in Codebase settings.",
+  "settings.rerankingModelsEmpty":
+    "No reranking model yet. Add one to use it in Codebase settings.",
+  "settings.embeddingModelAdd": "Add embedding model",
+  "settings.rerankingModelAdd": "Add reranking model",
+  "settings.embeddingModelEditorAddTitle": "Add embedding model",
+  "settings.embeddingModelEditorEditTitle": "Edit embedding model",
+  "settings.rerankingModelEditorAddTitle": "Add reranking model",
+  "settings.rerankingModelEditorEditTitle": "Edit reranking model",
+  "settings.embeddingModelDeleteTitle": "Delete embedding model",
+  "settings.rerankingModelDeleteTitle": "Delete reranking model",
+  "settings.codebaseModelName": "Name",
+  "settings.codebaseModelSave": "Save model",
+  "settings.codebaseModelToggle": "Enable or disable this model",
+  "settings.codebaseModelInUse": "Used by codebase",
+  "settings.codebaseModelEditorInfo":
+    "The API key is stored in the local database and only sent when calling this model.",
+  "settings.codebaseModelModelRequired": "Model name is required.",
+  "settings.codebaseModelBaseUrlRequired": "Base URL is required.",
+  "settings.codebaseModelContextLengthPositive":
+    "Context length must be greater than 0.",
+  "settings.codebaseModelLoadError": "Failed to load models",
+  "settings.codebaseModelSaveError": "Failed to save models",
+  "settings.codebaseModelAddSuccess": "Added {{name}}.",
+  "settings.codebaseModelSaveSuccess": "Saved {{name}}.",
+  "settings.codebaseModelEnabledSuccess": "Enabled {{name}}.",
+  "settings.codebaseModelDisabledSuccess": "Disabled {{name}}.",
+  "settings.codebaseModelDeleteSuccess": "Deleted {{name}}.",
+  "settings.codebaseModelDeleteConfirm":
+    "Delete {{name}}? If the codebase uses it, the codebase selection is cleared too.",
+  "settings.codebaseEmbeddingModel": "Embedding model",
+  "settings.codebaseRerankingModel": "Reranking model",
+  "settings.codebaseEmbeddingModelNone": "Not selected",
+  "settings.codebaseRerankingModelNone": "No reranking",
+  "settings.codebaseEmbeddingModelMissing":
+    "No usable embedding model is selected, so codebase indexing cannot run.",
+  "settings.codebaseEmbeddingModelHint":
+    "Embedding models are managed in API configuration → Embedding models; only enabled ones can be selected here. Rebuild the index after switching models.",
+  "settings.codebaseRerankingModelHint":
+    "Reranking models are managed in API configuration → Reranking models; only enabled ones can be selected here.",
+  "settings.modelSelectOpenApiSettings": "Open API settings",
   "settings.retryPanelTitle": "Retry policy",
   "settings.retryPanelInfo":
     "Configure which errors are retried. Applies to all API profiles. Changes are saved automatically.",

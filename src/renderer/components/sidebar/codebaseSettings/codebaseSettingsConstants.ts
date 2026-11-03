@@ -5,22 +5,15 @@ export const CODEBASE_SETTING_CODE = "codebase_settings";
 
 export const DEFAULT_CODEBASE_SETTINGS: CodebaseSettingsInput = {
   profileName: "default",
-  embeddingType: "jina",
-  embeddingModelName: "text-embedding-3-small",
-  embeddingBaseUrl: "https://api.openai.com/v1",
-  embeddingApiKey: "",
-  embeddingDimensions: 1536,
+  // 嵌入 / 重排模型在「API 配置」中维护，这里只保存选中的 id。
+  embeddingModelId: "",
   batchMaxLines: 10,
   batchConcurrency: 3,
   chunkingMaxLinesPerChunk: 200,
   chunkingMinLinesPerChunk: 10,
   chunkingMinCharsPerChunk: 20,
   chunkingOverlapLines: 20,
-  modelContextLength: 8192,
-  rerankingModelName: "",
-  rerankingBaseUrl: "",
-  rerankingApiKey: "",
-  rerankingContextLength: 4096,
+  rerankingModelId: "",
   rerankingTopN: 5,
   // 空 = 代理审查使用 LLM 基础模型；决策模型本身在「API 配置 → 决策模型」中维护。
   agentReviewModelId: "",
@@ -29,10 +22,3 @@ export const DEFAULT_CODEBASE_SETTINGS: CodebaseSettingsInput = {
   configJson: "{}",
   source: "manual",
 };
-
-export const EMBEDDING_TYPE_OPTIONS = [
-  { value: "jina", label: "Jina & OpenAI" },
-  { value: "ollama", label: "Ollama" },
-  { value: "gemini", label: "Gemini" },
-  { value: "mistral", label: "Mistral" },
-];

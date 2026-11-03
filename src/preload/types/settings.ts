@@ -232,22 +232,16 @@ export type DetectedTerminal = {
 
 export type CodebaseSettingsInput = {
   profileName: string;
-  embeddingType: string;
-  embeddingModelName: string;
-  embeddingBaseUrl: string;
-  embeddingApiKey: string;
-  embeddingDimensions: number;
+  /** 选中的嵌入模型 id（空 = 未选择）；模型配置在「API 配置 → 嵌入模型」维护。 */
+  embeddingModelId: string;
   batchMaxLines: number;
   batchConcurrency: number;
   chunkingMaxLinesPerChunk: number;
   chunkingMinLinesPerChunk: number;
   chunkingMinCharsPerChunk: number;
   chunkingOverlapLines: number;
-  modelContextLength: number;
-  rerankingModelName: string;
-  rerankingBaseUrl: string;
-  rerankingApiKey: string;
-  rerankingContextLength: number;
+  /** 选中的重排模型 id（空 = 不使用重排）。 */
+  rerankingModelId: string;
   rerankingTopN: number;
   /** 代理审查选用的决策模型 id（空 = 使用基础 LLM 模型）。决策模型配置在 API 配置页维护。 */
   agentReviewModelId: string;
@@ -255,6 +249,51 @@ export type CodebaseSettingsInput = {
   agentReviewRelevanceThreshold: number | null;
   configJson: string;
   source: string;
+};
+
+/** 嵌入模型条目（embedding_models 表）。 */
+export type EmbeddingModelConfig = {
+  id: string;
+  name: string;
+  embeddingType: string;
+  modelName: string;
+  baseUrl: string;
+  apiKey: string;
+  /** 0 = 不传 dimensions 参数。 */
+  dimensions: number;
+  contextLength: number;
+  enabled: boolean;
+};
+
+/** 重排模型条目（reranking_models 表）。 */
+export type RerankingModelConfig = {
+  id: string;
+  name: string;
+  modelName: string;
+  baseUrl: string;
+  apiKey: string;
+  contextLength: number;
+  enabled: boolean;
+};
+
+/** 决策模型条目（decision_models 表；provider / baseUrlMode 由前端再收窄）。 */
+export type DecisionModelEntry = {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  baseUrlMode: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+};
+
+export type RegisteredModelKind = "embedding" | "reranking" | "decision";
+
+/** 删除模型的结果；clearedReferences 为被清空的引用（如 codebase.embeddingModelId）。 */
+export type ModelDeleteResult = {
+  deleted: boolean;
+  clearedReferences: string[];
 };
 
 export type CodebaseProjectScopeSettings = {
@@ -624,6 +663,8 @@ export type DecisionModelTestInput = {
 
 /** 待检测的嵌入模型配置（dimensions 为 0 表示不指定维度）。 */
 export type EmbeddingTestInput = {
+  /** 嵌入模型条目 id，检测结果按它归档。 */
+  id: string;
   embeddingType: string;
   modelName: string;
   baseUrl: string;
@@ -633,6 +674,8 @@ export type EmbeddingTestInput = {
 
 /** 待检测的重排模型配置。 */
 export type RerankingTestInput = {
+  /** 重排模型条目 id，检测结果按它归档。 */
+  id: string;
   modelName: string;
   baseUrl: string;
   apiKey: string;
@@ -640,7 +683,7 @@ export type RerankingTestInput = {
 
 /** 一次模型连接自检的结果（持久化，重启后仍可查看）。 */
 export type ModelConnectionTestResult = {
-  /** 决策模型为其 id，嵌入 / 重排为空。 */
+  /** 决策 / 嵌入 / 重排模型的条目 id。 */
   targetId: string;
   ok: boolean;
   httpStatus?: number | null;
@@ -656,11 +699,11 @@ export type ModelConnectionTestResult = {
   testedAt: number;
 };
 
-/** 三类模型最近一次连接自检的结果。 */
+/** 三类模型最近一次连接自检的结果（均按条目 id 区分）。 */
 export type ModelHealthSnapshot = {
   decision: ModelConnectionTestResult[];
-  embedding?: ModelConnectionTestResult | null;
-  reranking?: ModelConnectionTestResult | null;
+  embeddingModels: ModelConnectionTestResult[];
+  rerankingModels: ModelConnectionTestResult[];
 };
 
 // ===== Keyboard shortcuts =====

@@ -4,7 +4,9 @@ import type {
   CustomCommandRecord,
   CustomHeaderSchemeInput,
   CustomHeaderSchemeRecord,
+  DecisionModelEntry,
   DecisionModelTestInput,
+  EmbeddingModelConfig,
   EmbeddingTestInput,
   HookConfigInput,
   HookConfigRecord,
@@ -20,11 +22,14 @@ import type {
   McpServerConfigInput,
   McpServerConfigRecord,
   ModelConnectionTestResult,
+  ModelDeleteResult,
   ModelHealthSnapshot,
   ProjectMcpServerConfigRecord,
   ProjectSensitiveCommandConfigInput,
   ProjectSensitiveCommandConfigRecord,
   ProjectStackDetection,
+  RegisteredModelKind,
+  RerankingModelConfig,
   RerankingTestInput,
   SensitiveCommandConfigInput,
   SensitiveCommandConfigRecord,
@@ -287,6 +292,36 @@ export const configApi = {
   /** 三类模型最近一次连接自检的结果（重启后仍可查看）。 */
   getModelHealthSnapshot: (): Promise<ModelHealthSnapshot> =>
     ipcRenderer.invoke("model-health:get-snapshot"),
+  /** 模型注册表：嵌入 / 重排 / 决策模型各一张表，删除时 Rust 同步清空引用。 */
+  listEmbeddingModels: (): Promise<EmbeddingModelConfig[]> =>
+    ipcRenderer.invoke("model-registry:list-embedding"),
+  upsertEmbeddingModel: (
+    model: EmbeddingModelConfig,
+  ): Promise<EmbeddingModelConfig> =>
+    ipcRenderer.invoke("model-registry:upsert-embedding", model),
+  listRerankingModels: (): Promise<RerankingModelConfig[]> =>
+    ipcRenderer.invoke("model-registry:list-reranking"),
+  upsertRerankingModel: (
+    model: RerankingModelConfig,
+  ): Promise<RerankingModelConfig> =>
+    ipcRenderer.invoke("model-registry:upsert-reranking", model),
+  listDecisionModels: (): Promise<DecisionModelEntry[]> =>
+    ipcRenderer.invoke("model-registry:list-decision"),
+  upsertDecisionModel: (
+    model: DecisionModelEntry,
+  ): Promise<DecisionModelEntry> =>
+    ipcRenderer.invoke("model-registry:upsert-decision", model),
+  deleteRegisteredModel: (
+    kind: RegisteredModelKind,
+    modelId: string,
+  ): Promise<ModelDeleteResult> =>
+    ipcRenderer.invoke("model-registry:delete", kind, modelId),
+  setRegisteredModelEnabled: (
+    kind: RegisteredModelKind,
+    modelId: string,
+    enabled: boolean,
+  ): Promise<void> =>
+    ipcRenderer.invoke("model-registry:set-enabled", kind, modelId, enabled),
   listHookConfigs: (
     scope: HookScope,
     projectId?: string,

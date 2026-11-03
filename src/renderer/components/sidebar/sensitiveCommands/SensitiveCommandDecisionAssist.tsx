@@ -14,6 +14,7 @@ import {
 } from "../../../constants/sensitiveCommandAssist";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ModelSettingsJumpButton } from "../apiSettings/ModelSettingsJumpButton";
 import { Tooltip } from "../../common/Tooltip";
 
 type SensitiveCommandDecisionAssistProps = {
@@ -260,6 +261,7 @@ export function SensitiveCommandDecisionAssist({
               disabled={isBusy || !settings.enabled}
               title={selectedModel?.name ?? ""}
             />
+            <ModelSettingsJumpButton tab="decision" disabled={isBusy} />
           </span>
         </label>
 

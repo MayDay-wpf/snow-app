@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use napi::bindgen_prelude::*;
 
-use crate::prompt::common::read_active_role;
+use crate::prompt::common::{read_active_role, ActiveRole};
 use crate::prompt::goal_mode_system_prompt::build_goal_mode_system_prompt;
 use crate::prompt::system_prompt::build_system_prompt;
 use crate::prompt::workflow_mode_system_prompt::build_workflow_mode_system_prompt;
@@ -14,6 +14,9 @@ use crate::storage::services::chat_conversations::{
     resolve_conversation_id, ChatContextMessage,
 };
 use crate::storage::services::sub_agent_configs::list_sub_agent_configs;
+use crate::storage::services::system_prompt_snapshots::{
+    self, SystemPromptConfigSnapshot,
+};
 use crate::storage::services::system_prompts::resolve_active_system_prompt_contents;
 use crate::storage::services::system_settings::get_system_setting_value;
 use crate::storage::services::workspace_directories::get_workspace_directory_path;
@@ -126,16 +129,14 @@ fn build_sub_agents_section(database_path: &Path, directory_id: Option<&str>) ->
     }
 }
 
-/// 构造与主流程一致的内置系统提示词（工作目录、模式、项目组、LSP、生图、项目记忆等章节）。
-/// 不含历史消息与用户自定义系统提示词（后者由 `prepare_context_request` 单独解析）。
-pub(crate) async fn build_builtin_system_prompt(
-    request: &ConversationContextRequest<'_>,
-    conversation_id: &str,
-) -> String {
-    let working_directory = if let Some(exec_root) = request.execution_workspace_root {
-        exec_root.trim().to_string()
-    } else if let Some(root) = request.analysis_workspace_root {
-        crate::mcp::servers::lsp::prompt_context::resolve_analysis_workspace_root(
+/// 解析本请求的工作目录（执行根 > 分析根 > worktree > 会话目录）。系统提示词
+/// 渲染与 ROLE.md 解析共用同一结果。
+async fn resolve_working_directory(request: &ConversationContextRequest<'_>) -> String {
+    if let Some(exec_root) = request.execution_workspace_root {
+        return exec_root.trim().to_string();
+    }
+    if let Some(root) = request.analysis_workspace_root {
+        return crate::mcp::servers::lsp::prompt_context::resolve_analysis_workspace_root(
             request.directory_id,
             Some(Path::new(root)),
         )
@@ -143,36 +144,115 @@ pub(crate) async fn build_builtin_system_prompt(
         .ok()
         .flatten()
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    }
+    let worktree_path = if let Some(wt_id) = request.worktree_id {
+        crate::storage::services::git::get_worktree_by_id(request.database_path, wt_id)
+            .ok()
+            .flatten()
+            .map(|w| w.worktree_path)
+    } else if let Some(conv_id) = request.conversation_id {
+        crate::storage::services::git::get_conversation_worktree(request.database_path, conv_id)
+            .ok()
+            .flatten()
+            .map(|w| w.worktree_path)
     } else {
-        let worktree_path = if let Some(wt_id) = request.worktree_id {
-            crate::storage::services::git::get_worktree_by_id(request.database_path, wt_id)
-                .ok()
-                .flatten()
-                .map(|w| w.worktree_path)
-        } else if let Some(conv_id) = request.conversation_id {
-            crate::storage::services::git::get_conversation_worktree(request.database_path, conv_id)
-                .ok()
-                .flatten()
-                .map(|w| w.worktree_path)
-        } else {
-            None
-        };
-
-        if let Some(path) = worktree_path {
-            path
-        } else {
-            request
-                .directory_id
-                .and_then(|id| {
-                    get_workspace_directory_path(request.database_path, id)
-                        .ok()
-                        .flatten()
-                })
-                .unwrap_or_default()
-        }
+        None
     };
 
+    if let Some(path) = worktree_path {
+        return path;
+    }
+    request
+        .directory_id
+        .and_then(|id| {
+            get_workspace_directory_path(request.database_path, id)
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_default()
+}
+
+/// 会话级冻结的系统提示词配置（ROLE.md 解析结果 + API 档案系统提示词）。
+struct ResidentPromptConfig {
+    role: Option<ActiveRole>,
+    user_prompts: Vec<String>,
+}
+
+/// 冻结 ROLE.md 与 API 档案系统提示词：首次渲染时解析并写入快照，会话存续
+/// 期间复用同一份文本；目录或 API 档案变化时重建；压缩成功后快照已被删除，
+/// 下一次请求按最新配置重新解析。
+fn resolve_resident_prompt_config(
+    request: &ConversationContextRequest<'_>,
+    conversation_id: &str,
+    working_directory: &str,
+) -> ResidentPromptConfig {
+    // 目录上下文缺失（临时请求）时不绑定快照，避免与带目录的请求互相覆盖。
+    let directory_id = request.directory_id.map(str::trim).unwrap_or("").to_string();
+    let api_prompt_ids_json = request.system_prompt_ids_json.trim().to_string();
+    let frozen = if directory_id.is_empty() {
+        None
+    } else {
+        system_prompt_snapshots::load_snapshot(request.database_path, conversation_id)
+            .ok()
+            .flatten()
+            .filter(|snapshot| {
+                snapshot.directory_id == directory_id
+                    && snapshot.api_prompt_ids_json == api_prompt_ids_json
+            })
+    };
+    if let Some(snapshot) = frozen {
+        let overrides_builtin = snapshot.role_overrides_builtin;
+        return ResidentPromptConfig {
+            role: snapshot.role_content.map(|content| ActiveRole {
+                content,
+                overrides_builtin,
+            }),
+            user_prompts: snapshot.user_prompts,
+        };
+    }
+
+    let active_role = read_active_role(
+        working_directory,
+        request.remote_role_content,
+        request.remote_include_global_rules,
+        request.remote_override_builtin_prompt,
+    );
+    let user_prompts = resolve_active_system_prompt_contents(
+        request.database_path,
+        request.system_prompt_ids_json,
+        request.directory_id,
+    );
+    if !directory_id.is_empty() {
+        let snapshot = SystemPromptConfigSnapshot {
+            directory_id,
+            api_prompt_ids_json,
+            role_content: active_role.as_ref().map(|role| role.content.clone()),
+            role_overrides_builtin: active_role
+                .as_ref()
+                .is_some_and(|role| role.overrides_builtin),
+            user_prompts: user_prompts.clone(),
+        };
+        let _ = system_prompt_snapshots::save_snapshot(
+            request.database_path,
+            conversation_id,
+            &snapshot,
+        );
+    }
+    ResidentPromptConfig {
+        role: active_role,
+        user_prompts,
+    }
+}
+
+/// 构造与主流程一致的内置系统提示词（工作目录、模式、项目组、LSP、生图、项目记忆等章节）。
+/// 不含历史消息与用户自定义系统提示词（后者由 `prepare_context_request` 单独解析）。
+pub(crate) async fn build_builtin_system_prompt(
+    request: &ConversationContextRequest<'_>,
+    conversation_id: &str,
+    working_directory: &str,
+    active_role: Option<&ActiveRole>,
+) -> String {
     // Goal Mode / WorkFlow Mode: replace the built-in system prompt with the
     // mode-specific prompt that carries its own execution guidance.
     let shell_type = resolve_default_shell(request.database_path);
@@ -186,24 +266,18 @@ pub(crate) async fn build_builtin_system_prompt(
     } else {
         String::new()
     };
-    let active_role = read_active_role(
-        &working_directory,
-        request.remote_role_content,
-        request.remote_include_global_rules,
-        request.remote_override_builtin_prompt,
-    );
     let system_prompt = if request.worktree_mode {
         build_worktree_mode_system_prompt(
-            &working_directory,
+            working_directory,
             &shell_type,
-            active_role.as_ref(),
+            active_role,
             &sub_agents_section,
         )
     } else if request.workflow_mode {
         build_workflow_mode_system_prompt(
-            &working_directory,
+            working_directory,
             &shell_type,
-            active_role.as_ref(),
+            active_role,
             &analysis_tools_section,
         )
     } else if request.goal_mode {
@@ -218,17 +292,17 @@ pub(crate) async fn build_builtin_system_prompt(
             2000000
         };
         build_goal_mode_system_prompt(
-            &working_directory,
+            working_directory,
             &shell_type,
             goal_token_budget,
-            active_role.as_ref(),
+            active_role,
             &analysis_tools_section,
         )
     } else {
         build_system_prompt(
-            &working_directory,
+            working_directory,
             &shell_type,
-            active_role.as_ref(),
+            active_role,
             &sub_agents_section,
         )
     };
@@ -300,7 +374,7 @@ pub(crate) async fn build_builtin_system_prompt(
                 .ok()
                 .flatten()
         })
-        .unwrap_or_else(|| working_directory.clone());
+        .unwrap_or_else(|| working_directory.to_string());
     let wiki_section = crate::api::repo_wiki::build_system_prompt_section(&wiki_project_path).await;
     let system_prompt = if wiki_section.is_empty() {
         system_prompt
@@ -502,14 +576,23 @@ pub async fn prepare_context_request(
     // can decide how to combine them with the built-in system prompt
     // (e.g. Anthropic demotes the built-in prompt to a user message when
     // user prompts are present, matching Snow CLI PR #127).
-    let user_system_prompts = resolve_active_system_prompt_contents(
-        request.database_path,
-        request.system_prompt_ids_json,
-        request.directory_id,
-    );
+    // 会话级冻结：ROLE.md 与 API 档案系统提示词首次解析后写入快照，会话存续
+    // 期间复用同一份文本，避免中途修改改写系统槽前缀、整段 prompt cache 失效；
+    // 目录 / API 档案变化时重建，压缩成功后快照被删除、下一轮重新解析。
+    let working_directory = resolve_working_directory(&request).await;
+    let ResidentPromptConfig {
+        role,
+        user_prompts: user_system_prompts,
+    } = resolve_resident_prompt_config(&request, &conversation_id, &working_directory);
 
     // Inject the built-in system prompt as the first message.
-    let system_prompt = build_builtin_system_prompt(&request, &conversation_id).await;
+    let system_prompt = build_builtin_system_prompt(
+        &request,
+        &conversation_id,
+        &working_directory,
+        role.as_ref(),
+    )
+    .await;
     // Rebuilt for every actual request (including post-compaction/restart); it is
     // request-only tail input, never persisted, never an acknowledgement or
     // task authorization.

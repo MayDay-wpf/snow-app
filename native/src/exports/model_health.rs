@@ -9,7 +9,7 @@ use crate::api::embedding::EmbeddingConfig;
 use crate::api::model_health::{self, ModelConnectionTestResult, ModelHealthSnapshot};
 use crate::api::reranking::RerankingConfig;
 
-/// 待检测的决策模型（字段与 system_settings `decision_models` 的条目一致）。
+/// 待检测的决策模型（字段与 `decision_models` 表的条目一致）。
 #[napi(object)]
 pub struct DecisionModelTestInput {
     pub id: String,
@@ -20,9 +20,11 @@ pub struct DecisionModelTestInput {
     pub model: String,
 }
 
-/// 待检测的嵌入模型配置（字段与代码库设置一致）。
+/// 待检测的嵌入模型配置（字段与嵌入模型条目一致）。
 #[napi(object)]
 pub struct EmbeddingTestInput {
+    /// 嵌入模型条目 id，检测结果按它归档。
+    pub id: String,
     pub embedding_type: String,
     pub model_name: String,
     pub base_url: String,
@@ -31,9 +33,11 @@ pub struct EmbeddingTestInput {
     pub dimensions: i32,
 }
 
-/// 待检测的重排模型配置（字段与代码库设置一致）。
+/// 待检测的重排模型配置（字段与重排模型条目一致）。
 #[napi(object)]
 pub struct RerankingTestInput {
+    /// 重排模型条目 id，检测结果按它归档。
+    pub id: String,
     pub model_name: String,
     pub base_url: String,
     pub api_key: String,
@@ -58,13 +62,16 @@ pub async fn test_decision_model_connection(
 pub async fn test_embedding_connection(
     input: EmbeddingTestInput,
 ) -> Result<ModelConnectionTestResult> {
-    model_health::test_embedding(EmbeddingConfig::from_settings(
-        input.embedding_type.trim(),
-        input.model_name.trim(),
-        input.base_url.trim(),
-        input.api_key.trim(),
-        input.dimensions,
-    ))
+    model_health::test_embedding(
+        input.id.trim(),
+        EmbeddingConfig::from_settings(
+            input.embedding_type.trim(),
+            input.model_name.trim(),
+            input.base_url.trim(),
+            input.api_key.trim(),
+            input.dimensions,
+        ),
+    )
     .await
 }
 
@@ -72,13 +79,16 @@ pub async fn test_embedding_connection(
 pub async fn test_reranking_connection(
     input: RerankingTestInput,
 ) -> Result<ModelConnectionTestResult> {
-    model_health::test_reranking(RerankingConfig::from_settings(
-        input.model_name.trim(),
-        input.base_url.trim(),
-        input.api_key.trim(),
-        0,
-        0,
-    ))
+    model_health::test_reranking(
+        input.id.trim(),
+        RerankingConfig::from_settings(
+            input.model_name.trim(),
+            input.base_url.trim(),
+            input.api_key.trim(),
+            0,
+            0,
+        ),
+    )
     .await
 }
 

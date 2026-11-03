@@ -11,8 +11,6 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import {
-  DECISION_MODELS_SETTING_CODE,
-  DECISION_MODELS_SETTING_NAME,
   DECISION_MODEL_BASE_URL_MODE_AUTO,
   DECISION_MODEL_BASE_URL_MODE_CUSTOM,
   DECISION_MODEL_CUSTOM_BASE_URL_EXAMPLE,
@@ -26,10 +24,10 @@ import {
   decisionModelDefaultName,
   enabledDecisionModels,
   findDecisionModel,
+  loadDecisionModels,
   normalizeDecisionModelProvider,
-  readDecisionModelsJson,
   resolveDecisionModelEndpoint,
-  toDecisionModelsJson,
+  toDecisionModelConfig,
   type DecisionModelConfig,
   type DecisionModelProvider,
 } from "../../../constants/decisionModels";
@@ -47,9 +45,9 @@ import type { ModelConnectionTestResult } from "../../../../preload";
  * 决策模型管理面板（API 配置页的「决策模型」标签页）。
  *
  * 支持配置多个决策模型并单独启停：只有已启用的模型会出现在代码库代理审查等
- * 使用方的选择列表里。整份配置以 JSON 写入 system_settings 的 `decision_models`，
- * Rust 侧按同一份数据解析（native/src/api/decision_model.rs）。每个模型可「测试连接」，
- * 最近一次检测结果由 Rust 持久化，重启后仍显示在列表里。
+ * 使用方的选择列表里。模型存在 Rust 的 decision_models 表，删除时 Rust 同步清空
+ * 代码库审查、工具默认模型与敏感命令辅助对它的引用。每个模型可「测试连接」，
+ * 最近一次检测结果存在模型行上，重启后仍显示在列表里。
  */
 export function DecisionModelsPanel(): React.JSX.Element {
   const { t } = useI18n();
@@ -80,12 +78,12 @@ export function DecisionModelsPanel(): React.JSX.Element {
     setError("");
 
     try {
-      const [raw, snapshot, toolModel] = await Promise.all([
-        window.snow.getSystemSettingValue(DECISION_MODELS_SETTING_CODE),
+      const [list, snapshot, toolModel] = await Promise.all([
+        loadDecisionModels(),
         window.snow.getModelHealthSnapshot(),
         window.snow.getSystemSettingValue(DECISION_TOOL_MODEL_SETTING_CODE),
       ]);
-      setModels(readDecisionModelsJson(raw));
+      setModels(list);
       setToolModelId((toolModel ?? "").trim());
       setHealth(
         Object.fromEntries(
@@ -109,10 +107,10 @@ export function DecisionModelsPanel(): React.JSX.Element {
     void load();
   }, [load]);
 
-  /** 持久化整份配置（新增 / 编辑 / 启停 / 删除共用），返回是否成功。 */
-  const persist = useCallback(
+  /** 执行一次写操作（新增 / 编辑 / 启停 / 删除共用），返回是否成功。 */
+  const runMutation = useCallback(
     async (
-      next: DecisionModelConfig[],
+      action: () => Promise<void>,
       successMessage: string,
     ): Promise<boolean> => {
       setIsSaving(true);
@@ -120,12 +118,7 @@ export function DecisionModelsPanel(): React.JSX.Element {
       setStatus("");
 
       try {
-        await window.snow.setSystemSetting(
-          DECISION_MODELS_SETTING_NAME,
-          DECISION_MODELS_SETTING_CODE,
-          toDecisionModelsJson(next),
-        );
-        setModels(next);
+        await action();
         setStatus(successMessage);
         return true;
       } catch (e) {
@@ -319,11 +312,19 @@ export function DecisionModelsPanel(): React.JSX.Element {
     }
 
     const name = current.name.trim();
-    const next = isNewDraft
-      ? [...models, current]
-      : models.map((model) => (model.id === current.id ? current : model));
-    const saved = await persist(
-      next,
+    const saved = await runMutation(
+      async () => {
+        const stored = toDecisionModelConfig(
+          await window.snow.upsertDecisionModel(current),
+        );
+        setModels((previous) =>
+          isNewDraft
+            ? [...previous, stored]
+            : previous.map((model) =>
+                model.id === stored.id ? stored : model,
+              ),
+        );
+      },
       isNewDraft
         ? t("settings.decisionModelAddSuccess", {
             values: { name },
@@ -342,10 +343,20 @@ export function DecisionModelsPanel(): React.JSX.Element {
 
   /** 启停单个模型：停用后使用方（如代码库代理审查）不再能选到它。 */
   const toggleEnabled = async (model: DecisionModelConfig): Promise<void> => {
-    await persist(
-      models.map((item) =>
-        item.id === model.id ? { ...item, enabled: !item.enabled } : item,
-      ),
+    const enabled = !model.enabled;
+    await runMutation(
+      async () => {
+        await window.snow.setRegisteredModelEnabled(
+          "decision",
+          model.id,
+          enabled,
+        );
+        setModels((previous) =>
+          previous.map((item) =>
+            item.id === model.id ? { ...item, enabled } : item,
+          ),
+        );
+      },
       model.enabled
         ? t("settings.decisionModelDisabledSuccess", {
             values: { name: model.name },
@@ -365,18 +376,25 @@ export function DecisionModelsPanel(): React.JSX.Element {
       return;
     }
 
-    await persist(
-      models.filter((item) => item.id !== target.id),
+    // Rust 删除时同步清空工具默认模型、代码库审查与敏感命令辅助对它的引用。
+    await runMutation(
+      async () => {
+        const result = await window.snow.deleteRegisteredModel(
+          "decision",
+          target.id,
+        );
+        setModels((previous) =>
+          previous.filter((item) => item.id !== target.id),
+        );
+        if (result.clearedReferences.includes("decisionToolModel")) {
+          setToolModelId("");
+        }
+      },
       t("settings.decisionModelDeleteSuccess", {
         values: { name: target.name },
         defaultValue: `Deleted ${target.name}.`,
       }),
     );
-
-    // 删除的正是工具默认模型时一并清空，避免工具指向不存在的模型。
-    if (target.id === toolModelId) {
-      await saveToolModel("");
-    }
   };
 
   /** 工具默认模型选项：未设置 + 已启用模型；当前值失效时保留一项提示。 */

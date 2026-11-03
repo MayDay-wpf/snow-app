@@ -537,7 +537,7 @@ struct CodebaseSettings {
     reranking_context_length: i32,
     reranking_top_n: i32,
     /// 代理审查选用的决策模型 id（空 = 使用基础 LLM 模型）。决策模型的
-    /// baseUrl / apiKey / model 存在 system_settings 的 `decision_models` 里，
+    /// baseUrl / apiKey / model 存在 `decision_models` 表里，
     /// 由 crate::api::decision_model 按这里的 id 解析。
     agent_review_model_id: String,
     /// agent 审查的相关性阈值（0.0-1.0）；None = 沿用 choice 二分类判定。
@@ -545,12 +545,10 @@ struct CodebaseSettings {
 }
 
 fn load_codebase_settings(database_path: &std::path::Path) -> Result<CodebaseSettings> {
-    let raw = crate::storage::services::system_settings::get_system_setting_value(
-        database_path,
-        "codebase_settings",
-    )?
-    .unwrap_or_default();
-    let settings: CodebaseSettings = serde_json::from_str(&raw).map_err(|error| {
+    // 选中的嵌入 / 重排模型在这里展开成内联字段。
+    let resolved =
+        crate::storage::services::system_settings::load_resolved_codebase_settings(database_path)?;
+    let settings: CodebaseSettings = serde_json::from_value(resolved).map_err(|error| {
         Error::from_reason(format!("Failed to parse codebase settings: {error}"))
     })?;
     Ok(settings)

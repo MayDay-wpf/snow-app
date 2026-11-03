@@ -2,14 +2,11 @@
  * 决策模型（Decision model）：TypeSafe System One / OpenAI Decisions 一类的
  * 「判定型」模型，不生成文本，只对给定状态逐条给出选择。
  *
- * 真源是 system_settings 的 `decision_models`，JSON 形如：
- * `{ "models": [{ id, name, provider, baseUrl, baseUrlMode, model, apiKey, enabled }] }`。
- * 该配置独立于代码库设置：代码库只保存选中的决策模型 id，其它功能可复用同一份配置。
- * Rust 侧（native/src/api/decision_model.rs）按同一份 JSON 解析，字段名保持 camelCase 一致。
+ * 真源是 Rust 侧的 decision_models 表（model_registry），通过
+ * window.snow.listDecisionModels / upsertDecisionModel 读写。代码库、decision-evaluate
+ * 工具与敏感命令辅助只保存选中的模型 id；删除模型时 Rust 同步清空这些引用。
  */
-
-export const DECISION_MODELS_SETTING_NAME = "Decision models";
-export const DECISION_MODELS_SETTING_CODE = "decision_models";
+import type { DecisionModelEntry } from "../../preload";
 
 /** decision-evaluate 工具的默认决策模型（值为模型 id，空串表示未设置）。 */
 export const DECISION_TOOL_MODEL_SETTING_NAME = "Decision tool model";
@@ -58,9 +55,6 @@ export type DecisionModelConfig = {
   apiKey: string;
   enabled: boolean;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const toText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
@@ -122,84 +116,23 @@ export const normalizeDecisionModelBaseUrlMode = (
     ? DECISION_MODEL_BASE_URL_MODE_CUSTOM
     : DECISION_MODEL_BASE_URL_MODE_AUTO;
 
-/** 规范化单个条目；既没有名称也没有模型名的条目视为无效。 */
-const normalizeDecisionModel = (value: unknown): DecisionModelConfig | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
+/** 表记录 -> 前端配置（收窄 provider / baseUrlMode）。 */
+export const toDecisionModelConfig = (
+  entry: DecisionModelEntry,
+): DecisionModelConfig => ({
+  id: entry.id,
+  name: toText(entry.name) || toText(entry.model),
+  provider: normalizeDecisionModelProvider(entry.provider),
+  baseUrl: toText(entry.baseUrl),
+  baseUrlMode: normalizeDecisionModelBaseUrlMode(entry.baseUrlMode),
+  model: toText(entry.model),
+  apiKey: entry.apiKey,
+  enabled: entry.enabled,
+});
 
-  const name = toText(value.name);
-  const model = toText(value.model);
-
-  if (!name && !model) {
-    return null;
-  }
-
-  const provider = normalizeDecisionModelProvider(value.provider);
-  const baseUrlMode = normalizeDecisionModelBaseUrlMode(value.baseUrlMode);
-  const baseUrl = toText(value.baseUrl);
-
-  return {
-    id: toText(value.id) || createDecisionModelId(),
-    name: name || model,
-    provider,
-    baseUrl:
-      baseUrl ||
-      (baseUrlMode === DECISION_MODEL_BASE_URL_MODE_CUSTOM
-        ? ""
-        : decisionModelDefaultBaseUrl(provider)),
-    baseUrlMode,
-    model,
-    apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
-    // 缺省视为启用：手写配置时无需显式写 enabled。
-    enabled: value.enabled !== false,
-  };
-};
-
-/** 规范化整份决策模型配置（非法输入返回空列表）。 */
-const normalizeDecisionModels = (value: unknown): DecisionModelConfig[] => {
-  if (!isRecord(value) || !Array.isArray(value.models)) {
-    return [];
-  }
-
-  const models: DecisionModelConfig[] = [];
-  for (const item of value.models) {
-    const model = normalizeDecisionModel(item);
-    if (model) {
-      models.push(model);
-    }
-  }
-  return models;
-};
-
-/** 读取系统设置里的决策模型配置（未配置 / 解析失败返回空列表）。 */
-export const readDecisionModelsJson = (
-  value: string | null,
-): DecisionModelConfig[] => {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    return normalizeDecisionModels(JSON.parse(value));
-  } catch {
-    return [];
-  }
-};
-
-/** 序列化为系统设置存储格式（去除首尾空白）。 */
-export const toDecisionModelsJson = (models: DecisionModelConfig[]): string =>
-  JSON.stringify({
-    models: models.map((model) => ({
-      ...model,
-      name: model.name.trim(),
-      provider: normalizeDecisionModelProvider(model.provider),
-      baseUrl: model.baseUrl.trim(),
-      baseUrlMode: normalizeDecisionModelBaseUrlMode(model.baseUrlMode),
-      model: model.model.trim(),
-      apiKey: model.apiKey.trim(),
-    })),
-  });
+/** 读取全部决策模型（decision_models 表）。 */
+export const loadDecisionModels = async (): Promise<DecisionModelConfig[]> =>
+  (await window.snow.listDecisionModels()).map(toDecisionModelConfig);
 
 /** 实际请求端点；规则与 Rust 侧 resolve_endpoint 逐条一致。 */
 export const resolveDecisionModelEndpoint = (
@@ -253,32 +186,3 @@ export const findDecisionModel = (
   id: string,
 ): DecisionModelConfig | null =>
   models.find((model) => model.id === id) ?? null;
-
-/**
- * 迁移：把旧版 codebase 设置里内联的 Jev 配置并入决策模型列表。
- * 已存在完全相同的模型（baseUrl + apiKey + model）时直接复用，避免重复条目。
- */
-export const mergeLegacyDecisionModel = (
-  models: DecisionModelConfig[],
-  legacy: { baseUrl: string; apiKey: string; model: string },
-): { models: DecisionModelConfig[]; modelId: string } => {
-  const existing = models.find(
-    (model) =>
-      model.apiKey === legacy.apiKey &&
-      model.baseUrl === legacy.baseUrl &&
-      model.model === legacy.model,
-  );
-
-  if (existing) {
-    return { models, modelId: existing.id };
-  }
-
-  const migrated: DecisionModelConfig = {
-    ...createDecisionModel(),
-    baseUrl: legacy.baseUrl || DEFAULT_DECISION_MODEL_BASE_URL,
-    model: legacy.model || DEFAULT_DECISION_MODEL_MODEL,
-    apiKey: legacy.apiKey,
-  };
-
-  return { models: [...models, migrated], modelId: migrated.id };
-};

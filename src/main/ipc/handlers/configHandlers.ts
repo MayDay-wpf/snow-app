@@ -25,7 +25,11 @@ import {
 } from "../../settings/sensitiveCommandSettings";
 import { normalizeSubAgentConfig } from "../../settings/subAgentSettings";
 import { normalizeCustomCommand } from "../../settings/customCommandSettings";
-import type { HookConfigInput, HookScope } from "../../native/types";
+import type {
+  HookConfigInput,
+  HookScope,
+  RegisteredModelKind,
+} from "../../native/types";
 
 const requireProjectId = (value: unknown): string => {
   if (typeof value !== "string" || !value.trim()) {
@@ -90,6 +94,31 @@ const readTestCount = (raw: Record<string, unknown>, key: string): number => {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.trunc(value))
     : 0;
+};
+
+/** 模型注册表的入参：结构与类型由这里收窄，取值校验交给 Rust。 */
+const readModelInput = (item: unknown): Record<string, unknown> => {
+  if (!item || typeof item !== "object") {
+    throw new Error("Model input must be an object");
+  }
+  return item as Record<string, unknown>;
+};
+
+const readModelEnabled = (raw: Record<string, unknown>): boolean =>
+  raw.enabled !== false;
+
+const readModelKind = (kind: unknown): RegisteredModelKind => {
+  if (kind !== "embedding" && kind !== "reranking" && kind !== "decision") {
+    throw new Error("Model kind must be embedding, reranking or decision");
+  }
+  return kind;
+};
+
+const readModelId = (modelId: unknown): string => {
+  if (typeof modelId !== "string" || !modelId.trim()) {
+    throw new Error("Model id is required");
+  }
+  return modelId.trim();
 };
 
 export const registerConfigHandlers = (native: NativeBridge): void => {
@@ -730,6 +759,7 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
   ipcMain.handle("model-health:test-embedding", (_event, input: unknown) => {
     const raw = readTestInput(input);
     return native.testEmbeddingConnection({
+      id: readTestText(raw, "id"),
       embeddingType: readTestText(raw, "embeddingType"),
       modelName: readTestText(raw, "modelName"),
       baseUrl: readTestText(raw, "baseUrl"),
@@ -740,6 +770,7 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
   ipcMain.handle("model-health:test-reranking", (_event, input: unknown) => {
     const raw = readTestInput(input);
     return native.testRerankingConnection({
+      id: readTestText(raw, "id"),
       modelName: readTestText(raw, "modelName"),
       baseUrl: readTestText(raw, "baseUrl"),
       apiKey: readTestText(raw, "apiKey"),
@@ -747,6 +778,76 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
   });
   ipcMain.handle("model-health:get-snapshot", () =>
     native.getModelHealthSnapshot(),
+  );
+
+  // ===== 模型注册表（嵌入 / 重排 / 决策模型表） =====
+  ipcMain.handle("model-registry:list-embedding", () =>
+    native.listEmbeddingModels(),
+  );
+  ipcMain.handle(
+    "model-registry:upsert-embedding",
+    (_event, input: unknown) => {
+      const raw = readModelInput(input);
+      return native.upsertEmbeddingModel({
+        id: readTestText(raw, "id"),
+        name: readTestText(raw, "name"),
+        embeddingType: readTestText(raw, "embeddingType"),
+        modelName: readTestText(raw, "modelName"),
+        baseUrl: readTestText(raw, "baseUrl"),
+        apiKey: readTestText(raw, "apiKey"),
+        dimensions: readTestCount(raw, "dimensions"),
+        contextLength: readTestCount(raw, "contextLength"),
+        enabled: readModelEnabled(raw),
+      });
+    },
+  );
+  ipcMain.handle("model-registry:list-reranking", () =>
+    native.listRerankingModels(),
+  );
+  ipcMain.handle(
+    "model-registry:upsert-reranking",
+    (_event, input: unknown) => {
+      const raw = readModelInput(input);
+      return native.upsertRerankingModel({
+        id: readTestText(raw, "id"),
+        name: readTestText(raw, "name"),
+        modelName: readTestText(raw, "modelName"),
+        baseUrl: readTestText(raw, "baseUrl"),
+        apiKey: readTestText(raw, "apiKey"),
+        contextLength: readTestCount(raw, "contextLength"),
+        enabled: readModelEnabled(raw),
+      });
+    },
+  );
+  ipcMain.handle("model-registry:list-decision", () =>
+    native.listDecisionModels(),
+  );
+  ipcMain.handle("model-registry:upsert-decision", (_event, input: unknown) => {
+    const raw = readModelInput(input);
+    return native.upsertDecisionModel({
+      id: readTestText(raw, "id"),
+      name: readTestText(raw, "name"),
+      provider: readTestText(raw, "provider"),
+      baseUrl: readTestText(raw, "baseUrl"),
+      baseUrlMode: readTestText(raw, "baseUrlMode"),
+      model: readTestText(raw, "model"),
+      apiKey: readTestText(raw, "apiKey"),
+      enabled: readModelEnabled(raw),
+    });
+  });
+  ipcMain.handle(
+    "model-registry:delete",
+    (_event, kind: unknown, modelId: unknown) =>
+      native.deleteRegisteredModel(readModelKind(kind), readModelId(modelId)),
+  );
+  ipcMain.handle(
+    "model-registry:set-enabled",
+    (_event, kind: unknown, modelId: unknown, enabled: unknown) =>
+      native.setRegisteredModelEnabled(
+        readModelKind(kind),
+        readModelId(modelId),
+        enabled === true,
+      ),
   );
 
   // ===== Hook Configs =====

@@ -19,6 +19,7 @@ const KEYED_COLUMNS: &[(&str, &str)] = &[
     ("scheduled_tasks", "directory_id"),
     ("project_memories", "directory_id"),
     ("memory_prompt_snapshots", "directory_id"),
+    ("system_prompt_snapshots", "directory_id"),
     ("sub_agent_configs", "project_id"),
     ("system_prompts", "project_id"),
 ];

@@ -276,11 +276,10 @@ fn services(
     let c = crate::storage::database::open_connection(db)
         .map_err(|_| failure("context_storage_unavailable"))?;
     // Consent must react immediately to settings updates, not the general UI cache TTL.
-    let raw: String = safe(c.query_row(
-        "SELECT setting_value FROM system_settings WHERE setting_code='codebase_settings'",
-        [],
-        |r| r.get(0),
-    ))?;
+    // 选中的嵌入 / 重排模型展开后参与指纹，模型配置变化同样使授权失效。
+    let (_, v): (String, Value) =
+        safe(system_settings::resolve_codebase_settings_with_connection(&c))?;
+    let raw = v.to_string();
     let (manifest, privacy): (String, String) = safe(c.query_row(
         "SELECT manifest_json,privacy_json FROM app_plugins WHERE plugin_id=?1",
         [&b.plugin_id],
@@ -295,8 +294,6 @@ fn services(
     {
         return Err(failure("context_scope_mismatch"));
     }
-    let v: Value =
-        serde_json::from_str(&raw).map_err(|_| failure("context_settings_unavailable"))?;
     let s = |key: &str| v.get(key).and_then(Value::as_str).unwrap_or("");
     let n = |key: &str| {
         v.get(key)

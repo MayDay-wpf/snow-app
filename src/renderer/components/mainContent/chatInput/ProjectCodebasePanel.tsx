@@ -29,9 +29,8 @@ import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "../../../hooks/useAppControl";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { Modal } from "../../common/Modal";
 import {
-  DECISION_MODELS_SETTING_CODE,
   enabledDecisionModels,
-  readDecisionModelsJson,
+  loadDecisionModels,
 } from "../../../constants/decisionModels";
 import { CODEBASE_SETTING_CODE } from "../../sidebar/codebaseSettings/codebaseSettingsConstants";
 import { readCodebaseSettingsJson } from "../../sidebar/codebaseSettings/codebaseSettingsUtils";
@@ -185,7 +184,7 @@ export const ProjectCodebasePanel = ({
         window.snow.getCodebaseProjectScopeSettings(projectId),
         window.snow.checkProjectHasGitignore(projectId),
         window.snow.getSystemSettingValue(CODEBASE_SETTING_CODE),
-        window.snow.getSystemSettingValue(DECISION_MODELS_SETTING_CODE),
+        loadDecisionModels(),
       ]);
       let nextIsRemote = false;
       try {
@@ -197,9 +196,9 @@ export const ProjectCodebasePanel = ({
       if (loadGenerationRef.current === generation) {
         const codebaseSettings = readCodebaseSettingsJson(nextCodebaseSettings);
         // 只有已启用的决策模型会被 Rust 采用，其余情况审查退回 LLM 基础模型。
-        const reviewModel = enabledDecisionModels(
-          readDecisionModelsJson(nextDecisionModels),
-        ).find((model) => model.id === codebaseSettings.agentReviewModelId);
+        const reviewModel = enabledDecisionModels(nextDecisionModels).find(
+          (model) => model.id === codebaseSettings.agentReviewModelId,
+        );
         setScope(nextScope);
         setHasGitignore(nextHasGitignore);
         setIsRemoteProject(nextIsRemote);

@@ -1,34 +1,34 @@
-import { AlertTriangle, Eye, EyeOff, RotateCcw } from "lucide-react";
-import { useState, type ChangeEvent } from "react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
+import type { ChangeEvent } from "react";
 import { useI18n } from "../../../i18n";
 import {
   enabledDecisionModels,
   findDecisionModel,
   type DecisionModelConfig,
 } from "../../../constants/decisionModels";
+import {
+  enabledModels,
+  findModelById,
+  type EmbeddingModelConfig,
+  type RerankingModelConfig,
+} from "../../../constants/codebaseModels";
 import type { ModelConnectionTestResult } from "../../../../preload";
 import { CustomSelect } from "../../common/CustomSelect";
-import {
-  ModelConnectionStatus,
-  ModelTestButton,
-} from "../modelHealth/ModelConnectionStatus";
-import { EMBEDDING_TYPE_OPTIONS } from "./codebaseSettingsConstants";
-import type {
-  CodebaseSettingsForm as CodebaseSettingsFormValue,
-  ModelTestKind,
-} from "./types";
+import { ModelSettingsJumpButton } from "../apiSettings/ModelSettingsJumpButton";
+import { ModelConnectionStatus } from "../modelHealth/ModelConnectionStatus";
+import type { CodebaseSettingsForm as CodebaseSettingsFormValue } from "./types";
 
 type CodebaseSettingsFormProps = {
   form: CodebaseSettingsFormValue;
   /** 全局决策模型配置：这里只做选择，配置本身在「API 配置 → 决策模型」中维护。 */
   decisionModels: DecisionModelConfig[];
+  /** 全局嵌入 / 重排模型：这里只做选择，配置在「API 配置」对应标签页维护。 */
+  embeddingModels: EmbeddingModelConfig[];
+  rerankingModels: RerankingModelConfig[];
+  /** 各模型最近一次连接自检结果（按模型 id）。 */
+  embeddingHealth: Record<string, ModelConnectionTestResult>;
+  rerankingHealth: Record<string, ModelConnectionTestResult>;
   isBusy: boolean;
-  /** 嵌入 / 重排模型最近一次连接自检结果。 */
-  embeddingHealth: ModelConnectionTestResult | null;
-  rerankingHealth: ModelConnectionTestResult | null;
-  /** 正在检测的模型类别（null = 无）。 */
-  testingKind: ModelTestKind | null;
-  onTest: (kind: ModelTestKind) => void;
   onUpdateField: (
     field: keyof CodebaseSettingsFormValue,
   ) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
@@ -37,65 +37,80 @@ type CodebaseSettingsFormProps = {
   onReset: () => void;
 };
 
+type SelectableModel = { id: string; name: string; enabled: boolean };
+
 export function CodebaseSettingsForm({
   form,
   decisionModels,
-  isBusy,
+  embeddingModels,
+  rerankingModels,
   embeddingHealth,
   rerankingHealth,
-  testingKind,
-  onTest,
+  isBusy,
   onUpdateField,
   onSetValue,
   onBlurSave,
   onReset,
 }: CodebaseSettingsFormProps): React.JSX.Element {
   const { t } = useI18n();
-  // 密钥字段与 API 配置编辑弹窗一致：回填已保存的密钥，并提供明文查看按钮。
-  const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
-  const [showRerankingKey, setShowRerankingKey] = useState(false);
+  const unavailableLabel = t("settings.codebaseReviewModelUnavailable", {
+    defaultValue: "Unavailable",
+  });
 
-  // 保存前就能发现的明显不可用配置：只提示、不阻止保存（本地 Ollama 等无需密钥）。
-  const embeddingWarning =
-    form.embeddingType !== "ollama" && !form.embeddingApiKey.trim()
-      ? t("modelHealth.embeddingApiKeyEmpty")
-      : "";
-  const rerankingWarning =
-    !form.rerankingModelName.trim() || !form.rerankingBaseUrl.trim()
-      ? t("modelHealth.rerankingIncomplete")
-      : "";
+  // 只能选用已启用的模型；已选模型被停用/删除时保留一个提示项，避免选择被静默改掉。
+  const buildModelOptions = (
+    models: SelectableModel[],
+    selected: string,
+    noneLabel: string,
+  ): Array<{ value: string; label: string }> => {
+    const enabled = enabledModels(models);
+    const options = [
+      { value: "", label: noneLabel },
+      ...enabled.map((model) => ({ value: model.id, label: model.name })),
+    ];
+    if (selected && !enabled.some((model) => model.id === selected)) {
+      const missing = findModelById(models, selected);
+      options.push({
+        value: selected,
+        label: `${missing?.name ?? selected} · ${unavailableLabel}`,
+      });
+    }
+    return options;
+  };
 
-  const renderHealth = (
-    kind: ModelTestKind,
-    result: ModelConnectionTestResult | null,
-    warning: string,
-  ) => (
-    <div className="model-health-section">
-      <div className="model-health-section-actions">
-        <ModelTestButton
-          testing={testingKind === kind}
-          disabled={isBusy || testingKind !== null}
-          onClick={() => onTest(kind)}
-        />
-        {result ? null : <ModelConnectionStatus result={null} compact />}
-      </div>
-      {warning ? (
-        <span className="model-health-warning">
-          <AlertTriangle size={12} aria-hidden="true" />
-          <span>{warning}</span>
-        </span>
-      ) : null}
-      {result ? <ModelConnectionStatus result={result} /> : null}
-    </div>
+  const isSelectionUsable = (
+    models: SelectableModel[],
+    selected: string,
+  ): boolean =>
+    selected !== "" &&
+    models.some((model) => model.id === selected && model.enabled);
+
+  const embeddingOptions = buildModelOptions(
+    embeddingModels,
+    form.embeddingModelId,
+    t("settings.codebaseEmbeddingModelNone", { defaultValue: "Not selected" }),
+  );
+  const rerankingOptions = buildModelOptions(
+    rerankingModels,
+    form.rerankingModelId,
+    t("settings.codebaseRerankingModelNone", { defaultValue: "No reranking" }),
+  );
+  const embeddingUsable = isSelectionUsable(
+    embeddingModels,
+    form.embeddingModelId,
+  );
+  const rerankingUsable = isSelectionUsable(
+    rerankingModels,
+    form.rerankingModelId,
   );
 
-  // 只能选用已启用的决策模型；已选模型被停用/删除时保留一个提示项，避免选择被静默改掉。
-  const enabledModels = enabledDecisionModels(decisionModels);
-  const isSelectionAvailable = enabledModels.some(
+  // 决策模型选项：同样只列已启用的，失效选择保留提示项。
+  const enabledReviewModels = enabledDecisionModels(decisionModels);
+  const isReviewSelectionAvailable = enabledReviewModels.some(
     (model) => model.id === form.agentReviewModelId,
   );
-  const unavailableSelection =
-    form.agentReviewModelId !== "" && !isSelectionAvailable
+  const unavailableReview =
+    form.agentReviewModelId !== "" && !isReviewSelectionAvailable
       ? findDecisionModel(decisionModels, form.agentReviewModelId)
       : null;
   const reviewModelOptions = [
@@ -105,20 +120,29 @@ export function CodebaseSettingsForm({
         defaultValue: "LLM (basic model)",
       }),
     },
-    ...enabledModels.map((model) => ({ value: model.id, label: model.name })),
-    ...(form.agentReviewModelId !== "" && !isSelectionAvailable
+    ...enabledReviewModels.map((model) => ({
+      value: model.id,
+      label: model.name,
+    })),
+    ...(form.agentReviewModelId !== "" && !isReviewSelectionAvailable
       ? [
           {
             value: form.agentReviewModelId,
             label: `${
-              unavailableSelection?.name ?? form.agentReviewModelId
-            } · ${t("settings.codebaseReviewModelUnavailable", {
-              defaultValue: "Unavailable",
-            })}`,
+              unavailableReview?.name ?? form.agentReviewModelId
+            } · ${unavailableLabel}`,
           },
         ]
       : []),
   ];
+
+  const selectModel = (
+    field: "embeddingModelId" | "rerankingModelId" | "agentReviewModelId",
+    value: string,
+  ): void => {
+    onSetValue(field, value);
+    onBlurSave({ ...form, [field]: value });
+  };
 
   const renderTextInput = (
     field: keyof CodebaseSettingsFormValue,
@@ -143,34 +167,22 @@ export function CodebaseSettingsForm({
     </label>
   );
 
-  // 密钥字段：明文回填 + 眼睛按钮切换显示，复用 API 配置编辑弹窗的密码框样式。
-  const renderSecretInput = (
-    field: "embeddingApiKey" | "rerankingApiKey",
-    label: string,
-    visible: boolean,
-    onToggleVisibility: () => void,
+  /** 选中模型的最近一次检测结果；未选择时给出提示。 */
+  const renderSelectionState = (
+    usable: boolean,
+    health: ModelConnectionTestResult | undefined,
+    warning: string,
   ) => (
-    <label className="api-settings-field">
-      <span>{label}</span>
-      <div className="api-settings-password-wrap">
-        <input
-          value={form[field]}
-          onChange={onUpdateField(field)}
-          onBlur={() => onBlurSave()}
-          placeholder="sk-..."
-          type={visible ? "text" : "password"}
-          disabled={isBusy}
-        />
-        <button
-          type="button"
-          className="api-settings-password-toggle"
-          onClick={onToggleVisibility}
-          tabIndex={-1}
-        >
-          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-      </div>
-    </label>
+    <div className="model-health-section">
+      {usable ? (
+        <ModelConnectionStatus result={health ?? null} compact />
+      ) : warning ? (
+        <span className="model-health-warning">
+          <AlertTriangle size={12} aria-hidden="true" />
+          <span>{warning}</span>
+        </span>
+      ) : null}
+    </div>
   );
 
   return (
@@ -197,72 +209,37 @@ export function CodebaseSettingsForm({
             })}
           </strong>
           <div className="api-settings-form-grid">
-            <label className="api-settings-field">
-              <span>
-                {t("settings.codebaseEmbeddingType", {
-                  defaultValue: "Embedding type",
-                })}
-              </span>
+            <div className="api-settings-field">
+              <div className="api-settings-field-head">
+                <span>
+                  {t("settings.codebaseEmbeddingModel", {
+                    defaultValue: "Embedding model",
+                  })}
+                </span>
+                <ModelSettingsJumpButton tab="embedding" />
+              </div>
               <CustomSelect
-                value={form.embeddingType}
-                options={EMBEDDING_TYPE_OPTIONS}
-                onChange={(value) => {
-                  onSetValue("embeddingType", value);
-                  onBlurSave({ ...form, embeddingType: value });
-                }}
+                value={form.embeddingModelId}
+                options={embeddingOptions}
+                onChange={(value) => selectModel("embeddingModelId", value)}
                 disabled={isBusy}
               />
-            </label>
-            {renderTextInput(
-              "embeddingModelName",
-              t("settings.codebaseEmbeddingModelName", {
-                defaultValue: "Embedding model name",
-              }),
-              "jina-embeddings-v3",
-            )}
-            {renderTextInput(
-              "embeddingBaseUrl",
-              t("settings.codebaseEmbeddingBaseUrl", {
-                defaultValue: "Embedding base URL",
-              }),
-              "https://api.jina.ai/v1/embeddings",
-            )}
-            {renderTextInput(
-              "embeddingDimensions",
-              t("settings.codebaseEmbeddingDimensions", {
-                defaultValue: "Embedding dimensions",
-              }),
-              "",
-              "number",
-              1,
-              t("settings.codebaseEmbeddingDimensionsHint", {
-                defaultValue:
-                  "Leave empty to omit the dimensions parameter (some models do not support it).",
-              }),
-            )}
-            {renderSecretInput(
-              "embeddingApiKey",
-              t("settings.codebaseEmbeddingApiKey", {
-                defaultValue: "Embedding API key",
-              }),
-              showEmbeddingKey,
-              () => setShowEmbeddingKey((value) => !value),
-            )}
-            {renderTextInput(
-              "modelContextLength",
-              t("settings.codebaseModelContextLength", {
-                defaultValue: "Model context length (tokens)",
-              }),
-              "8192",
-              "number",
-              1,
-              t("settings.codebaseModelContextLengthHint", {
-                defaultValue:
-                  "Max input tokens per chunk for the embedding model. Chunks are split to 80% of this value; over-long lines are hard-cut, and chunks the API still rejects are split again or skipped.",
-              }),
-            )}
+            </div>
           </div>
-          {renderHealth("embedding", embeddingHealth, embeddingWarning)}
+          {renderSelectionState(
+            embeddingUsable,
+            embeddingHealth[form.embeddingModelId],
+            t("settings.codebaseEmbeddingModelMissing", {
+              defaultValue:
+                "No usable embedding model is selected, so codebase indexing cannot run.",
+            }),
+          )}
+          <span className="settings-item-description">
+            {t("settings.codebaseEmbeddingModelHint", {
+              defaultValue:
+                "Embedding models are managed in API configuration → Embedding models; only enabled ones can be selected here. Rebuild the index after switching models.",
+            })}
+          </span>
         </div>
 
         <div className="api-settings-form-section">
@@ -272,29 +249,22 @@ export function CodebaseSettingsForm({
             })}
           </strong>
           <div className="api-settings-form-grid">
-            {renderTextInput(
-              "rerankingModelName",
-              t("settings.codebaseRerankingModelName", {
-                defaultValue: "Reranking model name",
-              }),
-              "jina-reranker-v2-base-multilingual",
-            )}
-            {renderTextInput(
-              "rerankingBaseUrl",
-              t("settings.codebaseRerankingBaseUrl", {
-                defaultValue: "Reranking base URL",
-              }),
-              "https://api.jina.ai/v1/rerank",
-            )}
-            {renderTextInput(
-              "rerankingContextLength",
-              t("settings.codebaseRerankingContextLength", {
-                defaultValue: "Reranking context length",
-              }),
-              "4096",
-              "number",
-              1,
-            )}
+            <div className="api-settings-field">
+              <div className="api-settings-field-head">
+                <span>
+                  {t("settings.codebaseRerankingModel", {
+                    defaultValue: "Reranking model",
+                  })}
+                </span>
+                <ModelSettingsJumpButton tab="reranking" />
+              </div>
+              <CustomSelect
+                value={form.rerankingModelId}
+                options={rerankingOptions}
+                onChange={(value) => selectModel("rerankingModelId", value)}
+                disabled={isBusy}
+              />
+            </div>
             {renderTextInput(
               "rerankingTopN",
               t("settings.codebaseRerankingTopN", {
@@ -304,16 +274,18 @@ export function CodebaseSettingsForm({
               "number",
               1,
             )}
-            {renderSecretInput(
-              "rerankingApiKey",
-              t("settings.codebaseRerankingApiKey", {
-                defaultValue: "Reranking API key",
-              }),
-              showRerankingKey,
-              () => setShowRerankingKey((value) => !value),
-            )}
           </div>
-          {renderHealth("reranking", rerankingHealth, rerankingWarning)}
+          {renderSelectionState(
+            rerankingUsable,
+            rerankingHealth[form.rerankingModelId],
+            "",
+          )}
+          <span className="settings-item-description">
+            {t("settings.codebaseRerankingModelHint", {
+              defaultValue:
+                "Reranking models are managed in API configuration → Reranking models; only enabled ones can be selected here.",
+            })}
+          </span>
         </div>
 
         <div className="api-settings-form-section">
@@ -329,22 +301,22 @@ export function CodebaseSettingsForm({
             })}
           </span>
           <div className="api-settings-form-grid">
-            <label className="api-settings-field">
-              <span>
-                {t("settings.codebaseReviewModel", {
-                  defaultValue: "Review model",
-                })}
-              </span>
+            <div className="api-settings-field">
+              <div className="api-settings-field-head">
+                <span>
+                  {t("settings.codebaseReviewModel", {
+                    defaultValue: "Review model",
+                  })}
+                </span>
+                <ModelSettingsJumpButton tab="decision" />
+              </div>
               <CustomSelect
                 value={form.agentReviewModelId}
                 options={reviewModelOptions}
-                onChange={(value) => {
-                  onSetValue("agentReviewModelId", value);
-                  onBlurSave({ ...form, agentReviewModelId: value });
-                }}
+                onChange={(value) => selectModel("agentReviewModelId", value)}
                 disabled={isBusy}
               />
-            </label>
+            </div>
             {/* 只有选择决策模型审查时才需要相关性阈值；留空 = 二分类判定。 */}
             {form.agentReviewModelId !== ""
               ? renderTextInput(

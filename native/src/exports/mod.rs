@@ -11,6 +11,7 @@ mod image_generation;
 mod images;
 mod market;
 mod model_health;
+mod model_registry;
 mod oauth;
 mod pets;
 mod prompt_optimization;

@@ -11,8 +11,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceDirectoryRecord } from "../../../preload";
 import {
-  DECISION_MODELS_SETTING_CODE,
-  readDecisionModelsJson,
+  loadDecisionModels,
   type DecisionModelConfig,
 } from "../../constants/decisionModels";
 import {
@@ -100,7 +99,7 @@ export function SensitiveCommandsPanel({
     setError("");
 
     try {
-      const [globalItems, projectItems, assistRaw, decisionModelsRaw] =
+      const [globalItems, projectItems, assistRaw, storedDecisionModels] =
         await Promise.all([
           window.snow.listSensitiveCommandConfigs(),
           activeDirectory
@@ -112,9 +111,7 @@ export function SensitiveCommandsPanel({
           window.snow
             .getSystemSettingValue(SENSITIVE_COMMAND_ASSIST_SETTING_CODE)
             .catch(() => null),
-          window.snow
-            .getSystemSettingValue(DECISION_MODELS_SETTING_CODE)
-            .catch(() => null),
+          loadDecisionModels().catch((): DecisionModelConfig[] => []),
         ]);
       if (loadGenerationRef.current !== generation) {
         return;
@@ -123,7 +120,7 @@ export function SensitiveCommandsPanel({
       setCommands(globalItems);
       setProjectCommands(projectItems);
       setAssistSettings(readSensitiveCommandAssistSettings(assistRaw));
-      setDecisionModels(readDecisionModelsJson(decisionModelsRaw));
+      setDecisionModels(storedDecisionModels);
     } catch (loadError) {
       if (loadGenerationRef.current === generation) {
         setError(

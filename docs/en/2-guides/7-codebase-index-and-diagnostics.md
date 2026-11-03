@@ -9,16 +9,31 @@ the agent understand and navigate code quickly.
 ### 1.1 Enable and index
 
 `codebase-search` is **only exposed when the project has codebase indexing
-enabled and an index has been built**. Enable indexing for the project in
-**Settings → Codebase Settings** (`app-control-openSettings
-page=codebase-settings`) and configure the embedding model (see the
-`codebase` field of `settings.json`; structure is documented in
-`3-config-file-field-reference`). The first index may take a few minutes.
+enabled and an index has been built**. First add models in **Settings → API
+configuration → Embedding models / Reranking models** (several models, each
+can be enabled, disabled and connection-tested), then pick the embedding and
+reranking model in **Settings → Codebase Settings** (`app-control-openSettings
+page=codebase-settings`; reranking can be set to "No reranking") and enable
+indexing for the project. The first index may take a few minutes; rebuild the
+index after switching the embedding model.
+
+Embedding, reranking and decision models live in the database tables
+`embedding_models` / `reranking_models` / `decision_models` (each row also keeps
+its latest connection test result); the codebase settings only keep the
+selected ids (`embeddingModelId` / `rerankingModelId` / `agentReviewModelId`),
+which Rust expands while indexing and searching. Deleting a model clears every
+selection that points to it (codebase settings, the decision tool default model
+and the sensitive command assist). Model lists and connection test results that
+older versions kept in the system settings, plus embedding / reranking / Jev
+configs stored inline in the codebase settings (including configs synced from
+Snow CLI), are migrated into the tables and selected automatically at startup.
+Agents manage the lists with
+`config-set scope=codebase key=embeddingModels|rerankingModels`.
 
 ```mermaid
 flowchart TD
-    A[Settings → Codebase Settings<br/>enable indexing for the project] --> B[Configure the embedding model<br/>codebase field of settings.json]
-    B --> C[First index<br/>may take a few minutes]
+    M[API configuration → Embedding / Reranking models<br/>add and enable models] --> A[Settings → Codebase Settings<br/>pick models and enable indexing]
+    A --> C[First index<br/>may take a few minutes]
     C --> D{Index built?}
     D -- yes --> E[codebase-search exposed<br/>semantic search available]
     D -- no --> F[Wait for indexing<br/>tool unavailable meanwhile]

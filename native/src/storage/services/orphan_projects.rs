@@ -28,6 +28,7 @@ const KEYED_SOURCES: &[(&str, &str)] = &[
     ("chat_conversations", "directory_id"),
     ("project_memories", "directory_id"),
     ("memory_prompt_snapshots", "directory_id"),
+    ("system_prompt_snapshots", "directory_id"),
     ("memos", "directory_id"),
     ("scheduled_tasks", "directory_id"),
     ("diff_review_comments", "directory_id"),
@@ -342,7 +343,8 @@ fn build_group(
         .fold(0i64, |sum, (_, bytes)| sum.saturating_add(*bytes));
 
     let memories = count_where(connection, "project_memories", "directory_id", directory_id)
-        + count_where(connection, "memory_prompt_snapshots", "directory_id", directory_id);
+        + count_where(connection, "memory_prompt_snapshots", "directory_id", directory_id)
+        + count_where(connection, "system_prompt_snapshots", "directory_id", directory_id);
     let memos = count_where(connection, "memos", "directory_id", directory_id);
     let tasks = count_where(connection, "scheduled_tasks", "directory_id", directory_id);
     let task_runs = scalar(
@@ -548,6 +550,8 @@ fn delete_category_rows(
             deleted += delete_keyed(connection, "project_memories", "directory_id", directory_id)?;
             deleted +=
                 delete_keyed(connection, "memory_prompt_snapshots", "directory_id", directory_id)?;
+            deleted +=
+                delete_keyed(connection, "system_prompt_snapshots", "directory_id", directory_id)?;
         }
         OrphanCategory::Memos => {
             deleted += delete_keyed(connection, "memos", "directory_id", directory_id)?;

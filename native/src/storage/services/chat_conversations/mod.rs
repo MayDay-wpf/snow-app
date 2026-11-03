@@ -410,6 +410,16 @@ pub fn store_chat_exchange(
             )?;
 
             if successful_context_compaction {
+                // 压缩即上下文重建：删除会话级提示词冻结快照，下一轮请求按最新
+                // 配置重新解析（ROLE.md / API 档案系统提示词 / Project Memory 章节）。
+                super::system_prompt_snapshots::delete_snapshots(
+                    &transaction,
+                    &[input.conversation_id.to_string()],
+                )?;
+                super::project_memories::delete_prompt_snapshots(
+                    &transaction,
+                    &[input.conversation_id.to_string()],
+                )?;
                 // Persist the checkpoint id on the compaction boundary row so
                 // the rollback flow can restore files modified by the
                 // post-compaction agent loop. Treat the boundary as a user

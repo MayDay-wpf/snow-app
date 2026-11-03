@@ -101,7 +101,7 @@ export const normalizeCodebaseSettings = (
     ),
     embeddingDimensions: toEmbeddingDimensions(
       source.embeddingDimensions,
-      DEFAULT_CODEBASE_SETTINGS.embeddingDimensions,
+      DEFAULT_CODEBASE_SETTINGS.embeddingDimensions ?? 1536,
     ),
     batchMaxLines: toPositiveInteger(
       source.batchMaxLines,
@@ -129,14 +129,14 @@ export const normalizeCodebaseSettings = (
     ),
     modelContextLength: toPositiveInteger(
       source.modelContextLength,
-      DEFAULT_CODEBASE_SETTINGS.modelContextLength,
+      DEFAULT_CODEBASE_SETTINGS.modelContextLength ?? 8192,
     ),
     rerankingModelName: toText(source.rerankingModelName).trim(),
     rerankingBaseUrl: toText(source.rerankingBaseUrl).trim(),
     rerankingApiKey: toText(source.rerankingApiKey),
     rerankingContextLength: toPositiveInteger(
       source.rerankingContextLength,
-      DEFAULT_CODEBASE_SETTINGS.rerankingContextLength,
+      DEFAULT_CODEBASE_SETTINGS.rerankingContextLength ?? 4096,
     ),
     rerankingTopN: toPositiveInteger(
       source.rerankingTopN,
@@ -239,5 +239,13 @@ export const readSnowCliCodebaseSettings = async (
     }),
     source: "snow-cli",
   });
-  return await persistCodebaseSettings(native, config);
+  await persistCodebaseSettings(native, config);
+  // Rust 写入时已把内联模型字段迁入嵌入/重排模型列表并改存 id，这里回读迁移结果。
+  const migrated = await native.getSystemSettingValue(CODEBASE_SETTING_CODE);
+  try {
+    const parsed: unknown = migrated ? JSON.parse(migrated) : null;
+    return isRecord(parsed) ? (parsed as CodebaseSettingsInput) : config;
+  } catch {
+    return config;
+  }
 };

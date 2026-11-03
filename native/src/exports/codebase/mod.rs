@@ -22,7 +22,6 @@ pub(crate) use crate::storage::services::codebase_index::{
 };
 pub(crate) use crate::storage::services::codebase_watcher::{self, CodebaseChangeCallback};
 pub(crate) use crate::storage::services::file_scanner::{scan_project, ScannedFile};
-pub(crate) use crate::storage::services::system_settings::get_system_setting_value;
 pub(crate) use crate::storage::services::workspace_directories::get_workspace_directory_path;
 
 mod embedding;

@@ -111,6 +111,10 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_file_review_annotations(connection)?;
     migrate_team_join_approval(connection)?;
     migrate_team_host_member(connection)?;
+    // 模型注册表：旧 system_settings JSON / 自检快照与代码库内联字段迁入模型表
+    // （幂等，已迁移时为空操作；表由 create_schema 提前建好）。
+    super::services::model_registry::migrate_legacy_model_settings(connection)?;
+    super::services::system_settings::migrate_codebase_inline_models_with_connection(connection)?;
     Ok(())
 }
 

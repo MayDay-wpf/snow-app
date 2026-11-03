@@ -17,6 +17,10 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 68: system_prompt_snapshots table (per-conversation frozen ROLE.md rules and
+/// API-configured system prompts; dropped on successful context compaction).
+/// 67: embedding_models / reranking_models / decision_models tables (model registry
+/// with per-model health columns; legacy system_settings JSON migrated in).
 /// 66: backfill persisted sub-agent dispatch identity (tool-call interactionId /
 /// legacyDispatch) so historical delegated turns can resolve rollback gates.
 /// 65: team host is a member — backfill the host's own member record.
@@ -58,7 +62,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 66;
+const CURRENT_SCHEMA_VERSION: i64 = 68;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -1266,6 +1270,19 @@ CREATE TABLE IF NOT EXISTS app_plugins (
             section TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
           );
+
+          -- 会话级系统提示词配置快照：首次渲染时冻结 ROLE.md 解析结果与 API
+          -- 档案系统提示词，会话存续期间保持稳定；目录 / API 档案变化时重建，
+          -- 压缩（上下文重建）成功后删除，下一轮按最新配置重新解析。
+          CREATE TABLE IF NOT EXISTS system_prompt_snapshots (
+            conversation_id TEXT PRIMARY KEY NOT NULL,
+            directory_id TEXT NOT NULL DEFAULT '',
+            api_prompt_ids_json TEXT NOT NULL DEFAULT '',
+            role_content TEXT,
+            role_overrides_builtin INTEGER NOT NULL DEFAULT 0,
+            user_prompts_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
      ",
     )?;
 
@@ -1277,6 +1294,8 @@ CREATE TABLE IF NOT EXISTS app_plugins (
     // Ensure the image library table exists (generated images index).
     services::image_library::ensure_image_library_table(connection)?;
     services::image_generation::ensure_image_generation_tables(connection)?;
+    // 嵌入 / 重排 / 决策模型表（post-schema 迁移会把旧设置导入其中）。
+    services::model_registry::ensure_model_tables(connection)?;
 
     // Post-schema migrations run AFTER CREATE TABLE to add columns that
     // older databases lack but fresh databases already have. Each migration

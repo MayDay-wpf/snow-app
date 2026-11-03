@@ -56,9 +56,6 @@ const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const CUSTOM_BASE_URL_MODE: &str = "custom";
 const AUTO_BASE_URL_MODE: &str = "auto";
 
-/// system_settings 里决策模型配置的 setting_code（与前端 decisionModels.ts 一致）。
-pub const DECISION_MODELS_SETTING_CODE: &str = "decision_models";
-
 /// 每条结果摘录的最大字符数。
 const MAX_EXCERPT_CHARS: usize = 800;
 
@@ -233,49 +230,14 @@ struct DecisionTokenUsage {
     cache_read_input_tokens: i64,
 }
 
-/// 一个决策模型配置项（system_settings 的 `decision_models`，camelCase 与前端一致）。
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct DecisionModel {
-    pub id: String,
-    pub name: String,
-    pub base_url: String,
-    pub base_url_mode: String,
-    pub api_key: String,
-    pub model: String,
-    pub enabled: bool,
-    /// "typesafe" | "openai"；存量条目没有该字段，缺省为 typesafe。
-    #[serde(default = "default_provider")]
-    pub provider: String,
-}
-
-fn default_provider() -> String {
-    DecisionProvider::Typesafe.as_str().to_string()
-}
-
-#[derive(Debug, Default, serde::Deserialize)]
-#[serde(default)]
-struct DecisionModelStore {
-    models: Vec<DecisionModel>,
-}
+/// 一个决策模型配置项（`decision_models` 表的一行，见 storage::services::model_registry）。
+pub use crate::storage::services::model_registry::DecisionModelEntry as DecisionModel;
 
 /// 读取全部决策模型配置。
 ///
-/// 配置缺失、为空或解析失败时返回空列表：调用方随即退回 LLM 审查路径，
-/// 不影响搜索本身。
+/// 读取失败时返回空列表：调用方随即退回 LLM 审查路径，不影响搜索本身。
 pub fn load_decision_models(database_path: &Path) -> Vec<DecisionModel> {
-    let raw = match get_system_setting_value(database_path, DECISION_MODELS_SETTING_CODE) {
-        Ok(Some(value)) => value,
-        _ => return Vec::new(),
-    };
-
-    if raw.trim().is_empty() {
-        return Vec::new();
-    }
-
-    serde_json::from_str::<DecisionModelStore>(&raw)
-        .map(|store| store.models)
-        .unwrap_or_default()
+    crate::storage::services::model_registry::load_decision_models(database_path)
 }
 
 /// 读取 `decision-evaluate` 工具的默认决策模型 id（未设置返回空串）。

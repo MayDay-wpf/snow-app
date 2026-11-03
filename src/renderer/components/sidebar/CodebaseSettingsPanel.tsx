@@ -10,13 +10,13 @@ import { AutoDismissNotice } from "../AutoDismissNotice";
 import { useI18n } from "../../i18n";
 import { useBlurAutoSave } from "../../hooks/useBlurAutoSave";
 import {
-  DECISION_MODELS_SETTING_CODE,
-  DECISION_MODELS_SETTING_NAME,
-  mergeLegacyDecisionModel,
-  readDecisionModelsJson,
-  toDecisionModelsJson,
+  loadDecisionModels,
   type DecisionModelConfig,
 } from "../../constants/decisionModels";
+import {
+  type EmbeddingModelConfig,
+  type RerankingModelConfig,
+} from "../../constants/codebaseModels";
 import { CodebaseSettingsForm } from "./codebaseSettings/CodebaseSettingsForm";
 import { CodebaseSettingsSummary } from "./codebaseSettings/CodebaseSettingsSummary";
 import {
@@ -27,16 +27,21 @@ import {
 import {
   normalizeCodebaseSettings,
   readCodebaseSettingsJson,
-  readLegacyDecisionModel,
   toCodebaseForm,
   toCodebaseSettings,
 } from "./codebaseSettings/codebaseSettingsUtils";
 import type {
   CodebaseSettings,
   CodebaseSettingsForm as CodebaseSettingsFormValue,
-  ModelTestKind,
 } from "./codebaseSettings/types";
 import type { ModelConnectionTestResult } from "../../../preload";
+
+const toHealthMap = (
+  results: ModelConnectionTestResult[] | undefined,
+): Record<string, ModelConnectionTestResult> =>
+  Object.fromEntries(
+    (results ?? []).map((result) => [result.targetId, result]),
+  );
 
 export function CodebaseSettingsPanel(): React.JSX.Element {
   const { t } = useI18n();
@@ -46,20 +51,26 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
   const [lastSaved, setLastSaved] = useState<CodebaseSettings>(
     DEFAULT_CODEBASE_SETTINGS,
   );
-  /** 全局决策模型配置：本页只选择，配置在「API 配置 → 决策模型」中维护。 */
+  /** 全局决策 / 嵌入 / 重排模型：本页只选择，配置在「API 配置」对应标签页维护。 */
   const [decisionModels, setDecisionModels] = useState<DecisionModelConfig[]>(
     [],
   );
+  const [embeddingModels, setEmbeddingModels] = useState<
+    EmbeddingModelConfig[]
+  >([]);
+  const [rerankingModels, setRerankingModels] = useState<
+    RerankingModelConfig[]
+  >([]);
+  const [embeddingHealth, setEmbeddingHealth] = useState<
+    Record<string, ModelConnectionTestResult>
+  >({});
+  const [rerankingHealth, setRerankingHealth] = useState<
+    Record<string, ModelConnectionTestResult>
+  >({});
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  /** 嵌入 / 重排模型最近一次连接自检结果（Rust 持久化，重启后仍可见）。 */
-  const [embeddingHealth, setEmbeddingHealth] =
-    useState<ModelConnectionTestResult | null>(null);
-  const [rerankingHealth, setRerankingHealth] =
-    useState<ModelConnectionTestResult | null>(null);
-  const [testingKind, setTestingKind] = useState<ModelTestKind | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -74,39 +85,28 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
     setError("");
 
     try {
-      const [rawSettings, rawDecisionModels, healthSnapshot] =
-        await Promise.all([
-          window.snow.getSystemSettingValue(CODEBASE_SETTING_CODE),
-          window.snow.getSystemSettingValue(DECISION_MODELS_SETTING_CODE),
-          window.snow.getModelHealthSnapshot(),
-        ]);
-      setEmbeddingHealth(healthSnapshot.embedding ?? null);
-      setRerankingHealth(healthSnapshot.reranking ?? null);
-      const storedModels = readDecisionModelsJson(rawDecisionModels);
-      let normalized = normalizeCodebaseSettings(
+      const [
+        rawSettings,
+        storedDecisionModels,
+        storedEmbeddingModels,
+        storedRerankingModels,
+        healthSnapshot,
+      ] = await Promise.all([
+        window.snow.getSystemSettingValue(CODEBASE_SETTING_CODE),
+        loadDecisionModels(),
+        window.snow.listEmbeddingModels(),
+        window.snow.listRerankingModels(),
+        window.snow.getModelHealthSnapshot(),
+      ]);
+      // 旧版内联的模型 / Jev 字段已由 Rust 启动迁移转为模型表 + id。
+      setDecisionModels(storedDecisionModels);
+      setEmbeddingModels(storedEmbeddingModels);
+      setRerankingModels(storedRerankingModels);
+      setEmbeddingHealth(toHealthMap(healthSnapshot.embeddingModels));
+      setRerankingHealth(toHealthMap(healthSnapshot.rerankingModels));
+      const normalized = normalizeCodebaseSettings(
         readCodebaseSettingsJson(rawSettings),
       );
-      // 旧版把 TypeSafe 的 baseUrl / apiKey / model 内联在 codebase 设置里：一次性迁移到
-      // 决策模型并选中它，随后写回设置（旧字段随之消失，不会重复迁移）。
-      const legacy = readLegacyDecisionModel(rawSettings);
-
-      if (legacy && !normalized.agentReviewModelId) {
-        const migrated = mergeLegacyDecisionModel(storedModels, legacy);
-        normalized = { ...normalized, agentReviewModelId: migrated.modelId };
-        setDecisionModels(migrated.models);
-        await window.snow.setSystemSetting(
-          DECISION_MODELS_SETTING_NAME,
-          DECISION_MODELS_SETTING_CODE,
-          toDecisionModelsJson(migrated.models),
-        );
-        await window.snow.setSystemSetting(
-          CODEBASE_SETTING_NAME,
-          CODEBASE_SETTING_CODE,
-          JSON.stringify(normalized),
-        );
-      } else {
-        setDecisionModels(storedModels);
-      }
 
       setForm(toCodebaseForm(normalized));
       setLastSaved(normalized);
@@ -129,53 +129,6 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
 
   const isBusy = isLoading || isSaving;
   const preview = toCodebaseSettings(form);
-
-  /** 测试连接：用当前表单值（可未保存）发一条最小请求，结果由 Rust 持久化。 */
-  const runTest = useCallback(
-    async (kind: ModelTestKind): Promise<void> => {
-      const settings = toCodebaseSettings(form);
-      setTestingKind(kind);
-      setError("");
-      setStatus("");
-
-      try {
-        if (kind === "embedding") {
-          const result = await window.snow.testEmbeddingConnection({
-            embeddingType: settings.embeddingType,
-            modelName: settings.embeddingModelName,
-            baseUrl: settings.embeddingBaseUrl,
-            apiKey: settings.embeddingApiKey,
-            dimensions: settings.embeddingDimensions,
-          });
-          if (isMountedRef.current) {
-            setEmbeddingHealth(result);
-          }
-        } else {
-          const result = await window.snow.testRerankingConnection({
-            modelName: settings.rerankingModelName,
-            baseUrl: settings.rerankingBaseUrl,
-            apiKey: settings.rerankingApiKey,
-          });
-          if (isMountedRef.current) {
-            setRerankingHealth(result);
-          }
-        }
-      } catch (e) {
-        if (isMountedRef.current) {
-          setError(
-            t("modelHealth.testError", {
-              values: { message: e instanceof Error ? e.message : String(e) },
-            }),
-          );
-        }
-      } finally {
-        if (isMountedRef.current) {
-          setTestingKind(null);
-        }
-      }
-    },
-    [form, t],
-  );
 
   const updateField =
     (field: keyof CodebaseSettingsFormValue) =>
@@ -203,34 +156,6 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
 
   const validate = useCallback(
     (currentForm: CodebaseSettingsFormValue): string | null => {
-      if (!currentForm.embeddingModelName.trim()) {
-        return t("settings.codebaseValidationModelNameRequired", {
-          defaultValue:
-            "Embedding model name is required when codebase is enabled.",
-        });
-      }
-
-      if (!currentForm.embeddingBaseUrl.trim()) {
-        return t("settings.codebaseValidationBaseUrlRequired", {
-          defaultValue:
-            "Embedding base URL is required when codebase is enabled.",
-        });
-      }
-
-      // 维度允许留空（留空即不传递 dimensions 参数），填写时必须为正整数。
-      const dimensionsError = currentForm.embeddingDimensions.trim()
-        ? validatePositiveInteger(
-            currentForm.embeddingDimensions,
-            t("settings.codebaseValidationDimensionsPositive", {
-              defaultValue: "Embedding dimensions must be greater than 0.",
-            }),
-          )
-        : null;
-
-      if (dimensionsError) {
-        return dimensionsError;
-      }
-
       const numericChecks: Array<[string, string]> = [
         [
           currentForm.batchMaxLines,
@@ -257,9 +182,9 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
           }),
         ],
         [
-          currentForm.modelContextLength,
-          t("settings.codebaseValidationModelContextLengthPositive", {
-            defaultValue: "Model context length must be greater than 0.",
+          currentForm.rerankingTopN,
+          t("settings.codebaseValidationRerankingTopNPositive", {
+            defaultValue: "Reranking top N must be greater than 0.",
           }),
         ],
       ];
@@ -294,47 +219,6 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
         return t("settings.codebaseValidationOverlapLessThanMaxLines", {
           defaultValue: "Overlap lines must be less than max lines per chunk.",
         });
-      }
-
-      if (
-        currentForm.rerankingModelName.trim() ||
-        currentForm.rerankingBaseUrl.trim()
-      ) {
-        if (!currentForm.rerankingModelName.trim()) {
-          return t("settings.codebaseValidationRerankingModelNameRequired", {
-            defaultValue:
-              "Reranking model name is required when reranking is enabled.",
-          });
-        }
-
-        if (!currentForm.rerankingBaseUrl.trim()) {
-          return t("settings.codebaseValidationRerankingBaseUrlRequired", {
-            defaultValue:
-              "Reranking base URL is required when reranking is enabled.",
-          });
-        }
-
-        const contextLengthError = validatePositiveInteger(
-          currentForm.rerankingContextLength,
-          t("settings.codebaseValidationRerankingContextLengthPositive", {
-            defaultValue: "Reranking context length must be greater than 0.",
-          }),
-        );
-
-        if (contextLengthError) {
-          return contextLengthError;
-        }
-
-        const topNError = validatePositiveInteger(
-          currentForm.rerankingTopN,
-          t("settings.codebaseValidationRerankingTopNPositive", {
-            defaultValue: "Reranking top N must be greater than 0.",
-          }),
-        );
-
-        if (topNError) {
-          return topNError;
-        }
       }
 
       // 阈值只在选择决策模型后生效；留空表示沿用二分类判定。
@@ -411,10 +295,9 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
     setStatus("");
 
     try {
-      const settings = await window.snow.importSnowCliCodebaseSettings();
-      const normalized = normalizeCodebaseSettings(settings);
-      setForm(toCodebaseForm(normalized));
-      setLastSaved(normalized);
+      await window.snow.importSnowCliCodebaseSettings();
+      // Rust 已把同步来的模型配置迁入嵌入/重排模型列表，整体重载以拿到新列表与选择。
+      await load();
       setStatus(
         t("settings.codebaseImportSuccess", {
           defaultValue: "Synced codebase settings from Snow CLI.",
@@ -435,7 +318,12 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
 
   return (
     <div className="api-settings-page" role="region">
-      <CodebaseSettingsSummary preview={preview} lastSaved={lastSaved} />
+      <CodebaseSettingsSummary
+        preview={preview}
+        lastSaved={lastSaved}
+        embeddingModels={embeddingModels}
+        rerankingModels={rerankingModels}
+      />
 
       <div className="api-settings-actions">
         <button
@@ -469,18 +357,23 @@ export function CodebaseSettingsPanel(): React.JSX.Element {
       <CodebaseSettingsForm
         form={form}
         decisionModels={decisionModels}
-        isBusy={isBusy}
+        embeddingModels={embeddingModels}
+        rerankingModels={rerankingModels}
         embeddingHealth={embeddingHealth}
         rerankingHealth={rerankingHealth}
-        testingKind={testingKind}
-        onTest={(kind) => void runTest(kind)}
+        isBusy={isBusy}
         onUpdateField={updateField}
         onSetValue={setValue}
         onBlurSave={commitSave}
         onReset={() => {
-          const defaults = toCodebaseForm(DEFAULT_CODEBASE_SETTINGS);
-          setForm(defaults);
-          void saveSettings(DEFAULT_CODEBASE_SETTINGS);
+          // 重置只恢复参数，保留当前选择的嵌入 / 重排模型。
+          const defaults: CodebaseSettings = {
+            ...DEFAULT_CODEBASE_SETTINGS,
+            embeddingModelId: lastSaved.embeddingModelId,
+            rerankingModelId: lastSaved.rerankingModelId,
+          };
+          setForm(toCodebaseForm(defaults));
+          void saveSettings(defaults);
         }}
       />
     </div>

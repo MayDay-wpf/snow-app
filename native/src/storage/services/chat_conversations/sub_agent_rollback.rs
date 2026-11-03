@@ -1093,6 +1093,11 @@ pub(crate) fn guard_truncate(
             .map_err(persistence)?;
         super::super::super::project_memories::delete_prompt_snapshots(db, &plan.workflow_nodes)
             .map_err(persistence)?;
+        super::super::super::system_prompt_snapshots::delete_snapshots(
+            db,
+            &plan.workflow_nodes,
+        )
+        .map_err(persistence)?;
     }
     // A failed outer transaction rolls this deletion back too, retaining a retryable gate.
     db.execute(

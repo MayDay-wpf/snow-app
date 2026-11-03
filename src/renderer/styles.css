@@ -6496,7 +6496,7 @@ body.is-panel-resizing * {
 }
 
 .codebase-settings-summary-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .api-settings-summary-card {
@@ -6636,9 +6636,16 @@ body.is-panel-resizing * {
 }
 
 .sensitive-command-assist-control {
+  display: flex;
   flex: 0 0 auto;
   min-width: 160px;
   max-width: 220px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sensitive-command-assist-control .model-settings-jump {
+  align-self: flex-end;
 }
 
 .sensitive-command-assist-number {
@@ -6945,6 +6952,52 @@ body.is-panel-resizing * {
 
 .api-settings-field.wide {
   grid-column: 1 / -1;
+}
+
+/* 模型字段标签行：左侧名称，右侧「前往 API 设置」直达入口 */
+.api-settings-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 模型下拉旁的直达链接：跳到 API 设置页对应标签页维护模型 */
+.model-settings-jump {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.model-settings-jump:hover:not(:disabled) {
+  color: var(--accent-color);
+}
+
+.model-settings-jump:focus-visible {
+  border-radius: 4px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.model-settings-jump:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.model-settings-jump svg {
+  flex-shrink: 0;
 }
 
 .api-settings-field span,

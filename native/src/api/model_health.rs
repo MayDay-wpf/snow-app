@@ -5,14 +5,12 @@
 //! - [`observe_call`]：计时并把失败写入系统日志（module = `decision_model` /
 //!   `embedding` / `reranking`，含 endpoint / status / duration / error），在
 //!   「设置 → 系统日志」里可以按模块检索。
-//! - `test_*`：连接自检。结果写入 system_settings 的 `model_health`，配置页在
-//!   重启应用后仍能看到最近一次检测。
+//! - `test_*`：连接自检。结果写入对应模型表的 health_* 列，配置页在重启应用后
+//!   仍能看到最近一次检测；删除模型时随行清理。
 //!
 //! 全部异步执行，SQLite 读写放在 `spawn_blocking` 中，不阻塞 Node.js 主线程。
 
 use std::future::Future;
-use std::path::Path;
-use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use napi::bindgen_prelude::*;
@@ -24,19 +22,15 @@ use crate::api::common::truncate_chars;
 use crate::api::embedding::EmbeddingConfig;
 use crate::api::reranking::RerankingConfig;
 use crate::storage::services::app_logs::{insert_app_log, redact_request_endpoint, AppLogInput};
-use crate::storage::services::system_settings::{get_system_setting_value, set_system_setting};
+use crate::storage::services::model_registry::{self, RegisteredModelKind};
 
-const MODEL_HEALTH_SETTING_CODE: &str = "model_health";
-const MODEL_HEALTH_SETTING_NAME: &str = "Model health";
+pub use crate::storage::services::model_registry::ModelConnectionTestResult;
 
 /// 系统日志里「测试连接」调用的 func 名称。
 pub const CONNECTION_TEST_FUNC: &str = "connection_test";
 
 /// 错误响应体写入错误信息时保留的最大字符数。
 const MAX_ERROR_BODY_CHARS: usize = 500;
-
-/// 串行化检测结果的读改写，避免并发检测互相覆盖。
-static HEALTH_STORE_LOCK: Mutex<()> = Mutex::new(());
 
 /// 需要可观测性的模型类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +41,14 @@ pub enum ModelKind {
 }
 
 impl ModelKind {
+    fn registry_kind(self) -> RegisteredModelKind {
+        match self {
+            ModelKind::Decision => RegisteredModelKind::Decision,
+            ModelKind::Embedding => RegisteredModelKind::Embedding,
+            ModelKind::Reranking => RegisteredModelKind::Reranking,
+        }
+    }
+
     /// 系统日志的 module，供「设置 → 系统日志」按模块检索。
     fn log_module(self) -> &'static str {
         match self {
@@ -248,27 +250,6 @@ async fn log_model_failure(
     .ok();
 }
 
-/// 一次连接自检的结果（持久化到 system_settings 的 `model_health`）。
-#[napi(object)]
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ModelConnectionTestResult {
-    /// 检测对象：决策模型为其 id，嵌入 / 重排为空。
-    pub target_id: String,
-    pub ok: bool,
-    pub http_status: Option<u32>,
-    pub latency_ms: f64,
-    pub endpoint: String,
-    pub model: String,
-    /// 嵌入：实际返回的向量维度。
-    pub dimension: Option<u32>,
-    /// 嵌入：配置的向量维度（未指定时为空）。
-    pub expected_dimension: Option<u32>,
-    pub error: Option<String>,
-    /// 检测时间（Unix 毫秒）。
-    pub tested_at: f64,
-}
-
 /// 三类模型最近一次连接自检的结果。
 #[napi(object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -276,8 +257,10 @@ pub struct ModelConnectionTestResult {
 pub struct ModelHealthSnapshot {
     /// 按决策模型 id（`targetId`）区分的检测结果。
     pub decision: Vec<ModelConnectionTestResult>,
-    pub embedding: Option<ModelConnectionTestResult>,
-    pub reranking: Option<ModelConnectionTestResult>,
+    /// 按嵌入模型 id 区分。
+    pub embedding_models: Vec<ModelConnectionTestResult>,
+    /// 按重排模型 id 区分。
+    pub reranking_models: Vec<ModelConnectionTestResult>,
 }
 
 /// 测试决策模型连接：按 provider 发送一条最小请求。
@@ -312,12 +295,15 @@ pub async fn test_decision_model(
 }
 
 /// 测试嵌入模型连接：发送一条 input，并校验返回维度与配置维度一致。
-pub async fn test_embedding(config: EmbeddingConfig) -> Result<ModelConnectionTestResult> {
+pub async fn test_embedding(
+    target_id: &str,
+    config: EmbeddingConfig,
+) -> Result<ModelConnectionTestResult> {
     let endpoint = crate::api::embedding::resolve_embedding_endpoint(&config);
     let model = crate::api::embedding::resolve_default_model(&config);
     let report = crate::api::embedding::test_connection(&config, &endpoint, &model).await;
 
-    let mut result = test_result_from_report("", &endpoint, &model, &report);
+    let mut result = test_result_from_report(target_id, &endpoint, &model, &report);
     if let Ok(dimension) = &report.result {
         let dimension = *dimension;
         result.dimension = u32::try_from(dimension).ok();
@@ -352,25 +338,29 @@ pub async fn test_embedding(config: EmbeddingConfig) -> Result<ModelConnectionTe
 }
 
 /// 测试重排模型连接：发送一条 query + 一条 document，并校验返回了 results。
-pub async fn test_reranking(config: RerankingConfig) -> Result<ModelConnectionTestResult> {
+pub async fn test_reranking(
+    target_id: &str,
+    config: RerankingConfig,
+) -> Result<ModelConnectionTestResult> {
     let endpoint = crate::api::reranking::resolve_rerank_endpoint(&config.base_url);
     let report = crate::api::reranking::test_connection(&config, &endpoint).await;
 
-    let result = test_result_from_report("", &endpoint, &config.model_name, &report);
+    let result = test_result_from_report(target_id, &endpoint, &config.model_name, &report);
     record_test_result(ModelKind::Reranking, result.clone()).await?;
     Ok(result)
 }
 
-/// 读取三类模型最近一次的检测结果。已删除的决策模型不再返回其检测结果。
+/// 读取三类模型最近一次的检测结果（模型表的 health_* 列）。
 pub async fn load_snapshot() -> Result<ModelHealthSnapshot> {
     tokio::task::spawn_blocking(|| {
         let database_path = crate::storage::ensure_database_file()?;
-        let mut snapshot = read_snapshot(&database_path)?;
-        let models = crate::api::decision_model::load_decision_models(&database_path);
-        snapshot
-            .decision
-            .retain(|item| models.iter().any(|model| model.id == item.target_id));
-        Ok(snapshot)
+        let (decision, embedding_models, reranking_models) =
+            model_registry::load_model_health(&database_path)?;
+        Ok(ModelHealthSnapshot {
+            decision,
+            embedding_models,
+            reranking_models,
+        })
     })
     .await
     .map_err(|error| Error::from_reason(format!("Failed to load model health: {error}")))?
@@ -415,45 +405,13 @@ fn test_result_from_report<T>(
     }
 }
 
+/// 写入模型表；未保存的草稿没有对应行，结果只返回给调用方。
 async fn record_test_result(kind: ModelKind, result: ModelConnectionTestResult) -> Result<()> {
     tokio::task::spawn_blocking(move || {
         let database_path = crate::storage::ensure_database_file()?;
-        let _guard = HEALTH_STORE_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut snapshot = read_snapshot(&database_path)?;
-
-        match kind {
-            ModelKind::Decision => {
-                snapshot
-                    .decision
-                    .retain(|item| item.target_id != result.target_id);
-                snapshot.decision.push(result);
-            }
-            ModelKind::Embedding => snapshot.embedding = Some(result),
-            ModelKind::Reranking => snapshot.reranking = Some(result),
-        }
-
-        let raw = serde_json::to_string(&snapshot).map_err(|error| {
-            Error::from_reason(format!("Failed to serialize model health: {error}"))
-        })?;
-        set_system_setting(
-            &database_path,
-            MODEL_HEALTH_SETTING_NAME,
-            MODEL_HEALTH_SETTING_CODE,
-            &raw,
-        )
+        model_registry::record_model_health(&database_path, kind.registry_kind(), &result)
+            .map(|_| ())
     })
     .await
     .map_err(|error| Error::from_reason(format!("Failed to save model health: {error}")))?
-}
-
-/// 读取持久化的检测结果；缺失或无法解析时视为尚未检测。
-fn read_snapshot(database_path: &Path) -> Result<ModelHealthSnapshot> {
-    let raw = get_system_setting_value(database_path, MODEL_HEALTH_SETTING_CODE)?
-        .unwrap_or_default();
-    if raw.trim().is_empty() {
-        return Ok(ModelHealthSnapshot::default());
-    }
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
 }

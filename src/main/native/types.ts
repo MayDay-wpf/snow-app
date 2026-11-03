@@ -180,22 +180,26 @@ export type ApiConfigExportResult = {
 
 export type CodebaseSettingsInput = {
   profileName: string;
-  embeddingType: string;
-  embeddingModelName: string;
-  embeddingBaseUrl: string;
-  embeddingApiKey: string;
-  embeddingDimensions: number;
+  /** 选中的嵌入 / 重排模型 id（空 = 未选择）；模型配置存于 embedding_models / reranking_models。 */
+  embeddingModelId?: string;
+  rerankingModelId?: string;
+  /** 旧版内联模型字段：仅 Snow CLI 同步写入，Rust 写入后立即迁入模型列表。 */
+  embeddingType?: string;
+  embeddingModelName?: string;
+  embeddingBaseUrl?: string;
+  embeddingApiKey?: string;
+  embeddingDimensions?: number;
   batchMaxLines: number;
   batchConcurrency: number;
   chunkingMaxLinesPerChunk: number;
   chunkingMinLinesPerChunk: number;
   chunkingMinCharsPerChunk: number;
   chunkingOverlapLines: number;
-  modelContextLength: number;
-  rerankingModelName: string;
-  rerankingBaseUrl: string;
-  rerankingApiKey: string;
-  rerankingContextLength: number;
+  modelContextLength?: number;
+  rerankingModelName?: string;
+  rerankingBaseUrl?: string;
+  rerankingApiKey?: string;
+  rerankingContextLength?: number;
   rerankingTopN: number;
   /** 代理审查选用的决策模型 id（空 = 使用基础 LLM 模型）；导入 Snow CLI 配置时原样保留。 */
   agentReviewModelId: string;
@@ -1168,7 +1172,7 @@ export type SensitiveCommandDecisionRecord = {
   error?: string | null;
 };
 
-/** 待检测的决策模型（字段与 system_settings `decision_models` 条目一致）。 */
+/** 待检测的决策模型（字段与 decision_models 表条目一致）。 */
 export type DecisionModelTestInput = {
   id: string;
   baseUrl: string;
@@ -1180,6 +1184,7 @@ export type DecisionModelTestInput = {
 
 /** 待检测的嵌入模型配置（dimensions 为 0 表示不指定维度）。 */
 export type EmbeddingTestInput = {
+  id: string;
   embeddingType: string;
   modelName: string;
   baseUrl: string;
@@ -1189,6 +1194,7 @@ export type EmbeddingTestInput = {
 
 /** 待检测的重排模型配置。 */
 export type RerankingTestInput = {
+  id: string;
   modelName: string;
   baseUrl: string;
   apiKey: string;
@@ -1196,7 +1202,7 @@ export type RerankingTestInput = {
 
 /** 一次模型连接自检的结果（持久化，重启后仍可查看）。 */
 export type ModelConnectionTestResult = {
-  /** 决策模型为其 id，嵌入 / 重排为空。 */
+  /** 决策 / 嵌入 / 重排模型的条目 id。 */
   targetId: string;
   ok: boolean;
   httpStatus?: number | null;
@@ -1212,11 +1218,55 @@ export type ModelConnectionTestResult = {
   testedAt: number;
 };
 
-/** 三类模型最近一次连接自检的结果。 */
+/** 三类模型最近一次连接自检的结果（均按条目 id 区分）。 */
 export type ModelHealthSnapshot = {
   decision: ModelConnectionTestResult[];
-  embedding?: ModelConnectionTestResult | null;
-  reranking?: ModelConnectionTestResult | null;
+  embeddingModels: ModelConnectionTestResult[];
+  rerankingModels: ModelConnectionTestResult[];
+};
+
+/** 嵌入模型（embedding_models 表）。 */
+export type EmbeddingModelEntry = {
+  id: string;
+  name: string;
+  embeddingType: string;
+  modelName: string;
+  baseUrl: string;
+  apiKey: string;
+  dimensions: number;
+  contextLength: number;
+  enabled: boolean;
+};
+
+/** 重排模型（reranking_models 表）。 */
+export type RerankingModelEntry = {
+  id: string;
+  name: string;
+  modelName: string;
+  baseUrl: string;
+  apiKey: string;
+  contextLength: number;
+  enabled: boolean;
+};
+
+/** 决策模型（decision_models 表）。 */
+export type DecisionModelEntry = {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  baseUrlMode: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+};
+
+export type RegisteredModelKind = "embedding" | "reranking" | "decision";
+
+/** 删除模型的结果；clearedReferences 为被清空的引用（如 codebase.embeddingModelId）。 */
+export type ModelDeleteResult = {
+  deleted: boolean;
+  clearedReferences: string[];
 };
 
 export type Model = {
@@ -2925,6 +2975,28 @@ export type NativeBridge = ImageGenerationNativeApi & {
     input: RerankingTestInput,
   ) => Promise<ModelConnectionTestResult>;
   getModelHealthSnapshot: () => Promise<ModelHealthSnapshot>;
+  /** 模型注册表（嵌入 / 重排 / 决策模型表）。 */
+  listEmbeddingModels: () => Promise<EmbeddingModelEntry[]>;
+  upsertEmbeddingModel: (
+    model: EmbeddingModelEntry,
+  ) => Promise<EmbeddingModelEntry>;
+  listRerankingModels: () => Promise<RerankingModelEntry[]>;
+  upsertRerankingModel: (
+    model: RerankingModelEntry,
+  ) => Promise<RerankingModelEntry>;
+  listDecisionModels: () => Promise<DecisionModelEntry[]>;
+  upsertDecisionModel: (
+    model: DecisionModelEntry,
+  ) => Promise<DecisionModelEntry>;
+  deleteRegisteredModel: (
+    kind: RegisteredModelKind,
+    modelId: string,
+  ) => Promise<ModelDeleteResult>;
+  setRegisteredModelEnabled: (
+    kind: RegisteredModelKind,
+    modelId: string,
+    enabled: boolean,
+  ) => Promise<void>;
   listChatConversations: (
     directoryId: string,
   ) => Promise<ChatConversationRecord[]>;

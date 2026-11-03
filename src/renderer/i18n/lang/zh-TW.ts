@@ -2791,6 +2791,53 @@ export const zhTW = {
   "settings.apiTabImageModels": "生圖模型",
   "settings.apiTabDecisionModels": "決策模型",
   "settings.apiTabRetry": "重試策略",
+  "settings.apiTabEmbeddingModels": "嵌入模型",
+  "settings.apiTabRerankingModels": "重排模型",
+  "settings.embeddingModelsInfo":
+    "嵌入模型把程式碼切塊轉換為向量，用於程式碼庫索引與語意檢索。在這裡集中設定多個模型，然後在「程式碼庫設定」中選擇要使用的模型。",
+  "settings.rerankingModelsInfo":
+    "重排模型對檢索結果重新排序以提升相關性。在這裡集中設定多個模型，然後在「程式碼庫設定」中選擇要使用的模型（也可以不使用）。",
+  "settings.embeddingModelsEmpty":
+    "還沒有嵌入模型，新增後即可在程式碼庫設定中選用。",
+  "settings.rerankingModelsEmpty":
+    "還沒有重排模型，新增後即可在程式碼庫設定中選用。",
+  "settings.embeddingModelAdd": "新增嵌入模型",
+  "settings.rerankingModelAdd": "新增重排模型",
+  "settings.embeddingModelEditorAddTitle": "新增嵌入模型",
+  "settings.embeddingModelEditorEditTitle": "編輯嵌入模型",
+  "settings.rerankingModelEditorAddTitle": "新增重排模型",
+  "settings.rerankingModelEditorEditTitle": "編輯重排模型",
+  "settings.embeddingModelDeleteTitle": "刪除嵌入模型",
+  "settings.rerankingModelDeleteTitle": "刪除重排模型",
+  "settings.codebaseModelName": "名稱",
+  "settings.codebaseModelSave": "儲存模型",
+  "settings.codebaseModelToggle": "啟用或停用此模型",
+  "settings.codebaseModelInUse": "程式碼庫使用中",
+  "settings.codebaseModelEditorInfo":
+    "API Key 只儲存在本機資料庫，僅在呼叫此模型時傳送。",
+  "settings.codebaseModelModelRequired": "請填寫模型名稱。",
+  "settings.codebaseModelBaseUrlRequired": "請填寫 Base URL。",
+  "settings.codebaseModelContextLengthPositive": "上下文長度必須大於 0。",
+  "settings.codebaseModelLoadError": "載入模型失敗",
+  "settings.codebaseModelSaveError": "儲存模型失敗",
+  "settings.codebaseModelAddSuccess": "已新增 {{name}}。",
+  "settings.codebaseModelSaveSuccess": "已儲存 {{name}}。",
+  "settings.codebaseModelEnabledSuccess": "已啟用 {{name}}。",
+  "settings.codebaseModelDisabledSuccess": "已停用 {{name}}。",
+  "settings.codebaseModelDeleteSuccess": "已刪除 {{name}}。",
+  "settings.codebaseModelDeleteConfirm":
+    "確定刪除 {{name}}？如果程式碼庫正在使用它，會同時清除程式碼庫中的選擇。",
+  "settings.codebaseEmbeddingModel": "嵌入模型",
+  "settings.codebaseRerankingModel": "重排模型",
+  "settings.codebaseEmbeddingModelNone": "未選擇",
+  "settings.codebaseRerankingModelNone": "不使用重排",
+  "settings.codebaseEmbeddingModelMissing":
+    "未選擇可用的嵌入模型，程式碼庫索引無法執行。",
+  "settings.codebaseEmbeddingModelHint":
+    "嵌入模型在「API 設定 → 嵌入模型」中維護，這裡只能選擇已啟用的模型。更換模型後需要重建索引。",
+  "settings.codebaseRerankingModelHint":
+    "重排模型在「API 設定 → 重排模型」中維護，這裡只能選擇已啟用的模型。",
+  "settings.modelSelectOpenApiSettings": "前往 API 設定",
   "settings.retryPanelTitle": "重試策略",
   "settings.retryPanelInfo":
     "配置哪些錯誤會觸發重試，對所有 API 檔案生效，修改自動儲存。",

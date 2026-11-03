@@ -9,10 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use super::super::database;
 
+mod codebase_models;
 mod privacy;
 mod scopes;
 mod theme;
 
+pub use self::codebase_models::*;
 pub use self::privacy::*;
 pub use self::scopes::*;
 pub use self::theme::*;
@@ -31,13 +33,9 @@ const DEFAULT_TERMINAL_SETTING_VALUE: &str = "{\"shellPath\":\"\",\"fontFamily\"
 
 const DEFAULT_CODEBASE_SETTING_NAME: &str = "Codebase settings";
 const DEFAULT_CODEBASE_SETTING_CODE: &str = "codebase_settings";
-const DEFAULT_CODEBASE_SETTING_VALUE: &str = "{\"profileName\":\"default\",\"embeddingType\":\"jina\",\"embeddingModelName\":\"\",\"embeddingBaseUrl\":\"\",\"embeddingApiKey\":\"\",\"embeddingDimensions\":1536,\"batchMaxLines\":10,\"batchConcurrency\":3,\"chunkingMaxLinesPerChunk\":200,\"chunkingMinLinesPerChunk\":10,\"chunkingMinCharsPerChunk\":20,\"chunkingOverlapLines\":20,\"modelContextLength\":8192,\"rerankingModelName\":\"\",\"rerankingBaseUrl\":\"\",\"rerankingApiKey\":\"\",\"rerankingContextLength\":4096,\"rerankingTopN\":5,\"configJson\":\"{}\",\"source\":\"manual\"}";
-
-// 决策模型（TypeSafe System One 一类的判定型模型）：全局配置，代码库代理审查
-// 等场景按 id 选用；字段与前端 src/renderer/constants/decisionModels.ts 一致。
-const DEFAULT_DECISION_MODELS_SETTING_NAME: &str = "Decision models";
-const DEFAULT_DECISION_MODELS_SETTING_CODE: &str = "decision_models";
-const DEFAULT_DECISION_MODELS_SETTING_VALUE: &str = "{\"models\":[]}";
+// 嵌入 / 重排 / 决策模型只存 id，具体配置在 embedding_models / reranking_models /
+// decision_models 表（见 services::model_registry）。
+const DEFAULT_CODEBASE_SETTING_VALUE: &str = "{\"profileName\":\"default\",\"embeddingModelId\":\"\",\"batchMaxLines\":10,\"batchConcurrency\":3,\"chunkingMaxLinesPerChunk\":200,\"chunkingMinLinesPerChunk\":10,\"chunkingMinCharsPerChunk\":20,\"chunkingOverlapLines\":20,\"rerankingModelId\":\"\",\"rerankingTopN\":5,\"configJson\":\"{}\",\"source\":\"manual\"}";
 
 // 敏感命令的决策模型辅助（全局）：命中敏感规则的命令在弹出确认前先请决策
 // 模型判定是否可直接放行（`enabled`）。`delegate` 打开时判定直接生效
@@ -333,7 +331,7 @@ impl ToolApprovalProjectScopeSettings {
 pub struct SensitiveCommandAssistSettings {
     /// 总开关，默认关闭：关闭时不请求决策模型，敏感命令照常弹确认。
     pub enabled: bool,
-    /// 参与判定的决策模型 id（`decision_models` 中已启用的条目）。
+    /// 参与判定的决策模型 id（`decision_models` 表中已启用的条目）。
     pub model_id: String,
     /// 托管：判定直接生效（允许则放行、拒绝则拒绝），默认关闭（仅展示建议）。
     pub delegate: bool,
@@ -439,6 +437,7 @@ pub fn set_system_setting(
         validate_codebase_settings_value(setting_value)?;
     }
 
+    let is_codebase = setting_code == DEFAULT_CODEBASE_SETTING_CODE;
     database::open_connection(database_path)
         .and_then(|connection| {
             set_system_setting_with_connection(
@@ -446,17 +445,29 @@ pub fn set_system_setting(
                 setting_name,
                 setting_code,
                 setting_value,
-            )
+            )?;
+            // 旧格式（如 Snow CLI 同步）写入的内联模型字段即时迁入模型表。
+            if is_codebase {
+                migrate_codebase_inline_models_with_connection(&connection)?;
+            }
+            Ok(())
         })
         .map(|()| {
             // 写入后立即失效缓存，避免 TTL 内的读操作拿到旧值
             // （pets:changed 等广播触发的回读会覆盖界面的乐观更新）。
-            settings_cache()
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .remove(setting_code);
+            invalidate_system_setting_cache(&[setting_code]);
         })
         .map_err(|error| database::database_error(database_path, "write system setting", error))
+}
+
+/// 绕过 [`set_system_setting`] 直接用连接写入后，调用方需手动失效缓存。
+pub(crate) fn invalidate_system_setting_cache(setting_codes: &[&str]) {
+    let mut cache = settings_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for code in setting_codes {
+        cache.remove(*code);
+    }
 }
 
 pub fn delete_system_setting(database_path: &Path, setting_code: &str) -> Result<()> {
@@ -787,12 +798,6 @@ fn seed_default_settings_with_connection(connection: &Connection) -> rusqlite::R
         DEFAULT_CODEBASE_SETTING_NAME,
         DEFAULT_CODEBASE_SETTING_CODE,
         DEFAULT_CODEBASE_SETTING_VALUE,
-    )?;
-    insert_default_setting(
-        connection,
-        DEFAULT_DECISION_MODELS_SETTING_NAME,
-        DEFAULT_DECISION_MODELS_SETTING_CODE,
-        DEFAULT_DECISION_MODELS_SETTING_VALUE,
     )?;
     insert_default_setting(
         connection,
