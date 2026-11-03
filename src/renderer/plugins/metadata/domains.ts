@@ -455,6 +455,28 @@ export const METADATA_DOMAINS: MetadataDomainDefinition[] = [
     collect: async () => runtimeSnapshot.get().panels,
   },
   {
+    id: "interactions",
+    scope: "messages",
+    collect: async () => {
+      const state = await window.__snowRemoteControl?.getState();
+      return {
+        authorizations: (state?.pendingAuthorizations ?? []).map((item) => ({
+          authorizationId: item.authorizationId ?? null,
+          interactionId: item.interactionId,
+          name: item.name,
+          status: item.status,
+          sensitive: item.sensitive === true,
+          arguments: item.arguments ?? null,
+        })),
+        questions: (state?.pendingQuestions ?? []).map((item) => ({
+          questionId: item.questionId,
+          question: item.question,
+          options: item.options,
+        })),
+      };
+    },
+  },
+  {
     id: "usage",
     scope: "usage",
     collect: async (ctx) => {

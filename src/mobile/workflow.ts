@@ -2,11 +2,12 @@ import type {
   SnowRemoteToolCall,
   SnowRemoteWorkflow,
 } from "../renderer/types/remoteControl";
-import { replyWorkflow, runWorkflow, selectConversation } from "./api";
+import { replyWorkflow, runWorkflow } from "./api";
 import { $ } from "./dom";
 import { t } from "./i18n";
 import { iconMarkup } from "./icons";
 import { showNotice } from "./notice";
+import { selectThread } from "./threads";
 import type { AppContext } from "./types";
 import {
   createWorkflowCanvas,
@@ -358,21 +359,6 @@ const runCardAction = async (
   }
 };
 
-const openNodeConversation = async (
-  conversationId: string,
-  ctx: AppContext,
-): Promise<void> => {
-  showNotice(t("remote.notice.switchingConversation"));
-  try {
-    await selectConversation(conversationId, "");
-    ctx.invalidateTimeline();
-    await ctx.refresh(false);
-    showNotice(t("remote.notice.conversationSelected"));
-  } catch (error) {
-    showNotice((error as Error).message, true);
-  }
-};
-
 const handleCardClick = async (
   event: Event,
   ctx: AppContext,
@@ -419,7 +405,8 @@ const handleCardClick = async (
   if (isCanvasTapSuppressed()) return;
   const conversationId = nodeEl?.dataset.conversationId ?? "";
   if (conversationId) {
-    await openNodeConversation(conversationId, ctx);
+    // 与会话列表同一条切换链路（立即高亮 + 骨架屏），directoryId 由桌面端解析。
+    await selectThread(ctx, conversationId, "");
   }
 };
 

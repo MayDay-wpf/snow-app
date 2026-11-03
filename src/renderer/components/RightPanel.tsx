@@ -3,10 +3,12 @@ import {
   Database,
   FolderTree,
   Gauge,
+  GitBranch,
   Globe,
   Maximize2,
-  Minimize2,
+  MessageSquare,
   MessageSquarePlus,
+  Minimize2,
   Paintbrush,
   Terminal,
   X,
@@ -276,36 +278,80 @@ const TASKS_TAB_ID = "tasks";
 const conversationPanelTabId = (conversationId: string): string =>
   `conversation:${conversationId}`;
 
-// 文件类 tab(diff / file / file-diff-preview)在标题前显示对应的文件类型图标。
-const getTabFileIcon = (tab: RightPanelTab): React.ReactNode => {
-  if (tab.type === "diff") {
-    const filePath = (tab.data as DiffTabData)?.selectedFile?.path;
-    return filePath
-      ? getFileTypeIcon(filePath.split("/").pop() ?? filePath, false, false, {
-          size: 13,
-          className: "right-panel-tab-icon",
-        })
-      : null;
+// tab 栏图标：面板类 tab（终端 / 浏览器 / 代码库 / 资源管理器 / 绘图 /
+// 任务管理器 / 会话 / 插件）显示对应功能图标，文件类 tab(diff / file /
+// file-diff-preview)显示文件类型图标。
+const getTabIcon = (tab: RightPanelTab): React.ReactNode => {
+  const panelIconProps = {
+    size: 13,
+    strokeWidth: 1.8,
+    className: "right-panel-tab-icon",
+  } as const;
+  switch (tab.type) {
+    case "git":
+      return <GitBranch {...panelIconProps} />;
+    case "terminal":
+      return <Terminal {...panelIconProps} />;
+    case "browser":
+      return <Globe {...panelIconProps} />;
+    case "codebase":
+      return <Database {...panelIconProps} />;
+    case "explorer":
+      return <FolderTree {...panelIconProps} />;
+    case "drawing":
+      return <Paintbrush {...panelIconProps} />;
+    case "tasks":
+      return <Gauge {...panelIconProps} />;
+    case "conversation":
+      return <MessageSquare {...panelIconProps} />;
+    case "plugin": {
+      const pluginData = tab.data as PluginTabData | undefined;
+      if (!pluginData) {
+        return null;
+      }
+      const plugin = pluginStore.getById(pluginData.pluginId);
+      const panel = plugin?.panels.find(
+        (item) => item.id === pluginData.panelId,
+      );
+      return (
+        <PluginIcon
+          pluginId={pluginData.pluginId}
+          icon={panel?.icon || plugin?.icon || ""}
+          size={13}
+          className="right-panel-tab-icon"
+        />
+      );
+    }
+    case "diff": {
+      const filePath = (tab.data as DiffTabData)?.selectedFile?.path;
+      return filePath
+        ? getFileTypeIcon(filePath.split("/").pop() ?? filePath, false, false, {
+            size: 13,
+            className: "right-panel-tab-icon",
+          })
+        : null;
+    }
+    case "file": {
+      const fileName = (tab.data as FileViewerTabData)?.fileName;
+      return fileName
+        ? getFileTypeIcon(fileName, false, false, {
+            size: 13,
+            className: "right-panel-tab-icon",
+          })
+        : null;
+    }
+    case "file-diff-preview": {
+      const fileName = (tab.data as FileDiffPreviewTabData)?.fileName;
+      return fileName
+        ? getFileTypeIcon(fileName, false, false, {
+            size: 13,
+            className: "right-panel-tab-icon",
+          })
+        : null;
+    }
+    default:
+      return null;
   }
-  if (tab.type === "file") {
-    const fileName = (tab.data as FileViewerTabData)?.fileName;
-    return fileName
-      ? getFileTypeIcon(fileName, false, false, {
-          size: 13,
-          className: "right-panel-tab-icon",
-        })
-      : null;
-  }
-  if (tab.type === "file-diff-preview") {
-    const fileName = (tab.data as FileDiffPreviewTabData)?.fileName;
-    return fileName
-      ? getFileTypeIcon(fileName, false, false, {
-          size: 13,
-          className: "right-panel-tab-icon",
-        })
-      : null;
-  }
-  return null;
 };
 
 // 文件 tab 的唯一 id：本地按路径区分，远程再带上会话 id（同一远端路径可能来自不同会话）。
@@ -2869,7 +2915,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                                 });
                               }}
                             >
-                              {getTabFileIcon(tab)}
+                              {getTabIcon(tab)}
                               {tab.type === "browser" &&
                                 getBrowserAgentAccess(tab.id)?.shared && (
                                   <span

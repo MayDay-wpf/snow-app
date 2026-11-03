@@ -173,6 +173,8 @@ export const en: Record<string, string> = {
   "remote.modes.worktree": "WorkTree",
   "remote.modes.workflow": "WorkFlow",
   "remote.modes.goal": "Goal",
+  "remote.modes.goalBudget": "Token Budget",
+  "remote.modes.goalBudgetUnlimited": "Unlimited",
   "remote.appSettings.sectionTitle": "App",
   "remote.appSettings.toolCorrection": "Auto tool correction",
 

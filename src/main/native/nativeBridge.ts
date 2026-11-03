@@ -29,6 +29,12 @@ const STORAGE_INDEPENDENT_METHODS = new Set<string>([
   // fetch 钩子的流式通道同样是进程内状态，必须保持同步返回布尔值。
   "pushOAuthPluginStreamChunk",
   "endOAuthPluginStream",
+  // 插件 WebSocket 长连接的句柄表与事件回调是进程内状态，不依赖 SQLite。
+  "setPluginWsHandler",
+  "pluginWsOpen",
+  "pluginWsSend",
+  "pluginWsSendBinary",
+  "pluginWsClose",
   // Git（本地仓库子进程操作）
   "getGitStatus",
   "getGitBranches",
@@ -176,6 +182,13 @@ const createUnavailableBridge = (): NativeBridge => {
     setOAuthPluginProviders: () => 0,
     pushOAuthPluginStreamChunk: () => false,
     endOAuthPluginStream: () => false,
+    setPluginWsHandler: () => {},
+    pluginWsOpen: () => {
+      throw new Error("Native plugin WebSocket is unavailable");
+    },
+    pluginWsSend: () => false,
+    pluginWsSendBinary: () => false,
+    pluginWsClose: () => false,
   };
   return new Proxy(overrides as NativeBridge, {
     get(target, prop) {

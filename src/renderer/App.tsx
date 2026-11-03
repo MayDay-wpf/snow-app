@@ -14,6 +14,7 @@ import { isFeaturePageView } from "./components/featurePages";
 import { SETTINGS_VIEW_IDS } from "./components/sidebar/settingsItems";
 import { NotificationNavigationBridge } from "./components/NotificationNavigationBridge";
 import { RemoteControlBridge } from "./components/RemoteControlBridge";
+import { PluginBackgroundBridge } from "./plugins/PluginBackgroundBridge";
 import { PluginRuntimeBridge } from "./plugins/PluginRuntimeBridge";
 import { ClientScriptBridge } from "./userscripts/ClientScriptBridge";
 import {
@@ -1410,6 +1411,7 @@ export const App = (): React.JSX.Element => {
         />
         <ShortcutHandlerBridge />
         <PluginRuntimeBridge activeDirectory={activeDirectory} />
+        <PluginBackgroundBridge />
         <ClientScriptBridge
           activeDirectory={activeDirectory}
           activeView={activeMainView}

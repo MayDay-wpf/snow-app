@@ -1,5 +1,7 @@
-import { ipcRenderer } from "electron";
+import { ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  PluginBackgroundRequest,
+  PluginBackgroundResponse,
   PluginHttpRequestOptions,
   PluginHttpResponse,
   PluginRecord,
@@ -109,5 +111,26 @@ export const pluginsApi = {
     return () => {
       ipcRenderer.removeListener("plugins:changed", handler);
     };
+  },
+  /** 主进程后台模块请求渲染层执行元数据 / 写动作（RPC 请求）。 */
+  onPluginBackgroundRequest: (
+    callback: (request: PluginBackgroundRequest) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      request: PluginBackgroundRequest,
+    ): void => {
+      callback(request);
+    };
+
+    ipcRenderer.on("plugin-background:request", handler);
+
+    return () => {
+      ipcRenderer.removeListener("plugin-background:request", handler);
+    };
+  },
+  /** 回复主进程后台模块的 RPC 请求。 */
+  respondPluginBackground: (response: PluginBackgroundResponse): void => {
+    ipcRenderer.send("plugin-background:response", response);
   },
 };

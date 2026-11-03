@@ -18,6 +18,7 @@ import { useI18n } from "../../i18n";
 import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { OverlayScrollbar } from "../common/OverlayScrollbar";
 import { LspResourcePanel } from "../sidebar/lspSettings/LspResourcePanel";
 import type { DetachedTaskInfo, TaskManagerProcess } from "../../../preload";
 import {
@@ -134,6 +135,7 @@ export const TaskManagerContent = ({
   const lastLspAttemptRef = useRef(0);
   const mountedRef = useRef(false);
   const activeRef = useRef(isActive);
+  const tabsRef = useRef<HTMLDivElement | null>(null);
   const sampledRef = useRef(0);
   const sequenceRef = useRef(0);
   const continuityRef = useRef(0);
@@ -274,6 +276,13 @@ export const TaskManagerContent = ({
   useEffect(() => {
     breakSampling();
   }, [scopeKey, breakSampling]);
+  // 窄面板下标签栏横向滚动，切换标签后保证当前项处于可见范围
+  useEffect(() => {
+    const active = tabsRef.current?.querySelector<HTMLElement>(
+      ".task-manager-tab-btn.is-active",
+    );
+    active?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTab]);
   // bash 卡片徽章跳转：切到「后台任务」页，具体定位由列表组件按 focus 处理。
   useEffect(() => {
     if (focusRequest) {
@@ -655,62 +664,70 @@ export const TaskManagerContent = ({
 
       {/* 顶部 Tab 导航栏与状态控制器 */}
       <div className="task-manager-nav-bar">
-        <div className="task-manager-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "processes"}
-            className={`task-manager-tab-btn ${activeTab === "processes" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("processes")}
+        <div className="task-manager-tabs-wrap" role="tablist">
+          <OverlayScrollbar
+            className="task-manager-tabs"
+            orientation="horizontal"
+            ref={tabsRef}
           >
-            <Layers size={13} aria-hidden="true" />
-            <span>{t("taskManager.tabProcesses")}</span>
-            <span className="task-manager-tab-badge">{visibleRows.length}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "background"}
-            className={`task-manager-tab-btn ${activeTab === "background" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("background")}
-          >
-            <Terminal size={13} aria-hidden="true" />
-            <span>{t("taskManager.tabBackground")}</span>
-            <span className="task-manager-tab-badge">
-              {backgroundTasks.filter((task) => task.alive).length}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "performance"}
-            className={`task-manager-tab-btn ${activeTab === "performance" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("performance")}
-          >
-            <Activity size={13} aria-hidden="true" />
-            <span>{t("taskManager.tabPerformance")}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "sessions"}
-            className={`task-manager-tab-btn ${activeTab === "sessions" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("sessions")}
-          >
-            <Cpu size={13} aria-hidden="true" />
-            <span>{t("taskManager.tabSessions")}</span>
-            <span className="task-manager-tab-badge">{sessions.length}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "alerts"}
-            className={`task-manager-tab-btn ${activeTab === "alerts" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("alerts")}
-          >
-            <Bell size={13} aria-hidden="true" />
-            <span>{t("taskManager.tabAlerts")}</span>
-          </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "processes"}
+              className={`task-manager-tab-btn ${activeTab === "processes" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("processes")}
+            >
+              <Layers size={13} aria-hidden="true" />
+              <span>{t("taskManager.tabProcesses")}</span>
+              <span className="task-manager-tab-badge">
+                {visibleRows.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "background"}
+              className={`task-manager-tab-btn ${activeTab === "background" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("background")}
+            >
+              <Terminal size={13} aria-hidden="true" />
+              <span>{t("taskManager.tabBackground")}</span>
+              <span className="task-manager-tab-badge">
+                {backgroundTasks.filter((task) => task.alive).length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "performance"}
+              className={`task-manager-tab-btn ${activeTab === "performance" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("performance")}
+            >
+              <Activity size={13} aria-hidden="true" />
+              <span>{t("taskManager.tabPerformance")}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "sessions"}
+              className={`task-manager-tab-btn ${activeTab === "sessions" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("sessions")}
+            >
+              <Cpu size={13} aria-hidden="true" />
+              <span>{t("taskManager.tabSessions")}</span>
+              <span className="task-manager-tab-badge">{sessions.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "alerts"}
+              className={`task-manager-tab-btn ${activeTab === "alerts" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("alerts")}
+            >
+              <Bell size={13} aria-hidden="true" />
+              <span>{t("taskManager.tabAlerts")}</span>
+            </button>
+          </OverlayScrollbar>
         </div>
 
         <div className="task-manager-nav-controls">

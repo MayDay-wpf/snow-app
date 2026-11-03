@@ -23,7 +23,13 @@ import { initPending, renderPending } from "./pending";
 import { initRollback } from "./rollback";
 import { applyAccentColor, initTheme } from "./theme";
 import { initThreads, renderThreads } from "./threads";
-import { initTimeline, renderTimeline, stickToBottomIfNear } from "./timeline";
+import {
+  beginConversationSwitch,
+  cancelConversationSwitch,
+  initTimeline,
+  renderTimeline,
+  stickToBottomIfNear,
+} from "./timeline";
 import { initTodos, renderTodos } from "./todos";
 import { correctionDigest } from "./tools/correction";
 import { initTopbar, renderTopbar } from "./topbar";
@@ -191,6 +197,8 @@ const ctx: AppContext = {
   invalidateTimeline: () => {
     lastSignature = "";
   },
+  beginConversationSwitch,
+  cancelConversationSwitch,
 };
 
 // ── 启动装配 ──────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import type {
 import {
   abortRun,
   discardAttachment,
+  setGoalTokenBudget,
   setMode,
   setToolCorrection,
   sendMessage,
@@ -247,6 +248,40 @@ const renderActionToggles = (state: SnowRemoteState | null): void => {
   }
 };
 
+/** 目标模式 Token 预算的默认值（与桌面 PlusMenu 取消「无上限」时一致）。 */
+const GOAL_BUDGET_DEFAULT = 2000000;
+
+/**
+ * 目标模式 Token 预算行（与桌面 PlusMenu 的预算输入同源）：
+ * 仅目标模式开启时展示；0 = 无上限（输入框禁用、勾选「无上限」）。
+ * 会话运行中与桌面一致地整体禁用（isModeLocked）。
+ */
+const renderGoalBudget = (
+  state: SnowRemoteState | null,
+  force = false,
+): void => {
+  const row = $("goalBudgetRow");
+  const enabled = Boolean(state?.modes?.goal);
+  row.hidden = !enabled;
+  if (!enabled) return;
+
+  const budget = state?.modes?.goalTokenBudget ?? GOAL_BUDGET_DEFAULT;
+  const unlimited = budget <= 0;
+  const locked = isModeLocked(state, "goal");
+  row.classList.toggle("is-locked", locked);
+
+  const input = $<HTMLInputElement>("goalBudgetInput");
+  // 状态推送可能随时到达：用户正在编辑时不要覆盖输入框内容。
+  if (force || document.activeElement !== input) {
+    input.value = String(budget);
+  }
+  input.disabled = locked || unlimited;
+
+  const checkbox = $<HTMLInputElement>("goalBudgetUnlimited");
+  checkbox.checked = unlimited;
+  checkbox.disabled = locked;
+};
+
 /** 已结束的子会话：子代理（含 cancelled）与 Workflow 节点（completed / failed）。 */
 type FinishedSession = {
   kind: "subAgent" | "workflowNode";
@@ -345,6 +380,7 @@ export const renderComposer = (next: SnowRemoteState | null): void => {
   stop.hidden = !next?.isStreaming;
   stop.disabled = Boolean(next?.isAborting);
   renderActionToggles(next);
+  renderGoalBudget(next);
   renderAttachments();
 };
 
@@ -427,6 +463,20 @@ const submit = async (ctx: AppContext): Promise<void> => {
   } finally {
     busy = false;
     renderAttachments();
+  }
+};
+
+/** 提交目标预算变更（0 = 无上限）：失败提示并回填当前生效值。 */
+const applyGoalBudget = async (
+  ctx: AppContext,
+  budget: number,
+): Promise<void> => {
+  try {
+    await setGoalTokenBudget(budget);
+    await ctx.refresh(false);
+  } catch (error) {
+    showNotice((error as Error).message, true);
+    renderGoalBudget(latestState, true);
   }
 };
 
@@ -526,6 +576,22 @@ export const initComposer = (ctx: AppContext): void => {
     } catch (error) {
       showNotice((error as Error).message, true);
     }
+  };
+
+  // 目标预算：与桌面 PlusMenu 一致（0 = 无上限；取消勾选恢复默认预算）。
+  const goalBudgetInput = $<HTMLInputElement>("goalBudgetInput");
+  goalBudgetInput.onchange = async () => {
+    const value = parseInt(goalBudgetInput.value, 10);
+    if (Number.isNaN(value) || value <= 0) {
+      // 非法输入：回填当前生效值（无上限 = 0 由勾选框表达）。
+      renderGoalBudget(latestState, true);
+      return;
+    }
+    await applyGoalBudget(ctx, value);
+  };
+  $("goalBudgetUnlimited").onchange = async (event) => {
+    const checked = (event.target as HTMLInputElement).checked;
+    await applyGoalBudget(ctx, checked ? 0 : GOAL_BUDGET_DEFAULT);
   };
 
   $("actionBackdrop").onclick = () => {

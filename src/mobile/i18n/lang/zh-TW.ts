@@ -152,6 +152,8 @@ export const zhTW: Record<string, string> = {
   "remote.modes.worktree": "WorkTree",
   "remote.modes.workflow": "WorkFlow",
   "remote.modes.goal": "目標",
+  "remote.modes.goalBudget": "Token 預算",
+  "remote.modes.goalBudgetUnlimited": "無上限",
   "remote.appSettings.sectionTitle": "應用",
   "remote.appSettings.toolCorrection": "自動糾錯",
 

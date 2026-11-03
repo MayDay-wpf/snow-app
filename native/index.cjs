@@ -173,6 +173,11 @@ const requiredExports = [
   "killProcessTree",
   // 内置浏览器 UA 对齐本机真实浏览器（读取 Chrome/Edge 版本号）
   "detectLocalBrowserVersion",
+  // 插件 WebSocket 长连接（打开 / 发送 / 关闭 / 事件回调）
+  "pluginWsOpen",
+  "pluginWsSend",
+  "pluginWsClose",
+  "setPluginWsHandler",
 ];
 
 const platformName = platformMap[`${process.platform}-${process.arch}`];

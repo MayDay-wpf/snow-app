@@ -35,6 +35,8 @@ export type SnowRemoteToolCall = {
   name: string;
   interactionId: string;
   authorizationId?: string;
+  /** 敏感命令或敏感配置操作：插件侧不能代为批准，只能由电脑端独立确认。 */
+  sensitive?: boolean;
   status: "pending" | "running" | "completed" | "error";
   arguments?: string;
   result?: string;
@@ -372,6 +374,11 @@ export type SnowRemoteModesState = {
   workflow: boolean;
   yolo: boolean;
   lite: boolean;
+  /**
+   * Goal 模式的 Token 预算（0 = 无上限）：与桌面 PlusMenu 的预算输入同源，
+   * 手机端动作面板在目标模式开启时可读写。
+   */
+  goalTokenBudget: number;
 };
 
 export type SnowRemoteState = {
@@ -639,6 +646,11 @@ export type SnowRemoteControlApi = {
   newChat: () => Promise<{ ok: true }>;
   /** 复用真实模式 setter 链；enabled=false 时关闭该模式。 */
   setMode: (mode: SnowRemoteModeId, enabled: boolean) => Promise<{ ok: true }>;
+  /**
+   * 调整 Goal 模式的 Token 预算（与桌面 PlusMenu 的预算输入同源）：
+   * 只写入当前会话的覆盖（0 = 无上限），随下一次发送落库。
+   */
+  setGoalTokenBudget: (budget: number) => Promise<{ ok: true }>;
   /**
    * 切换「工具失败自动纠错」应用级开关：复用桌面 PlusMenu 的同一偏好
    * （toolCorrectionPreference），写入 appSettings 并同步渲染层缓存。

@@ -50,6 +50,10 @@ import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
 import { ensureBuiltinPets } from "../pets/ensureBuiltinPet";
 import { registerRequestProxy } from "../requestProxy/requestProxy";
 import { registerOAuthPlugins } from "../oauthPlugins/oauthPluginHost";
+import {
+  registerPluginBackgrounds,
+  stopPluginBackgrounds,
+} from "../pluginBackground/pluginBackgroundHost";
 import { startScheduledTaskWakeup } from "./scheduledTaskWakeup";
 import { isScheduledWakeLaunch } from "./scheduledWakeLaunch";
 import { isTeamHostLaunch } from "../team/teamServiceLaunch";
@@ -186,6 +190,8 @@ export const bootstrapApplication = (): void => {
     registerRequestProxy(native);
     // OAuth 登录插件：注册 Rust 回调并同步已启用插件声明的 provider。
     registerOAuthPlugins(native);
+    // 插件常驻后台模块：注册 Rust 长连接事件回调并同步已启用插件。
+    registerPluginBackgrounds(native);
     // 预加载独立窗口记忆的尺寸（异步读取，创建窗口时无需同步读盘）。
     void initDetachedPanelWindowState();
 
@@ -420,6 +426,8 @@ export const bootstrapApplication = (): void => {
     if (remoteShutdownComplete) return;
 
     event.preventDefault();
+    // 插件后台模块随应用退出停止，并关闭其长连接。
+    stopPluginBackgrounds();
     remoteShutdownPromise ??= Promise.all([
       remoteTunnelManager.shutdown(),
       stopRemoteControlServer(),

@@ -62,3 +62,19 @@ export type PluginHttpResponse = {
   url: string;
   error: string | null;
 };
+
+/** 主进程后台模块请求渲染层执行的一次 RPC（元数据 / 写动作）。 */
+export type PluginBackgroundRequest = {
+  id: string;
+  pluginId: string;
+  method: string;
+  args: Record<string, unknown>;
+};
+
+/** 渲染层对后台 RPC 的回复。 */
+export type PluginBackgroundResponse = {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+};

@@ -2,7 +2,6 @@ import {
   Archive,
   Download,
   Loader2,
-  Puzzle,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -30,6 +29,7 @@ import { marketStore, useMarketStore } from "../../plugins/marketStore";
 import { pluginStore, usePluginStore } from "../../plugins/pluginStore";
 import type { UserscriptRecord } from "../../../preload/types/userscripts";
 import { Modal } from "../common/Modal";
+import { PluginMarketIcon } from "../common/PluginMarketIcon";
 import { Tooltip } from "../common/Tooltip";
 
 /**
@@ -312,7 +312,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
             <div className="plugins-item plugin-market-item" key={entry.id}>
               <div className="plugins-item-head">
                 <span className="plugins-item-icon">
-                  <Puzzle size={18} />
+                  <PluginMarketIcon icon={entry.icon} />
                 </span>
                 <div className="plugins-item-title">
                   <span className="plugins-item-name-row">

@@ -98,7 +98,8 @@ http = "1"
 # RFC 6455 编解码与握手，代理 CONNECT 隧道与 TLS 由 api/responses/ws.rs 自行建立，
 # 以便完整复用项目既有的代理配置。native-tls / tokio-native-tls 本就在依赖图里
 # （reqwest 的 default-tls），这里显式声明只是为了能直接调用。
-tokio-tungstenite = "0.24"
+# 插件 WebSocket 长连接（plugin_ws）直连 wss 端点，需要 native-tls 特性提供默认 TLS 连接器。
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
 

@@ -7458,6 +7458,8 @@ export const en = {
   "plugins.net.badge": "Declaration required",
   "plugins.net.fetchSummary":
     'Sends an external HTTP request (http/https only): follows the app proxy settings, bypasses CORS, and sends no cookies. Timeout defaults to 30 s (max 120 s), response body limit 5 MB of raw bytes; responseType "text" (default) decodes body as UTF-8, while "arraybuffer" returns the raw bytes as base64 in bodyBase64 so the plugin decodes them itself (e.g. GBK / GB18030). Network failures never throw and are reported in the error field.',
+  "plugins.net.wsSummary":
+    "Opens a long-lived WebSocket connection from a resident background module (ctx.ws.connect): http/https URLs map to ws/wss, wss uses the system TLS, text frames are sent with send(), received frames fire onMessage (binary as base64), and connections close automatically when the background module stops. Up to 32 concurrent connections, 4 MiB per message.",
   "plugins.net.empty": "No matching network capability",
   "plugins.net.docHint":
     "Full reference: the built-in plugin development guide ~/.snowapp/docs/en/2-guides/24-plugin-development-and-installation.md",

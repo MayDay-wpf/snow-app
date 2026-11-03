@@ -42,6 +42,7 @@ import {
   USER_QUESTION_RESPONSE_CHANNEL,
 } from "../userQuestionBroker";
 import { refreshUserscriptSyncStore } from "../../app/userscriptSyncStore";
+import { syncPluginBackgrounds } from "../../pluginBackground/pluginBackgroundHost";
 import {
   MAIN_LANGUAGE_SETTING_CODE,
   refreshMainLocale,
@@ -1414,6 +1415,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
           (toolName === "config-set" || toolName === "config-delete") &&
           readConfigScope(argsJson) === "plugins"
         ) {
+          void syncPluginBackgrounds();
           safeSend(event.sender, "plugins:changed");
         }
         // 用户脚本（config-set / config-delete 的 userscripts 作用域）：AI 可

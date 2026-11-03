@@ -52,6 +52,8 @@ const MAX_TODO_CONTENT_LENGTH: usize = 500;
 const MAX_WORKFLOW_REPLY_LENGTH: usize = 2_000;
 /// 可远程切换的代理行为模式白名单（必须与 renderer/types/remoteControl.ts 一致）。
 const REMOTE_MODES: [&str; 5] = ["goal", "worktree", "workflow", "yolo", "lite"];
+/// 目标模式 Token 预算上限（0 = 无上限；与 Renderer 桥的校验一致）。
+const MAX_GOAL_TOKEN_BUDGET: i64 = 1_000_000_000;
 /// 已完成 send 请求的去重缓存容量。
 const COMPLETED_SEND_CAPACITY: usize = 200;
 /// 等待 send 派发空窗的上限（轮换凭据 / 停止服务时使用）。
@@ -2056,6 +2058,29 @@ async fn handle_api(
             }
         };
         let value = bridge_call("setMode", json!([mode, enabled])).await?;
+        return Ok(json_response(StatusCode::OK, &value, Vec::new()));
+    }
+
+    // 目标模式 Token 预算（与桌面 PlusMenu 的预算输入同源）：0 = 无上限。
+    if method == Method::POST && path == "/api/goal-budget" {
+        if !is_json_request(headers) {
+            return Ok(json_response(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                &json!({ "error": "Content-Type 必须是 application/json" }),
+                Vec::new(),
+            ));
+        }
+        let payload = read_json_body(body.take()).await?;
+        let budget = payload.get("budget").and_then(Value::as_i64);
+        let Some(budget) = budget.filter(|value| (0..=MAX_GOAL_TOKEN_BUDGET).contains(value))
+        else {
+            return Ok(json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": "budget 必须是 0 到 1000000000 之间的整数（0 = 无上限）" }),
+                Vec::new(),
+            ));
+        };
+        let value = bridge_call("setGoalTokenBudget", json!([budget])).await?;
         return Ok(json_response(StatusCode::OK, &value, Vec::new()));
     }
 

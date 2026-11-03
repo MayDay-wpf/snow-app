@@ -367,6 +367,9 @@ const toRemoteToolCall = (toolCall: ToolCallInfo): SnowRemoteToolCall => ({
   name: toolCall.name,
   interactionId: toolCall.interactionId,
   authorizationId: toolCall.authorizationId,
+  sensitive:
+    (toolCall.sensitiveCommandMatches?.length ?? 0) > 0 ||
+    toolCall.sensitiveOperation !== undefined,
   status: toolCall.status,
   // 工具参数 / 结果 / 流式输出与 PC 端一致：全量下发（不做长度截断），
   // 只过一遍脱敏（redactSensitiveToolText 留在无依赖模块里，安全契约
@@ -1942,6 +1945,9 @@ export const RemoteControlBridge = ({
             workflow: current.conversation.workflowMode,
             yolo: current.conversation.yoloMode,
             lite: current.conversation.liteMode,
+            // Goal 模式的 Token 预算（0 = 无上限）：与桌面 PlusMenu 的预算
+            // 输入同源，手机端动作面板据此回显与调整。
+            goalTokenBudget: current.conversation.goalModeTokenBudget,
           },
           // 应用级开关：与桌面 PlusMenu 的自动纠错同源（模块级缓存，
           // 桌面或手机任一侧切换后都即时可见）。
@@ -2238,6 +2244,30 @@ export const RemoteControlBridge = ({
           default:
             throw new Error("不支持的模式");
         }
+        return { ok: true };
+      },
+
+      // Goal 模式的 Token 预算（与桌面 PlusMenu 的预算输入同源）：
+      // 0 = 无上限；只写入当前会话的覆盖（随下一次发送落库），
+      // 全局默认值不受影响。与桌面一致：会话运行中预算输入被禁用，
+      // 这里按实时状态兜底拒绝（手机端快照可能滞后）。
+      setGoalTokenBudget: async (budget): Promise<{ ok: true }> => {
+        const current = stateRef.current.conversation;
+        if (
+          typeof budget !== "number" ||
+          !Number.isInteger(budget) ||
+          budget < 0
+        ) {
+          throw new Error("Token 预算必须是非负整数");
+        }
+        if (
+          current.isStreaming ||
+          current.isAborting ||
+          Boolean(current.isCompacting)
+        ) {
+          throw new Error("会话进行中，暂不可调整 Token 预算");
+        }
+        await current.setGoalModeTokenBudget(budget);
         return { ok: true };
       },
 

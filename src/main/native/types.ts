@@ -2696,6 +2696,16 @@ export type NativeBridge = ImageGenerationNativeApi & {
   pushOAuthPluginStreamChunk: (streamId: number, chunk: Buffer) => boolean;
   /** OAuth 插件 fetch 钩子的流式正文结束（正常读完或读取出错）。 */
   endOAuthPluginStream: (streamId: number) => boolean;
+  /** 注册插件 WebSocket 事件回调；事件为 JSON 字符串（open / message / error / close）。 */
+  setPluginWsHandler: (handler: ((eventJson: string) => void) | null) => void;
+  /** 打开插件 WebSocket（同步返回连接 id，握手在 Rust 异步任务中完成）。 */
+  pluginWsOpen: (optionsJson: string) => number;
+  /** 发送一条文本帧；连接不存在、已关闭或队列满时返回 false。 */
+  pluginWsSend: (id: number, text: string) => boolean;
+  /** 发送一条二进制帧（入参为 base64）；解码失败、超限、连接不存在或队列满时返回 false。 */
+  pluginWsSendBinary: (id: number, base64: string) => boolean;
+  /** 请求关闭连接；返回 true 表示关闭请求已投递。 */
+  pluginWsClose: (id: number, code: number, reason: string) => boolean;
   getOAuthQuota: (profileName: string) => Promise<OAuthQuotaSnapshot>;
   listApiConfigs: () => Promise<ApiConfigRecord[]>;
   /** 重试错误分类默认关键词（JSON 字符串，单一来源在 Rust api::retry）。 */

@@ -7000,6 +7000,8 @@ export const zhTW = {
   "plugins.net.badge": "需要宣告",
   "plugins.net.fetchSummary":
     '發起外部 HTTP 請求（僅 http/https）：跟隨應用代理設定、無 CORS 限制、不攜帶 Cookie。逾時預設 30 秒（上限 120 秒），回應主體上限 5MB（按原始位元組計）；responseType 預設 "text"（宿主以 UTF-8 解碼 body），傳 "arraybuffer" 時原始位元組以 base64 放在 bodyBase64、由外掛自行解碼（如 GBK / GB18030）。網路層失敗不拋例外，以結果中的 error 欄位回傳。',
+  "plugins.net.wsSummary":
+    "由常駐背景模組發起長連線（ctx.ws.connect）：http/https 位址自動轉為 ws/wss，wss 使用系統 TLS；文字框架經 send() 傳送，收到的框架觸發 onMessage（二進位以 base64 傳遞）；背景模組停止時連線自動關閉。最多 32 個並行連線，單則訊息上限 4 MiB。",
   "plugins.net.empty": "沒有符合的網路能力",
   "plugins.net.docHint":
     "完整說明見內建文件 ~/.snowapp/docs/zh-CN/2-使用指南/24-插件开发与安装.md",

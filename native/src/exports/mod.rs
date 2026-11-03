@@ -14,6 +14,7 @@ mod model_health;
 mod model_registry;
 mod oauth;
 mod pets;
+mod plugin_ws;
 mod prompt_optimization;
 pub(crate) mod pre_script;
 mod remote_control;

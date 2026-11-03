@@ -6992,6 +6992,8 @@ export const zhCN = {
   "plugins.net.badge": "需要声明",
   "plugins.net.fetchSummary":
     '发起外部 HTTP 请求（仅 http/https）：跟随应用代理设置、无 CORS 限制、不携带 Cookie。超时默认 30 秒（上限 120 秒），响应体上限 5MB（按原始字节计）；responseType 缺省 "text"（宿主按 UTF-8 解码 body），传 "arraybuffer" 时原始字节以 base64 放在 bodyBase64、由插件自行解码（如 GBK / GB18030）。网络层失败不抛异常，以结果里的 error 字段返回。',
+  "plugins.net.wsSummary":
+    "由常驻后台模块发起长连接（ctx.ws.connect）：http/https 地址自动转为 ws/wss，wss 使用系统 TLS；文本帧经 send() 发送，收到的帧触发 onMessage（二进制以 base64 传递）；后台模块停止时连接自动关闭。最多 32 个并发连接，单条消息上限 4 MiB。",
   "plugins.net.empty": "没有匹配的网络能力",
   "plugins.net.docHint":
     "完整说明见内置文档 ~/.snowapp/docs/zh-CN/2-使用指南/24-插件开发与安装.md",

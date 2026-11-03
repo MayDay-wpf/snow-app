@@ -134,7 +134,7 @@ async fn remove_if_exists(path: &std::path::Path) -> napi::Result<bool> {
 }
 
 /// XML 转义（仅 macOS 构建 plist 时使用）。
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")

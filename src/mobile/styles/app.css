@@ -493,6 +493,60 @@ textarea:focus-visible {
   contain: strict;
   animation: none;
 }
+/* 会话切换过渡态的骨架屏（见 timeline.ts 的 beginConversationSwitch）：点击会话
+   后立即以占位替换上一个会话的消息，桌面端切换结果到达后再由真实内容接管。
+   结构与行宽梯度对齐桌面端 ChatHistorySkeleton，配色取自主题变量（深色 /
+   日间模式共用同一份规则）；呼吸动画由全局 prefers-reduced-motion 关闭。 */
+#messages.is-switching {
+  /* 占满可视高度并垂直居中骨架屏：与桌面端 .chat-area.is-loading-history 的
+     justify-content: center 同款观感（不这么做骨架屏会贴在顶部、下方一大片空白）。 */
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.message-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.message-skeleton-item {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+/* 用户消息占位右对齐，与 .message.user 的气泡位置一致。 */
+.message-skeleton-item.is-user {
+  align-items: flex-end;
+}
+.message-skeleton-line {
+  display: block;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--line);
+}
+.message-skeleton-item.is-assistant .message-skeleton-line:nth-child(1) {
+  width: 88%;
+}
+.message-skeleton-item.is-assistant .message-skeleton-line:nth-child(2) {
+  width: 68%;
+}
+.message-skeleton-item.is-assistant .message-skeleton-line:nth-child(3) {
+  width: 42%;
+}
+.message-skeleton-item.is-user .message-skeleton-line:nth-child(1) {
+  width: 42%;
+}
+.message-skeleton-item.is-user .message-skeleton-line:nth-child(2) {
+  width: 28%;
+}
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
 .markdown {
   font-size: 15px;
   line-height: 1.68;
@@ -935,6 +989,53 @@ textarea:focus-visible {
    点击由 composer 脚本拦截并提示「暂不可切换模式」。 */
 .action-item.is-locked {
   opacity: 0.55;
+}
+/* 目标模式的 Token 预算行：与桌面 PlusMenu 的预算输入一致（数字输入 +
+   tokens 单位 + 无上限开关），仅目标模式开启时出现。 */
+.action-budget-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 12px 8px 34px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.action-budget-row[hidden] {
+  display: none;
+}
+.action-budget-row.is-locked {
+  opacity: 0.55;
+}
+.action-budget-label {
+  flex: none;
+}
+.action-budget-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--secondary-control-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+.action-budget-input:disabled {
+  opacity: 0.6;
+}
+.action-budget-unit {
+  flex: none;
+}
+.action-budget-unlimited {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.action-budget-unlimited input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent-color);
 }
 .scrim {
   position: fixed;

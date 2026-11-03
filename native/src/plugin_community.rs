@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use napi::bindgen_prelude::*;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
@@ -63,6 +63,15 @@ const COMMUNITY_MAX_SCRIPTS: usize = 50;
 const COMMUNITY_TMP_DIR_NAME: &str = "community-tmp";
 /// 勾选安装的临时目录保留时长：用户中途放弃时由后续调用清理。
 const COMMUNITY_TMP_TTL_SECS: u64 = 60 * 60;
+/// 社区条目图标的读取上限（`plugin.json` 只有几百字节）。
+const COMMUNITY_ICON_MAX_BYTES: u64 = 64 * 1024;
+/// 单个仓库图标读取的超时。
+const COMMUNITY_ICON_TIMEOUT: Duration = Duration::from_secs(5);
+/// 整批图标读取的总时长上限：raw 地址不可达（被黑洞）时不能让列表一直等下去，
+/// 超时后剩余条目留空、回退占位图标。
+const COMMUNITY_ICON_DEADLINE: Duration = Duration::from_secs(8);
+/// 并发读取社区条目图标的工作线程数。
+const COMMUNITY_ICON_WORKERS: usize = 8;
 
 /// 查询串编码集：保留 RFC 3986 未保留字符，其余（含 `:` 与空格）转义。
 const QUERY_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
@@ -128,6 +137,10 @@ struct CommunityRepo {
     default_branch: String,
     #[serde(default)]
     archived: bool,
+    /// 仓库默认分支 `plugin.json` 里的 `icon`（已归一化为可直接展示的值）；
+    /// 未声明或读取失败时为空，渲染层回退占位图标。
+    #[serde(default)]
+    icon: String,
 }
 
 /// 检索失败原因：限流可回退缓存，其余直接报错。
@@ -281,6 +294,7 @@ fn parse_repo(item: &serde_json::Value) -> Option<CommunityRepo> {
             .get("archived")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
+        icon: String::new(),
     })
 }
 
@@ -323,12 +337,105 @@ fn fetch_community_page(
         .get("total_count")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    let items = parsed
+    let mut items: Vec<CommunityRepo> = parsed
         .get("items")
         .and_then(serde_json::Value::as_array)
         .map(|entries| entries.iter().filter_map(parse_repo).collect())
         .unwrap_or_default();
+    resolve_community_icons(&client, &mut items);
     Ok((items, total))
+}
+
+/// 逐个仓库读取默认分支的 `plugin.json`，把其中的 `icon` 归一化为可直接展示的值。
+///
+/// 与官方市场条目共用同一套图标语义：`lucide:Name` 原样交给宿主图标库；
+/// `http(s)` / `data:image` 原样返回（渲染层经 `img-proxy` 代理或内联展示）；
+/// 插件目录内相对路径展开为仓库 raw 地址。任何失败都只留空字符串，
+/// 渲染层回退占位图标，不影响列表本身。
+fn resolve_community_icons(client: &reqwest::blocking::Client, repos: &mut [CommunityRepo]) {
+    if repos.is_empty() {
+        return;
+    }
+    let deadline = Instant::now() + COMMUNITY_ICON_DEADLINE;
+    let workers = COMMUNITY_ICON_WORKERS.min(repos.len());
+    let chunk_size = (repos.len() + workers - 1) / workers;
+    std::thread::scope(|scope| {
+        for chunk in repos.chunks_mut(chunk_size) {
+            scope.spawn(move || {
+                for repo in chunk.iter_mut() {
+                    let budget = deadline.saturating_duration_since(Instant::now());
+                    if budget.is_zero() {
+                        return;
+                    }
+                    repo.icon = fetch_community_icon(client, repo, budget);
+                }
+            });
+        }
+    });
+}
+
+/// 读取单个仓库的图标；仓库未声明 `icon`、文件不存在或超时都返回空串。
+fn fetch_community_icon(
+    client: &reqwest::blocking::Client,
+    repo: &CommunityRepo,
+    budget: Duration,
+) -> String {
+    let branch = if repo.default_branch.is_empty() {
+        "HEAD"
+    } else {
+        repo.default_branch.as_str()
+    };
+    // `repo` 存的是 html_url（`https://github.com/owner/repo`），拼 raw 地址前
+    // 必须先取出 `owner/repo`，否则会拼成 `raw.githubusercontent.com/https://github.com/...`。
+    let slug = github_repo_slug(&repo.repo).unwrap_or_else(|| repo.id.clone());
+    let base = format!("https://raw.githubusercontent.com/{slug}/{branch}/");
+    let Ok(response) = client
+        .get(format!("{base}plugin.json"))
+        .timeout(budget.min(COMMUNITY_ICON_TIMEOUT))
+        .send()
+    else {
+        return String::new();
+    };
+    if !response.status().is_success() {
+        return String::new();
+    }
+    if matches!(response.content_length(), Some(length) if length > COMMUNITY_ICON_MAX_BYTES) {
+        return String::new();
+    }
+    let Ok(text) = response.text() else {
+        return String::new();
+    };
+    if text.len() as u64 > COMMUNITY_ICON_MAX_BYTES {
+        return String::new();
+    }
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return String::new();
+    };
+    let raw = manifest
+        .get("icon")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    normalize_community_icon(raw, &base)
+}
+
+/// 归一化社区条目图标：只接受受支持的取值，拒绝绝对路径与越界路径。
+fn normalize_community_icon(raw: &str, base: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    let lower = raw.to_ascii_lowercase();
+    if lower.starts_with("lucide:")
+        || lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("data:image/")
+    {
+        return raw.to_string();
+    }
+    if raw.starts_with('/') || raw.starts_with('\\') || raw.contains("..") || raw.contains('\\') {
+        return String::new();
+    }
+    format!("{base}{raw}")
 }
 
 /// 序列化返回给渲染层的结果（字段名与 `parseCommunityPlugins` 对应）。

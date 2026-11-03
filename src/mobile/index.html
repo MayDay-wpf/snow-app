@@ -529,6 +529,27 @@
             aria-hidden="true"
           ></span>
         </button>
+        <div id="goalBudgetRow" class="action-budget-row" hidden>
+          <span
+            class="action-budget-label"
+            data-i18n="remote.modes.goalBudget"
+          ></span>
+          <input
+            id="goalBudgetInput"
+            class="action-budget-input"
+            type="number"
+            min="10000"
+            step="100000"
+            inputmode="numeric"
+            aria-label="Token 预算"
+            data-i18n-aria-label="remote.modes.goalBudget"
+          />
+          <span class="action-budget-unit">tokens</span>
+          <label class="action-budget-unlimited">
+            <input id="goalBudgetUnlimited" type="checkbox" />
+            <span data-i18n="remote.modes.goalBudgetUnlimited"></span>
+          </label>
+        </div>
         <div class="action-divider" role="separator"></div>
         <div
           class="action-section-title"

@@ -118,6 +118,14 @@ export const PluginMetadataCatalog = ({
           "responseType",
         ],
       },
+      {
+        id: "ctx.ws.connect",
+        summary: t("plugins.net.wsSummary", {
+          defaultValue:
+            "Opens a long-lived WebSocket connection from a resident background module: http/https URLs map to ws/wss, wss uses the system TLS, text frames are sent with send(), received frames fire onMessage, and connections close when the background module stops. Up to 32 concurrent connections, 4 MiB per message.",
+        }),
+        params: ["url", "headers", "onOpen", "onMessage", "onError", "onClose"],
+      },
     ],
     [t],
   );

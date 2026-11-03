@@ -1334,6 +1334,18 @@ body.is-panel-resizing * {
   gap: 2px;
 }
 
+/* 加载指示器占位槽：与 .icon-btn.ghost 同尺寸同色，
+   保证与相邻图标按钮垂直对齐、间距一致 */
+.section-actions-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--text-tertiary);
+}
+
 .section-toggle-btn {
   display: inline-flex;
   align-items: center;
@@ -5300,7 +5312,6 @@ body.is-panel-resizing * {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 820px;
   margin: 0 20px 18px;
 }
 
@@ -5318,12 +5329,10 @@ body.is-panel-resizing * {
 }
 
 .import-settings-tabs.remote-settings-tabs {
-  max-width: 820px;
   margin: 0 20px 16px;
 }
 
 .remote-pairing-hint {
-  max-width: 820px;
   margin: 0 20px 18px;
   padding: 12px 14px;
   border: 1px dashed var(--border-color);
@@ -5339,7 +5348,6 @@ body.is-panel-resizing * {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 820px;
   margin: 0 20px 18px;
 }
 
@@ -5395,7 +5403,6 @@ body.is-panel-resizing * {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 820px;
   margin: 0 20px 18px;
   padding: 14px 16px;
   border: 1px solid var(--border-color);
@@ -5490,7 +5497,6 @@ body.is-panel-resizing * {
   grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr);
   gap: 24px;
   padding: 20px;
-  max-width: 820px;
 }
 
 .remote-pairing-qr {
@@ -5644,7 +5650,6 @@ body.is-panel-resizing * {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 820px;
   margin: 0 20px 20px;
   padding: 18px;
   border: 1px solid var(--border-color);
@@ -33113,17 +33118,43 @@ body.is-right-pane-resizing-y * {
   background: var(--bg-primary);
 }
 
-.task-manager-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px;
+/* 胶囊外观在外层，滚动交给 OverlayScrollbar：内容不换行，
+   超出时显示底部悬浮细条，不撑高胶囊。 */
+.task-manager-tabs-wrap {
+  display: flex;
   min-width: 0;
   max-width: 100%;
-  padding: 3px;
+  padding: 3px 3px 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.task-manager-tabs-wrap > .overlay-scrollbar {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+/* 细条略离开胶囊底边，避免与描边粘在一起 */
+.task-manager-tabs-wrap .overlay-scrollbar-thumb {
+  bottom: 1px;
+}
+
+.task-manager-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.task-manager-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .task-manager-tab-btn {
@@ -33140,6 +33171,7 @@ body.is-right-pane-resizing-y * {
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .task-manager-tab-btn:hover:not(.is-active) {
@@ -34619,10 +34651,6 @@ body.is-right-pane-resizing-y * {
   }
   .task-manager-search {
     flex-basis: 100%;
-  }
-  .task-manager-tabs {
-    width: 100%;
-    justify-content: space-between;
   }
   .task-manager-tab-btn {
     gap: 4px;

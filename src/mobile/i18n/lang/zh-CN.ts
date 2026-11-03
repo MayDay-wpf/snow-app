@@ -157,6 +157,8 @@ export const zhCN: Record<string, string> = {
   "remote.modes.worktree": "WorkTree",
   "remote.modes.workflow": "WorkFlow",
   "remote.modes.goal": "目标",
+  "remote.modes.goalBudget": "Token 预算",
+  "remote.modes.goalBudgetUnlimited": "无上限",
   "remote.appSettings.sectionTitle": "应用",
   "remote.appSettings.toolCorrection": "自动纠错",
 

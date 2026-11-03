@@ -296,7 +296,11 @@ export function SidebarProjectTree({
           </Tooltip>
         </div>
         <div className="section-actions">
-          {isBusy ? <Loader2 className="spin" size={14} /> : null}
+          {isBusy ? (
+            <span aria-hidden="true" className="section-actions-spinner">
+              <Loader2 className="spin" size={14} />
+            </span>
+          ) : null}
           {!archived.isArchiveMode ? (
             <Tooltip
               content={t("sidebar.chatImportConversations", {

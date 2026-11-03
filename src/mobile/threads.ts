@@ -51,6 +51,15 @@ let renderedKey = "";
 const expandedIds = new Set<string>();
 /** 分组（工作区）展开状态的手动覆盖：true = 展开，false = 收起；未覆盖走默认。 */
 const groupOverrides = new Map<string, boolean>();
+/**
+ * 乐观选中的目标会话：点击会话后立即按它高亮条目（不等服务端响应），
+ * 快照的 activeConversationId 追上目标后自动解除。
+ */
+let pendingConversationId: string | null = null;
+
+/** 列表应高亮的会话：优先乐观选中的目标，其次快照里的活动会话。 */
+const activeConversationIdOf = (next: SnowRemoteState): string | null =>
+  pendingConversationId ?? next.activeConversationId ?? null;
 
 type ThreadGroup = {
   name: string;
@@ -160,14 +169,14 @@ const conversationDigest = (conversation: SnowRemoteConversation): string =>
   ].join("\u0003");
 
 const threadsSignature = (
-  next: SnowRemoteState,
   groups: ThreadGroup[],
   groupState: string,
+  activeConversationId: string | null,
 ): string =>
   [
     // 分钟级时间桶：让相对时间标签自然刷新，同时避免每轮重建。
     String(Math.floor(Date.now() / 60000)),
-    next.activeConversationId ?? "",
+    activeConversationId ?? "",
     loadingDirectory ?? "",
     // 展开状态参与签名：点击箭头后无需等待下一轮快照即可重绘。
     Array.from(expandedIds).sort().join(","),
@@ -481,6 +490,11 @@ const groupHtml = (
 /** 会话选择列表渲染（由 main.ts 每轮快照调用）。 */
 export const renderThreads = (next: SnowRemoteState): void => {
   lastState = next;
+  // 快照已追上乐观选中：解除覆盖，之后一律以快照为准。
+  if (pendingConversationId === next.activeConversationId) {
+    pendingConversationId = null;
+  }
+  const activeConversationId = activeConversationIdOf(next);
   const groups = buildGroups(next);
   const defaultOpen = defaultOpenDirectory(groups, next);
   const expandedByDirectory = new Map(
@@ -496,7 +510,7 @@ export const renderThreads = (next: SnowRemoteState): void => {
         (expandedByDirectory.get(group.directoryId) ? ":1" : ":0"),
     )
     .join(",");
-  const key = threadsSignature(next, groups, groupState);
+  const key = threadsSignature(groups, groupState, activeConversationId);
   if (key === renderedKey) return;
   renderedKey = key;
 
@@ -504,7 +518,7 @@ export const renderThreads = (next: SnowRemoteState): void => {
     .map((group) =>
       groupHtml(
         group,
-        next.activeConversationId ?? null,
+        activeConversationId,
         expandedByDirectory.get(group.directoryId) === true,
       ),
     )
@@ -564,8 +578,13 @@ export const createNewChat = async (ctx: AppContext): Promise<void> => {
 };
 
 /**
- * 切换会话（会话列表与只读收尾栏的「返回主会话」共用）：关闭浮层 → 选中 →
- * 失效消息区缓存 → 刷新快照；directoryId 为空时由桌面端按会话记录解析。
+ * 切换会话（会话列表、只读收尾栏的「返回主会话」与 Workflow 节点会话共用）：
+ * 关闭浮层 → 立即高亮目标条目并显示骨架屏 → 通知桌面端切换 → 刷新快照。
+ *
+ * 选中与骨架屏是乐观反馈（不等服务端响应），与桌面端「选中即切换、历史加载中
+ * 显示骨架屏」一致：点击的瞬间列表条目就切换、消息区进入加载占位，桌面端切换
+ * 结果到达后由快照接管；请求失败或快照未跟上则回退到真实快照。
+ * directoryId 为空时由桌面端按会话记录解析。
  */
 export const selectThread = async (
   ctx: AppContext,
@@ -574,14 +593,27 @@ export const selectThread = async (
 ): Promise<void> => {
   if (!conversationId) return;
   closeOverlays(false);
+  // 已是当前会话：只收起列表，不重复切换（避免多余的骨架屏闪烁）。
+  if (conversationId === lastState?.activeConversationId) return;
   showNotice(t("remote.notice.switchingConversation"));
+  pendingConversationId = conversationId;
+  if (lastState) renderThreads(lastState);
+  ctx.beginConversationSwitch(conversationId);
+  // 骨架屏已就位：让下一次快照必定重绘消息区（即使签名未变），避免过渡态滞留。
+  ctx.invalidateTimeline();
   try {
     await selectConversation(conversationId, directoryId);
-    ctx.invalidateTimeline();
     await ctx.refresh(false);
     showNotice(t("remote.notice.conversationSelected"));
   } catch (error) {
     showNotice((error as Error).message, true);
+  } finally {
+    if (pendingConversationId === conversationId) {
+      // 切换未生效（请求失败 / 快照未跟上）：撤销乐观选中，回退到真实快照。
+      pendingConversationId = null;
+      if (lastState) renderThreads(lastState);
+      ctx.cancelConversationSwitch();
+    }
   }
 };
 

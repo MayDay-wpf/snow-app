@@ -96,6 +96,13 @@ let streaming = false;
 let rollbackAvailable = false;
 /** 平滑回底动画的帧句柄（0 = 空闲；非 0 期间滚动事件属于程序化滚动）。 */
 let scrollToBottomAnim = 0;
+/**
+ * 会话切换过渡态的目标会话 id（null = 无过渡态）：点击会话后立即清空消息区并
+ * 显示骨架屏，等桌面端切换结果（快照的 activeConversationId 变成目标会话）到达
+ * 再渲染。过渡期间仍指向旧会话的快照不参与消息区渲染——否则骨架屏会被旧会话的
+ * 消息顶掉，切换完成后再闪一次。
+ */
+let switchingTo: string | null = null;
 
 // ── DOM 节点缓存 ──────────────────────────────────────────────────────────
 
@@ -741,10 +748,66 @@ const emptyHtml = (): string =>
 
 const paintEmpty = (): void => {
   const container = $("messages");
+  setSkeletonContainer(false);
   const html = emptyHtml();
   if (container.dataset.emptyHtml === html) return;
   container.dataset.emptyHtml = html;
   container.innerHTML = html;
+};
+
+/** 骨架屏单行占位（条数与排布见 skeletonHtml）。 */
+const SKELETON_LINE = '<span class="message-skeleton-line"></span>';
+
+/**
+ * 骨架屏容器态：消息区占满可视高度并垂直居中骨架屏（见 styles/app.css）。
+ * 不挂类时骨架屏会贴在消息区顶部、下方留一大片空白，与桌面端
+ * .chat-area.is-loading-history 的居中观感不一致。
+ */
+const SKELETON_CONTAINER_CLASS = "is-switching";
+
+/** 切换骨架屏容器态（进入过渡态时开启，真实内容 / 空态接管时关闭）。 */
+const setSkeletonContainer = (active: boolean): void => {
+  $("messages").classList.toggle(SKELETON_CONTAINER_CLASS, active);
+};
+
+/** 会话切换骨架屏：3 条与真实消息同构的占位（assistant / user / assistant）。 */
+const skeletonHtml = (): string => {
+  const items = [
+    { tone: "is-assistant", lines: 3 },
+    { tone: "is-user", lines: 2 },
+    { tone: "is-assistant", lines: 2 },
+  ];
+  return (
+    `<div class="message-skeleton" aria-hidden="true">` +
+    items
+      .map(
+        (item) =>
+          `<div class="message-skeleton-item ${item.tone}">${SKELETON_LINE.repeat(item.lines)}</div>`,
+      )
+      .join("") +
+    `</div>`
+  );
+};
+
+/** 消息区当前是否仍是会话切换骨架屏（离线占位等其它内容接管后即为否）。 */
+const skeletonVisible = (): boolean =>
+  $("messages").firstElementChild?.classList.contains("message-skeleton") ===
+  true;
+
+/** 清空消息区并绘制骨架屏（会话切换过渡态，见 beginConversationSwitch）。 */
+const paintSkeleton = (): void => {
+  clearRenderedNodes();
+  resetViewportVirtualization();
+  cancelScrollToBottomAnim();
+  const container = $("messages");
+  // 空态标记必须清掉：否则恢复消息态时 paintEmpty 会认为占位内容仍是它画的，
+  // 直接跳过重绘，骨架屏会一直留在页面上。
+  delete container.dataset.emptyHtml;
+  container.innerHTML = skeletonHtml();
+  setSkeletonContainer(true);
+  $("timeline").scrollTop = 0;
+  updateLoadEarlierButton();
+  syncScrollToBottomButton();
 };
 
 /** 清空全部消息节点（同时停止虚拟化观察）。 */
@@ -760,6 +823,8 @@ const reconcileMessages = (rebuild: boolean): void => {
   const container = $("messages");
   const state = currentState;
   if (!state) return;
+  // 真实内容（或空态）接管消息区：撤下骨架屏容器态。
+  setSkeletonContainer(false);
   const isStreaming = state.isStreaming;
 
   if (rebuild) {
@@ -1180,6 +1245,42 @@ const pinnedMessageIds = (): ReadonlySet<string> => {
 };
 
 /**
+ * 进入会话切换过渡态：立即清空消息区并显示骨架屏，并忽略仍指向旧会话的快照。
+ *
+ * 由会话列表在发起切换请求前调用，使点击会话的视觉反馈（列表选中项 + 消息区
+ * 骨架屏）不再依赖服务端响应，与桌面端「选中即切换、历史加载中显示骨架屏」
+ * 的观感一致。
+ */
+export const beginConversationSwitch = (conversationId: string): void => {
+  switchingTo = conversationId;
+  knownList = [];
+  knownIds.clear();
+  hasOlder = false;
+  hasLoadedHistory = false;
+  loadingOlder = false;
+  // 会话已变：在途的「加载更早」请求作废。
+  loadGeneration += 1;
+  userNearBottom = true;
+  paintSkeleton();
+};
+
+/**
+ * 取消会话切换过渡态（切换失败 / 快照未跟上）：解除快照过滤并按当前快照重绘，
+ * 消息区从骨架屏回退到上一个会话的真实内容。
+ */
+export const cancelConversationSwitch = (): void => {
+  if (switchingTo === null) return;
+  switchingTo = null;
+  // 骨架屏已被其它内容接管（离线占位 / 快照已渲染）：只撤下容器态。
+  if (!skeletonVisible()) {
+    setSkeletonContainer(false);
+    return;
+  }
+  if (currentState) renderTimeline(currentState, false);
+  else paintEmpty();
+};
+
+/**
  * 渲染消息区。仅在 main.ts 检测到快照签名变化时调用；
  * isFirstRender 表示本次是首次渲染（必然滚到底部）。
  */
@@ -1192,6 +1293,12 @@ export const renderTimeline = (
   // 回滚入口门控：桌面可回滚（子代理 / 节点会话不可）且不在流式输出中——
   // 与桌面流式期间隐藏回滚按钮一致；字段缺失时按可用处理（见上方注释）。
   rollbackAvailable = next.rollbackAvailable !== false && !next.isStreaming;
+  if (switchingTo !== null) {
+    // 切换尚未生效：忽略旧会话的快照，把骨架屏留在消息区。
+    if ((next.activeConversationId ?? null) !== switchingTo) return;
+    // 目标会话已到达：结束过渡，走下面的整表重建（骨架屏随之被清掉）。
+    switchingTo = null;
+  }
   const conversationChanged =
     (next.activeConversationId ?? null) !== renderedConversationId;
   if (conversationChanged) {

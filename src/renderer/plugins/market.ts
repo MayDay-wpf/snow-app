@@ -1,3 +1,4 @@
+import { imageProxyUrl } from "../utils/imageProxyUrl";
 import type { PluginLocalizedMap } from "./types";
 
 /** 市场分类：面板插件 / 脚本插件 / OAuth 登录插件。 */
@@ -38,6 +39,43 @@ export type MarketRegistry = {
 
 export const PLUGIN_MARKET_REPO_URL =
   "https://github.com/MayDay-wpf/snow-plugin-store";
+
+/** 市场条目图标来源：宿主内置图标，或可直接渲染的图片地址。 */
+export type MarketIconSource =
+  { kind: "lucide"; name: string } | { kind: "image"; src: string };
+
+const LUCIDE_ICON_PREFIX = "lucide:";
+const REMOTE_ICON_PATTERN = /^https?:\/\//i;
+const INLINE_ICON_PATTERN = /^data:image\//i;
+
+/**
+ * 市场条目图标解析（官方索引条目与社区仓库条目共用）。
+ *
+ * 市场条目在安装前没有插件目录，因此不接受插件内相对路径：
+ * - `lucide:Name`：宿主内置图标；
+ * - `http(s)://`：转为 `img-proxy://` 代理地址（CSP 的 `img-src` 只放行该协议）；
+ * - `data:image/...`：原样内联渲染；
+ * - 其余（含插件内相对路径）：返回 null，由渲染层回退占位图标。
+ */
+export const resolveMarketIcon = (icon: string): MarketIconSource | null => {
+  const trimmed = icon.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.toLowerCase().startsWith(LUCIDE_ICON_PREFIX)) {
+    return {
+      kind: "lucide",
+      name: trimmed.slice(LUCIDE_ICON_PREFIX.length).trim(),
+    };
+  }
+  if (REMOTE_ICON_PATTERN.test(trimmed)) {
+    return { kind: "image", src: imageProxyUrl(trimmed) };
+  }
+  if (INLINE_ICON_PATTERN.test(trimmed)) {
+    return { kind: "image", src: trimmed };
+  }
+  return null;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -292,6 +330,12 @@ export type CommunityPluginEntry = {
   /** 仓库默认分支名（安装时用于解析提交，可为空）。 */
   defaultBranch: string;
   archived: boolean;
+  /**
+   * 仓库默认分支 `plugin.json` 声明的 `icon`（已由 Rust 侧归一化：
+   * `lucide:Name` / `http(s)` / `data:image` 原样，插件内相对路径展开为仓库
+   * raw 地址）；空串表示未声明或读取失败，界面回退占位图标。
+   */
+  icon: string;
 };
 
 export type CommunitySearchResult = {
@@ -334,6 +378,7 @@ export const parseCommunitySearch = (text: string): CommunitySearchResult => {
       pushedAt: asTrimmedString(raw.pushedAt),
       defaultBranch: asTrimmedString(raw.defaultBranch),
       archived: raw.archived === true,
+      icon: asTrimmedString(raw.icon),
     });
   }
   return {

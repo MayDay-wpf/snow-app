@@ -289,7 +289,7 @@ The `snow` extension API is exclusive to client scripts and only covers what the
 
 > In sandboxed mode the global `fetch` is already replaced with this CORS-free implementation (a plain `fetch(...)` in the script just works), scoped to the script's own isolated world; in full-permission mode the global `fetch` stays native (the app itself is unaffected) — call `snow.fetch` explicitly there. `GM_xmlhttpRequest` has always bypassed CORS.
 
-Application data read/write shares the panel plugin engine (`api.metadata` / `api.write`: 36 read domains, 212 write actions) and is gated by the `@snow-privacy` declaration:
+Application data read/write shares the panel plugin engine (`api.metadata` / `api.write`: 37 read domains, 225 write actions) and is gated by the `@snow-privacy` declaration:
 
 | API                                                                 | Notes                                                                                                                                                                                                                |
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

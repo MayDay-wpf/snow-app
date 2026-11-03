@@ -219,6 +219,13 @@ export const setMode = (
     body: JSON.stringify({ mode, enabled }),
   });
 
+/** 调整 Goal 模式的 Token 预算（与桌面 PlusMenu 的预算输入同源）：0 = 无上限。 */
+export const setGoalTokenBudget = (budget: number): Promise<{ ok: true }> =>
+  request("/api/goal-budget", {
+    method: "POST",
+    body: JSON.stringify({ budget }),
+  });
+
 /** 切换「工具失败自动纠错」应用级开关（与桌面 PlusMenu 同一偏好）。 */
 export const setToolCorrection = (enabled: boolean): Promise<{ ok: true }> =>
   request("/api/tool-correction", {

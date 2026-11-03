@@ -1,6 +1,6 @@
 # 6-Plugin Metadata Domains
 
-> Applies to: Snow App desktop plugins (`renderMode` is `esm` or `iframe`). This reference lists, domain by domain, the application metadata a plugin can read through `api.metadata`: domain ids, privacy declaration requirements, liveness, accepted parameters, and return shapes, plus a requirement-to-domain map. Writing application data uses the separate `api.write` (212 write actions, each with its own sensitive scope): call shapes, failure handling, and the action cheat sheet live in the writable-capabilities section of [24-Plugin development and installation](../2-guides/24-plugin-development-and-installation.md), which also covers the manifest and installation workflow. Client UI scripts (Plugins → Plugin list → Script plugins) reach the very same domains and actions through `snow.metadata` / `snow.write`; sensitive scopes must be declared with `@snow-privacy` in the script metadata header - see the client-script chapter of [22-Userscripts](../2-guides/22-userscripts.md).
+> Applies to: Snow App desktop plugins (`renderMode` is `esm` or `iframe`). This reference lists, domain by domain, the application metadata a plugin can read through `api.metadata`: domain ids, privacy declaration requirements, liveness, accepted parameters, and return shapes, plus a requirement-to-domain map. Writing application data uses the separate `api.write` (225 write actions, each with its own sensitive scope): call shapes, failure handling, and the action cheat sheet live in the writable-capabilities section of [24-Plugin development and installation](../2-guides/24-plugin-development-and-installation.md), which also covers the manifest and installation workflow. Client UI scripts (Plugins → Plugin list → Script plugins) reach the very same domains and actions through `snow.metadata` / `snow.write`; sensitive scopes must be declared with `@snow-privacy` in the script metadata header - see the client-script chapter of [22-Userscripts](../2-guides/22-userscripts.md).
 
 ## 1. Scope and sources
 
@@ -52,9 +52,9 @@ const list = api.metadata.domains(); // [{ id, scope, granted, live, sensitiveFi
 | `withheld`    | object   | Domain id to the list of stripped field paths (for example `["0.apiKey", "api.apiKey"]`)   |
 | `unknown`     | string[] | Domain ids that do not exist                                                               |
 
-`get(domain)` accepts a single domain id or an array; an empty array requests all 36 domains (undeclared sensitive domains are still denied).
+`get(domain)` accepts a single domain id or an array; an empty array requests all 37 domains (undeclared sensitive domains are still denied).
 
-The app ships the same catalog for users: **Plugins** at the bottom of the sidebar, then **Metadata catalog** in the toolbar, opens the "App metadata available to plugins" modal. It groups all 36 domains with a one-line summary, the privacy requirement, live-versus-polled behavior and accepted parameters, and offers keyword search; the per-plugin "Metadata n/36" link marks that plugin's declared (readable) and undeclared (denied) domains. The modal offers "Reading" and "Writable" tabs; the Writable tab uses the same catalog source (212 write actions with their required `scope` and declaration state), and the "Write n/212" badge on a plugin row counts the write actions that plugin has declared; the amber privacy-scope badges on plugin and script rows open the "Privacy scopes" dialog, which lists each declared scope with its purpose and the readable / writable surface it unlocks - see [24-Plugin development and installation](../2-guides/24-plugin-development-and-installation.md).
+The app ships the same catalog for users: **Plugins** at the bottom of the sidebar, then **Metadata catalog** in the toolbar, opens the "App metadata available to plugins" modal. It groups all 37 domains with a one-line summary, the privacy requirement, live-versus-polled behavior and accepted parameters, and offers keyword search; the per-plugin "Metadata n/37" link marks that plugin's declared (readable) and undeclared (denied) domains. The modal offers "Reading" and "Writable" tabs; the Writable tab uses the same catalog source (225 write actions with their required `scope` and declaration state), and the "Write n/225" badge on a plugin row counts the write actions that plugin has declared; the amber privacy-scope badges on plugin and script rows open the "Privacy scopes" dialog, which lists each declared scope with its purpose and the readable / writable surface it unlocks - see [24-Plugin development and installation](../2-guides/24-plugin-development-and-installation.md).
 
 ### 1.2 Parameters (`params`)
 
@@ -77,88 +77,90 @@ When a parameter is missing, mistyped, or the underlying data is unavailable, th
 | Kind                | Push behavior                                                                         | Domains                                                                        |
 | ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Live (`live: true`) | Re-collected and pushed after a 200 ms debounce whenever the runtime snapshot changes | `projects`, `git`, `conversations`, `messages`, `runtime`, `panels`, `plugins` |
-| Non-live            | Pushed once on subscribe; pass `intervalMs` (minimum 1000 ms) to poll                 | The other 29 domains                                                           |
+| Non-live            | Pushed once on subscribe; pass `intervalMs` (minimum 1000 ms) to poll                 | The other 30 domains                                                           |
 
 The `live` flag from `api.metadata.domains()` lets a panel distinguish "realtime once subscribed" from "poll to refresh" domains.
 
 ## 2. Requirement to domain map
 
-| UI or feature you want                                   | Domain to read                                      | Key fields                                                  |
-| -------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
-| Conversation list, titles, pinned items, message counts  | `conversations`                                     | `items[]`, `pinned[]`, `active`                             |
-| Message bodies and thinking traces of one conversation   | `messages`                                          | `items[]` (with `content`, `thinking`, `toolCallsJson`)     |
-| A streaming metrics bar (tokens, elapsed time, TTFT)     | `runtime`                                           | `conversation.*`, `streamingSessions[]`                     |
-| The chat-input token usage ring                          | `runtime` + `conversations`                         | `chatInput.maxContextTokens`, `conversation.tokenUsage`     |
-| The current chat-input content                           | `runtime`                                           | `chatInput.inputText` (raw text, keeps `@@file:...@@` tags) |
-| Which right-panel tabs are open                          | `panels`                                            | `tabs[]`, `activeTabId`                                     |
-| Project (workspace) list, collections, relink history    | `projects`                                          | `directories[]`, `collections[]`, `relinks[]`               |
-| A memo panel with pending/done counts                    | `memos`                                             | `summary`, `items[]`                                        |
-| Project memory browsing and statistics                   | `memory`                                            | `stats`, `items[]`                                          |
-| A scheduled task board                                   | `scheduledTasks`                                    | Task array (with `nextRunAt`, `runCount`)                   |
-| Usage charts                                             | `usage`                                             | `summary`, `daily[]`, `models[]`, `records`                 |
-| A log viewer                                             | `logs`                                              | `items[]`, `total`                                          |
-| Git status, branches, repo identity                      | `git`                                               | `status`, `branches[]`, `identity`                          |
-| Codebase index progress and file list                    | `codebase`                                          | `indexStats`, `indexedFiles`, `resumableSessions[]`         |
-| API profile and model pickers                            | `apiProfiles`                                       | Profile array (`profileName`, `advancedModel`, ...)         |
-| Live channel model picker                                | `apiModels`                                         | `models[]` (for the profile in `profileName`)               |
-| Matching the app theme                                   | `theme`                                             | `mode`, `custom`, `fontFamily`                              |
-| Reading app switches (lite, auto-format, shortcuts, ...) | `settings`                                          | See 4.1.3                                                   |
-| MCP servers and tools                                    | `mcp`                                               | `servers[]`, `projectServersWithTools[]`                    |
-| Sub-agents, Hooks, Skills, and LSP inventory             | `subAgents`, `hooks`, `skills`, `lsp`               | Their respective arrays                                     |
-| Tool approvals and sensitive command rules               | `permissions`                                       | `alwaysApprovedTools[]`, `sensitiveCommands[]`              |
-| Privacy filtering settings                               | `privacy`                                           | `enabled`, `mode`, `toolResults`                            |
-| System prompts, custom headers, global ROLE              | `systemPrompts`, `customHeaders`, `personalization` | Record arrays or file content                               |
-| App version, engine, storage locations, memory usage     | `app`                                               | `appVersion`, `engine`, `storageLocations`                  |
-| Task manager process CPU, memory, and threads            | `processes`                                         | `processes[]`, `totalMemoryBytes`                           |
-| SSH credentials, `~/.ssh/config` hosts, remote drafts    | `ssh`                                               | `credentials[]`, `configHosts[]`, `remoteDrafts[]`          |
-| Mobile remote-control pairing and tunnel state           | `remoteControl`                                     | `pairing`, `tunnel`                                         |
-| Browser passwords, bookmarks, downloads, import sources  | `browser`                                           | Four arrays                                                 |
-| Userscript inventory                                     | `userscripts`                                       | Script array                                                |
-| Image library and albums                                 | `imageLibrary`                                      | `images[]`, `albums[]`                                      |
-| Desktop pets and their settings                          | `pets`                                              | `installed[]`, `settings`                                   |
-| Installed plugins (including this one)                   | `plugins`                                           | Plugin array                                                |
-| Opening an external IDE                                  | `ide`                                               | `id`, `name`, `executable`                                  |
+| UI or feature you want                                          | Domain to read                                      | Key fields                                                  |
+| --------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| Conversation list, titles, pinned items, message counts         | `conversations`                                     | `items[]`, `pinned[]`, `active`                             |
+| Message bodies and thinking traces of one conversation          | `messages`                                          | `items[]` (with `content`, `thinking`, `toolCallsJson`)     |
+| A streaming metrics bar (tokens, elapsed time, TTFT)            | `runtime`                                           | `conversation.*`, `streamingSessions[]`                     |
+| The chat-input token usage ring                                 | `runtime` + `conversations`                         | `chatInput.maxContextTokens`, `conversation.tokenUsage`     |
+| The current chat-input content                                  | `runtime`                                           | `chatInput.inputText` (raw text, keeps `@@file:...@@` tags) |
+| Which right-panel tabs are open                                 | `panels`                                            | `tabs[]`, `activeTabId`                                     |
+| Project (workspace) list, collections, relink history           | `projects`                                          | `directories[]`, `collections[]`, `relinks[]`               |
+| A memo panel with pending/done counts                           | `memos`                                             | `summary`, `items[]`                                        |
+| Project memory browsing and statistics                          | `memory`                                            | `stats`, `items[]`                                          |
+| A scheduled task board                                          | `scheduledTasks`                                    | Task array (with `nextRunAt`, `runCount`)                   |
+| Usage charts                                                    | `usage`                                             | `summary`, `daily[]`, `models[]`, `records`                 |
+| A log viewer                                                    | `logs`                                              | `items[]`, `total`                                          |
+| Git status, branches, repo identity                             | `git`                                               | `status`, `branches[]`, `identity`                          |
+| Codebase index progress and file list                           | `codebase`                                          | `indexStats`, `indexedFiles`, `resumableSessions[]`         |
+| API profile and model pickers                                   | `apiProfiles`                                       | Profile array (`profileName`, `advancedModel`, ...)         |
+| Live channel model picker                                       | `apiModels`                                         | `models[]` (for the profile in `profileName`)               |
+| Matching the app theme                                          | `theme`                                             | `mode`, `custom`, `fontFamily`                              |
+| Reading app switches (lite, auto-format, shortcuts, ...)        | `settings`                                          | See 4.1.3                                                   |
+| MCP servers and tools                                           | `mcp`                                               | `servers[]`, `projectServersWithTools[]`                    |
+| Sub-agents, Hooks, Skills, and LSP inventory                    | `subAgents`, `hooks`, `skills`, `lsp`               | Their respective arrays                                     |
+| Tool approvals and sensitive command rules                      | `permissions`                                       | `alwaysApprovedTools[]`, `sensitiveCommands[]`              |
+| Privacy filtering settings                                      | `privacy`                                           | `enabled`, `mode`, `toolResults`                            |
+| System prompts, custom headers, global ROLE                     | `systemPrompts`, `customHeaders`, `personalization` | Record arrays or file content                               |
+| App version, engine, storage locations, memory usage            | `app`                                               | `appVersion`, `engine`, `storageLocations`                  |
+| Task manager process CPU, memory, and threads                   | `processes`                                         | `processes[]`, `totalMemoryBytes`                           |
+| SSH credentials, `~/.ssh/config` hosts, remote drafts           | `ssh`                                               | `credentials[]`, `configHosts[]`, `remoteDrafts[]`          |
+| Pending tool authorizations and questions (interaction replies) | `interactions`                                      | `authorizations[]`, `questions[]`                           |
+| Mobile remote-control pairing and tunnel state                  | `remoteControl`                                     | `pairing`, `tunnel`                                         |
+| Browser passwords, bookmarks, downloads, import sources         | `browser`                                           | Four arrays                                                 |
+| Userscript inventory                                            | `userscripts`                                       | Script array                                                |
+| Image library and albums                                        | `imageLibrary`                                      | `images[]`, `albums[]`                                      |
+| Desktop pets and their settings                                 | `pets`                                              | `installed[]`, `settings`                                   |
+| Installed plugins (including this one)                          | `plugins`                                           | Plugin array                                                |
+| Opening an external IDE                                         | `ide`                                               | `id`, `name`, `executable`                                  |
 
 ## 3. Domain quick reference
 
-| Domain            | Privacy declaration | Live | Main parameters                                        | Summary                                                           |
-| ----------------- | ------------------- | ---- | ------------------------------------------------------ | ----------------------------------------------------------------- |
-| `app`             | —                   | No   | —                                                      | Version, updates, engine, storage locations, environment          |
-| `theme`           | Field-level         | No   | —                                                      | Theme mode, palettes, font, background, stream cursor             |
-| `settings`        | Field-level         | No   | `conversationId`                                       | App switches, shortcuts, conversation modes, Git scan             |
-| `privacy`         | `privacyConfig`     | No   | —                                                      | Privacy filter switch, mode, and API configuration                |
-| `permissions`     | —                   | No   | `projectId`                                            | Approval lists, read-only tools, sensitive command rules          |
-| `ide`             | —                   | No   | —                                                      | IDEs usable for "open in editor"                                  |
-| `pets`            | —                   | No   | —                                                      | Installed pets and pet window settings                            |
-| `plugins`         | `plugins`           | Yes  | —                                                      | Installed plugin inventory                                        |
-| `apiProfiles`     | Field-level         | No   | —                                                      | API profiles (keys stripped)                                      |
-| `apiModels`       | —                   | No   | `profileName`                                          | Live provider model list (ids only)                               |
-| `systemPrompts`   | `systemPrompts`     | No   | —                                                      | System prompt entries                                             |
-| `customHeaders`   | `customHeaders`     | No   | —                                                      | Custom request-header schemes                                     |
-| `personalization` | `personalization`   | No   | —                                                      | The global ROLE rules file                                        |
-| `mcp`             | Field-level         | No   | `projectId`                                            | MCP servers, tools, and project-level state                       |
-| `subAgents`       | Field-level         | No   | `projectId`                                            | Sub-agent configurations                                          |
-| `hooks`           | —                   | No   | `projectId`                                            | Global and project-level hooks                                    |
-| `skills`          | —                   | No   | `projectId`                                            | Available Skills and project overrides                            |
-| `lsp`             | —                   | No   | `projectId`                                            | LSP servers, effective config, session states                     |
-| `codebase`        | —                   | No   | `projectId`, `page`, `pageSize`                        | Index scope, stats, files, resumable sessions                     |
-| `conversations`   | `conversations`     | Yes  | `directoryId`                                          | Project conversation list and focused conversation                |
-| `messages`        | `messages`          | Yes  | `conversationId`                                       | Messages, including thinking and tool-call JSON                   |
-| `runtime`         | —                   | Yes  | —                                                      | Live runtime snapshot (conversation, streaming, panels, projects) |
-| `panels`          | —                   | Yes  | —                                                      | Right-panel tab state                                             |
-| `memos`           | `memos`             | No   | `directoryId`, `limit`, `offset`                       | Memo entries and counts                                           |
-| `memory`          | `memory`            | No   | `directoryId`, `limit`, `offset`                       | Project memory entries and statistics                             |
-| `scheduledTasks`  | Field-level         | No   | —                                                      | Scheduled task definitions and run state                          |
-| `usage`           | `usage`             | No   | `since`, `until`, `profileName`, `limit`, `offset`     | Usage summary, daily/model breakdowns, and records                |
-| `logs`            | `logs`              | No   | `level`, `module`, `since`, `until`, `limit`, `offset` | Paged application logs                                            |
-| `projects`        | —                   | Yes  | `directoryId`                                          | Project list, collections, relinks, active project                |
-| `git`             | `git`               | Yes  | `projectPath`, `projectId`                             | Repository status, branches, repo identity                        |
-| `ssh`             | `ssh`               | No   | `directoryId`                                          | SSH credentials, config hosts, remote drafts                      |
-| `remoteControl`   | `remoteControl`     | No   | —                                                      | Mobile pairing state and tunnel status                            |
-| `browser`         | `browserData`       | No   | —                                                      | Passwords, bookmarks, downloads, import sources                   |
-| `userscripts`     | `userscripts`       | No   | —                                                      | Userscript inventory                                              |
-| `imageLibrary`    | —                   | No   | —                                                      | Library images, albums, and root directory                        |
-| `processes`       | Field-level         | No   | —                                                      | Task manager process tree: roles, CPU, memory, threads, children  |
+| Domain            | Privacy declaration | Live | Main parameters                                        | Summary                                                              |
+| ----------------- | ------------------- | ---- | ------------------------------------------------------ | -------------------------------------------------------------------- |
+| `app`             | —                   | No   | —                                                      | Version, updates, engine, storage locations, environment             |
+| `theme`           | Field-level         | No   | —                                                      | Theme mode, palettes, font, background, stream cursor                |
+| `settings`        | Field-level         | No   | `conversationId`                                       | App switches, shortcuts, conversation modes, Git scan                |
+| `privacy`         | `privacyConfig`     | No   | —                                                      | Privacy filter switch, mode, and API configuration                   |
+| `permissions`     | —                   | No   | `projectId`                                            | Approval lists, read-only tools, sensitive command rules             |
+| `ide`             | —                   | No   | —                                                      | IDEs usable for "open in editor"                                     |
+| `pets`            | —                   | No   | —                                                      | Installed pets and pet window settings                               |
+| `plugins`         | `plugins`           | Yes  | —                                                      | Installed plugin inventory                                           |
+| `apiProfiles`     | Field-level         | No   | —                                                      | API profiles (keys stripped)                                         |
+| `apiModels`       | —                   | No   | `profileName`                                          | Live provider model list (ids only)                                  |
+| `systemPrompts`   | `systemPrompts`     | No   | —                                                      | System prompt entries                                                |
+| `customHeaders`   | `customHeaders`     | No   | —                                                      | Custom request-header schemes                                        |
+| `personalization` | `personalization`   | No   | —                                                      | The global ROLE rules file                                           |
+| `mcp`             | Field-level         | No   | `projectId`                                            | MCP servers, tools, and project-level state                          |
+| `subAgents`       | Field-level         | No   | `projectId`                                            | Sub-agent configurations                                             |
+| `hooks`           | —                   | No   | `projectId`                                            | Global and project-level hooks                                       |
+| `skills`          | —                   | No   | `projectId`                                            | Available Skills and project overrides                               |
+| `lsp`             | —                   | No   | `projectId`                                            | LSP servers, effective config, session states                        |
+| `codebase`        | —                   | No   | `projectId`, `page`, `pageSize`                        | Index scope, stats, files, resumable sessions                        |
+| `conversations`   | `conversations`     | Yes  | `directoryId`                                          | Project conversation list and focused conversation                   |
+| `messages`        | `messages`          | Yes  | `conversationId`                                       | Messages, including thinking and tool-call JSON                      |
+| `runtime`         | —                   | Yes  | —                                                      | Live runtime snapshot (conversation, streaming, panels, projects)    |
+| `panels`          | —                   | Yes  | —                                                      | Right-panel tab state                                                |
+| `memos`           | `memos`             | No   | `directoryId`, `limit`, `offset`                       | Memo entries and counts                                              |
+| `memory`          | `memory`            | No   | `directoryId`, `limit`, `offset`                       | Project memory entries and statistics                                |
+| `scheduledTasks`  | Field-level         | No   | —                                                      | Scheduled task definitions and run state                             |
+| `usage`           | `usage`             | No   | `since`, `until`, `profileName`, `limit`, `offset`     | Usage summary, daily/model breakdowns, and records                   |
+| `logs`            | `logs`              | No   | `level`, `module`, `since`, `until`, `limit`, `offset` | Paged application logs                                               |
+| `projects`        | —                   | Yes  | `directoryId`                                          | Project list, collections, relinks, active project                   |
+| `git`             | `git`               | Yes  | `projectPath`, `projectId`                             | Repository status, branches, repo identity                           |
+| `ssh`             | `ssh`               | No   | `directoryId`                                          | SSH credentials, config hosts, remote drafts                         |
+| `interactions`    | `messages`          | No   | —                                                      | Pending tool authorizations and questions of the active conversation |
+| `remoteControl`   | `remoteControl`     | No   | —                                                      | Mobile pairing state and tunnel status                               |
+| `browser`         | `browserData`       | No   | —                                                      | Passwords, bookmarks, downloads, import sources                      |
+| `userscripts`     | `userscripts`       | No   | —                                                      | Userscript inventory                                                 |
+| `imageLibrary`    | —                   | No   | —                                                      | Library images, albums, and root directory                           |
+| `processes`       | Field-level         | No   | —                                                      | Task manager process tree: roles, CPU, memory, threads, children     |
 
 "Field-level" means the whole domain is readable, but values whose key name matches a sensitive field are stripped unless the matching privacy scope is declared; chapter 4 lists each domain.
 
@@ -447,7 +449,22 @@ Check `runtime.conversation.fileChangeTrackingVersion === 1` before consuming en
 
 Implementation anchors: `src/renderer/components/mainContent/chatMessages/hooks/fileChangeTracking.ts`, `useChatConversation.ts`, `toolExecution.ts`, `subAgentActivation.ts`, `useConversationManagement.ts` (same directory), and `src/renderer/plugins/PluginRuntimeBridge.tsx`.
 
-#### 4.3.4 `panels`
+#### 4.3.4 `interactions`
+
+**Whole-domain sensitive: `messages`** · Not live (poll it) · No parameters
+
+Returns only the pending items of the **active conversation**, from the same source as mobile remote control. The domain does not push updates: poll it with `subscribe` plus `intervalMs` (minimum 1000 ms), or, in a plugin background module, with `ctx.every` together with `ctx.metadata.get`, to learn about new requests.
+
+| Field            | Type     | Description                                                                                                                                                                        |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authorizations` | object[] | Pending tool authorizations: `{ authorizationId, interactionId, name, status, sensitive, arguments }`; `sensitive` is `true` for sensitive commands, which a plugin cannot approve |
+| `questions`      | object[] | Pending questions: `{ questionId, question, options }`                                                                                                                             |
+
+Replies to these items use the four write actions of the `interactions` domain: `approveAuthorization` and `rejectAuthorization` (require the `toolApproval` declaration), and `answerQuestion` and `cancelQuestion` (require the `conversations` declaration). For call shapes, privacy rules and a background-module example, see the "8.5 Write action cheat sheet" and "13. Resident background modules, long connections and interaction replies" sections of [24-Plugin development and installation](../2-guides/24-plugin-development-and-installation.md).
+
+Source anchors: `src/renderer/plugins/metadata/domains.ts` (`interactions` collector), `src/renderer/plugins/writes/domains/interactions.ts` (the four write actions), `src/mobile/interactions.ts` (the authorization and question implementation shared with mobile remote control).
+
+#### 4.3.5 `panels`
 
 No declaration · Live · No parameters
 
@@ -457,7 +474,7 @@ No declaration · Live · No parameters
 | `activeTabId`                  | string \| null | Currently active tab                                                                             |
 | `isCollapsed` / `isFullscreen` | boolean        | Panel collapse and fullscreen state                                                              |
 
-#### 4.3.5 `memos`
+#### 4.3.6 `memos`
 
 **Whole-domain sensitive: `memos`** · Not live · Parameters: `directoryId`, `limit`, `offset`
 
@@ -466,7 +483,7 @@ No declaration · Live · No parameters
 | `summary` | object \| null | `{ total, pending, done }`                                                                                                                      |
 | `items`   | object \| null | `{ items, total, hasMore }`; entries are `{ id, memoId, directoryId, content, status, createdAt, updatedAt }` with `status` `pending` or `done` |
 
-#### 4.3.6 `memory`
+#### 4.3.7 `memory`
 
 **Whole-domain sensitive: `memory`** · Not live · Parameters: `directoryId`, `limit`, `offset`
 
@@ -475,7 +492,7 @@ No declaration · Live · No parameters
 | `stats` | object \| null | `{ total, active, pending, archived }`                                                                                                                                                                                                                              |
 | `items` | object \| null | `{ items, total, hasMore }`; entries are `{ memoryId, kind, title, content, source, status, importance, tags, conversationId, lastRecalledAt, recallCount, createdAt, updatedAt }` with `kind` one of `fact` / `decision` / `preference` / `pitfall` / `task_state` |
 
-#### 4.3.7 `scheduledTasks`
+#### 4.3.8 `scheduledTasks`
 
 Field-level sensitive: `prompt`, `preScript` to `scheduledTasks` · Not live · No parameters
 
@@ -495,7 +512,7 @@ Returns the scheduled task array:
 | `apiProfile` / `basicModel` / `model` / `thinkingStrength` | string                    | Model overrides used by the fired conversation                                                   |
 | `history`                                                  | object[]                  | `{ runAt, status, durationMs, error }`, at most 20 entries                                       |
 
-#### 4.3.8 `usage`
+#### 4.3.9 `usage`
 
 **Whole-domain sensitive: `usage`** · Not live · Parameters: `since`, `until`, `profileName`, `conversationId`, `directoryId`, `limit`, `offset`
 
@@ -507,7 +524,7 @@ Returns the scheduled task array:
 | `models`       | object[] \| null | `{ model, requestMethod, totalRequests, errorRequests, ...same token fields }`                                                                                                                                                                                                                 |
 | `records`      | object \| null   | `{ items, total }`; entries are `{ id, conversationId, responseId, model, apiProfileName, requestMethod, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, status, isSubAgent, directoryId, createdAt, totalTokens, effectiveCacheReadTokens, nonCachedInputTokens }` |
 
-#### 4.3.9 `logs`
+#### 4.3.10 `logs`
 
 **Whole-domain sensitive: `logs`** · Not live · Parameters: `level`, `module`, `since`, `until`, `limit`, `offset`
 
@@ -721,11 +738,11 @@ api.metadata.subscribe("git", ({ domains }) => {
 
 ## Source anchors
 
-- `src/renderer/plugins/metadata/domains.ts::METADATA_DOMAINS`: definitions, parameter resolution, and collectors for all 36 domains
+- `src/renderer/plugins/metadata/domains.ts::METADATA_DOMAINS`: definitions, parameter resolution, and collectors for all 37 domains
 - `src/renderer/plugins/metadata/index.ts::collectMetadata`, `::subscribeMetadata`, `::describeMetadataDomains`: privacy checks, field redaction, subscribe/poll plumbing
-- `src/renderer/plugins/metadata/catalog.ts::METADATA_DOMAIN_CATALOG`: grouping, accepted parameters and quick-reference summaries for the 36 domains (data source of the in-app catalog)
+- `src/renderer/plugins/metadata/catalog.ts::METADATA_DOMAIN_CATALOG`: grouping, accepted parameters and quick-reference summaries for the 37 domains (data source of the in-app catalog)
 - `src/renderer/plugins/writes/index.ts::executeWrite`, `::describeWriteDomains`: privacy-declaration checks for write actions and the action list returned by `api.write.domains()` (data source of the write badge and modal section)
-- `src/renderer/plugins/writes/domains/`: 212 write action definitions in `content.ts`, `system.ts`, `draft.ts`, `config.ts`, and `admin.ts`
+- `src/renderer/plugins/writes/domains/`: 225 write action definitions in `content.ts`, `system.ts`, `draft.ts`, `config.ts`, `admin.ts`, and `interactions.ts`
 - `src/renderer/components/sidebar/PluginMetadataCatalog.tsx`: the user-facing "App metadata available to plugins" modal (including the writable-capabilities section)
 - `src/renderer/plugins/runtimeSnapshot.ts::RuntimeSnapshot`: live data source behind the `runtime` and `panels` domains
 - `src/renderer/plugins/pluginApi.ts`: plugin-facing `api.metadata.get / subscribe / domains` wrappers

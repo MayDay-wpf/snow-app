@@ -226,6 +226,15 @@ export const METADATA_DOMAIN_CATALOG: Record<
       "zh-TW": "即時執行期快照（工作階段、輸入框內容、串流指標、面板、專案）",
     },
   },
+  interactions: {
+    group: "content",
+    params: [],
+    summary: {
+      en: "Pending tool authorizations and questions of the active conversation",
+      "zh-CN": "当前激活会话中待处理的工具授权与提问",
+      "zh-TW": "目前啟用工作階段中待處理的工具授權與提問",
+    },
+  },
   panels: {
     group: "content",
     params: [],

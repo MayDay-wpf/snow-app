@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain, net } from "electron";
 import { extname } from "node:path";
 import { refreshUserscriptSyncStore } from "../../app/userscriptSyncStore";
 import { syncOAuthPlugins } from "../../oauthPlugins/oauthPluginHost";
+import { syncPluginBackgrounds } from "../../pluginBackground/pluginBackgroundHost";
 import type {
   NativeBridge,
   PluginRecord,
@@ -104,6 +105,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       }
       const record = await native.installPlugin(sourceDir.trim());
       await syncOAuthPlugins();
+      void syncPluginBackgrounds();
       return record;
     },
   );
@@ -164,6 +166,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
         sourceUrl.trim(),
       );
       await syncOAuthPlugins();
+      void syncPluginBackgrounds();
       safeSend(event.sender, "plugins:changed");
       return record;
     },
@@ -259,6 +262,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       const outcome = readCommunityOutcome(text);
       if (outcome === "plugin") {
         await syncOAuthPlugins();
+        void syncPluginBackgrounds();
         safeSend(event.sender, "plugins:changed");
       } else if (outcome === "scripts") {
         refreshUserscriptSyncStore(native);
@@ -276,6 +280,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       }
       const record = await native.rescanPlugin(pluginId.trim());
       await syncOAuthPlugins();
+      void syncPluginBackgrounds();
       return record;
     },
   );
@@ -288,6 +293,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       }
       await native.setPluginEnabled(pluginId.trim(), Boolean(enabled));
       await syncOAuthPlugins();
+      void syncPluginBackgrounds();
     },
   );
 
@@ -299,6 +305,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       }
       await native.deletePlugin(pluginId.trim(), Boolean(deleteFiles));
       await syncOAuthPlugins();
+      void syncPluginBackgrounds();
     },
   );
 
