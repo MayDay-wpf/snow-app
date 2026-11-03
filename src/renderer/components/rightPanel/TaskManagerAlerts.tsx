@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Bell } from "lucide-react";
 import { useI18n } from "../../i18n";
 import {
   advanceUsageAlerts,
@@ -19,8 +20,6 @@ type Props = {
   valid: boolean;
   /** settings: settings panel only. notice-only: inline notice banners only. */
   mode: "settings" | "notice-only";
-  /** Expand the settings panel on first render (the alerts tab wants it open). */
-  settingsOpen?: boolean;
 };
 
 type HookArgs = {
@@ -154,7 +153,6 @@ export function TaskManagerAlerts({
   samplingActive,
   valid,
   mode,
-  settingsOpen = false,
 }: Props): React.JSX.Element {
   const { t } = useI18n();
   const configValid = alertOptionsValid(options);
@@ -168,18 +166,18 @@ export function TaskManagerAlerts({
   return (
     <>
       {mode === "settings" && (
-        <details
-          className="task-manager-disclosure task-manager-alert-settings"
-          open={settingsOpen || undefined}
-        >
-          <summary>
-            {t("taskManager.alertTitle")} ·{" "}
-            {t(
-              options.enabled
-                ? "taskManager.alertEnabled"
-                : "taskManager.alertDisabled",
-            )}
-          </summary>
+        <section className="task-manager-card-section task-manager-alert-settings">
+          <div className="task-manager-section-header">
+            <Bell size={14} aria-hidden="true" />
+            <strong>{t("taskManager.alertTitle")}</strong>
+            <span className="task-manager-badge">
+              {t(
+                options.enabled
+                  ? "taskManager.alertEnabled"
+                  : "taskManager.alertDisabled",
+              )}
+            </span>
+          </div>
           <div className="task-manager-alert-body">
             <label className="toggle-switch task-manager-alert-enable">
               <input
@@ -254,7 +252,7 @@ export function TaskManagerAlerts({
               </p>
             )}
           </div>
-        </details>
+        </section>
       )}
       {mode === "notice-only" &&
         (["cpu", "memory"] as const).map(

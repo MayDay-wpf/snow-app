@@ -5281,6 +5281,16 @@ export const zhTW = {
   "taskManager.sessionResultUnconfirmed":
     "工作階段操作結果未確認，請重新整理確認狀態。",
   "taskManager.sessionActionFailed": "工作階段操作失敗，請重新整理確認狀態。",
+  "taskManager.samplingTitle": "程序取樣日誌",
+  "taskManager.samplingEnable": "定時記錄取樣日誌",
+  "taskManager.samplingInterval": "取樣間隔（秒）",
+  "taskManager.samplingIntervalHint": "5–3600 秒，預設 60 秒（1 分鐘）",
+  "taskManager.samplingInvalid": "間隔須為 5–3600 之間的整數秒。",
+  "taskManager.samplingDirectory": "日誌目錄",
+  "taskManager.samplingHint":
+    "每個週期追加一行 JSON：彙總、全部程序明細（角色、頁面標題、CPU、記憶體、執行緒）與 LSP 工作階段及資源預算。單檔 5 MB，最多保留 10 個檔案，超出自動輪替。僅寫入本機，日誌包含程序路徑與頁面 URL。",
+  "taskManager.samplingLoadError": "無法讀取取樣日誌設定。",
+  "taskManager.samplingSaveError": "儲存取樣日誌設定失敗，請重試。",
   "taskManager.alertTitle": "持續使用量警示",
   "taskManager.alertEnabled": "已啟用",
   "taskManager.alertDisabled": "預設關閉",

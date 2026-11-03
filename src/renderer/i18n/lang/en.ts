@@ -5705,6 +5705,19 @@ export const en = {
     "Session operation result not confirmed. Refresh to verify its status.",
   "taskManager.sessionActionFailed":
     "Session operation failed. Refresh to verify its status.",
+  "taskManager.samplingTitle": "Process sampling log",
+  "taskManager.samplingEnable": "Record sampling log on a schedule",
+  "taskManager.samplingInterval": "Sampling interval (seconds)",
+  "taskManager.samplingIntervalHint":
+    "5–3600 seconds. Default 60 seconds (1 minute).",
+  "taskManager.samplingInvalid":
+    "The interval must be an integer from 5 to 3600 seconds.",
+  "taskManager.samplingDirectory": "Log directory",
+  "taskManager.samplingHint":
+    "Each cycle appends one JSON line with totals, every process (role, page title, CPU, memory, threads) and LSP sessions with their budget. Files rotate at 5 MB and at most 10 files are kept. Written locally; entries include process paths and page URLs.",
+  "taskManager.samplingLoadError": "Could not read sampling log settings.",
+  "taskManager.samplingSaveError":
+    "Failed to save sampling log settings. Try again.",
   "taskManager.alertTitle": "Sustained usage alerts",
   "taskManager.alertEnabled": "Enabled",
   "taskManager.alertDisabled": "Off by default",

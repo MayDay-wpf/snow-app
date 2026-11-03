@@ -26,6 +26,19 @@ export type TaskManagerProcess = {
   killable: boolean;
 };
 
+/** 进程采样日志设置（全局）与日志目录。 */
+export type ProcessSamplingLogSettings = {
+  /** 是否定时记录采样日志（默认关闭） */
+  enabled: boolean;
+  /** 采样间隔（秒，5–3600，默认 60） */
+  intervalSecs: number;
+};
+
+export type ProcessSamplingLogState = ProcessSamplingLogSettings & {
+  /** 日志目录（~/.snowapp/logs） */
+  directory: string;
+};
+
 /** bash 工具 detach 启动的后台任务（Rust 内存登记表；应用重启后不保留） */
 export type DetachedTaskInfo = {
   /** 任务 id：bash 工具结果里的 taskId，用于 UI 定位 */

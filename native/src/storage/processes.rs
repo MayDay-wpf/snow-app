@@ -43,24 +43,41 @@ struct CpuBaseline {
 /// CPU 基线表：pid → 上次采样的 CPU 时间与墙钟时刻。
 type CpuBaselines = HashMap<u32, CpuBaseline>;
 
-/// 采样缓存：key 为 root pid，value 为该次采样下各进程的 CPU 基线。
-/// 同一时刻只可能有一个任务管理器面板在轮询，用单槽缓存即可（避免无限增长）。
-static SAMPLING_BASELINE: OnceLock<Mutex<Option<(u32, CpuBaselines)>>> = OnceLock::new();
+/// 单槽基线：(root pid, 该次采样下各进程的基线)。
+type BaselineSlot = Mutex<Option<(u32, CpuBaselines)>>;
 
-fn baseline_slot() -> &'static Mutex<Option<(u32, CpuBaselines)>> {
-    SAMPLING_BASELINE.get_or_init(|| Mutex::new(None))
+/// 任务管理器面板的采样缓存。同一时刻只可能有一个面板在轮询，单槽即可。
+static SAMPLING_BASELINE: OnceLock<BaselineSlot> = OnceLock::new();
+
+/// 进程日志采样器专用基线：与面板互不干扰，各自拥有完整的 CPU 统计窗口。
+static LOG_SAMPLING_BASELINE: OnceLock<BaselineSlot> = OnceLock::new();
+
+fn baseline_slot(cell: &'static OnceLock<BaselineSlot>) -> &'static BaselineSlot {
+    cell.get_or_init(|| Mutex::new(None))
 }
 
-/// 采集以 `root_pid` 为根的进程树快照。
+/// 采集以 `root_pid` 为根的进程树快照（任务管理器面板）。
 ///
 /// 返回值的 `cpu_percent` 是「相对上一次调用」的增量占用；首次调用（没有基线）
 /// 或两次采样间隔过短时返回 -1，由前端显示为占位符。
 pub fn list_process_tree(root_pid: u32) -> Result<Vec<ProcessSnapshotEntry>> {
+    sample_process_tree(root_pid, baseline_slot(&SAMPLING_BASELINE))
+}
+
+/// 采集进程树快照（进程日志采样器）：使用独立基线，CPU 为两次日志采样之间的平均值。
+pub fn list_process_tree_for_log(root_pid: u32) -> Result<Vec<ProcessSnapshotEntry>> {
+    sample_process_tree(root_pid, baseline_slot(&LOG_SAMPLING_BASELINE))
+}
+
+fn sample_process_tree(
+    root_pid: u32,
+    baselines_cell: &'static BaselineSlot,
+) -> Result<Vec<ProcessSnapshotEntry>> {
     let all = collect_processes()?;
     let descendants = collect_tree(&all, root_pid);
 
     let now = Instant::now();
-    let mut slot = baseline_slot()
+    let mut slot = baselines_cell
         .lock()
         .map_err(|_| Error::from_reason("Process sampling baseline mutex poisoned"))?;
     // root pid 变化（应用重启后 pid 复用/新进程）时丢弃旧基线，避免错配。

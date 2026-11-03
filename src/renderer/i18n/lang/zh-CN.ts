@@ -5339,6 +5339,16 @@ export const zhCN = {
   "taskManager.sessionResultUnconfirmed":
     "会话操作结果未确认，请刷新核实状态。",
   "taskManager.sessionActionFailed": "会话操作失败，请刷新核实状态。",
+  "taskManager.samplingTitle": "进程采样日志",
+  "taskManager.samplingEnable": "定时记录采样日志",
+  "taskManager.samplingInterval": "采样间隔（秒）",
+  "taskManager.samplingIntervalHint": "5–3600 秒，默认 60 秒（1 分钟）",
+  "taskManager.samplingInvalid": "间隔须为 5–3600 之间的整数秒。",
+  "taskManager.samplingDirectory": "日志目录",
+  "taskManager.samplingHint":
+    "每个周期追加一行 JSON：汇总、全部进程明细（角色、页面标题、CPU、内存、线程）与 LSP 会话及资源预算。单文件 5 MB，最多保留 10 个文件，超出自动轮转。仅写入本机，日志包含进程路径与页面 URL。",
+  "taskManager.samplingLoadError": "无法读取采样日志设置。",
+  "taskManager.samplingSaveError": "保存采样日志设置失败，请重试。",
   "taskManager.alertTitle": "持续占用告警",
   "taskManager.alertEnabled": "已启用",
   "taskManager.alertDisabled": "默认关闭",

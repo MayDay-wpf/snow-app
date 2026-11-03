@@ -33406,9 +33406,13 @@ body.is-right-pane-resizing-y * {
   margin-left: 8px;
 }
 
-.task-manager-budget,
-.task-manager-session-list {
+.task-manager-budget {
   padding: 4px 10px 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.task-manager-session-list {
   color: var(--text-secondary);
   font-size: 11px;
 }
@@ -33917,9 +33921,58 @@ body.is-right-pane-resizing-y * {
 }
 
 /* Task-manager enhancements stay inside the existing theme-aware panel scope. */
-.task-manager-trend-body,
-.task-manager-alert-body {
+.task-manager-trend-body {
   padding: 5px 10px 10px;
+}
+
+/* 告警设置嵌入卡片内，内边距由卡片提供；开关纵向排列，避免相互贴合 */
+.task-manager-alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+}
+
+/* 进程采样日志：与告警设置同一排版 */
+.task-manager-sampling-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.task-manager-sampling-interval {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-manager-sampling-interval input {
+  width: 96px;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.task-manager-sampling-interval input[aria-invalid="true"] {
+  border-color: var(--accent-amber-text);
+}
+
+.task-manager-sampling-interval small {
+  color: var(--text-muted);
+}
+
+.task-manager-sampling-directory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .task-manager-charts {

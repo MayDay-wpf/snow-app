@@ -3873,6 +3873,15 @@ export type NativeBridge = ImageGenerationNativeApi & {
   getPathSize: (path: string) => Promise<number>;
   /** 采集以 rootPid 为根的应用进程树快照（任务管理器面板；CPU 为相对上次采样的占用） */
   listProcessTree: (rootPid: number) => Promise<ProcessSnapshotEntry[]>;
+  /** 进程日志采样专用的进程树快照（独立 CPU 基线，不影响任务管理器面板） */
+  listProcessTreeForLog: (rootPid: number) => Promise<ProcessSnapshotEntry[]>;
+  /** 追加一行进程采样日志（JSONL），超过单文件上限时轮转 */
+  appendProcessSamplingLog: (
+    dir: string,
+    line: string,
+    maxBytes: number,
+    maxFiles: number,
+  ) => Promise<void>;
   /** 结束指定进程树（任务管理器面板的「结束进程」；仅用于应用派生的子进程） */
   killProcessTree: (pid: number) => Promise<void>;
   /** 列出 bash 工具 detach 启动的后台任务（任务管理器「后台任务」页；存活状态实时探测） */

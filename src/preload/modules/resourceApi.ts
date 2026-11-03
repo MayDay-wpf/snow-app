@@ -2,6 +2,8 @@ import { ipcRenderer } from "electron";
 import type { MemoryOptimizeResult } from "../types/storage";
 import type {
   DetachedTaskInfo,
+  ProcessSamplingLogSettings,
+  ProcessSamplingLogState,
   TaskManagerProcess,
 } from "../types/taskManager";
 
@@ -10,6 +12,16 @@ export const resourceApi = {
   /** 应用任务管理器：采集应用进程树占用快照（CPU 为相对上次调用的增量） */
   getProcessSnapshot: (): Promise<TaskManagerProcess[]> =>
     ipcRenderer.invoke("processes:snapshot"),
+
+  /** 进程采样日志：读取全局开关、采样间隔与日志目录 */
+  getProcessSamplingLog: (): Promise<ProcessSamplingLogState> =>
+    ipcRenderer.invoke("processes:sampling-log:get"),
+
+  /** 进程采样日志：保存开关与采样间隔（即时生效，返回生效后的状态） */
+  setProcessSamplingLog: (
+    value: ProcessSamplingLogSettings,
+  ): Promise<ProcessSamplingLogState> =>
+    ipcRenderer.invoke("processes:sampling-log:set", value),
 
   /** 结束指定子进程树（Electron 自身进程会被主进程拒绝） */
   killProcessTree: (pid: number): Promise<void> =>

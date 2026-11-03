@@ -51,6 +51,7 @@ import {
   alertTriggeredText,
   useUsageAlerts,
 } from "./TaskManagerAlerts";
+import { TaskManagerSamplingLog } from "./TaskManagerSamplingLog";
 import {
   CONTINUOUS_SAMPLE_GAP_MS,
   TREND_WINDOW_MS,
@@ -992,8 +993,8 @@ export const TaskManagerContent = ({
             samplingActive={alertSamplingActive}
             valid={alertValid}
             mode="settings"
-            settingsOpen
           />
+          <TaskManagerSamplingLog />
         </div>
       )}
 

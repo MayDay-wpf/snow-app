@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Power, RefreshCw } from "lucide-react";
+import { Network, Power, RefreshCw } from "lucide-react";
 import type {
   LspSessionStatus,
   LspSessionTarget,
@@ -197,15 +197,18 @@ export function TaskManagerSessions({
     new Date(value).toLocaleTimeString(locale);
   return (
     <>
-      <details className="task-manager-disclosure task-manager-sessions">
-        <summary>
-          {t("taskManager.sessionsTitle", {
-            values: { count: sessions.length },
-          })}
+      <section className="task-manager-card-section task-manager-sessions">
+        <div className="task-manager-section-header">
+          <Network size={14} aria-hidden="true" />
+          <strong>
+            {t("taskManager.sessionsTitle", {
+              values: { count: sessions.length },
+            })}
+          </strong>
           {sessionsStale && (
             <span className="task-manager-badge">{t("taskManager.stale")}</span>
           )}
-        </summary>
+        </div>
         <div className="task-manager-session-list">
           <p className="task-manager-hint">
             {t("taskManager.sessionAccounting")}
@@ -336,7 +339,7 @@ export function TaskManagerSessions({
             );
           })}
         </div>
-      </details>
+      </section>
       <ConfirmDialog
         open={pending !== null}
         className="task-manager-session-confirm"

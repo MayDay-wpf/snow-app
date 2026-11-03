@@ -38,6 +38,37 @@ pub async fn list_process_tree(root_pid: u32) -> napi::Result<Vec<ProcessSnapsho
         .map_err(map_spawn_error)?
 }
 
+/// 进程日志采样专用的进程树快照（独立 CPU 基线，不影响任务管理器面板）。
+#[napi]
+pub async fn list_process_tree_for_log(
+    root_pid: u32,
+) -> napi::Result<Vec<ProcessSnapshotEntry>> {
+    tokio::task::spawn_blocking(move || crate::storage::list_process_tree_for_log(root_pid))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+/// 追加一行进程采样日志（JSONL），超过单文件上限时轮转并保留最近 max_files 个文件。
+/// 文件 IO 置于 spawn_blocking，不阻塞 Node.js 主线程。
+#[napi]
+pub async fn append_process_sampling_log(
+    dir: String,
+    line: String,
+    max_bytes: u32,
+    max_files: u32,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::append_sampling_line(
+            std::path::Path::new(&dir),
+            &line,
+            u64::from(max_bytes),
+            max_files,
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
 /// 结束指定进程树（任务管理器面板的「结束进程」）。
 /// Windows 用 taskkill /T /F 连同后代一起结束，Unix 走进程组 kill。
 #[napi]

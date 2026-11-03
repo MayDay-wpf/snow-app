@@ -55,6 +55,7 @@ import { isScheduledWakeLaunch } from "./scheduledWakeLaunch";
 import { isTeamHostLaunch } from "../team/teamServiceLaunch";
 import { stopRemoteControlServer } from "../remoteControl/remoteControlServer";
 import { initializeRemoteControl } from "../remoteControl/remoteControlLifecycle";
+import { initProcessSamplingLog } from "../monitoring/processSamplingLog";
 import { remoteTunnelManager } from "../remoteControl/remoteTunnelManager";
 import { disposeWebSearchService } from "../websearch/webSearchRegistry";
 import { isInstallerQuitRequest } from "./installerQuit";
@@ -255,6 +256,15 @@ export const bootstrapApplication = (): void => {
     // IPC 注册放在窗口创建之后 — 渲染进程 boot-loader 阶段不需要 IPC，
     // 等 React 挂载后才会发起 invoke 调用，此时注册早已完成。
     registerIpcHandlers(native);
+    // 进程采样日志：全局开关，默认关闭；开启时按设置的间隔持续写入。
+    void initProcessSamplingLog(native).catch((error) => {
+      snowLog.warn({
+        module: "app/bootstrap",
+        func: "initProcessSamplingLog",
+        message: "Failed to start process sampling log",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     // 手机遥控默认关闭；仅在用户于设置中开启过时恢复服务与公网隧道，
     // 启动失败不会阻塞 Snow 主程序。
     void initializeRemoteControl();

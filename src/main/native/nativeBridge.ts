@@ -75,6 +75,8 @@ const STORAGE_INDEPENDENT_METHODS = new Set<string>([
   "openInIde",
   "writeInteractiveStdin",
   "listProcessTree",
+  "listProcessTreeForLog",
+  "appendProcessSamplingLog",
   "killProcessTree",
   // detach 后台任务登记表（进程内状态，不触碰数据库）
   "listDetachedTasks",
