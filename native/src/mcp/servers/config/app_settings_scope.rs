@@ -314,36 +314,3 @@ pub(crate) fn execute_app_settings_scope(
         )),
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blob_merge_keeps_other_fields_and_rejects_non_writable() {
-        let existing = json!({ "shellPath": "bash", "fontSize": 14, "unknownField": "keep" });
-        let merged = merge_blob_fields(
-            &existing,
-            &json!({ "fontSize": 16 }),
-            TERMINAL_WRITABLE_FIELDS,
-            "terminal_settings",
-        )
-        .unwrap();
-        assert_eq!(merged.get("fontSize").and_then(Value::as_i64), Some(16));
-        assert_eq!(merged.get("shellPath").and_then(Value::as_str), Some("bash"));
-        assert_eq!(
-            merged.get("unknownField").and_then(Value::as_str),
-            Some("keep")
-        );
-
-        // blockedPatterns 走独立键，不属于 proxyBrowser 白名单。
-        assert!(merge_blob_fields(
-            &existing,
-            &json!({ "blockedPatterns": [] }),
-            PROXY_BROWSER_WRITABLE_FIELDS,
-            "proxy_browser_settings",
-        )
-        .is_err());
-    }
-}

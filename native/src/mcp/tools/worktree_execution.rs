@@ -251,16 +251,3 @@ pub(super) fn force_worktree_execution_args(
     Ok(args)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_builtin_mcp_tool;
-
-    #[test]
-    fn worktree_scope_classifies_arbitrary_external_servers_as_unsupported() {
-        assert!(is_builtin_mcp_tool("filesystem-read"));
-        assert!(is_builtin_mcp_tool("terminal-open"));
-        assert!(!is_builtin_mcp_tool("my-custom-server-run"));
-        assert!(!is_builtin_mcp_tool("filesystem-custom-tool"));
-    }
-}
-

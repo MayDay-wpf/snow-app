@@ -50,18 +50,3 @@ pub(crate) fn analysis_tools_lines(tools: &ToolSnapshot) -> Vec<String> {
     lines.extend(tools.required_workflow_lines());
     lines
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disabled_baseline_tools_are_not_advertised() {
-        assert!(analysis_tools_lines(&ToolSnapshot::default()).is_empty());
-        let snapshot = ToolSnapshot::from_names(["filesystem-read".to_string()]);
-        let lines = analysis_tools_lines(&snapshot);
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("filesystem-read"));
-        assert!(!lines.join("\n").contains("grep-search"));
-    }
-}

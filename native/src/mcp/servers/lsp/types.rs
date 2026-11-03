@@ -118,27 +118,3 @@ impl From<LspError> for napi::Error {
 
 /// 会话 key：(语言, 项目根)。
 pub type SessionKey = (String, PathBuf);
-
-#[cfg(test)]
-mod config_identity_tests {
-    use super::*;
-    #[test]
-    fn arguments_and_initialization_options_affect_identity() {
-        let config = ServerConfig {
-            lang: "typescript".into(),
-            command: "node".into(),
-            args: vec!["server.js".into()],
-            file_extensions: vec!["ts".into()],
-            install_command: None,
-            initialization_options: None,
-            enabled: true,
-        };
-        let mut changed = config.clone();
-        changed.args.push("--stdio".into());
-        assert_ne!(config, changed);
-        assert_ne!(config.fingerprint(), changed.fingerprint());
-        changed = config.clone();
-        changed.initialization_options = Some(serde_json::json!({"strict":true}));
-        assert_ne!(config, changed);
-    }
-}

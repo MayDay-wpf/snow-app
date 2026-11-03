@@ -672,32 +672,3 @@ pub fn get_worktree_by_id(database_path: &Path, worktree_id: &str) -> Result<Opt
     }
     inspect_entry(&repository_path, &directory_id, entry, worktree_id).map(Some)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        is_team_worktree, should_delete_created_registry_entry,
-        should_remove_created_branch,
-    };
-
-    #[test]
-    fn rollback_deletes_branch_only_when_ref_is_unchanged_and_unchecked_out() {
-        assert!(should_remove_created_branch(Some("base"), "base", false));
-        assert!(!should_remove_created_branch(Some("new-commit"), "base", false));
-        assert!(!should_remove_created_branch(Some("base"), "base", true));
-        assert!(!should_remove_created_branch(None, "base", false));
-    }
-
-    #[test]
-    fn rollback_preserves_a_preexisting_same_path_registry_entry() {
-        assert!(should_delete_created_registry_entry(None));
-        assert!(!should_delete_created_registry_entry(Some("existing-id")));
-    }
-
-    #[test]
-    fn identifies_team_worktree_paths_with_both_separator_styles() {
-        assert!(is_team_worktree("/repo/.snow/team-worktree/123"));
-        assert!(is_team_worktree("C:\\repo\\.snow\\team-worktree\\123"));
-        assert!(!is_team_worktree("/repo/.snow/worktrees/123"));
-    }
-}

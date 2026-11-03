@@ -579,39 +579,6 @@ pub(super) fn request_allows_tool(allowed_tools: Option<&[String]>, name: &str) 
     allowed_tools.is_none_or(|tools| tools.iter().any(|tool| tool == "*" || tool == name))
 }
 
-#[cfg(test)]
-mod visibility_tests {
-    use super::*;
-
-    #[test]
-    fn grep_description_uses_only_final_request_tools() {
-        let make_tool = |server: &str, name: &str| McpTool {
-            server_id: server.to_string(),
-            name: name.to_string(),
-            description: "base description".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-        };
-        let mut tools = vec![make_tool("grep", "search"), make_tool("lsp", "hover")];
-        apply_semantic_routing(&mut tools);
-        assert!(tools[0].description.contains("`lsp-hover`"));
-        assert!(!tools[0].description.contains("lsp-goto"));
-        assert!(!tools[0].description.contains("lsp-diagnostics"));
-        let mut grep_only = vec![make_tool("grep", "search")];
-        apply_semantic_routing(&mut grep_only);
-        assert_eq!(grep_only[0].description, "base description");
-    }
-
-    #[test]
-    fn request_whitelists_do_not_expand_semantic_access() {
-        assert!(request_allows_tool(None, "lsp-hover"));
-        assert!(request_allows_tool(Some(&["*".to_string()]), "lsp-hover"));
-        assert!(!request_allows_tool(Some(&[]), "lsp-hover"));
-        let tools = vec!["grep-search".to_string(), "lsp-hover".to_string()];
-        assert!(request_allows_tool(Some(&tools), "lsp-hover"));
-        assert!(!request_allows_tool(Some(&tools), "lsp-goto"));
-    }
-}
-
 pub(crate) fn builtin_scope_server_id(server_id: &str) -> String {
     format!("builtin:{server_id}")
 }

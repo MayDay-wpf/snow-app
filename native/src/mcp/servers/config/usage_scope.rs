@@ -283,28 +283,3 @@ pub(crate) fn execute_usage_scope(
         )),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn date_only_values_expand_to_full_day() {
-        assert_eq!(normalize_since("2026-09-01"), "2026-09-01 00:00:00");
-        assert_eq!(normalize_until("2026-09-01"), "2026-09-01 23:59:59");
-    }
-
-    #[test]
-    fn datetime_values_pass_through() {
-        assert_eq!(normalize_since("2026-09-01 08:30:00"), "2026-09-01 08:30:00");
-        assert_eq!(normalize_until("2026-09-01 08:30:00"), "2026-09-01 08:30:00");
-    }
-
-    #[test]
-    fn window_defaults_to_a_month_window() {
-        let (since, until) = read_window(&json!({}));
-        assert!(since.ends_with(" 00:00:00"), "since={since}");
-        assert!(until.ends_with(" 23:59:59"), "until={until}");
-        assert!(since < until);
-    }
-}

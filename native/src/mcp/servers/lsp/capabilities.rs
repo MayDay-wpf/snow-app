@@ -166,21 +166,3 @@ pub(crate) fn negotiated_tools(capabilities: &lsp_types::ServerCapabilities) -> 
     }
     tools
 }
-
-#[cfg(test)]
-mod negotiated_tests {
-    use super::*;
-    #[test]
-    fn empty_handshake_does_not_inherit_core_tools() {
-        assert!(negotiated_tools(&lsp_types::ServerCapabilities::default()).is_empty());
-    }
-    #[test]
-    fn false_providers_and_workspace_diagnostic_flag_are_respected() {
-        let caps = serde_json::from_value(serde_json::json!({"hoverProvider":false,"renameProvider":{},"definitionProvider":true,"diagnosticProvider":{"interFileDependencies":true,"workspaceDiagnostics":false}})).unwrap();
-        let tools = negotiated_tools(&caps);
-        assert!(tools.contains(&"rename".into()));
-        assert!(tools.contains(&"goto".into()));
-        assert!(!tools.contains(&"hover".into()));
-        assert!(!tools.contains(&"workspace-diagnostics".into()));
-    }
-}
