@@ -1503,17 +1503,24 @@ pub fn record_checkpoint_worktree_after(capture: CheckpointWorktreeCapture) -> R
                 }
                 let absolute = root.join(&relative);
                 let before_state = capture.before_states.get(relative_path);
+                let current_meta = fs::metadata(&absolute).ok();
 
+                // 命令后内容超过抓取上限（新建或由小变大）：expected 无法写入
+                // 对象库，与 before 侧一致不抓取内容、不记录（变更不可回滚），
+                // 避免把超大文件整份复制进对象库，也省去对它的整份哈希。
+                if current_meta
+                    .as_ref()
+                    .is_some_and(|meta| meta.is_file() && meta.len() > PENDING_COPY_SIZE_LIMIT)
+                {
+                    continue;
+                }
                 // 变更检测：before 存在时 mtime+size/hash 对比；before 不
-                // 存在且命令后存在 → 命令新建。新建文件超过内容抓取上限时
-                // 与 before 侧一致不抓取内容、不记录（变更不可回滚），避免
-                // 把超大文件整份复制进对象库。
+                // 存在且命令后存在 → 命令新建。
                 let changed_now = match before_state {
                     // 内容抓取被跳过：无法恢复命令前内容，不记录变更
                     Some(state) if state.skipped => false,
                     Some(state) => !pending_state_matches_current(state, &absolute)?,
-                    None => fs::metadata(&absolute)
-                        .is_ok_and(|meta| meta.is_file() && meta.len() <= PENDING_COPY_SIZE_LIMIT),
+                    None => current_meta.as_ref().is_some_and(|meta| meta.is_file()),
                 };
                 if !changed_now {
                     continue;
@@ -2155,6 +2162,11 @@ fn classify_change(
     }
 }
 
+/// 内容比较的分块大小：文件按块流式读取，超大文件也不会整读进内存。
+const COMPARE_CHUNK_SIZE: usize = 64 * 1024;
+
+/// 文件与内存内容比较（先比大小，再分块流式比较）。返回 true 表示不同
+/// （或文件无法读取）。
 fn file_differs_from_bytes(path: &Path, expected: &[u8]) -> bool {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
@@ -2163,16 +2175,23 @@ fn file_differs_from_bytes(path: &Path, expected: &[u8]) -> bool {
     if metadata.len() != expected.len() as u64 {
         return true;
     }
-    fs::read(path)
-        .map(|content| content != expected)
-        .unwrap_or(true)
+    let Ok(mut file) = File::open(path) else {
+        return true;
+    };
+    let mut chunk = vec![0u8; COMPARE_CHUNK_SIZE];
+    for expected_chunk in expected.chunks(COMPARE_CHUNK_SIZE) {
+        let length = expected_chunk.len();
+        if file.read_exact(&mut chunk[..length]).is_err() || chunk[..length] != *expected_chunk {
+            return true;
+        }
+    }
+    false
 }
 
 /// Compare two files by size first, then by content. Returns true if they
 /// differ (or if either file cannot be read).
 /// 内容按固定大小分块流式比较，超大文件也不会整读进内存。
 fn files_are_different(a: &Path, b: &Path) -> bool {
-    const COMPARE_CHUNK_SIZE: usize = 64 * 1024;
     let meta_a = match fs::metadata(a) {
         Ok(m) => m,
         Err(_) => return true,

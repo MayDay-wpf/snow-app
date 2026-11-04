@@ -685,10 +685,10 @@ async fn update_expected_state_remote(
     Ok(true)
 }
 
-/// 本地加载条目涉及的对象内容（object_id → 内容；缺失为 None），供
-/// 纯本地分类对比使用。条目数少且对象库在本地，代价可忽略。
-fn load_compare_objects(entries: &[&CheckpointEntry]) -> Result<HashMap<String, Option<Vec<u8>>>> {
-    let mut objects: HashMap<String, Option<Vec<u8>>> = HashMap::new();
+/// 本地读取条目涉及的对象大小（object_id → 字节数；对象缺失为 None），供
+/// 纯本地分类对比使用。对象内容不读入内存：内容比对用 BLAKE3 内容 id。
+fn load_object_sizes(entries: &[&CheckpointEntry]) -> Result<HashMap<String, Option<u64>>> {
+    let mut sizes: HashMap<String, Option<u64>> = HashMap::new();
     for entry in entries {
         let mut states: Vec<&OriginalState> = vec![&entry.original];
         if let Some(expected) = entry.expected.as_ref() {
@@ -696,42 +696,47 @@ fn load_compare_objects(entries: &[&CheckpointEntry]) -> Result<HashMap<String, 
         }
         for state in states {
             if let OriginalState::Object { object_id } = state {
-                if objects.contains_key(object_id) {
+                if sizes.contains_key(object_id) {
                     continue;
                 }
-                let content = fs::read(object_path(object_id)?).ok();
-                objects.insert(object_id.clone(), content);
+                let size = fs::metadata(object_path(object_id)?)
+                    .ok()
+                    .filter(|meta| meta.is_file())
+                    .map(|meta| meta.len());
+                sizes.insert(object_id.clone(), size);
             }
         }
     }
-    Ok(objects)
+    Ok(sizes)
 }
 
-/// 判断某个状态的对比是否需要读取远程文件内容：仅当远端存在、对象可读
-/// 且大小一致时才需要（大小不一致直接判"已修改"）。
+/// 判断某个状态的对比是否需要读取远程文件内容：仅当远端存在、对象可读、
+/// 大小一致且不超过传输上限时才需要（大小不一致直接判"已修改"；超过
+/// 传输上限不读取内容，见 classify_remote_state）。
 fn content_compare_required(
     stat: Option<&RemoteFileStat>,
     state: &OriginalState,
-    objects: &HashMap<String, Option<Vec<u8>>>,
+    object_sizes: &HashMap<String, Option<u64>>,
 ) -> bool {
     let OriginalState::Object { object_id } = state else {
         return false;
     };
-    let (Some(stat), Some(Some(bytes))) = (stat, objects.get(object_id)) else {
+    let (Some(stat), Some(Some(size))) = (stat, object_sizes.get(object_id)) else {
         return false;
     };
-    stat.size == bytes.len() as u64
+    stat.size == *size && *size <= REMOTE_DIFF_CONTENT_LIMIT
 }
 
 /// 纯本地分类：基于已取回的 stat 与内容对比 original 状态，返回变更类型。
 /// `content`：Some(x) 表示内容已读取（x 为 None 代表文件已消失），None
 /// 表示未读取；调用方必须先通过 content_compare_required 收集并批量读取
 /// 所有需要的内容，未读取而需要内容的场景按"已修改"防御性处理。
+/// 超过传输上限的同尺寸文件不读取内容，大小一致即视为未变化。
 fn classify_remote_state(
     stat: Option<&RemoteFileStat>,
     content: Option<Option<&[u8]>>,
     original: &OriginalState,
-    objects: &HashMap<String, Option<Vec<u8>>>,
+    object_sizes: &HashMap<String, Option<u64>>,
     relative: &str,
 ) -> Result<Option<String>> {
     match original {
@@ -740,11 +745,14 @@ fn classify_remote_state(
             let Some(stat) = stat else {
                 return Ok(Some("deleted".to_string()));
             };
-            let Some(bytes) = objects.get(object_id).and_then(|bytes| bytes.as_ref()) else {
+            let Some(size) = object_sizes.get(object_id).copied().flatten() else {
                 return Ok(Some("modified".to_string()));
             };
-            if stat.size != bytes.len() as u64 {
+            if stat.size != size {
                 return Ok(Some("modified".to_string()));
+            }
+            if size > REMOTE_DIFF_CONTENT_LIMIT {
+                return Ok(None);
             }
             let Some(content) = content else {
                 return Ok(Some("modified".to_string()));
@@ -752,7 +760,8 @@ fn classify_remote_state(
             let Some(current) = content else {
                 return Ok(Some("deleted".to_string()));
             };
-            Ok((current != bytes.as_slice()).then(|| "modified".to_string()))
+            let current_id = blake3::hash(current).to_hex();
+            Ok((current_id.as_str() != object_id.as_str()).then(|| "modified".to_string()))
         }
         OriginalState::Git => Err(Error::from_reason(format!(
             "Checkpoint Git baseline is missing for '{relative}'"
@@ -765,7 +774,7 @@ fn classify_remote_state(
 struct ProbedEntries {
     /// 与输入条目一一对应：stat、已读内容（若有）。
     items: Vec<EntryProbe>,
-    objects: HashMap<String, Option<Vec<u8>>>,
+    object_sizes: HashMap<String, Option<u64>>,
 }
 
 struct EntryProbe {
@@ -786,7 +795,7 @@ async fn probe_tracked_entries(
         .collect();
     let stats = client.stat_paths(&absolute_paths).await?;
     let entry_refs: Vec<&CheckpointEntry> = entries.iter().collect();
-    let objects = load_compare_objects(&entry_refs)?;
+    let object_sizes = load_object_sizes(&entry_refs)?;
 
     // 分类所需的读取：存在且大小与对象一致的对比状态。
     let mut read_requests: Vec<RemoteReadRequest> = Vec::new();
@@ -797,7 +806,7 @@ async fn probe_tracked_entries(
             continue;
         }
         let stat = stats.get(absolute);
-        if content_compare_required(stat, state, &objects) {
+        if content_compare_required(stat, state, &object_sizes) {
             requested.insert(absolute.clone());
             read_requests.push(RemoteReadRequest {
                 path: absolute.clone(),
@@ -820,7 +829,10 @@ async fn probe_tracked_entries(
             }
         })
         .collect();
-    Ok(ProbedEntries { items, objects })
+    Ok(ProbedEntries {
+        items,
+        object_sizes,
+    })
 }
 
 /// 带 manifest 锁的异步操作（远程流程内部需要 await SFTP 调用）。
@@ -1051,6 +1063,9 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
             Some(state) if state.skipped => None,
             Some(state) => match after_stat {
                 None => Some(pending_state_to_original(state)?),
+                // 命令后超过内容抓取上限（由小变大）：expected 无法抓取，
+                // 与新建文件一致不记录（不可回滚），避免整份传输进主进程。
+                Some(stat) if stat.size > PENDING_COPY_SIZE_LIMIT => None,
                 Some(stat) => {
                     if stat.mtime_ms == state.mtime_ms && stat.size == state.size {
                         None
@@ -1330,7 +1345,7 @@ pub(crate) async fn list_checkpoint_changes_remote(
             probe.stat.as_ref(),
             probe.content.as_ref().map(|content| content.as_deref()),
             expected,
-            &probed.objects,
+            &probed.object_sizes,
             &probe.entry.path,
         )?
         .is_some();
@@ -1341,7 +1356,7 @@ pub(crate) async fn list_checkpoint_changes_remote(
             probe.stat.as_ref(),
             probe.content.as_ref().map(|content| content.as_deref()),
             &probe.entry.original,
-            &probed.objects,
+            &probed.object_sizes,
             &probe.entry.path,
         )? {
             changes.push(CheckpointFileChange {
@@ -1600,8 +1615,10 @@ async fn collect_chain_changes_remote(
         }
         compare_states.push((index, entry.original.clone()));
     }
-    let ProbedEntries { items, objects } =
-        probe_tracked_entries(client, &root, entries, &compare_states).await?;
+    let ProbedEntries {
+        items,
+        object_sizes,
+    } = probe_tracked_entries(client, &root, entries, &compare_states).await?;
 
     let mut results = Vec::new();
     for (probe, chained_entry) in items.into_iter().zip(chained) {
@@ -1613,7 +1630,7 @@ async fn collect_chain_changes_remote(
                 probe.stat.as_ref(),
                 probe.content.as_ref().map(|content| content.as_deref()),
                 expected,
-                &objects,
+                &object_sizes,
                 &probe.entry.path,
             )?
             .is_some();
@@ -1625,7 +1642,7 @@ async fn collect_chain_changes_remote(
             probe.stat.as_ref(),
             probe.content.as_ref().map(|content| content.as_deref()),
             &probe.entry.original,
-            &objects,
+            &object_sizes,
             &probe.entry.path,
         )?
         else {
@@ -1700,7 +1717,7 @@ pub(crate) async fn restore_checkpoints_remote(
             probe.stat.as_ref(),
             probe.content.as_ref().map(|content| content.as_deref()),
             expected,
-            &probed.objects,
+            &probed.object_sizes,
             &probe.entry.path,
         )?
         .is_some();
@@ -1723,6 +1740,18 @@ async fn restore_entry_remote(
         OriginalState::Missing => client.delete_file(destination).await,
         OriginalState::Object { object_id } => {
             let source = object_path(object_id)?;
+            // 远程写入经 JSON(base64) 整体传输：旧版本可能记录过超大对象，
+            // 超过传输上限时跳过恢复，避免把整份内容读进主进程导致崩溃。
+            if let Ok(meta) = fs::metadata(&source) {
+                if meta.len() > REMOTE_DIFF_CONTENT_LIMIT {
+                    eprintln!(
+                        "[checkpoint] Warning: remote checkpoint object '{}' ({} bytes) exceeds the transfer limit; skipping restore of '{destination}'",
+                        source.display(),
+                        meta.len()
+                    );
+                    return Ok(());
+                }
+            }
             let content = match fs::read(&source) {
                 Ok(bytes) => bytes,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
