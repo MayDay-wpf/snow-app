@@ -274,7 +274,10 @@ export const ThinkingBlock = ({
           {headerTitle}
         </span>
         {hasStats ? (
-          <span className="thinking-block-meta" title="tokens">
+          <span
+            className="thinking-block-meta"
+            title={t("chat.thinkingTokens", { defaultValue: "Tokens" })}
+          >
             <Timer
               size={12}
               className="thinking-block-meta-icon"

@@ -1469,7 +1469,9 @@ export const App = (): React.JSX.Element => {
               <div
                 className="panel-resizer sidebar-resizer layout-resizer"
                 role="separator"
-                aria-label="Resize sidebar"
+                aria-label={t("common.resizeSidebar", {
+                  defaultValue: "Resize sidebar",
+                })}
                 aria-orientation="vertical"
                 onPointerDown={(event) => startPanelResize("sidebar", event)}
               />
@@ -1487,7 +1489,9 @@ export const App = (): React.JSX.Element => {
               <div
                 className="panel-resizer right-panel-resizer layout-resizer"
                 role="separator"
-                aria-label="Resize review panel"
+                aria-label={t("common.resizeRightPanel", {
+                  defaultValue: "Resize right panel",
+                })}
                 aria-orientation="vertical"
                 onPointerDown={(event) =>
                   startPanelResize("right-panel", event)

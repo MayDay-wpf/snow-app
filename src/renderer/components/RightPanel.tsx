@@ -2178,8 +2178,12 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
 
     const FullscreenToggleIcon = isFullscreen ? Minimize2 : Maximize2;
     const fullscreenToggleLabel = isFullscreen
-      ? "Exit right panel fullscreen"
-      : "Right panel fullscreen";
+      ? t("topBar.exitFullscreenRightPanel", {
+          defaultValue: "Exit right panel fullscreen",
+        })
+      : t("topBar.fullscreenRightPanel", {
+          defaultValue: "Right panel fullscreen",
+        });
 
     const panelClasses = [
       "right-panel",

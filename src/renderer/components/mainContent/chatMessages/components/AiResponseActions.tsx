@@ -137,7 +137,12 @@ export const AiResponseActions = ({
   }
 
   return (
-    <div className="ai-response-actions" aria-label="AI response actions">
+    <div
+      className="ai-response-actions"
+      aria-label={t("chat.aiResponseActions", {
+        defaultValue: "AI response actions",
+      })}
+    >
       <Tooltip
         content={
           showRawMarkdown

@@ -15,7 +15,7 @@ import {
   Wand2,
   Workflow,
 } from "lucide-react";
-import { useI18n } from "../../../i18n";
+import { useI18n, type TranslateOptions } from "../../../i18n";
 import {
   extractUrlHost,
   formatAnnotationLabel,
@@ -41,7 +41,10 @@ type PendingMessagesProps = {
  * 将编码后的消息内容（含 @@file/@@image/@@commit/@@change/@@text-snippet@@
  * 等标签）解析为分段并渲染：标签显示为 chip，其余为纯文本。
  */
-const renderSegments = (content: string): React.ReactNode => {
+const renderSegments = (
+  content: string,
+  t: (key: string, options?: TranslateOptions) => string,
+): React.ReactNode => {
   const segments = parseContentSegments(content);
   return segments.map((segment: ContentSegment, index: number) => {
     if (segment.type === "text") {
@@ -94,9 +97,11 @@ const renderSegments = (content: string): React.ReactNode => {
       );
       const changeName =
         lastSep === -1 ? tag.path : tag.path.slice(lastSep + 1);
-      const chipTitle = `${tag.section === "staged" ? "Staged" : "Unstaged"} ${
-        tag.status
-      } ${tag.path}`;
+      const sectionLabel =
+        tag.section === "staged"
+          ? t("chatInput.chipDetailsStaged", { defaultValue: "Staged" })
+          : t("chatInput.chipDetailsUnstaged", { defaultValue: "Unstaged" });
+      const chipTitle = `${sectionLabel} ${tag.status} ${tag.path}`;
       return (
         <span
           key={index}
@@ -398,7 +403,7 @@ export const PendingMessages = ({
               <ItemIcon size={14} className="pending-message-icon" />
 
               <span className="pending-message-text">
-                {renderSegments(msg)}
+                {renderSegments(msg, t)}
               </span>
               <span className="pending-message-mode">{t(modeKey)}</span>
               {onSendNow && (

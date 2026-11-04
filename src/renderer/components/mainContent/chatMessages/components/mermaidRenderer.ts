@@ -19,6 +19,8 @@
  * - Code/diagram view toggle with per-source preference tracking.
  */
 
+import { tGlobal } from "../../../../i18n";
+
 /** Selector for placeholder containers emitted by the worker. */
 const MERMAID_SELECTOR = ".mermaid-block[data-mermaid]";
 
@@ -180,6 +182,39 @@ const applyCache = (
   return true;
 };
 
+const localizeMermaidToolbar = (block: HTMLElement): void => {
+  const copyBtn = block.querySelector<HTMLElement>(".mermaid-btn-copy");
+  if (copyBtn) {
+    const copyLabel = tGlobal("common.copy", { defaultValue: "Copy" });
+    copyBtn.title = copyLabel;
+    copyBtn.setAttribute("aria-label", copyLabel);
+  }
+  const downloadBtn = block.querySelector<HTMLElement>(".mermaid-btn-download");
+  if (downloadBtn) {
+    const downloadLabel = tGlobal("mermaid.saveAsImage", {
+      defaultValue: "Save as image",
+    });
+    downloadBtn.title = downloadLabel;
+    downloadBtn.setAttribute("aria-label", downloadLabel);
+  }
+  const codeBtn = block.querySelector<HTMLElement>(".mermaid-btn-code");
+  if (codeBtn) {
+    const codeLabel = tGlobal("mermaid.codeView", {
+      defaultValue: "Code view",
+    });
+    codeBtn.title = codeLabel;
+    codeBtn.setAttribute("aria-label", codeLabel);
+  }
+  const diagramBtn = block.querySelector<HTMLElement>(".mermaid-btn-diagram");
+  if (diagramBtn) {
+    const diagramLabel = tGlobal("mermaid.diagramView", {
+      defaultValue: "Diagram view",
+    });
+    diagramBtn.title = diagramLabel;
+    diagramBtn.setAttribute("aria-label", diagramLabel);
+  }
+};
+
 /**
  * Synchronously inject cached SVGs into all mermaid placeholders within `root`.
  *
@@ -192,6 +227,7 @@ export const injectCachedDiagrams = (root: ParentNode): void => {
 
   const themeKey = currentThemeKey();
   blocks.forEach((block) => {
+    localizeMermaidToolbar(block);
     const source = safeDecode(block.getAttribute("data-mermaid"));
     applyCache(block, source, themeKey);
   });
@@ -250,6 +286,7 @@ export const renderMermaidBlocks = (root: ParentNode): Promise<void> =>
     const pending: { block: HTMLElement; source: string }[] = [];
 
     blocks.forEach((block) => {
+      localizeMermaidToolbar(block);
       if (block.getAttribute(RENDERED_ATTR) === themeKey) return;
 
       const source = safeDecode(block.getAttribute("data-mermaid"));

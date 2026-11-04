@@ -208,7 +208,7 @@ export const AiResponse = memo(
     return (
       <article
         className="ai-message"
-        aria-label="AI response"
+        aria-label={t("chat.aiResponse", { defaultValue: "AI response" })}
         onClickCapture={(event) => {
           const target = event.target;
           if (!(target instanceof Element)) return;

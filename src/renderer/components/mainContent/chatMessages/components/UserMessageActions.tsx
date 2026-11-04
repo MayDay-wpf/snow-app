@@ -49,7 +49,12 @@ export const UserMessageActions = ({
   };
 
   return (
-    <div className="user-message-actions" aria-label="User message actions">
+    <div
+      className="user-message-actions"
+      aria-label={t("chat.userMessageActions", {
+        defaultValue: "User message actions",
+      })}
+    >
       <MessageTimestamp timestamp={timestamp} className="user-message-time" />
       <Tooltip content={t("chat.copyUserMessage", { defaultValue: "Copy" })}>
         <button

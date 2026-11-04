@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../i18n";
 
 /**
  * 「新建」加号按钮 + 下拉菜单（终端 / 浏览器 / 绘图 / 代码库）。
@@ -38,6 +39,7 @@ export const PlusMenuButton = ({
   onAction,
   onOpenChange,
 }: PlusMenuButtonProps): React.JSX.Element => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   // 按钮右侧空间不足以容纳下拉菜单时，改为从左边缘向右展开，避免溢出窗口。
   const [isAlignedStart, setIsAlignedStart] = useState(false);
@@ -77,13 +79,15 @@ export const PlusMenuButton = ({
     onOpenChange?.(false);
   };
 
+  const newTabLabel = t("plusMenu.newTab", { defaultValue: "New tab" });
+
   return (
     <div className="top-bar-plus-menu" ref={menuRef}>
       <button
         className={`icon-btn ghost top-bar-plus-btn${isOpen ? " active" : ""}`}
         type="button"
-        aria-label="New tab"
-        title="New tab"
+        aria-label={newTabLabel}
+        title={newTabLabel}
         aria-expanded={isOpen}
         onClick={toggleOpen}
       >
