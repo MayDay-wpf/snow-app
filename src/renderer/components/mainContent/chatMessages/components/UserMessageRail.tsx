@@ -1012,6 +1012,8 @@ export const UserMessageRail = memo(
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        // 无搜索词时不渲染键盘高亮，移动光标没有视觉反馈，直接忽略。
+        if (searchTerms.length === 0) return;
         event.preventDefault();
         if (filteredRailItems.length === 0) return;
         stepActive(event.key === "ArrowDown" ? 1 : -1);
@@ -1195,7 +1197,9 @@ export const UserMessageRail = memo(
                       item={item}
                       index={index}
                       isVisible={visibleUserIndices.has(index)}
-                      isActive={position === activeIndex}
+                      isActive={
+                        searchTerms.length > 0 && position === activeIndex
+                      }
                       compactionLabel={compactionLabel}
                       onSelect={handleItemClick}
                     />

@@ -95,7 +95,7 @@ blocking problems before suggestions.
 | --------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`          | No       | Display name; defaults to the final segment of the Skill ID. It also contributes to the installation ID for GitHub installs.                               |
 | `description`   | No       | Registered in the Skill tool description so the agent can decide when to load it. State the trigger and expected output clearly.                           |
-| `enable`        | No       | Boolean, default `true`. With `false`, the Skill is not registered or executable by default.                                                               |
+| `enable`        | No       | Boolean, default `true`. With `false` it acts as the global gate: no project registers or executes the Skill.                                              |
 | `allowed-tools` | No       | A YAML string array or comma-separated string. When non-empty, loading the Skill adds an “only these tools” restriction; an empty list means unrestricted. |
 
 `enabled` and `allowed_tools` are **not Skill frontmatter fields** and do not have the intended effect. The config API's `value.enabled` below is valid; that API parameter ultimately writes the frontmatter field named `enable`.
@@ -108,9 +108,9 @@ Use exact Snow App tool names in `allowed-tools`, such as `filesystem-read` and 
 
 In **Settings → Skills Settings** (settings page id: `skills-settings`):
 
-- The global view rewrites the top-level `enable` field of the effective `SKILL.md`;
-- The project view stores a project override in the app database and does not edit the Skill file;
-- When an override exists, the effective state is “project database override > effective Skill's `enable` value.”
+- The global view rewrites the top-level `enable` field of the effective `SKILL.md`, which acts as the gate for every project;
+- The project view lists every Skill available to that project (global ones included) and stores a project override in the app database without editing the Skill file;
+- Effective state: Skills in the global directories need “global `enable` AND project override” (override defaults to on, and the project switch stays greyed out after a global disable); Skills inside the project directories follow the project override, defaulting to their own `enable`.
 
 ### 4.2 Manage through the `config` service
 
@@ -124,9 +124,9 @@ config-set  scope=skills key=team/release projectId=<projectId> value={"enabled"
 
 Important semantics:
 
-- `config-list` returns `skills` and `githubInstalled`. In a project view, `defaultEnabled` is the frontmatter value and `enabled` is the effective value after the database override;
+- `config-list` returns `skills` and `githubInstalled`. In a project view, `defaultEnabled` is the resolved Skill's frontmatter `enable` (the gate for globally located Skills) and `enabled` is the effective value (`defaultEnabled` AND the project override for global Skills, override defaults to on; for project-directory Skills the override defaults to `defaultEnabled`);
 - A global toggle also uses `value={"enabled":...}`, but the service rewrites **`enable`** in the Skill file;
-- With `projectId`, the service writes only a project database override, effective immediately;
+- With `projectId`, the service writes only a project database override; for globally located Skills it takes effect only while the global gate is on;
 - The config tool in the current conversation may auto-inject the active project ID. Use `currentProjectId` in the response to verify context, and pass an empty `projectId` when you explicitly need global configuration;
 - Install with `value={"url":"owner/repo","location":"global"}`. For a project installation, use `location:"project"` and pass `projectId`. `key` is required for config API routing, while the actual installation ID is still derived from the installed content;
 - Run `config-get` or `config-list` again after a change and verify the path and effective state.

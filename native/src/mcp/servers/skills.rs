@@ -230,7 +230,11 @@ impl SkillsService {
             .skills
             .into_values()
             .map(|skill| {
-                let enabled = settings.effective_enabled(&skill.id, skill.enabled);
+                let enabled = if skill.location == "project" {
+                    settings.effective_project_enabled(&skill.id, skill.enabled)
+                } else {
+                    settings.effective_enabled(&skill.id, skill.enabled)
+                };
                 ProjectSkillDefinition {
                     id: skill.id,
                     name: skill.name,
@@ -297,9 +301,13 @@ impl SkillsService {
                 )
             })
             .await?;
-            loaded
-                .skills
-                .retain(|skill_id, skill| settings.effective_enabled(skill_id, skill.enabled));
+            loaded.skills.retain(|skill_id, skill| {
+                if skill.location == "project" {
+                    settings.effective_project_enabled(skill_id, skill.enabled)
+                } else {
+                    settings.effective_enabled(skill_id, skill.enabled)
+                }
+            });
         } else {
             loaded.skills.retain(|_, skill| skill.enabled);
         }
@@ -352,9 +360,13 @@ impl SkillsService {
                 )
             })
             .await?;
-            loaded
-                .skills
-                .retain(|skill_id, skill| settings.effective_enabled(skill_id, skill.enabled));
+            loaded.skills.retain(|skill_id, skill| {
+                if skill.location == "project" {
+                    settings.effective_project_enabled(skill_id, skill.enabled)
+                } else {
+                    settings.effective_enabled(skill_id, skill.enabled)
+                }
+            });
         } else {
             loaded.skills.retain(|_, skill| skill.enabled);
         }

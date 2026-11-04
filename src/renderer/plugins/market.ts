@@ -330,6 +330,14 @@ export type CommunityPluginEntry = {
   /** 仓库默认分支名（安装时用于解析提交，可为空）。 */
   defaultBranch: string;
   archived: boolean;
+  /** 仓库最新 GitHub Release 的版本号（tag 去掉前导 v）；列表只收录有发行版的仓库。 */
+  version: string;
+  /** 最新 Release 的原始 tag（安装时固定到该不可变快照）。 */
+  releaseTag: string;
+  /** 最新 Release 页面地址；未声明时为空。 */
+  releaseUrl: string;
+  /** 最新 Release 的发布时间（ISO 字符串）。 */
+  releasedAt: string;
   /**
    * 仓库默认分支 `plugin.json` 声明的 `icon`（已由 Rust 侧归一化：
    * `lucide:Name` / `http(s)` / `data:image` 原样，插件内相对路径展开为仓库
@@ -378,6 +386,10 @@ export const parseCommunitySearch = (text: string): CommunitySearchResult => {
       pushedAt: asTrimmedString(raw.pushedAt),
       defaultBranch: asTrimmedString(raw.defaultBranch),
       archived: raw.archived === true,
+      version: asTrimmedString(raw.version),
+      releaseTag: asTrimmedString(raw.releaseTag),
+      releaseUrl: asTrimmedString(raw.releaseUrl),
+      releasedAt: asTrimmedString(raw.releasedAt),
       icon: asTrimmedString(raw.icon),
     });
   }

@@ -97,8 +97,8 @@ pub async fn fetch_plugin_community(
     .map_err(|error| Error::from_reason(format!("Fetch plugin community task failed: {error}")))?
 }
 
-/// 解析并安装社区来源：commits atom 订阅源解析默认分支最新提交 -> 下载该提交的
-/// zip 快照（订阅源不可用时退回默认分支快照）-> 解压 -> 按内容判定。
+/// 解析并安装社区来源：按最新 Release tag 下载该 tag 的 zip 快照 -> 解压 ->
+/// 按内容判定。没有发行版的仓库直接报错。
 ///
 /// 返回 JSON：`{"outcome":"plugin"}`（已按面板插件安装）、
 /// `{"outcome":"scripts","installed":[…]}`（已安装用户脚本）或
@@ -106,21 +106,22 @@ pub async fn fetch_plugin_community(
 /// 需要渲染层勾选后用同一 token 二次调用）。全程不调用 GitHub API，无需 token、
 /// 不计配额。
 ///
-/// `branch` 为搜索接口给出的默认分支名，`token`/`selection` 用于二次调用。
+/// `releaseTag` 为检索结果给出的最新发行版 tag（为空时现场解析），
+/// `token`/`selection` 用于二次调用。
 #[napi]
 pub async fn resolve_plugin_community_source(
     repo: String,
-    branch: Option<String>,
+    release_tag: Option<String>,
     token: Option<String>,
     selection_json: Option<String>,
 ) -> napi::Result<String> {
-    let branch = branch.unwrap_or_default();
+    let release_tag = release_tag.unwrap_or_default();
     let token = token.unwrap_or_default();
     let selection_json = selection_json.unwrap_or_else(|| "[]".to_string());
     tokio::task::spawn_blocking(move || {
         crate::plugin_community::resolve_community_source_blocking(
             &repo,
-            &branch,
+            &release_tag,
             &token,
             &selection_json,
         )

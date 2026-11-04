@@ -54,13 +54,13 @@ export const pluginsApi = {
   ): Promise<string> =>
     ipcRenderer.invoke("plugins:community-list", query, forceRefresh === true),
   /**
-   * 解析并安装社区来源：Rust 侧下载默认分支最新提交的快照后按内容判定
-   * （面板插件 / 单个用户脚本直接安装，多个用户脚本返回候选清单）。
+   * 解析并安装社区来源：Rust 侧按最新 Release tag 下载该 tag 的不可变快照后按内容
+   * 判定（面板插件 / 单个用户脚本直接安装，多个用户脚本返回候选清单）。
    * 返回 JSON 结果，由渲染层 `parseCommunityResolve` 解析。
    */
   resolvePluginCommunitySource: (payload: {
     repo: string;
-    branch?: string;
+    releaseTag?: string;
     token?: string;
     selection?: string[];
   }): Promise<string> =>

@@ -1,8 +1,12 @@
-import { Bot, CircleAlert, Loader2 } from "lucide-react";
+import { Bot, CircleAlert } from "lucide-react";
 
 import { useI18n } from "../../../i18n";
 import type { ChatConversationRecord } from "../../../../preload";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
+import {
+  ConversationLoadingIndicator,
+  isRunningConversationStatus,
+} from "./ConversationLoadingIndicator";
 
 type SubAgentListPanelProps = {
   conversations: ChatConversationRecord[];
@@ -12,9 +16,8 @@ type SubAgentListPanelProps = {
 };
 
 /**
- * 子代理图标：静态状态使用 Bot 象形图标（与 Workflow 节点图标区分），
- * 运行中改用 Loader2 旋转指示器；完成绿色 / 失败红色 / 待执行灰色 /
- * 需关注黄色感叹号，与 Workflow 节点保持同一套状态配色。
+ * 子代理图标：固定使用 Bot 象形图标（与 Workflow 节点图标区分），
+ * 只用颜色表达状态；运行中的 loading 统一由标题后的雪花指示器表达。
  * 右侧面板的会话 tab 下拉复用本函数（状态配色由各自的容器样式提供）。
  */
 export function renderStatusIcon(
@@ -24,19 +27,9 @@ export function renderStatusIcon(
   if (isAttentionRequired || status === "waiting_input") {
     return <CircleAlert size={11} className="sub-agent-attention" />;
   }
-  if (
-    status === "running" ||
-    status === "finalizing" ||
-    status === "cancelling"
-  ) {
-    return (
-      <span className="spin-layer">
-        <Loader2 size={11} className="sub-agent-status-running" />
-      </span>
-    );
-  }
-  const statusClass =
-    status === "completed"
+  const statusClass = isRunningConversationStatus(status)
+    ? "sub-agent-status-running"
+    : status === "completed"
       ? "sub-agent-status-completed"
       : status === "failed" || status === "interrupted"
         ? "sub-agent-status-failed"
@@ -74,6 +67,9 @@ export function SubAgentListPanel({
 
   const attentionDescription = t("sidebar.chatStatusWaitingForReviewOrInput", {
     defaultValue: "Waiting for review or input",
+  });
+  const runningDescription = t("sidebar.chatStatusRunning", {
+    defaultValue: "Running",
   });
 
   return (
@@ -123,6 +119,10 @@ export function SubAgentListPanel({
                 </span>
               )}
             </span>
+            {isRunningConversationStatus(subAgent.subAgentStatus) &&
+            !isAttentionRequired ? (
+              <ConversationLoadingIndicator label={runningDescription} />
+            ) : null}
           </div>
         );
       })}

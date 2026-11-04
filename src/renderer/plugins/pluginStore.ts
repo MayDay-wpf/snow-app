@@ -127,20 +127,18 @@ export const pluginStore = {
     await pluginStore.refresh();
   },
   /**
-   * 解析并安装社区仓库：Rust 侧通过 commits atom 订阅源解析默认分支最新提交
-   * 并下载该提交的快照（不调用 GitHub API，无需 token）后按内容判定——面板
-   * 插件与单个用户脚本直接安装，多个用户脚本返回候选清单，由界面勾选后再带
-   * token 调用一次。没有市场索引锁定的 SHA256，安装前需由界面提示用户确认
-   * 来源可信。
+   * 解析并安装社区仓库：Rust 侧按最新 Release tag 下载该 tag 的不可变快照（不调用
+   * GitHub API，无需 token）后按内容判定——面板插件与单个用户脚本直接安装，多个
+   * 用户脚本返回候选清单，由界面勾选后再带 token 调用一次。没有市场索引锁定的
+   * SHA256，安装前需由界面提示用户确认来源可信。
    */
   async resolveFromCommunity(
     repo: string,
-    branch: string,
-    options?: { token?: string; selection?: string[] },
+    options?: { releaseTag?: string; token?: string; selection?: string[] },
   ): Promise<CommunityResolveResult> {
     const text = await window.snow.resolvePluginCommunitySource({
       repo,
-      branch,
+      releaseTag: options?.releaseTag,
       token: options?.token,
       selection: options?.selection,
     });

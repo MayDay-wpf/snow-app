@@ -80,20 +80,26 @@ export const Sidebar = ({
     };
   }, []);
 
-  // 离开设置页（新建会话、切到聊天或功能页等）时，侧栏同步收回设置内容，回到主侧栏。
-  // 仅在从设置视图离开时触发，不影响用户在聊天视图中主动打开的设置侧栏。
+  // 视图进出设置页时同步侧栏内容：从空屏快捷卡片、输入框上方的 API 配置提醒等入口
+  // 直达设置页时切到设置侧栏；离开设置页时收回主侧栏。
   const previousMainViewRef = useRef(activeMainView);
   useEffect(() => {
     const previousView = previousMainViewRef.current;
     previousMainViewRef.current = activeMainView;
-    if (
-      SETTINGS_VIEW_IDS.has(previousView) &&
-      !SETTINGS_VIEW_IDS.has(activeMainView)
-    ) {
-      setActiveContent((current) =>
-        current === "settings" ? "main" : current,
-      );
+    const isSettingsView = SETTINGS_VIEW_IDS.has(activeMainView);
+    const wasSettingsView = SETTINGS_VIEW_IDS.has(previousView);
+
+    if (isSettingsView === wasSettingsView) {
+      return;
     }
+
+    if (isSettingsView) {
+      // 资源管理器视图同样让位，避免主区域是设置页而侧栏还停在文件树
+      setActiveContent("settings");
+      return;
+    }
+
+    setActiveContent((current) => (current === "settings" ? "main" : current));
   }, [activeMainView]);
 
   // 订阅显示位置偏好：用户切换位置时同步在目标位置展示资源管理器。订阅回调在

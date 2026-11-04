@@ -6,7 +6,6 @@ import {
   Search,
   ShieldAlert,
   Star,
-  Store,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,6 +20,7 @@ import {
   COMMUNITY_PLUGIN_TOPICS_URL,
   formatCommunityTime,
   formatCompactCount,
+  hasMarketUpdate,
   isCommunityRepoSource,
   type CommunityPluginEntry,
   type CommunityScriptItem,
@@ -69,7 +69,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
 
   useEffect(() => {
     void communityStore.ensureLoaded();
-    // 官方索引仅用于标记「官方市场已有」；拉取失败不影响社区列表。
+    // 官方索引用于把已收录的仓库从社区列表排除；拉取失败时不影响社区检索。
     void marketStore.ensureLoaded().catch(() => undefined);
     refreshUserscripts();
     return window.snow.onUserscriptsChanged(refreshUserscripts);
@@ -80,29 +80,50 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
     [userscripts],
   );
 
-  /** 官方市场已收录的仓库地址（小写比对）。 */
+  /** 官方市场已收录的仓库地址（小写比对）：社区列表不再重复展示。 */
   const officialRepos = useMemo(
     () => new Set(market.entries.map((entry) => entry.repo.toLowerCase())),
     [market.entries],
   );
 
-  /** 已安装：来源仓库命中的面板插件，或来源仓库命中的用户脚本（脚本集合仓库）。 */
-  const isInstalled = useCallback(
+  /** 社区列表只保留尚未进入官方索引的仓库。 */
+  const visibleEntries = useMemo(
+    () =>
+      community.entries.filter(
+        (entry) => !officialRepos.has(entry.repo.toLowerCase()),
+      ),
+    [community.entries, officialRepos],
+  );
+
+  /** 来源仓库命中的已安装面板插件：用于与发行版版本比较。 */
+  const findInstalledPlugin = useCallback(
+    (entry: CommunityPluginEntry): { version: string } | null => {
+      const plugin = pluginState.plugins.find((item) =>
+        isCommunityRepoSource(entry.repo, item.sourcePath),
+      );
+      return plugin ? { version: plugin.version } : null;
+    },
+    [pluginState.plugins],
+  );
+
+  /** 来源仓库命中的已安装用户脚本（脚本集合仓库只标注已安装，不参与版本比较）。 */
+  const hasInstalledScript = useCallback(
     (entry: CommunityPluginEntry): boolean =>
-      pluginState.plugins.some((plugin) =>
-        isCommunityRepoSource(entry.repo, plugin.sourcePath),
-      ) ||
       userscripts.some(
         (script) =>
           script.sourceRepo !== "" &&
           isCommunityRepoSource(entry.repo, script.sourceRepo),
       ),
-    [pluginState.plugins, userscripts],
+    [userscripts],
   );
 
   const installedCount = useMemo(
-    () => community.entries.filter(isInstalled).length,
-    [community.entries, isInstalled],
+    () =>
+      visibleEntries.filter(
+        (entry) =>
+          findInstalledPlugin(entry) !== null || hasInstalledScript(entry),
+      ).length,
+    [visibleEntries, findInstalledPlugin, hasInstalledScript],
   );
 
   const submitSearch = useCallback((): void => {
@@ -135,13 +156,12 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
     setBusyId(pendingEntry.id);
     setInstallError(null);
     try {
-      const result = await pluginStore.resolveFromCommunity(
-        pendingEntry.repo,
-        pendingEntry.defaultBranch,
-        scriptSelection
+      const result = await pluginStore.resolveFromCommunity(pendingEntry.repo, {
+        releaseTag: pendingEntry.releaseTag,
+        ...(scriptSelection
           ? { token: scriptSelection.token, selection: [...selectedPaths] }
-          : undefined,
-      );
+          : {}),
+      });
       if (result.outcome === "selection-required") {
         setScriptSelection({ token: result.token, items: result.items });
         setSelectedPaths(new Set(result.items.map((item) => item.path)));
@@ -159,8 +179,6 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
 
   const isBusy = busyId !== null;
   const loading = community.status === "loading";
-  const pendingInOfficialMarket =
-    pendingEntry !== null && officialRepos.has(pendingEntry.repo.toLowerCase());
 
   return (
     <div className="plugins-tab-content">
@@ -206,7 +224,10 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
         {community.searched ? (
           <span className="plugin-market-summary">
             {t("plugins.market.communitySummary", {
-              values: { total: community.total, installed: installedCount },
+              values: {
+                total: visibleEntries.length,
+                installed: installedCount,
+              },
               defaultValue:
                 "{{total}} community repos · {{installed}} installed",
             })}
@@ -240,7 +261,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
           {t("plugins.market.communityNotice", {
             values: { topic: COMMUNITY_PLUGIN_TOPIC },
             defaultValue:
-              "Community plugins are published by third-party authors on GitHub (their repository carries the snow-plugins topic). They are not submitted to the official plugin market and are not reviewed — read the source and the privacy declarations before installing.",
+              "Community plugins are published by third-party authors on GitHub (the repository carries the snow-plugins topic and publishes a GitHub Release; repositories without a release are not listed). They are not submitted to the official plugin market and are not reviewed — read the source and the privacy declarations before installing.",
           })}
         </span>
       </div>
@@ -284,7 +305,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
         </div>
       ) : null}
 
-      {community.status === "ready" && community.entries.length === 0 ? (
+      {community.status === "ready" && visibleEntries.length === 0 ? (
         <div className="plugins-empty">
           <Users size={22} strokeWidth={1.6} />
           <span>
@@ -296,18 +317,23 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
             {t("plugins.market.communityEmptyHint", {
               values: { topic: COMMUNITY_PLUGIN_TOPIC },
               defaultValue:
-                "Add the snow-plugins topic to a GitHub repository to list it here.",
+                "Add the snow-plugins topic to a GitHub repository and publish a GitHub Release to list it here.",
             })}
           </span>
         </div>
       ) : null}
 
       <div className="plugins-list">
-        {community.entries.map((entry) => {
-          const installed = isInstalled(entry);
-          const inOfficialMarket = officialRepos.has(entry.repo.toLowerCase());
+        {visibleEntries.map((entry) => {
+          const installedPlugin = findInstalledPlugin(entry);
+          const installed =
+            installedPlugin !== null || hasInstalledScript(entry);
+          const isUpdate =
+            installedPlugin !== null &&
+            hasMarketUpdate(installedPlugin.version, entry.version);
           const entryBusy = busyId === entry.id;
           const pushedAt = formatCommunityTime(entry.pushedAt);
+          const releasedAt = formatCommunityTime(entry.releasedAt);
           return (
             <div className="plugins-item plugin-market-item" key={entry.id}>
               <div className="plugins-item-head">
@@ -330,27 +356,13 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                         })}
                       </span>
                     </Tooltip>
-                    {inOfficialMarket ? (
-                      <Tooltip
-                        content={t("plugins.market.communityInMarketHint", {
-                          defaultValue:
-                            "This repository is also listed in the official plugin market; installing from there verifies the archive SHA-256.",
-                        })}
-                      >
-                        <span className="plugin-market-badge official">
-                          <Store size={11} strokeWidth={2} />
-                          {t("plugins.market.communityInMarket", {
-                            defaultValue: "In official market",
-                          })}
-                        </span>
-                      </Tooltip>
-                    ) : null}
                   </span>
                   <span className="plugins-item-meta">
                     <span className="plugin-market-downloads">
                       <Star size={11} strokeWidth={1.8} />
                       {formatCompactCount(entry.stars)}
                     </span>
+                    {entry.version ? ` · v${entry.version}` : ""}
                     {entry.license ? ` · ${entry.license}` : ""}
                     {entry.archived
                       ? ` · ${t("plugins.market.communityArchived", {
@@ -360,13 +372,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                   </span>
                 </div>
                 <div className="plugins-item-actions">
-                  {installed ? (
-                    <span className="plugin-market-installed">
-                      {t("plugins.market.installed", {
-                        defaultValue: "Installed",
-                      })}
-                    </span>
-                  ) : (
+                  {!installed || isUpdate ? (
                     <button
                       className="plugins-toolbar-btn primary"
                       type="button"
@@ -390,11 +396,42 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                         <Download size={13} strokeWidth={1.8} />
                       )}
                       <span>
-                        {t("plugins.market.install", {
-                          defaultValue: "Install",
+                        {isUpdate
+                          ? t("plugins.market.update", {
+                              defaultValue: "Update",
+                            })
+                          : t("plugins.market.install", {
+                              defaultValue: "Install",
+                            })}
+                      </span>
+                    </button>
+                  ) : installedPlugin === null ? (
+                    <button
+                      className="plugins-toolbar-btn"
+                      type="button"
+                      disabled={entryBusy || entry.archived}
+                      onClick={() => {
+                        setInstallError(null);
+                        setPendingEntry(entry);
+                      }}
+                    >
+                      {entryBusy ? (
+                        <Loader2 size={14} className="spin" />
+                      ) : (
+                        <Download size={13} strokeWidth={1.8} />
+                      )}
+                      <span>
+                        {t("plugins.market.communityReinstall", {
+                          defaultValue: "Reinstall",
                         })}
                       </span>
                     </button>
+                  ) : (
+                    <span className="plugin-market-installed">
+                      {t("plugins.market.installed", {
+                        defaultValue: "Installed",
+                      })}
+                    </span>
                   )}
                 </div>
               </div>
@@ -414,7 +451,25 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                     })}
                   </span>
                 ) : null}
-                {pushedAt ? (
+                {isUpdate ? (
+                  <span className="plugin-market-update-hint">
+                    {t("plugins.market.updateHint", {
+                      values: {
+                        from: installedPlugin?.version ?? "",
+                        to: entry.version,
+                      },
+                      defaultValue: "Installed v{{from}} → v{{to}}",
+                    })}
+                  </span>
+                ) : null}
+                {releasedAt ? (
+                  <span className="plugin-market-update-hint">
+                    {t("plugins.market.communityReleasedAt", {
+                      values: { time: releasedAt },
+                      defaultValue: "Released {{time}}",
+                    })}
+                  </span>
+                ) : pushedAt ? (
                   <span className="plugin-market-update-hint">
                     {t("plugins.market.communityPushedAt", {
                       values: { time: pushedAt },
@@ -497,7 +552,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
               {t("plugins.market.communitySelectHint", {
                 values: { count: scriptSelection.items.length },
                 defaultValue:
-                  "This repository has no plugin.json but ships {{count}} userscripts from its latest commit. Pick the ones to install:",
+                  "This repository has no plugin.json but ships {{count}} userscripts from its latest release. Pick the ones to install:",
               })}
             </p>
             <div className="plugin-market-scripts">
@@ -543,6 +598,24 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
             ) : null}
             <div className="plugin-market-confirm-row">
               <span>
+                {t("plugins.market.communityRelease", {
+                  defaultValue: "Release",
+                })}
+              </span>
+              {pendingEntry.releaseUrl ? (
+                <button
+                  className="plugin-market-repo-link"
+                  type="button"
+                  onClick={() => window.open(pendingEntry.releaseUrl, "_blank")}
+                >
+                  v{pendingEntry.version}
+                </button>
+              ) : (
+                <span>v{pendingEntry.version}</span>
+              )}
+            </div>
+            <div className="plugin-market-confirm-row">
+              <span>
                 {t("plugins.market.source", { defaultValue: "Source" })}
               </span>
               <button
@@ -553,23 +626,12 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                 {pendingEntry.id}
               </button>
             </div>
-            {pendingInOfficialMarket ? (
-              <div className="plugin-market-hint">
-                <Store size={12} strokeWidth={1.8} />
-                <span>
-                  {t("plugins.market.communityInMarketHint", {
-                    defaultValue:
-                      "This repository is also listed in the official plugin market; installing from there verifies the archive SHA-256.",
-                  })}
-                </span>
-              </div>
-            ) : null}
             <div className="plugin-market-network-warning">
               <ShieldAlert size={13} strokeWidth={1.8} />
               <span>
                 {t("plugins.market.communityInstallWarning", {
                   defaultValue:
-                    "Community plugins are not reviewed: the app installs the latest commit of the repository default branch as-is, with no SHA-256 verification. Continue only if you trust this source.",
+                    "Community plugins are not reviewed: the app installs the archive snapshot of the latest GitHub Release as-is, with no SHA-256 verification. Continue only if you trust this source.",
                 })}
               </span>
             </div>

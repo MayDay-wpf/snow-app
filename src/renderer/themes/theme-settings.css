@@ -1031,25 +1031,12 @@
 /* 标题改为常规大小写实心标题，左侧竖条标识分类 */
 .theme-settings-page .api-settings-form-section-title {
   position: relative;
-  padding: 0 0 0 10px;
   border-bottom: 0;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
-}
-
-.theme-settings-page .api-settings-form-section-title::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 3px;
-  height: 12px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--accent-color) 70%, transparent);
-  transform: translateY(-50%);
 }
 
 /* 底部重置按钮与卡片列表拉开距离 */

@@ -229,9 +229,9 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
       if (payload === null || typeof payload !== "object") {
         throw new Error("Invalid community plugin payload");
       }
-      const { repo, branch, token, selection } = payload as {
+      const { repo, releaseTag, token, selection } = payload as {
         repo?: unknown;
-        branch?: unknown;
+        releaseTag?: unknown;
         token?: unknown;
         selection?: unknown;
       };
@@ -254,7 +254,7 @@ export const registerPluginHandlers = (native: NativeBridge): void => {
         : [];
       const text = await native.resolvePluginCommunitySource(
         normalized,
-        isNonEmptyString(branch) ? branch.trim() : "",
+        isNonEmptyString(releaseTag) ? releaseTag.trim() : "",
         isNonEmptyString(token) ? token.trim() : "",
         JSON.stringify(selectionPaths),
       );

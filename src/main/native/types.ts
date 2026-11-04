@@ -4029,10 +4029,10 @@ export type NativeBridge = ImageGenerationNativeApi & {
     query: string,
     forceRefresh?: boolean,
   ) => Promise<string>;
-  /** 解析并安装社区来源（atom 订阅源解析提交 + codeload 快照，无需 token，返回 JSON 结果） */
+  /** 解析并安装社区来源（按最新 Release tag 下载不可变快照，无需 token，返回 JSON 结果） */
   resolvePluginCommunitySource: (
     repo: string,
-    branch: string,
+    releaseTag: string,
     token: string,
     selectionJson: string,
   ) => Promise<string>;
