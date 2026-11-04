@@ -443,7 +443,11 @@ fn delete_snapshots(
 ) {
     let connection = database::open_connection(database_path).ok();
     let archive_connection = archive::open_archive_connection(archive_path).ok();
-    let ids = collect_snapshot_ids(connection.as_ref(), archive_connection.as_ref(), directory_id);
+    let ids = collect_snapshot_ids(
+        connection.as_deref(),
+        archive_connection.as_ref(),
+        directory_id,
+    );
     for (id, bytes) in existing_snapshots(&ids) {
         match checkpoint::delete_checkpoint(id.clone()) {
             Ok(()) => {

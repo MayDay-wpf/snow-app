@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /** 子代理运行控制：全局/单会话两层并发设置与失败挂起决策（重试/放弃）。
- *  仅存在于渲染进程内存；上限持久化在 system_settings，单会话上限不超过全局上限。 */
+ *  仅存在于渲染进程内存；上限持久化在 system_settings，0 表示该层不限制。 */
 
 const SUB_AGENT_GLOBAL_MAX_CONCURRENCY_SETTING =
   "sub_agent_global_max_concurrency";
@@ -10,13 +10,13 @@ export const SUB_AGENT_GLOBAL_MAX_CONCURRENCY_MIN = 0;
 export const SUB_AGENT_GLOBAL_MAX_CONCURRENCY_MAX = 2000;
 const SUB_AGENT_SESSION_MAX_CONCURRENCY_SETTING = "sub_agent_max_concurrency";
 export const SUB_AGENT_SESSION_MAX_CONCURRENCY_DEFAULT = 3;
-export const SUB_AGENT_SESSION_MAX_CONCURRENCY_MIN = 1;
-export const SUB_AGENT_SESSION_MAX_CONCURRENCY_MAX = 16;
+export const SUB_AGENT_SESSION_MAX_CONCURRENCY_MIN = 0;
+export const SUB_AGENT_SESSION_MAX_CONCURRENCY_MAX = 2000;
 
 export type SubAgentConcurrencyLimits = {
   /** 所有会话合计上限；0 表示不限制。 */
   global: number;
-  /** 单会话上限，恒不大于全局上限。 */
+  /** 单会话上限；0 表示不限制，否则恒不大于全局上限。 */
   session: number;
 };
 
@@ -37,12 +37,14 @@ export const clampSubAgentGlobalMaxConcurrency = (value: unknown): number =>
     ),
   );
 
-/** 全局不限制（0）时不设额外约束，否则单会话上限不得超过全局上限。 */
+/** 单会话上限的可填上界：全局不限制（0）时只受最大值约束，否则不得超过全局上限。
+ *  0（不限制）恒在范围内，不受该上界影响。 */
 export const sessionConcurrencyUpperBound = (globalMax: number): number =>
   globalMax > 0
     ? Math.min(SUB_AGENT_SESSION_MAX_CONCURRENCY_MAX, globalMax)
     : SUB_AGENT_SESSION_MAX_CONCURRENCY_MAX;
 
+/** 单会话上限：0 表示不限制；非 0 时收敛到 [1, 上界]。 */
 export const clampSubAgentSessionMaxConcurrency = (
   value: unknown,
   globalMax: number,
@@ -96,7 +98,7 @@ export const loadSubAgentConcurrencyLimits =
     return { ...limits };
   };
 
-/** 局部更新两层上限；任一层变化都会重新收敛单会话上限，保证不超过全局上限。 */
+/** 局部更新两层上限；任一层变化都会重新收敛单会话上限（0 表示不限制，非 0 不超过全局上限）。 */
 export const saveSubAgentConcurrencyLimits = async (patch: {
   global?: unknown;
   session?: unknown;

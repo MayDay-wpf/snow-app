@@ -890,7 +890,7 @@ async fn embed_single_file(
                 start_line: chunk.start_line as i32,
                 end_line: chunk.end_line as i32,
                 content: chunk.content.clone(),
-                embedding_json: api_embedding::vector_to_json(embedding),
+                embedding: embedding.clone(),
                 embedding_model: embedding_model_name.to_string(),
                 file_hash: file_hash.clone(),
             });

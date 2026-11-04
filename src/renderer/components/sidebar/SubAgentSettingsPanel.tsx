@@ -84,7 +84,7 @@ export function SubAgentSettingsPanel({
   const [sessionMaxConcurrency, setSessionMaxConcurrency] = useState(
     String(SUB_AGENT_SESSION_MAX_CONCURRENCY_DEFAULT),
   );
-  // 单会话上限不得超过全局上限；全局为 0（不限制）时按 1-16 取值。
+  // 单会话上限不得超过全局上限；任一层为 0 都表示该层不限制。
   const sessionUpperBound = sessionConcurrencyUpperBound(
     Number.parseInt(globalMaxConcurrency, 10) || 0,
   );
@@ -470,7 +470,7 @@ export function SubAgentSettingsPanel({
           <span>
             {t("settings.subAgentConcurrencyInfo", {
               defaultValue:
-                "Two layers: the global limit caps sub-agents running across all conversations (0 = unlimited); the per-conversation limit caps each conversation and never exceeds the global limit. Extra sub-agents queue and start when a slot frees up.",
+                "Two layers: the global limit caps sub-agents running across all conversations (0 = unlimited); the per-conversation limit caps each conversation (0 = unlimited) and never exceeds the global limit. Extra sub-agents queue and start when a slot frees up.",
             })}
           </span>
         </div>
@@ -501,7 +501,8 @@ export function SubAgentSettingsPanel({
           <label className="api-settings-field">
             <span>
               {t("settings.subAgentSessionConcurrencyLabel", {
-                defaultValue: "Per-conversation concurrency limit",
+                defaultValue:
+                  "Per-conversation concurrency limit (0 = unlimited)",
               })}
             </span>
             <input
@@ -514,7 +515,7 @@ export function SubAgentSettingsPanel({
               onBlur={() => void saveMaxConcurrency("session")}
               title={t("settings.subAgentSessionConcurrencyHint", {
                 defaultValue:
-                  "Range 1-16, default 3; never above the global limit.",
+                  "Range 0-2000, default 3; 0 means unlimited, otherwise never above the global limit.",
               })}
             />
           </label>

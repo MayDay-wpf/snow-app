@@ -60,7 +60,7 @@ impl TodoService {
         }
     }
 
-    fn get_connection(&self) -> napi::Result<Connection> {
+    fn get_connection(&self) -> napi::Result<crate::storage::database::PooledConnection> {
         let conn = crate::storage::database::open_connection(&self.db_path).map_err(|error| {
             crate::storage::database::database_error(
                 std::path::Path::new(&self.db_path),

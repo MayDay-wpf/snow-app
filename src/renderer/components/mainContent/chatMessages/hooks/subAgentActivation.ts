@@ -47,10 +47,7 @@ import {
 import { settleResponseHtmlPreviewEligibility } from "../utils/messageSettlement";
 import {
   failedModelMessage,
-  hasModelRetryToolCalls,
   modelFailureReason,
-  modelRetryToolCallsRejectedReason,
-  modelRetryToolsBlockedReason,
   settleApiCancellation,
 } from "./modelResponseFailure";
 import { appendHookExecutionToMessage, runHook } from "./hookOutcome";
@@ -436,7 +433,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
   const subAgentRunLoop = async (
     subMessages: Parameters<SubAgentRunLoop>[0],
     resumeAfterCompaction = false,
-    modelRetryOnly = false,
+    retryFailedResponse = false,
   ): Promise<string> => {
     if (!(await awaitPauseBoundary())) return "Sub-agent interrupted by user";
     if (taskHistory) bindAgentTask(subConvId, taskHistory);
@@ -445,26 +442,23 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
     }
 
     // 统一自动压缩闸门：子代理每一次「确认要发起下一次请求」的入口（首次
-    // 激活、插话续跑、旧会话恢复、内部排队、强行发送）都汇合到本循环，阈值
-    // 检查因此不再依赖各调用方自己的续跑判断。携带工具结果的请求与压缩边界
+    // 激活、插话续跑、旧会话恢复、内部排队、强行发送、失败重试）都汇合到本循环，
+    // 阈值检查因此不再依赖各调用方自己的续跑判断。携带工具结果的请求与压缩边界
     // 续跑由闸门内部跳过（前者在响应后的检查点、工具执行前压缩）。
-    // Model-only retries must not compact into a tool-enabled round.
-    const gateCompaction = modelRetryOnly
-      ? null
-      : await runAutoCompactionGate(ctx, {
-          conversationId: subConvId,
-          requestMessages: subMessages,
-          model: runtimeConfig.model,
-          // 子代理严格绑定自身 Profile，找不到时不回落全局活动档案。
-          apiProfile: runtimeConfig.apiProfile,
-          strictProfile: true,
-          subAgentToolsJson: runtimeConfig.toolsJson,
-          subAgentSystemPrompt: runtimeConfig.systemPrompt || undefined,
-          thinkingStrength: runtimeConfig.effectiveThinkingStrength,
-          responsesFastMode: runtimeConfig.effectiveResponsesFastMode,
-          resumeAfterCompaction,
-          beforeCompaction: () => deps.budget.request(),
-        });
+    const gateCompaction = await runAutoCompactionGate(ctx, {
+      conversationId: subConvId,
+      requestMessages: subMessages,
+      model: runtimeConfig.model,
+      // 子代理严格绑定自身 Profile，找不到时不回落全局活动档案。
+      apiProfile: runtimeConfig.apiProfile,
+      strictProfile: true,
+      subAgentToolsJson: runtimeConfig.toolsJson,
+      subAgentSystemPrompt: runtimeConfig.systemPrompt || undefined,
+      thinkingStrength: runtimeConfig.effectiveThinkingStrength,
+      responsesFastMode: runtimeConfig.effectiveResponsesFastMode,
+      resumeAfterCompaction,
+      beforeCompaction: () => deps.budget.request(),
+    });
     if (gateCompaction) {
       if (isSubCancelled()) {
         return "Sub-agent interrupted by user";
@@ -527,7 +521,8 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
         thinkingStrength: runtimeConfig.effectiveThinkingStrength,
         responsesFastMode: runtimeConfig.effectiveResponsesFastMode,
         resumeAfterCompaction,
-        disableTools: modelRetryOnly,
+        // 失败重试：请求消息已随失败回合落库，Rust 只补助手行并替换末尾失败行。
+        retryFailedResponse,
         subAgentToolsJson,
         subAgentSystemPrompt: subAgentSystemPrompt || undefined,
         // Sub-agents always use their own normal-mode prompt and tool set;
@@ -589,9 +584,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
     // snowflake ids in persistedUserMessageIds. Without this remap the
     // in-memory sub-agent messages keep "user-{ts}-{rand}" ids while the DB
     // (queried by the user-message rail) stores snowflake ids, and the rail
-    // cannot locate the DOM message by id.
-    // 失败重试时需撤销本次 id 替换（对应 DB 行会被截断）。
-    let appliedSubIdRemap: Map<string, string> | null = null;
+    // cannot locate the DOM message by id. 重试失败回合不重发这些消息，id 替换无需撤销。
     if (
       subResponse.persistedUserMessageIds &&
       subResponse.persistedUserMessageIds.length > 0
@@ -629,7 +622,6 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       }
 
       if (subIdRemap.size > 0) {
-        appliedSubIdRemap = subIdRemap;
         ctx.updateSessionMessages(subConvId, (msgs) =>
           msgs.map((m) => {
             const newId = subIdRemap.get(m.id);
@@ -725,52 +717,26 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           awaitSubAgentFailureDecision(slotOwner),
         );
         const retryReady = decision === "retry" && !isSubCancelled();
-        if (
-          retryReady &&
-          subMessages.some((message) => message.role === "tool")
-        ) {
-          stopped = true;
-          const reason = modelRetryToolsBlockedReason();
-          onExecutionError({
-            category: "model",
-            code: "MODEL_RETRY_TOOLS_BLOCKED",
-            message: reason,
-            retryable: false,
-          });
-          ctx.updateSessionMessages(subConvId, (messages) =>
-            messages.map((message) =>
-              message.id === subAssistantMessageId
-                ? failedModelMessage(message, {
-                    ...subResponse,
-                    failureReason: reason,
-                  })
-                : message,
-            ),
-          );
-          return subResponse.content || "";
-        }
         if (retryReady) {
-          await window.snow.truncateTrailingFailedExchange(subConvId);
-          if (isSubCancelled()) {
-            stopped = true;
-            return "Sub-agent interrupted by user";
-          }
           ctx.updateSessionField(subConvId, "isStreaming", true);
           ctx.addStreamingId(subConvId);
-          const revertIds = new Map(
-            Array.from(appliedSubIdRemap ?? []).map(
-              ([oldId, newId]): [string, string] => [newId, oldId],
+          // 只移除失败气泡：本轮消息（含已完成工具结果）保留在库内，不重发、不重放。
+          ctx.updateSessionMessages(subConvId, (currentMessages) =>
+            currentMessages.filter(
+              (message) => message.id !== subAssistantMessageId,
             ),
           );
-          ctx.updateSessionMessages(subConvId, (currentMessages) =>
-            currentMessages
-              .filter((message) => message.id !== subAssistantMessageId)
-              .map((message) => {
-                const oldId = revertIds.get(message.id);
-                return oldId ? { ...message, id: oldId } : message;
-              }),
+          // 重试同一轮请求：本轮消息已随失败回合落库，历史会原样提供（工具结果、
+          // 插话都在）。唯一例外是紧挨失败行的那条 user 消息会被历史排除规则跳过，
+          // 这里补发它；其余消息一律不重发，避免上下文重复。
+          const trailingRetryMessage = subMessages[subMessages.length - 1];
+          return subAgentRunLoop(
+            trailingRetryMessage && trailingRetryMessage.role === "user"
+              ? [trailingRetryMessage]
+              : [],
+            resumeAfterCompaction,
+            true,
           );
-          return subAgentRunLoop(subMessages, resumeAfterCompaction, true);
         }
       }
       stopped = true;
@@ -779,35 +745,6 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
       }
       // Only the normalized reason may leave the failure channel, never the body.
       throw new Error(failureReason || "Sub-agent model request failed");
-    }
-
-    // A model retry never authorizes tools, compacts, or consumes steering.
-    if (modelRetryOnly) {
-      stopped = true;
-      const reason = hasModelRetryToolCalls(subResponse.toolCallsJson)
-        ? modelRetryToolCallsRejectedReason()
-        : undefined;
-      if (reason)
-        onExecutionError({
-          category: "model",
-          code: "MODEL_RETRY_TOOL_CALLS_REJECTED",
-          message: reason,
-          retryable: false,
-        });
-      ctx.updateSessionMessages(subConvId, (messages) =>
-        messages.map((message) =>
-          message.id === subAssistantMessageId
-            ? {
-                ...failedModelMessage(message, {
-                  ...subResponse,
-                  failureReason: reason,
-                }),
-                status: reason ? "error" : "sent",
-              }
-            : message,
-        ),
-      );
-      return subResponse.content || "";
     }
 
     // 工具调用必然带来下一轮请求：这里在工具执行之前压缩，压缩交接因此覆盖

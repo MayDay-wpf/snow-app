@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -85,6 +86,9 @@ const PROXY_TEMPLATE = `// Snow App 对话请求代理层（用户可编辑）
 `;
 
 let cache: { mtimeMs: number; proxy: Promise<LoadedProxy> } | null = null;
+
+/** 代理目录监听器：脚本新增/删除/保存时刷新 Rust 侧的启用开关。 */
+let proxyWatcher: FSWatcher | null = null;
 
 const pickHook = <T>(value: unknown): T | undefined =>
   typeof value === "function" ? (value as T) : undefined;
@@ -228,19 +232,69 @@ const ensureProxyTemplate = async (): Promise<void> => {
 };
 
 /**
+ * 把「是否存在代理脚本」同步给 Rust。脚本不存在时请求阶段直接放行，
+ * 不再把整个请求体序列化、跨线程传输、再在主进程解析一遍。
+ */
+const syncProxyState = async (
+  nativeBridge: Pick<NativeBridge, "setRequestProxyEnabled">,
+): Promise<void> => {
+  let enabled = true;
+  try {
+    await stat(PROXY_FILE);
+  } catch {
+    enabled = false;
+  }
+  nativeBridge.setRequestProxyEnabled(enabled);
+};
+
+/** 监听代理目录（非递归，开销极小）：脚本变更后立即刷新启用开关。 */
+const watchProxyDirectory = (
+  nativeBridge: Pick<NativeBridge, "setRequestProxyEnabled">,
+): void => {
+  if (proxyWatcher) {
+    return;
+  }
+  try {
+    proxyWatcher = watch(PROXY_DIR, () => {
+      void syncProxyState(nativeBridge);
+    });
+    proxyWatcher.on("error", () => {
+      proxyWatcher?.close();
+      proxyWatcher = null;
+    });
+  } catch {
+    // 目录尚未创建时忽略；ensureProxyTemplate 完成后会再试一次。
+  }
+};
+
+/** 退出时释放代理目录监听。 */
+export const disposeRequestProxy = (): void => {
+  proxyWatcher?.close();
+  proxyWatcher = null;
+};
+
+/**
  * 启动时注册代理回调，并在脚本缺失时生成可编辑的模板。
  * 模板中的钩子均为注释状态，不改变任何请求与响应。
  */
 export const registerRequestProxy = (
-  nativeBridge: Pick<NativeBridge, "setRequestProxyHandler">,
+  nativeBridge: Pick<
+    NativeBridge,
+    "setRequestProxyHandler" | "setRequestProxyEnabled"
+  >,
 ): void => {
   nativeBridge.setRequestProxyHandler(handleRequestProxyMessage);
-  ensureProxyTemplate().catch((error: unknown) => {
-    snowLog.error({
-      module: MODULE_NAME,
-      func: "registerRequestProxy",
-      message: "Failed to create the request proxy template",
-      error: describeError(error),
+  ensureProxyTemplate()
+    .then(() => {
+      watchProxyDirectory(nativeBridge);
+      return syncProxyState(nativeBridge);
+    })
+    .catch((error: unknown) => {
+      snowLog.error({
+        module: MODULE_NAME,
+        func: "registerRequestProxy",
+        message: "Failed to create the request proxy template",
+        error: describeError(error),
+      });
     });
-  });
 };

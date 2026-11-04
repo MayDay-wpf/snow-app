@@ -320,9 +320,14 @@ export const workspaceApi = {
     ipcRenderer.invoke("workspace-directories:start-watch", dirPath),
   stopDirectoryWatch: (dirPath: string): Promise<void> =>
     ipcRenderer.invoke("workspace-directories:stop-watch", dirPath),
-  onDirectoryChanged: (callback: (dirPath: string) => void): (() => void) => {
-    const handler = (_event: IpcRendererEvent, dirPath: string): void => {
-      callback(dirPath);
+  onDirectoryChanged: (
+    callback: (change: { dirPath: string; paths: string[] }) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      change: { dirPath: string; paths: string[] },
+    ): void => {
+      callback(change);
     };
 
     ipcRenderer.on("workspace-directories:changed", handler);

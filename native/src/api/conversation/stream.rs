@@ -232,6 +232,9 @@ pub async fn create_response_stream(
     let failure_context_compaction = request.context_compaction.unwrap_or(false);
     let failure_skip_context = request.skip_context.unwrap_or(false);
     let failure_resume_after_compaction = request.resume_after_compaction.unwrap_or(false);
+    // 重试失败回合：请求消息已随失败回合落库，失败重落库时不再重复写入，
+    // 末尾的失败助手行由本次错误信息替换。
+    let failure_retry_failed_response = request.retry_failed_response.unwrap_or(false);
     let failure_database_path = context.database_path.clone();
     // The profile that actually served this request. Persisted on failed
     // exchanges too so a conversation created by a failed first message is
@@ -424,6 +427,7 @@ pub async fn create_response_stream(
                         &persisted_failure_api_profile,
                         &failure_directory_id,
                         persisted_failure_resume,
+                        failure_retry_failed_response,
                         &persisted_error_message,
                     )
                 })

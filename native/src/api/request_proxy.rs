@@ -39,8 +39,17 @@ const RESPONSE_EVENT_HOOK_TIMEOUT: Duration = Duration::from_secs(5);
 
 static HANDLER: OnceLock<Mutex<Option<Arc<RequestProxyCallback>>>> = OnceLock::new();
 
+/// 主进程是否检测到可用的代理脚本。脚本不存在时请求阶段直接放行，不再把
+/// 整个请求体序列化、跨线程传输、再在主进程解析一遍（长上下文可达数 MB）。
+static ENABLED: AtomicBool = AtomicBool::new(true);
+
 fn handler_slot() -> &'static Mutex<Option<Arc<RequestProxyCallback>>> {
     HANDLER.get_or_init(|| Mutex::new(None))
+}
+
+/// 由主进程在脚本出现/消失时调用。默认 `true`，保持没有该通知时的旧行为。
+pub fn set_enabled(enabled: bool) {
+    ENABLED.store(enabled, Ordering::Relaxed);
 }
 
 fn current_handler() -> Option<Arc<RequestProxyCallback>> {
@@ -171,6 +180,9 @@ async fn call_hook(
 /// 请求体发出前的代理点。返回脚本替换后的请求体；无脚本、无会话或失败时返回原样。
 /// 同时决定本次对话流是否需要逐事件处理响应（见 `ProxySession::response_hook`）。
 pub(crate) async fn transform_request(provider: &'static str, payload: Value) -> Value {
+    if !ENABLED.load(Ordering::Relaxed) {
+        return payload;
+    }
     let Some(session) = current_session() else {
         return payload;
     };

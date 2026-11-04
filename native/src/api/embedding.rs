@@ -489,8 +489,3 @@ fn parse_gemini_response(parsed: &Value, expected_count: usize) -> Result<Vec<Ve
         })
         .collect()
 }
-
-/// Serialize a vector to JSON string for storage.
-pub fn vector_to_json(vector: &[f64]) -> String {
-    serde_json::to_string(vector).unwrap_or_else(|_| "[]".to_string())
-}

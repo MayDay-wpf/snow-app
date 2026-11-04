@@ -39,7 +39,7 @@ const listeners = new Map<string, TerminalMonitorListener>();
 /** 开始监控某个终端 tab（由 ChatInput 在进入监控模式时调用） */
 export const startTerminalMonitor = (
   tabId: string,
-  listener: TerminalMonitorListener
+  listener: TerminalMonitorListener,
 ): void => {
   listeners.set(tabId, listener);
 };
@@ -57,3 +57,7 @@ export const pushTerminalLines = (tabId: string, lines: string[]): void => {
     listener(lines);
   }
 };
+
+/** 是否存在监控订阅者。终端可用它跳过无意义的日志切分与拼接。 */
+export const hasTerminalMonitor = (tabId: string): boolean =>
+  listeners.has(tabId);

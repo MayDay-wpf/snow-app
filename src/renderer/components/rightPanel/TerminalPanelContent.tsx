@@ -39,6 +39,7 @@ import {
 } from "./terminal/terminalPathDrop";
 import {
   TERMINAL_INSERT_TEXT_EVENT,
+  hasTerminalMonitor,
   pushTerminalLines,
   type TerminalInsertTextPayload,
 } from "./terminal/terminalMonitor";
@@ -246,6 +247,11 @@ export const TerminalPanelContent = ({
   /** 追加一段 PTY 输出：按换行切分，推送增量行给监控方（无监控者时零开销） */
   const appendLog = useCallback(
     (data: string): void => {
+      // 没有监控订阅者时不拼接、不切分：重输出场景下这是纯浪费。
+      if (!hasTerminalMonitor(tabId)) {
+        logDraftRef.current = "";
+        return;
+      }
       const merged = logDraftRef.current + data;
       const parts = merged.split("\n");
       logDraftRef.current = parts.pop() ?? "";

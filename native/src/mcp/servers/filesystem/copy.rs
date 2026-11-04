@@ -54,6 +54,9 @@ struct TextDocument {
 
 /// 复制 / 剪切主体：读取源与目标 -> 计算新内容 -> 落盘 -> 构建回传结果。
 pub(super) fn execute(args: &Value) -> napi::Result<Value> {
+    if is_delete_mode(args) {
+        return execute_delete(args);
+    }
     let target_path = normalize_path(&required_string(args, "filePath")?);
     let source_path = normalize_path(&required_string(args, "sourceFilePath")?);
     let source_start_line = required_line(args, "sourceStartLine")?;
@@ -403,6 +406,84 @@ pub(super) fn execute(args: &Value) -> napi::Result<Value> {
     Ok(result)
 }
 
+/// mode=delete：直接删除 sourceFilePath 中的 sourceStartLine..sourceEndLine，不粘贴到任何位置。
+/// 只作用于一个文件（filePath 必须与 sourceFilePath 相同），因此拒绝 targetLine /
+/// targetEndLine / position：静默忽略会让「想移动却写成删除」的调用丢失内容。
+fn execute_delete(args: &Value) -> napi::Result<Value> {
+    let file_path = normalize_path(&required_string(args, "filePath")?);
+    let source_path = normalize_path(&required_string(args, "sourceFilePath")?);
+    let start_line = required_line(args, "sourceStartLine")?;
+    let end_line = optional_line(args, "sourceEndLine")?;
+
+    let has_target = ["targetLine", "targetEndLine"]
+        .iter()
+        .any(|field| args.get(*field).is_some_and(|value| !value.is_null()));
+    if has_target || has_position(args) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "targetLine, targetEndLine and position are not used with mode=\"delete\": the lines are removed, not pasted anywhere. Drop them, or use mode=\"insert\" / \"replace\" with deleteSource=true to move the lines.".to_string(),
+        ));
+    }
+
+    let document = read_document(&source_path, "sourceFilePath")?;
+    if !same_file_paths(&source_path, &file_path) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "mode=\"delete\" removes lines from sourceFilePath itself, so filePath must be the same file ({source_path}). To paste the lines elsewhere, use mode=\"insert\" or \"replace\" with deleteSource=true."
+            ),
+        ));
+    }
+
+    let ends_with_newline = document.content.ends_with('\n');
+    let mut lines = split_line_elements(&document.content);
+    let total_lines = lines.len();
+    if total_lines == 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{source_path} is empty: there is no line to delete."),
+        ));
+    }
+    if start_line > total_lines {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "sourceStartLine {start_line} is beyond the end of the file ({source_path} has {total_lines} lines)."
+            ),
+        ));
+    }
+    let end_line = end_line
+        .unwrap_or(start_line)
+        .max(start_line)
+        .min(total_lines);
+    let start_index = start_line - 1;
+    let removed_elements: Vec<String> = lines.drain(start_index..end_line).collect();
+    let new_content = join_line_elements(&lines, ends_with_newline);
+
+    write_document(
+        &source_path,
+        &new_content,
+        document.encoding,
+        document.had_bom,
+        false,
+    )
+    .map_err(|message| Error::new(Status::GenericFailure, message))?;
+
+    let (removed_content, omitted_lines) = build_payload(&removed_elements);
+    Ok(json!({
+        "success": true,
+        "mode": "delete",
+        "filePath": source_path,
+        "sourceLineStart": start_line,
+        "sourceLineEnd": end_line,
+        "removedLines": removed_elements.len(),
+        "totalLines": lines.len(),
+        "removedContent": removed_content,
+        "omittedLines": omitted_lines,
+        "review": build_review(&new_content, start_index, None),
+    }))
+}
+
 /// 本次调用会改写的文件路径（纯复制只改目标文件；剪切同时改写源文件）。
 /// 去重并按路径排序，供调用方顺序加锁，避免两次交叉剪切互相等待。
 pub(super) fn write_lock_paths(args: &Value) -> Vec<&str> {
@@ -697,6 +778,11 @@ fn optional_line(args: &Value, field: &str) -> napi::Result<Option<usize>> {
         Some(value) => parse_line_number(value, field).map(Some),
         None => Ok(None),
     }
+}
+
+/// mode 是否为 "delete"（删除路径独立于 insert / replace，由 execute 先行分流）。
+fn is_delete_mode(args: &Value) -> bool {
+    args.get("mode").and_then(Value::as_str).map(str::trim) == Some("delete")
 }
 
 fn parse_mode(args: &Value) -> napi::Result<CopyMode> {

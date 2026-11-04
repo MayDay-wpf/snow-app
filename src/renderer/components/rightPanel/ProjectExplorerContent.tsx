@@ -1638,9 +1638,50 @@ export function ProjectExplorerContent({
 
     void window.snow.startDirectoryWatch(rootPath);
 
-    const unsubscribe = window.snow.onDirectoryChanged((_dirPath: string) => {
+    const unsubscribe = window.snow.onDirectoryChanged((change) => {
+      // 多窗口时每个窗口都会收到广播，只处理自己监听的根目录。
+      if (
+        normalizeComparablePath(change.dirPath) !==
+        normalizeComparablePath(rootPath)
+      ) {
+        return;
+      }
+
       const loadedPaths = collectLoadedPaths(treeStateRef.current);
+      if (loadedPaths.size === 0) {
+        return;
+      }
+
+      // 平台未提供文件名（或一次变更过多）时，退回整目录刷新。
+      if (change.paths.length === 0) {
+        for (const path of loadedPaths) {
+          void silentRefreshDirectory(path);
+        }
+        return;
+      }
+
+      const loadedByKey = new Map<string, string>();
       for (const path of loadedPaths) {
+        loadedByKey.set(normalizeComparablePath(path), path);
+      }
+
+      // 只刷新变更文件所在的父目录：一次构建不再触发所有已展开目录重读。
+      const targets = new Set<string>();
+      const rootPrefix = change.dirPath.replace(/[\\/]+$/, "");
+      for (const relative of change.paths) {
+        const absolute = relative.includes(":")
+          ? relative
+          : `${rootPrefix}/${relative.replace(/\\/g, "/")}`;
+        const slashIndex = absolute.lastIndexOf("/");
+        const parent =
+          slashIndex > 0 ? absolute.slice(0, slashIndex) : absolute;
+        const loaded = loadedByKey.get(normalizeComparablePath(parent));
+        if (loaded) {
+          targets.add(loaded);
+        }
+      }
+
+      for (const path of targets) {
         void silentRefreshDirectory(path);
       }
     });

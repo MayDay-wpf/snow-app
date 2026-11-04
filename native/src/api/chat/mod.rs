@@ -121,6 +121,7 @@ async fn create_chat_completion_response_async(
         analysis_workspace_root: request.analysis_workspace_root.as_deref(),
         context_compaction: request.context_compaction.unwrap_or(false),
         resume_after_compaction: request.resume_after_compaction.unwrap_or(false),
+        retry_failed_response: request.retry_failed_response.unwrap_or(false),
         skip_context: request.skip_context.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
         worktree_mode: request.worktree_mode.unwrap_or(false),
@@ -396,6 +397,7 @@ async fn create_chat_completion_response_async(
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),
                 total_duration_ms: streamed_response.total_duration_ms,
+                retry_failed_response: request.retry_failed_response.unwrap_or(false),
             },
         )?
     } else {

@@ -337,11 +337,6 @@ export const conversationApi = {
       conversationId,
       messageId,
     ),
-  truncateTrailingFailedExchange: (conversationId: string): Promise<boolean> =>
-    ipcRenderer.invoke(
-      "chat-conversations:truncate-trailing-failed",
-      conversationId,
-    ),
   generateConversationSummary: (
     conversationId: string,
     basicModel?: string,

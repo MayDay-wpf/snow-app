@@ -48,7 +48,10 @@ import {
 } from "../browser/browserUserAgent";
 import { disposePetWindow, restorePetWindow } from "../pets/petWindow";
 import { ensureBuiltinPets } from "../pets/ensureBuiltinPet";
-import { registerRequestProxy } from "../requestProxy/requestProxy";
+import {
+  disposeRequestProxy,
+  registerRequestProxy,
+} from "../requestProxy/requestProxy";
 import { registerOAuthPlugins } from "../oauthPlugins/oauthPluginHost";
 import {
   registerPluginBackgrounds,
@@ -65,6 +68,7 @@ import { disposeWebSearchService } from "../websearch/webSearchRegistry";
 import { isInstallerQuitRequest } from "./installerQuit";
 import { sanitizeLauncherEnvironment } from "./launcherEnvironment";
 import { appendTrace, initRuntimeTrace } from "./runtimeTrace";
+import { stopAllDirectoryWatches } from "../utils/fsWatcher";
 
 /** 队长服务是否正在运行（决定关窗后是否托盘常驻）。 */
 const isTeamHostRunning = (): boolean => {
@@ -422,6 +426,10 @@ export const bootstrapApplication = (): void => {
   // 并销毁宠物窗口。
   app.on("before-quit", (event) => {
     markDetachedPanelsQuitting();
+    // 释放项目目录的递归监听句柄，避免退出阶段残留 watch。
+    stopAllDirectoryWatches();
+    // 释放请求代理目录监听。
+    disposeRequestProxy();
     disposePetWindow();
     if (remoteShutdownComplete) return;
 

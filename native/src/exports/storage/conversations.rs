@@ -775,16 +775,6 @@ pub async fn truncate_conversation_from_message(
     .map_err(map_spawn_error)?
 }
 
-/// 删除会话末尾的失败回合（子代理失败重试前清理），返回是否删除。
-#[napi]
-pub async fn truncate_trailing_failed_exchange(conversation_id: String) -> napi::Result<bool> {
-    tokio::task::spawn_blocking(move || {
-        crate::storage::truncate_trailing_failed_exchange(conversation_id)
-    })
-    .await
-    .map_err(map_spawn_error)?
-}
-
 /// List TODO items that will be deleted when rolling back to the given
 /// response_id within a conversation.  Returns a JSON string.
 #[napi]

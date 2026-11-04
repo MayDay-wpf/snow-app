@@ -35,18 +35,6 @@ export const failedModelMessage = (
   retryError: undefined,
 });
 
-export const modelRetryToolsBlockedReason = (): string =>
-  tGlobal("chat.error.modelRetryToolsBlocked");
-
-export const modelRetryToolCallsRejectedReason = (): string =>
-  tGlobal("chat.error.modelRetryToolCallsRejected");
-
-/** Fail closed for nonempty tool payloads, even malformed provider output. */
-export const hasModelRetryToolCalls = (payload?: string | null): boolean => {
-  const value = payload?.trim();
-  return Boolean(value && value !== "[]" && value !== "null");
-};
-
 const isApiResponseCancelled = (status?: string | null): boolean =>
   status === "cancelled" || status === "canceled";
 

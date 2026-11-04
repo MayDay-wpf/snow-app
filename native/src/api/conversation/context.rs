@@ -531,7 +531,12 @@ pub async fn prepare_context_request(
             }
         }
     }
-    if current_messages.is_empty() && !request.resume_after_compaction {
+    // 重试失败回合允许空请求消息：该回合的上下文（含已落库的工具结果）全部来自
+    // 会话历史，这里不重复下发。
+    if current_messages.is_empty()
+        && !request.resume_after_compaction
+        && !request.retry_failed_response
+    {
         return Err(Error::from_reason("Chat message content is required"));
     }
 

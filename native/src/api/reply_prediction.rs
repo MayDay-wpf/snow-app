@@ -391,6 +391,7 @@ async fn send(
         checkpoint_id: None,
         context_compaction: None,
         resume_after_compaction: None,
+        retry_failed_response: None,
         sub_agent_tools_json: None,
         sub_agent_system_prompt: None,
         sub_agent_config_profile: None,

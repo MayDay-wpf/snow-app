@@ -60,10 +60,52 @@ export type PtySession = {
   id: string;
   pty: IPty;
   webContents: WebContents;
+  /** 待发送的 PTY 输出（按 16ms / 64KB 阈值合并后一次性 IPC）。 */
+  outputBuffer: string;
+  outputTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const PTY_OUTPUT_CHANNEL = "pty:output";
 const PTY_EXIT_CHANNEL = "pty:exit";
+
+/**
+ * 构建、日志刷屏时 node-pty 每秒可产生上千个数据块，逐块 IPC 会让主进程与
+ * 渲染进程同时过载。按 16ms 或 64KB 阈值合并后发送，延迟不可感知，而 IPC
+ * 次数与渲染层的字符串处理量都能下降一个数量级。
+ */
+const PTY_OUTPUT_FLUSH_MS = 16;
+const PTY_OUTPUT_FLUSH_CHARS = 64 * 1024;
+
+const flushPtyOutput = (session: PtySession): void => {
+  if (session.outputTimer) {
+    clearTimeout(session.outputTimer);
+    session.outputTimer = null;
+  }
+  if (session.outputBuffer.length === 0) {
+    return;
+  }
+  const data = session.outputBuffer;
+  session.outputBuffer = "";
+  const webContents = session.webContents;
+  if (!webContents.isDestroyed()) {
+    webContents.send(PTY_OUTPUT_CHANNEL, { id: session.id, data });
+  }
+};
+
+const enqueuePtyOutput = (session: PtySession, data: string): void => {
+  session.outputBuffer += data;
+  if (session.outputBuffer.length >= PTY_OUTPUT_FLUSH_CHARS) {
+    flushPtyOutput(session);
+    return;
+  }
+  if (session.outputTimer) {
+    return;
+  }
+  session.outputTimer = setTimeout(
+    () => flushPtyOutput(session),
+    PTY_OUTPUT_FLUSH_MS,
+  );
+};
 
 const sessions = new Map<string, PtySession>();
 
@@ -537,7 +579,13 @@ export const createPtySession = async (
     throw error;
   }
 
-  const session: PtySession = { id, pty, webContents };
+  const session: PtySession = {
+    id,
+    pty,
+    webContents,
+    outputBuffer: "",
+    outputTimer: null,
+  };
   sessions.set(id, session);
 
   // Password/passphrase auto-injection for SSH sessions
@@ -582,13 +630,12 @@ export const createPtySession = async (
   }
 
   pty.onData((data: string) => {
-    const wc = sessions.get(id)?.webContents;
-    if (wc && !wc.isDestroyed()) {
-      wc.send(PTY_OUTPUT_CHANNEL, { id, data });
-    }
+    enqueuePtyOutput(session, data);
   });
 
   pty.onExit(({ exitCode }: { exitCode: number }) => {
+    // 退出前把缓冲中的尾部输出发完，避免最后几行丢失。
+    flushPtyOutput(session);
     const wc = sessions.get(id)?.webContents;
     if (wc && !wc.isDestroyed()) {
       wc.send(PTY_EXIT_CHANNEL, { id, exitCode });

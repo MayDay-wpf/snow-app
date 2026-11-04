@@ -210,6 +210,12 @@ export type ResponsesApiRequest = {
    * as normal user messages.
    */
   resumeAfterCompaction?: boolean | null;
+  /**
+   * 重试失败回合（子代理「重试」）：该回合的请求消息已随失败回合落库，
+   * `messages` 只作为上下文重发而不重复落库，末尾的失败助手行由本次响应替换；
+   * 允许 `messages` 为空。
+   */
+  retryFailedResponse?: boolean | null;
   subAgentToolsJson?: string | null;
   subAgentSystemPrompt?: string | null;
   subAgentConfigProfile?: string | null;

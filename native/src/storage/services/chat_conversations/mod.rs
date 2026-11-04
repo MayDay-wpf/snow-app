@@ -104,6 +104,9 @@ pub struct StoreChatExchangeInput<'a> {
     pub directory_id: &'a str,
     pub context_compaction: bool,
     pub total_duration_ms: i64,
+    /// 重试失败回合（子代理「重试」）：该回合的请求消息已随失败回合落库，本次不再
+    /// 重复写入；末尾的失败助手行由本次响应替换，已完成工具结果的证据行原样保留。
+    pub retry_failed_response: bool,
 }
 
 /// 一次交换落库产生的消息 id（助手 id 为空表示未写助手行）。
@@ -343,6 +346,35 @@ pub fn load_context_messages(
         .map_err(|error| database::database_error(database_path, "load chat context", error))
 }
 
+/// 删除会话末尾的失败助手行（role=assistant 且 status 为 error/failed），供重试
+/// 失败回合时用本次响应替换它。已完成工具结果的证据行不在删除之列，绝不触碰；
+/// 末尾不是失败助手行时为 no-op。必须在调用方的事务内执行。
+fn drop_trailing_failed_assistant(
+    transaction: &rusqlite::Transaction<'_>,
+    conversation_id: &str,
+) -> rusqlite::Result<()> {
+    let last: Option<(String, String, String)> = transaction
+        .query_row(
+            "SELECT id, role, status FROM chat_messages
+              WHERE conversation_id = ?1
+              ORDER BY id DESC
+              LIMIT 1",
+            params![conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((id, role, status)) = last else {
+        return Ok(());
+    };
+    if !role.eq_ignore_ascii_case("assistant")
+        || !(status.eq_ignore_ascii_case("failed") || status.eq_ignore_ascii_case("error"))
+    {
+        return Ok(());
+    }
+    transaction.execute("DELETE FROM chat_messages WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
 pub fn store_chat_exchange(
     database_path: &Path,
     input: &StoreChatExchangeInput<'_>,
@@ -357,6 +389,10 @@ pub fn store_chat_exchange(
             // 收尾中的回合迟到落库时整体丢弃，不得重建会话行与消息。
             if is_conversation_tombstoned(&transaction, input.conversation_id)? {
                 return Ok(StoredChatExchange::default());
+            }
+            // 重试失败回合：末尾的失败助手行由本次响应替换（先移除，下面重新插入）。
+            if input.retry_failed_response {
+                drop_trailing_failed_assistant(&transaction, input.conversation_id)?;
             }
             let mut persisted_user_message_ids = Vec::new();
             let mut persisted_assistant_message_id = String::new();
@@ -459,7 +495,14 @@ pub fn store_chat_exchange(
                 // before forwarding. Everything received here is persisted as a
                 // normal message — the assistant response is always persisted
                 // below.
-                for (index, message) in input.request_messages.iter().enumerate() {
+                // 正常消息在这里逐条落库；重试失败回合的请求消息已随失败回合写入，
+                // 这里只把它们当上下文使用，不再重复入库。
+                let request_messages: &[ChatContextMessage] = if input.retry_failed_response {
+                    &[]
+                } else {
+                    input.request_messages
+                };
+                for (index, message) in request_messages.iter().enumerate() {
                         // 系统/开发者文本是请求级指令（内置提示词、宿主事实、
                         // 内部续跑指令），从不进入会话历史：落库会让后续请求
                         // 误判历史已自带系统提示词，并破坏可缓存的前缀。
@@ -547,7 +590,7 @@ pub fn store_chat_exchange(
                     input.response_thinking_token_count,
                     input.tool_calls_json,
                     context_usage,
-                    input.request_messages.len(),
+                    request_messages.len(),
                     input.retry_attempts,
                     input.retry_error,
                 )?;
@@ -682,6 +725,9 @@ pub fn store_failed_chat_exchange(
     api_profile_name: &str,
     directory_id: &str,
     resume_after_compaction: bool,
+    // 重试失败回合（子代理「重试」）：请求消息已随失败回合落库，本次不再重复写入，
+    // 末尾的失败助手行由本次错误信息替换。允许请求消息为空。
+    retry_failed_response: bool,
     error_message: &str,
 ) -> Result<(String, Vec<String>)> {
     let request_messages = request_messages
@@ -711,8 +757,9 @@ pub fn store_failed_chat_exchange(
     };
     // Resume-after-compaction requests may be left with only the skipped
     // placeholder (no protected messages), which is fine — allow it through
-    // empty. All other empty requests are rejected.
-    if request_messages.is_empty() && !resume_after_compaction {
+    // empty. 重试失败回合同样允许空请求消息（上下文已在库内）。All other empty
+    // requests are rejected.
+    if request_messages.is_empty() && !resume_after_compaction && !retry_failed_response {
         return Err(Error::from_reason("Chat message content is required"));
     }
 
@@ -748,6 +795,7 @@ pub fn store_failed_chat_exchange(
             directory_id,
             context_compaction: false,
             total_duration_ms: 0,
+            retry_failed_response,
         },
     )?
     .user_message_ids;

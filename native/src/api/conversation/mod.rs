@@ -42,6 +42,8 @@ pub struct ConversationContextRequest<'a> {
     /// Prevents the compaction handoff from being injected twice into the
     /// resume request.
     pub resume_after_compaction: bool,
+    /// 重试失败回合（子代理「重试」）：该回合的上下文已在库内，允许空请求消息。
+    pub retry_failed_response: bool,
     /// When true, skip loading conversation history and injecting the built-in
     /// system prompt. Used by lightweight single-shot completions such as the
     /// AI commit-message generator.

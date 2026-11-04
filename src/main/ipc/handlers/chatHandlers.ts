@@ -74,7 +74,13 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       ),
     );
 
-  if (messages.length === 0) {
+  // 重试失败回合允许空消息：该回合的上下文（含已落库的工具结果）全部来自会话历史，
+  // 这里只重发未落库的补充消息（通常为空）。
+  const retryFailedResponse =
+    typeof source.retryFailedResponse === "boolean"
+      ? source.retryFailedResponse
+      : undefined;
+  if (messages.length === 0 && !retryFailedResponse) {
     throw new Error(
       "Responses API request requires at least one non-empty message",
     );
@@ -109,6 +115,7 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       typeof source.resumeAfterCompaction === "boolean"
         ? source.resumeAfterCompaction
         : undefined,
+    retryFailedResponse,
     subAgentToolsJson:
       typeof source.subAgentToolsJson === "string"
         ? source.subAgentToolsJson

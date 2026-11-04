@@ -578,6 +578,8 @@ fn snapshot(db: &Path, pid: &str) -> Result<(String, Vec<Record>)> {
     let c = crate::storage::database::open_connection(db)
         .map_err(|_| failure("context_storage_unavailable"))?;
     let table = codebase_index::vector_table_name(pid);
+    // 旧索引表可能缺少 BLOB 列：先升级结构并迁移旧数据。
+    let _ = codebase_index::ensure_vector_schema(db, &c, &table);
     let count: i64 = safe(c.query_row(
         &format!("SELECT COUNT(*) FROM {table} WHERE project_id=?1"),
         [pid],
@@ -589,7 +591,7 @@ fn snapshot(db: &Path, pid: &str) -> Result<(String, Vec<Record>)> {
     if count > 20000 {
         return Err(failure("index_budget_exceeded"));
     }
-    let mut q=safe(c.prepare(&format!("SELECT id,relative_path,start_line,end_line,content,file_hash,embedding_json,embedding_model,created_at FROM {table} WHERE project_id=?1 ORDER BY id")))?;
+    let mut q=safe(c.prepare(&format!("SELECT id,relative_path,start_line,end_line,content,file_hash,embedding,embedding_model,created_at FROM {table} WHERE project_id=?1 ORDER BY id")))?;
     let rows = safe(q.query_map([pid], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -598,7 +600,7 @@ fn snapshot(db: &Path, pid: &str) -> Result<(String, Vec<Record>)> {
             r.get::<_, i32>(3)?,
             r.get::<_, String>(4)?,
             r.get::<_, String>(5)?,
-            r.get::<_, String>(6)?,
+            r.get::<_, Option<Vec<u8>>>(6)?,
             r.get::<_, String>(7)?,
             r.get::<_, String>(8)?,
         ))
@@ -612,8 +614,9 @@ fn snapshot(db: &Path, pid: &str) -> Result<(String, Vec<Record>)> {
             .as_bytes(),
     );
     for row in rows {
-        let (id, path, start, end, text, file_hash, embedding, model, created) = safe(row)?;
-        total += text.len() + embedding.len();
+        let (id, path, start, end, text, file_hash, embedding_blob, model, created) = safe(row)?;
+        let stored_bytes = embedding_blob.as_deref().unwrap_or_default();
+        total += text.len() + stored_bytes.len();
         if total > 32 * 1024 * 1024 {
             return Err(failure("index_budget_exceeded"));
         }
@@ -627,13 +630,15 @@ fn snapshot(db: &Path, pid: &str) -> Result<(String, Vec<Record>)> {
                 model,
                 created,
                 hash(&text),
-                hash(&embedding)
+                hash(&String::from_utf8_lossy(stored_bytes))
             ])
             .to_string()
             .as_bytes(),
         );
-        let embedding: Vec<f64> =
-            serde_json::from_str(&embedding).map_err(|_| failure("index_vector_invalid"))?;
+        let Some(vector) = codebase_index::decode_embedding(stored_bytes) else {
+            return Err(failure("index_vector_invalid"));
+        };
+        let embedding: Vec<f64> = vector.into_iter().map(|value| value as f64).collect();
         if embedding.is_empty() || embedding.iter().any(|v| !v.is_finite()) {
             return Err(failure("index_vector_invalid"));
         }

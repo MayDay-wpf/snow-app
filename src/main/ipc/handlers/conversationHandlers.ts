@@ -516,15 +516,6 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
     },
   );
   ipcMain.handle(
-    "chat-conversations:truncate-trailing-failed",
-    async (_event, conversationId: unknown) => {
-      if (typeof conversationId !== "string" || !conversationId.trim()) {
-        throw new Error("Conversation ID is required to truncate");
-      }
-      return native.truncateTrailingFailedExchange(conversationId.trim());
-    },
-  );
-  ipcMain.handle(
     "chat-conversations:count-todos",
     async (_event, sessionId: unknown, responseId: unknown) => {
       if (typeof sessionId !== "string" || !sessionId.trim()) {

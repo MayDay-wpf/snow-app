@@ -125,9 +125,83 @@ fn wait_next_millis(last_timestamp_ms: u64) -> u64 {
     }
 }
 
-/// Opens a SQLite connection with foreign-key enforcement, WAL mode, and a
-/// busy timeout to prevent integrity violations and "database is locked"
-/// errors under concurrent `spawn_blocking` tasks.
+/// 连接池上限。SQLite 连接各自持有页缓存（数 MB），池过大会把空闲内存变成
+/// 常驻占用；8 个连接足以覆盖 blocking 线程池上的并发热点路径。
+const MAX_POOLED_CONNECTIONS: usize = 8;
+
+struct PooledEntry {
+    path: PathBuf,
+    connection: Connection,
+}
+
+/// 进程内空闲连接池。`rusqlite::Connection` 不是 `Sync`，但实现了 `Send`，
+/// 因此 `Mutex<Vec<PooledEntry>>` 可以安全地作为全局池：连接在任意 blocking
+/// 线程被借出、归还，同一时刻只会被一个线程持有。
+fn pool_entries() -> &'static Mutex<Vec<PooledEntry>> {
+    static POOL: OnceLock<Mutex<Vec<PooledEntry>>> = OnceLock::new();
+    POOL.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// 关闭池中所有空闲连接。数据库文件即将被替换或删除时调用，避免连接持有
+/// 文件句柄导致 Windows 上的 rename/remove 失败。
+pub fn close_pooled_connections() {
+    let mut entries = pool_entries()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    entries.clear();
+}
+
+/// 从池中借出的 SQLite 连接。通过 `Deref`/`DerefMut` 暴露底层连接，现有
+/// `let connection = open_connection(...)?; connection.execute(...)` 形式的
+/// 调用点无需改动；Drop 时把连接还回池中（池满则直接关闭）。
+pub struct PooledConnection {
+    path: PathBuf,
+    connection: Option<Connection>,
+}
+
+impl std::ops::Deref for PooledConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.connection
+            .as_ref()
+            .expect("pooled database connection was already released")
+    }
+}
+
+impl std::ops::DerefMut for PooledConnection {
+    fn deref_mut(&mut self) -> &mut Connection {
+        self.connection
+            .as_mut()
+            .expect("pooled database connection was already released")
+    }
+}
+
+impl Drop for PooledConnection {
+    fn drop(&mut self) {
+        let Some(connection) = self.connection.take() else {
+            return;
+        };
+        // 上一次使用若留下未结束的事务，先回滚再归还，避免污染下一次借用者。
+        if !connection.is_autocommit() {
+            let _ = connection.execute_batch("ROLLBACK;");
+        }
+        let mut entries = pool_entries()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if entries.len() < MAX_POOLED_CONNECTIONS {
+            entries.push(PooledEntry {
+                path: std::mem::take(&mut self.path),
+                connection,
+            });
+        }
+    }
+}
+
+/// Borrows a SQLite connection from the process-wide pool, opening a new one
+/// (with foreign-key enforcement, WAL mode, and a busy timeout) only when no
+/// idle connection for the same database file is available. The connection is
+/// returned to the pool when the [`PooledConnection`] is dropped.
 ///
 /// WAL (Write-Ahead Logging) allows readers and a writer to operate
 /// simultaneously, eliminating most reader-writer contention. The busy
@@ -137,8 +211,25 @@ fn wait_next_millis(last_timestamp_ms: u64) -> u64 {
 ///
 /// Every service function should call this instead of `Connection::open`
 /// to ensure consistent concurrency behaviour across the codebase.
-pub fn open_connection(database_path: impl AsRef<Path>) -> rusqlite::Result<Connection> {
-    let connection = Connection::open(database_path)?;
+pub fn open_connection(database_path: impl AsRef<Path>) -> rusqlite::Result<PooledConnection> {
+    let path = database_path.as_ref().to_path_buf();
+    let reused = {
+        let mut entries = pool_entries()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        entries
+            .iter()
+            .position(|entry| entry.path.as_path() == path.as_path())
+            .map(|index| entries.swap_remove(index).connection)
+    };
+    if let Some(connection) = reused {
+        return Ok(PooledConnection {
+            path,
+            connection: Some(connection),
+        });
+    }
+
+    let connection = Connection::open(&path)?;
     // SQLite disables foreign keys for every new connection unless enabled
     // explicitly. Schema-level ON DELETE CASCADE clauses rely on this.
     connection.pragma_update(None, "foreign_keys", "ON")?;
@@ -148,7 +239,10 @@ pub fn open_connection(database_path: impl AsRef<Path>) -> rusqlite::Result<Conn
     connection.busy_timeout(Duration::from_secs(30))?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
-    Ok(connection)
+    Ok(PooledConnection {
+        path,
+        connection: Some(connection),
+    })
 }
 
 /// 全局写锁：串行化同进程内的所有 SQLite 写事务。
@@ -272,6 +366,10 @@ pub(crate) fn recover_database(
     database_path: &Path,
     schema_builder: fn(&Connection) -> rusqlite::Result<()>,
 ) -> Result<()> {
+    // 恢复过程会 rename/删除数据库文件；池中任何空闲连接都会持有文件句柄
+    // （Windows 上 rename 会直接失败），因此先清空连接池。
+    close_pooled_connections();
+
     let parent = database_path
         .parent()
         .ok_or_else(|| Error::from_reason("Cannot determine database parent directory"))?;
@@ -463,6 +561,8 @@ pub(crate) fn recover_database(
     let _ = recovered_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
     drop(recovered_conn);
     drop(read_only_conn);
+    // drop 会把 recovered 连接还回池中，rename 前必须再清一次。
+    close_pooled_connections();
 
     // Remove WAL/SHM sidecar files of the corrupted database.
     let wal_path = PathBuf::from(format!("{}-wal", database_path.display()));

@@ -3445,12 +3445,12 @@ export const zhTW = {
   "settings.subAgentManageTitle": "管理子代理",
   "settings.subAgentConcurrencyTitle": "執行限制",
   "settings.subAgentConcurrencyInfo":
-    "兩層限制：全域上限限制所有會話合計執行的子代理數（0 表示不限制），單會話上限限制每個會話內的並行且不會超過全域上限。超出的子代理排隊，有空位時自動啟動。",
+    "兩層限制：全域上限限制所有會話合計執行的子代理數（0 表示不限制），單會話上限限制每個會話內的並行（0 表示不限制），非 0 時不會超過全域上限。超出的子代理排隊，有空位時自動啟動。",
   "settings.subAgentGlobalConcurrencyLabel": "全域並行上限（0 = 不限制）",
   "settings.subAgentGlobalConcurrencyHint": "範圍 0-2000，0 表示不限制。",
-  "settings.subAgentSessionConcurrencyLabel": "單會話並行上限",
+  "settings.subAgentSessionConcurrencyLabel": "單會話並行上限（0 = 不限制）",
   "settings.subAgentSessionConcurrencyHint":
-    "範圍 1-16，預設 3；不得大於全域上限。",
+    "範圍 0-2000，預設 3；0 表示不限制，非 0 時不得大於全域上限。",
   "settings.subAgentConcurrencySaved": "已儲存子代理並行上限。",
   "settings.subAgentConcurrencySaveError": "儲存子代理並行上限失敗",
   "settings.subAgentManageInfo":

@@ -638,14 +638,6 @@ pub fn truncate_conversation_from_message(
     )
 }
 
-pub fn truncate_trailing_failed_exchange(conversation_id: String) -> Result<bool> {
-    let database_path = ensure_database_file()?;
-    services::chat_conversations::truncate_trailing_failed_exchange(
-        &database_path,
-        &conversation_id,
-    )
-}
-
 /// 导出指定会话为 markdown / html / json / csv 格式文本。
 /// 文件路径选择与写入由 Electron 主进程 IPC handler 负责，
 /// Rust 端仅负责从 SQLite 读取数据并格式化，所有 I/O 在 spawn_blocking 中执行。

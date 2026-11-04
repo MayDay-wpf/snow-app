@@ -137,6 +137,13 @@ pub fn set_request_proxy_handler(handler: Option<RequestProxyCallback>) {
     request_proxy::set_handler(handler);
 }
 
+/// 告知 Rust 当前是否存在可用的代理脚本。脚本不存在时请求阶段直接放行，
+/// 省掉一次全量请求体序列化与主进程 JSON 解析。
+#[napi]
+pub fn set_request_proxy_enabled(enabled: bool) {
+    request_proxy::set_enabled(enabled);
+}
+
 /// Abort an in-flight tool execution (e.g. a bash subprocess) by the
 /// execution id that was streamed to the frontend as a `tool_execution`
 /// chunk.  The executing service races its wait against this cancellation
