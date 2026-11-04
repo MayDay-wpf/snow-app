@@ -18,6 +18,7 @@ import {
 import {
   COMMUNITY_PLUGIN_TOPIC,
   COMMUNITY_PLUGIN_TOPICS_URL,
+  filterCommunityEntries,
   formatCommunityTime,
   formatCompactCount,
   hasMarketUpdate,
@@ -80,19 +81,14 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
     [userscripts],
   );
 
-  /** 官方市场已收录的仓库地址（小写比对）：社区列表不再重复展示。 */
-  const officialRepos = useMemo(
-    () => new Set(market.entries.map((entry) => entry.repo.toLowerCase())),
-    [market.entries],
-  );
-
-  /** 社区列表只保留尚未进入官方索引的仓库。 */
+  /** 社区列表只保留尚未进入官方索引的仓库（与标签计数同口径）。 */
   const visibleEntries = useMemo(
     () =>
-      community.entries.filter(
-        (entry) => !officialRepos.has(entry.repo.toLowerCase()),
+      filterCommunityEntries(
+        community.entries,
+        market.entries.map((entry) => entry.repo),
       ),
-    [community.entries, officialRepos],
+    [community.entries, market.entries],
   );
 
   /** 来源仓库命中的已安装面板插件：用于与发行版版本比较。 */

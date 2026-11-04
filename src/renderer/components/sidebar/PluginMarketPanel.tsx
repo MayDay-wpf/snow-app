@@ -19,6 +19,7 @@ import { useCommunityStore } from "../../plugins/communityStore";
 import { resolveLocalized } from "../../plugins/manifest";
 import {
   buildMarketDownloadUrl,
+  filterCommunityEntries,
   formatCompactCount,
   hasMarketUpdate,
   isMarketEntryTooNew,
@@ -179,6 +180,18 @@ export const PluginMarketPanel = ({
     return counts;
   }, [market.entries]);
 
+  // 与社区列表同口径：排除已收录官方索引的仓库
+  const communityCount = useMemo(
+    () =>
+      community.searched
+        ? filterCommunityEntries(
+            community.entries,
+            market.entries.map((entry) => entry.repo),
+          ).length
+        : undefined,
+    [community.searched, community.entries, market.entries],
+  );
+
   const categoryTabs: {
     id: MarketTab;
     icon: React.JSX.Element;
@@ -227,7 +240,7 @@ export const PluginMarketPanel = ({
         defaultValue:
           "Third-party plugin repositories on GitHub that carry the snow-plugins topic: published by their authors, not submitted to the official plugin market and not reviewed.",
       }),
-      count: community.searched ? community.entries.length : undefined,
+      count: communityCount,
     },
   ];
 

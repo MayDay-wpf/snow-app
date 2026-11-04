@@ -356,6 +356,19 @@ export type CommunitySearchResult = {
   fetchedAt: number;
 };
 
+/** 社区列表实际展示的条目：排除已收录到官方索引的仓库（列表与标签计数同口径）。 */
+export const filterCommunityEntries = (
+  entries: CommunityPluginEntry[],
+  officialRepos: Iterable<string>,
+): CommunityPluginEntry[] => {
+  const listed = new Set(
+    Array.from(officialRepos, (repo) => repo.toLowerCase()),
+  );
+  return listed.size === 0
+    ? entries
+    : entries.filter((entry) => !listed.has(entry.repo.toLowerCase()));
+};
+
 /** 解析社区检索结果 JSON；单个无效条目会被丢弃，整份无效时抛错。 */
 export const parseCommunitySearch = (text: string): CommunitySearchResult => {
   const parsed: unknown = JSON.parse(text);

@@ -10170,14 +10170,15 @@ body.is-panel-resizing * {
   outline-offset: -2px;
 }
 
+/* 视口内可见项：底色由主题色混合，不写死任何固定色相。 */
 .user-message-rail-popover-item.is-visible {
-  background: var(--accent-primary-bg, var(--bg-active));
-  color: var(--accent-primary-text, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--text-primary);
 }
 
 .user-message-rail-popover-item.is-visible
   .user-message-rail-popover-item-index {
-  background: var(--accent-primary, var(--text-tertiary));
+  background: var(--accent-color);
   color: var(--on-solid);
 }
 
@@ -10226,14 +10227,10 @@ body.is-panel-resizing * {
   gap: 8px;
   margin: 6px 8px 0;
   padding: 8px 10px;
-  border: 1px solid var(--accent-primary-bg, var(--border-color));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(
-    in srgb,
-    var(--accent-primary-bg, var(--bg-hover)) 55%,
-    transparent
-  );
-  color: var(--accent-primary-text, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+  color: var(--accent-color);
   font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
@@ -10243,8 +10240,8 @@ body.is-panel-resizing * {
 }
 
 .user-message-rail-numeric-hint:hover {
-  background: var(--accent-primary-bg, var(--bg-hover));
-  border-color: var(--accent-primary, var(--border-color));
+  background: color-mix(in srgb, var(--accent-color) 16%, transparent);
+  border-color: var(--accent-color);
 }
 
 .user-message-rail-numeric-hint:focus-visible {
