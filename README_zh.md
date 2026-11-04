@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/zh/hero.png" width="100%" alt="Snow App：桌面 AI 开发工作区，把 AI 对话、终端、SSH、Git 与内置浏览器放在同一个窗口">
+  <img src="./assets/readme/zh/hero.png" width="100%" alt="Snow App：桌面编码 Agent，能读代码、改文件、执行命令并验证结果">
 </p>
 
 <p align="center">
@@ -14,45 +14,45 @@
   友情链接：<a href="https://linux.do">Linux DO</a>
 </p>
 
-Snow App 是面向开发者的桌面工作区：AI 对话、集成终端、SSH 远程管理、Git 面板和内置浏览器都在同一个窗口里，AI 可以直接操作它们。
+Snow App 是一个桌面编码 Agent：你描述任务，它自己读代码、改文件、执行命令、查看诊断并验证结果。它使用的终端、Git、SSH、浏览器和文件树都摆在同一个窗口里，每一处改动都能当场审阅、授权和回滚。
 
 [English](./README.md)
 
 ## 安装后长什么样
 
 <p align="center">
-  <img src="./assets/readme/screenshots/desktop-annotated.png" width="100%" alt="Snow App 三栏结构标注：侧边栏用于会话与项目，中间是对话与 Agent，右侧面板放浏览器、终端与 Git">
+  <img src="./assets/readme/screenshots/desktop-annotated.png" width="100%" alt="Snow App 三栏结构标注：侧边栏用于会话与项目，中间是编码 Agent 的会话与工具调用，右侧面板是 Agent 使用的浏览器、终端与 Git">
 </p>
 
-## 从五个窗口回到一个工作区
+## 从搬运上下文到 Agent 自己动手
 
 <p align="center">
-  <img src="./assets/readme/zh/before-after.svg" width="100%" alt="使用前需要终端、SSH 客户端、Git GUI、浏览器与网页版 AI 对话五个分散窗口，使用后只需一个 Snow App 窗口">
+  <img src="./assets/readme/zh/before-after.svg" width="100%" alt="使用前在终端、SSH 客户端、Git GUI、浏览器与网页版 AI 对话之间搬运上下文；使用后编码 Agent 在同一个窗口里读代码、改文件、执行命令">
 </p>
 
-## 一个窗口里有什么
+## 一个编码 Agent 的工作台
 
 <p align="center">
-  <img src="./assets/readme/zh/features-workspace.svg" width="100%" alt="Snow App 工作区面板：AI 对话、集成终端、SSH 远程工作区、Git 面板、内置浏览器、文件浏览与预览、代码库语义检索、任务管理器">
+  <img src="./assets/readme/zh/features-workspace.svg" width="100%" alt="Snow App 编码 Agent 工作台：编码会话、文件读写、集成终端、代码库检索、LSP 诊断、Git 面板、SSH 远程工作区与内置浏览器">
 </p>
 
-这些面板共享同一个会话上下文：AI 能直接读终端输出、浏览器页面和 Git 状态，不需要你在几个工具之间复制粘贴。
+这些面板不是并排的工具，而是 Agent 的感官和手脚：终端输出、浏览器页面、Git 状态与代码诊断都在同一份会话上下文里，不需要你在几个工具之间复制粘贴。
 
-## Agent 与协作
+## 编码能力与扩展
 
 <p align="center">
-  <img src="./assets/readme/zh/features-agent.svg" width="100%" alt="Snow App Agent 与协作：Skills 技能、MCP 服务器、子代理、Hooks 生命周期、Goal 模式、定时任务与工作流、项目记忆、团队协作">
+  <img src="./assets/readme/zh/features-agent.svg" width="100%" alt="Snow App 编码 Agent 的能力与扩展：编码循环、Skills 技能、MCP 服务器、子代理、Goal 模式、定时任务与工作流、项目记忆、团队协作">
 </p>
 
-技能、MCP 服务器、子代理与 Hooks 都是可插拔的；定时任务支持多节点工作流，项目记忆按项目持久保存并自动注入。
+编码循环之外，技能、MCP 服务器与子代理都可以按需接入；定时任务支持多节点工作流，项目记忆按项目持久保存并自动注入。
 
-## 扩展与内容
+## 扩展 Agent，也承接内容
 
 <p align="center">
-  <img src="./assets/readme/zh/features-extend.svg" width="100%" alt="Snow App 扩展与内容：插件与市场、用户脚本、自定义命令、请求代理层、仓库 Wiki、绘图工作台、图像库、LSP 代码诊断">
+  <img src="./assets/readme/zh/features-extend.svg" width="100%" alt="Snow App 扩展与内容：插件与市场、用户脚本、自定义命令、请求代理层、Hooks、仓库 Wiki、绘图工作台、图像库">
 </p>
 
-插件、用户脚本和请求代理层能改写界面与请求本身；仓库 Wiki、绘图工作台和图像库让内容产出也留在会话里。
+插件、用户脚本和请求代理层能改写 Agent 的界面与请求本身；仓库 Wiki、绘图工作台和图像库让内容产出也留在同一个会话里。
 
 ## 安全与体验
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/en/hero.png" width="100%" alt="Snow App: a desktop AI development workspace with AI chat, terminal, SSH, Git and a built-in browser in one window">
+  <img src="./assets/readme/en/hero.png" width="100%" alt="Snow App: a desktop coding agent that reads code, edits files, runs commands and verifies the result">
 </p>
 
 <p align="center">
@@ -14,45 +14,45 @@
   Friendly link: <a href="https://linux.do">Linux DO</a>
 </p>
 
-Snow App is a desktop workspace for developers: AI chat, an integrated terminal, SSH remote management, a Git panel and a built-in browser all live in one window, and the AI can drive them directly.
+Snow App is a desktop coding agent: describe a task and it reads the code, edits files, runs commands, checks diagnostics and verifies the result. The terminal, Git, SSH, browser and file tree it works with stay in the same window, so every change can be reviewed, approved and rolled back on the spot.
 
 [中文文档](./README_zh.md)
 
 ## What it looks like
 
 <p align="center">
-  <img src="./assets/readme/screenshots/desktop-annotated.en.png" width="100%" alt="Snow App three-column layout: sidebar for sessions and projects, chat and agent in the middle, browser, terminal and Git in the right panel">
+  <img src="./assets/readme/screenshots/desktop-annotated.en.png" width="100%" alt="Snow App three-column layout: sidebar for sessions and projects, the coding agent's session and tool calls in the middle, browser, terminal and Git in the right panel">
 </p>
 
-## From five windows back to one workspace
+## From moving context around to an agent doing the work
 
 <p align="center">
-  <img src="./assets/readme/en/before-after.svg" width="100%" alt="Before: a terminal app, an SSH client, a Git GUI, a browser and a web AI chat. After: one Snow App window">
+  <img src="./assets/readme/en/before-after.svg" width="100%" alt="Before: context is moved between a terminal app, an SSH client, a Git GUI, a browser and a web AI chat. After: a coding agent reads code, edits files and runs commands in one window">
 </p>
 
-## What is inside
+## A coding agent's workbench
 
 <p align="center">
-  <img src="./assets/readme/en/features-workspace.svg" width="100%" alt="Snow App workspace panels: AI chat, integrated terminal, SSH workspaces, Git panel, built-in browser, file explorer, codebase search, task manager">
+  <img src="./assets/readme/en/features-workspace.svg" width="100%" alt="Snow App coding workbench: coding session, file reading and editing, integrated terminal, codebase search, LSP diagnostics, Git panel, SSH workspaces and built-in browser">
 </p>
 
-These panels share one conversation context: the AI can read terminal output, browser pages and Git state directly, so nothing has to be copied between tools.
+These panels are not tools sitting side by side; they are the agent's senses and hands: terminal output, browser pages, Git state and diagnostics all share one conversation context.
 
-## Agent and team
+## Coding loop and extensions
 
 <p align="center">
-  <img src="./assets/readme/en/features-agent.svg" width="100%" alt="Snow App agent and team: skills, MCP servers, sub-agents, hooks, goal mode, scheduled tasks and workflows, project memory, team collaboration">
+  <img src="./assets/readme/en/features-agent.svg" width="100%" alt="Snow App coding agent capabilities: coding loop, skills, MCP servers, sub-agents, goal mode, scheduled tasks and workflows, project memory, collaboration">
 </p>
 
-Skills, MCP servers, sub-agents and hooks are all pluggable; scheduled tasks support multi-node workflows, and project memory persists per project and is injected automatically.
+Beyond the coding loop, skills, MCP servers and sub-agents plug in on demand; scheduled tasks support multi-node workflows, and project memory persists per project and is injected automatically.
 
-## Extend and create
+## Extend the agent and the content
 
 <p align="center">
-  <img src="./assets/readme/en/features-extend.svg" width="100%" alt="Snow App extension and content: plugin market, user scripts, custom commands, request proxy, repo wiki, drawing studio, image library, LSP diagnostics">
+  <img src="./assets/readme/en/features-extend.svg" width="100%" alt="Snow App extensions and content: plugin market, user scripts, custom commands, request proxy, hooks, repo wiki, drawing studio and image library">
 </p>
 
-Plugins, user scripts and the request proxy layer can rewrite the interface and the requests themselves; repo wiki, the drawing studio and the image library keep content work inside the same session.
+Plugins, user scripts and the request proxy rewrite the agent's interface and requests; repo wiki, the drawing studio and the image library keep content work inside the same session.
 
 ## Security and experience
 

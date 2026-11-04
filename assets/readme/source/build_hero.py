@@ -45,18 +45,18 @@ GLYPHS = {
 
 COPY = {
     "zh": {
-        "eyebrow": "桌面 AI 开发工作区",
-        "pitch": "把 AI 对话、终端、SSH、Git 与内置浏览器装进同一个工作区",
+        "eyebrow": "桌面编码 Agent",
+        "pitch": "读代码、改文件、跑命令、验结果，一个窗口里全部完成",
         "meta": ["macOS / Windows / Linux", "MIT License"],
-        "title": "Snow App：桌面 AI 开发工作区",
-        "desc": "Snow App 的像素标识、一句话定位与平台信息。",
+        "title": "Snow App：桌面编码 Agent",
+        "desc": "Snow App 的像素标识、编码 Agent 定位与平台信息。",
     },
     "en": {
-        "eyebrow": "DESKTOP AI WORKSPACE",
-        "pitch": "AI chat, terminal, SSH, Git and a built-in browser in one workspace",
+        "eyebrow": "DESKTOP CODING AGENT",
+        "pitch": "Reads code, edits files, runs commands and verifies the result",
         "meta": ["macOS / Windows / Linux", "MIT License"],
-        "title": "Snow App: desktop AI development workspace",
-        "desc": "Snow App pixel wordmark, one-line positioning and platform metadata.",
+        "title": "Snow App: desktop coding agent",
+        "desc": "Snow App pixel wordmark, coding agent positioning and platform metadata.",
     },
 }
 

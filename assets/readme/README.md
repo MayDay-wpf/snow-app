@@ -2,21 +2,23 @@
 
 本目录存放 README 使用的图片素材。所有素材都由 `source/` 下的脚本生成，可随时重建。
 
+素材的主题是**桌面编码 Agent**：强调它读代码、改文件、执行命令并验证结果，而不是把多个工具聚合到一个窗口；会话是它的入口，不是产品定位。
+
 ## 目录结构
 
-| 路径                                   | 用途                                                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `zh/hero.png`、`en/hero.png`           | 顶部横幅：像素字标、一句话定位与平台信息（SVG 排版 + 应用真实图标）                                      |
-| `zh/features-workspace.svg`            | 功能板一：工作区面板（对话、终端、SSH、Git、浏览器、文件、检索、任务管理器）                             |
-| `zh/features-agent.svg`                | 功能板二：Agent 与协作（Skills、MCP、子代理、Hooks、Goal、定时任务与工作流、项目记忆、团队协作）         |
-| `zh/features-extend.svg`               | 功能板三：扩展与内容（插件与市场、用户脚本、自定义命令、请求代理层、仓库 Wiki、绘图工作台、图像库、LSP） |
-| `zh/features-security.svg`             | 功能板四：安全与体验（应用锁、工具授权、隐私脱敏、检查点与回滚、用量与日志、主题、手机远控、桌面宠物）   |
-| `zh/before-after.svg`                  | 从分散工具到一个工作区的概念对比图                                                                       |
-| `en/…`                                 | 以上素材的英文版本（文件名一致）                                                                         |
-| `screenshots/desktop-annotated.png`    | 主界面截图与中文三栏标注                                                                                 |
-| `screenshots/desktop-annotated.en.png` | 同一张主界面截图的英文三栏标注                                                                           |
-| `screenshots/mobile-pair.png`          | 手机远控截图并排（中英文 README 共用）                                                                   |
-| `source/`                              | 生成脚本、Lucide 图标与调色板定义                                                                        |
+| 路径                                   | 用途                                                                                                           |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `zh/hero.png`、`en/hero.png`           | 顶部横幅：像素字标、编码 Agent 定位与平台信息（SVG 排版 + 应用真实图标）                                       |
+| `zh/features-workspace.svg`            | 功能板一：编码工作台（编码会话、文件读写、终端、代码库检索、LSP、Git、SSH、浏览器）                            |
+| `zh/features-agent.svg`                | 功能板二：编码 Agent 的循环与扩展（编码循环、Skills、MCP、子代理、Goal、定时任务与工作流、项目记忆、团队协作） |
+| `zh/features-extend.svg`               | 功能板三：扩展与内容（插件与市场、用户脚本、自定义命令、请求代理层、Hooks、仓库 Wiki、绘图工作台、图像库）     |
+| `zh/features-security.svg`             | 功能板四：安全与体验（应用锁、工具授权、隐私脱敏、检查点与回滚、用量与日志、主题、手机远控、桌面宠物）         |
+| `zh/before-after.svg`                  | 从在工具之间搬运上下文到编码 Agent 自己动手的概念对比图                                                        |
+| `en/…`                                 | 以上素材的英文版本（文件名一致）                                                                               |
+| `screenshots/desktop-annotated.png`    | 主界面截图与中文三栏标注                                                                                       |
+| `screenshots/desktop-annotated.en.png` | 同一张主界面截图的英文三栏标注                                                                                 |
+| `screenshots/mobile-pair.png`          | 手机远控截图并排（中英文 README 共用）                                                                         |
+| `source/`                              | 生成脚本、Lucide 图标与调色板定义                                                                              |
 
 ## 功能文案的依据
 
@@ -54,6 +56,7 @@ python build_features.py en        # 英文版本
 python build_hero.py zh en         # 顶部横幅（需要本机 Chrome 渲染）
 python build_screenshots.py <主界面截图路径>          # 中英标注图 + 手机并排图
 python build_screenshots.py <主界面截图路径> zh        # 只生成中文标注图
+python build_screenshots.py --reannotate             # 只重写已发布截图的三栏标注
 ```
 
 说明：
@@ -63,5 +66,7 @@ python build_screenshots.py <主界面截图路径> zh        # 只生成中文�
   避免连续渲染时出现半张未绘制的截图。
 - `build_screenshots.py` 需要传入主界面截图：仓库不保存该源图，可由作者自行截屏，
   或使用 README 中链接的 GitHub 附件原图。手机截图从 `docs/images/` 读取。
+  `--reannotate` 不需要原始截图，直接改写 `screenshots/desktop-annotated*.png` 顶部的栏目标注；
+  它按图片里现有的品牌色竖线定位，因此只适用于本脚本生成过的标注图。
 - `screenshots/desktop-annotated*.png` 的三栏标注坐标基于 3050×2116 的参考截图，
   更换截图尺寸时需同步调整 `build_screenshots.py` 中的 `LANES` 常量。
