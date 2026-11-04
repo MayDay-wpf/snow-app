@@ -5,7 +5,11 @@ use super::{display_title, html_escape, normalize_role, role_css_class, role_lab
 // HTML
 // ============================================================================
 
-pub(crate) fn render_html(conversation: &ChatConversationRecord, messages: &[ChatMessageRecord]) -> String {
+pub(crate) fn render_html(
+    conversation: &ChatConversationRecord,
+    messages: &[ChatMessageRecord],
+    ui_font_family: &str,
+) -> String {
     let title = html_escape(&display_title(conversation));
     let model = if conversation.model.is_empty() {
         "N/A"
@@ -19,6 +23,10 @@ pub(crate) fn render_html(conversation: &ChatConversationRecord, messages: &[Cha
     output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
     output.push_str(&format!("<title>{title}</title>\n"));
     output.push_str(HTML_STYLE);
+    // 跟随桌面字体设置；代码块仍使用 --font-mono。
+    output.push_str(&format!(
+        "<style>:root{{--font-sans:{ui_font_family};}}</style>\n"
+    ));
     output.push_str("</head>\n<body>\n");
     output.push_str("<div class=\"container\">\n");
 

@@ -124,7 +124,7 @@ details.tool.tcn.tc-search-lsp .tc-body {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--dim);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   font-size: 10px;
   white-space: nowrap;
   overflow: hidden;

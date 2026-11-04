@@ -36,17 +36,28 @@ async fn handle_callback(
     State(state): State<CallbackState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
+    let ui_font = tokio::task::spawn_blocking(|| {
+        let Ok(database_path) = crate::storage::ensure_database_file() else {
+            return crate::storage::services::system_settings::DEFAULT_UI_FONT_STACK.to_string();
+        };
+        crate::storage::services::system_settings::resolve_ui_font_family(&database_path)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        crate::storage::services::system_settings::DEFAULT_UI_FONT_STACK.to_string()
+    });
+
     match sessions::handle_callback_request(&state.session, &params).await {
-        Ok(()) => Html(page(success_body())).into_response(),
+        Ok(()) => Html(page(success_body(), &ui_font)).into_response(),
         Err(message) => (
             StatusCode::BAD_REQUEST,
-            Html(page(&error_body(&escape_html(&message)))),
+            Html(page(&error_body(&escape_html(&message)), &ui_font)),
         )
             .into_response(),
     }
 }
 
-fn page(body: &str) -> String {
+fn page(body: &str, ui_font: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -56,7 +67,7 @@ fn page(body: &str) -> String {
 <title>Snow App</title>
 <style>
 :root {{ color-scheme: light dark; }}
-body {{ margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f1115; color: #e8eaed; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+body {{ margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f1115; color: #e8eaed; font-family: {ui_font}; }}
 main {{ max-width: 420px; padding: 40px 32px; text-align: center; }}
 h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 12px; }}
 p {{ font-size: 13px; line-height: 1.7; color: #9aa0a6; margin: 6px 0; }}

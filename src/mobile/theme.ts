@@ -156,3 +156,21 @@ export const applyAccentColor = (accent: string | undefined): void => {
   appliedAccentColor = accent;
   applyAccentCssVariables();
 };
+
+let appliedFontFamily = "";
+
+/**
+ * 跟随桌面的界面字体：写入根元素的 --app-font-family，样式表的根字体
+ * 以 var(--app-font-family, 默认栈) 取值。空串表示桌面未自定义，回退默认栈。
+ */
+export const applyUiFontFamily = (fontFamily: string | undefined): void => {
+  const next = (fontFamily ?? "").trim();
+  if (next === appliedFontFamily) return;
+  appliedFontFamily = next;
+  const root = document.documentElement;
+  if (next) {
+    root.style.setProperty("--app-font-family", next);
+  } else {
+    root.style.removeProperty("--app-font-family");
+  }
+};

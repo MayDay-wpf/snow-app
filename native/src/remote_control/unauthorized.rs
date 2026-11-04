@@ -173,8 +173,8 @@ const PAGE_STYLE: &str = r#"
           ),
           var(--bg);
         color: var(--text);
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-family: var(--ui-font, Inter, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
         -webkit-font-smoothing: antialiased;
       }
       .card {
@@ -359,7 +359,11 @@ fn copy_for(locale: Locale) -> &'static PageCopy {
 }
 
 /// 渲染引导页 HTML；调用方负责写入响应并附加 CSP 等安全响应头。
-pub fn render_unauthorized_page(locale: Locale, icon_png: Option<&[u8]>) -> String {
+pub fn render_unauthorized_page(
+    locale: Locale,
+    icon_png: Option<&[u8]>,
+    ui_font_family: &str,
+) -> String {
     let copy = copy_for(locale);
     let logo = match icon_png {
         Some(bytes) => format!(
@@ -393,6 +397,7 @@ pub fn render_unauthorized_page(locale: Locale, icon_png: Option<&[u8]>) -> Stri
     <meta name="robots" content="noindex, nofollow" />
     <title>{title}</title>
     <style>{style}</style>
+    <style>:root{{--ui-font:{ui_font_family}}}</style>
   </head>
   <body>
     <main class="card">

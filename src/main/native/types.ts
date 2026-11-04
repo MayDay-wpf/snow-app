@@ -1778,6 +1778,12 @@ export type ResponsesApiRequest = {
   subAgentSystemPrompt?: string;
   subAgentConfigProfile?: string;
   skipContext?: boolean;
+  /**
+   * Parse inline `@@image:` tags into multimodal blocks even with
+   * `skipContext` (desktop pet btw chat). Omitted keeps the default: a
+   * skip-context request treats image tags as plain text.
+   */
+  parseInlineImages?: boolean;
   /** Preserve normal conversation context but omit MCP tools for this request. */
   disableTools?: boolean;
   /** Request-local recovery instruction. Never persisted as a chat message. */

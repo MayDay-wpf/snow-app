@@ -200,6 +200,18 @@ const resolveThemeAccentColor = (): string => {
   }
 };
 
+/** 桌面当前界面字体族（--app-font-family 的计算值）；未设置时为空串。 */
+const resolveThemeFontFamily = (): string => {
+  try {
+    return window
+      .getComputedStyle(document.documentElement)
+      .getPropertyValue("--app-font-family")
+      .trim();
+  } catch {
+    return "";
+  }
+};
+
 const toRemoteContentBlocks = (
   messageId: string,
   content: string,
@@ -1952,7 +1964,10 @@ export const RemoteControlBridge = ({
           // 应用级开关：与桌面 PlusMenu 的自动纠错同源（模块级缓存，
           // 桌面或手机任一侧切换后都即时可见）。
           toolCorrection: await ensureToolCorrectionPreference(),
-          theme: { accentColor: resolveThemeAccentColor() },
+          theme: {
+            accentColor: resolveThemeAccentColor(),
+            fontFamily: resolveThemeFontFamily(),
+          },
           chatInput: chatInputPublication
             ? toRemoteChatInput(chatInputPublication)
             : null,

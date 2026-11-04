@@ -639,7 +639,7 @@
 }
 
 :root[data-theme-preset="macos"] .input-field {
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 :root[data-theme-preset="macos"] .toggle-slider {
@@ -1486,6 +1486,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--mac-edge);
   background-color: var(--mac-face);
@@ -1569,6 +1570,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: transparent;
   background: var(--mac-blue);

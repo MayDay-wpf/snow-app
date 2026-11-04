@@ -9,7 +9,7 @@
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 .tool-call-sub-agent-acceptance-head,

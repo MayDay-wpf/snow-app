@@ -20,6 +20,9 @@ import { STREAM_CURSOR_LUCIDE_ICONS } from "./streamCursorIcons";
 import { themeBgUrl } from "../../../utils/themeBgUrl";
 import { setActiveBackground } from "./backgroundLayerStore";
 import { DEFAULT_CHAT_STYLE, setActiveChatStyle } from "./chatStyleStore";
+import { THEME_CACHE_KEY } from "./themeFontCache";
+
+export { THEME_CACHE_KEY };
 
 export const THEME_SETTING_NAME = "Theme settings";
 export const THEME_SETTING_CODE = "theme_settings";
@@ -757,8 +760,6 @@ export function isValidHex(value: string): boolean {
  * 这里在 localStorage 中缓存最近一次应用过的主题快照，供
  * main.tsx 在加载 React 之前同步应用，消除启动闪烁。
  * ============================================================ */
-
-const THEME_CACHE_KEY = "snow:theme-cache-v1";
 
 type ThemeCacheSnapshot = {
   settings: ThemeSettings;

@@ -121,6 +121,7 @@ pub async fn generate_conversation_summary(
         sub_agent_system_prompt: None,
         sub_agent_config_profile: None,
         skip_context: Some(true),
+        parse_inline_images: None,
         disable_tools: Some(true),
         internal_recovery_prompt: None,
         goal_mode: None,

@@ -929,6 +929,7 @@ async fn process(
             let html = unauthorized::render_unauthorized_page(
                 locale,
                 context.icon_bytes.as_ref().map(|bytes| bytes.as_slice()),
+                &assets::read_desktop_ui_font().await,
             );
             return Ok(html_response(
                 StatusCode::UNAUTHORIZED,

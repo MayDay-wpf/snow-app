@@ -149,7 +149,7 @@
     .chat-empty-quick-card-title,
     strong
   ) {
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 :root[data-theme-preset="rococo"] .ai-message,
@@ -1500,6 +1500,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--rc-edge);
   background: linear-gradient(180deg, var(--rc-face-top), var(--rc-face));
@@ -1582,6 +1583,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: transparent;
   background: var(--rc-rose);

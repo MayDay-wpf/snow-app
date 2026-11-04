@@ -38,7 +38,7 @@ pub(super) fn build_chat_completions_payload(
 ) -> Result<Value> {
     let model = resolve_advanced_model(request.model.as_deref(), &api_config.advanced_model)?;
 
-    let skip_image_parsing = request.skip_context.unwrap_or(false);
+    let skip_image_parsing = request.skips_inline_image_parsing();
     let has_user_system_prompts = !user_system_prompts.is_empty();
     let mut builtin_system_parts = Vec::new();
     let mut payload_messages = Vec::new();

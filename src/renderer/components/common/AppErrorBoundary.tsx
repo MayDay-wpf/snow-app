@@ -94,7 +94,8 @@ const ErrorFallback = ({ message }: ErrorFallbackProps): React.JSX.Element => {
         justifyContent: "center",
         background: "var(--bg-primary, #ffffff)",
         color: "var(--text-primary, #111827)",
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        fontFamily:
+          "var(--app-font-family, var(--font-sans, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif))",
         padding: 24,
       }}
     >

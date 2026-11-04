@@ -449,11 +449,11 @@ export type SnowRemoteState = {
    */
   toolCorrection: boolean;
   /**
-   * 桌面当前生效的主题色（--accent-color 的计算值，规范化为 #rrggbb）。
-   * 手机端把它应用到开关 / 选中态等强调色上，跟随 Snow APP 主题；
+   * 桌面当前生效的主题：强调色 + 界面字体族。
+   * 手机端把它应用到开关 / 选中态等强调色与根字体上，跟随 Snow APP 主题；
    * 解析失败时为空串，手机端保持自身默认。
    */
-  theme: { accentColor: string };
+  theme: { accentColor: string; fontFamily: string };
   chatInput: SnowRemoteChatInputState | null;
 };
 

@@ -5887,7 +5887,13 @@ body.is-panel-resizing * {
 .remote-tunnel-form textarea {
   min-height: 96px;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace
+  );
   font-size: 11px;
 }
 
@@ -16160,7 +16166,7 @@ body.is-panel-resizing * {
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font: 12px/1.4 var(--font-sans);
+  font: 12px/1.4 var(--app-font-family, var(--font-sans));
   white-space: pre-wrap;
   overflow-wrap: break-word;
   outline: none;
@@ -25806,7 +25812,7 @@ button.user-message-source:hover {
 .lsp-status-lang-badge {
   font-size: 11px;
   font-weight: 600;
-  font-family: var(--code-font, monospace);
+  font-family: var(--font-mono, monospace);
   color: var(--text-primary);
   flex-shrink: 0;
 }
@@ -35664,7 +35670,14 @@ body.is-right-pane-resizing-y * {
   border-radius: 999px;
   background: var(--surface-island);
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
   font-size: 10.5px;
   cursor: pointer;
   transition:
@@ -40737,7 +40750,13 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   flex: 1 1 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace
+  );
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -40763,7 +40782,13 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   flex-shrink: 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace
+  );
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -40822,7 +40847,13 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   border-radius: var(--radius-md, 8px);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace
+  );
   font-size: 12px;
   line-height: 1.6;
   resize: vertical;
@@ -40898,7 +40929,13 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   border-radius: var(--radius-md, 8px);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace
+  );
   font-size: 12px;
   line-height: 1.6;
   overflow: hidden;
@@ -41449,7 +41486,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font: 12px/1.45 var(--font-sans);
+  font: 12px/1.45 var(--app-font-family, var(--font-sans));
   white-space: pre-wrap;
   overflow-wrap: break-word;
   outline: none;
@@ -42065,7 +42102,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 12.5px;
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   line-height: 1.5;
   /* 高度交给 CSS：field-sizing 让输入框随内容自然长高，超出 max-height
      后转为内部滚动；禁用拖拽改尺寸，避免 inline height 覆盖内容自适应 */
@@ -42896,7 +42933,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 12px;
   line-height: 1.5;
 }
@@ -42987,7 +43024,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   gap: 6px;
   padding: 8px 10px;
   background: var(--bg-secondary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 .diff-comment-composer-target {
@@ -43016,7 +43053,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 12px;
   line-height: 1.5;
   outline: none;
@@ -43155,7 +43192,7 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
 }
 
 .incremental-diff-wrapper {
-  font-family: Menlo, Consolas, monospace;
+  font-family: var(--font-mono, Menlo, Consolas, monospace);
   font-size: var(--diff-font-size--);
   line-height: 1.6;
 }
@@ -46634,7 +46671,7 @@ body.ctrl-held [data-path] {
 .terminal-monitor-empty {
   padding: 12px 4px;
   color: var(--text-tertiary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 11px;
   text-align: center;
 }
@@ -62530,7 +62567,7 @@ img.plugin-icon {
   border-radius: 999px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 9.5px;
   font-weight: 600;
   vertical-align: middle;

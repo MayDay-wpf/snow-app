@@ -329,7 +329,7 @@ fn pair_interactions_tool_history(
                         parse_tool_results_with_images(
                             raw,
                             database_path,
-                            request.skip_context.unwrap_or(false),
+                            request.skips_inline_image_parsing(),
                         )
                     })
                     .unwrap_or_default();

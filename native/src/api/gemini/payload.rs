@@ -195,7 +195,7 @@ pub(super) fn build_gemini_payload(
     // a self-reinforcing function-call retry loop.
     let mut messages = messages.to_vec();
     remove_invalid_snow_tool_calls(&mut messages);
-    let skip_image_parsing = request.skip_context.unwrap_or(false);
+    let skip_image_parsing = request.skips_inline_image_parsing();
     let has_user_system_prompts = !user_system_prompts.is_empty();
     let mut builtin_system_parts = Vec::new();
     let mut contents = Vec::new();

@@ -104,6 +104,10 @@ pub struct ResponsesApiRequest {
     /// system prompt. Used by lightweight single-shot completions (e.g. AI
     /// commit-message generation).
     pub skip_context: Option<bool>,
+    /// Parse inline `@@image:` tags into multimodal blocks even when
+    /// `skip_context` is set (desktop pet btw chat). Without it a skip-context
+    /// request passes image tags through as plain text.
+    pub parse_inline_images: Option<bool>,
     /// Preserve normal context while omitting MCP tools for this request.
     /// Used to recover from a provider that repeated completed readonly calls.
     pub disable_tools: Option<bool>,
@@ -150,6 +154,12 @@ pub struct ResponsesApiRequest {
 }
 
 impl ResponsesApiRequest {
+    /// skip_context side channels skip inline image parsing by default (no file
+    /// I/O); `parse_inline_images` opts a caller like the pet chat back in.
+    pub fn skips_inline_image_parsing(&self) -> bool {
+        self.skip_context.unwrap_or(false) && !self.parse_inline_images.unwrap_or(false)
+    }
+
     pub fn is_sub_agent_request(&self) -> bool {
         self.sub_agent_tools_json
             .as_deref()
@@ -383,7 +393,7 @@ async fn create_response_async(
         &database_path,
         &api_config,
         &effective_headers,
-        skip_context,
+        request.skips_inline_image_parsing(),
         Some(prepared_request.conversation_id.as_str()),
         on_chunk.callback(),
         Some(&cancel_token),

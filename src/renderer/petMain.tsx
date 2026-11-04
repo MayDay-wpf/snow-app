@@ -33,6 +33,14 @@ import {
 import "./themes/tokens.css";
 import "./themes/context-menu.css";
 import "./pet.css";
+import {
+  applyCachedThemeFontToDocument,
+  watchCachedThemeFont,
+} from "./components/sidebar/themeSettings/themeFontCache";
+
+// 宠物窗口同样跟随应用字体：启动即用主题缓存，主题变更由 storage 事件同步。
+applyCachedThemeFontToDocument();
+watchCachedThemeFont(applyCachedThemeFontToDocument);
 
 /** 超过该位移视为拖拽而非点击（像素）。 */
 const DRAG_THRESHOLD_PX = 4;

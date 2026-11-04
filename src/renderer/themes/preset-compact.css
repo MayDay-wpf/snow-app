@@ -1571,7 +1571,7 @@
 
 :root[data-theme-preset="compact"] .chat-empty-greeting-title {
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1972,6 +1972,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--border-light);
   background: var(--surface-island-muted);
@@ -2031,6 +2032,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: transparent !important;
   background: var(--compact-selected-bg) !important;

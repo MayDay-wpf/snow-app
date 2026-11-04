@@ -102,6 +102,20 @@ pub async fn read_desktop_locale() -> Option<Locale> {
     .flatten()
 }
 
+/// 桌面界面字体栈（自定义字体优先）；读取失败回退系统栈。
+pub async fn read_desktop_ui_font() -> String {
+    tokio::task::spawn_blocking(|| {
+        let Ok(database_path) = crate::storage::ensure_database_file() else {
+            return crate::storage::services::system_settings::DEFAULT_UI_FONT_STACK.to_string();
+        };
+        crate::storage::services::system_settings::resolve_ui_font_family(&database_path)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        crate::storage::services::system_settings::DEFAULT_UI_FONT_STACK.to_string()
+    })
+}
+
 /// 页面 HTML；资源尚未构建时返回 None（远控服务据此回 503）。
 pub async fn read_mobile_index_html(mobile_dir: &Path) -> Option<String> {
     let html = tokio::fs::read(mobile_dir.join("index.html")).await.ok()?;

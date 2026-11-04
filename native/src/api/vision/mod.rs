@@ -69,12 +69,12 @@ pub async fn textify_images_in_messages(
     database_path: &Path,
     api_config: &ApiConfigRecord,
     custom_headers: &HashMap<String, String>,
-    skip_context: bool,
+    skip_image_parsing: bool,
     conversation_id: Option<&str>,
     on_chunk: Option<&ResponsesApiStreamCallback>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
-    if skip_context {
+    if skip_image_parsing {
         return Ok(());
     }
 

@@ -55,14 +55,17 @@
   --scrollbar-thumb-hover: rgba(161, 161, 170, 0.82);
   --scrollbar-thumb-active: rgba(212, 212, 216, 0.9);
   --top: 58px;
-  font-family:
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(
+    --app-font-family,
     Inter,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     "PingFang SC",
     "Microsoft YaHei",
-    sans-serif;
+    sans-serif
+  );
   color-scheme: dark;
 }
 * {
@@ -585,7 +588,7 @@ textarea:focus-visible {
   margin: 4px 0;
 }
 .markdown code {
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   font-size: 0.88em;
   background: #1b1e24;
   border: 1px solid var(--line);
@@ -603,7 +606,7 @@ textarea:focus-visible {
 }
 .markdown .code-block-head {
   padding: 6px 12px;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   font-size: 11px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.035);
@@ -3720,8 +3723,14 @@ html[data-i18n-pending] body {
 }
 .rollback-diff-line {
   padding: 0 10px;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
   font-size: 11px;
   line-height: 1.55;
   white-space: pre;
@@ -4225,7 +4234,14 @@ html[data-i18n-pending] body {
   max-height: min(26vh, 200px);
   overflow: auto;
   -webkit-line-clamp: unset;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
   font-size: 11px;
 }
 /* 「展开全文 / 收起」按钮：文案由 JS 切换。 */

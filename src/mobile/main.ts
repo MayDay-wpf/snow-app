@@ -21,7 +21,7 @@ import { initOverlays } from "./overlays";
 import { closeRemotePanels, initPanels, renderPanels } from "./panels";
 import { initPending, renderPending } from "./pending";
 import { initRollback } from "./rollback";
-import { applyAccentColor, initTheme } from "./theme";
+import { applyAccentColor, applyUiFontFamily, initTheme } from "./theme";
 import { initThreads, renderThreads } from "./threads";
 import {
   beginConversationSwitch,
@@ -112,6 +112,7 @@ const buildSignature = (next: SnowRemoteState): string =>
 
 const render = (next: SnowRemoteState): void => {
   applyAccentColor(next.theme?.accentColor);
+  applyUiFontFamily(next.theme?.fontFamily);
   renderTopbar(next);
   renderControls(next);
   renderComposer(next);

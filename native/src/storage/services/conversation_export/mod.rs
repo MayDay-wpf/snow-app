@@ -38,10 +38,12 @@ pub fn export_conversation(
     })?;
 
     let messages = chat_conversations::list_chat_messages(database_path, conversation_id)?;
+    let ui_font_family =
+        crate::storage::services::system_settings::resolve_ui_font_family(database_path);
 
     let content = match format {
         FORMAT_MARKDOWN => render_markdown(&conversation, &messages),
-        FORMAT_HTML => render_html(&conversation, &messages),
+        FORMAT_HTML => render_html(&conversation, &messages, &ui_font_family),
         FORMAT_JSON => render_json(&conversation, &messages)?,
         FORMAT_CSV => render_csv(&conversation, &messages)?,
         _ => {

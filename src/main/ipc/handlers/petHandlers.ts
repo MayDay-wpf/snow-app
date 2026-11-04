@@ -22,6 +22,7 @@ import {
 import {
   abortPetChat,
   getPetChatContext,
+  hasPetChatSnapshot,
   normalizePetChatHistory,
   runPetChat,
   setPetChatContext,
@@ -248,9 +249,26 @@ export const registerPetHandlers = (native: NativeBridge): void => {
   // 主窗口渲染层上报当前会话的实时快照（在途正文 / 工具活动 / 待办进度），
   // 宠物聊天据此获得真实运行信息。推送较频繁，仅在会话标识变化时才广播
   // 配置（宠物窗口标题栏用得到会话名）。
-  ipcMain.on("pets:set-chat-context", (_event, payload: unknown) => {
+  // 同一时刻只有主聊天面上报，因此按来源渲染层判定快照归属：它销毁
+  // （窗口关闭）时清空快照，避免宠物读到已不存在的会话上下文。
+  let snapshotReporterId: number | null = null;
+  const watchedSenders = new WeakSet<Electron.WebContents>();
+  ipcMain.on("pets:set-chat-context", (event, payload: unknown) => {
+    if (!watchedSenders.has(event.sender)) {
+      watchedSenders.add(event.sender);
+      const reporterId = event.sender.id;
+      event.sender.once("destroyed", () => {
+        if (snapshotReporterId !== reporterId || !hasPetChatSnapshot()) {
+          return;
+        }
+        snapshotReporterId = null;
+        setPetChatContext(null);
+        broadcastPetChatContext();
+      });
+    }
     const previous = getPetChatContext();
     const next = setPetChatContext(payload);
+    snapshotReporterId = event.sender.id;
     if (
       previous.conversationId !== next.conversationId ||
       previous.title !== next.title

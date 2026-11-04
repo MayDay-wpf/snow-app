@@ -1128,10 +1128,7 @@
   );
 }
 
-:root[data-theme-preset="wenjie"]
-  .toggle-switch
-  input:checked
-  + .toggle-slider,
+:root[data-theme-preset="wenjie"] .toggle-switch input:checked + .toggle-slider,
 :root[data-theme-preset="wenjie"] .toggle-slider {
   border-color: var(--border-subtle);
   border-radius: var(--radius-pill);
@@ -1568,7 +1565,7 @@
 
 :root[data-theme-preset="wenjie"] .chat-empty-greeting-title {
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1707,9 +1704,7 @@
 
 :root[data-theme-preset="wenjie"] .h-resizer:hover::before,
 :root[data-theme-preset="wenjie"] .h-resizer:active::before,
-:root[data-theme-preset="wenjie"]
-  body.is-git-pane-resizing
-  .h-resizer::before {
+:root[data-theme-preset="wenjie"] body.is-git-pane-resizing .h-resizer::before {
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -1785,8 +1780,7 @@
   background: transparent;
 }
 
-:root[data-theme-preset="wenjie"][data-theme="dark"]
-  .token-usage-ring-wrapper {
+:root[data-theme-preset="wenjie"][data-theme="dark"] .token-usage-ring-wrapper {
   --compact-token-input: #38bdf8;
   --compact-token-output: #34d399;
   --compact-token-cache-read: #a78bfa;
@@ -1969,6 +1963,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--border-light);
   background: var(--surface-island-muted);
@@ -2028,6 +2023,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: transparent;
   background: var(--compact-selected-bg);

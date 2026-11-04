@@ -427,6 +427,36 @@ pub fn get_theme_settings(database_path: &Path) -> Result<ThemeSettings> {
     Ok(settings)
 }
 
+/// 未自定义界面字体时的系统栈（与渲染层 tokens.css 的 --font-sans 一致）。
+pub const DEFAULT_UI_FONT_STACK: &str =
+    "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif";
+
+/// 过滤会破坏 <style> 上下文的字符，避免用户字体串注入标记或控制字符。
+fn sanitize_font_family(value: &str) -> String {
+    value
+        .chars()
+        .filter(|&ch| {
+            !matches!(
+                ch,
+                '<' | '>' | '{' | '}' | ';' | '\\' | '\u{0}'..='\u{1f}'
+            )
+        })
+        .collect()
+}
+
+/// 当前界面字体栈：自定义字体优先，否则系统栈；数据库不可用时回退系统栈。
+pub fn resolve_ui_font_family(database_path: &Path) -> String {
+    let custom = get_theme_settings(database_path)
+        .map(|settings| sanitize_font_family(&settings.font_family))
+        .unwrap_or_default();
+    let trimmed = custom.trim();
+    if trimmed.is_empty() {
+        DEFAULT_UI_FONT_STACK.to_string()
+    } else {
+        format!("{trimmed}, {DEFAULT_UI_FONT_STACK}")
+    }
+}
+
 pub fn set_theme_settings(database_path: &Path, settings: &ThemeSettings) -> Result<()> {
     let mut normalized = settings.clone();
     normalized.normalize();

@@ -104,7 +104,7 @@
     .chat-empty-quick-card-title,
     strong
   ) {
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 :root[data-theme-preset="notion"] .ai-message,
@@ -846,6 +846,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--border-color);
   background: var(--surface-island-muted);
@@ -894,6 +895,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: transparent;
   background: var(--surface-hover);

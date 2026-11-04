@@ -475,7 +475,7 @@
 }
 
 :root[data-theme-preset="win95"] .input-field {
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 :root[data-theme-preset="win95"] .toggle-slider {
@@ -1168,6 +1168,7 @@
     .memory-sidebar,
     .scheduled-tasks-sidebar,
     .scheduled-tasks-sidebar-footer,
+
   ) {
   border-color: var(--w95-shadow);
   background: var(--w95-face);
@@ -1250,6 +1251,7 @@
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
+
   ) {
   border-color: var(--w95-select-bg);
   background: var(--w95-select-bg);

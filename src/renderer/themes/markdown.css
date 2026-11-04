@@ -6,7 +6,7 @@
   max-width: 100%;
   margin: 2px 0 16px;
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: 13px;
   line-height: 1.65;
   font-weight: 400;

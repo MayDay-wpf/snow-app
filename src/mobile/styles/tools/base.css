@@ -130,7 +130,7 @@ details.tool.tcn > .tc-body {
   flex: 1 1 auto;
   min-width: 0;
   color: #c3c9d3;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

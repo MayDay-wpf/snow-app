@@ -114,7 +114,7 @@ pub(super) fn build_anthropic_payload(
     // 对应的 context-1m beta 头由调用方（api/anthropic/mod.rs）注入。
     let model = strip_one_m_context_marker(&model);
 
-    let skip_image_parsing = request.skip_context.unwrap_or(false);
+    let skip_image_parsing = request.skips_inline_image_parsing();
     let has_user_system_prompts = !user_system_prompts.is_empty();
     // When user-configured system prompts exist, they occupy the `system`
     // slot exclusively. The built-in system prompt (already injected as a

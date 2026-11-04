@@ -151,7 +151,7 @@ async fn create_chat_completion_response_async(
         &database_path,
         &api_config,
         &custom_headers,
-        skip_context,
+        request.skips_inline_image_parsing(),
         Some(prepared_request.conversation_id.as_str()),
         on_chunk.callback(),
         Some(&cancel_token),

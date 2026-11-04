@@ -52,6 +52,8 @@ body,
   overflow: hidden;
   background: transparent;
   user-select: none;
+  font-family: var(--app-font-family, var(--font-sans));
+  font-weight: var(--app-font-weight, 400);
 }
 
 .pet-window {

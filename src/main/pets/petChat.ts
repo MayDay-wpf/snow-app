@@ -9,9 +9,12 @@
  * - `skipContext: true`：Rust 不加载会话历史、不注入内置系统提示词，
  *   且各 provider 适配器仅在 `!skip_context` 时才调用 store_chat_exchange，
  *   因此宠物聊天不会在数据库留下任何会话 / 消息记录。
- * - `allowedToolsJson`：请求级工具白名单（联网搜索 / 文件搜索 / 文件阅读）。
- *   它保持普通请求语义（不是子代理），且在 skipContext 下依然生效；工具
- *   循环由本模块驱动（模型产出 tool calls → 主进程执行 → 回传结果）。
+ *   skipContext 默认同时跳过内联图片解析，所以本模块显式设置
+ *   `parseInlineImages: true`，让输入框粘贴的图片与工具结果里的图片
+ *   仍以多模态块发出。
+ * - `allowedToolsJson`：请求级工具白名单（联网搜索与网页阅读 / 文件搜索 /
+ *   文件阅读）。它保持普通请求语义（不是子代理），且在 skipContext 下依然
+ *   生效；工具循环由本模块驱动（模型产出 tool calls → 主进程执行 → 回传结果）。
  * - `directoryId`：项目锚点。会话上下文被跳过时没有会话 id，工具的相对
  *   路径与项目级工具开关改由该目录解析（见 Rust `call_mcp_tool`）。
  * - `apiProfile` / `model` 缺省时由 Rust 按「显式值 → 会话绑定 → 当前激活
@@ -51,11 +54,12 @@ export type PetChatContext = {
 
 /**
  * 宠物聊天可用的工具白名单（请求级，非子代理语义）：
- * 联网搜索、文件搜索（grep / find）、文件阅读。
+ * 联网搜索、网页阅读、文件搜索（grep / find）、文件阅读。
  * 均为只读工具，不会写入工作区，因此不需要 checkpoint。
  */
 const PET_CHAT_ALLOWED_TOOLS = [
   "websearch-websearch-search",
+  "websearch-websearch-fetch",
   "grep-search",
   "grep-find",
   "filesystem-read",
@@ -118,6 +122,36 @@ let chatSnapshot: PetChatSnapshot | null = null;
 
 const truncate = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max)}…`;
+
+/**
+ * 截断工具结果但保持 `@@image:...@@` 标签完整：base64 被截断后 Rust
+ * 侧既无法落盘也无法解析，会退化成无意义的长文本。
+ */
+const truncateToolResult = (result: string, max: number): string => {
+  if (result.length <= max) {
+    return result;
+  }
+  const tags: string[] = [];
+  const textParts: string[] = [];
+  let cursor = 0;
+  while (cursor < result.length) {
+    const start = result.indexOf("@@image:", cursor);
+    const end = start < 0 ? -1 : result.indexOf("@@", start + 8);
+    if (start < 0 || end < 0) {
+      textParts.push(result.slice(cursor));
+      break;
+    }
+    textParts.push(result.slice(cursor, start));
+    tags.push(result.slice(start, end + 2));
+    cursor = end + 2;
+  }
+  const tagText = tags.join("\n");
+  const budget = Math.max(0, max - tagText.length - 1);
+  const text = textParts.join("").trim();
+  const clipped =
+    text.length <= budget ? text : `${text.slice(0, budget).trimEnd()}…`;
+  return [clipped, tagText].filter(Boolean).join("\n");
+};
 
 const normalizeOptional = (value: unknown): string | null => {
   const text = typeof value === "string" ? value.trim() : "";
@@ -226,6 +260,9 @@ export const setPetChatContext = (value: unknown): PetChatContext => {
   };
   return getPetChatContext();
 };
+
+/** 主进程当前是否持有快照（渲染层已上报且未清空）。 */
+export const hasPetChatSnapshot = (): boolean => chatSnapshot !== null;
 
 /** 工具行文本：`name(detail) [running]` / `name(detail) → result`。 */
 const formatToolLine = (tool: PetChatToolLine): string => {
@@ -736,6 +773,9 @@ export const runPetChat = async (
         // 项目级开关改由该目录解析。
         ...(context.directoryId ? { directoryId: context.directoryId } : {}),
         skipContext: true,
+        // 旁路请求默认不解析内联图片：宠物需要粘贴的图片与工具结果里的
+        // 图片仍然生效，显式开启。
+        parseInlineImages: true,
         allowedToolsJson: JSON.stringify(PET_CHAT_ALLOWED_TOOLS),
       };
       const result = await native.createResponseStream(
@@ -841,7 +881,7 @@ const executePetToolCalls = async (
     results.push({
       name: call.name,
       callId: call.callId,
-      result: truncate(result, MAX_TOOL_RESULT_FOR_MODEL_CHARS),
+      result: truncateToolResult(result, MAX_TOOL_RESULT_FOR_MODEL_CHARS),
     });
   }
   return results;

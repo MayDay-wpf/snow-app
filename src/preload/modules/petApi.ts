@@ -50,9 +50,9 @@ export const petApi = {
   /**
    * 上报当前打开会话的实时快照（在途正文、工具活动、待办进度）：
    * 宠物聊天据此注入真实运行信息（btw 式旁路会话）。渲染层节流调用，
-   * 没有打开会话时上报空快照则退化为纯闲聊。
+   * 没有打开会话时上报空快照则退化为纯闲聊；渲染层卸载时传 null 清空。
    */
-  setPetChatContext: (snapshot: PetChatSnapshot): void => {
+  setPetChatContext: (snapshot: PetChatSnapshot | null): void => {
     ipcRenderer.send("pets:set-chat-context", snapshot);
   },
   /** 订阅宠物列表 / 设置变化（安装、卸载、宠物窗口收起等） */

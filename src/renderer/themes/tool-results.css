@@ -3,7 +3,7 @@
   display: grid;
   gap: 14px;
   min-width: 0;
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 .tool-result-section {
@@ -25,7 +25,7 @@
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
   font-size: inherit;
   line-height: 1.6;
   overflow: hidden;
@@ -194,7 +194,7 @@
 }
 
 .tool-result-table-preview .data-table-grid {
-  font-family: var(--font-sans);
+  font-family: var(--app-font-family, var(--font-sans));
 }
 
 .tool-result-table-preview .data-table-toolbar,

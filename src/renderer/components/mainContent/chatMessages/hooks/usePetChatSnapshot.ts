@@ -261,13 +261,21 @@ export const usePetChatSnapshot = (
     requestFlush();
   });
 
+  // 卸载（窗口关闭 / 主界面销毁）时清空主进程快照：常规上报可能来不及
+  // 送达，留下旧快照会让宠物读到已经不存在的会话上下文。
   useEffect(
     () => () => {
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      if (!enabled || lastSignatureRef.current === "") {
+        return;
+      }
+      lastSignatureRef.current = "";
+      lastConversationIdRef.current = undefined;
+      window.snow.setPetChatContext(null);
     },
-    [],
+    [enabled],
   );
 };
