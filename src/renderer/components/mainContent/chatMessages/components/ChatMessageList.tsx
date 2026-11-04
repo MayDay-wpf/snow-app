@@ -8,21 +8,21 @@ import {
 } from "react";
 import { GitFork, Zap } from "lucide-react";
 import { useI18n } from "../../../../i18n";
-import { ChatRunSummary } from "./ChatRunSummary";
 import { ChatStreamIndicator } from "./ChatStreamIndicator";
 import { VirtualizedMessage } from "./VirtualizedMessage";
 import type { ChatConversationMessage } from "../utils/conversationTypes";
+import type { ChatRunStats } from "../utils/types";
 import { useViewportVirtualization } from "../hooks/useViewportVirtualization";
 import { useChatConversationContext } from "./ChatConversationContext";
 import {
   directoryIdToPath,
   resolveConversationWorkspacePath,
 } from "../utils/conversationHelpers";
+import { openHtmlArtifact } from "./openHtmlArtifact";
 import {
-  createChatFileArtifactCollector,
-  type ChatFileArtifact,
-} from "./chatFileArtifacts";
-import { ChatFileArtifactRevealProvider } from "./ChatFileArtifactRevealContext";
+  HtmlArtifactOpenProvider,
+  type HtmlArtifactOpenHandler,
+} from "./HtmlArtifactOpenContext";
 import { useChatStyle } from "../../../sidebar/themeSettings/chatStyleStore";
 
 type ChatMessageListProps = {
@@ -134,80 +134,15 @@ export const ChatMessageList = ({
     resolvedArtifactWorkspace?.binding === artifactBinding
       ? resolvedArtifactWorkspace.path
       : undefined;
-  const collectArtifacts = useMemo(
-    () => createChatFileArtifactCollector(),
-    [artifactBinding],
+  // HTML 文件统一交给内置浏览器打开，会话流里不再渲染预览卡片。
+  const artifactOpen = useCallback<HtmlArtifactOpenHandler>(
+    (rawPath) => openHtmlArtifact(rawPath, artifactWorkspace),
+    [artifactWorkspace],
   );
-  const previousArtifacts = useRef(
-    new Map<string, readonly ChatFileArtifact[]>(),
+  const artifactOpenValue = useMemo(
+    () => ({ open: artifactOpen }),
+    [artifactOpen],
   );
-  // Even absolute paths are withheld until the session's execution binding is known.
-  const collectedArtifacts = useMemo(
-    () =>
-      artifactWorkspace ? collectArtifacts(messages, artifactWorkspace) : [],
-    [messages, artifactWorkspace, collectArtifacts],
-  );
-  // 文件卡片默认隐藏，仅渲染用户手动展开的
-  const [revealedArtifacts, setRevealedArtifacts] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
-  useEffect(() => {
-    setRevealedArtifacts(new Set());
-  }, [artifactBinding]);
-  const collectedArtifactsRef = useRef(collectedArtifacts);
-  collectedArtifactsRef.current = collectedArtifacts;
-  const toggleFileArtifact = useCallback(
-    (key: string, open?: boolean): boolean => {
-      if (!collectedArtifactsRef.current.some((item) => item.key === key)) {
-        return false;
-      }
-      setRevealedArtifacts((prev) => {
-        const has = prev.has(key);
-        const next = open ?? !has;
-        if (next === has) return prev;
-        const updated = new Set(prev);
-        if (next) updated.add(key);
-        else updated.delete(key);
-        return updated;
-      });
-      return true;
-    },
-    [],
-  );
-  const artifactsByOwner = useMemo(() => {
-    const grouped = new Map<string, ChatFileArtifact[]>();
-    for (const artifact of collectedArtifacts) {
-      if (!revealedArtifacts.has(artifact.key)) continue;
-      const list = grouped.get(artifact.ownerId) ?? [];
-      list.push(artifact);
-      grouped.set(artifact.ownerId, list);
-    }
-    const stable = new Map<string, readonly ChatFileArtifact[]>();
-    for (const [owner, list] of grouped) {
-      const previous = previousArtifacts.current.get(owner);
-      stable.set(
-        owner,
-        previous &&
-          previous.length === list.length &&
-          previous.every((artifact, index) => {
-            const next = list[index];
-            return (
-              artifact.key === next.key &&
-              artifact.path === next.path &&
-              artifact.ownerId === next.ownerId &&
-              artifact.revision === next.revision &&
-              artifact.automatic === next.automatic &&
-              artifact.blocked === next.blocked &&
-              artifact.isSsh === next.isSsh
-            );
-          })
-          ? previous
-          : list,
-      );
-    }
-    previousArtifacts.current = stable;
-    return stable;
-  }, [collectedArtifacts, revealedArtifacts]);
 
   const lastAssistantMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -515,7 +450,6 @@ export const ChatMessageList = ({
       !message.failureReason &&
       !message.toolCalls?.length &&
       !message.hookExecutions?.length &&
-      !artifactsByOwner.has(message.id) &&
       !(
         message.id === lastAssistantMessageId &&
         pendingToolAuthorizations.some(
@@ -547,9 +481,8 @@ export const ChatMessageList = ({
         virtualization={virtualization}
         imAvatarPath={imAvatarPath}
         message={message}
-        fileArtifacts={artifactsByOwner.get(message.id)}
         artifactWorkspace={artifactWorkspace}
-        onToggleFileArtifact={toggleFileArtifact}
+        runStats={runStats}
         isStreaming={isStreaming}
         lastAssistantMessageId={lastAssistantMessageId}
         activeConversationId={activeConversationId}
@@ -566,17 +499,67 @@ export const ChatMessageList = ({
     );
   };
 
-  // 已展开的卡片 key 集合 + 工作目录：供工具卡片上的预览按钮显示开合状态
-  const artifactRevealValue = useMemo(
-    () => ({ revealed: revealedArtifacts, workspace: artifactWorkspace }),
-    [revealedArtifacts, artifactWorkspace],
-  );
+  // 会话累计运行统计：只在流程完全结束后计算，挂到最后一条 AI 响应的操作栏。
+  const runStats = useMemo<ChatRunStats | null>(() => {
+    if (isStreaming || isAborting || isRunActive) {
+      return null;
+    }
+    const hasActiveGeneration = messages.some(
+      (message) =>
+        message.status === "sending" ||
+        (message.role === "assistant" &&
+          message.toolCalls?.some(
+            (toolCall) =>
+              toolCall.status === "pending" || toolCall.status === "running",
+          )),
+    );
+    if (hasActiveGeneration) {
+      return null;
+    }
+    if (!messages.some((message) => message.role === "assistant")) {
+      return null;
+    }
+    // 旧版本会话没有统计数据，宁可不展示也不显示不完整的值。
+    const usage = conversationTokenUsage;
+    const hasStats =
+      lastRunDurationMs > 0 ||
+      (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) > 0 ||
+      (usage?.cacheReadInputTokens ?? 0) > 0 ||
+      (usage?.cacheCreationInputTokens ?? 0) > 0 ||
+      conversationRequestCount > 0;
+    if (!hasStats) {
+      return null;
+    }
+    let model: string | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].model) {
+        model = messages[i].model;
+        break;
+      }
+    }
+    return {
+      durationMs: lastRunDurationMs,
+      ttftSumMs: conversationTtftSumMs,
+      requestCount: conversationRequestCount,
+      tokenUsage: usage,
+      model,
+    };
+  }, [
+    messages,
+    isStreaming,
+    isAborting,
+    isRunActive,
+    conversationTokenUsage,
+    lastRunDurationMs,
+    conversationTtftSumMs,
+    conversationRequestCount,
+  ]);
 
   // 消息区分两层：平滑视口（轨道内是全部消息流内容，高度由
   // streamGrowthSmoother 平滑过渡）+ 视口之外的会话级流式指示槽。
   // 指示槽不随内容增长移动，始终停在可视底部。
   return (
-    <ChatFileArtifactRevealProvider value={artifactRevealValue}>
+    <HtmlArtifactOpenProvider value={artifactOpenValue}>
       <div className="chat-message-list">
         <div className="chat-message-viewport" ref={streamViewportRef}>
           <div className="chat-message-track">
@@ -603,16 +586,6 @@ export const ChatMessageList = ({
               </>
             )}
             {renderVisionStatusCard()}
-            <ChatRunSummary
-              messages={messages}
-              isStreaming={isStreaming}
-              isAborting={isAborting}
-              isRunActive={isRunActive}
-              tokenUsage={conversationTokenUsage}
-              durationMs={lastRunDurationMs}
-              ttftSumMs={conversationTtftSumMs}
-              requestCount={conversationRequestCount}
-            />
           </div>
         </div>
         <ChatStreamIndicator
@@ -621,6 +594,6 @@ export const ChatMessageList = ({
           isRetrying={isLastAssistantRetrying}
         />
       </div>
-    </ChatFileArtifactRevealProvider>
+    </HtmlArtifactOpenProvider>
   );
 };

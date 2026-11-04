@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import type { ChatFileArtifact } from "../components/chatFileArtifacts";
 import type {
   ConversationContextValue,
   HookExecutionRecord,
+  TokenUsage,
   ToolCallInfo,
 } from "./conversationTypes";
 import type {
@@ -23,6 +23,15 @@ export type UserMessageProps = {
 export type AiResponseSection = {
   title: string;
   body: string;
+};
+
+/** 会话累计运行统计（结束态）：悬浮明细挂在最后一条 AI 响应的操作栏上。 */
+export type ChatRunStats = {
+  durationMs: number;
+  ttftSumMs: number;
+  requestCount: number;
+  tokenUsage: TokenUsage | null;
+  model?: string;
 };
 
 export type AiResponseProps = {
@@ -64,10 +73,8 @@ export type AiResponseProps = {
   showActions?: boolean;
   /** Optional production UI between response content and message actions. */
   footerContent?: ReactNode;
-  fileArtifacts?: readonly ChatFileArtifact[];
+  /** 会话工作目录：正文里的 HTML 文件链接据此解析后在内置浏览器打开。 */
   artifactWorkspace?: string;
-  /** 切换 HTML 文件卡片显隐（open 缺省为取反）；文件卡片不存在时返回 false。 */
-  onToggleFileArtifact?: (key: string, open?: boolean) => boolean;
   toolCalls?: ToolCallInfo[];
   /** Hook execution records bound to tool calls in this message (via
    *  toolCallInteractionId).  Rendered attached to the matching tool card
@@ -90,4 +97,6 @@ export type AiResponseProps = {
    *  收口（超时/缺执行 id 时结算自己所在的 tool call）。 */
   updateSessionMessages?: ConversationContextValue["updateSessionMessages"];
   onFork?: (conversationId: string, upToResponseId: string) => void;
+  /** 运行统计（仅最后一条 AI 响应传入）：操作栏图标悬浮展示明细。 */
+  runStats?: ChatRunStats | null;
 };

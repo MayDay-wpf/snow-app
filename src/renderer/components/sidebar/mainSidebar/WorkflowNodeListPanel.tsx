@@ -1,8 +1,12 @@
-import { ChevronRight, CircleAlert, Loader2, Workflow } from "lucide-react";
+import { ChevronRight, CircleAlert, Workflow } from "lucide-react";
 
 import { useI18n } from "../../../i18n";
 import type { ChatConversationRecord } from "../../../../preload";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
+import {
+  ConversationLoadingIndicator,
+  isRunningConversationStatus,
+} from "./ConversationLoadingIndicator";
 import { LazyCollapse } from "./LazyCollapse";
 import { SubAgentListPanel } from "./SubAgentListPanel";
 
@@ -22,9 +26,8 @@ type WorkflowNodeListPanelProps = {
 };
 
 /**
- * 节点图标：静态状态使用 Workflow 图标（与子代理的 Bot 图标区分），
- * 运行中改用 Loader2 旋转指示器表达 loading；
- * 完成绿色 / 失败红色 / 待执行灰色 / 需关注黄色感叹号。
+ * 节点图标：固定使用 Workflow 图标（与子代理的 Bot 图标区分），只用颜色
+ * 表达状态；运行中的 loading 统一由标题后的雪花指示器表达。
  * 右侧面板的会话 tab 下拉复用本函数（状态配色由各自的容器样式提供）。
  */
 export function renderNodeIcon(
@@ -34,15 +37,9 @@ export function renderNodeIcon(
   if (isAttentionRequired) {
     return <CircleAlert size={11} className="sub-agent-attention" />;
   }
-  if (runStatus === "running") {
-    return (
-      <span className="spin-layer">
-        <Loader2 size={11} className="workflow-node-status-running" />
-      </span>
-    );
-  }
-  const statusClass =
-    runStatus === "completed"
+  const statusClass = isRunningConversationStatus(runStatus)
+    ? "workflow-node-status-running"
+    : runStatus === "completed"
       ? "workflow-node-status-completed"
       : runStatus === "failed"
         ? "workflow-node-status-failed"
@@ -83,6 +80,9 @@ export function WorkflowNodeListPanel({
 
   const attentionDescription = t("sidebar.chatStatusWaitingForReviewOrInput", {
     defaultValue: "Waiting for review or input",
+  });
+  const runningDescription = t("sidebar.chatStatusRunning", {
+    defaultValue: "Running",
   });
 
   return (
@@ -159,6 +159,11 @@ export function WorkflowNodeListPanel({
                   })}
                 </span>
               )}
+              {isRunningConversationStatus(displayStatus) &&
+              !isAttentionRequired &&
+              !hasAttentionSubAgent ? (
+                <ConversationLoadingIndicator label={runningDescription} />
+              ) : null}
             </div>
             <LazyCollapse
               open={isExpanded && subAgents.length > 0}

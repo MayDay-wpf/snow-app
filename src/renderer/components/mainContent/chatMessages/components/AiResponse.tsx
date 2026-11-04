@@ -13,13 +13,8 @@ import { AskUserQuestionGroup } from "../toolCalls/AskUserQuestionGroup";
 import { ToolAuthorizationDialog } from "../dialogs/ToolAuthorizationDialog";
 import { SensitiveCommandConfirmDialog } from "../toolCalls/SensitiveCommandConfirmDialog";
 import { MarkdownBlock } from "./markdownRenderer";
-import { ChatFileArtifactCard } from "./ChatFileArtifactCard";
-import {
-  artifactFileKey,
-  resolveArtifactHref,
-  resolveArtifactPath,
-} from "./chatFileArtifacts";
-import { HTML_FILE_PREVIEW_ATTR } from "../toolCalls/shared/HtmlFilePreviewButton";
+import { resolveArtifactHref } from "./chatFileArtifacts";
+import { useHtmlArtifactOpen } from "./HtmlArtifactOpenContext";
 import type { AiResponseProps } from "../utils/types";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import type { HookExecutionRecord } from "../utils/conversationTypes";
@@ -105,9 +100,7 @@ export const AiResponse = memo(
     recoveryOutcome,
     showActions = true,
     footerContent,
-    fileArtifacts,
     artifactWorkspace,
-    onToggleFileArtifact,
     toolCalls = [],
     hookExecutions = [],
     pendingToolAuthorizations = [],
@@ -119,8 +112,10 @@ export const AiResponse = memo(
     responseId,
     updateSessionMessages,
     onFork,
+    runStats,
   }: AiResponseProps): React.JSX.Element => {
     const { t } = useI18n();
+    const openHtmlArtifact = useHtmlArtifactOpen();
     const showMessageTime = useMessageTimeVisible();
     const [showRawMarkdown, setShowRawMarkdown] = useState(false);
     const normalizedThinking = thinking?.trim();
@@ -215,31 +210,16 @@ export const AiResponse = memo(
         className="ai-message"
         aria-label="AI response"
         onClickCapture={(event) => {
-          if (!onToggleFileArtifact) return;
           const target = event.target;
           if (!(target instanceof Element)) return;
-          // tcn-header 上的 HTML 预览按钮：切换对应文件卡片
-          const previewButton = target.closest<HTMLElement>(
-            `[${HTML_FILE_PREVIEW_ATTR}]`,
-          );
-          if (previewButton) {
-            event.preventDefault();
-            event.stopPropagation();
-            const path = resolveArtifactPath(
-              previewButton.getAttribute(HTML_FILE_PREVIEW_ATTR) ?? "",
-              artifactWorkspace,
-            );
-            if (path) onToggleFileArtifact(artifactFileKey(path));
-            return;
-          }
           if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)
             return;
           const anchor = target.closest<HTMLAnchorElement>("a[href]");
           const href = anchor?.getAttribute("href");
           if (!href) return;
+          // 正文里的 HTML 文件链接：直接在内置浏览器打开
           const path = resolveArtifactHref(href, artifactWorkspace);
-          if (!path || !onToggleFileArtifact(artifactFileKey(path), true))
-            return;
+          if (!path || !openHtmlArtifact?.(path)) return;
           event.preventDefault();
           event.stopPropagation();
         }}
@@ -333,15 +313,6 @@ export const AiResponse = memo(
             </ToolCallGroup>
           ) : null}
 
-          {fileArtifacts?.map((artifact) => (
-            <ChatFileArtifactCard
-              key={`${conversationId}:${artifact.key}:${artifact.revision}:${artifact.blocked}`}
-              artifact={artifact}
-              workspace={artifactWorkspace}
-              onClose={onToggleFileArtifact}
-            />
-          ))}
-
           {onApproveToolAuthorization &&
           onApproveToolAuthorizationAlways &&
           onRejectToolAuthorization ? (
@@ -432,6 +403,7 @@ export const AiResponse = memo(
                 showRawMarkdown={showRawMarkdown}
                 onToggleRawMarkdown={() => setShowRawMarkdown((prev) => !prev)}
                 onFork={onFork}
+                runStats={runStats}
               />
             ) : null}
           </div>

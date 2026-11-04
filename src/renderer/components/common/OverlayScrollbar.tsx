@@ -102,6 +102,36 @@ export const OverlayScrollbar = forwardRef<
       };
     }, [scheduleUpdate]);
 
+    // 横向容器兼容鼠标滚轮：竖向位移换算为横向滚动，到边界时放行外层
+    useEffect(() => {
+      const el = scrollerRef.current;
+      if (!el || !isHorizontal) {
+        return;
+      }
+      const handleWheel = (event: WheelEvent) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          return;
+        }
+        const max = el.scrollWidth - el.clientWidth;
+        if (max <= 0) {
+          return;
+        }
+        const dominant =
+          Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+            ? event.deltaY
+            : event.deltaX;
+        const delta = event.deltaMode === 1 ? dominant * 16 : dominant;
+        const next = Math.max(0, Math.min(max, el.scrollLeft + delta));
+        if (next === el.scrollLeft) {
+          return;
+        }
+        event.preventDefault();
+        el.scrollLeft = next;
+      };
+      el.addEventListener("wheel", handleWheel, { passive: false });
+      return () => el.removeEventListener("wheel", handleWheel);
+    }, [isHorizontal]);
+
     const setScrollerRef = useCallback(
       (node: HTMLDivElement | null) => {
         scrollerRef.current = node;

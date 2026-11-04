@@ -1323,6 +1323,18 @@ export const MarkdownBlock = memo(
           return;
         }
 
+        const reportToggle = target.closest<HTMLElement>(
+          ".md-acceptance-toggle",
+        );
+        if (reportToggle) {
+          const block = reportToggle.closest(".md-acceptance");
+          if (block) {
+            const expanded = block.classList.toggle("is-expanded");
+            reportToggle.setAttribute("aria-expanded", String(expanded));
+          }
+          return;
+        }
+
         const reportCopy = target.closest<HTMLElement>(".md-acceptance-copy");
         if (reportCopy) {
           const block = reportCopy.closest(".md-acceptance");

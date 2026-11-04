@@ -62,8 +62,10 @@ impl SkillsConfigService {
     /// - With `projectId`: project-scoped view. Skills are merged from the
     ///   four scan directories (~/.agents/skills → ~/.snow/skills →
     ///   <project>/.agents/skills → <project>/.snow/skills, higher priority
-    ///   wins); `enabled` is the effective state (project DB override >
-    ///   frontmatter) and `defaultEnabled` is the frontmatter value.
+    ///   wins); `defaultEnabled` is the resolved frontmatter `enable` and
+    ///   `enabled` is the effective state: global-located Skills need
+    ///   `defaultEnabled` AND the project override (defaults to on), while
+    ///   project-located Skills use the override (defaults to `defaultEnabled`).
     async fn execute_list(&self, args: &Value) -> napi::Result<Value> {
         let project_id = optional_string(args, "projectId")?;
 
@@ -132,11 +134,12 @@ impl SkillsConfigService {
     /// Enable or disable a skill.
     ///
     /// - Without `projectId`: global toggle. Writes the `enable` field in the
-    ///   SKILL.md frontmatter (same file rewrite as the UI toggle). Note the
-    ///   frontmatter field name is `enable`, not `enabled`.
+    ///   SKILL.md frontmatter (same file rewrite as the UI toggle) and acts as
+    ///   the gate for globally located Skills. Note the frontmatter field name
+    ///   is `enable`, not `enabled`.
     /// - With `projectId`: project-scope toggle. Writes a DB override in the
-    ///   app database (`skill_overrides`), which takes effect immediately and
-    ///   takes precedence over the frontmatter value.
+    ///   app database (`skill_overrides`), which takes effect immediately but
+    ///   for globally located Skills only while the global gate is on.
     async fn execute_set_enabled(&self, args: &Value) -> napi::Result<Value> {
         let project_id = optional_string(args, "projectId")?;
         let skill_id = required_string(args, "skillId")?;

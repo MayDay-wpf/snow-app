@@ -8,12 +8,12 @@ For third-party installation, toggles, and uninstallation, see [Install and Mana
 
 ### 1.1 Choose a directory
 
-| Goal | Recommended directory | Typical use |
-| --- | --- | --- |
-| Current project only | `<project>/.snow/skills/<skill-id>/` | Project policy, scripts, and team workflows |
-| Current project with a generic agent directory | `<project>/.agents/skills/<skill-id>/` | Discovery by other compatible tools |
-| All projects for the current user | `~/.snow/skills/<skill-id>/` | Personal reusable workflows managed by Snow App |
-| Generic user-level agent directory | `~/.agents/skills/<skill-id>/` | Cross-agent sharing |
+| Goal                                           | Recommended directory                  | Typical use                                     |
+| ---------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| Current project only                           | `<project>/.snow/skills/<skill-id>/`   | Project policy, scripts, and team workflows     |
+| Current project with a generic agent directory | `<project>/.agents/skills/<skill-id>/` | Discovery by other compatible tools             |
+| All projects for the current user              | `~/.snow/skills/<skill-id>/`           | Personal reusable workflows managed by Snow App |
+| Generic user-level agent directory             | `~/.agents/skills/<skill-id>/`         | Cross-agent sharing                             |
 
 Effective same-ID precedence from highest to lowest is:
 
@@ -133,12 +133,12 @@ allowed-tools:
 ---
 ```
 
-| Field | Type | Default | Authoring guidance |
-| --- | --- | --- | --- |
-| `name` | string | Final ID segment | Keep it short and readable. The GitHub installer also uses it to derive an installation ID. |
-| `description` | string | Empty | State “when to use + what it does + primary output,” not a vague capability. |
-| `enable` | boolean | `true` | Set `false` when the Skill should not be registered yet. The field is not `enabled`. |
-| `allowed-tools` | string[] or comma-separated string | Unrestricted | Use exact full tool names. The field is not `allowed_tools`. |
+| Field           | Type                               | Default          | Authoring guidance                                                                          |
+| --------------- | ---------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| `name`          | string                             | Final ID segment | Keep it short and readable. The GitHub installer also uses it to derive an installation ID. |
+| `description`   | string                             | Empty            | State “when to use + what it does + primary output,” not a vague capability.                |
+| `enable`        | boolean                            | `true`           | Set `false` when the Skill should not be registered yet. The field is not `enabled`.        |
+| `allowed-tools` | string[] or comma-separated string | Unrestricted     | Use exact full tool names. The field is not `allowed_tools`.                                |
 
 `allowed-tools` may also be written as:
 
@@ -249,17 +249,17 @@ Use read-only, small, side-effect-free inputs by default. If the Skill writes fi
 
 ## 8. Troubleshooting
 
-| Problem | Check in this order |
-| --- | --- |
-| Skill is missing from the list | Path → exact `SKILL.md` casing → skipped directory → closed frontmatter → YAML syntax. |
-| ID differs from expectation | ID comes from the relative directory path, not `name`; check for an extra nesting level. |
-| Old content is displayed | Inspect `path`; check all four roots for a higher-precedence same-ID Skill. |
-| `enable: false` still appears enabled | Check for a project database override, which wins over frontmatter. |
-| `enabled: false` has no effect | The field is wrong; use `enable: false`. |
-| `allowed_tools` has no effect | The field is wrong; use `allowed-tools`. |
-| A tool is unavailable | Compare the returned `allowedTools` and exact tool name, then check whether that tool/server is enabled for the project. |
-| Edits still load the old body | Start the next Skill invocation or refresh tools, and confirm the effective `path` is not shadowed. |
-| Agent does not select it automatically | Make `description` specify the trigger and output; invoke the ID directly for diagnosis if needed. |
+| Problem                                | Check in this order                                                                                                                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill is missing from the list         | Path → exact `SKILL.md` casing → skipped directory → closed frontmatter → YAML syntax.                                                                                |
+| ID differs from expectation            | ID comes from the relative directory path, not `name`; check for an extra nesting level.                                                                              |
+| Old content is displayed               | Inspect `path`; check all four roots for a higher-precedence same-ID Skill.                                                                                           |
+| `enable: false` still appears enabled  | For a Skill inside the project directories, check the project database override; for a globally located Skill, `enable` is the gate and a project cannot override it. |
+| `enabled: false` has no effect         | The field is wrong; use `enable: false`.                                                                                                                              |
+| `allowed_tools` has no effect          | The field is wrong; use `allowed-tools`.                                                                                                                              |
+| A tool is unavailable                  | Compare the returned `allowedTools` and exact tool name, then check whether that tool/server is enabled for the project.                                              |
+| Edits still load the old body          | Start the next Skill invocation or refresh tools, and confirm the effective `path` is not shadowed.                                                                   |
+| Agent does not select it automatically | Make `description` specify the trigger and output; invoke the ID directly for diagnosis if needed.                                                                    |
 
 ## 9. Pre-publish checklist
 

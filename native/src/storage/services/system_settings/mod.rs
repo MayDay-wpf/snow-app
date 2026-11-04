@@ -250,7 +250,18 @@ impl McpProjectScopeSettings {
 }
 
 impl SkillsProjectScopeSettings {
-    pub fn effective_enabled(&self, skill_key: &str, default_enabled: bool) -> bool {
+    /// 全局来源技能：全局 enable 是总闸，项目覆盖缺省为开。
+    pub fn effective_enabled(&self, skill_key: &str, global_enabled: bool) -> bool {
+        global_enabled
+            && self
+                .skill_overrides
+                .get(skill_key)
+                .copied()
+                .unwrap_or(true)
+    }
+
+    /// 项目来源技能：项目覆盖缺省沿用技能文件 enable。
+    pub fn effective_project_enabled(&self, skill_key: &str, default_enabled: bool) -> bool {
         self.skill_overrides
             .get(skill_key)
             .copied()

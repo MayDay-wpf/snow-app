@@ -1,55 +1,3 @@
-/* ===== Chat file artifacts ===== */
-.chat-file-artifact {
-  margin-block: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.chat-file-artifact-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-}
-.chat-file-artifact-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-}
-.chat-file-artifact-action {
-  display: inline-flex;
-  padding: 6px;
-  border-radius: 4px;
-  color: var(--text-secondary);
-}
-.chat-file-artifact-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.chat-file-artifact-action:focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 2px;
-}
-.chat-file-artifact-status {
-  padding: 16px;
-  color: var(--text-secondary);
-}
-.chat-file-artifact-runtime.html-artifact-block {
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-}
-.chat-file-artifact-source {
-  margin: 0;
-  padding: 16px;
-  max-height: clamp(240px, 56vh, 760px);
-  overflow: auto;
-}
-
 /* ===== HTML artifact preview ===== */
 .html-artifact-block {
   border: 1px solid var(--border-color);
@@ -1662,9 +1610,9 @@ body.is-panel-resizing * {
   color: var(--text-muted);
 }
 
-/* 子代理图标：静态状态用 Bot 图标（与 Workflow 节点的 Workflow 图标区分），
-   运行中改用 Loader2 旋转指示器；选择器与灰色兜底规则同优先级且后定义，
-   确保状态配色生效 */
+/* 子代理图标：固定 Bot 图标（与 Workflow 节点的 Workflow 图标区分），运行中
+   只用强调色，loading 由标题后的雪花指示器表达；选择器与灰色兜底规则
+   同优先级且后定义，确保状态配色生效 */
 .sub-agent-list-item .sub-agent-list-icon svg.sub-agent-status-running {
   color: var(--accent, #3b82f6);
 }
@@ -1797,8 +1745,8 @@ body.is-panel-resizing * {
   color: var(--text-muted);
 }
 
-/* 节点图标：静态状态用 Workflow 图标（与子代理的 Bot 图标区分），运行中
-   改用 Loader2 旋转指示器；选择器与灰色兜底规则同优先级且后定义，确保生效 */
+/* 节点图标：固定 Workflow 图标（与子代理的 Bot 图标区分），运行中只用强调色，
+   loading 由标题后的雪花指示器表达；选择器与灰色兜底规则同优先级且后定义 */
 .workflow-node-list-item
   .workflow-node-list-icon
   svg.workflow-node-status-running {
@@ -2528,6 +2476,16 @@ body.is-panel-resizing * {
   color: var(--warning, #f59e0b);
 }
 
+/* 子代理 / Workflow 节点沿用主会话的雪花 loading，位置同样在标题之后 */
+.conversation-loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 4px;
+  color: var(--accent, #3b82f6);
+}
+
 /* 会话行悬浮详情：锚点铺满整行只提供坐标，不参与交互 */
 .chat-item > .tooltip-wrapper:has(.chat-item-tooltip-anchor) {
   position: absolute;
@@ -3018,7 +2976,6 @@ body.is-panel-resizing * {
   gap: 6px;
   min-width: 0;
   min-height: 28px;
-  padding: 0 4px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -9303,7 +9260,7 @@ body.is-panel-resizing * {
   will-change: transform;
 }
 
-/* Loader2 等图标的旋转同样只能放在 HTML 包裹层（子代理 / Workflow 节点列表） */
+/* Loader2 等图标的旋转同样只能放在 HTML 包裹层（归档、展开等按钮内） */
 .spin-layer {
   display: inline-flex;
   animation: snow-spin 0.85s linear infinite;
@@ -13328,6 +13285,26 @@ body.is-panel-resizing * {
   color: var(--text-secondary);
 }
 
+/* 运行统计入口：与操作按钮同尺寸的非交互图标，明细由 Tooltip 展示 */
+.ai-response-stats {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  color: inherit;
+  cursor: default;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.ai-response-stats:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
 /* Copy submenu rendered via portal (document.body) so it is never clipped by
    overflow: hidden ancestors. Follows the same pattern as BrowserMenu. */
 .message-copy-menu {
@@ -13395,63 +13372,40 @@ body.is-panel-resizing * {
   opacity: 0.7;
 }
 
-/* AI 流程结束后的任务摘要条：fork-divider 同款「线 + 居中内容」布局 */
-.chat-run-summary {
+/* 运行统计明细（Tooltip 内容）：标签左、数值右 */
+.ai-run-stats {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(100%, var(--chat-content-max));
-  margin: 4px auto 0;
-  padding: 0 12px;
-  /* run 结束时摘要条从消息流尾部柔和浮现 */
-  animation: chat-enter 0.25s ease-out both;
-}
-
-.chat-run-summary-content {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 4px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  user-select: text;
-}
-
-.chat-run-summary-item {
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: 4px;
-  min-width: 0;
+  min-width: 176px;
+}
+
+.ai-run-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ai-run-stats-label {
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
-.chat-run-summary-item svg {
-  flex-shrink: 0;
-  opacity: 0.75;
+.ai-run-stats-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* 模型品牌 logo 保持原色，不随描边图标降透明度 */
-.chat-run-summary-item .model-brand-icon > svg {
-  opacity: 1;
-}
-
-/* 模型名不截断：空间不足时在条目内部换行，保证完整名称可见 */
-.chat-run-summary-model {
+/* 模型名允许换行，避免长名称把 Tooltip 撑出视口 */
+.ai-run-stats-value.is-model {
   white-space: normal;
   overflow-wrap: anywhere;
-  align-items: flex-start;
-}
-
-/* 图标与首行文字垂直居中（12px 图标在 18px 行高内的偏移） */
-.chat-run-summary-model .model-brand-icon {
-  margin-top: 3px;
-}
-
-.chat-run-summary-sep {
-  opacity: 0.45;
-  user-select: none;
+  text-align: right;
 }
 
 .context-compaction-message {
@@ -15489,7 +15443,7 @@ body.is-panel-resizing * {
   color: var(--text-tertiary);
 }
 
-/* 写入 HTML 文件后 tcn-header 上的预览开关 */
+/* 写入 HTML 文件后 tcn-header 上的预览入口：点击在内置浏览器打开 */
 .tcn-html-preview-btn {
   display: inline-flex;
   align-items: center;
@@ -15510,16 +15464,6 @@ body.is-panel-resizing * {
 .tcn-html-preview-btn:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 1px;
-}
-/* 预览已展开：眼睛图标切成斜线态，按钮用主题色高亮，提示再点一次收起 */
-.tcn-html-preview-btn[data-preview-open="true"] {
-  color: var(--accent-color);
-  border-color: color-mix(
-    in srgb,
-    var(--accent-color) 40%,
-    var(--border-color)
-  );
-  background: color-mix(in srgb, var(--accent-color) 8%, var(--bg-secondary));
 }
 
 /* 工具调用被用户拒绝时的理由提示条：常驻显示（不随卡片展开状态隐藏），
@@ -16013,7 +15957,6 @@ body.is-panel-resizing * {
   .chat-message-group,
   .tcg,
   .tcn,
-  .chat-run-summary,
   .chat-vision-status,
   .response-incomplete-notice,
   .ai-response-actions,

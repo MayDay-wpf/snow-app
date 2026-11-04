@@ -82,15 +82,23 @@ export const renderAcceptanceBlock = (source: string): string | null => {
       : "";
   return (
     `<section class="md-acceptance">` +
-    `<details class="md-acceptance-details" open><summary class="md-acceptance-summary">` +
-    `<svg class="md-acceptance-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>` +
+    `<div class="md-acceptance-bar">` +
+    `<span class="md-acceptance-rule" aria-hidden="true"></span>` +
+    `<div class="md-acceptance-cluster">` +
+    `<button class="md-acceptance-toggle" type="button" aria-expanded="false">` +
+    `<svg class="md-acceptance-chevron" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>` +
     `<span class="md-acceptance-title">${label("title")}</span>` +
     `<span class="md-acceptance-count" data-completed="${completed}" data-total="${items.length}"></span>` +
-    `</summary><ul class="md-acceptance-items">${rows}</ul>${note}</details>` +
-    `<div class="md-acceptance-footer">` +
+    `</button>` +
     `<button class="md-acceptance-copy" type="button">` +
     `<span data-acceptance-label="copy"></span><span class="md-acceptance-copied" data-acceptance-label="copied"></span>` +
-    `</button></div></section>`
+    `</button>` +
+    `</div>` +
+    `<span class="md-acceptance-rule" aria-hidden="true"></span>` +
+    `</div>` +
+    `<div class="md-acceptance-body">` +
+    `<ul class="md-acceptance-items">${rows}</ul>${note}` +
+    `</div></section>`
   );
 };
 

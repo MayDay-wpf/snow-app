@@ -4,6 +4,10 @@ import { createPortal } from "react-dom";
 
 import { useI18n } from "../../i18n";
 import { useChatConversationContext } from "../mainContent/chatMessages";
+import {
+  ConversationLoadingIndicator,
+  isRunningConversationStatus,
+} from "../sidebar/mainSidebar/ConversationLoadingIndicator";
 import { renderStatusIcon } from "../sidebar/mainSidebar/SubAgentListPanel";
 import { renderNodeIcon } from "../sidebar/mainSidebar/WorkflowNodeListPanel";
 import {
@@ -170,6 +174,13 @@ export function ConversationTabSwitcher({
         )}
       </span>
       <span className="conversation-tab-switcher-name">{label}</span>
+      {node.kind !== "root" &&
+      !isAttentionRequired(node) &&
+      isRunningConversationStatus(node.status) ? (
+        <ConversationLoadingIndicator
+          label={t("sidebar.chatStatusRunning", { defaultValue: "Running" })}
+        />
+      ) : null}
       {isCurrent ? (
         <Check
           size={12}

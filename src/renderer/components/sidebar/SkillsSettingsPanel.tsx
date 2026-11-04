@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GithubSkillRecord,
+  ProjectSkillDefinition,
   SkillDefinition,
   WorkspaceDirectoryRecord,
 } from "../../../preload";
@@ -28,11 +29,13 @@ type SkillsSettingsPanelProps = {
 };
 
 type SkillsScope = "global" | "project";
-type SkillsByScope = Record<SkillsScope, SkillDefinition[]>;
 
-const EMPTY_SKILLS_BY_SCOPE: SkillsByScope = {
-  global: [],
-  project: [],
+// 行模型：全局 tab 只列全局技能；项目 tab 列该项目可用的全部技能
+type SkillRow = {
+  skill: SkillDefinition;
+  scope: SkillsScope;
+  // 项目行：全局总闸已关闭，项目层不可启用
+  globallyDisabled: boolean;
 };
 
 /** Loose check: github.com URL or owner/repo shorthand; the backend download validates the rest. */
@@ -52,8 +55,9 @@ export function SkillsSettingsPanel({
 }: SkillsSettingsPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const [activeScope, setActiveScope] = useState<SkillsScope>("global");
-  const [skillsByScope, setSkillsByScope] = useState<SkillsByScope>(
-    EMPTY_SKILLS_BY_SCOPE,
+  const [globalSkills, setGlobalSkills] = useState<SkillDefinition[]>([]);
+  const [projectSkills, setProjectSkills] = useState<ProjectSkillDefinition[]>(
+    [],
   );
   const [isLoading, setIsLoading] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState("");
@@ -69,16 +73,9 @@ export function SkillsSettingsPanel({
   const [editingSkill, setEditingSkill] = useState<SkillDefinition | null>(
     null,
   );
-  // 当前项目里各 Skill 的有效启用态：全局启停时据此判断是否询问
-  // 同时为当前项目启用。
-  const [projectSkillStates, setProjectSkillStates] = useState<
-    Record<string, boolean>
-  >({});
-  const [pendingSkillToggle, setPendingSkillToggle] = useState<{
-    skill: SkillDefinition;
-    nextEnabled: boolean;
-    askProject: boolean;
-  } | null>(null);
+  // 全局总闸关闭前的确认：关闭后所有项目都无法使用
+  const [pendingGlobalDisable, setPendingGlobalDisable] =
+    useState<SkillDefinition | null>(null);
 
   const loadSequenceRef = useRef(0);
   // 仅首次加载周期用整块 loading 占位；之后的常规刷新
@@ -102,31 +99,20 @@ export function SkillsSettingsPanel({
     setError("");
 
     try {
-      const [globalSkills, effectiveSkills, githubRecords] = await Promise.all([
+      const [globalSkills, projectSkills, githubRecords] = await Promise.all([
         window.snow.listAvailableSkills(),
+        // 与技能选择面板同源：项目可用技能含全局叠加后的全部条目
         activeDirectory
-          ? window.snow.listAvailableSkills(activeDirectory.directoryId)
-          : Promise.resolve([]),
+          ? window.snow.listProjectSkills(activeDirectory.directoryId)
+          : Promise.resolve([] as ProjectSkillDefinition[]),
         window.snow.listGithubSkills(),
       ]);
       if (sequence !== loadSequenceRef.current) {
         return;
       }
-      const globalSkillIds = new Set(globalSkills.map((skill) => skill.id));
-      const projectSkills = effectiveSkills.filter(
-        (skill) =>
-          skill.location === "project" && !globalSkillIds.has(skill.id),
-      );
 
-      setSkillsByScope({
-        global: globalSkills,
-        project: projectSkills,
-      });
-      setProjectSkillStates(
-        Object.fromEntries(
-          effectiveSkills.map((skill) => [skill.id, skill.enabled]),
-        ),
-      );
+      setGlobalSkills(globalSkills);
+      setProjectSkills(projectSkills);
       setGithubSkills(githubRecords);
       loadedScopeKeyRef.current = requestScopeKey;
       setLoadedScopeKey(requestScopeKey);
@@ -138,8 +124,8 @@ export function SkillsSettingsPanel({
       // 失败范围，结束整块占位让错误可见（否则 isScopeStale 永远为 true，永久转圈）。
       // 同范围刷新失败则保留旧列表：清空同样会塌缩列表并重置滚动位置。
       if (loadedScopeKeyRef.current !== requestScopeKey) {
-        setSkillsByScope(EMPTY_SKILLS_BY_SCOPE);
-        setProjectSkillStates({});
+        setGlobalSkills([]);
+        setProjectSkills([]);
         loadedScopeKeyRef.current = requestScopeKey;
         setLoadedScopeKey(requestScopeKey);
       }
@@ -158,31 +144,30 @@ export function SkillsSettingsPanel({
     }
   }, [activeDirectory, t]);
 
+  // 全局开关写技能文件 enable（总闸）；项目开关写项目覆盖，两者互不改写。
   const applySkillEnabled = useCallback(
     async (
       skill: SkillDefinition,
       nextEnabled: boolean,
-      alsoProject: boolean,
+      projectScoped: boolean,
     ): Promise<void> => {
+      const projectId = activeDirectory?.directoryId;
+      if (projectScoped && !projectId) {
+        return;
+      }
       setUpdatingSkillId(skill.id);
       setError("");
       setStatus("");
 
       try {
-        await window.snow.setSkillEnabled(
-          skill.location === "project"
-            ? activeDirectory?.directoryId
-            : undefined,
-          skill.id,
-          nextEnabled,
-        );
-        // 全局启用时按需为当前项目写入启用覆盖。
-        if (alsoProject && activeDirectory) {
-          await window.snow.setSkillEnabled(
-            activeDirectory.directoryId,
+        if (projectScoped && projectId) {
+          await window.snow.setProjectSkillEnabled(
+            projectId,
             skill.id,
-            true,
+            nextEnabled,
           );
+        } else {
+          await window.snow.setSkillEnabled(undefined, skill.id, nextEnabled);
         }
         await loadSkills();
         setStatus(
@@ -212,28 +197,24 @@ export function SkillsSettingsPanel({
     [activeDirectory, loadSkills, t],
   );
 
-  /**
-   * 全局 Skill 启停入口：停用前提醒项目层会一并停用；启用时若当前项目
-   * 仍处于停用状态，弹窗询问是否同时为当前项目启用。
-   */
   const requestSkillToggle = useCallback(
-    (skill: SkillDefinition): void => {
-      const nextEnabled = !skill.enabled;
-      if (skill.location === "project") {
-        void applySkillEnabled(skill, nextEnabled, false);
+    (row: SkillRow): void => {
+      const nextEnabled = !row.skill.enabled;
+      if (row.scope === "project") {
+        // 全局已停用时项目层不能启用
+        if (row.globallyDisabled) {
+          return;
+        }
+        void applySkillEnabled(row.skill, nextEnabled, true);
         return;
       }
-      const askProject =
-        nextEnabled &&
-        Boolean(activeDirectory) &&
-        projectSkillStates[skill.id] === false;
-      if (!nextEnabled || askProject) {
-        setPendingSkillToggle({ skill, nextEnabled, askProject });
+      if (!nextEnabled) {
+        setPendingGlobalDisable(row.skill);
         return;
       }
-      void applySkillEnabled(skill, nextEnabled, false);
+      void applySkillEnabled(row.skill, true, false);
     },
-    [activeDirectory, applySkillEnabled, projectSkillStates],
+    [applySkillEnabled],
   );
 
   const handleInstall = useCallback(async (): Promise<void> => {
@@ -375,22 +356,38 @@ export function SkillsSettingsPanel({
     [githubSkills],
   );
 
-  const allSkills = [...skillsByScope.global, ...skillsByScope.project];
-  const enabledCount = allSkills.filter((skill) => skill.enabled).length;
-  const disabledCount = allSkills.length - enabledCount;
-  const activeSkills = skillsByScope[activeScope];
   const isGlobalScope = activeScope === "global";
+  // 项目 tab 与技能选择面板同源：列出该项目可用的全部技能（含全局）
+  const rows = useMemo<SkillRow[]>(
+    () =>
+      isGlobalScope
+        ? globalSkills.map((skill) => ({
+            skill,
+            scope: "global",
+            globallyDisabled: false,
+          }))
+        : projectSkills.map((skill) => ({
+            skill,
+            scope: "project",
+            // 只有全局来源的技能受全局总闸约束；项目目录内的技能按项目覆盖处理
+            globallyDisabled:
+              skill.location === "global" && !skill.defaultEnabled,
+          })),
+    [globalSkills, isGlobalScope, projectSkills],
+  );
+  const enabledCount = rows.filter((row) => row.skill.enabled).length;
+  const disabledCount = rows.length - enabledCount;
   const scopeTitle = isGlobalScope
     ? t("settings.skillsGlobalListTitle", { defaultValue: "Global Skills" })
     : t("settings.skillsProjectListTitle", { defaultValue: "Project Skills" });
   const scopeDescription = isGlobalScope
     ? t("settings.skillsGlobalTabInfo", {
         defaultValue:
-          "Skills from the user profile. IDs that also exist in the project are listed here only.",
+          "The global switch is a gate: when off, no project can use the Skill; project switches then stay greyed out.",
       })
     : t("settings.skillsProjectTabInfo", {
         defaultValue:
-          "Project-only Skills for {{name}}. IDs already present globally are excluded.",
+          "All Skills available to {{name}}, including global ones. A Skill disabled globally cannot be enabled here.",
         values: { name: activeDirectory?.name ?? "" },
       });
 
@@ -402,7 +399,7 @@ export function SkillsSettingsPanel({
       <div className="api-settings-summary-grid skills-settings-summary-grid">
         <div className="api-settings-summary-card">
           <BookOpen size={15} strokeWidth={1.8} />
-          <span>{allSkills.length}</span>
+          <span>{rows.length}</span>
           <small>
             {t("settings.skillsAvailableCount", { defaultValue: "Skills" })}
           </small>
@@ -472,7 +469,7 @@ export function SkillsSettingsPanel({
           <span>
             {t("settings.skillsTabGlobal", { defaultValue: "Global" })}
           </span>
-          <small>{skillsByScope.global.length}</small>
+          <small>{globalSkills.length}</small>
         </button>
         <button
           className={`skills-settings-tab ${!isGlobalScope ? "active" : ""}`}
@@ -486,7 +483,7 @@ export function SkillsSettingsPanel({
           <span>
             {t("settings.skillsTabProject", { defaultValue: "Project" })}
           </span>
-          <small>{skillsByScope.project.length}</small>
+          <small>{projectSkills.length}</small>
         </button>
       </div>
 
@@ -599,7 +596,7 @@ export function SkillsSettingsPanel({
                 })}
               </span>
             </div>
-          ) : activeSkills.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="system-prompt-empty skills-settings-empty">
               <BookOpen size={15} />
               <span>
@@ -610,22 +607,35 @@ export function SkillsSettingsPanel({
                   {
                     defaultValue: isGlobalScope
                       ? "No global Skills found."
-                      : "No project-only Skills found.",
+                      : "No Skills available for this project.",
                   },
                 )}
               </span>
             </div>
           ) : (
-            activeSkills.map((skill) => {
+            rows.map((row) => {
+              const skill = row.skill;
               const isUpdating = updatingSkillId === skill.id;
               const isUninstalling = uninstallingSkillId === skill.id;
               const isGithubInstalled = githubSkillIds.has(skill.id);
-              const toggleLabel = skill.enabled
-                ? t("settings.skillsDisable", { defaultValue: "Disable Skill" })
-                : t("settings.skillsEnable", { defaultValue: "Enable Skill" });
-              const stateLabel = skill.enabled
-                ? t("settings.enabled", { defaultValue: "Enabled" })
-                : t("settings.inactive", { defaultValue: "Disabled" });
+              const toggleLabel = row.globallyDisabled
+                ? t("settings.skillsGlobalGateRequired", {
+                    defaultValue: "Turn on the global switch first",
+                  })
+                : skill.enabled
+                  ? t("settings.skillsDisable", {
+                      defaultValue: "Disable Skill",
+                    })
+                  : t("settings.skillsEnable", {
+                      defaultValue: "Enable Skill",
+                    });
+              const stateLabel = row.globallyDisabled
+                ? t("settings.skillsGlobalGateOff", {
+                    defaultValue: "Globally disabled",
+                  })
+                : skill.enabled
+                  ? t("settings.enabled", { defaultValue: "Enabled" })
+                  : t("settings.inactive", { defaultValue: "Disabled" });
               const uninstallLabel = t("settings.skillsUninstall", {
                 defaultValue: "Uninstall",
               });
@@ -638,7 +648,7 @@ export function SkillsSettingsPanel({
                   className={`system-prompt-item skills-settings-item ${
                     skill.enabled ? "active" : "inactive"
                   }`}
-                  key={skill.id}
+                  key={`${row.scope}:${skill.id}`}
                 >
                   <div className="system-prompt-item-main skills-settings-item-main">
                     <label
@@ -649,9 +659,12 @@ export function SkillsSettingsPanel({
                       <input
                         type="checkbox"
                         checked={skill.enabled}
-                        onChange={() => requestSkillToggle(skill)}
+                        onChange={() => requestSkillToggle(row)}
                         disabled={
-                          isLoading || Boolean(updatingSkillId) || isInstalling
+                          isLoading ||
+                          Boolean(updatingSkillId) ||
+                          isInstalling ||
+                          row.globallyDisabled
                         }
                         hidden
                       />
@@ -698,6 +711,24 @@ export function SkillsSettingsPanel({
                         {skill.allowedTools.length}
                       </span>
                     )}
+                    {!isGlobalScope && (
+                      <span className="skills-settings-badge">
+                        {skill.location === "project"
+                          ? t("settings.skillsScopeProject", {
+                              defaultValue: "Project",
+                            })
+                          : t("settings.skillsScopeGlobal", {
+                              defaultValue: "Global",
+                            })}
+                      </span>
+                    )}
+                    {row.globallyDisabled && (
+                      <span className="skills-settings-badge">
+                        {t("settings.skillsGlobalGateOff", {
+                          defaultValue: "Globally disabled",
+                        })}
+                      </span>
+                    )}
                     <span className="skills-settings-badge">
                       .{skill.source}
                     </span>
@@ -742,69 +773,27 @@ export function SkillsSettingsPanel({
       </section>
 
       <ConfirmDialog
-        open={Boolean(pendingSkillToggle)}
-        title={
-          pendingSkillToggle?.nextEnabled
-            ? t("settings.skillsGlobalEnableTitle", {
-                defaultValue: "Enable global Skill",
-              })
-            : t("settings.skillsGlobalDisableTitle", {
-                defaultValue: "Disable global Skill",
-              })
-        }
-        message={
-          pendingSkillToggle?.nextEnabled
-            ? t("settings.skillsGlobalEnableConfirm", {
-                defaultValue:
-                  "Also enable {{name}} for the current project {{project}}?",
-                values: {
-                  name: pendingSkillToggle?.skill.name ?? "",
-                  project: activeDirectory?.name ?? "",
-                },
-              })
-            : t("settings.skillsGlobalDisableConfirm", {
-                defaultValue:
-                  "Disabling {{name}} globally also disables it in every project that has not enabled it separately. Disable anyway?",
-                values: { name: pendingSkillToggle?.skill.name ?? "" },
-              })
-        }
-        confirmLabel={
-          pendingSkillToggle?.askProject
-            ? t("settings.skillsGlobalEnableBoth", {
-                defaultValue: "Global and current project",
-              })
-            : t("settings.disable", { defaultValue: "Disable" })
-        }
+        open={Boolean(pendingGlobalDisable)}
+        title={t("settings.skillsGlobalDisableTitle", {
+          defaultValue: "Disable global Skill",
+        })}
+        message={t("settings.skillsGlobalDisableConfirm", {
+          defaultValue:
+            "Disabling {{name}} globally makes it unavailable in every project, and project switches stay greyed out. Disable anyway?",
+          values: { name: pendingGlobalDisable?.name ?? "" },
+        })}
+        confirmLabel={t("settings.disable", { defaultValue: "Disable" })}
         cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-        extraLabel={
-          pendingSkillToggle?.askProject
-            ? t("settings.skillsGlobalEnableOnly", {
-                defaultValue: "Global only",
-              })
-            : undefined
-        }
-        onExtra={() => {
-          const pending = pendingSkillToggle;
-          if (!pending) {
-            return;
-          }
-          setPendingSkillToggle(null);
-          void applySkillEnabled(pending.skill, true, false);
-        }}
-        variant={pendingSkillToggle?.nextEnabled ? "default" : "warning"}
+        variant="warning"
         onConfirm={() => {
-          const pending = pendingSkillToggle;
-          if (!pending) {
+          const skill = pendingGlobalDisable;
+          if (!skill) {
             return;
           }
-          setPendingSkillToggle(null);
-          void applySkillEnabled(
-            pending.skill,
-            pending.nextEnabled,
-            pending.askProject,
-          );
+          setPendingGlobalDisable(null);
+          void applySkillEnabled(skill, false, false);
         }}
-        onCancel={() => setPendingSkillToggle(null)}
+        onCancel={() => setPendingGlobalDisable(null)}
       />
 
       <ConfirmDialog

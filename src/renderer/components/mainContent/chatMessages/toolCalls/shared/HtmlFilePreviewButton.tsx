@@ -1,9 +1,6 @@
-import { Eye, EyeOff } from "lucide-react";
+import { Eye } from "lucide-react";
 import { useI18n } from "../../../../../i18n";
-import { useFileArtifactRevealed } from "../../components/ChatFileArtifactRevealContext";
-
-/** AiResponse 按该属性捕获点击并切换对应 HTML 文件卡片。 */
-export const HTML_FILE_PREVIEW_ATTR = "data-html-file-preview";
+import { useHtmlArtifactOpen } from "../../components/HtmlArtifactOpenContext";
 
 const HTML_FILE_RE = /\.html?$/i;
 
@@ -13,42 +10,31 @@ type HtmlFilePreviewButtonProps = {
   enabled: boolean;
 };
 
+/** 点击直接把 HTML 文件放到右侧内置浏览器打开（不再在会话流里渲染预览卡片）。 */
 export const HtmlFilePreviewButton = ({
   filePath,
   enabled,
 }: HtmlFilePreviewButtonProps): React.JSX.Element | null => {
   const { t } = useI18n();
-  const open = useFileArtifactRevealed(filePath);
+  const openHtmlArtifact = useHtmlArtifactOpen();
   if (!enabled || !HTML_FILE_RE.test(filePath)) {
     return null;
   }
-  const label = open
-    ? t("chat.fileArtifact.close")
-    : t("markdown.html.preview");
+  const label = t("toolCall.websearch.openInBrowser");
   return (
     <button
       type="button"
       className="tcn-html-preview-btn"
-      {...{ [HTML_FILE_PREVIEW_ATTR]: filePath }}
-      data-preview-open={open ? "true" : undefined}
-      aria-pressed={open}
-      title={
-        open ? t("chat.fileArtifact.close") : t("chat.fileArtifact.toggle")
-      }
-      aria-label={
-        open ? t("chat.fileArtifact.close") : t("chat.fileArtifact.toggle")
-      }
-      // 兜底：不在 AiResponse 内时也不触发 summary 开合
+      title={label}
+      aria-label={label}
       onClick={(event) => {
+        // 阻止冒泡到工具卡片头部的展开/收起
         event.preventDefault();
         event.stopPropagation();
+        openHtmlArtifact?.(filePath);
       }}
     >
-      {open ? (
-        <EyeOff size={12} aria-hidden="true" />
-      ) : (
-        <Eye size={12} aria-hidden="true" />
-      )}
+      <Eye size={12} aria-hidden="true" />
       <span>{label}</span>
     </button>
   );

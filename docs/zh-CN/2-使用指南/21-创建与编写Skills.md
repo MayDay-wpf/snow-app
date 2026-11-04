@@ -8,12 +8,12 @@
 
 ### 1.1 选择目录
 
-| 目标 | 推荐目录 | 适用场景 |
-| --- | --- | --- |
-| 仅当前项目 | `<项目>/.snow/skills/<skill-id>/` | 项目规范、项目脚本、团队工作流 |
-| 当前项目但兼容通用 Agent 目录 | `<项目>/.agents/skills/<skill-id>/` | 希望被其他兼容工具发现 |
-| 当前用户所有项目 | `~/.snow/skills/<skill-id>/` | 个人通用工作流、Snow App 管理 |
-| 当前用户通用 Agent 目录 | `~/.agents/skills/<skill-id>/` | 跨 Agent 共享 |
+| 目标                          | 推荐目录                            | 适用场景                       |
+| ----------------------------- | ----------------------------------- | ------------------------------ |
+| 仅当前项目                    | `<项目>/.snow/skills/<skill-id>/`   | 项目规范、项目脚本、团队工作流 |
+| 当前项目但兼容通用 Agent 目录 | `<项目>/.agents/skills/<skill-id>/` | 希望被其他兼容工具发现         |
+| 当前用户所有项目              | `~/.snow/skills/<skill-id>/`        | 个人通用工作流、Snow App 管理  |
+| 当前用户通用 Agent 目录       | `~/.agents/skills/<skill-id>/`      | 跨 Agent 共享                  |
 
 同 ID 的有效优先级从高到低为：
 
@@ -132,12 +132,12 @@ allowed-tools:
 ---
 ```
 
-| 字段 | 类型 | 默认值 | 编写建议 |
-| --- | --- | --- | --- |
-| `name` | string | ID 最后一段 | 简短可读；GitHub 安装器会用它派生安装 ID。 |
-| `description` | string | 空 | 写“何时使用 + 做什么 + 主要产出”，不要只写泛化能力。 |
-| `enable` | boolean | `true` | 暂不希望注册时设为 `false`。字段不是 `enabled`。 |
-| `allowed-tools` | string[] 或逗号分隔 string | 无限制 | 使用完整精确工具名；字段不是 `allowed_tools`。 |
+| 字段            | 类型                       | 默认值      | 编写建议                                             |
+| --------------- | -------------------------- | ----------- | ---------------------------------------------------- |
+| `name`          | string                     | ID 最后一段 | 简短可读；GitHub 安装器会用它派生安装 ID。           |
+| `description`   | string                     | 空          | 写“何时使用 + 做什么 + 主要产出”，不要只写泛化能力。 |
+| `enable`        | boolean                    | `true`      | 暂不希望注册时设为 `false`。字段不是 `enabled`。     |
+| `allowed-tools` | string[] 或逗号分隔 string | 无限制      | 使用完整精确工具名；字段不是 `allowed_tools`。       |
 
 `allowed-tools` 示例也可以写成：
 
@@ -248,17 +248,17 @@ config-get scope=skills key=<skill-id> projectId=<projectId>
 
 ## 8. 排错
 
-| 问题 | 检查顺序 |
-| --- | --- |
-| 列表中没有 Skill | 路径 → `SKILL.md` 大小写 → 跳过目录 → frontmatter 闭合 → YAML 语法。 |
-| ID 与预期不同 | ID 来自相对目录路径，不来自 `name`；检查是否多套了一层目录。 |
-| 展示的是旧内容 | 查看 `path`；按覆盖优先级检查四个根目录中的同 ID Skill。 |
-| `enable: false` 仍显示启用 | 检查项目数据库覆盖；项目有效值优先于 frontmatter。 |
-| `enabled: false` 无效 | 字段写错，应改为 `enable: false`。 |
-| `allowed_tools` 无效 | 字段写错，应改为 `allowed-tools`。 |
-| 某工具不可用 | 核对 `allowedTools` 返回值和完整工具名，再检查该工具/服务器是否在项目级启用。 |
-| 修改后仍加载旧正文 | 重新开始下一次 Skill 调用或刷新工具列表；确认实际 `path` 未被覆盖。 |
-| Agent 不主动选择 | 把 `description` 改成明确触发条件和产出；必要时直接按 ID 请求执行进行诊断。 |
+| 问题                       | 检查顺序                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| 列表中没有 Skill           | 路径 → `SKILL.md` 大小写 → 跳过目录 → frontmatter 闭合 → YAML 语法。                             |
+| ID 与预期不同              | ID 来自相对目录路径，不来自 `name`；检查是否多套了一层目录。                                     |
+| 展示的是旧内容             | 查看 `path`；按覆盖优先级检查四个根目录中的同 ID Skill。                                         |
+| `enable: false` 仍显示启用 | 项目目录内的 Skill 检查项目数据库覆盖；全局目录的 Skill 受 `enable` 总闸约束，项目无法覆盖启用。 |
+| `enabled: false` 无效      | 字段写错，应改为 `enable: false`。                                                               |
+| `allowed_tools` 无效       | 字段写错，应改为 `allowed-tools`。                                                               |
+| 某工具不可用               | 核对 `allowedTools` 返回值和完整工具名，再检查该工具/服务器是否在项目级启用。                    |
+| 修改后仍加载旧正文         | 重新开始下一次 Skill 调用或刷新工具列表；确认实际 `path` 未被覆盖。                              |
+| Agent 不主动选择           | 把 `description` 改成明确触发条件和产出；必要时直接按 ID 请求执行进行诊断。                      |
 
 ## 9. 发布前检查清单
 

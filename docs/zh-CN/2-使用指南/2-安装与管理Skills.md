@@ -95,7 +95,7 @@ blocking problems before suggestions.
 | --------------- | ---- | --------------------------------------------------------------------------------------------------- |
 | `name`          | 否   | 展示名称；缺省时使用技能 ID 的最后一段。GitHub 安装时也用于派生安装 ID。                            |
 | `description`   | 否   | 注册到技能工具描述中，帮助 Agent 判断何时加载。建议写清触发场景与产出。                             |
-| `enable`        | 否   | 布尔值，默认 `true`。`false` 时默认不注册和不可执行。                                               |
+| `enable`        | 否   | 布尔值，默认 `true`。`false` 时作为总闸，任何项目都不注册和不可执行。                               |
 | `allowed-tools` | 否   | YAML 字符串数组或逗号分隔字符串。非空时，加载正文会附加“只能使用这些工具”的限制；空列表等同未限制。 |
 
 `enabled` 和 `allowed_tools` **不是 Skill frontmatter 字段**，不会产生预期效果。注意：下文 config API 的 `value.enabled` 是合法 API 参数，它最终写回的 frontmatter 字段仍是 `enable`。
@@ -108,9 +108,9 @@ blocking problems before suggestions.
 
 在 **设置 → Skills 设置**（设置页 id：`skills-settings`）中切换：
 
-- 全局视图：改写实际命中的 `SKILL.md` 顶层 `enable`；
-- 项目视图：把项目覆盖写入应用数据库，不改 Skill 文件；
-- 有项目覆盖时，有效状态为“项目数据库覆盖 > 当前命中 Skill 的 `enable`”。
+- 全局视图：改写实际命中的 `SKILL.md` 顶层 `enable`，它是所有项目的总闸；
+- 项目视图：列出该项目可用的全部 Skill（含全局），把项目覆盖写入应用数据库，不改 Skill 文件；
+- 有效状态：全局目录中的技能为“全局 `enable` 且项目覆盖”，项目覆盖缺省为开，全局停用后项目开关置灰；项目目录内的技能按项目覆盖处理，缺省沿用其 `enable`。
 
 ### 4.2 Agent 通过 `config` 管理
 
@@ -124,9 +124,9 @@ config-set  scope=skills key=team/release projectId=<projectId> value={"enabled"
 
 关键语义：
 
-- `config-list` 返回 `skills` 与 `githubInstalled`；项目视图中的 `defaultEnabled` 来自 frontmatter，`enabled` 是叠加数据库覆盖后的有效值；
+- `config-list` 返回 `skills` 与 `githubInstalled`；项目视图中的 `defaultEnabled` 是命中 Skill 的 frontmatter `enable`（全局来源技能的总闸），`enabled` 是有效值（全局来源为 `defaultEnabled` 且项目覆盖，覆盖缺省为开；项目目录内的技能覆盖缺省沿用 `defaultEnabled`）；
 - 全局切换也使用 `value={"enabled":...}`，但服务会改写 Skill 文件中的 **`enable`**；
-- 传 `projectId` 时只写项目数据库覆盖，立即生效；
+- 传 `projectId` 时只写项目数据库覆盖；对全局来源技能，该覆盖仅在全局总闸开启时生效；
 - 当前会话的 config 工具可能自动注入活动项目 ID；响应中的 `currentProjectId` 可用于确认上下文，需要明确操作全局配置时传空 `projectId`；
 - 安装使用 `value={"url":"owner/repo","location":"global"}`，项目安装使用 `location:"project"` 并传 `projectId`；`key` 是 config API 的必填路由参数，实际安装 ID仍由安装内容派生；
 - 修改后重新 `config-get` 或 `config-list`，核对 `path` 与有效状态。

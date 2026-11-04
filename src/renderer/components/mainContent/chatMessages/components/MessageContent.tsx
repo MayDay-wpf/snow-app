@@ -1,6 +1,5 @@
 import { memo } from "react";
 import { AiResponse } from "./AiResponse";
-import type { ChatFileArtifact } from "./chatFileArtifacts";
 import { PluginMessageFooters } from "./PluginMessageFooters";
 import { CompactionMessage } from "./CompactionMessage";
 import { UserMessage } from "./UserMessage";
@@ -10,13 +9,14 @@ import type {
   ConversationContextValue,
   ToolCallInfo,
 } from "../utils/conversationTypes";
+import type { ChatRunStats } from "../utils/types";
 
 export type MessageContentProps = {
   message: ChatConversationMessage;
-  fileArtifacts?: readonly ChatFileArtifact[];
+  /** 会话工作目录：正文里的 HTML 文件链接据此解析后在内置浏览器打开。 */
   artifactWorkspace?: string;
-  /** 切换 HTML 文件卡片显隐（open 缺省为取反）；文件卡片不存在时返回 false。 */
-  onToggleFileArtifact?: (key: string, open?: boolean) => boolean;
+  /** 会话累计运行统计：只有最后一条 AI 响应会展示到操作栏。 */
+  runStats?: ChatRunStats | null;
   isStreaming: boolean;
   lastAssistantMessageId: string | undefined;
   activeConversationId: string | undefined;
@@ -52,9 +52,8 @@ export type MessageContentProps = {
 export const MessageContent = memo(
   ({
     message,
-    fileArtifacts,
     artifactWorkspace,
-    onToggleFileArtifact,
+    runStats,
     isStreaming,
     lastAssistantMessageId,
     activeConversationId,
@@ -140,9 +139,7 @@ export const MessageContent = memo(
     return (
       <div className="chat-message-hook-container">
         <AiResponse
-          fileArtifacts={fileArtifacts}
           artifactWorkspace={artifactWorkspace}
-          onToggleFileArtifact={onToggleFileArtifact}
           isStreaming={message.status === "sending"}
           isRetrying={isLastAssistant && message.isRetrying}
           retryAttempt={message.retryAttempt}
@@ -190,6 +187,7 @@ export const MessageContent = memo(
           responseId={message.responseId}
           updateSessionMessages={updateSessionMessages}
           onFork={onFork}
+          runStats={isLastAssistant ? runStats : null}
         />
         {footerHookExecutions.length > 0 ? (
           <HookExecutionUI executions={footerHookExecutions} />
