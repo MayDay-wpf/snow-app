@@ -147,6 +147,8 @@ pub(crate) fn ext_for_mime(mime_type: &str) -> &'static str {
         "webp"
     } else if lower.contains("gif") {
         "gif"
+    } else if lower.contains("svg") {
+        "svg"
     } else {
         "png"
     }

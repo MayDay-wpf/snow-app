@@ -72,6 +72,9 @@ const IMAGE_GEN_SETTING_CODE: &str = "imagegen_settings";
 
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+/// NovelAI 原生图片 API 默认端点（主机根地址，无 `/v1` 路径段；
+/// 请求按 `{base}/ai/generate-image` 拼接）。
+const DEFAULT_NOVELAI_BASE_URL: &str = "https://image.novelai.net";
 
 /// 前端「图像生成」设置（Settings -> Image generation）。支持任意多个独立
 /// 渠道（每个渠道可配置自己的协议类型、Base URL、密钥、模型与默认参数）
@@ -111,6 +114,10 @@ pub struct ImageGenModelItem {
     pub default_size: String,
     #[serde(default)]
     pub default_quality: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_complexity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_output_format: Option<String>,
     #[serde(default)]
     pub supported_ratios: String,
     #[serde(default)]
@@ -236,6 +243,8 @@ impl ImageGenChannel {
                 name: self.name.clone(),
                 default_size: self.default_size.clone(),
                 default_quality: self.default_quality.clone(),
+                default_complexity: None,
+                default_output_format: None,
                 supported_ratios: self.supported_ratios.clone(),
                 supported_resolutions: self.supported_resolutions.clone(),
                 supported_thinking: self.supported_thinking.clone(),
@@ -374,12 +383,21 @@ impl ImageGenService {
             .find_model_config(&model)
             .map(|item| item.supported_thinking.trim().to_string())
             .unwrap_or_default();
+        // 这些默认值只属于精确匹配的模型，不沿用模糊匹配或首项兜底。
+        let selected_model = channel_config.models.iter().find(|item| {
+            item.enabled && item.model.trim().eq_ignore_ascii_case(&model)
+        });
         let output_format = args
             .get("outputFormat")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
+            .or_else(|| {
+                selected_model
+                    .and_then(|item| item.default_output_format.as_deref())
+                    .and_then(non_empty)
+            })
             .or_else(|| non_empty(&channel_config.output_format));
 
         // --- 6. Streaming mode: argument > channel default ---
@@ -547,6 +565,117 @@ impl ImageGenService {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
+        // --- OpenAI 2.6 增量参数：complexity / safety_identifier / markup / mask ---
+        // complexity：仅 OpenAI 渠道，显式参数优先于所选模型的默认值。
+        // 仅精确匹配模型，避免其他模型的默认值通过模糊匹配或首项兜底继承。
+        let complexity = if provider == "openai" {
+            args.get("complexity")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    selected_model
+                        .and_then(|item| item.default_complexity.as_deref())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                })
+                .map(|value| {
+                    let lower = value.to_ascii_lowercase();
+                    match lower.as_str() {
+                        "low" | "medium" | "high" => Ok(lower),
+                        _ => Err(Error::new(
+                            Status::InvalidArg,
+                            format!(
+                                "`complexity` must be one of \"low\", \"medium\", \"high\", got \"{value}\""
+                            ),
+                        )),
+                    }
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        // safety_identifier：可选，最长 128 字符；新代码不发送 `user` 字段。
+        let safety_identifier = if provider == "openai" {
+            args.get("safetyIdentifier")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    if value.chars().count() > 128 {
+                        Err(Error::new(
+                            Status::InvalidArg,
+                            format!(
+                                "`safetyIdentifier` must be at most 128 characters, got {}",
+                                value.chars().count()
+                            ),
+                        ))
+                    } else {
+                        Ok(value.to_string())
+                    }
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        let markup = args.get("markup").and_then(Value::as_bool).unwrap_or(false);
+        // mask：OpenAI edits 的局部重绘蒙版（multipart `mask` 部件）。
+        let mask = reference_image::parse_mask(args, &database_path)?;
+
+        // --- 新增参数组合校验（发送前本地拦截，避免上游 400 / 静默降级） ---
+        let is_edits = !images.is_empty() || !request_images.is_empty();
+        // markup 仅 OpenAI（标注编辑）；mask 支持 OpenAI（multipart `mask`）与
+        // NovelAI（infill 蒙版），Gemini 两者皆不支持。
+        if markup && provider != "openai" {
+            return Err(Error::from_reason(
+                "`markup` is only supported for OpenAI image edits; it is ignored by other providers".to_string(),
+            ));
+        }
+        if mask.is_some() && provider != "openai" && provider != "novelai" {
+            return Err(Error::from_reason(
+                "`mask` is only supported for OpenAI / NovelAI image edits; it is ignored by Gemini".to_string(),
+            ));
+        }
+        if (mask.is_some() || markup) && !is_edits {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "`mask` / `markup` require at least one reference image (`images`) for an image edit"
+                    .to_string(),
+            ));
+        }
+        if markup && mask.is_some() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "`markup` (annotation layer as the first `images` entry) and `mask` are mutually exclusive; pass only one of them"
+                    .to_string(),
+            ));
+        }
+        // output_format=svg/gif 是 OpenAI 概念（NovelAI 恒为 PNG、Gemini 恒为
+        // 模型决定）：仅对 OpenAI 渠道生效——svg/gif 仅文生图（generations），
+        // 图生图遇到这两个值必须显式报错，不能静默改回 png。
+        if provider == "openai" {
+            let format_lower = output_format
+                .as_deref()
+                .map(|value| value.to_ascii_lowercase());
+            if is_edits && matches!(format_lower.as_deref(), Some("svg" | "gif")) {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    format!(
+                        "output_format \"{}\" is only supported for text-to-image generation, not image edits; use png/jpeg/webp for edits",
+                        format_lower.as_deref().unwrap_or("")
+                    ),
+                ));
+            }
+            // svg 输出必须为单张（n=1）。
+            if format_lower.as_deref() == Some("svg") && requests > 1 {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "output_format \"svg\" requires a single image (n=1), got multiple requests"
+                        .to_string(),
+                ));
+            }
+        }
+
         match provider {
             "gemini" => {
                 self.generate_gemini(
@@ -571,7 +700,26 @@ impl ImageGenService {
                 )
                 .await
             }
+            "novelai" => {
+                self.generate_novelai(
+                    args,
+                    per_request_prompts.as_slice(),
+                    &model,
+                    &size,
+                    &base_url,
+                    api_key,
+                    requests,
+                    per_request_images.as_slice(),
+                    seed,
+                    negative_prompt.as_deref(),
+                    mask.as_ref(),
+                    &channel_label,
+                    timeout_secs,
+                )
+                .await
+            }
             _ => {
+                validate_openai_size(&model, &size, output_format.as_deref())?;
                 self.generate_openai(
                     args,
                     per_request_prompts.as_slice(),
@@ -589,6 +737,9 @@ impl ImageGenService {
                     input_fidelity.as_deref(),
                     background.as_deref(),
                     moderation.as_deref(),
+                    complexity.as_deref(),
+                    safety_identifier.as_deref(),
+                    mask.as_ref(),
                     &channel_label,
                     timeout_secs,
                 )
@@ -661,11 +812,11 @@ impl McpService for ImageGenService {
                     },
                     "model": {
                         "type": "string",
-                        "description": "Image model to override the one configured in Settings -> Image generation. OpenAI: gpt-image-1, gpt-image-2, dall-e-3. Gemini (recommended Nano Banana family): gemini-3.1-flash-image (Nano Banana 2, default pick), gemini-3.1-flash-lite-image (Nano Banana 2 Lite, fastest/cheapest, 1K only), gemini-3-pro-image (Nano Banana Pro, up to 14 reference images + 4K + interleaved text), gemini-2.5-flash-image (legacy). NOTE: Imagen models are deprecated and shut down 2026-08-17. CAPABILITY RULES (sending unsupported requests yields a 400): dall-e-3 is text-to-image ONLY (no reference images) and always generates exactly 1 image (n>1 is clamped to 1); imagen models are text-to-image only too; gpt-image / Nano Banana / gemini-2.5-flash-image accept reference images. TRANSPARENT BACKGROUND: only gpt-image-1 can output transparent PNGs; gpt-image-2 and dall-e-3 cannot (transparent falls back to opaque), Gemini is always opaque — pick gpt-image-1 whenever the user asks for a transparent background / cutout / sticker / desktop pet. IMPORTANT: only set this when the user EXPLICITLY asks to override the configured model (see \"Current configuration:\" at the end of the tool description); for normal requests OMIT it so the configured default is inherited. Passing a model that does not match the selected channel's protocol fails locally instead of being sent upstream.",
+                        "description": "Image model to override the one configured in Settings -> Image generation. OpenAI: gpt-image-1, gpt-image-2, dall-e-3. Gemini (recommended Nano Banana family): gemini-nano-banana-2.1 (Nano Banana 2.1, latest), gemini-3.1-flash-image (Nano Banana 2), gemini-3.1-flash-lite-image (Nano Banana 2 Lite, fastest/cheapest, 1K only), gemini-3-pro-image (Nano Banana Pro, up to 14 reference images + 4K + interleaved text), gemini-2.5-flash-image (legacy). NovelAI: nai-diffusion-5-full / nai-diffusion-5-curated / nai-diffusion-4-5-full / nai-diffusion-4-5-curated / nai-diffusion-4-full / nai-diffusion-3 (anime / furry), via the native image.novelai.net API. NOTE: Imagen models are deprecated and shut down 2026-08-17. CAPABILITY RULES (sending unsupported requests yields a 400): dall-e-3 is text-to-image ONLY (no reference images) and always generates exactly 1 image (n>1 is clamped to 1); imagen models are text-to-image only too; gpt-image / Nano Banana / gemini-2.5-flash-image accept reference images; NovelAI edits accept a single base image (img2img) plus an optional mask (infill). TRANSPARENT BACKGROUND: only gpt-image-1 can output transparent PNGs; gpt-image-2 and dall-e-3 cannot (transparent falls back to opaque), Gemini is always opaque — pick gpt-image-1 whenever the user asks for a transparent background / cutout / sticker / desktop pet. IMPORTANT: only set this when the user EXPLICITLY asks to override the configured model (see \"Current configuration:\" at the end of the tool description); for normal requests OMIT it so the configured default is inherited. Passing a model that does not match the selected channel's protocol fails locally instead of being sent upstream.",
                     },
                     "provider": {
                         "type": "string",
-                        "description": "Image channel override: a channel ID or channel name configured in Settings -> Image generation (config-list scope=imagegen lists them), or a protocol type \"openai\" (OpenAI-compatible Images API) / \"gemini\" (Google Gemini Imagen) to pick the first usable channel of that type. Omit or \"auto\" to use the current default channel (see \"Current configuration:\" at the end of the tool description). IMPORTANT: only set this when the user EXPLICITLY asks to override the channel; for normal requests OMIT it. If you must override the model, prefer passing `provider` together with it so the model is sent to the right channel.",
+                        "description": "Image channel override: a channel ID or channel name configured in Settings -> Image generation (config-list scope=imagegen lists them), or a protocol type \"openai\" (OpenAI-compatible Images API) / \"gemini\" (Google Gemini Imagen) / \"novelai\" (NovelAI native image.novelai.net API) to pick the first usable channel of that type. Omit or \"auto\" to use the current default channel (see \"Current configuration:\" at the end of the tool description). IMPORTANT: only set this when the user EXPLICITLY asks to override the channel; for normal requests OMIT it. If you must override the model, prefer passing `provider` together with it so the model is sent to the right channel.",
                         "default": "auto"
                     },
                     "size": {
@@ -677,10 +828,15 @@ impl McpService for ImageGenService {
                         "description": "Rendering quality: \"low\", \"medium\", \"high\", \"xhigh\", \"max\" or \"auto\". OpenAI: gpt-image-2 / 2.5 models (2.5 adds xhigh and max). Gemini: low/medium/high (imageQuality).",
                         "enum": ["low", "medium", "high", "xhigh", "max", "auto"]
                     },
+                    "complexity": {
+                        "type": "string",
+                        "description": "OpenAI gpt-image-2.6+ (sunburst / flare) only: generation complexity — \"low\", \"medium\" or \"high\". Overrides the selected model's defaultComplexity; if neither is set, the upstream default applies.",
+                        "enum": ["low", "medium", "high"]
+                    },
                     "outputFormat": {
                         "type": "string",
-                        "description": "Output format for OpenAI: \"png\", \"jpeg\" or \"webp\" (default png). Ignored for dall-e and Gemini.",
-                        "enum": ["png", "jpeg", "webp"]
+                        "description": "Output format for OpenAI: \"png\" (default), \"jpeg\", \"webp\", \"svg\" or \"gif\". svg/gif are text-to-image only (generations) — image edits must use png/jpeg/webp and reject svg/gif; svg requires a single image (n=1); svg/gif never send stream / partial_images / output_compression. Ignored for dall-e and Gemini.",
+                        "enum": ["png", "jpeg", "webp", "svg", "gif"]
                     },
                     "outputCompression": {
                         "type": "number",
@@ -702,7 +858,7 @@ impl McpService for ImageGenService {
                     },
                     "webSearch": {
                         "type": "boolean",
-                        "description": "Gemini only: enable Google Search grounding so the model can incorporate real-time web information into the generated image. Defaults to the setting configured in Settings -> Image generation. Ignored for OpenAI."
+                        "description": "Gemini only: enable Google Search grounding so the model can incorporate real-time web information into the generated image. Supported by Nano Banana 2.1 / 3.1 Flash Image / 3 Pro Image. Defaults to the setting configured in Settings -> Image generation. Ignored for OpenAI and NovelAI."
                     },
                     "stream": {
                         "type": "boolean",
@@ -714,6 +870,19 @@ impl McpService for ImageGenService {
                         "description": "OpenAI image edits only: how strongly the model preserves details from the reference images — \"low\", \"high\", or \"auto\" (default). Not allowed for gpt-image-2 (always high fidelity).",
                         "enum": ["low", "high", "auto"]
                     },
+                    "markup": {
+                        "type": "boolean",
+                        "description": "OpenAI image edits only (gpt-image-2.6+): markup editing — the FIRST `images` entry is the annotation layer drawn over the base image, followed by the base/reference image(s). Mutually exclusive with `mask` (passing both is an explicit error). Requires at least one reference image."
+                    },
+                    "mask": {
+                        "type": "object",
+                        "description": "OpenAI image edits only: inpainting mask image {data, mimeType} or {path, mimeType} (same shape as one `images` entry), sent as the multipart `mask` part. Mutually exclusive with `markup` (passing both is an explicit error); requires at least one reference image.",
+                        "properties": {
+                            "data": { "type": "string", "description": "Base64-encoded image data (without the data: prefix)" },
+                            "path": { "type": "string", "description": "Absolute disk path or upload/ relative path" },
+                            "mimeType": { "type": "string", "description": "Image MIME type, e.g. image/png" }
+                        }
+                    },
                     "background": {
                         "type": "string",
                         "description": "OpenAI only: output background — \"opaque\" (default), \"transparent\", or \"auto\". Model support matrix: gpt-image-1 supports all three (transparent requires outputFormat=\"png\"); gpt-image-2 supports opaque/auto ONLY — \"transparent\" is automatically downgraded to \"opaque\" by the tool; dall-e-3 and Gemini ignore this parameter (always opaque). For true transparent PNG output (stickers, desktop pets, cutouts) use gpt-image-1 + background=\"transparent\" + outputFormat=\"png\".",
@@ -723,6 +892,11 @@ impl McpService for ImageGenService {
                         "type": "string",
                         "description": "OpenAI only: moderation strictness — \"auto\" (default) or \"low\" (less restrictive filtering). Ignored for Gemini.",
                         "enum": ["auto", "low"]
+                    },
+                    "safetyIdentifier": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "description": "OpenAI only: optional safety identifier for content provenance (max 128 characters), sent as safety_identifier. New code never sends a `user` field."
                     },
                     "seed": {
                         "type": "number",
@@ -735,11 +909,11 @@ impl McpService for ImageGenService {
                     },
                     "imageSearch": {
                         "type": "boolean",
-                        "description": "Gemini 3.1 Flash Image only: enable Google Image Search grounding so the model can use real web images as visual context (search_types: [\"web_search\", \"image_search\"]). Requires displaying search suggestions. Other models ignore it."
+                        "description": "Gemini Nano Banana 2.1 / 3.1 Flash Image only: enable Google Image Search grounding so the model can use real web images as visual context (search_types: [\"web_search\", \"image_search\"]). Requires displaying search suggestions. Other models ignore it."
                     },
                     "negativePrompt": {
                         "type": "string",
-                        "description": "Gemini Imagen only: negative prompt — comma-separated visual attributes to avoid (e.g. \"blurry, low quality, distorted hands\"). Written into generationConfig.negativePrompt of the Imagen generateContent request. Nano Banana (gemini 2.5 / 3 image models) and OpenAI do NOT support negative prompts (their guidance is to describe the desired result positively) — the value is ignored for those models."
+                        "description": "Negative prompt — comma-separated visual attributes to avoid (e.g. \"blurry, low quality, distorted hands\"). Gemini Imagen: written into generationConfig.negativePrompt. NovelAI: sent as the `uc` field. Nano Banana (gemini 2.5 / 3 image models) and OpenAI do NOT support negative prompts (their guidance is to describe the desired result positively) — the value is ignored for those models."
                     }
                 },
                 "required": ["prompt"]
@@ -1028,6 +1202,11 @@ fn format_channel_capabilities(
     } else {
         if channel.provider == "gemini" {
             lines.push("Supported aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 5:4, 4:5, 21:9 (1:4, 1:8, 4:1, 8:1 for ultra-wide)".to_string());
+        } else if channel.provider == "novelai" {
+            lines.push(
+                "Supported aspect ratios: 2:3, 3:2, 1:1, 9:16, 16:9, 4:3, 3:4, 21:9"
+                    .to_string(),
+            );
         } else if m.contains("dall-e-3") {
             lines.push(
                 "Supported aspect ratios: 1:1 (1024x1024), 16:9 (1792x1024), 9:16 (1024x1792)"
@@ -1059,6 +1238,11 @@ fn format_channel_capabilities(
         if channel.provider == "gemini" {
             lines.push(
                 "Supported resolutions: 512px, 1K, 2K, 4K (format: \"16:9@2K\" or \"16:9\")"
+                    .to_string(),
+            );
+        } else if channel.provider == "novelai" {
+            lines.push(
+                "Supported sizes: 832x1216, 1216x832, 1024x1024, 1024x1536, 1536x1024 (format: WIDTHxHEIGHT)"
                     .to_string(),
             );
         } else if m.contains("dall-e-3") {
@@ -1270,7 +1454,7 @@ fn resolve_channel<'a>(
     match requested.as_deref() {
         Some(key) => {
             let key_lower = key.to_lowercase();
-            let channel = if key_lower == "openai" || key_lower == "gemini" {
+            let channel = if matches!(key_lower.as_str(), "openai" | "gemini" | "novelai") {
                 // 协议类型：匹配该协议的第一个可用渠道
                 settings.channels.iter().find(|channel| {
                     channel.is_usable() && channel.provider.eq_ignore_ascii_case(&key_lower)
@@ -1348,6 +1532,16 @@ fn cross_protocol_mismatch(model: &str, provider: &str) -> Option<String> {
             "\"{model}\" is an OpenAI model name, which is incompatible with the Gemini Imagen API."
         ));
     }
+    if provider == "novelai"
+        && (model_lower.starts_with("gemini")
+            || model_lower.contains("imagen")
+            || model_lower.starts_with("gpt-image")
+            || model_lower.starts_with("dall-e"))
+    {
+        return Some(format!(
+            "\"{model}\" is not a NovelAI model name. NovelAI channels call the native image.novelai.net API and accept nai-diffusion-* models only."
+        ));
+    }
     None
 }
 
@@ -1387,12 +1581,10 @@ fn available_channels_summary(settings: &ImageGenSettings) -> String {
 
 /// 渠道端点：渠道 baseUrl > 官方默认（按渠道自身协议类型）。
 fn channel_base_url(channel: &ImageGenChannel) -> String {
-    non_empty(&channel.base_url).unwrap_or_else(|| {
-        if channel.provider == "gemini" {
-            DEFAULT_GEMINI_BASE_URL.to_string()
-        } else {
-            DEFAULT_OPENAI_BASE_URL.to_string()
-        }
+    non_empty(&channel.base_url).unwrap_or_else(|| match channel.provider.as_str() {
+        "gemini" => DEFAULT_GEMINI_BASE_URL.to_string(),
+        "novelai" => DEFAULT_NOVELAI_BASE_URL.to_string(),
+        _ => DEFAULT_OPENAI_BASE_URL.to_string(),
     })
 }
 
@@ -1576,6 +1768,8 @@ fn mime_for_format(format: &str) -> String {
     match format.to_ascii_lowercase().as_str() {
         "jpeg" | "jpg" => "image/jpeg".to_string(),
         "webp" => "image/webp".to_string(),
+        "svg" => "image/svg+xml".to_string(),
+        "gif" => "image/gif".to_string(),
         _ => "image/png".to_string(),
     }
 }
@@ -1686,6 +1880,99 @@ fn sanitize_size(
         return Some(raw.to_string());
     }
     None
+}
+
+/// 校验 gpt-image-2 系列（含 2.5 / 2.6 sunburst / flare）的 OpenAI 尺寸：
+/// 允许预设值（如 1024x1024）或自定义 `WIDTHxHEIGHT`，必须满足
+/// - 两边为 16 的倍数
+/// - 宽高比在 1:3 ~ 3:1 之间
+/// - 单边不超过 3840
+/// - 总像素在 655360 ~ 8294400 之间（0.625MP ~ 8.29MP）
+/// 2.6 的 GIF 尺寸仅校验 auto 或正整数且两边为 16 的倍数，像素预算由上游决定。
+/// 其他格式沿用既有规则，`auto` 或非 `WIDTHxHEIGHT` 写法放行。
+fn validate_openai_size(
+    model: &str,
+    size: &Option<String>,
+    output_format: Option<&str>,
+) -> napi::Result<()> {
+    let model_lower = model.to_ascii_lowercase();
+    if !model_lower.contains("gpt-image-2") {
+        return Ok(());
+    }
+    let is_gif_2_6 = model_lower.contains("gpt-image-2.6")
+        && output_format.is_some_and(|format| format.eq_ignore_ascii_case("gif"));
+    let Some(raw) = size else {
+        return Ok(());
+    };
+    let raw = raw.trim();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+        return Ok(());
+    }
+    let lower = raw.to_ascii_lowercase();
+    let Some((width, height)) = lower.split_once('x') else {
+        if is_gif_2_6 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("Invalid size \"{raw}\": expected auto or WIDTHxHEIGHT with integer pixel values"),
+            ));
+        }
+        // 非 WIDTHxHEIGHT 写法放行，保持既有行为。
+        return Ok(());
+    };
+    let (Ok(width), Ok(height)) =
+        (width.trim().parse::<u64>(), height.trim().parse::<u64>())
+    else {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Invalid size \"{raw}\": expected WIDTHxHEIGHT with integer pixel values (e.g. 1024x1024)"
+            ),
+        ));
+    };
+    if width == 0 || height == 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("Invalid size \"{raw}\": dimensions must be positive"),
+        ));
+    }
+    if width % 16 != 0 || height % 16 != 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Size \"{raw}\" is not supported by {model}: both sides must be multiples of 16 (e.g. 1024x1024, 1536x1024)."
+            ),
+        ));
+    }
+    if is_gif_2_6 {
+        return Ok(());
+    }
+    if width > 3840 || height > 3840 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Size \"{raw}\" is not supported by {model}: each side must not exceed 3840px (got {width}x{height})."
+            ),
+        ));
+    }
+    let (max_side, min_side) = (width.max(height), width.min(height));
+    if max_side > min_side * 3 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Size \"{raw}\" is not supported by {model}: aspect ratio must be between 1:3 and 3:1 (got {width}x{height})."
+            ),
+        ));
+    }
+    let total = width * height;
+    if total < 655360 || total > 8294400 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Size \"{raw}\" is not supported by {model}: total pixels must be between 655360 and 8294400 (got {total})."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 根据模型能力规整 `background` 参数：

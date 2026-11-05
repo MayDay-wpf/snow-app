@@ -1,11 +1,14 @@
 import {
   BadgeCheck,
+  ChevronDown,
+  ChevronUp,
   CircleCheck,
   Clock,
   Copy,
   Eye,
   EyeOff,
   Gauge,
+  GripVertical,
   ImageIcon,
   Layers,
   Loader2,
@@ -14,7 +17,6 @@ import {
   Plus,
   Search,
   SearchX,
-  Save,
   Sparkles,
   Trash2,
   Wand2,
@@ -35,6 +37,7 @@ import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { useI18n } from "../../i18n";
 import { ModelBrandIcon } from "../common/ModelBrandIcon";
 import { ApiModelCombobox } from "./apiSettings/ApiModelCombobox";
+import { ApiSettingsFormActions } from "./apiSettings/ApiSettingsFormPanel";
 import { buildDuplicateName } from "./duplicateName";
 import {
   applyCapability,
@@ -53,11 +56,16 @@ import {
 } from "./imagegenSettings/SizeControls";
 import type { Model } from "../../../preload";
 import {
+  API_CONFIG_ROW_ATTRIBUTE,
+  useApiConfigReorder,
+} from "./apiSettings/apiConfigReorder";
+import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_IMAGE_GEN_CHANNEL,
   DEFAULT_IMAGE_GEN_MAX_CONCURRENT,
   DEFAULT_IMAGE_GEN_TIMEOUT_SECS,
   DEFAULT_IMAGE_GEN_EXECUTION_MODE,
+  DEFAULT_NOVELAI_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
   GEMINI_MODEL_EXAMPLES,
   GEMINI_ASPECT_RATIOS,
@@ -66,6 +74,7 @@ import {
   IMAGE_GEN_SETTING_NAME,
   IMAGE_GEN_TIMEOUT_RANGE,
   IMAGE_GEN_TEMPLATES,
+  NOVELAI_MODEL_EXAMPLES,
   OPENAI_MODEL_EXAMPLES,
   OPENAI_SIZE_PRESETS,
   OPENAI_SIZE_TIERS,
@@ -97,6 +106,16 @@ import type {
  */
 const KNOWN_IMAGE_MODELS: KnownImageModel[] = [
   // OpenAI 兼容
+  {
+    id: "gpt-image-2.6-flare",
+    provider: "openai",
+    alias: "GPT Image 2.6 Flare",
+  },
+  {
+    id: "gpt-image-2.6-sunburst",
+    provider: "openai",
+    alias: "GPT Image 2.6 Sunburst",
+  },
   {
     id: "gpt-image-2.5-flare",
     provider: "openai",
@@ -268,6 +287,10 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
   // 搜索
   const [searchQuery, setSearchQuery] = useState("");
 
+  // 表格多选与批量删除（与 LLM 模型表格一致）
+  const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
+  const [bulkDeletePending, setBulkDeletePending] = useState(false);
+
   // 删除渠道确认对话框
   const [channelPendingDeletion, setChannelPendingDeletion] =
     useState<ImageGenChannelValue | null>(null);
@@ -406,6 +429,11 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
     if (provider === "gemini") {
       return t("settings.imagegenChannelGemini", {
         defaultValue: "Google Gemini",
+      });
+    }
+    if (provider === "novelai") {
+      return t("settings.imagegenProviderNovelai", {
+        defaultValue: "NovelAI",
       });
     }
     return t("settings.imagegenChannelOpenai", {
@@ -616,6 +644,10 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
       // 修改模型 ID 时按内置能力库自动填充能力字段（纯函数，用户手改过的
       // 值不会被覆盖，见 applyCapability 的「未定制」判定）。
       if (field === "model") {
+        if (updatedItem.model !== current.model) {
+          updatedItem.defaultComplexity = "";
+          updatedItem.defaultOutputFormat = "";
+        }
         updatedItem = applyCapability(updatedItem, current.model);
       }
       list[idx] = updatedItem;
@@ -1140,9 +1172,12 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
     setDraftModelsLoading(true);
     setDraftModelsError(null);
     const isGemini = draft.provider === "gemini";
+    const isNovelai = draft.provider === "novelai";
     const defaultBaseUrl = isGemini
       ? DEFAULT_GEMINI_BASE_URL
-      : DEFAULT_OPENAI_BASE_URL;
+      : isNovelai
+        ? DEFAULT_NOVELAI_BASE_URL
+        : DEFAULT_OPENAI_BASE_URL;
 
     try {
       const allModels = await window.snow.fetchAvailableModelsForConfig({
@@ -1181,17 +1216,104 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
   const enabledCount = channels.filter((channel) => channel.enabled).length;
   const isBusy = isLoading || isSaving;
 
+  const selectedChannelIdSet = useMemo(
+    () => new Set(selectedChannelIds),
+    [selectedChannelIds],
+  );
+  const selectedChannelCount = selectedChannelIds.length;
+  const isAllFilteredSelected =
+    filteredChannels.length > 0 &&
+    filteredChannels.every((channel) => selectedChannelIdSet.has(channel.id));
+  const isPartiallySelected =
+    !isAllFilteredSelected &&
+    filteredChannels.some((channel) => selectedChannelIdSet.has(channel.id));
+
+  // 列表变化（删除、导入、保存）后丢弃已不存在的选中项。
+  useEffect(() => {
+    setSelectedChannelIds((previous) => {
+      const available = new Set(channels.map((channel) => channel.id));
+      const next = previous.filter((id) => available.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [channels]);
+
+  const toggleChannelSelection = (channelId: string) => {
+    setSelectedChannelIds((previous) =>
+      previous.includes(channelId)
+        ? previous.filter((id) => id !== channelId)
+        : [...previous, channelId],
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const filteredIds = filteredChannels.map((channel) => channel.id);
+    setSelectedChannelIds((previous) => {
+      const everySelected =
+        filteredIds.length > 0 &&
+        filteredIds.every((id) => previous.includes(id));
+      return everySelected
+        ? previous.filter((id) => !filteredIds.includes(id))
+        : Array.from(new Set([...previous, ...filteredIds]));
+    });
+  };
+
+  /** 按渠道 id 顺序重排并立即保存（顺序即设置文件中的渠道顺序）。 */
+  const reorderChannels = async (orderedIds: string[]): Promise<void> => {
+    const remaining = new Map(channels.map((channel) => [channel.id, channel]));
+    const next: ImageGenChannelValue[] = [];
+    for (const id of orderedIds) {
+      const channel = remaining.get(id);
+      if (channel) {
+        next.push(channel);
+        remaining.delete(id);
+      }
+    }
+    for (const channel of channels) {
+      if (remaining.has(channel.id)) {
+        next.push(channel);
+      }
+    }
+    await persistChannels(next);
+  };
+
+  const reorder = useApiConfigReorder({
+    allNames: channels.map((channel) => channel.id),
+    visibleNames: filteredChannels.map((channel) => channel.id),
+    onReorder: (orderedIds) => void reorderChannels(orderedIds),
+  });
+
+  /** 批量删除已选渠道（一次确认、一次保存）。 */
+  const confirmRemoveSelected = async (): Promise<void> => {
+    setBulkDeletePending(false);
+    const next = channels.filter(
+      (channel) => !selectedChannelIdSet.has(channel.id),
+    );
+    const count = channels.length - next.length;
+    await persistChannels(
+      next,
+      t("settings.imagegenDeleteSelectedSuccess", {
+        defaultValue: "Deleted {count} channels.",
+      }).replace("{count}", String(count)),
+    );
+    setSelectedChannelIds([]);
+  };
+
   const renderDraftPanel = (): React.JSX.Element => {
     if (!draft) {
       return <></>;
     }
     const isGemini = draft.provider === "gemini";
+    const isNovelai = draft.provider === "novelai";
     const defaultBaseUrl = isGemini
       ? DEFAULT_GEMINI_BASE_URL
-      : DEFAULT_OPENAI_BASE_URL;
+      : isNovelai
+        ? DEFAULT_NOVELAI_BASE_URL
+        : DEFAULT_OPENAI_BASE_URL;
     const modelPlaceholder = isGemini
       ? GEMINI_MODEL_EXAMPLES
-      : OPENAI_MODEL_EXAMPLES;
+      : isNovelai
+        ? NOVELAI_MODEL_EXAMPLES
+        : OPENAI_MODEL_EXAMPLES;
     const currentModelId = activeModelItem.model;
     // 尺寸/思考等参数控件沿用原判定：渠道协议为 Gemini，或模型 ID 属于
     // Gemini 生图家族（兼容「OpenAI 兼容中转跑 Gemini 模型」的场景）。
@@ -1210,682 +1332,809 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
       safeModelIndex === resolvePrimaryIndex(currentModelList, draft.model);
 
     return (
-      <div className="imagegen-editor">
-        <div className="api-settings-form-grid">
-          <label className="api-settings-field imagegen-field-wide">
-            <span className="api-settings-field-label">
-              <Sparkles
-                size={13}
-                style={{
-                  display: "inline-block",
-                  marginRight: 4,
-                  verticalAlign: -1,
-                }}
-              />
-              {t("settings.imagegenTemplate", {
-                defaultValue: "Preset template",
-              })}
-            </span>
-            <CustomSelect
-              value=""
-              options={[
-                {
-                  value: "",
-                  label: t("settings.imagegenTemplateSelect", {
-                    defaultValue: "Select a template to auto-fill settings...",
-                  }),
-                },
-                ...IMAGE_GEN_TEMPLATES.map((tmpl) => ({
-                  value: tmpl.id,
-                  label: tmpl.name,
-                  description: tmpl.description,
-                })),
-              ]}
-              onChange={(templateId) => requestApplyTemplate(templateId)}
-              disabled={draftSaving}
-              portal
-            />
-          </label>
-
-          <label className="api-settings-field imagegen-field-wide">
-            <span className="api-settings-field-label">
-              {t("settings.imagegenChannelName", {
-                defaultValue: "Channel name",
-              })}
-            </span>
-            <input
-              type="text"
-              value={draft.name}
-              onChange={updateDraftEvent("name")}
-              placeholder={defaultChannelName(draft.provider)}
-              disabled={draftSaving}
-              spellCheck={false}
-              autoFocus
-            />
-            <small className="api-settings-field-hint">
-              {t("settings.imagegenChannelNameHint", {
-                defaultValue:
-                  "Custom name shown in the list and used by the agent (leave empty to use the default).",
-              })}
-            </small>
-          </label>
-
-          <label className="api-settings-field">
-            <span className="api-settings-field-label">
-              {t("settings.imagegenProvider", { defaultValue: "Provider" })}
-            </span>
-            <CustomSelect
-              value={draft.provider}
-              options={[
-                {
-                  value: "openai",
-                  label: t("settings.imagegenProviderOpenai", {
-                    defaultValue: "OpenAI",
-                  }),
-                },
-                {
-                  value: "gemini",
-                  label: t("settings.imagegenProviderGemini", {
-                    defaultValue: "Google Gemini",
-                  }),
-                },
-              ]}
-              onChange={(provider) => {
-                updateDraft("provider", provider as ImageGenProvider);
-                // 切换服务商时清空对目标不适用且已条件隐藏的字段，
-                // 避免残留值在隐藏状态下继续生效而用户无法管理：
-                // Gemini 不使用 defaultQuality/outputFormat；
-                // OpenAI 不使用 webSearch。
-                if (provider === "gemini") {
-                  updateDraft("defaultQuality", "");
-                  updateDraft("outputFormat", "");
-                } else {
-                  updateDraft("webSearch", false);
-                }
-              }}
-              disabled={draftSaving}
-              portal
-            />
-          </label>
-
-          <label className="api-settings-field">
-            <span className="api-settings-field-label">
-              {t("settings.imagegenEnabled", { defaultValue: "Enabled" })}
-            </span>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={draft.enabled}
-                onChange={updateDraftEvent("enabled")}
+      <div className="api-settings-form-body">
+        <div className="api-settings-form-section">
+          <strong className="api-settings-form-section-title">
+            {t("settings.formBasic", { defaultValue: "Basic" })}
+          </strong>
+          <div className="api-settings-form-grid">
+            <label className="api-settings-field imagegen-field-wide">
+              <span className="api-settings-field-label">
+                <Sparkles
+                  size={13}
+                  style={{
+                    display: "inline-block",
+                    marginRight: 4,
+                    verticalAlign: -1,
+                  }}
+                />
+                {t("settings.imagegenTemplate", {
+                  defaultValue: "Preset template",
+                })}
+              </span>
+              <CustomSelect
+                value=""
+                options={[
+                  {
+                    value: "",
+                    label: t("settings.imagegenTemplateSelect", {
+                      defaultValue:
+                        "Select a template to auto-fill settings...",
+                    }),
+                  },
+                  ...IMAGE_GEN_TEMPLATES.map((tmpl) => ({
+                    value: tmpl.id,
+                    label: tmpl.name,
+                    description: tmpl.description,
+                  })),
+                ]}
+                onChange={(templateId) => requestApplyTemplate(templateId)}
                 disabled={draftSaving}
+                portal
               />
-              <span className="toggle-slider" />
             </label>
-          </label>
+
+            <label className="api-settings-field imagegen-field-wide">
+              <span className="api-settings-field-label">
+                {t("settings.imagegenChannelName", {
+                  defaultValue: "Channel name",
+                })}
+              </span>
+              <input
+                type="text"
+                value={draft.name}
+                onChange={updateDraftEvent("name")}
+                placeholder={defaultChannelName(draft.provider)}
+                disabled={draftSaving}
+                spellCheck={false}
+                autoFocus
+              />
+              <small className="api-settings-field-hint">
+                {t("settings.imagegenChannelNameHint", {
+                  defaultValue:
+                    "Custom name shown in the list and used by the agent (leave empty to use the default).",
+                })}
+              </small>
+            </label>
+
+            <label className="api-settings-field">
+              <span className="api-settings-field-label">
+                {t("settings.imagegenProvider", { defaultValue: "Provider" })}
+              </span>
+              <CustomSelect
+                value={draft.provider}
+                options={[
+                  {
+                    value: "openai",
+                    label: t("settings.imagegenProviderOpenai", {
+                      defaultValue: "OpenAI",
+                    }),
+                  },
+                  {
+                    value: "gemini",
+                    label: t("settings.imagegenProviderGemini", {
+                      defaultValue: "Google Gemini",
+                    }),
+                  },
+                  {
+                    value: "novelai",
+                    label: t("settings.imagegenProviderNovelai", {
+                      defaultValue: "NovelAI",
+                    }),
+                  },
+                ]}
+                onChange={(provider) => {
+                  updateDraft("provider", provider as ImageGenProvider);
+                  // 切换服务商时清空对目标不适用且已条件隐藏的字段，
+                  // 避免残留值在隐藏状态下继续生效而用户无法管理：
+                  // Gemini / NovelAI 不使用 defaultQuality/outputFormat；
+                  // OpenAI 不使用 webSearch。
+                  if (provider === "gemini" || provider === "novelai") {
+                    updateDraft("defaultQuality", "");
+                    updateDraft("outputFormat", "");
+                  } else {
+                    updateDraft("webSearch", false);
+                  }
+                }}
+                disabled={draftSaving}
+                portal
+              />
+            </label>
+
+            <label className="api-settings-field">
+              <span className="api-settings-field-label">
+                {t("settings.imagegenEnabled", { defaultValue: "Enabled" })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={draft.enabled}
+                  onChange={updateDraftEvent("enabled")}
+                  disabled={draftSaving}
+                />
+                <span className="toggle-slider" />
+              </label>
+            </label>
+          </div>
         </div>
 
-        <div className="imagegen-groups">
-          <section className="imagegen-group">
-            <h4 className="imagegen-group-title">
-              {t("settings.imagegenConnection", {
-                defaultValue: "Provider connection",
-              })}
-            </h4>
+        <div className="api-settings-form-section">
+          <strong className="api-settings-form-section-title">
+            {t("settings.imagegenConnection", {
+              defaultValue: "Provider connection",
+            })}
+          </strong>
+          <div className="api-settings-form-grid">
+            <label className="api-settings-field">
+              <span className="api-settings-field-label">
+                {t("settings.imagegenBaseUrl", {
+                  defaultValue: "Base URL",
+                })}
+              </span>
+              <input
+                type="text"
+                value={draft.baseUrl}
+                onChange={updateDraftEvent("baseUrl")}
+                placeholder={defaultBaseUrl}
+                disabled={draftSaving}
+                spellCheck={false}
+              />
+              <small className="api-settings-field-hint">
+                {t("settings.imagegenBaseUrlHint", {
+                  defaultValue: "Leave empty to use the provider default",
+                })}
+              </small>
+            </label>
+
+            <label className="api-settings-field">
+              <span className="api-settings-field-label">
+                {t("settings.imagegenApiKey", { defaultValue: "API key" })}
+              </span>
+              <div className="api-settings-password-wrap">
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  value={draft.apiKey}
+                  onChange={updateDraftEvent("apiKey")}
+                  placeholder="sk-..."
+                  disabled={draftSaving}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="api-settings-password-toggle"
+                  onClick={() => setShowApiKey((value) => !value)}
+                  tabIndex={-1}
+                >
+                  {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* 多模型配置区块（支持单渠道配置多个绘图模型及各自独立参数） */}
+        <div className="api-settings-form-section">
+          <strong className="api-settings-form-section-title">
+            {t("settings.imagegenMultiModelsGroup", {
+              defaultValue: "Image models (multi-model channel)",
+            })}
+          </strong>
+          <small
+            className="api-settings-field-hint"
+            style={{ marginBottom: 6 }}
+          >
+            {t("settings.imagegenMultiModelsHint", {
+              defaultValue:
+                "A channel connection can include multiple image models. Each model independently configures size, quality, thinking effort, and custom prompt.",
+            })}
+          </small>
+
+          <div className="imagegen-models-manager">
+            {/* 多模型 Tab 栏与添加入口 */}
+            <div className="imagegen-models-tabs-bar">
+              <div className="imagegen-models-tabs-list" role="tablist">
+                {currentModelList.map((item, idx) => {
+                  const isTabActive = idx === safeModelIndex;
+                  // 默认主模型标记唯一：与 resolvePrimaryIndex 结果一致才标记。
+                  const isPrimary =
+                    idx === resolvePrimaryIndex(currentModelList, draft.model);
+                  const tabLabel =
+                    item.name?.trim() ||
+                    item.model?.trim() ||
+                    `模型 #${idx + 1}`;
+                  return (
+                    <div
+                      key={item.id || `m-${idx}`}
+                      className={`imagegen-model-tab${
+                        isTabActive ? " active" : ""
+                      }${item.enabled === false ? " disabled" : ""}`}
+                      onClick={() => setActiveModelIndex(idx)}
+                      role="tab"
+                      aria-selected={isTabActive}
+                      title={
+                        item.model ? `${tabLabel} (${item.model})` : tabLabel
+                      }
+                    >
+                      {item.model ? (
+                        <ModelBrandIcon
+                          model={item.model}
+                          size={13}
+                          className="imagegen-model-tab-icon"
+                        />
+                      ) : null}
+                      {isPrimary ? (
+                        <span
+                          className="imagegen-model-tab-star"
+                          title={t("settings.imagegenPrimaryBadge", {
+                            defaultValue: "Primary default model",
+                          })}
+                        >
+                          <BadgeCheck size={12} strokeWidth={2} />
+                        </span>
+                      ) : null}
+                      <span>{tabLabel}</span>
+                      {currentModelList.length > 1 ? (
+                        <button
+                          type="button"
+                          className="imagegen-model-tab-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeModelItem(idx);
+                          }}
+                          title={t("settings.imagegenDeleteModel", {
+                            defaultValue: "Delete model",
+                          })}
+                          aria-label={t("settings.imagegenDeleteModel", {
+                            defaultValue: "Delete model",
+                          })}
+                        >
+                          <X size={11} />
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <CustomSelect
+                  value=""
+                  options={[
+                    {
+                      value: "",
+                      label: `+ ${t("settings.imagegenAddModel", {
+                        defaultValue: "Add model",
+                      })}`,
+                    },
+                    {
+                      value: "__custom__",
+                      label: t("settings.imagegenAddCustomModel", {
+                        defaultValue: "Add custom blank model",
+                      }),
+                    },
+                    ...IMAGE_GEN_TEMPLATES.filter(
+                      (tmpl) => tmpl.provider === draft.provider,
+                    ).map((tmpl) => ({
+                      value: tmpl.id,
+                      label: tmpl.name,
+                      description: tmpl.model,
+                    })),
+                  ]}
+                  onChange={(val) => {
+                    if (!val) return;
+                    if (val === "__custom__") {
+                      addCustomModel();
+                    } else {
+                      const tmpl = IMAGE_GEN_TEMPLATES.find(
+                        (t) => t.id === val,
+                      );
+                      if (tmpl) addModelFromTemplate(tmpl);
+                    }
+                  }}
+                  disabled={draftSaving}
+                  portal
+                  dropdownMinWidth={300}
+                />
+              </div>
+            </div>
+
+            {/* 当前活跃模型控制条 */}
+            <div className="imagegen-model-actions-bar">
+              <div className="imagegen-model-actions-title">
+                <span style={{ color: "var(--text-muted)" }}>
+                  {t("settings.imagegenActiveModelConfig", {
+                    defaultValue: "Configuring:",
+                  })}
+                </span>
+                <strong title={activeModelItem.model || undefined}>
+                  {activeModelItem.name?.trim() ||
+                    activeModelItem.model?.trim() ||
+                    "新模型"}
+                </strong>
+                {isPrimaryActive ? (
+                  <span
+                    className="imagegen-model-primary-tag"
+                    title={t("settings.imagegenPrimaryHint", {
+                      defaultValue:
+                        "Default model called when AI does not specify a specific model",
+                    })}
+                  >
+                    <BadgeCheck size={13} strokeWidth={2} />
+                    {t("settings.imagegenPrimaryBadge", {
+                      defaultValue: "Default primary model",
+                    })}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="api-settings-form-btn secondary"
+                    style={{
+                      fontSize: 11,
+                      padding: "1px 7px",
+                      height: "auto",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    onClick={() => setAsPrimaryModel(safeModelIndex)}
+                    disabled={draftSaving}
+                    title={t("settings.imagegenPrimaryHint", {
+                      defaultValue:
+                        "Set this model as default primary when AI does not specify a model",
+                    })}
+                  >
+                    <BadgeCheck size={12} strokeWidth={2} />
+                    {t("settings.imagegenSetAsPrimary", {
+                      defaultValue: "Set as default primary model",
+                    })}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    cursor: "pointer",
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={activeModelItem.enabled !== false}
+                    onChange={(e) =>
+                      updateActiveModelItem("enabled", e.target.checked)
+                    }
+                    disabled={draftSaving}
+                  />
+                  {t("settings.imagegenModelEnabled", {
+                    defaultValue: "Enable this model",
+                  })}
+                </label>
+                {currentModelList.length > 1 ? (
+                  <button
+                    type="button"
+                    className="icon-btn ghost danger"
+                    style={{ width: 22, height: 22, padding: 0 }}
+                    onClick={() => removeModelItem(safeModelIndex)}
+                    disabled={draftSaving}
+                    title={t("settings.imagegenDeleteModel", {
+                      defaultValue: "Delete model",
+                    })}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {/* 当前活跃模型的详细配置表单 */}
             <div className="api-settings-form-grid">
+              {/* 模型标识 ID：标签行由 ApiModelCombobox 统一渲染，
+                    右侧内联「按模型 ID 填充能力」，避免标签重复导致与右列错位 */}
+              <div className="api-settings-field">
+                <ApiModelCombobox
+                  label={t("settings.imagegenModel", {
+                    defaultValue: "Model ID",
+                  })}
+                  labelAction={
+                    capability ? (
+                      <button
+                        type="button"
+                        className="api-settings-form-btn secondary"
+                        style={{
+                          fontSize: 11,
+                          padding: "1px 7px",
+                          height: "auto",
+                          display: "inline-flex",
+                          alignItems: "center",
+                        }}
+                        onClick={(event) => {
+                          // 按钮位于 ApiModelCombobox 的 <label> 内：阻止标签
+                          // 默认行为把点击转发给输入框（会误触发下拉列表）
+                          event.preventDefault();
+                          fillCapabilityFromModel();
+                        }}
+                        disabled={draftSaving}
+                        title={t("settings.imagegenFillCapabilityHint", {
+                          defaultValue:
+                            "Overwrite default size / quality / thinking and supported ranges with the built-in capability profile for this model ID",
+                        })}
+                      >
+                        <Wand2 size={11} style={{ marginRight: 4 }} />
+                        {t("settings.imagegenFillCapability", {
+                          defaultValue: "Fill from model ID",
+                        })}
+                      </button>
+                    ) : null
+                  }
+                  value={activeModelItem.model}
+                  placeholder={modelPlaceholder}
+                  disabled={draftSaving}
+                  models={draftModels}
+                  isLoading={draftModelsLoading}
+                  error={draftModelsError}
+                  hasLoaded={
+                    draftModels.length > 0 || Boolean(draftModelsError)
+                  }
+                  loadingText={t("settings.imagegenModelsLoading", {
+                    defaultValue: "Loading image models...",
+                  })}
+                  noModelsText={t("settings.imagegenModelsEmpty", {
+                    defaultValue:
+                      "No image models found. Check base URL / API key, or enter model ID manually.",
+                  })}
+                  retryText={t("settings.imagegenModelsRetry", {
+                    defaultValue: "Retry",
+                  })}
+                  onChange={(modelId) => commitActiveModelId(modelId)}
+                  onRequestModels={() => void requestDraftModels()}
+                  onRetry={() => void requestDraftModels()}
+                  knownModels={KNOWN_IMAGE_MODELS.filter(
+                    (entry) => entry.provider === draft.provider,
+                  )}
+                  previewBadgeText={t("settings.imagegenModelPreviewBadge", {
+                    defaultValue: "Preview",
+                  })}
+                  deprecatedBadgeText={t("settings.imagegenCap.capDeprecated", {
+                    defaultValue: "Deprecated",
+                  })}
+                />
+                {activeCaps.length > 0 ? (
+                  <span className="imagegen-model-caps">
+                    {activeCaps.map((cap) => (
+                      <span className="imagegen-model-cap" key={cap}>
+                        {t(`settings.imagegenCap.${cap}`)}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* 模型显示别名 */}
               <label className="api-settings-field">
                 <span className="api-settings-field-label">
-                  {t("settings.imagegenBaseUrl", {
-                    defaultValue: "Base URL",
+                  {t("settings.imagegenModelAlias", {
+                    defaultValue: "Model display alias",
                   })}
                 </span>
                 <input
                   type="text"
-                  value={draft.baseUrl}
-                  onChange={updateDraftEvent("baseUrl")}
-                  placeholder={defaultBaseUrl}
+                  value={activeModelItem.name ?? ""}
+                  onChange={(e) =>
+                    updateActiveModelItem("name", e.target.value)
+                  }
+                  placeholder={t("settings.imagegenModelAliasPlaceholder", {
+                    defaultValue: "e.g. Ultra / Fast (optional)",
+                  })}
                   disabled={draftSaving}
                   spellCheck={false}
                 />
                 <small className="api-settings-field-hint">
-                  {t("settings.imagegenBaseUrlHint", {
-                    defaultValue: "Leave empty to use the provider default",
+                  {t("settings.imagegenModelAliasHint", {
+                    defaultValue:
+                      "Custom label shown on tabs for easier identification (shows model ID if empty)",
                   })}
                 </small>
               </label>
 
-              <label className="api-settings-field">
+              {/* 默认尺寸 */}
+              <label className="api-settings-field imagegen-field-wide">
                 <span className="api-settings-field-label">
-                  {t("settings.imagegenApiKey", { defaultValue: "API key" })}
-                </span>
-                <div className="api-settings-password-wrap">
-                  <input
-                    type={showApiKey ? "text" : "password"}
-                    value={draft.apiKey}
-                    onChange={updateDraftEvent("apiKey")}
-                    placeholder="sk-..."
-                    disabled={draftSaving}
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    className="api-settings-password-toggle"
-                    onClick={() => setShowApiKey((value) => !value)}
-                    tabIndex={-1}
-                  >
-                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </label>
-            </div>
-          </section>
-
-          {/* 多模型配置区块（支持单渠道配置多个绘图模型及各自独立参数） */}
-          <section className="imagegen-group">
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 4,
-              }}
-            >
-              <h4 className="imagegen-group-title" style={{ margin: 0 }}>
-                {t("settings.imagegenMultiModelsGroup", {
-                  defaultValue: "Image models (multi-model channel)",
-                })}
-              </h4>
-            </div>
-            <small
-              className="api-settings-field-hint"
-              style={{ marginBottom: 6 }}
-            >
-              {t("settings.imagegenMultiModelsHint", {
-                defaultValue:
-                  "A channel connection can include multiple image models. Each model independently configures size, quality, thinking effort, and custom prompt.",
-              })}
-            </small>
-
-            <div className="imagegen-models-manager">
-              {/* 多模型 Tab 栏与添加入口 */}
-              <div className="imagegen-models-tabs-bar">
-                <div className="imagegen-models-tabs-list" role="tablist">
-                  {currentModelList.map((item, idx) => {
-                    const isTabActive = idx === safeModelIndex;
-                    // 默认主模型标记唯一：与 resolvePrimaryIndex 结果一致才标记。
-                    const isPrimary =
-                      idx ===
-                      resolvePrimaryIndex(currentModelList, draft.model);
-                    const tabLabel =
-                      item.name?.trim() ||
-                      item.model?.trim() ||
-                      `模型 #${idx + 1}`;
-                    return (
-                      <div
-                        key={item.id || `m-${idx}`}
-                        className={`imagegen-model-tab${
-                          isTabActive ? " active" : ""
-                        }${item.enabled === false ? " disabled" : ""}`}
-                        onClick={() => setActiveModelIndex(idx)}
-                        role="tab"
-                        aria-selected={isTabActive}
-                        title={
-                          item.model ? `${tabLabel} (${item.model})` : tabLabel
-                        }
-                      >
-                        {item.model ? (
-                          <ModelBrandIcon
-                            model={item.model}
-                            size={13}
-                            className="imagegen-model-tab-icon"
-                          />
-                        ) : null}
-                        {isPrimary ? (
-                          <span
-                            className="imagegen-model-tab-star"
-                            title={t("settings.imagegenPrimaryBadge", {
-                              defaultValue: "Primary default model",
-                            })}
-                          >
-                            <BadgeCheck size={12} strokeWidth={2} />
-                          </span>
-                        ) : null}
-                        <span>{tabLabel}</span>
-                        {currentModelList.length > 1 ? (
-                          <button
-                            type="button"
-                            className="imagegen-model-tab-close"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeModelItem(idx);
-                            }}
-                            title={t("settings.imagegenDeleteModel", {
-                              defaultValue: "Delete model",
-                            })}
-                            aria-label={t("settings.imagegenDeleteModel", {
-                              defaultValue: "Delete model",
-                            })}
-                          >
-                            <X size={11} />
-                          </button>
-                        ) : null}
-                      </div>
-                    );
+                  {t("settings.imagegenDefaultSize", {
+                    defaultValue: "Default size",
                   })}
-                </div>
-
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <CustomSelect
-                    value=""
-                    options={[
-                      {
-                        value: "",
-                        label: `+ ${t("settings.imagegenAddModel", {
-                          defaultValue: "Add model",
-                        })}`,
-                      },
-                      {
-                        value: "__custom__",
-                        label: t("settings.imagegenAddCustomModel", {
-                          defaultValue: "Add custom blank model",
-                        }),
-                      },
-                      ...IMAGE_GEN_TEMPLATES.filter(
-                        (tmpl) => tmpl.provider === draft.provider,
-                      ).map((tmpl) => ({
-                        value: tmpl.id,
-                        label: tmpl.name,
-                        description: tmpl.model,
-                      })),
-                    ]}
-                    onChange={(val) => {
-                      if (!val) return;
-                      if (val === "__custom__") {
-                        addCustomModel();
-                      } else {
-                        const tmpl = IMAGE_GEN_TEMPLATES.find(
-                          (t) => t.id === val,
-                        );
-                        if (tmpl) addModelFromTemplate(tmpl);
-                      }
-                    }}
+                </span>
+                {isGeminiModel ? (
+                  <GeminiSizeControls
+                    model={currentModelId}
+                    defaultSize={activeModelItem.defaultSize ?? ""}
+                    onUpdateSize={(size) =>
+                      updateActiveModelItem("defaultSize", size)
+                    }
                     disabled={draftSaving}
-                    portal
-                    dropdownMinWidth={300}
+                    t={t}
                   />
-                </div>
-              </div>
-
-              {/* 当前活跃模型控制条 */}
-              <div className="imagegen-model-actions-bar">
-                <div className="imagegen-model-actions-title">
-                  <span style={{ color: "var(--text-muted)" }}>
-                    {t("settings.imagegenActiveModelConfig", {
-                      defaultValue: "Configuring:",
-                    })}
-                  </span>
-                  <strong title={activeModelItem.model || undefined}>
-                    {activeModelItem.name?.trim() ||
-                      activeModelItem.model?.trim() ||
-                      "新模型"}
-                  </strong>
-                  {isPrimaryActive ? (
-                    <span
-                      className="imagegen-model-primary-tag"
-                      title={t("settings.imagegenPrimaryHint", {
-                        defaultValue:
-                          "Default model called when AI does not specify a specific model",
-                      })}
-                    >
-                      <BadgeCheck size={13} strokeWidth={2} />
-                      {t("settings.imagegenPrimaryBadge", {
-                        defaultValue: "Default primary model",
-                      })}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="api-settings-form-btn secondary"
-                      style={{
-                        fontSize: 11,
-                        padding: "1px 7px",
-                        height: "auto",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                      onClick={() => setAsPrimaryModel(safeModelIndex)}
-                      disabled={draftSaving}
-                      title={t("settings.imagegenPrimaryHint", {
-                        defaultValue:
-                          "Set this model as default primary when AI does not specify a model",
-                      })}
-                    >
-                      <BadgeCheck size={12} strokeWidth={2} />
-                      {t("settings.imagegenSetAsPrimary", {
-                        defaultValue: "Set as default primary model",
-                      })}
-                    </button>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      cursor: "pointer",
-                      fontSize: 11,
-                      color: "var(--text-secondary)",
-                    }}
-                  >
+                ) : supportsArbitraryOpenAISize(currentModelId) ? (
+                  <GptImage2SizeControls
+                    model={currentModelId}
+                    defaultSize={activeModelItem.defaultSize ?? ""}
+                    onUpdateSize={(size) =>
+                      updateActiveModelItem("defaultSize", size)
+                    }
+                    disabled={draftSaving}
+                    t={t}
+                  />
+                ) : (
+                  <div className="imagegen-editor-size-row">
                     <input
-                      type="checkbox"
-                      checked={activeModelItem.enabled !== false}
+                      className="imagegen-size-input"
+                      type="text"
+                      value={activeModelItem.defaultSize ?? ""}
                       onChange={(e) =>
-                        updateActiveModelItem("enabled", e.target.checked)
+                        updateActiveModelItem("defaultSize", e.target.value)
                       }
+                      placeholder="1024x1024"
                       disabled={draftSaving}
+                      spellCheck={false}
                     />
-                    {t("settings.imagegenModelEnabled", {
-                      defaultValue: "Enable this model",
-                    })}
-                  </label>
-                  {currentModelList.length > 1 ? (
-                    <button
-                      type="button"
-                      className="icon-btn ghost danger"
-                      style={{ width: 22, height: 22, padding: 0 }}
-                      onClick={() => removeModelItem(safeModelIndex)}
+                    <CustomSelect
+                      value={
+                        openaiStandardCaps(currentModelId).sizes.includes(
+                          (activeModelItem.defaultSize ?? "").trim(),
+                        )
+                          ? (activeModelItem.defaultSize ?? "").trim()
+                          : ""
+                      }
+                      options={[
+                        {
+                          value: "",
+                          label: t("settings.imagegenSizePreset", {
+                            defaultValue: "Preset",
+                          }),
+                        },
+                        ...sizePresetOptions(
+                          openaiStandardCaps(currentModelId).sizes,
+                        ),
+                      ]}
+                      onChange={(preset) => {
+                        if (preset) {
+                          updateActiveModelItem("defaultSize", preset);
+                        }
+                      }}
                       disabled={draftSaving}
-                      title={t("settings.imagegenDeleteModel", {
-                        defaultValue: "Delete model",
-                      })}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* 当前活跃模型的详细配置表单 */}
-              <div className="api-settings-form-grid">
-                {/* 模型标识 ID：标签行由 ApiModelCombobox 统一渲染，
-                    右侧内联「按模型 ID 填充能力」，避免标签重复导致与右列错位 */}
-                <div className="api-settings-field">
-                  <ApiModelCombobox
-                    label={t("settings.imagegenModel", {
-                      defaultValue: "Model ID",
-                    })}
-                    labelAction={
-                      capability ? (
-                        <button
-                          type="button"
-                          className="api-settings-form-btn secondary"
-                          style={{
-                            fontSize: 11,
-                            padding: "1px 7px",
-                            height: "auto",
-                            display: "inline-flex",
-                            alignItems: "center",
-                          }}
-                          onClick={(event) => {
-                            // 按钮位于 ApiModelCombobox 的 <label> 内：阻止标签
-                            // 默认行为把点击转发给输入框（会误触发下拉列表）
-                            event.preventDefault();
-                            fillCapabilityFromModel();
-                          }}
-                          disabled={draftSaving}
-                          title={t("settings.imagegenFillCapabilityHint", {
-                            defaultValue:
-                              "Overwrite default size / quality / thinking and supported ranges with the built-in capability profile for this model ID",
-                          })}
-                        >
-                          <Wand2 size={11} style={{ marginRight: 4 }} />
-                          {t("settings.imagegenFillCapability", {
-                            defaultValue: "Fill from model ID",
-                          })}
-                        </button>
-                      ) : null
-                    }
-                    value={activeModelItem.model}
-                    placeholder={modelPlaceholder}
-                    disabled={draftSaving}
-                    models={draftModels}
-                    isLoading={draftModelsLoading}
-                    error={draftModelsError}
-                    hasLoaded={
-                      draftModels.length > 0 || Boolean(draftModelsError)
-                    }
-                    loadingText={t("settings.imagegenModelsLoading", {
-                      defaultValue: "Loading image models...",
-                    })}
-                    noModelsText={t("settings.imagegenModelsEmpty", {
+                      portal
+                    />
+                  </div>
+                )}
+                {!isGeminiModel &&
+                supportsArbitraryOpenAISize(currentModelId) ? (
+                  <small className="imagegen-model-size-hint">
+                    {t("settings.imagegenSizeLimitsHint", {
                       defaultValue:
-                        "No image models found. Check base URL / API key, or enter model ID manually.",
+                        "Rules: max side ≤3840px AND total pixels 655,360–8,294,400 (multiples of 16, aspect ≤3:1). Largest square is 2880x2880; 16:9 tops at 3840x2160; the 4K tier is the recommended size closest to the pixel cap for each ratio.",
                     })}
-                    retryText={t("settings.imagegenModelsRetry", {
-                      defaultValue: "Retry",
-                    })}
-                    onChange={(modelId) => commitActiveModelId(modelId)}
-                    onRequestModels={() => void requestDraftModels()}
-                    onRetry={() => void requestDraftModels()}
-                    knownModels={KNOWN_IMAGE_MODELS.filter(
-                      (entry) => entry.provider === draft.provider,
-                    )}
-                    previewBadgeText={t("settings.imagegenModelPreviewBadge", {
-                      defaultValue: "Preview",
-                    })}
-                    deprecatedBadgeText={t(
-                      "settings.imagegenCap.capDeprecated",
-                      {
-                        defaultValue: "Deprecated",
-                      },
-                    )}
-                  />
-                  {activeCaps.length > 0 ? (
-                    <span className="imagegen-model-caps">
-                      {activeCaps.map((cap) => (
-                        <span className="imagegen-model-cap" key={cap}>
-                          {t(`settings.imagegenCap.${cap}`)}
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
-                </div>
+                  </small>
+                ) : null}
+                <small className="api-settings-field-hint">
+                  {t("settings.imagegenDefaultSizeHint", {
+                    defaultValue:
+                      "Gemini: image size (1K/2K/4K) or aspect ratio (16:9). OpenAI: e.g. 1024x1024",
+                  })}
+                </small>
+              </label>
 
-                {/* 模型显示别名 */}
+              {/* 默认质量（仅 OpenAI） */}
+              {!isGemini ? (
                 <label className="api-settings-field">
                   <span className="api-settings-field-label">
-                    {t("settings.imagegenModelAlias", {
-                      defaultValue: "Model display alias",
+                    {t("settings.imagegenDefaultQuality", {
+                      defaultValue: "Default quality",
                     })}
                   </span>
-                  <input
-                    type="text"
-                    value={activeModelItem.name ?? ""}
-                    onChange={(e) =>
-                      updateActiveModelItem("name", e.target.value)
+                  <CustomSelect
+                    value={activeModelItem.defaultQuality ?? ""}
+                    options={(activeModelItem.supportedQualities?.trim()
+                      ? [
+                          "",
+                          ...activeModelItem.supportedQualities
+                            .split(/[,\s;/]+/)
+                            .filter(Boolean),
+                        ]
+                      : openaiStandardCaps(currentModelId).quality
+                    ).map((value) => {
+                      const labelMap: Record<string, string> = {
+                        "": t("settings.imagegenQualityAuto", {
+                          defaultValue: "Auto",
+                        }),
+                        low: t("rightPanel.aiDrawing.qualityLow", {
+                          defaultValue: "Low",
+                        }),
+                        medium: t("rightPanel.aiDrawing.qualityMedium", {
+                          defaultValue: "Medium",
+                        }),
+                        high: t("rightPanel.aiDrawing.qualityHigh", {
+                          defaultValue: "High",
+                        }),
+                        xhigh: t("rightPanel.aiDrawing.qualityXhigh", {
+                          defaultValue: "Ultra High",
+                        }),
+                        max: t("rightPanel.aiDrawing.qualityMax", {
+                          defaultValue: "Max",
+                        }),
+                        standard: t("rightPanel.aiDrawing.qualityStandard", {
+                          defaultValue: "Standard",
+                        }),
+                        hd: t("rightPanel.aiDrawing.qualityHd", {
+                          defaultValue: "HD",
+                        }),
+                      };
+                      return {
+                        value,
+                        label: labelMap[value.toLowerCase()] ?? value,
+                      };
+                    })}
+                    onChange={(value) =>
+                      updateActiveModelItem("defaultQuality", value)
                     }
-                    placeholder={t("settings.imagegenModelAliasPlaceholder", {
-                      defaultValue: "e.g. Ultra / Fast (optional)",
-                    })}
                     disabled={draftSaving}
-                    spellCheck={false}
+                    portal
                   />
-                  <small className="api-settings-field-hint">
-                    {t("settings.imagegenModelAliasHint", {
-                      defaultValue:
-                        "Custom label shown on tabs for easier identification (shows model ID if empty)",
-                    })}
-                  </small>
                 </label>
+              ) : null}
 
-                {/* 默认尺寸 */}
-                <label className="api-settings-field imagegen-field-wide">
-                  <span className="api-settings-field-label">
-                    {t("settings.imagegenDefaultSize", {
-                      defaultValue: "Default size",
-                    })}
-                  </span>
-                  {isGeminiModel ? (
-                    <GeminiSizeControls
-                      model={currentModelId}
-                      defaultSize={activeModelItem.defaultSize ?? ""}
-                      onUpdateSize={(size) =>
-                        updateActiveModelItem("defaultSize", size)
-                      }
-                      disabled={draftSaving}
-                      t={t}
-                    />
-                  ) : supportsArbitraryOpenAISize(currentModelId) ? (
-                    <GptImage2SizeControls
-                      model={currentModelId}
-                      defaultSize={activeModelItem.defaultSize ?? ""}
-                      onUpdateSize={(size) =>
-                        updateActiveModelItem("defaultSize", size)
-                      }
-                      disabled={draftSaving}
-                      t={t}
-                    />
-                  ) : (
-                    <div className="imagegen-editor-size-row">
-                      <input
-                        className="imagegen-size-input"
-                        type="text"
-                        value={activeModelItem.defaultSize ?? ""}
-                        onChange={(e) =>
-                          updateActiveModelItem("defaultSize", e.target.value)
-                        }
-                        placeholder="1024x1024"
-                        disabled={draftSaving}
-                        spellCheck={false}
-                      />
-                      <CustomSelect
-                        value={
-                          openaiStandardCaps(currentModelId).sizes.includes(
-                            (activeModelItem.defaultSize ?? "").trim(),
-                          )
-                            ? (activeModelItem.defaultSize ?? "").trim()
-                            : ""
-                        }
-                        options={[
-                          {
-                            value: "",
-                            label: t("settings.imagegenSizePreset", {
-                              defaultValue: "Preset",
-                            }),
-                          },
-                          ...sizePresetOptions(
-                            openaiStandardCaps(currentModelId).sizes,
-                          ),
-                        ]}
-                        onChange={(preset) => {
-                          if (preset) {
-                            updateActiveModelItem("defaultSize", preset);
-                          }
-                        }}
-                        disabled={draftSaving}
-                        portal
-                      />
-                    </div>
-                  )}
-                  {!isGeminiModel &&
-                  supportsArbitraryOpenAISize(currentModelId) ? (
-                    <small className="imagegen-model-size-hint">
-                      {t("settings.imagegenSizeLimitsHint", {
-                        defaultValue:
-                          "Rules: max side ≤3840px AND total pixels 655,360–8,294,400 (multiples of 16, aspect ≤3:1). Largest square is 2880x2880; 16:9 tops at 3840x2160; the 4K tier is the recommended size closest to the pixel cap for each ratio.",
-                      })}
-                    </small>
-                  ) : null}
-                  <small className="api-settings-field-hint">
-                    {t("settings.imagegenDefaultSizeHint", {
-                      defaultValue:
-                        "Gemini: image size (1K/2K/4K) or aspect ratio (16:9). OpenAI: e.g. 1024x1024",
-                    })}
-                  </small>
-                </label>
-
-                {/* 默认质量（仅 OpenAI） */}
-                {!isGemini ? (
+              {draft.provider === "openai" &&
+              currentModelId.toLowerCase().includes("gpt-image-2.6") ? (
+                <>
                   <label className="api-settings-field">
                     <span className="api-settings-field-label">
-                      {t("settings.imagegenDefaultQuality", {
-                        defaultValue: "Default quality",
-                      })}
+                      {t("settings.imagegenDefaultComplexity")}
                     </span>
                     <CustomSelect
-                      value={activeModelItem.defaultQuality ?? ""}
-                      options={openaiStandardCaps(currentModelId).quality.map(
-                        (value) => {
-                          const labelMap: Record<string, string> = {
-                            "": t("settings.imagegenQualityAuto", {
-                              defaultValue: "Auto",
-                            }),
-                            low: t("rightPanel.aiDrawing.qualityLow", {
-                              defaultValue: "Low",
-                            }),
-                            medium: t("rightPanel.aiDrawing.qualityMedium", {
-                              defaultValue: "Medium",
-                            }),
-                            high: t("rightPanel.aiDrawing.qualityHigh", {
-                              defaultValue: "High",
-                            }),
-                            xhigh: t("rightPanel.aiDrawing.qualityXhigh", {
-                              defaultValue: "Ultra High",
-                            }),
-                            max: t("rightPanel.aiDrawing.qualityMax", {
-                              defaultValue: "Max",
-                            }),
-                            standard: t(
-                              "rightPanel.aiDrawing.qualityStandard",
-                              {
-                                defaultValue: "Standard",
-                              },
-                            ),
-                            hd: t("rightPanel.aiDrawing.qualityHd", {
-                              defaultValue: "HD",
-                            }),
-                          };
-                          return {
-                            value,
-                            label: labelMap[value.toLowerCase()] ?? value,
-                          };
+                      value={activeModelItem.defaultComplexity ?? ""}
+                      options={[
+                        {
+                          value: "",
+                          label: t("settings.imagegenComplexityAuto"),
                         },
-                      )}
+                        {
+                          value: "low",
+                          label: t("rightPanel.aiDrawing.qualityLow"),
+                        },
+                        {
+                          value: "medium",
+                          label: t("rightPanel.aiDrawing.qualityMedium"),
+                        },
+                        {
+                          value: "high",
+                          label: t("rightPanel.aiDrawing.qualityHigh"),
+                        },
+                      ]}
                       onChange={(value) =>
-                        updateActiveModelItem("defaultQuality", value)
+                        updateActiveModelItem("defaultComplexity", value)
                       }
                       disabled={draftSaving}
                       portal
                     />
                   </label>
-                ) : null}
+                  <label className="api-settings-field">
+                    <span className="api-settings-field-label">
+                      {t("settings.imagegenModelOutputFormat")}
+                    </span>
+                    <CustomSelect
+                      value={activeModelItem.defaultOutputFormat ?? ""}
+                      options={[
+                        {
+                          value: "",
+                          label: t("settings.imagegenModelOutputChannel"),
+                        },
+                        ...["png", "jpeg", "webp", "svg", "gif"].map(
+                          (value) => ({ value, label: value }),
+                        ),
+                      ]}
+                      onChange={(value) =>
+                        updateActiveModelItem("defaultOutputFormat", value)
+                      }
+                      disabled={draftSaving}
+                      portal
+                    />
+                    <small className="api-settings-field-hint">
+                      {t("settings.imagegenVectorAnimationHint")}
+                    </small>
+                  </label>
+                </>
+              ) : null}
 
-                {/* 支持宽高比 */}
-                <label className="api-settings-field">
+              {/* 支持宽高比 */}
+              <label className="api-settings-field">
+                <span className="api-settings-field-label">
+                  {t("settings.imagegenSupportedRatios", {
+                    defaultValue: "Supported aspect ratios",
+                  })}
+                </span>
+                <input
+                  type="text"
+                  value={activeModelItem.supportedRatios ?? ""}
+                  onChange={(e) =>
+                    updateActiveModelItem("supportedRatios", e.target.value)
+                  }
+                  placeholder="1:1, 16:9, 9:16, 4:3, 3:4, 21:9"
+                  disabled={draftSaving}
+                  spellCheck={false}
+                />
+                <small className="api-settings-field-hint">
+                  {activeModelItem.supportedRatios?.trim()
+                    ? t("settings.imagegenSupportedRatiosHint", {
+                        defaultValue:
+                          "Ratios available for this model (comma-separated, e.g. 1:1, 16:9, 9:16)",
+                      })
+                    : t("settings.imagegenCapabilityEmptyHint", {
+                        defaultValue:
+                          "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                      })}
+                </small>
+              </label>
+
+              {/* 支持分辨率 / 档位 */}
+              <label className="api-settings-field">
+                <span className="api-settings-field-label">
+                  {t("settings.imagegenSupportedResolutions", {
+                    defaultValue: "Supported resolutions / tiers",
+                  })}
+                </span>
+                <input
+                  type="text"
+                  value={activeModelItem.supportedResolutions ?? ""}
+                  onChange={(e) =>
+                    updateActiveModelItem(
+                      "supportedResolutions",
+                      e.target.value,
+                    )
+                  }
+                  placeholder="1K, 2K, 4K 或 1024x1024, 1792x1024"
+                  disabled={draftSaving}
+                  spellCheck={false}
+                />
+                <small className="api-settings-field-hint">
+                  {activeModelItem.supportedResolutions?.trim()
+                    ? t("settings.imagegenSupportedResolutionsHint", {
+                        defaultValue:
+                          "Resolution tiers or dimensions (e.g. 1K, 2K, 4K or 1024x1024)",
+                      })
+                    : t("settings.imagegenCapabilityEmptyHint", {
+                        defaultValue:
+                          "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                      })}
+                </small>
+              </label>
+
+              {/* 支持思考强度（仅 Gemini：OpenAI Images API 无该请求参数） */}
+              {isGeminiModel ? (
+                <label className="api-settings-field imagegen-field-wide">
                   <span className="api-settings-field-label">
-                    {t("settings.imagegenSupportedRatios", {
-                      defaultValue: "Supported aspect ratios",
+                    {t("settings.imagegenSupportedThinking", {
+                      defaultValue: "Supported thinking strength",
                     })}
                   </span>
                   <input
                     type="text"
-                    value={activeModelItem.supportedRatios ?? ""}
+                    value={activeModelItem.supportedThinking ?? ""}
                     onChange={(e) =>
-                      updateActiveModelItem("supportedRatios", e.target.value)
+                      updateActiveModelItem("supportedThinking", e.target.value)
                     }
-                    placeholder="1:1, 16:9, 9:16, 4:3, 3:4, 21:9"
+                    placeholder="minimal, medium, high"
                     disabled={draftSaving}
                     spellCheck={false}
                   />
                   <small className="api-settings-field-hint">
-                    {activeModelItem.supportedRatios?.trim()
-                      ? t("settings.imagegenSupportedRatiosHint", {
+                    {activeModelItem.supportedThinking?.trim()
+                      ? t("settings.imagegenSupportedThinkingHint", {
                           defaultValue:
-                            "Ratios available for this model (comma-separated, e.g. 1:1, 16:9, 9:16)",
+                            "thinking_level values supported by this model (e.g. minimal, medium, high / minimal, high)",
                         })
                       : t("settings.imagegenCapabilityEmptyHint", {
                           defaultValue:
@@ -1893,32 +2142,34 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                         })}
                   </small>
                 </label>
+              ) : null}
 
-                {/* 支持分辨率 / 档位 */}
-                <label className="api-settings-field">
+              {/* 支持画质 / 质量选项（仅 OpenAI：Gemini 无 quality 请求参数） */}
+              {!isGemini ? (
+                <label className="api-settings-field imagegen-field-wide">
                   <span className="api-settings-field-label">
-                    {t("settings.imagegenSupportedResolutions", {
-                      defaultValue: "Supported resolutions / tiers",
+                    {t("settings.imagegenSupportedQualities", {
+                      defaultValue: "Supported qualities",
                     })}
                   </span>
                   <input
                     type="text"
-                    value={activeModelItem.supportedResolutions ?? ""}
+                    value={activeModelItem.supportedQualities ?? ""}
                     onChange={(e) =>
                       updateActiveModelItem(
-                        "supportedResolutions",
+                        "supportedQualities",
                         e.target.value,
                       )
                     }
-                    placeholder="1K, 2K, 4K 或 1024x1024, 1792x1024"
+                    placeholder="low, medium, high, xhigh, max"
                     disabled={draftSaving}
                     spellCheck={false}
                   />
                   <small className="api-settings-field-hint">
-                    {activeModelItem.supportedResolutions?.trim()
-                      ? t("settings.imagegenSupportedResolutionsHint", {
+                    {activeModelItem.supportedQualities?.trim()
+                      ? t("settings.imagegenSupportedQualitiesHint", {
                           defaultValue:
-                            "Resolution tiers or dimensions (e.g. 1K, 2K, 4K or 1024x1024)",
+                            "Qualities available for this model (comma-separated, e.g. low, medium, high, xhigh, max)",
                         })
                       : t("settings.imagegenCapabilityEmptyHint", {
                           defaultValue:
@@ -1926,323 +2177,252 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                         })}
                   </small>
                 </label>
+              ) : null}
 
-                {/* 支持思考强度（仅 Gemini：OpenAI Images API 无该请求参数） */}
-                {isGeminiModel ? (
-                  <label className="api-settings-field imagegen-field-wide">
-                    <span className="api-settings-field-label">
-                      {t("settings.imagegenSupportedThinking", {
-                        defaultValue: "Supported thinking strength",
-                      })}
-                    </span>
-                    <input
-                      type="text"
-                      value={activeModelItem.supportedThinking ?? ""}
-                      onChange={(e) =>
-                        updateActiveModelItem(
-                          "supportedThinking",
-                          e.target.value,
-                        )
-                      }
-                      placeholder="minimal, medium, high"
-                      disabled={draftSaving}
-                      spellCheck={false}
-                    />
-                    <small className="api-settings-field-hint">
-                      {activeModelItem.supportedThinking?.trim()
-                        ? t("settings.imagegenSupportedThinkingHint", {
-                            defaultValue:
-                              "thinking_level values supported by this model (e.g. minimal, medium, high / minimal, high)",
-                          })
-                        : t("settings.imagegenCapabilityEmptyHint", {
-                            defaultValue:
-                              "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                          })}
-                    </small>
-                  </label>
-                ) : null}
-
-                {/* 支持画质 / 质量选项（仅 OpenAI：Gemini 无 quality 请求参数） */}
-                {!isGemini ? (
-                  <label className="api-settings-field imagegen-field-wide">
-                    <span className="api-settings-field-label">
-                      {t("settings.imagegenSupportedQualities", {
-                        defaultValue: "Supported qualities",
-                      })}
-                    </span>
-                    <input
-                      type="text"
-                      value={activeModelItem.supportedQualities ?? ""}
-                      onChange={(e) =>
-                        updateActiveModelItem(
-                          "supportedQualities",
-                          e.target.value,
-                        )
-                      }
-                      placeholder="low, medium, high, xhigh, max"
-                      disabled={draftSaving}
-                      spellCheck={false}
-                    />
-                    <small className="api-settings-field-hint">
-                      {activeModelItem.supportedQualities?.trim()
-                        ? t("settings.imagegenSupportedQualitiesHint", {
-                            defaultValue:
-                              "Qualities available for this model (comma-separated, e.g. low, medium, high, xhigh, max)",
-                          })
-                        : t("settings.imagegenCapabilityEmptyHint", {
-                            defaultValue:
-                              "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                          })}
-                    </small>
-                  </label>
-                ) : null}
-
-                {/* 自定义提示词说明与自动生成 */}
-                <label className="api-settings-field imagegen-field-wide">
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 4,
-                    }}
-                  >
-                    <span className="api-settings-field-label">
-                      {t("settings.imagegenCustomPrompt", {
-                        defaultValue:
-                          "Custom prompt instructions for this model",
-                      })}
-                    </span>
-                    <button
-                      type="button"
-                      className="api-settings-form-btn secondary"
-                      style={{
-                        fontSize: 11,
-                        padding: "2px 8px",
-                        height: "auto",
-                      }}
-                      onClick={() => {
-                        const parts: string[] = [];
-                        if (activeModelItem.model.trim()) {
-                          parts.push(`模型：${activeModelItem.model.trim()}`);
-                        }
-                        if (activeModelItem.supportedRatios?.trim()) {
-                          parts.push(
-                            `支持宽高比：${activeModelItem.supportedRatios.trim()}`,
-                          );
-                        }
-                        if (activeModelItem.supportedResolutions?.trim()) {
-                          parts.push(
-                            `支持分辨率：${activeModelItem.supportedResolutions.trim()}`,
-                          );
-                        }
-                        if (activeModelItem.supportedThinking?.trim()) {
-                          parts.push(
-                            `支持思考强度：${activeModelItem.supportedThinking.trim()}`,
-                          );
-                        }
-                        if (activeModelItem.defaultSize?.trim()) {
-                          parts.push(
-                            `默认尺寸：${activeModelItem.defaultSize.trim()}`,
-                          );
-                        }
-                        if (activeModelItem.defaultQuality?.trim()) {
-                          parts.push(
-                            `默认质量：${activeModelItem.defaultQuality.trim()}`,
-                          );
-                        }
-                        const result =
-                          parts.length > 0 ? parts.join("；") + "。" : "";
-                        if (result) {
-                          updateActiveModelItem("customPrompt", result);
-                        }
-                      }}
-                      disabled={draftSaving}
-                      title={t("settings.imagegenAutoGeneratePrompt", {
-                        defaultValue:
-                          "Auto-generate prompt from parameters above",
-                      })}
-                    >
-                      <Sparkles size={11} style={{ marginRight: 4 }} />
-                      {t("settings.imagegenAutoGeneratePrompt", {
-                        defaultValue: "Auto-generate prompt",
-                      })}
-                    </button>
-                  </div>
-                  <textarea
-                    className="api-settings-field-textarea"
-                    value={activeModelItem.customPrompt ?? ""}
-                    onChange={(event) =>
-                      updateActiveModelItem("customPrompt", event.target.value)
-                    }
-                    placeholder={t("settings.imagegenCustomPromptPlaceholder", {
-                      defaultValue:
-                        "Custom instructions and capability notes injected into imagegen-generate tool description...",
-                    })}
-                    rows={3}
-                    disabled={draftSaving}
-                    spellCheck={false}
-                  />
-                  <small className="api-settings-field-hint">
-                    {t("settings.imagegenCustomPromptHint", {
-                      defaultValue:
-                        "Directly injected into AI tool description to guide model on parameters and features.",
-                    })}
-                  </small>
-                </label>
-              </div>
-            </div>
-          </section>
-
-          {/* 全局输出格式（仅 OpenAI 生效）：分组标题与字段名分开，
-              避免同一屏出现两个「输出格式」 */}
-          {!isGemini ? (
-            <section className="imagegen-group">
-              <h4 className="imagegen-group-title">
-                {t("settings.imagegenOutputGroup", {
-                  defaultValue: "Output settings",
-                })}
-              </h4>
-              <div className="api-settings-form-grid">
-                <label className="api-settings-field">
+              {/* 自定义提示词说明与自动生成 */}
+              <label className="api-settings-field imagegen-field-wide">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 4,
+                  }}
+                >
                   <span className="api-settings-field-label">
-                    {t("settings.imagegenOutputFormat", {
-                      defaultValue: "Output format",
+                    {t("settings.imagegenCustomPrompt", {
+                      defaultValue: "Custom prompt instructions for this model",
                     })}
                   </span>
-                  <CustomSelect
-                    value={draft.outputFormat}
-                    options={[
-                      {
-                        value: "",
-                        label: t("settings.imagegenFormatDefault", {
-                          defaultValue: "Default (png)",
-                        }),
-                      },
-                      { value: "png", label: "png" },
-                      { value: "jpeg", label: "jpeg" },
-                      { value: "webp", label: "webp" },
-                    ]}
-                    onChange={(value) => updateDraft("outputFormat", value)}
+                  <button
+                    type="button"
+                    className="api-settings-form-btn secondary"
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 8px",
+                      height: "auto",
+                    }}
+                    onClick={() => {
+                      const parts: string[] = [];
+                      if (activeModelItem.model.trim()) {
+                        parts.push(`模型：${activeModelItem.model.trim()}`);
+                      }
+                      if (activeModelItem.supportedRatios?.trim()) {
+                        parts.push(
+                          `支持宽高比：${activeModelItem.supportedRatios.trim()}`,
+                        );
+                      }
+                      if (activeModelItem.supportedResolutions?.trim()) {
+                        parts.push(
+                          `支持分辨率：${activeModelItem.supportedResolutions.trim()}`,
+                        );
+                      }
+                      if (activeModelItem.supportedThinking?.trim()) {
+                        parts.push(
+                          `支持思考强度：${activeModelItem.supportedThinking.trim()}`,
+                        );
+                      }
+                      if (activeModelItem.defaultSize?.trim()) {
+                        parts.push(
+                          `默认尺寸：${activeModelItem.defaultSize.trim()}`,
+                        );
+                      }
+                      if (activeModelItem.defaultQuality?.trim()) {
+                        parts.push(
+                          `默认质量：${activeModelItem.defaultQuality.trim()}`,
+                        );
+                      }
+                      const result =
+                        parts.length > 0 ? parts.join("；") + "。" : "";
+                      if (result) {
+                        updateActiveModelItem("customPrompt", result);
+                      }
+                    }}
                     disabled={draftSaving}
-                    portal
-                  />
-                </label>
-              </div>
-            </section>
-          ) : null}
+                    title={t("settings.imagegenAutoGeneratePrompt", {
+                      defaultValue:
+                        "Auto-generate prompt from parameters above",
+                    })}
+                  >
+                    <Sparkles size={11} style={{ marginRight: 4 }} />
+                    {t("settings.imagegenAutoGeneratePrompt", {
+                      defaultValue: "Auto-generate prompt",
+                    })}
+                  </button>
+                </div>
+                <textarea
+                  className="api-settings-field-textarea"
+                  value={activeModelItem.customPrompt ?? ""}
+                  onChange={(event) =>
+                    updateActiveModelItem("customPrompt", event.target.value)
+                  }
+                  placeholder={t("settings.imagegenCustomPromptPlaceholder", {
+                    defaultValue:
+                      "Custom instructions and capability notes injected into imagegen-generate tool description...",
+                  })}
+                  rows={3}
+                  disabled={draftSaving}
+                  spellCheck={false}
+                />
+                <small className="api-settings-field-hint">
+                  {t("settings.imagegenCustomPromptHint", {
+                    defaultValue:
+                      "Directly injected into AI tool description to guide model on parameters and features.",
+                  })}
+                </small>
+              </label>
+            </div>
+          </div>
+        </div>
 
-          <section className="imagegen-group">
-            <h4 className="imagegen-group-title">
-              {t("settings.imagegenAdvanced", {
-                defaultValue: "Advanced",
+        {/* 全局输出格式（仅 OpenAI 生效）：分组标题与字段名分开，
+              避免同一屏出现两个「输出格式」 */}
+        {!isGemini ? (
+          <div className="api-settings-form-section">
+            <strong className="api-settings-form-section-title">
+              {t("settings.imagegenOutputGroup", {
+                defaultValue: "Output settings",
               })}
-            </h4>
-            <div className="imagegen-toggle-list">
-              {isGemini ? (
-                <div className="imagegen-toggle-row">
-                  <span className="imagegen-toggle-copy">
-                    <span>
-                      {t("settings.imagegenWebSearch", {
-                        defaultValue: "Google Search grounding",
-                      })}
-                    </span>
-                    <small>
-                      {t("settings.imagegenWebSearchHint", {
-                        defaultValue:
-                          "Gemini native protocol only: let the model use real-time web information via google_search grounding",
-                      })}
-                    </small>
-                    {!supportsWebSearch ? (
-                      <small className="api-settings-field-hint">
-                        {t("settings.imagegenWebSearchModelUnsupported", {
-                          defaultValue:
-                            "The current model ({model}) is not a Gemini image model — grounding is ignored. Pick a Gemini / Nano Banana model to enable it.",
-                        }).replace("{model}", currentModelId || "—")}
-                      </small>
-                    ) : null}
-                  </span>
-                  <label className="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={draft.webSearch}
-                      onChange={updateDraftEvent("webSearch")}
-                      disabled={draftSaving || !supportsWebSearch}
-                    />
-                    <span className="toggle-slider" />
-                  </label>
-                </div>
-              ) : (
-                <div className="imagegen-toggle-row">
-                  <span className="imagegen-toggle-copy">
-                    <span>
-                      {t("settings.imagegenWebSearch", {
-                        defaultValue: "Google Search grounding",
-                      })}
-                    </span>
-                    <small>
-                      {t("settings.imagegenWebSearchProtocolOnly", {
-                        defaultValue:
-                          "Only available on the Gemini native protocol (google_search grounding). Switch this channel's provider to Google Gemini to enable it — OpenAI-compatible endpoints do not support web search.",
-                      })}
-                    </small>
-                  </span>
-                  <label className="toggle-switch">
-                    <input type="checkbox" checked={false} disabled />
-                    <span className="toggle-slider" />
-                  </label>
-                </div>
-              )}
+            </strong>
+            <div className="api-settings-form-grid">
+              <label className="api-settings-field">
+                <span className="api-settings-field-label">
+                  {t("settings.imagegenOutputFormat", {
+                    defaultValue: "Output format",
+                  })}
+                </span>
+                <CustomSelect
+                  value={draft.outputFormat}
+                  options={[
+                    {
+                      value: "",
+                      label: t("settings.imagegenFormatDefault", {
+                        defaultValue: "Default (png)",
+                      }),
+                    },
+                    { value: "png", label: "png" },
+                    { value: "jpeg", label: "jpeg" },
+                    { value: "webp", label: "webp" },
+                  ]}
+                  onChange={(value) => updateDraft("outputFormat", value)}
+                  disabled={draftSaving}
+                  portal
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
 
+        <div className="api-settings-form-section">
+          <strong className="api-settings-form-section-title">
+            {t("settings.imagegenAdvanced", {
+              defaultValue: "Advanced",
+            })}
+          </strong>
+          <div className="imagegen-toggle-list">
+            {isGemini ? (
               <div className="imagegen-toggle-row">
                 <span className="imagegen-toggle-copy">
                   <span>
-                    {t("settings.imagegenStreaming", {
-                      defaultValue: "Streaming preview",
+                    {t("settings.imagegenWebSearch", {
+                      defaultValue: "Google Search grounding",
                     })}
                   </span>
                   <small>
-                    {t("settings.imagegenStreamingHint", {
+                    {t("settings.imagegenWebSearchHint", {
                       defaultValue:
-                        "Streaming: show intermediate preview images while generating; Non-streaming: show images once generation finishes (OpenAI gpt-image / Gemini Imagen)",
+                        "Gemini native protocol only: let the model use real-time web information via google_search grounding",
+                    })}
+                  </small>
+                  {!supportsWebSearch ? (
+                    <small className="api-settings-field-hint">
+                      {t("settings.imagegenWebSearchModelUnsupported", {
+                        defaultValue:
+                          "The current model ({model}) is not a Gemini image model — grounding is ignored. Pick a Gemini / Nano Banana model to enable it.",
+                      }).replace("{model}", currentModelId || "—")}
+                    </small>
+                  ) : null}
+                </span>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={draft.webSearch}
+                    onChange={updateDraftEvent("webSearch")}
+                    disabled={draftSaving || !supportsWebSearch}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </div>
+            ) : (
+              <div className="imagegen-toggle-row">
+                <span className="imagegen-toggle-copy">
+                  <span>
+                    {t("settings.imagegenWebSearch", {
+                      defaultValue: "Google Search grounding",
+                    })}
+                  </span>
+                  <small>
+                    {t("settings.imagegenWebSearchProtocolOnly", {
+                      defaultValue:
+                        "Only available on the Gemini native protocol (google_search grounding). Switch this channel's provider to Google Gemini to enable it — OpenAI-compatible endpoints do not support web search.",
                     })}
                   </small>
                 </span>
-                <div
-                  className="imagegen-stream-segmented"
-                  role="group"
-                  aria-label={t("settings.imagegenStreaming", {
+                <label className="toggle-switch">
+                  <input type="checkbox" checked={false} disabled />
+                  <span className="toggle-slider" />
+                </label>
+              </div>
+            )}
+
+            <div className="imagegen-toggle-row">
+              <span className="imagegen-toggle-copy">
+                <span>
+                  {t("settings.imagegenStreaming", {
                     defaultValue: "Streaming preview",
                   })}
+                </span>
+                <small>
+                  {t("settings.imagegenStreamingHint", {
+                    defaultValue:
+                      "Streaming: show intermediate preview images while generating; Non-streaming: show images once generation finishes (OpenAI gpt-image / Gemini Imagen)",
+                  })}
+                </small>
+              </span>
+              <div
+                className="imagegen-stream-segmented"
+                role="group"
+                aria-label={t("settings.imagegenStreaming", {
+                  defaultValue: "Streaming preview",
+                })}
+              >
+                <button
+                  type="button"
+                  className={`imagegen-stream-segmented-btn${
+                    draft.defaultStream ? " active" : ""
+                  }`}
+                  onClick={() => updateDraft("defaultStream", true)}
+                  disabled={draftSaving}
                 >
-                  <button
-                    type="button"
-                    className={`imagegen-stream-segmented-btn${
-                      draft.defaultStream ? " active" : ""
-                    }`}
-                    onClick={() => updateDraft("defaultStream", true)}
-                    disabled={draftSaving}
-                  >
-                    {t("settings.imagegenStreamModeOn", {
-                      defaultValue: "Streaming",
-                    })}
-                  </button>
-                  <button
-                    type="button"
-                    className={`imagegen-stream-segmented-btn${
-                      !draft.defaultStream ? " active" : ""
-                    }`}
-                    onClick={() => updateDraft("defaultStream", false)}
-                    disabled={draftSaving}
-                  >
-                    {t("settings.imagegenStreamModeOff", {
-                      defaultValue: "Non-streaming",
-                    })}
-                  </button>
-                </div>
+                  {t("settings.imagegenStreamModeOn", {
+                    defaultValue: "Streaming",
+                  })}
+                </button>
+                <button
+                  type="button"
+                  className={`imagegen-stream-segmented-btn${
+                    !draft.defaultStream ? " active" : ""
+                  }`}
+                  onClick={() => updateDraft("defaultStream", false)}
+                  disabled={draftSaving}
+                >
+                  {t("settings.imagegenStreamModeOff", {
+                    defaultValue: "Non-streaming",
+                  })}
+                </button>
               </div>
             </div>
-          </section>
+          </div>
         </div>
       </div>
     );
@@ -2450,37 +2630,80 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
         </div>
       </div>
 
-      {/* 操作区：搜索 + 添加渠道（与 API 设置页交互一致） */}
-      <div className="imagegen-actions">
-        <div className="api-settings-table-search imagegen-search">
-          <Search size={14} strokeWidth={1.8} aria-hidden="true" />
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={t("settings.imagegenSearchPlaceholder", {
-              defaultValue: "Search channels, models, or base URLs",
-            })}
-            aria-label={t("settings.imagegenSearchPlaceholder", {
-              defaultValue: "Search channels",
-            })}
-            disabled={isBusy && channels.length === 0}
-          />
-        </div>
+      {/* 操作区：与 LLM 模型页一致的操作栏（搜索位于表格工具栏内） */}
+      <div className="api-settings-actions">
         <button
           type="button"
-          className="api-settings-form-btn primary imagegen-add-btn"
+          className="api-settings-action-btn primary"
           onClick={openAddEditor}
           disabled={isBusy}
         >
-          <Plus size={13} strokeWidth={2} aria-hidden="true" />
-          {t("settings.imagegenAddChannel", {
-            defaultValue: "Add channel",
-          })}
+          <Plus size={15} strokeWidth={1.8} />
+          <span>
+            {t("settings.imagegenAddChannel", {
+              defaultValue: "Add channel",
+            })}
+          </span>
         </button>
       </div>
 
       {/* 渠道表格：复用 API 设置表格样式 */}
       <div className="api-settings-table-panel imagegen-table-panel">
+        <div className="api-settings-table-toolbar">
+          <label className="api-settings-table-search">
+            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t("settings.imagegenSearchPlaceholder", {
+                defaultValue: "Search channels, models, or base URLs",
+              })}
+              aria-label={t("settings.imagegenSearchPlaceholder", {
+                defaultValue: "Search channels",
+              })}
+              disabled={isLoading && channels.length === 0}
+            />
+          </label>
+        </div>
+
+        {selectedChannelCount > 0 && (
+          <div className="api-settings-selection-bar">
+            <span>
+              {t("settings.apiSelectedCount", {
+                defaultValue: "{count} selected",
+              }).replace("{count}", String(selectedChannelCount))}
+            </span>
+            <div className="api-settings-selection-bar-actions">
+              <button
+                className="api-settings-action-btn danger"
+                onClick={() => setBulkDeletePending(true)}
+                type="button"
+                disabled={isBusy}
+              >
+                <Trash2 size={14} strokeWidth={1.8} />
+                <span>
+                  {t("settings.apiDeleteSelected", {
+                    defaultValue: "Delete selected",
+                  })}
+                </span>
+              </button>
+              <button
+                className="icon-btn ghost"
+                onClick={() => setSelectedChannelIds([])}
+                type="button"
+                title={t("settings.clearSelection", {
+                  defaultValue: "Clear selection",
+                })}
+                aria-label={t("settings.clearSelection", {
+                  defaultValue: "Clear selection",
+                })}
+              >
+                <X size={13} strokeWidth={1.8} />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="api-settings-table-wrap">
           {isLoading ? (
             <div className="api-settings-empty">
@@ -2512,6 +2735,28 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             <table className="api-settings-table">
               <thead>
                 <tr>
+                  <th className="api-settings-table-order" />
+                  <th className="api-settings-table-select">
+                    <input
+                      type="checkbox"
+                      checked={isAllFilteredSelected}
+                      ref={(element) => {
+                        if (element) {
+                          element.indeterminate = isPartiallySelected;
+                        }
+                      }}
+                      onChange={toggleSelectAll}
+                      title={t("settings.apiSelectAll", {
+                        defaultValue: "Select all",
+                      })}
+                      aria-label={t("settings.apiSelectAll", {
+                        defaultValue: "Select all",
+                      })}
+                    />
+                  </th>
+                  <th>
+                    {t("settings.tableStatus", { defaultValue: "Status" })}
+                  </th>
                   <th>{t("settings.tableName", { defaultValue: "Name" })}</th>
                   <th>
                     {t("settings.imagegenBaseUrl", {
@@ -2525,9 +2770,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     {t("settings.imagegenProvider", {
                       defaultValue: "Provider",
                     })}
-                  </th>
-                  <th>
-                    {t("settings.tableStatus", { defaultValue: "Status" })}
                   </th>
                   <th className="api-settings-table-actions-col">
                     {t("settings.tableActions", { defaultValue: "Actions" })}
@@ -2544,115 +2786,46 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     : t("settings.imagegenDisabled", {
                         defaultValue: "Disabled",
                       });
+                  const isSelected = selectedChannelIdSet.has(channel.id);
+                  const isDragging = reorder.draggingName === channel.id;
+                  const isDropTarget = reorder.dropTargetName === channel.id;
+                  const rowClassName = [
+                    isSelected && "is-selected",
+                    isDragging && "is-dragging",
+                    isDropTarget &&
+                      (reorder.dropPlacement === "before"
+                        ? "is-drop-before"
+                        : "is-drop-after"),
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
                   return (
-                    <tr key={channel.id}>
-                      <td className="cell-name">
-                        <strong>{channelLabel(channel)}</strong>
-                        <small className="profile-name-hint">
-                          {channel.id}
-                        </small>
-                      </td>
-                      <td className="cell-url">
-                        {channel.baseUrl.trim() ||
-                          t("settings.imagegenDefaultEndpoint", {
-                            defaultValue: "Provider default",
-                          })}
-                      </td>
-                      <td>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 4,
-                              }}
-                            >
-                              <BadgeCheck
-                                size={12}
-                                strokeWidth={2}
-                                style={{ color: "var(--accent-amber-text)" }}
-                                aria-label={t("settings.imagegenPrimaryBadge", {
-                                  defaultValue: "Default primary model",
-                                })}
-                              />
-                              {channel.model ? (
-                                <ModelBrandIcon
-                                  model={channel.model}
-                                  size={13}
-                                  className="imagegen-table-model-icon"
-                                />
-                              ) : null}
-                              <strong>{channel.model || "-"}</strong>
-                            </span>
-                            {channel.models && channel.models.length > 1 ? (
-                              <span
-                                className="imagegen-model-more-tag"
-                                title={channel.models
-                                  .map(
-                                    (m, i) =>
-                                      `${i + 1}. ${m.name ? `${m.name}: ` : ""}${m.model}${
-                                        m.model === channel.model
-                                          ? " [默认主模型]"
-                                          : ""
-                                      }${m.enabled === false ? " [已停用]" : ""}`,
-                                  )
-                                  .join("\n")}
-                              >
-                                {t("settings.imagegenMoreModels", {
-                                  defaultValue: "+{count} models",
-                                }).replace(
-                                  "{count}",
-                                  String(channel.models.length - 1),
-                                )}
-                              </span>
-                            ) : null}
-                          </div>
-                          {channel.supportedRatios ? (
-                            <small
-                              className="profile-name-hint"
-                              style={{
-                                fontSize: 11,
-                                opacity: 0.75,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 4,
-                              }}
-                              title={channel.supportedRatios}
-                            >
-                              <Layers size={10} />
-                              <span>{channel.supportedRatios}</span>
-                            </small>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td>
+                    <tr
+                      key={channel.id}
+                      {...reorder.getDropTargetProps(channel.id)}
+                      {...{ [API_CONFIG_ROW_ATTRIBUTE]: channel.id }}
+                      className={rowClassName || undefined}
+                    >
+                      <td className="api-settings-table-order">
                         <span
-                          className={`badge method imagegen-provider-badge${
-                            isGemini ? " gemini" : ""
-                          }`}
+                          className="api-settings-drag-handle"
+                          {...reorder.getDragHandleProps(channel.id)}
+                          title={t("settings.apiDragToReorder", {
+                            defaultValue: "Drag to reorder",
+                          })}
                         >
-                          {isGemini
-                            ? t("settings.imagegenProviderGemini", {
-                                defaultValue: "Gemini",
-                              })
-                            : t("settings.imagegenProviderOpenai", {
-                                defaultValue: "OpenAI",
-                              })}
+                          <GripVertical size={13} strokeWidth={1.8} />
                         </span>
+                      </td>
+                      <td className="api-settings-table-select">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleChannelSelection(channel.id)}
+                          aria-label={t("settings.apiSelectProfile", {
+                            defaultValue: "Select {name}",
+                          }).replace("{name}", channelLabel(channel))}
+                        />
                       </td>
                       <td>
                         <label
@@ -2676,8 +2849,108 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                           <span>{statusLabel}</span>
                         </label>
                       </td>
+                      <td className="cell-name">
+                        <button
+                          className="cell-name-button"
+                          onClick={() => openEditEditor(channel)}
+                          type="button"
+                          title={t("settings.edit", { defaultValue: "Edit" })}
+                          aria-label={t("settings.apiEditProfile", {
+                            defaultValue: "Edit {name}",
+                          }).replace("{name}", channelLabel(channel))}
+                        >
+                          <strong>{channelLabel(channel)}</strong>
+                          <small className="profile-name-hint">
+                            {channel.id}
+                          </small>
+                        </button>
+                      </td>
+                      <td className="cell-url">
+                        {channel.baseUrl.trim() ||
+                          t("settings.imagegenDefaultEndpoint", {
+                            defaultValue: "Provider default",
+                          })}
+                      </td>
+                      <td>
+                        <span className="imagegen-table-model">
+                          {channel.model ? (
+                            <ModelBrandIcon
+                              model={channel.model}
+                              size={13}
+                              className="imagegen-table-model-icon"
+                            />
+                          ) : null}
+                          <span className="imagegen-table-model-id">
+                            {channel.model || "-"}
+                          </span>
+                          {channel.models && channel.models.length > 1 ? (
+                            <span
+                              className="imagegen-model-more-tag"
+                              title={channel.models
+                                .map((item) => item.model)
+                                .join("\n")}
+                            >
+                              {t("settings.imagegenMoreModels", {
+                                defaultValue: "+{count} models",
+                              }).replace(
+                                "{count}",
+                                String(channel.models.length - 1),
+                              )}
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`badge method imagegen-provider-badge${
+                            isGemini ? " gemini" : ""
+                          }`}
+                        >
+                          {isGemini
+                            ? t("settings.imagegenProviderGemini", {
+                                defaultValue: "Gemini",
+                              })
+                            : channel.provider === "novelai"
+                              ? t("settings.imagegenProviderNovelai", {
+                                  defaultValue: "NovelAI",
+                                })
+                              : t("settings.imagegenProviderOpenai", {
+                                  defaultValue: "OpenAI",
+                                })}
+                        </span>
+                      </td>
                       <td className="api-settings-table-actions-col">
                         <div className="api-settings-table-actions">
+                          <button
+                            className="icon-btn ghost"
+                            onClick={() => reorder.moveUp(channel.id)}
+                            disabled={!reorder.canMoveUp(channel.id) || isBusy}
+                            type="button"
+                            title={t("settings.apiMoveUp", {
+                              defaultValue: "Move up",
+                            })}
+                            aria-label={t("settings.apiMoveUp", {
+                              defaultValue: "Move up",
+                            })}
+                          >
+                            <ChevronUp size={13} strokeWidth={1.8} />
+                          </button>
+                          <button
+                            className="icon-btn ghost"
+                            onClick={() => reorder.moveDown(channel.id)}
+                            disabled={
+                              !reorder.canMoveDown(channel.id) || isBusy
+                            }
+                            type="button"
+                            title={t("settings.apiMoveDown", {
+                              defaultValue: "Move down",
+                            })}
+                            aria-label={t("settings.apiMoveDown", {
+                              defaultValue: "Move down",
+                            })}
+                          >
+                            <ChevronDown size={13} strokeWidth={1.8} />
+                          </button>
                           <button
                             className="icon-btn ghost"
                             onClick={() => void duplicateChannel(channel)}
@@ -2727,6 +3000,14 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             </table>
           )}
         </div>
+
+        {searchQuery.trim() && filteredChannels.length > 0 ? (
+          <span className="api-settings-search-count">
+            {t("settings.imagegenSearchResultCount", {
+              defaultValue: "Found {count} channel(s)",
+            }).replace("{count}", String(filteredChannels.length))}
+          </span>
+        ) : null}
       </div>
 
       <Modal
@@ -2736,9 +3017,9 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             ? t("settings.imagegenAddChannelTitle", {
                 defaultValue: "Add channel",
               })
-            : t("settings.imagegenEditChannelTitle", {
+            : `${t("settings.imagegenEditChannelTitle", {
                 defaultValue: "Edit channel",
-              })
+              })}: ${draft ? channelLabel(draft) : ""}`
         }
         description={t("settings.imagegenEditorInfo", {
           defaultValue:
@@ -2748,40 +3029,23 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
         onClose={closeEditor}
         closeDisabled={draftSaving}
         size="large"
-        className="imagegen-editor-modal"
+        className="api-settings-editor-modal imagegen-editor-modal"
         footer={
           <div className="api-settings-form-actions imagegen-editor-actions">
-            <button
-              type="button"
-              className="api-settings-form-btn secondary"
-              onClick={closeEditor}
-              disabled={draftSaving}
-            >
-              {t("settings.cancel", { defaultValue: "Cancel" })}
-            </button>
-            <button
-              type="button"
-              className="api-settings-form-btn primary"
-              onClick={() => void saveDraft()}
-              disabled={draftSaving || !draft}
-            >
-              {draftSaving ? (
-                <Loader2
-                  className="tool-call-icon-spinning"
-                  size={13}
-                  aria-hidden="true"
-                />
-              ) : (
-                <Save size={13} strokeWidth={2} aria-hidden="true" />
-              )}
-              {isNewChannel
-                ? t("settings.imagegenAddChannel", {
-                    defaultValue: "Add channel",
-                  })
-                : t("settings.imagegenSaveChannel", {
-                    defaultValue: "Save channel",
-                  })}
-            </button>
+            <ApiSettingsFormActions
+              isSaving={draftSaving}
+              onCancel={closeEditor}
+              onSave={() => void saveDraft()}
+              saveLabel={
+                isNewChannel
+                  ? t("settings.imagegenAddChannel", {
+                      defaultValue: "Add channel",
+                    })
+                  : t("settings.imagegenSaveChannel", {
+                      defaultValue: "Save channel",
+                    })
+              }
+            />
           </div>
         }
       >
@@ -2807,6 +3071,24 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
         cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
         onConfirm={() => void confirmRemoveChannel()}
         onCancel={() => setChannelPendingDeletion(null)}
+        variant="danger"
+      />
+
+      {/* 批量删除已选渠道（与 LLM 模型表格一致） */}
+      <ConfirmDialog
+        open={bulkDeletePending}
+        title={t("settings.imagegenDeleteSelectedTitle", {
+          defaultValue: "Delete channels",
+        })}
+        message={t("settings.imagegenDeleteSelectedConfirm", {
+          defaultValue:
+            "Delete {count} selected channel(s)? This cannot be undone.",
+        }).replace("{count}", String(selectedChannelCount))}
+        confirmLabel={t("settings.delete", { defaultValue: "Delete" })}
+        cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
+        isConfirming={isSaving}
+        onConfirm={() => void confirmRemoveSelected()}
+        onCancel={() => setBulkDeletePending(false)}
         variant="danger"
       />
 

@@ -51,6 +51,18 @@ const TEMPLATE_CAPABILITIES: ImageGenModelCapability[] =
  * 只登记公开且稳定的能力，未收录的模型返回 null（面板不自动填充）。
  */
 const EXTRA_MODEL_CAPABILITIES: ImageGenModelCapability[] = [
+  {
+    match: "gpt-image-2.6",
+    label: "GPT Image 2.6",
+    provider: "openai",
+    defaultSize: "auto",
+    defaultQuality: "",
+    supportedRatios: "",
+    supportedResolutions: "",
+    supportedThinking: "",
+    supportedQualities: "low, medium, high, xhigh, max",
+    webSearch: false,
+  },
   // --- OpenAI gpt-image 2.5 通用（sunburst / flare 之外的 2.5 命名） ---
   // ⚠️ 尺寸与比例空间**开放**（官方：两边 ≥256px 且 ≤3840px、总像素
   // 655,360~8,294,400、16 的倍数、比例 1:3~3:1，支持任意 WIDTHxHEIGHT）→

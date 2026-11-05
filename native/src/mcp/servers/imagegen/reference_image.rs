@@ -163,6 +163,26 @@ pub(crate) fn parse_request_images(
     Ok(result)
 }
 
+/// 解析 `mask` 参数（OpenAI edits 的局部重绘蒙版）：单个 `{data|path, mimeType}`
+/// 对象，形状与 `images` 单项一致。未提供时返回 None。
+pub(crate) fn parse_mask(
+    args: &Value,
+    database_path: &Path,
+) -> napi::Result<Option<ReferenceImage>> {
+    let Some(value) = args.get("mask") else {
+        return Ok(None);
+    };
+    if !value.is_object() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "`mask` must be an object with a base64 `data` or a `path` string and a `mimeType` (same shape as one `images` entry)"
+                .to_string(),
+        ));
+    }
+    let mut items = parse_reference_image_items(std::slice::from_ref(value), database_path)?;
+    Ok(items.pop())
+}
+
 /// 按磁盘路径读取参考图（`{ "path": ... }` 引用块形式）。
 ///
 /// 支持两种形式：

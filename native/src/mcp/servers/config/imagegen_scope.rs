@@ -56,6 +56,8 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
                                         "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
                                         "defaultSize": item.get("defaultSize").and_then(Value::as_str).unwrap_or(""),
                                         "defaultQuality": item.get("defaultQuality").and_then(Value::as_str).unwrap_or(""),
+                                        "defaultComplexity": item.get("defaultComplexity").and_then(Value::as_str).unwrap_or(""),
+                                        "defaultOutputFormat": item.get("defaultOutputFormat").and_then(Value::as_str).unwrap_or(""),
                                         "isPrimary": item
                                             .get("model")
                                             .and_then(Value::as_str)
