@@ -21,6 +21,8 @@ type SensitiveCommandDecisionAssistProps = {
   settings: SensitiveCommandAssistSettings;
   /** 全局决策模型配置：这里只做选择，配置本身在「API 配置 → 决策模型」中维护。 */
   decisionModels: DecisionModelConfig[];
+  /** 「跟随默认」使用的默认决策模型 id（decision-evaluate 的默认模型）。 */
+  defaultModelId: string;
   isBusy: boolean;
   onChange: (next: SensitiveCommandAssistSettings) => void;
 };
@@ -29,7 +31,8 @@ type SensitiveCommandDecisionAssistProps = {
  * 敏感命令面板的决策模型辅助设置（全局，与全局/项目标签页无关，始终显示）。
  *
  * - 辅助开关：默认关闭。关闭时不请求决策模型，敏感命令照常弹确认提示。
- * - 决策模型：判定用的模型，只能从已启用的决策模型中选择。
+ * - 决策模型：默认跟随「决策模型」面板里的默认模型，也可在这里单独指定；
+ *   只能从已启用的决策模型中选择。
  * - 托管开关：默认关闭。开启后判定直接生效（允许则放行、拒绝则拒绝）；
  *   关闭时判定只在拦截提示中作为建议展示，是否执行仍由用户决定。
  * - 拒绝时仍让我确认：默认关闭，仅托管开启时可用。开启后允许仍直接放行，
@@ -38,27 +41,42 @@ type SensitiveCommandDecisionAssistProps = {
 export function SensitiveCommandDecisionAssist({
   settings,
   decisionModels,
+  defaultModelId,
   isBusy,
   onChange,
 }: SensitiveCommandDecisionAssistProps): React.JSX.Element {
   const { t } = useI18n();
 
-  // 只能选用已启用的决策模型；已选模型被停用/删除时保留一个提示项，避免选择被静默改掉。
   const enabledModels = enabledDecisionModels(decisionModels);
-  const isSelectionAvailable = enabledModels.some(
-    (model) => model.id === settings.modelId,
-  );
+  // 「跟随默认」与显式选择共用同一套可用性判断：显式选择优先。
+  const isFollowDefault = settings.modelId === "";
+  const effectiveModelId = isFollowDefault ? defaultModelId : settings.modelId;
+  const effectiveModel = findDecisionModel(decisionModels, effectiveModelId);
+  const isModelReady = effectiveModel !== null && effectiveModel.enabled;
   const unavailableSelection =
-    settings.modelId !== "" && !isSelectionAvailable
+    settings.modelId !== "" &&
+    !enabledModels.some((model) => model.id === settings.modelId)
       ? findDecisionModel(decisionModels, settings.modelId)
       : null;
+  const followDefaultModel = findDecisionModel(decisionModels, defaultModelId);
+  const isFollowDefaultReady =
+    followDefaultModel !== null && followDefaultModel.enabled;
+  const followDefaultName = followDefaultModel?.name ?? defaultModelId;
+  const followDefaultLabel = isFollowDefaultReady
+    ? t("settings.sensitiveCommandAssistModelFollowDefaultWith", {
+        values: { name: followDefaultName },
+        defaultValue: `Follow default (${followDefaultName})`,
+      })
+    : defaultModelId === ""
+      ? t("settings.sensitiveCommandAssistModelFollowDefaultMissing", {
+          defaultValue: "Follow default (not set)",
+        })
+      : t("settings.sensitiveCommandAssistModelFollowDefaultUnavailable", {
+          values: { name: followDefaultName },
+          defaultValue: `Follow default (${followDefaultName} unavailable)`,
+        });
   const modelOptions = [
-    {
-      value: "",
-      label: t("settings.sensitiveCommandAssistModelNone", {
-        defaultValue: "Not selected",
-      }),
-    },
+    { value: "", label: followDefaultLabel },
     ...enabledModels.map((model) => ({ value: model.id, label: model.name })),
     ...(unavailableSelection
       ? [
@@ -72,25 +90,42 @@ export function SensitiveCommandDecisionAssist({
         ]
       : []),
   ];
-  const selectedModel = findDecisionModel(decisionModels, settings.modelId);
-  const isModelUnavailable = settings.modelId !== "" && !isSelectionAvailable;
-  const isActive = settings.enabled && settings.modelId !== "";
+  const isActive = settings.enabled && isModelReady;
+  // 不可用提示：跟随默认与显式选择分别说明。
+  const unavailableHint = isFollowDefault
+    ? defaultModelId === ""
+      ? t("settings.sensitiveCommandAssistModelFollowDefaultMissingInfo", {
+          defaultValue:
+            "Follow default is selected but no default decision model is set. Set one in API settings → Decision models, or pick a model here.",
+        })
+      : isModelReady
+        ? ""
+        : t(
+            "settings.sensitiveCommandAssistModelFollowDefaultUnavailableInfo",
+            {
+              defaultValue:
+                "The default decision model is disabled or deleted; the assist stays idle until it is available again or you pick a model here.",
+            },
+          )
+    : unavailableSelection
+      ? t("settings.sensitiveCommandAssistModelUnavailableInfo", {
+          defaultValue:
+            "The selected decision model is disabled or deleted; the assist stays idle until another one is selected.",
+        })
+      : "";
 
   // 「拒绝时仍让我确认」只在托管下才有意义：被禁用时用 Tooltip 说明当前缺的前置开关。
   const isAskOnDenyDisabled =
-    isBusy ||
-    !settings.enabled ||
-    settings.modelId === "" ||
-    !settings.delegate;
+    isBusy || !settings.enabled || !isModelReady || !settings.delegate;
   const askOnDenyHint = !isAskOnDenyDisabled
     ? ""
     : !settings.enabled
       ? t("settings.sensitiveCommandAssistAskOnDenyNeedAssist", {
           defaultValue: "Enable decision model assist first.",
         })
-      : settings.modelId === ""
+      : !isModelReady
         ? t("settings.sensitiveCommandAssistAskOnDenyNeedModel", {
-            defaultValue: "Select a decision model first.",
+            defaultValue: "Set a default decision model or pick one first.",
           })
         : !settings.delegate
           ? t("settings.sensitiveCommandAssistAskOnDenyNeedDelegate", {
@@ -117,17 +152,16 @@ export function SensitiveCommandDecisionAssist({
   );
 
   // 会话上下文只依赖辅助开关与模型选择，与托管无关（建议模式下同样参考上下文）。
-  const isContextDisabled =
-    isBusy || !settings.enabled || settings.modelId === "";
+  const isContextDisabled = isBusy || !settings.enabled || !isModelReady;
   const contextHint = !isContextDisabled
     ? ""
     : !settings.enabled
       ? t("settings.sensitiveCommandAssistAskOnDenyNeedAssist", {
           defaultValue: "Enable decision model assist first.",
         })
-      : settings.modelId === ""
+      : !isModelReady
         ? t("settings.sensitiveCommandAssistAskOnDenyNeedModel", {
-            defaultValue: "Select a decision model first.",
+            defaultValue: "Set a default decision model or pick one first.",
           })
         : "";
 
@@ -249,7 +283,7 @@ export function SensitiveCommandDecisionAssist({
                   })
                 : t("settings.sensitiveCommandAssistModelInfo", {
                     defaultValue:
-                      "Only enabled decision models can be selected here.",
+                      "Follows the default decision model set in API settings → Decision models; you can also pick an enabled model here.",
                   })}
             </small>
           </span>
@@ -259,7 +293,7 @@ export function SensitiveCommandDecisionAssist({
               options={modelOptions}
               onChange={(value) => onChange({ ...settings, modelId: value })}
               disabled={isBusy || !settings.enabled}
-              title={selectedModel?.name ?? ""}
+              title={effectiveModel?.name ?? ""}
             />
             <ModelSettingsJumpButton tab="decision" disabled={isBusy} />
           </span>
@@ -283,7 +317,7 @@ export function SensitiveCommandDecisionAssist({
             <input
               type="checkbox"
               checked={settings.enabled && settings.delegate}
-              disabled={isBusy || !settings.enabled || settings.modelId === ""}
+              disabled={isBusy || !settings.enabled || !isModelReady}
               aria-label={t("settings.sensitiveCommandAssistDelegate", {
                 defaultValue: "Let the decision model handle the gate",
               })}
@@ -386,13 +420,10 @@ export function SensitiveCommandDecisionAssist({
         </label>
       </div>
 
-      {isModelUnavailable ? (
+      {unavailableHint !== "" ? (
         <span className="sensitive-command-assist-warning">
           <ShieldCheck size={13} strokeWidth={1.8} aria-hidden="true" />
-          {t("settings.sensitiveCommandAssistModelUnavailableInfo", {
-            defaultValue:
-              "The selected decision model is disabled or deleted; the assist stays idle until another one is selected.",
-          })}
+          {unavailableHint}
         </span>
       ) : null}
     </section>

@@ -3611,12 +3611,21 @@ export const en = {
   "settings.sensitiveCommandAssistToggleInfo":
     "Off by default. While off, sensitive commands keep the plain confirmation prompt.",
   "settings.sensitiveCommandAssistModel": "Decision model",
-  "settings.sensitiveCommandAssistModelNone": "Not selected",
+  "settings.sensitiveCommandAssistModelFollowDefaultWith":
+    "Follow default ({{name}})",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissing":
+    "Follow default (not set)",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailable":
+    "Follow default ({{name}} unavailable)",
   "settings.sensitiveCommandAssistModelUnavailable": "Unavailable",
   "settings.sensitiveCommandAssistModelInfo":
-    "Only enabled decision models can be selected here.",
+    "Follows the default decision model set in API settings → Decision models; you can also pick an enabled model here.",
   "settings.sensitiveCommandAssistModelEmpty":
     "No enabled decision model yet. Add one in API settings → Decision models first.",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissingInfo":
+    "Follow default is selected but no default decision model is set. Set one in API settings → Decision models, or pick a model here.",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailableInfo":
+    "The followed default decision model is disabled or deleted; the assist stays idle until it is available again or you pick a model here.",
   "settings.sensitiveCommandAssistModelUnavailableInfo":
     "The selected decision model is disabled or deleted; the assist stays idle until another one is selected.",
   "settings.sensitiveCommandAssistDelegate":
@@ -3636,7 +3645,7 @@ export const en = {
   "settings.sensitiveCommandAssistAskOnDenyNeedAssist":
     "Enable decision model assist first.",
   "settings.sensitiveCommandAssistAskOnDenyNeedModel":
-    "Select a decision model first.",
+    "Set a default decision model or pick a decision model first.",
   "settings.sensitiveCommandAssistAskOnDenyNeedDelegate":
     "Enable “Let the decision model handle the gate” first.",
   "settings.sensitiveCommandAssistSaveSuccess":

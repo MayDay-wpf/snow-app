@@ -27,6 +27,8 @@ pub(crate) struct DetachedTask {
     pub command: String,
     pub description: String,
     pub working_directory: String,
+    /// 任务所属项目根；无法解析时为空串（任务管理器按此过滤）
+    pub project_root: String,
     pub log_path: String,
     pub started_at: String,
     /// 退出时刻（RFC3339）；None 表示仍在运行
@@ -41,6 +43,7 @@ struct Entry {
     command: String,
     description: String,
     working_directory: String,
+    project_root: String,
     log_path: String,
     started_at: String,
     started_at_ms: i64,
@@ -62,6 +65,8 @@ struct PersistedTask {
     description: String,
     #[serde(default)]
     working_directory: String,
+    #[serde(default)]
+    project_root: String,
     log_path: String,
     #[serde(default)]
     started_at: String,
@@ -123,6 +128,7 @@ fn load_records() -> Vec<Entry> {
             command: task.command,
             description: task.description,
             working_directory: task.working_directory,
+            project_root: task.project_root,
             log_path: task.log_path,
             started_at: task.started_at,
             started_at_ms: task.started_at_ms,
@@ -160,6 +166,7 @@ fn snapshot(entries: &[Entry]) -> Vec<PersistedTask> {
             command: entry.command.clone(),
             description: entry.description.clone(),
             working_directory: entry.working_directory.clone(),
+            project_root: entry.project_root.clone(),
             log_path: entry.log_path.clone(),
             started_at: entry.started_at.clone(),
             started_at_ms: entry.started_at_ms,
@@ -209,6 +216,7 @@ pub(crate) fn register(
     command: String,
     description: String,
     working_directory: String,
+    project_root: String,
     log_path: String,
     started_at: String,
     started_at_ms: i64,
@@ -238,6 +246,7 @@ pub(crate) fn register(
         command,
         description,
         working_directory,
+        project_root,
         log_path,
         started_at,
         started_at_ms,
@@ -283,6 +292,7 @@ pub(crate) fn list() -> Vec<DetachedTask> {
                 command: entry.command.clone(),
                 description: entry.description.clone(),
                 working_directory: entry.working_directory.clone(),
+                project_root: entry.project_root.clone(),
                 log_path: entry.log_path.clone(),
                 started_at: entry.started_at.clone(),
                 alive: ended_at.is_none(),

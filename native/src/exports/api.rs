@@ -467,7 +467,8 @@ pub async fn check_tool_sensitive_operation(
 /// `workingDirectory` (with the model's own `description` as context) — a rule
 /// match alone never decides it. Returns `None` when the assist is disabled or
 /// the command matches no rule. When the assist is on but the decision model
-/// cannot judge (none selected, disabled, incomplete, or the request failed) a
+/// cannot judge (none selected and no default, disabled, incomplete, or the
+/// request failed) a
 /// record with `error` set is returned: the caller falls back to the plain
 /// confirmation prompt and tells the user why. Request failures are also in the
 /// system log (module `decision_model`).
@@ -502,7 +503,7 @@ pub async fn evaluate_sensitive_command_decision(
 
     // 设置、规则表与决策模型配置都是同步 SQLite 读取，放入阻塞线程执行，
     // 避免阻塞 Node.js 主线程。
-    let (assist, matched_rules, decision_models) = {
+    let (assist, matched_rules, decision_models, default_decision_model_id) = {
         let db_path = database_path.clone();
         let candidate = command.clone();
         tokio::task::spawn_blocking(move || {
@@ -511,7 +512,14 @@ pub async fn evaluate_sensitive_command_decision(
             let matched_rules =
                 crate::storage::check_sensitive_command_match(vec![(candidate, None)], project_id)?;
             let decision_models = crate::api::decision_model::load_decision_models(&db_path);
-            Ok::<_, Error>((assist, matched_rules, decision_models))
+            let default_decision_model_id =
+                crate::api::decision_model::load_decision_tool_model_id(&db_path);
+            Ok::<_, Error>((
+                assist,
+                matched_rules,
+                decision_models,
+                default_decision_model_id,
+            ))
         })
         .await
         .map_err(|e| {
@@ -546,21 +554,38 @@ pub async fn evaluate_sensitive_command_decision(
         error: Some(error),
     };
 
-    let (model_name, config) =
-        match crate::api::decision_model::resolve_decision_model(&decision_models, &assist.model_id) {
-            crate::api::decision_model::DecisionModelResolution::Ready { name, config } => {
-                (name, config)
-            }
-            crate::api::decision_model::DecisionModelResolution::Unavailable { name, reason } => {
-                return Ok(Some(unavailable(name, reason)));
-            }
-            crate::api::decision_model::DecisionModelResolution::NotSelected => {
-                return Ok(Some(unavailable(
-                    String::new(),
-                    "No decision model is selected for the sensitive command assist".to_string(),
-                )));
-            }
-        };
+    // 未选择模型时跟随「API 配置 → 决策模型」中的默认模型（decision-evaluate 的默认模型）。
+    let follow_default = assist.model_id.trim().is_empty();
+    let selected_model_id = if follow_default {
+        default_decision_model_id
+    } else {
+        assist.model_id.clone()
+    };
+
+    let (model_name, config) = match crate::api::decision_model::resolve_decision_model(
+        &decision_models,
+        &selected_model_id,
+    ) {
+        crate::api::decision_model::DecisionModelResolution::Ready { name, config } => {
+            (name, config)
+        }
+        crate::api::decision_model::DecisionModelResolution::Unavailable { name, reason } => {
+            let reason = if follow_default {
+                format!("The default decision model is unavailable: {reason}")
+            } else {
+                reason
+            };
+            return Ok(Some(unavailable(name, reason)));
+        }
+        crate::api::decision_model::DecisionModelResolution::NotSelected => {
+            let reason = if follow_default {
+                "No default decision model is set for the sensitive command assist"
+            } else {
+                "No decision model is selected for the sensitive command assist"
+            };
+            return Ok(Some(unavailable(String::new(), reason.to_string())));
+        }
+    };
 
     // 开关关闭时完全忽略调用方传入的上下文，请求体与无上下文版本一致。
     let conversation = if context_enabled {

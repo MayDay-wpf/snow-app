@@ -939,12 +939,20 @@ impl BashService {
             let log_path_text = log_path.to_string_lossy().replace('\\', "/");
             // 登记到后台任务表：任务管理器据此列出 / 终止该进程。taskId 随结果
             // 返回，前端点击「后台运行」徽章即可定位到对应任务。
+            // 归属项目根：任务管理器按项目过滤后台任务，不能用 workingDirectory
+            // 顶替（WorkTree 与显式子目录都会偏离项目根）。
+            let project_root = crate::mcp::tools::resolve_local_project_root(project_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             let task_id = detached::register(
                 child,
                 pid,
                 command.clone(),
                 description.clone(),
                 working_directory.clone(),
+                project_root,
                 log_path_text.clone(),
                 executed_at.clone(),
                 executed_at_ms,

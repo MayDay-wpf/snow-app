@@ -1,4 +1,4 @@
-import type { TaskManagerProcess } from "../../../preload";
+import type { DetachedTaskInfo, TaskManagerProcess } from "../../../preload";
 import type { LspSessionStatus } from "../../../preload/types/lsp";
 import { formatDisplayPath } from "../../utils/formatDisplayPath";
 
@@ -164,6 +164,21 @@ export const normalizeTaskProject = (root: string): string => {
   return /^[a-z]:/i.test(normalized) || normalized.startsWith("//")
     ? normalized.toLowerCase()
     : normalized;
+};
+
+/** 后台任务归属：项目根相同或位于项目目录内才属于当前项目。 */
+export const taskMatchesProject = (
+  task: DetachedTaskInfo,
+  projectPath: string,
+): boolean => {
+  const project = normalizeTaskProject(projectPath.trim());
+  if (!project || project === "/") return true;
+  // 老记录没有项目根：退回工作目录判断
+  const root = normalizeTaskProject(
+    (task.projectRoot || task.workingDirectory).trim(),
+  );
+  if (!root) return true;
+  return root === project || root.startsWith(`${project}/`);
 };
 
 export type ProcessFilter = {

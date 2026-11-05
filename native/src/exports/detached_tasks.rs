@@ -18,6 +18,8 @@ pub struct DetachedTaskInfo {
     /// 模型写的命令说明（用户语言），可为空串
     pub description: String,
     pub working_directory: String,
+    /// 任务所属项目根；无法解析时为空串（任务管理器按此过滤）
+    pub project_root: String,
     /// 输出日志绝对路径（正斜杠形式）
     pub log_path: String,
     /// 启动时刻（RFC3339）
@@ -37,6 +39,7 @@ impl From<detached::DetachedTask> for DetachedTaskInfo {
             command: task.command,
             description: task.description,
             working_directory: task.working_directory,
+            project_root: task.project_root,
             log_path: task.log_path,
             started_at: task.started_at,
             ended_at: task.ended_at,

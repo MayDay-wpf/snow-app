@@ -56001,33 +56001,37 @@ pre.file-viewer-code {
   flex-shrink: 0;
 }
 
+/* 与设置页次要按钮（api-settings-action-btn secondary）保持一致，仅收紧尺寸 */
 .general-storage-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 9px;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
   flex-shrink: 0;
-  border: none;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-tertiary);
-  font-size: 10.5px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 
 .general-storage-action:hover {
-  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
-  color: var(--accent-color);
+  border-color: var(--border-color);
+  background: var(--bg-hover);
 }
 
 .general-storage-action:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  opacity: 0.68;
+  cursor: default;
 }
 
 /* ---- 通用设置：存储目录迁移进度模态框（不可关闭） ---- */
@@ -56349,18 +56353,36 @@ pre.file-viewer-code {
 }
 
 .general-storage-action.danger {
-  background: rgba(248, 81, 73, 0.12);
-  color: #f85149;
+  border-color: color-mix(
+    in srgb,
+    var(--danger, #e5484d) 32%,
+    var(--border-color)
+  );
+  background: color-mix(
+    in srgb,
+    var(--danger, #e5484d) 8%,
+    var(--bg-secondary)
+  );
+  color: var(--danger, #e5484d);
 }
 
 .general-storage-action.danger:hover {
-  background: rgba(248, 81, 73, 0.2);
-  color: #f85149;
+  border-color: color-mix(
+    in srgb,
+    var(--danger, #e5484d) 55%,
+    var(--border-color)
+  );
+  background: color-mix(
+    in srgb,
+    var(--danger, #e5484d) 14%,
+    var(--bg-secondary)
+  );
+  color: var(--danger, #e5484d);
 }
 
 .general-storage-action.danger:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  opacity: 0.68;
+  cursor: default;
 }
 
 /* ---- 图库相册 Tab 栏：沿用设置页 Tab 样式（全部 / 未分类 / 相册 / 新建） ---- */

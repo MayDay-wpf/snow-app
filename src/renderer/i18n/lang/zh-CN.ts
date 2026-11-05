@@ -3413,11 +3413,21 @@ export const zhCN = {
   "settings.sensitiveCommandAssistToggleInfo":
     "默认关闭；关闭时敏感命令仍走原有的确认流程。",
   "settings.sensitiveCommandAssistModel": "决策模型",
-  "settings.sensitiveCommandAssistModelNone": "未选择",
+  "settings.sensitiveCommandAssistModelFollowDefaultWith":
+    "跟随默认（{{name}}）",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissing":
+    "跟随默认（未设置）",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailable":
+    "跟随默认（{{name}} 不可用）",
   "settings.sensitiveCommandAssistModelUnavailable": "不可用",
-  "settings.sensitiveCommandAssistModelInfo": "只能选用已启用的决策模型。",
+  "settings.sensitiveCommandAssistModelInfo":
+    "默认跟随「API 配置 → 决策模型」中的默认模型，也可在这里单独指定已启用的模型。",
   "settings.sensitiveCommandAssistModelEmpty":
     "还没有已启用的决策模型，请先在「API 配置 → 决策模型」中添加。",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissingInfo":
+    "已选择跟随默认，但还没有设置默认决策模型；请在「API 配置 → 决策模型」中设置默认模型，或在这里单独选择。",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailableInfo":
+    "跟随的默认决策模型已停用或被删除；恢复该模型或在这里单独选择前，辅助不会生效。",
   "settings.sensitiveCommandAssistModelUnavailableInfo":
     "所选决策模型已停用或被删除，辅助在重新选择前不会生效。",
   "settings.sensitiveCommandAssistDelegate": "由决策模型托管",
@@ -3434,7 +3444,8 @@ export const zhCN = {
     "默认 {{default}}，范围 {{min}}-{{max}}。条数越多判定依据越完整，但发送的内容也越多；超出 state 预算的部分会从最早的消息开始截断。",
   "settings.sensitiveCommandAssistAskOnDenyNeedAssist":
     "请先启用决策模型辅助。",
-  "settings.sensitiveCommandAssistAskOnDenyNeedModel": "请先选择决策模型。",
+  "settings.sensitiveCommandAssistAskOnDenyNeedModel":
+    "请先设置默认决策模型或选择决策模型。",
   "settings.sensitiveCommandAssistAskOnDenyNeedDelegate":
     "请先启用「由决策模型托管」。",
   "settings.sensitiveCommandAssistSaveSuccess": "已保存决策模型辅助设置。",

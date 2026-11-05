@@ -928,7 +928,9 @@ fn remote_workspace_path_fields(tool_full_name: &str) -> &'static [&'static str]
 /// 通过应用数据库中的 workspace_directories 表查询该项目的本地根路径。
 /// 数据库访问放在 Tokio 阻塞池中执行，避免阻塞 N-API 异步运行时。
 /// SSH 工作区不在此处理，由 prepare_remote_workspace_args 统一路由到远端。
-async fn resolve_local_project_root(project_id: Option<&str>) -> napi::Result<Option<String>> {
+pub(crate) async fn resolve_local_project_root(
+    project_id: Option<&str>,
+) -> napi::Result<Option<String>> {
     let Some(project_id) = project_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };

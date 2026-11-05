@@ -31,6 +31,7 @@ import {
   reconcileSessionRoots,
   SNAPSHOT_FRESHNESS_MS,
   summarizeProcesses,
+  taskMatchesProject,
   uniqueProcesses,
   type SessionSnapshot,
   type TaskManagerRow,
@@ -83,10 +84,13 @@ type TaskManagerTab =
 export const TaskManagerContent = ({
   isActive,
   focusRequest,
+  projectPath = "",
 }: {
   isActive: boolean;
   /** 从 bash 卡片徽章跳转过来的后台任务定位请求（nonce 变化即重新定位） */
   focusRequest?: BackgroundTaskFocus | null;
+  /** 当前项目根路径：后台任务按项目归属过滤，空串表示不限定项目 */
+  projectPath?: string;
 }): React.JSX.Element => {
   const { t, locale } = useI18n();
   const [processes, setProcesses] = useState<TaskManagerProcess[]>([]);
@@ -116,6 +120,12 @@ export const TaskManagerContent = ({
   // detach 后台任务：列表 + 结束确认（与进程「结束进程」互不影响）
   const [backgroundTasks, setBackgroundTasks] = useState<DetachedTaskInfo[]>(
     [],
+  );
+  // 后台任务按项目归属过滤：面板只展示本项目启动的任务
+  const projectTasks = useMemo(
+    () =>
+      backgroundTasks.filter((task) => taskMatchesProject(task, projectPath)),
+    [backgroundTasks, projectPath],
   );
   const [backgroundSampledAtMs, setBackgroundSampledAtMs] = useState(0);
   const [backgroundError, setBackgroundError] = useState(false);
@@ -693,7 +703,7 @@ export const TaskManagerContent = ({
               <Terminal size={13} aria-hidden="true" />
               <span>{t("taskManager.tabBackground")}</span>
               <span className="task-manager-tab-badge">
-                {backgroundTasks.filter((task) => task.alive).length}
+                {projectTasks.filter((task) => task.alive).length}
               </span>
             </button>
             <button
@@ -931,7 +941,7 @@ export const TaskManagerContent = ({
             </div>
           )}
           <TaskManagerBackgroundTasks
-            tasks={backgroundTasks}
+            tasks={projectTasks}
             loaded={backgroundSampledAtMs > 0 || backgroundError}
             stale={
               backgroundError ||

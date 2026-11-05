@@ -2290,6 +2290,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
             <TaskManagerContent
               isActive={isTabActive}
               focusRequest={taskFocus}
+              projectPath={activeDirectory?.path ?? ""}
             />
           ) : tab.type === "conversation" ? (
             isDetachedWindow ? (

@@ -3413,11 +3413,21 @@ export const zhTW = {
   "settings.sensitiveCommandAssistToggleInfo":
     "預設關閉；關閉時敏感命令仍走原有的確認流程。",
   "settings.sensitiveCommandAssistModel": "決策模型",
-  "settings.sensitiveCommandAssistModelNone": "未選擇",
+  "settings.sensitiveCommandAssistModelFollowDefaultWith":
+    "跟隨預設（{{name}}）",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissing":
+    "跟隨預設（未設定）",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailable":
+    "跟隨預設（{{name}} 不可用）",
   "settings.sensitiveCommandAssistModelUnavailable": "不可用",
-  "settings.sensitiveCommandAssistModelInfo": "只能選用已啟用的決策模型。",
+  "settings.sensitiveCommandAssistModelInfo":
+    "預設跟隨「API 設定 → 決策模型」中的預設模型，也可在這裡單獨指定已啟用的模型。",
   "settings.sensitiveCommandAssistModelEmpty":
     "還沒有已啟用的決策模型，請先在「API 設定 → 決策模型」中新增。",
+  "settings.sensitiveCommandAssistModelFollowDefaultMissingInfo":
+    "已選擇跟隨預設，但尚未設定預設決策模型；請在「API 設定 → 決策模型」中設定預設模型，或在這裡單獨選擇。",
+  "settings.sensitiveCommandAssistModelFollowDefaultUnavailableInfo":
+    "跟隨的預設決策模型已停用或被刪除；在恢復該模型或在這裡單獨選擇前，輔助不會生效。",
   "settings.sensitiveCommandAssistModelUnavailableInfo":
     "所選決策模型已停用或被刪除，輔助在重新選擇前不會生效。",
   "settings.sensitiveCommandAssistDelegate": "由決策模型託管",
@@ -3434,7 +3444,8 @@ export const zhTW = {
     "預設 {{default}}，範圍 {{min}}-{{max}}。則數越多判定依據越完整，但傳送的內容也越多；超出 state 預算的部分會從最早的訊息開始截斷。",
   "settings.sensitiveCommandAssistAskOnDenyNeedAssist":
     "請先啟用決策模型輔助。",
-  "settings.sensitiveCommandAssistAskOnDenyNeedModel": "請先選擇決策模型。",
+  "settings.sensitiveCommandAssistAskOnDenyNeedModel":
+    "請先設定預設決策模型或選擇決策模型。",
   "settings.sensitiveCommandAssistAskOnDenyNeedDelegate":
     "請先啟用「由決策模型託管」。",
   "settings.sensitiveCommandAssistSaveSuccess": "已儲存決策模型輔助設定。",

@@ -342,7 +342,8 @@ impl ToolApprovalProjectScopeSettings {
 pub struct SensitiveCommandAssistSettings {
     /// 总开关，默认关闭：关闭时不请求决策模型，敏感命令照常弹确认。
     pub enabled: bool,
-    /// 参与判定的决策模型 id（`decision_models` 表中已启用的条目）。
+    /// 参与判定的决策模型 id（`decision_models` 表中已启用的条目）；空串表示跟随
+    /// `decision_tool_model` 的默认模型。
     pub model_id: String,
     /// 托管：判定直接生效（允许则放行、拒绝则拒绝），默认关闭（仅展示建议）。
     pub delegate: bool,

@@ -1499,6 +1499,8 @@ export type DetachedTaskInfo = {
   /** 模型写的命令说明（用户语言），可能为空串 */
   description: string;
   workingDirectory: string;
+  /** 任务所属项目根；无法解析时为空串（任务管理器按此过滤） */
+  projectRoot: string;
   /** 输出日志绝对路径（正斜杠形式） */
   logPath: string;
   /** 启动时刻（RFC3339） */
