@@ -1092,7 +1092,6 @@ const perform = async (
     if (typeof key !== "string" || !key.trim())
       throw new Error("key must not be empty for browser-press_key");
     return withCdpFrame(contents, entry, async (target) => {
-      contents.focus();
       await dispatchFrameKey(contents, target.sessionId, key);
       return { ...metadata, success: true, key };
     });
@@ -1244,7 +1243,6 @@ const perform = async (
     );
     if (!contents.debugger.isAttached())
       throw new Error("FRAME_CDP_UNAVAILABLE: close page DevTools and retry");
-    contents.focus();
     const send = (params: Record<string, unknown>): Promise<unknown> =>
       frameCommand(contents, "Input.dispatchMouseEvent", params);
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
@@ -1352,7 +1350,6 @@ const perform = async (
         target,
         objectId,
       );
-      contents.focus();
       const pointer = (params: Record<string, unknown>): Promise<unknown> =>
         frameCommand(contents, "Input.dispatchMouseEvent", params);
       await pointer({ type: "mouseMoved", x, y });
@@ -1420,7 +1417,6 @@ const perform = async (
           );
         }
       };
-      contents.focus();
       const mode = await locate(`const tag = element.tagName;
         if (tag === 'SELECT') return 'select';
         if (tag === 'INPUT' && (element.type === 'checkbox' || element.type === 'radio')) return 'choice';
