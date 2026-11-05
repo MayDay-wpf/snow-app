@@ -101,6 +101,7 @@ fn build_request(
     };
     let message = |role: &str, content: String| ResponsesApiMessage {
         role: role.to_string(),
+        origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
         content,
         tool_results_json: None,
         thinking: None,
@@ -137,6 +138,7 @@ fn build_request(
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     }
 }
 

@@ -201,6 +201,10 @@ export function SkillsSettingsPanel({
 
   const requestSkillToggle = useCallback(
     (row: SkillRow): void => {
+      // 插件技能跟随插件启停，不能单独切换；避免写插件安装目录后被更新覆盖。
+      if (row.skill.location === "plugin") {
+        return;
+      }
       const nextEnabled = !row.skill.enabled;
       if (row.scope === "project") {
         // 全局已停用时项目层不能启用
@@ -629,24 +633,33 @@ export function SkillsSettingsPanel({
               const isUpdating = updatingSkillId === skill.id;
               const isUninstalling = uninstallingSkillId === skill.id;
               const isGithubInstalled = githubSkillIds.has(skill.id);
-              const toggleLabel = row.globallyDisabled
-                ? t("settings.skillsGlobalGateRequired", {
-                    defaultValue: "Turn on the global switch first",
+              const isPluginSkill = skill.location === "plugin";
+              const toggleLabel = isPluginSkill
+                ? t("settings.skillsPluginManaged", {
+                    defaultValue: "Managed by plugin",
                   })
-                : skill.enabled
-                  ? t("settings.skillsDisable", {
-                      defaultValue: "Disable Skill",
+                : row.globallyDisabled
+                  ? t("settings.skillsGlobalGateRequired", {
+                      defaultValue: "Turn on the global switch first",
                     })
-                  : t("settings.skillsEnable", {
-                      defaultValue: "Enable Skill",
-                    });
-              const stateLabel = row.globallyDisabled
-                ? t("settings.skillsGlobalGateOff", {
-                    defaultValue: "Globally disabled",
+                  : skill.enabled
+                    ? t("settings.skillsDisable", {
+                        defaultValue: "Disable Skill",
+                      })
+                    : t("settings.skillsEnable", {
+                        defaultValue: "Enable Skill",
+                      });
+              const stateLabel = isPluginSkill
+                ? t("settings.skillsPluginManaged", {
+                    defaultValue: "Managed by plugin",
                   })
-                : skill.enabled
-                  ? t("settings.enabled", { defaultValue: "Enabled" })
-                  : t("settings.inactive", { defaultValue: "Disabled" });
+                : row.globallyDisabled
+                  ? t("settings.skillsGlobalGateOff", {
+                      defaultValue: "Globally disabled",
+                    })
+                  : skill.enabled
+                    ? t("settings.enabled", { defaultValue: "Enabled" })
+                    : t("settings.inactive", { defaultValue: "Disabled" });
               const uninstallLabel = t("settings.skillsUninstall", {
                 defaultValue: "Uninstall",
               });
@@ -675,6 +688,7 @@ export function SkillsSettingsPanel({
                           isLoading ||
                           Boolean(updatingSkillId) ||
                           isInstalling ||
+                          isPluginSkill ||
                           row.globallyDisabled
                         }
                         hidden
@@ -722,7 +736,7 @@ export function SkillsSettingsPanel({
                         {skill.allowedTools.length}
                       </span>
                     )}
-                    {!isGlobalScope && (
+                    {!isGlobalScope && !isPluginSkill && (
                       <span className="skills-settings-badge">
                         {skill.location === "project"
                           ? t("settings.skillsScopeProject", {
@@ -741,14 +755,21 @@ export function SkillsSettingsPanel({
                       </span>
                     )}
                     <span className="skills-settings-badge">
-                      .{skill.source}
+                      {isPluginSkill
+                        ? t("settings.skillsPluginSource", {
+                            defaultValue: "Plugin",
+                          })
+                        : skill.source}
                     </span>
                     <button
                       className="icon-btn ghost skills-settings-uninstall-btn"
                       onClick={() => setEditingSkill(skill)}
                       type="button"
                       disabled={
-                        isLoading || Boolean(updatingSkillId) || isInstalling
+                        isLoading ||
+                        Boolean(updatingSkillId) ||
+                        isInstalling ||
+                        isPluginSkill
                       }
                       aria-label={editLabel}
                       title={editLabel}

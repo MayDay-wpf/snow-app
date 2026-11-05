@@ -160,6 +160,14 @@ impl SkillsService {
         let skill = loaded.skills.get(&skill_id).ok_or_else(|| {
             Error::new(Status::InvalidArg, format!("Skill \"{skill_id}\" not found"))
         })?;
+        if skill.source.starts_with("plugin:") {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Skill \"{skill_id}\" is provided by a plugin; enable or disable the plugin instead."
+                ),
+            ));
+        }
         if skill.enabled == enabled {
             return Ok(());
         }
@@ -230,7 +238,9 @@ impl SkillsService {
             .skills
             .into_values()
             .map(|skill| {
-                let enabled = if skill.location == "project" {
+                let enabled = if skill.source.starts_with("plugin:") {
+                    skill.enabled
+                } else if skill.location == "project" {
                     settings.effective_project_enabled(&skill.id, skill.enabled)
                 } else {
                     settings.effective_enabled(&skill.id, skill.enabled)
@@ -272,6 +282,18 @@ impl SkillsService {
                 format!("Skill \"{skill_id}\" not found for project \"{project_id}\""),
             ));
         }
+        if loaded
+            .skills
+            .get(&skill_id)
+            .is_some_and(|skill| skill.source.starts_with("plugin:"))
+        {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Skill \"{skill_id}\" is provided by a plugin; enable or disable the plugin instead."
+                ),
+            ));
+        }
 
         run_blocking("update project skill enabled state", move || {
             let storage_info = crate::storage::initialize_app_storage()?;
@@ -302,7 +324,9 @@ impl SkillsService {
             })
             .await?;
             loaded.skills.retain(|skill_id, skill| {
-                if skill.location == "project" {
+                if skill.source.starts_with("plugin:") {
+                    skill.enabled
+                } else if skill.location == "project" {
                     settings.effective_project_enabled(skill_id, skill.enabled)
                 } else {
                     settings.effective_enabled(skill_id, skill.enabled)
@@ -361,7 +385,9 @@ impl SkillsService {
             })
             .await?;
             loaded.skills.retain(|skill_id, skill| {
-                if skill.location == "project" {
+                if skill.source.starts_with("plugin:") {
+                    skill.enabled
+                } else if skill.location == "project" {
                     settings.effective_project_enabled(skill_id, skill.enabled)
                 } else {
                     settings.effective_enabled(skill_id, skill.enabled)
@@ -458,35 +484,213 @@ impl LoadedSkills {
 async fn load_skills(project_id: Option<&str>) -> napi::Result<LoadedSkills> {
     let workspace = resolve_project_workspace(project_id).await?;
 
-    if let Some(workspace_path) = workspace.as_deref().filter(|path| is_ssh_path(path)) {
-        return match scan_remote_skill_roots(workspace_path).await {
-            Ok(roots) => Ok(LoadedSkills {
+    let mut loaded = if let Some(workspace_path) =
+        workspace.as_deref().filter(|path| is_ssh_path(path))
+    {
+        match scan_remote_skill_roots(workspace_path).await {
+            Ok(roots) => LoadedSkills {
                 skills: load_remote_project_skills(&roots),
-                workspace,
+                workspace: workspace.clone(),
                 remote_error: None,
-            }),
+            },
             Err(error) => {
                 let skills =
                     run_blocking("load global skills", || Ok(load_global_skills())).await?;
-                Ok(LoadedSkills {
+                LoadedSkills {
                     skills,
-                    workspace,
+                    workspace: workspace.clone(),
                     remote_error: Some(format!("Failed to scan remote project Skills: {error}")),
-                })
+                }
             }
-        };
-    }
+        }
+    } else {
+        let project_root = workspace.clone().map(PathBuf::from);
+        let skills = run_blocking("load skills", move || {
+            Ok(load_local_skills(project_root.as_deref()))
+        })
+        .await?;
+        LoadedSkills {
+            skills,
+            workspace: workspace.clone(),
+            remote_error: None,
+        }
+    };
 
-    let project_root = workspace.clone().map(PathBuf::from);
-    let skills = run_blocking("load skills", move || {
-        Ok(load_local_skills(project_root.as_deref()))
+    // 插件技能始终来自本机插件目录：与工作区是否 SSH 无关，也不受远程扫描
+    // 失败影响。插件被禁用（含项目作用域禁用）时不加载。
+    let plugin_project_id = project_id.map(str::to_string);
+    let plugin_skills = run_blocking("load plugin skills", move || {
+        load_plugin_skills(plugin_project_id.as_deref())
     })
     .await?;
-    Ok(LoadedSkills {
-        skills,
-        workspace,
-        remote_error: None,
-    })
+    for (id, skill) in plugin_skills {
+        // 用户/项目技能优先：同名时不覆盖现有技能。
+        loaded.skills.entry(id).or_insert(skill);
+    }
+
+    Ok(loaded)
+}
+
+/// 插件清单 `skills` 贡献点：每项是插件目录内的相对路径，指向一个含
+/// `SKILL.md` 的技能目录，或包含多个技能目录的根目录。也接受纯字符串形式。
+fn plugin_skill_entries(manifest_json: &str) -> Vec<(String, Option<String>)> {
+    let Ok(manifest) = serde_json::from_str::<Value>(manifest_json) else {
+        return Vec::new();
+    };
+    let Some(items) = manifest.get("skills").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for item in items {
+        let (path, id) = match item {
+            Value::String(path) => (path.as_str(), None),
+            Value::Object(map) => (
+                map.get("path").and_then(Value::as_str).unwrap_or_default(),
+                map.get("id").and_then(Value::as_str),
+            ),
+            _ => continue,
+        };
+        let path = path.trim().replace('\\', "/");
+        if !is_safe_plugin_relative_path(&path) {
+            continue;
+        }
+        entries.push((path, id.map(str::to_string)));
+    }
+    entries
+}
+
+/// 只接受插件目录内的相对路径：拒绝绝对路径、盘符、`..` 与空段。
+fn is_safe_plugin_relative_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains(':')
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+fn sanitize_plugin_skill_id(value: &str) -> String {
+    let trimmed = value.trim().trim_matches('/');
+    let sanitized: String = trimmed
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "skill".to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// 从已启用的插件加载 `skills` 贡献点。技能 id 统一加 `<pluginId>/` 前缀，
+/// 避免与全局 / 项目技能重名；`source` 记录插件来源供设置页识别。
+fn load_plugin_skills(project_id: Option<&str>) -> napi::Result<BTreeMap<String, Skill>> {
+    let mut skills = BTreeMap::new();
+    let storage_info = crate::storage::initialize_app_storage()?;
+    let database_path = PathBuf::from(storage_info.database_path);
+    let records = crate::storage::list_plugins(&database_path)?;
+    let project_scope = project_id
+        .map(|project_id| {
+            crate::storage::services::system_settings::get_plugins_project_scope_settings(
+                &database_path,
+                project_id,
+            )
+        })
+        .transpose()?;
+
+    for record in records {
+        if !record.enabled {
+            continue;
+        }
+        if let Some(scope) = project_scope.as_ref() {
+            if !scope.effective_enabled(&record.plugin_id, true) {
+                continue;
+            }
+        }
+        for (path, explicit_id) in plugin_skill_entries(&record.manifest_json) {
+            let root = PathBuf::from(&record.install_path).join(&path);
+            load_plugin_skill_root(
+                &mut skills,
+                &root,
+                &record.plugin_id,
+                explicit_id.as_deref(),
+            );
+        }
+    }
+    Ok(skills)
+}
+
+fn load_plugin_skill_root(
+    skills: &mut BTreeMap<String, Skill>,
+    root: &Path,
+    plugin_id: &str,
+    explicit_id: Option<&str>,
+) {
+    if !root.is_dir() {
+        return;
+    }
+    let source = format!("plugin:{plugin_id}");
+
+    if root.join(SKILL_FILE_NAME).is_file() {
+        let Some((metadata, content)) = read_skill_file(root) else {
+            return;
+        };
+        let fallback = explicit_id
+            .map(str::to_string)
+            .or_else(|| {
+                root.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| plugin_id.to_string());
+        let id = format!(
+            "{plugin_id}/{}",
+            sanitize_plugin_skill_id(explicit_id.unwrap_or(&fallback))
+        );
+        skills.insert(
+            id.clone(),
+            Skill {
+                id,
+                name: if metadata.name.is_empty() {
+                    fallback
+                } else {
+                    metadata.name
+                },
+                description: metadata.description,
+                location: "plugin".to_string(),
+                source,
+                directory: SkillDirectory::Local(root.to_path_buf()),
+                content,
+                raw_content: None,
+                tree: None,
+                allowed_tools: metadata.allowed_tools,
+                // 插件技能的启停跟随插件本身，忽略 SKILL.md 的 `enable` 字段，
+                // 否则默认关闭的技能无法在设置页单独打开。
+                enabled: true,
+            },
+        );
+        return;
+    }
+
+    // 根目录本身不是技能：按技能根目录递归扫描其子目录。
+    let mut found = BTreeMap::new();
+    load_skills_from_directory(&mut found, root, "plugin", &source);
+    for (relative, mut skill) in found {
+        let relative = explicit_id
+            .map(|id| format!("{}/{relative}", sanitize_plugin_skill_id(id)))
+            .unwrap_or(relative);
+        let id = format!("{plugin_id}/{relative}");
+        skill.id = id.clone();
+        skill.location = "plugin".to_string();
+        skill.source = source.clone();
+        skill.enabled = true;
+        skills.insert(id, skill);
+    }
 }
 
 /// 项目工作区路径：本地绝对路径或 `ssh://` 远程工作区 URI。
@@ -1013,12 +1217,25 @@ fn render_skill(skill: &Skill) -> String {
             )
         })
         .unwrap_or_default();
+    let plugin_tool_guidance = if let Some(plugin_id) = skill.source.strip_prefix("plugin:") {
+        let discover_tool = format!(
+            "{}-{}",
+            super::tool_search::SERVER_ID,
+            super::tool_search::TOOL_DISCOVER
+        );
+        format!(
+            "\n\n<plugin-tool-guidance>\nTo use tools from plugin {plugin_id}, first use {discover_tool} to find the required capability, then call the matching tool by its exact returned public name. Respect this skill's tool restrictions and the user's permissions and approval requirements; discovery grants no permission. If discovery or the required tool is unavailable, report it without bypassing restrictions.\n</plugin-tool-guidance>"
+        )
+    } else {
+        String::new()
+    };
 
     format!(
-        "<command-message>The \"{}\" skill is loading</command-message>\n\n{}{}\n\n<skill-info>\nSkill Name: {}\nAbsolute Path: {}\n\nDirectory Structure:\n```\n{}/\\n{}\n```\n\nNote: You can use the filesystem read tool to read any file in this skill directory using the absolute path above.\n</skill-info>",
+        "<command-message>The \"{}\" skill is loading</command-message>\n\n{}{}{}\n\n<skill-info>\nSkill Name: {}\nAbsolute Path: {}\n\nDirectory Structure:\n```\n{}/\\n{}\n```\n\nNote: You can use the filesystem read tool to read any file in this skill directory using the absolute path above.\n</skill-info>",
         skill.name,
         skill.content,
         tool_restriction,
+        plugin_tool_guidance,
         skill.name,
         skill.directory.display(),
         skill.name,

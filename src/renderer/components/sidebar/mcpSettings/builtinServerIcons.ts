@@ -45,6 +45,7 @@ const BUILTIN_SERVER_ICONS: Record<string, LucideIcon> = {
   "builtin:computer-use": Monitor,
   "builtin:html": CodeXml,
   "builtin:decision": Scale,
+  "builtin:toolsearch": Search,
 };
 
 /** 返回内置服务的专属图标；非内置服务返回 undefined。 */

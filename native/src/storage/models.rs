@@ -850,6 +850,7 @@ pub struct ConversationSearchResult {
 pub struct ChatMessageRecord {
     pub id: String,
     pub role: String,
+    pub origin: String,
     pub content: String,
     pub thinking: String,
     /// Thinking-phase duration (ms) recorded for this assistant message.

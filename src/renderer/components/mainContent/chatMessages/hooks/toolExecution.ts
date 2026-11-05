@@ -146,6 +146,7 @@ export type ToolExecutorDeps = {
   sessionDirId: string | undefined;
   directoryPath: string | undefined;
   responseId: string | undefined;
+  modelRequestId: string | undefined;
   /** 会话绑定的 API 档案（纠错请求使用同一档案的基础模型）。 */
   apiProfile: string | undefined;
   forcedSkillLoad?: boolean;
@@ -203,6 +204,7 @@ export function createToolExecutor(
     sessionDirId,
     directoryPath,
     responseId,
+    modelRequestId,
     apiProfile,
     forcedSkillLoad,
     isRunCancelled,
@@ -546,6 +548,7 @@ export function createToolExecutor(
             correctedCall.interactionId,
             undefined,
             isPendingSessionKey(effectiveKey) ? undefined : effectiveKey,
+            modelRequestId,
           ),
           resolveToolWatchdogMs(correctedCall.name, preparedArgs),
         );
@@ -1014,6 +1017,7 @@ export function createToolExecutor(
                     isPendingSessionKey(effectiveKey)
                       ? undefined
                       : effectiveKey,
+                    modelRequestId,
                   ),
                   resolveToolWatchdogMs(
                     parallelToolCall.name,
@@ -1702,6 +1706,7 @@ export function createToolExecutor(
                       isPendingSessionKey(effectiveKey)
                         ? undefined
                         : effectiveKey,
+                      modelRequestId,
                     ),
                     resolveToolWatchdogMs(toolCall.name, toolArgs),
                   );

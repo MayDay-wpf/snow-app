@@ -54,9 +54,8 @@ import { CustomSelect } from "../common/CustomSelect";
 import { THINKING_OPTIONS_BY_METHOD } from "../mainContent/chatInput/constants";
 import {
   buildSegmentsHtml,
-  createChipHtml,
   createImageChipHtml,
-  createSkillChipHtml,
+  createMentionChipHtml,
   insertHtmlAtSelection,
   isEditableContentEmpty,
   parseContentSegments,
@@ -64,7 +63,7 @@ import {
   renumberImageChips,
   type FileTag,
   type ImageTag,
-  type SkillTag,
+  type MentionTag,
 } from "../mainContent/chatInput/fileTagUtils";
 import {
   FileMentionPopup,
@@ -804,11 +803,9 @@ export function ScheduledTasksPanel({
   }, []);
 
   const insertPromptFileTag = useCallback(
-    (tag: FileTag | SkillTag): void => {
+    (tag: MentionTag): void => {
       promptInputRef.current?.focus();
-      insertHtmlAtSelection(
-        "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
-      );
+      insertHtmlAtSelection(createMentionChipHtml(tag));
       syncPromptContent();
     },
     [syncPromptContent],
@@ -1015,7 +1012,7 @@ export function ScheduledTasksPanel({
   );
 
   const handleMentionSelect = useCallback(
-    (tag: FileTag | SkillTag): void => {
+    (tag: MentionTag): void => {
       deleteMentionQuery();
       insertPromptFileTag(tag);
     },
@@ -1023,7 +1020,7 @@ export function ScheduledTasksPanel({
   );
 
   const handleMentionSelectBatch = useCallback(
-    (tags: (FileTag | SkillTag)[]): void => {
+    (tags: MentionTag[]): void => {
       deleteMentionQuery();
       tags.forEach(insertPromptFileTag);
     },

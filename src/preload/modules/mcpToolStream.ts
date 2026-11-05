@@ -342,6 +342,7 @@ export const callMcpTool = async (
   interactionId?: string,
   subAgentAllowedTools?: string[],
   conversationId?: string,
+  modelRequestId?: string,
 ): Promise<string> => {
   const streamId = `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   ensureChunkListener();
@@ -376,6 +377,7 @@ export const callMcpTool = async (
       interactionId ?? streamId,
       subAgentAllowedTools,
       conversationId,
+      modelRequestId,
     );
     const pending = state.imageGeneration ? readPendingReceipt(result) : null;
     if (pending && !state.terminalReceived) retainPendingStream(state, pending);

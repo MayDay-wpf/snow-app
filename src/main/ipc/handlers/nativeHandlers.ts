@@ -1280,6 +1280,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
       interactionId: unknown,
       subAgentAllowedTools: unknown,
       conversationId: unknown,
+      modelRequestId: unknown,
     ) => {
       if (typeof toolFullName !== "string" || !toolFullName.trim()) {
         throw new Error("Tool full name is required");
@@ -1328,6 +1329,12 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
         throw new Error("Conversation id must be a non-empty string");
       }
 
+      if (
+        modelRequestId !== undefined &&
+        (typeof modelRequestId !== "string" || !modelRequestId.trim())
+      ) {
+        throw new Error("Model request ID must be a non-empty string");
+      }
       const normalizedStreamId = streamId.trim();
       const normalizedInteractionId = interactionId.trim();
       const normalizedSubAgentAllowedTools =
@@ -1394,6 +1401,7 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
           dispatchTerminalCommand(event.sender, command),
         normalizedSubAgentAllowedTools,
         normalizedConversationId,
+        typeof modelRequestId === "string" ? modelRequestId.trim() : undefined,
       );
 
       try {

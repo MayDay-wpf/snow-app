@@ -43,7 +43,8 @@ const MAX_VARIABLES: usize = 400;
 // v5: complete sub-agent run data; cold parent identities can reference live parents.
 // v6: message delivery state and peer metadata with real external endpoint identities.
 // v7: refresh true-deletion guards for external peer endpoints on existing cold v6.
-const ARCHIVE_SCHEMA_VERSION: i64 = 7;
+// v8: preserve message origin on archive and restore.
+const ARCHIVE_SCHEMA_VERSION: i64 = 8;
 
 /// 与运行库 chat_conversations 完全一致的列（不含归档时间列）。
 /// 必须与运行库 create_schema 的 chat_conversations 列保持同步——
@@ -53,7 +54,7 @@ const CONVERSATION_COLUMNS: &str = "id, conversation_id, title, summary, last_me
 /// 与运行库 chat_messages 完全一致的列。
 /// 必须与运行库 create_schema 的 chat_messages 列保持同步——
 /// 归档与还原都按此清单显式拷贝，漏列即静默丢数据。
-const MESSAGE_COLUMNS: &str = "id, message_id, conversation_id, role, content, model, response_id, checkpoint_id, status, interruption_reason, recovery_outcome, raw_json, thinking, thinking_duration_ms, thinking_token_count, thinking_blocks_json, tool_calls_json, tool_corrections_json, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, retry_attempts, retry_error, created_at";
+const MESSAGE_COLUMNS: &str = "id, message_id, conversation_id, role, origin, content, model, response_id, checkpoint_id, status, interruption_reason, recovery_outcome, raw_json, thinking, thinking_duration_ms, thinking_token_count, thinking_blocks_json, tool_calls_json, tool_corrections_json, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, retry_attempts, retry_error, created_at";
 
 const TODO_COLUMNS: &str =
     "id, session_id, content, status, response_id, created_at, updated_at, parent_id";
@@ -501,6 +502,7 @@ pub(crate) fn create_archive_schema(connection: &Connection) -> rusqlite::Result
            message_id TEXT NOT NULL UNIQUE,
            conversation_id TEXT NOT NULL,
            role TEXT NOT NULL,
+           origin TEXT NOT NULL DEFAULT 'unknown',
            content TEXT NOT NULL,
            model TEXT NOT NULL DEFAULT '',
            response_id TEXT NOT NULL DEFAULT '',
@@ -714,6 +716,7 @@ fn migrate_archive_chat_messages(connection: &Connection) -> rusqlite::Result<()
         ("retry_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("retry_error", "TEXT NOT NULL DEFAULT ''"),
         ("tool_corrections_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ("origin", "TEXT NOT NULL DEFAULT 'unknown'"),
     ] {
         if !columns.iter().any(|column| column == name) {
             connection.execute(

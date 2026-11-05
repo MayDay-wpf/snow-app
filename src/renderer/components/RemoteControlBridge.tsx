@@ -330,6 +330,16 @@ const toRemoteContentBlocks = (
           },
         ];
       }
+      if (segment.type === "plugin") {
+        return [
+          {
+            type: "reference",
+            kind: "plugin",
+            label: segment.tag.name,
+            detail: segment.tag.pluginId,
+          },
+        ];
+      }
       const label =
         segment.type === "commit"
           ? segment.tag.shortHash || "Commit"
@@ -429,6 +439,7 @@ const toRemotePreview = (content: string | undefined): string => {
           segment.tag.endLine,
         )}]`;
       }
+      if (segment.type === "plugin") return `[插件 ${segment.tag.name}]`;
       if (segment.type === "workflow") {
         return `[${formatWorkflowTagLabel(segment.tag)}]`;
       }
@@ -2425,7 +2436,7 @@ export const RemoteControlBridge = ({
           .join("\n");
         stateRef.current.onSelectMainView("chat");
         const chatInput = resolveChatInputForDisplay();
-        const sendOptions: ChatInputSendOptions = {};
+        const sendOptions: ChatInputSendOptions = { origin: "user" };
         if (chatInput) {
           sendOptions.model = chatInput.selectedModel || undefined;
           sendOptions.apiProfile = chatInput.selectedApiProfile || undefined;

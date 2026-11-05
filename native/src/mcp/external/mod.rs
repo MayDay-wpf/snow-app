@@ -15,6 +15,7 @@ use crate::storage::services::system_settings::McpProjectScopeSettings;
 use crate::storage::McpServerConfigRecord;
 
 use super::protocol::RemoteMcpTool;
+use super::servers::tool_search::PluginDiscoveryFailure;
 use super::tools::McpTool;
 
 const DISCOVERY_CONCURRENCY: usize = 4;
@@ -107,6 +108,53 @@ pub(crate) fn invalidate_server_discovery_cache(config_server_id: &str) {
     }
 }
 
+/// 只失效某个插件派生出的全部服务器缓存（key 形如 `{project}:plugin:{id}:{server}`）。
+/// 插件安装 / 更新 / rescan / 启停 / 卸载后调用，避免最长 5 分钟的旧工具清单。
+pub(crate) fn invalidate_plugin_discovery_cache(plugin_id: &str) -> Result<()> {
+    let needle = format!(":plugin:{plugin_id}:");
+    if let Some(cache) = DISCOVERY_CACHE.get() {
+        let mut guard = cache.lock().map_err(|error| {
+            Error::from_reason(format!("Plugin discovery cache lock failed: {error}"))
+        })?;
+        guard.retain(|key, _| !key.contains(&needle));
+        super::servers::tool_search::invalidate(None)?;
+    } else {
+        super::servers::tool_search::invalidate(None)?;
+    }
+    Ok(())
+}
+
+/// 插件工具发现失败写入应用日志：请求路径此前只有 stderr，用户无法自查。
+pub(crate) fn log_discovery_failure(project_id: Option<&str>, source: &str, error: &str) {
+    let project_id = project_id.unwrap_or_default().to_string();
+    let source = source.to_string();
+    let error = error.to_string();
+    tokio::task::spawn_blocking(move || {
+        let Ok(storage) = crate::storage::initialize_app_storage() else {
+            return;
+        };
+        let input = crate::storage::services::app_logs::AppLogInput {
+            level: "WARN".to_string(),
+            module: "mcp_plugin".to_string(),
+            func: "discover_tools".to_string(),
+            line: None,
+            message: format!("Plugin MCP tool discovery failed: {source}"),
+            input: None,
+            output: None,
+            duration: None,
+            context: Some(
+                serde_json::json!({ "projectId": project_id, "source": source }).to_string(),
+            ),
+            error: Some(error),
+            source: "main".to_string(),
+        };
+        let _ = crate::storage::services::app_logs::insert_app_log(
+            std::path::Path::new(&storage.database_path),
+            &input,
+        );
+    });
+}
+
 /// 外部 MCP 服务器的默认超时（毫秒）：覆盖连接、工具发现与单次工具调用。
 /// 服务器配置中显式设置了 timeout_ms（>0）时优先使用配置值。
 const DEFAULT_SERVER_TIMEOUT_MS: u64 = 120_000;
@@ -156,13 +204,20 @@ fn server_is_enabled(config: &McpServerConfigRecord, project_override: bool) -> 
 
 /// `allowed_names` 为请求白名单时只发现白名单涉及的服务器；`project_override`
 /// （子代理显式白名单）跳过项目级服务器/工具开关（含项目自有服务器的 enabled）。
+/// `active_plugin_ids` 为会话级插件门控（`@@plugin` 激活集合），`None` 表示不按会话过滤。
+/// `defer_plugin_tools` 为 true 时把插件来源的工具单独返回（不进请求 tools，
+/// 由 tool_search 按需检索）；另返回插件服务器的发现失败和工具来源身份。
 pub async fn discover_tools(
     project_id: Option<&str>,
     scope: Option<&McpProjectScopeSettings>,
     allowed_names: Option<&HashSet<String>>,
     project_override: bool,
-) -> Result<Vec<McpTool>> {
-    let configs = load_configs(project_id).await?;
+    active_plugin_ids: Option<&HashSet<String>>,
+    defer_plugin_tools: bool,
+    plugins_only: bool,
+    cache_only: bool,
+) -> Result<(Vec<McpTool>, Vec<McpTool>, Vec<PluginDiscoveryFailure>, HashMap<String, String>, HashSet<String>)> {
+    let configs = load_configs_with_plugins(project_id).await?;
     let server_names = public_server_names(&configs);
     let scope = if project_override { None } else { scope };
     let disabled_server_ids = scope
@@ -181,7 +236,12 @@ pub async fn discover_tools(
                     .get(&config.server_id)
                     .cloned()
                     .unwrap_or_else(|| sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external"));
+                let is_plugin = config.source.starts_with("plugin:");
+                if (plugins_only && !is_plugin) || (defer_plugin_tools && !plugins_only && is_plugin) {
+                    return None;
+                }
                 let enabled = server_is_enabled(&config, project_override)
+                    && plugin_source_active(&config.source, active_plugin_ids)
                     && (config.source == "project"
                         || !disabled_server_ids
                             .contains(&project_scope_server_id(&config.server_id)));
@@ -192,8 +252,15 @@ pub async fn discover_tools(
             })
             .map(|(config, server_name)| {
                 let project_id = project_id.clone();
+                let source = config.source.clone();
+                let identity = config.server_id.clone();
                 async move {
-                    discover_config_tools(project_id.as_deref(), config, server_name, false).await
+                    let discovered = if cache_only {
+                        cached_discovery_tools(project_id.as_deref(), &identity, &server_name).map(Ok)
+                    } else {
+                        Some(discover_config_tools(project_id.as_deref(), config, server_name.clone(), false).await)
+                    };
+                    (source, server_name, identity, discovered)
                 }
             }),
     )
@@ -202,22 +269,158 @@ pub async fn discover_tools(
     .await;
 
     let mut tools = Vec::new();
+    let mut deferred_tools = Vec::new();
+    let mut plugin_failures = Vec::new();
+    let mut plugin_tool_identities = HashMap::new();
     let mut names = HashSet::new();
-    for discovered in discoveries {
+    let mut pending_names = HashSet::new();
+    for (source, server_name, identity, discovered) in discoveries {
+        let Some(discovered) = discovered else {
+            if let Some(allowed_names) = allowed_names {
+                let prefix = format!("{server_name}-");
+                pending_names.extend(allowed_names.iter()
+                    .filter(|name| name.starts_with(&prefix) && !disabled_tool_names.contains(*name))
+                    .cloned());
+            }
+            continue;
+        };
         match discovered {
             Ok(discovered_tools) => {
                 for tool in discovered_tools {
                     let full_name = tool.full_name();
-                    if !disabled_tool_names.contains(&full_name) && names.insert(full_name) {
-                        tools.push(tool);
+                    if disabled_tool_names.contains(&full_name) || !names.insert(full_name.clone()) {
+                        continue;
                     }
+                    if source.starts_with("plugin:") {
+                        plugin_tool_identities.insert(full_name, identity.clone());
+                        if defer_plugin_tools {
+                            deferred_tools.push(tool);
+                            continue;
+                        }
+                    }
+                    tools.push(tool);
                 }
             }
-            Err(error) => eprintln!("Failed to discover an external MCP server: {error}"),
+            Err(error) => {
+                log_discovery_failure(project_id.as_deref(), &source, &error.to_string());
+                if let Some(plugin_id) = source.strip_prefix("plugin:") {
+                    plugin_failures.push(PluginDiscoveryFailure {
+                        plugin_id: plugin_id.to_string(),
+                        server: server_name,
+                        error: error.to_string(),
+                    });
+                }
+                eprintln!("Failed to discover an external MCP server: {error}");
+            }
         }
     }
 
-    Ok(tools)
+    Ok((tools, deferred_tools, plugin_failures, plugin_tool_identities, pending_names))
+}
+
+/// Effective plugin server identities, obtained from configuration without connecting.
+pub(crate) async fn available_plugin_servers(
+    project_id: Option<&str>,
+    scope: Option<&McpProjectScopeSettings>,
+) -> Result<HashMap<String, (String, String)>> {
+    let configs = load_configs_with_plugins(project_id).await?;
+    let names = public_server_names(&configs);
+    Ok(configs
+        .into_iter()
+        .filter_map(|config| {
+            let plugin_id = config.source.strip_prefix("plugin:")?;
+            if !config.enabled
+                || scope.is_some_and(|scope| {
+                    !scope.is_server_enabled(&project_scope_server_id(&config.server_id))
+                })
+            {
+                return None;
+            }
+            let public_name = names.get(&config.server_id)?.clone();
+            Some((public_name, (config.server_id.clone(), plugin_id.to_string())))
+        })
+        .collect())
+}
+
+/// Resolve plugin ownership before any connection or process launch.
+pub(crate) async fn plugin_tool_identity(
+    project_id: Option<&str>,
+    tool_full_name: &str,
+) -> Result<Option<String>> {
+    let Some((server_name, _)) = parse_external_tool_name(tool_full_name) else {
+        return Ok(None);
+    };
+    let configs = load_configs_with_plugins(project_id).await?;
+    let names = public_server_names(&configs);
+    Ok(configs.into_iter().find_map(|config| {
+        (config.source.starts_with("plugin:")
+            && names.get(&config.server_id).map(String::as_str) == Some(server_name))
+            .then_some(config.server_id)
+    }))
+}
+
+/// 一个工具插件服务器的发现结果（供插件页面与 `@` 面板展示）。
+pub struct PluginToolServer {
+    pub plugin_id: String,
+    pub server_name: String,
+    pub public_server_name: String,
+    pub tools: Vec<McpTool>,
+    pub error: Option<String>,
+}
+
+/// `server_id`（`plugin:<pluginId>:<serverName>`）解析出插件 id 与清单内服务器名。
+fn plugin_server_identity(config: &McpServerConfigRecord) -> Option<(String, String)> {
+    let plugin_id = config.source.strip_prefix("plugin:")?.to_string();
+    let server_name = config.server_id.rsplitn(2, ':').next()?.to_string();
+    Some((plugin_id, server_name))
+}
+
+/// 发现全部已启用工具插件的服务器与工具清单。
+///
+/// 与请求路径不同：这里按项目作用域展示（不受会话 `@` 门控），失败按服务器返回
+/// `error` 而不是整体失败，插件页面据此展示「工具 n 个」与失败原因。
+pub async fn discover_plugin_servers(project_id: Option<&str>) -> Result<Vec<PluginToolServer>> {
+    let plugin_configs = load_configs_with_plugins(project_id)
+        .await?
+        .into_iter()
+        .filter(|config| config.source.starts_with("plugin:"))
+        .collect::<Vec<_>>();
+    let server_names = public_server_names(&plugin_configs);
+
+    let mut servers = Vec::new();
+    for config in plugin_configs {
+        let Some((plugin_id, server_name)) = plugin_server_identity(&config) else {
+            continue;
+        };
+        let public_server_name = server_names
+            .get(&config.server_id)
+            .cloned()
+            .unwrap_or_else(|| sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external"));
+        let outcome = discover_config_tools(
+            project_id,
+            config,
+            public_server_name.clone(),
+            false,
+        )
+        .await;
+        match outcome {
+            Ok(tools) => servers.push(PluginToolServer {
+                plugin_id,
+                server_name,
+                public_server_name,
+                tools,
+                error: None,
+            }),
+            Err(error) => servers.push(PluginToolServer {
+                plugin_id,
+                server_name,
+                public_server_name,
+                tools: Vec::new(),
+                error: Some(error.to_string()),
+            }),
+        }
+    }
+    Ok(servers)
 }
 
 /// `project_id` 为 None 时只返回全局服务器（不含项目专属服务器）。
@@ -278,7 +481,7 @@ pub async fn resolve_project_scope_server(
     let Some((server_name, public_tool_name)) = parse_external_tool_name(tool_full_name) else {
         return Ok(None);
     };
-    let configs = load_configs(project_id).await?;
+    let configs = load_configs_with_plugins(project_id).await?;
     let server_names = public_server_names(&configs);
     let Some(config) = configs.into_iter().find(|config| {
         server_names.get(&config.server_id).map(String::as_str) == Some(server_name)
@@ -333,7 +536,7 @@ pub async fn call_tool(
         return Ok(None);
     };
 
-    let configs = load_configs(project_id).await?;
+    let configs = load_configs_with_plugins(project_id).await?;
     let server_names = public_server_names(&configs);
     let Some(config) = configs.into_iter().find(|config| {
         server_names.get(&config.server_id).map(String::as_str) == Some(server_name)
@@ -439,6 +642,7 @@ async fn discover_config_tools(
     force: bool,
 ) -> Result<Vec<McpTool>> {
     let cache_key = discovery_cache_key(project_id, &config.server_id);
+    let search_generation = super::servers::tool_search::generation();
 
     if !force {
         if let Some(cached) = read_discovery_cache(&cache_key, &server_name) {
@@ -450,17 +654,19 @@ async fn discover_config_tools(
 
     if !force {
         if let Ok(mut guard) = discovery_cache().lock() {
-            if guard.len() >= DISCOVERY_CACHE_MAX_ENTRIES {
-                guard.clear();
+            if search_generation == super::servers::tool_search::generation() {
+                if guard.len() >= DISCOVERY_CACHE_MAX_ENTRIES {
+                    guard.clear();
+                }
+                guard.insert(
+                    cache_key,
+                    CachedDiscovery {
+                        fetched_at: Instant::now(),
+                        public_server_name: server_name,
+                        tools: tools.clone(),
+                    },
+                );
             }
-            guard.insert(
-                cache_key,
-                CachedDiscovery {
-                    fetched_at: Instant::now(),
-                    public_server_name: server_name,
-                    tools: tools.clone(),
-                },
-            );
         }
     }
 
@@ -550,6 +756,42 @@ async fn load_configs(project_id: Option<&str>) -> Result<Vec<McpServerConfigRec
             "Failed to load external MCP server configs: {error}"
         ))
     })?
+}
+
+/// 有效外部配置 + 工具插件派生的服务器配置（发现与执行共用）。
+///
+/// 插件配置不落 `mcp_server_configs` 表，因此 MCP 面板不会出现插件条目；
+/// 启停与项目作用域分别由 `app_plugins.enabled` 与 `project_plugins_scope_*` 决定。
+async fn load_configs_with_plugins(
+    project_id: Option<&str>,
+) -> Result<Vec<McpServerConfigRecord>> {
+    let mut configs = load_configs(project_id).await?;
+    let project_id = project_id.map(str::to_string);
+    let plugin_configs = tokio::task::spawn_blocking(move || {
+        let storage_info = crate::storage::initialize_app_storage()?;
+        let database_path = std::path::PathBuf::from(storage_info.database_path);
+        crate::storage::list_tool_plugin_server_configs(&database_path, project_id.as_deref())
+    })
+    .await
+    .map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to load plugin MCP server configs: {error}"
+        ))
+    })??;
+    configs.extend(plugin_configs);
+    Ok(configs)
+}
+
+/// 插件来源的会话级门控：未被 `@` 激活的插件不参与发现，避免拉起其服务器进程。
+/// `None` 表示非请求路径（诊断 / 描述收集），此时不按会话过滤。
+fn plugin_source_active(source: &str, active_plugin_ids: Option<&HashSet<String>>) -> bool {
+    match source.strip_prefix("plugin:") {
+        None => true,
+        Some(plugin_id) => match active_plugin_ids {
+            None => true,
+            Some(ids) => ids.contains(plugin_id),
+        },
+    }
 }
 
 fn parse_external_tool_name(full_name: &str) -> Option<(&str, &str)> {

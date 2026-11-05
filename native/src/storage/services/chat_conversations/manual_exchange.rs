@@ -135,6 +135,7 @@ pub fn store_manual_tool_exchange(
                     index,
                     0,
                     "",
+                    &message.origin,
                 )?;
                 if is_user { user_message_ids.push(message_id); }
             }
@@ -160,6 +161,7 @@ pub fn store_manual_tool_exchange(
                 request_messages.len(),
                 0,
                 "",
+                super::ORIGIN_INTERNAL,
             )?;
             transaction.execute(
                 "UPDATE chat_conversations

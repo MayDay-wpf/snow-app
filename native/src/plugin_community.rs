@@ -155,6 +155,10 @@ struct CommunityRepo {
     /// 未声明或读取失败时为空，渲染层回退占位图标。
     #[serde(default)]
     icon: String,
+    /// 仓库默认分支 `plugin.json` 的类型（`tool` / `oauth` / `plugin`）；
+    /// 空串表示没有清单、读取失败或未声明类型。
+    #[serde(default)]
+    kind: String,
 }
 
 /// 检索失败原因：限流可回退缓存，其余直接报错。
@@ -313,6 +317,7 @@ fn parse_repo(item: &serde_json::Value) -> Option<CommunityRepo> {
         release_url: String::new(),
         released_at: String::new(),
         icon: String::new(),
+        kind: String::new(),
     })
 }
 
@@ -466,11 +471,13 @@ fn resolve_community_releases(
                     repo.release_tag = release.tag;
                     repo.release_url = release.url;
                     repo.released_at = release.released_at;
-                    repo.icon = fetch_community_icon(
+                    let (icon, kind) = fetch_community_manifest(
                         client,
                         &repo,
                         deadline.saturating_duration_since(Instant::now()),
                     );
+                    repo.icon = icon;
+                    repo.kind = kind;
                     kept.push(repo);
                 }
                 kept
@@ -485,12 +492,13 @@ fn resolve_community_releases(
     parts.into_iter().flatten().collect()
 }
 
-/// 读取单个仓库的图标；仓库未声明 `icon`、文件不存在或超时都返回空串。
-fn fetch_community_icon(
+/// 读取单个仓库的 `plugin.json` 摘要（图标与插件类型）；仓库没有清单、
+/// 文件不存在或超时时两项都返回空串。
+fn fetch_community_manifest(
     client: &reqwest::blocking::Client,
     repo: &CommunityRepo,
     budget: Duration,
-) -> String {
+) -> (String, String) {
     let branch = if repo.default_branch.is_empty() {
         "HEAD"
     } else {
@@ -505,29 +513,56 @@ fn fetch_community_icon(
         .timeout(budget.min(COMMUNITY_ICON_TIMEOUT))
         .send()
     else {
-        return String::new();
+        return (String::new(), String::new());
     };
     if !response.status().is_success() {
-        return String::new();
+        return (String::new(), String::new());
     }
     if matches!(response.content_length(), Some(length) if length > COMMUNITY_ICON_MAX_BYTES) {
-        return String::new();
+        return (String::new(), String::new());
     }
     let Ok(text) = response.text() else {
-        return String::new();
+        return (String::new(), String::new());
     };
     if text.len() as u64 > COMMUNITY_ICON_MAX_BYTES {
-        return String::new();
+        return (String::new(), String::new());
     }
     let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return String::new();
+        return (String::new(), String::new());
     };
     let raw = manifest
         .get("icon")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .trim();
-    normalize_community_icon(raw, &base)
+    (
+        normalize_community_icon(raw, &base),
+        resolve_community_kind(&manifest),
+    )
+}
+
+/// 归一化仓库清单的插件类型，与安装侧的判定保持一致：
+/// `oauth`（声明 `kind: "oauth"` 或提供 `oauth.entry`）优先，
+/// 其次是 `tool`（声明 `kind: "tool"` 或包含 `mcpServers`），否则为 `plugin`。
+fn resolve_community_kind(manifest: &serde_json::Value) -> String {
+    let declared = manifest
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .map(|value| value.to_ascii_lowercase());
+    let oauth_entry = manifest
+        .get("oauth")
+        .and_then(|oauth| oauth.get("entry"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if declared.as_deref() == Some("oauth") || !oauth_entry.is_empty() {
+        return "oauth".to_string();
+    }
+    if declared.as_deref() == Some("tool") || manifest.get("mcpServers").is_some() {
+        return "tool".to_string();
+    }
+    "plugin".to_string()
 }
 
 /// 归一化社区条目图标：只接受受支持的取值，拒绝绝对路径与越界路径。

@@ -17,6 +17,7 @@ pub(crate) fn render_csv(
         .write_record(&[
             "id",
             "role",
+            "origin",
             "content",
             "thinking",
             "status",
@@ -38,6 +39,7 @@ pub(crate) fn render_csv(
             .write_record(&[
                 &message.id,
                 &message.role,
+                &message.origin,
                 &message.content,
                 &message.thinking,
                 &message.status,

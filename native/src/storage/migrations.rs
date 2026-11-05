@@ -96,6 +96,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_chat_messages_token_usage(connection)?;
     migrate_chat_messages_retry_metadata(connection)?;
     migrate_chat_messages_tool_corrections(connection)?;
+    add_column_if_missing(connection, "chat_messages", "origin", "TEXT NOT NULL DEFAULT 'unknown'")?;
     migrate_chat_messages_cancelled_terminal_cleanup(connection)?;
     purge_assistant_raw_json_blobs(connection)?;
     drop_tables_referencing_sub_agent_configs_legacy(connection)?;

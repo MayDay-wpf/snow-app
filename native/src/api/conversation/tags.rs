@@ -539,7 +539,7 @@ fn truncate_line(text: &str, max_chars: usize) -> String {
 }
 
 /// 展示型 chip 标签前缀（与前端 fileTagUtils 的 encode* 编码格式一一对应）。
-const DISPLAY_TAG_PREFIXES: [&str; 16] = [
+const DISPLAY_TAG_PREFIXES: [&str; 17] = [
     "@@file-selection:",
     "@@file:",
     "@@dir:",
@@ -554,6 +554,7 @@ const DISPLAY_TAG_PREFIXES: [&str; 16] = [
     "@@quote:",
     "@@command:",
     "@@skill:",
+    "@@plugin:",
     "@@annotation:",
     "@@workflow:",
 ];
@@ -655,6 +656,17 @@ fn display_text_for_tag(prefix: &str, value: &str) -> Option<String> {
                 return None;
             }
             Some(skill_id)
+        }
+        "@@plugin:" => {
+            let name = json_text(&parsed, "name");
+            if !name.trim().is_empty() {
+                return Some(name);
+            }
+            let plugin_id = json_text(&parsed, "pluginId");
+            if plugin_id.trim().is_empty() {
+                return None;
+            }
+            Some(plugin_id)
         }
         "@@annotation:" => display_annotation_reference(&parsed),
         "@@file-selection:" => display_file_selection_reference(&parsed),

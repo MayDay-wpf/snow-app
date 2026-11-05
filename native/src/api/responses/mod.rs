@@ -46,6 +46,7 @@ use crate::storage::ApiConfigRecord;
 #[napi(object)]
 pub struct ResponsesApiMessage {
     pub role: String,
+    pub origin: Option<String>,
     pub content: String,
     /// Structured tool results JSON for role="tool" messages.
     /// Format: `[{"name":"...","callId":"...","result":"..."}]`
@@ -67,6 +68,22 @@ pub struct ResponsesApiMessage {
     /// no database history to load, so they must replay their own tool loop
     /// by sending the assistant tool calls back together with their results.
     pub tool_calls_json: Option<String>,
+}
+
+impl ResponsesApiMessage {
+    pub(crate) fn to_context_message(&self) -> Result<ChatContextMessage> {
+        Ok(ChatContextMessage {
+            role: self.role.clone(),
+            origin: crate::storage::services::chat_conversations::parse_message_origin(
+                self.origin.as_deref(),
+            )?.to_string(),
+            content: self.content.clone(),
+            tool_calls_json: self.tool_calls_json.clone(),
+            tool_results_json: self.tool_results_json.clone(),
+            thinking: self.thinking.clone(),
+            thinking_blocks_json: self.thinking_blocks_json.clone(),
+        })
+    }
 }
 
 #[napi(object)]
@@ -155,6 +172,10 @@ pub struct ResponsesApiRequest {
     /// `skip_context` is set, which is what the desktop pet's side channel
     /// needs: no conversation history, but still web search / file tools.
     pub allowed_tools_json: Option<String>,
+    /// 会话级插件激活集合（`@@plugin` chip 解析出的插件 id，JSON 数组）。
+    /// 不在集合内的工具插件既不发现也不注入；空数组表示本次请求不使用插件工具。
+    /// 字段缺失（None）表示非主会话请求，此时不按会话过滤插件来源。
+    pub plugin_tool_ids_json: Option<String>,
 }
 
 impl ResponsesApiRequest {
@@ -342,16 +363,13 @@ async fn create_response_async(
     let request_messages = request
         .messages
         .iter()
-        .map(|message| ChatContextMessage {
-            role: message.role.clone(),
-            content: message.content.clone(),
-            tool_calls_json: message.tool_calls_json.clone(),
-            tool_results_json: message.tool_results_json.clone(),
-            thinking: message.thinking.clone(),
-            thinking_blocks_json: message.thinking_blocks_json.clone(),
-        })
-        .collect::<Vec<_>>();
+        .map(|message| message.to_context_message())
+        .collect::<Result<Vec<_>>>()?;
     // Collect once, before prompt generation; providers serialize this same snapshot.
+    let plugin_tool_configuration = crate::api::plugin_tool_guard::PluginToolGuard::configuration(
+        request.directory_id.as_deref(),
+    )
+    .await?;
     let allowed_tools = resolve_request_tools_optional(&request).await?;
     let prepared_request = prepare_context_request(ConversationContextRequest {
         allowed_tools: allowed_tools.as_deref().unwrap_or_default(),
@@ -418,6 +436,13 @@ async fn create_response_async(
         &prepared_request.host_system_prompts,
         cache_key,
     )?;
+    let tool_guard = crate::api::plugin_tool_guard::PluginToolGuard::capture(
+        crate::api::plugin_tool_guard::Protocol::Responses,
+        request.directory_id.as_deref(),
+        plugin_tool_configuration,
+        &payload,
+    )
+    .await?;
     let (endpoint, payload) = crate::api::oauth::plugin::transform_request(
         &api_config,
         "responses",
@@ -458,6 +483,7 @@ async fn create_response_async(
                 api_key,
                 &effective_headers,
                 payload,
+                &tool_guard,
                 on_chunk,
                 &cancel_token,
                 &retry_options,
@@ -477,6 +503,7 @@ async fn create_response_async(
                 api_key,
                 &effective_headers,
                 payload,
+                &tool_guard,
                 on_chunk,
                 &cancel_token,
                 &retry_options,

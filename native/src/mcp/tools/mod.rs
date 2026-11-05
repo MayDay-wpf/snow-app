@@ -154,6 +154,7 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "app-control",
     "filesystem",
     "sub-agents",
+    "toolsearch",
     "websearch",
     "imagegen",
     "codebase",
@@ -197,7 +198,7 @@ pub fn split_tool_full_name(full_name: &str) -> Option<(&str, &str)> {
 }
 
 pub async fn list_mcp_tools() -> napi::Result<Vec<McpToolDefinition>> {
-    let tools = collect_all_mcp_tools(None, false).await?;
+    let tools = collect_all_mcp_tools(None, false, None).await?;
     Ok(to_tool_definitions(&tools))
 }
 
@@ -271,6 +272,9 @@ async fn collect_server_statuses(
     })
     .await?;
 
+    let tool_search_available = !super::external::available_plugin_servers(
+        project_id.as_deref(), scope.as_ref(),
+    ).await?.is_empty();
     let is_global_catalog = project_id.is_none();
     let mut servers = get_builtin_servers_with_tools()
         .into_iter()
@@ -294,6 +298,9 @@ async fn collect_server_statuses(
             // the front-end maps to the user's language.
             let (mut global_enabled, error) = if server_id == "imagegen" && !imagegen_configured {
                 (false, Some("imagegen:not_configured".to_string()))
+            } else if server_id == "toolsearch" && !tool_search_available {
+                enabled = false;
+                (false, Some(super::servers::tool_search::NO_ENABLED_PLUGINS.to_string()))
             } else {
                 (true, None)
             };
@@ -303,13 +310,20 @@ async fn collect_server_statuses(
             } else if server_globally_disabled {
                 global_enabled = false;
             }
+            let mut tool_statuses = to_server_tool_statuses(&tools, scope.as_ref(), global_scope.as_ref());
+            if server_id == "toolsearch" && !tool_search_available {
+                for tool in &mut tool_statuses {
+                    tool.enabled = false;
+                    tool.global_enabled = false;
+                }
+            }
             McpProjectServerStatus {
                 id: scope_server_id,
                 name: builtin_server_name(&server_id).to_string(),
                 source: "system".to_string(),
                 global_enabled,
                 enabled,
-                tools: to_server_tool_statuses(&tools, scope.as_ref(), global_scope.as_ref()),
+                tools: tool_statuses,
                 // 内置服务器工具来自进程内注册表，无需发现。
                 tools_pending: false,
                 error,
@@ -431,7 +445,16 @@ pub async fn list_mcp_project_server_tools(
                     format!("Unknown MCP project server: {server_id}"),
                 )
             })?;
-        return Ok(to_project_tool_statuses(&tools, &scope, global_scope.as_ref()));
+        let mut statuses = to_project_tool_statuses(&tools, &scope, global_scope.as_ref());
+        if builtin_server_id == "toolsearch"
+            && super::external::available_plugin_servers(Some(&project_id), Some(&scope)).await?.is_empty()
+        {
+            for tool in &mut statuses {
+                tool.enabled = false;
+                tool.global_enabled = false;
+            }
+        }
+        return Ok(statuses);
     }
 
     let external_server_id = server_id.strip_prefix("external:").ok_or_else(|| {
@@ -446,6 +469,14 @@ pub async fn list_mcp_project_server_tools(
     Ok(to_project_tool_statuses(&tools, &scope, global_scope.as_ref()))
 }
 
+async fn ensure_toolsearch_available(project_id: Option<&str>) -> napi::Result<()> {
+    let scope = load_project_scope(project_id).await?;
+    if super::external::available_plugin_servers(project_id, scope.as_ref()).await?.is_empty() {
+        return Err(Error::from_reason(super::servers::tool_search::NO_ENABLED_PLUGINS));
+    }
+    Ok(())
+}
+
 pub async fn set_mcp_project_server_enabled(
     project_id: String,
     server_id: String,
@@ -453,6 +484,9 @@ pub async fn set_mcp_project_server_enabled(
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
     let server_id = required_value(server_id, "MCP server id")?;
+    if enabled && server_id == "builtin:toolsearch" {
+        ensure_toolsearch_available(Some(&project_id)).await?;
+    }
     let known_server = if let Some(builtin_server_id) = server_id.strip_prefix("builtin:") {
         get_builtin_servers_with_tools()
             .iter()
@@ -546,6 +580,9 @@ pub async fn set_mcp_project_tool_enabled(
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
     let tool_name = required_value(tool_name, "MCP tool name")?;
+    if enabled && tool_name.starts_with("toolsearch-") {
+        ensure_toolsearch_available(Some(&project_id)).await?;
+    }
     let tool_exists = if let Some(server_id) = server_id_from_tool_name(&tool_name) {
         if get_builtin_servers_with_tools()
             .iter()
@@ -585,6 +622,9 @@ pub async fn set_mcp_project_tool_enabled(
 /// 启用被精简模式禁用的服务器时自动关闭精简模式（与项目级一致）。
 pub async fn set_mcp_global_server_enabled(server_id: String, enabled: bool) -> napi::Result<()> {
     let server_id = required_value(server_id, "MCP server id")?;
+    if enabled && server_id == "builtin:toolsearch" {
+        ensure_toolsearch_available(None).await?;
+    }
     let builtin_server_id = server_id
         .strip_prefix("builtin:")
         .filter(|id| {
@@ -625,6 +665,9 @@ pub async fn set_mcp_global_server_enabled(server_id: String, enabled: bool) -> 
 /// 全局启停单个工具：校验工具存在于全局可见的工具集（内置或全局外部服务器）。
 pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Result<()> {
     let tool_name = required_value(tool_name, "MCP tool name")?;
+    if enabled && tool_name.starts_with("toolsearch-") {
+        ensure_toolsearch_available(None).await?;
+    }
     ensure_global_tool_exists(&tool_name).await?;
 
     // 工具启停是读取时应用的黑名单，发现缓存内容不变，无需失效。
@@ -640,6 +683,9 @@ pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Res
 
 /// 全局批量启停工具：逐个校验存在性，全部通过后一次写入存储。
 pub async fn set_mcp_tools_enabled(tool_names: Vec<String>, enabled: bool) -> napi::Result<()> {
+    if enabled && tool_names.iter().any(|name| name.trim().starts_with("toolsearch-")) {
+        ensure_toolsearch_available(None).await?;
+    }
     for tool_name in &tool_names {
         let tool_name = required_value(tool_name.clone(), "MCP tool name")?;
         ensure_global_tool_exists(&tool_name).await?;
@@ -663,6 +709,9 @@ pub async fn set_mcp_project_tools_enabled(
     enabled: bool,
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
+    if enabled && tool_names.iter().any(|name| name.trim().starts_with("toolsearch-")) {
+        ensure_toolsearch_available(Some(&project_id)).await?;
+    }
     for tool_name in &tool_names {
         let tool_name = required_value(tool_name.clone(), "MCP tool name")?;
         let tool_exists = if let Some(server_id) = server_id_from_tool_name(&tool_name) {

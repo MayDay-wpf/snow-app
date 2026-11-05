@@ -16,18 +16,18 @@ app database automatically and takes effect immediately).
 Global config shared with Snow CLI. Top-level fields are detailed in
 [1-settings-json-reference](./1-settings-json-reference.md):
 
-| Field                      | Type    | Description                                                                |
-| -------------------------- | ------- | -------------------------------------------------------------------------- |
-| `mcpServers`               | object  | Global MCP servers, keyed by server name                                   |
-| `codebase`                 | object  | Codebase semantic-search config                                            |
-| `sensitiveCommands`        | array   | Sensitive-command interception rules                                       |
-| `yoloMode`                 | boolean | No-confirmation mode                                                       |
-| `vulnerabilityHuntingMode` | boolean | Vulnerability-hunting mode                                                 |
-| `toolSearchEnabled`        | boolean | Tool search toggle                                                         |
-| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                                                  |
-| `teamMode`                 | boolean | Team mode                                                                  |
-| `goal`                     | object  | Goal mode config (`defaultTokenBudgetM`: default token budget in millions) |
-| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                                                |
+| Field                      | Type    | Description                                                                                                               |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `mcpServers`               | object  | Global MCP servers, keyed by server name                                                                                  |
+| `codebase`                 | object  | Codebase semantic-search config                                                                                           |
+| `sensitiveCommands`        | array   | Sensitive-command interception rules                                                                                      |
+| `yoloMode`                 | boolean | No-confirmation mode                                                                                                      |
+| `vulnerabilityHuntingMode` | boolean | Vulnerability-hunting mode                                                                                                |
+| `toolSearchEnabled`        | boolean | Legacy shared field; Snow App no longer reads this switch. Plugin tool search follows the project's enabled tool plugins. |
+| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                                                                                                 |
+| `teamMode`                 | boolean | Team mode                                                                                                                 |
+| `goal`                     | object  | Goal mode config (`defaultTokenBudgetM`: default token budget in millions)                                                |
+| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                                                                                               |
 
 ## 2. config.json (scope: `snowcfg`)
 

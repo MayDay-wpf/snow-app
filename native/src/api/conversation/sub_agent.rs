@@ -13,6 +13,14 @@ pub async fn resolve_request_tools(request: &ResponsesApiRequest) -> Result<Vec<
         .analysis_workspace_root
         .as_deref()
         .map(std::path::Path::new);
+    // Plugin availability comes from the effective project configuration, not
+    // conversation @ mentions. Explicit tool whitelists are applied separately.
+    let active_plugin_ids = None;
+    let search_conversation_id = if request.worktree_mode.unwrap_or(false) {
+        None
+    } else {
+        request.conversation_id.as_deref()
+    };
     match request.sub_agent_tools_json.as_deref() {
         Some(tools_json) => {
             // An empty child list must not fall through to the parent tool set.
@@ -25,6 +33,8 @@ pub async fn resolve_request_tools(request: &ResponsesApiRequest) -> Result<Vec<
                     tools_json
                 },
                 true,
+                active_plugin_ids,
+                search_conversation_id,
             )
             .await
         }
@@ -34,6 +44,8 @@ pub async fn resolve_request_tools(request: &ResponsesApiRequest) -> Result<Vec<
                     request.directory_id.as_deref(),
                     analysis_root,
                     tools_json,
+                    active_plugin_ids,
+                    search_conversation_id,
                 )
                 .await
             }
@@ -42,6 +54,10 @@ pub async fn resolve_request_tools(request: &ResponsesApiRequest) -> Result<Vec<
                     request.directory_id.as_deref(),
                     analysis_root,
                     request.workflow_mode.unwrap_or(false),
+                    active_plugin_ids,
+                    // All model requests defer plugin tools until discovery.
+                    true,
+                    search_conversation_id,
                 )
                 .await?;
                 apply_sub_agent_tool_policy(request, &mut tools).await?;

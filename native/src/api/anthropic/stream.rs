@@ -154,6 +154,7 @@ pub(super) async fn collect_anthropic_stream(
     api_key: &str,
     custom_headers: &HashMap<String, String>,
     payload: Value,
+    tool_guard: &crate::api::plugin_tool_guard::PluginToolGuard,
     on_chunk: StreamSink<'_>,
     cancel_token: &CancellationToken,
     retry_options: &RetryOptions,
@@ -161,6 +162,7 @@ pub(super) async fn collect_anthropic_stream(
     enable_one_m_context: bool,
 ) -> Result<AnthropicStreamResult> {
     let payload = request_proxy::transform_request("anthropic", payload).await;
+    tool_guard.validate(&payload)?;
     let mut attempt: u32 = 0;
     let mut stream_token_count: usize = 0;
     let mut thinking_tracker = ThinkingStreamTracker::default();
@@ -234,7 +236,7 @@ pub(super) async fn collect_anthropic_stream(
             }
 
             // 声明 fetch 钩子的插件在此接管传输层，后续仍走同一套解析与记账。
-            if let Some(body) = plugin_response::takeover(cancel_token).await? {
+            if let Some(body) = plugin_response::takeover(cancel_token, tool_guard).await? {
                 break plugin_response::UpstreamBody::Synthetic(body);
             }
 

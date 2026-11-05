@@ -19,6 +19,7 @@ export type McpSettingsListItem = {
   globalEnabled: boolean;
   detail: string;
   canManage: boolean;
+  unavailableReason?: string;
 };
 
 const formatToolSchema = (inputSchemaJson: string): string => {
@@ -112,20 +113,26 @@ export function McpSettingsList({
         ) : (
           servers.map((server) => {
             const globallyUnavailable = !server.globalEnabled;
-            const activeLabel = globallyUnavailable
-              ? t("settings.mcpGloballyDisabled", {
-                  defaultValue: "Disabled in global scope",
-                })
-              : server.enabled
-                ? t("settings.mcpDisableServer", { defaultValue: "Disable" })
-                : t("settings.mcpEnableServer", { defaultValue: "Enable" });
-            const activeStateLabel = globallyUnavailable
-              ? t("settings.mcpGlobalDisabledShort", {
-                  defaultValue: "Global off",
-                })
-              : server.enabled
-                ? t("settings.active", { defaultValue: "Active" })
-                : t("settings.inactive", { defaultValue: "Inactive" });
+            const unavailable =
+              globallyUnavailable || !!server.unavailableReason;
+            const activeLabel = server.unavailableReason
+              ? server.unavailableReason
+              : globallyUnavailable
+                ? t("settings.mcpGloballyDisabled", {
+                    defaultValue: "Disabled in global scope",
+                  })
+                : server.enabled
+                  ? t("settings.mcpDisableServer", { defaultValue: "Disable" })
+                  : t("settings.mcpEnableServer", { defaultValue: "Enable" });
+            const activeStateLabel = server.unavailableReason
+              ? t("settings.inactive", { defaultValue: "Inactive" })
+              : globallyUnavailable
+                ? t("settings.mcpGlobalDisabledShort", {
+                    defaultValue: "Global off",
+                  })
+                : server.enabled
+                  ? t("settings.active", { defaultValue: "Active" })
+                  : t("settings.inactive", { defaultValue: "Inactive" });
             const isFetchingTools = fetchingToolServerIds.has(server.serverId);
             const tools = toolsByServerId[server.serverId];
             const toolCount = tools?.length;
@@ -148,7 +155,7 @@ export function McpSettingsList({
               <div
                 key={server.serverId}
                 className={`system-prompt-item ${
-                  server.enabled && server.globalEnabled ? "active" : ""
+                  server.enabled && !unavailable ? "active" : ""
                 }`}
               >
                 <div className="system-prompt-item-main">
@@ -159,9 +166,9 @@ export function McpSettingsList({
                   >
                     <input
                       type="checkbox"
-                      checked={server.enabled && !globallyUnavailable}
+                      checked={server.enabled && !unavailable}
                       onChange={() => onToggleEnabled(server)}
-                      disabled={isBusy || globallyUnavailable}
+                      disabled={isBusy || unavailable}
                       hidden
                     />
                     <span className="toggle-slider" />
@@ -256,9 +263,7 @@ export function McpSettingsList({
                           type="button"
                           className="api-settings-form-btn secondary compact"
                           onClick={() => onToggleAllTools(server, true)}
-                          disabled={
-                            isBusy || !server.enabled || globallyUnavailable
-                          }
+                          disabled={isBusy || !server.enabled || unavailable}
                         >
                           {t("settings.mcpToolsEnableAll", {
                             defaultValue: "Enable all",
@@ -268,9 +273,7 @@ export function McpSettingsList({
                           type="button"
                           className="api-settings-form-btn secondary compact"
                           onClick={() => onToggleAllTools(server, false)}
-                          disabled={
-                            isBusy || !server.enabled || globallyUnavailable
-                          }
+                          disabled={isBusy || !server.enabled || unavailable}
                         >
                           {t("settings.mcpToolsDisableAll", {
                             defaultValue: "Disable all",
@@ -304,18 +307,20 @@ export function McpSettingsList({
                             ) ?? false;
                           const toolGloballyDisabled =
                             tool.globalEnabled === false;
-                          const toolToggleLabel = toolGloballyDisabled
-                            ? t("settings.mcpToolGlobalDisabled", {
-                                defaultValue:
-                                  "Disabled in global settings; the project toggle cannot override it.",
-                              })
-                            : tool.enabled
-                              ? t("settings.mcpToolDisable", {
-                                  defaultValue: "Disable tool",
+                          const toolToggleLabel =
+                            server.unavailableReason ??
+                            (toolGloballyDisabled
+                              ? t("settings.mcpToolGlobalDisabled", {
+                                  defaultValue:
+                                    "Disabled in global settings; the project toggle cannot override it.",
                                 })
-                              : t("settings.mcpToolEnable", {
-                                  defaultValue: "Enable tool",
-                                });
+                              : tool.enabled
+                                ? t("settings.mcpToolDisable", {
+                                    defaultValue: "Disable tool",
+                                  })
+                                : t("settings.mcpToolEnable", {
+                                    defaultValue: "Enable tool",
+                                  }));
                           const detailsLabel = isToolExpanded
                             ? t("settings.mcpToolDetailsCollapse", {
                                 defaultValue: "Collapse details",
@@ -355,10 +360,12 @@ export function McpSettingsList({
                               >
                                 <input
                                   type="checkbox"
-                                  checked={tool.enabled}
+                                  checked={
+                                    tool.enabled && !server.unavailableReason
+                                  }
                                   disabled={
                                     isBusy ||
-                                    !server.globalEnabled ||
+                                    unavailable ||
                                     !server.enabled ||
                                     toolGloballyDisabled
                                   }

@@ -760,6 +760,7 @@ export function McpSettingsPanel({
     if (
       isBusy ||
       !server.globalEnabled ||
+      !!server.unavailableReason ||
       !server.enabled ||
       tool.globalEnabled === false
     ) {
@@ -813,7 +814,12 @@ export function McpSettingsPanel({
     server: McpSettingsListItem,
     enabled: boolean,
   ): Promise<void> => {
-    if (isBusy || !server.globalEnabled || !server.enabled) {
+    if (
+      isBusy ||
+      !server.globalEnabled ||
+      server.unavailableReason ||
+      !server.enabled
+    ) {
       return;
     }
     if (activeScope === "project" && !activeDirectory) {
@@ -912,6 +918,10 @@ export function McpSettingsPanel({
       // 内置服务说明：内置服务固定不变，文案来自 i18n
       const descriptionKey = builtinServerDescriptionKey(server.id);
       const builtinDescription = descriptionKey ? t(descriptionKey) : "";
+      const unavailableReason =
+        server.error === "toolsearch:no_enabled_plugins"
+          ? t("settings.mcpToolSearchNoPlugins")
+          : undefined;
       const sourceDetail =
         server.source === "system"
           ? t("settings.mcpProjectSystemServer", {
@@ -935,16 +945,21 @@ export function McpSettingsPanel({
         name: server.name,
         enabled: server.enabled,
         globalEnabled: server.globalEnabled,
-        detail: builtinDescription
-          ? `${sourceDetail} · ${builtinDescription}`
-          : sourceDetail,
+        detail: [sourceDetail, builtinDescription, unavailableReason]
+          .filter(Boolean)
+          .join(" · "),
         canManage: server.source === "project",
+        unavailableReason,
       };
     },
   );
   const globalBuiltinListItems: McpSettingsListItem[] =
     globalBuiltinServers.map((server) => {
       const descriptionKey = builtinServerDescriptionKey(server.id);
+      const unavailableReason =
+        server.error === "toolsearch:no_enabled_plugins"
+          ? t("settings.mcpToolSearchNoPlugins")
+          : undefined;
       const details = [
         t("settings.mcpProjectSystemServer", {
           defaultValue: "Built-in system MCP server",
@@ -966,6 +981,9 @@ export function McpSettingsPanel({
       if (descriptionKey) {
         details.push(t(descriptionKey));
       }
+      if (unavailableReason) {
+        details.push(unavailableReason);
+      }
       return {
         serverId: `${GLOBAL_BUILTIN_KEY_PREFIX}${server.id}`,
         name: server.name,
@@ -973,6 +991,7 @@ export function McpSettingsPanel({
         globalEnabled: server.globalEnabled,
         detail: details.join(" · "),
         canManage: false,
+        unavailableReason,
       };
     });
   const projectBuiltinListItems = projectListItems.filter((server) =>
@@ -1006,7 +1025,8 @@ export function McpSettingsPanel({
       ),
   );
   const enabledCount = activeServers.filter(
-    (server) => server.enabled && server.globalEnabled,
+    (server) =>
+      server.enabled && server.globalEnabled && !server.unavailableReason,
   ).length;
   const listTitle = isBuiltinCategory
     ? isGlobalScope
@@ -1368,6 +1388,7 @@ export function McpSettingsPanel({
   };
 
   const handleListToggle = (server: McpSettingsListItem): void => {
+    if (server.unavailableReason) return;
     if (isGlobalBuiltinView) {
       requestGlobalToggle(server, "builtin");
       return;

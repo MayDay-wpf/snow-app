@@ -1245,6 +1245,7 @@ export const ChatInputView = ({
           closeWorkflowComposer();
           // 用户消息 = 折叠的 WorkFlow 标签 + 备注；图随 options 直接生成工具调用
           handleSendMessage(buildWorkflowComposerContent(graph, note), {
+            origin: "user",
             kind: "workflow",
             workflowGraph: graph,
             model: selectedModel || undefined,

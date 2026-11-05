@@ -39,8 +39,7 @@ const CHAT_CREATE_RESPONSE_CHUNK_CHANNEL = "chat:create-response:chunk";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const createResponseStreamId = (): string =>
-  `response-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createResponseStreamId = (): string => `response-${crypto.randomUUID()}`;
 
 const createThemePaletteStreamId = (): string =>
   `theme-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -385,6 +384,8 @@ export const apiConfigApi = {
   },
   abortResponseStream: (streamId: string): Promise<boolean> =>
     ipcRenderer.invoke("chat:abort-response-stream", streamId),
+  releaseModelRequest: (streamId: string): Promise<void> =>
+    ipcRenderer.invoke("mcp:release-model-request", streamId),
   importSnowCliApiConfigs: (): Promise<ImportSnowCliApiConfigsResult> =>
     ipcRenderer.invoke("api-configs:import-snow-cli"),
   /** 导出选中的 API 配置为迁移 JSON 文件（含明文密钥），返回保存结果。 */

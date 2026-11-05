@@ -51,6 +51,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         messages: vec![
             ResponsesApiMessage {
                 role: "system".to_string(),
+                origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
                 content: PALETTE_SYSTEM_PROMPT.to_string(),
                 tool_results_json: None,
                 thinking: None,
@@ -59,6 +60,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
             },
             ResponsesApiMessage {
                 role: "user".to_string(),
+                origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
                 content: format!(
                     "Here is the background image. Design the theme palette based on it.\n\n@@image:{}@@",
                     image_data_url
@@ -103,6 +105,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     }
 }
 

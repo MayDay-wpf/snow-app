@@ -6,6 +6,7 @@ import { syncPluginBackgrounds } from "../../pluginBackground/pluginBackgroundHo
 import type {
   NativeBridge,
   PluginRecord,
+  PluginToolServerInfo,
   UserscriptRecord,
 } from "../../native/types";
 import { safeSend } from "../../utils/safeSend";
@@ -68,6 +69,51 @@ const mimeTypeFor = (relativePath: string): string =>
 export const registerPluginHandlers = (native: NativeBridge): void => {
   ipcMain.handle("plugins:list", (): Promise<PluginRecord[]> =>
     native.listPlugins(),
+  );
+
+  ipcMain.handle(
+    "plugins:list-tools",
+    (_event, projectId: unknown): Promise<PluginToolServerInfo[]> =>
+      native.listPluginTools(
+        typeof projectId === "string" && projectId.trim()
+          ? projectId.trim()
+          : undefined,
+      ),
+  );
+
+  ipcMain.handle(
+    "plugins:project-scope-get",
+    (_event, projectId: unknown): Promise<string> => {
+      if (!isNonEmptyString(projectId)) {
+        throw new Error("Project id is required");
+      }
+      return native.getPluginsProjectScope(projectId.trim());
+    },
+  );
+
+  ipcMain.handle(
+    "plugins:project-scope-set",
+    async (_event, payload: unknown): Promise<void> => {
+      const source = (payload ?? {}) as {
+        projectId?: unknown;
+        pluginId?: unknown;
+        enabled?: unknown;
+      };
+      if (!isNonEmptyString(source.projectId)) {
+        throw new Error("Project id is required");
+      }
+      if (!isNonEmptyString(source.pluginId)) {
+        throw new Error("Plugin id is required");
+      }
+      if (typeof source.enabled !== "boolean") {
+        throw new Error("enabled must be a boolean");
+      }
+      await native.setPluginsProjectPluginEnabled(
+        source.projectId.trim(),
+        source.pluginId.trim(),
+        source.enabled,
+      );
+    },
   );
 
   ipcMain.handle("plugins:get-directory", (): Promise<string> =>

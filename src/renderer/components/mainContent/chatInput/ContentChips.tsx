@@ -14,6 +14,7 @@ import {
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { getSkillIcon } from "../../../utils/skillIcons";
 import { useI18n } from "../../../i18n";
+import { PluginMentionChip } from "../../common/PluginMentionChip";
 import {
   formatLinesStr,
   getChipDisplayLabel,
@@ -267,6 +268,16 @@ export const ContentChips = ({
                 {getChipDisplayLabel(segment)}
               </span>
             </span>
+          );
+        }
+
+        if (segment.type === "plugin") {
+          return (
+            <PluginMentionChip
+              key={index}
+              pluginId={segment.tag.pluginId}
+              name={getChipDisplayLabel(segment)}
+            />
           );
         }
 

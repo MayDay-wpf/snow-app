@@ -15,6 +15,10 @@ import {
   type PluginModuleExports,
 } from "../../../../plugins/pluginRuntime";
 import { pluginStore, usePluginStore } from "../../../../plugins/pluginStore";
+import {
+  usePluginToolOwnerInfo,
+  type PluginToolOwner,
+} from "../../../../plugins/pluginToolIndex";
 import type {
   PluginToolCallRendererDefinition,
   PluginView,
@@ -29,6 +33,34 @@ type Match = {
 };
 const compareText = (a: string, b: string): number =>
   a < b ? -1 : a > b ? 1 : 0;
+
+/**
+ * 渲染器选择器匹配：`tools` 支持工具全名与清单内短名，`prefixes` 同样对
+ * 两者生效。工具插件自己的渲染器通常只声明短名（公开服务器名由宿主派生，
+ * 插件无从预知）。
+ */
+const matchesDefinition = (
+  definition: PluginToolCallRendererDefinition,
+  fullName: string,
+  shortName: string | null,
+): { exact: boolean; prefixLength: number } | null => {
+  if (
+    definition.tools.includes(fullName) ||
+    (shortName !== null && definition.tools.includes(shortName))
+  ) {
+    return { exact: true, prefixLength: 0 };
+  }
+  let prefixLength = 0;
+  for (const prefix of definition.prefixes) {
+    if (fullName.startsWith(prefix)) {
+      prefixLength = Math.max(prefixLength, prefix.length);
+    }
+    if (shortName !== null && shortName.startsWith(prefix)) {
+      prefixLength = Math.max(prefixLength, prefix.length);
+    }
+  }
+  return prefixLength ? { exact: false, prefixLength } : null;
+};
 
 // Identity per PluginView instance. pluginStore.refresh() rebuilds every view, so the
 // match cache below must be keyed on the instance as well: otherwise it keeps handing
@@ -56,11 +88,46 @@ export const clearPluginToolCallMatchCache = (): void => {
 const selectRenderer = (
   plugins: PluginView[],
   name: string,
+  owner: PluginToolOwner | null,
 ): Match | undefined => {
   // Compute cache key combining enabled plugins revision and tool name
-  const cacheKey = `${plugins.map((p) => `${pluginObjectId(p)}:${p.pluginId}:${p.version}:${p.enabled ? 1 : 0}:${p.toolCallRenderers.length}`).join("|")}::${name}`;
+  const cacheKey = `${plugins.map((p) => `${pluginObjectId(p)}:${p.pluginId}:${p.version}:${p.enabled ? 1 : 0}:${p.toolCallRenderers.length}`).join("|")}::${name}::${owner?.pluginId ?? ""}::${owner?.toolName ?? ""}`;
   if (rendererMatchCache.has(cacheKey)) {
     return rendererMatchCache.get(cacheKey);
+  }
+
+  const storeMatch = (match: Match | undefined): Match | undefined => {
+    if (rendererMatchCache.size >= MAX_MATCH_CACHE_SIZE) {
+      rendererMatchCache.clear();
+    }
+    rendererMatchCache.set(cacheKey, match);
+    return match;
+  };
+
+  // 工具插件自己的工具优先交给该插件自带的渲染器：公开服务器名由宿主派生，
+  // 插件无法稳定预知，因此按清单内的工具短名匹配。
+  if (owner) {
+    const ownerPlugin = plugins.find(
+      (plugin) => plugin.pluginId === owner.pluginId,
+    );
+    if (
+      ownerPlugin &&
+      ownerPlugin.enabled &&
+      ownerPlugin.renderMode === "esm" &&
+      ownerPlugin.privacy.includes("messages")
+    ) {
+      for (const definition of ownerPlugin.toolCallRenderers) {
+        const hit = matchesDefinition(definition, name, owner.toolName);
+        if (hit) {
+          return storeMatch({
+            plugin: ownerPlugin,
+            definition,
+            exact: hit.exact,
+            prefixLength: hit.prefixLength,
+          });
+        }
+      }
+    }
   }
 
   const matches: Match[] = [];
@@ -72,18 +139,13 @@ const selectRenderer = (
     )
       continue;
     for (const definition of plugin.toolCallRenderers) {
-      const exact = definition.tools.includes(name);
-      const prefixLength = definition.prefixes.reduce(
-        (longest, prefix) =>
-          name.startsWith(prefix) ? Math.max(longest, prefix.length) : longest,
-        0,
-      );
-      if (exact || prefixLength)
+      const hit = matchesDefinition(definition, name, owner?.toolName ?? null);
+      if (hit)
         matches.push({
           plugin,
           definition,
-          exact,
-          prefixLength: exact ? 0 : prefixLength,
+          exact: hit.exact,
+          prefixLength: hit.prefixLength,
         });
     }
   }
@@ -97,11 +159,7 @@ const selectRenderer = (
       compareText(a.definition.id, b.definition.id),
   )[0];
 
-  if (rendererMatchCache.size >= MAX_MATCH_CACHE_SIZE) {
-    rendererMatchCache.clear();
-  }
-  rendererMatchCache.set(cacheKey, result);
-  return result;
+  return storeMatch(result);
 };
 
 type Loaded = {
@@ -397,12 +455,13 @@ const MatchedToolCall = ({
 export const PluginToolCall = (props: Props): React.JSX.Element => {
   const { plugins } = usePluginStore();
   const { locale } = useI18n();
+  const owner = usePluginToolOwnerInfo(props.toolCall.name);
   React.useEffect(() => {
     void pluginStore.ensureLoaded();
   }, []);
   const match = React.useMemo(
-    () => selectRenderer(plugins, props.toolCall.name),
-    [plugins, props.toolCall.name],
+    () => selectRenderer(plugins, props.toolCall.name, owner),
+    [plugins, props.toolCall.name, owner],
   );
   if (!match) return <>{props.fallback}</>;
   const key = JSON.stringify([

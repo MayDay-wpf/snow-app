@@ -803,7 +803,15 @@ export const buildConversationMessages = (
   };
 
   return records
-    .filter((record) => record.role !== "tool")
+    .filter(
+      (record) =>
+        record.role !== "tool" &&
+        !(
+          record.role === "user" &&
+          record.origin === "internal" &&
+          /^\n\n\[Hook (?:Warning|Context)\]\n/.test(record.content)
+        ),
+    )
     .map((record) => {
       const assistantDisposition =
         record.role === "user" ? null : resolveResponseDisposition(record);
@@ -840,6 +848,7 @@ export const buildConversationMessages = (
       return {
         id: record.id,
         role: record.role === "user" ? "user" : "assistant",
+        origin: record.origin,
         content:
           record.role === "user"
             ? stripHookSections(record.content)

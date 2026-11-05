@@ -21,6 +21,7 @@ pub mod interactions;
 pub mod model_health;
 pub mod models;
 pub mod oauth;
+pub(crate) mod plugin_tool_guard;
 pub mod reranking;
 pub mod reply_prediction;
 pub mod repo_wiki;

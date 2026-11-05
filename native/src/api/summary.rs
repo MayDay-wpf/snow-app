@@ -92,6 +92,7 @@ pub async fn generate_conversation_summary(
     let mut request_messages = Vec::new();
     request_messages.push(ResponsesApiMessage {
         role: "user".to_string(),
+        origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
         content: build_structured_user_content(&build_conversation_text(&messages)),
         tool_results_json: None,
         thinking: None,
@@ -136,6 +137,7 @@ pub async fn generate_conversation_summary(
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     };
 
     // Race the request against the cancellation token: when the token fires we

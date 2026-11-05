@@ -17,6 +17,7 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 69: chat message origin, preserving unknown provenance for existing rows.
 /// 68: system_prompt_snapshots table (per-conversation frozen ROLE.md rules and
 /// API-configured system prompts; dropped on successful context compaction).
 /// 67: embedding_models / reranking_models / decision_models tables (model registry
@@ -62,7 +63,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 68;
+const CURRENT_SCHEMA_VERSION: i64 = 69;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -1085,6 +1086,7 @@ CREATE TABLE IF NOT EXISTS app_plugins (
            message_id TEXT NOT NULL UNIQUE,
            conversation_id TEXT NOT NULL,
            role TEXT NOT NULL,
+           origin TEXT NOT NULL DEFAULT 'unknown',
            content TEXT NOT NULL,
            model TEXT NOT NULL DEFAULT '',
            response_id TEXT NOT NULL DEFAULT '',

@@ -5,9 +5,10 @@ use napi::bindgen_prelude::*;
 use super::{
     get_system_setting_value, normalize_required_value, set_system_setting, update_disabled_set,
     CodebaseProjectScopeSettings, McpGlobalScopeSettings, McpProjectScopeSettings,
-    SkillsProjectScopeSettings, ToolApprovalProjectScopeSettings, GLOBAL_MCP_SETTING_CODE,
-    GLOBAL_MCP_SETTING_NAME, PROJECT_CODEBASE_SETTING_CODE_PREFIX,
+    PluginsProjectScopeSettings, SkillsProjectScopeSettings, ToolApprovalProjectScopeSettings,
+    GLOBAL_MCP_SETTING_CODE, GLOBAL_MCP_SETTING_NAME, PROJECT_CODEBASE_SETTING_CODE_PREFIX,
     PROJECT_CODEBASE_SETTING_NAME, PROJECT_MCP_SETTING_CODE_PREFIX, PROJECT_MCP_SETTING_NAME,
+    PROJECT_PLUGINS_SETTING_CODE_PREFIX, PROJECT_PLUGINS_SETTING_NAME,
     PROJECT_SKILLS_SETTING_CODE_PREFIX, PROJECT_SKILLS_SETTING_NAME,
     PROJECT_TOOL_APPROVAL_SETTING_CODE_PREFIX, PROJECT_TOOL_APPROVAL_SETTING_NAME,
 };
@@ -107,7 +108,8 @@ fn write_mcp_project_scope_settings(
         PROJECT_MCP_SETTING_NAME,
         &setting_code,
         &setting_value,
-    )
+    )?;
+    crate::mcp::servers::tool_search::invalidate(Some(&settings.project_id))
 }
 
 /// 全局 MCP 工具级 scope：无记录时返回默认（空黑名单 = 全部启用）。
@@ -185,7 +187,8 @@ fn write_mcp_global_scope_settings(
         GLOBAL_MCP_SETTING_NAME,
         GLOBAL_MCP_SETTING_CODE,
         &setting_value,
-    )
+    )?;
+    crate::mcp::servers::tool_search::invalidate(None)
 }
 
 pub fn get_skills_project_scope_settings(
@@ -254,6 +257,68 @@ fn write_skills_project_scope_settings(
     )
 }
 
+/// 项目级插件作用域：全局安装的插件在指定项目内的启用覆盖（缺省跟随全局启用）。
+pub fn get_plugins_project_scope_settings(
+    database_path: &Path,
+    project_id: &str,
+) -> Result<PluginsProjectScopeSettings> {
+    let normalized_project_id = normalize_required_value(project_id, "Project id")?;
+    let setting_code = project_plugins_setting_code(&normalized_project_id);
+    let Some(raw_value) = get_system_setting_value(database_path, &setting_code)? else {
+        return Ok(PluginsProjectScopeSettings {
+            project_id: normalized_project_id,
+            ..PluginsProjectScopeSettings::default()
+        });
+    };
+
+    let mut settings = serde_json::from_str::<PluginsProjectScopeSettings>(&raw_value).map_err(
+        |error| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to parse project plugins scope settings: {error}"),
+            )
+        },
+    )?;
+    settings.normalize();
+    if settings.project_id.is_empty() {
+        settings.project_id = normalized_project_id.clone();
+    }
+    if settings.project_id != normalized_project_id {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Project plugins scope setting identity does not match the requested project"
+                .to_string(),
+        ));
+    }
+
+    Ok(settings)
+}
+
+pub fn set_plugins_project_plugin_enabled(
+    database_path: &Path,
+    project_id: &str,
+    plugin_id: &str,
+    enabled: bool,
+) -> Result<()> {
+    let normalized_plugin_id = normalize_required_value(plugin_id, "Plugin id")?;
+    let mut settings = get_plugins_project_scope_settings(database_path, project_id)?;
+    settings.set_plugin_enabled(&normalized_plugin_id, enabled);
+    let setting_code = project_plugins_setting_code(&settings.project_id);
+    let setting_value = serde_json::to_string(&settings).map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to serialize project plugins scope settings: {error}"),
+        )
+    })?;
+    set_system_setting(
+        database_path,
+        PROJECT_PLUGINS_SETTING_NAME,
+        &setting_code,
+        &setting_value,
+    )?;
+    crate::mcp::servers::tool_search::invalidate(Some(&settings.project_id))
+}
+
 fn project_mcp_setting_code(project_id: &str) -> String {
     format!(
         "{PROJECT_MCP_SETTING_CODE_PREFIX}{}",
@@ -264,6 +329,13 @@ fn project_mcp_setting_code(project_id: &str) -> String {
 fn project_skills_setting_code(project_id: &str) -> String {
     format!(
         "{PROJECT_SKILLS_SETTING_CODE_PREFIX}{}",
+        blake3::hash(project_id.as_bytes()).to_hex()
+    )
+}
+
+fn project_plugins_setting_code(project_id: &str) -> String {
+    format!(
+        "{PROJECT_PLUGINS_SETTING_CODE_PREFIX}{}",
         blake3::hash(project_id.as_bytes()).to_hex()
     )
 }

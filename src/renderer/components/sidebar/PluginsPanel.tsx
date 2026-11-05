@@ -4,6 +4,7 @@ import {
   Database,
   Download,
   FileCode2,
+  FolderCog,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -14,9 +15,20 @@ import {
   Trash2,
   Upload,
   Puzzle,
+  Wrench,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
+import type {
+  PluginsProjectScope,
+  PluginToolServerInfo,
+} from "../../../preload/types/plugins";
 import { useEscapeClose } from "../../hooks/useEscapeClose";
 import { useI18n } from "../../i18n";
 import { resolveLocalized } from "../../plugins/manifest";
@@ -41,6 +53,7 @@ import {
 } from "../../plugins/metadata";
 import type { PluginView } from "../../plugins/types";
 import { pluginStore, usePluginStore } from "../../plugins/pluginStore";
+import { runtimeSnapshot } from "../../plugins/runtimeSnapshot";
 import { describeWriteDomains } from "../../plugins/writes";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { PluginIcon } from "../common/PluginIcon";
@@ -64,12 +77,32 @@ type PluginsPanelProps = {
   onClose: () => void;
 };
 
+/** 当前激活项目 id 与名称：项目范围开关的作用域。 */
+const subscribeActiveProject = (listener: () => void): (() => void) =>
+  runtimeSnapshot.subscribe(() => listener());
+
+const readActiveProjectId = (): string =>
+  runtimeSnapshot.get().activeDirectory?.directoryId ?? "";
+
+const readActiveProjectName = (): string =>
+  runtimeSnapshot.get().activeDirectory?.name ?? "";
+
 export const PluginsPanel = ({
   onClose,
 }: PluginsPanelProps): React.JSX.Element => {
   const { t, locale } = useI18n();
   const state = usePluginStore();
   const market = useMarketStore();
+  const projectId = useSyncExternalStore(
+    subscribeActiveProject,
+    readActiveProjectId,
+    readActiveProjectId,
+  );
+  const projectName = useSyncExternalStore(
+    subscribeActiveProject,
+    readActiveProjectName,
+    readActiveProjectName,
+  );
   const { buildFromContent } = useChatConversationContext();
   const [busyPluginId, setBusyPluginId] = useState<string | null>(null);
   const [updateAllProgress, setUpdateAllProgress] = useState<{
@@ -84,14 +117,23 @@ export const PluginsPanel = ({
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [createRequest, setCreateRequest] = useState("");
   const [createOpen, setCreateOpen] = useState<boolean | null>(null);
+  // 工具插件徽标（已注册工具数）与项目范围开关的数据源。
+  const [toolCounts, setToolCounts] = useState<Record<string, number>>({});
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [scopeOverrides, setScopeOverrides] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [scopeBusyPluginId, setScopeBusyPluginId] = useState<string | null>(
+    null,
+  );
   // 外部（如 OAuth 登录选择）请求直达市场页的某个分类，只在挂载时消费一次
   const [initialNavigation] = useState(peekPluginsPanelNavigation);
   const [activeTab, setActiveTab] = useState<"list" | "market" | "metadata">(
     initialNavigation?.tab ?? "list",
   );
-  const [listTab, setListTab] = useState<"plugins" | "oauth" | "scripts">(
-    "plugins",
-  );
+  const [listTab, setListTab] = useState<
+    "plugins" | "oauth" | "tools" | "scripts"
+  >("plugins");
   const [marketCategory, setMarketCategory] = useState<MarketTab>(
     initialNavigation?.category ?? "panel",
   );
@@ -114,14 +156,24 @@ export const PluginsPanel = ({
 
   // OAuth 插件单独成组（清单声明 kind: oauth，或存在 oauth.entry）。
   const panelPlugins = useMemo(
-    () => state.plugins.filter((plugin) => plugin.kind !== "oauth"),
+    () => state.plugins.filter((plugin) => plugin.kind === "plugin"),
     [state.plugins],
   );
   const oauthPlugins = useMemo(
     () => state.plugins.filter((plugin) => plugin.kind === "oauth"),
     [state.plugins],
   );
-  const visiblePlugins = listTab === "oauth" ? oauthPlugins : panelPlugins;
+  // 工具插件向模型注册可调用工具，安装后还须在输入框用 @ 激活。
+  const toolPlugins = useMemo(
+    () => state.plugins.filter((plugin) => plugin.kind === "tool"),
+    [state.plugins],
+  );
+  const visiblePlugins =
+    listTab === "oauth"
+      ? oauthPlugins
+      : listTab === "tools"
+        ? toolPlugins
+        : panelPlugins;
   const isGroupEmpty =
     state.status === "ready" && !isEmpty && visiblePlugins.length === 0;
 
@@ -162,7 +214,11 @@ export const PluginsPanel = ({
   const oauthUpdateCount = updatablePlugins.filter(
     (target) => target.plugin.kind === "oauth",
   ).length;
-  const panelUpdateCount = updatablePlugins.length - oauthUpdateCount;
+  const toolUpdateCount = updatablePlugins.filter(
+    (target) => target.plugin.kind === "tool",
+  ).length;
+  const panelUpdateCount =
+    updatablePlugins.length - oauthUpdateCount - toolUpdateCount;
 
   const renderUpdateIcon = (count: number, size: number) =>
     count > 0 ? (
@@ -183,6 +239,79 @@ export const PluginsPanel = ({
     void clientScriptStore.ensureLoaded();
     void marketStore.ensureLoaded();
   }, []);
+
+  // 工具插件徽标：发现各工具插件已注册的工具数，未发现时不显示数量。
+  useEffect(() => {
+    if (!state.plugins.some((plugin) => plugin.kind === "tool")) {
+      setToolCounts({});
+      return;
+    }
+
+    let disposed = false;
+    void window.snow
+      .listPluginTools()
+      .then((servers: PluginToolServerInfo[]) => {
+        if (disposed) {
+          return;
+        }
+        const counts: Record<string, number> = {};
+        for (const server of servers) {
+          counts[server.pluginId] =
+            (counts[server.pluginId] ?? 0) + server.tools.length;
+        }
+        setToolCounts(counts);
+      })
+      .catch((loadError) => {
+        console.error("Failed to load plugin tools:", loadError);
+        if (!disposed) {
+          setToolCounts({});
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [state.plugins]);
+
+  // 项目范围：读取当前项目的插件覆盖（缺省表示跟随全局启用）。
+  useEffect(() => {
+    if (!projectId) {
+      setScopeOverrides({});
+      return;
+    }
+
+    let disposed = false;
+    void window.snow
+      .getPluginsProjectScope(projectId)
+      .then((json) => {
+        if (disposed) {
+          return;
+        }
+        const scope = JSON.parse(json) as PluginsProjectScope;
+        setScopeOverrides(scope.pluginOverrides ?? {});
+      })
+      .catch((scopeError) => {
+        if (disposed) {
+          return;
+        }
+        setScopeOverrides({});
+        console.error("Failed to load plugin project scope:", scopeError);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [projectId]);
+
+  const handleSwitchListTab = useCallback(
+    (tab: "plugins" | "oauth" | "tools" | "scripts") => {
+      setListTab(tab);
+      if (tab !== "tools") {
+        setScopeOpen(false);
+      }
+    },
+    [],
+  );
 
   const openMetadata = useCallback((plugin: PluginView) => {
     setMetadataPluginId(plugin.pluginId);
@@ -243,6 +372,34 @@ export const PluginsPanel = ({
       setBusyPluginId(null);
     }
   }, []);
+
+  /** 项目范围勾选：写入项目覆盖后同步本地状态（缺省 = 跟随全局启用）。 */
+  const handleScopeToggle = useCallback(
+    async (plugin: PluginView, enabled: boolean) => {
+      if (!projectId) {
+        return;
+      }
+      setScopeBusyPluginId(plugin.pluginId);
+      setError(null);
+      try {
+        await window.snow.setPluginsProjectPluginEnabled({
+          projectId,
+          pluginId: plugin.pluginId,
+          enabled,
+        });
+        setScopeOverrides((prev) => ({ ...prev, [plugin.pluginId]: enabled }));
+      } catch (toggleError) {
+        setError(
+          toggleError instanceof Error
+            ? toggleError.message
+            : String(toggleError),
+        );
+      } finally {
+        setScopeBusyPluginId(null);
+      }
+    },
+    [projectId],
+  );
 
   const handleRescan = useCallback(async (plugin: PluginView) => {
     setBusyPluginId(plugin.pluginId);
@@ -447,7 +604,7 @@ export const PluginsPanel = ({
                   className={`import-settings-tab ${
                     listTab === "plugins" ? "active" : ""
                   }`}
-                  onClick={() => setListTab("plugins")}
+                  onClick={() => handleSwitchListTab("plugins")}
                   role="tab"
                   type="button"
                 >
@@ -469,7 +626,7 @@ export const PluginsPanel = ({
                   className={`import-settings-tab ${
                     listTab === "oauth" ? "active" : ""
                   }`}
-                  onClick={() => setListTab("oauth")}
+                  onClick={() => handleSwitchListTab("oauth")}
                   role="tab"
                   type="button"
                 >
@@ -477,6 +634,28 @@ export const PluginsPanel = ({
                   {t("plugins.tabOAuth", { defaultValue: "OAuth plugins" })}
                   <small>{oauthPlugins.length}</small>
                   {renderUpdateIcon(oauthUpdateCount, 12)}
+                </button>
+              </Tooltip>
+              <Tooltip
+                content={t("plugins.tabToolsHint", {
+                  defaultValue:
+                    "Tool plugins register callable tools over MCP: after installing, select the plugin with @ in the chat input; its tools are available only in that conversation.",
+                })}
+                placement="bottom"
+              >
+                <button
+                  aria-selected={listTab === "tools"}
+                  className={`import-settings-tab ${
+                    listTab === "tools" ? "active" : ""
+                  }`}
+                  onClick={() => handleSwitchListTab("tools")}
+                  role="tab"
+                  type="button"
+                >
+                  <Wrench size={13} strokeWidth={1.8} />
+                  {t("plugins.tabTools", { defaultValue: "Tool plugins" })}
+                  <small>{toolPlugins.length}</small>
+                  {renderUpdateIcon(toolUpdateCount, 12)}
                 </button>
               </Tooltip>
               <Tooltip
@@ -491,7 +670,7 @@ export const PluginsPanel = ({
                   className={`import-settings-tab ${
                     listTab === "scripts" ? "active" : ""
                   }`}
-                  onClick={() => setListTab("scripts")}
+                  onClick={() => handleSwitchListTab("scripts")}
                   role="tab"
                   type="button"
                 >
@@ -587,6 +766,38 @@ export const PluginsPanel = ({
                         strokeWidth={2}
                       />
                     </button>
+                    {listTab === "tools" && (
+                      <button
+                        aria-expanded={scopeOpen}
+                        className={`plugins-toolbar-btn${
+                          scopeOpen ? " active" : ""
+                        }`}
+                        type="button"
+                        disabled={!projectId || toolPlugins.length === 0}
+                        title={
+                          !projectId
+                            ? t("plugins.projectScope.noProject", {
+                                defaultValue:
+                                  "Open a project to configure plugin scope",
+                              })
+                            : toolPlugins.length === 0
+                              ? t("plugins.projectScope.noToolPlugins", {
+                                  defaultValue: "No tool plugins installed",
+                                })
+                              : t("plugins.projectScope.title", {
+                                  defaultValue: "Project scope",
+                                })
+                        }
+                        onClick={() => setScopeOpen(!scopeOpen)}
+                      >
+                        <FolderCog size={14} strokeWidth={1.8} />
+                        <span>
+                          {t("plugins.projectScope.title", {
+                            defaultValue: "Project scope",
+                          })}
+                        </span>
+                      </button>
+                    )}
                   </div>
 
                   {!isEmpty && createBoxOpen && (
@@ -604,6 +815,81 @@ export const PluginsPanel = ({
                       onChange={setCreateRequest}
                       onSubmit={handleCreateWithAi}
                     />
+                  )}
+
+                  {listTab === "tools" && scopeOpen && projectId && (
+                    <div className="plugins-scope">
+                      <div className="plugins-scope-header">
+                        <div className="plugins-scope-title">
+                          <FolderCog size={13} strokeWidth={1.8} />
+                          <span>
+                            {t("plugins.projectScope.scopeHeader", {
+                              values: { name: projectName || projectId },
+                              defaultValue: "Current project: {{name}}",
+                            })}
+                          </span>
+                        </div>
+                        <div className="plugins-scope-hint">
+                          {t("plugins.projectScope.hint", {
+                            defaultValue:
+                              "Unchecked plugins are unavailable in this project; checked ones follow the global switch.",
+                          })}
+                        </div>
+                      </div>
+                      {toolPlugins.length === 0 ? (
+                        <div className="plugins-scope-empty">
+                          {t("plugins.projectScope.noToolPlugins", {
+                            defaultValue: "No tool plugins installed",
+                          })}
+                        </div>
+                      ) : (
+                        toolPlugins.map((plugin) => {
+                          const effective =
+                            scopeOverrides[plugin.pluginId] ?? plugin.enabled;
+                          const isScopeBusy =
+                            scopeBusyPluginId === plugin.pluginId;
+                          return (
+                            <label
+                              className="plugins-scope-row"
+                              key={plugin.pluginId}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={effective && plugin.enabled}
+                                disabled={isScopeBusy || !plugin.enabled}
+                                title={
+                                  plugin.enabled
+                                    ? undefined
+                                    : t("plugins.projectScope.globalOff", {
+                                        defaultValue: "Disabled globally",
+                                      })
+                                }
+                                onChange={(event) =>
+                                  void handleScopeToggle(
+                                    plugin,
+                                    event.target.checked,
+                                  )
+                                }
+                              />
+                              <span className="plugins-scope-name">
+                                {resolveLocalized(plugin.name, locale) ||
+                                  plugin.pluginId}
+                              </span>
+                              {!plugin.enabled && (
+                                <span className="plugins-scope-state-tag">
+                                  {t("plugins.projectScope.globalOff", {
+                                    defaultValue: "Disabled globally",
+                                  })}
+                                </span>
+                              )}
+                              {isScopeBusy && (
+                                <Loader2 size={12} className="spin" />
+                              )}
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
                   )}
 
                   {error && <div className="plugins-error">{error}</div>}
@@ -649,6 +935,8 @@ export const PluginsPanel = ({
                     <div className="plugins-empty">
                       {listTab === "oauth" ? (
                         <KeyRound size={22} strokeWidth={1.6} />
+                      ) : listTab === "tools" ? (
+                        <Wrench size={22} strokeWidth={1.6} />
                       ) : (
                         <Puzzle size={22} strokeWidth={1.6} />
                       )}
@@ -657,9 +945,13 @@ export const PluginsPanel = ({
                           ? t("plugins.oauthEmpty", {
                               defaultValue: "No OAuth plugins installed yet",
                             })
-                          : t("plugins.panelEmpty", {
-                              defaultValue: "No panel plugins installed yet",
-                            })}
+                          : listTab === "tools"
+                            ? t("plugins.toolEmpty", {
+                                defaultValue: "No tool plugins installed yet",
+                              })
+                            : t("plugins.panelEmpty", {
+                                defaultValue: "No panel plugins installed yet",
+                              })}
                       </span>
                     </div>
                   )}
@@ -753,31 +1045,158 @@ export const PluginsPanel = ({
                                   </span>
                                 </button>
                               ) : null}
-                              <button
-                                className="plugins-toggle"
-                                type="button"
-                                role="switch"
-                                aria-checked={plugin.enabled}
-                                disabled={isBusy}
-                                onClick={() => void handleToggleEnabled(plugin)}
-                                title={
-                                  plugin.enabled
-                                    ? t("plugins.disable", {
-                                        defaultValue: "Disable",
-                                      })
-                                    : t("plugins.enable", {
-                                        defaultValue: "Enable",
-                                      })
-                                }
-                              >
-                                <span
-                                  className={`plugins-toggle-track${
-                                    plugin.enabled ? " on" : ""
-                                  }`}
+                              {plugin.kind === "tool" ? (
+                                <div className="plugins-tool-switches">
+                                  <div
+                                    className="plugins-switch-item"
+                                    title={
+                                      plugin.enabled
+                                        ? t("plugins.disableGlobal", {
+                                            defaultValue: "Disable globally",
+                                          })
+                                        : t("plugins.enableGlobal", {
+                                            defaultValue: "Enable globally",
+                                          })
+                                    }
+                                  >
+                                    <span className="plugins-switch-tag">
+                                      {t("plugins.scope.globalShort", {
+                                        defaultValue: "Global",
+                                      })}
+                                    </span>
+                                    <button
+                                      className="plugins-toggle"
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={plugin.enabled}
+                                      aria-label={t(
+                                        "plugins.scope.globalToggleLabel",
+                                        { defaultValue: "Global switch" },
+                                      )}
+                                      disabled={isBusy}
+                                      onClick={() =>
+                                        void handleToggleEnabled(plugin)
+                                      }
+                                    >
+                                      <span
+                                        className={`plugins-toggle-track${
+                                          plugin.enabled ? " on" : ""
+                                        }`}
+                                      >
+                                        <span className="plugins-toggle-thumb" />
+                                      </span>
+                                    </button>
+                                  </div>
+                                  <div
+                                    className="plugins-switch-item"
+                                    title={
+                                      !projectId
+                                        ? t("plugins.projectScope.noProject", {
+                                            defaultValue:
+                                              "Open a project to configure plugin scope",
+                                          })
+                                        : !plugin.enabled
+                                          ? t(
+                                              "plugins.scope.projectUnavailableTooltip",
+                                              {
+                                                defaultValue:
+                                                  "Disabled globally; unavailable in project",
+                                              },
+                                            )
+                                          : (scopeOverrides[plugin.pluginId] ??
+                                              true)
+                                            ? t(
+                                                "plugins.scope.disableProject",
+                                                {
+                                                  defaultValue:
+                                                    "Disable in this project",
+                                                },
+                                              )
+                                            : t("plugins.scope.enableProject", {
+                                                defaultValue:
+                                                  "Enable in this project",
+                                              })
+                                    }
+                                  >
+                                    <span className="plugins-switch-tag">
+                                      {t("plugins.scope.projectShort", {
+                                        defaultValue: "Current project",
+                                      })}
+                                    </span>
+                                    <button
+                                      className="plugins-toggle"
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={
+                                        Boolean(projectId) &&
+                                        plugin.enabled &&
+                                        (scopeOverrides[plugin.pluginId] ??
+                                          true)
+                                      }
+                                      aria-label={t(
+                                        "plugins.scope.projectToggleLabel",
+                                        { defaultValue: "Project switch" },
+                                      )}
+                                      disabled={
+                                        !projectId ||
+                                        isBusy ||
+                                        scopeBusyPluginId === plugin.pluginId ||
+                                        !plugin.enabled
+                                      }
+                                      onClick={() =>
+                                        void handleScopeToggle(
+                                          plugin,
+                                          !(
+                                            scopeOverrides[plugin.pluginId] ??
+                                            true
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      <span
+                                        className={`plugins-toggle-track${
+                                          projectId &&
+                                          plugin.enabled &&
+                                          (scopeOverrides[plugin.pluginId] ??
+                                            true)
+                                            ? " on"
+                                            : ""
+                                        }`}
+                                      >
+                                        <span className="plugins-toggle-thumb" />
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  className="plugins-toggle"
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={plugin.enabled}
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void handleToggleEnabled(plugin)
+                                  }
+                                  title={
+                                    plugin.enabled
+                                      ? t("plugins.disable", {
+                                          defaultValue: "Disable",
+                                        })
+                                      : t("plugins.enable", {
+                                          defaultValue: "Enable",
+                                        })
+                                  }
                                 >
-                                  <span className="plugins-toggle-thumb" />
-                                </span>
-                              </button>
+                                  <span
+                                    className={`plugins-toggle-track${
+                                      plugin.enabled ? " on" : ""
+                                    }`}
+                                  >
+                                    <span className="plugins-toggle-thumb" />
+                                  </span>
+                                </button>
+                              )}
                               <button
                                 className="plugins-icon-btn"
                                 type="button"
@@ -811,6 +1230,90 @@ export const PluginsPanel = ({
                                 <Trash2 size={13} strokeWidth={1.8} />
                               </button>
                             </div>
+                          </div>
+
+                          <div className="plugins-item-badges">
+                            {plugin.kind === "tool" ? (
+                              <>
+                                <span className="plugins-item-badge">
+                                  {t("plugins.kindTool", {
+                                    defaultValue: "Tool plugin",
+                                  })}
+                                </span>
+                                {toolCounts[plugin.pluginId] > 0 && (
+                                  <span className="plugins-item-badge">
+                                    {t("plugins.toolCount", {
+                                      values: {
+                                        count: toolCounts[plugin.pluginId],
+                                      },
+                                      defaultValue: "{{count}} tools",
+                                    })}
+                                  </span>
+                                )}
+                                <span
+                                  className={`plugins-item-badge scope-badge ${
+                                    plugin.enabled ? "global-on" : "global-off"
+                                  }`}
+                                >
+                                  {plugin.enabled
+                                    ? t("plugins.scope.globalEnabled", {
+                                        defaultValue: "Globally enabled",
+                                      })
+                                    : t("plugins.scope.globalDisabled", {
+                                        defaultValue: "Globally disabled",
+                                      })}
+                                </span>
+                                {projectId ? (
+                                  <span
+                                    className={`plugins-item-badge scope-badge ${
+                                      !plugin.enabled
+                                        ? "project-off"
+                                        : (scopeOverrides[plugin.pluginId] ??
+                                            true)
+                                          ? "project-on"
+                                          : "project-off"
+                                    }`}
+                                    title={
+                                      !plugin.enabled
+                                        ? t(
+                                            "plugins.scope.projectUnavailableTooltip",
+                                            {
+                                              defaultValue:
+                                                "Disabled globally; unavailable in project",
+                                            },
+                                          )
+                                        : undefined
+                                    }
+                                  >
+                                    {!plugin.enabled
+                                      ? t("plugins.scope.projectUnavailable", {
+                                          defaultValue:
+                                            "Unavailable in project",
+                                        })
+                                      : (scopeOverrides[plugin.pluginId] ??
+                                          true)
+                                        ? t("plugins.scope.projectEnabled", {
+                                            defaultValue: "Enabled in project",
+                                          })
+                                        : t("plugins.scope.projectDisabled", {
+                                            defaultValue: "Disabled in project",
+                                          })}
+                                  </span>
+                                ) : (
+                                  <span className="plugins-item-badge scope-badge project-none">
+                                    {t("plugins.scope.noProject", {
+                                      defaultValue: "No project",
+                                    })}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="plugins-item-badge scope-badge global">
+                                {t("plugins.scope.globalOnly", {
+                                  defaultValue: "Global plugin",
+                                })}
+                              </span>
+                            )}
                           </div>
 
                           {plugin.description.default ||

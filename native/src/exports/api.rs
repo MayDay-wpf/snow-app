@@ -109,11 +109,22 @@ pub async fn create_response_stream(
 ) -> napi::Result<ResponsesApiResult> {
     let proxy_session = ProxySession::new(stream_id.clone(), request.conversation_id.clone());
     // 响应侧插件钩子的上下文写入 task-local 会话，需在对话流外层绑定。
-    let stream = crate::api::oauth::plugin::response::with_session(request_proxy::with_session(
-        proxy_session,
-        create_conversation_response_stream(request, on_chunk, stream_id),
-    ));
-    crate::utils::panic_guard::guard_panic(stream).await
+    let request_id = stream_id.clone();
+    let stream = crate::mcp::servers::tool_search::with_model_request(
+        request_id.clone(),
+        crate::api::oauth::plugin::response::with_session(request_proxy::with_session(
+            proxy_session,
+            create_conversation_response_stream(request, on_chunk, stream_id),
+        )),
+    );
+    let result = crate::utils::panic_guard::guard_panic(stream).await;
+    crate::mcp::servers::tool_search::finish_model_request(&request_id, result.as_ref().ok())?;
+    result
+}
+
+#[napi]
+pub fn release_model_request(stream_id: String) -> napi::Result<()> {
+    crate::mcp::servers::tool_search::release_model_request(&stream_id)
 }
 
 #[napi]
@@ -754,7 +765,7 @@ pub async fn write_interactive_stdin(session_id: String, input: String) -> napi:
 }
 
 #[napi(
-    ts_args_type = "toolFullName: string, argsJson: string, projectId: string | undefined, checkpointIds: string[] | undefined, checkpointWorkDir: string | undefined, sensitiveAuthorizationToken: string | undefined, onChunk: (chunk: BashStreamChunk) => void, onBrowserCommand: (command: BrowserCommand) => Promise<string>, onWebSearchCommand: (command: WebSearchCommand) => Promise<string>, onUserQuestion: (question: UserQuestionCommand) => Promise<string>, onAppControl: (command: AppControlCommand) => Promise<string>, onRemoteWorkspaceCommand: (command: RemoteWorkspaceCommand) => Promise<string>, onTerminalCommand: (command: TerminalCommand) => Promise<string>, subAgentAllowedTools: string[] | undefined, conversationId: string | undefined",
+    ts_args_type = "toolFullName: string, argsJson: string, projectId: string | undefined, checkpointIds: string[] | undefined, checkpointWorkDir: string | undefined, sensitiveAuthorizationToken: string | undefined, onChunk: (chunk: BashStreamChunk) => void, onBrowserCommand: (command: BrowserCommand) => Promise<string>, onWebSearchCommand: (command: WebSearchCommand) => Promise<string>, onUserQuestion: (question: UserQuestionCommand) => Promise<string>, onAppControl: (command: AppControlCommand) => Promise<string>, onRemoteWorkspaceCommand: (command: RemoteWorkspaceCommand) => Promise<string>, onTerminalCommand: (command: TerminalCommand) => Promise<string>, subAgentAllowedTools: string[] | undefined, conversationId: string | undefined, modelRequestId?: string",
     ts_return_type = "Promise<string>"
 )]
 pub async fn call_mcp_tool(
@@ -773,6 +784,7 @@ pub async fn call_mcp_tool(
     on_terminal_command: TerminalCommandCallback,
     sub_agent_allowed_tools: Option<Vec<String>>,
     conversation_id: Option<String>,
+    model_request_id: Option<String>,
 ) -> napi::Result<String> {
     let cancellable =
         crate::mcp::tools::begin_external_tool_execution(&tool_full_name, &on_chunk);
@@ -792,6 +804,7 @@ pub async fn call_mcp_tool(
         on_terminal_command,
         sub_agent_allowed_tools,
         conversation_id,
+        model_request_id,
     );
     let Some((tool_execution_id, cancel_token)) = cancellable else {
         return crate::utils::panic_guard::guard_panic(execution).await;

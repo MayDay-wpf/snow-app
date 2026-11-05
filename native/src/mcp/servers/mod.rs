@@ -23,6 +23,7 @@ pub mod skills_remote;
 pub mod sub_agents;
 pub mod terminal;
 pub mod todo;
+pub mod tool_search;
 pub mod user_interaction;
 pub mod websearch;
 pub mod workflow;

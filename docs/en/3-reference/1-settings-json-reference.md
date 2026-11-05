@@ -13,18 +13,18 @@ The file is shared with Snow CLI. After modifying it, some settings (such as `mc
 
 ## 2. Top-Level Fields Overview
 
-| Field                      | Type    | Description                                           |
-| -------------------------- | ------- | ----------------------------------------------------- |
-| `codebase`                 | object  | Codebase semantic search configuration                |
-| `mcpServers`               | object  | Global MCP server configuration, keyed by server name |
-| `sensitiveCommands`        | array   | Sensitive command interception rules                  |
-| `yoloMode`                 | boolean | No-confirmation mode                                  |
-| `vulnerabilityHuntingMode` | boolean | Vulnerability hunting mode                            |
-| `toolSearchEnabled`        | boolean | Tool search toggle                                    |
-| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                             |
-| `teamMode`                 | boolean | Team mode                                             |
-| `goal`                     | object  | Goal mode configuration                               |
-| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                           |
+| Field                      | Type    | Description                                                                                                               |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `codebase`                 | object  | Codebase semantic search configuration                                                                                    |
+| `mcpServers`               | object  | Global MCP server configuration, keyed by server name                                                                     |
+| `sensitiveCommands`        | array   | Sensitive command interception rules                                                                                      |
+| `yoloMode`                 | boolean | No-confirmation mode                                                                                                      |
+| `vulnerabilityHuntingMode` | boolean | Vulnerability hunting mode                                                                                                |
+| `toolSearchEnabled`        | boolean | Legacy shared field; Snow App no longer reads this switch. Plugin tool search follows the project's enabled tool plugins. |
+| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                                                                                                 |
+| `teamMode`                 | boolean | Team mode                                                                                                                 |
+| `goal`                     | object  | Goal mode configuration                                                                                                   |
+| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                                                                                               |
 
 ## 3. mcpServers Field
 
@@ -154,15 +154,15 @@ Array elements are used for sensitive command interception (GUI: **Settings → 
 
 ## 6. Mode Switch Fields
 
-| Field                      | Type    | Description                                                   |
-| -------------------------- | ------- | ------------------------------------------------------------- |
-| `yoloMode`                 | boolean | No-confirmation mode, skips dangerous operation confirmations |
-| `vulnerabilityHuntingMode` | boolean | Vulnerability hunting mode                                    |
-| `toolSearchEnabled`        | boolean | Tool search toggle                                            |
-| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                                     |
-| `teamMode`                 | boolean | Team mode                                                     |
-| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                                   |
-| `goal.defaultTokenBudgetM` | number  | Default token budget for Goal mode, in millions               |
+| Field                      | Type    | Description                                                                    |
+| -------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `yoloMode`                 | boolean | No-confirmation mode, skips dangerous operation confirmations                  |
+| `vulnerabilityHuntingMode` | boolean | Vulnerability hunting mode                                                     |
+| `toolSearchEnabled`        | boolean | Legacy shared field; Snow App no longer uses it to control plugin tool search. |
+| `hybridCompressEnabled`    | boolean | Hybrid compression toggle                                                      |
+| `teamMode`                 | boolean | Team mode                                                                      |
+| `ultraTodoEnabled`         | boolean | Ultra-long TODO list toggle                                                    |
+| `goal.defaultTokenBudgetM` | number  | Default token budget for Goal mode, in millions                                |
 
 ## 7. Companion Configuration Files
 

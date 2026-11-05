@@ -6,6 +6,7 @@ import type {
   PluginHttpResponse,
   PluginRecord,
   PluginStorageValue,
+  PluginToolServerInfo,
 } from "../types/plugins";
 import type { UserscriptRecord } from "../types/userscripts";
 
@@ -13,6 +14,18 @@ export const pluginsApi = {
   /** 列出全部已安装插件。 */
   listPlugins: (): Promise<PluginRecord[]> =>
     ipcRenderer.invoke("plugins:list"),
+  /** 发现已启用工具插件的工具清单（按项目作用域，不受会话 `@` 门控）。 */
+  listPluginTools: (projectId?: string): Promise<PluginToolServerInfo[]> =>
+    ipcRenderer.invoke("plugins:list-tools", projectId),
+  /** 读取项目级插件作用域（JSON 字符串）。 */
+  getPluginsProjectScope: (projectId: string): Promise<string> =>
+    ipcRenderer.invoke("plugins:project-scope-get", projectId),
+  /** 设置某插件在某项目内的可用状态（全局启用是总闸）。 */
+  setPluginsProjectPluginEnabled: (payload: {
+    projectId: string;
+    pluginId: string;
+    enabled: boolean;
+  }): Promise<void> => ipcRenderer.invoke("plugins:project-scope-set", payload),
   /** 插件根目录绝对路径（~/.snowapp/plugins）。 */
   getPluginsDirectory: (): Promise<string> =>
     ipcRenderer.invoke("plugins:get-directory"),

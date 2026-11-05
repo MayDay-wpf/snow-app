@@ -10,6 +10,7 @@ import type {
   ToolCallInfo,
 } from "../utils/conversationTypes";
 import type { ChatInputSendOptions } from "../../chatInput/types";
+import type { MessageOrigin } from "../../../../../preload/types/api";
 import {
   demotePendingSteering,
   hasPendingSteering,
@@ -91,6 +92,12 @@ export type WorkflowNodeData = {
   description: string;
   apiProfile: string;
   model: string;
+};
+
+type WorkflowUserMessage = {
+  role: "user";
+  content: string;
+  origin: MessageOrigin;
 };
 
 export type WorkflowEdgeItem = { source: string; target: string };
@@ -1805,16 +1812,15 @@ export function createWorkflowRunner(
       return window.snow.createCheckpoint(workDir).catch(() => undefined);
     };
     const appendPendingUsers = (
-      texts: string[],
+      messages: WorkflowUserMessage[],
       checkpointId?: string,
     ): {
-      requestMessages: { role: "user"; content: string }[];
+      requestMessages: WorkflowUserMessage[];
       messageIds: string[];
     } => {
-      const entries = texts.map((content) => ({
+      const entries = messages.map((message) => ({
+        ...message,
         id: createMessageId("user"),
-        role: "user" as const,
-        content,
         checkpointId,
         timestamp: formatMessageTime(),
         status: "sent" as const,
@@ -1823,7 +1829,7 @@ export function createWorkflowRunner(
       if (ref) {
         ref.activeTaskMessages = [
           ...(ref.activeTaskMessages ?? []),
-          ...entries.map(({ role, content }) => ({ role, content })),
+          ...messages,
         ];
         activeCheckpointId = checkpointId;
         if (checkpointId) {
@@ -1835,16 +1841,11 @@ export function createWorkflowRunner(
         ...entries,
       ]);
       return {
-        requestMessages: texts.map((content) => ({
-          role: "user" as const,
-          content,
-        })),
+        requestMessages: messages,
         messageIds: entries.map((entry) => entry.id),
       };
     };
-    const consumeNodeSteering = async (): Promise<
-      { role: "user"; content: string }[]
-    > => {
+    const consumeNodeSteering = async (): Promise<WorkflowUserMessage[]> => {
       if (!hasPendingSteering(ctx, conversationId) || isNodeCancelled())
         return [];
       const checkpointId = await createPendingCheckpoint();
@@ -1856,7 +1857,11 @@ export function createWorkflowRunner(
         return [];
       }
       return appendPendingUsers(
-        items.map((item) => item.text),
+        items.map((item) => ({
+          role: "user",
+          content: item.text,
+          origin: item.options.origin ?? "unknown",
+        })),
         checkpointId,
       ).requestMessages;
     };
@@ -1942,6 +1947,7 @@ export function createWorkflowRunner(
         {
           id: promptMessageId,
           role: "user",
+          origin: "internal",
           content: prompt,
           timestamp: formatMessageTime(),
           status: "sent",
@@ -1970,41 +1976,21 @@ export function createWorkflowRunner(
           tokenCount: 0,
         };
       }
-      const effectivePrompt = applyUserMessageHookOutcome(prompt, promptGate);
+      const hookContent = applyUserMessageHookOutcome(prompt, promptGate).slice(
+        prompt.length,
+      );
 
       const runLoop = async (
         requestMessages: {
           role: "user" | "assistant" | "tool";
           content: string;
+          origin?: MessageOrigin;
           toolResultsJson?: string;
         }[],
         resumeAfterCompaction = false,
       ): Promise<{ content: string; failed: boolean; error?: string }> => {
-        if (isNodeCancelled()) {
-          if (isNodeForceSendAborted()) {
-            return { content: "", failed: false };
-          }
-          return {
-            content: "",
-            failed: true,
-            error: "Workflow node was interrupted by the user",
-          };
-        }
-
-        // 统一自动压缩闸门：节点每一次「确认要发起下一次请求」的入口（首轮、
-        // 续跑复用旧会话、内部排队、强行发送、插话续跑）都汇合到本循环，阈值
-        // 检查因此不再依赖各调用方自己的续跑判断。携带工具结果的请求与压缩
-        // 边界续跑由闸门内部跳过（前者在响应后的检查点、工具执行前压缩）。
-        const gateCompaction = await runAutoCompactionGate(ctx, {
-          conversationId,
-          requestMessages,
-          model: effectiveModel || undefined,
-          apiProfile: effectiveApiProfile || undefined,
-          thinkingStrength,
-          responsesFastMode,
-          resumeAfterCompaction,
-        });
-        if (gateCompaction) {
+        let modelRequestId: string | undefined;
+        try {
           if (isNodeCancelled()) {
             if (isNodeForceSendAborted()) {
               return { content: "", failed: false };
@@ -2015,221 +2001,361 @@ export function createWorkflowRunner(
               error: "Workflow node was interrupted by the user",
             };
           }
-          // 从压缩边界续跑：handoff 占位 + 压缩前任务原文 + 本次待发送消息。
-          return runLoop(
-            buildCompactionResumeMessages(gateCompaction, requestMessages),
-            true,
-          );
-        }
 
-        resetIterationStreamMetrics(ctx, conversationId);
-        const assistantMessageId = createMessageId("assistant");
-        ctx.updateSessionMessages(conversationId, (currentMessages) => [
-          ...currentMessages,
-          {
-            id: assistantMessageId,
-            role: "assistant",
-            content: "",
-            timestamp: formatMessageTime(),
-            status: "sending",
-            model: effectiveModel || undefined,
-          },
-        ]);
-
-        let response: Awaited<
-          ReturnType<typeof window.snow.createResponseStream>
-        >;
-        const chunkHandler = createStreamChunkHandler(
-          ctx,
-          conversationId,
-          assistantMessageId,
-          isNodeCancelled,
-        );
-        try {
-          response = await window.snow.createResponseStream(
-            {
-              // 增量消息：Rust 端按 conversationId 重建上下文并只持久化本批新消息。
-              messages: requestMessages,
-              conversationId,
-              checkpointId: activeCheckpointId,
-              directoryId: dirId || undefined,
-              apiProfile: effectiveApiProfile || undefined,
-              model: effectiveModel || undefined,
-              thinkingStrength,
-              responsesFastMode,
-              goalMode: false,
-              worktreeMode: nodeWorktreeMode,
-              workflowMode: false,
-              resumeAfterCompaction,
-            },
-            chunkHandler,
-            createStreamIdHandler(ctx, conversationId, isNodeCancelled),
-          );
-        } catch {
-          chunkHandler.flush();
-          const cancelled = isNodeCancelled();
-          finalizeMessage(assistantMessageId, {
-            status: cancelled ? "sent" : "error",
-            failureReason: undefined,
-            htmlPreviewEligible: false,
-            toolCalls: undefined,
-            isRetrying: false,
-          });
-          return {
-            content: "",
-            failed: !isNodeForceSendAborted(),
-            error: cancelled
-              ? "Workflow node was interrupted by the user"
-              : modelFailureReason(),
-          };
-        }
-        chunkHandler.flush();
-
-        // 与主会话一致：store_chat_exchange 已把本批 user 消息持久化并返回
-        // DB snowflake id，这里把前端临时 id 替换为 DB id，让 DOM 的
-        // data-message-id 与 DB 一致（UserMessageRail 的可见性高亮与点击
-        // 跳转都按 DB id 在 DOM 中定位消息）。
-        if (
-          response.persistedUserMessageIds &&
-          response.persistedUserMessageIds.length > 0
-        ) {
-          remapPersistedUserMessageIds(
-            ctx,
+          // 统一自动压缩闸门：节点每一次「确认要发起下一次请求」的入口（首轮、
+          // 续跑复用旧会话、内部排队、强行发送、插话续跑）都汇合到本循环，阈值
+          // 检查因此不再依赖各调用方自己的续跑判断。携带工具结果的请求与压缩
+          // 边界续跑由闸门内部跳过（前者在响应后的检查点、工具执行前压缩）。
+          const gateCompaction = await runAutoCompactionGate(ctx, {
             conversationId,
-            response.persistedUserMessageIds,
-          );
-        }
-        bindPersistedAssistantRecordId(
-          ctx,
-          conversationId,
-          assistantMessageId,
-          response.persistedAssistantMessageId,
-        );
-        // 节点会话消息已持久化：bump conversationVersion 让 UserMessageRail
-        // 重新拉取用户消息列表。节点运行期间没有其它 bump 来源，否则运行中
-        // 打开节点会话时 rail 只显示打开时刻的陈旧快照。
-        ctx.setConversationVersion((version) => version + 1);
-
-        // 强行发送触发的中止：保留已流式内容软结束当前回合（handleAbort 已把
-        // 消息固化为 sent，这里补内容），交给 executeNode 的 force-send 循环继续
-        // 新回合。普通中止不在此拦截，维持原有 disposition 语义。
-        if (isNodeForceSendAborted()) {
-          const currentAssistant = ctx.sessionsRef.current?.[
-            conversationId
-          ]?.messages.find((message) => message.id === assistantMessageId);
-          const partialContent =
-            currentAssistant?.content || response.content || "";
-          finalizeMessage(assistantMessageId, {
-            content: partialContent,
-            status: "sent",
-            isRetrying: false,
-          });
-          return { content: partialContent, failed: false };
-        }
-
-        if (
-          isNodeCancelled() ||
-          settleApiCancellation(
-            ctx,
-            conversationId,
-            assistantMessageId,
-            response,
-          )
-        ) {
-          finalizeMessage(assistantMessageId, {
-            status: "sent",
-            isRetrying: false,
-            toolCalls: undefined,
-            htmlPreviewEligible: false,
-          });
-          return {
-            content: "",
-            failed: true,
-            error: "Workflow node was interrupted by the user",
-          };
-        }
-        const disposition = resolveResponseDisposition(response);
-        ctx.updateSessionMessages(conversationId, (currentMessages) =>
-          settleResponseHtmlPreviewEligibility(
-            currentMessages,
-            assistantMessageId,
-            response,
-            isNodeCancelled(),
-          ),
-        );
-        if (disposition.kind === "error") {
-          ctx.updateSessionMessages(conversationId, (messages) =>
-            messages.map((message) =>
-              message.id === assistantMessageId
-                ? failedModelMessage(message, response)
-                : message,
-            ),
-          );
-          return {
-            content: "",
-            failed: true,
-            error: modelFailureReason(response.failureReason),
-          };
-        }
-        if (disposition.kind === "incomplete") {
-          finalizeMessage(assistantMessageId, {
-            content: response.content || "",
-            thinking: response.thinking || undefined,
-            status: "incomplete",
-            incompleteVariant: disposition.variant,
-            interruptionReason: disposition.reason,
-            recoveryOutcome: disposition.recoveryOutcome,
-            responseId: response.id || undefined,
-            model: response.model || undefined,
-            toolCalls: undefined,
-            isRetrying: false,
-          });
-          return {
-            content: "",
-            failed: true,
-            error: "Node response ended before completion",
-          };
-        }
-
-        if (response.tokenUsage) {
-          tokenCount +=
-            response.tokenUsage.inputTokens + response.tokenUsage.outputTokens;
-          ctx.updateSessionField(
-            conversationId,
-            "tokenUsage",
-            response.tokenUsage,
-          );
-          accumulateRunTokenUsage(ctx, conversationId, response.tokenUsage);
-        }
-
-        const toolCalls = parseToolCalls(response.toolCallsJson);
-
-        // 工具调用必然带来下一轮请求：这里在工具执行之前压缩，压缩交接因此
-        // 覆盖不到本轮工具调用（它们被放弃）。其余续跑入口（晚到插话、内部
-        // 排队、强行发送）不在这里推断，而是在循环入口由统一闸门检查；节点
-        // 自然收尾时不触发，避免唤醒已完成的节点。
-        if (toolCalls.length > 0) {
-          const compaction = await runAutoCompactionGate(ctx, {
-            conversationId,
-            requestMessages: [],
+            requestMessages,
             model: effectiveModel || undefined,
             apiProfile: effectiveApiProfile || undefined,
             thinkingStrength,
             responsesFastMode,
-            tokenUsage: response.tokenUsage,
-            // 固化跨阈值轮次的消息，其工具调用被压缩交接放弃。
-            beforeCompaction: () =>
-              finalizeMessage(assistantMessageId, {
-                content: response.content || "",
-                thinking: response.thinking || undefined,
-                status: "sent",
-                responseId: response.id || undefined,
-                model: response.model || undefined,
-                isRetrying: false,
-              }),
+            resumeAfterCompaction,
+          });
+          if (gateCompaction) {
+            if (isNodeCancelled()) {
+              if (isNodeForceSendAborted()) {
+                return { content: "", failed: false };
+              }
+              return {
+                content: "",
+                failed: true,
+                error: "Workflow node was interrupted by the user",
+              };
+            }
+            // 从压缩边界续跑：handoff 占位 + 压缩前任务原文 + 本次待发送消息。
+            return runLoop(
+              buildCompactionResumeMessages(gateCompaction, requestMessages),
+              true,
+            );
+          }
+
+          if (isNodeCancelled()) {
+            return {
+              content: "",
+              failed: !isNodeForceSendAborted(),
+              error: "Workflow node was interrupted by the user",
+            };
+          }
+          resetIterationStreamMetrics(ctx, conversationId);
+          const assistantMessageId = createMessageId("assistant");
+          ctx.updateSessionMessages(conversationId, (currentMessages) => [
+            ...currentMessages,
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              content: "",
+              timestamp: formatMessageTime(),
+              status: "sending",
+              model: effectiveModel || undefined,
+            },
+          ]);
+
+          let response: Awaited<
+            ReturnType<typeof window.snow.createResponseStream>
+          >;
+          const chunkHandler = createStreamChunkHandler(
+            ctx,
+            conversationId,
+            assistantMessageId,
+            isNodeCancelled,
+          );
+          try {
+            response = await window.snow.createResponseStream(
+              {
+                // 增量消息：Rust 端按 conversationId 重建上下文并只持久化本批新消息。
+                messages: requestMessages,
+                conversationId,
+                checkpointId: activeCheckpointId,
+                directoryId: dirId || undefined,
+                apiProfile: effectiveApiProfile || undefined,
+                model: effectiveModel || undefined,
+                thinkingStrength,
+                responsesFastMode,
+                goalMode: false,
+                worktreeMode: nodeWorktreeMode,
+                workflowMode: false,
+                resumeAfterCompaction,
+              },
+              chunkHandler,
+              (streamId) => {
+                modelRequestId = streamId;
+                createStreamIdHandler(
+                  ctx,
+                  conversationId,
+                  isNodeCancelled,
+                )(streamId);
+              },
+            );
+          } catch {
+            chunkHandler.flush();
+            const cancelled = isNodeCancelled();
+            finalizeMessage(assistantMessageId, {
+              status: cancelled ? "sent" : "error",
+              failureReason: undefined,
+              htmlPreviewEligible: false,
+              toolCalls: undefined,
+              isRetrying: false,
+            });
+            return {
+              content: "",
+              failed: !isNodeForceSendAborted(),
+              error: cancelled
+                ? "Workflow node was interrupted by the user"
+                : modelFailureReason(),
+            };
+          }
+          chunkHandler.flush();
+
+          // 与主会话一致：store_chat_exchange 已把本批 user 消息持久化并返回
+          // DB snowflake id，这里把前端临时 id 替换为 DB id，让 DOM 的
+          // data-message-id 与 DB 一致（UserMessageRail 的可见性高亮与点击
+          // 跳转都按 DB id 在 DOM 中定位消息）。
+          if (
+            response.persistedUserMessageIds &&
+            response.persistedUserMessageIds.length > 0
+          ) {
+            remapPersistedUserMessageIds(
+              ctx,
+              conversationId,
+              response.persistedUserMessageIds,
+            );
+          }
+          bindPersistedAssistantRecordId(
+            ctx,
+            conversationId,
+            assistantMessageId,
+            response.persistedAssistantMessageId,
+          );
+          // 节点会话消息已持久化：bump conversationVersion 让 UserMessageRail
+          // 重新拉取用户消息列表。节点运行期间没有其它 bump 来源，否则运行中
+          // 打开节点会话时 rail 只显示打开时刻的陈旧快照。
+          ctx.setConversationVersion((version) => version + 1);
+
+          // 强行发送触发的中止：保留已流式内容软结束当前回合（handleAbort 已把
+          // 消息固化为 sent，这里补内容），交给 executeNode 的 force-send 循环继续
+          // 新回合。普通中止不在此拦截，维持原有 disposition 语义。
+          if (isNodeForceSendAborted()) {
+            const currentAssistant = ctx.sessionsRef.current?.[
+              conversationId
+            ]?.messages.find((message) => message.id === assistantMessageId);
+            const partialContent =
+              currentAssistant?.content || response.content || "";
+            finalizeMessage(assistantMessageId, {
+              content: partialContent,
+              status: "sent",
+              isRetrying: false,
+            });
+            return { content: partialContent, failed: false };
+          }
+
+          if (
+            isNodeCancelled() ||
+            settleApiCancellation(
+              ctx,
+              conversationId,
+              assistantMessageId,
+              response,
+            )
+          ) {
+            finalizeMessage(assistantMessageId, {
+              status: "sent",
+              isRetrying: false,
+              toolCalls: undefined,
+              htmlPreviewEligible: false,
+            });
+            return {
+              content: "",
+              failed: true,
+              error: "Workflow node was interrupted by the user",
+            };
+          }
+          const disposition = resolveResponseDisposition(response);
+          ctx.updateSessionMessages(conversationId, (currentMessages) =>
+            settleResponseHtmlPreviewEligibility(
+              currentMessages,
+              assistantMessageId,
+              response,
+              isNodeCancelled(),
+            ),
+          );
+          if (disposition.kind === "error") {
+            ctx.updateSessionMessages(conversationId, (messages) =>
+              messages.map((message) =>
+                message.id === assistantMessageId
+                  ? failedModelMessage(message, response)
+                  : message,
+              ),
+            );
+            return {
+              content: "",
+              failed: true,
+              error: modelFailureReason(response.failureReason),
+            };
+          }
+          if (disposition.kind === "incomplete") {
+            finalizeMessage(assistantMessageId, {
+              content: response.content || "",
+              thinking: response.thinking || undefined,
+              status: "incomplete",
+              incompleteVariant: disposition.variant,
+              interruptionReason: disposition.reason,
+              recoveryOutcome: disposition.recoveryOutcome,
+              responseId: response.id || undefined,
+              model: response.model || undefined,
+              toolCalls: undefined,
+              isRetrying: false,
+            });
+            return {
+              content: "",
+              failed: true,
+              error: "Node response ended before completion",
+            };
+          }
+
+          if (response.tokenUsage) {
+            tokenCount +=
+              response.tokenUsage.inputTokens +
+              response.tokenUsage.outputTokens;
+            ctx.updateSessionField(
+              conversationId,
+              "tokenUsage",
+              response.tokenUsage,
+            );
+            accumulateRunTokenUsage(ctx, conversationId, response.tokenUsage);
+          }
+
+          const toolCalls = parseToolCalls(response.toolCallsJson);
+
+          // 工具调用必然带来下一轮请求：这里在工具执行之前压缩，压缩交接因此
+          // 覆盖不到本轮工具调用（它们被放弃）。其余续跑入口（晚到插话、内部
+          // 排队、强行发送）不在这里推断，而是在循环入口由统一闸门检查；节点
+          // 自然收尾时不触发，避免唤醒已完成的节点。
+          if (toolCalls.length > 0) {
+            const compaction = await runAutoCompactionGate(ctx, {
+              conversationId,
+              requestMessages: [],
+              model: effectiveModel || undefined,
+              apiProfile: effectiveApiProfile || undefined,
+              thinkingStrength,
+              responsesFastMode,
+              tokenUsage: response.tokenUsage,
+              // 固化跨阈值轮次的消息，其工具调用被压缩交接放弃。
+              beforeCompaction: () =>
+                finalizeMessage(assistantMessageId, {
+                  content: response.content || "",
+                  thinking: response.thinking || undefined,
+                  status: "sent",
+                  responseId: response.id || undefined,
+                  model: response.model || undefined,
+                  isRetrying: false,
+                }),
+            });
+
+            if (compaction) {
+              if (isNodeCancelled()) {
+                if (isNodeForceSendAborted()) {
+                  return { content: "", failed: false };
+                }
+                return {
+                  content: "",
+                  failed: true,
+                  error: "Workflow node was interrupted by the user",
+                };
+              }
+
+              // 从压缩边界续跑：占位 + 压缩前最后的节点任务原文。
+              return runLoop(
+                buildCompactionResumeMessages(compaction, []),
+                true,
+              );
+            }
+          }
+
+          if (toolCalls.length === 0) {
+            finalizeMessage(assistantMessageId, {
+              content: response.content || "",
+              thinking: response.thinking || undefined,
+              status: "sent",
+              responseId: response.id || undefined,
+              model: response.model || undefined,
+              isRetrying: false,
+            });
+            // 响应在中断竞态下正常完成时，也必须按失败返回，
+            // 否则 runWorkflow 会误判成功并激活下一个节点。
+            if (isNodeCancelled()) {
+              if (isNodeForceSendAborted()) {
+                return { content: response.content || "", failed: false };
+              }
+              return {
+                content: "",
+                failed: true,
+                error: "Workflow node was interrupted by the user",
+              };
+            }
+            // Only admitted steering belongs to this run. Ordinary follow-ups
+            // start after the complete runLoop returns to executeNode.
+            const steering = await consumeNodeSteering();
+            if (steering.length) return runLoop(steering);
+            return { content: response.content || "", failed: false };
+          }
+
+          finalizeMessage(assistantMessageId, {
+            content: response.content || "",
+            thinking: response.thinking || undefined,
+            status: "sent",
+            responseId: response.id || undefined,
+            model: response.model || undefined,
+            toolCalls: toolCalls.map((toolCall) => ({
+              ...toolCall,
+              status: "pending",
+            })),
+            isRetrying: false,
           });
 
-          if (compaction) {
+          // 工具授权与主 loop 完全一致：全部工具（含只读）都交给
+          // requestToolAuthorizations，只读工具由 shouldAutoApprove 放行。
+          // toolConfirmation hook 因此在节点内覆盖每一个工具调用，
+          // 不再是「只读工具跳过」的部分生效。
+          const decisions: ToolAuthorizationDecision[] =
+            toolCalls.length > 0
+              ? await requestToolAuthorizations(
+                  toolCalls,
+                  conversationId,
+                  dirId,
+                )
+              : [];
+          if (isNodeCancelled()) {
+            if (isNodeForceSendAborted()) {
+              return { content: "", failed: false };
+            }
+            return {
+              content: "",
+              failed: true,
+              error: "Workflow node was interrupted by the user",
+            };
+          }
+
+          const allRejected =
+            toolCalls.length > 0 &&
+            decisions.every((decision) => decision.status === "rejected");
+          const hasContinuableRejection = decisions.some(rejectionKeepsAiFlow);
+
+          const structuredResults: {
+            name: string;
+            callId: string;
+            result: string;
+          }[] = [];
+          // 工具 Hook 状态：中止结束本回合，警告随工具结果回传模型。
+          let hookAborted = false;
+          let hookAbortMessage = "";
+          const pendingHookWarnings: string[] = [];
+          for (let index = 0; index < toolCalls.length; index++) {
+            const toolCall = toolCalls[index];
+            const decision = decisions[index];
             if (isNodeCancelled()) {
               if (isNodeForceSendAborted()) {
                 return { content: "", failed: false };
@@ -2241,515 +2367,427 @@ export function createWorkflowRunner(
               };
             }
 
-            // 从压缩边界续跑：占位 + 压缩前最后的节点任务原文。
-            return runLoop(buildCompactionResumeMessages(compaction, []), true);
-          }
-        }
-
-        if (toolCalls.length === 0) {
-          finalizeMessage(assistantMessageId, {
-            content: response.content || "",
-            thinking: response.thinking || undefined,
-            status: "sent",
-            responseId: response.id || undefined,
-            model: response.model || undefined,
-            isRetrying: false,
-          });
-          // 响应在中断竞态下正常完成时，也必须按失败返回，
-          // 否则 runWorkflow 会误判成功并激活下一个节点。
-          if (isNodeCancelled()) {
-            if (isNodeForceSendAborted()) {
-              return { content: response.content || "", failed: false };
+            // 拒绝结果回传模型，让模型据此调整。
+            if (decision.status === "rejected") {
+              const rejectResult = JSON.stringify({
+                success: false,
+                error: "TOOL_EXECUTION_DENIED",
+                reason: decision.reason || "User declined tool execution",
+              });
+              structuredResults.push({
+                name: toolCall.name,
+                callId: toolCall.callId || "",
+                result: rejectResult,
+              });
+              updateAssistantToolCalls(
+                assistantMessageId,
+                toolCall,
+                "pending",
+                (currentToolCall) => ({
+                  ...currentToolCall,
+                  status: "completed",
+                  result: rejectResult,
+                }),
+              );
+              continue;
             }
-            return {
-              content: "",
-              failed: true,
-              error: "Workflow node was interrupted by the user",
-            };
-          }
-          // Only admitted steering belongs to this run. Ordinary follow-ups
-          // start after the complete runLoop returns to executeNode.
-          const steering = await consumeNodeSteering();
-          if (steering.length) return runLoop(steering);
-          return { content: response.content || "", failed: false };
-        }
 
-        finalizeMessage(assistantMessageId, {
-          content: response.content || "",
-          thinking: response.thinking || undefined,
-          status: "sent",
-          responseId: response.id || undefined,
-          model: response.model || undefined,
-          toolCalls: toolCalls.map((toolCall) => ({
-            ...toolCall,
-            status: "pending",
-          })),
-          isRetrying: false,
-        });
-
-        // 工具授权与主 loop 完全一致：全部工具（含只读）都交给
-        // requestToolAuthorizations，只读工具由 shouldAutoApprove 放行。
-        // toolConfirmation hook 因此在节点内覆盖每一个工具调用，
-        // 不再是「只读工具跳过」的部分生效。
-        const decisions: ToolAuthorizationDecision[] =
-          toolCalls.length > 0
-            ? await requestToolAuthorizations(toolCalls, conversationId, dirId)
-            : [];
-        if (isNodeCancelled()) {
-          if (isNodeForceSendAborted()) {
-            return { content: "", failed: false };
-          }
-          return {
-            content: "",
-            failed: true,
-            error: "Workflow node was interrupted by the user",
-          };
-        }
-
-        const allRejected =
-          toolCalls.length > 0 &&
-          decisions.every((decision) => decision.status === "rejected");
-        const hasContinuableRejection = decisions.some(rejectionKeepsAiFlow);
-
-        const structuredResults: {
-          name: string;
-          callId: string;
-          result: string;
-        }[] = [];
-        // 工具 Hook 状态：中止结束本回合，警告随工具结果回传模型。
-        let hookAborted = false;
-        let hookAbortMessage = "";
-        const pendingHookWarnings: string[] = [];
-        for (let index = 0; index < toolCalls.length; index++) {
-          const toolCall = toolCalls[index];
-          const decision = decisions[index];
-          if (isNodeCancelled()) {
-            if (isNodeForceSendAborted()) {
-              return { content: "", failed: false };
-            }
-            return {
-              content: "",
-              failed: true,
-              error: "Workflow node was interrupted by the user",
-            };
-          }
-
-          // 拒绝结果回传模型，让模型据此调整。
-          if (decision.status === "rejected") {
-            const rejectResult = JSON.stringify({
-              success: false,
-              error: "TOOL_EXECUTION_DENIED",
-              reason: decision.reason || "User declined tool execution",
-            });
-            structuredResults.push({
-              name: toolCall.name,
-              callId: toolCall.callId || "",
-              result: rejectResult,
-            });
             updateAssistantToolCalls(
               assistantMessageId,
               toolCall,
               "pending",
               (currentToolCall) => ({
                 ...currentToolCall,
-                status: "completed",
-                result: rejectResult,
+                status: "running",
+                startedAt: Date.now(),
               }),
             );
-            continue;
-          }
 
-          updateAssistantToolCalls(
-            assistantMessageId,
-            toolCall,
-            "pending",
-            (currentToolCall) => ({
-              ...currentToolCall,
-              status: "running",
-              startedAt: Date.now(),
-            }),
-          );
-
-          // 交互式工具在节点内不可用：直接拒绝并继续。
-          if (
-            INTERACTIVE_TOOL_PREFIXES.some((prefix) =>
-              toolCall.name.startsWith(prefix),
-            )
-          ) {
-            const blockedResult = JSON.stringify({
-              success: false,
-              error: `${toolCall.name} is an interactive tool and cannot run inside a WorkFlow node. Execute the step directly and continue without it.`,
-            });
-            structuredResults.push({
-              name: toolCall.name,
-              callId: toolCall.callId || "",
-              result: blockedResult,
-            });
-            updateAssistantToolCalls(
-              assistantMessageId,
-              toolCall,
-              "running",
-              (currentToolCall) => ({
-                ...currentToolCall,
-                status: "error",
-                result: blockedResult,
-              }),
-            );
-            continue;
-          }
-
-          let toolArgs = injectSessionIdIntoToolArgs(
-            toolCall.name,
-            toolCall.arguments,
-            conversationId,
-          );
-          // 敏感操作确认后签发授权 token（与子代理一致）。
-          let sensitiveAuthorizationToken: string | undefined;
-          if (
-            decision.sensitiveCommandConfirmed === true &&
-            decision.sensitiveSubject
-          ) {
-            try {
-              sensitiveAuthorizationToken =
-                await window.snow.issueSensitiveCommandAuthorization(
-                  decision.sensitiveSubject,
-                );
-            } catch {
-              // 签发失败时让工具自然失败
-            }
-          }
-
-          // beforeToolCall：执行前闸门，与主 loop 一致（YOLO 自动放行也不跳过）。
-          let parsedNodeToolArgs: unknown = undefined;
-          let hasParsedNodeToolArgs = false;
-          try {
-            parsedNodeToolArgs = JSON.parse(toolArgs);
-            hasParsedNodeToolArgs = true;
-          } catch {
-            // 参数不是合法 JSON：与主 loop 一样跳过该 hook
-          }
-          if (hasParsedNodeToolArgs) {
-            const beforeGate = await runToolHookGate(
-              hookDeps,
-              "beforeToolCall",
-              { toolName: toolCall.name, args: parsedNodeToolArgs },
-              assistantMessageId,
-            );
-            if (beforeGate.kind === "abort") {
-              const denyResult = JSON.stringify({
+            // 交互式工具在节点内不可用：直接拒绝并继续。
+            if (
+              INTERACTIVE_TOOL_PREFIXES.some((prefix) =>
+                toolCall.name.startsWith(prefix),
+              )
+            ) {
+              const blockedResult = JSON.stringify({
                 success: false,
-                error: "HOOK_DECISION_REJECTED",
-                message: beforeGate.message,
+                error: `${toolCall.name} is an interactive tool and cannot run inside a WorkFlow node. Execute the step directly and continue without it.`,
+              });
+              structuredResults.push({
+                name: toolCall.name,
+                callId: toolCall.callId || "",
+                result: blockedResult,
               });
               updateAssistantToolCalls(
                 assistantMessageId,
                 toolCall,
-                ["pending", "running"],
+                "running",
                 (currentToolCall) => ({
                   ...currentToolCall,
                   status: "error",
-                  result: denyResult,
+                  result: blockedResult,
                 }),
               );
-              hookAborted = true;
-              hookAbortMessage = beforeGate.message;
-              break;
+              continue;
             }
-            if (beforeGate.kind === "warn") {
-              pendingHookWarnings.push(beforeGate.message);
-            }
-          }
 
-          let result: string;
-          let toolErrored = false;
-          // flow checkpoint 存在时必须同步传工作目录：checkpoint 捕获按
-          // (checkpointIds, workDir) 定位，缺 workDir 会让文件工具直接
-          // 报错、bash 类工具降级为无快照并刷"缺少工作目录"日志。
-          const toolCheckpointIds = [
-            ...(flowCheckpointId ? [flowCheckpointId] : []),
-            ...(activeCheckpointId ? [activeCheckpointId] : []),
-          ];
-          const flowCheckpointWorkDir = activeCheckpointId
-            ? activeCheckpointWorkDir
-            : flowCheckpointId
-              ? directoryIdToPath(dirId)
-              : undefined;
-          // 第三参 projectId 必须传目录 id：工具执行的工作目录上下文。
-          // 第四参 checkpointIds 传 flow checkpoint：文件工具 before
-          // 阶段把被改文件的原始状态捕获进该 checkpoint（lazy
-          // capture），回滚时恢复它即可撤销节点的文件改动。
-          // onChunk 把 tool_execution id 记录到工具卡片：会话级联
-          // 中止时 killRunningToolExecutions 据此杀掉节点仍在运行
-          // 的子进程。纠错重试复用同一执行上下文。
-          const runNodeTool = (argsJson: string) =>
-            window.snow.callMcpTool(
+            let toolArgs = injectSessionIdIntoToolArgs(
               toolCall.name,
-              argsJson,
-              dirId,
-              toolCheckpointIds,
-              flowCheckpointWorkDir,
-              sensitiveAuthorizationToken,
-              (chunk) => {
-                if (!chunk.data) {
-                  return;
-                }
-                if (
-                  chunk.stream === "interactive_session" ||
-                  chunk.stream === "tool_execution"
-                ) {
+              toolCall.arguments,
+              conversationId,
+            );
+            // 敏感操作确认后签发授权 token（与子代理一致）。
+            let sensitiveAuthorizationToken: string | undefined;
+            if (
+              decision.sensitiveCommandConfirmed === true &&
+              decision.sensitiveSubject
+            ) {
+              try {
+                sensitiveAuthorizationToken =
+                  await window.snow.issueSensitiveCommandAuthorization(
+                    decision.sensitiveSubject,
+                  );
+              } catch {
+                // 签发失败时让工具自然失败
+              }
+            }
+
+            // beforeToolCall：执行前闸门，与主 loop 一致（YOLO 自动放行也不跳过）。
+            let parsedNodeToolArgs: unknown = undefined;
+            let hasParsedNodeToolArgs = false;
+            try {
+              parsedNodeToolArgs = JSON.parse(toolArgs);
+              hasParsedNodeToolArgs = true;
+            } catch {
+              // 参数不是合法 JSON：与主 loop 一样跳过该 hook
+            }
+            if (hasParsedNodeToolArgs) {
+              const beforeGate = await runToolHookGate(
+                hookDeps,
+                "beforeToolCall",
+                { toolName: toolCall.name, args: parsedNodeToolArgs },
+                assistantMessageId,
+              );
+              if (beforeGate.kind === "abort") {
+                const denyResult = JSON.stringify({
+                  success: false,
+                  error: "HOOK_DECISION_REJECTED",
+                  message: beforeGate.message,
+                });
+                updateAssistantToolCalls(
+                  assistantMessageId,
+                  toolCall,
+                  ["pending", "running"],
+                  (currentToolCall) => ({
+                    ...currentToolCall,
+                    status: "error",
+                    result: denyResult,
+                  }),
+                );
+                hookAborted = true;
+                hookAbortMessage = beforeGate.message;
+                break;
+              }
+              if (beforeGate.kind === "warn") {
+                pendingHookWarnings.push(beforeGate.message);
+              }
+            }
+
+            let result: string;
+            let toolErrored = false;
+            // flow checkpoint 存在时必须同步传工作目录：checkpoint 捕获按
+            // (checkpointIds, workDir) 定位，缺 workDir 会让文件工具直接
+            // 报错、bash 类工具降级为无快照并刷"缺少工作目录"日志。
+            const toolCheckpointIds = [
+              ...(flowCheckpointId ? [flowCheckpointId] : []),
+              ...(activeCheckpointId ? [activeCheckpointId] : []),
+            ];
+            const flowCheckpointWorkDir = activeCheckpointId
+              ? activeCheckpointWorkDir
+              : flowCheckpointId
+                ? directoryIdToPath(dirId)
+                : undefined;
+            // 第三参 projectId 必须传目录 id：工具执行的工作目录上下文。
+            // 第四参 checkpointIds 传 flow checkpoint：文件工具 before
+            // 阶段把被改文件的原始状态捕获进该 checkpoint（lazy
+            // capture），回滚时恢复它即可撤销节点的文件改动。
+            // onChunk 把 tool_execution id 记录到工具卡片：会话级联
+            // 中止时 killRunningToolExecutions 据此杀掉节点仍在运行
+            // 的子进程。纠错重试复用同一执行上下文。
+            const runNodeTool = (argsJson: string) =>
+              window.snow.callMcpTool(
+                toolCall.name,
+                argsJson,
+                dirId,
+                toolCheckpointIds,
+                flowCheckpointWorkDir,
+                sensitiveAuthorizationToken,
+                (chunk) => {
+                  if (!chunk.data) {
+                    return;
+                  }
+                  if (
+                    chunk.stream === "interactive_session" ||
+                    chunk.stream === "tool_execution"
+                  ) {
+                    updateAssistantToolCalls(
+                      assistantMessageId,
+                      toolCall,
+                      ["pending", "running"],
+                      (currentToolCall) => ({
+                        ...currentToolCall,
+                        interactiveSessionId:
+                          chunk.stream === "interactive_session"
+                            ? chunk.data
+                            : currentToolCall.interactiveSessionId,
+                        toolExecutionId:
+                          chunk.stream === "tool_execution"
+                            ? chunk.data
+                            : currentToolCall.toolExecutionId,
+                      }),
+                    );
+                    return;
+                  }
                   updateAssistantToolCalls(
                     assistantMessageId,
                     toolCall,
                     ["pending", "running"],
                     (currentToolCall) => ({
                       ...currentToolCall,
-                      interactiveSessionId:
-                        chunk.stream === "interactive_session"
-                          ? chunk.data
-                          : currentToolCall.interactiveSessionId,
-                      toolExecutionId:
-                        chunk.stream === "tool_execution"
-                          ? chunk.data
-                          : currentToolCall.toolExecutionId,
+                      streamingStdout:
+                        chunk.stream === "stdout"
+                          ? `${currentToolCall.streamingStdout ?? ""}${chunk.data}`
+                          : currentToolCall.streamingStdout,
+                      streamingStderr:
+                        chunk.stream === "stderr"
+                          ? `${currentToolCall.streamingStderr ?? ""}${chunk.data}`
+                          : currentToolCall.streamingStderr,
                     }),
                   );
-                  return;
-                }
-                updateAssistantToolCalls(
-                  assistantMessageId,
-                  toolCall,
-                  ["pending", "running"],
-                  (currentToolCall) => ({
-                    ...currentToolCall,
-                    streamingStdout:
-                      chunk.stream === "stdout"
-                        ? `${currentToolCall.streamingStdout ?? ""}${chunk.data}`
-                        : currentToolCall.streamingStdout,
-                    streamingStderr:
-                      chunk.stream === "stderr"
-                        ? `${currentToolCall.streamingStderr ?? ""}${chunk.data}`
-                        : currentToolCall.streamingStderr,
-                  }),
-                );
-              },
-              toolCall.interactionId,
-              undefined,
-              // 会话溯源：节点内 memory-save 由 Rust 分发层注入节点会话 ID。
-              conversationId,
-            );
-          try {
-            // 子代理工具必须走渲染进程异步运行时：Rust callMcpTool 端
-            // 会拒绝并报 "must be executed through the asynchronous
-            // Electron interaction bridge"。节点内允许激活子代理（在节点
-            // 会话下运行）与 getResult/continue/cancel 管理工具，侧边栏以
-            // 节点 → 子代理 树形展示。节点只允许同步子代理：未指定执行方式
-            // 时默认 sync，显式 async 由子代理运行时按父会话类型拒绝。
-            if (toolCall.name === "sub-agents-continue") {
-              const args = JSON.parse(toolArgs) as Record<string, unknown>;
-              if (args.requestId === undefined) {
-                if (!toolCall.interactionId)
-                  throw new Error(
-                    "VALIDATION_ERROR: stable workflow tool identity is required",
-                  );
-                args.requestId = `continue:${toolCall.interactionId}`;
-                toolArgs = JSON.stringify(args);
-              }
-            }
-            if (toolCall.name === "sub-agents-activate") {
-              result = await executeSubAgentActivation(
-                toolArgs,
-                conversationId,
-                dirId,
-                toolCall.interactionId,
-                toolCheckpointIds,
-                "sync",
-              );
-            } else if (SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name)) {
-              result = await executeSubAgentMainTool(
-                toolCall.name,
-                toolArgs,
-                conversationId,
-                toolCheckpointIds,
-                "sync",
-              );
-            } else {
-              result = await runNodeTool(toolArgs);
-            }
-          } catch (error) {
-            // 失败结果照常回传模型，由节点 loop 下一轮自行修复。
-            toolErrored = true;
-            result = JSON.stringify({ error: getErrorMessage(error) });
-          }
-
-          // afterToolCall：执行结束即触发（与主 loop 串行路径一致，纠错前），
-          // exit 0 的上下文追加到工具结果，exit 1 进入警告，exit 2+ 结束回合。
-          if (hasParsedNodeToolArgs) {
-            let parsedNodeToolResult: unknown = undefined;
-            let hasParsedNodeToolResult = false;
-            try {
-              parsedNodeToolResult = JSON.parse(result);
-              hasParsedNodeToolResult = true;
-            } catch {
-              // 结果不是合法 JSON：与主 loop 一样跳过该 hook
-            }
-            if (hasParsedNodeToolResult) {
-              const afterGate = await runToolHookGate(
-                hookDeps,
-                "afterToolCall",
-                {
-                  toolName: toolCall.name,
-                  args: parsedNodeToolArgs,
-                  result: parsedNodeToolResult,
                 },
-                assistantMessageId,
+                toolCall.interactionId,
+                undefined,
+                // 会话溯源：节点内 memory-save 由 Rust 分发层注入节点会话 ID。
+                conversationId,
+                modelRequestId,
               );
-              if (afterGate.kind === "abort") {
-                updateAssistantToolCalls(
-                  assistantMessageId,
-                  toolCall,
-                  ["pending", "running"],
-                  (currentToolCall) => ({
-                    ...currentToolCall,
-                    status: toolErrored ? "error" : "completed",
-                    result,
-                  }),
-                );
-                hookAborted = true;
-                hookAbortMessage = afterGate.message;
-                break;
+            try {
+              // 子代理工具必须走渲染进程异步运行时：Rust callMcpTool 端
+              // 会拒绝并报 "must be executed through the asynchronous
+              // Electron interaction bridge"。节点内允许激活子代理（在节点
+              // 会话下运行）与 getResult/continue/cancel 管理工具，侧边栏以
+              // 节点 → 子代理 树形展示。节点只允许同步子代理：未指定执行方式
+              // 时默认 sync，显式 async 由子代理运行时按父会话类型拒绝。
+              if (toolCall.name === "sub-agents-continue") {
+                const args = JSON.parse(toolArgs) as Record<string, unknown>;
+                if (args.requestId === undefined) {
+                  if (!toolCall.interactionId)
+                    throw new Error(
+                      "VALIDATION_ERROR: stable workflow tool identity is required",
+                    );
+                  args.requestId = `continue:${toolCall.interactionId}`;
+                  toolArgs = JSON.stringify(args);
+                }
               }
-              if (afterGate.kind === "warn") {
-                pendingHookWarnings.push(afterGate.message);
-              } else if (afterGate.kind === "pass" && afterGate.context) {
-                result = `${result}\n\n[Hook Context]\n${afterGate.context}`;
-              }
-            }
-          }
-
-          // 失败调用交给纠错 Agent 修正参数并重新执行（与主会话一致，最多
-          // 3 次）。子代理管理工具不经 callMcpTool，不参与纠错。
-          let correctionReasoning: string | undefined;
-          if (
-            toolCall.name !== "sub-agents-activate" &&
-            !SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name) &&
-            !isNodeCancelled()
-          ) {
-            const failedResult = result;
-            const corrected = await correctFailedToolCall({
-              toolCall,
-              failedResult,
-              apiProfile: effectiveApiProfile || undefined,
-              conversationId,
-              responseId: response.id || undefined,
-              getToolDefinition,
-              // 只读工具与首次执行一致自动放行，其余修正调用重新走授权。
-              authorize: async (authorizationCall) => {
-                const [correctionDecision] = await requestToolAuthorizations(
-                  [authorizationCall],
+              if (toolCall.name === "sub-agents-activate") {
+                result = await executeSubAgentActivation(
+                  toolArgs,
                   conversationId,
                   dirId,
+                  toolCall.interactionId,
+                  toolCheckpointIds,
+                  "sync",
                 );
-                return correctionDecision?.status === "approved";
-              },
-              execute: (argumentsJson) =>
-                runNodeTool(
-                  injectSessionIdIntoToolArgs(
-                    toolCall.name,
-                    argumentsJson,
-                    conversationId,
-                  ),
-                ),
-              onUpdate: (correction) =>
-                updateAssistantToolCalls(
-                  assistantMessageId,
-                  toolCall,
-                  ["pending", "running", "completed", "error"],
-                  (currentToolCall) =>
-                    applyToolCorrectionToCall(
-                      currentToolCall,
-                      correction,
-                      false,
-                      failedResult,
-                    ),
-                ),
-              isCancelled: isNodeCancelled,
-            });
-            if (corrected) {
-              result = corrected.result;
-              toolErrored = false;
-              correctionReasoning = corrected.reasoning;
+              } else if (SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name)) {
+                result = await executeSubAgentMainTool(
+                  toolCall.name,
+                  toolArgs,
+                  conversationId,
+                  toolCheckpointIds,
+                  "sync",
+                );
+              } else {
+                result = await runNodeTool(toolArgs);
+              }
+            } catch (error) {
+              // 失败结果照常回传模型，由节点 loop 下一轮自行修复。
+              toolErrored = true;
+              result = JSON.stringify({ error: getErrorMessage(error) });
             }
+
+            // afterToolCall：执行结束即触发（与主 loop 串行路径一致，纠错前），
+            // exit 0 的上下文追加到工具结果，exit 1 进入警告，exit 2+ 结束回合。
+            if (hasParsedNodeToolArgs) {
+              let parsedNodeToolResult: unknown = undefined;
+              let hasParsedNodeToolResult = false;
+              try {
+                parsedNodeToolResult = JSON.parse(result);
+                hasParsedNodeToolResult = true;
+              } catch {
+                // 结果不是合法 JSON：与主 loop 一样跳过该 hook
+              }
+              if (hasParsedNodeToolResult) {
+                const afterGate = await runToolHookGate(
+                  hookDeps,
+                  "afterToolCall",
+                  {
+                    toolName: toolCall.name,
+                    args: parsedNodeToolArgs,
+                    result: parsedNodeToolResult,
+                  },
+                  assistantMessageId,
+                );
+                if (afterGate.kind === "abort") {
+                  updateAssistantToolCalls(
+                    assistantMessageId,
+                    toolCall,
+                    ["pending", "running"],
+                    (currentToolCall) => ({
+                      ...currentToolCall,
+                      status: toolErrored ? "error" : "completed",
+                      result,
+                    }),
+                  );
+                  hookAborted = true;
+                  hookAbortMessage = afterGate.message;
+                  break;
+                }
+                if (afterGate.kind === "warn") {
+                  pendingHookWarnings.push(afterGate.message);
+                } else if (afterGate.kind === "pass" && afterGate.context) {
+                  result = `${result}\n\n[Hook Context]\n${afterGate.context}`;
+                }
+              }
+            }
+
+            // 失败调用交给纠错 Agent 修正参数并重新执行（与主会话一致，最多
+            // 3 次）。子代理管理工具不经 callMcpTool，不参与纠错。
+            let correctionReasoning: string | undefined;
+            if (
+              toolCall.name !== "sub-agents-activate" &&
+              !SUB_AGENT_MAIN_TOOL_NAMES.has(toolCall.name) &&
+              !isNodeCancelled()
+            ) {
+              const failedResult = result;
+              const corrected = await correctFailedToolCall({
+                toolCall,
+                failedResult,
+                apiProfile: effectiveApiProfile || undefined,
+                conversationId,
+                responseId: response.id || undefined,
+                getToolDefinition,
+                // 只读工具与首次执行一致自动放行，其余修正调用重新走授权。
+                authorize: async (authorizationCall) => {
+                  const [correctionDecision] = await requestToolAuthorizations(
+                    [authorizationCall],
+                    conversationId,
+                    dirId,
+                  );
+                  return correctionDecision?.status === "approved";
+                },
+                execute: (argumentsJson) =>
+                  runNodeTool(
+                    injectSessionIdIntoToolArgs(
+                      toolCall.name,
+                      argumentsJson,
+                      conversationId,
+                    ),
+                  ),
+                onUpdate: (correction) =>
+                  updateAssistantToolCalls(
+                    assistantMessageId,
+                    toolCall,
+                    ["pending", "running", "completed", "error"],
+                    (currentToolCall) =>
+                      applyToolCorrectionToCall(
+                        currentToolCall,
+                        correction,
+                        false,
+                        failedResult,
+                      ),
+                  ),
+                isCancelled: isNodeCancelled,
+              });
+              if (corrected) {
+                result = corrected.result;
+                toolErrored = false;
+                correctionReasoning = corrected.reasoning;
+              }
+            }
+
+            updateAssistantToolCalls(
+              assistantMessageId,
+              toolCall,
+              "running",
+              (currentToolCall) => ({
+                ...currentToolCall,
+                status: toolErrored ? "error" : "completed",
+                result,
+              }),
+            );
+            structuredResults.push({
+              name: toolCall.name,
+              callId: toolCall.callId || "",
+              result:
+                correctionReasoning === undefined
+                  ? result
+                  : appendToolCorrectionNote(result, correctionReasoning),
+            });
           }
 
-          updateAssistantToolCalls(
-            assistantMessageId,
-            toolCall,
-            "running",
-            (currentToolCall) => ({
-              ...currentToolCall,
-              status: toolErrored ? "error" : "completed",
-              result,
-            }),
-          );
-          structuredResults.push({
-            name: toolCall.name,
-            callId: toolCall.callId || "",
-            result:
-              correctionReasoning === undefined
-                ? result
-                : appendToolCorrectionNote(result, correctionReasoning),
-          });
-        }
+          // Hook 中止：与主 loop 一致，不再向模型追加工具结果，直接结束本回合。
+          if (hookAborted) {
+            finalizeMessage(assistantMessageId, {
+              content: `[Hook Abort] ${hookAbortMessage}`,
+              status: "error",
+              isRetrying: false,
+            });
+            return { content: "", failed: true, error: hookAbortMessage };
+          }
 
-        // Hook 中止：与主 loop 一致，不再向模型追加工具结果，直接结束本回合。
-        if (hookAborted) {
-          finalizeMessage(assistantMessageId, {
-            content: `[Hook Abort] ${hookAbortMessage}`,
-            status: "error",
-            isRetrying: false,
-          });
-          return { content: "", failed: true, error: hookAbortMessage };
-        }
+          // 工具结果作为 tool 消息进入内存会话（下一轮增量请求持久化它）。
+          const toolResultsContent =
+            pendingHookWarnings.length > 0
+              ? `${formatToolResultsContent(
+                  structuredResults,
+                )}\n\n[Hook Warnings]\n${pendingHookWarnings.join("\n")}`
+              : formatToolResultsContent(structuredResults);
+          ctx.updateSessionMessages(conversationId, (currentMessages) => [
+            ...currentMessages,
+            {
+              id: createMessageId("tool"),
+              role: "tool",
+              content: toolResultsContent,
+              timestamp: formatMessageTime(),
+              status: "sent",
+              toolName: toolCalls.map((tc) => tc.name).join(", "),
+            },
+          ]);
 
-        // 工具结果作为 tool 消息进入内存会话（下一轮增量请求持久化它）。
-        const toolResultsContent =
-          pendingHookWarnings.length > 0
-            ? `${formatToolResultsContent(
-                structuredResults,
-              )}\n\n[Hook Warnings]\n${pendingHookWarnings.join("\n")}`
-            : formatToolResultsContent(structuredResults);
-        ctx.updateSessionMessages(conversationId, (currentMessages) => [
-          ...currentMessages,
-          {
-            id: createMessageId("tool"),
-            role: "tool",
+          if (allRejected && !hasContinuableRejection) {
+            return {
+              content: "",
+              failed: true,
+              error: "All tool calls were denied by the user",
+            };
+          }
+
+          // Complete tool results always continue, even if all steering was
+          // withdrawn while awaiting its checkpoint.
+          const steering = await consumeNodeSteering();
+          const toolRequest = {
+            role: "tool" as const,
             content: toolResultsContent,
-            timestamp: formatMessageTime(),
-            status: "sent",
-            toolName: toolCalls.map((tc) => tc.name).join(", "),
-          },
-        ]);
-
-        if (allRejected && !hasContinuableRejection) {
-          return {
-            content: "",
-            failed: true,
-            error: "All tool calls were denied by the user",
+            toolResultsJson: JSON.stringify(structuredResults),
           };
+          return runLoop([toolRequest, ...steering]);
+        } finally {
+          if (modelRequestId)
+            await window.snow.releaseModelRequest(modelRequestId);
         }
-
-        // Complete tool results always continue, even if all steering was
-        // withdrawn while awaiting its checkpoint.
-        const steering = await consumeNodeSteering();
-        const toolRequest = {
-          role: "tool" as const,
-          content: toolResultsContent,
-          toolResultsJson: JSON.stringify(structuredResults),
-        };
-        return runLoop([toolRequest, ...steering]);
       };
 
-      const startTask = (content: string): void => {
+      const startTask = (messages: WorkflowUserMessage[]): void => {
         // 新回合取代上一回合的父任务（同步子代理此时均已结算）。
         if (nodeTask.current)
           void finishAgentTask(nodeTask.current, conversationId).catch(
@@ -2768,7 +2806,7 @@ export function createWorkflowRunner(
           thinkingStrength,
           responsesFastMode,
         };
-        ref.activeTaskMessages = [{ role: "user", content }];
+        ref.activeTaskMessages = messages;
       };
       const supportsQueuedOptions = (send: ChatInputSendOptions): boolean =>
         (!send.apiProfile || send.apiProfile === effectiveApiProfile) &&
@@ -2786,9 +2824,18 @@ export function createWorkflowRunner(
         (!send.targetSessionKey || send.targetSessionKey === conversationId) &&
         (!send.kind || send.kind === "chat");
       // 原始需求进 activeTaskMessages（与主 loop 一致），Hook 上下文只进请求。
-      startTask(prompt);
+      startTask([{ role: "user", origin: "internal", content: prompt }]);
       let loopResult = await runLoop([
-        { role: "user", content: effectivePrompt },
+        { role: "user", origin: "internal", content: prompt },
+        ...(hookContent
+          ? [
+              {
+                role: "user" as const,
+                origin: "internal" as const,
+                content: hookContent,
+              },
+            ]
+          : []),
       ]);
       // 强行发送循环：用户在节点运行中点击"立即发送"（sendPendingMessageNow
       // 已把消息暂存到 forceSendMessages 并 handleAbort 中断当前回合）时，在
@@ -2847,10 +2894,15 @@ export function createWorkflowRunner(
             if (checkpointId) deleteCheckpoints([checkpointId]);
             break;
           }
-          startTask(item.text);
-          const appended = appendPendingUsers([item.text], checkpointId);
+          const queuedMessage: WorkflowUserMessage = {
+            role: "user",
+            content: item.text,
+            origin: item.options.origin ?? "unknown",
+          };
+          startTask([queuedMessage]);
+          const appended = appendPendingUsers([queuedMessage], checkpointId);
           // startTask already protects the original user instruction.
-          forceRef.activeTaskMessages = [{ role: "user", content: item.text }];
+          forceRef.activeTaskMessages = [queuedMessage];
           // 排队消息等同主 loop 的新一轮发送：同样经过 onUserMessage 闸门。
           const queuedGate = await runUserMessageHookGate(hookDeps, {
             messageId: appended.messageIds[0] ?? "",
@@ -2865,26 +2917,41 @@ export function createWorkflowRunner(
             };
             break;
           }
+          const queuedHookContent = applyUserMessageHookOutcome(
+            item.text,
+            queuedGate,
+          ).slice(item.text.length);
           loopResult = await runLoop([
-            {
-              role: "user",
-              content: applyUserMessageHookOutcome(item.text, queuedGate),
-            },
+            queuedMessage,
+            ...(queuedHookContent
+              ? [
+                  {
+                    role: "user" as const,
+                    origin: "internal" as const,
+                    content: queuedHookContent,
+                  },
+                ]
+              : []),
           ]);
           continue;
         }
         forceRef.forceSendMessages = undefined;
         const forceText = forceSends.map((item) => item.text).join("\n\n");
-        const forceMessageId = createMessageId("user");
+        const forceMessages: WorkflowUserMessage[] = forceSends.map((item) => ({
+          role: "user",
+          content: item.text,
+          origin: item.options.origin ?? "unknown",
+        }));
+        const forceEntries = forceMessages.map((message) => ({
+          ...message,
+          id: createMessageId("user"),
+          timestamp: formatMessageTime(),
+          status: "sent" as const,
+        }));
+        const forceMessageId = forceEntries[0].id;
         ctx.updateSessionMessages(conversationId, (currentMessages) => [
           ...currentMessages,
-          {
-            id: forceMessageId,
-            role: "user",
-            content: forceText,
-            timestamp: formatMessageTime(),
-            status: "sent",
-          },
+          ...forceEntries,
         ]);
         // handleAbort 已复位运行状态：新回合必须恢复 isSending/isAbortRequested/
         // 流式标记（与子代理 runForceSendLoop 一致），中止检查才能正常工作。
@@ -2895,7 +2962,7 @@ export function createWorkflowRunner(
         resetRunStreamMetrics(ctx, conversationId);
         ctx.updateSessionField(conversationId, "streamStartedAt", Date.now());
         ctx.addStreamingId(conversationId);
-        startTask(forceText);
+        startTask(forceMessages);
         activeCheckpointId = undefined;
         // 强行发送等同主 loop 的新一轮发送：同样经过 onUserMessage 闸门。
         const forceGate = await runUserMessageHookGate(hookDeps, {
@@ -2911,11 +2978,21 @@ export function createWorkflowRunner(
           };
           break;
         }
+        const forceHookContent = applyUserMessageHookOutcome(
+          forceText,
+          forceGate,
+        ).slice(forceText.length);
         loopResult = await runLoop([
-          {
-            role: "user",
-            content: applyUserMessageHookOutcome(forceText, forceGate),
-          },
+          ...forceMessages,
+          ...(forceHookContent
+            ? [
+                {
+                  role: "user" as const,
+                  origin: "internal" as const,
+                  content: forceHookContent,
+                },
+              ]
+            : []),
         ]);
       }
       return {

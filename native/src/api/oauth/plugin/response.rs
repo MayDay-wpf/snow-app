@@ -315,13 +315,18 @@ pub(crate) async fn rewrite_event(event: &Value, cancel_token: &CancellationToke
 }
 
 /// 声明 `fetch` 钩子时由插件接管传输层；返回 None 表示仍走原生 HTTP 请求。
-pub(crate) async fn takeover(cancel_token: &CancellationToken) -> Result<Option<SyntheticBody>> {
+pub(crate) async fn takeover(
+    cancel_token: &CancellationToken,
+    tool_guard: &crate::api::plugin_tool_guard::PluginToolGuard,
+) -> Result<Option<SyntheticBody>> {
     let Some(hook) = current() else {
         return Ok(None);
     };
     if !hook.hooks.fetch {
         return Ok(None);
     }
+    // The hook can issue its own requests, independently of the supplied body.
+    tool_guard.ensure_fetch_safe()?;
     // 先开通道再调用插件：插件读到的第一块可能早于本次调用返回。
     let (stream_id, receiver) = stream::open();
     let ctx = json!({

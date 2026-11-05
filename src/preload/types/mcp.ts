@@ -12,8 +12,10 @@ export type SkillDefinition = {
   id: string;
   name: string;
   description: string;
-  location: "project" | "global";
-  source: "snow" | "agents";
+  /** `plugin` = 由工具插件 `skills` 贡献点提供，启停跟随插件。 */
+  location: "project" | "global" | "plugin";
+  /** `plugin:<pluginId>` = 插件技能。 */
+  source: "snow" | "agents" | `plugin:${string}`;
   path: string;
   allowedTools?: string[];
   enabled: boolean;

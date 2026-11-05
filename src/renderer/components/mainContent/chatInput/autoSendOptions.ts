@@ -77,7 +77,7 @@ export const resolveAutoSendOptions = ({
         : undefined;
   const basicModel = nonEmpty(autoSendOverride?.basicModel);
   const thinkingStrength = nonEmpty(autoSendOverride?.thinkingStrength);
-  const options: AutoSendChatInputSendOptions = {};
+  const options: AutoSendChatInputSendOptions = { origin: "internal" };
 
   if (model) options.model = model;
   if (apiProfile) options.apiProfile = apiProfile;

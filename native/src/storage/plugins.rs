@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{Map, Value};
 
 use super::database;
-use super::models::{PluginRecord, PluginStorageValue};
+use super::models::{McpServerConfigRecord, PluginRecord, PluginStorageValue};
 
 const PLUGINS_DIR_NAME: &str = "plugins";
 const MANIFEST_FILE_NAME: &str = "plugin.json";
@@ -18,6 +18,10 @@ const SKIPPED_COPY_ENTRIES: [&str; 2] = [".git", "node_modules"];
 const MAX_PLUGIN_COPY_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_PLUGIN_TEXT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_PLUGIN_BINARY_FILE_BYTES: u64 = 16 * 1024 * 1024;
+/// 单个插件可声明的 MCP 服务器数量上限。
+const MAX_PLUGIN_MCP_SERVERS: usize = 16;
+/// 插件 MCP 服务器名长度上限（仅用于生成公开前缀，超长会被截断并加短哈希）。
+const MAX_PLUGIN_MCP_SERVER_NAME_CHARS: usize = 64;
 
 struct PluginManifest {
     id: String,
@@ -36,10 +40,13 @@ struct PluginManifest {
     privacy: Vec<String>,
     privacy_note: String,
     min_app_version: String,
-    /// plugin.json 的 kind：`oauth` = OAuth 登录插件，`plugin` = 面板插件（缺省）。
+    /// plugin.json 的 kind：`oauth` = OAuth 登录插件，`plugin` = 面板插件（缺省），
+    /// `tool` = 声明了 `mcpServers` 的工具插件（可同时提供面板）。
     kind: String,
     /// plugin.json 的 oauth.entry：主进程加载的 OAuth 登录模块。
     oauth_entry: String,
+    /// 归一化前的 `mcpServers`：内联对象，或指向插件目录内 JSON 文件的相对路径。
+    mcp_servers: Value,
 }
 
 pub fn plugins_dir() -> Result<PathBuf> {
@@ -246,6 +253,7 @@ fn read_oauth_entry(object: &Map<String, Value>) -> String {
 }
 
 /// 插件类型：显式声明 `kind: "oauth"`，或存在 `oauth.entry` 时为 OAuth 插件；
+/// 显式声明 `kind: "tool"` 或声明了 `mcpServers` 时为工具插件 `tool`；
 /// 其余（含未声明）为面板插件 `plugin`，历史插件行为不变。
 fn resolve_manifest_kind(object: &Map<String, Value>, oauth_entry: &str) -> String {
     let declared = object
@@ -255,6 +263,8 @@ fn resolve_manifest_kind(object: &Map<String, Value>, oauth_entry: &str) -> Stri
         .map(|value| value.to_ascii_lowercase());
     if declared.as_deref() == Some("oauth") || !oauth_entry.is_empty() {
         "oauth".to_string()
+    } else if declared.as_deref() == Some("tool") || object.contains_key("mcpServers") {
+        "tool".to_string()
     } else {
         "plugin".to_string()
     }
@@ -317,6 +327,7 @@ fn parse_manifest(raw: &str) -> Result<PluginManifest> {
     let privacy = parse_privacy(object.get("privacy").or_else(|| object.get("permissions")));
     let oauth_entry = read_oauth_entry(object);
     let kind = resolve_manifest_kind(object, &oauth_entry);
+    let mcp_servers = object.get("mcpServers").cloned().unwrap_or(Value::Null);
 
     Ok(PluginManifest {
         id,
@@ -368,6 +379,7 @@ fn parse_manifest(raw: &str) -> Result<PluginManifest> {
             .to_string(),
         kind,
         oauth_entry,
+        mcp_servers,
     })
 }
 
@@ -396,6 +408,176 @@ fn resolve_plugin_path(root: &Path, relative: &str) -> Result<PathBuf> {
         }
     }
     Ok(resolved)
+}
+
+/// MCP 服务器名：仅字母、数字、`.`、`-`、`_`（与插件 id 同一字符集）。
+fn is_valid_mcp_server_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
+/// 把插件的 `mcpServers` 归一化为内联对象。
+///
+/// 接受内联对象，或指向插件目录内 JSON 文件（内容为 `{ "mcpServers": { ... } }`）
+/// 的相对路径；两者的结果都会在安装时写回清单，因此工具来源合成时无需再读磁盘。
+fn normalize_manifest_mcp_servers(root: &Path, raw: &Value) -> Result<Value> {
+    let inline = match raw {
+        Value::Null => Value::Object(Map::new()),
+        Value::Object(_) => raw.clone(),
+        Value::String(relative) => {
+            let path = resolve_plugin_path(root, relative)?;
+            let text = fs::read_to_string(&path).map_err(|error| {
+                Error::from_reason(format!(
+                    "Failed to read plugin MCP config '{}': {error}",
+                    path.display()
+                ))
+            })?;
+            let parsed: Value = serde_json::from_str(&text).map_err(|error| {
+                Error::from_reason(format!(
+                    "Invalid plugin MCP config JSON in '{}': {error}",
+                    relative.trim()
+                ))
+            })?;
+            parsed.get("mcpServers").cloned().ok_or_else(|| {
+                Error::from_reason(
+                    "Plugin MCP config file must contain a 'mcpServers' object".to_string(),
+                )
+            })?
+        }
+        _ => {
+            return Err(Error::from_reason(
+                "plugin.json 'mcpServers' must be an object or a relative path to a JSON file"
+                    .to_string(),
+            ))
+        }
+    };
+
+    let Some(entries) = inline.as_object() else {
+        return Err(Error::from_reason(
+            "Plugin 'mcpServers' must be a JSON object".to_string(),
+        ));
+    };
+    if entries.len() > MAX_PLUGIN_MCP_SERVERS {
+        return Err(Error::from_reason(format!(
+            "Plugin may declare at most {MAX_PLUGIN_MCP_SERVERS} MCP servers"
+        )));
+    }
+
+    let mut normalized = Map::new();
+    for (name, value) in entries {
+        let server_name = name.trim();
+        if !is_valid_mcp_server_name(server_name)
+            || server_name.chars().count() > MAX_PLUGIN_MCP_SERVER_NAME_CHARS
+        {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server name '{name}' may only contain letters, digits, dot, dash and underscore (max {MAX_PLUGIN_MCP_SERVER_NAME_CHARS} chars)"
+            )));
+        }
+        let Some(entry) = value.as_object() else {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' must be a JSON object"
+            )));
+        };
+
+        let transport = entry
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("stdio");
+        if !matches!(transport, "stdio" | "sse" | "http" | "api") {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' has unsupported type '{transport}'"
+            )));
+        }
+        let command = entry
+            .get("command")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        let url = entry
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if transport == "stdio" && command.is_empty() {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' requires a 'command'"
+            )));
+        }
+        if transport != "stdio" && url.is_empty() {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' requires a 'url'"
+            )));
+        }
+
+        let args = entry
+            .get("args")
+            .cloned()
+            .unwrap_or_else(|| Value::Array(Vec::new()));
+        if !args.is_array() {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' 'args' must be an array"
+            )));
+        }
+        let env = entry
+            .get("env")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        let headers = entry
+            .get("headers")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        if !env.is_object() || !headers.is_object() {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' 'env' and 'headers' must be objects"
+            )));
+        }
+        let timeout_ms = entry.get("timeoutMs").cloned().unwrap_or(Value::Null);
+        if !timeout_ms.is_null() && !timeout_ms.is_number() {
+            return Err(Error::from_reason(format!(
+                "Plugin MCP server '{server_name}' 'timeoutMs' must be a number"
+            )));
+        }
+
+        let mut server = Map::new();
+        server.insert("type".to_string(), Value::String(transport.to_string()));
+        server.insert("args".to_string(), args);
+        server.insert("env".to_string(), env);
+        server.insert("headers".to_string(), headers);
+        if !command.is_empty() {
+            server.insert("command".to_string(), Value::String(command.to_string()));
+        }
+        if !url.is_empty() {
+            server.insert("url".to_string(), Value::String(url.to_string()));
+        }
+        if !timeout_ms.is_null() {
+            server.insert("timeoutMs".to_string(), timeout_ms);
+        }
+        normalized.insert(server_name.to_string(), Value::Object(server));
+    }
+
+    Ok(Value::Object(normalized))
+}
+
+/// 把归一化后的 `mcpServers` 写回清单文本：工具来源合成只读库内 `manifest_json`，
+/// 不再依赖插件目录里的 MCP 配置文件。
+fn manifest_with_mcp_servers(raw_manifest: &str, normalized: &Value) -> String {
+    let empty = normalized
+        .as_object()
+        .is_some_and(|entries| entries.is_empty());
+    if empty {
+        return raw_manifest.to_string();
+    }
+    let Ok(mut parsed) = serde_json::from_str::<Value>(raw_manifest) else {
+        return raw_manifest.to_string();
+    };
+    if let Some(object) = parsed.as_object_mut() {
+        object.insert("mcpServers".to_string(), normalized.clone());
+    }
+    serde_json::to_string(&parsed).unwrap_or_else(|_| raw_manifest.to_string())
 }
 
 fn copy_dir_recursive(source: &Path, target: &Path, copied: &mut u64) -> Result<()> {
@@ -528,6 +710,146 @@ fn insert_plugin(connection: &Connection, manifest: &PluginManifest, install_pat
     Ok(())
 }
 
+/// 工具插件（清单声明了非空 `mcpServers`）派生的 MCP 服务器配置。
+///
+/// 这些配置**不写入** `mcp_server_configs`：它们随插件启用态与项目作用域实时派生，
+/// 只在工具发现与执行时合并进有效配置，因此 MCP 面板不会出现插件条目。
+/// `server_id` 形如 `plugin:<pluginId>:<serverName>`，`source` 为 `plugin:<pluginId>`；
+/// 项目级启停由 `project_plugins_scope_<blake3(projectId)>` 的 `pluginOverrides` 控制。
+pub fn list_tool_plugin_server_configs(
+    database_path: &Path,
+    project_id: Option<&str>,
+) -> Result<Vec<McpServerConfigRecord>> {
+    let scope = match project_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(project_id) => Some(
+            super::services::system_settings::get_plugins_project_scope_settings(
+                database_path,
+                project_id,
+            )?,
+        ),
+        None => None,
+    };
+
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "list tool plugins", error))?;
+    let rows = connection
+        .prepare(
+            "SELECT plugin_id, manifest_json, install_path FROM app_plugins WHERE enabled = 1 \
+             ORDER BY sort_order ASC, plugin_id ASC",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|error| database::database_error(database_path, "list tool plugins", error))?;
+
+    let mut configs = Vec::new();
+    for (plugin_id, manifest_json, install_path) in rows {
+        if let Some(scope) = scope.as_ref() {
+            if !scope.effective_enabled(&plugin_id, true) {
+                continue;
+            }
+        }
+        let Some(servers) = tool_plugin_mcp_servers(&manifest_json) else {
+            continue;
+        };
+        for (server_name, entry) in servers {
+            let entry = expand_plugin_dir_placeholder(&entry, &install_path);
+            let server_id = format!("plugin:{plugin_id}:{server_name}");
+            configs.push(McpServerConfigRecord {
+                id: server_id.clone(),
+                server_id,
+                name: format!("plugin-{plugin_id}-{server_name}"),
+                transport_type: entry
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("stdio")
+                    .to_string(),
+                url: entry
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                command: entry
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                args_json: entry
+                    .get("args")
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "[]".to_string()),
+                env_json: entry
+                    .get("env")
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "{}".to_string()),
+                headers_json: entry
+                    .get("headers")
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "{}".to_string()),
+                enabled: true,
+                timeout_ms: entry
+                    .get("timeoutMs")
+                    .and_then(Value::as_i64)
+                    .map(|value| value.clamp(1, i32::MAX as i64) as i32),
+                sort_order: 0,
+                source: format!("plugin:{plugin_id}"),
+                updated_at: String::new(),
+            });
+        }
+    }
+
+    Ok(configs)
+}
+
+/// 从清单解析工具插件的 `mcpServers`：安装时已归一化为内联对象，空对象视为无工具。
+fn tool_plugin_mcp_servers(manifest_json: &str) -> Option<Map<String, Value>> {
+    let parsed: Value = serde_json::from_str(manifest_json).ok()?;
+    let servers = parsed.as_object()?.get("mcpServers")?.as_object()?;
+    (!servers.is_empty()).then(|| servers.clone())
+}
+
+/// 把 `{{pluginDir}}` 替换为插件的安装目录。
+///
+/// 安装目录直到安装后才确定，清单无法写死路径；因此在派生服务器配置时
+/// 对 `command`、`args` 与环境变量值展开占位符，插件即可引用自带脚本。
+fn expand_plugin_dir_placeholder(entry: &Value, install_path: &str) -> Value {
+    const PLACEHOLDER: &str = "{{pluginDir}}";
+    let install_path = install_path.trim();
+    if install_path.is_empty() {
+        return entry.clone();
+    }
+    let mut entry = entry.clone();
+    let Some(object) = entry.as_object_mut() else {
+        return entry;
+    };
+    if let Some(Value::String(command)) = object.get_mut("command") {
+        *command = command.replace(PLACEHOLDER, install_path);
+    }
+    if let Some(Value::Array(args)) = object.get_mut("args") {
+        for arg in args.iter_mut() {
+            if let Value::String(text) = arg {
+                *text = text.replace(PLACEHOLDER, install_path);
+            }
+        }
+    }
+    if let Some(Value::Object(env)) = object.get_mut("env") {
+        for value in env.values_mut() {
+            if let Value::String(text) = value {
+                *text = text.replace(PLACEHOLDER, install_path);
+            }
+        }
+    }
+    entry
+}
+
 pub fn list_plugins(database_path: &Path) -> Result<Vec<PluginRecord>> {
     database::open_connection(database_path)
         .and_then(|connection| {
@@ -609,6 +931,17 @@ fn install_plugin_internal(
     }
 
     ensure_manifest_kind_consistent(&manifest)?;
+    let normalized_mcp_servers = normalize_manifest_mcp_servers(&target, &manifest.mcp_servers)?;
+    if manifest.kind == "tool"
+        && normalized_mcp_servers
+            .as_object()
+            .is_some_and(|entries| entries.is_empty())
+    {
+        return Err(Error::from_reason(
+            "Plugin kind 'tool' requires at least one 'mcpServers' entry".to_string(),
+        ));
+    }
+    let stored_manifest = manifest_with_mcp_servers(&raw_manifest, &normalized_mcp_servers);
     let entry_path = resolve_plugin_path(&target, &manifest.entry)?;
     if manifest.oauth_entry.is_empty() {
         if !entry_path.is_file() {
@@ -654,11 +987,14 @@ fn install_plugin_internal(
             &install_path,
             &source_path,
             existing_enabled.unwrap_or(true),
-            &raw_manifest,
+            &stored_manifest,
         )
         .map_err(|error| database::database_error(database_path, "install plugin", error))?;
         Ok(())
     })?;
+
+    // 插件清单可能改变 mcpServers，清掉该插件派生的工具发现缓存。
+    crate::mcp::external::invalidate_plugin_discovery_cache(&manifest.id)?;
 
     query_plugin(database_path, &manifest.id)?
         .ok_or_else(|| Error::from_reason("Failed to read back installed plugin".to_string()))
@@ -686,14 +1022,35 @@ pub fn rescan_plugin(database_path: &Path, plugin_id: &str) -> Result<PluginReco
         )));
     }
     ensure_manifest_kind_consistent(&manifest)?;
+    let normalized_mcp_servers = normalize_manifest_mcp_servers(&directory, &manifest.mcp_servers)?;
+    if manifest.kind == "tool"
+        && normalized_mcp_servers
+            .as_object()
+            .is_some_and(|entries| entries.is_empty())
+    {
+        return Err(Error::from_reason(
+            "Plugin kind 'tool' requires at least one 'mcpServers' entry".to_string(),
+        ));
+    }
+    let stored_manifest = manifest_with_mcp_servers(&raw_manifest, &normalized_mcp_servers);
 
     database::with_write_lock(|| -> Result<()> {
         let connection = database::open_connection(database_path)
             .map_err(|error| database::database_error(database_path, "rescan plugin", error))?;
-        insert_plugin(&connection, &manifest, &install_path, &install_path, true, &raw_manifest)
-            .map_err(|error| database::database_error(database_path, "rescan plugin", error))?;
+        insert_plugin(
+            &connection,
+            &manifest,
+            &install_path,
+            &install_path,
+            true,
+            &stored_manifest,
+        )
+        .map_err(|error| database::database_error(database_path, "rescan plugin", error))?;
         Ok(())
     })?;
+
+    // rescan 会重读清单，旧工具清单立即作废。
+    crate::mcp::external::invalidate_plugin_discovery_cache(plugin_id)?;
 
     query_plugin(database_path, plugin_id)?
         .ok_or_else(|| Error::from_reason("Failed to read back rescanned plugin".to_string()))
@@ -714,7 +1071,10 @@ pub fn set_plugin_enabled(database_path: &Path, plugin_id: &str, enabled: bool) 
                 Ok(())
             })
             .map_err(|error| database::database_error(database_path, "set plugin enabled", error))
-    })
+    })?;
+    // 启停改变工具可用性，立即作废该插件的发现缓存。
+    crate::mcp::external::invalidate_plugin_discovery_cache(plugin_id)?;
+    Ok(())
 }
 
 pub fn delete_plugin(database_path: &Path, plugin_id: &str, delete_files: bool) -> Result<()> {
@@ -745,6 +1105,9 @@ pub fn delete_plugin(database_path: &Path, plugin_id: &str, delete_files: bool) 
             })
             .map_err(|error| database::database_error(database_path, "delete plugin", error))
     })?;
+
+    // 卸载后派生服务器不再存在，清掉残留缓存。
+    crate::mcp::external::invalidate_plugin_discovery_cache(plugin_id)?;
 
     if delete_files {
         if let Some(path) = install_path {

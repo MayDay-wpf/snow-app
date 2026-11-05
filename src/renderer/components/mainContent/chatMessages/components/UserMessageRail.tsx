@@ -108,6 +108,7 @@ const CHIP_TAG_MARKERS = [
   "@@command:",
   "@@annotation:",
   "@@skill:",
+  "@@plugin:",
   "@@workflow:",
 ];
 

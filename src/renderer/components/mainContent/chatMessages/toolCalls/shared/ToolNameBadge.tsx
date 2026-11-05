@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Activity,
   Bot,
@@ -186,17 +187,26 @@ type ToolNameBadgeProps = {
   name: string;
   /** Category used to select the tool's fixed icon. */
   category?: ToolCategory;
+  /** 自定义图标节点（插件图标等），优先于 category。 */
+  icon?: ReactNode;
 };
 
 export const ToolNameBadge = ({
   name,
   category = "generic",
+  icon,
 }: ToolNameBadgeProps): React.JSX.Element => {
   const Icon = getToolIcon(category);
 
   return (
     <span className="tool-call-tool-name">
-      <Icon size={10} className="tool-call-tool-name-icon" aria-hidden="true" />
+      {icon ?? (
+        <Icon
+          size={10}
+          className="tool-call-tool-name-icon"
+          aria-hidden="true"
+        />
+      )}
       {name}
     </span>
   );
