@@ -223,7 +223,21 @@ fn fallback_result(
     // Structured tracking cannot be recovered from a truncated JSON string.
     // Preserve it as a top-level object, reducing only the bounded files list
     // when the configured result budget is too small (with explicit coverage).
+    // 结构化跟踪与终端诊断不能从被截断的 JSON 字符串恢复：原样提升到
+    // 顶层，只裁剪有界列表与正文预算。
     if let Ok(original) = serde_json::from_str::<Value>(serialized) {
+        for field in [
+            "diagnostics",
+            "outcome",
+            "status",
+            "exitCode",
+            "outputComplete",
+            "truncatedBytes",
+        ] {
+            if let Some(value) = original.get(field) {
+                result[field] = value.clone();
+            }
+        }
         if let Some(tracking) = original
             .get("fileTracking")
             .filter(|value| value.is_object())

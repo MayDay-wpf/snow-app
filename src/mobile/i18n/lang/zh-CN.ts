@@ -175,10 +175,7 @@ export const zhCN: Record<string, string> = {
   "remote.attachments.failedNotice": "请移除失败附件后重试",
 
   // 提示条
-  "remote.notice.newChatCreated": "已新建对话",
   "remote.notice.newChatPending": "新建对话仍在处理中",
-  "remote.notice.switchingConversation": "正在切换会话",
-  "remote.notice.conversationSelected": "会话已切换",
   "remote.notice.settingsUpdated": "设置已更新",
   "remote.notice.themeUpdated": "外观已更新",
   "remote.notice.skillEnabled": "Skill 已启用",
@@ -189,7 +186,6 @@ export const zhCN: Record<string, string> = {
   "remote.notice.rejected": "已拒绝工具执行",
   "remote.notice.answered": "回答已提交",
   "remote.notice.cancelled": "已取消回答",
-  "remote.notice.sent": "已交给 Snow",
   "remote.notice.queued": "已加入待发送",
   "remote.notice.steered": "已引导当前运行",
   "remote.notice.stopping": "正在停止",

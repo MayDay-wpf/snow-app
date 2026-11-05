@@ -1,12 +1,51 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, Copy, Check, Filter } from "lucide-react";
+import { AlertCircle, Copy, Check } from "lucide-react";
 import { useI18n } from "../../../../../i18n";
 
-type AnsiOutputProps = {
-  text: string;
-  className?: string;
-  defaultFilterErrors?: boolean;
+export type DiagnosticStream = "stdout" | "stderr";
+
+/** 单条诊断：行号相对所属输出流，块用 endLine 表示范围。 */
+export type BashDiagnosticItem = {
+  severity: "error" | "warning";
+  stream: DiagnosticStream;
+  line: number;
+  endLine: number;
+  confidence: "high" | "medium";
+  rule: string;
+  message: string;
 };
+
+export type BashDiagnostics = {
+  complete: boolean;
+  commandKind: string;
+  counts: { error: number; warning: number };
+  items: BashDiagnosticItem[];
+};
+
+export type BashOutputSegment = {
+  stream: DiagnosticStream;
+  text: string;
+};
+
+type AnsiOutputProps = {
+  /** 无法分流的原始文本（旧记录 / 非结构化结果）。 */
+  text?: string;
+  segments?: BashOutputSegment[];
+  diagnostics?: BashDiagnostics;
+  className?: string;
+};
+
+type StyledSpan = {
+  text: string;
+  color?: string;
+  bold?: boolean;
+  underline?: boolean;
+};
+
+type LineSeverity = "error" | "warning" | "hint" | "context";
+
+/** 过滤视图在诊断块两侧保留的上下文行数。 */
+const CONTEXT_LINES = 2;
 
 // ANSI 颜色映射表 (标准终端 16 色)
 const ANSI_COLOR_MAP: Record<number, string> = {
@@ -26,13 +65,6 @@ const ANSI_COLOR_MAP: Record<number, string> = {
   95: "#d2a8ff", // Bright Magenta
   96: "#56d4dd", // Bright Cyan
   97: "#ffffff", // Bright White
-};
-
-type StyledSpan = {
-  text: string;
-  color?: string;
-  bold?: boolean;
-  underline?: boolean;
 };
 
 /**
@@ -95,115 +127,259 @@ const parseAnsiLine = (line: string): StyledSpan[] => {
   return spans.length > 0 ? spans : [{ text: line }];
 };
 
-const isErrorLine = (line: string): boolean => {
-  const lower = line.toLowerCase();
-  return (
-    lower.includes("error") ||
-    lower.includes("fail") ||
-    lower.includes("fatal") ||
-    lower.includes("exception") ||
-    lower.includes("panic") ||
-    lower.includes("err:")
-  );
+const splitLines = (text: string): string[] => text.split(/\r?\n/);
+
+const severityOf = (item: BashDiagnosticItem): LineSeverity => {
+  if (item.severity === "warning") {
+    return "warning";
+  }
+  // 只有高置信度的命中有资格使用错误色；兜底/弱规则用提示色。
+  return item.confidence === "high" ? "error" : "hint";
+};
+
+type Range = [number, number];
+
+const mergeRanges = (ranges: Range[]): Range[] => {
+  const sorted = ranges
+    .map(([start, end]) => [Math.max(0, start), Math.max(0, end)] as Range)
+    .sort((a, b) => a[0] - b[0]);
+  const merged: Range[] = [];
+  for (const [start, end] of sorted) {
+    const last = merged[merged.length - 1];
+    if (!last || start > last[1] + 1) {
+      merged.push([start, end]);
+      continue;
+    }
+    last[1] = Math.max(last[1], end);
+  }
+  return merged;
 };
 
 export const AnsiOutput = ({
-  text,
+  text = "",
+  segments,
+  diagnostics,
   className = "",
-  defaultFilterErrors = false,
 }: AnsiOutputProps): React.JSX.Element => {
   const { t } = useI18n();
-  const [filterMode, setFilterMode] = useState<"all" | "errors">(
-    defaultFilterErrors ? "errors" : "all",
-  );
+  const [filterMode, setFilterMode] = useState<"all" | "diagnostics">("all");
   const [copied, setCopied] = useState(false);
 
-  const lines = useMemo(() => text.split(/\r?\n/), [text]);
+  const resolvedSegments = useMemo<BashOutputSegment[]>(() => {
+    if (segments && segments.length > 0) {
+      return segments.filter((segment) => segment.text.length > 0);
+    }
+    return text ? [{ stream: "stdout", text }] : [];
+  }, [segments, text]);
 
-  const hasErrors = useMemo(
-    () => lines.some((line) => isErrorLine(line)),
-    [lines],
+  const items = diagnostics?.items ?? [];
+  const hasDiagnostics = items.length > 0;
+  const effectiveFilter =
+    filterMode === "diagnostics" && hasDiagnostics ? "diagnostics" : "all";
+
+  const annotations = useMemo(() => {
+    const result: Record<DiagnosticStream, Map<number, LineSeverity>> = {
+      stdout: new Map(),
+      stderr: new Map(),
+    };
+    for (const item of items) {
+      const target = result[item.stream];
+      if (!target) {
+        continue;
+      }
+      const severity = severityOf(item);
+      if (!target.has(item.line)) {
+        target.set(item.line, severity);
+      }
+      for (let line = item.line + 1; line <= item.endLine; line += 1) {
+        if (!target.has(line)) {
+          target.set(line, "context");
+        }
+      }
+    }
+    return result;
+  }, [items]);
+
+  const ranges = useMemo(() => {
+    const grouped: Record<DiagnosticStream, Range[]> = {
+      stdout: [],
+      stderr: [],
+    };
+    for (const item of items) {
+      grouped[item.stream]?.push([
+        item.line - CONTEXT_LINES,
+        item.endLine + CONTEXT_LINES,
+      ]);
+    }
+    return {
+      stdout: mergeRanges(grouped.stdout),
+      stderr: mergeRanges(grouped.stderr),
+    };
+  }, [items]);
+
+  const totalLines = useMemo(
+    () =>
+      resolvedSegments.reduce(
+        (sum, segment) => sum + splitLines(segment.text).length,
+        0,
+      ),
+    [resolvedSegments],
   );
 
-  const displayedLines = useMemo(() => {
-    if (filterMode === "errors") {
-      const filtered = lines.filter((line) => isErrorLine(line));
-      return filtered.length > 0 ? filtered : lines;
-    }
-    return lines;
-  }, [lines, filterMode]);
+  const copyText = useMemo(
+    () => resolvedSegments.map((segment) => segment.text).join("\n"),
+    [resolvedSegments],
+  );
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCopy = (event: React.MouseEvent): void => {
+    event.stopPropagation();
     // 拷贝时剥离 ANSI 控制码
-    const plainText = text.replace(/\u001b\[[0-9;]*m/g, "");
-    navigator.clipboard.writeText(plainText);
+    navigator.clipboard.writeText(copyText.replace(/\u001b\[[0-9;]*m/g, ""));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const renderLine = (
+    stream: DiagnosticStream,
+    line: string,
+    index: number,
+  ): ReactNode => {
+    const spans = parseAnsiLine(line);
+    const severity = annotations[stream].get(index);
+    return (
+      <div
+        key={`${stream}-${index}`}
+        className={`tool-call-ansi-line${severity ? ` is-diagnostic-${severity}` : ""}`}
+      >
+        {spans.map((span, spanIdx) => (
+          <span
+            key={spanIdx}
+            style={{
+              color: span.color,
+              fontWeight: span.bold ? "bold" : "normal",
+              textDecoration: span.underline ? "underline" : "none",
+            }}
+          >
+            {span.text}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  const renderSegment = (
+    segment: BashOutputSegment,
+    segmentIndex: number,
+  ): ReactNode => {
+    const lines = splitLines(segment.text);
+    const nodes: ReactNode[] = [];
+
+    if (effectiveFilter === "diagnostics") {
+      const segmentRanges = ranges[segment.stream];
+      if (segmentRanges.length === 0) {
+        return null;
+      }
+      let cursor = 0;
+      for (const [rangeStart, rangeEnd] of segmentRanges) {
+        const from = Math.min(Math.max(0, rangeStart), lines.length);
+        const to = Math.min(Math.max(0, rangeEnd), lines.length - 1);
+        if (from > cursor) {
+          nodes.push(
+            <div
+              className="tool-call-ansi-omitted"
+              key={`omitted-${segment.stream}-${segmentIndex}-${cursor}`}
+            >
+              {t("toolCall.common.omittedLines", {
+                values: { count: from - cursor },
+              })}
+            </div>,
+          );
+        }
+        for (let line = from; line <= to; line += 1) {
+          nodes.push(renderLine(segment.stream, lines[line], line));
+        }
+        cursor = Math.max(cursor, to + 1);
+      }
+      if (cursor < lines.length) {
+        nodes.push(
+          <div
+            className="tool-call-ansi-omitted"
+            key={`omitted-${segment.stream}-${segmentIndex}-${cursor}`}
+          >
+            {t("toolCall.common.omittedLines", {
+              values: { count: lines.length - cursor },
+            })}
+          </div>,
+        );
+      }
+    } else {
+      lines.forEach((line, index) => {
+        nodes.push(renderLine(segment.stream, line, index));
+      });
+    }
+
+    return (
+      <div
+        className={`tool-call-ansi-stream tool-call-ansi-stream-${segment.stream}`}
+        key={`${segment.stream}-${segmentIndex}`}
+      >
+        {segment.stream === "stderr" ? (
+          <div className="tool-call-ansi-stream-label">
+            {t("toolCall.bash.stderrStream")}
+          </div>
+        ) : null}
+        <pre className="tool-call-section-pre tool-call-bash-output-pre tool-call-ansi-pre">
+          {nodes}
+        </pre>
+      </div>
+    );
+  };
+
   return (
     <div className={`tool-call-ansi-container ${className}`}>
-      {hasErrors && (
+      {hasDiagnostics ? (
         <div className="tool-call-ansi-toolbar">
           <div className="tool-call-ansi-filter-tabs">
             <button
               type="button"
               className={`tool-call-ansi-filter-btn ${
-                filterMode === "all" ? "active" : ""
+                effectiveFilter === "all" ? "active" : ""
               }`}
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 setFilterMode("all");
               }}
             >
               {t("toolCall.common.filterAll", {
-                values: { count: lines.length },
+                values: { count: totalLines },
               })}
             </button>
             <button
               type="button"
               className={`tool-call-ansi-filter-btn tool-call-ansi-filter-err ${
-                filterMode === "errors" ? "active" : ""
+                effectiveFilter === "diagnostics" ? "active" : ""
               }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setFilterMode("errors");
+              onClick={(event) => {
+                event.stopPropagation();
+                setFilterMode("diagnostics");
               }}
             >
               <AlertCircle size={10} aria-hidden="true" />
-              {t("toolCall.common.filterErrorsOnly")}
+              {t("toolCall.common.filterDiagnostics", {
+                values: { count: items.length },
+              })}
             </button>
+            {diagnostics?.complete === false ? (
+              <span className="tool-call-ansi-incomplete">
+                {t("toolCall.common.diagnosticsIncomplete")}
+              </span>
+            ) : null}
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="tool-call-ansi-output">
-        <pre className="tool-call-section-pre tool-call-bash-output-pre tool-call-ansi-pre">
-          {displayedLines.map((line, lineIdx) => {
-            const spans = parseAnsiLine(line);
-            const isErr = isErrorLine(line);
-            return (
-              <div
-                key={lineIdx}
-                className={`tool-call-ansi-line ${isErr ? "is-error-line" : ""}`}
-              >
-                {spans.map((span, spanIdx) => (
-                  <span
-                    key={spanIdx}
-                    style={{
-                      color: span.color,
-                      fontWeight: span.bold ? "bold" : "normal",
-                      textDecoration: span.underline ? "underline" : "none",
-                    }}
-                  >
-                    {span.text}
-                  </span>
-                ))}
-              </div>
-            );
-          })}
-        </pre>
+        {resolvedSegments.map(renderSegment)}
         <button
           type="button"
           className="tool-call-ansi-copy-btn"

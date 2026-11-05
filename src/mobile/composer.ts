@@ -448,15 +448,15 @@ const submit = async (ctx: AppContext): Promise<void> => {
     resizeInput();
     clearAttachments();
     pendingSendRequestId = "";
-    showNotice(
-      t(
-        running
-          ? latestState?.busySendBehavior === "steer"
+    if (running) {
+      showNotice(
+        t(
+          latestState?.busySendBehavior === "steer"
             ? "remote.notice.steered"
-            : "remote.notice.queued"
-          : "remote.notice.sent",
-      ),
-    );
+            : "remote.notice.queued",
+        ),
+      );
+    }
     await ctx.refresh(false);
   } catch (error) {
     showNotice((error as Error).message, true);

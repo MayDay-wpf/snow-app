@@ -70,7 +70,11 @@ pub(crate) struct SessionCommand<'a> {
 }
 
 pub(crate) enum SessionStatus {
-    Completed { exit_code: i32 },
+    Completed {
+        exit_code: i32,
+        /// 进程被信号/系统异常终止时的名称（正常退出为 None）。
+        signal: Option<String>,
+    },
     /// 执行期限到达；`watchdog` 为 true 表示渲染层倒计时触发的中止。
     TimedOut { watchdog: bool },
     Cancelled { reason: String },
@@ -194,13 +198,17 @@ pub(crate) async fn execute(cmd: SessionCommand<'_>) -> SessionOutcome {
 
     let status = loop {
         if let Some(exit_code) = session.io.lock_state().command_exit_code() {
-            break SessionStatus::Completed { exit_code };
+            break SessionStatus::Completed {
+                exit_code,
+                signal: None,
+            };
         }
         match session.child.try_wait() {
             // 命令里显式 `exit N`（或会话被命令杀掉）：沿用进程退出码，与一次性路径一致。
             Ok(Some(exit_status)) => {
                 break SessionStatus::Completed {
                     exit_code: exit_status.code().unwrap_or(1),
+                    signal: super::diagnostics::exit_signal(&exit_status),
                 };
             }
             Ok(None) => {}

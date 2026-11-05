@@ -569,11 +569,10 @@ const loadMoreConversations = async (directoryId: string): Promise<void> => {
   }
 };
 
-/** 新建会话：创建 → 失效消息区缓存 → 提示 → 刷新快照（顶栏按钮与动作面板共用）。 */
+/** 新建会话：创建 → 失效消息区缓存 → 刷新快照（顶栏按钮与动作面板共用）。 */
 export const createNewChat = async (ctx: AppContext): Promise<void> => {
   await startNewChat();
   ctx.invalidateTimeline();
-  showNotice(t("remote.notice.newChatCreated"));
   await ctx.refresh(false);
 };
 
@@ -595,7 +594,6 @@ export const selectThread = async (
   closeOverlays(false);
   // 已是当前会话：只收起列表，不重复切换（避免多余的骨架屏闪烁）。
   if (conversationId === lastState?.activeConversationId) return;
-  showNotice(t("remote.notice.switchingConversation"));
   pendingConversationId = conversationId;
   if (lastState) renderThreads(lastState);
   ctx.beginConversationSwitch(conversationId);
@@ -604,7 +602,6 @@ export const selectThread = async (
   try {
     await selectConversation(conversationId, directoryId);
     await ctx.refresh(false);
-    showNotice(t("remote.notice.conversationSelected"));
   } catch (error) {
     showNotice((error as Error).message, true);
   } finally {

@@ -357,6 +357,24 @@ export const tcPre = (text: string, opts?: TcPreOptions): HTMLElement => {
   return fold;
 };
 
+/**
+ * 把已经渲染好的内容（例如逐行标注的输出）套用同一套折叠协议。
+ * 行数未超阈值时原样返回，调用方无需再包一层。
+ */
+export const tcFoldBlock = (
+  content: HTMLElement,
+  lineCount: number,
+  maxLines = 12,
+): HTMLElement => {
+  if (lineCount <= maxLines) {
+    return content;
+  }
+  const fold = el("div", "tc-fold");
+  fold.style.setProperty("--tc-fold-lines", String(maxLines));
+  fold.append(content, tcMoreButton());
+  return fold;
+};
+
 // ── 卡片骨架 ────────────────────────────────────────────────────────────────
 
 export type ToolNodeOptions = {

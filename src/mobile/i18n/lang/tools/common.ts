@@ -27,7 +27,7 @@ export const commonEn: Record<string, string> = {
   "remote.toolCall.common.arguments": "Arguments",
   "remote.toolCall.common.result": "Result",
   "remote.toolCall.common.stdout": "Output",
-  "remote.toolCall.common.stderr": "Error output",
+  "remote.toolCall.common.stderr": "Standard error",
   "remote.toolCall.common.charCount": "{{count}} chars",
 };
 
@@ -51,7 +51,7 @@ export const commonZhCN: Record<string, string> = {
   "remote.toolCall.common.arguments": "参数",
   "remote.toolCall.common.result": "结果",
   "remote.toolCall.common.stdout": "输出",
-  "remote.toolCall.common.stderr": "错误输出",
+  "remote.toolCall.common.stderr": "标准错误",
   "remote.toolCall.common.charCount": "{{count}} 字符",
 };
 
@@ -75,6 +75,6 @@ export const commonZhTW: Record<string, string> = {
   "remote.toolCall.common.arguments": "參數",
   "remote.toolCall.common.result": "結果",
   "remote.toolCall.common.stdout": "輸出",
-  "remote.toolCall.common.stderr": "錯誤輸出",
+  "remote.toolCall.common.stderr": "標準錯誤",
   "remote.toolCall.common.charCount": "{{count}} 字元",
 };

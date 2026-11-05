@@ -191,10 +191,7 @@ export const en: Record<string, string> = {
   "remote.attachments.failedNotice": "Remove failed attachments and try again",
 
   // Notices
-  "remote.notice.newChatCreated": "New chat created",
   "remote.notice.newChatPending": "New chat is still processing",
-  "remote.notice.switchingConversation": "Switching conversation",
-  "remote.notice.conversationSelected": "Conversation switched",
   "remote.notice.settingsUpdated": "Settings updated",
   "remote.notice.themeUpdated": "Appearance updated",
   "remote.notice.skillEnabled": "Skill enabled",
@@ -204,7 +201,6 @@ export const en: Record<string, string> = {
   "remote.notice.rejected": "Tool execution rejected",
   "remote.notice.answered": "Answer submitted",
   "remote.notice.cancelled": "Answer cancelled",
-  "remote.notice.sent": "Sent to Snow",
   "remote.notice.queued": "Queued for sending",
   "remote.notice.steered": "Steering the current run",
   "remote.notice.stopping": "Stopping",

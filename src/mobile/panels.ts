@@ -506,7 +506,6 @@ const handleCommandClick = async (
     await ctx.refresh(false);
     if (ctx.getState()?.activeConversationId === null) {
       closeRemotePanels();
-      showNotice(t("remote.notice.newChatCreated"));
     } else {
       showNotice(t("remote.notice.newChatPending"), true);
     }

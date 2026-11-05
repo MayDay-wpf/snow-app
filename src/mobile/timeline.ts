@@ -1299,10 +1299,23 @@ export const renderTimeline = (
     // 目标会话已到达：结束过渡，走下面的整表重建（骨架屏随之被清掉）。
     switchingTo = null;
   }
-  const conversationChanged =
-    (next.activeConversationId ?? null) !== renderedConversationId;
+  const nextConversationId = next.activeConversationId ?? null;
+  // 新会话视图（activeConversationId 为空）在首轮响应结束后会被桌面迁移为真实
+  // 会话 id（pending 槽位 → 持久化会话，见 useAgentLoop 的 migrateSession）。
+  // 这是同一段对话的 id 升级：消息与滚动位置都连续，若按会话切换整表重建，
+  // 第一轮响应结束时整列消息会闪一次（内容重绘、图片重载、滚动位置丢失）。
+  // 判定依据是快照仍包含本地已渲染的消息——真实切换会话时消息集合互不相交。
+  if (
+    renderedConversationId === null &&
+    nextConversationId !== null &&
+    knownList.length > 0 &&
+    next.messages.some((message) => knownIds.has(message.id))
+  ) {
+    renderedConversationId = nextConversationId;
+  }
+  const conversationChanged = nextConversationId !== renderedConversationId;
   if (conversationChanged) {
-    renderedConversationId = next.activeConversationId ?? null;
+    renderedConversationId = nextConversationId;
     knownList = [];
     knownIds.clear();
     // 状态未知（undefined）时默认不显示「加载更早」入口，待桌面会话状态

@@ -32,6 +32,7 @@ import {
   parseJsonRecord,
   tcBadge,
   tcErrorRow,
+  tcFoldBlock,
   tcKv,
   tcPre,
   tcSection,
@@ -98,14 +99,77 @@ const styledPre = (text: string, className: string): HTMLElement => {
   return block;
 };
 
+type OutputAnnotation = "error" | "warning" | "hint" | "context";
+
+/** 某条流的行级诊断标注（行号相对该流自身，0 基）。 */
+const annotationsFor = (
+  diagnostics: BashDiagnostics | undefined,
+  stream: "stdout" | "stderr",
+): Map<number, OutputAnnotation> => {
+  const result = new Map<number, OutputAnnotation>();
+  for (const item of diagnostics?.items ?? []) {
+    if (item.stream !== stream) {
+      continue;
+    }
+    const severity: OutputAnnotation =
+      item.severity === "warning"
+        ? "warning"
+        : item.confidence === "high"
+          ? "error"
+          : "hint";
+    if (!result.has(item.line)) {
+      result.set(item.line, severity);
+    }
+    for (let line = item.line + 1; line <= item.endLine; line += 1) {
+      if (!result.has(line)) {
+        result.set(line, "context");
+      }
+    }
+  }
+  return result;
+};
+
+/** 逐行渲染的输出块：诊断行着色，其余行保持普通文本。 */
+const annotatedOutput = (
+  text: string,
+  annotations: Map<number, OutputAnnotation>,
+  live: boolean,
+): HTMLElement => {
+  const lines = text.split("\n");
+  const pre = el("pre", "tc-pre tc-pre-lines");
+  lines.forEach((line, index) => {
+    const severity = annotations.get(index);
+    pre.append(
+      el(
+        "div",
+        `tc-out-line${severity ? ` tc-out-line-${severity}` : ""}`,
+        line,
+      ),
+    );
+  });
+  if (live) {
+    const caret = el("span", "tc-exec-caret");
+    caret.setAttribute("aria-hidden", "true");
+    pre.append(caret);
+  }
+  return tcFoldBlock(pre, lines.length);
+};
+
 /** 输出块（等宽、超长自动折叠）；live 时末尾追加流式光标。 */
 const outputBlock = (
   text: string,
-  opts: { live?: boolean; error?: boolean } = {},
+  opts: {
+    live?: boolean;
+    stream?: "stdout" | "stderr";
+    annotations?: Map<number, OutputAnnotation>;
+  } = {},
 ): HTMLElement => {
+  if (opts.annotations && opts.annotations.size > 0) {
+    return annotatedOutput(text, opts.annotations, opts.live === true);
+  }
   const block = tcPre(text);
   const pre = preOf(block);
-  if (opts.error) pre.classList.add("tc-pre-err");
+  if (opts.stream === "stderr") pre.classList.add("tc-pre-stderr");
   if (opts.live) {
     const caret = el("span", "tc-exec-caret");
     caret.setAttribute("aria-hidden", "true");
@@ -206,18 +270,125 @@ const parseBashArgs = (record: JsonRecord | null): BashArgs | null => {
   };
 };
 
+type ExitOutcome = {
+  kind: string;
+  failed: boolean;
+  signal: string | null;
+};
+
+type BashDiagnosticItem = {
+  severity: "error" | "warning";
+  stream: "stdout" | "stderr";
+  line: number;
+  endLine: number;
+  confidence: "high" | "medium";
+  rule: string;
+  message: string;
+};
+
+type BashDiagnostics = {
+  complete: boolean;
+  commandKind: string;
+  counts: { error: number; warning: number };
+  items: BashDiagnosticItem[];
+};
+
+type BashStructuredExtra = {
+  outcome?: ExitOutcome;
+  diagnostics?: BashDiagnostics;
+};
+
 type BashResult =
-  | { type: "success"; stdout: string; stderr: string; exitCode: number }
-  | {
+  | ({
+      type: "success";
+      stdout: string;
+      stderr: string;
+      exitCode: number;
+    } & BashStructuredExtra)
+  | ({
       type: "failed";
       kind: "timeout" | "cancelled" | "error";
       message: string;
       stdout: string;
       stderr: string;
-    }
+    } & BashStructuredExtra)
   | { type: "detached"; pid: number; logPath: string }
   | { type: "raw"; text: string }
   | { type: "empty" };
+
+const parseBashOutcome = (record: JsonRecord): ExitOutcome | undefined => {
+  const raw = record.outcome;
+  if (
+    !isRecord(raw) ||
+    typeof raw.kind !== "string" ||
+    typeof raw.failed !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: raw.kind,
+    failed: raw.failed,
+    signal: typeof raw.signal === "string" && raw.signal ? raw.signal : null,
+  };
+};
+
+const parseBashDiagnostics = (
+  record: JsonRecord,
+): BashDiagnostics | undefined => {
+  const raw = record.diagnostics;
+  if (!isRecord(raw) || !Array.isArray(raw.items)) {
+    return undefined;
+  }
+  const items: BashDiagnosticItem[] = [];
+  for (const entry of raw.items) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const { severity, stream, line, endLine, confidence, rule, message } =
+      entry;
+    if (
+      (severity !== "error" && severity !== "warning") ||
+      (stream !== "stdout" && stream !== "stderr") ||
+      typeof line !== "number" ||
+      !Number.isInteger(line) ||
+      line < 0 ||
+      typeof endLine !== "number" ||
+      !Number.isInteger(endLine) ||
+      endLine < line ||
+      (confidence !== "high" && confidence !== "medium") ||
+      typeof rule !== "string" ||
+      typeof message !== "string"
+    ) {
+      continue;
+    }
+    items.push({
+      severity,
+      stream,
+      line,
+      endLine,
+      confidence,
+      rule,
+      message,
+    });
+  }
+  const counts = isRecord(raw.counts) ? raw.counts : {};
+  return {
+    complete: raw.complete !== false,
+    commandKind:
+      typeof raw.commandKind === "string" ? raw.commandKind : "unknown",
+    counts: {
+      error:
+        typeof counts.error === "number"
+          ? counts.error
+          : items.filter((item) => item.severity === "error").length,
+      warning:
+        typeof counts.warning === "number"
+          ? counts.warning
+          : items.filter((item) => item.severity === "warning").length,
+    },
+    items,
+  };
+};
 
 const isTimeoutMessage = (message: string): boolean =>
   /timed?\s*out/i.test(message);
@@ -246,12 +417,22 @@ const parseBashResult = (raw?: string): BashResult => {
     typeof record.stderr === "string" ? stripControl(record.stderr) : "";
   const errorMessage =
     typeof record.error === "string" ? stripControl(record.error).trim() : "";
+  const extra: BashStructuredExtra = {
+    outcome: parseBashOutcome(record),
+    diagnostics: parseBashDiagnostics(record),
+  };
 
   if (typeof record.status === "string") {
     switch (record.status) {
       case "completed":
         if (typeof record.exitCode === "number") {
-          return { type: "success", stdout, stderr, exitCode: record.exitCode };
+          return {
+            type: "success",
+            stdout,
+            stderr,
+            exitCode: record.exitCode,
+            ...extra,
+          };
         }
         break;
       case "timed_out":
@@ -261,6 +442,7 @@ const parseBashResult = (raw?: string): BashResult => {
           message: errorMessage || t("remote.toolCall.exec.bash.timedOut"),
           stdout,
           stderr,
+          ...extra,
         };
       case "cancelled":
         return {
@@ -269,6 +451,7 @@ const parseBashResult = (raw?: string): BashResult => {
           message: errorMessage || t("remote.toolCall.exec.bash.cancelled"),
           stdout,
           stderr,
+          ...extra,
         };
       case "failed":
       case "spawn_failed":
@@ -278,6 +461,7 @@ const parseBashResult = (raw?: string): BashResult => {
           message: errorMessage || t("remote.toolCall.exec.bash.failed"),
           stdout,
           stderr,
+          ...extra,
         };
       default:
         break;
@@ -291,6 +475,7 @@ const parseBashResult = (raw?: string): BashResult => {
       message: errorMessage,
       stdout,
       stderr,
+      ...extra,
     };
   }
 
@@ -300,7 +485,13 @@ const parseBashResult = (raw?: string): BashResult => {
     typeof record.exitCode === "number" &&
     Number.isInteger(record.exitCode)
   ) {
-    return { type: "success", stdout, stderr, exitCode: record.exitCode };
+    return {
+      type: "success",
+      stdout,
+      stderr,
+      exitCode: record.exitCode,
+      ...extra,
+    };
   }
   return { type: "raw", text: raw };
 };
@@ -311,10 +502,21 @@ export const renderBashCard: ToolCallRenderer = (tool) => {
 
   const result = parseBashResult(tool.result);
   const isRunning = tool.status === "running";
+  const outcome =
+    result.type === "success" || result.type === "failed"
+      ? result.outcome
+      : undefined;
   const failed =
     result.type === "failed" ||
-    (result.type === "success" && result.exitCode !== 0);
+    (result.type === "success" &&
+      (outcome ? outcome.failed : result.exitCode !== 0));
   const status: ToolStatus = failed ? "error" : tool.status;
+  const diagnostics =
+    result.type === "success" || result.type === "failed"
+      ? result.diagnostics
+      : undefined;
+  const stdoutAnnotations = annotationsFor(diagnostics, "stdout");
+  const stderrAnnotations = annotationsFor(diagnostics, "stderr");
 
   // 流式输出（远控桥 ≤8000 字符、增量增长）优先，最终结果只补差集。
   const streamStdout = stripControl(tool.streamingStdout ?? "");
@@ -333,10 +535,17 @@ export const renderBashCard: ToolCallRenderer = (tool) => {
     meta.push(tcBadge(t("remote.toolCall.exec.bash.interactive"), "muted"));
   }
   if (result.type === "success") {
+    const exitFailed = outcome?.failed ?? result.exitCode !== 0;
     meta.push(
       tcBadge(
-        t("remote.toolCall.exec.bash.exitCode", { code: result.exitCode }),
-        result.exitCode === 0 ? "ok" : "err",
+        outcome?.signal
+          ? t("remote.toolCall.exec.bash.crash", { signal: outcome.signal })
+          : t("remote.toolCall.exec.bash.exitCode", { code: result.exitCode }),
+        exitFailed
+          ? "err"
+          : outcome && outcome.kind !== "success"
+            ? "muted"
+            : "ok",
       ),
     );
   } else if (result.type === "failed" && result.kind !== "error") {
@@ -387,12 +596,26 @@ export const renderBashCard: ToolCallRenderer = (tool) => {
   );
 
   if (isRunning) body.append(liveRow(t("remote.toolCall.exec.bash.running")));
+  if (outcome?.signal) {
+    body.append(
+      noteRow(
+        t("remote.toolCall.exec.bash.crashed", { signal: outcome.signal }),
+        "warn",
+      ),
+    );
+  }
 
   if (streamStdout) {
     body.append(
       tcSection(
         t("remote.toolCall.common.stdout"),
-        outputBlock(streamStdout, { live: isRunning }),
+        outputBlock(streamStdout, {
+          live: isRunning,
+          annotations:
+            !isRunning && !restStdout && !restStderr
+              ? stdoutAnnotations
+              : undefined,
+        }),
         {
           meta: isRunning
             ? [tcBadge(t("remote.toolCall.exec.streaming"), "muted")]
@@ -405,20 +628,33 @@ export const renderBashCard: ToolCallRenderer = (tool) => {
     body.append(
       tcSection(
         t("remote.toolCall.common.stderr"),
-        outputBlock(streamStderr, { error: true, live: isRunning }),
+        outputBlock(streamStderr, {
+          live: isRunning,
+          stream: "stderr",
+          annotations:
+            !isRunning && !restStdout && !restStderr
+              ? stderrAnnotations
+              : undefined,
+        }),
       ),
     );
   }
   if (restStdout) {
     body.append(
-      tcSection(t("remote.toolCall.common.stdout"), outputBlock(restStdout)),
+      tcSection(
+        t("remote.toolCall.common.stdout"),
+        outputBlock(restStdout, { annotations: stdoutAnnotations }),
+      ),
     );
   }
   if (restStderr) {
     body.append(
       tcSection(
         t("remote.toolCall.common.stderr"),
-        outputBlock(restStderr, { error: true }),
+        outputBlock(restStderr, {
+          stream: "stderr",
+          annotations: stderrAnnotations,
+        }),
       ),
     );
   }

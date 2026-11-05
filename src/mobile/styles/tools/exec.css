@@ -13,6 +13,44 @@
 
 /* ── 命令行（bash：`$ ` 前缀 + 等宽换行） ───────────────────────────────── */
 
+/* 逐行诊断标注：仅用于带结构化诊断的输出块。 */
+.tc-pre-lines {
+  display: block;
+}
+.tc-out-line {
+  min-height: 1.5em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tc-out-line-error {
+  background: rgba(248, 81, 73, 0.1);
+  border-left: 2px solid #f85149;
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tc-out-line-warning {
+  background: rgba(210, 153, 34, 0.1);
+  border-left: 2px solid #d29922;
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tc-out-line-hint {
+  background: rgba(210, 153, 34, 0.06);
+  border-left: 2px solid rgba(210, 153, 34, 0.45);
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tc-out-line-context {
+  background: rgba(248, 81, 73, 0.04);
+  border-left: 2px solid rgba(248, 81, 73, 0.18);
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tc-pre-stderr {
+  border-left: 1px solid var(--line);
+  padding-left: 6px;
+}
+
 .tc-cmd {
   color: #d6dbe4;
   font-weight: 500;

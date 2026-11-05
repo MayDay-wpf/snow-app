@@ -170,10 +170,7 @@ export const zhTW: Record<string, string> = {
   "remote.attachments.failedNotice": "請移除失敗附件後重試",
 
   // 提示列
-  "remote.notice.newChatCreated": "已新增對話",
   "remote.notice.newChatPending": "新增對話仍在處理中",
-  "remote.notice.switchingConversation": "正在切換工作階段",
-  "remote.notice.conversationSelected": "工作階段已切換",
   "remote.notice.settingsUpdated": "設定已更新",
   "remote.notice.themeUpdated": "外觀已更新",
   "remote.notice.skillEnabled": "Skill 已啟用",
@@ -184,7 +181,6 @@ export const zhTW: Record<string, string> = {
   "remote.notice.rejected": "已拒絕工具執行",
   "remote.notice.answered": "回答已提交",
   "remote.notice.cancelled": "已取消回答",
-  "remote.notice.sent": "已交給 Snow",
   "remote.notice.queued": "已加入待傳送",
   "remote.notice.steered": "已引導目前執行",
   "remote.notice.stopping": "正在停止",

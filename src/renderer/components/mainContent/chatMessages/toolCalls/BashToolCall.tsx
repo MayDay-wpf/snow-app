@@ -21,7 +21,12 @@ import type {
   ToolCallInfo,
 } from "../utils/conversationTypes";
 import { ToolCallNode } from "./shared/ToolCallNode";
-import { AnsiOutput } from "./shared/AnsiOutput";
+import {
+  AnsiOutput,
+  type BashDiagnosticItem,
+  type BashDiagnostics,
+  type BashOutputSegment,
+} from "./shared/AnsiOutput";
 import { localizeToolError } from "./shared/toolErrorDisplay";
 import { SensitiveCommandSeverityBadge } from "./shared/SensitiveCommandSeverityBadge";
 import { SensitiveCommandContextNote } from "./shared/SensitiveCommandContextNote";
@@ -46,15 +51,24 @@ type ParsedBashArgs = {
   detach?: boolean;
 };
 
+type ExitOutcome = {
+  kind: string;
+  failed: boolean;
+  signal: string | null;
+};
+
+type StructuredExtra = {
+  stdout: string;
+  stderr: string;
+  outcome?: ExitOutcome;
+  diagnostics?: BashDiagnostics;
+};
+
 type ParsedBashResult =
-  | {
-      type: "success";
-      output: string;
-      exitCode: number;
-    }
-  | { type: "timeout"; message: string; output: string }
-  | { type: "cancelled"; message: string; output: string }
-  | { type: "error"; message: string; output: string }
+  | ({ type: "success"; output: string; exitCode: number } & StructuredExtra)
+  | ({ type: "timeout"; message: string; output: string } & StructuredExtra)
+  | ({ type: "cancelled"; message: string; output: string } & StructuredExtra)
+  | ({ type: "error"; message: string; output: string } & StructuredExtra)
   | { type: "detached"; pid: number; logPath: string; taskId: string | null }
   | { type: "raw"; text: string }
   | { type: "empty" };
@@ -117,6 +131,81 @@ const joinOutput = (stdout: string, stderr: string): string => {
 const isTimeoutMessage = (message: string): boolean =>
   /timed?\s*out/i.test(message);
 
+const parseOutcome = (
+  parsed: Record<string, unknown>,
+): ExitOutcome | undefined => {
+  const raw = parsed.outcome;
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  if (typeof raw.kind !== "string" || typeof raw.failed !== "boolean") {
+    return undefined;
+  }
+  return {
+    kind: raw.kind,
+    failed: raw.failed,
+    signal: typeof raw.signal === "string" && raw.signal ? raw.signal : null,
+  };
+};
+
+const parseDiagnostics = (
+  parsed: Record<string, unknown>,
+): BashDiagnostics | undefined => {
+  const raw = parsed.diagnostics;
+  if (!isRecord(raw) || !Array.isArray(raw.items)) {
+    return undefined;
+  }
+  const items: BashDiagnosticItem[] = [];
+  for (const entry of raw.items) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const { severity, stream, line, endLine, confidence, rule, message } =
+      entry;
+    if (
+      (severity !== "error" && severity !== "warning") ||
+      (stream !== "stdout" && stream !== "stderr") ||
+      typeof line !== "number" ||
+      !Number.isInteger(line) ||
+      line < 0 ||
+      typeof endLine !== "number" ||
+      !Number.isInteger(endLine) ||
+      endLine < line ||
+      (confidence !== "high" && confidence !== "medium") ||
+      typeof rule !== "string" ||
+      typeof message !== "string"
+    ) {
+      continue;
+    }
+    items.push({
+      severity,
+      stream,
+      line,
+      endLine,
+      confidence,
+      rule,
+      message,
+    });
+  }
+  const countsRaw = isRecord(raw.counts) ? raw.counts : {};
+  return {
+    complete: raw.complete !== false,
+    commandKind:
+      typeof raw.commandKind === "string" ? raw.commandKind : "unknown",
+    counts: {
+      error:
+        typeof countsRaw.error === "number"
+          ? countsRaw.error
+          : items.filter((item) => item.severity === "error").length,
+      warning:
+        typeof countsRaw.warning === "number"
+          ? countsRaw.warning
+          : items.filter((item) => item.severity === "warning").length,
+    },
+    items,
+  };
+};
+
 const parseResult = (result: string | undefined): ParsedBashResult => {
   if (!result) {
     return { type: "empty" };
@@ -146,6 +235,12 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
       typeof parsed.stdout === "string" ? (parsed.stdout as string) : "";
     const stderr =
       typeof parsed.stderr === "string" ? (parsed.stderr as string) : "";
+    const extra: StructuredExtra = {
+      stdout,
+      stderr,
+      outcome: parseOutcome(parsed),
+      diagnostics: parseDiagnostics(parsed),
+    };
     const partialOutput = joinOutput(stdout, stderr);
     const errorMessage =
       typeof parsed.error === "string" ? parsed.error : undefined;
@@ -162,6 +257,7 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
               type: "success",
               output: partialOutput,
               exitCode: parsed.exitCode,
+              ...extra,
             };
           }
           break;
@@ -170,12 +266,14 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
             type: "timeout",
             message: errorMessage ?? "Command timed out",
             output: partialOutput,
+            ...extra,
           };
         case "cancelled":
           return {
             type: "cancelled",
             message: errorMessage ?? "Command was stopped",
             output: partialOutput,
+            ...extra,
           };
         case "failed":
         case "spawn_failed":
@@ -183,6 +281,7 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
             type: "error",
             message: errorMessage ?? "Command failed",
             output: partialOutput,
+            ...extra,
           };
         default:
           break;
@@ -196,9 +295,15 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
           type: "timeout",
           message: errorMessage,
           output: partialOutput,
+          ...extra,
         };
       }
-      return { type: "error", message: errorMessage, output: partialOutput };
+      return {
+        type: "error",
+        message: errorMessage,
+        output: partialOutput,
+        ...extra,
+      };
     }
 
     if (
@@ -209,8 +314,9 @@ const parseResult = (result: string | undefined): ParsedBashResult => {
     ) {
       return {
         type: "success",
-        output: joinOutput(parsed.stdout, parsed.stderr),
+        output: partialOutput,
         exitCode: parsed.exitCode,
+        ...extra,
       };
     }
 
@@ -240,11 +346,19 @@ export const BashToolCall = ({
 
   const command = parsedArgs?.command ?? "terminal-execute";
   const commandSummary = getCommandSummary(command) || "terminal-execute";
+  const outcome =
+    parsedResult.type === "success" ||
+    parsedResult.type === "timeout" ||
+    parsedResult.type === "cancelled" ||
+    parsedResult.type === "error"
+      ? parsedResult.outcome
+      : undefined;
   const hasFailed =
     parsedResult.type === "error" ||
     parsedResult.type === "timeout" ||
     parsedResult.type === "cancelled" ||
-    (parsedResult.type === "success" && parsedResult.exitCode !== 0);
+    (parsedResult.type === "success" &&
+      (outcome ? outcome.failed : parsedResult.exitCode !== 0));
   const effectiveStatus = hasFailed ? "error" : toolCall.status;
 
   const isRunning = toolCall.status === "running";
@@ -526,6 +640,48 @@ export const BashToolCall = ({
     );
   }, [parsedResult, toolCall.streamingStdout, toolCall.streamingStderr]);
 
+  const outputSegments = useMemo<BashOutputSegment[] | undefined>(() => {
+    if (
+      parsedResult.type === "success" ||
+      parsedResult.type === "timeout" ||
+      parsedResult.type === "cancelled" ||
+      parsedResult.type === "error"
+    ) {
+      const segments: BashOutputSegment[] = [];
+      if (parsedResult.stdout) {
+        segments.push({ stream: "stdout", text: parsedResult.stdout });
+      }
+      if (parsedResult.stderr) {
+        segments.push({ stream: "stderr", text: parsedResult.stderr });
+      }
+      return segments.length > 0 ? segments : undefined;
+    }
+    return undefined;
+  }, [parsedResult]);
+  const diagnostics =
+    parsedResult.type === "success" ||
+    parsedResult.type === "timeout" ||
+    parsedResult.type === "cancelled" ||
+    parsedResult.type === "error"
+      ? parsedResult.diagnostics
+      : undefined;
+  const exitFailed =
+    parsedResult.type === "success"
+      ? (outcome?.failed ?? parsedResult.exitCode !== 0)
+      : false;
+  const exitSignal = outcome?.signal ?? null;
+  const exitSemanticNeutral =
+    parsedResult.type === "success" &&
+    !exitFailed &&
+    outcome !== undefined &&
+    outcome.kind !== "success";
+  const exitKindLabel =
+    parsedResult.type === "success" &&
+    outcome &&
+    outcome.kind !== "success" &&
+    outcome.kind !== "failure"
+      ? t(`toolCall.bash.exitKind.${outcome.kind}`, { defaultValue: "" })
+      : "";
   const hasOutput = Boolean(output);
   const isEmpty =
     parsedResult.type === "empty" &&
@@ -649,14 +805,21 @@ export const BashToolCall = ({
           {parsedResult.type === "success" ? (
             <span
               className={`tool-call-bash-exit-code ${
-                parsedResult.exitCode === 0
-                  ? "tool-call-bash-exit-success"
-                  : "tool-call-bash-exit-error"
+                exitFailed
+                  ? "tool-call-bash-exit-error"
+                  : exitSemanticNeutral
+                    ? "tool-call-bash-exit-neutral"
+                    : "tool-call-bash-exit-success"
               }`}
+              title={exitKindLabel || undefined}
             >
-              {t("toolCall.bash.exitCode", {
-                values: { code: parsedResult.exitCode },
-              })}
+              {exitSignal
+                ? t("toolCall.bash.exitCodeCrash", {
+                    values: { signal: exitSignal },
+                  })
+                : t("toolCall.bash.exitCode", {
+                    values: { code: parsedResult.exitCode },
+                  })}
             </span>
           ) : null}
           {parsedResult.type === "detached" ? (
@@ -767,6 +930,14 @@ export const BashToolCall = ({
           <div className="tool-call-error">
             <AlertCircle size={12} aria-hidden="true" />
             <span>{localizeToolError(t, parsedResult.message)}</span>
+          </div>
+        ) : null}
+        {exitSignal ? (
+          <div className="tool-call-error">
+            <AlertCircle size={12} aria-hidden="true" />
+            <span>
+              {t("toolCall.bash.crashed", { values: { signal: exitSignal } })}
+            </span>
           </div>
         ) : null}
 
@@ -892,8 +1063,9 @@ export const BashToolCall = ({
               </pre>
             ) : (
               <AnsiOutput
-                text={output}
-                defaultFilterErrors={parsedResult.type === "error"}
+                text={outputSegments ? undefined : output}
+                segments={outputSegments}
+                diagnostics={diagnostics}
               />
             )
           ) : isEmpty ? (

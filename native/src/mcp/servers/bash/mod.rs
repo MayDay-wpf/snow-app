@@ -26,6 +26,7 @@ use super::remote_workspace::{
 };
 
 pub(crate) mod detached;
+mod diagnostics;
 mod platform;
 mod safety;
 mod session;
@@ -237,9 +238,21 @@ struct LocalResult<'a> {
     timeout_ms: u64,
     /// 超出捕获上限被省略的字节数（stdout + stderr 合计）。
     truncated_bytes: u64,
+    /// 进程被信号/系统异常终止时的名称（正常退出为 None）。
+    signal: Option<&'a str>,
 }
 
 fn build_local_result(result: LocalResult<'_>) -> Value {
+    let (outcome_kind, outcome_failed) =
+        diagnostics::classify_exit(result.command, result.exit_code, result.signal);
+    let diagnostics_payload = diagnostics::analyze(diagnostics::DiagnosticInput {
+        command: result.command,
+        stdout: &result.stdout,
+        stderr: &result.stderr,
+        exit_code: result.exit_code,
+        output_complete: result.output_complete,
+        truncated_bytes: result.truncated_bytes,
+    });
     let mut payload = json!({
         "status": result.status,
         "stdout": result.stdout,
@@ -251,6 +264,12 @@ fn build_local_result(result: LocalResult<'_>) -> Value {
         "elapsedMs": result.elapsed_ms,
         "timeoutMs": result.timeout_ms,
         "outputComplete": result.output_complete,
+        "outcome": {
+            "kind": outcome_kind,
+            "failed": outcome_failed,
+            "signal": result.signal,
+        },
+        "diagnostics": diagnostics_payload,
     });
     if result.truncated_bytes > 0 {
         payload["truncatedBytes"] = json!(result.truncated_bytes);
@@ -284,7 +303,19 @@ fn build_local_spawn_failed_result(
         "command": command,
         "workingDirectory": working_directory,
         "executedAt": executed_at,
-        "error": error
+        "error": error,
+        "outcome": {
+            "kind": "spawn_failed",
+            "failed": true,
+            "signal": null,
+        },
+        "diagnostics": {
+            "version": 1,
+            "complete": true,
+            "commandKind": "unknown",
+            "counts": { "error": 0, "warning": 0 },
+            "items": [],
+        },
     })
 }
 
@@ -630,10 +661,10 @@ impl BashService {
             let elapsed_ms = execution_started.elapsed().as_millis() as u64;
             let effective_timeout_ms = effective_timeout.as_millis() as u64;
             let (level, status, message, exit_code) = match &outcome.status {
-                session::SessionStatus::Completed { exit_code: 0 } => {
-                    ("INFO", "completed", "Terminal command completed", Some(0))
-                }
-                session::SessionStatus::Completed { exit_code } => (
+                session::SessionStatus::Completed {
+                    exit_code: 0, ..
+                } => ("INFO", "completed", "Terminal command completed", Some(0)),
+                session::SessionStatus::Completed { exit_code, .. } => (
                     "WARN",
                     "non_zero_exit",
                     "Terminal command exited with a non-zero status",
@@ -701,21 +732,24 @@ impl BashService {
                     elapsed_ms,
                     effective_timeout_ms,
                 ),
-                session::SessionStatus::Completed { exit_code } => build_local_result(LocalResult {
-                    status: "completed",
-                    reason: None,
-                    error: None,
-                    stdout: outcome.stdout,
-                    stderr: outcome.stderr,
-                    exit_code: Some(exit_code),
-                    output_complete: outcome.output_complete,
-                    command: &command,
-                    executed_at: &executed_at,
-                    is_interactive,
-                    elapsed_ms,
-                    timeout_ms: effective_timeout_ms,
-                    truncated_bytes,
-                }),
+                session::SessionStatus::Completed { exit_code, signal } => {
+                    build_local_result(LocalResult {
+                        status: "completed",
+                        reason: None,
+                        error: None,
+                        stdout: outcome.stdout,
+                        stderr: outcome.stderr,
+                        exit_code: Some(exit_code),
+                        output_complete: outcome.output_complete,
+                        command: &command,
+                        executed_at: &executed_at,
+                        is_interactive,
+                        elapsed_ms,
+                        timeout_ms: effective_timeout_ms,
+                        truncated_bytes,
+                        signal: signal.as_deref(),
+                    })
+                }
                 session::SessionStatus::TimedOut { watchdog } => build_local_result(LocalResult {
                     status: "timed_out",
                     reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
@@ -730,6 +764,7 @@ impl BashService {
                     elapsed_ms,
                     timeout_ms: effective_timeout_ms,
                     truncated_bytes,
+                    signal: None,
                 }),
                 session::SessionStatus::Cancelled { reason } => build_local_result(LocalResult {
                     status: "cancelled",
@@ -745,6 +780,7 @@ impl BashService {
                     elapsed_ms,
                     timeout_ms: effective_timeout_ms,
                     truncated_bytes,
+                    signal: None,
                 }),
                 session::SessionStatus::Failed { error } => build_local_result(LocalResult {
                     status: "failed",
@@ -760,6 +796,7 @@ impl BashService {
                     elapsed_ms,
                     timeout_ms: effective_timeout_ms,
                     truncated_bytes,
+                    signal: None,
                 }),
             });
         }
@@ -1057,7 +1094,10 @@ impl BashService {
                 ProcessWaitResult::TimedOut { watchdog: false }
             }
             status = stream_io::poll_child_exit(&mut child) => match status {
-                Ok(status) => ProcessWaitResult::Completed(status.code().unwrap_or(1)),
+                Ok(status) => ProcessWaitResult::Completed {
+                    exit_code: status.code().unwrap_or(1),
+                    signal: diagnostics::exit_signal(&status),
+                },
                 Err(error) => {
                     stream_io::kill_process_tree(&mut child).await;
                     ProcessWaitResult::Failed(error.to_string())
@@ -1124,14 +1164,14 @@ impl BashService {
         crate::api::cancel::unregister_tool_execution(&tool_execution_id);
 
         let (level, status, message, exit_code) = match &wait_result {
-            ProcessWaitResult::Completed(0) => {
+            ProcessWaitResult::Completed { exit_code: 0, .. } => {
                 ("INFO", "completed", "Terminal command completed", Some(0))
             }
-            ProcessWaitResult::Completed(code) => (
+            ProcessWaitResult::Completed { exit_code, .. } => (
                 "WARN",
                 "non_zero_exit",
                 "Terminal command exited with a non-zero status",
-                Some(*code),
+                Some(*exit_code),
             ),
             ProcessWaitResult::TimedOut { watchdog } => (
                 "WARN",
@@ -1187,21 +1227,24 @@ impl BashService {
         let elapsed_ms = execution_started.elapsed().as_millis() as u64;
         let effective_timeout_ms = effective_timeout.as_millis() as u64;
         match wait_result {
-            ProcessWaitResult::Completed(exit_code) => Ok(build_local_result(LocalResult {
-                status: "completed",
-                reason: None,
-                error: None,
-                stdout: stdout.text,
-                stderr: stderr.text,
-                exit_code: Some(exit_code),
-                output_complete,
-                command: &command,
-                executed_at: &executed_at,
-                is_interactive,
-                elapsed_ms,
-                timeout_ms: effective_timeout_ms,
-                truncated_bytes,
-            })),
+            ProcessWaitResult::Completed { exit_code, signal } => {
+                Ok(build_local_result(LocalResult {
+                    status: "completed",
+                    reason: None,
+                    error: None,
+                    stdout: stdout.text,
+                    stderr: stderr.text,
+                    exit_code: Some(exit_code),
+                    output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                    truncated_bytes,
+                    signal: signal.as_deref(),
+                }))
+            }
             ProcessWaitResult::TimedOut { watchdog } => Ok(build_local_result(LocalResult {
                 status: "timed_out",
                 reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
@@ -1216,6 +1259,7 @@ impl BashService {
                 elapsed_ms,
                 timeout_ms: effective_timeout_ms,
                 truncated_bytes,
+                signal: None,
             })),
             ProcessWaitResult::Cancelled(reason) => Ok(build_local_result(LocalResult {
                 status: "cancelled",
@@ -1231,6 +1275,7 @@ impl BashService {
                 elapsed_ms,
                 timeout_ms: effective_timeout_ms,
                 truncated_bytes,
+                signal: None,
             })),
             ProcessWaitResult::Failed(error) => Ok(build_local_result(LocalResult {
                 status: "failed",
@@ -1246,13 +1291,17 @@ impl BashService {
                 elapsed_ms,
                 timeout_ms: effective_timeout_ms,
                 truncated_bytes,
+                signal: None,
             })),
         }
     }
 }
 
 enum ProcessWaitResult {
-    Completed(i32),
+    Completed {
+        exit_code: i32,
+        signal: Option<String>,
+    },
     /// The execution deadline elapsed. `watchdog` is true when the renderer
     /// countdown fired the abort (reason "timeout") slightly before the
     /// backend's own deadline, false for the backend deadline itself.

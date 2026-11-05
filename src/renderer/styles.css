@@ -17831,11 +17831,53 @@ body.is-panel-resizing * {
 .tool-call-ansi-line {
   line-height: 1.5;
 }
-.tool-call-ansi-line.is-error-line {
+.tool-call-ansi-line.is-diagnostic-error {
   background: rgba(248, 81, 73, 0.08);
   border-left: 2px solid #f85149;
   padding-left: 4px;
   margin-left: -6px;
+}
+.tool-call-ansi-line.is-diagnostic-warning {
+  background: rgba(210, 153, 34, 0.08);
+  border-left: 2px solid #d29922;
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tool-call-ansi-line.is-diagnostic-hint {
+  background: rgba(210, 153, 34, 0.05);
+  border-left: 2px solid rgba(210, 153, 34, 0.45);
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tool-call-ansi-line.is-diagnostic-context {
+  background: rgba(248, 81, 73, 0.03);
+  border-left: 2px solid rgba(248, 81, 73, 0.18);
+  padding-left: 4px;
+  margin-left: -6px;
+}
+.tool-call-ansi-stream {
+  min-width: 0;
+}
+.tool-call-ansi-stream-stderr {
+  margin-top: 4px;
+  border-left: 1px solid var(--border-color, #30363d);
+  padding-left: 6px;
+}
+.tool-call-ansi-stream-label {
+  margin-bottom: 2px;
+  color: var(--text-tertiary, #8b949e);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.tool-call-ansi-omitted {
+  color: var(--text-tertiary, #8b949e);
+  font-size: 10.5px;
+  padding: 1px 0 1px 6px;
+  opacity: 0.8;
+}
+.tool-call-ansi-incomplete {
+  color: var(--text-tertiary, #8b949e);
+  font-size: 10.5px;
 }
 
 /* CodeHighlightView Styles */
@@ -18922,6 +18964,11 @@ body.is-panel-resizing * {
 .tool-call-bash-exit-error {
   color: var(--accent-red-text);
   background: var(--accent-red-bg);
+}
+
+.tool-call-bash-exit-neutral {
+  color: var(--text-secondary, #c9d1d9);
+  background: var(--bg-tertiary, #30363d);
 }
 
 .tool-call-bash-timeout-badge {
