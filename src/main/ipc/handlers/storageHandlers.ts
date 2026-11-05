@@ -1,5 +1,9 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
+  BackupCreateResult,
+  BackupPlan,
+  BackupSummary,
+  BackupTaskProgress,
   CleanupCategoryId,
   CleanupDeleteResult,
   CleanupScanResult,
@@ -14,6 +18,12 @@ import type {
   StorageLocationKind,
   StorageMigrationProgress,
 } from "../../native/types";
+
+import type { BackupScheduleState } from "../../../shared/backupSchedule";
+import {
+  getBackupScheduleState,
+  setBackupSchedule,
+} from "../../app/backupScheduler";
 
 const isStorageLocationKind = (value: unknown): value is StorageLocationKind =>
   value === "checkpoint" || value === "upload";
@@ -48,6 +58,30 @@ const ORPHAN_CATEGORY_IDS: readonly OrphanProjectCategoryId[] = [
 const isOrphanCategoryId = (value: unknown): value is OrphanProjectCategoryId =>
   typeof value === "string" &&
   (ORPHAN_CATEGORY_IDS as readonly string[]).includes(value);
+
+/** 备份目标目录：必须是非空字符串 */
+const requireBackupDirectory = (value: unknown): string => {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("Backup directory is required");
+  }
+  return value.trim();
+};
+
+/** 备份 id：字符集由 Rust 侧校验，这里只拦空值 */
+const requireBackupId = (value: unknown): string => {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("Backup id is required");
+  }
+  return value.trim();
+};
+
+/** 保留份数：非数字时交给 Rust 侧使用默认值 */
+const normalizeBackupKeep = (value: unknown): number | undefined => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.trunc(value);
+};
 
 /**
  * 存储位置（数据库 / 检查点 / 上传图片）IPC。
@@ -207,6 +241,72 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
       // 不会阻塞主进程；参数校验后直接转发。
       return native.optimizeDatabase(kind as DatabaseKind);
     },
+  );
+
+  ipcMain.handle(
+    "storage:backup-plan",
+    async (_event, targetDir: unknown): Promise<BackupPlan> =>
+      native.backupLocalPlan(requireBackupDirectory(targetDir)),
+  );
+
+  ipcMain.handle(
+    "storage:backup-create",
+    async (
+      _event,
+      targetDir: unknown,
+      keep: unknown,
+    ): Promise<BackupCreateResult> =>
+      native.backupLocalCreate(
+        requireBackupDirectory(targetDir),
+        normalizeBackupKeep(keep),
+      ),
+  );
+
+  ipcMain.handle(
+    "storage:backup-list",
+    async (_event, targetDir: unknown): Promise<BackupSummary[]> =>
+      native.backupLocalList(requireBackupDirectory(targetDir)),
+  );
+
+  ipcMain.handle(
+    "storage:backup-restore",
+    async (_event, targetDir: unknown, backupId: unknown): Promise<void> => {
+      await native.backupLocalRestore(
+        requireBackupDirectory(targetDir),
+        requireBackupId(backupId),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "storage:backup-delete",
+    async (_event, targetDir: unknown, backupId: unknown): Promise<void> => {
+      await native.backupLocalDelete(
+        requireBackupDirectory(targetDir),
+        requireBackupId(backupId),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "storage:backup-root",
+    async (_event, targetDir: unknown): Promise<string> =>
+      native.backupLocalRoot(requireBackupDirectory(targetDir)),
+  );
+
+  ipcMain.handle(
+    "storage:backup-progress",
+    async (): Promise<BackupTaskProgress> => native.backupTaskProgress(),
+  );
+
+  ipcMain.handle("storage:backup-schedule-get", (): BackupScheduleState =>
+    getBackupScheduleState(),
+  );
+
+  ipcMain.handle(
+    "storage:backup-schedule-set",
+    async (_event, schedule: unknown): Promise<BackupScheduleState> =>
+      setBackupSchedule(native, schedule),
   );
 
   ipcMain.handle(

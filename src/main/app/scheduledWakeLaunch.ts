@@ -34,10 +34,10 @@ const resolveMacBundlePath = (execPath: string): string | null => {
 };
 
 /** 组装系统调度拉起应用的命令（开发模式需额外传入应用目录）。 */
-export const buildScheduledWakeLaunchSpec = (): ScheduledWakeLaunchSpec => {
-  const label = app.isPackaged
-    ? "com.snow.app.scheduled-wake"
-    : "com.snow.app.scheduled-wake.dev";
+export const buildScheduledWakeLaunchSpec = (
+  baseLabel = "com.snow.app.scheduled-wake",
+): ScheduledWakeLaunchSpec => {
+  const label = app.isPackaged ? baseLabel : `${baseLabel}.dev`;
   const appArgs = app.isPackaged
     ? [SCHEDULED_WAKE_ARG]
     : [app.getAppPath(), SCHEDULED_WAKE_ARG];

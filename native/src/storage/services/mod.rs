@@ -3,6 +3,7 @@ pub mod api_configs;
 pub mod app_lock;
 pub mod app_logs;
 pub mod archive;
+pub mod backup;
 pub mod chat_conversations;
 pub mod checkpoint;
 pub mod checkpoint_skip;

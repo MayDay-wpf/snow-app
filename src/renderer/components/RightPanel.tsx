@@ -116,7 +116,6 @@ import {
 } from "./rightPanel/detachedPanelTab";
 import {
   activateTabInWorkspace,
-  applyLayoutVars,
   closeTabsInWorkspace,
   collectLeaves,
   computeRects,
@@ -130,7 +129,6 @@ import {
   paneLayoutVars,
   paneRectVar,
   resizeSplitInWorkspace,
-  setSplitSizes,
   syncWorkspaceTabs,
   workspaceActiveTabId,
   type PaneEdge,
@@ -484,6 +482,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       index: number;
     } | null>(null);
     const layoutRef = useRef<HTMLDivElement>(null);
+    const resizeGuideRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLElement>(null);
 
     const tabs = workspace.tabs;
@@ -2433,16 +2432,16 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       height: `var(${paneRectVar(paneId, "h")})`,
     });
 
-    // tab 内容面板：顶上让出 tab 栏高度，其余按所属组的矩形铺满。
-    const paneContentStyle = (paneId: string): React.CSSProperties => ({
+    // tab 内容面板外框：顶上让出 tab 栏高度，其余按所属组的矩形铺满。
+    const paneViewportStyle = (paneId: string): React.CSSProperties => ({
       left: `var(${paneRectVar(paneId, "l")})`,
       top: `calc(var(${paneRectVar(paneId, "t")}) + var(--rp-tabbar-h))`,
       width: `var(${paneRectVar(paneId, "w")})`,
       height: `calc(var(${paneRectVar(paneId, "h")}) - var(--rp-tabbar-h))`,
     });
 
-    // 分隔条贴在前一个子节点的右（下）边缘：该子节点的矩形变量在拖拽分隔条时
-    // 会被实时改写，所以定位线跟着鼠标走（分割节点自身的矩形是不变的）。
+    // 分隔条贴在前一个子节点的右（下）边缘：几何来自布局变量，尺寸只在拖拽
+    // 结束后提交，所以分隔条会随布局一起过渡到新位置。
     const splitterStyle = (splitter: PaneSplitter): React.CSSProperties =>
       splitter.orientation === "row"
         ? {
@@ -2675,7 +2674,9 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       );
     };
 
-    // 分隔条拖拽：逐帧只改 CSS 变量（不触发 React 渲染），松手才提交尺寸。
+    // 分隔条拖拽：拖拽期间布局保持原样，只在指针位置画一条指示线作为新的分界；
+    // 松手后才把新的尺寸权重一次性提交给布局，终端 / 浏览器等重内容因此不会在
+    // 拖拽过程中参与任何重排。
     const handleSplitterPointerDown = (
       event: React.PointerEvent<HTMLDivElement>,
       splitter: PaneSplitter,
@@ -2684,16 +2685,18 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         return;
       }
       const container = layoutRef.current;
-      const split = findSplitById(workspace.layout, splitter.splitId);
-      if (!container || !split || split.children.length < 2) {
+      const guide = resizeGuideRef.current;
+      const baseLayout = workspace.layout;
+      const split = findSplitById(baseLayout, splitter.splitId);
+      if (!container || !guide || !split || split.children.length < 2) {
+        return;
+      }
+      const splitRect = computeRects(baseLayout).get(split.id);
+      if (!splitRect) {
         return;
       }
       const horizontal = splitter.orientation === "row";
       const containerRect = container.getBoundingClientRect();
-      const splitRect = computeRects(workspace.layout).get(split.id);
-      if (!splitRect) {
-        return;
-      }
       const axisPx = horizontal
         ? splitRect.width * containerRect.width
         : splitRect.height * containerRect.height;
@@ -2710,48 +2713,79 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       const minPx = Math.max(48, Math.min(MIN_PANE_PX, pairPx / 2 - 1));
       const start = horizontal ? event.clientX : event.clientY;
       const target = event.currentTarget;
-      let pendingSizes: number[] | null = null;
+      // 指示线在容器内的可用范围：轴向从分割节点的起点算，横向铺满分割节点。
+      const axisOffset = horizontal
+        ? splitRect.left * containerRect.width
+        : splitRect.top * containerRect.height;
+      const crossOffset = horizontal
+        ? splitRect.top * containerRect.height
+        : splitRect.left * containerRect.width;
+      const crossSize = horizontal
+        ? splitRect.height * containerRect.height
+        : splitRect.width * containerRect.width;
+
+      let delta = 0;
+      let frame = 0;
+
+      const clampFirst = (): number =>
+        Math.min(Math.max(firstPx + delta, minPx), pairPx - minPx);
+
+      const paintGuide = (): void => {
+        frame = 0;
+        const axisPos = axisOffset + clampFirst();
+        guide.style.left = `${horizontal ? axisPos : crossOffset}px`;
+        guide.style.top = `${horizontal ? crossOffset : axisPos}px`;
+        guide.style.width = `${horizontal ? 2 : crossSize}px`;
+        guide.style.height = `${horizontal ? crossSize : 2}px`;
+      };
 
       const handleMove = (moveEvent: PointerEvent): void => {
-        const delta =
-          (horizontal ? moveEvent.clientX : moveEvent.clientY) - start;
-        const nextFirst = Math.min(
-          Math.max(firstPx + delta, minPx),
-          pairPx - minPx,
-        );
-        const sizes = [...split.sizes];
-        sizes[splitter.index] = (nextFirst / axisPx) * total;
-        sizes[splitter.index + 1] = ((pairPx - nextFirst) / axisPx) * total;
-        pendingSizes = sizes;
-        applyLayoutVars(
-          container,
-          setSplitSizes(workspace.layout, split.id, sizes),
-        );
+        delta = (horizontal ? moveEvent.clientX : moveEvent.clientY) - start;
+        if (frame === 0) {
+          frame = window.requestAnimationFrame(paintGuide);
+        }
       };
+
       const handleEnd = (): void => {
-        target.removeEventListener("pointermove", handleMove);
-        target.removeEventListener("pointerup", handleEnd);
-        target.removeEventListener("pointercancel", handleEnd);
+        if (frame !== 0) {
+          window.cancelAnimationFrame(frame);
+          frame = 0;
+        }
+        document.removeEventListener("pointermove", handleMove);
+        document.removeEventListener("pointerup", handleEnd);
+        document.removeEventListener("pointercancel", handleEnd);
+        target.removeEventListener("lostpointercapture", handleEnd);
         document.body.classList.remove(
           "is-right-pane-resizing",
           "is-right-pane-resizing-x",
           "is-right-pane-resizing-y",
         );
-        const sizes = pendingSizes;
-        if (sizes) {
-          setWorkspace((prev) => resizeSplitInWorkspace(prev, split.id, sizes));
+        guide.classList.remove("active");
+        target.classList.remove("is-dragging");
+        // 位置没有实质变化（只是点了一下）时不提交，避免无意义的布局更新。
+        const nextFirst = clampFirst();
+        if (Math.abs(nextFirst - firstPx) < 0.5) {
+          return;
         }
+        const sizes = [...split.sizes];
+        sizes[splitter.index] = (nextFirst / axisPx) * total;
+        sizes[splitter.index + 1] = ((pairPx - nextFirst) / axisPx) * total;
+        setWorkspace((prev) => resizeSplitInWorkspace(prev, split.id, sizes));
       };
 
       event.preventDefault();
       target.setPointerCapture(event.pointerId);
-      target.addEventListener("pointermove", handleMove);
-      target.addEventListener("pointerup", handleEnd);
-      target.addEventListener("pointercancel", handleEnd);
+      document.addEventListener("pointermove", handleMove);
+      document.addEventListener("pointerup", handleEnd);
+      document.addEventListener("pointercancel", handleEnd);
+      target.addEventListener("lostpointercapture", handleEnd);
       document.body.classList.add("is-right-pane-resizing");
       document.body.classList.add(
         horizontal ? "is-right-pane-resizing-x" : "is-right-pane-resizing-y",
       );
+      target.classList.add("is-dragging");
+      guide.classList.add("active");
+      paintGuide();
     };
 
     // tab 右键菜单的派生状态：目标 tab 在 tabs 中的下标（无目标或
@@ -3068,6 +3102,12 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                   }
                 />
               ))}
+              {/* 分隔条拖拽指示线：位置由拖拽处理命令式写入，拖拽结束才提交布局。 */}
+              <div
+                ref={resizeGuideRef}
+                className="right-pane-resize-guide"
+                aria-hidden="true"
+              />
               <div className="right-pane-content-layer">
                 {paneModel.leaves.flatMap((leaf) =>
                   leaf.tabIds.map((tabId) => {
@@ -3083,7 +3123,8 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                         className={`right-panel-tab-pane ${
                           paneActive ? "active" : ""
                         }`}
-                        style={paneContentStyle(leaf.id)}
+                        style={paneViewportStyle(leaf.id)}
+                        data-pane-id={leaf.id}
                         data-browser-instance-id={
                           tab.type === "browser"
                             ? (tab.data as BrowserTabData | undefined)
@@ -3097,7 +3138,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                         onDrop={(event) => handlePaneDrop(event, leaf.id)}
                         onPointerDownCapture={() => focusPane(leaf.id)}
                       >
-                        {renderTabContent(tab, paneActive)}
+                        {/* 内容面板里的实际内容：铺满外框；拖拽分隔条期间布局
+                            不变，松手后随新尺寸一次性重排。 */}
+                        <div className="right-panel-tab-pane-body">
+                          {renderTabContent(tab, paneActive)}
+                        </div>
                       </div>
                     );
                   }),

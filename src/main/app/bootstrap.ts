@@ -59,6 +59,7 @@ import {
   stopPluginBackgrounds,
 } from "../pluginBackground/pluginBackgroundHost";
 import { startScheduledTaskWakeup } from "./scheduledTaskWakeup";
+import { initializeBackupScheduler } from "./backupScheduler";
 import { isScheduledWakeLaunch } from "./scheduledWakeLaunch";
 import { isTeamHostLaunch } from "../team/teamServiceLaunch";
 import { stopRemoteControlServer } from "../remoteControl/remoteControlServer";
@@ -326,6 +327,15 @@ export const bootstrapApplication = (): void => {
       // Initialise storage — use raw binding to avoid storageReady deadlock.
       initializeApplicationServices(getRawNative())
         .then(async () => {
+          // 自动备份计划：读取已保存的计划、补跑错过的备份，并注册系统唤醒。
+          await initializeBackupScheduler(native).catch((error) => {
+            snowLog.warn({
+              module: "app/bootstrap",
+              func: "initializeBackupScheduler",
+              message: "Failed to start automatic backup scheduler",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
           // 内置宠物包随应用分发（resources/pets），首次安装 / 升级 /
           // 内置包内容变化时由 Rust 侧解压安装到 ~/.snowapp/pets，
           // 老用户提前装过的同名宠物会被覆盖去重；安装失败不阻断启动。

@@ -47,6 +47,7 @@ mod agents;
 mod api_configs;
 mod app;
 mod app_lock;
+mod backup;
 mod cleanup;
 mod conversations;
 mod custom_commands;
@@ -70,7 +71,7 @@ mod userscripts;
 // 保留 crate::exports::storage::* 原有公共路径的重导出
 #[allow(unused_imports)]
 pub use {
-    agents::*, api_configs::*, app::*, app_lock::*, cleanup::*, conversations::*, custom_commands::*,
+    agents::*, api_configs::*, app::*, app_lock::*, backup::*, cleanup::*, conversations::*, custom_commands::*,
     diff_comments::*, file_review_annotations::*,
     hooks::*, logs::*,
     lsp::*,

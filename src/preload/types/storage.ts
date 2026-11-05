@@ -1,6 +1,14 @@
 /** 可迁移的存储位置种类：checkpoint（检查点）| upload（上传图片） */
 export type StorageLocationKind = "checkpoint" | "upload";
 
+/** 自动备份计划相关类型（定义在 shared，供主进程与界面共用）。 */
+export type {
+  BackupScheduleMode,
+  BackupScheduleRuntime,
+  BackupScheduleSettings,
+  BackupScheduleState,
+} from "../../shared/backupSchedule";
+
 /** 各存储位置路径信息 */
 export type StorageLocations = {
   /** 运行数据库文件绝对路径（~/.snowapp/snowapp.db 或自定义） */
@@ -90,6 +98,57 @@ export type CleanupDeleteResult = {
   removedTargets: number;
   /** 删除失败的信息（最多 20 条） */
   errors: string[];
+};
+
+/** 数据备份：预估结果（只读取与哈希，不写入目标目录） */
+export type BackupPlan = {
+  /** 本次备份覆盖的源数据总字节数 */
+  totalBytes: number;
+  /** 预计需要新写入的块字节数 */
+  pendingBytes: number;
+  /** 预计需要新写入的块数量 */
+  pendingChunks: number;
+  /** 命中已有块、无需上传的数量 */
+  reusedChunks: number;
+  fileCount: number;
+};
+
+/** 数据备份：一次备份的执行结果 */
+export type BackupCreateResult = {
+  id: string;
+  createdAtMs: number;
+  totalBytes: number;
+  uploadedBytes: number;
+  uploadedChunks: number;
+  reusedChunks: number;
+  fileCount: number;
+};
+
+/** 数据备份：单份备份的摘要 */
+export type BackupSummary = {
+  id: string;
+  createdAtMs: number;
+  totalBytes: number;
+  fileCount: number;
+  appVersion: string;
+};
+
+/** 数据备份 / 恢复任务进度（渲染进程按固定间隔轮询绘制进度条） */
+export type BackupTaskProgress = {
+  /** 是否有任务正在执行 */
+  active: boolean;
+  /** 任务类型：create（备份）| restore（恢复）；空闲时为空字符串 */
+  kind: string;
+  /** 当前阶段：snapshot | collect | write | apply | finalize | idle */
+  phase: string;
+  /** 已处理字节数 */
+  processedBytes: number;
+  /** 待处理总字节数（0 表示尚未统计） */
+  totalBytes: number;
+  /** 已处理文件数 */
+  processedFiles: number;
+  /** 待处理文件总数（0 表示尚未统计） */
+  totalFiles: number;
 };
 
 /** 孤儿项目数据：分类 id（与 Rust 侧 orphan_projects 服务一一对应） */

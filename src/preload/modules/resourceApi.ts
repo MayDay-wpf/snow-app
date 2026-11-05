@@ -13,7 +13,7 @@ export const resourceApi = {
   getProcessSnapshot: (): Promise<TaskManagerProcess[]> =>
     ipcRenderer.invoke("processes:snapshot"),
 
-  /** 进程采样日志：读取全局开关、采样间隔与日志目录 */
+  /** 进程采样日志：读取全局开关、采样间隔与日志文件路径 */
   getProcessSamplingLog: (): Promise<ProcessSamplingLogState> =>
     ipcRenderer.invoke("processes:sampling-log:get"),
 

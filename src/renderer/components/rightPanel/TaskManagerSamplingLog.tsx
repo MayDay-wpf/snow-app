@@ -136,8 +136,8 @@ export function TaskManagerSamplingLog(): React.JSX.Element {
         )}
         {state && (
           <div className="task-manager-sampling-directory">
-            <span>{t("taskManager.samplingDirectory")}</span>
-            <DisplayPath path={state.directory} />
+            <span>{t("taskManager.samplingFile")}</span>
+            <DisplayPath path={state.filePath} />
           </div>
         )}
         <p className="task-manager-hint">{t("taskManager.samplingHint")}</p>

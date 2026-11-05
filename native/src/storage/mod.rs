@@ -58,7 +58,7 @@ pub use workspace::*;
 
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Mutex, Once, OnceLock},
 };
 
@@ -210,6 +210,9 @@ pub fn ensure_database_file() -> Result<PathBuf> {
     }
 
     let storage_dir = ensure_storage_dir()?;
+    // 上一次恢复可能已组装好数据库但还没替换：此刻进程尚未打开任何连接，
+    // 是唯一能安全改名替换 `.snowapp/snowapp.db` 的时机。
+    apply_pending_restore_once(&storage_dir);
     let database_path = paths::database_file_path(&storage_dir);
     database::ensure_database(&database_path)?;
     services::system_settings::seed_default_settings(&database_path)?;
@@ -250,12 +253,26 @@ pub fn ensure_archive_database_file() -> Result<PathBuf> {
     }
 
     let storage_dir = ensure_storage_dir()?;
+    // 归档库也可能在待恢复的数据库集合里；这里同样在打开连接前先完成替换。
+    apply_pending_restore_once(&storage_dir);
     let archive_path = paths::archive_database_file_path(&storage_dir);
     services::archive::ensure_archive_database(&archive_path)?;
 
     // Store into the cache so all future calls hit the fast path.
     let _ = ARCHIVE_DATABASE_PATH_CACHE.set(archive_path.clone());
     Ok(archive_path)
+}
+
+/// 待应用的恢复只在本次进程第一次打开数据库前尝试一次：之后数据库连接
+/// 已经建立，再改名替换既不安全也没有必要（失败时保留日志，下次启动重试）。
+static PENDING_RESTORE_INIT: Once = Once::new();
+
+fn apply_pending_restore_once(storage_dir: &Path) {
+    PENDING_RESTORE_INIT.call_once(|| {
+        if let Err(error) = services::backup::apply_pending_restore(storage_dir) {
+            eprintln!("Failed to apply pending restore: {error}");
+        }
+    });
 }
 
 fn ensure_storage_dir() -> Result<PathBuf> {

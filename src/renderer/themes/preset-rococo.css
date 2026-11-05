@@ -2082,7 +2082,6 @@
 
 :root[data-theme-preset="rococo"][data-theme="light"] {
   --rc-petals: url("../assets/rococo/petals-light.png");
-  --rc-frame: url("../assets/rococo/frame-light.png");
   --rc-knot: url("../assets/rococo/knot-light.png");
   --rc-crest: url("../assets/rococo/crest-light.png");
   --rc-swag: url("../assets/rococo/swag-light.png");
@@ -2096,7 +2095,6 @@
 
 :root[data-theme-preset="rococo"][data-theme="dark"] {
   --rc-petals: url("../assets/rococo/petals-dark.png");
-  --rc-frame: url("../assets/rococo/frame-dark.png");
   --rc-knot: url("../assets/rococo/knot-dark.png");
   --rc-crest: url("../assets/rococo/crest-dark.png");
   --rc-swag: url("../assets/rococo/swag-dark.png");
@@ -2124,25 +2122,32 @@
   background-blend-mode: var(--rc-blend), normal;
 }
 
+/* 顶饰带：整幅花环按边带尺寸铺满，避免按宽度放大后被 46px 高的容器拦腰裁切 */
 :root[data-theme-preset="rococo"] .input-box::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto 0;
   z-index: 1;
-  border-radius: inherit;
-  background: var(--rc-frame) center top / 100% auto no-repeat;
+  height: 46px;
+  border-radius: calc(var(--rc-radius-xl) - 1px) calc(var(--rc-radius-xl) - 1px)
+    0 0;
+  background-image: var(--rc-crest);
+  background-position: center top;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   mix-blend-mode: multiply;
-  opacity: 0.8;
+  opacity: 0.32;
   pointer-events: none;
   transition: opacity 0.25s ease;
 }
 
 :root[data-theme-preset="rococo"][data-theme="dark"] .input-box::after {
   mix-blend-mode: screen;
+  opacity: 0.45;
 }
 
 :root[data-theme-preset="rococo"] .input-box:focus-within::after {
-  opacity: 1;
+  opacity: 0.6;
 }
 
 :root[data-theme-preset="rococo"] .stream-metrics-bar {
@@ -2208,20 +2213,6 @@
     top left;
   background-repeat: repeat, repeat, repeat;
   background-blend-mode: normal, var(--rc-blend), normal;
-}
-
-:root[data-theme-preset="rococo"] .input-box::after {
-  inset: 0 0 auto 0;
-  height: 46px;
-  opacity: 0.32;
-}
-
-:root[data-theme-preset="rococo"][data-theme="dark"] .input-box::after {
-  opacity: 0.45;
-}
-
-:root[data-theme-preset="rococo"] .input-box:focus-within::after {
-  opacity: 0.6;
 }
 
 :root[data-theme-preset="rococo"] .pixel-logo.is-rococo {

@@ -3,10 +3,11 @@
  * 与内容区），组与组之间用可拖拽的分隔条调整大小。
  *
  * 几何计算返回的是「相对布局容器的比例矩形」，渲染层把它们写成 CSS 变量
- * （--rp-<节点 id>-l/t/w/h）。拖拽分隔条时只改这些变量即可实时重排，不必
- * 逐帧 setState；所有 tab 的内容面板挂在同一个绝对定位层里、按所属组的矩形
- * 定位，因此把 tab 拖到另一组只改变它的定位变量，不会重建终端 / 浏览器 /
- * 画布等重组件。
+ * （--rp-<节点 id>-l/t/w/h），面板框、分隔条、内容面板外框都读这些变量。
+ * 拖拽分隔条期间布局保持不变、只在指针位置显示一条指示线，松手后才一次性
+ * 提交新的尺寸，所以终端 / 浏览器等重内容不会参与拖拽中的重排。
+ * 所有 tab 的内容面板挂在同一个绝对定位层里、按所属组的矩形定位，因此把 tab
+ * 拖到另一组只改变它的定位变量，不会重建终端 / 浏览器 / 画布等重组件。
  */
 
 import type { RightPanelTab } from "../types";
@@ -405,11 +406,14 @@ export const computeSplitters = (node: RightPaneNode): PaneSplitter[] => {
   return splitters;
 };
 
+/** 节点几何变量（布局渲染与分隔条定位共用）。 */
 export const paneRectVar = (id: string, part: "l" | "t" | "w" | "h"): string =>
   `--rp-${id}-${part}`;
 
 export const formatFraction = (value: number): string =>
   `${(value * 100).toFixed(4)}%`;
+
+const RECT_PARTS = ["l", "t", "w", "h"] as const;
 
 /** 把几何写成 CSS 变量对象（可直接作为容器的 style 使用）。 */
 export const paneLayoutVars = (
@@ -417,36 +421,22 @@ export const paneLayoutVars = (
 ): Record<string, string> => {
   const vars: Record<string, string> = {};
   for (const [id, rect] of computeRects(layout)) {
-    vars[paneRectVar(id, "l")] = formatFraction(rect.left);
-    vars[paneRectVar(id, "t")] = formatFraction(rect.top);
-    vars[paneRectVar(id, "w")] = formatFraction(rect.width);
-    vars[paneRectVar(id, "h")] = formatFraction(rect.height);
+    const values: Record<(typeof RECT_PARTS)[number], string> = {
+      l: formatFraction(rect.left),
+      t: formatFraction(rect.top),
+      w: formatFraction(rect.width),
+      h: formatFraction(rect.height),
+    };
+    for (const part of RECT_PARTS) {
+      vars[paneRectVar(id, part)] = values[part];
+    }
   }
   return vars;
 };
 
 /**
- * 命令式写入几何变量（拖拽分隔条时逐帧调用，避免每帧 setState）。
- * 返回本次计算出的矩形表，供命中测试复用。
+ * tab 顺序按布局的视觉顺序重排（关闭 / 移动后保证索引语义与显示一致）。
  */
-export const applyLayoutVars = (
-  element: HTMLElement,
-  layout: RightPaneNode,
-): Map<string, PaneRect> => {
-  const rects = computeRects(layout);
-  for (const [id, rect] of rects) {
-    element.style.setProperty(paneRectVar(id, "l"), formatFraction(rect.left));
-    element.style.setProperty(paneRectVar(id, "t"), formatFraction(rect.top));
-    element.style.setProperty(paneRectVar(id, "w"), formatFraction(rect.width));
-    element.style.setProperty(
-      paneRectVar(id, "h"),
-      formatFraction(rect.height),
-    );
-  }
-  return rects;
-};
-
-/** tab 顺序按布局的视觉顺序重排（关闭 / 移动后保证索引语义与显示一致）。 */
 const orderTabsByLayout = (
   tabs: RightPanelTab[],
   layout: RightPaneNode,

@@ -23,10 +23,12 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 /** 文件总数上限（含当前文件）：约 50 MB */
 const MAX_FILE_COUNT = 10;
 const MODULE_TAG = "monitoring/processSamplingLog";
+/** 当前写入的文件名，与 native/src/storage/process_sampling_log.rs 的 ACTIVE_FILE_NAME 一致 */
+const ACTIVE_FILE_NAME = "process-sampling.jsonl";
 
 export type ProcessSamplingLogState = ProcessSamplingLogSettings & {
-  /** 日志目录（~/.snowapp/logs） */
-  directory: string;
+  /** 当前写入的日志文件绝对路径（~/.snowapp/logs/process-sampling.jsonl） */
+  filePath: string;
 };
 
 type ProcessRow = Awaited<ReturnType<typeof sampleProcessRowsForLog>>[number];
@@ -38,8 +40,12 @@ let sampling = false;
 let sequence = 0;
 let writeFailing = false;
 
-export const getSamplingLogDirectory = (): string =>
+const samplingLogDirectory = (): string =>
   path.join(app.getPath("home"), ".snowapp", "logs");
+
+/** 当前日志文件路径：供界面直接展示具体文件，避免用户只知道目录。 */
+const getSamplingLogFilePath = (): string =>
+  path.join(samplingLogDirectory(), ACTIVE_FILE_NAME);
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
@@ -158,7 +164,7 @@ const writeSample = async (
     lsp,
   };
   await native.appendProcessSamplingLog(
-    getSamplingLogDirectory(),
+    samplingLogDirectory(),
     JSON.stringify(record),
     MAX_FILE_BYTES,
     MAX_FILE_COUNT,
@@ -213,7 +219,7 @@ export const readProcessSamplingLog = async (
   native: NativeBridge,
 ): Promise<ProcessSamplingLogState> => ({
   ...(await loadSamplingLogSettings(native)),
-  directory: getSamplingLogDirectory(),
+  filePath: getSamplingLogFilePath(),
 });
 
 export const updateProcessSamplingLog = async (
@@ -224,5 +230,5 @@ export const updateProcessSamplingLog = async (
   await saveSamplingLogSettings(native, next);
   nativeRef = native;
   applySettings(next);
-  return { ...next, directory: getSamplingLogDirectory() };
+  return { ...next, filePath: getSamplingLogFilePath() };
 };

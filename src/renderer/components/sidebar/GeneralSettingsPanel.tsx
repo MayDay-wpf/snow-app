@@ -34,6 +34,7 @@ import { createPortal } from "react-dom";
 import { localeLabels, useI18n, type Locale } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { AppLockSettingsSection } from "./AppLockSettingsSection";
+import { BackupSettingsSection } from "./BackupSettingsSection";
 import { ChangelogSection } from "./ChangelogSection";
 import {
   OPEN_GENERAL_SETTINGS_TAB_EVENT,
@@ -2450,6 +2451,9 @@ export function GeneralSettingsPanel(): React.JSX.Element {
           )}
         </div>
       )}
+
+      {/* 存储与资源：数据备份（本地目录，内容寻址分块去重） */}
+      {activeTab === "storage" && <BackupSettingsSection />}
 
       {/* 存储与资源：优化与缓存（展开后优化磁盘占用 / 清空应用缓存） */}
       {activeTab === "storage" && (

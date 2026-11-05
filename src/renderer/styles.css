@@ -32584,8 +32584,9 @@ button.user-message-source:hover {
 }
 
 /* ===== 右侧面板分屏（同面板多组 tab：拖拽合并 / 拆分 + 可拖拽分隔条） =====
-   几何全部由容器上的 CSS 变量（--rp-<节点 id>-l/t/w/h）决定，拖拽分隔条时
-   只改这些变量即可实时重排，不需要逐帧渲染。 */
+   面板框、分隔条与内容面板外框的几何都走容器上的 CSS 变量
+   （--rp-<节点 id>-l/t/w/h）；拖拽分隔条时布局保持不变、只显示跟随指针的
+   指示线，松手后才提交新尺寸，重内容因此不参与拖拽中的重排。 */
 
 .right-panel-content-wrapper {
   /* tab 栏固定高度：内容面板按它换算顶部偏移，必须与实际渲染高度一致。 */
@@ -32599,8 +32600,7 @@ button.user-message-source:hover {
   z-index: 3;
   overflow: hidden;
   pointer-events: none;
-  /* 拆分 / 合并 / 关闭分组时的几何变化走过渡，避免硬切；拖拽分隔条期间
-     由 body.is-right-pane-resizing 关闭过渡。 */
+  /* 拆分 / 合并 / 关闭分组时的几何变化走过渡，避免硬切。 */
   transition:
     left 0.16s ease,
     top 0.16s ease,
@@ -32631,6 +32631,15 @@ button.user-message-source:hover {
     top 0.16s ease,
     width 0.16s ease,
     height 0.16s ease;
+}
+
+/* 内容面板里的实际内容：平时铺满外框。 */
+.right-panel-tab-pane-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* 拖拽 tab / 会话行期间，内嵌页面不参与命中，拖拽事件交给所在面板计算落点。 */
@@ -32691,16 +32700,35 @@ body.is-right-pane-tab-dragging .right-pane-content-layer iframe {
 }
 
 .right-pane-splitter:hover::before,
-.right-pane-splitter:active::before,
-body.is-right-pane-resizing .right-pane-splitter::before {
+.right-pane-splitter:active::before {
   opacity: 1;
 }
 
-/* 拖拽分隔条时逐帧改写几何变量，必须关掉过渡，否则面板会滞后于指针。 */
-body.is-right-pane-resizing .right-pane-box,
-body.is-right-pane-resizing .right-pane-content-layer .right-panel-tab-pane,
-body.is-right-pane-resizing .right-pane-splitter {
-  transition: none;
+/* 拖拽中的分隔条把细线让给跟随指针的指示线。 */
+.right-pane-splitter.is-dragging::before {
+  opacity: 0;
+}
+
+/* 拖拽指示线：拖拽分隔条时只显示它作为新的分界，松手后才真正重排布局。
+   位置 / 长度由拖拽处理命令式写入，所以不加几何过渡。 */
+.right-pane-resize-guide {
+  position: absolute;
+  z-index: 7;
+  pointer-events: none;
+  border-radius: 999px;
+  background: var(--accent-color);
+  opacity: 0;
+  transition: opacity 0.08s ease;
+}
+
+.right-pane-resize-guide.active {
+  opacity: 1;
+}
+
+/* 拖拽分隔条期间内嵌页面不参与命中，指针事件稳定送到拖拽手势上。 */
+body.is-right-pane-resizing .right-pane-content-layer webview,
+body.is-right-pane-resizing .right-pane-content-layer iframe {
+  pointer-events: none;
 }
 
 body.is-right-pane-resizing {
@@ -56070,6 +56098,74 @@ pre.file-viewer-code {
   cursor: default;
 }
 
+/* ---- 通用设置：已有备份列表（表头 + 列表行同属一个面板） ---- */
+.backup-list-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.backup-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.backup-list-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.backup-list-count {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.backup-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  transition: background 0.12s ease;
+}
+
+.backup-list-row + .backup-list-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.backup-list-row:hover {
+  background: var(--bg-hover);
+}
+
+.backup-list-empty {
+  padding: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---- 通用设置：自动备份时间（小时 + 分钟两个紧凑下拉） ---- */
+.backup-schedule-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 132px;
+}
+
+.backup-schedule-time > .custom-select {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---- 通用设置：存储目录迁移进度模态框（不可关闭） ---- */
 .storage-migration-overlay {
   position: fixed;
@@ -56136,6 +56232,15 @@ pre.file-viewer-code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+/* 备份 / 恢复进度：阶段文案（沿用迁移弹窗排版，非等宽字体） */
+.storage-migration-phase {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10.5px;
   color: var(--text-tertiary);
 }
