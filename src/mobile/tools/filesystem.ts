@@ -29,11 +29,11 @@
  * 契约：卡片骨架走 tools/ui.ts 的 createToolNode（头部徽章/摘要、状态、折叠体），
  * 行级 diff 视图走 tools/diffView.ts 的 renderDiffView（样式在 diff.css，本模块不重复
  * 定义）；本模块类名统一 tc-fs-*（styles/tools/filesystem.css）。所有文本一律
- * createElement + textContent，数据不进 innerHTML（图标为静态 lucide 标记）。
+ * createElement + textContent，数据不进 innerHTML（文件类型图标走 mobile/fileIcons）。
  */
 import type { SnowRemoteToolCall } from "../../renderer/types/remoteControl";
+import { fileIconEl } from "../fileIcons";
 import { t } from "../i18n";
-import { iconMarkup, type MobileIconName } from "../icons";
 import { computeLineDiff, diffStats, type DiffLine } from "./diff";
 import { renderDiffView } from "./diffView";
 import type { ToolCallRenderer, ToolModule } from "./types";
@@ -67,14 +67,6 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-};
-
-/** 静态 lucide 图标（只承载图标标记，不含数据，可安全走 innerHTML）。 */
-const iconSpan = (name: MobileIconName, className: string): HTMLSpanElement => {
-  const span = el("span", className);
-  span.setAttribute("aria-hidden", "true");
-  span.innerHTML = iconMarkup(name);
-  return span;
 };
 
 /** 文件名（兼容 Windows / POSIX 分隔符；无分隔符时原样返回）。 */
@@ -123,22 +115,21 @@ const statsNode = (stats: {
   return wrap;
 };
 
-/** 12px 小图标（目录条目 / 多文件段落标题）。 */
-const fileIcon = (name: MobileIconName): HTMLElement => {
-  const icon = el("span", "tc-fs-icon");
-  icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = iconMarkup(name);
-  return icon;
-};
+/** 12px 文件类型图标（目录条目 / 多文件段落标题，图标与 PC 资源管理器一致）。 */
+const fileIcon = (name: string, isDirectory = false): HTMLElement =>
+  fileIconEl(name, { isDirectory, className: "tc-fs-icon" });
 
 /** 条目清单（目录列表 / 待读取路径）。 */
 const entryList = (
-  items: { icon: MobileIconName; label: string }[],
+  items: { name: string; isDirectory?: boolean }[],
 ): HTMLElement => {
   const list = el("div", "tc-fs-list");
   for (const item of items) {
     const row = el("div", "tc-fs-row");
-    row.append(fileIcon(item.icon), el("span", "tc-fs-name", item.label));
+    row.append(
+      fileIcon(item.name, item.isDirectory),
+      el("span", "tc-fs-name", item.name),
+    );
     list.append(row);
   }
   return list;
@@ -248,24 +239,6 @@ const partialString = (raw: string | undefined, key: string): string | null => {
 /** 从（历史快照里可能残缺的）参数原文里抢救出 filePath 用于降级展示。 */
 const recoverPath = (raw?: string): string | undefined =>
   partialString(raw, "filePath") || undefined;
-
-/**
- * 给框架产出的头部徽章（.tool-name）补一枚 lucide 图标：createToolNode 的 badge
- * 只接受字符串文案，这里在节点生成后把文案包进 .tc-fs-badge-text 并在其前面插入
- * 图标（结构/样式见 styles/tools/filesystem.css 的 .tc-fs-badge*）。
- */
-const withBadgeIcon = (
-  node: HTMLElement,
-  icon: MobileIconName,
-): HTMLElement => {
-  const badge = node.querySelector<HTMLElement>(".tool-name");
-  if (!badge) return node;
-  const label = el("span", "tc-fs-badge-text", badge.textContent ?? "");
-  badge.textContent = "";
-  badge.classList.add("tc-fs-badge");
-  badge.append(iconSpan(icon, "tc-fs-badge-icon"), label);
-  return node;
-};
 
 // ── read ─────────────────────────────────────────────────────────────────
 
@@ -532,8 +505,8 @@ const resultContent = (result: ReadFileResult): Node | null => {
       return result.entries.length
         ? entryList(
             result.entries.map((entry) => ({
-              icon: entry.endsWith("/") ? "folder" : "file",
-              label: entry.endsWith("/") ? entry.slice(0, -1) : entry,
+              name: entry.endsWith("/") ? entry.slice(0, -1) : entry,
+              isDirectory: entry.endsWith("/"),
             })),
           )
         : null;
@@ -557,7 +530,7 @@ const multiFileSection = (file: {
   const head = el("div", "tc-fs-row");
   const name = el("span", "tc-fs-name", fileNameOf(file.filePath));
   name.title = file.filePath;
-  head.append(fileIcon("file"), name);
+  head.append(fileIcon(file.filePath, file.result.type === "directory"), name);
   const label = singleRangeLabel(file.result);
   if (label) head.append(el("span", "tc-fs-meta", label));
   section.append(head, pathRow(file.filePath));
@@ -587,11 +560,7 @@ export const renderReadCard: ToolCallRenderer = (tool) => {
   } else if (result.type === "empty") {
     if (args?.isMulti && args.paths) {
       // 多文件参数、结果未到达：展示待读取的目标列表。
-      body.append(
-        entryList(
-          args.paths.map((item) => ({ icon: "file", label: item.path })),
-        ),
-      );
+      body.append(entryList(args.paths.map((item) => ({ name: item.path }))));
     } else {
       const fallback = argsFallbackSection(parseJsonRecord(raw), raw);
       body.append(
@@ -618,20 +587,20 @@ export const renderReadCard: ToolCallRenderer = (tool) => {
   const meta: Node[] = [];
   const metaLabel = readMetaLabel(args, result);
   if (metaLabel) meta.push(tcBadge(metaLabel));
-  return withBadgeIcon(
-    createToolNode({
-      tool,
-      status: resolveStatus(tool),
-      badge: t("remote.toolCall.filesystem.read"),
-      display:
-        readTitle(args, result) ??
-        (shownPath ? fileNameOf(shownPath) : argsSummary(raw)),
-      displayTitle: shownPath,
-      meta: meta.length ? meta : undefined,
-      body: body.childNodes.length > 0 ? body : undefined,
-    }),
-    "file",
-  );
+  return createToolNode({
+    tool,
+    status: resolveStatus(tool),
+    badge: t("remote.toolCall.filesystem.read"),
+    display:
+      readTitle(args, result) ??
+      (shownPath ? fileNameOf(shownPath) : argsSummary(raw)),
+    displayIcon: shownPath
+      ? { name: shownPath, isDirectory: result.type === "directory" }
+      : undefined,
+    displayTitle: shownPath,
+    meta: meta.length ? meta : undefined,
+    body: body.childNodes.length > 0 ? body : undefined,
+  });
 };
 
 // ── replace_edit ─────────────────────────────────────────────────────────
@@ -762,19 +731,17 @@ export const renderEditCard: ToolCallRenderer = (tool) => {
   }
   if (result.type === "raw") body.append(rawResultSection(result.text));
 
-  return withBadgeIcon(
-    createToolNode({
-      tool,
-      status: resolveStatus(tool),
-      badge: t("remote.toolCall.filesystem.edit"),
-      display:
-        (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
-      displayTitle: shownPath,
-      meta,
-      body: body.childNodes.length > 0 ? body : undefined,
-    }),
-    "file-pen",
-  );
+  return createToolNode({
+    tool,
+    status: resolveStatus(tool),
+    badge: t("remote.toolCall.filesystem.edit"),
+    display:
+      (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
+    displayIcon: shownPath ? { name: shownPath } : undefined,
+    displayTitle: shownPath,
+    meta,
+    body: body.childNodes.length > 0 ? body : undefined,
+  });
 };
 
 // ── create ───────────────────────────────────────────────────────────────
@@ -871,19 +838,19 @@ export const renderCreateCard: ToolCallRenderer = (tool) => {
   }
   if (result.type === "raw") body.append(rawResultSection(result.text));
 
-  return withBadgeIcon(
-    createToolNode({
-      tool,
-      status: resolveStatus(tool),
-      badge: t("remote.toolCall.filesystem.create"),
-      display:
-        (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
-      displayTitle: shownPath,
-      meta: meta.length ? meta : undefined,
-      body: body.childNodes.length > 0 ? body : undefined,
-    }),
-    "file-plus",
-  );
+  return createToolNode({
+    tool,
+    status: resolveStatus(tool),
+    badge: t("remote.toolCall.filesystem.create"),
+    display:
+      (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
+    displayIcon: shownPath
+      ? { name: shownPath, isDirectory: args?.isDirectory === true }
+      : undefined,
+    displayTitle: shownPath,
+    meta: meta.length ? meta : undefined,
+    body: body.childNodes.length > 0 ? body : undefined,
+  });
 };
 
 // ── copy ─────────────────────────────────────────────────────────────────
@@ -1272,23 +1239,21 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
   }
   if (result.type === "raw") body.append(rawResultSection(result.text));
 
-  return withBadgeIcon(
-    createToolNode({
-      tool,
-      status: resolveStatus(tool),
-      badge: t(
-        cut
-          ? "remote.toolCall.filesystem.copyCut"
-          : "remote.toolCall.filesystem.copy",
-      ),
-      display:
-        (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
-      displayTitle: shownPath,
-      meta,
-      body: body.childNodes.length > 0 ? body : undefined,
-    }),
-    "copy",
-  );
+  return createToolNode({
+    tool,
+    status: resolveStatus(tool),
+    badge: t(
+      cut
+        ? "remote.toolCall.filesystem.copyCut"
+        : "remote.toolCall.filesystem.copy",
+    ),
+    display:
+      (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),
+    displayIcon: shownPath ? { name: shownPath } : undefined,
+    displayTitle: shownPath,
+    meta,
+    body: body.childNodes.length > 0 ? body : undefined,
+  });
 };
 
 // ── 注册表 ───────────────────────────────────────────────────────────────

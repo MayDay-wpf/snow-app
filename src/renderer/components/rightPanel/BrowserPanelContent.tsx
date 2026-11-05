@@ -337,6 +337,8 @@ export const BrowserPanelContent = ({
   canPickElementRef.current = canPickElement;
   // 本实例唯一 webview（工具栏操作 / MCP / 截图 / 元素选择都作用于它）。
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
+  // 地址栏提交导航后待补的焦点交接：加载完成时若焦点仍在输入框，再交一次。
+  const pendingPageFocusRef = useRef(false);
   // 本实例 webview 的 guest webContents id：主进程 browser:open-tab 事件
   // 按此判断发起请求的 guest 是否属于本实例。
   const guestWebContentsIdRef = useRef<number | null>(null);
@@ -482,6 +484,30 @@ export const BrowserPanelContent = ({
    */
   const attachWebviewListeners = useCallback(
     (webview: Electron.WebviewTag): void => {
+      // 地址栏提交导航后若焦点仍停在输入框，把焦点交给页面。
+      const handoffFocusToPage = (): void => {
+        if (!pendingPageFocusRef.current) {
+          return;
+        }
+        pendingPageFocusRef.current = false;
+        const active = document.activeElement;
+        const pageOrNone =
+          !active ||
+          active === document.body ||
+          active === webview ||
+          (active instanceof HTMLElement &&
+            active.classList.contains("browser-address-input"));
+        // 用户已把焦点移到别处（如聊天输入框）：不抢焦点。
+        if (!pageOrNone) {
+          return;
+        }
+        try {
+          webview.focus();
+        } catch {
+          // guest 尚未就绪，等待下一次加载事件。
+        }
+      };
+
       const handleDomReady = (): void => {
         try {
           // 记录 guest id：主进程 browser:open-tab 事件按此判断归属。
@@ -493,6 +519,7 @@ export const BrowserPanelContent = ({
         applyMutedState();
         // guest 就绪后应用设备模拟（挂载早期调用会因 guest 未就绪被跳过）。
         void applyDeviceEmulation();
+        handoffFocusToPage();
       };
 
       const handleNavigationStateUpdate = (): void => {
@@ -558,6 +585,7 @@ export const BrowserPanelContent = ({
         handleNavigationStateUpdate();
         // 加载完成时补一次标题回填：覆盖标题事件早于导航提交到达的情况。
         syncHistoryTitle();
+        handoffFocusToPage();
       };
 
       const handlePageTitleUpdated = (
@@ -962,6 +990,36 @@ export const BrowserPanelContent = ({
     applyMutedState();
   }, [isActive, applyMutedState]);
 
+  // 导航提交后把焦点交给页面：地址栏回车后可直接滚动 / 键盘操作网页。
+  const focusPageContent = useCallback((): void => {
+    const webview = webviewRef.current;
+    if (!webview) {
+      return;
+    }
+    // 仅在焦点属于地址栏（或未落在具体控件）时交接，避免抢走别处焦点。
+    const active = document.activeElement;
+    if (
+      active &&
+      active !== webview &&
+      active !== document.body &&
+      !(
+        active instanceof HTMLElement &&
+        active.classList.contains("browser-address-input")
+      )
+    ) {
+      return;
+    }
+    pendingPageFocusRef.current = true;
+    if (active instanceof HTMLElement && active !== webview) {
+      active.blur();
+    }
+    try {
+      webview.focus();
+    } catch {
+      // guest 尚未就绪，加载事件里由 handoffFocusToPage 再补一次。
+    }
+  }, []);
+
   const handleNavigate = (rawInput?: string): void => {
     const input = (rawInput ?? addressInput).trim();
     if (!input) {
@@ -984,11 +1042,30 @@ export const BrowserPanelContent = ({
       // spurious ERR_ABORTED errors via GUEST_VIEW_MANAGER_CALL.
       setSrc(url);
     }
+    focusPageContent();
   };
 
   const handleAddressChange = (value: string): void => {
     setAddressInput(value);
   };
+
+  // 地址栏 Esc：放弃编辑，恢复当前页面地址并把焦点交回页面。
+  const handleAddressEscape = useCallback((): void => {
+    const webview = webviewRef.current;
+    let currentUrl = "";
+    try {
+      currentUrl = webview?.getURL() ?? "";
+    } catch {
+      currentUrl = "";
+    }
+    setAddressInput(currentUrl || src);
+    focusPageContent();
+  }, [src, focusPageContent]);
+
+  // 用户主动把焦点放回地址栏：取消加载完成后的焦点交接。
+  const handleAddressFocused = useCallback((): void => {
+    pendingPageFocusRef.current = false;
+  }, []);
 
   const handleAddressKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -1277,6 +1354,8 @@ export const BrowserPanelContent = ({
         isPickingElement={isPicking}
         onAddressChange={handleAddressChange}
         onAddressKeyDown={handleAddressKeyDown}
+        onAddressEscape={handleAddressEscape}
+        onAddressFocused={handleAddressFocused}
         onNavigateToUrl={handleNavigate}
         onBack={handleBack}
         onForward={handleForward}

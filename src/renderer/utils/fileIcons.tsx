@@ -21,8 +21,6 @@ import {
   FlaskConical,
   Folder,
   FolderOpen,
-  GitCommitHorizontal,
-  GitCompare,
   Globe,
   Package,
   type LucideProps,
@@ -190,7 +188,6 @@ import {
   SiSnapcraft,
   SiFlathub,
 } from "react-icons/si";
-import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentType } from "react";
 
 type IconProps = {
@@ -200,19 +197,25 @@ type IconProps = {
   [key: string]: unknown;
 };
 
-type IconConfig = {
+export type IconKind = "brand" | "lucide";
+
+export type IconConfig = {
   component: ComponentType<IconProps>;
   color?: string;
+  /** brand = simple-icons（实心填充），lucide = 描边图标。 */
+  kind: IconKind;
 };
 
 const si = (icon: ComponentType<IconProps>, color?: string): IconConfig => ({
   component: icon,
   color,
+  kind: "brand",
 });
 
 const li = (icon: ComponentType<LucideProps>, color?: string): IconConfig => ({
   component: icon as unknown as ComponentType<IconProps>,
   color,
+  kind: "lucide",
 });
 
 // 复用的图标配置
@@ -884,40 +887,6 @@ export const getFileTypeIcon = (
   return (
     <IconComponent size={size} className={className} style={style} {...rest} />
   );
-};
-
-export const getFileTypeIconHtml = (
-  name: string,
-  isDirectory: boolean = false,
-  isExpanded: boolean = false,
-  size: number = 12,
-): string => {
-  const { component: IconComponent, color } = getIconConfig(
-    name,
-    isDirectory,
-    isExpanded,
-  );
-
-  const style: React.CSSProperties = {};
-  if (color) {
-    style.color = color;
-  }
-
-  return renderToStaticMarkup(
-    <IconComponent size={size} style={style} />,
-  ).replace(/class="/g, 'class="file-chip-icon-inner ');
-};
-
-export const getCommitIconHtml = (size: number = 12): string => {
-  return renderToStaticMarkup(
-    <GitCommitHorizontal size={size} style={{ color: "#f05032" }} />,
-  ).replace(/class="/g, 'class="file-chip-icon-inner ');
-};
-
-export const getChangeIconHtml = (size: number = 12): string => {
-  return renderToStaticMarkup(
-    <GitCompare size={size} style={{ color: "#f59e0b" }} />,
-  ).replace(/class="/g, 'class="file-chip-icon-inner ');
 };
 
 export { File, Folder, FolderOpen, FileCode, FileJson, FileText, FileImage };

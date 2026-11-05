@@ -18,6 +18,7 @@
 @import "./tools/web.css";
 @import "./tools/agents.css";
 @import "./tools/ops.css";
+@import "./git.css";
 
 /* ── 1. 基础层 ─────────────────────────────────────────────────────────── */
 :root {
@@ -103,6 +104,12 @@
   flex: none;
   display: block;
 }
+/* 文件类型图标：尺寸由 SVG 的 width/height 属性给出（PC fileIcons 的颜色写在
+   fill/stroke 上，不用 inline style —— 远控页 CSP 禁用 style 属性）。 */
+.file-icn {
+  display: block;
+  flex: none;
+}
 .icn-slot {
   display: inline-flex;
   flex: none;
@@ -165,6 +172,8 @@ textarea:focus-visible {
   background: rgba(8, 9, 11, 0.88);
   backdrop-filter: blur(18px);
   z-index: 20;
+  /* 用量明细浮层以顶栏为定位父级 */
+  position: relative;
 }
 .status-dot {
   width: 9px;
@@ -225,7 +234,6 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
 }
-.badge,
 .icon-button {
   height: 30px;
   border: 1px solid var(--line);
@@ -234,12 +242,110 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
 }
-.badge {
-  padding: 0 10px;
-  min-width: 44px;
-  color: var(--green);
+/* 顶栏上下文环：四段配色同桌面端 TokenUsageRing（绘制见 mobile/usageRing.ts） */
+/* 尺寸与圆形底对齐相邻 .icon-button，避免视觉上小一圈 */
+.usage-ring {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+}
+.usage-ring[hidden] {
+  display: none;
+}
+.usage-ring svg {
+  display: block;
+}
+.usage-ring-track {
+  stroke: var(--line);
+}
+.usage-ring-input {
+  stroke: #3b82f6;
+  transition: stroke-dasharray 0.3s ease;
+}
+.usage-ring-output {
+  stroke: #22c55e;
+  transition: stroke-dasharray 0.3s ease;
+}
+.usage-ring-cache-write {
+  stroke: #f59e0b;
+  transition: stroke-dasharray 0.3s ease;
+}
+.usage-ring-cache {
+  stroke: #a855f7;
+  transition: stroke-dasharray 0.3s ease;
+}
+.usage-ring-text {
+  fill: var(--muted);
+  font-size: 8px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.usage-ring-text.is-compact {
+  font-size: 7px;
+}
+/* 点击环后的用量明细（行结构对齐桌面端 tooltip） */
+.usage-popover {
+  position: absolute;
+  top: calc(100% - 2px);
+  right: 10px;
+  z-index: 30;
+  min-width: 178px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
   font-size: 11px;
-  font-weight: 700;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.usage-popover[hidden] {
+  display: none;
+}
+.usage-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-popover-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.usage-popover-dot.is-input {
+  background: #3b82f6;
+}
+.usage-popover-dot.is-output {
+  background: #22c55e;
+}
+.usage-popover-dot.is-cache-write {
+  background: #f59e0b;
+}
+.usage-popover-dot.is-cache-read {
+  background: #a855f7;
+}
+.usage-popover-label {
+  flex: 1;
+  color: var(--muted);
+}
+.usage-popover-value {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.usage-popover-divider {
+  display: block;
+  height: 1px;
+  margin: 5px 0;
+  background: var(--line);
 }
 .icon-button {
   width: 30px;
@@ -984,6 +1090,31 @@ textarea:focus-visible {
   font-weight: 650;
   color: var(--dim);
 }
+/* 模式分组标题行（整行可点）：右侧是当前生效模式摘要 + 折叠箭头，默认收起。 */
+.action-group-trigger .action-summary {
+  margin-left: auto;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.action-group-trigger .action-chevron {
+  flex: none;
+  display: inline-flex;
+  transition: transform 0.16s;
+}
+.action-group-trigger .action-chevron .icn {
+  width: 14px;
+  height: 14px;
+}
+.action-group-trigger.is-open .action-chevron {
+  transform: rotate(180deg);
+}
+.action-group-body[hidden] {
+  display: none;
+}
 .action-item .remote-toggle {
   margin-left: auto;
   pointer-events: none;
@@ -1321,15 +1452,11 @@ textarea:focus-visible {
 .thread-subtitle {
   display: none;
 }
-.badge {
-  height: 26px;
-  min-width: 0;
-  padding: 0 9px;
-  font-size: 11px;
-  background: rgba(113, 230, 165, 0.1);
-  border-color: rgba(113, 230, 165, 0.25);
-}
 .icon-button {
+  width: 34px;
+  height: 34px;
+}
+.usage-ring {
   width: 34px;
   height: 34px;
 }
@@ -1486,10 +1613,29 @@ textarea:focus-visible {
   background: var(--red);
 }
 .tool-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 650;
+}
+.tool-name-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--dim);
+}
+.tool-name-icon > .icn {
+  width: 12px;
+  height: 12px;
+}
+.tool-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tool-state {
   font-size: 10px;
@@ -1826,6 +1972,73 @@ textarea:focus-visible {
   flex: none;
   color: var(--dim);
 }
+/* 模式徽章：同桌面端只显示图标，点击弹出说明 tooltip */
+.mode-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.mode-badges[hidden],
+.mode-tooltip[hidden] {
+  display: none;
+}
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--accent-color-soft);
+  border-radius: 999px;
+  background: var(--accent-color-dim);
+  color: var(--accent-color);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.mode-badge .icn {
+  width: 13px;
+  height: 13px;
+}
+.mode-badge:active {
+  transform: scale(0.94);
+}
+/* YOLO / 精简沿用桌面端的警告色与成功色 */
+.mode-badge-yolo {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(245, 158, 11, 0.12);
+}
+.mode-badge-lite {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.38);
+  background: rgba(34, 197, 94, 0.12);
+}
+html[data-theme="light"] .mode-badge-yolo {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.32);
+  background: rgba(245, 158, 11, 0.16);
+}
+html[data-theme="light"] .mode-badge-lite {
+  color: #15803d;
+  border-color: rgba(21, 128, 61, 0.3);
+  background: rgba(34, 197, 94, 0.16);
+}
+.mode-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: min(72vw, 260px);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
 .remote-panel {
   position: fixed;
   z-index: 42;
@@ -1969,13 +2182,15 @@ textarea:focus-visible {
 .change-stat.del {
   color: var(--red);
 }
+/* 开关与桌面设置页的 .toggle-slider 同源：off 为中性灰轨道 + 灰点，
+   on 为实心前景色轨道 + 反色圆点（浅色 = 深轨浅点，暗色 = 亮轨深点）。 */
 .remote-toggle {
-  border: 1px solid var(--line);
-  background: #292c31;
-  border-radius: 999px;
+  position: relative;
   width: 42px;
   height: 24px;
-  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel2);
   transition:
     background 0.15s,
     border-color 0.15s,
@@ -1984,21 +2199,23 @@ textarea:focus-visible {
 .remote-toggle:after {
   content: "";
   position: absolute;
+  top: 2px;
+  left: 2px;
   width: 18px;
   height: 18px;
-  top: 2px;
-  left: 3px;
   border-radius: 50%;
-  background: #777;
-  transition: 0.15s;
+  background: var(--muted);
+  transition:
+    transform 0.15s,
+    background 0.15s;
 }
 .remote-toggle.on {
-  background: var(--accent-color-soft);
-  border-color: var(--accent-color-border);
+  background: var(--text);
+  border-color: var(--text);
 }
 .remote-toggle.on:after {
-  left: 19px;
-  background: var(--accent-color);
+  transform: translateX(18px);
+  background: var(--bg);
 }
 .remote-command {
   width: 100%;
@@ -2999,10 +3216,6 @@ html[data-theme="light"] .topbar {
   background: rgba(255, 255, 255, 0.9);
   border-bottom-color: var(--line);
 }
-html[data-theme="light"] .badge {
-  background: rgba(22, 138, 82, 0.08);
-  border-color: rgba(22, 138, 82, 0.2);
-}
 html[data-theme="light"] .message.user .message-shell {
   border-color: rgba(15, 23, 42, 0.06);
   box-shadow: 0 8px 28px rgba(28, 39, 60, 0.06);
@@ -3413,14 +3626,8 @@ html[data-theme="light"] {
   color: var(--disabled-control-fg);
   opacity: 1;
 }
-.remote-toggle {
-  background: var(--disabled-control-bg);
-}
-.remote-toggle:after {
-  background: var(--disabled-control-fg);
-}
-/* 开关三态差异：on 用强调色；可操作的 off 保持中性灰；被锁定 / 不可用的
-   开关整体压暗，与可操作的 off 明显区分；请求进行中的开关轻微压暗作反馈。 */
+/* 开关三态差异：可操作的 off 保持中性灰；被锁定 / 不可用的开关整体压暗，
+   与可操作的 off 明显区分；请求进行中的开关轻微压暗作反馈。 */
 .remote-toggle:disabled {
   opacity: 0.42;
 }

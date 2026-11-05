@@ -172,6 +172,9 @@ const MODE_IDS: SnowRemoteModeId[] = [
   "goal",
 ];
 
+/** 模式分组默认收起：展开态只在本次面板内保持，每次打开重新收起。 */
+let modesExpanded = false;
+
 const isModeAction = (action: string): action is SnowRemoteModeId =>
   (MODE_IDS as readonly string[]).includes(action);
 
@@ -211,7 +214,28 @@ const modeLabel = (mode: SnowRemoteModeId): string => {
   }
 };
 
+/** 收起态的摘要：与桌面 PlusMenu 的 activeModeSummary 同源。 */
+const renderModeSummary = (state: SnowRemoteState | null): void => {
+  const labels = MODE_IDS.filter((mode) => Boolean(state?.modes?.[mode])).map(
+    (mode) => modeLabel(mode),
+  );
+  $("actionModeSummary").textContent =
+    labels.length > 0 ? labels.join(" · ") : t("remote.modes.none");
+};
+
+/** 展开 / 收起模式分组：模式行留在 DOM 内，状态刷新不受影响。 */
+const setModesExpanded = (expanded: boolean): void => {
+  modesExpanded = expanded;
+  const trigger = document.querySelector<HTMLElement>(
+    '[data-action-group="modes"]',
+  );
+  $("actionModeList").hidden = !expanded;
+  trigger?.setAttribute("aria-expanded", String(expanded));
+  trigger?.classList.toggle("is-open", expanded);
+};
+
 const renderActionToggles = (state: SnowRemoteState | null): void => {
+  renderModeSummary(state);
   const modes = state?.modes;
   MODE_IDS.forEach((mode) => {
     const button = document.querySelector<HTMLElement>(
@@ -560,6 +584,7 @@ export const initComposer = (ctx: AppContext): void => {
     }
     hideOverlays();
     rememberOverlayTrigger($("plusButton"));
+    setModesExpanded(false);
     beginOverlay();
     $("actionSheet").scrollTop = 0;
     setActionSheetOpen(true);
@@ -567,9 +592,13 @@ export const initComposer = (ctx: AppContext): void => {
   };
 
   $("actionSheet").onclick = async (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLElement>(
-      "[data-action]",
-    );
+    const target = event.target as HTMLElement;
+    // 模式分组标题行：只切换展开态，不触发模式动作。
+    if (target.closest("[data-action-group]")) {
+      setModesExpanded(!modesExpanded);
+      return;
+    }
+    const button = target.closest<HTMLElement>("[data-action]");
     if (!button) return;
     try {
       await handleActionClick(ctx, button.dataset.action ?? "");

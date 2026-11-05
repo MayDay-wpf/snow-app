@@ -37,7 +37,7 @@ import {
 import { openInSystemBrowser, openLinkOpenMenu } from "./linkOpenMenu";
 import { useI18n } from "../../../../i18n";
 import { downloadImageSrc } from "../../../../utils/imageDownload";
-import { getFileTypeIconHtml } from "../../../../utils/fileIcons";
+import { getFileTypeIconHtml } from "../../../../utils/fileIconHtml";
 import { isFileLinkHref } from "../../../../utils/browserFileOpen";
 import { Tooltip } from "../../../common/Tooltip";
 

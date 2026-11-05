@@ -45,11 +45,17 @@
           ></span>
         </div>
         <div class="top-actions">
-          <span
-            id="runBadge"
-            class="badge"
-            data-i18n="remote.badge.offline"
-          ></span>
+          <!-- 上下文占用环：分段绘制与点击明细见 mobile/usageRing.ts -->
+          <button
+            id="usageRing"
+            class="usage-ring"
+            type="button"
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-label="上下文用量"
+            data-i18n-aria-label="remote.usage.title"
+            hidden
+          ></button>
           <button
             id="todoButton"
             class="icon-button todo-button"
@@ -70,6 +76,7 @@
             data-icon="message-square-plus"
           ></button>
         </div>
+        <div id="usagePopover" class="usage-popover" hidden></div>
       </header>
 
       <div class="stage">
@@ -114,8 +121,17 @@
               data-panel="modelPanel"
               id="modelChip"
             ></button>
-            <span class="remote-chip" id="modeChip"></span>
-            <span class="remote-chip" id="contextChip"></span>
+            <!-- Git 入口：分支名 + 变更数，点击打开「分支 / 变更」双 Tab 面板。 -->
+            <button
+              id="gitChip"
+              class="remote-chip button git-chip"
+              type="button"
+              aria-haspopup="dialog"
+              aria-label="Git"
+              data-i18n-aria-label="remote.git.title"
+              hidden
+            ></button>
+            <div id="modeBadges" class="mode-badges" hidden></div>
           </div>
           <div id="attachmentStrip" class="attachment-strip"></div>
           <div id="pendingMessages" class="pending-messages"></div>
@@ -342,6 +358,44 @@
       </section>
 
       <section
+        id="gitPanel"
+        class="remote-panel git-panel"
+        aria-label="Git"
+        data-i18n-aria-label="remote.git.title"
+      >
+        <div class="panel-head">
+          <h2>
+            <span class="icn-slot" data-icon="git-branch"></span>
+            <span data-i18n="remote.git.title"></span>
+          </h2>
+        </div>
+        <div class="git-tabs" role="tablist">
+          <button
+            class="git-tab active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            data-git-tab="branches"
+          >
+            <span class="icn-slot" data-icon="git-branch"></span>
+            <span data-i18n="remote.git.tabBranches"></span>
+          </button>
+          <button
+            class="git-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-git-tab="changes"
+          >
+            <span class="icn-slot" data-icon="file-diff"></span>
+            <span data-i18n="remote.git.tabChanges"></span>
+            <span id="gitChangesBadge" class="git-tab-badge" hidden></span>
+          </button>
+        </div>
+        <div id="gitPanelBody"></div>
+      </section>
+
+      <section
         id="changesPanel"
         class="remote-panel"
         aria-label="变更摘要"
@@ -480,75 +534,88 @@
           ></span>
         </button>
         <div class="action-divider" role="separator"></div>
-        <div
-          class="action-section-title"
-          data-i18n="remote.modes.sectionTitle"
-        ></div>
-        <button class="action-item" type="button" data-action="yolo">
-          <span class="icn-slot" data-icon="shield-alert"></span>
-          <span class="action-label" data-i18n="remote.modes.yolo"></span>
+        <button
+          class="action-item action-group-trigger"
+          type="button"
+          data-action-group="modes"
+          aria-expanded="false"
+          aria-controls="actionModeList"
+        >
+          <span class="icn-slot" data-icon="sliders-horizontal"></span>
           <span
-            class="remote-toggle"
-            data-mode-toggle="yolo"
-            aria-hidden="true"
+            class="action-label"
+            data-i18n="remote.modes.sectionTitle"
           ></span>
+          <span id="actionModeSummary" class="action-summary"></span>
+          <span class="action-chevron" data-icon="chevron-down"></span>
         </button>
-        <button class="action-item" type="button" data-action="lite">
-          <span class="icn-slot" data-icon="feather"></span>
-          <span class="action-label" data-i18n="remote.modes.lite"></span>
-          <span
-            class="remote-toggle"
-            data-mode-toggle="lite"
-            aria-hidden="true"
-          ></span>
-        </button>
-        <button class="action-item" type="button" data-action="worktree">
-          <span class="icn-slot" data-icon="git-branch"></span>
-          <span class="action-label" data-i18n="remote.modes.worktree"></span>
-          <span
-            class="remote-toggle"
-            data-mode-toggle="worktree"
-            aria-hidden="true"
-          ></span>
-        </button>
-        <button class="action-item" type="button" data-action="workflow">
-          <span class="icn-slot" data-icon="workflow"></span>
-          <span class="action-label" data-i18n="remote.modes.workflow"></span>
-          <span
-            class="remote-toggle"
-            data-mode-toggle="workflow"
-            aria-hidden="true"
-          ></span>
-        </button>
-        <button class="action-item" type="button" data-action="goal">
-          <span class="icn-slot" data-icon="target"></span>
-          <span class="action-label" data-i18n="remote.modes.goal"></span>
-          <span
-            class="remote-toggle"
-            data-mode-toggle="goal"
-            aria-hidden="true"
-          ></span>
-        </button>
-        <div id="goalBudgetRow" class="action-budget-row" hidden>
-          <span
-            class="action-budget-label"
-            data-i18n="remote.modes.goalBudget"
-          ></span>
-          <input
-            id="goalBudgetInput"
-            class="action-budget-input"
-            type="number"
-            min="10000"
-            step="100000"
-            inputmode="numeric"
-            aria-label="Token 预算"
-            data-i18n-aria-label="remote.modes.goalBudget"
-          />
-          <span class="action-budget-unit">tokens</span>
-          <label class="action-budget-unlimited">
-            <input id="goalBudgetUnlimited" type="checkbox" />
-            <span data-i18n="remote.modes.goalBudgetUnlimited"></span>
-          </label>
+        <div id="actionModeList" class="action-group-body" hidden>
+          <button class="action-item" type="button" data-action="yolo">
+            <span class="icn-slot" data-icon="shield-alert"></span>
+            <span class="action-label" data-i18n="remote.modes.yolo"></span>
+            <span
+              class="remote-toggle"
+              data-mode-toggle="yolo"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <button class="action-item" type="button" data-action="lite">
+            <span class="icn-slot" data-icon="feather"></span>
+            <span class="action-label" data-i18n="remote.modes.lite"></span>
+            <span
+              class="remote-toggle"
+              data-mode-toggle="lite"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <button class="action-item" type="button" data-action="worktree">
+            <span class="icn-slot" data-icon="git-branch"></span>
+            <span class="action-label" data-i18n="remote.modes.worktree"></span>
+            <span
+              class="remote-toggle"
+              data-mode-toggle="worktree"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <button class="action-item" type="button" data-action="workflow">
+            <span class="icn-slot" data-icon="workflow"></span>
+            <span class="action-label" data-i18n="remote.modes.workflow"></span>
+            <span
+              class="remote-toggle"
+              data-mode-toggle="workflow"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <button class="action-item" type="button" data-action="goal">
+            <span class="icn-slot" data-icon="target"></span>
+            <span class="action-label" data-i18n="remote.modes.goal"></span>
+            <span
+              class="remote-toggle"
+              data-mode-toggle="goal"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <div id="goalBudgetRow" class="action-budget-row" hidden>
+            <span
+              class="action-budget-label"
+              data-i18n="remote.modes.goalBudget"
+            ></span>
+            <input
+              id="goalBudgetInput"
+              class="action-budget-input"
+              type="number"
+              min="10000"
+              step="100000"
+              inputmode="numeric"
+              aria-label="Token 预算"
+              data-i18n-aria-label="remote.modes.goalBudget"
+            />
+            <span class="action-budget-unit">tokens</span>
+            <label class="action-budget-unlimited">
+              <input id="goalBudgetUnlimited" type="checkbox" />
+              <span data-i18n="remote.modes.goalBudgetUnlimited"></span>
+            </label>
+          </div>
         </div>
         <div class="action-divider" role="separator"></div>
         <div
@@ -730,6 +797,9 @@
         ></button>
       </main>
     </div>
+
+    <!-- 模式徽章说明浮层：点击徽章后定位到徽章上方（见 mobile/controls.ts） -->
+    <div id="modeTooltip" class="mode-tooltip" role="tooltip" hidden></div>
 
     <script type="module" src="./main.ts"></script>
   </body>

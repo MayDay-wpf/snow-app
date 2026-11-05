@@ -10,6 +10,7 @@ import {
   syncCompactionNode,
 } from "./compaction";
 import { $, escapeHtml } from "./dom";
+import { attachmentIconMarkup } from "./contentIcons";
 import { messageTime } from "./format";
 import { t } from "./i18n";
 import { iconMarkup } from "./icons";
@@ -310,12 +311,7 @@ const userContentBlocksHtml = (message: SnowRemoteMessage): string => {
             : block.type === "reference"
               ? block.detail || block.kind || t("remote.message.reference")
               : t("remote.message.reference");
-        const icon =
-          block.type === "file"
-            ? block.isDirectory
-              ? iconMarkup("folder")
-              : iconMarkup("file")
-            : iconMarkup("arrow-up-right");
+        const icon = attachmentIconMarkup(block);
         return `<div class="remote-attachment"><span class="remote-attachment-icon">${icon}</span><span class="remote-attachment-copy"><div class="remote-attachment-name">${escapeHtml(name)}</div><div class="remote-attachment-detail">${escapeHtml(detail)}</div></span></div>`;
       })
       .join("") +

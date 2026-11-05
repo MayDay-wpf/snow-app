@@ -37,7 +37,7 @@ export const messageTime = (value: string | null | undefined): string => {
     : "";
 };
 
-const formatTokenAmount = (n: number): string =>
+export const formatTokenAmount = (n: number): string =>
   n >= 1000000
     ? (n / 1000000).toFixed(1) + "M"
     : n >= 1000

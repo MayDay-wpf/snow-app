@@ -56,6 +56,10 @@ import type {
   SnowRemoteControlApi,
   SnowRemoteChange,
   SnowRemoteConversation,
+  SnowRemoteGitBranches,
+  SnowRemoteGitDiff,
+  SnowRemoteGitStatus,
+  SnowRemoteGitSummary,
   SnowRemoteMessage,
   SnowRemoteRollbackChange,
   SnowRemoteRollbackMode,
@@ -132,7 +136,66 @@ const CONVERSATION_CHILDREN_TTL_MS = 5_000;
 const ACTIVE_CONVERSATION_TTL_MS = 10_000;
 const ACTIVE_CHILD_CONVERSATION_TTL_MS = 1_000;
 
-/** 子会话类型（子代理 / Workflow 节点）：运行态会变，非只读主会话。 */
+/** 移动端 Git 面板的输入 / 输出上限（手机端一次性渲染，需限制体积）。 */
+const MAX_GIT_PATHS = 100;
+const MAX_GIT_PATH_LENGTH = 1024;
+const MAX_GIT_PATHS_TOTAL = 30_000;
+const MAX_GIT_COMMIT_MESSAGE = 4_000;
+const MAX_GIT_DIFF_CHARS = 300_000;
+const MAX_GIT_FILE_ROWS = 1_000;
+const MAX_GIT_UNTRACKED_LINES = 4_000;
+
+/** git 分支名非法字符（与桌面 BranchSelector 的校验一致）。 */
+const INVALID_GIT_REF_CHAR = /[\x00-\x20\x7f~^:?*[\\]/;
+
+const isValidGitBranchName = (branch: string): boolean => {
+  if (
+    branch.length === 0 ||
+    branch.trim() !== branch ||
+    branch === "@" ||
+    branch.startsWith("-") ||
+    branch.startsWith("/") ||
+    branch.endsWith("/") ||
+    branch.endsWith(".") ||
+    branch.includes("//") ||
+    branch.includes("..") ||
+    branch.includes("@{") ||
+    INVALID_GIT_REF_CHAR.test(branch)
+  ) {
+    return false;
+  }
+  return branch
+    .split("/")
+    .every(
+      (part) =>
+        part.length > 0 && !part.startsWith(".") && !part.endsWith(".lock"),
+    );
+};
+
+/** 工作树末级目录名（手机端只展示它）。 */
+const gitFolderName = (path: string): string => {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+};
+
+/** 纯截断：用于展示字段，不追加提示文案。 */
+const capText = (value: string, max: number): string =>
+  value.length > max ? value.slice(0, max) : value;
+
+/** 变更工作树 / 分支后通知桌面其余界面刷新（与桌面 BranchSelector 同源事件）。 */
+const dispatchGitBranchesChanged = (repoPath: string): void => {
+  window.dispatchEvent(
+    new CustomEvent("snow:branches-changed", { detail: repoPath }),
+  );
+};
+
+const dispatchGitWorktreesChanged = (): void => {
+  window.dispatchEvent(new Event("snow:worktrees-changed"));
+};
+
+/**
+ * 子会话类型（子代理 / Workflow 节点）：运行态会变，非只读主会话。
+ */
 const isChildConversationType = (conversationType: string): boolean =>
   conversationType === "sub_agent" || conversationType === "workflow_node";
 
@@ -293,6 +356,9 @@ const toRemoteContentBlocks = (
           kind: segment.type,
           label: truncateTo(label, 240) ?? "附件",
           detail: truncateTo(detail, 500),
+          // 文件片段带原始文件名：移动端据扩展名取文件类型图标。
+          name:
+            segment.type === "file-selection" ? segment.tag.name : undefined,
         },
       ];
     },
@@ -1049,6 +1115,112 @@ export const RemoteControlBridge = ({
         return { ...message, toolCalls: nextToolCalls };
       }),
     );
+  };
+
+  // ── Git 面板（移动端） ──────────────────────────────────────────────────
+
+  /** 当前 Git 仓库：与桌面顶栏 BranchSelector 一致，取工作区主目录。 */
+  const resolveGitRepo = (): { directoryId: string; repoPath: string } => {
+    const directory = stateRef.current.activeDirectory;
+    if (!directory) throw new Error("请先选择项目");
+    return { directoryId: directory.directoryId, repoPath: directory.path };
+  };
+
+  /** 会话运行中（流式 / 停止中 / 压缩中）：分支与工作树操作被锁定。 */
+  const isGitSessionRunning = (): boolean => {
+    const conversation = stateRef.current.conversation;
+    return Boolean(
+      conversation.isStreaming ||
+      conversation.isAborting ||
+      conversation.isCompacting,
+    );
+  };
+
+  /** 当前会话绑定的工作树（无会话时取新会话的预绑定值）。 */
+  const resolveBoundWorktreeId = async (): Promise<string | null> => {
+    const conversation = stateRef.current.conversation;
+    if (conversation.activeConversationId) {
+      const bound = await window.snow
+        .getConversationWorktree(conversation.activeConversationId)
+        .catch(() => null);
+      return bound?.worktreeId ?? null;
+    }
+    return conversation.pendingWorktreeId;
+  };
+
+  const assertGitWorktreeMutationAllowed = (): void => {
+    if (isGitSessionRunning()) {
+      throw new Error("会话运行中，暂不可修改分支或工作树");
+    }
+  };
+
+  /** 校验并去重来自当前 status 的路径；staged 决定匹配暂存区还是工作区。 */
+  const resolveGitPaths = async (
+    paths: unknown,
+    staged: boolean,
+  ): Promise<{ repoPath: string; unique: string[] }> => {
+    const { repoPath } = resolveGitRepo();
+    if (!Array.isArray(paths)) throw new Error("文件列表无效");
+    const unique = Array.from(
+      new Set(paths.map((item) => (typeof item === "string" ? item : ""))),
+    ).filter(Boolean);
+    const totalChars = unique.reduce((sum, item) => sum + item.length, 0);
+    if (
+      unique.length === 0 ||
+      unique.length > MAX_GIT_PATHS ||
+      totalChars > MAX_GIT_PATHS_TOTAL ||
+      unique.some(
+        (item) =>
+          item.length > MAX_GIT_PATH_LENGTH ||
+          item.startsWith("/") ||
+          item.startsWith("\\"),
+      )
+    ) {
+      throw new Error("文件列表无效");
+    }
+    const status = await window.snow.gitStatus(repoPath);
+    if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
+    const eligible = new Set(
+      status.files
+        .filter((file) =>
+          staged
+            ? file.indexStatus !== " " &&
+              file.indexStatus !== "?" &&
+              file.indexStatus !== ""
+            : file.workdirStatus === "?" ||
+              (file.workdirStatus !== " " && file.workdirStatus !== ""),
+        )
+        .map((file) => file.path),
+    );
+    if (unique.some((path) => !eligible.has(path))) {
+      throw new Error("文件状态已变化，请刷新后重试");
+    }
+    return { repoPath, unique };
+  };
+
+  /** 暂存 / 取消暂存：路径必须来自当前 status，拒绝过期或伪造路径。 */
+  const runGitStageAction = async (
+    paths: unknown,
+    staged: boolean,
+  ): Promise<{ ok: true }> => {
+    const { repoPath, unique } = await resolveGitPaths(paths, staged);
+    const result = staged
+      ? await window.snow.gitUnstage(repoPath, unique)
+      : await window.snow.gitStage(repoPath, unique);
+    if (!result.success) {
+      throw new Error(result.message || (staged ? "取消暂存失败" : "暂存失败"));
+    }
+    return { ok: true };
+  };
+
+  /** 放弃未暂存修改：与桌面「放弃修改」走同一条 gitDiscardChanges 链路。 */
+  const runGitDiscardAction = async (paths: unknown): Promise<{ ok: true }> => {
+    const { repoPath, unique } = await resolveGitPaths(paths, false);
+    const result = await window.snow.gitDiscardChanges(repoPath, unique);
+    if (!result.success) {
+      throw new Error(result.message || "放弃修改失败");
+    }
+    return { ok: true };
   };
 
   useEffect(() => {
@@ -2521,6 +2693,331 @@ export const RemoteControlBridge = ({
           directoryId,
         );
         return { ok: true };
+      },
+
+      // ── Git 面板（分支 / 工作树 / 变更） ─────────────────────────────────
+
+      getGitSummary: async (): Promise<SnowRemoteGitSummary> => {
+        const { directoryId, repoPath } = resolveGitRepo();
+        const status = await window.snow.gitStatus(repoPath);
+        return {
+          directoryId,
+          isRepo: Boolean(status.isRepo),
+          currentBranch: status.currentBranch || "",
+          upstream: status.upstream ?? null,
+          ahead: Math.max(0, status.ahead),
+          behind: Math.max(0, status.behind),
+          stagedCount: Math.max(0, status.stagedCount),
+          unstagedCount: Math.max(0, status.unstagedCount),
+          untrackedCount: Math.max(0, status.untrackedCount),
+          changesCount: status.files.length,
+          statusLimitHit: Boolean(status.statusLimitHit),
+        };
+      },
+
+      getGitBranches: async (): Promise<SnowRemoteGitBranches> => {
+        const { directoryId, repoPath } = resolveGitRepo();
+        const conversation = stateRef.current.conversation;
+        const [branches, worktrees] = await Promise.all([
+          window.snow.gitBranches(repoPath),
+          window.snow.gitListWorktrees(directoryId).catch(() => []),
+        ]);
+        const boundWorktreeId = await resolveBoundWorktreeId();
+        const localNames = branches
+          .filter((branch) => !branch.isRemote)
+          .map((branch) => branch.name);
+        return {
+          directoryId,
+          branches: branches.slice(0, 2_000).map((branch) => ({
+            name: branch.name,
+            isCurrent: Boolean(branch.isCurrent),
+            isRemote: Boolean(branch.isRemote),
+            remoteName: branch.remoteName ?? null,
+            upstream: branch.upstream ?? null,
+            ahead: Math.max(0, branch.ahead ?? 0),
+            behind: Math.max(0, branch.behind ?? 0),
+            isGone: Boolean(branch.isGone),
+            worktreePath: branch.worktreePath ?? null,
+          })),
+          worktrees: worktrees.slice(0, 100).map((worktree) => ({
+            worktreeId: worktree.worktreeId,
+            worktreePath: worktree.worktreePath,
+            worktreeName: capText(gitFolderName(worktree.worktreePath), 120),
+            branchName: worktree.branchName ?? null,
+            isDirty: Boolean(worktree.isDirty),
+            bound: worktree.worktreeId === boundWorktreeId,
+          })),
+          worktreeMode: Boolean(conversation.worktreeMode),
+          boundWorktreeId,
+          sessionRunning: isGitSessionRunning(),
+          defaultMainBranch: localNames.includes("main")
+            ? "main"
+            : localNames.includes("master")
+              ? "master"
+              : null,
+        };
+      },
+
+      getGitStatus: async (): Promise<SnowRemoteGitStatus> => {
+        const { repoPath } = resolveGitRepo();
+        const status = await window.snow.gitStatus(repoPath);
+        return {
+          isRepo: Boolean(status.isRepo),
+          currentBranch: status.currentBranch || "",
+          upstream: status.upstream ?? null,
+          ahead: Math.max(0, status.ahead),
+          behind: Math.max(0, status.behind),
+          stagedCount: Math.max(0, status.stagedCount),
+          unstagedCount: Math.max(0, status.unstagedCount),
+          untrackedCount: Math.max(0, status.untrackedCount),
+          statusLimitHit: Boolean(status.statusLimitHit),
+          files: status.files.slice(0, MAX_GIT_FILE_ROWS).map((file) => ({
+            path: file.path,
+            oldPath: file.oldPath ?? null,
+            indexStatus: file.indexStatus,
+            workdirStatus: file.workdirStatus,
+            status: file.status,
+          })),
+        };
+      },
+
+      getGitDiff: async (filePath, staged): Promise<SnowRemoteGitDiff> => {
+        const { repoPath } = resolveGitRepo();
+        const path = typeof filePath === "string" ? filePath : "";
+        if (!path || path.length > MAX_GIT_PATH_LENGTH) {
+          throw new Error("文件路径无效");
+        }
+        const status = await window.snow.gitStatus(repoPath);
+        if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
+        const file = status.files.find((item) => item.path === path);
+        if (!file) throw new Error("文件已变更，请刷新后重试");
+        const untracked =
+          file.workdirStatus === "?" || file.indexStatus === "?";
+        if (staged && untracked) throw new Error("该文件尚未暂存");
+        const result = await window.snow.gitFileDiff(repoPath, path, staged);
+        let content = typeof result.content === "string" ? result.content : "";
+        let isBinary = Boolean(result.isBinary);
+        let truncated = false;
+        if (!staged && untracked && !content && !isBinary) {
+          // git diff 不展示未跟踪文件：本地仓库按「全新增」渲染工作区内容。
+          try {
+            const fileContent = await window.snow.gitFileContent(
+              repoPath,
+              path,
+              null,
+            );
+            if (fileContent.isBinary || fileContent.isImage) {
+              isBinary = true;
+            } else {
+              const lines = fileContent.content
+                .replace(/\r\n/g, "\n")
+                .split("\n");
+              if (lines.length > 0 && lines[lines.length - 1] === "") {
+                lines.pop();
+              }
+              const shown = lines.slice(0, MAX_GIT_UNTRACKED_LINES);
+              content = [
+                `@@ -0,0 +1,${shown.length} @@`,
+                ...shown.map((line) => `+${line}`),
+              ].join("\n");
+              truncated = shown.length < lines.length;
+            }
+          } catch {
+            // SSH 仓库不支持读取文件内容：保留空 diff，由手机端提示。
+          }
+        }
+        if (content.length > MAX_GIT_DIFF_CHARS) {
+          content = content.slice(0, MAX_GIT_DIFF_CHARS);
+          truncated = true;
+        }
+        return {
+          content,
+          isBinary,
+          error: typeof result.error === "string" ? result.error : "",
+          truncated,
+          untracked,
+        };
+      },
+
+      gitCheckout: async (branch, remote): Promise<{ ok: true }> => {
+        const { repoPath } = resolveGitRepo();
+        const name = typeof branch === "string" ? branch.trim() : "";
+        if (!isValidGitBranchName(name)) throw new Error("分支名称无效");
+        assertGitWorktreeMutationAllowed();
+        const branches = await window.snow.gitBranches(repoPath);
+        const target = branches.find(
+          (item) => item.name === name && item.isRemote === Boolean(remote),
+        );
+        if (!target) throw new Error("分支已不存在，请刷新");
+        if (target.isCurrent) return { ok: true };
+        if (target.worktreePath) {
+          throw new Error("该分支已在其他工作树检出");
+        }
+        let checkoutName = target.name;
+        if (target.isRemote) {
+          const remoteName = target.remoteName;
+          if (!remoteName) throw new Error("远程分支信息缺失");
+          const localName = target.name.startsWith(`${remoteName}/`)
+            ? target.name.slice(remoteName.length + 1)
+            : target.name;
+          const local = branches.find(
+            (item) => !item.isRemote && item.name === localName,
+          );
+          if (local && (local.worktreePath || local.upstream !== target.name)) {
+            throw new Error("同名本地分支的跟踪关系冲突");
+          }
+          checkoutName = local?.name ?? target.name;
+        }
+        const result = await window.snow.gitCheckout(repoPath, checkoutName);
+        if (!result.success) {
+          throw new Error(result.message || "切换分支失败");
+        }
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true };
+      },
+
+      gitCreateBranch: async (branch): Promise<{ ok: true }> => {
+        const { repoPath } = resolveGitRepo();
+        const name = typeof branch === "string" ? branch.trim() : "";
+        if (!isValidGitBranchName(name)) throw new Error("分支名称无效");
+        assertGitWorktreeMutationAllowed();
+        const branches = await window.snow.gitBranches(repoPath);
+        if (branches.some((item) => !item.isRemote && item.name === name)) {
+          throw new Error("该分支在本地已存在");
+        }
+        const result = await window.snow.gitCreateBranch(repoPath, name);
+        if (!result.success) {
+          throw new Error(result.message || "创建分支失败");
+        }
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true };
+      },
+
+      gitStage: async (paths): Promise<{ ok: true }> =>
+        runGitStageAction(paths, false),
+
+      gitUnstage: async (paths): Promise<{ ok: true }> =>
+        runGitStageAction(paths, true),
+
+      gitDiscard: async (paths): Promise<{ ok: true }> =>
+        runGitDiscardAction(paths),
+
+      gitStageAll: async (): Promise<{ ok: true }> => {
+        const { repoPath } = resolveGitRepo();
+        const result = await window.snow.gitStageAll(repoPath);
+        if (!result.success) {
+          throw new Error(result.message || "暂存失败");
+        }
+        return { ok: true };
+      },
+
+      gitUnstageAll: async (): Promise<{ ok: true }> => {
+        const { repoPath } = resolveGitRepo();
+        const result = await window.snow.gitUnstageAll(repoPath);
+        if (!result.success) {
+          throw new Error(result.message || "取消暂存失败");
+        }
+        return { ok: true };
+      },
+
+      gitCommit: async (
+        message,
+      ): Promise<{ ok: true; hash: string | null }> => {
+        const { repoPath } = resolveGitRepo();
+        const text = typeof message === "string" ? message : "";
+        if (!text.trim()) throw new Error("提交信息不能为空");
+        if (text.length > MAX_GIT_COMMIT_MESSAGE) {
+          throw new Error(`提交信息不能超过 ${MAX_GIT_COMMIT_MESSAGE} 个字符`);
+        }
+        const status = await window.snow.gitStatus(repoPath);
+        if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
+        if (status.stagedCount <= 0) throw new Error("没有已暂存的变更");
+        const result = await window.snow.gitCommit(repoPath, text);
+        if (!result.success) {
+          throw new Error(result.message || "提交失败");
+        }
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true, hash: result.hash ?? null };
+      },
+
+      gitCreateWorktree: async (
+        branch,
+        baseRef,
+      ): Promise<{ ok: true; worktreeId: string }> => {
+        const { directoryId, repoPath } = resolveGitRepo();
+        const name = typeof branch === "string" ? branch.trim() : "";
+        const base = typeof baseRef === "string" ? baseRef.trim() : "";
+        if (!isValidGitBranchName(name)) throw new Error("分支名称无效");
+        if (!isValidGitBranchName(base)) throw new Error("起始基线无效");
+        assertGitWorktreeMutationAllowed();
+        const [branches, worktrees] = await Promise.all([
+          window.snow.gitBranches(repoPath),
+          window.snow.gitListWorktrees(directoryId).catch(() => []),
+        ]);
+        if (branches.some((item) => !item.isRemote && item.name === name)) {
+          throw new Error("该分支在本地已存在，工作树需指定新分支");
+        }
+        if (worktrees.some((item) => item.branchName === name)) {
+          throw new Error("该分支已在其他工作树检出");
+        }
+        const created = await window.snow.gitCreateWorktree(
+          directoryId,
+          name,
+          base,
+        );
+        dispatchGitWorktreesChanged();
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true, worktreeId: created.worktreeId };
+      },
+
+      gitRemoveWorktree: async (worktreeId): Promise<{ ok: true }> => {
+        const { directoryId, repoPath } = resolveGitRepo();
+        const id = typeof worktreeId === "string" ? worktreeId.trim() : "";
+        if (!id || id.length > MAX_IDENTIFIER_LENGTH) {
+          throw new Error("工作树标识无效");
+        }
+        assertGitWorktreeMutationAllowed();
+        const worktrees = await window.snow.gitListWorktrees(directoryId);
+        if (!worktrees.some((item) => item.worktreeId === id)) {
+          throw new Error("工作树已不存在，请刷新");
+        }
+        if ((await resolveBoundWorktreeId()) === id) {
+          throw new Error("当前会话正在使用该工作树，暂不可移除");
+        }
+        await window.snow.gitRemoveWorktree(directoryId, id);
+        dispatchGitWorktreesChanged();
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true };
+      },
+
+      gitBindWorktree: async (
+        worktreeId,
+      ): Promise<{ ok: true; boundWorktreeId: string | null }> => {
+        const conversation = stateRef.current.conversation;
+        assertGitWorktreeMutationAllowed();
+        let id: string | null = null;
+        if (worktreeId !== null) {
+          const normalized =
+            typeof worktreeId === "string" ? worktreeId.trim() : "";
+          if (!normalized || normalized.length > MAX_IDENTIFIER_LENGTH) {
+            throw new Error("工作树标识无效");
+          }
+          const { directoryId } = resolveGitRepo();
+          const worktrees = await window.snow.gitListWorktrees(directoryId);
+          if (!worktrees.some((item) => item.worktreeId === normalized)) {
+            throw new Error("工作树已不存在，请刷新");
+          }
+          id = normalized;
+        }
+        if (conversation.activeConversationId) {
+          await window.snow.setConversationWorktree(
+            conversation.activeConversationId,
+            id,
+          );
+        } else {
+          conversation.setPendingWorktreeId(id);
+        }
+        return { ok: true, boundWorktreeId: id };
       },
     };
 

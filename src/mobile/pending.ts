@@ -4,9 +4,10 @@ import type {
 } from "../renderer/types/remoteControl";
 import { sendPendingNow, withdrawPending } from "./api";
 import { restoreInputText } from "./composer";
+import { attachmentIconMarkup } from "./contentIcons";
 import { $, escapeHtml } from "./dom";
 import { t } from "./i18n";
-import { iconMarkup, type MobileIconName } from "./icons";
+import { iconMarkup } from "./icons";
 import { showNotice } from "./notice";
 import type { AppContext } from "./types";
 
@@ -27,8 +28,8 @@ let renderedSignature = "";
 let renderedQueueKey: string | null = null;
 
 /** 单个附件 / 引用 chip：图标 + 名称，与消息区的附件样式呼应。 */
-const chipHtml = (icon: MobileIconName, name: string, title?: string): string =>
-  `<span class="pending-chip"${title ? ` title="${escapeHtml(title)}"` : ""}>${iconMarkup(icon)}<span class="pending-chip-name">${escapeHtml(name)}</span></span>`;
+const chipHtml = (iconHtml: string, name: string, title?: string): string =>
+  `<span class="pending-chip"${title ? ` title="${escapeHtml(title)}"` : ""}>${iconHtml}<span class="pending-chip-name">${escapeHtml(name)}</span></span>`;
 
 /** 分段 → 展示 HTML：文本按原文（保留换行）显示，其余渲染为 chip。 */
 const blockHtml = (block: SnowRemoteContentBlock): string => {
@@ -36,18 +37,21 @@ const blockHtml = (block: SnowRemoteContentBlock): string => {
     return escapeHtml(block.text);
   }
   if (block.type === "image") {
-    return chipHtml("image", block.name || t("remote.message.imageAlt"));
+    return chipHtml(
+      attachmentIconMarkup(block, 10),
+      block.name || t("remote.message.imageAlt"),
+    );
   }
   if (block.type === "file") {
     return chipHtml(
-      block.isDirectory ? "folder" : "file",
+      attachmentIconMarkup(block, 10),
       block.name || t("remote.message.attachment"),
       block.name,
     );
   }
   const title = block.detail ? `${block.label} · ${block.detail}` : block.label;
   return chipHtml(
-    "arrow-up-right",
+    attachmentIconMarkup(block, 10),
     block.label || t("remote.message.reference"),
     title,
   );

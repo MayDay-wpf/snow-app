@@ -87,6 +87,10 @@ export type BrowserToolbarProps = {
   isPickingElement: boolean;
   onAddressChange: (value: string) => void;
   onAddressKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  /** 地址栏 Esc：放弃编辑、恢复当前页面地址，焦点交回页面 */
+  onAddressEscape: () => void;
+  /** 用户主动聚焦地址栏：上层据此取消待执行的焦点交接 */
+  onAddressFocused: () => void;
   /** 选择补全建议（历史/书签）后导航到该地址 */
   onNavigateToUrl: (url: string) => void;
   onBack: () => void;
@@ -168,6 +172,8 @@ export const BrowserToolbar = ({
   isPickingElement,
   onAddressChange,
   onAddressKeyDown,
+  onAddressEscape,
+  onAddressFocused,
   onNavigateToUrl,
   onBack,
   onForward,
@@ -210,6 +216,7 @@ export const BrowserToolbar = ({
   ).length;
   // ---- 地址栏补全：历史记录 + 书签建议 ----
   const addressBarRef = useRef<HTMLDivElement>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -299,8 +306,22 @@ export const BrowserToolbar = ({
 
   // 聚焦先给最近访问（空查询），继续输入再按内容检索。
   const handleAddressFocus = (): void => {
+    // 与浏览器地址栏一致：获得焦点即全选现有地址
+    addressInputRef.current?.select();
+    onAddressFocused();
     setSuggestionsOpen(true);
     scheduleSuggestions("", 0);
+  };
+
+  // 未聚焦时按下鼠标先阻止默认的光标定位，保证首次点击也全选
+  const handleAddressMouseDown = (
+    e: React.MouseEvent<HTMLInputElement>,
+  ): void => {
+    const input = addressInputRef.current;
+    if (input && document.activeElement !== input) {
+      e.preventDefault();
+      input.focus();
+    }
   };
 
   const handleAddressInputChange = (value: string): void => {
@@ -385,6 +406,12 @@ export const BrowserToolbar = ({
     if (handleSuggestionKeyDown(e)) {
       return;
     }
+    // 下拉已关闭时 Esc = 放弃编辑：恢复当前页面地址并把焦点交回页面。
+    if (e.key === "Escape" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+      e.preventDefault();
+      onAddressEscape();
+      return;
+    }
     onAddressKeyDown(e);
   };
 
@@ -444,9 +471,11 @@ export const BrowserToolbar = ({
         <input
           type="text"
           className="browser-address-input"
+          ref={addressInputRef}
           value={addressInput}
           onChange={(e) => handleAddressInputChange(e.target.value)}
           onKeyDown={handleAddressKeyDown}
+          onMouseDown={handleAddressMouseDown}
           onFocus={handleAddressFocus}
           onBlur={closeSuggestions}
           placeholder={t("browser.addressPlaceholder")}

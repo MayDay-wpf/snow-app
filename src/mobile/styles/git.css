@@ -1,0 +1,730 @@
+/* ── Git 入口与双 Tab 面板 ─────────────────────────────────────────────── */
+
+/* 统计 / 状态胶囊与行结构沿用远程功能层的密度；新增界面只在
+   .git-* 类内局部覆盖，避免影响其他面板。 */
+.remote-toolbar .git-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 46vw;
+  padding: 6px 10px;
+}
+.remote-toolbar .git-chip[hidden] {
+  display: none;
+}
+.git-chip > .icn {
+  width: 12px;
+  height: 12px;
+  color: var(--accent-color);
+}
+.git-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+}
+.git-chip-sync {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.git-chip-sync.is-ahead {
+  color: var(--green);
+}
+.git-chip-sync.is-behind {
+  color: var(--amber);
+}
+.git-chip-badge {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-color-dim);
+  color: var(--accent-color);
+  font-size: 9.5px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.git-chip .chip-caret .icn {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  color: var(--dim);
+}
+
+/* Tab 切换：吸顶在面板标题下方，滚动列表时保持可见。
+   偏移量由 git.ts 按面板头实际高度写入 --git-head-h。 */
+.git-panel {
+  --git-head-h: 62px;
+  --git-tabs-h: 48px;
+}
+.git-tabs {
+  position: sticky;
+  top: var(--git-head-h);
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  /* 抵消面板左右内边距，吸顶底面与头部同色；底部留白同时遮住下层内容。 */
+  margin: 0 -12px 0;
+  padding: 0 12px 16px;
+  background: var(--panel);
+}
+.git-tab {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.git-tab .icn {
+  width: 14px;
+  height: 14px;
+}
+.git-tab.active {
+  color: var(--text);
+  border-color: var(--accent-color-soft);
+  background: var(--accent-color-dim);
+}
+.git-tab-badge {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  color: var(--bg);
+  font-size: 9.5px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.git-tab-badge[hidden] {
+  display: none;
+}
+
+.git-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.git-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.git-search > .icn {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  transform: translateY(-50%);
+  color: var(--dim);
+  pointer-events: none;
+}
+.remote-panel .git-search input {
+  width: 100%;
+  margin-bottom: 0;
+  padding: 9px 30px 9px 30px;
+  font-size: 12px;
+}
+.git-search-clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--secondary-control-bg);
+  color: var(--muted);
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+}
+.git-search-clear .icn {
+  width: 11px;
+  height: 11px;
+}
+.git-search-clear[hidden] {
+  display: none;
+}
+
+.git-icon-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--secondary-control-bg);
+  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+}
+.git-icon-btn .icn {
+  width: 15px;
+  height: 15px;
+}
+.git-icon-btn:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.git-icon-btn.active {
+  color: var(--accent-color);
+  border-color: var(--accent-color-soft);
+  background: var(--accent-color-dim);
+}
+.git-icon-btn.is-danger {
+  color: var(--red);
+}
+.git-icon-btn:disabled {
+  opacity: 0.4;
+}
+
+.git-list {
+  display: grid;
+  gap: 2px;
+}
+.git-section {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.git-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.git-section-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-count {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--secondary-control-bg);
+  color: var(--dim);
+  font-size: 9.5px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.git-link-btn {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-color);
+  font-size: 10.5px;
+}
+.git-link-btn .icn {
+  width: 11px;
+  height: 11px;
+}
+
+.git-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+button.git-row {
+  cursor: pointer;
+}
+.git-row:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+.git-row.active {
+  background: var(--accent-color-dim);
+  border-color: var(--accent-color-soft);
+}
+.git-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.git-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 560;
+}
+.git-row-name .icn {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--dim);
+}
+.git-row-sub {
+  flex-basis: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-row-sub .icn {
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+.git-row-side {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.git-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 45%;
+  height: 17px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-badge .icn {
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+.git-badge.is-accent {
+  color: var(--accent-color);
+  border-color: var(--accent-color-soft);
+  background: var(--accent-color-dim);
+}
+.git-badge.is-danger {
+  color: var(--red);
+  border-color: rgba(255, 114, 123, 0.35);
+  background: var(--red-dim);
+}
+.git-badge.is-worktree {
+  color: var(--blue);
+  border-color: rgba(120, 168, 255, 0.35);
+}
+.git-check .icn {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-color);
+}
+.git-sync {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.git-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+.git-wt-actions .git-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.git-wt-actions .git-icon-btn .icn {
+  width: 13px;
+  height: 13px;
+}
+
+.git-file {
+  cursor: pointer;
+  gap: 7px;
+}
+.git-status-badge {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--secondary-control-bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.git-status-badge.is-add {
+  color: var(--green);
+  background: var(--green-dim);
+}
+.git-status-badge.is-del {
+  color: var(--red);
+  background: var(--red-dim);
+}
+.git-status-badge.is-mod {
+  color: var(--amber);
+  background: var(--amber-dim);
+}
+.git-file .git-row-side {
+  gap: 4px;
+}
+/* 行内操作与桌面一致：暂存 / 取消暂存用 + / -，撤销用 undo 图标。 */
+.git-file .git-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.git-file .git-file-toggle {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+.git-file .git-file-discard .icn {
+  width: 14px;
+  height: 14px;
+}
+.git-file .git-file-discard:active {
+  color: var(--red);
+  background: var(--red-dim);
+}
+.git-file .git-row-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.git-form {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.git-form-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 640;
+}
+.git-form-title .icn {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--muted);
+}
+.git-form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.git-form-label {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.remote-panel .git-form input,
+.remote-panel .git-form textarea {
+  margin-bottom: 0;
+  font-size: 12.5px;
+}
+.git-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.git-primary,
+.git-plain,
+.git-danger {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 12px;
+}
+.git-primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+.git-primary:disabled {
+  opacity: 0.45;
+}
+.git-plain {
+  background: var(--secondary-control-bg);
+  color: var(--text);
+}
+.git-danger {
+  background: var(--red-dim);
+  border-color: rgba(255, 114, 123, 0.35);
+  color: var(--red);
+}
+.git-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.git-chipbtn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.git-chipbtn.active {
+  color: var(--accent-color);
+  border-color: var(--accent-color-soft);
+  background: var(--accent-color-dim);
+}
+
+.git-confirm {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 114, 123, 0.3);
+  border-radius: 12px;
+  background: var(--red-dim);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.git-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.git-empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.git-empty.is-error {
+  color: var(--red);
+}
+.git-note {
+  margin: 8px 2px 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.git-note.is-warn {
+  color: var(--amber);
+}
+
+.git-commit-box {
+  position: sticky;
+  top: calc(var(--git-head-h) + var(--git-tabs-h));
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  /* 吸顶时靠自身底色遮住下方滚动的文件列表。 */
+  margin-bottom: 0;
+  padding-bottom: 10px;
+  background: var(--panel);
+}
+.git-commit-box textarea {
+  width: 100%;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #0d0e11;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.git-commit-box .git-primary {
+  justify-self: end;
+}
+
+.git-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.git-diff-head .git-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+}
+.git-diff-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.git-diff-body {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+.git-diff-line {
+  display: grid;
+  grid-template-columns: 1.4ch minmax(0, 1fr);
+  padding: 0 8px;
+}
+.git-diff-sign {
+  color: var(--dim);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.git-diff-code {
+  color: #aeb4bf;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.git-diff-line.add {
+  background: rgba(113, 230, 165, 0.1);
+}
+.git-diff-line.add .git-diff-sign {
+  color: var(--green);
+}
+.git-diff-line.add .git-diff-code {
+  color: #b6f0cd;
+}
+.git-diff-line.del {
+  background: rgba(255, 114, 123, 0.1);
+}
+.git-diff-line.del .git-diff-sign {
+  color: var(--red);
+}
+.git-diff-line.del .git-diff-code {
+  color: #ffc2c6;
+}
+.git-diff-line.hunk {
+  background: rgba(120, 168, 255, 0.1);
+}
+.git-diff-line.hunk .git-diff-sign {
+  color: transparent;
+}
+.git-diff-line.hunk .git-diff-code {
+  color: var(--blue);
+}
+.git-diff-line.note .git-diff-code {
+  color: var(--dim);
+}
+
+/* 浅色主题：输入框 / 代码底与浅色覆盖层保持一致。 */
+html[data-theme="light"] .git-tabs,
+html[data-theme="light"] .git-commit-box {
+  background: #fff;
+}
+html[data-theme="light"] .git-search input,
+html[data-theme="light"] .git-form input,
+html[data-theme="light"] .git-form textarea,
+html[data-theme="light"] .git-commit-box textarea {
+  background: #f5f6f8;
+}
+html[data-theme="light"] .git-row:active {
+  background: rgba(15, 23, 42, 0.05);
+}
+html[data-theme="light"] .git-form {
+  background: rgba(15, 23, 42, 0.03);
+}
+html[data-theme="light"] .git-primary {
+  background: #111317;
+  border-color: #111317;
+  color: #fff;
+}
+html[data-theme="light"] .git-diff-body {
+  background: #f7f8fa;
+}
+html[data-theme="light"] .git-diff-code {
+  color: #3d4652;
+}
+html[data-theme="light"] .git-diff-line.add {
+  background: rgba(22, 138, 82, 0.1);
+}
+html[data-theme="light"] .git-diff-line.add .git-diff-code {
+  color: #0f6b3d;
+}
+html[data-theme="light"] .git-diff-line.del {
+  background: rgba(190, 30, 45, 0.08);
+}
+html[data-theme="light"] .git-diff-line.del .git-diff-code {
+  color: #8a1a24;
+}
+html[data-theme="light"] .git-diff-line.hunk {
+  background: rgba(30, 90, 180, 0.08);
+}
+html[data-theme="light"] .git-diff-line.hunk .git-diff-code {
+  color: #1f4f9c;
+}

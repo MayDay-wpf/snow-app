@@ -140,6 +140,8 @@ export type SnowRemoteContentBlock =
         | "workflow";
       label: string;
       detail?: string;
+      /** 原始文件名（file-selection 等文件类引用用于取文件类型图标）。 */
+      name?: string;
     };
 
 /**
@@ -325,6 +327,102 @@ export type SnowRemoteRollbackDiff = {
   tooLarge: boolean;
   /** 内容超过手机端下发上限被截断（截断提示展示用）。 */
   truncated: boolean;
+};
+
+/**
+ * 移动端 Git 入口（输入区 chip）的仓库摘要。
+ * 仅用于选择器展示与变更数徽标；完整分支 / 文件清单在面板打开时按需拉取。
+ */
+export type SnowRemoteGitSummary = {
+  directoryId: string;
+  isRepo: boolean;
+  currentBranch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  stagedCount: number;
+  unstagedCount: number;
+  untrackedCount: number;
+  /** 变更文件总数（含已暂存 / 未暂存 / 未跟踪），对应桌面的变更 Tab 徽标。 */
+  changesCount: number;
+  /** 变更列表是否被桌面 Git 设置的上限截断。 */
+  statusLimitHit: boolean;
+};
+
+/** 移动端 Git 面板：分支条目（与桌面 GitBranch 同源）。 */
+export type SnowRemoteGitBranch = {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+  remoteName: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  isGone: boolean;
+  /** 该分支已被某个工作树检出时的路径。 */
+  worktreePath: string | null;
+};
+
+/** 移动端 Git 面板：工作树条目（主仓库不在列表中，与桌面一致）。 */
+export type SnowRemoteGitWorktree = {
+  worktreeId: string;
+  worktreePath: string;
+  /** 末级目录名（手机上只展示它）。 */
+  worktreeName: string;
+  branchName: string | null;
+  isDirty: boolean;
+  /** 是否已绑定到当前会话。 */
+  bound: boolean;
+};
+
+/** 移动端 Git 面板：分支 Tab 的完整快照。 */
+export type SnowRemoteGitBranches = {
+  directoryId: string;
+  branches: SnowRemoteGitBranch[];
+  worktrees: SnowRemoteGitWorktree[];
+  /** 当前会话是否开启了工作树模式。 */
+  worktreeMode: boolean;
+  /** 当前会话绑定的工作树（新会话取预绑定值）。 */
+  boundWorktreeId: string | null;
+  /** 会话运行中：工作树绑定与分支变更操作被锁定。 */
+  sessionRunning: boolean;
+  /** 本地 main / master（工作树基线快捷选项）。 */
+  defaultMainBranch: string | null;
+};
+
+/** Git 面板：工作区单个变更文件（状态字符来自 git status --porcelain）。 */
+export type SnowRemoteGitFile = {
+  path: string;
+  oldPath: string | null;
+  indexStatus: string;
+  workdirStatus: string;
+  /** 合并后的状态字符（indexStatus + workdirStatus）。 */
+  status: string;
+};
+
+/** Git 面板：变更 Tab 的状态快照。 */
+export type SnowRemoteGitStatus = {
+  isRepo: boolean;
+  currentBranch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  stagedCount: number;
+  unstagedCount: number;
+  untrackedCount: number;
+  statusLimitHit: boolean;
+  files: SnowRemoteGitFile[];
+};
+
+/** Git 面板：单个文件的 unified diff。 */
+export type SnowRemoteGitDiff = {
+  content: string;
+  isBinary: boolean;
+  error: string;
+  /** 内容超过手机端下发上限被截断。 */
+  truncated: boolean;
+  /** 未跟踪文件（工作区 diff 为空，暂存后可查看）。 */
+  untracked: boolean;
 };
 
 /**
@@ -682,4 +780,40 @@ export type SnowRemoteControlApi = {
   toggleResponsesFastMode: (desired: string) => Promise<{ ok: true }>;
   /** 按真实 createChatCommands 产物执行指令（含禁用状态校验）。 */
   runCommand: (id: string) => Promise<{ ok: true }>;
+  /**
+   * Git 入口（输入区 chip）：仓库摘要。桌面侧只读取 git status，
+   * 分支 / 工作树 / 变更操作都由渲染进程用真实 window.snow.git* 链路完成。
+   */
+  getGitSummary: () => Promise<SnowRemoteGitSummary>;
+  /** Git 面板「分支」Tab：分支 + 工作树 + 当前会话绑定。 */
+  getGitBranches: () => Promise<SnowRemoteGitBranches>;
+  /** Git 面板「变更」Tab：工作区状态与文件清单。 */
+  getGitStatus: () => Promise<SnowRemoteGitStatus>;
+  /** 单个文件的 unified diff（staged=true 取暂存区版本）。 */
+  getGitDiff: (filePath: string, staged: boolean) => Promise<SnowRemoteGitDiff>;
+  /** 切换分支（本地或远程跟踪分支，远程分支按桌面规则解析本地同名分支）。 */
+  gitCheckout: (branch: string, remote: boolean) => Promise<{ ok: true }>;
+  /** 新建并切换到本地分支。 */
+  gitCreateBranch: (branch: string) => Promise<{ ok: true }>;
+  /** 暂存指定文件。 */
+  gitStage: (paths: string[]) => Promise<{ ok: true }>;
+  /** 取消暂存指定文件。 */
+  gitUnstage: (paths: string[]) => Promise<{ ok: true }>;
+  /** 放弃指定文件的未暂存修改（不可恢复）。 */
+  gitDiscard: (paths: string[]) => Promise<{ ok: true }>;
+  gitStageAll: () => Promise<{ ok: true }>;
+  gitUnstageAll: () => Promise<{ ok: true }>;
+  /** 提交已暂存变更（返回短哈希）。 */
+  gitCommit: (message: string) => Promise<{ ok: true; hash: string | null }>;
+  /** 新建独立工作树（分支名必须是本地不存在的新分支）。 */
+  gitCreateWorktree: (
+    branch: string,
+    baseRef: string,
+  ) => Promise<{ ok: true; worktreeId: string }>;
+  /** 移除工作树（当前会话绑定的工作树不可移除）。 */
+  gitRemoveWorktree: (worktreeId: string) => Promise<{ ok: true }>;
+  /** 为当前会话绑定工作树（null = 解除绑定）。 */
+  gitBindWorktree: (
+    worktreeId: string | null,
+  ) => Promise<{ ok: true; boundWorktreeId: string | null }>;
 };

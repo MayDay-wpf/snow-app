@@ -22,6 +22,7 @@
  */
 
 import type { SnowRemoteToolCall } from "../../renderer/types/remoteControl";
+import { fileIconEl } from "../fileIcons";
 import { t } from "../i18n";
 import { iconMarkup, type MobileIconName } from "../icons";
 import type { ToolModule } from "./types";
@@ -271,7 +272,7 @@ const fileHead = (filePath: string, count: number): HTMLElement => {
   const head = el("div", "tc-search-file-head");
   head.title = filePath;
   head.append(
-    iconSpan("file", "tc-search-ico"),
+    fileIconEl(filePath, { className: "tc-search-ico" }),
     textSpan("tc-search-file-name", fileName(filePath)),
     textSpan("tc-search-file-path", filePath),
     textSpan("tc-search-file-count", String(count)),
@@ -774,7 +775,10 @@ const renderFind = (tool: SnowRemoteToolCall): HTMLElement | null => {
     } else {
       const { shown, omitted } = capEntries(files);
       const rows = shown.map((file) =>
-        row(textSpan("tc-search-file-path", file)),
+        row(
+          fileIconEl(file, { className: "tc-search-ico" }),
+          textSpan("tc-search-file-path", file),
+        ),
       );
       body.append(
         section(tr("label.files"), listBlock(rows, omitted), "search"),
@@ -1084,7 +1088,7 @@ const renderCodebase = (tool: SnowRemoteToolCall): HTMLElement | null => {
           const head = el("div", "tc-search-chunk-head");
           head.title = chunk.filePath;
           head.append(
-            iconSpan("file", "tc-search-ico"),
+            fileIconEl(chunk.filePath, { className: "tc-search-ico" }),
             textSpan("tc-search-loc", range || fileName(chunk.relativePath)),
             badge(formatScore(chunk.score), { variant: "info" }),
           );

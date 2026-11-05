@@ -71,7 +71,7 @@ export const initTheme = (): void => {
 
 /**
  * 跟随桌面主题的强调色：Snow APP 当前生效的 --accent-color（#rrggbb）。
- * 应用到动作面板开关、会话 / 模式选中态等强调元素上；
+ * 应用到会话 / 模式选中态等强调元素上；
  * 解析失败或值未变化时不做任何事（保持当前值）。
  */
 let appliedAccentColor = "";

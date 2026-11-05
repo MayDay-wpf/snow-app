@@ -1,5 +1,9 @@
 import type {
   SnowRemoteControlApi,
+  SnowRemoteGitBranches,
+  SnowRemoteGitDiff,
+  SnowRemoteGitStatus,
+  SnowRemoteGitSummary,
   SnowRemoteModeId,
   SnowRemoteRollbackDiff,
   SnowRemoteRollbackFile,
@@ -169,6 +173,81 @@ export const fetchCodebase = (): Promise<CodebaseSummary> =>
   request("/api/codebase");
 
 export const fetchReview = (): Promise<ReviewSummary> => request("/api/review");
+
+// ── Git 面板 ──────────────────────────────────────────────────────────────
+
+/** 输入区 Git chip 的仓库摘要（分支名 / 变更数）。 */
+export const fetchGitSummary = (): Promise<SnowRemoteGitSummary> =>
+  request("/api/git?section=summary", { timeoutMs: 30_000 });
+
+/** 分支 Tab：分支 + 工作树 + 当前会话绑定。 */
+export const fetchGitBranches = (): Promise<SnowRemoteGitBranches> =>
+  request("/api/git?section=branches", { timeoutMs: 60_000 });
+
+/** 变更 Tab：工作区文件清单。 */
+export const fetchGitStatus = (): Promise<SnowRemoteGitStatus> =>
+  request("/api/git?section=status", { timeoutMs: 60_000 });
+
+/** 单个文件的 unified diff（staged=true 取暂存区版本）。 */
+export const fetchGitDiff = (
+  path: string,
+  staged: boolean,
+): Promise<SnowRemoteGitDiff> =>
+  request(
+    `/api/git?section=diff&path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}`,
+    { timeoutMs: 60_000 },
+  );
+
+/** Git 动作统一入口：失败时服务端返回可读错误，调用方直接提示。 */
+const postGitAction = <T>(body: Record<string, unknown>): Promise<T> =>
+  request("/api/git", {
+    method: "POST",
+    body: JSON.stringify(body),
+    timeoutMs: 60_000,
+  });
+
+export const gitCheckout = (
+  branch: string,
+  remote: boolean,
+): Promise<{ ok: true }> =>
+  postGitAction({ action: "checkout", branch, remote });
+
+export const gitCreateBranch = (branch: string): Promise<{ ok: true }> =>
+  postGitAction({ action: "create-branch", branch });
+
+export const gitStageFiles = (paths: string[]): Promise<{ ok: true }> =>
+  postGitAction({ action: "stage", paths });
+
+export const gitUnstageFiles = (paths: string[]): Promise<{ ok: true }> =>
+  postGitAction({ action: "unstage", paths });
+
+export const gitDiscardFiles = (paths: string[]): Promise<{ ok: true }> =>
+  postGitAction({ action: "discard", paths });
+
+export const gitStageAll = (): Promise<{ ok: true }> =>
+  postGitAction({ action: "stage-all" });
+
+export const gitUnstageAll = (): Promise<{ ok: true }> =>
+  postGitAction({ action: "unstage-all" });
+
+export const gitCommit = (
+  message: string,
+): Promise<{ ok: true; hash: string | null }> =>
+  postGitAction({ action: "commit", message });
+
+export const gitCreateWorktree = (
+  branch: string,
+  baseRef: string,
+): Promise<{ ok: true; worktreeId: string }> =>
+  postGitAction({ action: "create-worktree", branch, baseRef });
+
+export const gitRemoveWorktree = (worktreeId: string): Promise<{ ok: true }> =>
+  postGitAction({ action: "remove-worktree", worktreeId });
+
+export const gitBindWorktree = (
+  worktreeId: string | null,
+): Promise<{ ok: true; boundWorktreeId: string | null }> =>
+  postGitAction({ action: "bind-worktree", worktreeId });
 
 export const sendMessage = (
   text: string,

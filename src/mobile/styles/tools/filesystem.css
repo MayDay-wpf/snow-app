@@ -89,34 +89,6 @@
 .tc-fs-icon {
   display: inline-flex;
   flex: none;
-  color: var(--dim);
-}
-.tc-fs-icon > .icn {
-  width: 12px;
-  height: 12px;
-}
-
-/* ── 头部徽章（模块名 + lucide 文件图标） ─────────────────────────────── */
-
-/* 图标由 tools/filesystem.ts 注入框架产出的 .tool-name（badge 只接受字符串文案）。 */
-details.tool.tcn > summary.tc-summary > .tool-name.tc-fs-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.tc-fs-badge-icon {
-  display: inline-flex;
-  flex: none;
-}
-.tc-fs-badge-icon > .icn {
-  width: 12px;
-  height: 12px;
-}
-.tc-fs-badge-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── diff 容器 ────────────────────────────────────────────────────────── */

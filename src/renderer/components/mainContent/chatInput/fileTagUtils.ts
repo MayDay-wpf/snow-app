@@ -2,7 +2,7 @@ import {
   getChangeIconHtml,
   getCommitIconHtml,
   getFileTypeIconHtml,
-} from "../../../utils/fileIcons";
+} from "../../../utils/fileIconHtml";
 import { getSkillIconHtml } from "../../../utils/skillIcons";
 
 export type FileTag = {

@@ -8,7 +8,7 @@
  *   details.tool.<status>.tcn[.<模块根类>]
  *     summary
  *       span.tool-dot
- *       span.tool-name            ← 徽章文案（模块短名；title = 工具全名）
+ *       span.tool-name            ← 分类图标 + 徽章文案（title = 工具全名）
  *       span.tc-display?          ← 参数摘要（title = 全量摘要）
  *       span.tc-meta?             ← 计数 / 结论徽章等附加信息
  *       span.tool-state           ← 状态文案
@@ -29,6 +29,7 @@
  * 所有文本一律 createElement + textContent，数据绝不拼进 innerHTML。
  */
 import type { SnowRemoteToolCall } from "../../renderer/types/remoteControl";
+import { fileIconEl } from "../fileIcons";
 import { t } from "../i18n";
 import { iconMarkup, type MobileIconName } from "../icons";
 import type { ToolStatus } from "./types";
@@ -108,6 +109,142 @@ const LONG_TEXT_KEYS = [
 
 /** 摘要截断长度（单行头部展示，与桌面端一致）。 */
 const SUMMARY_MAX_CHARS = 56;
+
+/** 工具分类（与桌面 ToolNameBadge 的 ToolCategory 一致）。 */
+export type ToolCategory =
+  | "read"
+  | "edit"
+  | "create"
+  | "copy"
+  | "search"
+  | "terminal"
+  | "web"
+  | "git"
+  | "outline"
+  | "todo"
+  | "interaction"
+  | "agent"
+  | "message"
+  | "workflow"
+  | "lens"
+  | "image"
+  | "skill"
+  | "database"
+  | "telemetry"
+  | "html"
+  | "decision"
+  | "generic";
+
+/** 工具名 → 分类（逐条对齐桌面 getToolCategory 的匹配顺序）。 */
+export const getToolCategory = (toolName: string): ToolCategory => {
+  const lower = toolName.toLowerCase();
+  if (lower.startsWith("decision-")) return "decision";
+  if (lower.includes("workflow")) return "workflow";
+  if (lower.includes("skill")) return "skill";
+  if (
+    lower.includes("sendmessage") ||
+    lower.includes("send-message") ||
+    lower.includes("message-")
+  ) {
+    return "message";
+  }
+  if (
+    lower.includes("sub-agent") ||
+    lower.includes("subagent") ||
+    lower.includes("activate")
+  ) {
+    return "agent";
+  }
+  if (lower.includes("copy")) return "copy";
+  if (lower.includes("read")) return "read";
+  if (lower.includes("edit") || lower.includes("replace")) return "edit";
+  if (lower.includes("create") || lower.includes("write")) return "create";
+  if (
+    lower.includes("search") ||
+    lower.includes("find") ||
+    lower.includes("semantic") ||
+    lower.includes("codebase")
+  )
+    return "search";
+  if (
+    lower.includes("terminal") ||
+    lower.includes("execute") ||
+    lower.includes("command")
+  )
+    return "terminal";
+  if (
+    lower.includes("db") ||
+    lower.includes("sql") ||
+    lower.includes("database") ||
+    lower.includes("table") ||
+    lower.includes("redis") ||
+    lower.includes("postgres") ||
+    lower.includes("mongo")
+  ) {
+    return "database";
+  }
+  if (
+    lower.includes("telemetry") ||
+    lower.includes("diagnos") ||
+    lower.includes("audit") ||
+    lower.includes("trace") ||
+    lower.includes("metric") ||
+    lower.includes("log")
+  ) {
+    return "telemetry";
+  }
+  if (
+    lower.includes("web") ||
+    lower.includes("fetch") ||
+    lower.includes("url") ||
+    lower.includes("firecrawl") ||
+    lower.includes("crawl") ||
+    lower.includes("scrape")
+  ) {
+    return "web";
+  }
+  if (lower.includes("imagegen") || lower.includes("generate-image"))
+    return "image";
+  if (lower.includes("git")) return "git";
+  if (lower.startsWith("lsp-")) return "lens";
+  if (
+    lower.includes("outline") ||
+    lower.includes("tree") ||
+    lower.includes("symbol")
+  )
+    return "outline";
+  if (lower.includes("todo")) return "todo";
+  if (lower.includes("question") || lower.includes("interaction")) {
+    return "interaction";
+  }
+  return "generic";
+};
+
+/** 分类 → lucide 图标（与桌面 CATEGORY_ICONS 一一对应）。 */
+const TOOL_CATEGORY_ICONS: Record<ToolCategory, MobileIconName> = {
+  read: "file-text",
+  edit: "file-pen",
+  create: "file-plus",
+  copy: "copy",
+  search: "search",
+  terminal: "terminal",
+  web: "globe",
+  git: "git-branch",
+  outline: "list-tree",
+  todo: "list-checks",
+  interaction: "message-circle-question",
+  agent: "bot",
+  message: "send",
+  workflow: "workflow",
+  lens: "scan-search",
+  image: "image",
+  skill: "sparkles",
+  database: "database",
+  telemetry: "activity",
+  html: "code-xml",
+  decision: "scale",
+  generic: "plug",
+};
 
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -383,6 +520,8 @@ export type ToolNodeOptions = {
   badge?: string;
   /** 头部摘要（参数摘要 / 路径 / 命令等）。 */
   display?: string;
+  /** 摘要前的文件类型图标（文件名 / 目录名）。 */
+  displayIcon?: { name: string; isDirectory?: boolean };
   /** 摘要的 title（缺省与 display 相同，如完整的参数原文）。 */
   displayTitle?: string;
   /** 覆盖状态（默认由 resolveStatus 推导）。 */
@@ -413,17 +552,29 @@ export const createToolNode = (opts: ToolNodeOptions): HTMLDetailsElement => {
   if (opts.className) details.classList.add(...opts.className.split(/\s+/));
 
   const summary = el("summary", "tc-summary");
-  const name = el(
-    "span",
-    "tool-name",
-    opts.badge ?? toolShortName(opts.tool.name),
-  );
+  const name = el("span", "tool-name");
   name.title = opts.tool.name;
+  name.append(
+    iconSpan(
+      TOOL_CATEGORY_ICONS[getToolCategory(opts.tool.name)],
+      "tool-name-icon",
+    ),
+    el("span", "tool-name-text", opts.badge ?? toolShortName(opts.tool.name)),
+  );
   summary.append(el("span", "tool-dot"), name);
 
   if (opts.display) {
-    const display = el("span", "tc-display", opts.display);
+    const display = el("span", "tc-display");
     display.title = opts.displayTitle ?? opts.display;
+    if (opts.displayIcon) {
+      display.append(
+        fileIconEl(opts.displayIcon.name, {
+          isDirectory: opts.displayIcon.isDirectory,
+          className: "tc-display-icon",
+        }),
+      );
+    }
+    display.append(el("span", "tc-display-text", opts.display));
     summary.append(display);
   }
   const metaParts = opts.meta ?? [];

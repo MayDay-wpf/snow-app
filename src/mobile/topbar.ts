@@ -20,13 +20,6 @@ export const renderTopbar = (next: SnowRemoteState): void => {
     : t("remote.threads.noWorkspace");
   $("statusDot").className =
     "status-dot" + (next.isStreaming ? " running" : "");
-  const runBadge = $("runBadge");
-  runBadge.textContent = next.isAborting
-    ? t("remote.badge.aborting")
-    : next.isStreaming
-      ? t("remote.badge.running")
-      : t("remote.badge.local");
-  runBadge.style.color = next.isStreaming ? "var(--amber)" : "var(--green)";
 };
 
 export const initTopbar = (ctx: AppContext): void => {

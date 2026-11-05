@@ -50,8 +50,18 @@ details.tool.tcn > summary.tc-summary > .tool-name {
 details.tool.tcn > summary.tc-summary > .tc-display {
   flex: 1 1 auto;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--muted);
   font-weight: 500;
+}
+details.tool.tcn > summary.tc-summary > .tc-display > .tc-display-icon {
+  display: inline-flex;
+  flex: none;
+}
+details.tool.tcn > summary.tc-summary > .tc-display > .tc-display-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

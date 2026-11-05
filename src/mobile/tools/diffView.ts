@@ -4,7 +4,7 @@
  * DOM 契约（styles/tools/diff.css，勿单独改动一侧）：
  *   div.tc-diff
  *     div.tc-diff-head
- *       span.tc-diff-icon                    ← lucide file 图标
+ *       span.tc-diff-icon                    ← 文件类型图标（mobile/fileIcons）
  *       span.tc-diff-name[title]             ← 文件名
  *       span.tc-badge.tc-diff-stats          ← `+a -d` 统计（tcBadge）
  *     div.tc-diff-note[.tc-diff-warn]        ← 降级 / 截断 / 无差异提示
@@ -30,6 +30,7 @@
  *   实体），数据绝不进 innerHTML（仅静态图标标记走 iconMarkup）。
  */
 import { t } from "../i18n";
+import { fileIconEl } from "../fileIcons";
 import { iconMarkup, type MobileIconName } from "../icons";
 import {
   computeLineDiff,
@@ -163,7 +164,11 @@ const createHead = (
   stats: { additions: number; deletions: number },
 ): HTMLElement => {
   const head = el("div", "tc-diff-head");
-  head.append(iconSpan("file", "tc-diff-icon"));
+  head.append(
+    fileIconEl(fileName || t("remote.toolCall.diff.file"), {
+      className: "tc-diff-icon",
+    }),
+  );
   const label = fileName || t("remote.toolCall.diff.file");
   const name = el("span", "tc-diff-name", label);
   name.title = label;

@@ -6,13 +6,14 @@
 //! 通过 bridge 派发给 Node → 渲染进程。
 
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode};
 use axum::Router;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -68,6 +69,11 @@ const MAX_ROLLBACK_DIFF_ROWS: u32 = 400;
 const MAX_ROLLBACK_DIFF_BYTES: u32 = 64 * 1024;
 /// 变更面板单条文件路径的长度上限（与桥的回滚清单一致）。
 const MAX_CHANGE_PATH_LENGTH: usize = 400;
+/// 移动端 Git 面板：单次暂存 / 取消暂存的文件数、路径总长与提交信息上限。
+const MAX_GIT_PATHS: usize = 100;
+const MAX_GIT_PATH_LENGTH: usize = 1024;
+const MAX_GIT_PATHS_TOTAL_CHARS: usize = 30_000;
+const MAX_GIT_COMMIT_MESSAGE: usize = 4_000;
 /// 令牌解锁尝试限流：窗口与窗口内允许的失败次数。
 const UNLOCK_FAILURE_WINDOW_MS: i64 = 5 * 60 * 1000;
 const MAX_UNLOCK_FAILURES: usize = 10;
@@ -326,7 +332,13 @@ pub fn router(context: Arc<ServerContext>) -> Router {
 
 async fn handle(State(context): State<Arc<ServerContext>>, request: Request<Body>) -> Response<Body> {
     let mutating = !matches!(*request.method(), Method::GET | Method::HEAD);
-    let response = match process(&context, request).await {
+    // 对端地址来自 serve 注入的 connect info；缺失时按非本机处理。
+    let peer_loopback = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().is_loopback())
+        .unwrap_or(false);
+    let response = match process(&context, request, peer_loopback).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     };
@@ -511,6 +523,61 @@ fn is_workflow_reply(value: &str) -> bool {
 
 fn is_remote_mode(value: &str) -> bool {
     REMOTE_MODES.contains(&value)
+}
+
+/// git ref（分支 / 起始基线）输入校验：与桌面 BranchSelector 的分支名规则一致。
+fn is_git_ref_input(value: &str) -> bool {
+    if value.is_empty()
+        || value.trim() != value
+        || value.chars().count() > MAX_IDENTIFIER_LENGTH
+    {
+        return false;
+    }
+    if value == "@"
+        || value.starts_with('-')
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.ends_with('.')
+    {
+        return false;
+    }
+    if value.contains("..") || value.contains("//") || value.contains("@{") {
+        return false;
+    }
+    if value.chars().any(|ch| {
+        ch.is_control()
+            || matches!(ch, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    }) {
+        return false;
+    }
+    value.split('/').all(|part| {
+        !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock")
+    })
+}
+
+/// 仓库相对文件路径校验：拒绝控制字符、绝对路径与 `..` 段。
+fn is_git_file_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= MAX_GIT_PATH_LENGTH
+        && !value.chars().any(char::is_control)
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.split(['/', '\\']).any(|part| part == "..")
+}
+
+/// 暂存 / 取消暂存的文件列表：非空、数量与总长受限、逐项为仓库相对路径。
+fn git_paths_field(value: Option<&Value>) -> Option<Vec<String>> {
+    let paths = string_array_field(value)?;
+    if paths.is_empty() || paths.len() > MAX_GIT_PATHS {
+        return None;
+    }
+    let total: usize = paths.iter().map(|path| path.chars().count()).sum();
+    if total > MAX_GIT_PATHS_TOTAL_CHARS
+        || !paths.iter().all(|path| is_git_file_path(path))
+    {
+        return None;
+    }
+    Some(paths)
 }
 
 /// 回滚方式白名单（必须与 renderer 的 RollbackMode 一致）。
@@ -750,6 +817,24 @@ fn has_expected_wan_origin(headers: &HeaderMap, context: &ServerContext) -> bool
         .unwrap_or(false)
 }
 
+/// Host 头是否为回环主机（忽略端口）：配合对端地址一起判定本机访问，
+/// 避免恶意域名解析到 127.0.0.1 后借同源直接调用接口。
+fn is_loopback_host(headers: &HeaderMap) -> bool {
+    let Some(host) = header_text(headers, "host") else {
+        return false;
+    };
+    let host = host.trim();
+    let name = match host.strip_prefix('[') {
+        Some(rest) => rest.split(']').next().unwrap_or_default(),
+        None => host.split(':').next().unwrap_or_default(),
+    };
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
 fn is_authorized(context: &ServerContext, headers: &HeaderMap, url: &Url, request_token: &str) -> bool {
     match context.policy {
         ServerPolicy::Lan => {
@@ -876,6 +961,7 @@ fn accept_live(
 async fn process(
     context: &Arc<ServerContext>,
     request: Request<Body>,
+    peer_loopback: bool,
 ) -> Result<Response<Body>, ApiError> {
     let (mut parts, body) = request.into_parts();
     let on_upgrade = parts.extensions.remove::<OnUpgrade>();
@@ -914,7 +1000,10 @@ async fn process(
         return handle_unlock(context, &headers, body.take()).await;
     }
 
-    let authorized = is_authorized(context, &headers, &url, &request_token);
+    // 本机回环访问免令牌：对端地址与 Host 都必须是回环（防 DNS rebinding）。
+    // 公网监听器虽然也监听在回环地址上，但请求经隧道转发而来，仍需鉴权。
+    let local_request = !context.is_wan() && peer_loopback && is_loopback_host(&headers);
+    let authorized = local_request || is_authorized(context, &headers, &url, &request_token);
     // 未授权的浏览器也可以读取移动端外壳（HTML / 静态资源 / 品牌 logo）：
     // 页面拿不到 /api/state 时会展示令牌填写页，接口本身仍由鉴权把守。
     let is_public_page = method == Method::GET
@@ -1507,6 +1596,47 @@ async fn handle_api(
         return Ok(json_response(StatusCode::OK, &value, Vec::new()));
     }
 
+    // Git 面板：仓库路径由渲染进程按当前工作区解析，手机端只传查询参数。
+    if method == Method::GET && path == "/api/git" {
+        ensure_current_pairing(context, request_generation)?;
+        let section = query_param(url, "section").unwrap_or_default();
+        let value = match section.as_str() {
+            "summary" => bridge_call("getGitSummary", json!([])).await?,
+            "branches" => bridge_call("getGitBranches", json!([])).await?,
+            "status" => bridge_call("getGitStatus", json!([])).await?,
+            "diff" => {
+                let file_path = query_param(url, "path").unwrap_or_default();
+                if !is_git_file_path(&file_path) {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "文件路径无效" }),
+                        Vec::new(),
+                    ));
+                }
+                let staged = match query_param(url, "staged").as_deref() {
+                    None | Some("0") => false,
+                    Some("1") => true,
+                    Some(_) => {
+                        return Ok(json_response(
+                            StatusCode::BAD_REQUEST,
+                            &json!({ "error": "staged 必须是 0 或 1" }),
+                            Vec::new(),
+                        ))
+                    }
+                };
+                bridge_call("getGitDiff", json!([file_path, staged])).await?
+            }
+            _ => {
+                return Ok(json_response(
+                    StatusCode::BAD_REQUEST,
+                    &json!({ "error": "section 必须是 summary / branches / status / diff" }),
+                    Vec::new(),
+                ))
+            }
+        };
+        return Ok(json_response(StatusCode::OK, &value, Vec::new()));
+    }
+
     if method == Method::GET && path == "/api/sensitive-commands" {
         ensure_current_pairing(context, request_generation)?;
         let value = bridge_call("getSensitiveCommands", json!([])).await?;
@@ -1565,6 +1695,134 @@ async fn handle_api(
         }
         ensure_current_pairing(context, request_generation)?;
         let value = bridge_call("setMcpEnabled", json!([target, id, enabled, directory_id])).await?;
+        return Ok(json_response(StatusCode::OK, &value, Vec::new()));
+    }
+
+    // Git 面板动作：分支切换 / 新建、工作树增删与绑定、暂存与提交。
+    // 仓库路径与当前会话由渲染进程解析，手机端只提交数据参数。
+    if method == Method::POST && path == "/api/git" {
+        if !is_json_request(headers) {
+            return Ok(json_response(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                &json!({ "error": "Content-Type 必须是 application/json" }),
+                Vec::new(),
+            ));
+        }
+        let payload = read_json_body(body.take()).await?;
+        ensure_current_pairing(context, request_generation)?;
+        let action = payload
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let value = match action {
+            "checkout" | "create-branch" => {
+                let branch = payload
+                    .get("branch")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !is_git_ref_input(branch) {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "分支名称无效" }),
+                        Vec::new(),
+                    ));
+                }
+                if action == "checkout" {
+                    let remote = matches!(payload.get("remote"), Some(Value::Bool(true)));
+                    bridge_call("gitCheckout", json!([branch, remote])).await?
+                } else {
+                    bridge_call("gitCreateBranch", json!([branch])).await?
+                }
+            }
+            "stage" | "unstage" | "discard" => {
+                let Some(paths) = git_paths_field(payload.get("paths")) else {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "文件列表无效" }),
+                        Vec::new(),
+                    ));
+                };
+                let bridge_action = match action {
+                    "stage" => "gitStage",
+                    "unstage" => "gitUnstage",
+                    _ => "gitDiscard",
+                };
+                bridge_call(bridge_action, json!([paths])).await?
+            }
+            "stage-all" => bridge_call("gitStageAll", json!([])).await?,
+            "unstage-all" => bridge_call("gitUnstageAll", json!([])).await?,
+            "commit" => {
+                let message = payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if message.trim().is_empty() || message.chars().count() > MAX_GIT_COMMIT_MESSAGE
+                {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "提交信息不能为空且不能超过 4000 个字符" }),
+                        Vec::new(),
+                    ));
+                }
+                bridge_call("gitCommit", json!([message])).await?
+            }
+            "create-worktree" => {
+                let branch = payload
+                    .get("branch")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let base_ref = payload
+                    .get("baseRef")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !is_git_ref_input(branch) || !is_git_ref_input(base_ref) {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "分支名称或起始基线无效" }),
+                        Vec::new(),
+                    ));
+                }
+                bridge_call("gitCreateWorktree", json!([branch, base_ref])).await?
+            }
+            "remove-worktree" => {
+                let worktree_id = payload
+                    .get("worktreeId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !is_bounded_string(worktree_id, false) {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "工作树标识无效" }),
+                        Vec::new(),
+                    ));
+                }
+                bridge_call("gitRemoveWorktree", json!([worktree_id])).await?
+            }
+            "bind-worktree" => match payload.get("worktreeId") {
+                None | Some(Value::Null) => {
+                    bridge_call("gitBindWorktree", json!([Value::Null])).await?
+                }
+                Some(Value::String(worktree_id)) if is_bounded_string(worktree_id, false) => {
+                    bridge_call("gitBindWorktree", json!([worktree_id])).await?
+                }
+                _ => {
+                    return Ok(json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": "工作树标识无效" }),
+                        Vec::new(),
+                    ))
+                }
+            },
+            _ => {
+                return Ok(json_response(
+                    StatusCode::BAD_REQUEST,
+                    &json!({
+                        "error": "action 必须是 checkout / create-branch / stage / unstage / stage-all / unstage-all / commit / create-worktree / remove-worktree / bind-worktree"
+                    }),
+                    Vec::new(),
+                ))
+            }
+        };
         return Ok(json_response(StatusCode::OK, &value, Vec::new()));
     }
 

@@ -4,6 +4,7 @@ import { initComposer, renderComposer, syncSessionContext } from "./composer";
 import { initControls, renderControls } from "./controls";
 import { $, escapeHtml } from "./dom";
 import { sessionContextKey } from "./format";
+import { initGit, renderGit } from "./git";
 import { initI18n, t } from "./i18n";
 import { hydrateIcons, iconMarkup } from "./icons";
 import { initInteractions, renderInteractions } from "./interactions";
@@ -115,6 +116,7 @@ const render = (next: SnowRemoteState): void => {
   applyUiFontFamily(next.theme?.fontFamily);
   renderTopbar(next);
   renderControls(next);
+  renderGit(next);
   renderComposer(next);
   renderPending(next);
   renderTodos(next);
@@ -151,7 +153,6 @@ const showOffline = (
   $("threadTitle").textContent = unauthorized
     ? t("remote.empty.unauthorized.title")
     : t("remote.empty.failed.title");
-  $("runBadge").textContent = t("remote.badge.offline");
   $("messages").innerHTML = offlineHtml(message);
   if (unauthorized) showUnlock("");
   if (!silent) showNotice(message, true);
@@ -211,6 +212,7 @@ initI18n();
 initTheme();
 initOverlays();
 initPanels(ctx);
+initGit();
 initTopbar(ctx);
 initThreads(ctx);
 initInteractions(ctx);

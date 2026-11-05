@@ -222,7 +222,11 @@ pub async fn start_server(options: StartOptions) -> Result<RemoteControlState, S
     let (shutdown, shutdown_rx) = tokio::sync::oneshot::channel();
     let app = server::router(context);
     let join = tokio::spawn(async move {
-        let _ = axum::serve(listener, app)
+        // 只有带上 connect info，服务端才能识别本机回环请求（免令牌）。
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
             .with_graceful_shutdown(async move {
                 let _ = shutdown_rx.await;
                 let _ = closed_tx.send(true);
@@ -372,7 +376,11 @@ async fn start_wan_listener_locked(
     let (shutdown, shutdown_rx) = tokio::sync::oneshot::channel();
     let app = server::router(context);
     let join = tokio::spawn(async move {
-        let _ = axum::serve(listener, app)
+        // 公网监听器同样需要 connect info（判定只在局域网策略下生效）。
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
             .with_graceful_shutdown(async move {
                 let _ = shutdown_rx.await;
                 let _ = closed_tx.send(true);
