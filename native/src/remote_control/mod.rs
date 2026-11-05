@@ -11,6 +11,7 @@ pub mod bridge;
 pub mod json_patch;
 pub mod live;
 pub mod server;
+pub mod theme_asset;
 pub mod unauthorized;
 
 use std::path::PathBuf;

@@ -582,7 +582,8 @@ textarea:focus-visible {
 }
 .message.user {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
 }
 .message.user .message-shell {
   max-width: 88%;
@@ -844,23 +845,234 @@ textarea:focus-visible {
   line-height: 1.6;
   white-space: pre-wrap;
 }
+/* 消息操作栏（气泡外，与桌面 UserMessageActions / AiResponseActions 对齐）：
+   时间 + 图标按钮；用户消息右对齐，AI 响应左对齐。 */
+.message-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--dim);
+}
+.message.user .message-actions {
+  align-items: flex-end;
+}
+.message-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.message-action {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: inherit;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.message-action .icn {
+  width: 15px;
+  height: 15px;
+}
+.message-action:active {
+  background: var(--secondary-control-bg);
+  color: var(--text);
+}
+.message-action.is-open {
+  background: var(--secondary-control-bg);
+  color: var(--text);
+}
+.message-action:disabled {
+  opacity: 0.55;
+}
 .message-time {
   font-size: 10px;
   color: var(--dim);
-  margin-top: 7px;
+  margin: 0 4px 0 2px;
 }
-.streaming-caret {
+/* 原始 Markdown 视图（桌面 .ai-message-raw 同语义）。 */
+.message-raw {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow-y: auto;
+}
+/* 运行统计面板：手机端用可展开的内联面板替代桌面的悬浮 Tooltip。 */
+.message-run-stats {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 176px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.message-run-stats.open {
+  display: flex;
+}
+.message-run-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.message-run-stats-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.message-run-stats-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.message-run-stats-value.is-model {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+/* 复制菜单：与桌面 MessageCopyButton 的两项菜单一致。 */
+.message-copy-menu {
+  position: fixed;
+  z-index: 60;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--panel2);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+}
+.message-copy-menu-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  background: transparent;
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.message-copy-menu-item .icn {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.message-copy-menu-item:active {
+  background: var(--secondary-control-bg);
+}
+/* 流式光标：与桌面 StreamCursor 的六种形态共用同一套类名与动效。 */
+.stream-cursor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1;
+  vertical-align: 0.05em;
+  animation: stream-cursor-fade 0.2s ease-out both;
+}
+.stream-cursor-dot {
   display: inline-block;
   width: 7px;
-  height: 16px;
-  background: var(--green);
-  vertical-align: -3px;
-  margin-left: 3px;
-  animation: blink 0.85s steps(1) infinite;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 0.05em;
+  animation: stream-dot-pulse 1s ease-in-out infinite;
 }
-@keyframes blink {
+.stream-cursor-lucide-icon {
+  color: var(--dim);
+  animation: stream-cursor-spin 1.4s linear infinite;
+}
+.stream-cursor-custom-icon {
+  display: inline-block;
+  width: var(--stream-cursor-size, 14px);
+  height: var(--stream-cursor-size, 14px);
+  background-image: var(--stream-cursor-svg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  animation: stream-cursor-pulse 1s ease-in-out infinite;
+}
+.stream-cursor-image-icon {
+  display: inline-block;
+  width: auto;
+  max-width: none;
+  object-fit: contain;
+  vertical-align: middle;
+}
+.stream-cursor-canvas-host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.stream-cursor-canvas-icon {
+  display: block;
+}
+@keyframes stream-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
   50% {
+    opacity: 1;
+  }
+}
+@keyframes stream-cursor-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes stream-cursor-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes stream-cursor-fade {
+  from {
     opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-cursor,
+  .stream-cursor-dot,
+  .stream-cursor-lucide-icon,
+  .stream-cursor-custom-icon {
+    animation: none;
   }
 }
 .composer-dock {
@@ -3220,6 +3432,14 @@ html[data-theme="light"] .message.user .message-shell {
   border-color: rgba(15, 23, 42, 0.06);
   box-shadow: 0 8px 28px rgba(28, 39, 60, 0.06);
 }
+html[data-theme="light"] .message-raw,
+html[data-theme="light"] .message-run-stats {
+  background: rgba(15, 23, 42, 0.03);
+}
+html[data-theme="light"] .message-copy-menu {
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgba(28, 39, 60, 0.16);
+}
 html[data-theme="light"] .markdown code {
   background: #edf0f4;
   color: #28364f;
@@ -3675,33 +3895,6 @@ html[data-i18n-pending] body {
 /* ── 回滚（用户消息入口 + 确认弹层） ───────────────────────────────────────
    与桌面 RollbackConfirmDialog 同源：底部弹层展示文件变更 / TODO / 项目记忆，
    diff 视图渲染 Rust 检查点服务给出的 unified diff 文本。 */
-
-/* 用户消息内的回滚入口：贴在气泡底部的行内动作。 */
-.message-rollback {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 7px;
-}
-.message-rollback-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--secondary-control-bg);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.message-rollback-button .icn {
-  width: 13px;
-  height: 13px;
-}
-.message-rollback-button:active {
-  transform: scale(0.96);
-  color: var(--text);
-}
 
 /* 弹层：底部升起（覆盖 .sheet 的左侧抽屉定位）。 */
 .rollback-sheet {

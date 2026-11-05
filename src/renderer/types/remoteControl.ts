@@ -110,6 +110,8 @@ export type SnowRemoteMessage = {
   contentBlocks?: SnowRemoteContentBlock[];
   thinking?: string;
   model?: string;
+  /** provider 响应 id：与桌面分支会话（fork）的目标 id 同源。 */
+  responseId?: string;
   isThinkingActive?: boolean;
   thinkingDurationMs?: number;
   toolCalls?: SnowRemoteToolCall[];
@@ -195,6 +197,15 @@ export type SnowRemoteTokenUsage = {
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
+};
+
+/** 会话累计运行统计（与桌面 ChatRunStats 同源，仅流程结束后下发）。 */
+export type SnowRemoteRunStats = {
+  durationMs: number;
+  ttftSumMs: number;
+  requestCount: number;
+  tokenUsage: SnowRemoteTokenUsage | null;
+  model?: string;
 };
 
 export type SnowRemoteChatCommandInfo = {
@@ -479,6 +490,19 @@ export type SnowRemoteModesState = {
   goalTokenBudget: number;
 };
 
+/**
+ * 桌面流式光标配置（Settings > Theme 的 streamCursor）。
+ * 与 renderer ThemeStreamCursor 一一对应，但资源只下发文件名：
+ * 手机端通过远控服务的 /api/theme-asset/<name> 读取 stream-cursors 目录里的文件。
+ */
+export type SnowRemoteStreamCursor = {
+  iconType: "dot" | "lucide" | "snowbot" | "custom" | "image" | "canvas";
+  lucideName: string;
+  iconSize: number;
+  /** custom / image / canvas 的资源文件名；其余形态或文件缺失时为空串。 */
+  assetName: string;
+};
+
 export type SnowRemoteState = {
   workspace: {
     directoryId: string;
@@ -540,6 +564,8 @@ export type SnowRemoteState = {
    * null = 待办不可用（无活动会话或工具读取失败），移动端隐藏待办入口。
    */
   todos: SnowRemoteTodoItem[] | null;
+  /** 会话累计运行统计：仅在流程完全结束后有值，移动端挂在最后一条 AI 消息上。 */
+  runStats: SnowRemoteRunStats | null;
   modes: SnowRemoteModesState;
   /**
    * 「工具失败自动纠错」应用级开关（system_settings.tool_correction）。
@@ -547,11 +573,15 @@ export type SnowRemoteState = {
    */
   toolCorrection: boolean;
   /**
-   * 桌面当前生效的主题：强调色 + 界面字体族。
+   * 桌面当前生效的主题：强调色 + 界面字体族 + 流式光标。
    * 手机端把它应用到开关 / 选中态等强调色与根字体上，跟随 Snow APP 主题；
    * 解析失败时为空串，手机端保持自身默认。
    */
-  theme: { accentColor: string; fontFamily: string };
+  theme: {
+    accentColor: string;
+    fontFamily: string;
+    streamCursor: SnowRemoteStreamCursor;
+  };
   chatInput: SnowRemoteChatInputState | null;
 };
 
@@ -638,6 +668,14 @@ export type SnowRemoteControlApi = {
    * （模型据此重新设计流程），与桌面卡片反馈入口同语义。
    */
   replyWorkflow: (flowId: string, message: string) => Promise<{ ok: true }>;
+  /**
+   * 从指定 AI 响应派生分支会话（与桌面 AiResponseActions 的分支按钮同源）：
+   * 派生成功后桌面切换到新会话，移动端随 /api/state 跟随。
+   */
+  forkConversation: (
+    conversationId: string,
+    upToResponseId: string,
+  ) => Promise<{ ok: true; conversationId: string }>;
   /**
    * 回滚实时状态：桌面计算文件变更期间 preparingMessageId 非空，预览就绪后
    * preview 就位（与电脑端 RollbackConfirmDialog 同一份数据）。

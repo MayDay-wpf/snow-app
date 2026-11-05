@@ -67,8 +67,14 @@ const pickData = (tab: RightPanelTab): Record<string, unknown> | undefined => {
       const shellPath = asString(data?.shellPath);
       return { cwd: asString(data?.cwd), ...(shellPath ? { shellPath } : {}) };
     }
-    case "browser":
-      return { url: asString((tab.data as BrowserTabData | undefined)?.url) };
+    case "browser": {
+      const data = tab.data as BrowserTabData | undefined;
+      const displayDeviceId = asString(data?.displayDeviceId);
+      return {
+        url: asString(data?.url),
+        ...(displayDeviceId ? { displayDeviceId } : {}),
+      };
+    }
     case "file": {
       const data = tab.data as FileViewerTabData | undefined;
       if (!data?.filePath) {
@@ -308,14 +314,20 @@ export const restoreTabs = (tabs: PersistedTab[]): RightPanelTab[] => {
         };
         break;
       }
-      case "browser":
+      case "browser": {
+        const displayDeviceId = asString(data.displayDeviceId);
         next = {
           id: tab.id,
           type: "browser",
           title,
-          data: { instanceId: tab.id, url: asString(data.url) },
+          data: {
+            instanceId: tab.id,
+            url: asString(data.url),
+            ...(displayDeviceId ? { displayDeviceId } : {}),
+          },
         };
         break;
+      }
       case "file": {
         const filePath = asString(data.filePath);
         if (!filePath) {

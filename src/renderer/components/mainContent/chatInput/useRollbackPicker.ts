@@ -7,7 +7,7 @@ import {
   ensureMessageLoaded,
   type MessageLoadBudget,
 } from "../chatMessages/utils/conversationHelpers";
-import { stripMarkdown } from "../chatMessages/utils/stripMarkdown";
+import { stripMarkdown } from "../../../../shared/stripMarkdown";
 import {
   getChipDisplayLabel,
   parseContentSegments,

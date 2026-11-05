@@ -44,6 +44,26 @@ export const formatTokenAmount = (n: number): string =>
       ? (n / 1000).toFixed(1) + "K"
       : String(n);
 
+/** 运行时长：秒 → 分秒 → 时分秒（与桌面 formatDuration 同口径）。 */
+export const formatDuration = (ms: number): string => {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  if (minutes < 60) return `${minutes}m${restSeconds}s`;
+  return `${Math.floor(minutes / 60)}h${minutes % 60}m${restSeconds}s`;
+};
+
+/** 平均首字时长（与桌面 formatTtft 同口径）。 */
+export const formatTtft = (ms: number): string => {
+  if (ms <= 0) return "--";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 1) return "<1s";
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m${seconds % 60}s`;
+};
+
 /** 会话生效的思考强度展示文案：优先取选项 label，回退原始值；无数据时占位。 */
 export const effectiveThinkingLabel = (
   input: SnowRemoteChatInputState | null | undefined,

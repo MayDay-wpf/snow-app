@@ -37,6 +37,7 @@ import {
 import type { ChatInputSendOptions } from "./mainContent/chatInput/types";
 import { notifyMcpServerStateChanged } from "./mainContent/chatInput/mcpServerEvents";
 import { redactSensitiveToolText } from "./remoteControlRedaction";
+import { readThemeCache } from "./sidebar/themeSettings/themeSettingsUtils";
 import { useBusySendBehavior } from "../constants/busySendBehavior";
 import {
   replyRemoteWorkflow,
@@ -64,7 +65,9 @@ import type {
   SnowRemoteRollbackChange,
   SnowRemoteRollbackMode,
   SnowRemoteRollbackState,
+  SnowRemoteRunStats,
   SnowRemoteState,
+  SnowRemoteStreamCursor,
   SnowRemoteTodoItem,
   SnowRemoteTodoStatus,
   SnowRemoteToolCall,
@@ -273,6 +276,29 @@ const resolveThemeFontFamily = (): string => {
   } catch {
     return "";
   }
+};
+
+/**
+ * 桌面流式光标配置：读取主题缓存，资源类形态只取文件名下发。
+ * 主题缓存由设置面板与启动流程写入，缺失时回退默认脉冲圆点。
+ */
+const resolveThemeStreamCursor = (): SnowRemoteStreamCursor => {
+  const cursor = readThemeCache()?.streamCursor;
+  if (!cursor) {
+    return { iconType: "dot", lucideName: "", iconSize: 14, assetName: "" };
+  }
+  const needsAsset =
+    cursor.iconType === "custom" ||
+    cursor.iconType === "image" ||
+    cursor.iconType === "canvas";
+  const segments = cursor.svgPath.trim().split(/[\\/]/);
+  const assetName = needsAsset ? (segments[segments.length - 1] ?? "") : "";
+  return {
+    iconType: cursor.iconType,
+    lucideName: cursor.lucideName,
+    iconSize: cursor.iconSize,
+    assetName,
+  };
 };
 
 const toRemoteContentBlocks = (
@@ -493,6 +519,7 @@ const toRemoteMessage = (
       : undefined,
   thinking: truncate(message.thinking),
   model: truncateTo(message.model, 120),
+  responseId: message.responseId,
   isThinkingActive: message.isThinkingActive,
   thinkingDurationMs: message.thinkingDurationMs,
   toolCalls: message.toolCalls?.map(toRemoteToolCall),
@@ -565,6 +592,54 @@ const toRemoteTokenUsage = (
     cacheCreationInputTokens: safeCount(tokenUsage.cacheCreationInputTokens),
     cacheReadInputTokens: safeCount(tokenUsage.cacheReadInputTokens),
   };
+};
+
+/** 非负整数的防御性清洗（统计字段）。 */
+const safeDuration = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+
+/**
+ * 会话累计运行统计：与桌面 ChatMessageList 的 runStats 判定一致 ——
+ * 流程完全结束（无流式 / 停止中 / 活跃生成）后才有值，且旧会话缺少统计时
+ * 宁可不展示。移动端把它作为最后一条 AI 消息操作栏的统计入口。
+ */
+const toRemoteRunStats = (
+  conversation: ReturnType<typeof useChatConversationContext>,
+): SnowRemoteRunStats | null => {
+  if (conversation.isStreaming || conversation.isAborting) return null;
+  const messages = conversation.messages;
+  const hasActiveGeneration = messages.some(
+    (message) =>
+      message.status === "sending" ||
+      (message.role === "assistant" &&
+        message.toolCalls?.some(
+          (toolCall) =>
+            toolCall.status === "pending" || toolCall.status === "running",
+        )),
+  );
+  if (hasActiveGeneration) return null;
+  if (!messages.some((message) => message.role === "assistant")) return null;
+  const usage = toRemoteTokenUsage(conversation.conversationTokenUsage);
+  const durationMs = safeDuration(conversation.lastRunDurationMs);
+  const ttftSumMs = safeDuration(conversation.conversationTtftSumMs);
+  const requestCount = safeDuration(conversation.conversationRequestCount);
+  const hasStats =
+    durationMs > 0 ||
+    (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) > 0 ||
+    (usage?.cacheReadInputTokens ?? 0) > 0 ||
+    (usage?.cacheCreationInputTokens ?? 0) > 0 ||
+    requestCount > 0;
+  if (!hasStats) return null;
+  let model: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant" && messages[index].model) {
+      model = truncateTo(messages[index].model, 120);
+      break;
+    }
+  }
+  return { durationMs, ttftSumMs, requestCount, tokenUsage: usage, model };
 };
 
 const normalizeRemoteIdentifier = (value: string): string =>
@@ -1536,6 +1611,43 @@ export const RemoteControlBridge = ({
         return { ok: true };
       },
       /**
+       * 派生分支会话：与桌面 AiResponseActions 的分支按钮走同一条
+       * handleForkConversation 链路（新建会话 → 侧栏 upsert → 切换到新会话）。
+       * 目标必须是当前激活会话；responseId 由消息自带（缺失时派生整段会话）。
+       */
+      forkConversation: async (
+        conversationId: string,
+        upToResponseId: string,
+      ): Promise<{ ok: true; conversationId: string }> => {
+        const current = stateRef.current.conversation;
+        const activeId = current.activeConversationId ?? "";
+        const targetId = normalizeRemoteIdentifier(conversationId);
+        if (!activeId || targetId !== activeId) {
+          throw new Error("会话已切换，请重试");
+        }
+        const responseId = normalizeRemoteIdentifier(upToResponseId);
+        if (responseId.length > MAX_IDENTIFIER_LENGTH) {
+          throw new Error("分支目标无效");
+        }
+        const forked = await window.snow.forkConversation(targetId, responseId);
+        current.refreshConversations();
+        // 切换会话会加载历史；不阻塞本次桥调用，避免手机端等满桥超时。
+        void current
+          .handleSelectConversation(
+            forked.conversationId,
+            forked.summary || forked.title,
+            {
+              inputTokens: forked.inputTokens,
+              outputTokens: forked.outputTokens,
+              cacheCreationInputTokens: forked.cacheCreationInputTokens,
+              cacheReadInputTokens: forked.cacheReadInputTokens,
+            },
+            forked.directoryId,
+          )
+          .catch(() => {});
+        return { ok: true, conversationId: forked.conversationId };
+      },
+      /**
        * 回滚状态：手机端弹窗期间轮询。preparing 表示桌面正在中止运行并计算文件
        * 变更（SSH 下经 SFTP 遍历可能较慢）；preview 就绪后下发与电脑端
        * RollbackConfirmDialog 同源的完整清单，手机端只做展示与确认。
@@ -2123,6 +2235,8 @@ export const RemoteControlBridge = ({
             activeConversationMeta.parentConversationId,
           // 会话待办（会话隔离）：按激活会话读取，切换会话后随快照一起切换。
           todos: await resolveTodos(activeConversationId),
+          // 累计运行统计：与桌面最后一条 AI 消息的统计入口同源。
+          runStats: toRemoteRunStats(current.conversation),
           modes: {
             goal: current.conversation.goalMode,
             worktree: current.conversation.worktreeMode,
@@ -2139,6 +2253,7 @@ export const RemoteControlBridge = ({
           theme: {
             accentColor: resolveThemeAccentColor(),
             fontFamily: resolveThemeFontFamily(),
+            streamCursor: resolveThemeStreamCursor(),
           },
           chatInput: chatInputPublication
             ? toRemoteChatInput(chatInputPublication)

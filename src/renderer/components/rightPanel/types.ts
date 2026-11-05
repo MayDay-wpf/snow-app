@@ -54,6 +54,8 @@ export type TerminalTabData = {
 export type BrowserTabData = {
   instanceId: string;
   url: string;
+  /** 本标签页的显示尺寸设备 id（缺省 = "default"，不约束视口） */
+  displayDeviceId?: string;
   /** 创建时的 Agent 授权初始值（运行时以 browserAgentAccess 注册表为准） */
   agentAccess?: BrowserAgentAccess;
 };

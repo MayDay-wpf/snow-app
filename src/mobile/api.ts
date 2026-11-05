@@ -518,6 +518,19 @@ export const cancelRollback = (messageId: string): Promise<{ ok: true }> =>
   });
 
 /**
+ * 从指定 AI 响应派生分支会话：复用桌面分支链路，桌面会切换到新会话，
+ * 移动端随 /api/state 的 activeConversationId 跟随。
+ */
+export const forkConversation = (
+  conversationId: string,
+  responseId: string,
+): Promise<{ ok: true; conversationId: string }> =>
+  request("/api/fork", {
+    method: "POST",
+    body: JSON.stringify({ conversationId, responseId }),
+  });
+
+/**
  * 拉取回滚预览的文件变更摘要（类型 + 增删行数）：由 Rust 检查点服务直接计算
  * （含 SSH/SFTP 通道），范围与确认回滚时实际恢复的文件一致，最多返回 50 个文件。
  */

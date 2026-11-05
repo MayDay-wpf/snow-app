@@ -98,7 +98,6 @@ export const zhCN: Record<string, string> = {
   "remote.todos.statusCompleted": "已完成",
 
   // 回滚（与桌面 RollbackConfirmDialog 同源的手机端确认弹层）
-  "remote.rollback.action": "回滚",
   "remote.rollback.actionHint": "回滚到这条消息",
   "remote.rollback.title": "回滚会话",
   "remote.rollback.close": "关闭",
@@ -346,6 +345,28 @@ export const zhCN: Record<string, string> = {
   "remote.message.folder": "文件夹",
   "remote.message.file": "文件",
   "remote.message.reference": "引用",
+
+  // 消息操作栏（气泡外，与桌面 UserMessageActions / AiResponseActions 对齐）
+  "remote.message.copy": "复制",
+  "remote.message.copyAsText": "复制为纯文本",
+  "remote.message.copyAsMarkdown": "复制为 Markdown",
+  "remote.message.copied": "已复制",
+  "remote.message.copyFailed": "复制失败",
+  "remote.message.edit": "编辑到输入框",
+  "remote.message.editUnavailable": "输入框暂不可用，无法编辑",
+  "remote.message.raw": "查看原始 Markdown",
+  "remote.message.rendered": "查看渲染结果",
+  "remote.message.fork": "创建分支会话",
+  "remote.message.forked": "已创建分支会话",
+  "remote.message.forkUnavailable": "当前没有可分支的会话",
+  "remote.message.stats": "运行统计",
+  "remote.message.stats.duration": "耗时",
+  "remote.message.stats.ttft": "首字",
+  "remote.message.stats.tokens": "Token",
+  "remote.message.stats.speed": "速度",
+  "remote.message.stats.cacheWrite": "缓存写入",
+  "remote.message.stats.cacheRead": "缓存命中",
+  "remote.message.stats.model": "模型",
 
   // 授权 / 提问卡片
   "remote.interaction.authRequired": "需要授权 · {{name}}",

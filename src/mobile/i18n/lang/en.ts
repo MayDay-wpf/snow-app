@@ -110,7 +110,6 @@ export const en: Record<string, string> = {
   "remote.todos.statusCompleted": "Completed",
 
   // Rollback (phone-side confirm sheet backed by the desktop rollback pipeline)
-  "remote.rollback.action": "Roll back",
   "remote.rollback.actionHint": "Roll back to this message",
   "remote.rollback.title": "Roll back",
   "remote.rollback.close": "Close",
@@ -360,6 +359,28 @@ export const en: Record<string, string> = {
   "remote.message.folder": "Folder",
   "remote.message.file": "File",
   "remote.message.reference": "Reference",
+
+  // Message action bar (outside the bubble, aligned with UserMessageActions / AiResponseActions)
+  "remote.message.copy": "Copy",
+  "remote.message.copyAsText": "Copy as text",
+  "remote.message.copyAsMarkdown": "Copy as Markdown",
+  "remote.message.copied": "Copied",
+  "remote.message.copyFailed": "Copy failed",
+  "remote.message.edit": "Edit in input box",
+  "remote.message.editUnavailable": "Input box is unavailable",
+  "remote.message.raw": "Show raw Markdown",
+  "remote.message.rendered": "Show rendered view",
+  "remote.message.fork": "Fork conversation",
+  "remote.message.forked": "Forked conversation created",
+  "remote.message.forkUnavailable": "No conversation to fork",
+  "remote.message.stats": "Run summary",
+  "remote.message.stats.duration": "Duration",
+  "remote.message.stats.ttft": "TTFT",
+  "remote.message.stats.tokens": "Tokens",
+  "remote.message.stats.speed": "Speed",
+  "remote.message.stats.cacheWrite": "Cache write",
+  "remote.message.stats.cacheRead": "Cache hit",
+  "remote.message.stats.model": "Model",
 
   // Authorization / question cards
   "remote.interaction.authRequired": "Authorization needed · {{name}}",

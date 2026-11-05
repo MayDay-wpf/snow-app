@@ -4997,6 +4997,8 @@ export const zhCN = {
   "browser.suggestionRemove": "从历史记录中移除",
   "browser.screenshot": "截图",
   "browser.screenshotTitle": "截取页面到剪贴板",
+  "browser.screenshotCopied": "截图已复制到剪贴板",
+  "browser.screenshotFailed": "截图失败，请重试",
   "browser.downloadsTitle": "下载内容",
   "browser.downloadsHint": "查看、打开或定位已下载的文件",
   "browser.downloadsEmpty": "暂无下载",

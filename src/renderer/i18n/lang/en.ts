@@ -5343,6 +5343,8 @@ export const en = {
   "browser.suggestionRemove": "Remove from history",
   "browser.screenshot": "Screenshot",
   "browser.screenshotTitle": "Capture page to clipboard",
+  "browser.screenshotCopied": "Screenshot copied to clipboard",
+  "browser.screenshotFailed": "Screenshot failed, please try again",
   "browser.downloadsTitle": "Downloads",
   "browser.downloadsHint": "View, open or reveal downloaded files",
   "browser.downloadsEmpty": "No downloads yet",

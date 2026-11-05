@@ -12,6 +12,7 @@ import {
   uploadAttachment,
 } from "./api";
 import { $, escapeHtml } from "./dom";
+import { registerInputTextSink } from "./inputBridge";
 import { t } from "./i18n";
 import { iconMarkup, type MobileIconName } from "./icons";
 import { showNotice } from "./notice";
@@ -576,6 +577,8 @@ const handleActionClick = async (
 
 export const initComposer = (ctx: AppContext): void => {
   const input = $<HTMLTextAreaElement>("input");
+  // 消息操作栏「编辑到输入框」经该回调回填；输入区只读时按钮不会渲染。
+  registerInputTextSink(restoreInputText);
 
   $("plusButton").onclick = () => {
     if (isActionSheetOpen()) {

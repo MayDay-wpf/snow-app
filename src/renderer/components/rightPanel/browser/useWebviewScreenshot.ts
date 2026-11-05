@@ -14,11 +14,12 @@ const FEEDBACK_RESET_MS = 1500;
  * wraps it with React state for loading / success / error feedback.
  */
 export const useWebviewScreenshot = (
-  webviewRef: React.RefObject<Electron.WebviewTag | null>
+  webviewRef: React.RefObject<Electron.WebviewTag | null>,
 ): {
   isCapturing: boolean;
   feedback: ScreenshotFeedback;
-  captureScreenshot: () => Promise<void>;
+  /** 截图并写入剪贴板；返回是否成功，供调用方弹出结果提示 */
+  captureScreenshot: () => Promise<boolean>;
 } => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [feedback, setFeedback] = useState<ScreenshotFeedback>("idle");
@@ -45,13 +46,13 @@ export const useWebviewScreenshot = (
         }, FEEDBACK_RESET_MS);
       }
     },
-    []
+    [],
   );
 
-  const captureScreenshot = useCallback(async (): Promise<void> => {
+  const captureScreenshot = useCallback(async (): Promise<boolean> => {
     const webview = webviewRef.current;
     if (!webview || isCapturing) {
-      return;
+      return false;
     }
 
     setIsCapturing(true);
@@ -59,9 +60,11 @@ export const useWebviewScreenshot = (
       const dataUrl = await captureWebviewPage(webview);
       await window.snow.writeImageToClipboard(dataUrl);
       setFeedbackWithReset("success");
+      return true;
     } catch (error) {
       console.error("Failed to capture screenshot:", error);
       setFeedbackWithReset("error");
+      return false;
     } finally {
       setIsCapturing(false);
     }

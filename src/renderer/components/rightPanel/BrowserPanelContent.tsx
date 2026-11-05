@@ -15,6 +15,7 @@ import {
 import type { BrowserDownloadItemEvent } from "../../../preload/modules/systemApi";
 import { DEFAULT_BROWSER_HOMEPAGE } from "./browser/browserHomepageConstants";
 import {
+  DEFAULT_BROWSER_DEVICE_SIZE_ID,
   resolveDeviceUserAgent,
   useBrowserDisplayDevices,
 } from "./browser/browserDeviceSize";
@@ -52,6 +53,7 @@ import {
 import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "../../hooks/useAppControl";
 import { requestOpenProjectMcpPanel } from "../mainContent/chatInput/projectMcpNavigation";
 import { useKeyboardShortcutsSettings } from "../KeyboardShortcutsProvider";
+import { AutoDismissNotice } from "../AutoDismissNotice";
 import { useI18n } from "../../i18n";
 import {
   BROWSER_MCP_SERVER_ID,
@@ -88,6 +90,13 @@ export type BrowserPanelContentProps = {
   onRestoreToTabs?: () => void;
   /** 当前项目 id：用于未开启浏览器控制 MCP 时的横幅提示 */
   projectId?: string;
+  /**
+   * 本标签页的显示尺寸设备 id（缺省 = "default" 不约束）。尺寸按 tab 独立
+   * 保存，切换设备只影响当前 tab 的 webview。
+   */
+  displayDeviceId?: string;
+  /** 当前标签页切换显示尺寸设备时回调（由上层写回自己的 tab 数据） */
+  onDisplayDeviceChange?: (id: string) => void;
   /** 标签页创建时的 Agent 授权初始值（运行时以 browserAgentAccess 注册表为准） */
   agentAccess?: BrowserAgentAccess;
 };
@@ -277,6 +286,8 @@ export const BrowserPanelContent = ({
   detached = false,
   onRestoreToTabs,
   projectId,
+  displayDeviceId,
+  onDisplayDeviceChange,
   agentAccess,
 }: BrowserPanelContentProps): React.JSX.Element => {
   const { t } = useI18n();
@@ -295,15 +306,16 @@ export const BrowserPanelContent = ({
   const { homepage, loaded, setHomepage } = useBrowserHomepage();
   const homepageRef = useRef(homepage);
   homepageRef.current = homepage;
-  // 设备显示尺寸（移动端界面调试）：全局共享持久化。非 "default" 时
-  // webview 视口约束为所选设备尺寸并居中，同时在主进程侧对 guest 应用
-  // DPR / 屏幕类型 / UA 模拟（见 browserDeviceEmulation.ts）。
-  const {
-    selectedDeviceId,
-    selectedDevice: activeDeviceSize,
-    menuDevices,
-    setSelectedDevice: setDeviceSize,
-  } = useBrowserDisplayDevices();
+  // 设备显示尺寸（移动端界面调试）：每台设备只有一份目录缓存，选中项跟着
+  // 当前 tab 的 displayDeviceId 走，非 "default" 时 webview 视口约束为所选
+  // 设备尺寸并居中，同时在主进程侧对 guest 应用 DPR / 屏幕类型 / UA 模拟
+  // （见 browserDeviceEmulation.ts）。
+  const { menuDevices, resolveDevice } = useBrowserDisplayDevices();
+  const selectedDeviceId =
+    displayDeviceId && resolveDevice(displayDeviceId)
+      ? displayDeviceId
+      : DEFAULT_BROWSER_DEVICE_SIZE_ID;
+  const activeDeviceSize = resolveDevice(selectedDeviceId);
   const activeDeviceSizeRef = useRef(activeDeviceSize);
   activeDeviceSizeRef.current = activeDeviceSize;
   const isActiveRef = useRef(isActive);
@@ -368,6 +380,24 @@ export const BrowserPanelContent = ({
   const [downloads, setDownloads] = useState<BrowserDownloadItemEvent[]>([]);
   const browserContentRef = useRef<HTMLDivElement>(null);
   const { isCapturing, captureScreenshot } = useWebviewScreenshot(webviewRef);
+  // 截图结果提示：AutoDismissNotice 自动消失后清空
+  const [screenshotNotice, setScreenshotNotice] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+  const handleScreenshot = useCallback(async (): Promise<void> => {
+    const ok = await captureScreenshot();
+    setScreenshotNotice({
+      tone: ok ? "success" : "error",
+      message: ok
+        ? t("browser.screenshotCopied", {
+            defaultValue: "Screenshot copied to clipboard",
+          })
+        : t("browser.screenshotFailed", {
+            defaultValue: "Screenshot failed",
+          }),
+    });
+  }, [captureScreenshot, t]);
   const {
     isPicking,
     picked,
@@ -458,7 +488,7 @@ export const BrowserPanelContent = ({
     }
   }, []);
 
-  // 选中设备变化（含其他实例/设置页修改后的全局同步）时重新应用模拟。
+  // 本 tab 的设备变化（含自定义设备被删除后的回落）时重新应用模拟。
   useEffect(() => {
     void applyDeviceEmulation();
   }, [activeDeviceSize, applyDeviceEmulation]);
@@ -1177,9 +1207,9 @@ export const BrowserPanelContent = ({
 
   const handleSetDeviceSize = useCallback(
     (id: string): void => {
-      void setDeviceSize(id);
+      onDisplayDeviceChange?.(id);
     },
-    [setDeviceSize],
+    [onDisplayDeviceChange],
   );
 
   const handleForceReload = (): void => {
@@ -1360,7 +1390,7 @@ export const BrowserPanelContent = ({
         onBack={handleBack}
         onForward={handleForward}
         onReload={handleReload}
-        onScreenshot={captureScreenshot}
+        onScreenshot={handleScreenshot}
         onToggleElementPicker={togglePicker}
         zoomFactor={zoomFactor}
         homepage={homepage}
@@ -1397,6 +1427,12 @@ export const BrowserPanelContent = ({
         onOpenMcpPanel={handleOpenMcpPanel}
         projectId={projectId}
         serverId={BROWSER_MCP_SERVER_ID}
+      />
+      <AutoDismissNotice
+        message={screenshotNotice?.message ?? ""}
+        tone={screenshotNotice?.tone ?? "success"}
+        durationMs={2200}
+        onDismiss={() => setScreenshotNotice(null)}
       />
       {agentNotice && (
         <div className="browser-agent-notice" role="status">

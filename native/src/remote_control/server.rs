@@ -31,6 +31,7 @@ use super::attachments::{self, AttachError, AttachmentKind, RemoteAttachmentCont
 use super::auth::{encode_query_component, now_ms, secret_matches, WanAuth};
 use super::bridge::{self, BridgeError};
 use super::live;
+use super::theme_asset::{self, THEME_ASSET_PATH_PREFIX};
 use super::unauthorized;
 use crate::storage::services::app_lock;
 
@@ -413,7 +414,7 @@ fn mobile_page_csp(headers: &HeaderMap) -> String {
         Some(host) => format!("'self' ws://{host} wss://{host}"),
         None => "'self'".to_string(),
     };
-    format!("default-src 'self'; script-src 'self'; style-src 'self'; connect-src {connect}; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    format!("default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self'; connect-src {connect}; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 }
 
 /// 引导页 HTML：无脚本、无外部资源。
@@ -1453,6 +1454,34 @@ async fn handle_api(
         ));
     }
 
+    // 流式光标资源（自定义 SVG / 图片 / canvas 脚本）：手机端跟随桌面主题，
+    // 只按文件名读取 ~/.snowapp/stream-cursors/，与桌面 theme-bg:// 同源。
+    if method == Method::GET && path.starts_with(THEME_ASSET_PATH_PREFIX) {
+        ensure_current_pairing(context, request_generation)?;
+        let asset = match percent_decode(&path[THEME_ASSET_PATH_PREFIX.len()..]) {
+            Some(file_name) => theme_asset::read_theme_asset(&file_name).await,
+            None => None,
+        };
+        ensure_current_pairing(context, request_generation)?;
+        let Some((bytes, content_type)) = asset else {
+            return Ok(json_response(
+                StatusCode::NOT_FOUND,
+                &json!({ "error": "资源不存在" }),
+                Vec::new(),
+            ));
+        };
+        return Ok(build_response(
+            StatusCode::OK,
+            content_type,
+            bytes,
+            vec![
+                ("Cache-Control", "private, no-store".to_string()),
+                ("X-Content-Type-Options", "nosniff".to_string()),
+                ("Referrer-Policy", "no-referrer".to_string()),
+            ],
+        ));
+    }
+
     if method == Method::GET && path == "/api/skills" {
         ensure_current_pairing(context, request_generation)?;
         let value = bridge_call("getSkills", json!([])).await?;
@@ -2118,6 +2147,44 @@ async fn handle_api(
         } else {
             bridge_call("replyWorkflow", json!([flow_id, message])).await?
         };
+        return Ok(json_response(StatusCode::OK, &value, Vec::new()));
+    }
+
+    if method == Method::POST && path == "/api/fork" {
+        if !is_json_request(headers) {
+            return Ok(json_response(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                &json!({ "error": "Content-Type 必须是 application/json" }),
+                Vec::new(),
+            ));
+        }
+        let payload = read_json_body(body.take()).await?;
+        let conversation_id = payload
+            .get("conversationId")
+            .and_then(Value::as_str)
+            .filter(|value| is_bounded_string(value, false));
+        let Some(conversation_id) = conversation_id else {
+            return Ok(json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": "会话标识无效" }),
+                Vec::new(),
+            ));
+        };
+        // responseId 可缺省：空串表示派生整段会话（与桌面分支按钮一致）。
+        let response_id = payload
+            .get("responseId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if !is_bounded_string(response_id, true) {
+            return Ok(json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": "分支目标无效" }),
+                Vec::new(),
+            ));
+        }
+        ensure_current_pairing(context, request_generation)?;
+        let value = bridge_call("forkConversation", json!([conversation_id, response_id])).await?;
         return Ok(json_response(StatusCode::OK, &value, Vec::new()));
     }
 

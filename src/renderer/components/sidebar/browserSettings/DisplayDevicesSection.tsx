@@ -74,7 +74,6 @@ const parseDpr = (value: string): number | null => {
 export function DisplayDevicesSection(): React.JSX.Element {
   const { t } = useI18n();
   const {
-    selectedDeviceId,
     builtinDevices,
     customDevices,
     enabledBuiltinIds,
@@ -331,19 +330,9 @@ export function DisplayDevicesSection(): React.JSX.Element {
                 </thead>
                 <tbody>
                   {filteredCustom.map((device) => (
-                    <tr
-                      key={device.id}
-                      className={
-                        selectedDeviceId === device.id ? "is-selected" : ""
-                      }
-                    >
+                    <tr key={device.id}>
                       <td className="browser-settings-table-host">
                         {device.name}
-                        {selectedDeviceId === device.id && (
-                          <span className="browser-settings-device-badge is-active">
-                            {t("settings.browserDeviceActive")}
-                          </span>
-                        )}
                       </td>
                       <td>
                         {device.width} × {device.height}
@@ -444,42 +433,32 @@ export function DisplayDevicesSection(): React.JSX.Element {
             </div>
           ) : (
             <div className="browser-settings-device-list">
-              {filteredBuiltin.map((device) => {
-                const isActive = selectedDeviceId === device.id;
-                return (
-                  <label
-                    key={device.id}
-                    className={`browser-settings-device-item${
-                      isActive ? " is-active" : ""
-                    }`}
-                    title={`${device.name} · ${device.width}×${device.height} · DPR ${device.dpr}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={enabledBuiltinIds.has(device.id)}
-                      onChange={(e) =>
-                        void setBuiltinEnabled(device.id, e.target.checked)
-                      }
-                    />
-                    <span className="browser-settings-device-item-main">
-                      <span className="browser-settings-device-item-name">
-                        {device.name}
-                        {isActive && (
-                          <span className="browser-settings-device-badge is-active">
-                            {t("settings.browserDeviceActive")}
-                          </span>
-                        )}
-                      </span>
-                      <span className="browser-settings-device-item-dims">
-                        {device.width} × {device.height} · DPR {device.dpr} ·{" "}
-                        {device.mobile
-                          ? t("settings.browserDeviceMobile")
-                          : t("settings.browserDeviceDesktop")}
-                      </span>
+              {filteredBuiltin.map((device) => (
+                <label
+                  key={device.id}
+                  className="browser-settings-device-item"
+                  title={`${device.name} · ${device.width}×${device.height} · DPR ${device.dpr}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabledBuiltinIds.has(device.id)}
+                    onChange={(e) =>
+                      void setBuiltinEnabled(device.id, e.target.checked)
+                    }
+                  />
+                  <span className="browser-settings-device-item-main">
+                    <span className="browser-settings-device-item-name">
+                      {device.name}
                     </span>
-                  </label>
-                );
-              })}
+                    <span className="browser-settings-device-item-dims">
+                      {device.width} × {device.height} · DPR {device.dpr} ·{" "}
+                      {device.mobile
+                        ? t("settings.browserDeviceMobile")
+                        : t("settings.browserDeviceDesktop")}
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
           )}
         </div>

@@ -763,6 +763,23 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       );
     }, []);
 
+    // 显示尺寸按浏览器 tab 独立保存：切换设备只写回当前 tab 的数据。
+    const handleBrowserDisplayDeviceChange = useCallback(
+      (tabId: string, displayDeviceId: string) => {
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === tabId && tab.type === "browser"
+              ? {
+                  ...tab,
+                  data: { ...(tab.data as BrowserTabData), displayDeviceId },
+                }
+              : tab,
+          ),
+        );
+      },
+      [],
+    );
+
     // 打开（或切换到已存在的）代码库数据 tab。tab id 固定，避免同一时间
     // 存在多个代码库 tab；切换项目时通过更新 data 复用同一个 tab。
     const handleOpenCodebaseTab = useCallback(
@@ -2249,6 +2266,10 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               isActive={isTabActive}
               isPanelCollapsed={isCollapsed && !isDetachedWindow}
               projectId={activeDirectory?.directoryId}
+              displayDeviceId={(tab.data as BrowserTabData).displayDeviceId}
+              onDisplayDeviceChange={(id) =>
+                handleBrowserDisplayDeviceChange(tab.id, id)
+              }
               agentAccess={(tab.data as BrowserTabData).agentAccess}
               detached={isDetachedWindow}
               onRestoreToTabs={

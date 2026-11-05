@@ -93,7 +93,6 @@ export const zhTW: Record<string, string> = {
   "remote.todos.statusCompleted": "已完成",
 
   // 回滾（與桌面 RollbackConfirmDialog 同源的手機端確認彈層）
-  "remote.rollback.action": "回滾",
   "remote.rollback.actionHint": "回滾到這則訊息",
   "remote.rollback.title": "回滾會話",
   "remote.rollback.close": "關閉",
@@ -341,6 +340,28 @@ export const zhTW: Record<string, string> = {
   "remote.message.folder": "資料夾",
   "remote.message.file": "檔案",
   "remote.message.reference": "引用",
+
+  // 訊息操作列（氣泡外，與桌面 UserMessageActions / AiResponseActions 對齊）
+  "remote.message.copy": "複製",
+  "remote.message.copyAsText": "複製為純文字",
+  "remote.message.copyAsMarkdown": "複製為 Markdown",
+  "remote.message.copied": "已複製",
+  "remote.message.copyFailed": "複製失敗",
+  "remote.message.edit": "編輯到輸入框",
+  "remote.message.editUnavailable": "輸入框暫時無法使用，無法編輯",
+  "remote.message.raw": "檢視原始 Markdown",
+  "remote.message.rendered": "檢視渲染結果",
+  "remote.message.fork": "建立分支會話",
+  "remote.message.forked": "已建立分支會話",
+  "remote.message.forkUnavailable": "目前沒有可分支的會話",
+  "remote.message.stats": "執行統計",
+  "remote.message.stats.duration": "耗時",
+  "remote.message.stats.ttft": "首字",
+  "remote.message.stats.tokens": "Token",
+  "remote.message.stats.speed": "速度",
+  "remote.message.stats.cacheWrite": "快取寫入",
+  "remote.message.stats.cacheRead": "快取命中",
+  "remote.message.stats.model": "模型",
 
   // 授權 / 提問卡片
   "remote.interaction.authRequired": "需要授權 · {{name}}",

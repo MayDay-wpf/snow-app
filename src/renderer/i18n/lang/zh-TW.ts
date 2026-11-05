@@ -4940,6 +4940,8 @@ export const zhTW = {
   "browser.suggestionRemove": "從瀏覽記錄中移除",
   "browser.screenshot": "截圖",
   "browser.screenshotTitle": "截取頁面到剪貼簿",
+  "browser.screenshotCopied": "截圖已複製到剪貼簿",
+  "browser.screenshotFailed": "截圖失敗，請重試",
   "browser.downloadsTitle": "下載內容",
   "browser.downloadsHint": "檢視、開啟或定位已下載的檔案",
   "browser.downloadsEmpty": "暫無下載",

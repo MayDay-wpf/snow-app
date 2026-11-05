@@ -8,7 +8,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, Copy, Type } from "lucide-react";
 import { useI18n } from "../../../../i18n";
-import { stripMarkdown } from "../utils/stripMarkdown";
+import { stripMarkdown } from "../../../../../shared/stripMarkdown";
 
 type MessageCopyButtonProps = {
   content: string;

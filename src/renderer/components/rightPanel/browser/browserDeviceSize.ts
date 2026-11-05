@@ -3,19 +3,17 @@ import { useCallback, useEffect, useState } from "react";
 // ---------------------------------------------------------------------------
 // 浏览器「显示尺寸」设备目录与配置。
 //
-// 三份配置均持久化到系统设置库（Rust SQLite，经 settings:get/set-system-setting）：
-//   - browser_display_size            当前选中的设备 id（"default" = 不约束）
+// 以下配置持久化到系统设置库（Rust SQLite，经 settings:get/set-system-setting）：
 //   - browser_display_devices_enabled 内置设备中显示在菜单里的 id 列表
 //   - browser_display_devices_custom  自定义设备（视口 + 像素比 + UA 覆盖）
 //
-// 选中设备生效时分两层（见 BrowserPanelContent / main/browser/browserDeviceEmulation）：
+// 选中的设备属于单个浏览器 tab（BrowserTabData.displayDeviceId），不在此全局
+// 保存。选中设备生效时分两层（见 BrowserPanelContent / main/browser/browserDeviceEmulation）：
 //   - 宽高：webview 元素 CSS 尺寸约束（--device-size-width/height）；
 //   - DPR / 移动端屏幕类型 / User-Agent：经 IPC 在主进程对 guest webContents
 //     应用 enableDeviceEmulation + setUserAgent。
 // ---------------------------------------------------------------------------
 
-export const BROWSER_DEVICE_SIZE_SETTING_NAME = "Browser display size";
-export const BROWSER_DEVICE_SIZE_SETTING_CODE = "browser_display_size";
 export const BROWSER_DEVICE_ENABLED_SETTING_NAME =
   "Browser display devices enabled";
 export const BROWSER_DEVICE_ENABLED_SETTING_CODE =
@@ -293,7 +291,6 @@ export const resolveDeviceUserAgent = (
 // ---------------------------------------------------------------------------
 
 type DeviceState = {
-  selectedId: string;
   enabledIds: string[];
   customDevices: BrowserDisplayDevice[];
 };
@@ -374,7 +371,6 @@ const readStateJson = (value: string | null): unknown => {
 };
 
 let state: DeviceState = {
-  selectedId: DEFAULT_BROWSER_DEVICE_SIZE_ID,
   enabledIds: [...DEFAULT_ENABLED_DEVICE_IDS],
   customDevices: [],
 };
@@ -388,30 +384,11 @@ const notifySubscribers = (): void => {
   }
 };
 
-const normalizeDeviceId = (
-  value: unknown,
-  customDevices: BrowserDisplayDevice[],
-): string => {
-  if (typeof value !== "string" || !value.trim()) {
-    return DEFAULT_BROWSER_DEVICE_SIZE_ID;
-  }
-  const id = value.trim();
-  if (id === DEFAULT_BROWSER_DEVICE_SIZE_ID) {
-    return id;
-  }
-  const isKnown =
-    BUILTIN_DEVICE_INDEX.has(id) ||
-    customDevices.some((device) => device.id === id);
-  return isKnown ? id : DEFAULT_BROWSER_DEVICE_SIZE_ID;
-};
-
 const loadDeviceState = async (): Promise<void> => {
-  let selectedId = DEFAULT_BROWSER_DEVICE_SIZE_ID;
   let enabledIds: string[] = [...DEFAULT_ENABLED_DEVICE_IDS];
   let customDevices: BrowserDisplayDevice[] = [];
   try {
-    const [selectedRaw, enabledRaw, customRaw] = await Promise.all([
-      window.snow.getSystemSettingValue(BROWSER_DEVICE_SIZE_SETTING_CODE),
+    const [enabledRaw, customRaw] = await Promise.all([
       window.snow.getSystemSettingValue(BROWSER_DEVICE_ENABLED_SETTING_CODE),
       window.snow.getSystemSettingValue(BROWSER_DEVICE_CUSTOM_SETTING_CODE),
     ]);
@@ -420,11 +397,10 @@ const loadDeviceState = async (): Promise<void> => {
     if (enabled !== null) {
       enabledIds = enabled;
     }
-    selectedId = normalizeDeviceId(readStateJson(selectedRaw), customDevices);
   } catch {
-    // 读取失败：保持默认值（不约束视口 + 默认启用列表）。
+    // 读取失败：保持默认值（默认启用列表 + 无自定义设备）。
   }
-  state = { selectedId, enabledIds, customDevices };
+  state = { enabledIds, customDevices };
   notifySubscribers();
 };
 
@@ -454,20 +430,19 @@ const persistSetting = async (
 };
 
 /**
- * 浏览器显示尺寸设备配置：选中设备 + 菜单启用列表 + 自定义设备的读写。
+ * 浏览器显示尺寸设备配置：菜单启用列表 + 自定义设备的读写。
  * 全部实例共享同步（模块级缓存 + 全局事件），数据经 Rust 设置库持久化。
+ * 某个 tab 使用哪台设备由该 tab 的 displayDeviceId 决定，本 hook 只负责
+ * 设备目录与解析，避免尺寸选择串到其它 tab。
  */
 export function useBrowserDisplayDevices(): {
-  /** 当前选中设备 id（"default" = 不约束，占满内容区） */
-  selectedDeviceId: string;
-  /** 当前选中设备（"default" 或未知 id 时为 null） */
-  selectedDevice: BrowserDisplayDevice | null;
   /** 菜单展示的设备列表（启用的内置设备 + 全部自定义设备） */
   menuDevices: BrowserDisplayDevice[];
   builtinDevices: readonly BrowserDisplayDevice[];
   customDevices: readonly BrowserDisplayDevice[];
   enabledBuiltinIds: ReadonlySet<string>;
-  setSelectedDevice: (id: string) => Promise<void>;
+  /** 解析设备 id（"default" / 未知 id 为 null，即不约束视口） */
+  resolveDevice: (id: string | undefined) => BrowserDisplayDevice | null;
   setBuiltinEnabled: (id: string, enabled: boolean) => Promise<void>;
   addCustomDevice: (input: CustomDeviceInput) => Promise<BrowserDisplayDevice>;
   updateCustomDevice: (device: BrowserDisplayDevice) => Promise<void>;
@@ -484,17 +459,21 @@ export function useBrowserDisplayDevices(): {
     };
   }, []);
 
-  const setSelectedDevice = useCallback(async (id: string) => {
-    const normalized = normalizeDeviceId(id, state.customDevices);
-    await persistSetting(
-      BROWSER_DEVICE_SIZE_SETTING_NAME,
-      BROWSER_DEVICE_SIZE_SETTING_CODE,
-      normalized,
-    );
-    state = { ...state, selectedId: normalized };
-    notifySubscribers();
-    window.dispatchEvent(new Event(BROWSER_DEVICE_SIZE_CHANGED_EVENT));
-  }, []);
+  const customDevices = state.customDevices;
+  // 设备目录变化时返回新函数，依赖它的组件会重新解析当前设备。
+  const resolveDevice = useCallback(
+    (id: string | undefined): BrowserDisplayDevice | null => {
+      if (!id || id === DEFAULT_BROWSER_DEVICE_SIZE_ID) {
+        return null;
+      }
+      return (
+        BUILTIN_DEVICE_INDEX.get(id) ??
+        customDevices.find((device) => device.id === id) ??
+        null
+      );
+    },
+    [customDevices],
+  );
 
   const setBuiltinEnabled = useCallback(
     async (id: string, enabled: boolean) => {
@@ -578,29 +557,11 @@ export function useBrowserDisplayDevices(): {
       BROWSER_DEVICE_CUSTOM_SETTING_CODE,
       next,
     );
-    // 删除的设备正在使用时回落到「默认」，避免悬挂引用。
-    const selectedId =
-      state.selectedId === id
-        ? DEFAULT_BROWSER_DEVICE_SIZE_ID
-        : state.selectedId;
-    if (selectedId !== state.selectedId) {
-      await persistSetting(
-        BROWSER_DEVICE_SIZE_SETTING_NAME,
-        BROWSER_DEVICE_SIZE_SETTING_CODE,
-        selectedId,
-      );
-    }
-    state = { selectedId, enabledIds: state.enabledIds, customDevices: next };
+    // 引用该设备的 tab 由 resolveDevice 解析为 null，自动回落到「默认」。
+    state = { enabledIds: state.enabledIds, customDevices: next };
     notifySubscribers();
     window.dispatchEvent(new Event(BROWSER_DEVICE_SIZE_CHANGED_EVENT));
   }, []);
-
-  const selectedDevice =
-    state.selectedId === DEFAULT_BROWSER_DEVICE_SIZE_ID
-      ? null
-      : (BUILTIN_DEVICE_INDEX.get(state.selectedId) ??
-        state.customDevices.find((device) => device.id === state.selectedId) ??
-        null);
 
   const menuDevices: BrowserDisplayDevice[] = [
     ...BUILTIN_BROWSER_DEVICES.filter((device) =>
@@ -610,28 +571,14 @@ export function useBrowserDisplayDevices(): {
   ];
 
   return {
-    selectedDeviceId: state.selectedId,
-    selectedDevice,
     menuDevices,
     builtinDevices: BUILTIN_BROWSER_DEVICES,
     customDevices: state.customDevices,
     enabledBuiltinIds: new Set(state.enabledIds),
-    setSelectedDevice,
+    resolveDevice,
     setBuiltinEnabled,
     addCustomDevice,
     updateCustomDevice,
     removeCustomDevice,
   };
 }
-
-/** 按 id 查找设备（内置 + 自定义缓存；"default" 返回 null）。 */
-export const findDeviceById = (id: string): BrowserDisplayDevice | null => {
-  if (id === DEFAULT_BROWSER_DEVICE_SIZE_ID) {
-    return null;
-  }
-  return (
-    BUILTIN_DEVICE_INDEX.get(id) ??
-    state.customDevices.find((device) => device.id === id) ??
-    null
-  );
-};
