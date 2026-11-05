@@ -1,5 +1,38 @@
 # Release Notes
 
+## v0.5.12
+
+### New Features
+
+- **Local Data Backup**: `~/.snowapp` is backed up as a whole - SQLite snapshots come from the Online Backup API and resource files are stored as deduplicated 8 MB content blocks, so later backups only write changed blocks; a restore writes resources back immediately and swaps the database atomically on the next launch. The main process schedules backups (on quit, every N hours or daily, optionally catching up after a system wake) with directory, retention count and progress in settings.
+- **Mobile Git Panel**: the phone UI gains a Git chip with Branch and Changes tabs over new `/api/git` endpoints - repository summary, branches, worktrees, change status, single-file diff, stage, commit - with validation of branch names, paths and commit messages.
+- **Mobile Message Actions and Stream Cursor**: phone messages get the desktop action bar (copy, edit into the input, raw markdown, fork, run stats), and all six stream cursors render on the phone as well.
+- **Background Tasks Tab**: detached bash commands are kept in a persisted registry and listed in a Background tab where they can be focused, killed or forgotten; the bash card badge jumps to and highlights the task.
+- **Terminal Diagnostics**: bash output is split into data and diagnostics (error/warning lines with ranges), exit codes are read by tool semantics so a `grep` miss is not a failure, and termination signals are recorded; desktop and mobile color the output by diagnosis.
+- **Plugin Market and HTML Preview**: HTML files open in the built-in browser instead of an in-session preview card; community plugins install from the latest GitHub Release with version comparison and updates, and repositories without releases are hidden; the global Skill switch now acts as a master switch.
+- **Persistent Right Panel Layout**: split groups, their tabs and the active item are saved and restored after a restart.
+- **Process Sampling Log**: process metrics and LSP session data can be sampled on an interval from the task manager.
+
+### Improvements
+
+- Sensitive-operation matching moved into one Rust guard shared by bash, terminal input, computer-use typing and config writes (hooks, scheduled-task scripts, MCP stdio commands); rule changes always need confirmation, even in YOLO mode, and confirmation cards highlight the matched keywords.
+- Retrying a failed round reuses the dropped context, replaces only the failed helper line and keeps the tool results that already completed.
+- SQLite gets a connection pool and codebase vectors move to BLOB + norm storage with on-demand migration; request brokering is enabled only when a proxy script exists, and PTY output and directory watching update incrementally.
+- Codebase settings manage embedding and reranking models, with jump links to the API settings.
+- Checkpoints compare files in streamed chunks and remote classification matches size + BLAKE3 id without reading object content; files above the size limit are no longer captured, and remote restore skips oversized objects.
+- The UI font family now applies everywhere, including the mobile UI, and syncs across windows; WorkFlow nodes run through the same hook gate as the main loop.
+- Local project directories are verified in one batch at startup and missing ones are badged in the sidebar; MCP and Skills lists refresh when switching between global and project scope.
+- The automatic scrolling preference is removed: output always follows the bottom and only pauses while you scroll up.
+
+### Bug Fixes
+
+- IME composition at the end of the input no longer inserts plain English: the caret is placed inside the last text node.
+- Closing a tab keeps the neighbor active instead of jumping to the group's first tab; single-tab panels no longer offer split drop points while dragging.
+- Discarding changes handles Windows special paths and `core.quotePath` escaping.
+- Background tasks only appear in the project that started them, and sensitive-command judging follows the default decision-model entry when no model is set.
+- The chat item hover card no longer sticks after the window loses focus, and the TODO entry is embedded in the right conversation panel without registering global shortcuts.
+- Community plugin counts no longer include official repositories, and pet chat keeps inline images when context is skipped.
+
 ## v0.5.11
 
 ## New Features
