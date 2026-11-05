@@ -1030,3 +1030,14 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
     },
   );
 };
+
+/**
+ * 启动体检：批量校验全部项目路径后广播刷新。
+ * 目录在应用外被移动后，不点开项目也能在侧边栏看到失效徽章。
+ */
+export const refreshWorkspaceDirectoryHealth = async (
+  native: NativeBridge,
+): Promise<void> => {
+  await native.verifyAllWorkspaceDirectories();
+  broadcastDirectoryListChanged();
+};

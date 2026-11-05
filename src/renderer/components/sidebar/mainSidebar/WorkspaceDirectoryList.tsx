@@ -85,7 +85,6 @@ type WorkspaceDirectoryListProps = {
   /** 查看该项目的迁移记录（含撤销入口） */
   onShowRelinkHistory?: (directoryId: string) => void;
   onToggleCollection: (collectionId: string) => void;
-  totalCount: number;
   visibleDirectories: WorkspaceDirectoryRecord[];
   workspaceDirectories: WorkspaceDirectoryRecord[];
 };
@@ -127,7 +126,6 @@ export function WorkspaceDirectoryList({
   onShowDetails,
   onShowRelinkHistory,
   onToggleCollection,
-  totalCount,
   visibleDirectories,
   workspaceDirectories,
 }: WorkspaceDirectoryListProps): React.JSX.Element {
@@ -400,7 +398,6 @@ export function WorkspaceDirectoryList({
             hasActiveSession={
               activeSessionDirectoryIds?.has(directory.directoryId) ?? false
             }
-            index={0}
             isActionLocked={isActionLocked}
             isEditing={false}
             key={directory.directoryId}
@@ -437,8 +434,6 @@ export function WorkspaceDirectoryList({
             onRenameSubmit={handleRenameSubmit}
             onShowDetails={onShowDetails}
             onShowRelinkHistory={onShowRelinkHistory}
-            showIndex={false}
-            totalCount={0}
           />
         ))}
       </div>
@@ -609,7 +604,7 @@ export function WorkspaceDirectoryList({
           </span>
         ) : (
           <>
-            {visibleDirectories.map((directory, index) => (
+            {visibleDirectories.map((directory) => (
               <WorkspaceDirectoryRow
                 activeDirectoryId={activeDirectoryId}
                 directory={directory}
@@ -621,7 +616,6 @@ export function WorkspaceDirectoryList({
                 hasActiveSession={
                   activeSessionDirectoryIds?.has(directory.directoryId) ?? false
                 }
-                index={index}
                 isActionLocked={isActionLocked}
                 isEditing={editingDirectoryId === directory.directoryId}
                 key={directory.directoryId}
@@ -641,7 +635,6 @@ export function WorkspaceDirectoryList({
                 onRenameSubmit={handleRenameSubmit}
                 onShowDetails={onShowDetails}
                 onShowRelinkHistory={onShowRelinkHistory}
-                totalCount={totalCount}
               />
             ))}
             {hasMoreDirectories ? (

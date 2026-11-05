@@ -88,6 +88,8 @@ export function SkillsSettingsPanel({
   // loadedScopeKey 的镜像：失败分支要在回调里判断「现有数据属于哪个项目」，
   // 直接读 state 会把 loadedScopeKey 拖进 loadSkills 依赖，触发重载循环。
   const loadedScopeKeyRef = useRef<string | null>(null);
+  // 上一次的全局/项目 Tab，用于切换时自动刷新
+  const previousScopeRef = useRef<SkillsScope>(activeScope);
   const scopeKey = activeDirectory?.directoryId ?? "";
   const isScopeStale = loadedScopeKey !== null && loadedScopeKey !== scopeKey;
 
@@ -344,6 +346,15 @@ export function SkillsSettingsPanel({
   useEffect(() => {
     void loadSkills();
   }, [loadSkills]);
+
+  // 全局/项目 Tab 切换后自动刷新列表
+  useEffect(() => {
+    if (previousScopeRef.current === activeScope) {
+      return;
+    }
+    previousScopeRef.current = activeScope;
+    void loadSkills();
+  }, [activeScope, loadSkills]);
 
   useEffect(() => {
     if (!activeDirectory && activeScope === "project") {

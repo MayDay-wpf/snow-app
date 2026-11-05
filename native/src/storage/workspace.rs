@@ -37,6 +37,12 @@ pub fn verify_workspace_directory(
     services::workspace_directory_health::verify_workspace_directory(&database_path, &directory_id)
 }
 
+/// 启动体检：批量校验全部本地项目路径（远端目录跳过）。
+pub fn verify_all_workspace_directories() -> Result<Vec<WorkspaceDirectoryVerifyReport>> {
+    let database_path = ensure_database_file()?;
+    services::workspace_directory_health::verify_all_workspace_directories(&database_path)
+}
+
 pub fn relink_workspace_directory(
     old_directory_id: String,
     new_path: String,

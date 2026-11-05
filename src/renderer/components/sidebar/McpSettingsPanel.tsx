@@ -159,6 +159,8 @@ export function McpSettingsPanel({
   // 正在进行后台工具发现的服务器（按 scope 服务器 id 去重），
   // 避免同一台服务器被并发发现两次。
   const discoveringServerIdsRef = useRef<Set<string>>(new Set());
+  // 上一次的全局/项目 Tab，用于切换时自动刷新
+  const previousScopeRef = useRef<McpScope>(activeScope);
 
   const isBusy = isLoading || isSaving;
 
@@ -335,9 +337,65 @@ export function McpSettingsPanel({
     }
   }, [activeDirectory, t, discoverPendingProjectServers]);
 
+  /**
+   * 切换全局/项目 Tab 时刷新当前范围的列表。不推进 loadGeneration，
+   * 避免打断进行中的保存（保存完成时会校验 generation）。
+   */
+  const refreshActiveScope = useCallback(async (): Promise<void> => {
+    const generation = loadGenerationRef.current;
+    setError("");
+    try {
+      if (activeScope === "global") {
+        const [items, builtinItems] = await Promise.all([
+          window.snow.listMcpServerConfigs(),
+          window.snow.listMcpGlobalBuiltinServers(),
+        ]);
+        if (loadGenerationRef.current !== generation) {
+          return;
+        }
+        setServers(items);
+        setGlobalBuiltinServers(builtinItems);
+        setToolsByServerId((previous) => ({
+          ...previous,
+          ...toGlobalBuiltinTools(builtinItems),
+        }));
+        return;
+      }
+      const projectId = activeDirectory?.directoryId;
+      if (!projectId) {
+        return;
+      }
+      const configs = await window.snow.listProjectMcpServerConfigs(projectId);
+      if (loadGenerationRef.current !== generation) {
+        return;
+      }
+      setProjectServerConfigs(configs);
+      await refreshProjectServers(projectId, generation);
+    } catch (refreshError) {
+      if (loadGenerationRef.current === generation) {
+        setError(
+          refreshError instanceof Error
+            ? refreshError.message
+            : t("settings.mcpLoadError", {
+                defaultValue: "Failed to load MCP servers",
+              }),
+        );
+      }
+    }
+  }, [activeScope, activeDirectory, refreshProjectServers, t]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 全局/项目 Tab 切换后自动刷新列表
+  useEffect(() => {
+    if (previousScopeRef.current === activeScope) {
+      return;
+    }
+    previousScopeRef.current = activeScope;
+    void refreshActiveScope();
+  }, [activeScope, refreshActiveScope]);
 
   useEffect(() => {
     if (!activeDirectory && activeScope === "project") {

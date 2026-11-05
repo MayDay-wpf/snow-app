@@ -242,3 +242,131 @@ pub fn verify_workspace_directory(
         last_known_path: row.last_known_path,
     })
 }
+
+/// 一条待回写的体检结果：identity 仅在路径可用时存在（用于刷新 fs_identity）。
+struct HealthProbe {
+    report: WorkspaceDirectoryVerifyReport,
+    identity: Option<String>,
+}
+
+/// 读取全部目录行，顺序与侧边栏一致。
+fn load_directory_rows(database_path: &Path) -> Result<Vec<DirectoryRow>> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT directory_id, path, kind, last_known_path
+                   FROM workspace_directories
+                  ORDER BY sort_order ASC, id ASC",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok(DirectoryRow {
+                    directory_id: row.get(0)?,
+                    path: row.get(1)?,
+                    kind: row.get(2)?,
+                    last_known_path: row.get(3)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "list workspace directory paths", error)
+        })
+}
+
+/// 锁外磁盘探测：SSH 目录与空路径不参与体检。
+fn probe_row(row: DirectoryRow) -> Option<HealthProbe> {
+    if row.kind == KIND_SSH || row.path.trim().is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(&row.path);
+    let state = classify_path(&path);
+    let healthy = state == STATE_OK;
+    let identity = if healthy {
+        Some(fs_identity(&path))
+    } else {
+        None
+    };
+    let last_known_path = if healthy {
+        row.path.clone()
+    } else {
+        row.last_known_path
+    };
+
+    Some(HealthProbe {
+        report: WorkspaceDirectoryVerifyReport {
+            directory_id: row.directory_id,
+            path: row.path,
+            kind: row.kind,
+            state,
+            last_known_path,
+        },
+        identity,
+    })
+}
+
+fn persist_probes(
+    connection: &rusqlite::Connection,
+    probes: &[HealthProbe],
+) -> rusqlite::Result<()> {
+    for probe in probes {
+        match probe.identity.as_deref() {
+            Some(identity) => {
+                connection.execute(
+                    "UPDATE workspace_directories
+                        SET path_state = ?1,
+                            path_checked_at = datetime('now', 'localtime'),
+                            fs_identity = ?2,
+                            last_known_path = ?3
+                      WHERE directory_id = ?4",
+                    params![
+                        probe.report.state,
+                        identity,
+                        probe.report.last_known_path,
+                        probe.report.directory_id
+                    ],
+                )?;
+            }
+            None => {
+                connection.execute(
+                    "UPDATE workspace_directories
+                        SET path_state = ?1,
+                            path_checked_at = datetime('now', 'localtime')
+                      WHERE directory_id = ?2",
+                    params![probe.report.state, probe.report.directory_id],
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 启动体检：批量校验全部本地目录的路径健康度。
+/// 磁盘探测在写锁外完成，写锁只覆盖状态回写，避免文件系统调用拖住其它写入。
+pub fn verify_all_workspace_directories(
+    database_path: &Path,
+) -> Result<Vec<WorkspaceDirectoryVerifyReport>> {
+    let probes: Vec<HealthProbe> = load_directory_rows(database_path)?
+        .into_iter()
+        .filter_map(probe_row)
+        .collect();
+
+    if probes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    database::with_write_lock(|| {
+        database::with_write_retry(
+            || {
+                database::open_connection(database_path)
+                    .and_then(|connection| persist_probes(&connection, &probes))
+            },
+            "persist workspace directory path states",
+        )
+    })
+    .map_err(|error| {
+        database::database_error(database_path, "verify all workspace directories", error)
+    })?;
+
+    Ok(probes.into_iter().map(|probe| probe.report).collect())
+}

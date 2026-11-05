@@ -1,4 +1,4 @@
-import { FolderX, HardDriveDownload, Server, ShieldAlert } from "lucide-react";
+import { Server } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 
@@ -6,14 +6,13 @@ import { useI18n } from "../../../i18n";
 import { useSshConnectionStatus } from "../../../ssh/sshConnectionStore";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import type { WorkspaceDirectoryRecord } from "../../../../preload";
+import { DirectoryPathBadge } from "./DirectoryPathBadge";
 import { SshConnectionBadge } from "./SshConnectionBadge";
 import { WorkspaceDirectoryMenu } from "./WorkspaceDirectoryMenu";
 
 type WorkspaceDirectoryRowProps = {
   directory: WorkspaceDirectoryRecord;
   displayName?: string;
-  index: number;
-  totalCount: number;
   activeDirectoryId?: string;
   isActionLocked: boolean;
   draggedDirectoryId: string | null;
@@ -27,8 +26,6 @@ type WorkspaceDirectoryRowProps = {
   notificationCount?: number;
   /** 是否可拖拽（默认 true） */
   draggable?: boolean;
-  /** 合集成员行不显示序号 */
-  showIndex?: boolean;
   /** 关联项目组统一颜色：参与关联的成员行渲染同色圆点标识 */
   collectionColor?: string;
   /** 关联项目组名称（圆点悬停提示） */
@@ -72,13 +69,6 @@ export const getDirectoryIcon = (
   });
 };
 
-const FAILED_PATH_STATES = [
-  "missing",
-  "mismatch",
-  "offline",
-  "permission_error",
-];
-
 /**
  * 单条目录行：按钮菜单与右键菜单状态都在本组件内独立管理
  * （与 ChatItem 的右键交互模式一致），避免多行共享锚点导致
@@ -87,8 +77,6 @@ const FAILED_PATH_STATES = [
 export function WorkspaceDirectoryRow({
   directory,
   displayName,
-  index,
-  totalCount,
   activeDirectoryId,
   isActionLocked,
   draggedDirectoryId,
@@ -98,7 +86,6 @@ export function WorkspaceDirectoryRow({
   hasActiveSession,
   notificationCount,
   draggable = true,
-  showIndex = true,
   collectionColor,
   collectionName,
   memberLinked = false,
@@ -141,36 +128,6 @@ export function WorkspaceDirectoryRow({
   const isActive = directory.directoryId === activeDirectoryId;
   // 非 SSH 目录返回 null，不渲染徽标
   const sshStatus = useSshConnectionStatus(directory);
-
-  // 路径健康徽标：仅在磁盘校验失败的状态下展示，点击行即可触发重新定位。
-  const hasFailedPath =
-    directory.kind !== "ssh" &&
-    FAILED_PATH_STATES.includes(directory.pathState);
-  const pathStateBadge = !hasFailedPath
-    ? null
-    : directory.pathState === "offline"
-      ? {
-          className: "offline",
-          icon: <HardDriveDownload size={11} />,
-          label: t("sidebar.directoryPathOffline", {
-            defaultValue: "Disk not mounted",
-          }),
-        }
-      : directory.pathState === "permission_error"
-        ? {
-            className: "permission",
-            icon: <ShieldAlert size={11} />,
-            label: t("sidebar.directoryPathPermission", {
-              defaultValue: "Permission denied",
-            }),
-          }
-        : {
-            className: "missing",
-            icon: <FolderX size={11} />,
-            label: t("sidebar.directoryPathMissing", {
-              defaultValue: "Location not found",
-            }),
-          };
 
   const handleDragStart = (
     event: DragEvent<HTMLDivElement>,
@@ -280,16 +237,7 @@ export function WorkspaceDirectoryRow({
           {getDirectoryIcon(directory)}
           <span className="list-label">{displayName ?? directory.name}</span>
           {sshStatus ? <SshConnectionBadge status={sshStatus} /> : null}
-          {pathStateBadge ? (
-            <span
-              className={`workspace-directory-path-badge ${pathStateBadge.className}`}
-              title={`${pathStateBadge.label}${
-                directory.lastKnownPath ? ` · ${directory.lastKnownPath}` : ""
-              }`}
-            >
-              {pathStateBadge.icon}
-            </span>
-          ) : null}
+          <DirectoryPathBadge directory={directory} />
           {notificationCount ? (
             <span
               className="workspace-directory-notification-badge"
@@ -299,11 +247,6 @@ export function WorkspaceDirectoryRow({
               })}
             >
               {notificationCount}
-            </span>
-          ) : null}
-          {showIndex ? (
-            <span className="workspace-directory-index">
-              {index + 1}/{totalCount}
             </span>
           ) : null}
         </button>

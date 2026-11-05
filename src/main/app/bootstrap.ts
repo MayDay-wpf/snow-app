@@ -15,6 +15,7 @@ import { lockAppOnStartup } from "./appLock";
 import { initTray } from "./tray";
 import { registerGlobalShortcuts } from "./globalShortcuts";
 import { registerIpcHandlers } from "../ipc/registerIpcHandlers";
+import { refreshWorkspaceDirectoryHealth } from "../ipc/handlers/workspaceHandlers";
 import { native, getRawNative } from "../native/nativeBridge";
 import { installGuestViewErrorFilter } from "../utils/guestViewErrorFilter";
 import { flushLogs, snowLog } from "../../utils/snowLogger";
@@ -330,6 +331,15 @@ export const bootstrapApplication = (): void => {
           // 老用户提前装过的同名宠物会被覆盖去重；安装失败不阻断启动。
           await ensureBuiltinPets(native).catch(() => undefined);
           await restorePetWindow(native);
+          // 后台体检项目路径：目录在应用外被移动后无需点击即可亮失效徽章。
+          void refreshWorkspaceDirectoryHealth(native).catch((error) => {
+            snowLog.warn({
+              module: "app/bootstrap",
+              func: "refreshWorkspaceDirectoryHealth",
+              message: "Failed to verify workspace directory paths",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
         })
         .catch((error) => {
           console.error("Failed to initialize application storage:", error);

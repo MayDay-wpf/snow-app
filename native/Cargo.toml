@@ -62,7 +62,6 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 aes = "0.8"
 aes-gcm = "0.10"
 cbc = "0.1"
-chacha20poly1305 = "0.10"
 cipher = "0.4"
 des = "0.8"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
@@ -104,6 +103,9 @@ native-tls = "0.2"
 tokio-native-tls = "0.3"
 
 [target.'cfg(windows)'.dependencies]
+# Chrome 133-136 App-Bound 附加层（ChaCha20-Poly1305）只在 Windows 分支使用，
+# 放在目标专属依赖里，避免其它平台报 unused dependency。
+chacha20poly1305 = "0.10"
 winreg = "0.55"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

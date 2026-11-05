@@ -270,7 +270,6 @@ export function ProjectsSection({
             onShowDetails={handleShowDetails}
             onShowRelinkHistory={handleShowRelinkHistory}
             onToggleCollection={handleToggleCollectionExpanded}
-            totalCount={topLevelDirectories.length}
             visibleDirectories={visibleDirectories}
             workspaceDirectories={workspaceDirectories}
           />

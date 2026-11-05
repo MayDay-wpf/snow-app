@@ -2925,13 +2925,6 @@ body.is-panel-resizing * {
   cursor: pointer;
 }
 
-.workspace-directory-index {
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
 /* ===== 项目合集（project collections） ===== */
 
 .project-collections {
@@ -63918,6 +63911,35 @@ img.plugin-icon {
   .tree-project-row-wrap.has-status-dot.has-notification-badge
   .workspace-directory-actions-wrapper {
   right: 38px;
+}
+
+/* 路径失效徽标与通知角标同宽，按行尾同时出现的徽标组合为悬浮按钮让位 */
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-path-badge)
+  .workspace-directory-actions-wrapper {
+  right: 26px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-path-badge).has-status-dot
+  .workspace-directory-actions-wrapper {
+  right: 38px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(
+    .workspace-directory-path-badge
+  ).has-notification-badge
+  .workspace-directory-actions-wrapper {
+  right: 48px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(
+    .workspace-directory-path-badge
+  ).has-status-dot.has-notification-badge
+  .workspace-directory-actions-wrapper {
+  right: 60px;
 }
 
 /* SSH 连接徽标已由行右内边距预留槽位：悬浮菜单回到默认位置，不再压住徽标/呼吸灯 */

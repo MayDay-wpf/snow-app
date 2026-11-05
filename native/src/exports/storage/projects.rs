@@ -128,6 +128,14 @@ pub async fn verify_workspace_directory(
 }
 
 #[napi]
+pub async fn verify_all_workspace_directories(
+) -> napi::Result<Vec<WorkspaceDirectoryVerifyReport>> {
+    tokio::task::spawn_blocking(crate::storage::verify_all_workspace_directories)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn relink_workspace_directory(
     old_directory_id: String,
     new_path: String,

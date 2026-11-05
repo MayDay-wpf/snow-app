@@ -2757,6 +2757,9 @@ export type NativeBridge = ImageGenerationNativeApi & {
   verifyWorkspaceDirectory: (
     directoryId: string,
   ) => Promise<WorkspaceDirectoryVerifyReport>;
+  verifyAllWorkspaceDirectories: () => Promise<
+    WorkspaceDirectoryVerifyReport[]
+  >;
   relinkWorkspaceDirectory: (
     oldDirectoryId: string,
     newPath: string,

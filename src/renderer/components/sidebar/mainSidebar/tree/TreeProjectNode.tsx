@@ -6,6 +6,7 @@ import type { WorkspaceDirectoryRecord } from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
 import { useSshConnectionStatus } from "../../../../ssh/sshConnectionStore";
 import { Tooltip } from "../../../common/Tooltip";
+import { DirectoryPathBadge } from "../DirectoryPathBadge";
 import { SidebarCollapse } from "../SidebarCollapse";
 import { SshConnectionBadge } from "../SshConnectionBadge";
 import { WorkspaceDirectoryMenu } from "../WorkspaceDirectoryMenu";
@@ -288,6 +289,7 @@ export function TreeProjectNode({
                 {displayName ?? directory.name}
               </span>
               {sshStatus ? <SshConnectionBadge status={sshStatus} /> : null}
+              <DirectoryPathBadge directory={directory} />
               {hasActiveSession ? (
                 <span
                   className="tree-project-session-dot"
