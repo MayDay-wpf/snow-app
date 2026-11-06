@@ -380,14 +380,15 @@ export const BrowserPanelContent = ({
   const [downloads, setDownloads] = useState<BrowserDownloadItemEvent[]>([]);
   const browserContentRef = useRef<HTMLDivElement>(null);
   const { isCapturing, captureScreenshot } = useWebviewScreenshot(webviewRef);
-  // 截图结果提示：AutoDismissNotice 自动消失后清空
+  // 截图结果提示：AutoDismissNotice 自动消失后清空；seq 让重复提示重新计时
   const [screenshotNotice, setScreenshotNotice] = useState<{
     tone: "success" | "error";
     message: string;
+    seq: number;
   } | null>(null);
   const handleScreenshot = useCallback(async (): Promise<void> => {
     const ok = await captureScreenshot();
-    setScreenshotNotice({
+    setScreenshotNotice((prev) => ({
       tone: ok ? "success" : "error",
       message: ok
         ? t("browser.screenshotCopied", {
@@ -396,7 +397,8 @@ export const BrowserPanelContent = ({
         : t("browser.screenshotFailed", {
             defaultValue: "Screenshot failed",
           }),
-    });
+      seq: (prev?.seq ?? 0) + 1,
+    }));
   }, [captureScreenshot, t]);
   const {
     isPicking,
@@ -1429,6 +1431,7 @@ export const BrowserPanelContent = ({
         serverId={BROWSER_MCP_SERVER_ID}
       />
       <AutoDismissNotice
+        key={screenshotNotice?.seq ?? 0}
         message={screenshotNotice?.message ?? ""}
         tone={screenshotNotice?.tone ?? "success"}
         durationMs={2200}

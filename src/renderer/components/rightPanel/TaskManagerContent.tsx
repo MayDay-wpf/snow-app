@@ -788,7 +788,7 @@ export const TaskManagerContent = ({
         </p>
       )}
 
-      {/* 实时告警横幅（所有 Tab 可见；告警 Tab 内单独渲染设置面板） */}
+      {/* 实时告警提示：AutoDismissNotice 顶部浮层（所有 Tab 可见；告警 Tab 内单独渲染设置面板） */}
       <TaskManagerAlerts
         options={alertOptions}
         onOptionsChange={setAlertOptions}

@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 
@@ -36,15 +36,22 @@ export function AutoDismissNotice({
       ? durationMs
       : DEFAULT_DURATION_MS;
 
+  // 回调走 ref：父组件重渲染换了新函数也不重置计时，否则提示会比进度条晚消失
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
   useEffect(() => {
-    if (!message || !onDismiss) {
+    if (!message || !onDismissRef.current) {
       return;
     }
 
-    const timeoutId = window.setTimeout(onDismiss, resolvedDurationMs);
+    const timeoutId = window.setTimeout(
+      () => onDismissRef.current?.(),
+      resolvedDurationMs,
+    );
 
     return () => window.clearTimeout(timeoutId);
-  }, [message, onDismiss, resolvedDurationMs]);
+  }, [message, resolvedDurationMs]);
 
   if (!message) {
     return null;

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import { DoubleZapIcon } from "../../common/DoubleZapIcon";
+import { Tooltip } from "../../common/Tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
@@ -657,7 +658,6 @@ export const ModelSelector = ({
                     }}
                     role="button"
                     tabIndex={-1}
-                    title={config.displayName}
                   >
                     <span
                       className="model-dropdown-drag-handle"
@@ -670,10 +670,18 @@ export const ModelSelector = ({
                     >
                       <GripVertical size={12} />
                     </span>
-                    <span className="model-dropdown-item-name">
+                    <span
+                      className="model-dropdown-item-name"
+                      title={config.displayName}
+                    >
                       {config.displayName}
                     </span>
-                    <span className="model-dropdown-item-model">
+                    <span
+                      className="model-dropdown-item-model"
+                      title={
+                        config.advancedModel || config.basicModel || undefined
+                      }
+                    >
                       {(config.advancedModel || config.basicModel) && (
                         <ModelBrandIcon
                           model={
@@ -699,44 +707,50 @@ export const ModelSelector = ({
                         <Pin size={11} fill="currentColor" />
                       </span>
                     ) : (
-                      <button
-                        className="model-dropdown-pin-btn"
-                        aria-label={t("settings.clickToActivate", {
-                          defaultValue: "Click to enable this profile",
+                      <Tooltip
+                        content={t("settings.clickToActivate", {
+                          defaultValue: "Set as default profile",
                         })}
-                        title={t("settings.clickToActivate", {
-                          defaultValue: "Click to enable this profile",
+                      >
+                        <button
+                          className="model-dropdown-pin-btn"
+                          aria-label={t("settings.clickToActivate", {
+                            defaultValue: "Set as default profile",
+                          })}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleSetDefaultApiProfile(config);
+                          }}
+                          disabled={pendingDefaultProfile !== null}
+                          type="button"
+                        >
+                          {pendingDefaultProfile === config.profileName ? (
+                            <Loader2 size={12} className="spin" />
+                          ) : (
+                            <Pin size={12} />
+                          )}
+                        </button>
+                      </Tooltip>
+                    )}
+                    <Tooltip
+                      content={t("settings.apiEditTitle", {
+                        defaultValue: "Edit profile",
+                      })}
+                    >
+                      <button
+                        className="model-dropdown-edit-btn"
+                        aria-label={t("settings.apiEditTitle", {
+                          defaultValue: "Edit profile",
                         })}
                         onClick={(event) => {
                           event.stopPropagation();
-                          void handleSetDefaultApiProfile(config);
+                          setEditingApiConfig(config);
                         }}
-                        disabled={pendingDefaultProfile !== null}
                         type="button"
                       >
-                        {pendingDefaultProfile === config.profileName ? (
-                          <Loader2 size={12} className="spin" />
-                        ) : (
-                          <Pin size={12} />
-                        )}
+                        <Pencil size={12} />
                       </button>
-                    )}
-                    <button
-                      className="model-dropdown-edit-btn"
-                      aria-label={t("settings.apiEditTitle", {
-                        defaultValue: "Edit profile",
-                      })}
-                      title={t("settings.apiEditTitle", {
-                        defaultValue: "Edit profile",
-                      })}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setEditingApiConfig(config);
-                      }}
-                      type="button"
-                    >
-                      <Pencil size={12} />
-                    </button>
+                    </Tooltip>
                   </div>
                 ))}
               </div>

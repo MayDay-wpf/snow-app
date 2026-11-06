@@ -273,7 +273,7 @@ export function ApiSettingsTable({
                       defaultValue: "Enabled profile",
                     })
                   : t("settings.clickToActivate", {
-                      defaultValue: "Click to enable this profile",
+                      defaultValue: "Set as default profile",
                     });
                 const isSelected = selectedNameSet.has(config.profileName);
 

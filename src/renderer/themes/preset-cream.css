@@ -908,8 +908,7 @@
 
 :root[data-theme-preset="cream"]
   :is(
-    .scheduled-tasks-filter-tabs,
-    .scheduled-tasks-segmented,
+    .segmented-tabs,
     .scheduled-tasks-pre-script-body,
     .scheduled-task-prompt-content,
     .scheduled-task-history-item,
@@ -924,8 +923,7 @@
 :root[data-theme-preset="cream"]
   :is(
     .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active,
+    .segmented-tab.active,
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
@@ -946,8 +944,7 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
+    .segmented-tab,
     .scheduled-tasks-pre-script-toggle
   ):hover:not(:disabled) {
   background: var(--accent-orange-bg);

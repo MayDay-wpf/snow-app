@@ -1541,14 +1541,14 @@ export function McpSettingsPanel({
       />
 
       <div
-        className="skills-settings-tabs"
+        className="segmented-tabs segmented-tabs--spaced"
         role="tablist"
         aria-label={t("settings.mcpScopeTabs", {
           defaultValue: "MCP scope",
         })}
       >
         <button
-          className={`skills-settings-tab ${isGlobalScope ? "active" : ""}`}
+          className={`segmented-tab ${isGlobalScope ? "active" : ""}`}
           type="button"
           role="tab"
           aria-selected={isGlobalScope}
@@ -1561,7 +1561,7 @@ export function McpSettingsPanel({
           </small>
         </button>
         <button
-          className={`skills-settings-tab ${!isGlobalScope ? "active" : ""}`}
+          className={`segmented-tab ${!isGlobalScope ? "active" : ""}`}
           type="button"
           role="tab"
           aria-selected={!isGlobalScope}

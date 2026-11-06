@@ -1999,16 +1999,15 @@
   border-radius: var(--radius-lg);
 }
 
-:root[data-theme-preset="compact"]
-  :is(
-    .scheduled-tasks-filter-tabs,
-    .scheduled-tasks-segmented,
-    .memo-schedule-panel
-  ) {
+:root[data-theme-preset="compact"] :is(.segmented-tabs, .memo-schedule-panel) {
   border-color: var(--border-light);
   background: var(--bg-tertiary) !important;
   border-radius: var(--radius-md);
   padding: 2px !important;
+}
+
+:root[data-theme-preset="compact"] .segmented-tabs {
+  --segmented-inset: 2px;
 }
 
 :root[data-theme-preset="compact"]
@@ -2027,8 +2026,7 @@
 :root[data-theme-preset="compact"]
   :is(
     .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active,
+    .segmented-tab.active,
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
@@ -2044,11 +2042,7 @@
 
 /* Qoder 风格分段切换器：浅色下凸起纯白浮雕滑块 */
 :root[data-theme-preset="compact"][data-theme="light"]
-  :is(
-    .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active
-  ) {
+  :is(.memo-filter-tab.active, .segmented-tab.active) {
   background: #ffffff !important;
   color: var(--text-primary) !important;
   box-shadow:
@@ -2057,11 +2051,7 @@
 }
 
 :root[data-theme-preset="compact"][data-theme="dark"]
-  :is(
-    .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active
-  ) {
+  :is(.memo-filter-tab.active, .segmented-tab.active) {
   background: #262b32 !important;
   color: #f2f3f5 !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
@@ -2073,8 +2063,6 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
     .scheduled-tasks-pre-script-toggle
   ) {
   border-radius: var(--radius-md);
@@ -2087,8 +2075,7 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
+    .segmented-tab,
     .scheduled-tasks-pre-script-toggle
   ):hover:not(:disabled):not([aria-disabled="true"]):not(.active):not(
     .selected

@@ -385,12 +385,12 @@ export const PluginsPanel = ({
       <div className="plugins-panel-body">
         <div
           aria-label={t("plugins.title", { defaultValue: "Plugins" })}
-          className="plugins-tabs"
+          className="segmented-tabs"
           role="tablist"
         >
           <button
             aria-selected={activeTab === "list"}
-            className={`plugins-tab${activeTab === "list" ? " active" : ""}`}
+            className={`segmented-tab${activeTab === "list" ? " active" : ""}`}
             onClick={() => setActiveTab("list")}
             role="tab"
             type="button"
@@ -402,7 +402,7 @@ export const PluginsPanel = ({
           </button>
           <button
             aria-selected={activeTab === "market"}
-            className={`plugins-tab${activeTab === "market" ? " active" : ""}`}
+            className={`segmented-tab${activeTab === "market" ? " active" : ""}`}
             onClick={() => setActiveTab("market")}
             role="tab"
             type="button"
@@ -414,7 +414,7 @@ export const PluginsPanel = ({
           </button>
           <button
             aria-selected={activeTab === "metadata"}
-            className={`plugins-tab${activeTab === "metadata" ? " active" : ""}`}
+            className={`segmented-tab${activeTab === "metadata" ? " active" : ""}`}
             onClick={() => setActiveTab("metadata")}
             role="tab"
             type="button"

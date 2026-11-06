@@ -2136,12 +2136,10 @@ export function ScheduledTasksPanel({
       <span>
         {t("scheduledTask.workflow.runMode", { defaultValue: "Run mode" })}
       </span>
-      <div className="scheduled-tasks-segmented" role="group">
+      <div className="segmented-tabs" role="group">
         <button
           aria-pressed={runMode === "prompt"}
-          className={`scheduled-tasks-segmented-btn${
-            runMode === "prompt" ? " active" : ""
-          }`}
+          className={`segmented-tab${runMode === "prompt" ? " active" : ""}`}
           onClick={() => setRunMode("prompt")}
           type="button"
         >
@@ -2152,9 +2150,7 @@ export function ScheduledTasksPanel({
         </button>
         <button
           aria-pressed={runMode === "workflow"}
-          className={`scheduled-tasks-segmented-btn${
-            runMode === "workflow" ? " active" : ""
-          }`}
+          className={`segmented-tab${runMode === "workflow" ? " active" : ""}`}
           onClick={() => setRunMode("workflow")}
           type="button"
         >
@@ -2176,11 +2172,11 @@ export function ScheduledTasksPanel({
             defaultValue: "Context between nodes",
           })}
         </span>
-        <div className="scheduled-tasks-segmented" role="group">
+        <div className="segmented-tabs" role="group">
           {CONTEXT_MODE_OPTIONS.map((mode) => (
             <button
               aria-pressed={workflowDraft.contextMode === mode}
-              className={`scheduled-tasks-segmented-btn${
+              className={`segmented-tab${
                 workflowDraft.contextMode === mode ? " active" : ""
               }`}
               key={mode}
@@ -2530,12 +2526,12 @@ export function ScheduledTasksPanel({
               <span>{t("scheduledTask.scope", { defaultValue: "Scope" })}</span>
               <div
                 aria-label={t("scheduledTask.scope", { defaultValue: "Scope" })}
-                className="scheduled-tasks-segmented"
+                className="segmented-tabs"
                 role="group"
               >
                 <button
                   aria-pressed={taskScope === "project"}
-                  className={`scheduled-tasks-segmented-btn${
+                  className={`segmented-tab${
                     taskScope === "project" ? " active" : ""
                   }`}
                   disabled={!directoryId}
@@ -2556,7 +2552,7 @@ export function ScheduledTasksPanel({
                 </button>
                 <button
                   aria-pressed={taskScope === "global"}
-                  className={`scheduled-tasks-segmented-btn${
+                  className={`segmented-tab${
                     taskScope === "global" ? " active" : ""
                   }`}
                   onClick={() => setTaskScope("global")}
@@ -2583,12 +2579,12 @@ export function ScheduledTasksPanel({
                 aria-label={t("scheduledTask.taskType", {
                   defaultValue: "Task type",
                 })}
-                className="scheduled-tasks-segmented"
+                className="segmented-tabs"
                 role="group"
               >
                 <button
                   aria-pressed={taskType === "once"}
-                  className={`scheduled-tasks-segmented-btn${
+                  className={`segmented-tab${
                     taskType === "once" ? " active" : ""
                   }`}
                   onClick={() => setTaskType("once")}
@@ -2599,7 +2595,7 @@ export function ScheduledTasksPanel({
                 </button>
                 <button
                   aria-pressed={taskType === "recurring"}
-                  className={`scheduled-tasks-segmented-btn${
+                  className={`segmented-tab${
                     taskType === "recurring" ? " active" : ""
                   }`}
                   onClick={() => setTaskType("recurring")}
@@ -2636,12 +2632,12 @@ export function ScheduledTasksPanel({
                     aria-label={t("scheduledTask.recurringMode", {
                       defaultValue: "Repeat mode",
                     })}
-                    className="scheduled-tasks-segmented"
+                    className="segmented-tabs"
                     role="group"
                   >
                     <button
                       aria-pressed={recurringMode === "interval"}
-                      className={`scheduled-tasks-segmented-btn${
+                      className={`segmented-tab${
                         recurringMode === "interval" ? " active" : ""
                       }`}
                       onClick={() => setRecurringMode("interval")}
@@ -2654,7 +2650,7 @@ export function ScheduledTasksPanel({
                     </button>
                     <button
                       aria-pressed={recurringMode === "daily"}
-                      className={`scheduled-tasks-segmented-btn${
+                      className={`segmented-tab${
                         recurringMode === "daily" ? " active" : ""
                       }`}
                       onClick={() => setRecurringMode("daily")}
@@ -2871,13 +2867,13 @@ export function ScheduledTasksPanel({
               aria-label={t("scheduledTask.taskListLabel", {
                 defaultValue: "Scheduled task list",
               })}
-              className="scheduled-tasks-filter-tabs"
+              className="segmented-tabs"
               role="group"
             >
               {filterOptions.map((option) => (
                 <button
                   aria-pressed={filter === option.key}
-                  className={`scheduled-tasks-filter-tab${
+                  className={`segmented-tab${
                     filter === option.key ? " active" : ""
                   }`}
                   disabled={option.disabled}
@@ -2886,7 +2882,7 @@ export function ScheduledTasksPanel({
                   type="button"
                 >
                   <span>{option.label}</span>
-                  <span
+                  <small
                     aria-label={t("scheduledTask.taskCount", {
                       values: { count: option.count },
                       defaultValue: `${option.count} tasks`,
@@ -2894,7 +2890,7 @@ export function ScheduledTasksPanel({
                     className="scheduled-tasks-count"
                   >
                     {option.count}
-                  </span>
+                  </small>
                 </button>
               ))}
             </div>

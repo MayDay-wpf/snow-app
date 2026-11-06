@@ -482,20 +482,44 @@
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  /* M3 shape scale：extra-large 只用于对话框与全屏面板 */
+  --google-shape-extra-large: 28px;
   --backdrop-blur-lg: none;
 }
 
 :root[data-theme-preset="google"][data-theme="light"] {
-  --google-surface-0: #ffffff;
-  --google-surface-1: #f8fafd;
-  --google-surface-2: #f1f3f4;
-  --google-surface-3: #e8eaed;
-  --surface-island: #ffffff;
-  --surface-island-strong: #ffffff;
-  --surface-island-muted: #f8fafd;
+  /* M3 色调阶梯：以主色微量着色，层级越高色调越深（浅色主题） */
+  --google-surface-container-lowest: #ffffff;
+  --google-surface-container-low: color-mix(
+    in srgb,
+    var(--google-blue) 2.5%,
+    #ffffff
+  );
+  --google-surface-container: color-mix(
+    in srgb,
+    var(--google-blue) 5%,
+    #ffffff
+  );
+  --google-surface-container-high: color-mix(
+    in srgb,
+    var(--google-blue) 8%,
+    #ffffff
+  );
+  --google-surface-container-highest: color-mix(
+    in srgb,
+    var(--google-blue) 12%,
+    #ffffff
+  );
+  --google-surface-0: var(--google-surface-container-lowest);
+  --google-surface-1: var(--google-surface-container-low);
+  --google-surface-2: var(--google-surface-container);
+  --google-surface-3: var(--google-surface-container-highest);
+  --surface-island: var(--google-surface-container-lowest);
+  --surface-island-strong: var(--google-surface-container-lowest);
+  --surface-island-muted: var(--google-surface-container-low);
   --island-shadow: var(--google-elevation-1);
-  --app-bg: var(--google-surface-2) !important;
-  --chrome-bg: var(--google-surface-1) !important;
+  --app-bg: var(--google-surface-container) !important;
+  --chrome-bg: var(--google-surface-container-low) !important;
   --bg-primary: var(--google-surface-0) !important;
   --bg-secondary: var(--google-surface-1) !important;
   --bg-tertiary: var(--google-surface-2) !important;
@@ -542,16 +566,38 @@
   --google-elevation-2:
     0 6px 18px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.24);
   --surface-hover: rgba(168, 199, 250, 0.14);
-  --google-surface-0: #202124;
-  --google-surface-1: #292a2d;
-  --google-surface-2: #303134;
-  --google-surface-3: #3c4043;
-  --surface-island: #292a2d;
-  --surface-island-strong: #292a2d;
-  --surface-island-muted: #202124;
+  /* 深色主题同一套色调阶梯：层级越高色调越亮 */
+  --google-surface-container-lowest: #17181a;
+  --google-surface-container-low: color-mix(
+    in srgb,
+    var(--google-blue) 5%,
+    #17181a
+  );
+  --google-surface-container: color-mix(
+    in srgb,
+    var(--google-blue) 8%,
+    #17181a
+  );
+  --google-surface-container-high: color-mix(
+    in srgb,
+    var(--google-blue) 12%,
+    #17181a
+  );
+  --google-surface-container-highest: color-mix(
+    in srgb,
+    var(--google-blue) 16%,
+    #17181a
+  );
+  --google-surface-0: var(--google-surface-container);
+  --google-surface-1: var(--google-surface-container-high);
+  --google-surface-2: var(--google-surface-container-highest);
+  --google-surface-3: var(--google-surface-container-highest);
+  --surface-island: var(--google-surface-container-high);
+  --surface-island-strong: var(--google-surface-container);
+  --surface-island-muted: var(--google-surface-container-low);
   --island-shadow: var(--google-elevation-1);
-  --app-bg: #17181a !important;
-  --chrome-bg: #202124 !important;
+  --app-bg: var(--google-surface-container-lowest) !important;
+  --chrome-bg: var(--google-surface-container-low) !important;
   --bg-primary: var(--google-surface-0) !important;
   --bg-secondary: var(--google-surface-1) !important;
   --bg-tertiary: var(--google-surface-2) !important;
@@ -676,6 +722,12 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
+}
+
+/* 合集行尾操作按钮保持紧凑：32px 会在 28px 行内上下溢出 */
+:root[data-theme-preset="google"] .project-collection-actions .icon-btn {
+  width: 24px;
+  height: 24px;
 }
 
 :root[data-theme-preset="google"] .icon-btn:hover,
@@ -961,19 +1013,40 @@
   outline: none;
 }
 
+/* M3 switch 按桌面密度缩放：40×24 轨道 + 18px 手柄，选中态手柄带勾 */
 :root[data-theme-preset="google"] .toggle-slider {
-  width: 36px;
-  height: 20px;
-  border-color: var(--google-outline);
-  background: var(--google-surface-3);
+  width: 40px;
+  height: 24px;
+  border: 2px solid var(--google-outline);
+  background: var(--google-surface-container-highest);
 }
 
 :root[data-theme-preset="google"] .toggle-slider::after {
   top: 1px;
   left: 1px;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   background: var(--text-tertiary);
+}
+
+/* 勾图标绘制在手柄之上（M3 的可选手柄图标） */
+:root[data-theme-preset="google"] .toggle-slider::before {
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  background: var(--google-blue);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5 9.5 17 19 7'/%3E%3C/svg%3E")
+    center / 11px 11px no-repeat;
+  content: "";
+  opacity: 0;
+  transform: translateY(-50%);
+  transition:
+    transform 0.15s,
+    opacity 0.15s;
+  pointer-events: none;
 }
 
 :root[data-theme-preset="google"]
@@ -989,7 +1062,15 @@
   input:checked
   + .toggle-slider::after {
   transform: translateX(16px);
-  background: #ffffff;
+  background: var(--google-on-primary);
+}
+
+:root[data-theme-preset="google"]
+  .toggle-switch
+  input:checked
+  + .toggle-slider::before {
+  opacity: 1;
+  transform: translate(16px, -50%);
 }
 
 :root[data-theme-preset="google"]
@@ -1680,8 +1761,7 @@
 
 :root[data-theme-preset="google"]
   :is(
-    .scheduled-tasks-filter-tabs,
-    .scheduled-tasks-segmented,
+    .segmented-tabs,
     .scheduled-tasks-pre-script-body,
     .scheduled-task-prompt-content,
     .scheduled-task-history-item,
@@ -1693,20 +1773,19 @@
   background: var(--google-surface-0);
 }
 
-:root[data-theme-preset="google"]
-  :is(
-    .memo-filter-tab,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn
-  ) {
+/* Google 主题内圆角为胶囊，外框同步取胶囊圆角 */
+:root[data-theme-preset="google"] .segmented-tabs {
+  --segmented-radius: 999px;
+}
+
+:root[data-theme-preset="google"] .memo-filter-tab {
   border-radius: 999px;
 }
 
 :root[data-theme-preset="google"]
   :is(
     .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active,
+    .segmented-tab.active,
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,
@@ -1723,8 +1802,7 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
+    .segmented-tab,
     .scheduled-tasks-pre-script-toggle
   ):hover:not(:disabled) {
   background: var(--accent-blue-bg);
@@ -1855,4 +1933,10 @@
 
 :root[data-theme-preset="google"] .stream-metrics-pause-btn:focus-visible {
   outline-color: var(--google-blue);
+}
+
+/* M3 shape scale：extra-large（28dp）用于对话框与全屏搜索面板 */
+:root[data-theme-preset="google"]
+  :is(.app-modal-dialog, .confirm-dialog, .search-modal) {
+  border-radius: var(--google-shape-extra-large);
 }

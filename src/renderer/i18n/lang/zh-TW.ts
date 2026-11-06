@@ -2557,7 +2557,7 @@ export const zhTW = {
   "settings.active": "啟用",
   "settings.inactive": "未啟用",
   "settings.activeProfile": "已啟用配置",
-  "settings.clickToActivate": "點擊啟用此配置",
+  "settings.clickToActivate": "將此配置設為預設",
   "settings.apiAtLeastOneActive": "至少需要啟用一個 API 配置。",
   "settings.edit": "編輯",
   "settings.delete": "刪除",
@@ -5384,7 +5384,7 @@ export const zhTW = {
   "taskManager.alertTitle": "持續使用量警示",
   "taskManager.alertEnabled": "已啟用",
   "taskManager.alertDisabled": "預設關閉",
-  "taskManager.alertEnable": "啟用目前篩選範圍的行內警示",
+  "taskManager.alertEnable": "啟用目前篩選範圍的警示提醒",
   "taskManager.alertSystemNotify": "啟用系統通知",
   "taskManager.alertHint":
     "僅監控目前篩選程序的自身合計，設定僅儲存在目前面板。CPU、記憶體各自連續計時；斷檔、暫停、隱藏、失敗或範圍/閾值變更會重設。不會自動結束程序或傳送網路訊息；系統通知僅在開啟對應開關後發出。",
@@ -5401,7 +5401,6 @@ export const zhTW = {
   "taskManager.alertTriggered":
     "目前篩選{{metric}}持續 {{duration}} 秒達到 {{threshold}}；僅提醒，不自動操作。",
   "taskManager.alertNotifyTitle": "工作管理員警示",
-  "taskManager.dismissAlert": "忽略本次提醒",
   "taskManager.colName": "名稱",
   "taskManager.colType": "類型",
   "taskManager.colPid": "PID",

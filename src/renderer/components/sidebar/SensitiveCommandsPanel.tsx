@@ -738,14 +738,14 @@ export function SensitiveCommandsPanel({
           </div>
 
           <div
-            className="skills-settings-tabs"
+            className="segmented-tabs segmented-tabs--spaced"
             role="tablist"
             aria-label={t("settings.sensitiveCommandScopeTabs", {
               defaultValue: "Sensitive command scope",
             })}
           >
             <button
-              className={`skills-settings-tab ${isGlobalScope ? "active" : ""}`}
+              className={`segmented-tab ${isGlobalScope ? "active" : ""}`}
               type="button"
               role="tab"
               aria-selected={isGlobalScope}
@@ -763,7 +763,7 @@ export function SensitiveCommandsPanel({
               <small>{globalListItems.length}</small>
             </button>
             <button
-              className={`skills-settings-tab ${!isGlobalScope ? "active" : ""}`}
+              className={`segmented-tab ${!isGlobalScope ? "active" : ""}`}
               type="button"
               role="tab"
               aria-selected={!isGlobalScope}

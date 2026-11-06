@@ -3017,21 +3017,48 @@ body.is-panel-resizing * {
   text-align: center;
 }
 
+/* 行尾操作区悬浮覆盖：参与行内布局会在 hover 时挤动标题与角标，
+   也会把 28px 行撑高，造成列表轻微位移。
+   右侧留出成员数角标的位置，避免悬浮时压住数字；
+   不铺底色，直接叠在行 hover 背景上，避免出现色差块 */
 .project-collection-actions {
-  display: none;
-  flex-shrink: 0;
+  position: absolute;
+  top: 50%;
+  right: 26px;
+  z-index: 2;
+  display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 4px;
+  padding: 2px;
+  visibility: hidden;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.project-collection-actions > * {
+  pointer-events: auto;
 }
 
 .project-collection-row:hover .project-collection-actions,
 .project-collection-row:focus-within .project-collection-actions {
-  display: flex;
+  visibility: visible;
 }
 
-.project-collection-delete-btn:hover:not(:disabled) {
-  background: var(--accent-red-bg);
+/* 操作区无底色：键盘聚焦时由行自身铺底 */
+.project-collection-row:focus-within {
+  background: var(--bg-hover);
+}
+
+/* 操作区不铺底色，图标悬停只换颜色，避免叠出色块；删除按钮保留红色 */
+.project-collection-actions
+  .icon-btn:not(.project-collection-delete-btn):hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.project-collection-actions
+  .icon-btn.project-collection-delete-btn:hover:not(:disabled) {
+  background: transparent;
   color: var(--accent-red);
 }
 
@@ -6250,6 +6277,96 @@ body.is-panel-resizing * {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* 通用分段切换器：设置面板作用域、侧栏筛选、表单模式切换共用 */
+.segmented-tabs {
+  /* 内圆角由外圆角扣掉内边距推导，保证各主题内外弧度贴合 */
+  --segmented-inset: 3px;
+  --segmented-radius: var(--radius-md);
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  min-width: 0;
+  padding: var(--segmented-inset);
+  border: 1px solid var(--border-light);
+  border-radius: var(--segmented-radius);
+  background: var(--bg-secondary);
+}
+
+.segmented-tabs--spaced {
+  margin-bottom: 12px;
+}
+
+.segmented-tab {
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: max(
+    0px,
+    calc(var(--segmented-radius) - var(--segmented-inset))
+  );
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.segmented-tab > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.segmented-tab:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.segmented-tab.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.segmented-tab:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.segmented-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.segmented-tab small {
+  display: inline-flex;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.segmented-tab.active small {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
 .import-settings-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -6656,8 +6773,7 @@ body.is-panel-resizing * {
 /* 敏感命令面板：卡片与列表链路逐层撑满页面剩余高度 */
 .sensitive-commands-page > .import-settings-tabs,
 .sensitive-commands-page > .api-settings-summary-grid,
-.sensitive-commands-page > .api-settings-actions,
-.sensitive-commands-page > .skills-settings-tabs {
+.sensitive-commands-page > .api-settings-actions {
   flex-shrink: 0;
 }
 
@@ -8986,63 +9102,6 @@ body.is-panel-resizing * {
 
 .skills-settings-actions {
   grid-template-columns: minmax(150px, 220px);
-}
-
-.skills-settings-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  margin-bottom: 12px;
-  padding: 4px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.skills-settings-tab {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.skills-settings-tab:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.skills-settings-tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-}
-
-.skills-settings-tab:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.skills-settings-tab small {
-  display: inline-flex;
-  min-width: 20px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.skills-settings-tab.active small {
-  color: var(--text-secondary);
 }
 
 .skills-settings-section {
@@ -27577,80 +27636,6 @@ button.user-message-source:hover {
   flex-shrink: 0;
 }
 
-.scheduled-tasks-filter-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-  min-width: 0;
-  padding: 3px;
-  border: 1px solid var(--border-subtle, var(--border-color));
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-}
-
-.scheduled-tasks-filter-tab {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 5px 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.scheduled-tasks-filter-tab > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.scheduled-tasks-filter-tab:hover:not(:disabled) {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-
-.scheduled-tasks-filter-tab.active {
-  color: var(--text-primary);
-  background: var(--bg-active);
-  font-weight: 600;
-}
-
-.scheduled-tasks-filter-tab:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.scheduled-tasks-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-hover);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.scheduled-tasks-filter-tab.active .scheduled-tasks-count {
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-}
-
 .scheduled-tasks-new-btn {
   display: inline-flex;
   align-items: center;
@@ -28555,54 +28540,6 @@ button.user-message-source:hover {
   min-width: 0;
 }
 
-.scheduled-tasks-segmented {
-  display: flex;
-  gap: 4px;
-  min-width: 0;
-  padding: 3px;
-  border: 1px solid var(--border-subtle, var(--border-color));
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-}
-
-.scheduled-tasks-segmented-btn {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.scheduled-tasks-segmented-btn:hover:not(:disabled) {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-
-.scheduled-tasks-segmented-btn.active {
-  background: var(--bg-active);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.scheduled-tasks-segmented-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 .scheduled-tasks-form-footer {
   display: flex;
   align-items: center;
@@ -28672,7 +28609,6 @@ button.user-message-source:hover {
   cursor: default;
 }
 
-.scheduled-tasks-filter-tab:focus-visible,
 .scheduled-tasks-new-btn:focus-visible,
 .scheduled-task-item:focus-visible,
 .scheduled-tasks-clear-btn:focus-visible,
@@ -28680,7 +28616,6 @@ button.user-message-source:hover {
 .scheduled-task-copy-btn:focus-visible,
 .scheduled-task-prompt-content:focus-visible,
 .scheduled-tasks-back-btn:focus-visible,
-.scheduled-tasks-segmented-btn:focus-visible,
 .scheduled-tasks-cancel-btn:focus-visible,
 .scheduled-tasks-create-btn:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -28764,7 +28699,7 @@ button.user-message-source:hover {
     height: auto;
   }
 
-  .scheduled-tasks-filter-tab {
+  .scheduled-tasks-sidebar-header .segmented-tab {
     padding-inline: 4px;
   }
 
@@ -31684,6 +31619,18 @@ button.user-message-source:hover {
 .model-dropdown-pin-btn:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+/* 图钉/编辑按钮的 Tooltip 包裹层：跟随按钮收缩，避免多占行内间距 */
+.model-dropdown-item > .tooltip-wrapper {
+  flex-shrink: 0;
+  margin-left: -8px;
+  transition: margin-left 0.12s ease;
+}
+
+.model-dropdown-item:hover > .tooltip-wrapper,
+.model-dropdown-item > .tooltip-wrapper:focus-within {
+  margin-left: 0;
 }
 
 /* 当前默认启用配置的常驻图钉标识（与悬停展开的图钉按钮占位一致） */
@@ -34657,20 +34604,6 @@ body.is-right-pane-resizing-y * {
 .task-manager-alert-enable input:focus-visible + .toggle-slider {
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;
-}
-
-.task-manager-alert-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 7px 10px;
-  flex-shrink: 0;
-  border-top: 1px solid var(--border-light);
-  color: var(--accent-red-text, var(--text-primary));
-  background: var(--bg-secondary);
-  font-size: 10.5px;
-  line-height: 1.5;
 }
 
 @container (max-width: 620px) {
@@ -54981,44 +54914,6 @@ pre.file-viewer-code {
   background: var(--bg-tertiary);
 }
 
-.personalization-scope-tabs {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border-light);
-  border-radius: 7px;
-  background: var(--bg-primary);
-}
-
-.personalization-scope-tabs button {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.personalization-scope-tabs button:hover {
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-}
-
-.personalization-scope-tabs button.active {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  box-shadow: inset 0 0 0 1px var(--border-light);
-}
-
-.personalization-scope-tabs button.active svg {
-  color: var(--text-secondary);
-}
-
 .personalization-scope-summary {
   color: var(--text-muted);
   font-size: 11px;
@@ -55364,7 +55259,7 @@ pre.file-viewer-code {
     gap: 6px;
   }
 
-  .personalization-scope-tabs {
+  .personalization-scope-bar > .segmented-tabs {
     align-self: flex-start;
   }
 
@@ -61946,62 +61841,6 @@ pre.file-viewer-code {
   flex: 1;
   flex-direction: column;
   gap: 10px;
-}
-
-.plugins-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  flex-shrink: 0;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.plugins-tab {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.plugins-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.plugins-tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-}
-
-.plugins-tab small {
-  display: inline-flex;
-  min-width: 20px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.plugins-tab.active small {
-  color: var(--text-secondary);
 }
 
 .plugins-toolbar {

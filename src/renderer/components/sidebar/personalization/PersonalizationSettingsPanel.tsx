@@ -28,10 +28,10 @@ export function PersonalizationSettingsPanel({
     <div className="api-settings-page personalization-page" role="region">
       <div className="personalization-workspace">
         <div className="personalization-scope-bar">
-          <div className="personalization-scope-tabs" role="tablist">
+          <div className="segmented-tabs" role="tablist">
             <button
               aria-selected={activeScope === "global"}
-              className={activeScope === "global" ? "active" : ""}
+              className={`segmented-tab${activeScope === "global" ? " active" : ""}`}
               onClick={() => setActiveScope("global")}
               role="tab"
               type="button"
@@ -43,7 +43,7 @@ export function PersonalizationSettingsPanel({
             </button>
             <button
               aria-selected={activeScope === "project"}
-              className={activeScope === "project" ? "active" : ""}
+              className={`segmented-tab${activeScope === "project" ? " active" : ""}`}
               onClick={() => setActiveScope("project")}
               role="tab"
               type="button"

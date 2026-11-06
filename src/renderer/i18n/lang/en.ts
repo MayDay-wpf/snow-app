@@ -2704,7 +2704,7 @@ export const en = {
   "settings.active": "Enabled",
   "settings.inactive": "Not enabled",
   "settings.activeProfile": "Enabled profile",
-  "settings.clickToActivate": "Click to enable this profile",
+  "settings.clickToActivate": "Set as default profile",
   "settings.apiAtLeastOneActive": "At least one API profile must be enabled.",
   "settings.edit": "Edit",
   "settings.delete": "Delete",
@@ -5815,7 +5815,7 @@ export const en = {
   "taskManager.alertTitle": "Sustained usage alerts",
   "taskManager.alertEnabled": "Enabled",
   "taskManager.alertDisabled": "Off by default",
-  "taskManager.alertEnable": "Enable inline alerts for the current filter",
+  "taskManager.alertEnable": "Enable alerts for the current filter",
   "taskManager.alertSystemNotify": "Enable system notifications",
   "taskManager.alertHint":
     "Own-process totals in the current filter only; preferences live in this panel. CPU and memory have independent continuity clocks. Gaps, pauses, hidden windows, failures and scope/threshold changes reset them. No automatic termination or network messages; system notifications are sent only when their switch is on.",
@@ -5833,7 +5833,6 @@ export const en = {
   "taskManager.alertTriggered":
     "Current-filter {{metric}} reached {{threshold}} for {{duration}} seconds. Advisory only; no automatic action.",
   "taskManager.alertNotifyTitle": "Task manager alert",
-  "taskManager.dismissAlert": "Dismiss this alert",
   "taskManager.colName": "Name",
   "taskManager.colType": "Type",
   "taskManager.colPid": "PID",

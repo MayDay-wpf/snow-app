@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { AutoDismissNotice } from "../AutoDismissNotice";
 import {
   advanceUsageAlerts,
   alertOptionsValid,
@@ -61,9 +62,12 @@ const DEFAULT_ALERT_OPTIONS: AlertOptions = {
   systemNotify: false,
 };
 
+/** 告警提示停留时长：够读完一句阈值说明，与系统通知互不影响 */
+const ALERT_NOTICE_DURATION_MS = 6000;
+
 /**
- * One monitoring instance per panel: both the settings form and the notice
- * banner render from this state, so they can never diverge. Ephemeral
+ * One monitoring instance per panel: both the settings form and the alert
+ * notice render from this state, so they can never diverge. Ephemeral
  * preferences only - no automatic termination or config writes.
  */
 export function useUsageAlerts({
@@ -143,7 +147,7 @@ export function useUsageAlerts({
 /**
  * A single monitoring instance owns the state; every surface renders from it.
  * The settings form is uncontrolled input-wise but fully driven by the caller's
- * options/alerts so the notice banner and the settings panel never diverge.
+ * options/alerts so the alert notice and the settings panel never diverge.
  */
 export function TaskManagerAlerts({
   options,
@@ -163,6 +167,10 @@ export function TaskManagerAlerts({
     ["memoryMiB", "taskManager.alertMemory", 1, 1048576, 1],
     ["durationSecs", "taskManager.alertDuration", 3, 120, 1],
   ] as const;
+  // CPU 与内存同时触发时依次提示：共用 AutoDismissNotice 的顶部浮层，避免重叠
+  const pendingMetric = (["cpu", "memory"] as const).find(
+    (metric) => alerts[metric].active && !alerts[metric].dismissed,
+  );
   return (
     <>
       {mode === "settings" && (
@@ -254,28 +262,14 @@ export function TaskManagerAlerts({
           </div>
         </section>
       )}
-      {mode === "notice-only" &&
-        (["cpu", "memory"] as const).map(
-          (metric) =>
-            alerts[metric].active &&
-            !alerts[metric].dismissed && (
-              <div
-                key={metric}
-                className="task-manager-alert-notice"
-                role="status"
-                data-alert-metric={metric}
-              >
-                <span>{alertTriggeredText(t, metric, options)}</span>
-                <button
-                  type="button"
-                  className="task-manager-refresh-btn"
-                  onClick={() => onDismiss(metric)}
-                >
-                  {t("taskManager.dismissAlert")}
-                </button>
-              </div>
-            ),
-        )}
+      {mode === "notice-only" && pendingMetric && (
+        <AutoDismissNotice
+          message={alertTriggeredText(t, pendingMetric, options)}
+          tone="warning"
+          durationMs={ALERT_NOTICE_DURATION_MS}
+          onDismiss={() => onDismiss(pendingMetric)}
+        />
+      )}
     </>
   );
 }

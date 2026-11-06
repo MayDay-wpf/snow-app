@@ -1194,8 +1194,7 @@
     .scheduled-task-details-section,
     .scheduled-tasks-form-section,
     .scheduled-tasks-pre-script-body,
-    .scheduled-tasks-filter-tabs,
-    .scheduled-tasks-segmented,
+    .segmented-tabs,
     .memo-schedule-panel
   ) {
   border: 1px solid var(--w95-face);
@@ -1222,8 +1221,6 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
     .scheduled-tasks-pre-script-toggle
   ) {
   border-radius: 0;
@@ -1235,8 +1232,7 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
+    .segmented-tab,
     .scheduled-tasks-pre-script-toggle
   ):hover:not(:disabled) {
   background: var(--w95-select-bg);
@@ -1246,8 +1242,7 @@
 :root[data-theme-preset="win95"]
   :is(
     .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active,
+    .segmented-tab.active,
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,

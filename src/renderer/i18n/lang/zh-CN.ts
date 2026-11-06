@@ -2557,7 +2557,7 @@ export const zhCN = {
   "settings.active": "启用",
   "settings.inactive": "未启用",
   "settings.activeProfile": "已启用配置",
-  "settings.clickToActivate": "点击启用此配置",
+  "settings.clickToActivate": "将此配置设为默认",
   "settings.apiAtLeastOneActive": "至少需要启用一个 API 配置。",
   "settings.edit": "编辑",
   "settings.delete": "删除",
@@ -5442,7 +5442,7 @@ export const zhCN = {
   "taskManager.alertTitle": "持续占用告警",
   "taskManager.alertEnabled": "已启用",
   "taskManager.alertDisabled": "默认关闭",
-  "taskManager.alertEnable": "启用当前筛选范围的内联告警",
+  "taskManager.alertEnable": "启用当前筛选范围的告警提醒",
   "taskManager.alertSystemNotify": "启用系统通知",
   "taskManager.alertHint":
     "仅监控当前筛选进程的自身合计，设置只保存在当前面板。CPU、内存各自连续计时；断档、暂停、隐藏、失败或范围/阈值变化会重置。不会自动结束进程或发送网络消息；系统通知仅在开启对应开关后发出。",
@@ -5459,7 +5459,6 @@ export const zhCN = {
   "taskManager.alertTriggered":
     "当前筛选{{metric}}持续 {{duration}} 秒达到 {{threshold}}；仅提醒，不自动操作。",
   "taskManager.alertNotifyTitle": "任务管理器告警",
-  "taskManager.dismissAlert": "忽略本次提醒",
   "taskManager.colName": "名称",
   "taskManager.colType": "类型",
   "taskManager.colPid": "PID",

@@ -1513,14 +1513,17 @@
     .scheduled-task-details-section,
     .scheduled-tasks-form-section,
     .scheduled-tasks-pre-script-body,
-    .scheduled-tasks-filter-tabs,
-    .scheduled-tasks-segmented,
+    .segmented-tabs,
     .memo-schedule-panel
   ) {
   border: 1px solid var(--mac-edge);
   border-radius: 8px;
   background: var(--mac-menu);
   box-shadow: inset 0 1px 0 var(--mac-hi);
+}
+
+:root[data-theme-preset="macos"] .segmented-tabs {
+  --segmented-radius: 8px;
 }
 
 :root[data-theme-preset="macos"]
@@ -1541,8 +1544,6 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
     .scheduled-tasks-pre-script-toggle
   ) {
   border-radius: 7px;
@@ -1554,8 +1555,7 @@
     .memo-list-item,
     .memory-list-item,
     .scheduled-task-item,
-    .scheduled-tasks-filter-tab,
-    .scheduled-tasks-segmented-btn,
+    .segmented-tab,
     .scheduled-tasks-pre-script-toggle
   ):hover:not(:disabled) {
   background: var(--mac-hover);
@@ -1565,8 +1565,7 @@
 :root[data-theme-preset="macos"]
   :is(
     .memo-filter-tab.active,
-    .scheduled-tasks-filter-tab.active,
-    .scheduled-tasks-segmented-btn.active,
+    .segmented-tab.active,
     .memo-list-item.selected,
     .memory-list-item.selected,
     .scheduled-task-item.selected,

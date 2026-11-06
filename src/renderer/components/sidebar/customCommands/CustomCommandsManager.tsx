@@ -349,12 +349,12 @@ export function CustomCommandsManager({
 
       <div
         aria-label={scopeTabsLabel}
-        className="skills-settings-tabs"
+        className="segmented-tabs segmented-tabs--spaced"
         role="tablist"
       >
         <button
           aria-selected={scope === "global"}
-          className={`skills-settings-tab ${scope === "global" ? "active" : ""}`}
+          className={`segmented-tab ${scope === "global" ? "active" : ""}`}
           onClick={() => {
             setScope("global");
             setDraft(null);
@@ -370,7 +370,7 @@ export function CustomCommandsManager({
         </button>
         <button
           aria-selected={scope === "project"}
-          className={`skills-settings-tab ${scope === "project" ? "active" : ""}`}
+          className={`segmented-tab ${scope === "project" ? "active" : ""}`}
           disabled={!projectId}
           onClick={() => {
             setScope("project");

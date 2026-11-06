@@ -482,14 +482,14 @@ export function HooksSettingsPanel({
       />
 
       <div
-        className="skills-settings-tabs"
+        className="segmented-tabs segmented-tabs--spaced"
         role="tablist"
         aria-label={t("settings.hooksScopeTabs", {
           defaultValue: "Hooks scope",
         })}
       >
         <button
-          className={`skills-settings-tab ${isGlobalScope ? "active" : ""}`}
+          className={`segmented-tab ${isGlobalScope ? "active" : ""}`}
           type="button"
           role="tab"
           aria-selected={isGlobalScope}
@@ -511,7 +511,7 @@ export function HooksSettingsPanel({
           </small>
         </button>
         <button
-          className={`skills-settings-tab ${!isGlobalScope ? "active" : ""}`}
+          className={`segmented-tab ${!isGlobalScope ? "active" : ""}`}
           type="button"
           role="tab"
           aria-selected={!isGlobalScope}
