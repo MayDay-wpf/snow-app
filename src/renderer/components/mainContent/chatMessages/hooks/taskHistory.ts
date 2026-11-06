@@ -381,7 +381,6 @@ const reconstructTaskSnapshots = async (
   }
   const histories = new Map<string, Promise<ChatMessageRecord[]>>();
   const snapshots = new Map<string, TaskSnapshot>();
-  let restoredCount = 0;
   let failedCount = 0;
   for (const json of manifests) {
     let stage = "parse-manifest";
@@ -494,7 +493,6 @@ const reconstructTaskSnapshots = async (
       snapshots.set(`message:${saved.messageId}`, snapshot);
       if (uniqueResponse)
         snapshots.set(`response:${saved.responseId}`, snapshot);
-      restoredCount++;
     } catch {
       failedCount++;
       logTaskHistory(
@@ -509,18 +507,19 @@ const reconstructTaskSnapshots = async (
       );
     }
   }
-  logTaskHistory(
-    "DEBUG",
-    "reconstructTaskSnapshots",
-    conversationId,
-    "restore-completed",
-    {
-      stage: "completed",
-      manifestCount: manifests.length,
-      restoredCount,
-      failedCount,
-    },
-  );
+  // 成功恢复不写日志；仅在存在失败任务时汇总一次。
+  if (failedCount > 0)
+    logTaskHistory(
+      "WARN",
+      "reconstructTaskSnapshots",
+      conversationId,
+      "restore-partial",
+      {
+        stage: "completed",
+        manifestCount: manifests.length,
+        failedCount,
+      },
+    );
   return snapshots;
 };
 
