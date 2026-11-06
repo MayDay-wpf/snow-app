@@ -713,7 +713,8 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
   // 决策模型辅助：命中敏感规则时判定是否可直接放行（返回 null = 未启用 /
   // 未命中规则；决策模型不可用或请求失败时返回带 error 的记录，渲染层回退
   // 原有确认流程并提示原因）。workingDirectory 与 description 是风险判定的
-  // 上下文：命令在哪个目录执行、模型自己的意图说明。
+  // 上下文：命令在哪个目录执行、模型自己的意图说明。matchedRules 是预检查
+  // 已确认的命中项（含间接脚本内容与内置诊断），交给后端直接使用。
   ipcMain.handle(
     "sensitive-command-configs:evaluate-decision",
     (
@@ -723,12 +724,14 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
       workingDirectory: unknown,
       description: unknown,
       conversationContext: unknown,
+      matchedRules: unknown,
     ) => {
       if (typeof command !== "string" || !command.trim()) {
         return Promise.resolve(null);
       }
       return native.evaluateSensitiveCommandDecision(
-        command.trim(),
+        // 原文下发：规则锚点与命中高亮都基于未裁剪的命令文本。
+        command,
         normalizeOptionalText(projectId),
         normalizeOptionalText(workingDirectory),
         normalizeOptionalText(description),
@@ -739,6 +742,7 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
           : typeof conversationContext === "string"
             ? conversationContext
             : JSON.stringify(conversationContext),
+        typeof matchedRules === "string" ? matchedRules : undefined,
       );
     },
   );

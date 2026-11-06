@@ -477,6 +477,13 @@ pub async fn check_tool_sensitive_operation(
 /// trimmed by the renderer; it is used only when the assist's
 /// `useConversationContext` switch is on. A malformed array returns an error
 /// record (manual confirmation), never a silent context-free verdict.
+///
+/// `matched_rules` is the JSON array of matches the caller's pre-check already
+/// verified (`SensitiveOperationCheckRecord.matches`). It covers matches the
+/// command text alone cannot reproduce — indirect script content and the
+/// built-in diagnostics — and is used verbatim when present. Only when the
+/// caller passes nothing does the command text get matched again, so the two
+/// sides can never disagree about whether the assist should run.
 #[napi]
 pub async fn evaluate_sensitive_command_decision(
     command: String,
@@ -484,9 +491,10 @@ pub async fn evaluate_sensitive_command_decision(
     working_directory: Option<String>,
     description: Option<String>,
     conversation_context: Option<String>,
+    matched_rules: Option<String>,
 ) -> napi::Result<Option<SensitiveCommandDecisionRecord>> {
-    let command = command.trim().to_string();
-    if command.is_empty() {
+    // 原文参与匹配与判定：调用方的命中高亮、规则锚点都基于未裁剪的文本。
+    if command.trim().is_empty() {
         return Ok(None);
     }
 
@@ -506,11 +514,19 @@ pub async fn evaluate_sensitive_command_decision(
     let (assist, matched_rules, decision_models, default_decision_model_id) = {
         let db_path = database_path.clone();
         let candidate = command.clone();
+        let caller_matches = matched_rules;
         tokio::task::spawn_blocking(move || {
             let assist =
                 crate::storage::services::system_settings::get_sensitive_command_assist(&db_path)?;
-            let matched_rules =
-                crate::storage::check_sensitive_command_match(vec![(candidate, None)], project_id)?;
+            // 调用方预检查的命中项优先：命中可能来自间接执行的脚本内容或内置诊断，
+            // 只用命令文本重算会把这些命中当成「未命中」而静默跳过判定。
+            let matched_rules = match caller_matches {
+                Some(raw) if !raw.trim().is_empty() => parse_caller_matched_rules(&raw)?,
+                _ => crate::storage::check_sensitive_command_match(
+                    vec![(candidate, None)],
+                    project_id,
+                )?,
+            };
             let decision_models = crate::api::decision_model::load_decision_models(&db_path);
             let default_decision_model_id =
                 crate::api::decision_model::load_decision_tool_model_id(&db_path);
@@ -653,6 +669,38 @@ pub async fn evaluate_sensitive_command_decision(
         }
         Err(error) => unavailable(model_name, error.reason.clone()),
     }))
+}
+
+/// 解析调用方预检查给出的命中项（`SensitiveOperationCheckRecord.matches` 的 JSON）。
+///
+/// 结构非法按错误处理：调用方回退人工确认，绝不静默当成「未命中」。
+fn parse_caller_matched_rules(
+    raw: &str,
+) -> Result<Vec<crate::storage::SensitiveCommandMatchResult>> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CallerMatch {
+        #[serde(default)]
+        command_id: String,
+        #[serde(default)]
+        pattern: String,
+        #[serde(default)]
+        description: String,
+    }
+
+    let items: Vec<CallerMatch> = serde_json::from_str(raw)
+        .map_err(|error| Error::from_reason(format!("Invalid matched rules: {error}")))?;
+
+    Ok(items
+        .into_iter()
+        .map(|item| crate::storage::SensitiveCommandMatchResult {
+            command_id: item.command_id,
+            pattern: item.pattern,
+            description: item.description,
+            // 高亮区间只用于拦截提示，判定请求只带规则与说明。
+            ranges: Vec::new(),
+        })
+        .collect())
 }
 
 /// 工具输出沿用现有隐私过滤链路（按工具名套用隐私设置）后再发给决策模型。

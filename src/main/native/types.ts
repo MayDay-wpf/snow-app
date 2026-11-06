@@ -3034,13 +3034,16 @@ export type NativeBridge = ImageGenerationNativeApi & {
   ) => Promise<SensitiveOperationCheckRecord | null>;
   /** 用决策模型判定一条命中敏感规则的命令是否可直接放行（辅助 / 托管）。
    *  workingDirectory / description 是风险判定的上下文（执行目录、模型意图说明）；
-   *  conversationContext 是渲染层裁剪后的会话片段 JSON（仅开关打开时使用）。 */
+   *  conversationContext 是渲染层裁剪后的会话片段 JSON（仅开关打开时使用）；
+   *  matchedRulesJson 是预检查已确认的命中项 JSON（覆盖间接脚本内容与内置诊断，
+   *  缺省时由后端按命令文本重算）。 */
   evaluateSensitiveCommandDecision: (
     command: string,
     projectId?: string,
     workingDirectory?: string,
     description?: string,
     conversationContext?: string,
+    matchedRulesJson?: string,
   ) => Promise<SensitiveCommandDecisionRecord | null>;
   /** 决策 / 嵌入 / 重排模型连接自检：结果持久化并返回，失败写入系统日志。 */
   testDecisionModelConnection: (

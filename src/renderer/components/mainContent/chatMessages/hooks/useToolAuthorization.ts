@@ -817,6 +817,9 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
    * 决策模型不可用或请求失败时返回带 error 的判定：同样回退人工确认，但拦截
    * 提示会明确告诉用户「决策模型不可用，已回退人工确认」——辅助功能不改变
    * 安全闸门的默认行为，也不再静默吞掉失败。
+   *
+   * 命中项原样下传：命中可能来自间接执行的脚本内容或内置诊断，后端只用命令
+   * 文本重算会漏掉这些命中并静默跳过判定。
    */
   const requestSensitiveCommandDecision = useCallback(
     (
@@ -825,6 +828,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       workingDirectory: string,
       description: string,
       conversationContext: string,
+      matchesJson: string,
     ) =>
       window.snow
         .evaluateSensitiveCommandDecision(
@@ -833,6 +837,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           workingDirectory || undefined,
           description || undefined,
           conversationContext,
+          matchesJson,
         )
         .catch((error: unknown) => ({
           allow: false,
@@ -955,6 +960,8 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
                   ctx.sessionsRef.current[conversationId]?.messages ?? [],
                   toolCall,
                 ),
+                // 预检查的命中项原样下传，后端不再只用命令文本重算。
+                JSON.stringify(matches),
               );
 
         // 托管模式：判定直接生效，不再弹拦截提示 —— 允许则放行（等价于
