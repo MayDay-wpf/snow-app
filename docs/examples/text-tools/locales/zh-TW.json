@@ -1,0 +1,7 @@
+{
+  "tool.inspect": "檢查文字",
+  "status.running": "執行中",
+  "status.pending": "等待中",
+  "status.completed": "已完成",
+  "status.error": "錯誤"
+}

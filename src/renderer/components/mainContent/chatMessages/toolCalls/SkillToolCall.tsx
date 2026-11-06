@@ -35,6 +35,8 @@ type SkillInfo = {
   name: string;
   /** 技能根目录来源：.snow/skills | .agents/skills（无法判定时为空）。 */
   location: string;
+  /** 宿主在 <skill-info> 中提供的真实技能来源。 */
+  source: string;
   /** 结果里的 "Absolute Path:"。 */
   path: string;
   /** <tool-restrictions> 里列出的允许工具。 */
@@ -45,6 +47,8 @@ const SKILL_COMMAND_RE =
   /<command-message>The "(.+?)" skill is loading<\/command-message>/;
 const SKILL_NAME_RE = /Skill Name:\s*(.+)/;
 const SKILL_PATH_RE = /Absolute Path:\s*(.+)/;
+const SKILL_INFO_RE = /<skill-info>([\s\S]*?)<\/skill-info>\s*$/;
+const SKILL_SOURCE_RE = /^Skill Source:[ \t]*(.+)$/m;
 const SKILL_RESTRICTIONS_RE =
   /<tool-restrictions>([\s\S]*?)<\/tool-restrictions>/;
 
@@ -55,6 +59,8 @@ const SKILL_RESTRICTIONS_RE =
  *   <skill-info>Skill Name / Absolute Path / 目录结构</skill-info>
  */
 const parseSkillInfo = (text: string): SkillInfo | null => {
+  const metadata = SKILL_INFO_RE.exec(text)?.[1] ?? "";
+  const source = SKILL_SOURCE_RE.exec(metadata)?.[1]?.trim() ?? "";
   const name =
     SKILL_NAME_RE.exec(text)?.[1]?.trim() ??
     SKILL_COMMAND_RE.exec(text)?.[1]?.trim() ??
@@ -79,7 +85,7 @@ const parseSkillInfo = (text: string): SkillInfo | null => {
   if (!name && !path) {
     return null;
   }
-  return { name, location, path, allowedTools };
+  return { name, location, source, path, allowedTools };
 };
 
 type ParsedSkillResult =
@@ -134,6 +140,11 @@ export const SkillToolCall = ({
   return (
     <ToolCallNode
       toolName={toolCall.name}
+      sourcePluginId={
+        info?.source.startsWith("plugin:")
+          ? info.source.slice("plugin:".length)
+          : undefined
+      }
       category="skill"
       displayName={displayName ? <code>{displayName}</code> : undefined}
       displayNameTitle={displayName}

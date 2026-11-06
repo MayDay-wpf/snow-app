@@ -1,0 +1,63 @@
+.panel-esm-draft {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font: 14px/1.5 var(--font-sans);
+}
+
+.panel-esm-draft textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font: inherit;
+}
+
+.panel-esm-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.panel-esm-stats dt {
+  color: var(--text-secondary);
+}
+
+.panel-esm-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-esm-draft button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.panel-esm-draft button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.panel-esm-draft button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.panel-esm-draft :is(textarea, button):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}

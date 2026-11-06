@@ -1231,12 +1231,13 @@ fn render_skill(skill: &Skill) -> String {
     };
 
     format!(
-        "<command-message>The \"{}\" skill is loading</command-message>\n\n{}{}{}\n\n<skill-info>\nSkill Name: {}\nAbsolute Path: {}\n\nDirectory Structure:\n```\n{}/\\n{}\n```\n\nNote: You can use the filesystem read tool to read any file in this skill directory using the absolute path above.\n</skill-info>",
+        "<command-message>The \"{}\" skill is loading</command-message>\n\n{}{}{}\n\n<skill-info>\nSkill Name: {}\nSkill Source: {}\nAbsolute Path: {}\n\nDirectory Structure:\n```\n{}/\\n{}\n```\n\nNote: Resolve relative Markdown links against the skill directory above. Use the filesystem read tool to read only the referenced files needed for the current task; do not expand all links automatically.\n</skill-info>",
         skill.name,
         skill.content,
         tool_restriction,
         plugin_tool_guidance,
         skill.name,
+        skill.source,
         skill.directory.display(),
         skill.name,
         directory_tree

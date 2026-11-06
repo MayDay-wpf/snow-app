@@ -12,6 +12,8 @@ import { ToolNameBadge } from "./ToolNameBadge";
 type ToolCallNodeProps = {
   /** Raw MCP tool name (e.g. "filesystem-read") or short name. */
   toolName: string;
+  /** 已由技能来源元数据确认的插件归属。 */
+  sourcePluginId?: string;
   /** Badge display name (e.g. "read", "edit"). Falls back to parsed short name. */
   badgeName?: string;
   /** Badge category. Inferred from toolName if omitted. */
@@ -41,6 +43,7 @@ type ToolCallNodeProps = {
 
 export const ToolCallNode = ({
   toolName,
+  sourcePluginId,
   badgeName,
   category,
   displayName,
@@ -54,8 +57,9 @@ export const ToolCallNode = ({
   children,
 }: ToolCallNodeProps): React.JSX.Element => {
   const { t, locale } = useI18n();
-  // 工具归属：工具全名反查所属工具插件，命中时在标题旁标注来源插件。
-  const ownerPluginId = usePluginToolOwner(toolName);
+  // 技能使用宿主返回的来源；普通工具继续按工具全名反查归属。
+  const toolOwnerPluginId = usePluginToolOwner(toolName);
+  const ownerPluginId = sourcePluginId ?? toolOwnerPluginId;
   const plugins = usePluginStore();
   const ownerPlugin = ownerPluginId
     ? (plugins.plugins.find((plugin) => plugin.pluginId === ownerPluginId) ??

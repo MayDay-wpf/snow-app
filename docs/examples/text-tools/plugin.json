@@ -1,0 +1,38 @@
+{
+  "id": "com.example.text-tools",
+  "name": { "default": "Text tools", "zh-CN": "文本工具", "zh-TW": "文字工具" },
+  "description": {
+    "default": "Inspect text length and line count without network or file access."
+  },
+  "version": "1.0.0",
+  "kind": "tool",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "icon": "lucide:Text",
+  "mcpServers": {
+    "text": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["{{pluginDir}}/server.js"]
+    }
+  },
+  "contributions": {
+    "toolCallRenderers": [
+      {
+        "id": "text-inspect",
+        "tools": ["text_inspect"],
+        "exportName": "renderTextInspect"
+      }
+    ]
+  },
+  "skills": ["skills/text-inspect"],
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json",
+    "zh-TW": "locales/zh-TW.json"
+  },
+  "privacy": {
+    "scopes": ["messages"],
+    "note": "The card renders only the current tool-call snapshot. The MCP tool inspects supplied text in memory; it does not access files or the network."
+  }
+}

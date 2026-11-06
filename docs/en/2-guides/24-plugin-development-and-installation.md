@@ -195,7 +195,9 @@ With `renderMode: "iframe"` those globals are not injected: the entry runs insid
 
 #### 5.1 Engineered sources and single-file bundles
 
-The file named by `entry` is read in full and executed as one ES module. Relative imports such as `./utils.js` and bare specifiers such as `react` cannot be resolved. Sources may be split into modules, written in TypeScript or JSX, and depend on npm packages, but must be bundled into **one ES module file** before release; ship the build output, not the sources:
+**For new plugins, default to strict TypeScript and esbuild; use TSX for trusted ESM plugins with host React UI.** This is a source/template recommendation, not a new setting or direct host execution of `.ts` / `.tsx`. Existing JavaScript plugins remain supported and need no migration merely for consistency.
+
+The file named by `entry` is read in full and executed as one ES module. Relative imports such as `./utils.js` and bare specifiers such as `react` cannot be resolved. Split sources by responsibility, then bundle into **one ES module file** before release; ship the build output, not the sources. Choose separate build targets for iframe panels, OAuth, MCP servers and client scripts rather than reuse the ESM panel's React or privilege model. See [26-Plugin architecture and technology-stack selection](26-plugin-type-selection-guide.md) for the full decision guide.
 
 - **Build options**: `format: "esm"`, `bundle: true`, `splitting: false`. Code splitting produces several chunks, which cannot be loaded. Bundle each entry (panel, message footer, tool card, and so on) into its own standalone file.
 - **Do not bundle React**: map `react` to the host's `window.SnowAppPlugin.React` (see the table above) so only one React instance exists. After that mapping, the `React` identifier required by the classic JSX transform can come from `import React from "react"`.
@@ -203,6 +205,60 @@ The file named by `entry` is read in full and executed as one ES module. Relativ
 - **Icons**: get host lucide icons through `api.ui.icon(name)`; do not bundle `lucide-react`.
 - **Styles**: CSS is emitted as separate files; declare them in `styles`.
 - **Size**: the entry is read as text, and a single text file is capped at 8 MB; the install directory is capped at 128 MB.
+
+#### 5.2 TypeScript engineering examples and build flow
+
+The sources ship under `docs/examples/`, or `~/.snowapp/docs/examples/` in the application's documentation copy. Copy one independent project matching the chosen type; do not combine them into one runtime or install dependencies inside the docs. Each project defaults to strict TypeScript and locked dependencies, with `build` and `check` scripts. Existing JavaScript plugins remain unaffected.
+
+| Directory                                                                                                                                | What it demonstrates                                                                             | Configuration and installation boundary                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [panel-esm manifest](../../examples/panel-esm/plugin.json) / [build configuration](../../examples/panel-esm/package.json)                | TSX, host React, components separated from pure logic, localization and theme                    | Build and install the directory, then open its panel; trusted local ESM, not a sandbox                                                |
+| [panel-iframe manifest](../../examples/panel-iframe/plugin.json) / [build configuration](../../examples/panel-iframe/package.json)       | TypeScript, native DOM, the iframe bridge and cleanup                                            | Build and install the directory; do not load source through relative `<script src>` or access `window.snow`                           |
+| [oauth-provider manifest](../../examples/oauth-provider/plugin.json) / [build configuration](../../examples/oauth-provider/package.json) | OAuth entry, author configuration, authorization, token exchange/refresh and response validation | Supply real service configuration before building and installing; use API settings → OAuth login, without fake tokens or fake success |
+| [text-tools manifest](../../examples/text-tools/plugin.json) / [build configuration](../../examples/text-tools/package.json)             | Node MCP server, tool schemas, host cards and on-demand skill references                         | Build and install the directory; discover tools when enabled for the project, as described in §14.2                                   |
+| [client-script build configuration](../../examples/client-script/package.json)                                                           | TypeScript sources, sandboxed DOM slots, explicit user actions and lifecycle cleanup             | Import the built `.user.js`, not a `plugin.json` directory; see [22-Userscripts](22-userscripts.md)                                   |
+
+**The recommended minimum separation** is entry wiring, the runtime contracts actually needed, business logic and presentation. Small projects need no empty directory hierarchy; extract services or shared components only when reused. Panels release mounted resources, scripts release observers/listeners, OAuth reuses host state/PKCE/callbacks/token storage, and MCP validates at system boundaries. TypeScript is a compile-time constraint, not a replacement for runtime validation or authorization.
+
+For the recommended trusted ESM panel, copy from the source root into a new development directory:
+
+```powershell
+$target = Join-Path $HOME "snow-panel-example"
+if (Test-Path $target) { throw "Target already exists: $target" }
+Copy-Item "./docs/examples/panel-esm" $target -Recurse
+Set-Location $target
+npm ci
+npm run build
+npm run check
+```
+
+On macOS/Linux, run from the source root and stop if the target exists:
+
+```sh
+target="$HOME/snow-panel-example"
+[ ! -e "$target" ] || exit 1
+cp -R ./docs/examples/panel-esm "$target" && cd "$target" && npm ci && npm run build && npm run check
+```
+
+When using the application's docs copy, substitute `~/.snowapp/docs/examples/<directory>` as the copy source. Other examples use their own same-named scripts; only OAuth requires author configuration first. Never treat placeholder fields as production endpoints or credentials. `build` and `check` do not install plugins, log in or perform remote writes. Keep generated artifacts and `node_modules/` in the development directory, not the docs tree.
+
+Both panel examples produce `index.js`, but in different formats: `panel-esm` default-exports a host-rendered React component, while `panel-iframe` is a classic IIFE script loaded after the host bridge, not HTML or ESM. Both demonstrate local drafts, Unicode code-point counts and line counts, without network, persistence or permission requests. ESM uses host theme variables; the iframe document does not inherit them, so this example follows system light/dark preference, not Snow's selected theme. Closing the panel discards the draft. React owns ESM resources, while the iframe releases local listeners on `pagehide`.
+
+The OAuth example reads author configuration from [`oauth-provider/config.json`](../../examples/oauth-provider/config.json). It targets **public clients using Authorization Code with PKCE (S256)**, without embedded client secrets or account tokens:
+
+| Configuration                                   | Real author-supplied value                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `providerId` / `providerName` / `clientId`      | Stable ID not reserved by a built-in provider, display name and registered public-client ID                              |
+| `authorizationUrl` / `tokenUrl` / `scope`       | HTTPS authorization/token endpoints and space-separated scopes; empty scope is valid when the service requires none      |
+| `callbackPort` / `callbackPath`                 | Port and path of the registered `http://127.0.0.1:<port><path>` callback; the host listens, not a separate plugin server |
+| `apiBaseUrl` / `requestMethod` / `defaultModel` | HTTPS API base URL, `chat` / `responses` / `anthropic` / `gemini` method and real model ID                               |
+| `maxContextTokens` / `supportsVision`           | Positive integer context limit and boolean vision capability                                                             |
+
+The template intentionally contains no usable service values. Configuration is validated when the module loads; missing configuration fails explicitly. Builds produce `dist/oauth.mjs`, `dist/plugin.json` and `dist/config.json`: install **`dist/`**, not the source root. The plugin only supplies authorization URLs, token exchange and refresh through `ctx.fetch`; the host owns state, PKCE, callbacks, token persistence and refresh scheduling. Before real login, verify public-client registration, callback eligibility and the service's token-response contract. This generic adapter is not a ready-made integration for every OAuth service.
+
+The client script produces **`dist/chat-shortcut.user.js`** with its complete metadata header. Sandboxed by default, it mounts a localized Continue button in the official `chat.input.actions` slot. Only a user click inserts text; it never sends automatically. It reattaches its own node after view rerenders and releases observers/listeners on disable without clearing other extensions' slot content.
+
+Install ordinary panels through Plugins → Install from directory using the built project directory. Install OAuth from its built `dist/`, then select it under API settings → OAuth login. Import `dist/chat-shortcut.user.js` under Script plugins → Import file. Installing an example is a separate user action: reading docs grants no installation or authorization. Releases contain the manifest, built entries and declared styles/locales/assets/skill references, not development dependencies. Verify callbacks, permissions, cancellation and unloading in the real host; compilation alone proves neither a real OAuth login nor UI acceptance.
 
 ### 6. Runtime API
 
@@ -1227,15 +1283,22 @@ name: record-review
 description: Review records using this plugin's tools.
 ---
 
-Find the needed capability with `toolsearch-discover`, then use the exact full tool name from the result.
-Read reference material from this directory only when needed, and respect tool approvals and permissions.
+This plugin provides record lookup and review tools. Find the needed capability with `toolsearch-discover`, then use the exact full tool name from the result.
+
+- Read the [tool reference](references/tools.md) when choosing tools.
+- Read the [review workflow](references/review.md) when reviewing records.
+
+Resolve relative links against this skill directory. Read only material needed for the current task; do not expand all links automatically.
+Respect tool approvals and permissions; use the discovered MCP tool definitions as the parameter contract.
 ```
+
+Ship these reference files with the plugin. Keep the capability map, task navigation and shared constraints in `SKILL.md`; split tool guidance and task workflows into `references/` files connected by relative Markdown links. The tool reference lists operation identifiers, purposes and selection criteria, without duplicating full parameter schemas or treating short operation names as callable public tool names. Only the entry is loaded when the skill is selected, followed by task-specific references instead of all document bodies.
 
 - Skill ids get a `<plugin id>/` prefix (for example `com.snow.github-tools/github-workflow`) to reduce collisions with global or project skills; a user or project skill with the same id wins.
 - Enablement follows the plugin: while the plugin is enabled (and not disabled for the current project) its skills appear in the `<available_skills>` list of `skills-skill-execute`, and they disappear when the plugin is disabled. The `enable` field of `SKILL.md` does not apply to plugin skills, and the Skills settings page offers no per-skill toggle.
 - The skill tool description contains only the skill id, `description`, and location; the Agent adds the body to the context when it selects a relevant skill. Describe applicable tasks in the summary, keep the body to tool selection, workflow and necessary constraints, and put longer reference material in separate files for on-demand reading.
 - Skills using plugin tools call `toolsearch-discover` first and use the returned full tool names. `allowed-tools` is model guidance, not host authorization; plugin tool prefixes can change, so do not put short names in the restriction list as if they were full names. Project settings, allow-lists and tool approval still govern execution.
-- The source is `plugin:<plugin id>` and `location` is `plugin`; the settings page shows a "Plugin" badge and offers no edit or uninstall action.
+- The source is `plugin:<plugin id>` and `location` is `plugin`; the settings page shows a "Plugin" badge and offers no edit or uninstall action. Skill results include `Skill Source` in `<skill-info>`; once the result supplies that source, the conversation card reuses the owning plugin's icon and name while retaining the skill category. Plugin tool cards continue to show the same origin marker using tool ownership. Unknown sources or uninstalled plugins are not inferred.
 - Paths must stay inside the plugin directory (absolute paths, drive letters and `..` are rejected); a missing directory or missing `SKILL.md` is skipped silently.
 - Reloading requires "Re-read manifest" or a reinstall; skill content itself is read from the installed plugin directory.
 
@@ -1245,6 +1308,66 @@ Boundaries:
 - Tool plugins never appear in MCP settings and do not consume MCP server slots; enablement and project scope live in the plugin page.
 
 How to verify: enable a tool plugin for the current project and ask for a related task without using `@`. Confirm that the Agent can search and call a matched tool in the next request; disable the plugin and confirm its tools and skills are no longer available.
+
+#### 14.2 Runnable, structured tool-plugin example
+
+The complete source ships with the docs: [Text tools manifest](../../examples/text-tools/plugin.json) and [build configuration](../../examples/text-tools/package.json). This is an installable plugin, not pseudocode. Source checkouts contain it at `docs/examples/text-tools/`; the application's synchronized docs copy contains it at `~/.snowapp/docs/examples/text-tools/`. Copy the whole example into your own development directory before installing dependencies; do not build inside the documentation copy.
+
+```text
+text-tools/
+├─ plugin.json                    # Server, card, icon, locales and skill contributions
+├─ package.json / tsconfig.json
+├─ scripts/build.mjs              # Separate Node server and browser card builds
+├─ src/
+│  ├─ server.ts                   # Create server, register tools, connect stdio
+│  ├─ tools/textInspect.ts        # Keep schema, semantics and implementation together
+│  └─ renderer/
+│     ├─ index.ts                 # Use host React and ToolCallNode
+│     └─ types.ts                 # Host slot contract actually consumed by the card
+├─ locales/                       # en / zh-CN / zh-TW
+└─ skills/text-inspect/
+   ├─ SKILL.md                    # Applicability, capabilities and on-demand navigation
+   └─ references/tools.md         # Counting semantics and invocation boundaries
+```
+
+**Responsibilities and contracts:**
+
+- The [tool implementation](../../examples/text-tools/src/tools/textInspect.ts) inspects supplied text and returns Unicode code-point and line counts, without network access, file access or persistence. Empty text has zero lines; CRLF, CR and LF are line breaks, and a trailing newline adds an empty line. Limit input size instead of slicing JSON. Results contain both complete text JSON and `structuredContent`; `outputSchema` defines the output contract, and the SDK validates input using the Zod schema.
+- `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` describe actual side effects; they neither grant permission nor replace host approval. Real write tools must check credentials, targets and external responses rather than copy read-only annotations. Validate consumed external fields at the trust boundary; do not disguise malformed responses as success with type assertions and empty defaults.
+- The [card implementation](../../examples/text-tools/src/renderer/index.ts) displays the result from the current call snapshot. The host shell supplies status and the plugin's origin icon/name. This example intentionally retains the raw result instead of adding a second result interpreter. It makes no business requests, captures no full load-time API, and bundles no second React runtime. The `messages` declaration is for the current tool-card snapshot, not conversation access by the MCP tool.
+- The [skill entry](../../examples/text-tools/skills/text-inspect/SKILL.md) links to [reference material](../../examples/text-tools/skills/text-inspect/references/tools.md) for on-demand semantics. Discover the exact public name before calling; do not recursively expand references. Keep operation identifiers, card selectors and skill capabilities aligned; runtime tool definitions remain the parameter contract.
+- Reserve stdout for MCP protocol traffic and send diagnostics to stderr. The example's pure computation does not catch and suppress exceptions. Business tools with external I/O report real failures as `isError: true` at the MCP boundary, preserving context without switching tools to retry or returning empty success. If a write has already taken effect before a result-size failure, the error must state the side-effect status rather than imply that retrying is safe.
+- Keep each tool's schema and handler together. As tools grow, group them by business domain such as repositories, issues or PRs, and extract authentication, HTTP and result conversion only where reused. Do not start with a multi-layer registration framework.
+
+**Build and install:**
+
+Requires Node.js 18+, npm and a local Node.js runtime. These commands copy from the Snow App source root into a new development directory under the user home. If the target exists, stop and choose another directory rather than overwrite a project.
+
+```powershell
+$target = Join-Path $HOME "snow-text-tools-example"
+if (Test-Path $target) { throw "Target already exists: $target" }
+Copy-Item "./docs/examples/text-tools" $target -Recurse
+Set-Location $target
+npm install
+npm run build
+npm run check
+```
+
+On macOS/Linux, run from the source root:
+
+```sh
+cp -R ./docs/examples/text-tools ~/snow-text-tools-example
+cd ~/snow-text-tools-example
+npm install
+npm run build
+npm run check
+```
+
+Check that the target directory does not exist on macOS/Linux as well. When using the application's docs copy, change the copy source to `~/.snowapp/docs/examples/text-tools`. `build` produces self-contained `server.js` and `index.js`; `check` runs TypeScript and artifact-consistency checks without starting a persistent MCP service.
+
+After a successful build, select the copied directory under Plugins → Install from directory, or ask the Agent to call `config-set scope=plugins key="new" value={sourceDir: "actual build directory"}`. When globally enabled and not disabled for the project, the plugin is discoverable by task without `@`. Its skill ID is `com.example.text-tools/text-inspect`. Discovery and invocation still follow host approval; installation grants no no-confirmation permission.
+
+For verification, ask the Agent to inspect text length and line count. Confirm discovery and invocation of `text_inspect`, the tool card and plugin origin, then load the skill when needed. Invalid input must produce an error rather than be replaced with empty text. Disabling the project scope removes the plugin's tools and skills from subsequent requests. Running `node server.js` manually and seeing it wait silently is normal for a stdio service, not a failure. A release needs only `plugin.json`, both build artifacts, `locales/`, `skills/` and referenced assets, not `node_modules/`, `src/` or development scripts. Include every skill reference linked from Markdown.
 
 ## Verification
 

@@ -1,0 +1,7 @@
+{
+  "id": "oauth-provider-template",
+  "name": "OAuth Provider Template",
+  "version": "1.0.0",
+  "kind": "oauth",
+  "oauth": { "entry": "oauth.mjs" }
+}

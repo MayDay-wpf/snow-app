@@ -1,0 +1,90 @@
+/* The iframe does not inherit host CSS variables or theme changes.
+   These local semantic tokens use the defaults in renderer/themes/tokens.css;
+   only the operating-system color preference selects the dark palette. */
+.panel-iframe-draft {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-hover: #f3f4f6;
+  --border-color: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #9ca3af;
+  --border-focus: var(--text-primary);
+  color-scheme: light;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .panel-iframe-draft {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #111111;
+    --bg-hover: #1f1f1f;
+    --border-color: #2b2b2b;
+    --text-primary: #f5f5f5;
+    --text-secondary: #d4d4d4;
+    --text-muted: #737373;
+    color-scheme: dark;
+  }
+}
+
+.panel-iframe-draft textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font: inherit;
+}
+
+.panel-iframe-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.panel-iframe-stats dt {
+  color: var(--text-secondary);
+}
+
+.panel-iframe-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-iframe-draft button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.panel-iframe-draft button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.panel-iframe-draft button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.panel-iframe-draft :is(textarea, button):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}

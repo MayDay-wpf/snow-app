@@ -1,0 +1,19 @@
+{
+  "name": "snow-example-text-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit && node scripts/build.mjs --check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}
