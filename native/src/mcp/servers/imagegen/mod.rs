@@ -66,6 +66,13 @@ const MAX_PARALLEL_IMAGES: usize = 10;
 const MAX_REMOTE_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 /// 远程图片下载单次超时（预签名链接通常秒级返回，30s 足够）。
 const REMOTE_IMAGE_TIMEOUT_SECS: u64 = 30;
+/// GPT Image 2.6 GIF 单帧上限（与静态图共用单边 / 总像素预算）。
+const GIF_MAX_SHEET_EDGE: u64 = 3840;
+const GIF_MAX_SHEET_PIXELS: u64 = 8_294_400;
+const GIF_MIN_FRAMES: u64 = 2;
+const GIF_MAX_FRAMES: u64 = 16;
+const GIF_MIN_FRAME_DURATION_MS: u64 = 20;
+const GIF_MAX_FRAME_DURATION_MS: u64 = 2000;
 
 /// system_settings 表中的设置 code（与设置面板共用）。
 const IMAGE_GEN_SETTING_CODE: &str = "imagegen_settings";
@@ -399,6 +406,29 @@ impl ImageGenService {
                     .and_then(non_empty)
             })
             .or_else(|| non_empty(&channel_config.output_format));
+        let is_gif_output = provider == "openai"
+            && output_format
+                .as_deref()
+                .is_some_and(|format| format.eq_ignore_ascii_case("gif"));
+        let frame_count = optional_bounded_integer(
+            args,
+            "frameCount",
+            GIF_MIN_FRAMES,
+            GIF_MAX_FRAMES,
+        )?;
+        let frame_duration_ms = optional_bounded_integer(
+            args,
+            "frameDurationMs",
+            GIF_MIN_FRAME_DURATION_MS,
+            GIF_MAX_FRAME_DURATION_MS,
+        )?;
+        if !is_gif_output && (frame_count.is_some() || frame_duration_ms.is_some()) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "`frameCount` / `frameDurationMs` are only supported with OpenAI GPT Image 2.6 GIF output (`outputFormat: \"gif\"`)"
+                    .to_string(),
+            ));
+        }
 
         // --- 6. Streaming mode: argument > channel default ---
         let stream_enabled = args
@@ -719,7 +749,12 @@ impl ImageGenService {
                 .await
             }
             _ => {
-                validate_openai_size(&model, &size, output_format.as_deref())?;
+                let size = normalize_openai_size(
+                    &model,
+                    &size,
+                    output_format.as_deref(),
+                    frame_count,
+                )?;
                 self.generate_openai(
                     args,
                     per_request_prompts.as_slice(),
@@ -727,6 +762,8 @@ impl ImageGenService {
                     &size,
                     &quality,
                     &output_format,
+                    frame_count,
+                    frame_duration_ms,
                     &base_url,
                     api_key,
                     requests,
@@ -821,7 +858,7 @@ impl McpService for ImageGenService {
                     },
                     "size": {
                         "type": "string",
-                        "description": "Output size. OpenAI: e.g. \"1024x1024\", \"1024x1536\", \"1536x1024\" (omit to use the configured default). Gemini: \"1K\", \"2K\", \"4K\" (imageSize) or an aspect ratio like \"16:9\", \"1:1\", \"9:16\" (aspectRatio)."
+                        "description": "Output size. OpenAI: e.g. \"1024x1024\", \"1024x1536\", \"1536x1024\" (omit to use the configured default). For GPT Image 2.6 GIF this is the per-frame size; Snow App automatically reduces it to fit the frame-sheet pixel budget for the selected frameCount. Gemini: \"1K\", \"2K\", \"4K\" (imageSize) or an aspect ratio like \"16:9\", \"1:1\", \"9:16\" (aspectRatio)."
                     },
                     "quality": {
                         "type": "string",
@@ -835,8 +872,20 @@ impl McpService for ImageGenService {
                     },
                     "outputFormat": {
                         "type": "string",
-                        "description": "Output format for OpenAI: \"png\" (default), \"jpeg\", \"webp\", \"svg\" or \"gif\". svg/gif are text-to-image only (generations) — image edits must use png/jpeg/webp and reject svg/gif; svg requires a single image (n=1); svg/gif never send stream / partial_images / output_compression. Ignored for dall-e and Gemini.",
+                        "description": "Output format for OpenAI: \"png\" (default), \"jpeg\", \"webp\", \"svg\" or \"gif\". svg/gif are text-to-image only (generations) — image edits must use png/jpeg/webp and reject svg/gif; svg requires a single image (n=1); svg/gif never send stream / partial_images / output_compression. GPT Image 2.6 GIF frame size is automatically fitted to the model's frame-sheet pixel budget. Ignored for dall-e and Gemini.",
                         "enum": ["png", "jpeg", "webp", "svg", "gif"]
+                    },
+                    "frameCount": {
+                        "type": "integer",
+                        "description": "OpenAI GPT Image 2.6 GIF only: number of frames, 2-16 (upstream default 9). The frame count participates in the frame-sheet pixel budget; Snow App automatically lowers the requested frame size when needed.",
+                        "minimum": 2,
+                        "maximum": 16
+                    },
+                    "frameDurationMs": {
+                        "type": "integer",
+                        "description": "OpenAI GPT Image 2.6 GIF only: delay per frame in milliseconds, 20-2000 (upstream default 200; rounded to 10 ms by the API).",
+                        "minimum": 20,
+                        "maximum": 2000
                     },
                     "outputCompression": {
                         "type": "number",
@@ -1882,31 +1931,115 @@ fn sanitize_size(
     None
 }
 
+/// 解析可选的整数参数；显式传入非法类型或越界值时快速失败。
+fn optional_bounded_integer(
+    args: &Value,
+    key: &str,
+    min: u64,
+    max: u64,
+) -> napi::Result<Option<u64>> {
+    let Some(value) = args.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(value) = value.as_u64() else {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("`{key}` must be an integer between {min} and {max}"),
+        ));
+    };
+    if !(min..=max).contains(&value) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("`{key}` must be between {min} and {max}, got {value}"),
+        ));
+    }
+    Ok(Some(value))
+}
+
+/// GPT Image 2.6 将 GIF 帧排列在 frame sheet 上；不同帧数使用不同的网格，
+/// 未使用的格子同样占用总像素预算。
+fn gif_sheet_layouts(frame_count: u64) -> Vec<(u64, u64)> {
+    match frame_count {
+        2 => vec![(2, 1), (1, 2)],
+        3..=4 => vec![(2, 2)],
+        5..=8 => vec![(4, 2), (2, 4)],
+        9 => vec![(3, 3)],
+        10..=12 => vec![(4, 3), (3, 4)],
+        13..=16 => vec![(4, 4)],
+        _ => Vec::new(),
+    }
+}
+
+/// 在保持画幅比例的前提下，把单帧尺寸缩到 frame sheet 能容纳的最大
+/// 16 像素对齐尺寸。返回 None 表示画幅比例本身超出模型限制。
+fn fit_gif_frame_size(width: u64, height: u64, frame_count: u64) -> Option<(u64, u64)> {
+    let mut best: Option<(u64, u64)> = None;
+    for (columns, rows) in gif_sheet_layouts(frame_count) {
+        let cells = (columns * rows) as f64;
+        let scale = 1.0_f64
+            .min(GIF_MAX_SHEET_EDGE as f64 / (width as f64 * columns as f64))
+            .min(GIF_MAX_SHEET_EDGE as f64 / (height as f64 * rows as f64))
+            .min((GIF_MAX_SHEET_PIXELS as f64 / (width as f64 * height as f64 * cells)).sqrt());
+        let fitted_width = ((width as f64 * scale) / 16.0).floor() as u64 * 16;
+        let fitted_height = ((height as f64 * scale) / 16.0).floor() as u64 * 16;
+        if fitted_width < 16 || fitted_height < 16 {
+            continue;
+        }
+
+        let sheet_width = fitted_width * columns;
+        let sheet_height = fitted_height * rows;
+        if sheet_width > GIF_MAX_SHEET_EDGE
+            || sheet_height > GIF_MAX_SHEET_EDGE
+            || sheet_width * sheet_height > GIF_MAX_SHEET_PIXELS
+        {
+            continue;
+        }
+        // 单帧与 frame sheet 都必须落在 1:3 ~ 3:1 的画幅范围内。
+        if fitted_width > fitted_height * 3
+            || fitted_height > fitted_width * 3
+            || sheet_width > sheet_height * 3
+            || sheet_height > sheet_width * 3
+        {
+            continue;
+        }
+
+        let area = fitted_width * fitted_height;
+        if best.is_none_or(|(best_width, best_height)| area > best_width * best_height) {
+            best = Some((fitted_width, fitted_height));
+        }
+    }
+    best
+}
+
 /// 校验 gpt-image-2 系列（含 2.5 / 2.6 sunburst / flare）的 OpenAI 尺寸：
 /// 允许预设值（如 1024x1024）或自定义 `WIDTHxHEIGHT`，必须满足
 /// - 两边为 16 的倍数
 /// - 宽高比在 1:3 ~ 3:1 之间
 /// - 单边不超过 3840
 /// - 总像素在 655360 ~ 8294400 之间（0.625MP ~ 8.29MP）
-/// 2.6 的 GIF 尺寸仅校验 auto 或正整数且两边为 16 的倍数，像素预算由上游决定。
+/// 2.6 的 GIF 以单帧尺寸传入，但帧数会放大实际 frame sheet；此处自动把
+/// 单帧缩到总像素预算内，`auto` 则交由上游选择。
 /// 其他格式沿用既有规则，`auto` 或非 `WIDTHxHEIGHT` 写法放行。
-fn validate_openai_size(
+fn normalize_openai_size(
     model: &str,
     size: &Option<String>,
     output_format: Option<&str>,
-) -> napi::Result<()> {
+    frame_count: Option<u64>,
+) -> napi::Result<Option<String>> {
     let model_lower = model.to_ascii_lowercase();
     if !model_lower.contains("gpt-image-2") {
-        return Ok(());
+        return Ok(size.clone());
     }
     let is_gif_2_6 = model_lower.contains("gpt-image-2.6")
         && output_format.is_some_and(|format| format.eq_ignore_ascii_case("gif"));
-    let Some(raw) = size else {
-        return Ok(());
+    let Some(raw) = size.as_deref().map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(size.clone());
     };
-    let raw = raw.trim();
-    if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
-        return Ok(());
+    if raw.eq_ignore_ascii_case("auto") {
+        return Ok(Some(raw.to_string()));
     }
     let lower = raw.to_ascii_lowercase();
     let Some((width, height)) = lower.split_once('x') else {
@@ -1917,7 +2050,7 @@ fn validate_openai_size(
             ));
         }
         // 非 WIDTHxHEIGHT 写法放行，保持既有行为。
-        return Ok(());
+        return Ok(size.clone());
     };
     let (Ok(width), Ok(height)) =
         (width.trim().parse::<u64>(), height.trim().parse::<u64>())
@@ -1944,7 +2077,29 @@ fn validate_openai_size(
         ));
     }
     if is_gif_2_6 {
-        return Ok(());
+        let (max_side, min_side) = (width.max(height), width.min(height));
+        if max_side > min_side * 3 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Size \"{raw}\" is not supported by {model}: aspect ratio must be between 1:3 and 3:1 (got {width}x{height})."
+                ),
+            ));
+        }
+        let frames = frame_count.unwrap_or(9);
+        let Some((fitted_width, fitted_height)) = fit_gif_frame_size(width, height, frames)
+        else {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!(
+                    "GIF frame size \"{raw}\" cannot fit the GPT Image 2.6 frame-sheet limits with {frames} frames. Lower `frameCount`, use a simpler aspect ratio, or pass size \"auto\"."
+                ),
+            ));
+        };
+        if (fitted_width, fitted_height) != (width, height) {
+            return Ok(Some(format!("{fitted_width}x{fitted_height}")));
+        }
+        return Ok(Some(raw.to_string()));
     }
     if width > 3840 || height > 3840 {
         return Err(Error::new(
@@ -1972,7 +2127,7 @@ fn validate_openai_size(
             ),
         ));
     }
-    Ok(())
+    Ok(Some(raw.to_string()))
 }
 
 /// 根据模型能力规整 `background` 参数：

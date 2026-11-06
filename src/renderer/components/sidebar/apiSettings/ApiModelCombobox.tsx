@@ -76,13 +76,28 @@ export function ApiModelCombobox({
   const [filterKeyword, setFilterKeyword] = useState("");
 
   const filteredModels = useMemo(() => {
+    // 已知模型既提供别名等元数据，也补充接口清单遗漏的可选模型。
+    const availableModels: Array<Pick<Model, "id">> = [...models];
+    const modelIds = new Set(models.map((model) => model.id.toLowerCase()));
+    for (const model of knownModels ?? []) {
+      const id = model.id.toLowerCase();
+      if (!modelIds.has(id)) {
+        modelIds.add(id);
+        availableModels.push(model);
+      }
+    }
+
     const keyword = filterKeyword.trim().toLowerCase();
     const matchedModels = keyword
-      ? models.filter((model) => model.id.toLowerCase().includes(keyword))
-      : models;
+      ? availableModels.filter((model) =>
+          model.id.toLowerCase().includes(keyword),
+        )
+      : availableModels;
 
-    return matchedModels.slice(0, MAX_VISIBLE_MODELS);
-  }, [models, filterKeyword]);
+    return matchedModels
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .slice(0, MAX_VISIBLE_MODELS);
+  }, [models, knownModels, filterKeyword]);
 
   useEffect(() => {
     // Prefer the currently selected model when it is visible so that

@@ -12,6 +12,8 @@ impl ImageGenService {
         size: &Option<String>,
         quality: &Option<String>,
         output_format: &Option<String>,
+        frame_count: Option<u64>,
+        frame_duration_ms: Option<u64>,
         base_url: &str,
         api_key: &str,
         n: usize,
@@ -35,6 +37,7 @@ impl ImageGenService {
         // svg / gif 输出：仅文生图（generations）；图生图已在分发前显式报错。
         // 这两类格式不支持流式预览与 output_compression。
         let is_svg_or_gif = matches!(format_lower.as_deref(), Some("svg" | "gif"));
+        let is_gif = format_lower.as_deref() == Some("gif");
         let is_dall_e = model.to_ascii_lowercase().starts_with("dall-e");
         let is_gpt_image_2 = model.to_ascii_lowercase().contains("gpt-image-2");
         // xAI Grok Imagine：OpenAI 兼容端点，但尺寸用 aspect_ratio + resolution
@@ -295,6 +298,14 @@ impl ImageGenService {
                         }
                         if let Some(value) = output_format {
                             body["output_format"] = json!(value);
+                        }
+                        if is_gif {
+                            if let Some(value) = frame_count {
+                                body["frame_count"] = json!(value);
+                            }
+                            if let Some(value) = frame_duration_ms {
+                                body["frame_duration_ms"] = json!(value);
+                            }
                         }
                         if let Some(value) = complexity {
                             body["complexity"] = json!(value);
