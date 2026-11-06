@@ -51,7 +51,7 @@ fn texts(locale: Locale) -> Texts {
         Locale::ZhCn => Texts {
             query_required: "搜索时必须提供 query。",
             invalid_action: "action 只能是 list。",
-            no_active_plugins: "当前没有启用的工具插件。", 
+            no_active_plugins: "当前没有启用的工具插件。",
             discovery_failed: "插件工具发现失败，详情见 failures。",
             no_available_tools: "当前没有可用的插件工具。",
             no_match: "没有匹配的工具；server 必须使用返回的精确公开服务器名。",
@@ -61,7 +61,7 @@ fn texts(locale: Locale) -> Texts {
         Locale::ZhTw => Texts {
             query_required: "搜尋時必須提供 query。",
             invalid_action: "action 只能是 list。",
-            no_active_plugins: "目前沒有啟用的工具外掛。", 
+            no_active_plugins: "目前沒有啟用的工具外掛。",
             discovery_failed: "外掛工具探索失敗，詳情見 failures。",
             no_available_tools: "目前沒有可用的外掛工具。",
             no_match: "沒有符合的工具；server 必須使用回傳的精確公開伺服器名稱。",
@@ -71,7 +71,7 @@ fn texts(locale: Locale) -> Texts {
         Locale::En => Texts {
             query_required: "query is required for search.",
             invalid_action: "action must be list.",
-            no_active_plugins: "No tool plugins are enabled.", 
+            no_active_plugins: "No tool plugins are enabled.",
             discovery_failed: "Plugin tool discovery failed; see failures.",
             no_available_tools: "No plugin tools are currently available.",
             no_match: "No matching tool; server must be an exact public server name returned by search.",
