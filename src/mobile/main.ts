@@ -37,8 +37,12 @@ import { initTodos, renderTodos } from "./todos";
 import { correctionDigest } from "./tools/correction";
 import { initTopbar, renderTopbar } from "./topbar";
 import type { AppContext } from "./types";
+import { installImeKeyboardGuard } from "../shared/imeKeyboard";
 import { hideUnlock, initUnlock, showUnlock } from "./unlock";
 import { initWorkflow, workflowDigest } from "./workflow";
+
+// 输入法守卫先于各面板安装，避免合成中的 Enter 误触发送/提交。
+installImeKeyboardGuard();
 
 /**
  * Mobile 远控页入口：装配各功能模块，维护状态同步与整体渲染。

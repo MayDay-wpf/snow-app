@@ -10,6 +10,7 @@ import { iconMarkup, type MobileIconName } from "./icons";
 import { showNotice } from "./notice";
 import { openRemotePanel } from "./panels";
 import type { AppContext } from "./types";
+import { isSubmitEnter } from "../shared/imeKeyboard";
 
 /**
  * 会话待办面板：展示当前激活会话的待办列表（与桌面顶部待办面板同一数据源），
@@ -213,7 +214,7 @@ export const initTodos = (ctx: AppContext): void => {
       busy || !input.value.trim();
   };
   input.onkeydown = (event) => {
-    if (event.key === "Enter") {
+    if (isSubmitEnter(event)) {
       event.preventDefault();
       void addTodo(ctx);
     }

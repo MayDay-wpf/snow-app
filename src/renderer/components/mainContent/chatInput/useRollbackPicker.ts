@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { UserMessageSummary } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { isImeComposing } from "../../../../shared/imeKeyboard";
 import { useChatConversationContext } from "../chatMessages";
 import {
   ensureMessageLoaded,
@@ -29,16 +30,6 @@ const CHIP_PREVIEW_OVERHEAD = 6;
 const TARGET_LOAD_BUDGET: MessageLoadBudget = {
   maxPages: 150,
   timeoutMs: 30_000,
-};
-
-const isComposingKeyboardEvent = (
-  event: React.KeyboardEvent<HTMLDivElement>,
-): boolean => {
-  const nativeEvent = event.nativeEvent;
-  return (
-    nativeEvent.isComposing ||
-    (nativeEvent as unknown as { keyCode?: number }).keyCode === 229
-  );
 };
 
 /**
@@ -335,7 +326,7 @@ export const useRollbackPicker = ({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): boolean => {
-      if (isComposingKeyboardEvent(event)) {
+      if (isImeComposing(event)) {
         return false;
       }
 

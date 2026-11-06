@@ -34,6 +34,10 @@ import "./themes/layout-layered.css";
 import "./themes/layout-flush.css";
 import "./themes/tool-card-chips.css";
 import { initToolCardStyle } from "./utils/toolCardStyle";
+import { installImeKeyboardGuard } from "../shared/imeKeyboard";
+
+// 输入法守卫必须在 React 与应用监听器之前安装，否则漏判的组件会先收到按键。
+installImeKeyboardGuard();
 
 // 在 React 渲染之前同步应用 localStorage 中缓存的主题快照。
 // 主题持久化在 Rust 后端，渲染进程启动时需通过 IPC 异步读取，

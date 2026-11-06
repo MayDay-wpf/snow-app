@@ -8,6 +8,7 @@ import type {
   SnowRemoteGitWorktree,
   SnowRemoteState,
 } from "../renderer/types/remoteControl";
+import { isSubmitEnter } from "../shared/imeKeyboard";
 import {
   fetchGitBranches,
   fetchGitDiff,
@@ -1268,7 +1269,7 @@ export const initGit = (): void => {
     }
     if (
       target.matches("[data-git-commit-input]") &&
-      event.key === "Enter" &&
+      isSubmitEnter(event) &&
       (event.metaKey || event.ctrlKey)
     ) {
       event.preventDefault();
@@ -1276,7 +1277,7 @@ export const initGit = (): void => {
       return;
     }
     if (
-      event.key === "Enter" &&
+      isSubmitEnter(event) &&
       target.matches(
         "[data-git-new-branch], [data-git-new-worktree], [data-git-base-input]",
       )

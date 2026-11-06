@@ -48,6 +48,7 @@ import {
 } from "react";
 
 import { useI18n } from "../../../i18n";
+import { isSubmitEnter } from "../../../../shared/imeKeyboard";
 import type {
   ApiConfigRecord,
   Model,
@@ -1176,7 +1177,7 @@ const CanvasInner = forwardRef<
           className="workflow-editor workflow-editor-overlay st-workflow-delay-editor"
           onKeyDown={(event) => {
             stopKeys(event);
-            if (event.key === "Enter") {
+            if (isSubmitEnter(event)) {
               event.preventDefault();
               applyDelay();
             }

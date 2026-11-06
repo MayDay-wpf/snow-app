@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { isImeComposing } from "../../shared/imeKeyboard";
 import { useKeyboardShortcutsSettings } from "../components/KeyboardShortcutsProvider";
 import {
   SHORTCUT_ACTIONS,
@@ -61,7 +62,7 @@ export const useKeyboardShortcuts = (): void => {
       // IME 组合输入期间（中文/日文等输入法候选过程，部分平台 keyCode 229）
       // 的按键属于输入法操作，不触发任何快捷键：如取消候选的 Esc 会误触发
       // cancelSession 中断正在运行的会话。
-      if (event.isComposing || event.keyCode === 229) {
+      if (isImeComposing(event)) {
         return;
       }
 

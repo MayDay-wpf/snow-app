@@ -57,6 +57,9 @@ import {
 } from "./components/mainContent/chatInput/fileTagUtils";
 import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "./hooks/useAppControl";
 import { setActiveSshWorkspace } from "./ssh/sshConnectionStore";
+import { installImeKeyboardGuard } from "../shared/imeKeyboard";
+
+installImeKeyboardGuard();
 
 // 与主窗口 main.tsx 一致：React 渲染前同步应用缓存的主题快照，避免首屏白闪。
 applyThemeCacheToDocument();

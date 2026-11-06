@@ -37,6 +37,9 @@ import {
   applyCachedThemeFontToDocument,
   watchCachedThemeFont,
 } from "./components/sidebar/themeSettings/themeFontCache";
+import { installImeKeyboardGuard } from "../shared/imeKeyboard";
+
+installImeKeyboardGuard();
 
 // 宠物窗口同样跟随应用字体：启动即用主题缓存，主题变更由 storage 事件同步。
 applyCachedThemeFontToDocument();

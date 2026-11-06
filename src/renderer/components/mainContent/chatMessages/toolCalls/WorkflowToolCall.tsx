@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
+import { isSubmitEnter } from "../../../../../shared/imeKeyboard";
 import { CustomSelect } from "../../../common/CustomSelect";
 import { ModelBrandIcon } from "../../../common/ModelBrandIcon";
 import type { ApiConfigRecord, Model } from "../../../../../preload";
@@ -1788,7 +1789,7 @@ const WorkflowToolCallInner = ({
               value={userReply}
               onChange={(event) => setUserReply(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (isSubmitEnter(event)) {
                   event.preventDefault();
                   handleReply();
                 }

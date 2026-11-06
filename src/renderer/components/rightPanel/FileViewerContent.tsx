@@ -2,6 +2,7 @@ import {
   getCodeLanguageFromPath as getLanguageFromFileName,
   highlightCodeHtml,
 } from "../../utils/syntaxHighlight";
+import { isImeComposing } from "../../../shared/imeKeyboard";
 import {
   AlertCircle,
   CaseSensitive,
@@ -210,17 +211,6 @@ const collectMatchLines = (
     bands.push({ line, current: line === currentLine });
   }
   return bands;
-};
-
-/** IME 组合输入中的按键（如中文输入法候选词确认的 Enter）：一律忽略。
- * 组合期间 preventDefault 会吞掉候选词上屏，导致中文无法输入
- * 搜索框/编辑器（isComposing 为 true，部分平台报 keyCode 229）。 */
-const isComposingKeyboardEvent = (
-  event: React.KeyboardEvent<HTMLElement>,
-): boolean => {
-  const nativeEvent = event.nativeEvent;
-  const nativeEventWithKeyCode = nativeEvent as unknown as { keyCode?: number };
-  return nativeEvent.isComposing || nativeEventWithKeyCode.keyCode === 229;
 };
 
 // Extracted documents and text that cannot round-trip to its original encoding
@@ -1895,7 +1885,7 @@ export function FileViewerContent({
   // 候选的 Esc 不得触发保存/退出编辑，否则候选词无法上屏。
   const handleEditorKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLElement>) => {
-      if (isComposingKeyboardEvent(e)) {
+      if (isImeComposing(e)) {
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
@@ -1918,7 +1908,7 @@ export function FileViewerContent({
   // 回车不带缩进，这里补上 Tab/Shift+Tab 缩进与回车保持缩进。
   const handlePlainKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!isComposingKeyboardEvent(event)) {
+      if (!isImeComposing(event)) {
         const textarea = event.currentTarget;
         const value = textarea.value;
         const start = textarea.selectionStart ?? 0;
@@ -2170,7 +2160,7 @@ export function FileViewerContent({
   // 放行给 IME，否则候选词无法上屏（表现为无法输入中文搜索）。
   const handleSearchBarKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (isComposingKeyboardEvent(event)) {
+      if (isImeComposing(event)) {
         return;
       }
       if (event.key === "Escape") {

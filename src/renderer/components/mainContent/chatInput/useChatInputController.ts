@@ -9,6 +9,7 @@ import {
 import { BrainCircuit } from "lucide-react";
 import type { ApiConfigRecord, Model } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { isImeComposing } from "../../../../shared/imeKeyboard";
 import { shortcutEvents } from "../../shortcutEvents";
 import {
   PLUGIN_INSERT_INPUT_TEXT_EVENT,
@@ -76,15 +77,6 @@ type UseChatInputControllerParams = {
 };
 
 type UseChatInputControllerResult = ChatInputState & ChatInputActions;
-
-const isComposingKeyboardEvent = (
-  event: React.KeyboardEvent<HTMLElement>,
-): boolean => {
-  const nativeEvent = event.nativeEvent;
-  const nativeEventWithKeyCode = nativeEvent as unknown as { keyCode?: number };
-
-  return nativeEvent.isComposing || nativeEventWithKeyCode.keyCode === 229;
-};
 
 /** 聚焦可编辑元素并把光标落到内容末尾 */
 const focusEditableAtEnd = (element: HTMLElement | null): void => {
@@ -785,7 +777,7 @@ export const useChatInputController = ({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key !== "Enter" || isComposingKeyboardEvent(event)) {
+      if (event.key !== "Enter" || isImeComposing(event)) {
         return;
       }
       const hasMod = event.ctrlKey || event.metaKey;
@@ -842,7 +834,7 @@ export const useChatInputController = ({
   const handleManualKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
-        if (isComposingKeyboardEvent(event)) {
+        if (isImeComposing(event)) {
           return;
         }
 
