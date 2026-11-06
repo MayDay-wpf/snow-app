@@ -28,6 +28,7 @@ import { useReplyPrediction } from "./useReplyPrediction";
 import { PendingMessages } from "./PendingMessages";
 import { StreamMetrics } from "./StreamMetrics";
 import { useChatConversationContext } from "../chatMessages";
+import { useEscapeClose } from "../../../hooks/useEscapeClose";
 import { directoryIdToPath } from "../chatMessages/utils/conversationHelpers";
 import { collectConversationFileChanges } from "../chatMessages/hooks/fileChangeTracking";
 import { useConversationFileChanges } from "./useConversationFileChanges";
@@ -72,6 +73,7 @@ export const ChatInputView = ({
   placeholder,
   projectId,
   projectName,
+  surface = "main",
   onNavigateToView,
   value,
   textareaRef,
@@ -797,6 +799,20 @@ export const ChatInputView = ({
       return restored ?? null;
     },
     [onWithdrawPendingMessage, restoreContent],
+  );
+
+  // ESC 优先收回待发送队列：主输入区有 Pending 时先撤回最新一条到输入框，
+  // 队列清空后再按 ESC 才走全局的会话中断流程。
+  useEscapeClose(
+    () => {
+      const restored = handleWithdrawPending(pendingMessages.length - 1);
+      if (restored === null) {
+        handleAbort();
+      }
+    },
+    surface === "main" &&
+      pendingMessages.length > 0 &&
+      Boolean(onWithdrawPendingMessage),
   );
 
   const handleSendPendingNow = useCallback(

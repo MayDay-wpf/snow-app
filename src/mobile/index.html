@@ -133,8 +133,22 @@
             ></button>
             <div id="modeBadges" class="mode-badges" hidden></div>
           </div>
+          <!-- 引用 chip（@ 文件 / 目录、# 技能）：发送时编码为桌面端同款标签。 -->
+          <div id="referenceStrip" class="reference-strip"></div>
           <div id="attachmentStrip" class="attachment-strip"></div>
           <div id="pendingMessages" class="pending-messages"></div>
+          <!-- 引用搜索弹层：@ 搜索文件 / 目录，# 搜索技能；由 mentions.ts 渲染。 -->
+          <div id="mentionPopup" class="mention-popup" hidden>
+            <div class="mention-popup-head">
+              <span id="mentionPopupTitle" class="mention-popup-title"></span>
+              <span id="mentionPopupMeta" class="mention-popup-meta"></span>
+            </div>
+            <div
+              id="mentionList"
+              class="mention-popup-list"
+              role="listbox"
+            ></div>
+          </div>
           <div id="composerRow" class="composer">
             <button
               id="plusButton"
@@ -150,7 +164,7 @@
               maxlength="8000"
               rows="1"
               aria-label="消息"
-              placeholder="问我任何问题，输入 / 打开指令面板..."
+              placeholder="@ 引用文件，# 选择技能"
               data-i18n-aria-label="remote.composer.inputLabel"
               data-i18n-placeholder="remote.composer.placeholder"
             ></textarea>

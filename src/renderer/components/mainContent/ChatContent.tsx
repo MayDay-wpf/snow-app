@@ -733,6 +733,7 @@ const ChatContentBody = ({
                 key={chatRenderKey}
                 projectId={activeDirectory?.directoryId}
                 projectName={activeDirectory?.name}
+                surface={surface}
                 conversationId={activeConversationId}
                 onSend={handleSendWithScroll}
                 onNavigateToView={onNavigateToView}

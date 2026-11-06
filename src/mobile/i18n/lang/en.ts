@@ -65,12 +65,30 @@ export const en: Record<string, string> = {
   "remote.compaction.copyFailed": "Copy failed",
 
   // Composer
-  "remote.composer.placeholder":
-    "Ask me anything, type / to open the command panel...",
+  "remote.composer.placeholder": "@ files, # skills",
   "remote.composer.more": "More actions",
   "remote.composer.send": "Send",
   "remote.composer.stop": "Stop",
   "remote.composer.inputLabel": "Message",
+
+  // References (@ file / folder, # skill)
+  "remote.mention.filesTitle": "Reference a file or folder",
+  "remote.mention.skillsTitle": "Select a skill",
+  "remote.mention.searching": "Searching...",
+  "remote.mention.searchFailed": "Search failed, please retry",
+  "remote.mention.skillLoadFailed": "Failed to load skills — check the desktop",
+  "remote.mention.noResults": "No matching results",
+  "remote.mention.noEntries": "No files to reference in this workspace",
+  "remote.mention.noSkills": "No enabled skills in this project",
+  "remote.mention.remoteUnsupported":
+    "File references are unavailable for SSH workspaces",
+  "remote.mention.resultCount": "{{count}} items",
+  "remote.mention.directory": "Folder",
+  "remote.mention.skillProject": "Project skill",
+  "remote.mention.skillGlobal": "Global skill",
+  "remote.mention.remove": "Remove reference",
+  "remote.mention.duplicate": "Already in the reference list",
+  "remote.mention.maxCount": "Up to {{count}} references",
   "remote.pending.sendNow": "Send now",
   "remote.pending.withdraw": "Withdraw",
   "remote.pending.sent": "Sent",

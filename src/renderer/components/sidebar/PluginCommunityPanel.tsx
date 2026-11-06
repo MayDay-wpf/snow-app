@@ -30,6 +30,7 @@ import { marketStore, useMarketStore } from "../../plugins/marketStore";
 import { pluginStore, usePluginStore } from "../../plugins/pluginStore";
 import type { UserscriptRecord } from "../../../preload/types/userscripts";
 import { Modal } from "../common/Modal";
+import { GitHubLogo } from "../common/GitHubLogo";
 import { PluginMarketIcon } from "../common/PluginMarketIcon";
 import { Tooltip } from "../common/Tooltip";
 
@@ -478,6 +479,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                   type="button"
                   onClick={() => window.open(entry.repo, "_blank")}
                 >
+                  <GitHubLogo size={11} />
                   {entry.id}
                 </button>
               </div>
@@ -619,6 +621,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                 type="button"
                 onClick={() => window.open(pendingEntry.repo, "_blank")}
               >
+                <GitHubLogo size={11} />
                 {pendingEntry.id}
               </button>
             </div>

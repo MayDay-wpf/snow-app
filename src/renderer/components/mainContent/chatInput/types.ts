@@ -140,6 +140,8 @@ export type ChatInputProps = {
    * 超出已加载的分页窗口时，用于把它加载进内存消息窗口。
    */
   loadOlderMessages: () => Promise<void>;
+  /** 输入区所在表面：main = 主内容区（承担全局 ESC 语义），panel = 右侧会话面板。 */
+  surface?: "main" | "panel";
   pendingMessages?: string[];
   pendingMessageModes?: ("queue" | "steer")[];
 
@@ -292,6 +294,7 @@ export type ChatInputViewProps = ChatInputState &
     /** 回滚编排提交消息：回填并打开编排器（编排图无法写进输入框）。 */
     rollbackWorkflowComposer?: RollbackWorkflowComposerState | null;
     onRollbackWorkflowRestored?: () => void;
+    surface?: "main" | "panel";
     pendingMessages: string[];
     pendingMessageModes?: ("queue" | "steer")[];
 

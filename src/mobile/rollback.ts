@@ -17,6 +17,7 @@ import {
 import { $ } from "./dom";
 import { t } from "./i18n";
 import { iconMarkup, type MobileIconName } from "./icons";
+import { writeBackToMobileInput } from "./inputBridge";
 import { isLiveReady, setLiveRollbackListener } from "./live";
 import { showNotice } from "./notice";
 import {
@@ -26,7 +27,7 @@ import {
   rememberOverlayTrigger,
   setOverlayCloseHook,
 } from "./overlays";
-import { dropMessagesFrom } from "./timeline";
+import { dropMessagesFrom, knownUserMessageText } from "./timeline";
 import type { AppContext } from "./types";
 
 /**
@@ -63,6 +64,10 @@ let state: SnowRemoteRollbackState | null = null;
 let sawActivity = false;
 /** 已确认、等待桌面执行完成的方式；非空即执行中。 */
 let pendingMode: SnowRemoteRollbackMode | null = null;
+/** 桌面下发的回填文本（与电脑端 draftToRestore 同源）。 */
+let pendingDraftText = "";
+/** 本次回滚是否已把消息写回输入框。 */
+let draftRestored = false;
 let deleteMemories = false;
 let showTodos = false;
 let showMemories = false;
@@ -205,6 +210,7 @@ const resetState = (): void => {
   state = null;
   sawActivity = false;
   pendingMode = null;
+  draftRestored = false;
   deleteMemories = false;
   showTodos = false;
   showMemories = false;
@@ -252,6 +258,11 @@ const applyState = (
   if (!active || requestGeneration !== generation) return;
   state = next;
   const value = preview();
+  if (value) {
+    // 回填文本与桌面 draftToRestore 同源：先存下来，回滚完成后本地消息已随
+    // 截断 / 会话删除消失，届时取不到正文。
+    pendingDraftText = value.messageContent || pendingDraftText;
+  }
   if (value || preparing()) {
     sawActivity = true;
   } else if (sawActivity) {
@@ -264,14 +275,33 @@ const applyState = (
   render();
 };
 
-/** 本次回滚结束：收起弹层；已确认的按目标消息清理本地时间线。 */
+/**
+ * 回滚成功后把被回滚消息写回输入框（与桌面 confirmRollback 的 draftToRestore
+ * 一致）：输入区已被收尾栏替换（已结束的子会话）时不回填。
+ */
+const restoreRolledBackDraft = (text: string): boolean => {
+  if (!text || $("composerRow").hidden) return false;
+  if (!writeBackToMobileInput(text)) return false;
+  const input = $<HTMLTextAreaElement>("input");
+  input.focus();
+  input.setSelectionRange(text.length, text.length);
+  return true;
+};
+
+/** 本次回滚结束：收起弹层；已确认的按目标消息清理本地时间线并回填输入框。 */
 const finish = (): void => {
   const mode = pendingMode;
   const finishedTarget = targetMessageId;
+  // 回填文本以桌面下发为准，缺失时退回本地时间线里的消息正文。
+  const restoreText =
+    mode && !draftRestored
+      ? pendingDraftText || knownUserMessageText(finishedTarget)
+      : "";
   resetState();
   closeOverlays(false);
   if (mode && ctx) {
     dropMessagesFrom(finishedTarget);
+    if (restoreRolledBackDraft(restoreText)) draftRestored = true;
     showNotice(t("remote.rollback.done"));
     void ctx.refresh(false);
     return;
@@ -770,11 +800,14 @@ const handleConfirm = async (mode: SnowRemoteRollbackMode): Promise<void> => {
   const requestGeneration = generation;
   const messageId = targetMessageId;
   pendingMode = mode;
+  pendingDraftText = value.messageContent || pendingDraftText;
   render();
   try {
     // 桌面开始执行（文件恢复 → 会话截断 → 清理检查点 / 记忆）：执行期间保持
     // 执行中状态，直到轮询发现预览被清空（成功）或重新带上错误（失败）。
     await confirmRollback(messageId, mode, deleteMemories);
+    // 桌面已执行完成：立即回填，不必等下一次快照（finish 不再重复写）。
+    if (restoreRolledBackDraft(pendingDraftText)) draftRestored = true;
   } catch (error) {
     if (!active || requestGeneration !== generation) return;
     pendingMode = null;
@@ -811,6 +844,10 @@ export const openRollbackSheet = async (
   state = null;
   sawActivity = false;
   pendingMode = null;
+  // 先按本地消息抓一份回填文本（首条消息回滚会删除会话并清空本地时间线）；
+  // 桌面预览里的 messageContent 到达后再覆盖，与电脑端 draftToRestore 同源。
+  pendingDraftText = knownUserMessageText(messageId);
+  draftRestored = false;
   deleteMemories = false;
   showTodos = false;
   showMemories = false;

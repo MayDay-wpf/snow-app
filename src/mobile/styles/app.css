@@ -848,6 +848,7 @@ textarea:focus-visible {
 /* 消息操作栏（气泡外，与桌面 UserMessageActions / AiResponseActions 对齐）：
    时间 + 图标按钮；用户消息右对齐，AI 响应左对齐。 */
 .message-actions {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -915,21 +916,34 @@ textarea:focus-visible {
   max-height: 420px;
   overflow-y: auto;
 }
-/* 运行统计面板：手机端用可展开的内联面板替代桌面的悬浮 Tooltip。 */
+/* 运行统计面板：手机端用浮层替代桌面的悬浮 Tooltip；展开方向由
+   messageActions.ts 的 positionStatsPanel 按可用空间决定（默认向下）。 */
 .message-run-stats {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 25;
   display: none;
   flex-direction: column;
   gap: 4px;
   min-width: 176px;
+  max-width: calc(100vw - 56px);
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--panel2);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
   font-size: 11px;
   line-height: 1.5;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .message-run-stats.open {
   display: flex;
+}
+.message-run-stats.is-above {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 .message-run-stats-row {
   display: flex;
@@ -2609,6 +2623,182 @@ html[data-theme="light"] .mode-badge-lite {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+/* 引用 chip（@ 文件 / 目录、# 技能）：与附件条同一条横向滚动带。 */
+.reference-strip {
+  display: none;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 0 2px 7px;
+  pointer-events: auto;
+  scrollbar-width: none;
+}
+.reference-strip.has-items {
+  display: flex;
+}
+.reference-strip[hidden] {
+  display: none;
+}
+.reference-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  height: 30px;
+  padding: 0 5px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 11.5px;
+}
+.reference-chip-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted);
+}
+.reference-chip-icon .file-icn {
+  display: block;
+}
+.reference-chip-icon .icn {
+  width: 14px;
+  height: 14px;
+}
+.reference-chip.skill .reference-chip-icon {
+  color: var(--purple);
+}
+.reference-chip-name {
+  max-width: 168px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-chip-remove {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dim);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.reference-chip-remove .icn {
+  width: 12px;
+  height: 12px;
+}
+.reference-chip-remove:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+/* 引用搜索弹层：贴在输入框上沿，列表内部滚动，不挤压消息区。 */
+.mention-popup {
+  display: flex;
+  flex-direction: column;
+  max-height: min(46svh, 360px);
+  margin: 0 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.mention-popup[hidden] {
+  display: none;
+}
+.mention-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 7px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.mention-popup-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.mention-popup-meta {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
+}
+.mention-popup-list {
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mention-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.mention-row:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.mention-row-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.mention-row-icon .icn {
+  width: 16px;
+  height: 16px;
+}
+.mention-row-icon.skill {
+  color: var(--purple);
+}
+.mention-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mention-row-main b {
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-row-main small {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.mention-empty.error {
+  color: var(--red);
+}
+.mention-spinner {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+.mention-spinner .icn {
+  width: 13px;
+  height: 13px;
+  animation: spin 0.9s linear infinite;
+}
 .attachment-strip {
   display: none;
   gap: 7px;
@@ -3432,9 +3622,12 @@ html[data-theme="light"] .message.user .message-shell {
   border-color: rgba(15, 23, 42, 0.06);
   box-shadow: 0 8px 28px rgba(28, 39, 60, 0.06);
 }
-html[data-theme="light"] .message-raw,
-html[data-theme="light"] .message-run-stats {
+html[data-theme="light"] .message-raw {
   background: rgba(15, 23, 42, 0.03);
+}
+html[data-theme="light"] .message-run-stats {
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgba(28, 39, 60, 0.16);
 }
 html[data-theme="light"] .message-copy-menu {
   background: #ffffff;
@@ -3543,6 +3736,12 @@ html[data-theme="light"] .remote-panel input,
 html[data-theme="light"] .reject-reason,
 html[data-theme="light"] .answer-input {
   background: #f5f6f8;
+}
+html[data-theme="light"] .mention-row:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+html[data-theme="light"] .reference-chip-remove:active {
+  background: rgba(15, 23, 42, 0.08);
 }
 /* WorkFlow 卡片浅色覆盖：卡片与画布节点改用浅底 + 主题线条色，输入框与
    .reject-reason 同色（深色底在浅色页面上不可读）。 */

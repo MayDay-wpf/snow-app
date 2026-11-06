@@ -19,6 +19,7 @@ import {
   handleMessageAction,
   isRawMarkdown,
   messageActionsDigest,
+  positionOpenStatsPanels,
   resetMessageActionsState,
   runStatsDigest,
   setMessageActionsRedraw,
@@ -996,6 +997,7 @@ const paint = (options: {
   const anchorTop = anchorEl ? anchorEl.getBoundingClientRect().top : null;
 
   reconcileMessages(Boolean(options.rebuild));
+  positionOpenStatsPanels();
 
   if (anchorEl !== null && anchorTop !== null) {
     timeline.scrollTop += anchorEl.getBoundingClientRect().top - anchorTop;
@@ -1359,6 +1361,18 @@ export const renderTimeline = (
     rebuild: conversationChanged,
   });
   updateLoadEarlierButton();
+};
+
+/**
+ * 回滚目标消息的纯文本（回滚成功后回填输入框）：非用户消息、上下文压缩边界
+ * 与未知 id 都返回空串（与桌面不回填压缩边界的判定一致）。
+ */
+export const knownUserMessageText = (messageId: string): string => {
+  const message = knownList.find((item) => item.id === messageId);
+  if (!message || message.role !== "user" || message.isContextCompaction) {
+    return "";
+  }
+  return message.content ?? "";
 };
 
 /**

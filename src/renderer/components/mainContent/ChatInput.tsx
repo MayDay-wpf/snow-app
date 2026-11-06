@@ -7,6 +7,7 @@ export const ChatInput = ({
   placeholder,
   projectId,
   projectName,
+  surface = "main",
   conversationId,
   onSend,
   onNavigateToView,
@@ -90,6 +91,7 @@ export const ChatInput = ({
       placeholder={placeholder ?? t("chatInput.placeholder")}
       projectId={projectId}
       projectName={projectName}
+      surface={surface}
       onNavigateToView={onNavigateToView}
       {...controller}
       rollbackWorkflowComposer={rollbackWorkflowComposer}

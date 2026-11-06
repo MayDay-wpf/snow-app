@@ -10,6 +10,7 @@ pub mod auth;
 pub mod bridge;
 pub mod json_patch;
 pub mod live;
+pub mod mention;
 pub mod server;
 pub mod theme_asset;
 pub mod unauthorized;

@@ -498,6 +498,16 @@ const toRemoteToolCall = (toolCall: ToolCallInfo): SnowRemoteToolCall => ({
     : undefined,
 });
 
+/** 用户消息纯文本（剥离附件标签）：消息正文与回滚输入框回填共用。 */
+const toRemoteUserText = (content: string): string =>
+  truncate(
+    parseContentSegments(content)
+      .filter((segment) => segment.type === "text")
+      .map((segment) => segment.content)
+      .join("")
+      .trim(),
+  ) ?? "";
+
 const toRemoteMessage = (
   message: ChatConversationMessage,
 ): SnowRemoteMessage => ({
@@ -505,13 +515,7 @@ const toRemoteMessage = (
   role: message.role,
   content:
     message.role === "user"
-      ? (truncate(
-          parseContentSegments(message.content)
-            .filter((segment) => segment.type === "text")
-            .map((segment) => segment.content)
-            .join("")
-            .trim(),
-        ) ?? "")
+      ? toRemoteUserText(message.content)
       : (truncate(message.content) ?? ""),
   contentBlocks:
     message.role === "user" && !message.isContextCompaction
@@ -1681,6 +1685,11 @@ export const RemoteControlBridge = ({
                 ].slice(0, MAX_ROLLBACK_CHECKPOINTS),
                 workDir: preview.workDir ?? "",
                 isFirstMessage: preview.isFirstMessage,
+                // 回填文本与桌面 draftToRestore 同源：手机端拿不到已随截断
+                // 消失的消息正文（首条消息回滚还会整会话删除）。
+                messageContent: preview.isContextCompaction
+                  ? ""
+                  : toRemoteUserText(preview.messageContent),
                 todoItems: preview.todoItems
                   .slice(0, MAX_ROLLBACK_TODOS)
                   .map((todo) => ({

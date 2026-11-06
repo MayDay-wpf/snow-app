@@ -142,6 +142,30 @@ export const setSkillEnabled = (
 
 export const fetchMcpServers = (): Promise<McpResponse> => request("/api/mcp");
 
+/** `@` 引用搜索的单个文件 / 目录条目（由 Rust 直接遍历本机工作区得到）。 */
+export type MentionFileItem = {
+  path: string;
+  relativePath: string;
+  name: string;
+  isDirectory: boolean;
+};
+
+export type MentionSearchResult = {
+  items: MentionFileItem[];
+  /** 当前工作区是 SSH 远程项目：Rust 侧不提供文件遍历。 */
+  remote: boolean;
+};
+
+/** 搜索工作区内可引用的文件 / 目录（空查询返回工作区根目录）。 */
+export const searchMentionFiles = (
+  directoryId: string,
+  query: string,
+): Promise<MentionSearchResult> =>
+  request(
+    `/api/mention?directoryId=${encodeURIComponent(directoryId)}&query=${encodeURIComponent(query)}`,
+    { timeoutMs: 20_000 },
+  );
+
 export const setMcpEnabled = (
   target: "server" | "tool",
   id: string,

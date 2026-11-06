@@ -37,6 +37,7 @@ import { pluginStore, usePluginStore } from "../../plugins/pluginStore";
 import { isSensitiveScope, type PluginView } from "../../plugins/types";
 import type { UserscriptRecord } from "../../../preload/types/userscripts";
 import { Modal } from "../common/Modal";
+import { GitHubLogo } from "../common/GitHubLogo";
 import { PluginMarketIcon } from "../common/PluginMarketIcon";
 import { Tooltip } from "../common/Tooltip";
 import { PluginCommunityPanel } from "./PluginCommunityPanel";
@@ -592,6 +593,7 @@ export const PluginMarketPanel = ({
                       type="button"
                       onClick={() => window.open(entry.repo, "_blank")}
                     >
+                      <GitHubLogo size={11} />
                       {entry.repo.replace("https://github.com/", "")}
                     </button>
                   </div>
@@ -685,6 +687,7 @@ export const PluginMarketPanel = ({
                     type="button"
                     onClick={() => window.open(pendingEntry.repo, "_blank")}
                   >
+                    <GitHubLogo size={11} />
                     {pendingEntry.repo.replace("https://github.com/", "")}
                   </button>
                 </div>

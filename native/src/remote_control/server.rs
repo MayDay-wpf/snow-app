@@ -62,6 +62,8 @@ const COMPLETED_SEND_CAPACITY: usize = 200;
 const SEND_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 单次 send 请求内最多携带的附件数（与附件存储一致）。
 const MAX_SEND_ATTACHMENTS: usize = 4;
+/// `@` 引用搜索的查询词长度上限（防超长输入拖慢文件遍历）。
+const MAX_MENTION_QUERY_CHARS: usize = 200;
 /// 回滚 diff：单次请求携带的检查点数量、返回的文件数上限。
 const MAX_ROLLBACK_CHECKPOINTS: usize = 300;
 const MAX_ROLLBACK_DIFF_FILES: usize = 50;
@@ -1358,6 +1360,57 @@ async fn handle_api(
         ensure_current_pairing(context, request_generation)?;
         let value = bridge_call("getState", json!([])).await?;
         return Ok(json_response(StatusCode::OK, &value, Vec::new()));
+    }
+
+    // 输入框 `@` 引用搜索：按 directoryId 解析工作区路径（手机端快照里的
+    // 标识，不接受客户端直传路径），只在本机工作区遍历；SSH 工作区的文件
+    // 通道在桌面端，这里只回 remote 标记。
+    if method == Method::GET && path == "/api/mention" {
+        ensure_current_pairing(context, request_generation)?;
+        let query = query_param(url, "query").unwrap_or_default();
+        let directory_id = query_param(url, "directoryId").unwrap_or_default();
+        if query.chars().count() > MAX_MENTION_QUERY_CHARS
+            || (!directory_id.is_empty() && !is_bounded_string(&directory_id, false))
+        {
+            return Ok(json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": "引用搜索参数无效" }),
+                Vec::new(),
+            ));
+        }
+        let workspace_path = if directory_id.is_empty() {
+            String::new()
+        } else {
+            tokio::task::spawn_blocking(move || -> Option<String> {
+                let database_path = crate::storage::ensure_database_file().ok()?;
+                let directories =
+                    crate::storage::services::workspace_directories::list_workspace_directories(
+                        &database_path,
+                    )
+                    .ok()?;
+                directories
+                    .into_iter()
+                    .find(|item| item.directory_id == directory_id)
+                    .map(|item| item.path)
+            })
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+        };
+        let remote = workspace_path.starts_with("ssh://");
+        let items = if workspace_path.is_empty() || remote {
+            Vec::new()
+        } else {
+            tokio::task::spawn_blocking(move || super::mention::search(&workspace_path, &query))
+                .await
+                .unwrap_or_default()
+        };
+        return Ok(json_response(
+            StatusCode::OK,
+            &json!({ "items": items, "remote": remote }),
+            Vec::new(),
+        ));
     }
 
     if method == Method::GET && path.starts_with("/api/message-images/") {

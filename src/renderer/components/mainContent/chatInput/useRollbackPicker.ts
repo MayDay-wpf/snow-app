@@ -124,6 +124,7 @@ export type RollbackPicker = {
  *
  * 与全局快捷键的关系：
  * - 首次 ESC 不被消费，保持既有的「中断会话」语义（cancelSession）。
+ * - 有 Pending 时 ESC 先收回待发送消息（ChatInputView 接管），同样不计入双击判定。
  * - 列表打开时挂 `data-esc-panel`，快捷键引擎据此跳过 ESC 的中断动作；
  *   列表自身接管 ↑/↓/Enter/Esc。
  * - 其它 ESC 面板（@ 提及 / 命令面板）打开时，ESC 属于它们，不计入双击判定。
@@ -144,6 +145,7 @@ export const useRollbackPicker = ({
     rollbackPreview,
     isStreaming,
     isAborting,
+    pendingMessages,
   } = useChatConversationContext();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -372,6 +374,11 @@ export const useRollbackPicker = ({
         lastEscapeAtRef.current = Number.NEGATIVE_INFINITY;
         return false;
       }
+      // 有 Pending 时 ESC 属于「收回待发送消息」，不计入双击判定。
+      if (pendingMessages.length > 0) {
+        lastEscapeAtRef.current = Number.NEGATIVE_INFINITY;
+        return false;
+      }
       if (document.querySelector("[data-esc-panel]") !== null) {
         lastEscapeAtRef.current = Number.NEGATIVE_INFINITY;
         return false;
@@ -398,6 +405,7 @@ export const useRollbackPicker = ({
       isAborting,
       isOpen,
       isStreaming,
+      pendingMessages.length,
       select,
       selectedIndex,
       targets,

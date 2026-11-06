@@ -63016,6 +63016,16 @@ img.plugin-icon {
   text-decoration: underline;
 }
 
+.plugin-market-repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plugin-market-repo-link svg {
+  flex-shrink: 0;
+}
+
 .plugin-market-updated {
   margin-left: auto;
 }

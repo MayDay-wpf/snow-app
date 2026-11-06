@@ -302,6 +302,11 @@ export type SnowRemoteRollbackPreview = {
   workDir: string;
   /** 回滚首条消息 = 整个对话被删除。 */
   isFirstMessage: boolean;
+  /**
+   * 回滚成功后回填手机端输入框的纯文本：与桌面 confirmRollback 写入
+   * draftToRestore 的消息同源（附件标签已剥离；上下文压缩边界为空）。
+   */
+  messageContent?: string;
   todoItems: SnowRemoteRollbackTodoItem[];
   memoryItems: SnowRemoteRollbackMemoryItem[];
   /** 被回滚轮次关联的 WorkFlow 数量（>0 时提示级联中止并删除）。 */

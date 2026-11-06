@@ -12,9 +12,22 @@ import {
   uploadAttachment,
 } from "./api";
 import { $, escapeHtml } from "./dom";
-import { registerInputTextSink } from "./inputBridge";
+import {
+  registerInputChangeListener,
+  registerInputTextSink,
+} from "./inputBridge";
 import { t } from "./i18n";
 import { iconMarkup, type MobileIconName } from "./icons";
+import {
+  clearMentions,
+  closeMentionPopup,
+  hasMentionReferences,
+  initMentions,
+  mentionTags,
+  resetMentionContext,
+  restoreReferencesFromText,
+  setMentionWorkspace,
+} from "./mentions";
 import { showNotice } from "./notice";
 import {
   beginOverlay,
@@ -57,10 +70,10 @@ const resizeInput = (): void => {
   input.style.height = Math.min(150, Math.max(40, input.scrollHeight)) + "px";
 };
 
-/** 撤回待发送消息时把原文恢复到输入框（重置幂等标识并同步高度）。 */
+/** 撤回待发送消息时把原文恢复到输入框（引用标签还原为 chip 并同步高度）。 */
 export const restoreInputText = (text: string): void => {
   const input = $<HTMLTextAreaElement>("input");
-  input.value = text;
+  input.value = restoreReferencesFromText(text);
   pendingSendRequestId = "";
   resizeInput();
 };
@@ -373,9 +386,11 @@ const renderReadonlyBar = (finished: FinishedSession | null): void => {
 
   const readonly = finished !== null;
   $("remoteToolbar").hidden = readonly;
+  $("referenceStrip").hidden = readonly;
   $("attachmentStrip").hidden = readonly;
   $("pendingMessages").hidden = readonly;
   $("composerRow").hidden = readonly;
+  if (readonly) closeMentionPopup();
   const bar = $("readonlyBar");
   bar.hidden = !readonly;
   if (!finished) {
@@ -397,6 +412,7 @@ const renderReadonlyBar = (finished: FinishedSession | null): void => {
 
 export const renderComposer = (next: SnowRemoteState | null): void => {
   latestState = next;
+  setMentionWorkspace(next?.workspace?.directoryId ?? "");
   renderReadonlyBar(finishedSession(next));
   // 发送与中断是独立按钮：运行中发送按钮仍可用（消息进入待发送队列，
   // 由桌面端在回合边界自动切入），中断按钮单独显示、互不影响。
@@ -409,10 +425,11 @@ export const renderComposer = (next: SnowRemoteState | null): void => {
   renderAttachments();
 };
 
-/** 会话上下文（工作区 + 会话）变化时丢弃旧附件。 */
+/** 会话上下文（工作区 + 会话）变化时丢弃旧附件与引用。 */
 export const syncSessionContext = (nextContext: string): void => {
   if (attachmentContext && nextContext !== attachmentContext) {
     clearAttachments();
+    resetMentionContext();
   }
   attachmentContext = nextContext;
 };
@@ -439,6 +456,7 @@ const positionActions = (): void => {
 const submit = async (ctx: AppContext): Promise<void> => {
   const input = $<HTMLTextAreaElement>("input");
   const text = input.value;
+  closeMentionPopup();
   if (busy) return;
   // 只读会话（已结束的子代理 / 节点）不接受发送：输入区已隐藏，这里兜住
   // 键盘回车等残余入口（桌面端同样会拒绝这类发送）。
@@ -451,7 +469,11 @@ const submit = async (ctx: AppContext): Promise<void> => {
     showNotice(t("remote.attachments.failedNotice"), true);
     return;
   }
-  if (!text.trim() && !attachments.length) return;
+  if (!text.trim() && !attachments.length && !hasMentionReferences()) return;
+  // 引用以桌面端同款标签随正文发送（桌面消息区据此渲染 chip，技能标签
+  // 还会触发该技能的手动执行）。
+  const tags = mentionTags();
+  const messageText = tags ? (text.trim() ? `${text}\n${tags}` : tags) : text;
   // 运行中（流式 / 停止中）发送的投递方式由桌面「繁忙时的发送行为」设置决定：
   // 插话在下一个安全边界追加要求，排队等本轮结束后再发（判定与桌面一致）。
   const running = Boolean(latestState?.isStreaming || latestState?.isAborting);
@@ -465,13 +487,14 @@ const submit = async (ctx: AppContext): Promise<void> => {
       Math.random().toString(36).slice(2);
   try {
     await sendMessage(
-      text,
+      messageText,
       attachments.map((item) => item.id),
       pendingSendRequestId,
     );
     input.value = "";
     resizeInput();
     clearAttachments();
+    clearMentions();
     pendingSendRequestId = "";
     if (running) {
       showNotice(
@@ -579,8 +602,15 @@ export const initComposer = (ctx: AppContext): void => {
   const input = $<HTMLTextAreaElement>("input");
   // 消息操作栏「编辑到输入框」经该回调回填；输入区只读时按钮不会渲染。
   registerInputTextSink(restoreInputText);
+  // 引用 chip 插入 / 触发词剥离属于程序化改写：重置幂等标识并同步高度。
+  registerInputChangeListener(() => {
+    pendingSendRequestId = "";
+    resizeInput();
+  });
+  initMentions();
 
   $("plusButton").onclick = () => {
+    closeMentionPopup();
     if (isActionSheetOpen()) {
       closeOverlays(false);
       return;
@@ -670,6 +700,7 @@ export const initComposer = (ctx: AppContext): void => {
     pendingSendRequestId = "";
     resizeInput();
     if (input.value.charAt(0) === "/") {
+      closeMentionPopup();
       openRemotePanel("commandPanel");
       const search = $<HTMLInputElement>("commandSearch");
       search.value = input.value.slice(1);

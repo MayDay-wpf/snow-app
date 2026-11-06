@@ -45,6 +45,7 @@ export const resetMessageActionsState = (): void => {
   rawMarkdownIds.clear();
   openStatsIds.clear();
   closeCopyMenu();
+  closeStatsPanels();
 };
 
 export const isRawMarkdown = (messageId: string): boolean =>
@@ -115,6 +116,84 @@ export const buildUserMessageActions = (
       : "") +
     "</div>";
   return el;
+};
+
+/** 统计浮层与操作栏的间距（与 CSS 的 calc(100% + 6px) 对齐）。 */
+const STATS_PANEL_GAP = 6;
+
+/**
+ * 按可用空间决定统计浮层的展开方向：操作栏贴近消息区底部时向上弹；
+ * 上下都不够时按空间更大的一侧展开并限高滚动，避免面板被裁掉。
+ */
+export const positionStatsPanel = (panel: HTMLElement): void => {
+  const anchor = panel.closest<HTMLElement>(".message-actions");
+  if (!anchor) return;
+  panel.style.maxHeight = "";
+  // 视口边界取消息区（滚动容器）：浮层超出它会被裁剪。
+  const bounds =
+    anchor.closest<HTMLElement>(".timeline")?.getBoundingClientRect() ?? null;
+  const top = bounds ? bounds.top : 0;
+  const bottom = bounds ? bounds.bottom : window.innerHeight;
+  const anchorRect = anchor.getBoundingClientRect();
+  const height = panel.offsetHeight;
+  const below = bottom - anchorRect.bottom - STATS_PANEL_GAP;
+  const above = anchorRect.top - top - STATS_PANEL_GAP;
+  const openUp = height > below && above > below;
+  panel.classList.toggle("is-above", openUp);
+  const available = Math.floor(Math.max(0, openUp ? above : below));
+  if (available > 0 && height > available) {
+    panel.style.maxHeight = `${available}px`;
+  }
+};
+
+/** 重绘后重新定位已展开的统计浮层（消息高度与滚动位置都会改变可用空间）。 */
+export const positionOpenStatsPanels = (): void => {
+  const panels = document.querySelectorAll<HTMLElement>(
+    ".message-run-stats.open",
+  );
+  for (const panel of panels) positionStatsPanel(panel);
+};
+
+let statsDismissCleanup: (() => void) | null = null;
+
+/** 收起统计浮层：外部点击 / 会话切换时回到关闭态（无需再点按钮）。 */
+export const closeStatsPanels = (): void => {
+  statsDismissCleanup?.();
+  statsDismissCleanup = null;
+  const panels = document.querySelectorAll<HTMLElement>(
+    ".message-run-stats.open",
+  );
+  for (const panel of panels) {
+    const container = panel.closest<HTMLElement>(".message-actions");
+    const messageId = container?.dataset.messageId ?? "";
+    if (messageId) openStatsIds.delete(messageId);
+    panel.classList.remove("open", "is-above");
+    panel.style.maxHeight = "";
+    const statsButton = container?.querySelector<HTMLElement>(
+      '[data-msg-action="stats"]',
+    );
+    statsButton?.classList.remove("is-open");
+    statsButton?.setAttribute("aria-expanded", "false");
+  }
+};
+
+/** 展开期间监听外部 pointerdown：点其它任何位置即失焦收起。 */
+const bindStatsDismiss = (): void => {
+  statsDismissCleanup?.();
+  const onPointerDown = (event: PointerEvent): void => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.closest(".message-run-stats") ||
+      target?.closest('[data-msg-action="stats"]')
+    ) {
+      return;
+    }
+    closeStatsPanels();
+  };
+  document.addEventListener("pointerdown", onPointerDown, true);
+  statsDismissCleanup = () => {
+    document.removeEventListener("pointerdown", onPointerDown, true);
+  };
 };
 
 const runStatsRows = (stats: SnowRemoteRunStats): string[] => {
@@ -335,6 +414,13 @@ export const handleMessageAction = async (
     button.classList.toggle("is-open", open);
     button.setAttribute("aria-expanded", String(open));
     panel.classList.toggle("open", open);
+    if (open) {
+      closeCopyMenu();
+      bindStatsDismiss();
+      positionStatsPanel(panel);
+    } else {
+      closeStatsPanels();
+    }
     return;
   }
   if (action === "fork") {
