@@ -22,6 +22,13 @@ const DISCOVERY_CONCURRENCY: usize = 4;
 const SERVER_NAME_MAX_LEN: usize = 18;
 const TOOL_NAME_MAX_LEN: usize = 24;
 
+/// 外部工具发现结果：公开短名用于模型协议，原始名用于精确的插件归属与展示。
+#[derive(Clone)]
+pub struct DiscoveredExternalTool {
+    pub tool: McpTool,
+    pub original_name: String,
+}
+
 /// 外部 MCP 服务器工具发现的进程内 TTL 缓存。
 ///
 /// 子代理编辑器、项目 MCP 面板、会话上下文收集等场景会频繁请求
@@ -54,7 +61,7 @@ struct CachedDiscovery {
     fetched_at: Instant,
     /// 写入时的公开服务器名（工具全名前缀），命中时校验。
     public_server_name: String,
-    tools: Vec<McpTool>,
+    tools: Vec<DiscoveredExternalTool>,
 }
 
 static DISCOVERY_CACHE: OnceLock<Mutex<HashMap<String, CachedDiscovery>>> = OnceLock::new();
@@ -69,7 +76,10 @@ fn discovery_cache_key(project_id: Option<&str>, config_server_id: &str) -> Stri
 
 /// 读取一台服务器的新鲜缓存条目；条目缺失、已过期或公开名与当前
 /// 配置不一致时返回 None。
-fn read_discovery_cache(cache_key: &str, public_server_name: &str) -> Option<Vec<McpTool>> {
+fn read_discovery_cache(
+    cache_key: &str,
+    public_server_name: &str,
+) -> Option<Vec<DiscoveredExternalTool>> {
     let guard = discovery_cache().lock().ok()?;
     let entry = guard.get(cache_key)?;
     if entry.fetched_at.elapsed() >= DISCOVERY_CACHE_TTL
@@ -94,6 +104,7 @@ pub(crate) fn cached_discovery_tools(
         &discovery_cache_key(project_id, config_server_id),
         public_server_name,
     )
+    .map(|tools| tools.into_iter().map(|entry| entry.tool).collect())
 }
 
 /// 只失效指定服务器的发现缓存（含各项目 scope 下同 id 的条目），其他
@@ -256,7 +267,11 @@ pub async fn discover_tools(
                 let identity = config.server_id.clone();
                 async move {
                     let discovered = if cache_only {
-                        cached_discovery_tools(project_id.as_deref(), &identity, &server_name).map(Ok)
+                        read_discovery_cache(
+                            &discovery_cache_key(project_id.as_deref(), &identity),
+                            &server_name,
+                        )
+                        .map(Ok)
                     } else {
                         Some(discover_config_tools(project_id.as_deref(), config, server_name.clone(), false).await)
                     };
@@ -286,7 +301,8 @@ pub async fn discover_tools(
         };
         match discovered {
             Ok(discovered_tools) => {
-                for tool in discovered_tools {
+                for discovered in discovered_tools {
+                    let tool = discovered.tool;
                     let full_name = tool.full_name();
                     if disabled_tool_names.contains(&full_name) || !names.insert(full_name.clone()) {
                         continue;
@@ -364,7 +380,7 @@ pub struct PluginToolServer {
     pub plugin_id: String,
     pub server_name: String,
     pub public_server_name: String,
-    pub tools: Vec<McpTool>,
+    pub tools: Vec<DiscoveredExternalTool>,
     pub error: Option<String>,
 }
 
@@ -471,7 +487,9 @@ pub async fn discover_server_tools(
         .cloned()
         .unwrap_or_else(|| sanitize_name(&config.name, SERVER_NAME_MAX_LEN, "external"));
 
-    discover_config_tools(project_id, config, server_name, force).await
+    discover_config_tools(project_id, config, server_name, force)
+        .await
+        .map(|tools| tools.into_iter().map(|entry| entry.tool).collect())
 }
 
 pub async fn resolve_project_scope_server(
@@ -640,7 +658,7 @@ async fn discover_config_tools(
     config: McpServerConfigRecord,
     server_name: String,
     force: bool,
-) -> Result<Vec<McpTool>> {
+) -> Result<Vec<DiscoveredExternalTool>> {
     let cache_key = discovery_cache_key(project_id, &config.server_id);
     let search_generation = super::servers::tool_search::generation();
 
@@ -678,7 +696,7 @@ async fn discover_config_tools(
 async fn discover_config_tools_inner(
     config: McpServerConfigRecord,
     server_name: String,
-) -> Result<Vec<McpTool>> {
+) -> Result<Vec<DiscoveredExternalTool>> {
     let timeout_ms = server_timeout_ms(&config);
     // 连接与工具列表共享同一个截止时间，保证整个获取流程有总预算；
     // 超时后仍显式 close，避免 stdio 子进程 / HTTP 连接残留。
@@ -711,11 +729,15 @@ async fn discover_config_tools_inner(
     Ok(tools
         .into_iter()
         .map(|tool| {
+            let original_name = tool.name.clone();
             let tool_name = tool_names
                 .get(&tool.name)
                 .cloned()
                 .unwrap_or_else(|| sanitize_name(&tool.name, TOOL_NAME_MAX_LEN, "tool"));
-            to_public_tool(&config, &server_name, tool_name, tool)
+            DiscoveredExternalTool {
+                tool: to_public_tool(&config, &server_name, tool_name, tool),
+                original_name,
+            }
         })
         .collect())
 }

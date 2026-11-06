@@ -1,6 +1,7 @@
 /** 工具插件的一个工具（名称 / 描述）。 */
 export type PluginToolInfo = {
   name: string;
+  originalName: string;
   description: string;
 };
 

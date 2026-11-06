@@ -1,6 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Copy, Info, Search, Wrench } from "lucide-react";
 import { useI18n } from "../../../../i18n";
+import { loadPluginMessages } from "../../../../plugins/manifest";
+import { usePluginStore } from "../../../../plugins/pluginStore";
+import { usePluginToolOwnerInfo } from "../../../../plugins/pluginToolIndex";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { GenericToolCall } from "./GenericToolCall";
 import { ToolCallNode } from "./shared/ToolCallNode";
@@ -134,6 +137,59 @@ const CopyToolNameButton = ({ name }: { name: string }): React.JSX.Element => {
   );
 };
 
+const DiscoveredToolRow = ({
+  tool,
+}: {
+  tool: DiscoveredTool;
+}): React.JSX.Element => {
+  const { t, locale } = useI18n();
+  const owner = usePluginToolOwnerInfo(tool.name);
+  const { plugins } = usePluginStore();
+  const plugin = owner
+    ? (plugins.find((item) => item.pluginId === owner.pluginId) ?? null)
+    : null;
+  const [messages, setMessages] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setMessages({});
+    if (!plugin || !owner) return;
+    const controller = new AbortController();
+    void loadPluginMessages(plugin, locale, controller.signal).then((next) => {
+      if (!controller.signal.aborted) setMessages(next);
+    });
+    return () => controller.abort();
+  }, [plugin, owner, locale]);
+
+  const localizedName = owner
+    ? messages[`toolNames.${owner.toolName}`]
+    : undefined;
+
+  return (
+    <article className="tool-search-tool" role="listitem">
+      <div className="tool-search-tool-header">
+        <Wrench
+          className="tool-search-tool-icon"
+          size={14}
+          aria-hidden="true"
+        />
+        <code className="tool-search-tool-name" title={tool.name}>
+          {localizedName || tool.name}
+        </code>
+        <span
+          className="tool-search-server"
+          title={t("toolCall.toolSearch.server", {
+            values: { server: tool.server },
+          })}
+        >
+          {tool.server}
+        </span>
+        <CopyToolNameButton name={tool.name} />
+      </div>
+      <p className="tool-search-description">{tool.description}</p>
+    </article>
+  );
+};
+
 export const ToolSearchToolCall = ({
   toolCall,
 }: ToolSearchToolCallProps): React.JSX.Element => {
@@ -184,32 +240,7 @@ export const ToolSearchToolCall = ({
             aria-label={t("toolCall.toolSearch.results")}
           >
             {result.tools.map((tool) => (
-              <article
-                className="tool-search-tool"
-                key={tool.name}
-                role="listitem"
-              >
-                <div className="tool-search-tool-header">
-                  <Wrench
-                    className="tool-search-tool-icon"
-                    size={14}
-                    aria-hidden="true"
-                  />
-                  <code className="tool-search-tool-name" title={tool.name}>
-                    {tool.name}
-                  </code>
-                  <span
-                    className="tool-search-server"
-                    title={t("toolCall.toolSearch.server", {
-                      values: { server: tool.server },
-                    })}
-                  >
-                    {tool.server}
-                  </span>
-                  <CopyToolNameButton name={tool.name} />
-                </div>
-                <p className="tool-search-description">{tool.description}</p>
-              </article>
+              <DiscoveredToolRow key={tool.name} tool={tool} />
             ))}
           </div>
         ) : null}

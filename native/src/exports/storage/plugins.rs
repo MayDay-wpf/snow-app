@@ -121,6 +121,7 @@ pub async fn get_plugins_directory() -> napi::Result<String> {
 #[napi(object)]
 pub struct PluginToolInfo {
     pub name: String,
+    pub original_name: String,
     pub description: String,
 }
 
@@ -153,8 +154,9 @@ pub async fn list_plugin_tools(
                 .tools
                 .into_iter()
                 .map(|tool| PluginToolInfo {
-                    name: tool.name,
-                    description: tool.description,
+                    name: tool.tool.name,
+                    original_name: tool.original_name,
+                    description: tool.tool.description,
                 })
                 .collect(),
             error: server.error,

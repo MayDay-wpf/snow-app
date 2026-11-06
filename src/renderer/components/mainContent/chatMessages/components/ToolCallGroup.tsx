@@ -4,7 +4,6 @@ import { useI18n } from "../../../../i18n";
 import { resolveLocalized } from "../../../../plugins/manifest";
 import { usePluginStore } from "../../../../plugins/pluginStore";
 import { useSharedPluginToolOwner } from "../../../../plugins/pluginToolIndex";
-import { PluginIcon } from "../../../common/PluginIcon";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { MessageTimestamp } from "./MessageTimestamp";
 
@@ -78,12 +77,6 @@ export const ToolCallGroup = ({
                     : plugin.pluginId
                 }
               >
-                <PluginIcon
-                  icon={plugin.icon}
-                  pluginId={plugin.pluginId}
-                  size={11}
-                  className="tcg-plugin-icon"
-                />
                 <span className="tcg-plugin-name">
                   {resolveLocalized(plugin.name, locale) || plugin.pluginId}
                 </span>

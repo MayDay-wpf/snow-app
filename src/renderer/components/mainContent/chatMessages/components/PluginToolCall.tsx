@@ -353,6 +353,7 @@ const MatchedToolCall = ({
   plugin,
   definition,
   locale,
+  originalToolName,
   toolCall,
   conversationId,
   messageId,
@@ -361,6 +362,7 @@ const MatchedToolCall = ({
   plugin: PluginView;
   definition: PluginToolCallRendererDefinition;
   locale: Locale;
+  originalToolName?: string;
 }): React.JSX.Element => {
   const { t } = useI18n();
   const [loaded, setLoaded] = React.useState<{
@@ -433,6 +435,7 @@ const MatchedToolCall = ({
     messageId,
     toolCall: Object.freeze({
       name: toolCall.name,
+      originalToolName,
       arguments: toolCall.arguments,
       interactionId: toolCall.interactionId,
       status: toolCall.status,
@@ -481,6 +484,7 @@ export const PluginToolCall = (props: Props): React.JSX.Element => {
       plugin={match.plugin}
       definition={match.definition}
       locale={locale}
+      originalToolName={owner?.toolName}
     />
   );
 };

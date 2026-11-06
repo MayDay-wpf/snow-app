@@ -36,7 +36,7 @@ const load = async (): Promise<void> => {
       for (const tool of server.tools) {
         next.set(`${server.publicServerName}-${tool.name}`, {
           pluginId: server.pluginId,
-          toolName: tool.name,
+          toolName: tool.originalName,
         });
       }
     }
