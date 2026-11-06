@@ -188,11 +188,16 @@ pub fn check_sensitive_command_match(
             } else {
                 Vec::new()
             };
+            // 脚本命中必须带上命中片段：否则决策模型只看到 "bash foo.sh"，
+            // 无法判断脚本真正执行了什么。
+            let source_excerpt = source.as_ref().and_then(|_| script_excerpt(&regex, &text));
             matches.push(SensitiveCommandMatchResult {
                 command_id: command_id.clone(),
                 pattern: pattern.clone(),
                 description,
                 ranges,
+                source_path: source.clone(),
+                source_excerpt,
             });
         }
     }
@@ -202,6 +207,44 @@ pub fn check_sensitive_command_match(
 
 /// 单条规则最多回传的命中区间数，防止宽泛规则在超长命令上产生过大的负载。
 const MAX_MATCH_RANGES_PER_RULE: usize = 64;
+
+/// 脚本证据片段：命中行前后各保留的行数。
+const SCRIPT_EXCERPT_CONTEXT_LINES: usize = 3;
+/// 脚本证据片段的字符上限，避免把整个脚本塞进判定请求。
+const SCRIPT_EXCERPT_MAX_CHARS: usize = 800;
+
+/// 脚本命中处附近的片段（带行号，字符数受限），作为决策模型的判定证据。
+fn script_excerpt(regex: &regex::Regex, text: &str) -> Option<String> {
+    let matched = regex.find(text)?;
+    let line_index = text[..matched.start()].matches('\n').count();
+    let lines: Vec<&str> = text.lines().collect();
+    let from = line_index.saturating_sub(SCRIPT_EXCERPT_CONTEXT_LINES);
+    let to = (line_index + SCRIPT_EXCERPT_CONTEXT_LINES + 1).min(lines.len());
+
+    let mut excerpt = String::new();
+    let mut truncated = false;
+    for (offset, line) in lines[from..to].iter().enumerate() {
+        if excerpt.chars().count() >= SCRIPT_EXCERPT_MAX_CHARS {
+            truncated = true;
+            break;
+        }
+        excerpt.push_str(&format!("{}: {}\n", from + offset + 1, line));
+    }
+
+    let excerpt = if truncated || excerpt.chars().count() > SCRIPT_EXCERPT_MAX_CHARS {
+        format!(
+            "{}...",
+            excerpt
+                .chars()
+                .take(SCRIPT_EXCERPT_MAX_CHARS)
+                .collect::<String>()
+        )
+    } else {
+        excerpt
+    };
+
+    (!excerpt.trim().is_empty()).then_some(excerpt)
+}
 
 /// 收集规则在文本中的全部命中区间（跳过空匹配），字节偏移换算为 UTF-16 偏移。
 /// `find_iter` 的结果互不重叠且递增，按游标累加即可线性完成换算。

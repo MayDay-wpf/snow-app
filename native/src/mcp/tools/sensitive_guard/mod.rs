@@ -351,6 +351,8 @@ fn builtin_match(command_id: &str, description: String) -> SensitiveCommandMatch
         pattern: String::new(),
         description,
         ranges: Vec::new(),
+        source_path: None,
+        source_excerpt: None,
     }
 }
 

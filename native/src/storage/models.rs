@@ -663,6 +663,11 @@ pub struct SensitiveCommandMatchResult {
     /// 命令文本中被该规则命中的区间（供拦截提示高亮关键字）；
     /// 命中的是间接执行的脚本内容时为空。
     pub ranges: Vec<SensitiveCommandMatchRange>,
+    /// 命中来自间接执行的脚本时，该脚本的路径。
+    pub source_path: Option<String>,
+    /// 命中来自间接执行的脚本时，命中位置附近的片段（带行号，已裁剪）；
+    /// 决策模型据此判定命令的真实风险。
+    pub source_excerpt: Option<String>,
 }
 
 /// 一次工具调用的敏感操作预检查结果（命中时才返回）。

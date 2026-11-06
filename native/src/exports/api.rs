@@ -550,8 +550,15 @@ pub async fn evaluate_sensitive_command_decision(
         return Ok(None);
     }
 
+    // 命中项缺少可核验内容（脚本不可读、规则检查失败、脚本片段缺失）：
+    // 判定只能作为建议，不允许托管放行，必须由用户确认（fail-closed）。
+    let evidence_incomplete = matched_rules.iter().any(|rule| {
+        rule.pattern.trim().is_empty()
+            || (rule.source_path.is_some() && rule.source_excerpt.is_none())
+    });
+    let delegate = assist.delegate && !evidence_incomplete;
     // 拒绝转人工只在托管下有意义：合并后下发，渲染层无需二次读取设置。
-    let ask_on_deny = assist.delegate && assist.ask_on_deny;
+    let ask_on_deny = delegate && assist.ask_on_deny;
     let context_enabled = assist.use_conversation_context;
 
     let unavailable = |model_name: String, error: String| SensitiveCommandDecisionRecord {
@@ -560,7 +567,7 @@ pub async fn evaluate_sensitive_command_decision(
         confidence: 0.0,
         severity: None,
         severity_score: None,
-        delegate: assist.delegate,
+        delegate,
         ask_on_deny,
         model_name,
         context_enabled,
@@ -657,7 +664,7 @@ pub async fn evaluate_sensitive_command_decision(
                 confidence: verdict.confidence,
                 severity: verdict.severity,
                 severity_score: verdict.severity_score,
-                delegate: assist.delegate,
+                delegate,
                 ask_on_deny,
                 model_name,
                 context_enabled,
@@ -686,6 +693,10 @@ fn parse_caller_matched_rules(
         pattern: String,
         #[serde(default)]
         description: String,
+        #[serde(default)]
+        source_path: Option<String>,
+        #[serde(default)]
+        source_excerpt: Option<String>,
     }
 
     let items: Vec<CallerMatch> = serde_json::from_str(raw)
@@ -699,6 +710,9 @@ fn parse_caller_matched_rules(
             description: item.description,
             // 高亮区间只用于拦截提示，判定请求只带规则与说明。
             ranges: Vec::new(),
+            source_path: item.source_path,
+            // 脚本命中片段是判定证据，必须原样带给模型。
+            source_excerpt: item.source_excerpt,
         })
         .collect())
 }

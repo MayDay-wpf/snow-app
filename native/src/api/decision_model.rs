@@ -1028,16 +1028,27 @@ pub async fn evaluate_command(
         );
     }
     state.insert("platform".to_string(), json!(std::env::consts::OS));
+    // 规则命中只是提示；脚本命中附带命中片段，让模型看到真正执行的内容。
     state.insert(
         "matchedRules".to_string(),
-        json!(context
-            .matched_rules
-            .iter()
-            .map(|rule| json!({
-                "pattern": rule.pattern,
-                "description": rule.description,
-            }))
-            .collect::<Vec<Value>>()),
+        Value::Array(
+            context
+                .matched_rules
+                .iter()
+                .map(|rule| {
+                    let mut entry = Map::new();
+                    entry.insert("pattern".to_string(), json!(rule.pattern));
+                    entry.insert("description".to_string(), json!(rule.description));
+                    if let Some(path) = rule.source_path.as_deref() {
+                        entry.insert("sourcePath".to_string(), json!(path));
+                    }
+                    if let Some(excerpt) = rule.source_excerpt.as_deref() {
+                        entry.insert("sourceExcerpt".to_string(), json!(excerpt));
+                    }
+                    Value::Object(entry)
+                })
+                .collect::<Vec<Value>>(),
+        ),
     );
 
     let mut reason_criteria = Map::new();

@@ -1139,6 +1139,10 @@ export type SensitiveOperationCheckRecord = {
     description: string;
     /** 主体文本中的命中区间（UTF-16 偏移），用于高亮关键字。 */
     ranges: Array<{ start: number; end: number }>;
+    /** 命中来自间接执行的脚本时，该脚本的路径。 */
+    sourcePath?: string;
+    /** 命中来自间接执行的脚本时，命中位置附近的片段（带行号）。 */
+    sourceExcerpt?: string;
   }>;
 };
 
