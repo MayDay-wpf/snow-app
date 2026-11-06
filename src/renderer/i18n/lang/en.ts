@@ -1472,9 +1472,9 @@ export const en = {
     'Conversation "{{title}}" has finished',
   "notification.aiComplete.bodyDefault":
     "The current conversation has finished. Return to review it.",
-  "notification.sensitiveCommand.title": "Sensitive command needs confirmation",
+  "notification.sensitiveCommand.title": "Sensitive action needs confirmation",
   "notification.sensitiveCommand.body":
-    "Tool {{toolName}} triggered a sensitive command interception. Return to confirm.",
+    "Tool {{toolName}} needs your confirmation before it runs. Return to review.",
   "notification.userInteraction.title": "Your input is needed",
   "notification.workflow.defaultReason":
     "Workflow generated. Return to the conversation to confirm execution.",
@@ -4766,13 +4766,24 @@ export const en = {
   "sensitiveCommand.title": "Sensitive command confirmation required",
   "sensitiveCommand.message":
     "This command matches a sensitive command rule. Confirmation is required even in YOLO mode.",
+  "sensitiveCommand.title.config": "Executable config needs confirmation",
+  "sensitiveCommand.message.config":
+    "This call writes config that runs automatically later (a command, script or service launch command) and matches a sensitive command rule. Confirmation is required even in YOLO mode.",
+  "sensitiveCommand.title.protected":
+    "Sensitive rule change needs confirmation",
+  "sensitiveCommand.message.protected":
+    "This call changes the sensitive command rules themselves, independent of any rule match. Every change must be confirmed by you, even in YOLO mode or with decision model delegation.",
+  "sensitiveCommand.title.mixed": "Sensitive actions need confirmation",
+  "sensitiveCommand.message.mixed":
+    "The following calls run only after you confirm them, even in YOLO mode. Review each one.",
+  "sensitiveCommand.triggerReason": "Why it was blocked",
   "sensitiveCommand.command": "Command",
   "sensitiveCommand.description": "What it does",
   "sensitiveCommand.matchedRules": "Matched rules",
   "sensitiveCommand.subject.config": "Executable config to be written",
   "sensitiveCommand.subject.protected": "Sensitive rule change",
   "sensitiveCommand.subject.protectedNotice":
-    "This call changes the sensitive command rules. Every change must be confirmed by you, even in YOLO mode or with decision model delegation.",
+    "A relaxed rule stops blocking similar operations later - review the rule content first.",
   "sensitiveCommand.builtinRule.check-failed":
     "Sensitive check failed (blocked for safety)",
   "sensitiveCommand.builtinRule.script-unreadable":

@@ -1,4 +1,10 @@
-import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  FileWarning,
+  ShieldAlert,
+  ShieldBan,
+  ShieldCheck,
+} from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { keyToDisplay } from "../../../../utils/shortcutUtils";
@@ -260,7 +266,9 @@ const SensitiveCommandItem = ({
 
       <div className="sensitive-command-matches">
         <span className="tool-authorization-tool-label">
-          {t("sensitiveCommand.matchedRules")}
+          {operationKind === "protected"
+            ? t("sensitiveCommand.triggerReason")
+            : t("sensitiveCommand.matchedRules")}
         </span>
         <ul className="sensitive-command-match-list">
           {matches.map((match, matchIndex) => {
@@ -415,6 +423,20 @@ const SensitiveCommandItem = ({
   );
 };
 
+/** 拦截类型：命令命中、写入可执行配置、修改敏感规则本身是三类不同的拦截。 */
+type SensitiveOperationKind = "command" | "config" | "protected";
+
+/** 同一批待授权项的类型一致时按该类型展示文案，混合时回落到通用文案。 */
+const resolveHeaderKind = (
+  toolCalls: ToolCallInfo[],
+): SensitiveOperationKind | "mixed" => {
+  const kinds = new Set<SensitiveOperationKind>(
+    toolCalls.map((toolCall) => toolCall.sensitiveOperation?.kind ?? "command"),
+  );
+  const unique = Array.from(kinds);
+  return unique.length === 1 ? unique[0] : "mixed";
+};
+
 export const SensitiveCommandConfirmDialog = ({
   toolCalls,
   onApprove,
@@ -427,18 +449,32 @@ export const SensitiveCommandConfirmDialog = ({
     return null;
   }
 
+  const headerKind = resolveHeaderKind(toolCalls);
+  const headerTitle = t(`sensitiveCommand.title.${headerKind}`, {
+    defaultValue: t("sensitiveCommand.title"),
+  });
+  const headerMessage = t(`sensitiveCommand.message.${headerKind}`, {
+    defaultValue: t("sensitiveCommand.message"),
+  });
+
   return (
     <section
       className="tool-authorization-prompt sensitive-command-prompt"
-      aria-label={t("sensitiveCommand.title")}
+      aria-label={headerTitle}
     >
       <div className="tool-authorization-prompt-heading">
         <span className="tool-authorization-prompt-icon" aria-hidden="true">
-          <ShieldAlert size={14} />
+          {headerKind === "protected" ? (
+            <ShieldBan size={14} />
+          ) : headerKind === "config" ? (
+            <FileWarning size={14} />
+          ) : (
+            <ShieldAlert size={14} />
+          )}
         </span>
         <div className="tool-authorization-prompt-copy">
-          <strong>{t("sensitiveCommand.title")}</strong>
-          <p>{t("sensitiveCommand.message")}</p>
+          <strong>{headerTitle}</strong>
+          <p>{headerMessage}</p>
         </div>
       </div>
       <div className="tool-authorization-prompt-list">

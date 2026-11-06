@@ -1368,9 +1368,9 @@ export const zhTW = {
   "notification.aiComplete.title": "AI 任務已完成",
   "notification.aiComplete.bodyWithTitle": "會話「{{title}}」已結束",
   "notification.aiComplete.bodyDefault": "目前會話已結束，請返回查看",
-  "notification.sensitiveCommand.title": "敏感命令需要確認",
+  "notification.sensitiveCommand.title": "敏感操作需要確認",
   "notification.sensitiveCommand.body":
-    "工具 {{toolName}} 觸發了敏感命令攔截，請返回確認",
+    "工具 {{toolName}} 的操作需要你確認後才會執行，請返回處理",
   "notification.userInteraction.title": "需要您的輸入",
   "notification.workflow.defaultReason": "工作流已生成，請在會話中確認執行",
   "toolCall.grep.name": "搜尋",
@@ -4418,13 +4418,23 @@ export const zhTW = {
   "sensitiveCommand.title": "敏感命令需要確認",
   "sensitiveCommand.message":
     "此命令匹配了敏感命令規則。即使在 YOLO 模式下也需要確認。",
+  "sensitiveCommand.title.config": "可執行設定需要確認",
+  "sensitiveCommand.message.config":
+    "此呼叫會寫入後續自動執行的設定（命令、腳本或服務啟動命令），已匹配敏感命令規則。即使在 YOLO 模式下也需要確認。",
+  "sensitiveCommand.title.protected": "敏感規則變更需要確認",
+  "sensitiveCommand.message.protected":
+    "此呼叫會修改敏感命令規則本身，與是否命中規則無關。每次修改都需要你確認，YOLO 模式與決策模型託管下同樣如此。",
+  "sensitiveCommand.title.mixed": "敏感操作需要確認",
+  "sensitiveCommand.message.mixed":
+    "以下呼叫需要你確認後才會執行，YOLO 模式下同樣如此，請逐項核對。",
+  "sensitiveCommand.triggerReason": "觸發原因",
   "sensitiveCommand.command": "命令",
   "sensitiveCommand.description": "命令說明",
   "sensitiveCommand.matchedRules": "匹配的規則",
   "sensitiveCommand.subject.config": "將寫入的可執行設定",
   "sensitiveCommand.subject.protected": "敏感規則修改",
   "sensitiveCommand.subject.protectedNotice":
-    "本次呼叫會修改敏感命令規則。每次修改都必須由你確認，YOLO 模式與決策模型託管下同樣如此。",
+    "規則一旦放寬，之後同類操作不會再被攔截，請先核對規則內容。",
   "sensitiveCommand.builtinRule.check-failed": "敏感檢查出錯（已按命中攔截）",
   "sensitiveCommand.builtinRule.script-unreadable": "被執行的腳本無法檢查",
   "sensitiveCommand.builtinRule.protected-rules": "修改敏感規則",
