@@ -4,7 +4,6 @@ import type {
   GitLogEntry,
 } from "../../../../preload";
 import type { TranslateOptions } from "../../../i18n";
-import { md5Hex } from "../../../utils/md5";
 import { parseRefs } from "./gitGraphRefs";
 
 /** 将提交文件（GitCommitFile）转换为 DiffTab 所需的 GitFileStatus 形状。 */
@@ -209,70 +208,20 @@ export function getCommitWebLink(
   };
 }
 
-/** 头像端点请求的边长（像素）。列表按 18px 展示，2x 屏下 40px 足够清晰。 */
-const AVATAR_SIZE = 40;
-
 /** GitHub noreply 邮箱：`<id>+<login>@users.noreply.github.com`（新版）或
  *  `<login>@users.noreply.github.com`（旧版），两种写法都取 login。 */
 const GITHUB_NOREPLY_RE = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/;
 
-/** QQ 邮箱（含 vip.qq.com）：本地部分是纯数字 QQ 号，可直接换取 QQ 头像。 */
-const QQ_MAIL_RE = /^(\d+)@(?:qq|vip\.qq)\.com$/;
-
-/** 归一化邮箱：去首尾空白并转小写（Gravatar 哈希与各端点匹配都要求小写）。 */
-const normalizeEmail = (email: string | null | undefined): string =>
-  email?.trim().toLowerCase() ?? "";
-
 /**
- * 按提交作者邮箱推导其头像地址。
- *
- * 逐个邮箱推导而非用仓库 owner：一个仓库里往往有多个作者，用 owner 会让所有
- * 提交都显示同一个头像（这正是之前的缺陷）。三条链路都只是拼 URL、不调 API，
- * 因此不受匿名接口限流影响：
- *  - GitHub noreply 邮箱 → 由邮箱里的 login 拼 `github.com/<login>.png`；
- *  - QQ 邮箱 → `q1.qlogo.cn` 的 QQ 号头像；
- *  - 其余 → Gravatar 真实头像（`md5(邮箱)`）。
- *
- * Gravatar 分支带 `d=404`：未注册的邮箱返回 404 而非别人的默认头像，调用方据此
- * 退到 getGravatarIdenticonUrl 的几何图案，最后才是首字母色块。
- *
- * 邮箱缺失时返回 null，由调用方直接展示首字母。
+ * 按 GitHub noreply 邮箱直接推导头像，供 API 结果返回前使用。
+ * 普通邮箱由 GitHub 提交 API 反查；无法取得 GitHub 头像时不使用其他平台替代。
  */
 export function getCommitAvatarUrl(
   email: string | null | undefined,
-  size = AVATAR_SIZE,
+  size = 40,
 ): string | null {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return null;
-
-  const noreply = GITHUB_NOREPLY_RE.exec(normalized);
-  if (noreply) {
-    return `https://github.com/${noreply[1]}.png?size=${size}`;
-  }
-
-  const qq = QQ_MAIL_RE.exec(normalized);
-  if (qq) {
-    return `https://q1.qlogo.cn/g?b=qq&nk=${qq[1]}&s=${size}`;
-  }
-
-  return `https://secure.gravatar.com/avatar/${md5Hex(normalized)}?s=${size}&d=404`;
-}
-
-/**
- * Gravatar 几何图案头像（identicon）：邮箱未注册 Gravatar 时的第二级兜底。
- *
- * 图案由邮箱哈希决定，因此同一作者每次都是同一张图、不同作者图案不同，比所有人
- * 共用的首字母色块更有区分度。调用方在 getCommitAvatarUrl 加载失败（Gravatar
- * 返回 404）时改用它；只有它也无法加载时才退回首字母。
- */
-export function getGravatarIdenticonUrl(
-  email: string | null | undefined,
-  size = AVATAR_SIZE,
-): string | null {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return null;
-
-  return `https://secure.gravatar.com/avatar/${md5Hex(normalized)}?s=${size}&d=identicon`;
+  const noreply = GITHUB_NOREPLY_RE.exec(email?.trim().toLowerCase() ?? "");
+  return noreply ? `https://github.com/${noreply[1]}.png?size=${size}` : null;
 }
 
 /** 远端平台 → 「打开」文案词条（悬停卡片底栏与提交右键菜单共用）。 */

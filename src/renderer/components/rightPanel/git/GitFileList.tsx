@@ -32,8 +32,6 @@ type GitFileListProps = {
     e: React.MouseEvent,
     section: "staged" | "unstaged",
   ) => void;
-  /** 双击文件：打开该文件的差异视图。 */
-  onFileActivate: (file: GitFileStatus, section: "staged" | "unstaged") => void;
   onStageToggle: (
     files: GitFileStatus[],
     section: "staged" | "unstaged",
@@ -190,7 +188,6 @@ export const GitFileList = ({
   actionInProgress,
   viewMode = "list",
   onFileSelect,
-  onFileActivate,
   onStageToggle,
   onStageAll,
   onUnstageAll,
@@ -464,7 +461,6 @@ export const GitFileList = ({
         tabIndex={-1}
         style={treeIndent(depth)}
         onClick={(e) => onFileSelect(file, e, section)}
-        onDoubleClick={() => onFileActivate(file, section)}
         onContextMenu={(e) => {
           e.preventDefault();
           setContextMenu({ x: e.clientX, y: e.clientY, file });
