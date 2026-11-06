@@ -19,6 +19,8 @@ export type McpSettingsListItem = {
   globalEnabled: boolean;
   detail: string;
   canManage: boolean;
+  /** 由项目内有效启用的工具插件派生，不提供独立启停。 */
+  automatic?: boolean;
   unavailableReason?: string;
 };
 
@@ -159,21 +161,27 @@ export function McpSettingsList({
                 }`}
               >
                 <div className="system-prompt-item-main">
-                  <label
-                    className="toggle-switch system-prompt-switch"
-                    aria-label={activeLabel}
-                    title={activeLabel}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={server.enabled && !unavailable}
-                      onChange={() => onToggleEnabled(server)}
-                      disabled={isBusy || unavailable}
-                      hidden
-                    />
-                    <span className="toggle-slider" />
-                    <span>{activeStateLabel}</span>
-                  </label>
+                  {server.automatic ? (
+                    <span className="system-prompt-switch">
+                      <span>{activeStateLabel}</span>
+                    </span>
+                  ) : (
+                    <label
+                      className="toggle-switch system-prompt-switch"
+                      aria-label={activeLabel}
+                      title={activeLabel}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={server.enabled && !unavailable}
+                        onChange={() => onToggleEnabled(server)}
+                        disabled={isBusy || unavailable}
+                        hidden
+                      />
+                      <span className="toggle-slider" />
+                      <span>{activeStateLabel}</span>
+                    </label>
+                  )}
                   <div className="system-prompt-item-info">
                     <strong>{server.name}</strong>
                     <span title={server.detail}>{server.detail || "-"}</span>
@@ -258,28 +266,30 @@ export function McpSettingsList({
                           </button>
                         )}
                       </div>
-                      <div className="mcp-server-expanded-bulk">
-                        <button
-                          type="button"
-                          className="api-settings-form-btn secondary compact"
-                          onClick={() => onToggleAllTools(server, true)}
-                          disabled={isBusy || !server.enabled || unavailable}
-                        >
-                          {t("settings.mcpToolsEnableAll", {
-                            defaultValue: "Enable all",
-                          })}
-                        </button>
-                        <button
-                          type="button"
-                          className="api-settings-form-btn secondary compact"
-                          onClick={() => onToggleAllTools(server, false)}
-                          disabled={isBusy || !server.enabled || unavailable}
-                        >
-                          {t("settings.mcpToolsDisableAll", {
-                            defaultValue: "Disable all",
-                          })}
-                        </button>
-                      </div>
+                      {!server.automatic ? (
+                        <div className="mcp-server-expanded-bulk">
+                          <button
+                            type="button"
+                            className="api-settings-form-btn secondary compact"
+                            onClick={() => onToggleAllTools(server, true)}
+                            disabled={isBusy || !server.enabled || unavailable}
+                          >
+                            {t("settings.mcpToolsEnableAll", {
+                              defaultValue: "Enable all",
+                            })}
+                          </button>
+                          <button
+                            type="button"
+                            className="api-settings-form-btn secondary compact"
+                            onClick={() => onToggleAllTools(server, false)}
+                            disabled={isBusy || !server.enabled || unavailable}
+                          >
+                            {t("settings.mcpToolsDisableAll", {
+                              defaultValue: "Disable all",
+                            })}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     {isFetchingTools ? (
@@ -353,33 +363,35 @@ export function McpSettingsList({
                                   className="mcp-tool-row-chevron"
                                 />
                               </button>
-                              <label
-                                className="toggle-switch"
-                                aria-label={toolToggleLabel}
-                                title={toolToggleLabel}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    tool.enabled && !server.unavailableReason
-                                  }
-                                  disabled={
-                                    isBusy ||
-                                    unavailable ||
-                                    !server.enabled ||
-                                    toolGloballyDisabled
-                                  }
-                                  hidden
-                                  onChange={(event) =>
-                                    onToggleTool(
-                                      server,
-                                      tool,
-                                      event.target.checked,
-                                    )
-                                  }
-                                />
-                                <span className="toggle-slider" />
-                              </label>
+                              {!server.automatic ? (
+                                <label
+                                  className="toggle-switch"
+                                  aria-label={toolToggleLabel}
+                                  title={toolToggleLabel}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      tool.enabled && !server.unavailableReason
+                                    }
+                                    disabled={
+                                      isBusy ||
+                                      unavailable ||
+                                      !server.enabled ||
+                                      toolGloballyDisabled
+                                    }
+                                    hidden
+                                    onChange={(event) =>
+                                      onToggleTool(
+                                        server,
+                                        tool,
+                                        event.target.checked,
+                                      )
+                                    }
+                                  />
+                                  <span className="toggle-slider" />
+                                </label>
+                              ) : null}
                               {isToolExpanded && (
                                 <div className="mcp-tool-row-details">
                                   {tool.description ? (

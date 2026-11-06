@@ -75,17 +75,17 @@ export const usePluginToolOwnerInfo = (
 export const usePluginToolOwner = (toolName: string): string | null =>
   usePluginToolOwnerInfo(toolName)?.pluginId ?? null;
 
-/** 批量反查一组工具调用涉及的所有插件 id（去重并保序）。 */
-export const usePluginToolOwners = (toolNames: string[]): string[] => {
+/** 只有整组工具都属于同一插件时才返回组级归属，混合组和纯内置工具组返回 null。 */
+export const useSharedPluginToolOwner = (
+  toolNames: string[],
+): string | null => {
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   return useMemo(() => {
-    const ids = new Set<string>();
-    for (const name of toolNames) {
-      const owner = current.get(name);
-      if (owner) {
-        ids.add(owner.pluginId);
-      }
-    }
-    return Array.from(ids);
+    if (toolNames.length === 0) return null;
+    const pluginId = current.get(toolNames[0])?.pluginId;
+    if (!pluginId) return null;
+    return toolNames.every((name) => current.get(name)?.pluginId === pluginId)
+      ? pluginId
+      : null;
   }, [current, toolNames]);
 };

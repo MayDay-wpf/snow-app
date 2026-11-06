@@ -316,29 +316,17 @@ fn set_server(
     key: &str,
     value: &Value,
 ) -> Result<Value> {
-    if value.get("tools").and_then(Value::as_object).is_some_and(|tools| {
-        tools.iter().any(|(name, enabled)| {
-            name.starts_with("toolsearch-") && enabled.as_bool() == Some(true)
+    let changes_tool_search = value.get("tools").and_then(Value::as_object).is_some_and(|tools| {
+        tools.keys().any(|name| name.starts_with("toolsearch-"))
+    }) || value.get("disabledTools").and_then(Value::as_array).is_some_and(|items| {
+        items.iter().any(|item| {
+            item.as_str().is_some_and(|name| name.starts_with("toolsearch-"))
         })
-    }) {
-        let scope = project_id
-            .map(|id| get_mcp_project_scope_settings(db_path, id))
-            .transpose()?;
-        let available = crate::storage::list_tool_plugin_server_configs(db_path, project_id)?
-            .iter()
-            .any(|server| {
-                server.enabled
-                    && scope.as_ref().is_none_or(|scope| {
-                        scope.is_server_enabled(&crate::mcp::external::project_scope_server_id(
-                            &server.server_id,
-                        ))
-                    })
-            });
-        if !available {
-            return Err(Error::from_reason(
-                crate::mcp::servers::tool_search::NO_ENABLED_PLUGINS,
-            ));
-        }
+    });
+    if changes_tool_search {
+        return Err(Error::from_reason(
+            crate::mcp::servers::tool_search::AUTOMATIC_ONLY,
+        ));
     }
     let existing = if key == NEW_KEY {
         None

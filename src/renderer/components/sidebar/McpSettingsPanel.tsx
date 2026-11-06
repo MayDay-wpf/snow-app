@@ -949,6 +949,7 @@ export function McpSettingsPanel({
           .filter(Boolean)
           .join(" · "),
         canManage: server.source === "project",
+        automatic: server.id === "builtin:toolsearch",
         unavailableReason,
       };
     },
@@ -991,6 +992,7 @@ export function McpSettingsPanel({
         globalEnabled: server.globalEnabled,
         detail: details.join(" · "),
         canManage: false,
+        automatic: server.id === "builtin:toolsearch",
         unavailableReason,
       };
     });

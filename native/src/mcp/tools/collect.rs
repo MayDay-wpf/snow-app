@@ -183,10 +183,9 @@ async fn collect_mcp_tools(
                 return false;
             }
             if tool.server_id == "toolsearch" {
+                // 搜索能力只由有效启用的工具插件派生；忽略遗留的人工启停记录。
                 return tool_search_available
-                    && (!defer_plugin_tools || conversation_id.is_some())
-                    // An explicit child whitelist never overrides search switches.
-                    && tool_visible(tool, global_scope.as_ref(), scope.as_ref(), false);
+                    && (!defer_plugin_tools || conversation_id.is_some());
             }
             tool_visible(
                 tool,

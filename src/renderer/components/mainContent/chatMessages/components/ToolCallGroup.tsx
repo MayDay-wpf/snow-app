@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "../../../../i18n";
 import { resolveLocalized } from "../../../../plugins/manifest";
 import { usePluginStore } from "../../../../plugins/pluginStore";
-import { usePluginToolOwners } from "../../../../plugins/pluginToolIndex";
+import { useSharedPluginToolOwner } from "../../../../plugins/pluginToolIndex";
 import { PluginIcon } from "../../../common/PluginIcon";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { MessageTimestamp } from "./MessageTimestamp";
@@ -37,18 +37,15 @@ export const ToolCallGroup = ({
     () => toolCalls?.map((tc) => tc.name) ?? [],
     [toolCalls],
   );
-  const ownerPluginIds = usePluginToolOwners(toolNames);
+  const ownerPluginId = useSharedPluginToolOwner(toolNames);
   const pluginsState = usePluginStore();
   const involvedPlugins = useMemo(() => {
-    if (ownerPluginIds.length === 0) return [];
-    return ownerPluginIds
-      .map((id) =>
-        pluginsState.plugins.find((plugin) => plugin.pluginId === id),
-      )
-      .filter((plugin): plugin is NonNullable<typeof plugin> =>
-        Boolean(plugin),
-      );
-  }, [ownerPluginIds, pluginsState.plugins]);
+    if (!ownerPluginId) return [];
+    const plugin = pluginsState.plugins.find(
+      (plugin) => plugin.pluginId === ownerPluginId,
+    );
+    return plugin ? [plugin] : [];
+  }, [ownerPluginId, pluginsState.plugins]);
 
   const label = isRunning
     ? t("toolCall.group.runningSteps", {

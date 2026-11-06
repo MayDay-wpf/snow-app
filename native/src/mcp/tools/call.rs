@@ -314,7 +314,6 @@ pub async fn call_mcp_tool(
             return Err(Error::from_reason(super::super::servers::tool_search::NO_ENABLED_PLUGINS));
         }
         if let Some(identity) = plugin_identity.as_deref() {
-            ensure_project_tool_enabled(project_id.as_deref(), "toolsearch-discover", false).await?;
             let global = super::collect::load_global_scope().await?;
             if !servers.values().any(|(server_id, _)| server_id == identity)
                 || scope.as_ref().is_some_and(|scope| !scope.is_tool_enabled(&tool_full_name))
@@ -330,7 +329,9 @@ pub async fn call_mcp_tool(
     let project_override = !is_search && plugin_identity.is_none() && sub_agent_allowed_tools
         .as_ref()
         .is_some_and(|tools| tools.iter().any(|name| name == &tool_full_name));
-    ensure_project_tool_enabled(project_id.as_deref(), &tool_full_name, project_override).await?;
+    if !is_search {
+        ensure_project_tool_enabled(project_id.as_deref(), &tool_full_name, project_override).await?;
+    }
 
     let (args, uses_remote_workspace) =
         prepare_remote_workspace_args(&tool_full_name, args, project_id.as_deref()).await?;

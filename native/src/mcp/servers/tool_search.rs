@@ -16,6 +16,8 @@ pub(crate) const SERVER_ID: &str = "toolsearch";
 pub(crate) const TOOL_SEARCH: &str = "tool-search";
 pub(crate) const TOOL_DISCOVER: &str = "discover";
 pub(crate) const NO_ENABLED_PLUGINS: &str = "toolsearch:no_enabled_plugins";
+pub(crate) const AUTOMATIC_ONLY: &str =
+    "Tool search availability follows enabled tool plugins and cannot be changed manually";
 const DEFAULT_LIMIT: usize = 5;
 const MAX_LIMIT: usize = 8;
 /// 仅用于回收长时间未使用的会话快照，不作为工具授权判断。

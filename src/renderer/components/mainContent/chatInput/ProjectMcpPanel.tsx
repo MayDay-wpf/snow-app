@@ -450,6 +450,7 @@ export const ProjectMcpPanel = ({
           const serverDescription = descriptionKey
             ? t(descriptionKey)
             : undefined;
+          const automatic = server.id === "builtin:toolsearch";
           const serverDisabled = !server.globalEnabled || searchUnavailable;
           // 全局停用或无可用插件时按关闭展示，避免误以为已启用
           const effectiveEnabled = server.enabled && !serverDisabled;
@@ -519,18 +520,20 @@ export const ProjectMcpPanel = ({
                           })}
                   </span>
                 </button>
-                <label className="toggle-switch">
-                  <input
-                    checked={effectiveEnabled}
-                    disabled={serverDisabled}
-                    hidden
-                    onChange={(event) =>
-                      void updateServer(server, event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span className="toggle-slider" />
-                </label>
+                {!automatic ? (
+                  <label className="toggle-switch">
+                    <input
+                      checked={effectiveEnabled}
+                      disabled={serverDisabled}
+                      hidden
+                      onChange={(event) =>
+                        void updateServer(server, event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    <span className="toggle-slider" />
+                  </label>
+                ) : null}
               </div>
               {serverDisabled ? (
                 <div className="project-mcp-global-note">
@@ -637,26 +640,28 @@ export const ProjectMcpPanel = ({
                             </div>
                             <span>{tool.description}</span>
                           </div>
-                          <label className="toggle-switch">
-                            <input
-                              checked={tool.enabled && !searchUnavailable}
-                              disabled={
-                                serverDisabled ||
-                                !server.enabled ||
-                                !tool.globalEnabled
-                              }
-                              hidden
-                              onChange={(event) =>
-                                void updateTool(
-                                  server,
-                                  tool,
-                                  event.target.checked,
-                                )
-                              }
-                              type="checkbox"
-                            />
-                            <span className="toggle-slider" />
-                          </label>
+                          {!automatic ? (
+                            <label className="toggle-switch">
+                              <input
+                                checked={tool.enabled && !searchUnavailable}
+                                disabled={
+                                  serverDisabled ||
+                                  !server.enabled ||
+                                  !tool.globalEnabled
+                                }
+                                hidden
+                                onChange={(event) =>
+                                  void updateTool(
+                                    server,
+                                    tool,
+                                    event.target.checked,
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <span className="toggle-slider" />
+                            </label>
+                          ) : null}
                         </div>
                       );
                     })
