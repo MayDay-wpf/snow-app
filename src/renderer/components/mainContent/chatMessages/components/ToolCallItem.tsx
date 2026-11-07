@@ -126,7 +126,7 @@ const renderToolCall = ({
     return <FindToolCall toolCall={toolCall} />;
   }
 
-  if (toolCall.name === "toolsearch-discover") {
+  if (toolCall.name === "toolSearch-discover") {
     return <ToolSearchToolCall toolCall={toolCall} />;
   }
 

@@ -1933,8 +1933,8 @@ export const zhCN = {
   "toolNames.config-delete": "删除配置",
   "toolNames.config-logs-read": "读取日志",
   "toolNames.skills-skill-execute": "执行技能",
-  "toolNames.toolsearch-tool-search": "查看工具插件",
-  "toolNames.toolsearch-discover": "搜索插件工具",
+  "toolNames.toolSearch-tool-search": "查看工具插件",
+  "toolNames.toolSearch-discover": "搜索插件工具",
   "toolNames.bash-terminal-execute": "终端",
   "toolNames.todo-todo-manage": "待办",
   "toolNames.memory-save": "保存记忆",
@@ -4815,7 +4815,7 @@ export const zhCN = {
   "mcpBuiltinServer.desc.html": "在会话中实时渲染 HTML",
   "mcpBuiltinServer.desc.decision":
     "用决策模型对文本、JSON 与图片证据做结构化判定",
-  "mcpBuiltinServer.desc.toolsearch":
+  "mcpBuiltinServer.desc.toolSearch":
     "随项目内启用的工具插件自动提供，按需搜索工具，无独立开关",
   "projectCodebase.title": "项目代码库管理",
   "projectCodebase.description": "管理 {{project}} 的代码库索引",

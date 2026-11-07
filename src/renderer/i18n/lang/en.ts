@@ -2052,8 +2052,8 @@ export const en = {
   "toolNames.config-delete": "Delete config",
   "toolNames.config-logs-read": "Read logs",
   "toolNames.skills-skill-execute": "Execute skill",
-  "toolNames.toolsearch-tool-search": "List tool plugins",
-  "toolNames.toolsearch-discover": "Discover plugin tools",
+  "toolNames.toolSearch-tool-search": "List tool plugins",
+  "toolNames.toolSearch-discover": "Discover plugin tools",
   "toolNames.bash-terminal-execute": "Terminal",
   "toolNames.todo-todo-manage": "Todo",
   "toolNames.memory-save": "Save memory",
@@ -5154,7 +5154,7 @@ export const en = {
   "mcpBuiltinServer.desc.html": "Render HTML live inside the conversation",
   "mcpBuiltinServer.desc.decision":
     "Typed judgments on text, JSON and image evidence with a decision model",
-  "mcpBuiltinServer.desc.toolsearch":
+  "mcpBuiltinServer.desc.toolSearch":
     "Automatically follows tool plugins enabled in the project; discover tools on demand without a separate switch",
   "projectCodebase.title": "Project Codebase",
   "projectCodebase.description": "Codebase indexing for {{project}}",

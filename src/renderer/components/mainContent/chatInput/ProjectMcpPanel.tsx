@@ -271,7 +271,7 @@ export const ProjectMcpPanel = ({
       !projectId ||
       pendingServerIdsRef.current.has(server.id) ||
       !server.globalEnabled ||
-      server.error === "toolsearch:no_enabled_plugins"
+      server.error === "toolSearch:no_enabled_plugins"
     ) {
       return;
     }
@@ -349,7 +349,7 @@ export const ProjectMcpPanel = ({
       !projectId ||
       pendingToolNamesRef.current.has(tool.name) ||
       !server.globalEnabled ||
-      server.error === "toolsearch:no_enabled_plugins" ||
+      server.error === "toolSearch:no_enabled_plugins" ||
       !server.enabled ||
       !tool.globalEnabled
     ) {
@@ -440,7 +440,7 @@ export const ProjectMcpPanel = ({
           const toolsLoading =
             toolsRetrying || (server.toolsPending && !toolError);
           const searchUnavailable =
-            server.error === "toolsearch:no_enabled_plugins";
+            server.error === "toolSearch:no_enabled_plugins";
           const discoveryError = searchUnavailable
             ? toolError
             : (toolError ?? server.error);
@@ -450,7 +450,7 @@ export const ProjectMcpPanel = ({
           const serverDescription = descriptionKey
             ? t(descriptionKey)
             : undefined;
-          const automatic = server.id === "builtin:toolsearch";
+          const automatic = server.id === "builtin:toolSearch";
           const serverDisabled = !server.globalEnabled || searchUnavailable;
           // 全局停用或无可用插件时按关闭展示，避免误以为已启用
           const effectiveEnabled = server.enabled && !serverDisabled;

@@ -919,7 +919,7 @@ export function McpSettingsPanel({
       const descriptionKey = builtinServerDescriptionKey(server.id);
       const builtinDescription = descriptionKey ? t(descriptionKey) : "";
       const unavailableReason =
-        server.error === "toolsearch:no_enabled_plugins"
+        server.error === "toolSearch:no_enabled_plugins"
           ? t("settings.mcpToolSearchNoPlugins")
           : undefined;
       const sourceDetail =
@@ -949,7 +949,7 @@ export function McpSettingsPanel({
           .filter(Boolean)
           .join(" · "),
         canManage: server.source === "project",
-        automatic: server.id === "builtin:toolsearch",
+        automatic: server.id === "builtin:toolSearch",
         unavailableReason,
       };
     },
@@ -958,7 +958,7 @@ export function McpSettingsPanel({
     globalBuiltinServers.map((server) => {
       const descriptionKey = builtinServerDescriptionKey(server.id);
       const unavailableReason =
-        server.error === "toolsearch:no_enabled_plugins"
+        server.error === "toolSearch:no_enabled_plugins"
           ? t("settings.mcpToolSearchNoPlugins")
           : undefined;
       const details = [
@@ -992,7 +992,7 @@ export function McpSettingsPanel({
         globalEnabled: server.globalEnabled,
         detail: details.join(" · "),
         canManage: false,
-        automatic: server.id === "builtin:toolsearch",
+        automatic: server.id === "builtin:toolSearch",
         unavailableReason,
       };
     });

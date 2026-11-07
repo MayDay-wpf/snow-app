@@ -68,7 +68,7 @@ impl PluginToolGuard {
     }
 
     pub(crate) fn ensure_fetch_safe(&self) -> Result<()> {
-        // Even an empty baseline must prevent the hook adding toolsearch-discover.
+        // Even an empty baseline must prevent the hook adding toolSearch-discover.
         Err(Error::from_reason(
             "OAuth plugin fetch takeover cannot verify outgoing protected tool declarations",
         ))

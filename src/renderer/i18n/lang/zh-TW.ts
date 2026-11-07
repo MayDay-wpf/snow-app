@@ -1934,8 +1934,8 @@ export const zhTW = {
   "toolNames.config-delete": "刪除設定",
   "toolNames.config-logs-read": "讀取日誌",
   "toolNames.skills-skill-execute": "執行技能",
-  "toolNames.toolsearch-tool-search": "查看工具外掛",
-  "toolNames.toolsearch-discover": "搜尋外掛工具",
+  "toolNames.toolSearch-tool-search": "查看工具外掛",
+  "toolNames.toolSearch-discover": "搜尋外掛工具",
   "toolNames.bash-terminal-execute": "終端",
   "toolNames.todo-todo-manage": "待辦",
   "toolNames.memory-save": "儲存記憶",
@@ -4758,7 +4758,7 @@ export const zhTW = {
   "mcpBuiltinServer.desc.html": "在對話中即時渲染 HTML",
   "mcpBuiltinServer.desc.decision":
     "用決策模型對文字、JSON 與圖片證據做結構化判定",
-  "mcpBuiltinServer.desc.toolsearch":
+  "mcpBuiltinServer.desc.toolSearch":
     "隨專案內啟用的工具外掛自動提供，按需搜尋工具，無獨立開關",
   "projectCodebase.title": "專案程式碼庫管理",
   "projectCodebase.description": "管理 {{project}} 的程式碼庫索引",

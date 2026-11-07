@@ -253,7 +253,7 @@ pub async fn call_mcp_tool(
                 "WorkTree mode is enabled but this conversation has no persisted worktree binding. Bind a worktree before using WorkTree mode.".to_string(),
             ));
         }
-        if worktree_mode && (!is_builtin_mcp_tool(&tool_full_name) || tool_full_name == "toolsearch-discover") {
+        if worktree_mode && (!is_builtin_mcp_tool(&tool_full_name) || tool_full_name == "toolSearch-discover") {
             return Err(Error::new(
                 Status::GenericFailure,
                 format!("External MCP tool '{tool_full_name}' was blocked: WorkTree mode cannot safely restrict arbitrary tool paths or side effects. Disable WorkTree mode or use a built-in tool with supported workspace scoping."),
@@ -303,8 +303,8 @@ pub async fn call_mcp_tool(
     } else {
         super::super::external::plugin_tool_identity(project_id.as_deref(), &tool_full_name).await?
     };
-    let is_search = tool_full_name.starts_with("toolsearch-");
-    if tool_full_name == "toolsearch-discover" || plugin_identity.is_some() {
+    let is_search = tool_full_name.starts_with("toolSearch-");
+    if tool_full_name == "toolSearch-discover" || plugin_identity.is_some() {
         super::super::servers::tool_search::validate_session(
             project_id.as_deref(), conversation_id.as_deref(), true,
         ).await?;
@@ -610,7 +610,7 @@ pub async fn call_mcp_tool(
             .execute_async(&args, conversation_id.as_deref())
             .await
             .validation_feedback(is_sub_agent_call)?
-    } else if let Some(tool_name) = tool_full_name.strip_prefix("toolsearch-") {
+    } else if let Some(tool_name) = tool_full_name.strip_prefix("toolSearch-") {
         // The host supplies the project and conversation; model arguments cannot select them.
         super::super::servers::tool_search::ToolSearchService::new()
             .execute_async(tool_name, &args, project_id.as_deref(), conversation_id.as_deref(), model_request_id.as_deref())

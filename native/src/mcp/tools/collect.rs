@@ -182,7 +182,7 @@ async fn collect_mcp_tools(
             if tool.server_id == "lsp" && !lsp_available_tools.contains(&tool.full_name()) {
                 return false;
             }
-            if tool.server_id == "toolsearch" {
+            if tool.server_id == "toolSearch" {
                 // 搜索能力只由有效启用的工具插件派生；忽略遗留的人工启停记录。
                 return tool_search_available
                     && (!defer_plugin_tools || conversation_id.is_some());
@@ -236,7 +236,7 @@ async fn collect_mcp_tools(
 
     if defer_plugin_tools {
         if let Some(search_tool) = tools.iter_mut().find(|tool| {
-            tool.server_id == "toolsearch" && tool.name == "discover"
+            tool.server_id == "toolSearch" && tool.name == "discover"
         }) {
             super::super::servers::tool_search::validate_session(project_id, conversation_id, false).await?;
             let summary = super::super::servers::tool_search::plugin_summary(project_id, &plugin_servers).await?;

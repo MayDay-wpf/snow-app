@@ -225,8 +225,8 @@ export class ReadonlyCallGuard {
     // Plugin catalog and discovery depend on current settings; discovery also
     // registers tools for the next request, so cached results are not equivalent.
     if (
-      toolCall.name === "toolsearch-tool-search" ||
-      toolCall.name === "toolsearch-discover"
+      toolCall.name === "toolSearch-tool-search" ||
+      toolCall.name === "toolSearch-discover"
     )
       return null;
     const argumentsJson = canonicalizeToolArguments(

@@ -317,10 +317,10 @@ fn set_server(
     value: &Value,
 ) -> Result<Value> {
     let changes_tool_search = value.get("tools").and_then(Value::as_object).is_some_and(|tools| {
-        tools.keys().any(|name| name.starts_with("toolsearch-"))
+        tools.keys().any(|name| name.starts_with("toolSearch-"))
     }) || value.get("disabledTools").and_then(Value::as_array).is_some_and(|items| {
         items.iter().any(|item| {
-            item.as_str().is_some_and(|name| name.starts_with("toolsearch-"))
+            item.as_str().is_some_and(|name| name.starts_with("toolSearch-"))
         })
     });
     if changes_tool_search {

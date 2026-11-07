@@ -261,7 +261,7 @@ const AuthorizationToolItem = ({
               {toolCall.name}
             </code>
           </div>
-          {toolCall.name === "toolsearch-discover" ? (
+          {toolCall.name === "toolSearch-discover" ? (
             <div className="tool-authorization-file-extra">
               {t("toolAuthorization.pluginDiscoveryRisk")}
             </div>
