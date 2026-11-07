@@ -82,7 +82,6 @@ import { generateComparePatch } from "../utils/generateComparePatch";
 import { isPdfFilePath, openBrowserFile } from "../utils/browserFileOpen";
 import { hasCustomWindowFrame } from "../utils/platform";
 import { getFileTypeIcon } from "../utils/fileIcons";
-import { buildSshConnectParams } from "./sidebar/personalization/roleFileUtils";
 import {
   CONVERSATION_DRAG_MIME,
   readConversationDragPayload,
@@ -573,11 +572,6 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
           setAgentAccessVersion((version) => version + 1),
         ),
       [],
-    );
-    // 聊天区 Ctrl+点击远程路径时按工作区复用 SSH 连接；Promise 缓存还能
-    // 合并快速连续点击产生的并发连接请求。
-    const sshFileSessionPromisesRef = useRef<Map<string, Promise<string>>>(
-      new Map(),
     );
     // tab 右键菜单：记录触发位置与目标 tab（Git 固定 tab 无关闭项；
     // tabId 为 null 表示右键在 tab 栏空白区域，仅提供新建项）。
@@ -1212,26 +1206,18 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
       [],
     );
 
-    // 为远程文件查看建立/复用 SSH 会话。失败时删除缓存，允许下次重试。
+    // 远程文件 tab 复用工作区的 profile 连接（与资源管理器打开文件一致）：
+    // profile ID 跨重连保持稳定，底层会话断开后由连接管理器自动重连，
+    // 不会再拿着已失效的一次性会话 id 读文件。这里只确保连接已建立，
+    // 随即归还引用，连接的生命周期仍由活动工作区持有。
     const getSshFileSession = useCallback(
-      (workspacePath: string): Promise<string> => {
-        const cached = sshFileSessionPromisesRef.current.get(workspacePath);
-        if (cached) {
-          return cached;
-        }
-        const connecting = buildSshConnectParams(workspacePath)
-          .then((params) => {
-            if (!params) {
-              throw new Error("Unable to resolve SSH connection parameters");
-            }
-            return window.snow.sshConnect(params);
-          })
-          .catch((error: unknown) => {
-            sshFileSessionPromisesRef.current.delete(workspacePath);
-            throw error;
-          });
-        sshFileSessionPromisesRef.current.set(workspacePath, connecting);
-        return connecting;
+      async (workspacePath: string): Promise<string> => {
+        const profile =
+          await window.snow.sshConnectWorkspaceProfile(workspacePath);
+        void window.snow
+          .sshReleaseProfile(profile.profileId)
+          .catch(() => undefined);
+        return profile.profileId;
       },
       [],
     );
@@ -1418,20 +1404,6 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     useEffect(() => {
       return rightPanelEvents.on("open-browser-tab", handleOpenBrowserTabEvent);
     }, [handleOpenBrowserTabEvent]);
-
-    useEffect(() => {
-      const sessions = sshFileSessionPromisesRef.current;
-      return () => {
-        for (const sessionPromise of sessions.values()) {
-          void sessionPromise
-            .then((sessionId) => window.snow.sshDisconnect(sessionId))
-            .catch(() => {
-              // 连接失败或已断开，无需额外处理。
-            });
-        }
-        sessions.clear();
-      };
-    }, []);
 
     // Ctrl+点击聊天区路径（usePathClickOpen 委托）请求打开文件：
     // 在右侧面板新建 file tab 查看，与 Git 面板「打开文件」行为一致。

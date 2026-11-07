@@ -2,7 +2,7 @@ export const CONVERSATION_CACHE_TTL_SETTING = "conversation_cache_ttl_minutes";
 
 export const CONVERSATION_CACHE_TTL_SETTING_NAME = "会话缓存";
 
-export const CONVERSATION_CACHE_TTL_DEFAULT_MINUTES = 60;
+export const CONVERSATION_CACHE_TTL_DEFAULT_MINUTES = 3;
 
 export const CONVERSATION_CACHE_TTL_MIN_MINUTES = 1;
 
