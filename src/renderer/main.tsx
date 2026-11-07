@@ -1,3 +1,5 @@
+// 首帧字体必须在 React 之前应用（CSP 禁止内联脚本，故由模块入口承担）。
+import "./bootFont";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";

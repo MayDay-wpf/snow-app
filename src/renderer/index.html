@@ -311,36 +311,7 @@
         }
       }
     </style>
-    <script>
-      // 启动首帧同步应用缓存字体（与 themeSettingsUtils 共用同一缓存键）。
-      (() => {
-        try {
-          const raw = localStorage.getItem("snow:theme-cache-v1");
-          if (!raw) return;
-          const settings = JSON.parse(raw)?.settings;
-          if (!settings) return;
-          const fontFamily =
-            typeof settings.fontFamily === "string"
-              ? settings.fontFamily.trim()
-              : "";
-          if (fontFamily) {
-            document.documentElement.style.setProperty(
-              "--app-font-family",
-              fontFamily,
-            );
-          }
-          const weight = settings.typography?.fontWeight;
-          if (typeof weight === "number") {
-            document.documentElement.style.setProperty(
-              "--app-font-weight",
-              String(weight),
-            );
-          }
-        } catch {
-          // 缓存损坏时保持默认字体。
-        }
-      })();
-    </script>
+    <!-- 首帧字体走 bootFont 模块：页面 CSP 为 script-src 'self' blob:，内联脚本会被拒绝执行。 -->
     <script type="module" src="./boot-slogan.ts"></script>
     <script type="module" src="./main.tsx"></script>
   </body>
