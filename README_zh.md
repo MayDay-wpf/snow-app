@@ -12,6 +12,8 @@
   QQ 群：<a href="https://qm.qq.com/q/avnZQ7gw0M">910298558</a>
   &nbsp;·&nbsp;
   友情链接：<a href="https://linux.do">Linux DO</a>
+  &nbsp;·&nbsp;
+  <a href="https://linux.sb/">Linux.sb</a>
 </p>
 
 Snow App 是一个桌面编码 Agent：你描述任务，它自己读代码、改文件、执行命令、查看诊断并验证结果。它使用的终端、Git、SSH、浏览器和文件树都摆在同一个窗口里，每一处改动都能当场审阅、授权和回滚。

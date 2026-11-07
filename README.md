@@ -11,7 +11,9 @@
 <p align="center">
   QQ group: <a href="https://qm.qq.com/q/avnZQ7gw0M">910298558</a>
   &nbsp;·&nbsp;
-  Friendly link: <a href="https://linux.do">Linux DO</a>
+  Friendly links: <a href="https://linux.do">Linux DO</a>
+  &nbsp;·&nbsp;
+  <a href="https://linux.sb/">Linux.sb</a>
 </p>
 
 Snow App is a desktop coding agent: describe a task and it reads the code, edits files, runs commands, checks diagnostics and verifies the result. The terminal, Git, SSH, browser and file tree it works with stay in the same window, so every change can be reviewed, approved and rolled back on the spot.

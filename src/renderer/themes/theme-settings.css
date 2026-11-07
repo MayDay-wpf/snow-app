@@ -998,7 +998,7 @@
 
 /* ===== 主题设置：分区卡片化 ===== */
 
-/* 页面留白 + 阅读宽度上限，避免宽窗口下控件被拉得过长 */
+/* 页面留白，表单占满可用宽度，与其他设置页保持一致 */
 .theme-settings-page {
   padding: 16px;
 }
@@ -1006,8 +1006,6 @@
 /* 去掉原来的整面板外框，交给每张分区卡片承担边界 */
 .theme-settings-page .theme-settings-form {
   width: 100%;
-  max-width: 960px;
-  margin: 0 auto;
   padding: 0;
   gap: 14px;
   border: 0;
