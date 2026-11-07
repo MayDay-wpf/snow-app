@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.5.13
+
+### New Features
+
+- **On-demand Plugin Tools**: plugin tools are discovered on demand, with more complete per-request authorization and engineering examples.
+- **Notification Sounds**: notification tones and related settings.
+- **Message Actions and Rollback**: richer message actions and improved rollback.
+- **Mobile Remote Control HTTP Server**: new HTTP server implementation with unified request limits and responses.
+- **Image Generation, Browser and Git**: refined interactions across panels, with consistent tool naming.
+
+### Improvements
+
+- **Sensitive Action Prompts**: confirmation dialogs are split by intercept type; script hit fragments are passed to the decision model as evidence, and pre-check results are reused.
+- **Unified Input**: IME guard added, with a single submission check.
+- **UI Consistency**: unified segmented switcher and refined prompt interaction; the theme settings form no longer has a width cap.
+
+### Fixes
+
+- Terminal focus is restored, and menus collapse on keyboard interaction.
+- Remote file tabs reuse the workspace SSH profile connection.
+- The cached font is applied at startup.
+- Translation output returns only the translated text.
+
 ## v0.5.12
 
 ### New Features
