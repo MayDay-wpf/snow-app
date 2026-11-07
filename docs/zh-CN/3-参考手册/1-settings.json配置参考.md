@@ -15,18 +15,18 @@
 
 ## 2. 顶层字段一览
 
-| 字段                       | 类型    | 说明                              |
-| -------------------------- | ------- | --------------------------------- |
-| `codebase`                 | object  | 代码库语义搜索配置                |
-| `mcpServers`               | object  | 全局 MCP 服务器配置，键为服务器名 |
-| `sensitiveCommands`        | array   | 敏感命令拦截规则                  |
-| `yoloMode`                 | boolean | 无确认模式                        |
-| `vulnerabilityHuntingMode` | boolean | 漏洞狩猎模式                      |
-| `toolSearchEnabled`        | boolean | 工具搜索开关                      |
-| `hybridCompressEnabled`    | boolean | 混合压缩开关                      |
-| `teamMode`                 | boolean | 团队模式                          |
-| `goal`                     | object  | Goal 模式配置                     |
-| `ultraTodoEnabled`         | boolean | 超长 TODO 列表开关                |
+| 字段                       | 类型    | 说明                                                                                  |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `codebase`                 | object  | 代码库语义搜索配置                                                                    |
+| `mcpServers`               | object  | 全局 MCP 服务器配置，键为服务器名                                                     |
+| `sensitiveCommands`        | array   | 敏感命令拦截规则                                                                      |
+| `yoloMode`                 | boolean | 无确认模式                                                                            |
+| `vulnerabilityHuntingMode` | boolean | 漏洞狩猎模式                                                                          |
+| `toolSearchEnabled`        | boolean | 旧版共享字段；Snow App 的插件工具搜索不再读取此开关，随项目有效启用的工具插件自动生效 |
+| `hybridCompressEnabled`    | boolean | 混合压缩开关                                                                          |
+| `teamMode`                 | boolean | 团队模式                                                                              |
+| `goal`                     | object  | Goal 模式配置                                                                         |
+| `ultraTodoEnabled`         | boolean | 超长 TODO 列表开关                                                                    |
 
 ## 3. mcpServers 字段
 
@@ -156,15 +156,15 @@
 
 ## 6. 模式开关字段
 
-| 字段                       | 类型    | 说明                                 |
-| -------------------------- | ------- | ------------------------------------ |
-| `yoloMode`                 | boolean | 无确认模式，跳过危险操作确认         |
-| `vulnerabilityHuntingMode` | boolean | 漏洞狩猎模式                         |
-| `toolSearchEnabled`        | boolean | 工具搜索开关                         |
-| `hybridCompressEnabled`    | boolean | 混合压缩开关                         |
-| `teamMode`                 | boolean | 团队模式                             |
-| `ultraTodoEnabled`         | boolean | 超长 TODO 列表开关                   |
-| `goal.defaultTokenBudgetM` | number  | Goal 模式默认 token 预算，单位：百万 |
+| 字段                       | 类型    | 说明                                            |
+| -------------------------- | ------- | ----------------------------------------------- |
+| `yoloMode`                 | boolean | 无确认模式，跳过危险操作确认                    |
+| `vulnerabilityHuntingMode` | boolean | 漏洞狩猎模式                                    |
+| `toolSearchEnabled`        | boolean | 旧版共享字段；Snow App 不再以此控制插件工具搜索 |
+| `hybridCompressEnabled`    | boolean | 混合压缩开关                                    |
+| `teamMode`                 | boolean | 团队模式                                        |
+| `ultraTodoEnabled`         | boolean | 超长 TODO 列表开关                              |
+| `goal.defaultTokenBudgetM` | number  | Goal 模式默认 token 预算，单位：百万            |
 
 ## 7. 兄弟配置文件一览
 

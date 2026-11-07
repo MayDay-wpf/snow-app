@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   Star,
   Users,
+  Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -353,6 +354,12 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                         })}
                       </span>
                     </Tooltip>
+                    {entry.kind === "tool" ? (
+                      <span className="plugin-market-badge tool">
+                        <Wrench size={11} strokeWidth={2} />
+                        {t("plugins.kindTool", { defaultValue: "Tool plugin" })}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="plugins-item-meta">
                     <span className="plugin-market-downloads">

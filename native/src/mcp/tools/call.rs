@@ -161,6 +161,7 @@ pub async fn call_mcp_tool(
     on_terminal_command: TerminalCommandCallback,
     sub_agent_allowed_tools: Option<Vec<String>>,
     conversation_id: Option<String>,
+    model_request_id: Option<String>,
 ) -> napi::Result<String> {
     // Sanitize: AI may copy "[Tool: server-tool#callId]" from conversation
     // history or leak internal XML tags into the tool name. Normalize
@@ -252,7 +253,7 @@ pub async fn call_mcp_tool(
                 "WorkTree mode is enabled but this conversation has no persisted worktree binding. Bind a worktree before using WorkTree mode.".to_string(),
             ));
         }
-        if worktree_mode && !is_builtin_mcp_tool(&tool_full_name) {
+        if worktree_mode && (!is_builtin_mcp_tool(&tool_full_name) || tool_full_name == "toolsearch-discover") {
             return Err(Error::new(
                 Status::GenericFailure,
                 format!("External MCP tool '{tool_full_name}' was blocked: WorkTree mode cannot safely restrict arbitrary tool paths or side effects. Disable WorkTree mode or use a built-in tool with supported workspace scoping."),
@@ -282,11 +283,6 @@ pub async fn call_mcp_tool(
             format!("Tool is reserved for the main conversation and unavailable to sub-agents: {tool_full_name}"),
         ));
     }
-    let project_override = sub_agent_allowed_tools
-        .as_ref()
-        .is_some_and(|tools| tools.iter().any(|name| name == &tool_full_name));
-    ensure_project_tool_enabled(project_id.as_deref(), &tool_full_name, project_override).await?;
-
     if let Some(ref allowed_tools) = sub_agent_allowed_tools {
         let explicitly_allowed = allowed_tools.iter().any(|name| name == &tool_full_name);
         // Communication requires the explicit runtime token produced by the
@@ -300,6 +296,41 @@ pub async fn call_mcp_tool(
                 format!("Sub-agent tool is not in the allowed whitelist: {tool_full_name}"),
             ));
         }
+    }
+
+    let plugin_identity = if is_builtin_mcp_tool(&tool_full_name) {
+        None
+    } else {
+        super::super::external::plugin_tool_identity(project_id.as_deref(), &tool_full_name).await?
+    };
+    let is_search = tool_full_name.starts_with("toolsearch-");
+    if tool_full_name == "toolsearch-discover" || plugin_identity.is_some() {
+        super::super::servers::tool_search::validate_session(
+            project_id.as_deref(), conversation_id.as_deref(), true,
+        ).await?;
+        let scope = super::collect::load_project_scope(project_id.as_deref()).await?;
+        let servers = super::super::external::available_plugin_servers(project_id.as_deref(), scope.as_ref()).await?;
+        if servers.is_empty() {
+            return Err(Error::from_reason(super::super::servers::tool_search::NO_ENABLED_PLUGINS));
+        }
+        if let Some(identity) = plugin_identity.as_deref() {
+            let global = super::collect::load_global_scope().await?;
+            if !servers.values().any(|(server_id, _)| server_id == identity)
+                || scope.as_ref().is_some_and(|scope| !scope.is_tool_enabled(&tool_full_name))
+                || global.as_ref().is_some_and(|global| global.is_tool_disabled(&tool_full_name))
+            {
+                return Err(Error::from_reason(format!("PERMISSION_DENIED: plugin tool is disabled: {tool_full_name}")));
+            }
+            super::super::servers::tool_search::ensure_matched(
+                project_id.as_deref(), conversation_id.as_deref(), model_request_id.as_deref(), &tool_full_name, Some(identity),
+            )?;
+        }
+    }
+    let project_override = !is_search && plugin_identity.is_none() && sub_agent_allowed_tools
+        .as_ref()
+        .is_some_and(|tools| tools.iter().any(|name| name == &tool_full_name));
+    if !is_search {
+        ensure_project_tool_enabled(project_id.as_deref(), &tool_full_name, project_override).await?;
     }
 
     let (args, uses_remote_workspace) =
@@ -577,6 +608,12 @@ pub async fn call_mcp_tool(
         // 模型传入的 sessionId 参数一律忽略，无法跨会话读写。
         TodoService::new()
             .execute_async(&args, conversation_id.as_deref())
+            .await
+            .validation_feedback(is_sub_agent_call)?
+    } else if let Some(tool_name) = tool_full_name.strip_prefix("toolsearch-") {
+        // The host supplies the project and conversation; model arguments cannot select them.
+        super::super::servers::tool_search::ToolSearchService::new()
+            .execute_async(tool_name, &args, project_id.as_deref(), conversation_id.as_deref(), model_request_id.as_deref())
             .await
             .validation_feedback(is_sub_agent_call)?
     } else if let Some(memory_tool) = tool_full_name.strip_prefix("memory-") {

@@ -385,7 +385,12 @@ export const parsePluginRecord = (record: PluginRecord): PluginView => {
     entry: record.entry,
     oauthEntry,
     // 清单声明的类型为准；缺省（旧记录）时按 oauth.entry 推导。
-    kind: record.kind === "oauth" || Boolean(oauthEntry) ? "oauth" : "plugin",
+    kind:
+      record.kind === "oauth" || Boolean(oauthEntry)
+        ? "oauth"
+        : record.kind === "tool"
+          ? "tool"
+          : "plugin",
     panels: panelsWithSettings(record),
     messageFooters: normalizeMessageFooters(record),
     toolCallRenderers: normalizeToolCallRenderers(record),

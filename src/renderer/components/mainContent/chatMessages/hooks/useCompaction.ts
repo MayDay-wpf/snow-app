@@ -95,7 +95,13 @@ export const useCompaction = (ctx: ConversationContextValue) => {
 
       const compactionStartedAt = Date.now();
       const compactionRequest = {
-        messages: [{ role: "user" as const, content: "context handoff" }],
+        messages: [
+          {
+            role: "user" as const,
+            origin: "internal" as const,
+            content: "context handoff",
+          },
+        ],
         model,
         conversationId,
         directoryId: sessionRef?.directoryId ?? ctx.directoryId,
@@ -213,6 +219,7 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         const compactionMessage: ChatConversationMessage = {
           id: response.id || createMessageId("user"),
           role: "user",
+          origin: "internal",
           content,
           timestamp: formatMessageTime(),
           status: "sent",
@@ -258,6 +265,7 @@ export const useCompaction = (ctx: ConversationContextValue) => {
                 .slice(-1)
                 .map((message) => ({
                   role: "user" as const,
+                  origin: message.origin,
                   content: message.content,
                 }))
           : undefined;

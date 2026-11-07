@@ -1,3 +1,25 @@
+/** 工具插件的一个工具（名称 / 描述）。 */
+export type PluginToolInfo = {
+  name: string;
+  originalName: string;
+  description: string;
+};
+
+/** 工具插件的一个 MCP 服务器及其工具清单（按项目作用域发现）。 */
+export type PluginToolServerInfo = {
+  pluginId: string;
+  serverName: string;
+  publicServerName: string;
+  tools: PluginToolInfo[];
+  error?: string | null;
+};
+
+/** 项目级插件作用域：`pluginOverrides` 缺省表示该项目可用全部已启用插件。 */
+export type PluginsProjectScope = {
+  projectId: string;
+  pluginOverrides: Record<string, boolean>;
+};
+
 /** 插件完整记录（管理 UI 与插件运行时使用）。 */
 export type PluginRecord = {
   pluginId: string;

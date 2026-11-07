@@ -184,8 +184,11 @@ export type ApiModelsConfig = {
   /** 已保存档案的名称：OAuth 档案据此由主进程读取库内最新 token（不信任渲染层快照）。 */
   profileName?: string;
 };
+export type MessageOrigin = "user" | "internal" | "unknown";
+
 export type ResponsesApiMessage = {
   role: "user" | "assistant" | "system" | "developer" | "tool";
+  origin?: MessageOrigin;
   content: string;
   toolResultsJson?: string;
   /** Serialized assistant tool calls, replayed by stateless tool loops. */
@@ -243,6 +246,8 @@ export type ResponsesApiRequest = {
   responsesFastMode?: string | null;
   /** Request-scoped MCP tool whitelist (JSON array of full tool names). */
   allowedToolsJson?: string | null;
+  /** 会话级插件激活集合（`@@plugin` chip 的插件 id，JSON 数组）。 */
+  pluginToolIdsJson?: string | null;
 };
 
 /**
@@ -323,6 +328,7 @@ export type ManualToolExchangeRequest = {
   checkpointId?: string;
   messages: {
     role: "user" | "tool";
+    origin?: MessageOrigin;
     content: string;
     toolResultsJson?: string;
   }[];

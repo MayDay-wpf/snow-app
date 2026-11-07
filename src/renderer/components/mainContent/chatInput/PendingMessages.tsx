@@ -28,6 +28,7 @@ import {
 } from "./fileTagUtils";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { getSkillIcon } from "../../../utils/skillIcons";
+import { PluginMentionChip } from "../../common/PluginMentionChip";
 
 type PendingMessagesProps = {
   messages: string[];
@@ -313,6 +314,16 @@ const renderSegments = (
             )}
           </span>
         </span>
+      );
+    }
+
+    if (segment.type === "plugin") {
+      return (
+        <PluginMentionChip
+          key={index}
+          pluginId={segment.tag.pluginId}
+          name={segment.tag.name}
+        />
       );
     }
 

@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain, type WebContents } from "electron";
 import type {
   NativeBridge,
   ResponsesApiMessage,
@@ -32,7 +32,7 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
   const source = value as Partial<Record<keyof ResponsesApiRequest, unknown>>;
   const rawMessages = Array.isArray(source.messages) ? source.messages : [];
   const messages = rawMessages
-    .map((item) => {
+    .map((item): ResponsesApiMessage | null => {
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
         return null;
       }
@@ -47,6 +47,15 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
         message.role === "tool"
           ? message.role
           : "user";
+      if (
+        message.origin !== undefined &&
+        message.origin !== "user" &&
+        message.origin !== "internal" &&
+        message.origin !== "unknown"
+      ) {
+        throw new Error("Invalid chat message origin");
+      }
+      const origin = message.origin;
       const content =
         typeof message.content === "string" ? message.content : "";
       const toolResultsJson =
@@ -60,10 +69,11 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
 
       return {
         role,
+        origin,
         content,
         ...(toolResultsJson ? { toolResultsJson } : {}),
         ...(toolCallsJson ? { toolCallsJson } : {}),
-      } as ResponsesApiMessage;
+      };
     })
     .filter((message): message is ResponsesApiMessage =>
       Boolean(
@@ -178,6 +188,11 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       source.allowedToolsJson.trim()
         ? source.allowedToolsJson
         : undefined,
+    pluginToolIdsJson:
+      typeof source.pluginToolIdsJson === "string" &&
+      source.pluginToolIdsJson.trim()
+        ? source.pluginToolIdsJson
+        : undefined,
   };
 };
 
@@ -212,11 +227,111 @@ const resolveRemoteRoleContext = async (
 };
 
 export const registerChatHandlers = (native: NativeBridge): void => {
+  type Owner = {
+    sender: WebContents;
+    requests: Set<RequestLease>;
+    detach: () => void;
+  };
+  type RequestLease = {
+    id: string;
+    owner: Owner;
+    orphaned: boolean;
+    settled: boolean;
+  };
+  const owners = new Map<WebContents, Owner>();
+  const requests = new Map<string, RequestLease>();
+
+  const forget = (lease: RequestLease): void => {
+    if (requests.get(lease.id) === lease) requests.delete(lease.id);
+    lease.owner.requests.delete(lease);
+    if (
+      lease.owner.requests.size === 0 &&
+      owners.get(lease.owner.sender) === lease.owner
+    ) {
+      lease.owner.detach();
+      owners.delete(lease.owner.sender);
+    }
+  };
+
+  const track = (sender: WebContents, id: string): RequestLease => {
+    if (sender.isDestroyed())
+      throw new Error("Model request owner is unavailable");
+    if (requests.has(id)) throw new Error("Duplicate model request identity");
+    let owner = owners.get(sender);
+    if (!owner) {
+      const current: Owner = { sender, requests: new Set(), detach: () => {} };
+      const invalidate = (): void => {
+        current.detach();
+        if (owners.get(sender) === current) owners.delete(sender);
+        for (const lease of current.requests) {
+          lease.orphaned = true;
+          void Promise.resolve()
+            .then(() => native.abortResponseStream(lease.id))
+            .catch((error: unknown) => {
+              snowLog.error({
+                module: "ipc/chat",
+                func: "abort-orphaned-stream",
+                message: "Failed to abort orphaned stream",
+                error: String(error),
+              });
+            });
+          void native.releaseModelRequest(lease.id).catch((error: unknown) => {
+            snowLog.error({
+              module: "ipc/chat",
+              func: "release-orphaned-request",
+              message: "Failed to release orphaned model request",
+              error: String(error),
+            });
+          });
+          if (lease.settled) forget(lease);
+        }
+      };
+      const onNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+      ): void => {
+        if (isMainFrame && !isInPlace) invalidate();
+      };
+      current.detach = () => {
+        sender.removeListener("destroyed", invalidate);
+        sender.removeListener("render-process-gone", invalidate);
+        sender.removeListener("did-start-navigation", onNavigation);
+      };
+      sender.on("destroyed", invalidate);
+      sender.on("render-process-gone", invalidate);
+      sender.on("did-start-navigation", onNavigation);
+      owners.set(sender, current);
+      owner = current;
+    }
+    const lease: RequestLease = { id, owner, orphaned: false, settled: false };
+    owner.requests.add(lease);
+    requests.set(id, lease);
+    return lease;
+  };
+
+  ipcMain.handle(
+    "mcp:release-model-request",
+    async (event, streamId: unknown) => {
+      const id = normalizeCreateResponseStreamId(streamId);
+      const lease = requests.get(id);
+      if (lease && lease.owner.sender !== event.sender) {
+        throw new Error(
+          "OWNER_MISMATCH: model request belongs to another window",
+        );
+      }
+      await native.releaseModelRequest(id);
+      if (lease) forget(lease);
+    },
+  );
+
   ipcMain.handle(
     "chat:create-response-stream",
     async (event, request: unknown, streamId: unknown) => {
       const normalizedRequest = normalizeResponsesApiRequest(request);
       const normalizedStreamId = normalizeCreateResponseStreamId(streamId);
+      const lease = track(event.sender, normalizedStreamId);
 
       try {
         const remoteRoleContext = await resolveRemoteRoleContext(
@@ -244,7 +359,9 @@ export const registerChatHandlers = (native: NativeBridge): void => {
             );
           }
         }
-        return await native.createResponseStream(
+        if (lease.orphaned)
+          throw new Error("Model request owner is unavailable");
+        const result = await native.createResponseStream(
           {
             ...normalizedRequest,
             ...(remoteRoleContext?.content
@@ -267,7 +384,32 @@ export const registerChatHandlers = (native: NativeBridge): void => {
           },
           normalizedStreamId,
         );
+        lease.settled = true;
+        const calls = result.toolCallsJson.trim();
+        if (
+          lease.orphaned ||
+          normalizedRequest.contextCompaction ||
+          !calls ||
+          calls === "[]" ||
+          calls === "null"
+        ) {
+          await native.releaseModelRequest(normalizedStreamId);
+          forget(lease);
+        }
+        return result;
       } catch (error) {
+        lease.settled = true;
+        try {
+          await native.releaseModelRequest(normalizedStreamId);
+        } catch (releaseError) {
+          snowLog.error({
+            module: "ipc/chat",
+            func: "release-failed-request",
+            message: "Failed to release model request",
+            error: String(releaseError),
+          });
+        }
+        forget(lease);
         snowLog.error({
           module: "ipc/chat",
           func: "create-response-stream",

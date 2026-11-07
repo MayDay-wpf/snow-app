@@ -14,21 +14,38 @@ use crate::storage::services::system_settings::{McpGlobalScopeSettings, McpProje
 pub async fn collect_all_mcp_tools(
     project_id: Option<&str>,
     include_workflow_tool: bool,
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
 ) -> Result<Vec<McpTool>> {
-    collect_all_mcp_tools_for_workspace(project_id, None, include_workflow_tool).await
+    // 供 UI / 诊断列举工具：不做按需加载，保持完整清单。
+    collect_all_mcp_tools_for_workspace(
+        project_id,
+        None,
+        include_workflow_tool,
+        active_plugin_ids,
+        false,
+        None,
+    )
+    .await
 }
 
 pub async fn collect_all_mcp_tools_for_workspace(
     project_id: Option<&str>,
     analysis_root: Option<&Path>,
     include_workflow_tool: bool,
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
+    defer_plugin_tools: bool,
+    conversation_id: Option<&str>,
 ) -> Result<Vec<McpTool>> {
-    let mut tools = collect_mcp_tools(
+    let (mut tools, _) = collect_mcp_tools(
         project_id,
         include_workflow_tool,
         None,
         analysis_root,
         false,
+        false,
+        active_plugin_ids,
+        defer_plugin_tools,
+        conversation_id,
         false,
     )
     .await?;
@@ -50,7 +67,12 @@ async fn collect_mcp_tools(
     analysis_root: Option<&Path>,
     project_override: bool,
     explicit_child_comms: bool,
-) -> Result<Vec<McpTool>> {
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
+    defer_plugin_tools: bool,
+    conversation_id: Option<&str>,
+    cache_only: bool,
+) -> Result<(Vec<McpTool>, std::collections::HashSet<String>)> {
+    let search_generation = super::super::servers::tool_search::generation();
     let project_override = project_override && allowed_names.is_some();
     let scope = load_project_scope(project_id).await?;
     let global_scope = load_global_scope().await?;
@@ -103,6 +125,24 @@ async fn collect_mcp_tools(
 
     let builtin_tools = get_builtin_tools();
 
+    // Read effective plugin configuration without connecting to plugin servers.
+    let mut plugin_servers = super::super::external::available_plugin_servers(
+        project_id, scope.as_ref(),
+    ).await?;
+    if defer_plugin_tools {
+        if let Some(names) = allowed_names {
+            plugin_servers.retain(|server, _| {
+                let prefix = format!("{server}-");
+                names.iter().any(|name| {
+                    name.starts_with(&prefix)
+                        && !global_scope.as_ref().is_some_and(|global| global.is_tool_disabled(name))
+                        && scope.as_ref().is_none_or(|scope| scope.is_tool_enabled(name))
+                })
+            });
+        }
+    }
+    let tool_search_available = !plugin_servers.is_empty();
+
     let mut tools = builtin_tools
         .into_iter()
         .filter(|tool| {
@@ -142,6 +182,11 @@ async fn collect_mcp_tools(
             if tool.server_id == "lsp" && !lsp_available_tools.contains(&tool.full_name()) {
                 return false;
             }
+            if tool.server_id == "toolsearch" {
+                // 搜索能力只由有效启用的工具插件派生；忽略遗留的人工启停记录。
+                return tool_search_available
+                    && (!defer_plugin_tools || conversation_id.is_some());
+            }
             tool_visible(
                 tool,
                 global_scope.as_ref(),
@@ -150,6 +195,8 @@ async fn collect_mcp_tools(
             )
         })
         .collect::<Vec<_>>();
+
+    // A tool-less request must not revoke another concurrent request's state.
 
     // Inject the current default image channel summary (non-sensitive, no
     // API key) into the imagegen-generate description so the agent can see
@@ -187,26 +234,42 @@ async fn collect_mcp_tools(
         }
     }
 
-    match super::super::external::discover_tools(
-        project_id,
-        scope.as_ref(),
-        allowed_names,
-        project_override,
-    )
-    .await
-    {
-        // External tools are already filtered by the project scope inside
-        // discover_tools (skipped under project_override); apply the global
-        // blacklist on top.
-        Ok(external_tools) => tools.extend(
-            external_tools
-                .into_iter()
-                .filter(|tool| tool_is_enabled(tool, global_scope.as_ref(), None)),
-        ),
-        Err(error) => eprintln!("Failed to discover external MCP tools: {error}"),
+    if defer_plugin_tools {
+        if let Some(search_tool) = tools.iter_mut().find(|tool| {
+            tool.server_id == "toolsearch" && tool.name == "discover"
+        }) {
+            super::super::servers::tool_search::validate_session(project_id, conversation_id, false).await?;
+            let summary = super::super::servers::tool_search::plugin_summary(project_id, &plugin_servers).await?;
+            search_tool.description.push_str(&format!("\n\nEnabled tool plugins (name and description):\n{summary}"));
+            let matched = super::super::servers::tool_search::prepare_session(
+                project_id, conversation_id, &plugin_servers, allowed_names,
+                scope.as_ref(), global_scope.as_ref(), search_generation,
+            )?;
+            tools.extend(matched);
+        }
     }
-    Ok(tools)
+
+    let pending = match super::super::external::discover_tools(
+        project_id, scope.as_ref(), allowed_names, project_override,
+        active_plugin_ids, defer_plugin_tools, false, cache_only,
+    ).await {
+        Ok((external_tools, _, _, _, pending)) => {
+            tools.extend(external_tools.into_iter()
+                .filter(|tool| tool_is_enabled(tool, global_scope.as_ref(), None)));
+            pending.into_iter()
+                .filter(|name| !global_scope.as_ref().is_some_and(|global| global.is_tool_disabled(name)))
+                .collect()
+        }
+        Err(error) => {
+            super::super::external::log_discovery_failure(project_id, "external", &error.to_string());
+            if defer_plugin_tools { return Err(error); }
+            eprintln!("Failed to discover external MCP tools: {error}");
+            std::collections::HashSet::new()
+        }
+    };
+    Ok((tools, pending))
 }
+
 /// Check whether the codebase search tool should be available for the
 /// given project: the project must have codebase enabled AND have at
 /// least one embedded chunk in its vector table.
@@ -247,12 +310,17 @@ pub async fn collect_allowed_mcp_tools_for_workspace(
     analysis_root: Option<&Path>,
     tools_json: &str,
     allow_wildcard: bool,
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
+    conversation_id: Option<&str>,
 ) -> Result<Vec<McpTool>> {
     let (tools, unavailable) = collect_allowed_mcp_tools_with_report(
         project_id,
         analysis_root,
         tools_json,
         allow_wildcard,
+        active_plugin_ids,
+        conversation_id,
+        false,
     )
     .await?;
     if !unavailable.is_empty() {
@@ -275,6 +343,9 @@ pub(crate) async fn collect_allowed_mcp_tools_with_report(
     analysis_root: Option<&Path>,
     tools_json: &str,
     allow_wildcard: bool,
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
+    conversation_id: Option<&str>,
+    diagnostic_only: bool,
 ) -> Result<(Vec<McpTool>, Vec<SubAgentUnavailableTool>)> {
     let configured_names = parse_configured_tool_names(tools_json)?;
     let wildcard_enabled = configured_names.contains("*");
@@ -285,7 +356,7 @@ pub(crate) async fn collect_allowed_mcp_tools_with_report(
         ));
     }
 
-    let all_tools = collect_mcp_tools(
+    let (all_tools, pending_external) = collect_mcp_tools(
         project_id,
         false,
         if wildcard_enabled {
@@ -296,6 +367,10 @@ pub(crate) async fn collect_allowed_mcp_tools_with_report(
         analysis_root,
         !wildcard_enabled,
         configured_names.contains("sub-agents-sendMessage"),
+        active_plugin_ids,
+        true,
+        conversation_id,
+        diagnostic_only,
     )
     .await?;
     if wildcard_enabled {
@@ -323,6 +398,34 @@ pub(crate) async fn collect_allowed_mcp_tools_with_report(
         .filter(|name| !available_names.contains(*name))
         .cloned()
         .collect::<Vec<_>>();
+    // A cache miss does not prove that a configured external tool is unavailable.
+    unavailable_names.retain(|name| !pending_external.contains(name));
+    let search_server = super::super::servers::tool_search::SERVER_ID;
+    let discover_name = format!("{}-{}", search_server, super::super::servers::tool_search::TOOL_DISCOVER);
+    let list_name = format!("{}-{}", search_server, super::super::servers::tool_search::TOOL_SEARCH);
+    if configured_names.contains(&discover_name) || (diagnostic_only && configured_names.contains(&list_name)) {
+        // A configured plugin tool may be absent only because discovery is deferred.
+        // Check ownership and switches without connecting or claiming that it exists.
+        let scope = load_project_scope(project_id).await?;
+        let global = load_global_scope().await?;
+        let servers = super::super::external::available_plugin_servers(project_id, scope.as_ref()).await?;
+        let pending = unavailable_names.iter().filter(|name| {
+            split_tool_full_name(name).is_some_and(|(server, _)| servers.contains_key(server))
+                && !global.as_ref().is_some_and(|global| global.is_tool_disabled(name))
+                && scope.as_ref().is_none_or(|scope| scope.is_tool_enabled(name))
+        }).cloned().collect::<std::collections::HashSet<_>>();
+        let discover_enabled = !pending.is_empty()
+            && configured_names.contains(&discover_name)
+            && tool_name_is_enabled(&discover_name, search_server, global.as_ref(), scope.as_ref())
+            && (diagnostic_only || available_names.contains(&discover_name));
+        let list_enabled = diagnostic_only && !pending.is_empty()
+            && configured_names.contains(&list_name)
+            && tool_name_is_enabled(&list_name, search_server, global.as_ref(), scope.as_ref());
+        unavailable_names.retain(|name| {
+            !(discover_enabled && (name == &discover_name || pending.contains(name))
+                || list_enabled && name == &list_name)
+        });
+    }
     unavailable_names.sort();
     let unavailable = if unavailable_names.is_empty() {
         Vec::new()
@@ -408,9 +511,10 @@ pub async fn diagnose_sub_agent_tools(
     let project_id = project_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let (_, unavailable) =
-        collect_allowed_mcp_tools_with_report(project_id.as_deref(), None, &tools_json, true)
-            .await?;
+    let (_, unavailable) = collect_allowed_mcp_tools_with_report(
+        project_id.as_deref(), None, &tools_json, true, None, None, true,
+    )
+    .await?;
     Ok(unavailable)
 }
 
@@ -441,17 +545,23 @@ pub async fn collect_restricted_mcp_tools_for_workspace(
     project_id: Option<&str>,
     analysis_root: Option<&Path>,
     tools_json: &str,
+    active_plugin_ids: Option<&std::collections::HashSet<String>>,
+    conversation_id: Option<&str>,
 ) -> Result<Vec<McpTool>> {
     let configured_names = parse_configured_tool_names(tools_json)?;
     if configured_names.is_empty() {
         return Ok(Vec::new());
     }
-    let all_tools = collect_mcp_tools(
+    let (all_tools, _) = collect_mcp_tools(
         project_id,
         false,
         Some(&configured_names),
         analysis_root,
         false,
+        false,
+        active_plugin_ids,
+        true,
+        conversation_id,
         false,
     )
     .await?;

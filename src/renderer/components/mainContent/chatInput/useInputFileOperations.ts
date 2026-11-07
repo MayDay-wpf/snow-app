@@ -7,12 +7,11 @@ import {
   INSERT_FILE_TAGS_EVENT,
   INSERT_QUOTE_TAG_EVENT,
   buildTextSnippetSummary,
-  createChipHtml,
   createElementChipHtml,
   createFileSelectionChipHtml,
   createImageChipHtml,
+  createMentionChipHtml,
   createQuoteChipHtml,
-  createSkillChipHtml,
   createTextSnippetChipHtml,
   createWebTagChipHtml,
   insertHtmlAtSelection,
@@ -23,8 +22,8 @@ import {
   type FileSelectionTag,
   type FileTag,
   type ImageTag,
+  type MentionTag,
   type QuoteTag,
-  type SkillTag,
   type TextSnippetTag,
   type WebTag,
 } from "./fileTagUtils";
@@ -50,8 +49,8 @@ type UseInputFileOperationsOptions = {
 
 export type InputFileOperationsResult = {
   syncContent: () => void;
-  insertFileTag: (tag: FileTag | SkillTag) => void;
-  insertFileTags: (tags: (FileTag | SkillTag | FileSelectionTag)[]) => void;
+  insertFileTag: (tag: MentionTag) => void;
+  insertFileTags: (tags: (MentionTag | FileSelectionTag)[]) => void;
   insertElementTag: (tag: ElementTag) => void;
   insertImageFromFile: (file: File) => void;
   insertImageFiles: (files: File[]) => void;
@@ -155,33 +154,28 @@ export const useInputFileOperations = ({
   }, [handleChange, renumberImageChips, textareaRef]);
 
   const insertFileTag = useCallback(
-    (tag: FileTag | SkillTag) => {
+    (tag: MentionTag) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
-      insertHtmlAtSelection(
-        "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
-      );
+      insertHtmlAtSelection(createMentionChipHtml(tag));
       syncContent();
     },
     [syncContent, textareaRef],
   );
 
   const insertFileTags = useCallback(
-    (tags: (FileTag | SkillTag | FileSelectionTag)[]) => {
+    (tags: (MentionTag | FileSelectionTag)[]) => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
       insertHtmlAtSelection(
         tags
           .map((tag) => {
-            if ("skillId" in tag) {
-              return createSkillChipHtml(tag);
-            }
             if ("content" in tag) {
               return createFileSelectionChipHtml(tag);
             }
-            return createChipHtml(tag);
+            return createMentionChipHtml(tag);
           })
           .join(" "),
       );

@@ -35,7 +35,7 @@
 | [2-使用指南/23-手机公网远控](zh-CN/2-使用指南/23-手机公网远控.md)                                              | [2-guides/23-mobile-public-remote-control](en/2-guides/23-mobile-public-remote-control.md)                                                                                                       | 手机局域网与公网远控 / Mobile LAN and public remote control                                            |
 | [2-使用指南/24-插件开发与安装](zh-CN/2-使用指南/24-插件开发与安装.md)                                          | [2-guides/24-plugin-development-and-installation](en/2-guides/24-plugin-development-and-installation.md)                                                                                         | 插件开发、安装与发布（含插件市场）/ Plugin development, installation & publishing                      |
 | [2-使用指南/25-对话请求代理层](zh-CN/2-使用指南/25-对话请求代理层.md)                                          | [2-guides/25-conversation-request-proxy](en/2-guides/25-conversation-request-proxy.md)                                                                                                           | 对话请求与 SSE 响应的用户脚本代理层 / Scripted proxy layer for conversation requests and SSE responses |
-| [2-使用指南/26-插件体系选择指引](zh-CN/2-使用指南/26-插件体系选择指引.md)                                      | [2-guides/26-plugin-type-selection-guide](en/2-guides/26-plugin-type-selection-guide.md)                                                                                                         | 面板插件与客户端脚本的选型与取舍 / Choosing between panel plugins and client scripts                   |
+| [2-使用指南/26-插件架构与技术栈选择指引](zh-CN/2-使用指南/26-插件体系选择指引.md)                              | [2-guides/26-plugin-type-selection-guide](en/2-guides/26-plugin-type-selection-guide.md)                                                                                                         | 插件架构、TypeScript 技术栈与扩展选型 / Plugin architecture, TypeScript stacks and extension selection |
 | [3-参考手册/1-settings.json 配置参考](zh-CN/3-参考手册/1-settings.json配置参考.md)                             | [3-reference/1-settings-json-reference](en/3-reference/1-settings-json-reference.md)                                                                                                             | settings.json 字段参考 / settings.json reference                                                       |
 | [3-参考手册/2-内置工具参考](zh-CN/3-参考手册/2-内置工具参考.md)                                                | [3-reference/2-builtin-tools-reference](en/3-reference/2-builtin-tools-reference.md)                                                                                                             | 内置工具参考 / Built-in tools reference                                                                |
 | [3-参考手册/3-配置文件字段参考](zh-CN/3-参考手册/3-配置文件字段参考.md)                                        | [3-reference/3-config-file-field-reference](en/3-reference/3-config-file-field-reference.md)                                                                                                     | 全部配置文件字段 / All config file fields                                                              |
@@ -50,6 +50,23 @@
 | [4-架构与开发/6-功能模块架构与数据流图集](zh-CN/4-架构与开发/6-功能模块架构与数据流图集.md)                    | [4-architecture-and-development/6-feature-module-architecture-and-data-flow-diagrams](en/4-architecture-and-development/6-feature-module-architecture-and-data-flow-diagrams.md)                 | Mermaid 架构与数据流图 / Mermaid diagram atlas                                                         |
 | [4-架构与开发/7-LSP外部语言服务器接入设计](zh-CN/4-架构与开发/7-LSP外部语言服务器接入设计.md)                  | [4-architecture-and-development/7-lsp-external-language-server-design](en/4-architecture-and-development/7-lsp-external-language-server-design.md)                                               | LSP 接入设计 / LSP integration design                                                                  |
 | [4-架构与开发/8-Git 工作树与会话执行域隔离架构设计](zh-CN/4-架构与开发/8-Git工作树与会话执行域隔离架构设计.md) | [4-architecture-and-development/8-git-worktree-and-session-execution-domain-isolation-design](en/4-architecture-and-development/8-git-worktree-and-session-execution-domain-isolation-design.md) | Git 工作树与会话执行域隔离 / Git worktree and session execution domain isolation                       |
+
+## 插件 TypeScript 工程示例 / TypeScript plugin engineering examples
+
+新工程默认推荐严格 TypeScript，按运行边界选择技术栈；交付 JavaScript 产物，不改变现有 JavaScript 支持与权限模型。Default new projects to strict TypeScript, choose a stack by runtime boundary, and ship JavaScript artifacts without changing existing JavaScript support or privileges.
+
+- [中文：架构与技术栈选型](zh-CN/2-使用指南/26-插件体系选择指引.md) / [English: architecture and stack selection](en/2-guides/26-plugin-type-selection-guide.md).
+- [中文：构建、安装与契约](zh-CN/2-使用指南/24-插件开发与安装.md#52-typescript-工程示例与构建流程) / [English: build, install and contracts](en/2-guides/24-plugin-development-and-installation.md#52-typescript-engineering-examples-and-build-flow).
+
+| 类型 / Type                              | 示例入口 / Example entry                              | 构建配置 / Build configuration                       |
+| ---------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
+| 可信 ESM 面板 / Trusted ESM panel        | [panel-esm](examples/panel-esm/plugin.json)           | [package.json](examples/panel-esm/package.json)      |
+| iframe 沙箱面板 / Sandboxed iframe panel | [panel-iframe](examples/panel-iframe/plugin.json)     | [package.json](examples/panel-iframe/package.json)   |
+| OAuth 适配器 / OAuth adapter             | [oauth-provider](examples/oauth-provider/plugin.json) | [package.json](examples/oauth-provider/package.json) |
+| MCP 工具 / MCP tools                     | [text-tools](examples/text-tools/plugin.json)         | [package.json](examples/text-tools/package.json)     |
+| 客户端脚本 / Client script               | 构建后的 `.user.js` / Built `.user.js`                | [package.json](examples/client-script/package.json)  |
+
+- [MCP 工具实现 / MCP tool](examples/text-tools/src/tools/textInspect.ts)、[工具卡 / Tool card](examples/text-tools/src/renderer/index.ts)、[技能入口 / Skill entry](examples/text-tools/skills/text-inspect/SKILL.md)、[按需工具资料 / On-demand tool reference](examples/text-tools/skills/text-inspect/references/tools.md).
 
 ## 文档覆盖与维护 / Coverage & Maintenance
 

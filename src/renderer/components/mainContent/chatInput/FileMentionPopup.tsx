@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   forwardRef,
+  Fragment,
   useImperativeHandle,
   useCallback,
   useEffect,
@@ -26,10 +27,17 @@ import type {
   SkillDefinition,
   WorkspaceDirectoryRecord,
 } from "../../../../preload";
+import type {
+  PluginsProjectScope,
+  PluginToolServerInfo,
+} from "../../../../preload/types/plugins";
 import { useI18n } from "../../../i18n";
+import { resolveLocalized } from "../../../plugins/manifest";
+import { pluginStore, usePluginStore } from "../../../plugins/pluginStore";
 import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { getSkillIcon } from "../../../utils/skillIcons";
-import type { FileTag, SkillTag } from "./fileTagUtils";
+import { PluginIcon } from "../../common/PluginIcon";
+import type { FileTag, MentionTag, SkillTag } from "./fileTagUtils";
 
 export type FileMentionPopupHandle = {
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => boolean;
@@ -39,13 +47,13 @@ export type FileMentionPopupProps = {
   visible: boolean;
   query: string;
   onClose: () => void;
-  onSelect: (tag: FileTag | SkillTag) => void;
-  onSelectBatch: (tags: (FileTag | SkillTag)[]) => void;
+  onSelect: (tag: MentionTag) => void;
+  onSelectBatch: (tags: MentionTag[]) => void;
   textareaRef: RefObject<HTMLDivElement | null>;
   onDragStart?: (event: React.DragEvent<HTMLDivElement>, tag: FileTag) => void;
   /**
-   * 当前会话所属项目 id（可选）。用于 `@!` 技能搜索模式时
-   * 获取项目级可用 Skills 列表。
+   * 当前会话所属项目 id（可选）。用于 `#` 技能选择模式
+   * 获取项目级可用 Skills 列表，并作为工具插件候选的项目作用域来源。
    */
   projectId?: string;
   /**
@@ -148,6 +156,21 @@ type DirectoryScope = {
   /** 选定目录后、相对该目录的查询文本 */
   inner: string;
 };
+
+/** `@` 提及面板的工具插件候选（已启用、当前项目可用且发现了工具）。 */
+type PluginMentionOption = {
+  pluginId: string;
+  /** 当前界面语言下的插件名 */
+  name: string;
+  icon: string;
+  /** 发现到的工具数量 */
+  toolCount: number;
+};
+
+/** 提及面板的列表项：文件与工具插件共用一个选择索引空间。 */
+type MentionItem =
+  | { kind: "file"; entry: FileSearchResult }
+  | { kind: "plugin"; plugin: PluginMentionOption };
 
 /** `@:` 目录 token：去掉空白字符，避免 @ 查询被空格截断。 */
 const getDirectoryToken = (directory: WorkspaceDirectoryRecord): string =>
@@ -271,7 +294,7 @@ export const FileMentionPopup = forwardRef<
   },
   ref,
 ): React.JSX.Element | null {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [isClosing, setIsClosing] = useState(false);
   const [prevVisible, setPrevVisible] = useState(visible);
   const [lastQuery, setLastQuery] = useState(propQuery);
@@ -304,6 +327,15 @@ export const FileMentionPopup = forwardRef<
   const [entries, setEntries] = useState<FileSearchResult[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [skillError, setSkillError] = useState(false);
+  // 工具插件候选的数据源：插件清单（名称/图标）来自插件状态，
+  // 工具清单与项目作用域按当前项目发现。
+  const pluginState = usePluginStore();
+  const [pluginToolServers, setPluginToolServers] = useState<
+    PluginToolServerInfo[]
+  >([]);
+  const [pluginScopeOverrides, setPluginScopeOverrides] = useState<
+    Record<string, boolean>
+  >({});
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isAgentPending, setIsAgentPending] = useState(false);
@@ -314,7 +346,7 @@ export const FileMentionPopup = forwardRef<
     [],
   );
   const [agentError, setAgentError] = useState(false);
-  // `@!技能关键词`：感叹号前缀表示 Skills 搜索模式。
+  // `#技能关键词` 进入 Skills 模式：内部用 `!` 前缀表示，避免与文件搜索冲突。
   const isSkillMode = query.trim().startsWith("!");
   const skillQuery = isSkillMode ? query.trim().slice(1).trim() : "";
   const isContentMode = query.trim().startsWith("@");
@@ -477,6 +509,43 @@ export const FileMentionPopup = forwardRef<
     });
   }, [visible, loadDirectories]);
 
+  // 工具插件候选：只在取到当前项目时发现工具清单与项目作用域；
+  // 发现失败、该插件无工具或项目内被禁用时，候选里不出现该项，也不提示错误。
+  useEffect(() => {
+    if (!visible || !projectId) {
+      setPluginToolServers([]);
+      setPluginScopeOverrides({});
+      return;
+    }
+
+    let disposed = false;
+    void pluginStore.ensureLoaded();
+    void (async () => {
+      try {
+        const [servers, scopeJson] = await Promise.all([
+          window.snow.listPluginTools(projectId),
+          window.snow.getPluginsProjectScope(projectId),
+        ]);
+        if (disposed) {
+          return;
+        }
+        const scope = JSON.parse(scopeJson) as PluginsProjectScope;
+        setPluginToolServers(servers);
+        setPluginScopeOverrides(scope.pluginOverrides ?? {});
+      } catch (error) {
+        console.error("Failed to load plugin tools:", error);
+        if (!disposed) {
+          setPluginToolServers([]);
+          setPluginScopeOverrides({});
+        }
+      }
+    })();
+
+    return () => {
+      disposed = true;
+    };
+  }, [visible, projectId]);
+
   // 搜索根变化（打开弹窗、@: 切换工作目录）时重新预加载其根目录列表。
   useEffect(() => {
     if (!visible || !searchRoot) {
@@ -501,7 +570,7 @@ export const FileMentionPopup = forwardRef<
     // `@?自然语言搜索词`：问号前缀表示自然语言搜索模式，交由 AI agent 查找；
     // `@:工作目录/` 模式下前缀作用于所选目录内的查询文本。
     const isNaturalLanguage = searchQuery.startsWith("?");
-    // `@!技能关键词`：感叹号前缀表示 Skills 搜索模式，列出已启用的技能。
+    // `#技能关键词` 进入 Skills 模式：内部用 `!` 前缀表示，列出已启用的技能。
     const isSkillMode = rawTrimmed.startsWith("!");
     const searchKey = `${searchRoot?.directoryId ?? ""}\n${linkedSignature}\n${searchQuery}`;
     // 只在真正发起新搜索前替换防抖定时器：依赖变化但查询未变的重跑（如目录
@@ -808,12 +877,88 @@ export const FileMentionPopup = forwardRef<
   const isDirectoryPicker = Boolean(
     directoryScope && !directoryScope.directory,
   );
+
+  // 工具插件候选：仅在默认文件模式下并入（`@@` 内容 / `#` 技能 /
+  // `@?` 自然语言 / `@:目录` 各有专属列表）；已启用、kind 为 tool、
+  // 当前项目未禁用，且至少发现一个工具的插件才出现在候选里。
+  const pluginOptions = useMemo<PluginMentionOption[]>(() => {
+    if (
+      !projectId ||
+      isSkillMode ||
+      isContentMode ||
+      directoryScope ||
+      searchQuery.startsWith("?")
+    ) {
+      return [];
+    }
+
+    const toolNamesByPlugin = new Map<string, string[]>();
+    for (const server of pluginToolServers) {
+      const names = toolNamesByPlugin.get(server.pluginId) ?? [];
+      for (const tool of server.tools) {
+        names.push(tool.name);
+      }
+      toolNamesByPlugin.set(server.pluginId, names);
+    }
+
+    const keyword = searchQuery.trim().toLowerCase();
+    const options: PluginMentionOption[] = [];
+    for (const plugin of pluginState.plugins) {
+      if (!plugin.enabled || plugin.kind !== "tool") {
+        continue;
+      }
+      if (pluginScopeOverrides[plugin.pluginId] === false) {
+        continue;
+      }
+      const toolNames = toolNamesByPlugin.get(plugin.pluginId) ?? [];
+      if (toolNames.length === 0) {
+        continue;
+      }
+      const name = resolveLocalized(plugin.name, locale) || plugin.pluginId;
+      if (keyword) {
+        const haystack = [name, plugin.pluginId, ...toolNames]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(keyword)) {
+          continue;
+        }
+      }
+      options.push({
+        pluginId: plugin.pluginId,
+        name,
+        icon: plugin.icon,
+        toolCount: toolNames.length,
+      });
+    }
+    return options;
+  }, [
+    projectId,
+    isSkillMode,
+    isContentMode,
+    directoryScope,
+    searchQuery,
+    pluginToolServers,
+    pluginScopeOverrides,
+    pluginState.plugins,
+    locale,
+  ]);
+
+  // 工具插件候选在前、文件候选在后：两者共用一个选择索引空间，
+  // 上下选择与回车插入沿用同一套逻辑。
+  const mentionItems = useMemo<MentionItem[]>(
+    () => [
+      ...pluginOptions.map((plugin) => ({ kind: "plugin" as const, plugin })),
+      ...displayEntries.map((entry) => ({ kind: "file" as const, entry })),
+    ],
+    [displayEntries, pluginOptions],
+  );
+
   // 计数只统计当前模式的列表，避免残留的文件结果叠加显示。
   const activeResultCount = isSkillMode
     ? skills.length
     : isDirectoryPicker
       ? directoryOptions.length
-      : displayEntries.length;
+      : mentionItems.length;
 
   const toggleCheck = useCallback((entry: FileSearchResult) => {
     setCheckedPaths((prev) => {
@@ -910,15 +1055,20 @@ export const FileMentionPopup = forwardRef<
       onClose();
       return;
     }
-    const entry = displayEntries[selectedIndex];
-    if (!entry) {
+    const item = mentionItems[selectedIndex];
+    if (!item) {
+      return;
+    }
+    if (item.kind === "plugin") {
+      onSelect({ pluginId: item.plugin.pluginId, name: item.plugin.name });
+      onClose();
       return;
     }
     // Enter 直接选择（插入引用），与文件一致；进入目录请用 → 或点击。
-    onSelect(toFileTag(entry, isContentMode));
+    onSelect(toFileTag(item.entry, isContentMode));
     onClose();
   }, [
-    displayEntries,
+    mentionItems,
     entries,
     checkedPaths,
     selectedIndex,
@@ -960,14 +1110,14 @@ export const FileMentionPopup = forwardRef<
           }
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            setSelectedIndex((prev) =>
-              prev < skills.length - 1 ? prev + 1 : prev,
-            );
+            setSelectedIndex((prev) => (prev + 1) % skills.length);
             return true;
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
-            setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+            setSelectedIndex(
+              (prev) => (prev - 1 + skills.length) % skills.length,
+            );
             return true;
           }
           if (event.key === "Enter") {
@@ -985,14 +1135,15 @@ export const FileMentionPopup = forwardRef<
           }
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            setSelectedIndex((prev) =>
-              prev < directoryOptions.length - 1 ? prev + 1 : prev,
-            );
+            setSelectedIndex((prev) => (prev + 1) % directoryOptions.length);
             return true;
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
-            setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+            setSelectedIndex(
+              (prev) =>
+                (prev - 1 + directoryOptions.length) % directoryOptions.length,
+            );
             return true;
           }
           if (event.key === "Enter" || event.key === "ArrowRight") {
@@ -1006,32 +1157,32 @@ export const FileMentionPopup = forwardRef<
           return false;
         }
 
-        if (displayEntries.length === 0) {
+        if (mentionItems.length === 0) {
           return false;
         }
 
         if (event.key === "ArrowDown") {
           event.preventDefault();
-          setSelectedIndex((prev) =>
-            prev < displayEntries.length - 1 ? prev + 1 : prev,
-          );
+          setSelectedIndex((prev) => (prev + 1) % mentionItems.length);
           return true;
         }
 
         if (event.key === "ArrowUp") {
           event.preventDefault();
-          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          setSelectedIndex(
+            (prev) => (prev - 1 + mentionItems.length) % mentionItems.length,
+          );
           return true;
         }
 
         // → 进入选中的目录（路径导航）
         if (event.key === "ArrowRight") {
-          const entry = displayEntries[selectedIndex];
-          if (entry?.isDirectory) {
+          const item = mentionItems[selectedIndex];
+          if (item?.kind === "file" && item.entry.isDirectory) {
             event.preventDefault();
             const rootPath = searchRoot?.path ?? "";
-            const rel = getRelativePath(entry.path, rootPath);
-            if (rel && rel !== entry.path) {
+            const rel = getRelativePath(item.entry.path, rootPath);
+            if (rel && rel !== item.entry.path) {
               onNavigateTo(buildNavigateTarget(rel));
             }
             return true;
@@ -1055,10 +1206,12 @@ export const FileMentionPopup = forwardRef<
         }
 
         if (event.key === " ") {
-          event.preventDefault();
-          if (displayEntries[selectedIndex]) {
-            toggleCheck(displayEntries[selectedIndex]);
+          const item = mentionItems[selectedIndex];
+          // 勾选只对文件候选有效；插件候选保持列表光标不移动。
+          if (item?.kind === "file") {
+            toggleCheck(item.entry);
           }
+          event.preventDefault();
           return true;
         }
 
@@ -1072,7 +1225,7 @@ export const FileMentionPopup = forwardRef<
       },
     }),
     [
-      displayEntries,
+      mentionItems,
       entries,
       selectedIndex,
       toggleCheck,
@@ -1115,7 +1268,7 @@ export const FileMentionPopup = forwardRef<
   }, [
     selectedIndex,
     visible,
-    displayEntries.length,
+    mentionItems.length,
     skills.length,
     directoryOptions.length,
     isDirectoryPicker,
@@ -1337,7 +1490,7 @@ export const FileMentionPopup = forwardRef<
                 <span>{t("fileMention.directoryNoResults")}</span>
               </div>
             )
-          ) : isLoadingInitial ? (
+          ) : isLoadingInitial && mentionItems.length === 0 ? (
             <div className="file-mention-skeleton">
               {Array.from({ length: 6 }, (_, i) => (
                 <div className="mention-skeleton-item" key={i}>
@@ -1350,7 +1503,7 @@ export const FileMentionPopup = forwardRef<
                 <span>{t("fileMention.loading")}</span>
               </div>
             </div>
-          ) : isSearching && entries.length === 0 ? (
+          ) : isSearching && mentionItems.length === 0 ? (
             isNaturalLanguage ? (
               <div className="file-mention-agent">
                 <div className="file-mention-agent-header">
@@ -1383,15 +1536,64 @@ export const FileMentionPopup = forwardRef<
                 <span>{emptyText}</span>
               </div>
             )
-          ) : entries.length === 0 ? (
+          ) : mentionItems.length === 0 ? (
             <div className="file-mention-empty">
               <span>{emptyText}</span>
             </div>
           ) : (
             <>
-              {displayEntries.map((entry, index) => {
-                const isChecked = checkedPaths.has(entry.path);
+              {mentionItems.map((item, index) => {
                 const isSelected = selectedIndex === index;
+                if (item.kind === "plugin") {
+                  // 插件候选排在文件候选之前：分组标题只在该组首项前显示。
+                  const isGroupStart =
+                    index === 0 || mentionItems[index - 1].kind !== "plugin";
+                  return (
+                    <Fragment key={item.plugin.pluginId}>
+                      {isGroupStart && (
+                        <div className="mention-group-title">
+                          {t("plugins.kindTool", {
+                            defaultValue: "Tool plugin",
+                          })}
+                        </div>
+                      )}
+                      <div
+                        data-mention-index={index}
+                        className={`mention-entry ${
+                          isSelected ? "selected" : ""
+                        }`}
+                        onClick={() => {
+                          onSelect({
+                            pluginId: item.plugin.pluginId,
+                            name: item.plugin.name,
+                          });
+                          onClose();
+                        }}
+                        title={item.plugin.pluginId}
+                      >
+                        <span className="mention-entry-check" />
+                        <PluginIcon
+                          icon={item.plugin.icon}
+                          pluginId={item.plugin.pluginId}
+                          size={14}
+                          className="mention-entry-icon"
+                        />
+                        <span className="mention-entry-name">
+                          {item.plugin.name}
+                        </span>
+                        <span className="mention-entry-path">
+                          {t("plugins.toolCount", {
+                            values: { count: item.plugin.toolCount },
+                            defaultValue: "{{count}} tools",
+                          })}
+                        </span>
+                      </div>
+                    </Fragment>
+                  );
+                }
+
+                const { entry } = item;
+                const isChecked = checkedPaths.has(entry.path);
                 const rootLabel = resolveEntryRoot(
                   linkedDirectories,
                   entry.path,

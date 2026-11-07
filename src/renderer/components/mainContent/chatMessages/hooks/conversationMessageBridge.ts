@@ -118,7 +118,10 @@ const deliverMessage = async (
   const wasBusy =
     ctx.sessionsRefData.current.get(conversationId)?.isSending === true;
   // 程序化发送省略 deliveryMode 时始终排队；会话空闲则直接开始新回合。
-  const options: ChatInputSendOptions = { targetSessionKey: conversationId };
+  const options: ChatInputSendOptions = {
+    targetSessionKey: conversationId,
+    origin: "internal",
+  };
   ctx.handleSendMessageRef.current(trimmed, options);
   return { conversationId, status: wasBusy ? "queued" : "started" };
 };

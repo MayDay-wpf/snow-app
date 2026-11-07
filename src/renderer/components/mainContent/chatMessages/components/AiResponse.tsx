@@ -281,6 +281,7 @@ export const AiResponse = memo(
           {hasToolCalls ? (
             <ToolCallGroup
               count={toolCalls.length}
+              toolCalls={toolCalls}
               timestamp={timestamp}
               isRunning={toolCalls.some(
                 (tc) =>

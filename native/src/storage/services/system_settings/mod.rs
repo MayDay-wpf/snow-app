@@ -105,6 +105,9 @@ const GLOBAL_MCP_SETTING_CODE: &str = "mcp_global_scope";
 const PROJECT_SKILLS_SETTING_NAME: &str = "Project Skills scope";
 const PROJECT_SKILLS_SETTING_CODE_PREFIX: &str = "project_skills_scope_";
 
+const PROJECT_PLUGINS_SETTING_NAME: &str = "Project plugins scope";
+const PROJECT_PLUGINS_SETTING_CODE_PREFIX: &str = "project_plugins_scope_";
+
 const PROJECT_CODEBASE_SETTING_NAME: &str = "Project Codebase scope";
 const PROJECT_CODEBASE_SETTING_CODE_PREFIX: &str = "project_codebase_scope_";
 
@@ -281,6 +284,44 @@ impl SkillsProjectScopeSettings {
                 let normalized_skill_key = skill_key.trim();
                 (!normalized_skill_key.is_empty())
                     .then(|| (normalized_skill_key.to_string(), *enabled))
+            })
+            .collect();
+    }
+}
+
+/// 项目级插件作用域：全局安装的插件在指定项目内的启用覆盖。
+///
+/// 缺省（无记录）表示该项目可用全部已启用插件；显式 `false` 表示该项目禁用该插件。
+/// 与 MCP / Skills 的项目作用域同构，存储为 `project_plugins_scope_<blake3(projectId)>`。
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PluginsProjectScopeSettings {
+    pub project_id: String,
+    pub plugin_overrides: BTreeMap<String, bool>,
+}
+
+impl PluginsProjectScopeSettings {
+    /// 插件在该项目内是否可用：无覆盖时跟随全局启用状态。
+    pub fn effective_enabled(&self, plugin_id: &str, default_enabled: bool) -> bool {
+        self.plugin_overrides
+            .get(plugin_id)
+            .copied()
+            .unwrap_or(default_enabled)
+    }
+
+    fn set_plugin_enabled(&mut self, plugin_id: &str, enabled: bool) {
+        self.plugin_overrides.insert(plugin_id.to_string(), enabled);
+    }
+
+    fn normalize(&mut self) {
+        self.project_id = self.project_id.trim().to_string();
+        self.plugin_overrides = self
+            .plugin_overrides
+            .iter()
+            .filter_map(|(plugin_id, enabled)| {
+                let normalized_plugin_id = plugin_id.trim();
+                (!normalized_plugin_id.is_empty())
+                    .then(|| (normalized_plugin_id.to_string(), *enabled))
             })
             .collect();
     }

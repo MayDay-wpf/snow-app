@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Store,
   Users,
+  Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -173,6 +174,7 @@ export const PluginMarketPanel = ({
     const counts: Record<MarketCategory, number> = {
       panel: 0,
       oauth: 0,
+      tool: 0,
       script: 0,
     };
     for (const entry of market.entries) {
@@ -220,6 +222,16 @@ export const PluginMarketPanel = ({
           "Plugins that declare oauth.entry: they sign in to a third-party account and register it as an API profile. Enter from API settings > OAuth sign-in.",
       }),
       count: categoryCounts.oauth,
+    },
+    {
+      id: "tool",
+      icon: <Wrench size={13} strokeWidth={1.8} />,
+      label: t("plugins.tabTools", { defaultValue: "Tool plugins" }),
+      hint: t("plugins.market.tabToolsHint", {
+        defaultValue:
+          "Tool plugins register callable tools over MCP. After installing, activate one with @ in the chat input; its tools are available only in that conversation, and sub-agents inherit the same selection.",
+      }),
+      count: categoryCounts.tool,
     },
     {
       id: "script",
@@ -491,11 +503,15 @@ export const PluginMarketPanel = ({
                       <span className="plugins-item-meta">
                         v{entry.version}
                         {entry.author ? ` · ${entry.author}` : ""}
-                        {entry.kind === "script"
+                        {entry.category === "script"
                           ? ` · ${t("plugins.market.kindScript", {
                               defaultValue: "Script",
                             })}`
-                          : ""}
+                          : entry.category === "tool"
+                            ? ` · ${t("plugins.market.kindTool", {
+                                defaultValue: "Tool plugin",
+                              })}`
+                            : ""}
                         {entry.tags.length > 0
                           ? ` · ${entry.tags.join(" / ")}`
                           : ""}

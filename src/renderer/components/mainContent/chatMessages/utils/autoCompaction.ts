@@ -12,6 +12,7 @@ import {
 export type AutoCompactionRequestMessage = {
   role: "user" | "assistant" | "system" | "developer" | "tool";
   content: string;
+  origin?: "user" | "internal" | "unknown";
   toolResultsJson?: string;
 };
 
@@ -57,19 +58,22 @@ export const buildCompactionResumeMessages = <
 >(
   result: CompactionResult,
   requestMessages: Message[],
-): (Message | { role: "user"; content: string })[] => {
+): (
+  | Message
+  | { role: "user"; content: string; origin?: "user" | "internal" | "unknown" }
+)[] => {
   const protectedMessages = (result.protectedMessages ?? []).filter(
     (protectedMessage) =>
       !protectedMessage.content ||
       !requestMessages.some(
         (message) =>
           message.role === "user" &&
-          (message.content === protectedMessage.content ||
-            message.content.startsWith(protectedMessage.content)),
+          message.origin === protectedMessage.origin &&
+          message.content === protectedMessage.content,
       ),
   );
   return [
-    { role: "user", content: result.content },
+    { role: "user", origin: "internal", content: result.content },
     ...protectedMessages,
     ...requestMessages,
   ];

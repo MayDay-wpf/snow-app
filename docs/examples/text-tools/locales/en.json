@@ -1,0 +1,7 @@
+{
+  "tool.inspect": "Inspect text",
+  "status.running": "Running",
+  "status.pending": "Pending",
+  "status.completed": "Completed",
+  "status.error": "Error"
+}

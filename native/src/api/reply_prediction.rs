@@ -327,6 +327,7 @@ fn is_assistant_voice(text: &str) -> bool {
 fn text_message(role: &str, content: String) -> ResponsesApiMessage {
     ResponsesApiMessage {
         role: role.to_string(),
+        origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
         content,
         tool_results_json: None,
         thinking: None,
@@ -410,6 +411,7 @@ async fn send(
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     };
 
     let database_path = context.database_path;

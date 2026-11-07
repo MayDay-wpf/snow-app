@@ -4,8 +4,8 @@ export type { PluginRecord };
 
 export type PluginRenderMode = "esm" | "iframe";
 
-/** 插件类型：`plugin` 面板插件 / `oauth` OAuth 登录插件。 */
-export type PluginKind = "plugin" | "oauth";
+/** 插件类型：`plugin` 面板插件 / `oauth` OAuth 登录插件 / `tool` 工具插件。 */
+export type PluginKind = "plugin" | "oauth" | "tool";
 
 export type PluginLocalizedMap = Record<string, string>;
 

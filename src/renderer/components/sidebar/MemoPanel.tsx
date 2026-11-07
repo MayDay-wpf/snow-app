@@ -23,15 +23,15 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { CustomSelect } from "../common/CustomSelect";
 import { HighlightedText } from "../common/HighlightedText";
 import { useChatConversationContext } from "../mainContent/chatMessages";
+import { encodePluginTag, type PluginTag } from "../../plugins/pluginMentions";
 import {
-  createChipHtml,
-  createSkillChipHtml,
+  createMentionChipHtml,
   encodeFileTag,
   encodeImageTag,
   encodeSkillTag,
   insertHtmlAtSelection,
   parseLinesStr,
-  type FileTag,
+  type MentionTag,
   type SkillTag,
 } from "../mainContent/chatInput/fileTagUtils";
 import {
@@ -102,7 +102,7 @@ const buildLocalPreview = (content: string, keyword: string): string => {
 
 /**
  * 将编辑器中的引用 chip 还原为聊天输入的标签格式，让「生成任务」把
- * memo 内的文件/目录/技能/图片引用一并发给 AI。
+ * memo 内的文件/目录/技能/工具插件/图片引用一并发给 AI。
  */
 const chipHtmlToChatTag = (el: HTMLElement): string | null => {
   if (el.dataset.fileTag === "true") {
@@ -135,6 +135,21 @@ const chipHtmlToChatTag = (el: HTMLElement): string | null => {
     }
   }
 
+  if (el.dataset.pluginTag === "true") {
+    try {
+      const data = JSON.parse(
+        el.dataset.pluginData ?? "{}",
+      ) as Partial<PluginTag>;
+      if (!data.pluginId) return null;
+      return encodePluginTag({
+        pluginId: data.pluginId,
+        name: data.name || data.pluginId,
+      });
+    } catch {
+      return null;
+    }
+  }
+
   if (el.dataset.imageTag === "true") {
     const dataUrl = el.dataset.imageDataUrl ?? "";
     if (!dataUrl) return null;
@@ -150,7 +165,7 @@ const chipHtmlToChatTag = (el: HTMLElement): string | null => {
 /**
  * Converts the rich-text editor HTML into the chat input's tagged format:
  *  - <img src="data:..."> becomes @@image:data:...@@
- *  - reference chips become @@file/@@dir/@@skill/@@image tags
+ *  - reference chips become @@file/@@dir/@@skill/@@plugin/@@image tags
  *  - <br> / </p> / </div> become newlines
  *  - remaining HTML tags are stripped to plain text
  * This mirrors how ChatInput serialises content (readEditableContent + encodeImageTag).
@@ -647,7 +662,7 @@ export function MemoPanel({
   }, []);
 
   const insertEditorTag = useCallback(
-    (tag: FileTag | SkillTag) => {
+    (tag: MentionTag) => {
       const editor = editorRef.current;
       if (!editor) return;
       const anchor = editorRangeRef.current;
@@ -655,9 +670,7 @@ export function MemoPanel({
       if (anchor && editor.contains(anchor.startContainer)) {
         placeEditorCaret(anchor.cloneRange());
       }
-      insertHtmlAtSelection(
-        "skillId" in tag ? createSkillChipHtml(tag) : createChipHtml(tag),
-      );
+      insertHtmlAtSelection(createMentionChipHtml(tag));
       captureEditorRange();
       handleEditorInput();
     },
@@ -665,7 +678,7 @@ export function MemoPanel({
   );
 
   const handleMentionSelect = useCallback(
-    (tag: FileTag | SkillTag) => {
+    (tag: MentionTag) => {
       deleteMentionQuery();
       insertEditorTag(tag);
     },
@@ -673,7 +686,7 @@ export function MemoPanel({
   );
 
   const handleMentionSelectBatch = useCallback(
-    (tags: (FileTag | SkillTag)[]) => {
+    (tags: MentionTag[]) => {
       deleteMentionQuery();
       tags.forEach(insertEditorTag);
     },

@@ -15,7 +15,7 @@ use crate::api::responses::{
     ResponsesApiStreamCallback,
 };
 use crate::storage::services::chat_conversations::{
-    get_conversation_api_profile, store_failed_chat_exchange, ChatContextMessage,
+    get_conversation_api_profile, store_failed_chat_exchange,
 };
 use crate::storage::services::usage_records::{record_usage, UsageRecordInput};
 
@@ -150,6 +150,15 @@ pub async fn create_response_stream(
     on_chunk: ResponsesApiStreamCallback,
     stream_id: String,
 ) -> Result<ResponsesApiResult> {
+    let failure_messages = request
+        .messages
+        .iter()
+        .map(|message| {
+            let mut context = message.to_context_message()?;
+            context.tool_calls_json = None;
+            Ok(context)
+        })
+        .collect::<Result<Vec<_>>>()?;
     let is_sub_agent = request.is_sub_agent_request();
     if is_sub_agent {
         // Goal Mode, WorkTree Mode, and WorkFlow Mode belong exclusively to the main conversation.
@@ -208,22 +217,24 @@ pub async fn create_response_stream(
     .map_err(|join_error| {
         Error::from_reason(format!("Failed to resolve API configuration: {join_error}"))
     })??;
+    // Tool discovery precedes context preparation. Give a new conversation its
+    // final id before discovery so deferred tools never share a project-wide key.
+    if !request.skip_context.unwrap_or(false)
+        && !crate::api::ephemeral::is_active()
+        && super::should_resolve_tools(&request)
+    {
+        request.conversation_id = Some(
+            crate::storage::services::chat_conversations::resolve_conversation_id(
+                &context.database_path,
+                request.conversation_id.as_deref(),
+                request.previous_response_id.as_deref(),
+            )?,
+        );
+    }
     let resolved_model =
         resolve_advanced_model(request.model.as_deref(), &context.api_config.advanced_model)?;
     request.model = Some(resolved_model.clone());
 
-    let failure_messages = request
-        .messages
-        .iter()
-        .map(|message| ChatContextMessage {
-            role: message.role.clone(),
-            content: message.content.clone(),
-            tool_calls_json: None,
-            tool_results_json: message.tool_results_json.clone(),
-            thinking: message.thinking.clone(),
-            thinking_blocks_json: message.thinking_blocks_json.clone(),
-        })
-        .collect::<Vec<_>>();
     let failure_conversation_id = request.conversation_id.clone();
     let failure_previous_response_id = request.previous_response_id.clone();
     let failure_checkpoint_id = request.checkpoint_id.clone().unwrap_or_default();

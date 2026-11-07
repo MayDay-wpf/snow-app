@@ -1,0 +1,15 @@
+{
+  "providerId": "",
+  "providerName": "",
+  "clientId": "",
+  "authorizationUrl": "",
+  "tokenUrl": "",
+  "scope": "",
+  "callbackPort": null,
+  "callbackPath": "",
+  "apiBaseUrl": "",
+  "requestMethod": "",
+  "defaultModel": "",
+  "maxContextTokens": null,
+  "supportsVision": null
+}

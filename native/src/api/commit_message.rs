@@ -52,6 +52,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
         messages: vec![
             crate::api::responses::ResponsesApiMessage {
                 role: "system".to_string(),
+                origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
                 content: COMMIT_SYSTEM_PROMPT.to_string(),
                 tool_results_json: None,
                 thinking: None,
@@ -60,6 +61,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
             },
             crate::api::responses::ResponsesApiMessage {
                 role: "user".to_string(),
+                origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
                 content: format!("Here is the staged diff:\n\n```\n{}\n```", diff_content),
                 tool_results_json: None,
                 thinking: None,
@@ -96,6 +98,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     }
 }
 

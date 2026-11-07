@@ -331,6 +331,19 @@ pub(crate) async fn build_builtin_system_prompt(
     } else {
         format!("{system_prompt}\n\n{lsp_section}")
     };
+    // Only describe plugin discovery when this exact request can use it.
+    let system_prompt = if tool_snapshot.has("toolsearch-discover") {
+        let skill_guidance = if tool_snapshot.has("skills-skill-execute") {
+            " When a relevant plugin skill is available, load it for its workflow guidance."
+        } else {
+            ""
+        };
+        format!(
+            "{system_prompt}\n\n## Tool Plugins\nUse `toolsearch-discover` when an enabled plugin is relevant. Matched tools are available in the next request; call only the returned tool names and respect authorization.{skill_guidance}"
+        )
+    } else {
+        system_prompt
+    };
     // Image Generation 指引（2026-08-16，仿 LSP 方案 B）：配置了生图渠道且
     // 域 scope 允许时，在系统提示词末尾追加「Image Generation」章节，引导
     // 并行多次调用是唯一多图路径（≥2 个并行调用由 UI 自动合并为
@@ -447,6 +460,7 @@ pub(crate) async fn apply_configured_system_prompts(
 fn text_message(role: &str, content: String) -> ResponsesApiMessage {
     ResponsesApiMessage {
         role: role.to_string(),
+        origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
         content,
         tool_results_json: None,
         thinking: None,
@@ -509,6 +523,7 @@ pub async fn prepare_context_request(
         };
         vec![ChatContextMessage {
             role: "user".to_string(),
+            origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
             content: handoff_prompt.to_string(),
             tool_calls_json: None,
             tool_results_json: None,
@@ -641,6 +656,7 @@ pub async fn prepare_context_request(
                 0,
                 ChatContextMessage {
                     role: "system".to_string(),
+                    origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
                     content: system_prompt,
                     tool_calls_json: None,
                     tool_results_json: None,
@@ -654,6 +670,7 @@ pub async fn prepare_context_request(
             0,
             ChatContextMessage {
                 role: "system".to_string(),
+                origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
                 content: demoted,
                 tool_calls_json: None,
                 tool_results_json: None,
@@ -682,6 +699,7 @@ pub async fn prepare_context_request(
     if !trailing_host_input.is_empty() {
         messages.push(ChatContextMessage {
             role: "user".to_string(),
+            origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
             content: trailing_host_input.join("\n\n"),
             tool_calls_json: None,
             tool_results_json: None,
@@ -722,6 +740,7 @@ fn normalize_messages(messages: &[ChatContextMessage]) -> Vec<ChatContextMessage
 
             Some(ChatContextMessage {
                 role: role.to_string(),
+                origin: message.origin.clone(),
                 content: content.to_string(),
                 tool_calls_json: message.tool_calls_json.clone(),
                 tool_results_json: message.tool_results_json.clone(),

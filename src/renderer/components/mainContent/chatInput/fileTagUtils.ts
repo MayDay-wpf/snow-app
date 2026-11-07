@@ -1,3 +1,11 @@
+import { getActiveLocale } from "../../../i18n";
+import { getPluginChipIconHtml } from "../../../plugins/pluginChipIcon";
+import {
+  encodePluginTag,
+  pluginMentionTitle,
+  type PluginTag,
+} from "../../../plugins/pluginMentions";
+import { pluginStore } from "../../../plugins/pluginStore";
 import {
   getChangeIconHtml,
   getCommitIconHtml,
@@ -24,9 +32,16 @@ export type SkillTag = {
   name: string;
   /** 技能描述 */
   description: string;
-  /** 技能作用域 */
-  location: "project" | "global";
+  /** 技能作用域；`plugin` 表示插件自带技能 */
+  location: "project" | "global" | "plugin";
 };
+
+/**
+ * 提及面板与编辑区共用的选择项：文件 / 技能 / 工具插件。
+ * 插件标签的结构与编码由 `plugins/pluginMentions` 定义（`@@plugin:` 与
+ * `@@skill:` 同构），此处只复用其类型。
+ */
+export type MentionTag = FileTag | SkillTag | PluginTag;
 
 export type ImageTag = {
   name: string;
@@ -231,6 +246,7 @@ export type ContentSegment =
   | { type: "quote"; tag: QuoteTag }
   | { type: "command"; tag: CommandTag }
   | { type: "skill"; tag: SkillTag }
+  | { type: "plugin"; tag: PluginTag }
   | { type: "annotation"; tag: AnnotationTag }
   | { type: "file-selection"; tag: FileSelectionTag }
   | { type: "workflow"; tag: WorkflowTag };
@@ -589,7 +605,7 @@ export const buildTextSnippetSummary = (text: string, maxLen = 30): string => {
 };
 
 const contentTagPattern =
-  /@@(file-selection|file|dir|image|commit|change|text-snippet|review|element|web|conversation|quote|command|skill|annotation|workflow):(.+?)@@/g;
+  /@@(file-selection|file|dir|image|commit|change|text-snippet|review|element|web|conversation|quote|command|skill|plugin|annotation|workflow):(.+?)@@/g;
 
 /** Treat chips as opaque encoded spans: no attachment loading or re-encoding. */
 export const splitDraftText = (
@@ -790,6 +806,26 @@ export const parseContentSegments = (content: string): ContentSegment[] => {
               name: data.name || data.skillId,
               description: data.description ?? "",
               location: data.location === "project" ? "project" : "global",
+            },
+          });
+        } else {
+          segments.push({ type: "text", content: match[0] });
+        }
+      } catch {
+        segments.push({ type: "text", content: match[0] });
+      }
+    } else if (kind === "plugin") {
+      try {
+        const data = JSON.parse(value) as Partial<PluginTag>;
+        if (
+          typeof data.pluginId === "string" &&
+          data.pluginId.trim().length > 0
+        ) {
+          segments.push({
+            type: "plugin",
+            tag: {
+              pluginId: data.pluginId,
+              name: data.name || data.pluginId,
             },
           });
         } else {
@@ -1029,6 +1065,8 @@ export const summarizeContentAsPlainText = (content: string): string => {
       parts.push(segment.tag.title);
     } else if (segment.type === "skill") {
       parts.push(segment.tag.name);
+    } else if (segment.type === "plugin") {
+      parts.push(segment.tag.name);
     } else if (segment.type === "command") {
       parts.push(`/${segment.tag.name}`);
     } else if (segment.type === "workflow") {
@@ -1086,6 +1124,8 @@ export const getChipDisplayLabel = (segment: ChipSegment): string => {
     case "conversation":
       return segment.tag.title;
     case "skill":
+      return segment.tag.name;
+    case "plugin":
       return segment.tag.name;
     case "command":
       return `/${segment.tag.name}`;
@@ -1326,6 +1366,37 @@ export const createSkillChipHtml = (tag: SkillTag): string => {
 };
 
 /**
+ * 生成工具插件引用 chip HTML。图标优先使用插件自身图标（lucide / 插件内资源，
+ * 异步解析后回填），悬停提示插件名与简介；完整插件信息存放在 data-plugin-data
+ * 中，供序列化（发送给 AI）与剪贴板还原。
+ */
+export const createPluginChipHtml = (tag: PluginTag): string => {
+  const pluginData = escapeHtml(
+    JSON.stringify({ pluginId: tag.pluginId, name: tag.name }),
+  );
+  const plugin = pluginStore.getById(tag.pluginId);
+  const title = pluginMentionTitle(tag.name, plugin, getActiveLocale());
+  return `<span class="file-chip plugin-chip" contenteditable="false" data-plugin-tag="true" data-plugin-data="${pluginData}" title="${escapeHtml(
+    title,
+  )}"><span class="file-chip-icon" data-plugin-chip-icon="${escapeHtml(
+    tag.pluginId,
+  )}">${getPluginChipIconHtml(tag.pluginId)}</span><span class="file-chip-name">${escapeHtml(
+    tag.name,
+  )}</span><span class="file-chip-remove" data-chip-remove="true">${CLOSE_ICON_SVG}</span></span>`;
+};
+
+/** 提及面板的选择项（文件 / 技能 / 工具插件）→ 编辑区 chip HTML。 */
+export const createMentionChipHtml = (tag: MentionTag): string => {
+  if ("pluginId" in tag) {
+    return createPluginChipHtml(tag);
+  }
+  if ("skillId" in tag) {
+    return createSkillChipHtml(tag);
+  }
+  return createChipHtml(tag);
+};
+
+/**
  * 生成划词引用 chip HTML。显示摘要，悬停提示字符数；
  * 原文存放在 data-quote-data 中，供序列化与剪贴板还原。
  */
@@ -1441,6 +1512,9 @@ export const buildSegmentsHtml = (segments: ContentSegment[]): string =>
       if (segment.type === "skill") {
         return createSkillChipHtml(segment.tag);
       }
+      if (segment.type === "plugin") {
+        return createPluginChipHtml(segment.tag);
+      }
       if (segment.type === "annotation") {
         return createAnnotationChipHtml(segment.tag);
       }
@@ -1468,6 +1542,7 @@ type ChipSerializers = {
   quote: (tag: QuoteTag) => string;
   command: (tag: CommandTag) => string;
   skill: (tag: SkillTag) => string;
+  plugin: (tag: PluginTag) => string;
   annotation: (tag: AnnotationTag) => string;
   fileSelection: (tag: FileSelectionTag) => string;
 };
@@ -1680,6 +1755,21 @@ const readEditableContentWith = (
         } catch {
           // Ignore malformed skill data
         }
+      } else if (elem.dataset.pluginTag === "true") {
+        try {
+          const data = JSON.parse(
+            elem.dataset.pluginData || "{}",
+          ) as Partial<PluginTag>;
+          const pluginId = data.pluginId ?? "";
+          if (pluginId) {
+            result += serializers.plugin({
+              pluginId,
+              name: data.name || pluginId,
+            });
+          }
+        } catch {
+          // Ignore malformed plugin data
+        }
       } else if (elem.dataset.annotationTag === "true") {
         try {
           const data = JSON.parse(
@@ -1761,6 +1851,7 @@ export const readEditableContent = (el: HTMLElement): string =>
     quote: encodeQuoteTag,
     command: encodeCommandTag,
     skill: encodeSkillTag,
+    plugin: encodePluginTag,
     annotation: encodeAnnotationTag,
     fileSelection: encodeFileSelectionTag,
   });
@@ -1814,6 +1905,7 @@ export const readEditableContentAsPlainText = (el: HTMLElement): string =>
     quote: (tag) => tag.content,
     command: (tag) => tag.prompt,
     skill: (tag) => tag.name,
+    plugin: (tag) => tag.name,
     annotation: (tag) =>
       tag.content.trim()
         ? `${formatAnnotationLabel(tag)}\n${tag.content}`

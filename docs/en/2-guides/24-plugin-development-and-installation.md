@@ -21,15 +21,15 @@
 
 ## Entry Point
 
-The **Plugins** button at the bottom of the sidebar (with an installed-count badge) opens the plugin management page — a main-content view (view id `plugins`), not a settings page, and it has no settings page id. The page has three top-level tabs: **Plugin list** (badge: panel plugins plus client scripts), **Plugin market**, and **Metadata catalog** (badge: the metadata-domain count):
+The **Plugins** button at the bottom of the sidebar (with an installed-count badge) opens the plugin management page — a main-content view (view id `plugins`), not a settings page, and it has no settings page id. The page has three top-level tabs: **Plugin list** (badge: installed plugins plus client scripts), **Plugin market**, and **Metadata catalog** (badge: the metadata-domain count):
 
-| Tab                  | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plugin list**      | The main management area; it carries two sub-tabs with counters, **Panel plugins** and **Script plugins** — the former covers the folder-installed plugins described in the rest of this guide, the latter holds client UI scripts                                                                                                                                                                                                                      |
-| **Plugin market**    | Four categories: **Panel plugins** / **OAuth plugins** / **Script plugins** come from the snow-plugin-store index (one-click install or update, entries carry an "Official store" / "Verified" badge), while **Community plugins** searches third-party repositories carrying the GitHub `snow-plugins` topic (labelled "Community — not published to the market"); the differences between the two channels are described in the plugin market section |
-| **Metadata catalog** | The app metadata domains plugins can read together with the write actions and the network capability a plugin can use                                                                                                                                                                                                                                                                                                                                   |
+| Tab                  | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plugin list**      | The main management area; it carries four sub-tabs with counters, **Panel plugins**, **OAuth plugins**, **Tool plugins** and **Script plugins** — panel plugins are the folder-installed plugins described in the rest of this guide, tool plugins register model-callable tools over MCP, and script plugins hold client UI scripts                                                                                                                                       |
+| **Plugin market**    | Five categories: **Panel plugins** / **OAuth plugins** / **Tool plugins** / **Script plugins** come from the snow-plugin-store index (one-click install or update, entries carry an "Official store" / "Verified" badge), while **Community plugins** searches third-party repositories carrying the GitHub `snow-plugins` topic (labelled "Community — not published to the market"); the differences between the two channels are described in the plugin market section |
+| **Metadata catalog** | The app metadata domains plugins can read together with the write actions and the network capability a plugin can use                                                                                                                                                                                                                                                                                                                                                      |
 
-Under the **Panel plugins** sub-tab the toolbar offers **Install from folder** and **Refresh**; each row shows the plugin version, author and render mode, and a plugin that declares privacy scopes lists every requested data domain as an amber tag (localized, e.g. "API keys", "Messages") followed by the manifest `note`; clicking any amber tag opens the "Privacy scopes" dialog, which explains each scope in one line and lists the metadata domains it unlocks (field-level declarations name the exact fields) plus the writable capabilities aggregated per write domain, along with where it is declared (`privacy` in `plugin.json` / `@snow-privacy` in the script metadata header). The **Script plugins** sub-tab shows the script's `@snow-privacy` declarations as the same amber badges and opens the very same dialog. The **Metadata catalog** tab shows "Reading", "Writable" and "Network" sub-tabs: it groups all 37 domains with a one-line summary, the required privacy declaration, live-versus-polled behavior and accepted parameters, with keyword search, while the Writable sub-tab lists every write action with its required `scope` and declaration state and the Network sub-tab lists the `api.net.fetch` external request capability (forwarded by the main process, requires the `network` privacy scope). The per-row "Metadata n/37" and "Write n/216" links mark that plugin's declared (readable/writable) and undeclared (denied) domains and actions, so users can audit the `privacy` declaration. The page is management-only; open panels from the plus menu's Plugins group in the top bar or the right-panel plugin entry.
+Under the **Panel plugins** sub-tab the toolbar offers **Install from folder** and **Refresh**; each row shows the plugin version, author and render mode, and a plugin that declares privacy scopes lists every requested data domain as an amber tag (localized, e.g. "API keys", "Messages") followed by the manifest `note`; clicking any amber tag opens the "Privacy scopes" dialog, which explains each scope in one line and lists the metadata domains it unlocks (field-level declarations name the exact fields) plus the writable capabilities aggregated per write domain, along with where it is declared (`privacy` in `plugin.json` / `@snow-privacy` in the script metadata header). The **Script plugins** sub-tab shows the script's `@snow-privacy` declarations as the same amber badges and opens the very same dialog. The **Metadata catalog** tab shows "Reading", "Writable" and "Network" sub-tabs: it groups all 37 domains with a one-line summary, the required privacy declaration, live-versus-polled behavior and accepted parameters, with keyword search, while the Writable sub-tab lists every write action with its required `scope` and declaration state and the Network sub-tab lists the `api.net.fetch` external request capability (forwarded by the main process, requires the `network` privacy scope). The per-row "Metadata n/37" and "Write n/225" links mark that plugin's declared (readable/writable) and undeclared (denied) domains and actions, so users can audit the `privacy` declaration. The page is management-only; open panels from the plus menu's Plugins group in the top bar or the right-panel plugin entry.
 
 ## Script plugins (client UI scripts)
 
@@ -148,7 +148,7 @@ Field reference (actual parsed semantics):
 | `privacyNote`                     | string                     | no       | empty          | Only the `note` of an object-form `privacy` is read and displayed                                                                                                                                               |
 | `minAppVersion`                   | string                     | no       | empty          | Currently stored and displayed only; **no version gating**                                                                                                                                                      |
 
-> **Write `kind` explicitly when authoring a plugin.** The field itself is optional (when omitted it is derived from whether `oauth.entry` exists, so existing plugins keep their behavior), but declaring the type explicitly keeps the **Plugin list** grouping, the market index entry and the review flow from relying on inference: panel plugins write `"kind": "plugin"`, while OAuth sign-in plugins must write `"kind": "oauth"` together with `oauth.entry` (declaring `oauth` without `oauth.entry` fails the install; conversely, providing `oauth.entry` without declaring `kind` is still treated as an OAuth plugin).
+> **Write `kind` explicitly when authoring a plugin.** The field itself is optional (when omitted it is derived from whether `oauth.entry` exists, so existing plugins keep their behavior), but declaring the type explicitly keeps the **Plugin list** grouping, the market index entry and the review flow from relying on inference: panel plugins write `"kind": "plugin"`, OAuth sign-in plugins must write `"kind": "oauth"` together with `oauth.entry` (declaring `oauth` without `oauth.entry` fails the install; conversely, providing `oauth.entry` without declaring `kind` is still treated as an OAuth plugin), and tool plugins write `"kind": "tool"` with a non-empty `mcpServers` (shipping `mcpServers` without declaring `kind` is likewise treated as a tool plugin).
 
 A manifest panel may additionally declare `"chatInput": true` (only boolean `true` enables it; default `false`) for an input-toolbar entry. Existing `entry`, `icon`, `widthHint` and privacy semantics are unchanged; see section 6.1.
 
@@ -195,7 +195,9 @@ With `renderMode: "iframe"` those globals are not injected: the entry runs insid
 
 #### 5.1 Engineered sources and single-file bundles
 
-The file named by `entry` is read in full and executed as one ES module. Relative imports such as `./utils.js` and bare specifiers such as `react` cannot be resolved. Sources may be split into modules, written in TypeScript or JSX, and depend on npm packages, but must be bundled into **one ES module file** before release; ship the build output, not the sources:
+**For new plugins, default to strict TypeScript and esbuild; use TSX for trusted ESM plugins with host React UI.** This is a source/template recommendation, not a new setting or direct host execution of `.ts` / `.tsx`. Existing JavaScript plugins remain supported and need no migration merely for consistency.
+
+The file named by `entry` is read in full and executed as one ES module. Relative imports such as `./utils.js` and bare specifiers such as `react` cannot be resolved. Split sources by responsibility, then bundle into **one ES module file** before release; ship the build output, not the sources. Choose separate build targets for iframe panels, OAuth, MCP servers and client scripts rather than reuse the ESM panel's React or privilege model. See [26-Plugin architecture and technology-stack selection](26-plugin-type-selection-guide.md) for the full decision guide.
 
 - **Build options**: `format: "esm"`, `bundle: true`, `splitting: false`. Code splitting produces several chunks, which cannot be loaded. Bundle each entry (panel, message footer, tool card, and so on) into its own standalone file.
 - **Do not bundle React**: map `react` to the host's `window.SnowAppPlugin.React` (see the table above) so only one React instance exists. After that mapping, the `React` identifier required by the classic JSX transform can come from `import React from "react"`.
@@ -203,6 +205,60 @@ The file named by `entry` is read in full and executed as one ES module. Relativ
 - **Icons**: get host lucide icons through `api.ui.icon(name)`; do not bundle `lucide-react`.
 - **Styles**: CSS is emitted as separate files; declare them in `styles`.
 - **Size**: the entry is read as text, and a single text file is capped at 8 MB; the install directory is capped at 128 MB.
+
+#### 5.2 TypeScript engineering examples and build flow
+
+The sources ship under `docs/examples/`, or `~/.snowapp/docs/examples/` in the application's documentation copy. Copy one independent project matching the chosen type; do not combine them into one runtime or install dependencies inside the docs. Each project defaults to strict TypeScript and locked dependencies, with `build` and `check` scripts. Existing JavaScript plugins remain unaffected.
+
+| Directory                                                                                                                                | What it demonstrates                                                                             | Configuration and installation boundary                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [panel-esm manifest](../../examples/panel-esm/plugin.json) / [build configuration](../../examples/panel-esm/package.json)                | TSX, host React, components separated from pure logic, localization and theme                    | Build and install the directory, then open its panel; trusted local ESM, not a sandbox                                                |
+| [panel-iframe manifest](../../examples/panel-iframe/plugin.json) / [build configuration](../../examples/panel-iframe/package.json)       | TypeScript, native DOM, the iframe bridge and cleanup                                            | Build and install the directory; do not load source through relative `<script src>` or access `window.snow`                           |
+| [oauth-provider manifest](../../examples/oauth-provider/plugin.json) / [build configuration](../../examples/oauth-provider/package.json) | OAuth entry, author configuration, authorization, token exchange/refresh and response validation | Supply real service configuration before building and installing; use API settings → OAuth login, without fake tokens or fake success |
+| [text-tools manifest](../../examples/text-tools/plugin.json) / [build configuration](../../examples/text-tools/package.json)             | Node MCP server, tool schemas, host cards and on-demand skill references                         | Build and install the directory; discover tools when enabled for the project, as described in §14.2                                   |
+| [client-script build configuration](../../examples/client-script/package.json)                                                           | TypeScript sources, sandboxed DOM slots, explicit user actions and lifecycle cleanup             | Import the built `.user.js`, not a `plugin.json` directory; see [22-Userscripts](22-userscripts.md)                                   |
+
+**The recommended minimum separation** is entry wiring, the runtime contracts actually needed, business logic and presentation. Small projects need no empty directory hierarchy; extract services or shared components only when reused. Panels release mounted resources, scripts release observers/listeners, OAuth reuses host state/PKCE/callbacks/token storage, and MCP validates at system boundaries. TypeScript is a compile-time constraint, not a replacement for runtime validation or authorization.
+
+For the recommended trusted ESM panel, copy from the source root into a new development directory:
+
+```powershell
+$target = Join-Path $HOME "snow-panel-example"
+if (Test-Path $target) { throw "Target already exists: $target" }
+Copy-Item "./docs/examples/panel-esm" $target -Recurse
+Set-Location $target
+npm ci
+npm run build
+npm run check
+```
+
+On macOS/Linux, run from the source root and stop if the target exists:
+
+```sh
+target="$HOME/snow-panel-example"
+[ ! -e "$target" ] || exit 1
+cp -R ./docs/examples/panel-esm "$target" && cd "$target" && npm ci && npm run build && npm run check
+```
+
+When using the application's docs copy, substitute `~/.snowapp/docs/examples/<directory>` as the copy source. Other examples use their own same-named scripts; only OAuth requires author configuration first. Never treat placeholder fields as production endpoints or credentials. `build` and `check` do not install plugins, log in or perform remote writes. Keep generated artifacts and `node_modules/` in the development directory, not the docs tree.
+
+Both panel examples produce `index.js`, but in different formats: `panel-esm` default-exports a host-rendered React component, while `panel-iframe` is a classic IIFE script loaded after the host bridge, not HTML or ESM. Both demonstrate local drafts, Unicode code-point counts and line counts, without network, persistence or permission requests. ESM uses host theme variables; the iframe document does not inherit them, so this example follows system light/dark preference, not Snow's selected theme. Closing the panel discards the draft. React owns ESM resources, while the iframe releases local listeners on `pagehide`.
+
+The OAuth example reads author configuration from [`oauth-provider/config.json`](../../examples/oauth-provider/config.json). It targets **public clients using Authorization Code with PKCE (S256)**, without embedded client secrets or account tokens:
+
+| Configuration                                   | Real author-supplied value                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `providerId` / `providerName` / `clientId`      | Stable ID not reserved by a built-in provider, display name and registered public-client ID                              |
+| `authorizationUrl` / `tokenUrl` / `scope`       | HTTPS authorization/token endpoints and space-separated scopes; empty scope is valid when the service requires none      |
+| `callbackPort` / `callbackPath`                 | Port and path of the registered `http://127.0.0.1:<port><path>` callback; the host listens, not a separate plugin server |
+| `apiBaseUrl` / `requestMethod` / `defaultModel` | HTTPS API base URL, `chat` / `responses` / `anthropic` / `gemini` method and real model ID                               |
+| `maxContextTokens` / `supportsVision`           | Positive integer context limit and boolean vision capability                                                             |
+
+The template intentionally contains no usable service values. Configuration is validated when the module loads; missing configuration fails explicitly. Builds produce `dist/oauth.mjs`, `dist/plugin.json` and `dist/config.json`: install **`dist/`**, not the source root. The plugin only supplies authorization URLs, token exchange and refresh through `ctx.fetch`; the host owns state, PKCE, callbacks, token persistence and refresh scheduling. Before real login, verify public-client registration, callback eligibility and the service's token-response contract. This generic adapter is not a ready-made integration for every OAuth service.
+
+The client script produces **`dist/chat-shortcut.user.js`** with its complete metadata header. Sandboxed by default, it mounts a localized Continue button in the official `chat.input.actions` slot. Only a user click inserts text; it never sends automatically. It reattaches its own node after view rerenders and releases observers/listeners on disable without clearing other extensions' slot content.
+
+Install ordinary panels through Plugins → Install from directory using the built project directory. Install OAuth from its built `dist/`, then select it under API settings → OAuth login. Import `dist/chat-shortcut.user.js` under Script plugins → Import file. Installing an example is a separate user action: reading docs grants no installation or authorization. Releases contain the manifest, built entries and declared styles/locales/assets/skill references, not development dependencies. Verify callbacks, permissions, cancellation and unloading in the real host; compilation alone proves neither a real OAuth login nor UI acceptance.
 
 ### 6. Runtime API
 
@@ -489,7 +545,7 @@ Code anchors: `src/renderer/components/mainContent/chatMessages/hooks/taskHistor
 }
 ```
 
-Each item is `{ id, entry?, exportName, tools?, prefixes?, priority? }`. Only the first 64 items are scanned; duplicate IDs and invalid items are ignored. IDs have at most 64 characters (letter/underscore first, then letters/digits/underscore/hyphen); exports are valid JS identifiers with at most 128 characters. Omitted entry falls back to the plugin entry; explicit invalid paths are rejected. Entry has at most 256 characters and follows footer path safety rules. `tools` matches exact names; `prefixes` uses literal starts-with matching, never regex. Each list scans at most 128 values, deduplicates them and accepts at most 128 characters per value: letters/digits/underscore/hyphen, not a leading hyphen. Prefixes require at least three characters; empty values, wildcards and regex expressions are rejected. At least one valid selector is required. Priority defaults to 0 and accepts safe integers from -1000 through 1000. Selection compares exact matches first, longest prefix next, priority descending, plugin sortOrder ascending, then plugin ID and contribution ID lexically. One renderer is chosen; failure does not chain into another plugin.
+Each item is `{ id, entry?, exportName, tools?, prefixes?, priority? }`. Only the first 64 items are scanned; duplicate IDs and invalid items are ignored. IDs have at most 64 characters (letter/underscore first, then letters/digits/underscore/hyphen); exports are valid JS identifiers with at most 128 characters. Omitted entry falls back to the plugin entry; explicit invalid paths are rejected. Entry has at most 256 characters and follows footer path safety rules. `tools` matches exact names; `prefixes` uses literal starts-with matching, never regex. Both selectors match either the full tool name (`{publicServerName}-{toolName}`) or the original tool name declared by a tool plugin, so a tool plugin can target its own tools without knowing the host-derived public server prefix. Each list scans at most 128 values, deduplicates them and accepts at most 128 characters per value: letters/digits/underscore/hyphen, not a leading hyphen. Prefixes require at least three characters; empty values, wildcards and regex expressions are rejected. At least one valid selector is required. Priority defaults to 0 and accepts safe integers from -1000 through 1000. A tool plugin's own renderer takes precedence over candidates from other plugins. The remaining candidates compare exact matches first, longest prefix next, priority descending, plugin sortOrder ascending, then plugin ID and contribution ID lexically. One renderer is chosen; failure does not chain into another plugin.
 
 ```js
 // Capture only React, never the global loading-time API.
@@ -524,7 +580,7 @@ function SearchCard({ api, context }) {
 
 `render(api, context)` must synchronously return `ReactNode | null`, never a Promise; it must not call hooks directly. Hooks work inside the returned component subtree, rendered in the original React tree with theme and i18n context, not a separate root. Detect support with `api.ui.toolCallRendererVersion === 1`.
 
-Frozen context contains only `{ slot: "tool-call", conversationId?, messageId?, toolCall }`. The frozen tool snapshot explicitly selects `{ name, arguments, interactionId, status, result?, streamingStdout?, streamingStderr? }`, with status `pending | running | completed | error`. In this slot, `messages` grants only the current tool snapshot: no message body/thinking, authorization IDs, execution/session IDs or conversation enumeration. Raw protocol, persisted history and model-facing results remain unchanged; localization is display-only.
+Frozen context contains only `{ slot: "tool-call", conversationId?, messageId?, toolCall }`. The frozen tool snapshot explicitly selects `{ name, originalToolName?, arguments, interactionId, status, result?, streamingStdout?, streamingStderr? }`. `name` is the actual public full name. Once tool-plugin ownership is confirmed, `originalToolName` contains the complete original tool name declared by the tool's MCP service, without public-name length truncation; other external MCP tools do not receive this field. Tool search results can show localized names from the plugin dictionary key `toolNames.<originalToolName>`, falling back to the public full name when no entry exists. Status is `pending | running | completed | error`. In this slot, `messages` grants only the current tool snapshot: no message body/thinking, authorization IDs, execution/session IDs or conversation enumeration. Raw protocol, persisted history and model-facing results remain unchanged; localization is display-only.
 
 The immutable lifecycle-scoped API contains only `id / version / locale / t / signal / ui / links`. `t(key, { defaultValue?, values? })` uses the plugin dictionary first, the host `useI18n().t` common dictionary next, then defaultValue/key; interpolation values are strings or numbers. UI provides shared `React`, `icon(name)`, the version flag, generic `ToolCallNode / DataTableViewer` components and `localizeToolError(t, message)`. Use these stable UI exports rather than importing host source files. `links.open(url, target?)` accepts only HTTP(S), with `browser` (default) or `external`, and must run on an explicit user click with active user activation. Browser navigation emits `browser:navigate` (an alias for the existing open-browser-tab event); external navigation uses the desktop's existing system-browser route. There is no AI, network, write, storage, metadata or `window.snow` API.
 
@@ -752,18 +808,18 @@ Key points:
 
 The **Plugin market** tab reads `app/registry.json` from the [snow-plugin-store](https://github.com/MayDay-wpf/snow-plugin-store) index repository to install or update panel plugins and client scripts in one click: each plugin ships from its own GitHub repository as a Release asset, and the client verifies the SHA-256 pinned in the index before installing. The index is fetched when the tab opens (the in-memory result is reused for 60 seconds; **Refresh** forces a re-fetch): when the GitHub raw source fails it falls back to the jsDelivr mirror, and when both fail it reuses the last successful disk cache (`~/.snowapp/plugin-market/registry.json`).
 
-The tab has four categories covering two **complementary** distribution channels — the official market guarantees "traceable plus hash-pinned", while the community channel offers an open entry point that needs no listing at all:
+The tab has five categories covering two **complementary** distribution channels — the official market guarantees "traceable plus hash-pinned", while the community channel offers an open entry point that needs no listing at all:
 
-| Categories                     | Channel               | Entry source                                                                               | Listing                                                                       | Install verification                                                                                                   |
-| ------------------------------ | --------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Panel / OAuth / Script plugins | **Official market**   | snow-plugin-store index (`app/registry.json`)                                              | Author opens a PR, a maintainer merges it, CI validates the index and hashes  | SHA-256 pinned by the index, verified byte for byte                                                                    |
-| Community plugins              | **Community channel** | Third-party GitHub repositories carrying the `snow-plugins` topic and publishing a Release | Authors add the topic and publish a Release themselves; no listing, no review | No hash pinning: pinned to the source archive of the latest Release tag; repositories without a Release are not listed |
+| Categories                            | Channel               | Entry source                                                                               | Listing                                                                       | Install verification                                                                                                   |
+| ------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Panel / OAuth / Tool / Script plugins | **Official market**   | snow-plugin-store index (`app/registry.json`)                                              | Author opens a PR, a maintainer merges it, CI validates the index and hashes  | SHA-256 pinned by the index, verified byte for byte                                                                    |
+| Community plugins                     | **Community channel** | Third-party GitHub repositories carrying the `snow-plugins` topic and publishing a Release | Authors add the topic and publish a Release themselves; no listing, no review | No hash pinning: pinned to the source archive of the latest Release tag; repositories without a Release are not listed |
 
 #### 11.1 Installing and updating in the client
 
-- The market is split into the three official categories **Panel plugins**, **OAuth plugins**, and **Script plugins**, plus the **Community plugins** channel, each with its entry count: `kind: "script"` goes to Script plugins, `kind: "oauth"` or an `oauth` tag goes to OAuth plugins (installed through the same zip flow as panel plugins), and everything else goes to Panel plugins; community entries come from the GitHub topic search (see 11.3) and its count matches the list — repositories already indexed in the official market are not counted. **Plugin list** uses the same split, where a plugin whose `plugin.json` declares `kind: "oauth"` (or provides `oauth.entry`) is listed under OAuth plugins.
-- Official entries carry a source badge next to the name: an entry declaring `verified: true` shows a green **Verified** badge (merged after a manual review by the maintainers), anything else shows a blue **Official store** badge (listed, with the index format and archive hash validated). Hovering a badge explains the rule — **listing is not a security endorsement of the plugin's behaviour**. Community entries carry an amber **Community** badge (not published to the market, not reviewed); repositories already listed in the official index are excluded from the community list and appear only in the official categories (where the archive hash is verified).
-- Each entry shows its name, version, author, tags, and type (script entries carry a Script label), and supports keyword search over name, description, author, and tags within the current category; entry icons share one rule: a `lucide:Name` icon uses the built-in icon set, an `http(s)` image URL is shown through the image proxy (`img-proxy://`), a `data:image/...` value is rendered inline, and anything else (including plugin-relative paths, since a market entry has no plugin folder before installation) falls back to a placeholder.
+- The market is split into the four official categories **Panel plugins**, **OAuth plugins**, **Tool plugins**, and **Script plugins**, plus the **Community plugins** channel, each with its entry count: `kind: "script"` goes to Script plugins, `kind: "oauth"` or an `oauth` tag goes to OAuth plugins, `kind: "tool"` or a `tool` tag goes to Tool plugins (the first two install through the same zip flow as panel plugins), and everything else goes to Panel plugins; community entries come from the GitHub topic search (see 11.3) and its count matches the list — repositories already indexed in the official market are not counted. **Plugin list** uses the same split, where a plugin whose `plugin.json` declares `kind: "oauth"` (or provides `oauth.entry`) is listed under OAuth plugins, and one that declares `kind: "tool"` (or ships `mcpServers`) is listed under Tool plugins.
+- Official entries carry a source badge next to the name: an entry declaring `verified: true` shows a green **Verified** badge (merged after a manual review by the maintainers), anything else shows a blue **Official store** badge (listed, with the index format and archive hash validated). Hovering a badge explains the rule — **listing is not a security endorsement of the plugin's behaviour**. Tool plugin entries carry the same two badges plus a "Tool plugin" label on the version line. Community entries carry an amber **Community** badge (not published to the market, not reviewed); when the repository's default branch `plugin.json` declares `kind: "tool"` (or ships `mcpServers`), the row also shows a grey **Tool plugin** badge. Repositories already listed in the official index are excluded from the community list and appear only in the official categories (where the archive hash is verified).
+- Each entry shows its name, version, author, tags, and type (script entries carry a Script label, tool plugin entries a Tool plugin label), and supports keyword search over name, description, author, and tags within the current category; entry icons share one rule: a `lucide:Name` icon uses the built-in icon set, an `http(s)` image URL is shown through the image proxy (`img-proxy://`), a `data:image/...` value is rendered inline, and anything else (including plugin-relative paths, since a market entry has no plugin folder before installation) falls back to a placeholder.
 - The toolbar offers a **Hide installed** switch (off by default, remembered locally) plus a "total · installed" count for the current tab: when enabled only not-installed plugins are listed, while installed plugins with a newer version stay visible so the update entry point is never lost. It combines with search (filter first, then search) and shows an "All plugins are already installed" empty state when everything is hidden.
 - A not-installed entry offers **Install**; an entry already on the indexed version shows **Installed**; a higher indexed version offers **Update** with an `Installed v<from> → v<to>` hint — updates replace in place: a panel plugin keeps its enabled state, and a script is re-matched and keeps its enabled state.
 - When the entry declares `privacy` scopes they show as amber badges that open the shared "Privacy scopes" dialog; when the entry's `minAppVersion` is newer than the running app, installation is disabled with a "Requires app v<version> or newer" hint.
@@ -795,22 +851,22 @@ flowchart TD
 
 Entry fields (the authoritative JSON Schema is `app/entry.schema.json` in the repository):
 
-| Field                  | Required    | Notes                                                                                                                                                                                                             |
-| ---------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                   | yes         | Unique ID; for a panel plugin it must equal the `plugin.json` `id`. Letters, digits, `.`, `-`, `_`, at most 96 characters, must not start with `.`                                                                |
-| `kind`                 | no          | `plugin` (default, panel plugin), `oauth` (OAuth sign-in plugin) or `script` (client script whose Release asset is the `.user.js` file itself); an OAuth plugin should match `kind: "oauth"` in its `plugin.json` |
-| `name` / `description` | yes         | Display name and summary, a string or a localized object (such as `{"default": "...", "zh-CN": "..."}`)                                                                                                           |
-| `repo`                 | yes         | Plugin repository shaped `https://github.com/owner/repo`                                                                                                                                                          |
-| `version`              | yes         | Version matching the Release content                                                                                                                                                                              |
-| `tag` / `asset`        | conditional | Release tag and asset file name; both are required unless `downloadUrl` is given, and the download URL is derived as `https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>`                          |
-| `downloadUrl`          | no          | Explicit https asset URL; when present the `tag`/`asset` derivation is skipped                                                                                                                                    |
-| `sha256`               | yes         | Asset SHA-256 (64 hex characters)                                                                                                                                                                                 |
-| `author` / `homepage`  | no          | Author credit and homepage / docs URL                                                                                                                                                                             |
-| `minAppVersion`        | no          | Minimum app version; older clients disable installation and show a hint                                                                                                                                           |
-| `privacy`              | no          | Sensitive-scope list kept in sync with the plugin `plugin.json` (or `@snow-privacy` for scripts); drives the market badges and the install confirmation                                                           |
-| `tags`                 | no          | Search keywords                                                                                                                                                                                                   |
-| `icon`                 | no          | Market list icon: `lucide:Puzzle` uses a built-in icon, `https://...` is shown through the image proxy, `data:image/...` is rendered inline; when absent or otherwise unsupported a placeholder is shown          |
-| `verified`             | no          | `true` marks an entry reviewed by hand by the maintainers (the client shows a green "Verified" badge); when absent the entry is a plain listing and shows the blue "Official store" badge                         |
+| Field                  | Required    | Notes                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | yes         | Unique ID; for a panel plugin it must equal the `plugin.json` `id`. Letters, digits, `.`, `-`, `_`, at most 96 characters, must not start with `.`                                                                                                                                                                                           |
+| `kind`                 | no          | `plugin` (default, panel plugin), `oauth` (OAuth sign-in plugin), `tool` (tool plugin) or `script` (client script whose Release asset is the `.user.js` file itself); an OAuth plugin should match `kind: "oauth"` in its `plugin.json`, and a tool plugin should match `kind: "tool"` (a `tool` tag alone also files it under Tool plugins) |
+| `name` / `description` | yes         | Display name and summary, a string or a localized object (such as `{"default": "...", "zh-CN": "..."}`)                                                                                                                                                                                                                                      |
+| `repo`                 | yes         | Plugin repository shaped `https://github.com/owner/repo`                                                                                                                                                                                                                                                                                     |
+| `version`              | yes         | Version matching the Release content                                                                                                                                                                                                                                                                                                         |
+| `tag` / `asset`        | conditional | Release tag and asset file name; both are required unless `downloadUrl` is given, and the download URL is derived as `https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>`                                                                                                                                                     |
+| `downloadUrl`          | no          | Explicit https asset URL; when present the `tag`/`asset` derivation is skipped                                                                                                                                                                                                                                                               |
+| `sha256`               | yes         | Asset SHA-256 (64 hex characters)                                                                                                                                                                                                                                                                                                            |
+| `author` / `homepage`  | no          | Author credit and homepage / docs URL                                                                                                                                                                                                                                                                                                        |
+| `minAppVersion`        | no          | Minimum app version; older clients disable installation and show a hint                                                                                                                                                                                                                                                                      |
+| `privacy`              | no          | Sensitive-scope list kept in sync with the plugin `plugin.json` (or `@snow-privacy` for scripts); drives the market badges and the install confirmation                                                                                                                                                                                      |
+| `tags`                 | no          | Search keywords                                                                                                                                                                                                                                                                                                                              |
+| `icon`                 | no          | Market list icon: `lucide:Puzzle` uses a built-in icon, `https://...` is shown through the image proxy, `data:image/...` is rendered inline; when absent or otherwise unsupported a placeholder is shown                                                                                                                                     |
+| `verified`             | no          | `true` marks an entry reviewed by hand by the maintainers (the client shows a green "Verified" badge); when absent the entry is a plain listing and shows the blue "Official store" badge                                                                                                                                                    |
 
 > A merged entry only means the index format and hash checks passed; it is not a security endorsement of the plugin. Plugin code still ships from the author's repository, so verify the source and privacy declarations before installing. "Verified" means the maintainers additionally reviewed the entry by hand, which is still not a guarantee of the plugin's behaviour.
 
@@ -938,7 +994,7 @@ Hooks (`authorize` is required unless `panel` is declared; export the others as 
 | `transformRequest(ctx)`       | Before every chat request is sent                                          | `{ url?, body?, headers? }`; a `null` header value removes it. Use it to wrap bodies for custom protocols                                                  |
 | `transformResponse(ctx)`      | After a non-SSE response is fully received, before protocol parsing        | `{ body?, headers? }`: `body` is an object or string, `headers` overrides response headers (`null` removes one); omitted fields stay unchanged             |
 | `onResponseChunk(ctx, chunk)` | Before each upstream event reaches the protocol parser (SSE and WebSocket) | A string (raw event block) or an object (framed as `data:`); `null` drops the event, `undefined` passes it through, an array splits one event into several |
-| `fetch(ctx)`                  | Before a chat request is sent (full transport takeover)                    | A `Response`, a string body, or `{ status?, headers?, body }`                                                                                              |
+| `fetch(ctx)`                  | Chat transport takeover; currently rejected before the hook runs           | The chat request fails because the outgoing tool declarations cannot be verified                                                                           |
 
 - **Token object**: `accessToken` (required), `refreshToken`, `expiresIn` or `expiresAt` (seconds, milliseconds or ISO), plus `email`, `accountId`, `planType` and `data` (any object, persisted with the profile and read back as `ctx.account.data`). Raw `access_token` / `refresh_token` / `expires_in` names are accepted too.
 - **Common ctx fields**: `fetch` (Electron `net.fetch`, honoring the app proxy), `decodeJwt(token)`, `log(message, detail?)`, `providerId`, `pluginId`, `pluginDir`. Sign-in hooks also get `redirectUri`, `state`, `nonce`, `codeVerifier`, `codeChallenge`, `code`, `params` (all callback parameters) and `session`; account hooks get `account` (`accessToken`, `refreshToken`, `expiresAt`, `accountId`, `email`, `planType`, `data`, `profileName`, `baseUrl`); `transformRequest` also gets `protocol`, `model`, `url`, `body` and `headers`.
@@ -947,11 +1003,12 @@ Hooks (`authorize` is required unless `panel` is declared; export the others as 
 - **Flows**: `redirect` listens for the local callback (the OS picks a port when none is declared; a busy port falls back to manual paste); `manual` only lets the user paste the callback URL or code; `device` shows `userCode` while Rust polls `poll()`; `panel` hands the sign-in UI to a plugin-defined panel (declaring `panel` without an explicit `flow` also selects `panel`).
 - **Profiles**: a successful sign-in creates an activated profile with `source = oauth-<id>` at the top of the list, storing metadata in `configJson.oauthPlugin`; saving the profile always keeps the stored tokens and metadata.
 - **Hot reload**: `oauth.mjs` is reloaded when its modification time changes; after editing `plugin.json`, use "Rescan" in the plugins dialog. Errors thrown by hooks surface in the sign-in dialog and in the system logs (module `oauthPlugins`).
-- **Response hooks (three tiers)**: `transformResponse` runs once for a whole non-SSE HTTP response; `onResponseChunk` runs per event on both the SSE and WebSocket Responses transports (`ctx.chunk` is still a `data: {...}` block there); declaring `fetch` lets the plugin send the request itself while the native layer keeps event parsing, usage accounting and cancellation. The tiers are independent and can be combined; exporting none keeps the previous behavior.
-- **`fetch` streaming vs whole bodies**: when the hook returns a `Response` with a 2xx status and `content-type: text/event-stream`, the host reads the body chunk by chunk into the native pipeline and parses it event by event, so typewriter streaming is preserved (the first `chat.completion.chunk` renders immediately). A string, `{ status, headers, body }`, or a non-event-stream `Response` (`application/json`, a custom content-type, a non-2xx status) is still read as a whole before parsing, exactly as before.
-- **Response ctx fields**: `protocol`, `model`, `url`, `status`, `headers` (response headers) and `account`; `onResponseChunk` also gets `chunk` (the raw event block, also passed as the second argument) and `data` (the JSON of the first `data:` line in that block); on the WebSocket transport `status` is 200 and `headers` is an empty object; `fetch` gets `protocol`, `model`, `url`, `method`, `headers` (custom request headers of this request), `body` and `account`.
+- **Response hooks**: `transformResponse` runs once for a whole non-SSE HTTP response; `onResponseChunk` runs per event on both SSE and WebSocket Responses transports (`ctx.chunk` remains a `data: {...}` block). Either hook can be used independently.
+- **`fetch` takeover restriction**: a provider that declares `fetch` fails chat requests before the hook runs, even when tools are disabled. The plugin controls its actual outgoing request, so the host cannot verify its tool declarations. This restriction does not affect the `ctx.fetch` helper used by sign-in and other non-chat hooks.
+- **Tool declarations**: after `transformRequest` and any request proxy, the host checks plugin tools and `toolsearch-discover` against the original protocol-native definitions. Adding, removing, duplicating or modifying them fails the request; an opaque function declaration that cannot be checked also fails. The check still applies when tools are disabled.
+- **Response ctx fields**: `protocol`, `model`, `url`, `status`, `headers` (response headers) and `account`; `onResponseChunk` also gets `chunk` (the raw event block, also passed as the second argument) and `data` (the JSON of the first `data:` line in that block). On the WebSocket transport, `status` is 200 and `headers` is an empty object.
 - **Header overrides and event chaining**: `headers` returned by `transformResponse` override the response header snapshot (`null` removes a header). When the effective `content-type` is `text/event-stream`, the rewritten `body` is split into SSE events and handed to `onResponseChunk` one by one (passed through unchanged when that hook is absent); the overridden headers are what that hook sees in `ctx.headers`.
-- **Takeover cost**: `fetch` bypasses cross-protocol tool normalization, native retries and partial-truncation protection; cancelling the conversation aborts upstream reading immediately, but the plugin must bound its own request timeouts. Profiles that declare `transformResponse` or `fetch` skip the Responses WebSocket transport and stay on SSE (the former only handles whole response bodies, the latter owns the connection); `onResponseChunk` alone works on both transports. Providers that declare `fetch` are marked "Custom transport" in the provider list and the sign-in dialog.
+- **Transport**: profiles that declare `transformResponse` or `fetch` skip the Responses WebSocket transport. `transformResponse` uses HTTP; a chat request with `fetch` fails as described above. `onResponseChunk` alone works on both transports. Providers that declare `fetch` are marked "Custom transport" in the provider list and sign-in dialog.
 - **Scope**: response hooks apply to main conversation streams only; summaries, codebase reviews and title generation never trigger them. Non-SSE responses are buffered up to 16 MB for rewriting; beyond that they pass through unchanged with a system log entry.
 
 #### 12.1 Custom sign-in panels
@@ -993,7 +1050,7 @@ The panel drives sign-in through `api.oauth` (ESM panels use it directly; iframe
 - When the panel entry fails to load, the dialog shows the error and a reload button; `submitTokens` only works for plugin providers.
 - A custom panel can still use `api.metadata`, `api.storage`, `api.net`, `api.assets` and `api.t()` from the regular panel runtime; network requests from a panel should go through `api.net.fetch` so they honor the app proxy.
 
-Export only the tiers you need (the sample shows all three):
+Export either response hook as needed:
 
 ```js
 export default {
@@ -1009,18 +1066,6 @@ export default {
       onResponseChunk(ctx, chunk) {
         if (ctx.data?.type !== "vendor.delta") return undefined;
         return { choices: [{ delta: { content: ctx.data.text } }] };
-      },
-      // Tier 3: take over the transport, returning a Response / string / { status, headers, body }
-      async fetch(ctx) {
-        const res = await ctx.fetch("https://upstream.example/v1/stream", {
-          method: ctx.method,
-          headers: {
-            ...ctx.headers,
-            authorization: `Bearer ${ctx.account.accessToken}`,
-          },
-          body: JSON.stringify(ctx.body),
-        });
-        return res;
       },
     },
   ],
@@ -1167,6 +1212,163 @@ export async function start(ctx) {
 - Every sensitive capability still needs a declaration in `privacy` (for example `network`, `messages`, `toolApproval`, `conversations`); an undeclared capability is denied.
 - Long connections, periodic callbacks and background tasks should respond to `ctx.signal` or to the cleanup function, so nothing keeps running after the module stops.
 
+### 14. Tool plugins: ship MCP tools with a plugin
+
+A tool plugin declares `mcpServers` in `plugin.json` and provides callable tools through its plugin servers. Once enabled for the current project, the Agent can search for tools as needed; mentioning the plugin with `@` is not required.
+
+Minimal manifest:
+
+```json
+{
+  "id": "com.example.weather",
+  "name": { "default": "Weather", "zh-CN": "Weather" },
+  "version": "1.0.0",
+  "kind": "tool",
+  "entry": "index.js",
+  "mcpServers": {
+    "weather": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["{{pluginDir}}/server.js"]
+    }
+  },
+  "privacy": { "scopes": ["network"], "note": "Queries a weather API." }
+}
+```
+
+`mcpServers` may also be a relative path to a JSON file inside the plugin folder (its content is `{ \"mcpServers\": { ... } }`): it is read at install time and **inlined** into the record, so later changes in the folder do not affect the installed configuration — reload the manifest after editing it.
+
+`command`, `args` and `env` values support the `{{pluginDir}}` placeholder, replaced with the plugin's actual install directory when the tool configuration is served. Use it to reference bundled scripts instead of relative paths (resolved against the app process working directory) or hard-coded absolute paths, e.g. `"args": ["{{pluginDir}}/server.js"]`.
+
+Tool plugins ship through the same market: an official index entry with `kind: "tool"` (or a `tool` tag) is filed under the market's **Tool plugins** category and keeps the SHA-256 pinning plus the "Official store" / "Verified" badge; the community channel reads `kind` / `mcpServers` from the repository's default-branch `plugin.json` and adds a "Tool plugin" badge to the row. Installation is the same zip flow as panel plugins.
+
+Fields and constraints:
+
+| Field                      | Notes                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `kind`                     | Explicit `"tool"`; a non-empty `mcpServers` also marks the plugin as a tool plugin. A tool plugin may still ship panels |
+| `mcpServers.<name>`        | Names use letters, digits, `.`, `-`, `_` only; at most 16 servers per plugin                                            |
+| `type`                     | `stdio` (default, needs `command`) or `http` / `sse` / `api` (need `url`)                                               |
+| `args` / `env` / `headers` | Same shape as external MCP servers; `env` and `headers` are string objects                                              |
+| `timeoutMs`                | Per-call timeout in milliseconds; defaults to the app setting                                                           |
+
+Scope and invocation rules:
+
+- **Install and enablement**: plugins are installed globally; `app_plugins.enabled` is the master switch.
+- **Project scope**: only tool plugins support project scope configuration. You can manage project-level enablement directly from the "Tool plugins" list or the "Project scope" toolbar action (stored per project in `project_plugins_scope_<blake3(projectId)>`). A tool plugin disabled for a project will not inject tools into model requests in that project. Panel plugins, OAuth plugins, and script plugins are globally effective.
+- **Automatic discovery**: when a tool plugin is enabled for the current project, the Agent can see its summary and search as needed. `@` expresses user intent; it is not an activation requirement. `toolSearchEnabled` is a legacy shared field and no longer controls this feature in Snow App. The tool-search server and tools have no independent manual enable/disable controls: an effectively enabled tool plugin provides search in the project, and no enabled tool plugin means no search tools are injected.
+- **Plugin catalog**: `toolsearch-tool-search` with `action: "list"` only reads installed plugin metadata and enablement; it does not start plugin servers.
+- **Deferred loading**: `toolsearch-discover` searches available plugin tools by keyword and adds matches to the next request's `tools`. Disabling a plugin or tool removes it from subsequent requests. Use the exact public server name returned by search for `server`. Restricted requests and sub-agents remain subject to their own tool allow-lists and do not receive every plugin tool directly.
+- **Tool naming**: a tool's full name is `<public server name>-<tool name>`. Public names can change with plugin and server configuration, so use the search result rather than hard-coding them.
+- **Approval**: search can start plugin servers. `toolsearch-discover` has a separate authorization; existing no-confirmation approval for the catalog does not automatically approve discovery. Plugin tools still use their existing call-authorization flow.
+
+#### 14.1 Plugin-bundled Skills (the `skills` contribution)
+
+A plugin can ship workflow knowledge with its package: declare `skills` in `plugin.json`. Each entry is a plugin-relative path pointing at a skill directory containing `SKILL.md`, or at a root that contains several skill directories (scanned recursively with the same rules as `~/.snow/skills`).
+
+```json
+{
+  "skills": [
+    "skills/record-review",
+    { "path": "skills/workflows", "id": "workflow" }
+  ]
+}
+```
+
+For example, `skills/record-review/SKILL.md` can contain only the applicable task and procedure:
+
+```markdown
+---
+name: record-review
+description: Review records using this plugin's tools.
+---
+
+This plugin provides record lookup and review tools. Find the needed capability with `toolsearch-discover`, then use the exact full tool name from the result.
+
+- Read the [tool reference](references/tools.md) when choosing tools.
+- Read the [review workflow](references/review.md) when reviewing records.
+
+Resolve relative links against this skill directory. Read only material needed for the current task; do not expand all links automatically.
+Respect tool approvals and permissions; use the discovered MCP tool definitions as the parameter contract.
+```
+
+Ship these reference files with the plugin. Keep the capability map, task navigation and shared constraints in `SKILL.md`; split tool guidance and task workflows into `references/` files connected by relative Markdown links. The tool reference lists operation identifiers, purposes and selection criteria, without duplicating full parameter schemas or treating short operation names as callable public tool names. Only the entry is loaded when the skill is selected, followed by task-specific references instead of all document bodies.
+
+- Skill ids get a `<plugin id>/` prefix (for example `com.snow.github-tools/github-workflow`) to reduce collisions with global or project skills; a user or project skill with the same id wins.
+- Enablement follows the plugin: while the plugin is enabled (and not disabled for the current project) its skills appear in the `<available_skills>` list of `skills-skill-execute`, and they disappear when the plugin is disabled. The `enable` field of `SKILL.md` does not apply to plugin skills, and the Skills settings page offers no per-skill toggle.
+- The skill tool description contains only the skill id, `description`, and location; the Agent adds the body to the context when it selects a relevant skill. Describe applicable tasks in the summary, keep the body to tool selection, workflow and necessary constraints, and put longer reference material in separate files for on-demand reading.
+- Skills using plugin tools call `toolsearch-discover` first and use the returned full tool names. `allowed-tools` is model guidance, not host authorization; plugin tool prefixes can change, so do not put short names in the restriction list as if they were full names. Project settings, allow-lists and tool approval still govern execution.
+- The source is `plugin:<plugin id>` and `location` is `plugin`; the settings page shows a "Plugin" badge and offers no edit or uninstall action. Skill results include `Skill Source` in `<skill-info>`; once the result supplies that source, the conversation card reuses the owning plugin's icon and name while retaining the skill category. Plugin tool cards continue to show the same origin marker using tool ownership. Unknown sources or uninstalled plugins are not inferred.
+- Paths must stay inside the plugin directory (absolute paths, drive letters and `..` are rejected); a missing directory or missing `SKILL.md` is skipped silently.
+- Reloading requires "Re-read manifest" or a reinstall; skill content itself is read from the installed plugin directory.
+
+Boundaries:
+
+- Plugin tools run in a separate MCP process. The `privacy` declaration is install-time disclosure and market-review material; the host cannot intercept what that process does internally. Install tool plugins from trusted sources only.
+- Tool plugins never appear in MCP settings and do not consume MCP server slots; enablement and project scope live in the plugin page.
+
+How to verify: enable a tool plugin for the current project and ask for a related task without using `@`. Confirm that the Agent can search and call a matched tool in the next request; disable the plugin and confirm its tools and skills are no longer available.
+
+#### 14.2 Runnable, structured tool-plugin example
+
+The complete source ships with the docs: [Text tools manifest](../../examples/text-tools/plugin.json) and [build configuration](../../examples/text-tools/package.json). This is an installable plugin, not pseudocode. Source checkouts contain it at `docs/examples/text-tools/`; the application's synchronized docs copy contains it at `~/.snowapp/docs/examples/text-tools/`. Copy the whole example into your own development directory before installing dependencies; do not build inside the documentation copy.
+
+```text
+text-tools/
+├─ plugin.json                    # Server, card, icon, locales and skill contributions
+├─ package.json / tsconfig.json
+├─ scripts/build.mjs              # Separate Node server and browser card builds
+├─ src/
+│  ├─ server.ts                   # Create server, register tools, connect stdio
+│  ├─ tools/textInspect.ts        # Keep schema, semantics and implementation together
+│  └─ renderer/
+│     ├─ index.ts                 # Use host React and ToolCallNode
+│     └─ types.ts                 # Host slot contract actually consumed by the card
+├─ locales/                       # en / zh-CN / zh-TW
+└─ skills/text-inspect/
+   ├─ SKILL.md                    # Applicability, capabilities and on-demand navigation
+   └─ references/tools.md         # Counting semantics and invocation boundaries
+```
+
+**Responsibilities and contracts:**
+
+- The [tool implementation](../../examples/text-tools/src/tools/textInspect.ts) inspects supplied text and returns Unicode code-point and line counts, without network access, file access or persistence. Empty text has zero lines; CRLF, CR and LF are line breaks, and a trailing newline adds an empty line. Limit input size instead of slicing JSON. Results contain both complete text JSON and `structuredContent`; `outputSchema` defines the output contract, and the SDK validates input using the Zod schema.
+- `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` describe actual side effects; they neither grant permission nor replace host approval. Real write tools must check credentials, targets and external responses rather than copy read-only annotations. Validate consumed external fields at the trust boundary; do not disguise malformed responses as success with type assertions and empty defaults.
+- The [card implementation](../../examples/text-tools/src/renderer/index.ts) displays the result from the current call snapshot. The host shell supplies status and the plugin's origin icon/name. This example intentionally retains the raw result instead of adding a second result interpreter. It makes no business requests, captures no full load-time API, and bundles no second React runtime. The `messages` declaration is for the current tool-card snapshot, not conversation access by the MCP tool.
+- The [skill entry](../../examples/text-tools/skills/text-inspect/SKILL.md) links to [reference material](../../examples/text-tools/skills/text-inspect/references/tools.md) for on-demand semantics. Discover the exact public name before calling; do not recursively expand references. Keep operation identifiers, card selectors and skill capabilities aligned; runtime tool definitions remain the parameter contract.
+- Reserve stdout for MCP protocol traffic and send diagnostics to stderr. The example's pure computation does not catch and suppress exceptions. Business tools with external I/O report real failures as `isError: true` at the MCP boundary, preserving context without switching tools to retry or returning empty success. If a write has already taken effect before a result-size failure, the error must state the side-effect status rather than imply that retrying is safe.
+- Keep each tool's schema and handler together. As tools grow, group them by business domain such as repositories, issues or PRs, and extract authentication, HTTP and result conversion only where reused. Do not start with a multi-layer registration framework.
+
+**Build and install:**
+
+Requires Node.js 18+, npm and a local Node.js runtime. These commands copy from the Snow App source root into a new development directory under the user home. If the target exists, stop and choose another directory rather than overwrite a project.
+
+```powershell
+$target = Join-Path $HOME "snow-text-tools-example"
+if (Test-Path $target) { throw "Target already exists: $target" }
+Copy-Item "./docs/examples/text-tools" $target -Recurse
+Set-Location $target
+npm install
+npm run build
+npm run check
+```
+
+On macOS/Linux, run from the source root:
+
+```sh
+cp -R ./docs/examples/text-tools ~/snow-text-tools-example
+cd ~/snow-text-tools-example
+npm install
+npm run build
+npm run check
+```
+
+Check that the target directory does not exist on macOS/Linux as well. When using the application's docs copy, change the copy source to `~/.snowapp/docs/examples/text-tools`. `build` produces self-contained `server.js` and `index.js`; `check` runs TypeScript and artifact-consistency checks without starting a persistent MCP service.
+
+After a successful build, select the copied directory under Plugins → Install from directory, or ask the Agent to call `config-set scope=plugins key="new" value={sourceDir: "actual build directory"}`. When globally enabled and not disabled for the project, the plugin is discoverable by task without `@`. Its skill ID is `com.example.text-tools/text-inspect`. Discovery and invocation still follow host approval; installation grants no no-confirmation permission.
+
+For verification, ask the Agent to inspect text length and line count. Confirm discovery and invocation of `text_inspect`, the tool card and plugin origin, then load the skill when needed. Invalid input must produce an error rather than be replaced with empty text. Disabling the project scope removes the plugin's tools and skills from subsequent requests. Running `node server.js` manually and seeing it wait silently is normal for a stdio service, not a failure. A release needs only `plugin.json`, both build artifacts, `locales/`, `skills/` and referenced assets, not `node_modules/`, `src/` or development scripts. Include every skill reference linked from Markdown.
+
 ## Verification
 
 - `config-list scope=plugins` includes the new plugin with `enabled: true`, and `pluginsDirectory` points at `~/.snowapp/plugins`.
@@ -1175,7 +1377,7 @@ export async function start(ctx) {
 - For granted domains `denied` from `api.metadata.get` is empty.
 - For granted write actions `api.write.run` returns `ok: true`; without the declaration it returns `denied.reason = "write-declaration-missing"` plus the required `scope`, and `api.write.domains()` lists every action with its declaration state.
 - The counters and the list under **Plugin list → Script plugins** cover only scripts whose `target` is `client` or `all`; a `client` script never appears in the **Settings → Browser settings → Userscripts** list.
-- The Plugin market loads its entry list and shows privacy badges; installing a panel plugin adds it enabled under **Plugin list → Panel plugins**, and a `kind: "script"` entry appears under **Script plugins**.
+- The Plugin market loads its entry list and shows privacy badges; installing a panel plugin adds it enabled under **Plugin list → Panel plugins**, a `kind: "script"` entry appears under **Script plugins**, and a `kind: "tool"` entry appears under **Tool plugins** and can be searched once enabled for the project.
 - An entry whose indexed version is newer than the installed one shows **Update** with the version hint and switches to **Installed** afterwards; entries whose `minAppVersion` is newer than the app have their install button disabled.
 - Installed items in the Panel plugins and Script plugins lists likewise show **Update** when the indexed version is newer; clicking it updates in place and keeps the enabled state.
 - Official entries show an "Official store" or "Verified" badge next to the name: `verified: true` renders the green **Verified** badge, anything else the blue **Official store** badge, and hovering explains the rule.
@@ -1226,7 +1428,7 @@ export async function start(ctx) {
 - `src/renderer/plugins/metadata/domains.ts`, `src/renderer/plugins/metadata/index.ts`: metadata domains and privacy redaction
 - `src/renderer/plugins/writes/index.ts::executeWrite`, `::describeWriteDomains`, `::WRITE_ACTION_IDS`: write execution, privacy-declaration checks, and the action list
 - `src/renderer/plugins/writes/domains/content.ts`, `system.ts`, `draft.ts`, `config.ts`, `admin.ts`, `interactions.ts`: the 225 write action definitions (including 3 safe-draft actions; grouped as sections 8.4 to 8.7 here, with `interactions.ts` under 8.5)
-- `src/renderer/components/sidebar/PluginsPanel.tsx`: the three top-level tabs (Plugin list / Plugin market / Metadata catalog), the list sub-tabs (Panel plugins / Script plugins), their counters, and the Panel plugins toolbar
+- `src/renderer/components/sidebar/PluginsPanel.tsx`: the three top-level tabs (Plugin list / Plugin market / Metadata catalog), the list sub-tabs (Panel plugins / OAuth plugins / Tool plugins / Script plugins), their counters, and the Panel plugins toolbar
 - `src/renderer/components/sidebar/PluginMetadataCatalog.tsx`: the Metadata catalog tab (Reading / Writable) and the badge data
 - `src/renderer/plugins/privacy.ts`, `src/renderer/components/sidebar/PluginPrivacyBadges.tsx`, `src/renderer/components/sidebar/PluginPrivacyDialog.tsx`: the privacy-scope badges and the "Privacy scopes" dialog shared by panel plugins and script plugins
 - `src/renderer/components/sidebar/PluginScriptsSection.tsx`, `src/renderer/userscripts/clientScriptStore.ts`: the Script plugins sub-tab UI and the client-script state source
@@ -1236,9 +1438,9 @@ export async function start(ctx) {
 - `native/src/plugin_community.rs::fetch_community_plugins_blocking`, `::resolve_community_source_blocking`: the community channel (GitHub `snow-plugins` topic search, per-query caching with rate-limit fallback; searching resolves the latest Release through `releases.atom` as the entry version and filters out repositories without a release; installs download the codeload zip snapshot of that Release tag without calling the GitHub API at all; a repository without `plugin.json` is scanned for `.user.js` files and multiple scripts go through a retained `community-tmp` snapshot plus a second call with the selection)
 - `src/renderer/plugins/market.ts::parseMarketRegistry` (including the `verified` badge field), `::buildMarketDownloadUrl`, `::compareMarketVersions`, `::hasMarketUpdate`, `::isMarketEntryTooNew`, `::parseCommunitySearch`, `::isCommunityRepoSource`, `::formatCommunityTime`, `COMMUNITY_PLUGIN_TOPIC`: registry parsing, download-URL derivation, version / update checks, and community entry parsing
 - `src/renderer/plugins/marketStore.ts`, `src/renderer/plugins/communityStore.ts`: the app-level official index state and community search state (fetch, cached result, rate-limit notice, serialized searches)
-- `src/renderer/components/sidebar/PluginMarketPanel.tsx`: the Plugin market tab (four categories, search, official / verified badges, install/update confirmation dialog, `minAppVersion` gating, and privacy badges)
+- `src/renderer/components/sidebar/PluginMarketPanel.tsx`: the Plugin market tab (five categories, search, official / verified badges, install/update confirmation dialog, `minAppVersion` gating, and privacy badges)
 - `src/renderer/components/sidebar/PluginCommunityPanel.tsx`: the Community plugins category (topic-search toolbar, Community / In official market badges, risk notice, install confirmation and the multi-script picker)
-- `src/renderer/plugins/pluginStore.ts::installFromMarket`, `::resolveFromCommunity`: install dispatch for official entries and community sources (panel plugins and userscript collections)
+- `src/renderer/plugins/pluginStore.ts::installFromMarket`, `::resolveFromCommunity`: install dispatch for official entries and community sources (script entries use the script channel, while panel, OAuth and tool plugins install from a zip)
 - `native/src/storage/plugins.rs::install_plugin_with_source`, `native/src/storage/userscripts.rs::install_market_userscript`: market provenance recording and in-place script updates
 - `native/src/mcp/servers/config/plugins_scope.rs`, `native/src/mcp/servers/config/mod.rs`: the `plugins` scope of the `config` tool
 - `src/main/pluginBackground/pluginBackgroundHost.ts`: the resident background-module host (main-process loading, start/stop, cleanup and `ctx` assembly)

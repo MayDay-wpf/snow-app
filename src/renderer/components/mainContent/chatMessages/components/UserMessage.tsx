@@ -39,6 +39,7 @@ import {
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import { getSkillIcon } from "../../../../utils/skillIcons";
 import { useI18n } from "../../../../i18n";
+import { PluginMentionChip } from "../../../common/PluginMentionChip";
 import { inlineImageSrc } from "../utils/inlineImages";
 import { getPromptStats, renderPromptInline } from "./PromptPreview";
 
@@ -530,6 +531,16 @@ export const UserMessage = memo(
                       {segment.tag.name}
                     </span>
                   </span>
+                );
+              }
+
+              if (segment.type === "plugin") {
+                return (
+                  <PluginMentionChip
+                    key={index}
+                    pluginId={segment.tag.pluginId}
+                    name={segment.tag.name}
+                  />
                 );
               }
 

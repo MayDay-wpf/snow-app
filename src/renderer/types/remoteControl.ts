@@ -139,6 +139,7 @@ export type SnowRemoteContentBlock =
         | "skill"
         | "annotation"
         | "file-selection"
+        | "plugin"
         | "workflow";
       label: string;
       detail?: string;
@@ -224,8 +225,8 @@ export type SnowRemoteSkill = {
   id: string;
   name: string;
   description: string;
-  location: "project" | "global";
-  source: "snow" | "agents";
+  location: "project" | "global" | "plugin";
+  source: "snow" | "agents" | `plugin:${string}`;
   allowedTools: string[];
   enabled: boolean;
 };

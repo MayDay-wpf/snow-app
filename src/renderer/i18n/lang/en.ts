@@ -1936,6 +1936,22 @@ export const en = {
   "toolCall.generic.noErrors": "0 active errors",
   "toolCall.generic.errorCount": "{{count}} error(s)",
   "toolCall.generic.truncated": "Showing first {{shown}} of {{total}}",
+  "toolCall.toolSearch.results": "Matched tools",
+  "toolCall.toolSearch.toolCount": "{{count}} tools",
+  "toolCall.toolSearch.copyName": "Copy tool name",
+  "toolCall.toolSearch.server": "Server: {{server}}",
+  "toolCall.toolSearch.serverScope": "Scope: {{server}}",
+  "toolCall.toolSearch.limit": "Limit: {{count}}",
+  "toolCall.toolSearch.searching": "Searching plugin tools...",
+  "toolCall.toolSearch.failures": "{{count}} plugin discovery failure(s)",
+  "toolCall.toolSearch.status.found": "Matched tools found",
+  "toolCall.toolSearch.status.partial_failure":
+    "Some plugins could not be searched",
+  "toolCall.toolSearch.status.no_active_plugins": "No plugins are enabled",
+  "toolCall.toolSearch.status.discovery_failed": "Plugin tool discovery failed",
+  "toolCall.toolSearch.status.no_available_tools":
+    "No plugin tools are available",
+  "toolCall.toolSearch.status.no_match": "No matching tools found",
   // Localized display names for built-in tool-call cards (full tool name → localized name; falls back to English short name)
   "toolNames.user-interaction-askUserQuestion": "Ask user",
   "toolNames.app-control-createMemo": "Create memo",
@@ -5119,6 +5135,8 @@ export const en = {
   "mcpBuiltinServer.desc.html": "Render HTML live inside the conversation",
   "mcpBuiltinServer.desc.decision":
     "Typed judgments on text, JSON and image evidence with a decision model",
+  "mcpBuiltinServer.desc.toolsearch":
+    "Automatically follows tool plugins enabled in the project; discover tools on demand without a separate switch",
   "projectCodebase.title": "Project Codebase",
   "projectCodebase.description": "Codebase indexing for {{project}}",
   "projectCodebase.noProject":

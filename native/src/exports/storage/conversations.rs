@@ -570,6 +570,7 @@ pub struct ManualToolExchangeRequest {
 #[napi(object)]
 pub struct ManualExchangeMessage {
     pub role: String,
+    pub origin: Option<String>,
     pub content: String,
     pub tool_results_json: Option<String>,
 }
@@ -589,15 +590,18 @@ pub async fn store_manual_tool_exchange(
     tokio::task::spawn_blocking(move || {
         let model = request.model.unwrap_or_default();
         let messages: Vec<_> = request.messages.into_iter().map(|message| {
-            crate::storage::services::chat_conversations::ChatContextMessage {
+            Ok(crate::storage::services::chat_conversations::ChatContextMessage {
                 role: message.role,
+                origin: crate::storage::services::chat_conversations::parse_message_origin(
+                    message.origin.as_deref(),
+                )?.to_string(),
                 content: message.content,
                 tool_calls_json: None,
                 tool_results_json: message.tool_results_json,
                 thinking: None,
                 thinking_blocks_json: None,
-            }
-        }).collect();
+            })
+        }).collect::<napi::Result<_>>()?;
         let tool_calls: Vec<_> = request.tool_calls.into_iter()
             .map(|call| (call.name, call.arguments_json)).collect();
         let exchange = crate::storage::store_manual_tool_exchange(

@@ -1,0 +1,39 @@
+{
+  "id": "com.example.panel-iframe",
+  "name": {
+    "default": "Sandbox draft",
+    "en": "Sandbox draft",
+    "zh-CN": "沙箱草稿",
+    "zh-TW": "沙箱草稿"
+  },
+  "description": {
+    "default": "Local text draft and statistics in an iframe",
+    "en": "Local text draft and statistics in an iframe",
+    "zh-CN": "iframe 内的本地文本草稿与统计",
+    "zh-TW": "iframe 內的本機文字草稿與統計"
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "kind": "plugin",
+  "renderMode": "iframe",
+  "entry": "index.js",
+  "icon": "lucide:NotebookPen",
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Sandbox draft",
+        "en": "Sandbox draft",
+        "zh-CN": "沙箱草稿",
+        "zh-TW": "沙箱草稿"
+      }
+    }
+  ],
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json",
+    "zh-TW": "locales/zh-TW.json"
+  },
+  "styles": ["style.css"],
+  "privacy": []
+}

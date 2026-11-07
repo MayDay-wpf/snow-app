@@ -261,6 +261,11 @@ const AuthorizationToolItem = ({
               {toolCall.name}
             </code>
           </div>
+          {toolCall.name === "toolsearch-discover" ? (
+            <div className="tool-authorization-file-extra">
+              {t("toolAuthorization.pluginDiscoveryRisk")}
+            </div>
+          ) : null}
           <div className="tool-authorization-args">
             <span className="tool-authorization-tool-label">
               {t("toolAuthorization.arguments")}

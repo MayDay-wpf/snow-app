@@ -1,0 +1,39 @@
+{
+  "id": "com.example.panel-esm",
+  "name": {
+    "default": "Text statistics",
+    "en": "Text statistics",
+    "zh-CN": "文本统计",
+    "zh-TW": "文字統計"
+  },
+  "description": {
+    "default": "Local text draft and statistics",
+    "en": "Local text draft and statistics",
+    "zh-CN": "本地文本草稿与统计",
+    "zh-TW": "本機文字草稿與統計"
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "kind": "plugin",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "icon": "lucide:FileText",
+  "panels": [
+    {
+      "id": "main",
+      "title": {
+        "default": "Text statistics",
+        "en": "Text statistics",
+        "zh-CN": "文本统计",
+        "zh-TW": "文字統計"
+      }
+    }
+  ],
+  "locales": {
+    "en": "locales/en.json",
+    "zh-CN": "locales/zh-CN.json",
+    "zh-TW": "locales/zh-TW.json"
+  },
+  "styles": ["style.css"],
+  "privacy": []
+}

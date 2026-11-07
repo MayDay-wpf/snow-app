@@ -41,6 +41,8 @@ export type RollbackWorkflowComposerState = {
 };
 
 export type ChatInputSendOptions = {
+  /** Source of the submitted message; omitted means unverified. */
+  origin?: "user" | "internal" | "unknown";
   /** Manual busy-send intent. Omitted programmatic sends always queue. */
   deliveryMode?: "queue" | "steer";
   model?: string;

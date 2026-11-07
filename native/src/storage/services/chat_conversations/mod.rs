@@ -35,9 +35,26 @@ pub(crate) use self::tombstones::{
 };
 pub use self::workflow::*;
 
+pub(crate) const ORIGIN_USER: &str = "user";
+pub(crate) const ORIGIN_INTERNAL: &str = "internal";
+pub(crate) const ORIGIN_UNKNOWN: &str = "unknown";
+
+pub(crate) fn parse_message_origin(origin: Option<&str>) -> Result<&'static str> {
+    match origin {
+        Some(ORIGIN_USER) => Ok(ORIGIN_USER),
+        Some(ORIGIN_INTERNAL) => Ok(ORIGIN_INTERNAL),
+        None | Some(ORIGIN_UNKNOWN) => Ok(ORIGIN_UNKNOWN),
+        Some(value) => Err(Error::new(
+            Status::InvalidArg,
+            format!("Invalid chat message origin: {value}"),
+        )),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ChatContextMessage {
     pub role: String,
+    pub origin: String,
     pub content: String,
     /// For assistant messages that contain tool calls, this holds the
     /// serialized JSON array of tool call objects (OpenAI Chat format:
@@ -231,6 +248,7 @@ pub fn create_chat_conversation(
                     0,
                     0,
                     "",
+                    ORIGIN_UNKNOWN,
                 )?;
                 transaction.execute(
                     "UPDATE chat_conversations
@@ -254,7 +272,7 @@ pub fn load_context_messages(
     database::open_connection(database_path)
         .and_then(|connection| {
             let mut statement = connection.prepare(
-                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json
+                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json, origin
                    FROM chat_messages
                   WHERE conversation_id = ?1
                     AND id >= COALESCE(
@@ -333,6 +351,7 @@ pub fn load_context_messages(
                 };
                 Ok(ChatContextMessage {
                     role,
+                    origin: row.get(6)?,
                     content,
                     tool_calls_json,
                     tool_results_json,
@@ -482,6 +501,7 @@ pub fn store_chat_exchange(
                     0,
                     0,
                     "",
+                    ORIGIN_INTERNAL,
                 )?;
                 persisted_user_message_ids.push(message_id);
             } else if !input.context_compaction {
@@ -566,6 +586,7 @@ pub fn store_chat_exchange(
                             index,
                             0,
                             "",
+                            &message.origin,
                         )?;
                         if normalize_role(&message.role) == "user" {
                             persisted_user_message_ids.push(message_id);
@@ -593,6 +614,7 @@ pub fn store_chat_exchange(
                     request_messages.len(),
                     input.retry_attempts,
                     input.retry_error,
+                    ORIGIN_INTERNAL,
                 )?;
             }
 
@@ -736,6 +758,7 @@ pub fn store_failed_chat_exchange(
             let content = sanitize_failed_exchange_content(message.content.trim());
             (!content.is_empty()).then(|| ChatContextMessage {
                 role: message.role.trim().to_string(),
+                origin: message.origin.clone(),
                 content: content.to_string(),
                 tool_calls_json: message.tool_calls_json.clone(),
                 tool_results_json: message.tool_results_json.clone(),
@@ -847,6 +870,7 @@ pub fn append_tool_message(
                 0,
                 0,
                 "",
+                ORIGIN_INTERNAL,
             )?;
             transaction.execute(
                 "UPDATE chat_conversations
@@ -912,6 +936,7 @@ fn insert_message(
     // 自动重试次数（0 = 未重试）与最后一次重试的上游错误文本（空 = 无）。
     retry_attempts: i64,
     retry_error: &str,
+    origin: &str,
 ) -> rusqlite::Result<String> {
     let id = database::create_snowflake_id();
     connection.execute(
@@ -939,9 +964,10 @@ fn insert_message(
            cache_read_input_tokens,
            retry_attempts,
            retry_error,
+           origin,
            created_at
          ) VALUES (
-           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, datetime('now', 'localtime')
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, datetime('now', 'localtime')
          )",
         params![
             id,
@@ -971,6 +997,7 @@ fn insert_message(
                 .unwrap_or(0),
             retry_attempts,
             retry_error,
+            origin,
         ],
     )?;
 

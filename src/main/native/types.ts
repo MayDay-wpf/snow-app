@@ -1,5 +1,6 @@
 import type { ImageGenerationNativeApi } from "../../shared/imageGeneration";
 import type { HtmlPreviewDocument } from "../../shared/htmlPreview";
+import type { MessageOrigin } from "../../preload/types/api";
 import type {
   PromptOptimizationRequest,
   PromptOptimizationResult,
@@ -1369,6 +1370,7 @@ export type ResponseFailureKind = "timeout" | "provider_error";
 export type ChatMessageRecord = {
   id: string;
   role: string;
+  origin: MessageOrigin;
   content: string;
   thinking: string;
   /** Thinking-phase duration (ms) recorded for this assistant message. */
@@ -1807,6 +1809,7 @@ export type ScheduledTaskRecordInput = Omit<ScheduledTaskRecord, "history">;
 
 export type ResponsesApiMessage = {
   role: "user" | "assistant" | "system" | "developer" | "tool";
+  origin?: MessageOrigin;
   content: string;
   toolResultsJson?: string;
   /** Serialized assistant tool calls, replayed by stateless tool loops. */
@@ -1882,6 +1885,8 @@ export type ResponsesApiRequest = {
    * stateless side channel (web search / file search / file read).
    */
   allowedToolsJson?: string;
+  /** 会话级插件激活集合（`@@plugin` chip 的插件 id，JSON 数组）。 */
+  pluginToolIdsJson?: string;
 };
 
 export type TokenUsage = {
@@ -1919,6 +1924,7 @@ export type ManualToolExchangeRequest = {
   checkpointId?: string;
   messages: {
     role: "user" | "tool";
+    origin?: MessageOrigin;
     content: string;
     toolResultsJson?: string;
   }[];
@@ -1991,8 +1997,10 @@ export type SkillDefinition = {
   id: string;
   name: string;
   description: string;
-  location: "project" | "global";
-  source: "snow" | "agents";
+  /** `plugin` = 由工具插件 `skills` 贡献点提供，启停跟随插件。 */
+  location: "project" | "global" | "plugin";
+  /** `plugin:<pluginId>` = 插件技能。 */
+  source: "snow" | "agents" | `plugin:${string}`;
   path: string;
   allowedTools?: string[];
   enabled: boolean;
@@ -3364,6 +3372,7 @@ export type NativeBridge = ImageGenerationNativeApi & {
   setCheckpointRemoteCallback: (
     callback: ((command: RemoteWorkspaceCommand) => Promise<string>) | null,
   ) => void;
+  releaseModelRequest: (streamId: string) => Promise<void>;
   callMcpTool: (
     toolFullName: string,
     argsJson: string,
@@ -3382,6 +3391,7 @@ export type NativeBridge = ImageGenerationNativeApi & {
     onTerminalCommand: (command: TerminalCommand) => Promise<string>,
     subAgentAllowedTools: string[] | undefined,
     conversationId: string | undefined,
+    modelRequestId?: string,
   ) => Promise<string>;
   engineInfo: () => string;
   sum: (a: number, b: number) => number;
@@ -4094,6 +4104,16 @@ export type NativeBridge = ImageGenerationNativeApi & {
   // ── 应用插件 ────────────────────────────────────────────────────────
   /** 列出全部已安装插件 */
   listPlugins: () => Promise<PluginRecord[]>;
+  /** 发现已启用工具插件的工具清单（按项目作用域，不受会话 `@` 门控） */
+  listPluginTools: (projectId?: string) => Promise<PluginToolServerInfo[]>;
+  /** 读取项目级插件作用域（JSON 字符串） */
+  getPluginsProjectScope: (projectId: string) => Promise<string>;
+  /** 设置某插件在某项目内的可用状态 */
+  setPluginsProjectPluginEnabled: (
+    projectId: string,
+    pluginId: string,
+    enabled: boolean,
+  ) => Promise<void>;
   /** 从本地目录安装（或更新）插件，返回插件记录 */
   installPlugin: (sourceDir: string) => Promise<PluginRecord>;
   /** 拉取插件市场索引 JSON（forceRefresh 为 true 时跳过 Rust 侧缓存） */
@@ -4302,6 +4322,22 @@ export type UserscriptValue = {
 };
 
 // ── 应用插件 ──────────────────────────────────────────────────────────
+
+/** 工具插件的一个工具（名称 / 描述）。 */
+export type PluginToolInfo = {
+  name: string;
+  originalName: string;
+  description: string;
+};
+
+/** 工具插件的一个 MCP 服务器及其工具清单（按项目作用域发现）。 */
+export type PluginToolServerInfo = {
+  pluginId: string;
+  serverName: string;
+  publicServerName: string;
+  tools: PluginToolInfo[];
+  error?: string | null;
+};
 
 /** 插件完整记录（名称与描述为 JSON 字符串，形如 {"default":"...","zh-CN":"..."}）。 */
 export type PluginRecord = {

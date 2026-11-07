@@ -793,13 +793,16 @@ pub(super) async fn collect_streaming_response_ws(
     api_key: &str,
     custom_headers: &HashMap<String, String>,
     payload: Value,
+    tool_guard: &crate::api::plugin_tool_guard::PluginToolGuard,
     on_chunk: StreamSink<'_>,
     cancel_token: &CancellationToken,
     retry_options: &RetryOptions,
     stream_idle_timeout_sec: u64,
 ) -> Result<StreamingResponseResult> {
     let pool_key = build_pool_key(endpoint, api_key, custom_headers);
-    let frame_json = build_create_frame(&payload)?.to_string();
+    let frame = build_create_frame(&payload)?;
+    tool_guard.validate(&frame)?;
+    let frame_json = frame.to_string();
     let failure_retry_safe = request_allows_failure_retry(&payload);
     let mut attempt: u32 = 0;
     let mut progress = StreamProgress::new();

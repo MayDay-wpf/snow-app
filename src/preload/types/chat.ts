@@ -1,4 +1,8 @@
-import type { StreamInterruptionReason, StreamRecoveryOutcome } from "./api";
+import type {
+  MessageOrigin,
+  StreamInterruptionReason,
+  StreamRecoveryOutcome,
+} from "./api";
 
 export type ChatConversationRecord = {
   conversationId: string;
@@ -64,6 +68,7 @@ export type ConversationSearchResult = {
 export type ChatMessageRecord = {
   id: string;
   role: string;
+  origin: MessageOrigin;
   content: string;
   thinking: string;
   /** Thinking-phase duration (ms) recorded for this assistant message. */

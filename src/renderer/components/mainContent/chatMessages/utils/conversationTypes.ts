@@ -205,6 +205,7 @@ export type ToolCallInfo = {
 export type ChatConversationMessage = {
   id: string;
   role: "user" | "assistant" | "tool";
+  origin?: "user" | "internal" | "unknown";
   content: string;
   thinking?: string;
   /** Thinking-phase duration (ms) for this message, measured by the Rust
@@ -440,7 +441,11 @@ export type ConversationSessionRef = {
   isSending: boolean;
   /** Captured configuration and user instructions belonging to the active run. */
   activeSendOptions?: ChatInputSendOptions;
-  activeTaskMessages?: { role: "user"; content: string }[];
+  activeTaskMessages?: {
+    role: "user";
+    content: string;
+    origin?: "user" | "internal" | "unknown";
+  }[];
   isAbortRequested: boolean;
   /**
    * Generation counter incremented on every handleSendMessage and
@@ -550,7 +555,11 @@ export type CompactionResult = {
    * 压缩前最后一条非压缩用户消息（任务原文）。自动压缩后与 handoff
    * 一起在恢复请求中重新注入，防止 AI 因摘要丢失任务/TODO 状态而忘记任务。
    */
-  protectedMessages?: { role: "user"; content: string }[];
+  protectedMessages?: {
+    role: "user";
+    content: string;
+    origin?: "user" | "internal" | "unknown";
+  }[];
 };
 
 export type RollbackPreview = {

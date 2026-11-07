@@ -673,7 +673,7 @@ export const useChatInputController = ({
       : profileResponsesFastMode;
 
   const handleSend = useCallback(
-    (deliveryMode?: BusySendBehavior) => {
+    (deliveryMode?: BusySendBehavior, origin: "user" | "internal" = "user") => {
       const trimmed = value.trim();
       if (!trimmed) {
         return;
@@ -690,6 +690,7 @@ export const useChatInputController = ({
       // created conversation to this provider; for existing conversations the
       // binding is already persisted and the backend resolves it automatically.
       onSend?.(trimmed, {
+        origin,
         deliveryMode:
           isStreaming || isAborting
             ? (deliveryMode ?? busySendBehavior)
@@ -764,7 +765,7 @@ export const useChatInputController = ({
         restoreContent(text);
       }
       window.setTimeout(() => {
-        sendRef.current("queue");
+        sendRef.current("queue", "internal");
       }, 0);
     };
     window.addEventListener(PLUGIN_INSERT_INPUT_TEXT_EVENT, insertHandler);

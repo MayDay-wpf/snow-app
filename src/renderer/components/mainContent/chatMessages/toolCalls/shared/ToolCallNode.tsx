@@ -1,6 +1,10 @@
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../../../../../i18n";
+import { resolveLocalized } from "../../../../../plugins/manifest";
+import { usePluginStore } from "../../../../../plugins/pluginStore";
+import { usePluginToolOwner } from "../../../../../plugins/pluginToolIndex";
+import { PluginIcon } from "../../../../common/PluginIcon";
 import { resolveToolDisplayName } from "./toolDisplayName";
 import type { ToolCategory } from "./ToolNameBadge";
 import { ToolNameBadge } from "./ToolNameBadge";
@@ -8,6 +12,8 @@ import { ToolNameBadge } from "./ToolNameBadge";
 type ToolCallNodeProps = {
   /** Raw MCP tool name (e.g. "filesystem-read") or short name. */
   toolName: string;
+  /** 已由技能来源元数据确认的插件归属。 */
+  sourcePluginId?: string;
   /** Badge display name (e.g. "read", "edit"). Falls back to parsed short name. */
   badgeName?: string;
   /** Badge category. Inferred from toolName if omitted. */
@@ -37,6 +43,7 @@ type ToolCallNodeProps = {
 
 export const ToolCallNode = ({
   toolName,
+  sourcePluginId,
   badgeName,
   category,
   displayName,
@@ -49,7 +56,15 @@ export const ToolCallNode = ({
   lazyBody,
   children,
 }: ToolCallNodeProps): React.JSX.Element => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  // 技能使用宿主返回的来源；普通工具继续按工具全名反查归属。
+  const toolOwnerPluginId = usePluginToolOwner(toolName);
+  const ownerPluginId = sourcePluginId ?? toolOwnerPluginId;
+  const plugins = usePluginStore();
+  const ownerPlugin = ownerPluginId
+    ? (plugins.plugins.find((plugin) => plugin.pluginId === ownerPluginId) ??
+      null)
+    : null;
   const [isOpen, setIsOpen] = useState(defaultOpen);
   // 收起动画进行中：保留 open 直到退场动画结束，再真正折叠
   const [isClosing, setIsClosing] = useState(false);
@@ -120,6 +135,27 @@ export const ToolCallNode = ({
     >
       <summary className="tcn-header" onClick={handleSummaryClick}>
         <span className={`tcn-dot ${dotClass}`} aria-hidden="true" />
+        {ownerPlugin && (
+          <span
+            className="tool-call-plugin-origin"
+            title={
+              ownerPlugin.description
+                ? `${ownerPlugin.pluginId}\n${resolveLocalized(ownerPlugin.description, locale) || ""}`.trim()
+                : ownerPlugin.pluginId
+            }
+          >
+            <PluginIcon
+              icon={ownerPlugin.icon}
+              pluginId={ownerPlugin.pluginId}
+              size={12}
+              className="tool-call-plugin-origin-icon"
+            />
+            <span className="tool-call-plugin-origin-name">
+              {resolveLocalized(ownerPlugin.name, locale) ||
+                ownerPlugin.pluginId}
+            </span>
+          </span>
+        )}
         <ToolNameBadge name={resolvedBadgeName} category={category} />
         {displayName ? (
           <>

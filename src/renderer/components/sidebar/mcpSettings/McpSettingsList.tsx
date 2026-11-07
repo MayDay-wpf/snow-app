@@ -19,6 +19,9 @@ export type McpSettingsListItem = {
   globalEnabled: boolean;
   detail: string;
   canManage: boolean;
+  /** 由项目内有效启用的工具插件派生，不提供独立启停。 */
+  automatic?: boolean;
+  unavailableReason?: string;
 };
 
 const formatToolSchema = (inputSchemaJson: string): string => {
@@ -112,20 +115,26 @@ export function McpSettingsList({
         ) : (
           servers.map((server) => {
             const globallyUnavailable = !server.globalEnabled;
-            const activeLabel = globallyUnavailable
-              ? t("settings.mcpGloballyDisabled", {
-                  defaultValue: "Disabled in global scope",
-                })
-              : server.enabled
-                ? t("settings.mcpDisableServer", { defaultValue: "Disable" })
-                : t("settings.mcpEnableServer", { defaultValue: "Enable" });
-            const activeStateLabel = globallyUnavailable
-              ? t("settings.mcpGlobalDisabledShort", {
-                  defaultValue: "Global off",
-                })
-              : server.enabled
-                ? t("settings.active", { defaultValue: "Active" })
-                : t("settings.inactive", { defaultValue: "Inactive" });
+            const unavailable =
+              globallyUnavailable || !!server.unavailableReason;
+            const activeLabel = server.unavailableReason
+              ? server.unavailableReason
+              : globallyUnavailable
+                ? t("settings.mcpGloballyDisabled", {
+                    defaultValue: "Disabled in global scope",
+                  })
+                : server.enabled
+                  ? t("settings.mcpDisableServer", { defaultValue: "Disable" })
+                  : t("settings.mcpEnableServer", { defaultValue: "Enable" });
+            const activeStateLabel = server.unavailableReason
+              ? t("settings.inactive", { defaultValue: "Inactive" })
+              : globallyUnavailable
+                ? t("settings.mcpGlobalDisabledShort", {
+                    defaultValue: "Global off",
+                  })
+                : server.enabled
+                  ? t("settings.active", { defaultValue: "Active" })
+                  : t("settings.inactive", { defaultValue: "Inactive" });
             const isFetchingTools = fetchingToolServerIds.has(server.serverId);
             const tools = toolsByServerId[server.serverId];
             const toolCount = tools?.length;
@@ -148,25 +157,31 @@ export function McpSettingsList({
               <div
                 key={server.serverId}
                 className={`system-prompt-item ${
-                  server.enabled && server.globalEnabled ? "active" : ""
+                  server.enabled && !unavailable ? "active" : ""
                 }`}
               >
                 <div className="system-prompt-item-main">
-                  <label
-                    className="toggle-switch system-prompt-switch"
-                    aria-label={activeLabel}
-                    title={activeLabel}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={server.enabled && !globallyUnavailable}
-                      onChange={() => onToggleEnabled(server)}
-                      disabled={isBusy || globallyUnavailable}
-                      hidden
-                    />
-                    <span className="toggle-slider" />
-                    <span>{activeStateLabel}</span>
-                  </label>
+                  {server.automatic ? (
+                    <span className="system-prompt-switch">
+                      <span>{activeStateLabel}</span>
+                    </span>
+                  ) : (
+                    <label
+                      className="toggle-switch system-prompt-switch"
+                      aria-label={activeLabel}
+                      title={activeLabel}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={server.enabled && !unavailable}
+                        onChange={() => onToggleEnabled(server)}
+                        disabled={isBusy || unavailable}
+                        hidden
+                      />
+                      <span className="toggle-slider" />
+                      <span>{activeStateLabel}</span>
+                    </label>
+                  )}
                   <div className="system-prompt-item-info">
                     <strong>{server.name}</strong>
                     <span title={server.detail}>{server.detail || "-"}</span>
@@ -251,32 +266,30 @@ export function McpSettingsList({
                           </button>
                         )}
                       </div>
-                      <div className="mcp-server-expanded-bulk">
-                        <button
-                          type="button"
-                          className="api-settings-form-btn secondary compact"
-                          onClick={() => onToggleAllTools(server, true)}
-                          disabled={
-                            isBusy || !server.enabled || globallyUnavailable
-                          }
-                        >
-                          {t("settings.mcpToolsEnableAll", {
-                            defaultValue: "Enable all",
-                          })}
-                        </button>
-                        <button
-                          type="button"
-                          className="api-settings-form-btn secondary compact"
-                          onClick={() => onToggleAllTools(server, false)}
-                          disabled={
-                            isBusy || !server.enabled || globallyUnavailable
-                          }
-                        >
-                          {t("settings.mcpToolsDisableAll", {
-                            defaultValue: "Disable all",
-                          })}
-                        </button>
-                      </div>
+                      {!server.automatic ? (
+                        <div className="mcp-server-expanded-bulk">
+                          <button
+                            type="button"
+                            className="api-settings-form-btn secondary compact"
+                            onClick={() => onToggleAllTools(server, true)}
+                            disabled={isBusy || !server.enabled || unavailable}
+                          >
+                            {t("settings.mcpToolsEnableAll", {
+                              defaultValue: "Enable all",
+                            })}
+                          </button>
+                          <button
+                            type="button"
+                            className="api-settings-form-btn secondary compact"
+                            onClick={() => onToggleAllTools(server, false)}
+                            disabled={isBusy || !server.enabled || unavailable}
+                          >
+                            {t("settings.mcpToolsDisableAll", {
+                              defaultValue: "Disable all",
+                            })}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     {isFetchingTools ? (
@@ -304,18 +317,20 @@ export function McpSettingsList({
                             ) ?? false;
                           const toolGloballyDisabled =
                             tool.globalEnabled === false;
-                          const toolToggleLabel = toolGloballyDisabled
-                            ? t("settings.mcpToolGlobalDisabled", {
-                                defaultValue:
-                                  "Disabled in global settings; the project toggle cannot override it.",
-                              })
-                            : tool.enabled
-                              ? t("settings.mcpToolDisable", {
-                                  defaultValue: "Disable tool",
+                          const toolToggleLabel =
+                            server.unavailableReason ??
+                            (toolGloballyDisabled
+                              ? t("settings.mcpToolGlobalDisabled", {
+                                  defaultValue:
+                                    "Disabled in global settings; the project toggle cannot override it.",
                                 })
-                              : t("settings.mcpToolEnable", {
-                                  defaultValue: "Enable tool",
-                                });
+                              : tool.enabled
+                                ? t("settings.mcpToolDisable", {
+                                    defaultValue: "Disable tool",
+                                  })
+                                : t("settings.mcpToolEnable", {
+                                    defaultValue: "Enable tool",
+                                  }));
                           const detailsLabel = isToolExpanded
                             ? t("settings.mcpToolDetailsCollapse", {
                                 defaultValue: "Collapse details",
@@ -348,31 +363,35 @@ export function McpSettingsList({
                                   className="mcp-tool-row-chevron"
                                 />
                               </button>
-                              <label
-                                className="toggle-switch"
-                                aria-label={toolToggleLabel}
-                                title={toolToggleLabel}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={tool.enabled}
-                                  disabled={
-                                    isBusy ||
-                                    !server.globalEnabled ||
-                                    !server.enabled ||
-                                    toolGloballyDisabled
-                                  }
-                                  hidden
-                                  onChange={(event) =>
-                                    onToggleTool(
-                                      server,
-                                      tool,
-                                      event.target.checked,
-                                    )
-                                  }
-                                />
-                                <span className="toggle-slider" />
-                              </label>
+                              {!server.automatic ? (
+                                <label
+                                  className="toggle-switch"
+                                  aria-label={toolToggleLabel}
+                                  title={toolToggleLabel}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      tool.enabled && !server.unavailableReason
+                                    }
+                                    disabled={
+                                      isBusy ||
+                                      unavailable ||
+                                      !server.enabled ||
+                                      toolGloballyDisabled
+                                    }
+                                    hidden
+                                    onChange={(event) =>
+                                      onToggleTool(
+                                        server,
+                                        tool,
+                                        event.target.checked,
+                                      )
+                                    }
+                                  />
+                                  <span className="toggle-slider" />
+                                </label>
+                              ) : null}
                               {isToolExpanded && (
                                 <div className="mcp-tool-row-details">
                                   {tool.description ? (

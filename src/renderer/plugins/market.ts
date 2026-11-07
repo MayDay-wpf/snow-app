@@ -1,16 +1,16 @@
 import { imageProxyUrl } from "../utils/imageProxyUrl";
 import type { PluginLocalizedMap } from "./types";
 
-/** 市场分类：面板插件 / 脚本插件 / OAuth 登录插件。 */
-export type MarketCategory = "panel" | "script" | "oauth";
+/** 市场分类：面板插件 / 工具插件 / 脚本插件 / OAuth 登录插件。 */
+export type MarketCategory = "panel" | "tool" | "script" | "oauth";
 
-/** 市场标签页：三个官方分类 + 社区通道（GitHub `snow-plugins` 主题检索）。 */
+/** 市场标签页：四个官方分类 + 社区通道（GitHub `snow-plugins` 主题检索）。 */
 export type MarketTab = MarketCategory | "community";
 
 /** 市场条目的结构化字段（与市场索引仓库 registry.json 对应）。 */
 export type MarketPluginEntry = {
   id: string;
-  /** 安装通道：OAuth 插件仍按 plugin 安装。 */
+  /** 安装通道：工具插件与 OAuth 插件都按 plugin 安装，只有脚本条目走单独通道。 */
   kind: "plugin" | "script";
   category: MarketCategory;
   name: PluginLocalizedMap;
@@ -129,7 +129,7 @@ const normalizeRepoUrl = (value: string): string =>
     .replace(/\.git$/i, "")
     .replace(/\/+$/, "");
 
-/** 分类：kind=script 为脚本；kind=oauth 或带 oauth 标签为 OAuth 插件。 */
+/** 分类：kind=script 为脚本；kind=oauth 或带 oauth 标签为 OAuth 插件；kind=tool 或带 tool 标签为工具插件。 */
 const resolveMarketCategory = (
   rawKind: unknown,
   tags: string[],
@@ -142,6 +142,9 @@ const resolveMarketCategory = (
     tags.some((tag) => tag.toLowerCase() === "oauth")
   ) {
     return "oauth";
+  }
+  if (rawKind === "tool" || tags.some((tag) => tag.toLowerCase() === "tool")) {
+    return "tool";
   }
   return "panel";
 };
@@ -339,6 +342,11 @@ export type CommunityPluginEntry = {
   /** 最新 Release 的发布时间（ISO 字符串）。 */
   releasedAt: string;
   /**
+   * 仓库默认分支 `plugin.json` 声明的 `kind`（`tool` / `oauth` / `plugin`）；
+   * 空串表示未声明、没有清单或读取失败。
+   */
+  kind: string;
+  /**
    * 仓库默认分支 `plugin.json` 声明的 `icon`（已由 Rust 侧归一化：
    * `lucide:Name` / `http(s)` / `data:image` 原样，插件内相对路径展开为仓库
    * raw 地址）；空串表示未声明或读取失败，界面回退占位图标。
@@ -385,6 +393,7 @@ export const parseCommunitySearch = (text: string): CommunitySearchResult => {
     if (!id || !GITHUB_REPO_PATTERN.test(repo)) {
       continue;
     }
+    const kind = asTrimmedString(raw.kind).toLowerCase();
     items.push({
       id,
       repo,
@@ -403,6 +412,8 @@ export const parseCommunitySearch = (text: string): CommunitySearchResult => {
       releaseTag: asTrimmedString(raw.releaseTag),
       releaseUrl: asTrimmedString(raw.releaseUrl),
       releasedAt: asTrimmedString(raw.releasedAt),
+      kind:
+        kind === "tool" || kind === "oauth" || kind === "plugin" ? kind : "",
       icon: asTrimmedString(raw.icon),
     });
   }

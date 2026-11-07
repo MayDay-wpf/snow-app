@@ -34,7 +34,7 @@ use crate::storage::services::app_logs::{
     maybe_log_api_response_for_conversation,
 };
 use crate::storage::services::chat_conversations::{
-    store_chat_exchange, ChatContextMessage, StoreChatExchangeInput,
+    store_chat_exchange, StoreChatExchangeInput,
 };
 use crate::storage::ApiConfigRecord;
 
@@ -99,16 +99,13 @@ async fn create_anthropic_response_async(
     let request_messages = request
         .messages
         .iter()
-        .map(|message| ChatContextMessage {
-            role: message.role.clone(),
-            content: message.content.clone(),
-            tool_calls_json: message.tool_calls_json.clone(),
-            tool_results_json: message.tool_results_json.clone(),
-            thinking: message.thinking.clone(),
-            thinking_blocks_json: message.thinking_blocks_json.clone(),
-        })
-        .collect::<Vec<_>>();
+        .map(|message| message.to_context_message())
+        .collect::<Result<Vec<_>>>()?;
     // Collect once, before prompt generation; providers serialize this same snapshot.
+    let plugin_tool_configuration = crate::api::plugin_tool_guard::PluginToolGuard::configuration(
+        request.directory_id.as_deref(),
+    )
+    .await?;
     let allowed_tools = resolve_request_tools_optional(&request).await?;
     let prepared_request = prepare_context_request(ConversationContextRequest {
         allowed_tools: allowed_tools.as_deref().unwrap_or_default(),
@@ -173,6 +170,13 @@ async fn create_anthropic_response_async(
         &prepared_request.user_system_prompts,
         &prepared_request.host_system_prompts,
     )?;
+    let tool_guard = crate::api::plugin_tool_guard::PluginToolGuard::capture(
+        crate::api::plugin_tool_guard::Protocol::Anthropic,
+        request.directory_id.as_deref(),
+        plugin_tool_configuration,
+        &payload,
+    )
+    .await?;
     let (endpoint, payload) = crate::api::oauth::plugin::transform_request(
         &api_config,
         "anthropic",
@@ -208,6 +212,7 @@ async fn create_anthropic_response_async(
         api_key,
         &custom_headers,
         payload,
+        &tool_guard,
         on_chunk,
         &cancel_token,
         &retry_options,

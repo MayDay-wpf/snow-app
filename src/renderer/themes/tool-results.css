@@ -226,3 +226,183 @@
   outline: 2px solid var(--accent-color);
   outline-offset: 2px;
 }
+
+/* Plugin discovery: readable tool records instead of raw protocol fields. */
+.tool-search-result {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tool-search-count {
+  color: var(--accent-color);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tool-search-tools {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.tool-search-tool {
+  min-width: 0;
+  padding: 12px 14px;
+  transition: background 120ms ease;
+}
+
+.tool-search-tool + .tool-search-tool {
+  border-top: 1px solid var(--border-color);
+}
+
+.tool-search-tool:hover {
+  background: var(--bg-hover);
+}
+
+.tool-search-tool-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-search-tool-icon {
+  flex: 0 0 auto;
+  color: var(--accent-color);
+}
+
+.tool-search-tool-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.tool-search-server {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 9%, transparent);
+  color: var(--accent-color);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tool-search-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tool-search-copy:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.tool-search-copy:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.tool-search-copy-error {
+  color: var(--accent-red-text);
+}
+
+.tool-search-description {
+  margin: 6px 0 0 22px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.tool-search-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.tool-search-failures {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent-red-text) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--accent-red-text);
+}
+
+.tool-search-failures-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--accent-red-text) 7%, transparent);
+  font-size: 12px;
+}
+
+.tool-search-failure {
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.tool-search-failure p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tool-search-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.tool-search-meta:empty {
+  display: none;
+}
+
+.tool-search-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.tool-search-hint svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .tool-search-copy {
+    margin-left: 22px;
+  }
+}

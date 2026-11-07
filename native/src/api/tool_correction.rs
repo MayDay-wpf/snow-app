@@ -146,6 +146,7 @@ async fn request_correction_text(
     let mut correction_messages = vec![
         ResponsesApiMessage {
             role: "system".to_string(),
+            origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
             content: CORRECTION_SYSTEM_PROMPT.to_string(),
             tool_results_json: None,
             thinking: None,
@@ -154,6 +155,7 @@ async fn request_correction_text(
         },
         ResponsesApiMessage {
             role: "user".to_string(),
+            origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
             content: user_content.to_string(),
             tool_results_json: None,
             thinking: None,
@@ -197,6 +199,7 @@ async fn request_correction_text(
         execution_workspace_root: None,
         worktree_id: None,
         allowed_tools_json: None,
+        plugin_tool_ids_json: None,
     };
 
     let method = api_config.request_method.clone();

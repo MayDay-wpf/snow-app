@@ -13,6 +13,8 @@ export type PluginToolCallContext = Readonly<{
   messageId?: string;
   toolCall: Readonly<{
     name: string;
+    /** Complete manifest tool name for tool plugins; never truncated by the public-name limit. */
+    originalToolName?: string;
     arguments: string;
     interactionId: string;
     status: "pending" | "running" | "completed" | "error";

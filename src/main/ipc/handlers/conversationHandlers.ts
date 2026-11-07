@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { basename } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { NativeBridge } from "../../native/types";
+import type { MessageOrigin } from "../../../preload/types/api";
 import { snowLog } from "../../../utils/snowLogger";
 import { safeSend } from "../../utils/safeSend";
 import { registerSubAgentRunHost } from "../../subAgents/subAgentRunHost";
@@ -279,6 +280,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
           value: unknown,
         ): {
           role: "user" | "tool";
+          origin?: MessageOrigin;
           content: string;
           toolResultsJson?: string;
         } => {
@@ -295,8 +297,17 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
           ) {
             throw new Error("Invalid manual exchange message");
           }
+          if (
+            message.origin !== undefined &&
+            message.origin !== "user" &&
+            message.origin !== "internal" &&
+            message.origin !== "unknown"
+          ) {
+            throw new Error("Invalid chat message origin");
+          }
           return {
             role: message.role,
+            origin: message.origin,
             content: message.content,
             toolResultsJson: message.toolResultsJson,
           };
