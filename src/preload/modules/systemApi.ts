@@ -16,8 +16,14 @@ import { callMcpTool } from "./mcpToolStream";
 import {
   isNotificationConversationTarget,
   type AppNotificationOptions,
+  type AppNotificationResult,
   type NotificationConversationTarget,
+  type NotificationSoundPreset,
 } from "../../shared/notification";
+import {
+  playNotificationSound,
+  previewNotificationSound as playNotificationSoundPreview,
+} from "./notificationSound";
 import type {
   BrowserCommandRequest,
   BrowserCommandResponse,
@@ -1434,8 +1440,24 @@ export const systemApi = {
     ipcRenderer.invoke("debug:write-log", level, entry),
   sum: (a: number, b: number): Promise<number> =>
     ipcRenderer.invoke("native:sum", a, b),
-  showNotification: (options: AppNotificationOptions): Promise<void> =>
-    ipcRenderer.invoke("notification:show", options),
+  showNotification: async (
+    options: AppNotificationOptions,
+  ): Promise<AppNotificationResult> => {
+    const result: AppNotificationResult | undefined = await ipcRenderer.invoke(
+      "notification:show",
+      options,
+    );
+    const sound = result?.sound;
+    if (sound) {
+      // 提示音播放不阻塞通知调用；失败只影响声音，不影响通知本身。
+      void playNotificationSound(sound).catch(() => undefined);
+    }
+    return result ?? { shown: false, sound: null };
+  },
+  previewNotificationSound: (
+    preset: NotificationSoundPreset,
+    customSoundPath?: string,
+  ): Promise<void> => playNotificationSoundPreview(preset, customSoundPath),
   onNotificationActivated: (
     callback: (target: NotificationConversationTarget) => void,
   ): (() => void) => {

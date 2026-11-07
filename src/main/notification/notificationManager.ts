@@ -1,11 +1,15 @@
 import { app, BrowserWindow, Notification } from "electron";
 import type {
   AppNotificationOptions,
+  AppNotificationResult,
+  AppNotificationSound,
   NotificationConversationTarget,
+  NotificationSettings,
 } from "../../shared/notification";
 import { APP_ICON_PATH, isMacOS, isWindows } from "../app/constants";
 import { createWindow, getMainWindow } from "../app/mainWindow";
 import { safeSend } from "../utils/safeSend";
+import { readNotificationSettings } from "./notificationSettings";
 
 /**
  * 跨平台系统通知模块。
@@ -16,9 +20,10 @@ import { safeSend } from "../utils/safeSend";
  * - Linux: libnotify / freedesktop.org 通知规范
  *
  * 本模块在此基础上增加：
- * 1. 窗口聚焦检测 — 用户正在看应用时不弹通知，避免打扰
- * 2. 不支持通知时的 fallback — 闪烁任务栏 (Windows) / Dock bounce (macOS)
- * 3. 通知点击后恢复准确来源窗口并发送激活目标
+ * 1. 窗口聚焦检测 — 默认用户正在看应用时不弹通知（可在设置里改为始终通知）
+ * 2. 提示音解析 — 系统默认 / 内置提示音 / 自定义 MP3，交由渲染进程播放
+ * 3. 不支持通知时的 fallback — 闪烁任务栏 (Windows) / Dock bounce (macOS)
+ * 4. 通知点击后恢复准确来源窗口并发送激活目标
  */
 
 const MAX_RETAINED_NOTIFICATIONS = 100;
@@ -179,20 +184,56 @@ const activateSourceWindow = async (
   }
 };
 
-export const showAppNotification = (
+/**
+ * 解析应用内需要播放的提示音。
+ *
+ * 系统默认音效由系统通知自带，静音则两者都不播放；
+ * 只有内置音效 / 自定义 MP3 才需要渲染进程配合播放。
+ */
+const resolveAppSound = (
+  settings: NotificationSettings,
+  options: AppNotificationOptions,
+): AppNotificationSound | null => {
+  if (options.silent) {
+    return null;
+  }
+
+  switch (settings.sound) {
+    case "custom":
+      return settings.customSoundPath
+        ? { kind: "custom", path: settings.customSoundPath }
+        : null;
+    case "system":
+    case "none":
+      return null;
+    default:
+      return { kind: "preset", preset: settings.sound };
+  }
+};
+
+export const showAppNotification = async (
   options: AppNotificationOptions,
   sourceWindow: BrowserWindow,
-): void => {
-  // 窗口已聚焦时用户能直接看到 UI，不需要系统通知（显式开启的除外）
-  if (!options.ignoreFocus && isAnyWindowFocused()) {
-    return;
+): Promise<AppNotificationResult> => {
+  const settings = await readNotificationSettings();
+
+  // 窗口已聚焦时用户能直接看到 UI，默认不弹通知；设置里可改为始终通知。
+  // 显式 ignoreFocus 的通知（例如资源告警）始终保持开启。
+  if (
+    !options.ignoreFocus &&
+    !settings.notifyWhenFocused &&
+    isAnyWindowFocused()
+  ) {
+    return { shown: false, sound: null };
   }
+
+  const sound = resolveAppSound(settings, options);
 
   // 不支持系统通知时的降级方案：仅闪烁任务栏 / bounce dock
   if (!Notification.isSupported()) {
     flashTaskbar(sourceWindow);
     bounceDock();
-    return;
+    return { shown: true, sound };
   }
 
   // macOS 通知左上角的发送方图标由系统从进程 bundle 自动读取，
@@ -204,7 +245,8 @@ export const showAppNotification = (
     title: options.title,
     body: options.body,
     ...(isMacOS ? {} : { icon: APP_ICON_PATH }),
-    silent: options.silent ?? false,
+    // 选了内置/自定义提示音时关闭系统音，避免与渲染进程播放的提示音重复。
+    silent: options.silent ?? settings.sound !== "system",
   });
 
   notification.on("click", () => {
@@ -223,4 +265,6 @@ export const showAppNotification = (
   // 额外的注意力信号
   flashTaskbar(sourceWindow);
   bounceDock();
+
+  return { shown: true, sound };
 };

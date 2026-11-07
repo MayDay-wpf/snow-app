@@ -15410,16 +15410,6 @@ img.tcg-plugin-icon {
   overflow: hidden;
 }
 
-.tcg-list::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 10px;
-  width: var(--tcn-line-width, 1.5px);
-  background: var(--border-light);
-}
-
 /* 新工具卡片依次浮现：交错延迟让批量出现的卡片有节奏感，
    最迟一张也在 0.18s 淡入 + 0.2s 延迟内完成，整体不拖沓。 */
 .tcg-list > .tcn:nth-child(2) {
@@ -36886,7 +36876,9 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 8px 12px;
+  /* 顶部留白交给外层的 .git-panel-changes（10px），与任务管理器面板
+     的顶部间距一致；这里再加 8px 会让 tab 栏下方出现一条过宽的空白 */
+  padding: 0 12px 8px;
   flex-wrap: wrap;
   row-gap: 6px;
 }

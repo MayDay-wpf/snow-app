@@ -16,6 +16,7 @@ import {
   Info,
   LoaderCircle,
   LockKeyhole,
+  Music,
   Recycle,
   RefreshCw,
   RotateCcw,
@@ -26,6 +27,7 @@ import {
   ShieldCheck,
   Terminal,
   Trash2,
+  Volume2,
   Wrench,
   X,
 } from "lucide-react";
@@ -89,6 +91,15 @@ import type {
   StorageLocations,
   UpdateStatus,
 } from "../../../preload";
+import {
+  NOTIFICATION_SETTINGS_CODE,
+  NOTIFICATION_SETTINGS_NAME,
+  NOTIFICATION_SOUND_PRESETS,
+  normalizeNotificationSound,
+  parseNotificationSettings,
+  type NotificationSettings,
+  type NotificationSoundPreset,
+} from "../../../shared/notification";
 
 const INITIAL_UPDATE_STATUS: UpdateStatus = {
   available: false,
@@ -364,6 +375,24 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
 };
 
+/** 取文件路径的文件名（跨平台字符串处理，避免在渲染层引入 node:path）。 */
+const fileNameOf = (filePath: string): string =>
+  filePath.replace(/^.*[\\/]/, "");
+
+/** 通知提示音选项的文案 key */
+const NOTIFICATION_SOUND_LABELS: Record<
+  NotificationSoundPreset,
+  { key: string; fallback: string }
+> = {
+  system: { key: "settings.notificationSoundSystem", fallback: "系统默认" },
+  chime: { key: "settings.notificationSoundChime", fallback: "清脆铃音" },
+  bell: { key: "settings.notificationSoundBell", fallback: "悠远钟声" },
+  pop: { key: "settings.notificationSoundPop", fallback: "轻快点按" },
+  wood: { key: "settings.notificationSoundWood", fallback: "木质敲击" },
+  custom: { key: "settings.notificationSoundCustom", fallback: "自定义 MP3" },
+  none: { key: "settings.notificationSoundNone", fallback: "静音" },
+};
+
 export function GeneralSettingsPanel(): React.JSX.Element {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   // 初始 tab 取走外部（侧栏「更新日志」等入口）暂存的目标 tab
@@ -535,6 +564,104 @@ export function GeneralSettingsPanel(): React.JSX.Element {
       )
       .catch(() => undefined);
   };
+
+  // 系统通知：窗口聚焦时是否照常通知 + 提示音（写入系统设置 notification_settings）
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>(() => parseNotificationSettings(null));
+  const [notificationHint, setNotificationHint] = useState("");
+  const [notificationHintError, setNotificationHintError] = useState(false);
+
+  useEffect(() => {
+    window.snow
+      .getSystemSettingValue(NOTIFICATION_SETTINGS_CODE)
+      .then((raw) => setNotificationSettings(parseNotificationSettings(raw)))
+      .catch(() => undefined);
+  }, []);
+
+  /** 保存通知设置：主进程读取该设置决定是否通知以及播放哪种提示音。 */
+  const persistNotificationSettings = (next: NotificationSettings): void => {
+    setNotificationSettings(next);
+    setNotificationHint("");
+    setNotificationHintError(false);
+    void window.snow
+      .setSystemSetting(
+        NOTIFICATION_SETTINGS_NAME,
+        NOTIFICATION_SETTINGS_CODE,
+        JSON.stringify(next),
+      )
+      .then(() => setSessionSettingsSaved(true))
+      .catch(() => {
+        setNotificationHintError(true);
+        setNotificationHint(
+          t("settings.notificationSaveFailed", {
+            defaultValue: "保存通知设置失败",
+          }),
+        );
+      });
+  };
+
+  /** 选择自定义提示音文件（仅接受 .mp3）。 */
+  const handlePickNotificationSound = async (): Promise<void> => {
+    let selection: { path: string; isDirectory: boolean }[] | null = null;
+    try {
+      selection = await window.snow.selectFiles(
+        t("settings.notificationSoundPickTitle", {
+          defaultValue: "选择提示音 MP3",
+        }),
+      );
+    } catch {
+      selection = null;
+    }
+
+    const picked = selection?.find((entry) => !entry.isDirectory);
+    if (!picked) {
+      return;
+    }
+
+    if (!/\.mp3$/i.test(picked.path)) {
+      setNotificationHintError(true);
+      setNotificationHint(
+        t("settings.notificationSoundPickInvalid", {
+          defaultValue: "请选择 .mp3 格式的音频文件",
+        }),
+      );
+      return;
+    }
+
+    persistNotificationSettings({
+      ...notificationSettings,
+      sound: "custom",
+      customSoundPath: picked.path,
+    });
+  };
+
+  const canPreviewNotificationSound =
+    notificationSettings.sound !== "system" &&
+    notificationSettings.sound !== "none" &&
+    (notificationSettings.sound !== "custom" ||
+      notificationSettings.customSoundPath !== "");
+
+  /** 试听当前提示音（系统默认音效与静音没有可试听的内容）。 */
+  const handlePreviewNotificationSound = (): void => {
+    if (!canPreviewNotificationSound) {
+      return;
+    }
+    void window.snow.previewNotificationSound(
+      notificationSettings.sound,
+      notificationSettings.customSoundPath,
+    );
+  };
+
+  const notificationSoundOptions = useMemo(
+    () =>
+      NOTIFICATION_SOUND_PRESETS.map((preset) => ({
+        value: preset,
+        label: t(NOTIFICATION_SOUND_LABELS[preset].key, {
+          defaultValue: NOTIFICATION_SOUND_LABELS[preset].fallback,
+        }),
+      })),
+    [t],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -1537,6 +1664,7 @@ export function GeneralSettingsPanel(): React.JSX.Element {
           repairHint ||
           optimizeHint ||
           cleanupHint ||
+          notificationHint ||
           (sessionSettingsSaved
             ? t("settings.attachContextSaved", { defaultValue: "已保存" })
             : "") ||
@@ -1548,12 +1676,18 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                 })
               : "")
         }
-        tone={storageError || checkHint === "error" ? "error" : "success"}
+        tone={
+          storageError || notificationHintError || checkHint === "error"
+            ? "error"
+            : "success"
+        }
         onDismiss={() => {
           setStorageError("");
           setRepairHint("");
           setOptimizeHint("");
           setCleanupHint("");
+          setNotificationHint("");
+          setNotificationHintError(false);
           setSessionSettingsSaved(false);
           setCheckHint(null);
         }}
@@ -1689,6 +1823,155 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "general" && (
+        <div className="api-settings-manual-form">
+          <div className="api-settings-manual-header">
+            <strong>
+              {t("settings.notificationTitle", { defaultValue: "系统通知" })}
+            </strong>
+            <span>
+              {t("settings.notificationInfo", {
+                defaultValue:
+                  "默认只在窗口失焦时弹出系统通知；可改为始终通知，并选择提示音或使用自定义 MP3。",
+              })}
+            </span>
+          </div>
+
+          <div className="api-settings-form-body">
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.notificationWhenFocused", {
+                  defaultValue: "窗口聚焦时仍然通知",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={notificationSettings.notifyWhenFocused}
+                  onChange={(event) =>
+                    persistNotificationSettings({
+                      ...notificationSettings,
+                      notifyWhenFocused: event.target.checked,
+                    })
+                  }
+                  hidden
+                />
+                <span className="toggle-slider" aria-hidden="true" />
+                <span>
+                  {notificationSettings.notifyWhenFocused
+                    ? t("settings.enabled", { defaultValue: "已启用" })
+                    : t("settings.disabled", { defaultValue: "已关闭" })}
+                </span>
+              </label>
+            </div>
+
+            <div className="settings-about-row">
+              <span className="settings-item-description">
+                {t("settings.notificationSound", { defaultValue: "提示音" })}
+              </span>
+              <div className="settings-close-behavior-select">
+                <CustomSelect
+                  value={notificationSettings.sound}
+                  options={notificationSoundOptions}
+                  onChange={(value) =>
+                    persistNotificationSettings({
+                      ...notificationSettings,
+                      sound: normalizeNotificationSound(value),
+                    })
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                className="general-storage-action"
+                onClick={handlePreviewNotificationSound}
+                disabled={!canPreviewNotificationSound}
+                title={t("settings.notificationSoundPreview", {
+                  defaultValue: "试听",
+                })}
+              >
+                <Volume2 size={11} strokeWidth={1.8} aria-hidden="true" />
+                <span>
+                  {t("settings.notificationSoundPreview", {
+                    defaultValue: "试听",
+                  })}
+                </span>
+              </button>
+            </div>
+
+            {notificationSettings.sound === "custom" && (
+              <div className="general-storage-row">
+                <div className="general-storage-info">
+                  <Music
+                    size={14}
+                    strokeWidth={1.8}
+                    className="general-storage-icon"
+                    aria-hidden="true"
+                  />
+                  <div className="general-storage-text">
+                    <span
+                      className="general-storage-label"
+                      title={notificationSettings.customSoundPath}
+                    >
+                      {notificationSettings.customSoundPath
+                        ? fileNameOf(notificationSettings.customSoundPath)
+                        : t("settings.notificationSoundNoFile", {
+                            defaultValue: "尚未选择 MP3 文件",
+                          })}
+                    </span>
+                    <span className="settings-item-description">
+                      {t("settings.notificationSoundCustomHint", {
+                        defaultValue:
+                          "仅支持 .mp3 文件；路径只保存在本机设置里。",
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="general-storage-actions">
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={() => void handlePickNotificationSound()}
+                    title={t("settings.notificationSoundPick", {
+                      defaultValue: "选择 MP3",
+                    })}
+                  >
+                    <FolderOpen size={11} aria-hidden="true" />
+                    <span>
+                      {t("settings.notificationSoundPick", {
+                        defaultValue: "选择 MP3",
+                      })}
+                    </span>
+                  </button>
+                  {notificationSettings.customSoundPath && (
+                    <button
+                      type="button"
+                      className="general-storage-action"
+                      onClick={() =>
+                        persistNotificationSettings({
+                          ...notificationSettings,
+                          customSoundPath: "",
+                        })
+                      }
+                      title={t("settings.notificationSoundClear", {
+                        defaultValue: "清除",
+                      })}
+                    >
+                      <X size={11} aria-hidden="true" />
+                      <span>
+                        {t("settings.notificationSoundClear", {
+                          defaultValue: "清除",
+                        })}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

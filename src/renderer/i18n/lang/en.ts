@@ -6527,6 +6527,27 @@ export const en = {
   "settings.autoLaunchInfo":
     "Launch Snow App automatically when you sign in to your computer.",
   "settings.autoLaunchEnabled": "Launch at login",
+  "settings.notificationTitle": "System notifications",
+  "settings.notificationInfo":
+    "Notifications only appear while the window is unfocused by default. You can notify even while focused, and pick a notification sound or your own MP3.",
+  "settings.notificationWhenFocused": "Notify even while focused",
+  "settings.notificationSound": "Sound",
+  "settings.notificationSoundSystem": "System default",
+  "settings.notificationSoundChime": "Chime",
+  "settings.notificationSoundBell": "Bell",
+  "settings.notificationSoundPop": "Pop",
+  "settings.notificationSoundWood": "Woodblock",
+  "settings.notificationSoundCustom": "Custom MP3",
+  "settings.notificationSoundNone": "Silent",
+  "settings.notificationSoundPreview": "Preview",
+  "settings.notificationSoundPick": "Choose MP3",
+  "settings.notificationSoundPickTitle": "Select a notification sound",
+  "settings.notificationSoundPickInvalid": "Please choose an .mp3 audio file",
+  "settings.notificationSoundClear": "Clear",
+  "settings.notificationSoundNoFile": "No MP3 file selected",
+  "settings.notificationSoundCustomHint":
+    "MP3 only; the file path stays in your local settings.",
+  "settings.notificationSaveFailed": "Failed to save notification settings",
   "settings.usageSettings": "Usage statistics",
   "settings.usageSettingsInfo":
     "Track token usage across all API calls, including input, output, and cache statistics.",
