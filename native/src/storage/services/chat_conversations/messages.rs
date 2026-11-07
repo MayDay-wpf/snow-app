@@ -926,6 +926,8 @@ pub fn list_user_messages(
                    FROM chat_messages
                   WHERE conversation_id = ?1
                     AND role = 'user'
+                    -- 机器注入的宿主事实消息不进入用户消息导航。
+                    AND content NOT LIKE '## Host Facts%'
                   ORDER BY id ASC",
             )?;
 

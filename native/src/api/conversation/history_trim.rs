@@ -25,10 +25,18 @@ const TODO_COMPLETED_KEEP: usize = 10;
 
 /// 图片按总量预算决定是否老化；TODO 结果精简是确定性变换，不影响缓存稳定。
 pub(super) fn trim_history_for_request(messages: &mut [ChatContextMessage], database_path: &Path) {
+    // 机器注入的宿主事实消息同样是 user 角色，但不是用户轮次：把它们算进图片保护
+    // 窗口会把真正的最近几轮挤出窗口。
     let user_indices: Vec<usize> = messages
         .iter()
         .enumerate()
-        .filter(|(_, message)| message.role.trim() == "user")
+        .filter(|(_, message)| {
+            message.role.trim() == "user"
+                && !message
+                    .content
+                    .trim_start()
+                    .starts_with(super::context::HOST_FACTS_MARKER)
+        })
         .map(|(index, _)| index)
         .collect();
     let image_cutoff = if user_indices.len() > IMAGE_KEEP_USER_TURNS {

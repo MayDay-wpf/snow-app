@@ -39,12 +39,16 @@ pub struct PreparedConversationRequest {
     /// existing ordered builtin/API/child composition in this list; host facts
     /// are always separate and never influence this precedence decision.
     pub user_system_prompts: Vec<String>,
-    /// Request-scoped host facts that are stable for the whole conversation.
-    /// Volatile facts (sub-agent run ledger) must go through the request tail
-    /// instead: providers put this list into the system slot, so any change here
-    /// invalidates the entire cached prompt prefix.
+    /// Request-scoped host facts appended to a provider's system slot. Currently
+    /// unused: volatile host facts are injected as conversation messages instead
+    /// (see the host-facts injection in `prepare_context_request`), so the cached
+    /// prompt prefix keeps extending across status changes.
     pub host_system_prompts: Vec<String>,
 }
+
+/// 机器注入的宿主事实消息首行。内容未变时不重复追加；界面层用同一个首行把这些
+/// 内部消息从消息列表里过滤掉（`conversationHelpers.ts`），改这里必须同步改那里。
+pub(super) const HOST_FACTS_MARKER: &str = "## Host Facts";
 
 /// 子代理与主流程使用同一套「替换 + 降级」：请求档案配置了系统提示词时由它们
 /// 独占系统槽，Snow 内置协议与子代理自身提示词合并为一段返回，由调用方作为
@@ -568,8 +572,8 @@ pub async fn prepare_context_request(
     }
 
     // 随本次请求下发的 system/developer 文本（例如子代理内部续跑指令）只属于
-    // 本次请求：既不写入系统槽（会重写整段缓存前缀），也不落库（会让历史看起来
-    // 已经自带系统提示词，导致内置提示词之后被永久跳过）。
+    // 本次请求：不能按 system 角色落库（会让历史看起来已经自带系统提示词，导致
+    // 内置提示词之后被永久跳过），而是并入下方 role=user 的宿主事实消息一起下发。
     let mut tail_instructions: Vec<String> = Vec::new();
     current_messages.retain(|message| {
         let system_class = matches!(message.role.trim(), "system" | "developer");
@@ -614,8 +618,8 @@ pub async fn prepare_context_request(
     )
     .await;
     // Rebuilt for every actual request (including post-compaction/restart); it is
-    // request-only tail input, never persisted, never an acknowledgement or
-    // task authorization.
+    // injected as host facts with the request, never an acknowledgement or a task
+    // authorization.
     let ledger = super::sub_agent_ledger::context_section(
         request.database_path,
         &conversation_id,
@@ -634,11 +638,8 @@ pub async fn prepare_context_request(
     } else {
         (user_system_prompts, None)
     };
-    // Distinct host context is volatile by design (run status / delivery change on
-    // every transition), so it is emitted as request-only tail input instead of a
-    // system slot block: a system-slot change rewrites the cached prompt prefix and
-    // makes every notification re-create the whole conversation context.
-    let mut trailing_host_input: Vec<String> = ledger.into_iter().collect();
+    // 易变宿主事实也不进系统槽：系统槽一改，下一条请求就会丢掉整段前缀缓存。
+    // 它们随请求一起落库（见下方的宿主事实注入），下一条请求能原样复现这段内容。
     let host_system_prompts: Vec<String> = Vec::new();
 
     // Main conversations retain the existing provider-specific built-in prompt
@@ -680,6 +681,39 @@ pub async fn prepare_context_request(
         );
     }
 
+    // --- 宿主事实注入：作为「随本次请求落库」的内部消息追加 ---
+    // 子代理运行台账随运行状态变化，请求级 system/developer 指令只属于当次请求。
+    // 两者都不能进系统槽（一改就整段前缀失效），也不能作为不进库的请求尾部（下一条
+    // 请求无法复现该结尾，命中数会永久冻结）。作为 current_messages 的一部分，它们
+    // 由 store_chat_exchange 按请求顺序落库，下一条请求能原样复现，缓存继续累积；
+    // 内容没有变化时不再重复追加，避免上下文膨胀。
+    // 压缩/失败重试请求的消息不落库，注入会变成新的请求尾部，因此跳过。
+    let host_facts_persisted = !request.context_compaction && !request.retry_failed_response;
+    if host_facts_persisted {
+        let mut host_facts: Vec<String> = ledger.into_iter().collect();
+        host_facts.extend(tail_instructions);
+        if !host_facts.is_empty() {
+            let content = format!("{HOST_FACTS_MARKER}\n\n{}", host_facts.join("\n\n"));
+            let already_injected = messages
+                .iter()
+                .rev()
+                .find(|message| message.content.trim_start().starts_with(HOST_FACTS_MARKER))
+                .is_some_and(|message| message.content.trim() == content.trim());
+            if !already_injected {
+                current_messages.push(ChatContextMessage {
+                    role: "user".to_string(),
+                    origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL
+                        .to_string(),
+                    content,
+                    tool_calls_json: None,
+                    tool_results_json: None,
+                    thinking: None,
+                    thinking_blocks_json: None,
+                });
+            }
+        }
+    }
+
     // --- Conversation context attachments: 历史会话引用以 `@@conversation:`
     //     标签随用户消息内容进入请求，由各 provider 的 payload 构建层经
     //     parse_chat_message_content 展开为渲染后的上下文块（见 tags.rs）。 ---
@@ -692,21 +726,6 @@ pub async fn prepare_context_request(
 
     // 历史图片按总量老化 / TODO 结果精简（仅请求副本）。
     super::history_trim::trim_history_for_request(&mut messages, request.database_path);
-
-    // 请求尾部输入：易变宿主事实在前，本次请求的指令最后。仅在构建请求副本时
-    // 追加，不参与工具配对/历史裁剪，也从不写入会话历史。
-    trailing_host_input.extend(tail_instructions);
-    if !trailing_host_input.is_empty() {
-        messages.push(ChatContextMessage {
-            role: "user".to_string(),
-            origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
-            content: trailing_host_input.join("\n\n"),
-            tool_calls_json: None,
-            tool_results_json: None,
-            thinking: None,
-            thinking_blocks_json: None,
-        });
-    }
 
     Ok(PreparedConversationRequest {
         conversation_id,

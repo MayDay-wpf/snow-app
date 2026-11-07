@@ -278,6 +278,14 @@ type McpImageContentBlock = {
   mimeType: string;
 };
 
+/**
+ * 机器注入的宿主事实消息首行（子代理运行台账 / 请求级指令）：Rust 端把它随请求
+ * 一起落库，好让下一条请求原样复现这段内容、前缀缓存可以继续追加。这类消息只属于
+ * 模型上下文，不在会话界面展示。必须与
+ * `native/src/api/conversation/context.rs` 的 HOST_FACTS_MARKER 保持一致。
+ */
+const HOST_FACTS_MARKER = "## Host Facts";
+
 /** 图片块：带真实 base64，或 data 为占位符、图片已由 Rust 落盘到 upload/。 */
 const isMcpImageContentBlock = (
   value: unknown,
@@ -809,7 +817,8 @@ export const buildConversationMessages = (
         !(
           record.role === "user" &&
           record.origin === "internal" &&
-          /^\n\n\[Hook (?:Warning|Context)\]\n/.test(record.content)
+          (/^\n\n\[Hook (?:Warning|Context)\]\n/.test(record.content) ||
+            record.content.startsWith(HOST_FACTS_MARKER))
         ),
     )
     .map((record) => {

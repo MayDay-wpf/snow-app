@@ -130,6 +130,8 @@ pub fn fork_conversation(
                       (SELECT id FROM chat_messages WHERE conversation_id = ?1 AND response_id = ?2 LIMIT 1),
                       (SELECT MAX(id) FROM chat_messages WHERE conversation_id = ?1)
                     ))
+                    -- 机器注入的宿主事实只属于原会话的运行；分支不应继承这些过期事实。
+                    AND NOT (role = 'user' AND origin = 'internal' AND content LIKE '## Host Facts%')
                   ORDER BY id ASC",
             )
             .map_err(|error| database::database_error(database_path, "fork conversation", error))?;
