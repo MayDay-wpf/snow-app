@@ -1,5 +1,5 @@
 import { FolderGit2, GitBranch, GitCommitHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { GitLogEntry, GitWorktreeInfo } from "../../../../preload";
 import { useI18n } from "../../../i18n";
@@ -10,7 +10,6 @@ import {
   formatRelativeTime,
   getCommitAvatarUrl,
   getCommitWebLink,
-  getGravatarIdenticonUrl,
   parseGitDate,
   REMOTE_LINK_LABEL_KEY,
 } from "./gitGraphUtils";
@@ -88,45 +87,12 @@ export function CommitTooltip({
     ? formatAbsoluteTime(commitDate, locale)
     : commit.date;
 
-  // 首字母头像同时作为真实头像缺失 / 加载失败时的回退。
-  const avatarHue = useMemo(() => {
-    let hash = 2166136261;
-    for (let i = 0; i < commit.author.length; i++) {
-      hash = Math.imul(hash ^ commit.author.charCodeAt(i), 16777619);
-    }
-    return (hash >>> 0) % 360;
-  }, [commit.author]);
-  const avatarInitial = (commit.author.trim()[0] ?? "?").toUpperCase();
-
-  // 头像四级回退：GitHub API 反查到的真实头像（可覆盖 Gmail 等静态推导查不到的作者）
-  // → 按邮箱静态推导（GitHub noreply / QQ / Gravatar 真实头像）→ Gravatar 几何图案
-  // （identicon，同作者稳定且互相可区分）→ 首字母色块。
+  // 仅显示 GitHub 头像：API 反查覆盖普通邮箱，noreply 邮箱可直接推导。
+  // 不再用 Gravatar、几何图案或首字母替换 GitHub 头像。
   const normalizedEmail = commit.email?.trim().toLowerCase() ?? "";
-  const resolvedAvatarUrl = normalizedEmail
-    ? (authorAvatars[normalizedEmail] ?? null)
+  const avatarSrc = normalizedEmail
+    ? (authorAvatars[normalizedEmail] ?? getCommitAvatarUrl(commit.email))
     : null;
-  const primaryAvatarUrl = useMemo(
-    () => getCommitAvatarUrl(commit.email),
-    [commit.email],
-  );
-  const identiconUrl = useMemo(
-    () => getGravatarIdenticonUrl(commit.email),
-    [commit.email],
-  );
-  // 记录加载失败的地址而非用计数器：面板在提交间复用，跨提交的计数会串状态。
-  const [failedAvatarUrls, setFailedAvatarUrls] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const markAvatarFailed = (url: string): void =>
-    setFailedAvatarUrls((prev) => new Set(prev).add(url));
-
-  // 按优先级取第一个未失败的候选；全失败则回退首字母。
-  const avatarCandidates = [resolvedAvatarUrl, primaryAvatarUrl, identiconUrl];
-  const avatarSrc =
-    avatarCandidates.find(
-      (url): url is string => url !== null && !failedAvatarUrls.has(url),
-    ) ?? null;
-  const showAvatarImage = avatarSrc !== null;
 
   const bodyBlocks = useMemo(
     () => (commit.body ? parseBodyBlocks(commit.body) : []),
@@ -164,29 +130,15 @@ export function CommitTooltip({
     >
       <span className="git-graph-tooltip-arrow" aria-hidden="true" />
       <div className="git-graph-tooltip-header">
-        <span
-          className="git-graph-tooltip-avatar"
-          style={
-            showAvatarImage
-              ? undefined
-              : { background: `hsl(${avatarHue} 62% 45%)` }
-          }
-          aria-hidden="true"
-        >
-          {avatarSrc ? (
+        {avatarSrc && (
+          <span className="git-graph-tooltip-avatar" aria-hidden="true">
             <img
-              // 换源（真实头像 → identicon）时重置 img 元素，避免沿用上一次的
-              // 加载失败状态而跳过新地址。
-              key={avatarSrc}
               className="git-graph-tooltip-avatar-img"
               src={imageProxyUrl(avatarSrc)}
               alt=""
-              onError={() => markAvatarFailed(avatarSrc)}
             />
-          ) : (
-            avatarInitial
-          )}
-        </span>
+          </span>
+        )}
         <span className="git-graph-tooltip-author">{commit.author}</span>
         <span
           className="git-graph-tooltip-time"

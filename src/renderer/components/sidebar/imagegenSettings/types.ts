@@ -1,5 +1,5 @@
-/** 渠道协议类型：openai = OpenAI 兼容 Images API；gemini = Google Gemini Imagen。 */
-export type ImageGenProvider = "openai" | "gemini";
+/** 渠道协议类型：openai = OpenAI 兼容 Images API；gemini = Google Gemini Imagen；novelai = NovelAI 原生图片 API。 */
+export type ImageGenProvider = "openai" | "gemini" | "novelai";
 
 /** 生图执行模式：auto = Agent 自主判定；sync = 总是同步阻塞；async = 总是异步后台生成。 */
 export type ImageGenExecutionMode = "auto" | "sync" | "async";
@@ -16,6 +16,10 @@ export type ImageGenModelItem = {
   defaultSize?: string;
   /** 默认质量（如 "xhigh"） */
   defaultQuality?: string;
+  /** 默认生成复杂度；留空时由服务商决定。 */
+  defaultComplexity?: string;
+  /** 模型输出格式；留空时使用渠道格式。 */
+  defaultOutputFormat?: string;
   /** 该模型支持的比例列表（如 "1:1, 16:9, 9:16..."） */
   supportedRatios?: string;
   /** 该模型支持的分辨率列表（如 "1K, 2K, 4K"） */

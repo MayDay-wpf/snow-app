@@ -45,7 +45,8 @@ const toTimeoutSecs = (value: unknown): number => {
 const readProvider = (
   value: unknown,
   fallback: ImageGenProvider,
-): ImageGenProvider => (value === "gemini" ? "gemini" : fallback);
+): ImageGenProvider =>
+  value === "gemini" ? "gemini" : value === "novelai" ? "novelai" : fallback;
 
 /** 解析生图执行模式：合法值 auto/sync/async，非法回退默认 auto。 */
 export const readExecutionMode = (
@@ -69,6 +70,8 @@ export const readModelItem = (source: unknown): ImageGenModelItem => {
     name: toText(source.name, ""),
     defaultSize: toText(source.defaultSize, ""),
     defaultQuality: toText(source.defaultQuality, ""),
+    defaultComplexity: toText(source.defaultComplexity, ""),
+    defaultOutputFormat: toText(source.defaultOutputFormat, ""),
     supportedRatios: toText(source.supportedRatios, ""),
     supportedResolutions: toText(source.supportedResolutions, ""),
     supportedThinking: toText(source.supportedThinking, ""),
@@ -295,6 +298,8 @@ export const toImageGenSettingsJson = (form: ImageGenSettingsForm): string =>
                 name: (m.name ?? "").trim(),
                 defaultSize: (m.defaultSize ?? "").trim(),
                 defaultQuality: (m.defaultQuality ?? "").trim(),
+                defaultComplexity: (m.defaultComplexity ?? "").trim(),
+                defaultOutputFormat: (m.defaultOutputFormat ?? "").trim(),
                 supportedRatios: (m.supportedRatios ?? "").trim(),
                 supportedResolutions: (m.supportedResolutions ?? "").trim(),
                 supportedThinking: (m.supportedThinking ?? "").trim(),

@@ -12,6 +12,8 @@ impl ImageGenService {
         size: &Option<String>,
         quality: &Option<String>,
         output_format: &Option<String>,
+        frame_count: Option<u64>,
+        frame_duration_ms: Option<u64>,
         base_url: &str,
         api_key: &str,
         n: usize,
@@ -22,10 +24,20 @@ impl ImageGenService {
         input_fidelity: Option<&str>,
         background: Option<&str>,
         moderation: Option<&str>,
+        complexity: Option<&str>,
+        safety_identifier: Option<&str>,
+        mask: Option<&ReferenceImage>,
         channel_label: &str,
         timeout_secs: Option<u64>,
     ) -> napi::Result<Value> {
         let mime_type = mime_for_format(output_format.as_deref().unwrap_or("png"));
+        let format_lower = output_format
+            .as_deref()
+            .map(|value| value.to_ascii_lowercase());
+        // svg / gif 输出：仅文生图（generations）；图生图已在分发前显式报错。
+        // 这两类格式不支持流式预览与 output_compression。
+        let is_svg_or_gif = matches!(format_lower.as_deref(), Some("svg" | "gif"));
+        let is_gif = format_lower.as_deref() == Some("gif");
         let is_dall_e = model.to_ascii_lowercase().starts_with("dall-e");
         let is_gpt_image_2 = model.to_ascii_lowercase().contains("gpt-image-2");
         // xAI Grok Imagine：OpenAI 兼容端点，但尺寸用 aspect_ratio + resolution
@@ -42,6 +54,7 @@ impl ImageGenService {
             && requests == 1
             && !is_dall_e
             && !is_grok
+            && !is_svg_or_gif
             && images.iter().all(|set| set.is_empty());
         let client = build_client(timeout_secs).await?;
 
@@ -167,6 +180,28 @@ impl ImageGenService {
                                         form = form.text("moderation", value.to_string());
                                     }
                                 }
+                                if let Some(value) = complexity {
+                                    form = form.text("complexity", value.to_string());
+                                }
+                                if let Some(value) = safety_identifier {
+                                    form = form.text("safety_identifier", value.to_string());
+                                }
+                                if let Some(mask_image) = mask {
+                                    let bytes = reference_image::decode_base64(&mask_image.data)?;
+                                    let file_name = format!(
+                                        "mask.{}",
+                                        reference_image::ext_for_mime(&mask_image.mime_type)
+                                    );
+                                    let part = reqwest::multipart::Part::bytes(bytes)
+                                        .file_name(file_name)
+                                        .mime_str(&mask_image.mime_type)
+                                        .map_err(|error| {
+                                            generic_error(format!(
+                                                "Failed to build mask multipart part: {error}"
+                                            ))
+                                        })?;
+                                    form = form.part("mask", part);
+                                }
                                 Ok(form)
                             };
 
@@ -264,9 +299,25 @@ impl ImageGenService {
                         if let Some(value) = output_format {
                             body["output_format"] = json!(value);
                         }
-                        if let Some(value) = args.get("outputCompression").and_then(Value::as_u64) {
-                            // jpeg/webp 专属压缩率 0-100（gpt-image 系列）
-                            body["output_compression"] = json!(value.clamp(0, 100));
+                        if is_gif {
+                            if let Some(value) = frame_count {
+                                body["frame_count"] = json!(value);
+                            }
+                            if let Some(value) = frame_duration_ms {
+                                body["frame_duration_ms"] = json!(value);
+                            }
+                        }
+                        if let Some(value) = complexity {
+                            body["complexity"] = json!(value);
+                        }
+                        if !is_svg_or_gif {
+                            if let Some(value) =
+                                args.get("outputCompression").and_then(Value::as_u64)
+                            {
+                                // jpeg/webp 专属压缩率 0-100（gpt-image 系列）；
+                                // svg/gif 输出禁止发送该字段。
+                                body["output_compression"] = json!(value.clamp(0, 100));
+                            }
                         }
                         if let Some(value) = request_seed {
                             body["seed"] = json!(value);
@@ -278,6 +329,9 @@ impl ImageGenService {
                             if matches!(value, "auto" | "low") {
                                 body["moderation"] = json!(value);
                             }
+                        }
+                        if let Some(value) = safety_identifier {
+                            body["safety_identifier"] = json!(value);
                         }
                         if allow_stream {
                             // gpt-image 系列流式：生成过程中推送 0-3 张中间预览
@@ -294,10 +348,12 @@ impl ImageGenService {
                                 map.remove("output_format");
                                 map.remove("output_compression");
                                 map.remove("quality");
+                                map.remove("complexity");
                                 map.remove("stream");
                                 map.remove("partial_images");
                                 map.remove("background");
                                 map.remove("moderation");
+                                map.remove("safety_identifier");
                             }
                         }
                     }
@@ -394,6 +450,147 @@ impl ImageGenService {
                         channel_label,
                         data.iter().cloned().collect(),
                         mime_type,
+                    )
+                    .await
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(tasks).await;
+        merge_parallel_results(prompts[0], model, channel_label, requests, results)
+    }
+
+    /// NovelAI branch.
+    /// - Native API: `POST {base}/ai/generate-image` (JSON body, Bearer persistent token).
+    /// - text-to-image:  action = "generate"
+    /// - image-to-image: action = "img2img" (single base image, `parameters.image`)
+    /// - inpainting:     action = "infill"  (base image + `parameters.mask`)
+    /// - Response: ZIP archive containing one PNG per sample (or a raw PNG).
+    pub(super) async fn generate_novelai(
+        &self,
+        args: &Value,
+        prompts: &[&str],
+        model: &str,
+        size: &Option<String>,
+        base_url: &str,
+        api_key: &str,
+        n: usize,
+        images: &[&[ReferenceImage]],
+        seed: Option<u64>,
+        negative_prompt: Option<&str>,
+        mask: Option<&ReferenceImage>,
+        channel_label: &str,
+        timeout_secs: Option<u64>,
+    ) -> napi::Result<Value> {
+        // 单次调用内并发 n 个子请求（每个子请求 n_samples=1），与 OpenAI 分支同策略。
+        let requests = n.max(1);
+        let client = build_client(timeout_secs).await?;
+        let endpoint = format!("{base_url}/ai/generate-image");
+
+        let tasks: Vec<_> = (0..requests)
+            .map(|request_index| {
+                let client = client.clone();
+                let endpoint = endpoint.clone();
+                async move {
+                    let _permit = limiter::acquire().await;
+                    runtime::request_started(args, None).await?;
+                    let prompt = prompts[request_index];
+                    let request_images: &[ReferenceImage] = images[request_index];
+                    let request_seed = seed.map(|value| value.wrapping_add(request_index as u64));
+
+                    // action：mask → infill；参考图 → img2img；否则 generate
+                    let has_mask = mask.is_some();
+                    let action = if has_mask {
+                        "infill"
+                    } else if !request_images.is_empty() {
+                        "img2img"
+                    } else {
+                        "generate"
+                    };
+
+                    // 尺寸：WIDTHxHEIGHT → width/height（未提供时交由上游默认）
+                    let (width, height) = parse_novelai_size(size)?;
+                    let mut parameters = json!({
+                        "params_version": 3,
+                        "n_samples": 1,
+                    });
+                    if width > 0 && height > 0 {
+                        parameters["width"] = json!(width);
+                        parameters["height"] = json!(height);
+                    }
+                    if let Some(value) = request_seed {
+                        parameters["seed"] = json!(value);
+                    }
+                    if let Some(value) = negative_prompt {
+                        let value = value.trim();
+                        if !value.is_empty() {
+                            // NovelAI 反向提示词字段（undesired content）
+                            parameters["uc"] = json!(value);
+                        }
+                    }
+
+                    if action != "generate" {
+                        if request_images.is_empty() {
+                            return Err(Error::new(
+                                Status::InvalidArg,
+                                "NovelAI img2img / infill requires a base reference image (`images`)"
+                                    .to_string(),
+                            ));
+                        }
+                        if request_images.len() > 1 {
+                            return Err(Error::new(
+                                Status::InvalidArg,
+                                format!(
+                                    "NovelAI img2img / infill accepts a single base reference image, got {}",
+                                    request_images.len()
+                                ),
+                            ));
+                        }
+                        let image = &request_images[0];
+                        let bytes = reference_image::decode_base64(&image.data)?;
+                        parameters["image"] =
+                            json!(base64::engine::general_purpose::STANDARD.encode(&bytes));
+                        if has_mask {
+                            let mask_image = mask.expect("has_mask implies mask is set");
+                            let mask_bytes = reference_image::decode_base64(&mask_image.data)?;
+                            parameters["mask"] = json!(base64::engine::general_purpose::STANDARD
+                                .encode(&mask_bytes));
+                        }
+                    }
+
+                    let body = json!({
+                        "input": prompt,
+                        "model": model,
+                        "action": action,
+                        "parameters": parameters,
+                    });
+
+                    let response = client
+                        .post(&endpoint)
+                        .bearer_auth(api_key)
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|error| {
+                            generic_error(format!("NovelAI image request failed: {error}"))
+                        })?;
+                    let status = response.status();
+                    if !status.is_success() {
+                        let response_body: Value =
+                            response.json().await.unwrap_or_else(|_| json!({}));
+                        return Err(novelai_api_error(status.as_u16(), &response_body));
+                    }
+                    let bytes = response.bytes().await.map_err(|error| {
+                        generic_error(format!("Failed to read NovelAI image response: {error}"))
+                    })?;
+                    let png = extract_novelai_png(&bytes)?;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+                    openai_stream::collect_openai_result(
+                        prompt,
+                        model,
+                        channel_label,
+                        vec![json!({ "b64_json": b64 })],
+                        "image/png".to_string(),
                     )
                     .await
                 }
@@ -795,4 +992,71 @@ impl ImageGenService {
         let results = futures::future::join_all(tasks).await;
         merge_parallel_results(prompts[0], model, channel_label, requests, results)
     }
+}
+
+/// 解析 NovelAI 尺寸 `WIDTHxHEIGHT`；未提供 / `auto` 返回 (0,0)（交由上游默认）。
+fn parse_novelai_size(size: &Option<String>) -> napi::Result<(u64, u64)> {
+    let Some(raw) = size else {
+        return Ok((0, 0));
+    };
+    let raw = raw.trim();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+        return Ok((0, 0));
+    }
+    let lower = raw.to_ascii_lowercase();
+    let Some((width, height)) = lower.split_once('x') else {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("NovelAI size must be WIDTHxHEIGHT (e.g. 832x1216), got \"{raw}\""),
+        ));
+    };
+    let (Ok(width), Ok(height)) = (
+        width.trim().parse::<u64>(),
+        height.trim().parse::<u64>(),
+    ) else {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("Invalid NovelAI size \"{raw}\": expected WIDTHxHEIGHT with integer pixels"),
+        ));
+    };
+    if width == 0 || height == 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("Invalid NovelAI size \"{raw}\": dimensions must be positive"),
+        ));
+    }
+    Ok((width, height))
+}
+
+/// 解包 NovelAI 返回：ZIP（内含每张样本一个 PNG）或直接 PNG 二进制。
+fn extract_novelai_png(bytes: &[u8]) -> napi::Result<Vec<u8>> {
+    // ZIP 魔数 PK\x03\x04；非 ZIP 视为直接返回的 PNG。
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Ok(bytes.to_vec());
+    }
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|error| generic_error(format!("invalid ZIP archive: {error}")))?;
+    let mut file = archive
+        .by_index(0)
+        .map_err(|error| generic_error(format!("ZIP entry unavailable: {error}")))?;
+    let mut out = Vec::with_capacity(file.size() as usize);
+    std::io::Read::read_to_end(&mut file, &mut out)
+        .map_err(|error| generic_error(format!("ZIP entry read failed: {error}")))?;
+    Ok(out)
+}
+
+/// NovelAI 错误响应解析（`{"message": ...}` 或 `{"error": {"message": ...}}`）。
+fn novelai_api_error(status: u16, response_body: &Value) -> Error {
+    let message = response_body
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            response_body
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("Unknown error");
+    generic_error(format!("NovelAI image generation failed: {status} {message}"))
 }

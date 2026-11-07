@@ -129,6 +129,14 @@ const GEMINI_THINKING_DEFAULT_OPTIONS: QualityOption[] = [
   { value: "high", labelKey: "rightPanel.aiDrawing.thinkingHigh" },
 ];
 
+/** Nano Banana 2.1 思考强度选项（官方档位 minimal/medium/high，默认 medium）。 */
+const GEMINI_BANANA21_THINKING_OPTIONS: QualityOption[] = [
+  { value: "", labelKey: "rightPanel.aiDrawing.thinkingDefault" },
+  { value: "minimal", labelKey: "rightPanel.aiDrawing.thinkingMinimal" },
+  { value: "medium", labelKey: "rightPanel.aiDrawing.thinkingMedium" },
+  { value: "high", labelKey: "rightPanel.aiDrawing.thinkingHigh" },
+];
+
 /** OpenAI gpt-image 固定尺寸预设（无档位模型）。 */
 const OPENAI_FIXED_SIZE_PRESETS: Record<
   string,
@@ -176,6 +184,12 @@ export const filterImageModels = (
     return models.filter((model) => {
       const id = model.id.toLowerCase();
       return id.includes("-image") || id.startsWith("imagen");
+    });
+  }
+  if (provider === "novelai") {
+    return models.filter((model) => {
+      const id = model.id.toLowerCase();
+      return id.includes("nai-diffusion");
     });
   }
   return models.filter((model) => {
@@ -330,16 +344,20 @@ export const inferModelCapabilities = (
     // imagen 系列与 gemini-2.5-flash-image：仅文生图（不支持参考图/编辑）
     const textOnly =
       id.startsWith("imagen") || id.includes("gemini-2.5-flash-image");
-    // 思考级别/图片搜索：Gemini 3.1 Flash Image 专属能力
+    // 思考级别/图片搜索：Gemini 3.1 Flash Image 与 Nano Banana 2.1 专属能力
+    const banana21 = id.includes("gemini-nano-banana-2.1");
     const flash3 =
       id.includes("gemini-3.1-flash-image") &&
       !id.includes("gemini-3.1-flash-lite-image");
-    // Google 搜索 grounding：3.1 Flash Image + 3 Pro Image（Lite / 2.5 不支持）
-    const webSearchSupported = flash3 || id.includes("gemini-3-pro-image");
+    // Google 搜索 grounding：3.1 Flash Image / Nano Banana 2.1 + 3 Pro Image
+    // （Lite / 2.5 不支持）
+    const webSearchSupported =
+      flash3 || banana21 || id.includes("gemini-3-pro-image");
     // 输出格式（mime_type png/jpeg）：Gemini 3 系列支持；2.5 / imagen 不支持
     const outputFormatSupported =
       !textOnly &&
       (flash3 ||
+        banana21 ||
         id.includes("gemini-3-pro-image") ||
         id.includes("flash-lite"));
     // 参考图上限：2.5 为 3 张，Gemini 3 系列为 14 张，imagen 不支持
@@ -350,17 +368,24 @@ export const inferModelCapabilities = (
         : 14;
     return {
       sizeSystem: "gemini-tier",
-      ratios: getGeminiAspectRatios(model), // 比例按模型细分（3.1 Flash 含超宽）
+      ratios: getGeminiAspectRatios(model), // 比例按模型细分（2.1 / 3.1 Flash 含超宽）
       resolutions: [],
-      tiers: ["", "512px", "1K", "2K", "4K"],
+      // Nano Banana 2.1 不支持 512px（仅 3.1 Flash Image 支持）
+      tiers: banana21
+        ? ["", "1K", "2K", "4K"]
+        : ["", "512px", "1K", "2K", "4K"],
       fixedSizePresets: [],
       supportsReference: !textOnly,
       supportsTransparent: false,
       supportsMultiCount: true,
       maxCount: 8,
-      supportsThinking: flash3,
-      thinkingOptions: flash3 ? GEMINI_THINKING_DEFAULT_OPTIONS : [],
-      supportsImageSearch: flash3,
+      supportsThinking: flash3 || banana21,
+      thinkingOptions: banana21
+        ? GEMINI_BANANA21_THINKING_OPTIONS
+        : flash3
+          ? GEMINI_THINKING_DEFAULT_OPTIONS
+          : [],
+      supportsImageSearch: flash3 || banana21,
       supportsWebSearch: webSearchSupported,
       maxReferenceImages: maxRef,
       supportsOutputFormat: outputFormatSupported,
@@ -378,6 +403,44 @@ export const inferModelCapabilities = (
       qualityOptions: [
         { value: "", labelKey: "rightPanel.aiDrawing.qualityDefault" },
         ...QUALITY_OPTIONS.filter((option) => option.value !== "auto"),
+      ],
+    };
+  }
+
+  // ---- NovelAI 原生图片 API（image.novelai.net，非 OpenAI 兼容协议） ----
+  if (provider === "novelai") {
+    return {
+      sizeSystem: "openai-size",
+      ratios: ["2:3", "3:2", "1:1", "9:16", "16:9", "4:3", "3:4", "21:9"],
+      resolutions: [],
+      tiers: [],
+      fixedSizePresets: [
+        { ratio: "2:3", size: "832x1216" },
+        { ratio: "3:2", size: "1216x832" },
+        { ratio: "1:1", size: "1024x1024" },
+        { ratio: "2:3", size: "1024x1536" },
+      ],
+      supportsReference: true,
+      supportsTransparent: false,
+      supportsMultiCount: true,
+      maxCount: 8,
+      supportsThinking: false,
+      thinkingOptions: [],
+      supportsImageSearch: false,
+      supportsWebSearch: false,
+      // img2img / infill 仅接受单张底图（+可选 mask）
+      maxReferenceImages: 1,
+      supportsOutputFormat: false,
+      supportsCompression: false,
+      supportsBackground: false,
+      supportsFidelity: false,
+      supportsSeed: true,
+      // NovelAI 反向提示词（parameters.uc）
+      supportsNegativePrompt: true,
+      supportsStream: false,
+      // NovelAI 无质量档位参数：仅「默认」（不发送 quality）
+      qualityOptions: [
+        { value: "", labelKey: "rightPanel.aiDrawing.qualityDefault" },
       ],
     };
   }

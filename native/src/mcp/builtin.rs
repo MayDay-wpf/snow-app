@@ -117,7 +117,7 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "sub-agents-wait",
     "computer-use-screen-info",
     "html-render",
-    "toolsearch-tool-search",
+    "toolSearch-tool-search",
 ];
 
 /// 返回仍注册在案的只读工具全名（过滤掉已删除/改名工具的过期条目）。

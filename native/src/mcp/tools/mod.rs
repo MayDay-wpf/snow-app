@@ -154,7 +154,7 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "app-control",
     "filesystem",
     "sub-agents",
-    "toolsearch",
+    "toolSearch",
     "websearch",
     "imagegen",
     "codebase",
@@ -280,7 +280,7 @@ async fn collect_server_statuses(
         .into_iter()
         .map(|(server_id, tools)| {
             let scope_server_id = builtin_scope_server_id(&server_id);
-            let mut enabled = if server_id == "toolsearch" {
+            let mut enabled = if server_id == "toolSearch" {
                 tool_search_available
             } else {
                 scope
@@ -293,7 +293,7 @@ async fn collect_server_statuses(
             if lite_mode && LITE_MODE_DISABLED_SERVER_IDS.contains(&server_id.as_str()) {
                 enabled = false;
             }
-            let server_globally_disabled = server_id != "toolsearch"
+            let server_globally_disabled = server_id != "toolSearch"
                 && global_scope
                     .as_ref()
                     .is_some_and(|global| global.is_server_disabled(&scope_server_id));
@@ -303,7 +303,7 @@ async fn collect_server_statuses(
             // the front-end maps to the user's language.
             let (mut global_enabled, error) = if server_id == "imagegen" && !imagegen_configured {
                 (false, Some("imagegen:not_configured".to_string()))
-            } else if server_id == "toolsearch" && !tool_search_available {
+            } else if server_id == "toolSearch" && !tool_search_available {
                 enabled = false;
                 (false, Some(super::servers::tool_search::NO_ENABLED_PLUGINS.to_string()))
             } else {
@@ -316,7 +316,7 @@ async fn collect_server_statuses(
                 global_enabled = false;
             }
             let mut tool_statuses = to_server_tool_statuses(&tools, scope.as_ref(), global_scope.as_ref());
-            if server_id == "toolsearch" {
+            if server_id == "toolSearch" {
                 for tool in &mut tool_statuses {
                     tool.enabled = tool_search_available;
                     tool.global_enabled = tool_search_available;
@@ -451,7 +451,7 @@ pub async fn list_mcp_project_server_tools(
                 )
             })?;
         let mut statuses = to_project_tool_statuses(&tools, &scope, global_scope.as_ref());
-        if builtin_server_id == "toolsearch" {
+        if builtin_server_id == "toolSearch" {
             let available = !super::external::available_plugin_servers(
                 Some(&project_id),
                 Some(&scope),
@@ -486,7 +486,7 @@ pub async fn set_mcp_project_server_enabled(
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
     let server_id = required_value(server_id, "MCP server id")?;
-    if server_id == "builtin:toolsearch" {
+    if server_id == "builtin:toolSearch" {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));
@@ -584,7 +584,7 @@ pub async fn set_mcp_project_tool_enabled(
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
     let tool_name = required_value(tool_name, "MCP tool name")?;
-    if tool_name.starts_with("toolsearch-") {
+    if tool_name.starts_with("toolSearch-") {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));
@@ -628,7 +628,7 @@ pub async fn set_mcp_project_tool_enabled(
 /// 启用被精简模式禁用的服务器时自动关闭精简模式（与项目级一致）。
 pub async fn set_mcp_global_server_enabled(server_id: String, enabled: bool) -> napi::Result<()> {
     let server_id = required_value(server_id, "MCP server id")?;
-    if server_id == "builtin:toolsearch" {
+    if server_id == "builtin:toolSearch" {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));
@@ -673,7 +673,7 @@ pub async fn set_mcp_global_server_enabled(server_id: String, enabled: bool) -> 
 /// 全局启停单个工具：校验工具存在于全局可见的工具集（内置或全局外部服务器）。
 pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Result<()> {
     let tool_name = required_value(tool_name, "MCP tool name")?;
-    if tool_name.starts_with("toolsearch-") {
+    if tool_name.starts_with("toolSearch-") {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));
@@ -693,7 +693,7 @@ pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Res
 
 /// 全局批量启停工具：逐个校验存在性，全部通过后一次写入存储。
 pub async fn set_mcp_tools_enabled(tool_names: Vec<String>, enabled: bool) -> napi::Result<()> {
-    if tool_names.iter().any(|name| name.trim().starts_with("toolsearch-")) {
+    if tool_names.iter().any(|name| name.trim().starts_with("toolSearch-")) {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));
@@ -721,7 +721,7 @@ pub async fn set_mcp_project_tools_enabled(
     enabled: bool,
 ) -> napi::Result<()> {
     let project_id = required_value(project_id, "Project id")?;
-    if tool_names.iter().any(|name| name.trim().starts_with("toolsearch-")) {
+    if tool_names.iter().any(|name| name.trim().starts_with("toolSearch-")) {
         return Err(Error::from_reason(
             super::servers::tool_search::AUTOMATIC_ONLY,
         ));

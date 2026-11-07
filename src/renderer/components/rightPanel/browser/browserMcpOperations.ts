@@ -22,6 +22,32 @@ import {
 
 const TEXT_PREVIEW_LENGTH = 160;
 
+/**
+ * Agent 的键盘输入需要 guest 临时获得焦点；操作结束（含异常）后把焦点还给
+ * 用户原来的控件，避免浏览器操作抢走聊天输入。
+ */
+const withGuestInputFocus = async <T>(
+  webview: Electron.WebviewTag,
+  action: () => Promise<T>,
+): Promise<T> => {
+  const previous = document.activeElement;
+  try {
+    webview.focus();
+    return await action();
+  } finally {
+    if (
+      previous instanceof HTMLElement &&
+      previous.isConnected &&
+      previous !== document.body &&
+      previous !== document.documentElement
+    ) {
+      previous.focus({ preventScroll: true });
+    } else if (document.activeElement === webview) {
+      webview.blur();
+    }
+  }
+};
+
 // 公共元素描述函数片段（normalize + describe）。定位脚本、fill 脚本与
 // CDP callFunctionOn 复用。注意：const 在同一作用域重复声明会抛
 // SyntaxError，因此每个脚本作用域只能注入一次。
@@ -661,7 +687,6 @@ const click = async (
         args.exact === true,
       );
     }
-    webview.focus();
     await webview.sendInputEvent({
       type: "mouseMove",
       x: target.x,
@@ -942,50 +967,51 @@ const typeByKeys = async (
     )) as TypeTargetState;
   try {
     // 先让 guest 获得输入焦点再聚焦目标：顺序反过来时，guest 获焦的瞬间
-    // 页面可能把焦点交给其他元素。
-    webview.focus();
-    const initial = await check(true);
-    if (initial.status !== "focused") {
-      throw new Error(
-        `Focus check failed before typing: ${describeTypeTargetFailure(initial)}. Nothing was typed. Re-observe the page (browser-devtools action=ax) and retry.`,
-      );
-    }
-    const chars = Array.from(value);
-    for (const [index, char] of chars.entries()) {
-      if (index > 0) {
-        const state = await check(false);
-        if (state.status !== "focused") {
-          throw new Error(
-            `Focus was lost while typing: ${describeTypeTargetFailure(state)} after ${index} of ${chars.length} characters; the remaining characters were not sent. Re-observe the page before retrying (the target may already contain partial input).`,
-          );
-        }
-      }
-      await webview.sendInputEvent({ type: "keyDown", keyCode: char });
-      await webview.sendInputEvent({ type: "char", keyCode: char });
-      await webview.sendInputEvent({ type: "keyUp", keyCode: char });
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-    const final = await check(false, value);
-    if (submit) {
-      if (final.status !== "focused") {
+    // 页面可能把焦点交给其他元素。结束后焦点还给用户。
+    return await withGuestInputFocus(webview, async () => {
+      const initial = await check(true);
+      if (initial.status !== "focused") {
         throw new Error(
-          `Focus was lost before submitting: ${describeTypeTargetFailure(final)}. All ${chars.length} characters were typed but Enter was not sent. Re-observe the page before retrying.`,
+          `Focus check failed before typing: ${describeTypeTargetFailure(initial)}. Nothing was typed. Re-observe the page (browser-devtools action=ax) and retry.`,
         );
       }
-      await webview.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
-      await webview.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-    }
-    return {
-      mode: "keys",
-      element,
-      typedChars: chars.length,
-      // 每个按键发送前都确认过焦点在目标上。
-      focusVerified: true,
-      focusRetained: final.status === "focused",
-      ...(final.valueContainsInput !== undefined
-        ? { valueContainsInput: final.valueContainsInput }
-        : {}),
-    };
+      const chars = Array.from(value);
+      for (const [index, char] of chars.entries()) {
+        if (index > 0) {
+          const state = await check(false);
+          if (state.status !== "focused") {
+            throw new Error(
+              `Focus was lost while typing: ${describeTypeTargetFailure(state)} after ${index} of ${chars.length} characters; the remaining characters were not sent. Re-observe the page before retrying (the target may already contain partial input).`,
+            );
+          }
+        }
+        await webview.sendInputEvent({ type: "keyDown", keyCode: char });
+        await webview.sendInputEvent({ type: "char", keyCode: char });
+        await webview.sendInputEvent({ type: "keyUp", keyCode: char });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      const final = await check(false, value);
+      if (submit) {
+        if (final.status !== "focused") {
+          throw new Error(
+            `Focus was lost before submitting: ${describeTypeTargetFailure(final)}. All ${chars.length} characters were typed but Enter was not sent. Re-observe the page before retrying.`,
+          );
+        }
+        await webview.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        await webview.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+      }
+      return {
+        mode: "keys",
+        element,
+        typedChars: chars.length,
+        // 每个按键发送前都确认过焦点在目标上。
+        focusVerified: true,
+        focusRetained: final.status === "focused",
+        ...(final.valueContainsInput !== undefined
+          ? { valueContainsInput: final.valueContainsInput }
+          : {}),
+      };
+    });
   } finally {
     await webview
       .executeJavaScript(
@@ -1786,26 +1812,12 @@ const pressKey = async (
 ): Promise<unknown> =>
   actionReceipt(webview, instanceId, args, getConsoleMessages, async () => {
     const key = requiredString(args, "key");
-    webview.focus();
-
-    // 支持 "Control+a" / "Shift+ArrowDown" 形式的组合键
-    const parts = key.split("+");
-    const mainKey = parts.pop();
-    if (!mainKey) {
-      throw new Error("key must not be empty for browser-press_key");
-    }
-    // 按下修饰键
-    for (const modifier of parts) {
-      await webview.sendInputEvent({ type: "keyDown", keyCode: modifier });
-    }
-    await webview.sendInputEvent({ type: "keyDown", keyCode: mainKey });
-    await webview.sendInputEvent({ type: "char", keyCode: mainKey });
-    await webview.sendInputEvent({ type: "keyUp", keyCode: mainKey });
-    // 释放修饰键
-    for (const modifier of [...parts].reverse()) {
-      await webview.sendInputEvent({ type: "keyUp", keyCode: modifier });
-    }
-
+    // 主进程通过 CDP 派发按键，不依赖 webview 焦点，也不影响用户输入。
+    await window.snow.browserFrameOperation(
+      webview.getWebContentsId(),
+      "press_key",
+      { ...args, instanceId },
+    );
     return { key };
   });
 
@@ -1916,7 +1928,6 @@ const hover = async (
     element: unknown;
   };
   const metadata = await currentPageMetadata(webview, instanceId);
-  webview.focus();
   await webview.sendInputEvent({ type: "mouseMove", x: target.x, y: target.y });
   return {
     ...metadata,

@@ -50,6 +50,7 @@
 | [4-架构与开发/6-功能模块架构与数据流图集](zh-CN/4-架构与开发/6-功能模块架构与数据流图集.md)                    | [4-architecture-and-development/6-feature-module-architecture-and-data-flow-diagrams](en/4-architecture-and-development/6-feature-module-architecture-and-data-flow-diagrams.md)                 | Mermaid 架构与数据流图 / Mermaid diagram atlas                                                         |
 | [4-架构与开发/7-LSP外部语言服务器接入设计](zh-CN/4-架构与开发/7-LSP外部语言服务器接入设计.md)                  | [4-architecture-and-development/7-lsp-external-language-server-design](en/4-architecture-and-development/7-lsp-external-language-server-design.md)                                               | LSP 接入设计 / LSP integration design                                                                  |
 | [4-架构与开发/8-Git 工作树与会话执行域隔离架构设计](zh-CN/4-架构与开发/8-Git工作树与会话执行域隔离架构设计.md) | [4-architecture-and-development/8-git-worktree-and-session-execution-domain-isolation-design](en/4-architecture-and-development/8-git-worktree-and-session-execution-domain-isolation-design.md) | Git 工作树与会话执行域隔离 / Git worktree and session execution domain isolation                       |
+| [4-架构与开发/9-前端可复用组件架构与规范](zh-CN/4-架构与开发/9-前端可复用组件架构与规范.md)                    | [4-architecture-and-development/9-frontend-reusable-components](en/4-architecture-and-development/9-frontend-reusable-components.md)                                                             | 前端可复用组件架构与开发规范 / Reusable frontend component system & developer guide                    |
 
 ## 插件 TypeScript 工程示例 / TypeScript plugin engineering examples
 

@@ -7,10 +7,7 @@
  */
 
 import type { Model } from "../../../../preload";
-import type {
-  ImageGenModelItem,
-  ImageGenProvider,
-} from "./types";
+import type { ImageGenModelItem, ImageGenProvider } from "./types";
 import { resolveModelCapability } from "./modelCapabilities";
 
 /** gpt-image-2 / 2.5 系（含兼容中转）支持任意分辨率判定。 */
@@ -158,6 +155,12 @@ export const filterImageModels = (
       return id.includes("-image") || id.startsWith("imagen");
     });
   }
+  if (provider === "novelai") {
+    return models.filter((model) => {
+      const id = model.id.toLowerCase();
+      return id.includes("nai-diffusion");
+    });
+  }
   return models.filter((model) => {
     const id = model.id.toLowerCase();
     return id.includes("gpt-image") || id.includes("dall-e");
@@ -167,6 +170,15 @@ export const filterImageModels = (
 /** 根据模型 ID 推断能力标签（i18n 键）。 */
 export const getModelCapabilities = (modelId: string): string[] => {
   const id = modelId.toLowerCase();
+  if (id.includes("gemini-nano-banana-2.1")) {
+    return [
+      "cap4k",
+      "capStream",
+      "capImageToImage",
+      "capThinking",
+      "capImageSearch",
+    ];
+  }
   if (id.includes("gemini-3.1-flash-lite-image")) {
     return ["cap1kOnly", "capFast"];
   }
@@ -187,6 +199,9 @@ export const getModelCapabilities = (modelId: string): string[] => {
   }
   if (id.startsWith("imagen")) {
     return ["capDeprecated"];
+  }
+  if (id.includes("nai-diffusion")) {
+    return ["capImageToImage"];
   }
   if (id.includes("gpt-image-2") || id.includes("gpt-image-1.5")) {
     return ["cap4k", "capStream", "capImageToImage"];

@@ -69,6 +69,10 @@ export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 export const DEFAULT_GEMINI_BASE_URL =
   "https://generativelanguage.googleapis.com/v1beta";
 
+/** NovelAI 原生图片 API 默认地址（主机根地址，无 /v1；请求按
+ *  `{baseUrl}/ai/generate-image` 拼接，认证用 Bearer Persistent Token）。 */
+export const DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net";
+
 /** 常见生图模型提示（placeholder 用，含别名与预览版）。 */
 export const OPENAI_MODEL_EXAMPLES =
   "gpt-image-2.5-flare, qwen-image-2.1, niji-6, flux-1.1-pro, grok-imagine-image-2.0, dall-e-3, ...";
@@ -77,6 +81,10 @@ export const GEMINI_MODEL_EXAMPLES =
 /** xAI Grok Imagine 模型示例（OpenAI 兼容协议，baseUrl = https://api.x.ai/v1）。 */
 export const GROK_MODEL_EXAMPLES =
   "grok-imagine-image-quality, grok-imagine-image-2.0, ...";
+/** NovelAI 原生图片模型示例（provider = novelai，baseUrl 默认 image.novelai.net，
+ *  认证用持久化令牌）。 */
+export const NOVELAI_MODEL_EXAMPLES =
+  "nai-diffusion-5-full, nai-diffusion-5-curated, nai-diffusion-4-5-full, nai-diffusion-4-5-curated, nai-diffusion-4-full, nai-diffusion-3, ...";
 
 /**
  * Gemini 思考强度预设选项（支持 gemini-3.1 / 3 系列）。
@@ -103,10 +111,10 @@ export const IMAGE_GEN_TEMPLATES: ImageGenTemplate[] = [
     defaultSize: "16:9@2K",
     supportedRatios:
       "1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 5:4, 4:5, 21:9, 1:4, 1:8, 4:1, 8:1",
-    supportedResolutions: "512px, 1K, 2K, 4K (支持 16:9@2K 组合语法)",
+    supportedResolutions: "1K, 2K, 4K (支持 16:9@2K 组合语法；不支持 512px)",
     supportedThinking: "minimal, medium, high",
     customPrompt:
-      "Google 最新 Nano Banana 2.1 图像生成与编辑旗舰（API 模型 ID: gemini-nano-banana-2.1）。成本大幅降低，支持 14 种宽高比及 512px~4K 分辨率（尺寸支持 16:9@2K）；支持 thinkingLevel (minimal/medium/high 思考强度，官方默认 medium)；支持联网搜索与以图搜图（webSearch/imageSearch）；图生图最多支持 14 张参考图。",
+      "Google 最新 Nano Banana 2.1 图像生成与编辑旗舰（API 模型 ID: gemini-nano-banana-2.1）。成本大幅降低，支持 14 种宽高比及 1K/2K/4K 分辨率（不支持 512px；尺寸支持 16:9@2K）；支持 thinkingLevel (minimal/medium/high 思考强度，官方默认 medium)；支持联网搜索与以图搜图（webSearch/imageSearch）；图生图最多支持 14 张参考图。",
     webSearch: true,
     defaultStream: true,
     description:
@@ -330,6 +338,25 @@ export const IMAGE_GEN_TEMPLATES: ImageGenTemplate[] = [
       "专精二次元 Danbooru 标签与日系美少女角色立绘生成（适用于兼容中转）",
   },
   {
+    id: "template-novelai-native",
+    name: "NovelAI - NAI Diffusion V4.5 Full (原生协议)",
+    provider: "novelai",
+    baseUrl: "https://image.novelai.net",
+    model: "nai-diffusion-4-5-full",
+    defaultSize: "832x1216",
+    defaultQuality: "",
+    supportedRatios: "2:3, 3:2, 1:1, 9:16, 16:9, 4:3, 3:4, 21:9",
+    supportedResolutions:
+      "832x1216 (标准立绘), 1216x832 (横向插画), 1024x1024 (方形头像), 1024x1536 (高清立绘), 1536x1024 (高清横图)",
+    supportedThinking: "",
+    customPrompt:
+      "NovelAI 原生图片 API（image.novelai.net/ai/generate-image，认证用 NovelAI 持久化令牌）。专精二次元动漫 Danbooru Tag 标签；推荐半角逗号分隔英文标签（如 masterpiece, best quality, 1girl, anime, looking at viewer...），对角色服装、发色、姿势与镜头控制精准。支持 generate 文生图、img2img 图生图（单张底图）与 infill 局部重绘（mask）；输出恒为 PNG；不支持 outputFormat/质量/流式。",
+    outputFormat: "png",
+    defaultStream: false,
+    description:
+      "NovelAI 官方原生 API（nai-diffusion-4-5-full），Danbooru 标签二次元立绘",
+  },
+  {
     id: "template-anime-animagine",
     name: "Anime - Animagine XL 3.1 (SDXL 动漫)",
     provider: "openai",
@@ -493,13 +520,16 @@ export const GEMINI_ASPECT_RATIOS = [
 export const GEMINI_ASPECT_RATIOS_FLASH3_EXTRA = ["1:4", "1:8", "4:1", "8:1"];
 
 /**
- * 按模型返回 Gemini 支持的宽高比列表（官方文档 2026-07）：
- * - gemini-3.1-flash-image：14 种（含 1:4 / 1:8 / 4:1 / 8:1 超宽）
+ * 按模型返回 Gemini 支持的宽高比列表（官方文档 2026-10）：
+ * - gemini-nano-banana-2.1 / gemini-3.1-flash-image：14 种（含 1:4 / 1:8 / 4:1 / 8:1 超宽）
  * - 其他（3 Pro / 3.1 Flash Lite / 2.5 Flash Image）：10 种
  */
 export const getGeminiAspectRatios = (model: string): string[] => {
   const id = model.toLowerCase();
-  if (id.includes("gemini-3.1-flash-image") && !id.includes("flash-lite")) {
+  const ultraWide =
+    id.includes("gemini-nano-banana-2.1") ||
+    (id.includes("gemini-3.1-flash-image") && !id.includes("flash-lite"));
+  if (ultraWide) {
     return [...GEMINI_ASPECT_RATIOS, ...GEMINI_ASPECT_RATIOS_FLASH3_EXTRA];
   }
   return [...GEMINI_ASPECT_RATIOS];

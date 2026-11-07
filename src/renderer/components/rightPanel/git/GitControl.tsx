@@ -38,7 +38,7 @@ type GitControlProps = {
   directoryId?: string;
   repos?: GitRepoInfo[];
   onRepoSelect?: (path: string) => void;
-  /** 双击变更区/暂存区文件：回调携带双击来源，供上层打开对应差异 tab。 */
+  /** 单击变更区/暂存区文件：回调携带来源，供上层打开对应差异 tab。 */
   onFileSelect: (
     file: GitFileStatus | null,
     section?: "staged" | "unstaged",
@@ -543,16 +543,13 @@ export const GitControl = ({
         lastClickedSectionRef.current = section;
         return next;
       });
-    },
-    [status],
-  );
 
-  // 双击文件打开差异视图：来源 section 决定取工作区 diff 还是 --cached diff。
-  const handleFileActivate = useCallback(
-    (file: GitFileStatus, section: "staged" | "unstaged") => {
-      onFileSelect(file, section);
+      // 普通单击打开差异；Ctrl/Cmd/Shift 点击仅用于多选。
+      if (!isMulti && !isRange) {
+        onFileSelect(file, section);
+      }
     },
-    [onFileSelect],
+    [status, onFileSelect],
   );
 
   const handleOpenFile = useCallback(
@@ -1441,7 +1438,6 @@ export const GitControl = ({
           actionInProgress={actionInProgress}
           viewMode={fileViewMode}
           onFileSelect={handleFileSelect}
-          onFileActivate={handleFileActivate}
           onStageToggle={handleStageToggle}
           onUnstageAll={handleUnstageAll}
           onOpenFile={handleOpenFile}
@@ -1456,7 +1452,6 @@ export const GitControl = ({
           actionInProgress={actionInProgress}
           viewMode={fileViewMode}
           onFileSelect={handleFileSelect}
-          onFileActivate={handleFileActivate}
           onStageToggle={handleStageToggle}
           onStageAll={handleStageAll}
           onDiscardAll={handleDiscardAllRequest}

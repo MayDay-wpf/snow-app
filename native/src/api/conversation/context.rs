@@ -332,14 +332,14 @@ pub(crate) async fn build_builtin_system_prompt(
         format!("{system_prompt}\n\n{lsp_section}")
     };
     // Only describe plugin discovery when this exact request can use it.
-    let system_prompt = if tool_snapshot.has("toolsearch-discover") {
+    let system_prompt = if tool_snapshot.has("toolSearch-discover") {
         let skill_guidance = if tool_snapshot.has("skills-skill-execute") {
             " When a relevant plugin skill is available, load it for its workflow guidance."
         } else {
             ""
         };
         format!(
-            "{system_prompt}\n\n## Tool Plugins\nUse `toolsearch-discover` when an enabled plugin is relevant. Matched tools are available in the next request; call only the returned tool names and respect authorization.{skill_guidance}"
+            "{system_prompt}\n\n## Tool Plugins\nUse `toolSearch-discover` when an enabled plugin is relevant. Matched tools are available in the next request; call only the returned tool names and respect authorization.{skill_guidance}"
         )
     } else {
         system_prompt

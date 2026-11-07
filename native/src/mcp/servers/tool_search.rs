@@ -12,10 +12,10 @@ use super::super::service::McpService;
 use super::super::tools::McpTool;
 use crate::remote_control::assets::{read_desktop_locale, Locale, DEFAULT_LOCALE};
 
-pub(crate) const SERVER_ID: &str = "toolsearch";
+pub(crate) const SERVER_ID: &str = "toolSearch";
 pub(crate) const TOOL_SEARCH: &str = "tool-search";
 pub(crate) const TOOL_DISCOVER: &str = "discover";
-pub(crate) const NO_ENABLED_PLUGINS: &str = "toolsearch:no_enabled_plugins";
+pub(crate) const NO_ENABLED_PLUGINS: &str = "toolSearch:no_enabled_plugins";
 pub(crate) const AUTOMATIC_ONLY: &str =
     "Tool search availability follows enabled tool plugins and cannot be changed manually";
 const DEFAULT_LIMIT: usize = 5;
@@ -281,7 +281,7 @@ pub(crate) fn finish_model_request(request_id: &str, response: Option<&crate::ap
     };
     let snapshot = guard.requests.get_mut(request_id).expect("request checked above");
     snapshot.returned = calls.iter().filter_map(returned_tool_name).filter(|name| {
-        *name == "toolsearch-discover" || snapshot.exposed.contains_key(*name)
+        *name == "toolSearch-discover" || snapshot.exposed.contains_key(*name)
     }).map(str::to_owned).collect();
     if snapshot.returned.is_empty() {
         guard.requests.remove(request_id);
@@ -543,7 +543,7 @@ impl ToolSearchService {
             return match args.get("action") {
                 Some(Value::String(action)) if action == "list" => list_plugins(project_id).await,
                 None | Some(Value::String(_)) => Err(Error::from_reason(
-                    "Plugin discovery requires toolsearch-discover and its own approval",
+                    "Plugin discovery requires toolSearch-discover and its own approval",
                 )),
                 _ => Err(Error::new(Status::InvalidArg, text.invalid_action.to_string())),
             };
@@ -573,7 +573,7 @@ impl ToolSearchService {
             .unwrap_or(DEFAULT_LIMIT);
 
         let key = session_key(project_id, conversation_id)?;
-        ensure_matched(project_id, conversation_id, request_id, "toolsearch-discover", None)?;
+        ensure_matched(project_id, conversation_id, request_id, "toolSearch-discover", None)?;
         let search_generation = generation();
         let allowed_names = {
             let guard = lock_index()?;
@@ -631,7 +631,7 @@ impl ToolSearchService {
         let request = request_id.and_then(|id| guard.requests.get(id)).ok_or_else(|| {
             Error::from_reason("PERMISSION_DENIED: tool discovery request is no longer available")
         })?;
-        if request.session != key || !request.returned.contains("toolsearch-discover") || request.allowed_names != allowed_names {
+        if request.session != key || !request.returned.contains("toolSearch-discover") || request.allowed_names != allowed_names {
             return Err(Error::from_reason("PERMISSION_DENIED: tool discovery request changed"));
         }
         let mut discovery = SessionIndex {

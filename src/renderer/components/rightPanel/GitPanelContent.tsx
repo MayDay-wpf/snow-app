@@ -71,14 +71,14 @@ export function GitPanelContent({
     setGitStatus(null);
   }
 
-  /** 变更区/暂存区双击文件：在新的差异 tab 中打开（先加载态，再填充结果）。 */
+  /** 变更区/暂存区单击文件：在新的差异 tab 中打开（先加载态，再填充结果）。 */
   const handleFileSelect = useCallback(
     (file: GitFileStatus | null, section?: "staged" | "unstaged") => {
       if (!repoPath || !file || !onOpenInTab) {
         return;
       }
-      // 双击来源优先：变更区 -> 工作区 diff；暂存区 -> `--cached` diff。
-      // 同一文件同时存在于两个区域时，indexStatus 无法区分双击位置，
+      // 单击来源优先：变更区 -> 工作区 diff；暂存区 -> `--cached` diff。
+      // 同一文件同时存在于两个区域时，indexStatus 无法区分点击位置，
       // 必须以 section 为准。
       openGitFileDiff(repoPath, file, section === "staged", onOpenInTab);
     },

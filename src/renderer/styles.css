@@ -15318,6 +15318,44 @@ body.is-panel-resizing * {
   font-weight: 500;
 }
 
+.tcg-plugins {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.tcg-plugin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  padding: 1px 5.5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.tcg-plugin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tcg-plugin-icon img,
+img.tcg-plugin-icon {
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.tcg-plugin-name {
+  white-space: nowrap;
+}
+
 .tcg-time {
   display: inline-flex;
   align-items: center;
@@ -17685,6 +17723,49 @@ body.is-panel-resizing * {
   display: block;
   flex-shrink: 0;
   opacity: 0.7;
+}
+
+/* 工具来源插件标注：工具全名匹配到工具插件时显示精致图标与插件徽章 */
+.tool-call-plugin-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1.5px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--bg-active);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.tcn-header:hover .tool-call-plugin-origin {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-color-hover, var(--border-color));
+}
+
+.tool-call-plugin-origin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tool-call-plugin-origin-icon img,
+img.tool-call-plugin-origin-icon {
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.tool-call-plugin-origin-name {
+  white-space: nowrap;
 }
 
 /* TodoToolCall specific styles */
@@ -22378,37 +22459,6 @@ body.is-panel-resizing * {
   color: var(--accent-red-text);
 }
 
-.imagegen-groups {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.imagegen-group {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.imagegen-group-title {
-  margin: 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.imagegen-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 12px;
-}
-
 .imagegen-field-wide {
   grid-column: 1 / -1;
 }
@@ -22743,6 +22793,7 @@ body.is-panel-resizing * {
 
 .imagegen-model-more-tag {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   padding: 1px 6px;
   font-size: 10px;
@@ -30620,6 +30671,14 @@ button.user-message-source:hover {
   text-align: left;
   color: var(--text-secondary);
   font-size: 12.5px;
+}
+
+/* 提及面板的候选分组标题（如工具插件） */
+.mention-group-title {
+  padding: 6px 12px 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
 }
 
 .mention-entry:hover {
@@ -55420,24 +55479,26 @@ pre.file-viewer-code {
 }
 
 /* 操作区：搜索 + 添加渠道 */
-.imagegen-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.imagegen-search {
-  flex: 1;
-  min-width: 0;
-}
-
-.imagegen-add-btn {
-  flex-shrink: 0;
-}
-
 .imagegen-table-panel {
   margin-bottom: 10px;
+}
+
+/* 表格「模型」列：主模型 + 多模型计数单行展示，长 ID 截断不撑高行 */
+.imagegen-table-model {
+  display: inline-flex;
+  max-width: 220px;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.imagegen-table-model-id {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 空状态：图标 + 文案 */
@@ -55465,14 +55526,8 @@ pre.file-viewer-code {
   );
 }
 
-/* 渠道编辑弹窗 */
-.imagegen-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.imagegen-editor .api-settings-field-hint {
+/* 渠道编辑弹窗：分组骨架复用 API 设置表单（api-settings-form-body/section） */
+.imagegen-editor-modal .api-settings-field-hint {
   color: var(--text-muted);
   font-size: 10.5px;
   font-weight: 500;
@@ -55480,7 +55535,7 @@ pre.file-viewer-code {
 }
 
 /* 弹窗内原生复选框跟随主题强调色 */
-.imagegen-editor input[type="checkbox"] {
+.imagegen-editor-modal input[type="checkbox"] {
   accent-color: var(--accent-color);
 }
 
@@ -62079,6 +62134,132 @@ img.plugin-icon {
   font-size: 11px;
 }
 
+.plugins-item-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.plugins-item-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.plugins-item-badge.scope-badge {
+  font-weight: 500;
+}
+
+.plugins-item-badge.scope-badge.global {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.plugins-item-badge.scope-badge.global-on,
+.plugins-item-badge.scope-badge.project-on {
+  border-color: var(--accent-green-border, var(--border-subtle));
+  background: var(--accent-green-bg, transparent);
+  color: var(--accent-green-text, var(--text-primary));
+}
+
+.plugins-item-badge.scope-badge.global-off,
+.plugins-item-badge.scope-badge.project-off,
+.plugins-item-badge.scope-badge.project-none {
+  border-color: var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.plugins-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.plugins-scope-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.plugins-scope-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plugins-scope-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plugins-scope-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.plugins-scope-row input {
+  flex-shrink: 0;
+  accent-color: var(--accent-color);
+}
+
+.plugins-scope-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugins-scope-state-tag {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.plugins-scope-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.plugins-tool-switches {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.plugins-switch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plugins-switch-tag {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  user-select: none;
+}
+
 .plugins-item-actions {
   display: inline-flex;
   align-items: center;
@@ -63122,7 +63303,7 @@ img.plugin-icon {
   white-space: nowrap;
 }
 
-/* 插件市场条目标签：官方收录 / 官方认证 / 社区插件（未发布到市场） */
+/* 插件市场条目标签：官方收录 / 官方认证 / 社区插件（未发布到市场）/ 工具插件 */
 .plugin-market-badge {
   display: inline-flex;
   flex-shrink: 0;
@@ -63148,6 +63329,11 @@ img.plugin-icon {
 .plugin-market-badge.community {
   background: var(--accent-amber-bg);
   color: var(--accent-amber-text);
+}
+
+.plugin-market-badge.tool {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .plugin-market-notice {
