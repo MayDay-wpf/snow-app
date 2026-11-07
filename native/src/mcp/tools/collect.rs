@@ -718,6 +718,7 @@ pub(crate) fn builtin_server_name(server_id: &str) -> &str {
         "workflow" => "WorkFlow",
         "html" => "HTML Renderer",
         "decision" => "Decision Model",
+        "toolSearch" => "ToolSearch",
         _ => server_id,
     }
 }
