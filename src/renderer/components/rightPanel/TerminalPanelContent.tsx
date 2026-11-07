@@ -53,6 +53,8 @@ export type TerminalPanelContentProps = {
   /** 当前项目 id：用于未开启终端控制 MCP 时的横幅提示 */
   projectId?: string;
   isActive: boolean;
+  /** 用户点击标签时递增：已激活的终端也需要响应显式回焦请求。 */
+  focusRequestId?: number;
   onTitleChange?: (title: string) => void;
   /** 点击终端内的链接时回调（用于打开内置浏览器 tab）。 */
   onOpenLink?: (url: string) => void;
@@ -182,6 +184,16 @@ const SEND_BUTTON_OFFSET_X = 12;
 const SEND_BUTTON_OFFSET_Y = 18;
 const SEND_BUTTON_EDGE_GAP = 8;
 
+// 菜单打开期间忽略的纯修饰键：组合键前半段不收起菜单。
+const MODIFIER_ONLY_KEYS = new Set([
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+  "AltGraph",
+  "CapsLock",
+]);
+
 export const TerminalPanelContent = ({
   tabId,
   cwd,
@@ -190,6 +202,7 @@ export const TerminalPanelContent = ({
   sessionId,
   projectId,
   isActive,
+  focusRequestId,
   onTitleChange,
   onOpenLink,
   onProcessExit,
@@ -205,6 +218,7 @@ export const TerminalPanelContent = ({
   const fitRef = useRef<FitAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const handledFocusRequestRef = useRef<number | undefined>(undefined);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -784,6 +798,29 @@ export const TerminalPanelContent = ({
     return () => cancelAnimationFrame(raf);
   }, [isActive]);
 
+  // 标签点击是一次性聚焦请求，不依赖 isActive 翻转，也不改变现有激活/重绘流程。
+  useEffect(() => {
+    if (
+      focusRequestId === undefined ||
+      focusRequestId === handledFocusRequestRef.current
+    ) {
+      return;
+    }
+    handledFocusRequestRef.current = focusRequestId;
+    const term = termRef.current;
+    const container = containerRef.current;
+    if (
+      !isActive ||
+      !term ||
+      !container?.isConnected ||
+      container.clientWidth === 0 ||
+      container.clientHeight === 0
+    ) {
+      return;
+    }
+    term.focus();
+  }, [focusRequestId, isActive]);
+
   // GPU 渲染状态同步：设置开启且当前 tab 激活时挂载 WebGL 渲染器；
   // 关闭或 tab 失活时卸载释放 GPU 资源。非激活 tab 容器为 display:none
   // 无需渲染，多终端场景下同时最多保留一个 WebGL 上下文，避免上下文
@@ -811,6 +848,48 @@ export const TerminalPanelContent = ({
     return () =>
       container.removeEventListener("contextmenu", handleContextMenu);
   }, []);
+
+  // 菜单打开期间的退出规则：
+  // - Esc：关闭菜单并拦住该键，避免送进 shell；
+  // - 其他按键：关闭菜单，但按键照常进入终端（方向键/字符/回车都不接管）；
+  // - 单独按修饰键、输入法组字中：忽略，避免组合键前半段或中文输入误关；
+  // - 滚轮：关闭菜单，滚动本身仍由终端处理。
+  // xterm 在输入区阻止事件冒泡，所以键盘监听必须放在捕获阶段。
+  const contextMenuOpen = contextMenu !== null;
+  useEffect(() => {
+    if (!contextMenuOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.isComposing) {
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setContextMenu(null);
+        return;
+      }
+      if (MODIFIER_ONLY_KEYS.has(event.key)) {
+        return;
+      }
+      // 只收起浮层，不接管按键。
+      setContextMenu(null);
+    };
+    const handleWheel = (): void => {
+      // 菜单里没有可滚动内容，滚轮说明用户已回到终端，直接收起。
+      setContextMenu(null);
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("wheel", handleWheel, {
+      capture: true,
+      passive: true,
+    });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("wheel", handleWheel, { capture: true });
+    };
+  }, [contextMenuOpen]);
 
   // 点击终端面板以外的任意位置时隐藏「添加到输入框」浮动按钮：
   // 与终端是否持有焦点无关，只要鼠标落在面板外就收起，避免按钮残留。
@@ -883,6 +962,13 @@ export const TerminalPanelContent = ({
     );
   }, [hasSelection, selectionAnchor]);
 
+  const runMenuAction = useCallback((action: () => void): void => {
+    setContextMenu(null);
+    action();
+    // 仅菜单动作同步回焦；外部点击关闭和剪贴板异步返回均不抢回焦点。
+    termRef.current?.focus();
+  }, []);
+
   const buildMenuItems = (): ContextMenuItem[] => {
     const term = termRef.current;
     const items: ContextMenuItem[] = [];
@@ -891,29 +977,20 @@ export const TerminalPanelContent = ({
         id: "copy",
         label: t("common.copy"),
         icon: <Copy size={13} strokeWidth={1.8} />,
-        onClick: () => {
-          setContextMenu(null);
-          copySelection();
-        },
+        onClick: () => runMenuAction(copySelection),
       });
     }
     items.push({
       id: "paste",
       label: t("common.paste"),
       icon: <ClipboardPaste size={13} strokeWidth={1.8} />,
-      onClick: () => {
-        setContextMenu(null);
-        pasteClipboard();
-      },
+      onClick: () => runMenuAction(pasteClipboard),
     });
     items.push({
       id: "select-all",
       label: t("common.selectAll"),
       icon: <ListChecks size={13} strokeWidth={1.8} />,
-      onClick: () => {
-        setContextMenu(null);
-        termRef.current?.selectAll();
-      },
+      onClick: () => runMenuAction(() => termRef.current?.selectAll()),
     });
     return items;
   };
@@ -1059,6 +1136,7 @@ export const TerminalPanelContent = ({
       ) : null}
       {contextMenu && (
         <ContextMenu
+          ariaLabel={t("rightPanel.terminalTab")}
           x={contextMenu.x}
           y={contextMenu.y}
           items={buildMenuItems()}
@@ -1067,10 +1145,7 @@ export const TerminalPanelContent = ({
               id: "clear",
               label: t("terminal.contextMenu.clear"),
               icon: <Eraser size={13} strokeWidth={1.8} />,
-              onClick: () => {
-                setContextMenu(null);
-                clearScreen();
-              },
+              onClick: () => runMenuAction(clearScreen),
             },
           ]}
           onClose={() => setContextMenu(null)}

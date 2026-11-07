@@ -484,6 +484,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
     const layoutRef = useRef<HTMLDivElement>(null);
     const resizeGuideRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLElement>(null);
+    // 聚焦请求独立于布局：重复点击当前终端也生效，不持久化或重建 PTY。
+    const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
+      tabId: string;
+      sequence: number;
+    } | null>(null);
 
     const tabs = workspace.tabs;
     // 布局 / tab / 聚焦组变化后落盘；独立面板窗口的 tab 由主进程管理，不写入。
@@ -2238,6 +2243,11 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
               sessionId={(tab.data as TerminalTabData).sessionId}
               projectId={activeDirectory?.directoryId}
               isActive={isTabActive}
+              focusRequestId={
+                terminalFocusRequest?.tabId === tab.id
+                  ? terminalFocusRequest.sequence
+                  : undefined
+              }
               onTitleChange={(title) =>
                 handleTerminalTitleChange(tab.id, title)
               }
@@ -2936,6 +2946,12 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
                               onClick={() => {
                                 setCloseConfirm(null);
                                 setActiveTabId(tab.id);
+                                if (tab.type === "terminal") {
+                                  setTerminalFocusRequest((prev) => ({
+                                    tabId: tab.id,
+                                    sequence: (prev?.sequence ?? 0) + 1,
+                                  }));
+                                }
                               }}
                               onMouseDown={(event) => {
                                 // 中键快速关闭（Git 固定 tab 除外）；preventDefault 阻止自动滚动
