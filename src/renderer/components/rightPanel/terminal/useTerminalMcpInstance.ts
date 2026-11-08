@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { IMarker, Terminal } from "@xterm/xterm";
-import {
-  focusTerminalTab,
-  registerTerminalMcpInstance,
-} from "./terminalMcpController";
+import { registerTerminalMcpInstance } from "./terminalMcpController";
 import { resolveTerminalKeys } from "./terminalKeys";
 import { detectAwaitingInput } from "./terminalInputDetector";
 
@@ -19,17 +16,17 @@ import { detectAwaitingInput } from "./terminalInputDetector";
  * - resize: resizes both the xterm display and the PTY process
  * - wait: polls for output quiescence and returns only the text produced
  *   since the last delivered checkpoint (incremental, not the full buffer)
+ *
+ * 默认目标（省略 tabId / current）由 RightPanel 按面板激活 tab 同步，
+ * 不在这里按组内 isActive 推断：分屏时多个组的 tab 同时可见，组内激活
+ * 不等于用户最近聚焦。
  */
 export const useTerminalMcpInstance = (
   tabId: string,
   cwd: string,
-  isActive: boolean,
   termRef: React.RefObject<Terminal | null>,
   ptyIdRef: React.RefObject<string | null>,
 ): void => {
-  const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
-
   // 已交付内容检查点：wait 只返回此标记之后的新增行，避免重复历史
   const checkpointMarkerRef = useRef<IMarker | null>(null);
 
@@ -163,13 +160,6 @@ export const useTerminalMcpInstance = (
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
-
-  // Update focused tab when this tab becomes active.
-  useEffect(() => {
-    if (isActive) {
-      focusTerminalTab(tabId);
-    }
-  }, [isActive, tabId]);
 };
 
 /**

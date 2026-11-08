@@ -15,7 +15,7 @@ export type TerminalMcpCommandArgs = Record<string, unknown>;
 
 export type TerminalMcpCommandHandler = (
   operation: string,
-  args: TerminalMcpCommandArgs
+  args: TerminalMcpCommandArgs,
 ) => Promise<unknown>;
 
 export type TerminalTabInfo = {
@@ -35,15 +35,16 @@ type TabWaiter = {
 const instances = new Map<string, TerminalMcpCommandHandler>();
 
 /** Metadata for list operations (title, cwd, active state). */
-const tabMetadata = new Map<
-  string,
-  { title: string; cwd: string }
->();
+const tabMetadata = new Map<string, { title: string; cwd: string }>();
 
 /** Waiters for tabs that are being opened (waiting for TerminalPanelContent to mount). */
 const tabWaiters = new Map<string, Set<TabWaiter>>();
 
-/** The most recently focused terminal tab ID. */
+/**
+ * 最近聚焦的终端 tab：由右侧面板按「面板激活 tab」同步写入（与 terminal-list
+ * 的 isActive 同源）。可能指向尚未挂载或已关闭的 tab，解析时由
+ * getFallbackTabId 校验，失效则回退到最后注册的实例。
+ */
 let focusedTabId: string | null = null;
 
 const parseCommandArgs = (argsJson: string): TerminalMcpCommandArgs => {
@@ -65,20 +66,19 @@ const getFallbackTabId = (): string | null => {
 export const createTerminalTabId = (): string =>
   `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+// 不校验是否已注册：终端内容为懒加载组件，激活时实例可能尚未挂载，
+// 记录下来待注册后即可命中。
 export const focusTerminalTab = (tabId: string): void => {
-  if (instances.has(tabId) || tabMetadata.has(tabId)) {
-    focusedTabId = tabId;
-  }
+  focusedTabId = tabId;
 };
 
 export const registerTerminalMcpInstance = (
   tabId: string,
   handler: TerminalMcpCommandHandler,
-  metadata: { title: string; cwd: string }
+  metadata: { title: string; cwd: string },
 ): (() => void) => {
   instances.set(tabId, handler);
   tabMetadata.set(tabId, metadata);
-  focusedTabId = tabId;
 
   // Resolve any waiters that were blocked on this tab becoming ready.
   const waiters = tabWaiters.get(tabId);
@@ -94,16 +94,13 @@ export const registerTerminalMcpInstance = (
     if (instances.get(tabId) === handler) {
       instances.delete(tabId);
       tabMetadata.delete(tabId);
-      if (focusedTabId === tabId) {
-        focusedTabId = getFallbackTabId();
-      }
     }
   };
 };
 
 export const waitForTerminalTab = (
   tabId: string,
-  timeoutMs = 10_000
+  timeoutMs = 10_000,
 ): Promise<void> => {
   if (instances.has(tabId)) {
     return Promise.resolve();
@@ -127,7 +124,7 @@ export const waitForTerminalTab = (
 
 export const executeTerminalMcpCommand = async (
   operation: string,
-  argsJson: string
+  argsJson: string,
 ): Promise<string> => {
   const args = parseCommandArgs(argsJson);
   const requestedTabId =
@@ -137,7 +134,7 @@ export const executeTerminalMcpCommand = async (
   const tabId = useFocusedTab ? getFallbackTabId() : requestedTabId;
   if (!tabId) {
     throw new Error(
-      `No terminal tab is available for terminal-${operation}; open a terminal tab first`
+      `No terminal tab is available for terminal-${operation}; open a terminal tab first`,
     );
   }
 
@@ -151,11 +148,10 @@ export const executeTerminalMcpCommand = async (
 
 export const parseTerminalMcpCommandArgs = parseCommandArgs;
 
-export const getFocusedTerminalTabId = (): string | null =>
-  getFallbackTabId();
+export const getFocusedTerminalTabId = (): string | null => getFallbackTabId();
 
 export const getTerminalTabMetadata = (
-  tabId: string
+  tabId: string,
 ): { title: string; cwd: string } | undefined => tabMetadata.get(tabId);
 
 export const hasTerminalMcpInstance = (tabId: string): boolean =>

@@ -217,6 +217,8 @@ export function PrivacySettingsPanel({
   }, [loadToolCatalog]);
 
   const isBusy = isLoading || isSaving;
+  // 总开关关闭时，过滤模式 / 工具 / 规则等配置都不参与脱敏，统一禁用避免误以为仍生效。
+  const isConfigDisabled = isBusy || !form.enabled;
 
   const modeOptions = useMemo(
     () =>
@@ -280,8 +282,9 @@ export function PrivacySettingsPanel({
   );
 
   // 测试框：按当前表单（含未保存修改）在 Rust 侧预览脱敏结果。
+  // 总开关关闭时脱敏整体不生效，这里也不再预览，避免产生“仍在脱敏”的错觉。
   useEffect(() => {
-    if (!previewSample) {
+    if (!previewSample || !form.enabled) {
       setPreviewOutput("");
       setPreviewError("");
       return;
@@ -314,7 +317,7 @@ export function PrivacySettingsPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [previewSample, form.disabledRules, form.customRules]);
+  }, [previewSample, form.enabled, form.disabledRules, form.customRules]);
 
   const toolGroups = useMemo<PrivacyToggleGroup[]>(() => {
     const selected = new Set(form.toolResults.tools);
@@ -541,6 +544,14 @@ export function PrivacySettingsPanel({
         </div>
 
         <div className="api-settings-form-body">
+          {!form.enabled ? (
+            <div className="privacy-disabled-hint">
+              {t("settings.privacyDisabledHint", {
+                defaultValue:
+                  "Privacy filtering is off. The filter mode, tool selection and rules below stay inactive until you turn it on.",
+              })}
+            </div>
+          ) : null}
           {activeTab === "tools" ? (
             <>
               <div className="api-settings-form-section">
@@ -589,7 +600,7 @@ export function PrivacySettingsPanel({
                     value={form.mode}
                     options={modeOptions}
                     onChange={updateMode}
-                    disabled={isBusy}
+                    disabled={isConfigDisabled}
                   />
                 </div>
                 <span className="settings-item-description">
@@ -657,7 +668,7 @@ export function PrivacySettingsPanel({
                         placeholder={t("settings.privacyUrlPlaceholder", {
                           defaultValue: "https://example.com/privacy-filter",
                         })}
-                        disabled={isBusy}
+                        disabled={isConfigDisabled}
                       />
                     </label>
                     <label className="api-settings-field wide">
@@ -673,7 +684,7 @@ export function PrivacySettingsPanel({
                           defaultValue: "Leave empty if not required",
                         })}
                         type="password"
-                        disabled={isBusy}
+                        disabled={isConfigDisabled}
                       />
                     </label>
                     <label className="api-settings-field wide">
@@ -688,7 +699,7 @@ export function PrivacySettingsPanel({
                         placeholder={t("settings.privacyModelPlaceholder", {
                           defaultValue: "openai/privacy-filter",
                         })}
-                        disabled={isBusy}
+                        disabled={isConfigDisabled}
                       />
                     </label>
                   </div>
@@ -752,7 +763,7 @@ export function PrivacySettingsPanel({
                   <PrivacyToggleList
                     groups={toolGroups}
                     icon={Wrench}
-                    disabled={isBusy}
+                    disabled={isConfigDisabled}
                     defaultCollapsed={!toolQuery.trim()}
                     onToggle={(id, checked) => setToolsChecked([id], checked)}
                     onToggleGroup={setToolsChecked}
@@ -780,7 +791,7 @@ export function PrivacySettingsPanel({
                   <PrivacyToggleList
                     groups={ruleGroups}
                     icon={KeyRound}
-                    disabled={isBusy}
+                    disabled={isConfigDisabled}
                     onToggle={(id, checked) => setRulesChecked([id], checked)}
                     onToggleGroup={setRulesChecked}
                   />
@@ -807,7 +818,7 @@ export function PrivacySettingsPanel({
                     className="api-settings-action-btn secondary"
                     onClick={() => setIsRulesEditorOpen(true)}
                     type="button"
-                    disabled={isBusy}
+                    disabled={isConfigDisabled}
                   >
                     <FilePenLine size={15} strokeWidth={1.9} />
                     <span>
@@ -827,7 +838,7 @@ export function PrivacySettingsPanel({
                   <PrivacyToggleList
                     groups={customGroups}
                     icon={Regex}
-                    disabled={isBusy}
+                    disabled={isConfigDisabled}
                     onToggle={(id, checked) =>
                       setCustomRulesChecked([id], checked)
                     }
@@ -868,6 +879,7 @@ export function PrivacySettingsPanel({
                   })}
                   rows={4}
                   spellCheck={false}
+                  disabled={isConfigDisabled}
                 />
                 {previewError ? (
                   <div className="sub-agent-tool-state is-error">

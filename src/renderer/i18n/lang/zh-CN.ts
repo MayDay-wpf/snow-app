@@ -4333,6 +4333,8 @@ export const zhCN = {
   "settings.privacyEnable": "启用隐私过滤",
   "settings.privacyEnableInfo":
     "在发送给模型前，对选中工具结果中的敏感数据（API 密钥、令牌、身份证、银行卡等）进行脱敏。",
+  "settings.privacyDisabledHint":
+    "隐私过滤已关闭，下面的过滤模式、工具与规则配置暂不生效。",
   "settings.privacyMode": "过滤模式",
   "settings.privacyModeLocal": "本地规则",
   "settings.privacyModeApi": "线上 API",

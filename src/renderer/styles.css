@@ -35546,6 +35546,17 @@ body.is-right-pane-resizing-y * {
   border-bottom: none;
 }
 
+/* 隐私总开关关闭时提示：下方从属配置整体不生效 */
+.privacy-disabled-hint {
+  padding: 9px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .privacy-tool-search {
   display: flex;
   align-items: center;

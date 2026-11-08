@@ -4612,6 +4612,8 @@ export const en = {
   "settings.privacyEnable": "Enable privacy filter",
   "settings.privacyEnableInfo":
     "Redact sensitive data (API keys, tokens, IDs, cards) from selected tool results before sending to the model.",
+  "settings.privacyDisabledHint":
+    "Privacy filtering is off. The filter mode, tool selection and rules below stay inactive until you turn it on.",
   "settings.privacyMode": "Filter mode",
   "settings.privacyModeLocal": "Local rules",
   "settings.privacyModeApi": "Online API",

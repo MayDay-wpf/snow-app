@@ -4275,6 +4275,8 @@ export const zhTW = {
   "settings.privacyEnable": "啟用隱私過濾",
   "settings.privacyEnableInfo":
     "在傳送給模型前，對選取工具結果中的敏感資料（API 金鑰、權杖、身分證、銀行卡等）進行脫敏。",
+  "settings.privacyDisabledHint":
+    "隱私過濾已關閉，下面的過濾模式、工具與規則配置暫不生效。",
   "settings.privacyMode": "過濾模式",
   "settings.privacyModeLocal": "本地規則",
   "settings.privacyModeApi": "線上 API",
