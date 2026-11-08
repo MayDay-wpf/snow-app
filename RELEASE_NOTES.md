@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.5.14
+
+### New Features
+
+- **Mobile Git Panel Enhancements**: pull, push and AI-generated commit messages. The Changes tab shows the current branch with ahead / behind status, and the Branches and Changes tabs can be swiped left and right.
+- **Checkpoint Switch**: checkpoints can be turned off in General settings. When off, new sessions no longer create file snapshots, and rollback only restores session messages. Turning it off requires a second confirmation.
+
+### Improvements
+
+- **On-demand History Images**: images in history messages are read from disk on demand instead of being restored as base64, reducing renderer and main-process memory usage.
+- **Large SSH Parameters**: SSH commands can pass large parameters via stdin, and remote file reads support a size limit.
+- Removed the `ensure_fetch_safe` check from the OAuth plugin fetch takeover.
+
+### Fixes
+
+- The terminal MCP default target now follows the active tab in the right panel, so clicking a terminal in another split group no longer misjudges focus.
+- Turning off the master privacy filter switch now disables filter mode, tool selection and rule configuration, and stops the preview.
+
 ## v0.5.13
 
 ### New Features
