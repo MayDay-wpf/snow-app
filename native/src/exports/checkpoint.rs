@@ -34,6 +34,24 @@ fn checkpoint_remote_callback() -> napi::Result<Arc<RemoteWorkspaceCallback>> {
     }
 }
 
+/// 通用设置里关闭了检查点时，创建快照直接失败：会话仍可正常进行，
+/// 但回滚只能恢复消息，无法复原被修改的文件。
+const CHECKPOINT_DISABLED_MESSAGE: &str =
+    "Checkpoint is disabled in settings; no file snapshot was created";
+
+/// 检查点启停开关（数据库读取放到阻塞线程池，避免占用异步运行时；
+/// 读取失败按启用处理，防止误伤回滚能力）。
+async fn checkpoint_enabled() -> bool {
+    match tokio::task::spawn_blocking(
+        crate::storage::services::checkpoint::is_checkpoint_enabled,
+    )
+    .await
+    {
+        Ok(enabled) => enabled,
+        Err(_) => true,
+    }
+}
+
 /// Create a file-system checkpoint (snapshot) of the working directory.
 ///
 /// Returns the generated checkpoint id. The snapshot is stored under
@@ -45,6 +63,12 @@ fn checkpoint_remote_callback() -> napi::Result<Arc<RemoteWorkspaceCallback>> {
 /// modify it, exactly like local checkpoints.
 #[napi]
 pub async fn create_checkpoint(work_dir: String) -> napi::Result<String> {
+    if !checkpoint_enabled().await {
+        return Err(Error::new(
+            Status::GenericFailure,
+            CHECKPOINT_DISABLED_MESSAGE,
+        ));
+    }
     if is_ssh_path(&work_dir) {
         let callback = checkpoint_remote_callback()?;
         let client = RemoteCheckpointClient::new(&callback);

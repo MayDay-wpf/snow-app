@@ -3811,7 +3811,17 @@ export const zhCN = {
   "settings.generalSettingsClosePanel": "关闭通用设置",
   "settings.sessionSectionTitle": "会话",
   "settings.sessionSectionInfo":
-    "会话消息缓存的保活时长、会话上下文注入预算、检查点快照保留时长与远程检查点扫描超时。",
+    "会话消息缓存的保活时长、会话上下文注入预算、检查点启停、检查点快照保留时长与远程检查点扫描超时。",
+  "settings.checkpointEnabledTitle": "检查点",
+  "settings.checkpointEnabledInfo":
+    "会话开始时为工作目录创建文件快照，回滚时可据此复原被 AI 修改的文件。默认启用。",
+  "settings.checkpointEnabledLabel": "启用检查点",
+  "settings.checkpointDisabledHint":
+    "检查点已关闭：新的会话不再创建文件快照，回滚时只能恢复会话消息，无法复原 AI 修改过的文件。",
+  "settings.checkpointDisableTitle": "关闭检查点？",
+  "settings.checkpointDisableMessage":
+    "关闭后将不再为新的会话创建文件快照。回滚时只能恢复会话消息，无法复原被 AI 修改过的文件；已有检查点仍可正常回滚。",
+  "settings.checkpointDisableConfirm": "仍然关闭",
   "settings.checkpointRetentionTitle": "检查点快照保留",
   "settings.checkpointRetentionInfo":
     "删除会话时其快照会立即清理；应用启动时会清理超过该天数且已无会话引用的快照内容，较新的内容保留为缓存以加快终端命令。",

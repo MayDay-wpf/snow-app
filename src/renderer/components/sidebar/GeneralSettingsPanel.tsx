@@ -69,6 +69,8 @@ import {
   normalizeConversationCacheTtlMinutes,
 } from "../../constants/conversationCache";
 import {
+  CHECKPOINT_ENABLED_SETTING,
+  CHECKPOINT_ENABLED_SETTING_NAME,
   CHECKPOINT_ORPHAN_RETENTION_DEFAULT_DAYS,
   CHECKPOINT_ORPHAN_RETENTION_MAX_DAYS,
   CHECKPOINT_ORPHAN_RETENTION_MIN_DAYS,
@@ -79,6 +81,7 @@ import {
   CHECKPOINT_REMOTE_SCAN_TIMEOUT_MIN_SECS,
   CHECKPOINT_REMOTE_SCAN_TIMEOUT_SETTING,
   CHECKPOINT_REMOTE_SCAN_TIMEOUT_SETTING_NAME,
+  normalizeCheckpointEnabled,
   normalizeCheckpointOrphanRetentionDays,
   normalizeCheckpointRemoteScanTimeoutSecs,
 } from "../../constants/checkpointRetention";
@@ -499,6 +502,11 @@ export function GeneralSettingsPanel(): React.JSX.Element {
   // 远程检查点扫描超时（秒；超过该时长中止扫描并跳过本次快照）
   const [checkpointRemoteScanTimeoutSecs, setCheckpointRemoteScanTimeoutSecs] =
     useState<string>(String(CHECKPOINT_REMOTE_SCAN_TIMEOUT_DEFAULT_SECS));
+  // 检查点启停开关（默认启用；关闭后会话不再创建文件快照）
+  const [checkpointEnabled, setCheckpointEnabled] = useState(true);
+  /** 待确认关闭检查点（true 表示弹窗打开） */
+  const [pendingDisableCheckpoints, setPendingDisableCheckpoints] =
+    useState(false);
   const [sessionSettingsSaved, setSessionSettingsSaved] = useState(false);
 
   // 团队协作启停开关（默认关闭；写入 system_settings，Rust 侧据此放行）
@@ -665,15 +673,23 @@ export function GeneralSettingsPanel(): React.JSX.Element {
 
   useEffect(() => {
     void (async () => {
-      const [single, total, ttl, retention, scanTimeout] = await Promise.all([
-        window.snow.getSystemSettingValue(ATTACH_CONTEXT_SINGLE_BUDGET_SETTING),
-        window.snow.getSystemSettingValue(ATTACH_CONTEXT_TOTAL_BUDGET_SETTING),
-        window.snow.getSystemSettingValue(CONVERSATION_CACHE_TTL_SETTING),
-        window.snow.getSystemSettingValue(CHECKPOINT_ORPHAN_RETENTION_SETTING),
-        window.snow.getSystemSettingValue(
-          CHECKPOINT_REMOTE_SCAN_TIMEOUT_SETTING,
-        ),
-      ]);
+      const [single, total, ttl, retention, scanTimeout, enabled] =
+        await Promise.all([
+          window.snow.getSystemSettingValue(
+            ATTACH_CONTEXT_SINGLE_BUDGET_SETTING,
+          ),
+          window.snow.getSystemSettingValue(
+            ATTACH_CONTEXT_TOTAL_BUDGET_SETTING,
+          ),
+          window.snow.getSystemSettingValue(CONVERSATION_CACHE_TTL_SETTING),
+          window.snow.getSystemSettingValue(
+            CHECKPOINT_ORPHAN_RETENTION_SETTING,
+          ),
+          window.snow.getSystemSettingValue(
+            CHECKPOINT_REMOTE_SCAN_TIMEOUT_SETTING,
+          ),
+          window.snow.getSystemSettingValue(CHECKPOINT_ENABLED_SETTING),
+        ]);
       setAttachSingleBudget(
         single ?? String(ATTACH_CONTEXT_SINGLE_BUDGET_DEFAULT),
       );
@@ -689,6 +705,7 @@ export function GeneralSettingsPanel(): React.JSX.Element {
       setCheckpointRemoteScanTimeoutSecs(
         String(normalizeCheckpointRemoteScanTimeoutSecs(scanTimeout)),
       );
+      setCheckpointEnabled(normalizeCheckpointEnabled(enabled));
     })().catch(() => undefined);
   }, []);
 
@@ -828,6 +845,28 @@ export function GeneralSettingsPanel(): React.JSX.Element {
     writeCheckpointRemoteScanTimeout(
       normalizeCheckpointRemoteScanTimeoutSecs(String(parsed)),
     );
+  };
+
+  /** 写入检查点启停开关；Rust 侧在创建快照前读取该设置。 */
+  const writeCheckpointEnabled = (enabled: boolean): void => {
+    setCheckpointEnabled(enabled);
+    void window.snow
+      .setSystemSetting(
+        CHECKPOINT_ENABLED_SETTING_NAME,
+        CHECKPOINT_ENABLED_SETTING,
+        enabled ? "1" : "0",
+      )
+      .then(() => setSessionSettingsSaved(true))
+      .catch(() => undefined);
+  };
+
+  /** 切换检查点开关：关闭前先确认，明确告知回滚将失去文件复原能力。 */
+  const handleCheckpointEnabledChange = (checked: boolean): void => {
+    if (checked) {
+      writeCheckpointEnabled(true);
+      return;
+    }
+    setPendingDisableCheckpoints(true);
   };
 
   // 图片库存储位置（独立于 checkpoint / upload 的迁移流程）
@@ -2913,12 +2952,59 @@ export function GeneralSettingsPanel(): React.JSX.Element {
             <span>
               {t("settings.sessionSectionInfo", {
                 defaultValue:
-                  "会话消息缓存的保活时长、会话上下文注入预算与检查点快照保留时长。",
+                  "会话消息缓存的保活时长、会话上下文注入预算、检查点启停与检查点快照保留时长。",
               })}
             </span>
           </div>
 
           <div className="api-settings-form-body">
+            <div className="api-settings-form-section">
+              <div className="api-settings-form-section-header">
+                <span className="api-settings-form-section-title">
+                  {t("settings.checkpointEnabledTitle", {
+                    defaultValue: "检查点",
+                  })}
+                </span>
+              </div>
+              <span className="settings-item-description">
+                {t("settings.checkpointEnabledInfo", {
+                  defaultValue:
+                    "会话开始时为工作目录创建文件快照，回滚时可据此复原被 AI 修改的文件。默认启用。",
+                })}
+              </span>
+              <div className="settings-about-row">
+                <span className="settings-item-description">
+                  {t("settings.checkpointEnabledLabel", {
+                    defaultValue: "启用检查点",
+                  })}
+                </span>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={checkpointEnabled}
+                    onChange={(event) =>
+                      handleCheckpointEnabledChange(event.target.checked)
+                    }
+                    hidden
+                  />
+                  <span className="toggle-slider" aria-hidden="true" />
+                  <span>
+                    {checkpointEnabled
+                      ? t("settings.enabled", { defaultValue: "已启用" })
+                      : t("settings.disabled", { defaultValue: "已关闭" })}
+                  </span>
+                </label>
+              </div>
+              {!checkpointEnabled && (
+                <span className="settings-item-description">
+                  {t("settings.checkpointDisabledHint", {
+                    defaultValue:
+                      "检查点已关闭：新的会话不再创建文件快照，回滚时只能恢复会话消息，无法复原 AI 修改过的文件。",
+                  })}
+                </span>
+              )}
+            </div>
+
             <div className="api-settings-form-section">
               <div className="api-settings-form-section-header">
                 <span className="api-settings-form-section-title">
@@ -3637,6 +3723,27 @@ export function GeneralSettingsPanel(): React.JSX.Element {
         isConfirming={isCleaningUp}
         onConfirm={() => void confirmCleanup()}
         onCancel={() => setPendingCleanup(false)}
+      />
+
+      <ConfirmDialog
+        open={pendingDisableCheckpoints}
+        variant="warning"
+        title={t("settings.checkpointDisableTitle", {
+          defaultValue: "关闭检查点？",
+        })}
+        message={t("settings.checkpointDisableMessage", {
+          defaultValue:
+            "关闭后将不再为新的会话创建文件快照。回滚时只能恢复会话消息，无法复原被 AI 修改过的文件；已有检查点仍可正常回滚。",
+        })}
+        confirmLabel={t("settings.checkpointDisableConfirm", {
+          defaultValue: "仍然关闭",
+        })}
+        cancelLabel={t("settings.cancel", { defaultValue: "取消" })}
+        onConfirm={() => {
+          setPendingDisableCheckpoints(false);
+          writeCheckpointEnabled(false);
+        }}
+        onCancel={() => setPendingDisableCheckpoints(false)}
       />
     </div>
   );

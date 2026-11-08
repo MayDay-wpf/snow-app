@@ -3813,7 +3813,17 @@ export const zhTW = {
   "settings.generalSettingsClosePanel": "關閉通用設定",
   "settings.sessionSectionTitle": "會話",
   "settings.sessionSectionInfo":
-    "會話訊息快取的保活時長、會話上下文注入預算、檢查點快照保留時長與遠端檢查點掃描逾時。",
+    "會話訊息快取的保活時長、會話上下文注入預算、檢查點啟停、檢查點快照保留時長與遠端檢查點掃描逾時。",
+  "settings.checkpointEnabledTitle": "檢查點",
+  "settings.checkpointEnabledInfo":
+    "會話開始時為工作目錄建立檔案快照，回滾時可據此還原被 AI 修改的檔案。預設啟用。",
+  "settings.checkpointEnabledLabel": "啟用檢查點",
+  "settings.checkpointDisabledHint":
+    "檢查點已關閉：新的會話不再建立檔案快照，回滾時只能還原會話訊息，無法還原 AI 修改過的檔案。",
+  "settings.checkpointDisableTitle": "關閉檢查點？",
+  "settings.checkpointDisableMessage":
+    "關閉後將不再為新的會話建立檔案快照。回滾時只能還原會話訊息，無法還原被 AI 修改過的檔案；已有檢查點仍可正常回滾。",
+  "settings.checkpointDisableConfirm": "仍然關閉",
   "settings.checkpointRetentionTitle": "檢查點快照保留",
   "settings.checkpointRetentionInfo":
     "刪除會話時其快照會立即清理；應用程式啟動時會清理超過該天數且已無會話引用的快照內容，較新的內容保留為快取以加快終端命令。",

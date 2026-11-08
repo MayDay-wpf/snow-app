@@ -43,6 +43,9 @@ pub use self::migrate::migrate_checkpoint_layout;
 /// （`objects/ab/abcdef...`），历史扁平对象仍可直接读取。
 const OBJECT_DIR_NAME: &str = "objects";
 const MANIFEST_VERSION: u32 = 2;
+/// 通用设置中的检查点启停开关编码（与前端 `constants/checkpointRetention.ts` 一致）。
+/// 关闭后不再创建新快照，回滚只能恢复会话消息。
+const ENABLED_SETTING_CODE: &str = "checkpoint_enabled";
 
 /// Prefix marking a manifest entry path as an absolute path outside the
 /// checkpoint's working directory. Entries whose path starts with this marker
@@ -1148,6 +1151,18 @@ fn validate_capture_work_dir(manifest: &CheckpointManifest, work_dir: &str) -> O
             eprintln!("[checkpoint] {error}; skipping checkpoint capture");
             None
         }
+    }
+}
+
+/// 检查点是否启用：读取通用设置，设置缺失或读取失败时按启用处理，
+/// 避免因数据库暂不可用而静默丢失回滚能力。
+pub fn is_checkpoint_enabled() -> bool {
+    match crate::storage::get_system_setting_value(ENABLED_SETTING_CODE.to_string()) {
+        Ok(Some(value)) => {
+            let value = value.trim();
+            !(value == "0" || value.eq_ignore_ascii_case("false"))
+        }
+        _ => true,
     }
 }
 

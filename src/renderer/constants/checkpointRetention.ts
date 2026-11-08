@@ -1,4 +1,15 @@
 // 检查点相关设置（与 Rust checkpoint/gc.rs、mcp/tools/mod.rs 保持一致）
+
+// 检查点启停开关：默认启用；关闭后会话不再创建文件快照，回滚只能恢复会话消息
+export const CHECKPOINT_ENABLED_SETTING = "checkpoint_enabled";
+
+export const CHECKPOINT_ENABLED_SETTING_NAME = "检查点";
+
+export const normalizeCheckpointEnabled = (raw: string | null): boolean => {
+  const value = (raw ?? "").trim().toLowerCase();
+  return !(value === "0" || value === "false");
+};
+
 export const CHECKPOINT_ORPHAN_RETENTION_SETTING =
   "checkpoint_orphan_retention_days";
 
