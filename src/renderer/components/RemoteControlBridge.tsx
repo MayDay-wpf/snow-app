@@ -1327,10 +1327,12 @@ export const RemoteControlBridge = ({
           (segment) => segment.type === "image",
         )[imageIndex];
         if (!image || image.type !== "image") throw new Error("图片不可用");
+        // 已落盘消息的标签值是 upload/ 路径，不在渲染进程持有图片数据：
+        // 抛错交由 Rust 取图接口按消息 id 从数据库 + 磁盘读取。
         const match = image.tag.dataUrl.match(
           /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=]+)$/,
         );
-        if (!match) throw new Error("图片格式不受支持");
+        if (!match) throw new Error("图片未驻留内存");
         return { mimeType: match[1], base64: match[2] };
       },
       getSkills: async () => {

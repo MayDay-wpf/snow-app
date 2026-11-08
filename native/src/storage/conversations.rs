@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::api::conversation::images::{resolve_inline_images_from_disk, resolve_message_image};
+use crate::api::conversation::images::resolve_message_image;
 
 use super::ensure_archive_database_file;
 use super::ensure_database_file;
@@ -487,23 +487,12 @@ pub fn update_tool_call_correction(
     )
 }
 
+/// 消息内容里的图片标签保持落盘时的 `upload/...` 引用：界面经 img-proxy
+/// 按需读盘显示，远控经 `/api/message-images` 从数据库取图，列表接口不再
+/// 把图片还原成 base64，避免截图常驻渲染进程与主进程内存。
 pub fn list_chat_messages(conversation_id: String) -> Result<Vec<ChatMessageRecord>> {
     let database_path = ensure_database_file()?;
-    let mut records =
-        services::chat_conversations::list_chat_messages(&database_path, &conversation_id)?;
-    for record in &mut records {
-        resolve_record_images(record, &database_path);
-    }
-    Ok(records)
-}
-
-/// 用户 / 助手消息的图片标签还原为 data URL（聊天 chip 与远控桥依赖）；工具
-/// 结果保留 `upload/...` 引用，由工具卡片经 img-proxy 按需读盘，避免截图等
-/// base64 常驻渲染进程内存。
-fn resolve_record_images(record: &mut ChatMessageRecord, database_path: &std::path::Path) {
-    if record.role != "tool" {
-        record.content = resolve_inline_images_from_disk(&record.content, database_path);
-    }
+    services::chat_conversations::list_chat_messages(&database_path, &conversation_id)
 }
 
 /// Lightweight summary of a single user message, used by the chat UI's
@@ -522,12 +511,7 @@ pub struct UserMessageSummary {
 
 pub fn list_user_messages(conversation_id: String) -> Result<Vec<UserMessageSummary>> {
     let database_path = ensure_database_file()?;
-    let mut records =
-        services::chat_conversations::list_user_messages(&database_path, &conversation_id)?;
-    for record in &mut records {
-        record.content = resolve_inline_images_from_disk(&record.content, &database_path);
-    }
-    Ok(records)
+    services::chat_conversations::list_user_messages(&database_path, &conversation_id)
 }
 
 pub fn list_chat_messages_paginated(
@@ -536,16 +520,12 @@ pub fn list_chat_messages_paginated(
     limit: i32,
 ) -> Result<ChatMessagePage> {
     let database_path = ensure_database_file()?;
-    let mut page = services::chat_conversations::list_chat_messages_paginated(
+    services::chat_conversations::list_chat_messages_paginated(
         &database_path,
         &conversation_id,
         &before_message_id,
         limit,
-    )?;
-    for record in &mut page.items {
-        resolve_record_images(record, &database_path);
-    }
-    Ok(page)
+    )
 }
 
 /// 单条用户消息图片（MIME + base64 原始字节）。

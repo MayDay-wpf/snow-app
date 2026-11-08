@@ -344,7 +344,7 @@ body.is-panel-resizing * {
 .top-bar-right {
   justify-content: space-between;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 6px;
   overflow: visible;
   min-width: 0;
 }

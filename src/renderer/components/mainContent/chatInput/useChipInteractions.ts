@@ -13,6 +13,7 @@ import {
   type TextSnippetOverlayApi,
 } from "./useTextSnippetOverlay";
 import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
+import { inlineImageSrc } from "../chatMessages/utils/inlineImages";
 
 /**
  * 会话 chip 悬停预览缓存：避免短时间内反复悬停重复查库渲染。
@@ -156,7 +157,13 @@ export const useChipInteractions = ({
         halfW + 4,
         Math.min(rect.left + rect.width / 2, window.innerWidth - halfW - 4),
       );
-      setImagePreview({ url: dataUrl, x: clampedX, y: rect.top });
+      // 历史消息的图片 chip 值是 upload/ 落盘路径（编辑、回滚恢复到输入框），
+      // 经 img-proxy 读盘；新粘贴的图片仍是 data URL，原样使用。
+      setImagePreview({
+        url: inlineImageSrc(dataUrl),
+        x: clampedX,
+        y: rect.top,
+      });
     },
     [],
   );
@@ -189,7 +196,7 @@ export const useChipInteractions = ({
         imagePreviewTimerRef.current = null;
       }
       setImagePreview(null);
-      setImageLightbox(dataUrl);
+      setImageLightbox(inlineImageSrc(dataUrl));
     },
     [textareaRef],
   );
