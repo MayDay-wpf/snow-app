@@ -173,14 +173,31 @@ fn run_pass(
 }
 
 /// 读取保留天数；缺失或非法回落默认值，越界截断。
-fn orphan_retention() -> Duration {
-    let days = crate::storage::get_system_setting_value(ORPHAN_RETENTION_SETTING_CODE.to_string())
+fn orphan_retention_days() -> u64 {
+    crate::storage::get_system_setting_value(ORPHAN_RETENTION_SETTING_CODE.to_string())
         .ok()
         .flatten()
         .and_then(|value| value.trim().parse::<u64>().ok())
         .unwrap_or(ORPHAN_RETENTION_DEFAULT_DAYS)
-        .clamp(ORPHAN_RETENTION_MIN_DAYS, ORPHAN_RETENTION_MAX_DAYS);
-    Duration::from_secs(days * 24 * 60 * 60)
+        .clamp(ORPHAN_RETENTION_MIN_DAYS, ORPHAN_RETENTION_MAX_DAYS)
+}
+
+fn orphan_retention() -> Duration {
+    Duration::from_secs(orphan_retention_days() * 24 * 60 * 60)
+}
+
+/// SSH 远程对象库清理的输入：本机全部 manifest 引用的对象 id 加上指纹缓存
+/// 中尚未写入 manifest 的对象 id（bash before 捕获），以及保留天数。
+pub(crate) fn remote_sweep_inputs() -> Result<(Vec<String>, u64)> {
+    let mut referenced = collect_referenced_ids(&checkpoint_root()?).map_err(|error| {
+        Error::from_reason(format!("Failed to scan checkpoint manifests: {error}"))
+    })?;
+    referenced.extend(
+        fingerprint_cache()
+            .values()
+            .map(|entry| entry.object_id.clone()),
+    );
+    Ok((referenced.into_iter().collect(), orphan_retention_days()))
 }
 
 /// 对象可能位于分片目录或旧版扁平目录。

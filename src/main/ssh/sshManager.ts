@@ -827,6 +827,9 @@ export type SshCommandOptions = {
   /** External cancellation (e.g. conversation stop); aborts the same way as a
    *  timeout. */
   signal?: AbortSignal;
+  /** 写入远程进程 stdin 的内容，写完即关闭 stdin（批量路径等大参数走这里，
+   *  不受命令行长度限制）。未提供时 stdin 保持原样。 */
+  stdin?: string;
 };
 
 export const executeSshCommand = (
@@ -841,7 +844,7 @@ export const executeSshCommand = (
       return;
     }
 
-    const { timeoutMs = 300_000, signal } = options ?? {};
+    const { timeoutMs = 300_000, signal, stdin } = options ?? {};
     let settled = false;
     let streamRef: import("ssh2").ClientChannel | undefined;
     let timer: NodeJS.Timeout | undefined;
@@ -994,6 +997,9 @@ export const executeSshCommand = (
           new Error(`Failed to execute remote command: ${streamError.message}`),
         );
       });
+      if (stdin !== undefined) {
+        stream.end(stdin);
+      }
     });
   });
 };
@@ -2111,26 +2117,6 @@ export const renameSshFile = (
         return;
       }
       resolve();
-    });
-  });
-};
-
-export const removeEmptySshDirectory = (
-  sessionId: string,
-  remotePath: string,
-): Promise<boolean> => {
-  return new Promise((resolve, reject) => {
-    const session = getSshSession(sessionId);
-    if (!session) {
-      reject(new Error("SSH session not found. Please reconnect."));
-      return;
-    }
-    session.sftp.rmdir(remotePath, (err) => {
-      if (err) {
-        resolve(false);
-        return;
-      }
-      resolve(true);
     });
   });
 };

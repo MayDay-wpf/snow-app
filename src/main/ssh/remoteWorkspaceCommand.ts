@@ -8,14 +8,12 @@ import {
 } from "../../shared/roleSettings";
 import { processFileContent } from "../utils/fileReader";
 import {
-  deleteSshFile,
   executeSshCommand,
   isSshPathWithinRoot,
   listSshDirectory,
   parseSshUrl,
   readSshFile,
   readSshFileWithVersion,
-  removeEmptySshDirectory,
   renameSshFile,
   SshOperationError,
   statSshEntry,
@@ -100,6 +98,12 @@ type RemoteWorkspaceCommandArgs = {
   paths?: unknown;
   scanId?: unknown;
   sourceDir?: unknown;
+  store?: unknown;
+  objectId?: unknown;
+  maxBytes?: unknown;
+  ops?: unknown;
+  keep?: unknown;
+  retentionDays?: unknown;
 };
 
 type RemoteWorkspaceSearchMatch = {
@@ -2175,8 +2179,15 @@ const executeCheckpointListTree = async (
   );
 };
 
+// checkpoint 读取的字节上限参数：缺省或非法时不限制。
+const parseCheckpointByteLimit = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : undefined;
+
 // 单文件 stat+read 合并操作：checkpoint 单文件记录（before/after）原本需要
 // 两次往返（stat 判存在性/目录、read 取内容），合并后一次往返完成。
+// 可选 maxBytes：超过上限只回元数据（tooLarge），diff 查看据此限制传输量。
 const executeCheckpointReadFileWithStat = async (
   args: RemoteWorkspaceCommandArgs,
   signal?: AbortSignal,
@@ -2205,6 +2216,18 @@ const executeCheckpointReadFileWithStat = async (
         };
       }
       let content: Buffer;
+      const maxBytes = parseCheckpointByteLimit(args.maxBytes);
+      if (maxBytes !== undefined && stats.size > maxBytes) {
+        // 超过调用方的传输上限：只回元数据，不把整份内容读进主进程。
+        return {
+          exists: true,
+          isDirectory: false,
+          size: stats.size,
+          mtimeMs: stats.mtime * 1000,
+          content: null,
+          tooLarge: true,
+        };
+      }
       try {
         content = await readSshFile(sessionId, remotePath, { signal });
       } catch (error) {
@@ -2265,7 +2288,6 @@ const groupSshPathsByAuthority = (
 };
 
 const CHECKPOINT_STAT_CONCURRENCY = 32;
-const CHECKPOINT_READ_CONCURRENCY = 8;
 
 // 批量 stat：一次命令往返取回全部路径的元数据（连接池会话内 SFTP 并发），
 // 替代逐文件 checkpoint-stat 的 N 次往返。
@@ -2301,41 +2323,527 @@ const executeCheckpointStatPaths = async (
   return { stats };
 };
 
-// 批量读取文件内容（base64）：一次命令往返读回一批文件，替代逐文件
-// checkpoint-read-file 的 N 次往返；stat 后消失的文件返回 null。
-const executeCheckpointReadFiles = async (
+// ============================================================================
+// 远程检查点对象库：文件内容对象存放在远程主机 ~/.snowapp/checkpoints/objects
+// （按哈希前两位分片），哈希、入库、比对与恢复全部由远程 shell 完成，
+// 网络上只传路径与哈希。要求远程具备 POSIX sh 与 sha256sum / shasum；
+// 不满足时探测返回 supported=false，Rust 侧不再为该主机记录检查点。
+// ============================================================================
+
+const CHECKPOINT_STORE_TIMEOUT_MS = 300_000;
+const CHECKPOINT_STORE_RELATIVE_DIR = ".snowapp/checkpoints/objects";
+const CHECKPOINT_OBJECT_ID_PATTERN = /^[0-9a-f]{64}$/;
+// 除哈希命令外，对象库脚本依赖的基础命令。
+const CHECKPOINT_STORE_REQUIRED_COMMANDS = [
+  "cat",
+  "cp",
+  "mv",
+  "mkdir",
+  "rm",
+  "rmdir",
+  "find",
+  "xargs",
+  "awk",
+  "tr",
+];
+
+// 对象库脚本公共前缀：S 为对象库目录，T 为制表符（输出字段分隔）。
+const CHECKPOINT_STORE_PRELUDE = [
+  `S="$HOME/${CHECKPOINT_STORE_RELATIVE_DIR}"`,
+  "T=$(printf '\\t')",
+];
+
+// 哈希命令探测：sha256sum 优先，macOS 等 BSD 系统回退 shasum。
+const CHECKPOINT_STORE_HASH_DETECT = [
+  "if command -v sha256sum >/dev/null 2>&1; then H=sha256sum",
+  "elif command -v shasum >/dev/null 2>&1; then H='shasum -a 256'",
+  "else echo 'sha256sum/shasum not found' >&2; exit 3",
+  "fi",
+];
+
+const CHECKPOINT_STORE_PROBE_SCRIPT = [
+  "printf 'home\\t%s\\n' \"$HOME\"",
+  "if command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; then :; else printf 'missing\\tsha256sum\\n'; fi",
+  `for c in ${CHECKPOINT_STORE_REQUIRED_COMMANDS.join(" ")}; do command -v "$c" >/dev/null 2>&1 || printf 'missing\\t%s\\n' "$c"; done`,
+  "exit 0",
+].join("\n");
+
+// 批量哈希（$1=1 时同时入库）：stdin 每行一个绝对路径。存在的常规文件经
+// xargs 批量计算 sha256，尚未入库的对象先复制到临时名再原子改名；输出
+// H<TAB>哈希<TAB>路径 / M<TAB>路径（不存在）/ D<TAB>路径（目录）/
+// E<TAB>路径（入库失败）。哈希工具会转义含反斜杠等字符的文件名（行首不再
+// 是十六进制哈希），这类行直接跳过。
+const CHECKPOINT_STORE_FILES_SCRIPT = [
+  ...CHECKPOINT_STORE_PRELUDE,
+  ...CHECKPOINT_STORE_HASH_DETECT,
+  'if [ "$1" = 1 ]; then mkdir -p "$S" || exit 4; fi',
+  "exec 3>&1",
+  "while IFS= read -r p; do",
+  '  if [ -d "$p" ]; then printf \'D\\t%s\\n\' "$p" >&3',
+  '  elif [ -f "$p" ]; then printf \'%s\\0\' "$p"',
+  "  else printf 'M\\t%s\\n' \"$p\" >&3",
+  "  fi",
+  "done | xargs -0 $H 2>/dev/null | while IFS= read -r l; do",
+  '  case "$l" in [!0-9a-f]*) continue ;; esac',
+  "  h=${l%% *}",
+  '  f=${l#"$h"}',
+  "  f=${f#??}",
+  '  if [ "$1" = 1 ]; then',
+  '    d="$S/${h%"${h#??}"}"',
+  '    o="$d/$h"',
+  '    if [ ! -f "$o" ]; then',
+  '      t="$d/.$h.$$"',
+  '      if { [ -d "$d" ] || mkdir -p "$d"; } && cp -- "$f" "$t" 2>/dev/null && mv -f -- "$t" "$o"; then :; else',
+  '        rm -f -- "$t"',
+  "        printf 'E\\t%s\\n' \"$f\"",
+  "        continue",
+  "      fi",
+  "    fi",
+  "  fi",
+  '  printf \'H\\t%s\\t%s\\n\' "$h" "$f"',
+  "done",
+  "exit 0",
+].join("\n");
+
+// 批量恢复：stdin 每行一个操作，按顺序执行——
+// C<TAB>哈希<TAB>路径：从对象库复制回目标（自动创建父目录）；
+// R<TAB>路径：删除文件（不存在视为成功）；P<TAB>路径：尝试删除空目录。
+// 输出 O<TAB>路径（成功）/ X<TAB>路径（对象缺失）/ F<TAB>路径<TAB>原因。
+const CHECKPOINT_STORE_RESTORE_SCRIPT = [
+  ...CHECKPOINT_STORE_PRELUDE,
+  "while IFS= read -r l; do",
+  '  k=${l%%"$T"*}',
+  '  r=${l#*"$T"}',
+  '  case "$k" in',
+  "    C)",
+  '      h=${r%%"$T"*}',
+  '      p=${r#*"$T"}',
+  '      o="$S/${h%"${h#??}"}/$h"',
+  '      if [ ! -f "$o" ]; then printf \'X\\t%s\\n\' "$p"; continue; fi',
+  "      d=${p%/*}",
+  '      if [ -n "$d" ] && [ ! -d "$d" ]; then mkdir -p -- "$d" 2>/dev/null; fi',
+  '      if e=$(cp -- "$o" "$p" 2>&1); then printf \'O\\t%s\\n\' "$p"; else printf \'F\\t%s\\t%s\\n\' "$p" "$(printf \'%s\' "$e" | tr \'\\t\\n\' \'  \')"; fi',
+  "      ;;",
+  "    R)",
+  "      if e=$(rm -f -- \"$r\" 2>&1); then printf 'O\\t%s\\n' \"$r\"; else printf 'F\\t%s\\t%s\\n' \"$r\" \"$(printf '%s' \"$e\" | tr '\\t\\n' '  ')\"; fi",
+  "      ;;",
+  "    P)",
+  '      rmdir -- "$r" 2>/dev/null',
+  "      ;;",
+  "  esac",
+  "done",
+  "exit 0",
+].join("\n");
+
+// 对象库清理：stdin 为仍被引用的对象 id（每行一个），删除超过 $1 天且未被
+// 引用的对象与残留临时文件。保留清单首行写入占位，保证 awk 的
+// NR==FNR 判定在清单为空时也不会把待清理列表误当成保留清单。
+const CHECKPOINT_STORE_SWEEP_SCRIPT = [
+  ...CHECKPOINT_STORE_PRELUDE,
+  '[ -d "$S" ] || exit 0',
+  'K="$S/.keep.$$"',
+  "printf 'keep\\n' > \"$K\" || exit 4",
+  'cat >> "$K" || { rm -f -- "$K"; exit 4; }',
+  "find \"$S\" -type f -mtime +\"$1\" ! -name '.keep.*' -print | awk 'NR == FNR { k[$0] = 1; next } { n = $0; sub(/.*\\//, \"\", n); if (!(n in k)) print }' \"$K\" - | tr '\\n' '\\0' | xargs -0 rm -f --",
+  'rm -f -- "$K"',
+  "exit 0",
+].join("\n");
+
+const runCheckpointStoreScript = (
+  sessionId: string,
+  script: string,
+  scriptArgs: readonly string[],
+  stdin: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  // 统一交给 sh 执行，避免依赖登录 shell 的语法（zsh/bash 下 shellQuote 均安全）。
+  const command = [
+    "sh -c",
+    shellQuote(script),
+    "snow-checkpoint",
+    ...scriptArgs.map(shellQuote),
+  ].join(" ");
+  return executeSshCommand(sessionId, command, {
+    signal,
+    stdin,
+    timeoutMs: CHECKPOINT_STORE_TIMEOUT_MS,
+  });
+};
+
+// 各主机的远程 $HOME（对象库位置），探测或首次读取对象时写入。
+const checkpointStoreHomes = new Map<string, string>();
+
+const sshAuthorityKey = (parsed: ReturnType<typeof parseSshUrl>): string =>
+  `${parsed.username}@${parsed.host}:${parsed.port}`;
+
+const resolveCheckpointStoreHome = async (
+  sessionId: string,
+  authority: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const cached = checkpointStoreHomes.get(authority);
+  if (cached) {
+    return cached;
+  }
+  const home = (
+    await runCheckpointStoreScript(
+      sessionId,
+      "printf '%s' \"$HOME\"",
+      [],
+      "",
+      signal,
+    )
+  ).trim();
+  if (!home.startsWith("/")) {
+    throw new Error("Remote home directory is unavailable for checkpoints");
+  }
+  checkpointStoreHomes.set(authority, home);
+  return home;
+};
+
+const ensureCheckpointObjectId = (
+  value: unknown,
+  fieldName: string,
+): string => {
+  if (typeof value !== "string" || !CHECKPOINT_OBJECT_ID_PATTERN.test(value)) {
+    throw new Error(`${fieldName} must be a checkpoint object id`);
+  }
+  return value;
+};
+
+// 拆出首个制表符前的字段；无制表符时返回 undefined。
+const splitTabField = (line: string): [string, string] | undefined => {
+  const index = line.indexOf("\t");
+  return index < 0 ? undefined : [line.slice(0, index), line.slice(index + 1)];
+};
+
+// 能力探测：远程是否具备对象库所需的 POSIX sh 与命令。非连接级失败
+// （如 Windows OpenSSH 默认 shell 无法执行 sh）视为不支持并带回原因。
+const executeCheckpointStoreProbe = async (
+  args: RemoteWorkspaceCommandArgs,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> => {
+  const workspacePath = validateSshWorkspacePath(args.path, "path");
+  return withSshSession(
+    workspacePath,
+    async (sessionId, _remotePath, parsedPath) => {
+      let output: string;
+      try {
+        output = await runCheckpointStoreScript(
+          sessionId,
+          CHECKPOINT_STORE_PROBE_SCRIPT,
+          [],
+          "",
+          signal,
+        );
+      } catch (error) {
+        if (isSshOperationError(error)) {
+          throw error;
+        }
+        return {
+          supported: false,
+          missing: ["sh"],
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+      let home = "";
+      const missing: string[] = [];
+      for (const line of output.split("\n")) {
+        const fields = splitTabField(line.replace(/\r$/, ""));
+        if (!fields) {
+          continue;
+        }
+        if (fields[0] === "home") {
+          home = fields[1].trim();
+        } else if (fields[0] === "missing" && fields[1]) {
+          missing.push(fields[1]);
+        }
+      }
+      if (!home.startsWith("/")) {
+        return { supported: false, missing, reason: "HOME is not set" };
+      }
+      checkpointStoreHomes.set(sshAuthorityKey(parsedPath), home);
+      return { supported: missing.length === 0, missing };
+    },
+    { signal },
+  );
+};
+
+// 批量哈希 / 入库：返回 results[原始 URI] = { kind, hash? }，kind 为
+// file / missing / directory / error（error 表示未能取得哈希或入库失败）。
+const executeCheckpointStoreFiles = async (
   args: RemoteWorkspaceCommandArgs,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> => {
   const paths = ensureSshPathList(args.paths, "paths");
-  const contents: Record<string, string | null> = {};
+  const store = args.store === true;
+  const results: Record<string, { kind: string; hash?: string }> = {};
   for (const [authority, group] of groupSshPathsByAuthority(paths)) {
-    await withSshSession(
+    const byRemotePath = new Map<string, string>();
+    const lines: string[] = [];
+    for (const item of group) {
+      if (item.remotePath.includes("\n")) {
+        results[item.original] = { kind: "error" };
+        continue;
+      }
+      byRemotePath.set(item.remotePath, item.original);
+      lines.push(item.remotePath);
+    }
+    if (lines.length === 0) {
+      continue;
+    }
+    const output = await withSshSession(
       `ssh://${authority}`,
-      async (sessionId) => {
-        await mapWithConcurrency(
-          group,
-          CHECKPOINT_READ_CONCURRENCY,
-          async (item) => {
-            try {
-              const buffer = await readSshFile(sessionId, item.remotePath, {
-                signal,
-              });
-              contents[item.original] = buffer.toString("base64");
-            } catch (error) {
-              if (isSshOperationError(error)) {
-                throw error;
-              }
-              // The file may have been removed between stat and read.
-              contents[item.original] = null;
-            }
-          },
-        );
-      },
+      (sessionId) =>
+        runCheckpointStoreScript(
+          sessionId,
+          CHECKPOINT_STORE_FILES_SCRIPT,
+          [store ? "1" : "0"],
+          `${lines.join("\n")}\n`,
+          signal,
+        ),
       { signal },
     );
+    for (const line of output.split("\n")) {
+      const fields = splitTabField(line);
+      if (!fields) {
+        continue;
+      }
+      const [kind, rest] = fields;
+      if (kind === "H") {
+        const hashFields = splitTabField(rest);
+        const original = hashFields
+          ? byRemotePath.get(hashFields[1])
+          : undefined;
+        if (
+          hashFields &&
+          original &&
+          CHECKPOINT_OBJECT_ID_PATTERN.test(hashFields[0])
+        ) {
+          results[original] = { kind: "file", hash: hashFields[0] };
+        }
+        continue;
+      }
+      const original = byRemotePath.get(rest);
+      if (!original) {
+        continue;
+      }
+      if (kind === "M") {
+        results[original] = { kind: "missing" };
+      } else if (kind === "D") {
+        results[original] = { kind: "directory" };
+      } else if (kind === "E") {
+        results[original] = { kind: "error" };
+      }
+    }
+    // 输出中缺席的路径（哈希阶段消失、权限不足或文件名被转义）按错误处理。
+    for (const original of byRemotePath.values()) {
+      if (!results[original]) {
+        results[original] = { kind: "error" };
+      }
+    }
   }
-  return { contents };
+  return { results };
+};
+
+// 读取远程对象库中的对象内容（diff 查看）：path 为对象所在主机上的任一
+// ssh:// 路径。超过 maxBytes 只回元数据。
+const executeCheckpointStoreRead = async (
+  args: RemoteWorkspaceCommandArgs,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> => {
+  const workspacePath = validateSshWorkspacePath(args.path, "path");
+  const objectId = ensureCheckpointObjectId(args.objectId, "objectId");
+  const maxBytes = parseCheckpointByteLimit(args.maxBytes);
+  return withSshSession(
+    workspacePath,
+    async (sessionId, _remotePath, parsedPath) => {
+      const home = await resolveCheckpointStoreHome(
+        sessionId,
+        sshAuthorityKey(parsedPath),
+        signal,
+      );
+      const objectPath = `${home}/${CHECKPOINT_STORE_RELATIVE_DIR}/${objectId.slice(0, 2)}/${objectId}`;
+      const stats = await statSshEntry(sessionId, objectPath);
+      if (!stats || stats.isDirectory()) {
+        return { exists: false, tooLarge: false, size: 0, content: null };
+      }
+      if (maxBytes !== undefined && stats.size > maxBytes) {
+        return {
+          exists: true,
+          tooLarge: true,
+          size: stats.size,
+          content: null,
+        };
+      }
+      const content = await readSshFile(sessionId, objectPath, { signal });
+      return {
+        exists: true,
+        tooLarge: false,
+        size: stats.size,
+        content: content.toString("base64"),
+      };
+    },
+    { signal },
+  );
+};
+
+type CheckpointRestoreOperation =
+  | { kind: "copy"; path: string; objectId: string }
+  | { kind: "remove"; path: string }
+  | { kind: "rmdir"; path: string };
+
+const ensureCheckpointRestoreOperations = (
+  value: unknown,
+): CheckpointRestoreOperation[] => {
+  if (!Array.isArray(value)) {
+    throw new Error("ops must be an array");
+  }
+  return value.map((item, index): CheckpointRestoreOperation => {
+    const record = (item ?? {}) as Record<string, unknown>;
+    const path = validateSshWorkspacePath(record.path, `ops[${index}].path`);
+    if (record.kind === "copy") {
+      return {
+        kind: "copy",
+        path,
+        objectId: ensureCheckpointObjectId(
+          record.objectId,
+          `ops[${index}].objectId`,
+        ),
+      };
+    }
+    if (record.kind === "remove") {
+      return { kind: "remove", path };
+    }
+    if (record.kind === "rmdir") {
+      return { kind: "rmdir", path };
+    }
+    throw new Error(`ops[${index}].kind is not supported`);
+  });
+};
+
+// 批量恢复：同一主机的操作合并成一次远程脚本调用，按传入顺序执行。
+// 返回 results: [{ path, status: ok | missing_object | failed, reason? }]
+// （rmdir 操作不回报结果）。
+const executeCheckpointStoreRestore = async (
+  args: RemoteWorkspaceCommandArgs,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> => {
+  const operations = ensureCheckpointRestoreOperations(args.ops);
+  const groups = new Map<
+    string,
+    Array<{ operation: CheckpointRestoreOperation; remotePath: string }>
+  >();
+  for (const operation of operations) {
+    const parsed = parseSshUrl(operation.path);
+    const key = sshAuthorityKey(parsed);
+    const group = groups.get(key) ?? [];
+    group.push({ operation, remotePath: parsed.remotePath });
+    groups.set(key, group);
+  }
+  const results: Array<{ path: string; status: string; reason?: string }> = [];
+  for (const [authority, group] of groups) {
+    const byRemotePath = new Map<string, string>();
+    const lines: string[] = [];
+    for (const { operation, remotePath } of group) {
+      if (remotePath.includes("\n") || remotePath.includes("\t")) {
+        if (operation.kind !== "rmdir") {
+          results.push({
+            path: operation.path,
+            status: "failed",
+            reason: "Unsupported character in remote path",
+          });
+        }
+        continue;
+      }
+      byRemotePath.set(remotePath, operation.path);
+      if (operation.kind === "copy") {
+        lines.push(`C\t${operation.objectId}\t${remotePath}`);
+      } else if (operation.kind === "remove") {
+        lines.push(`R\t${remotePath}`);
+      } else {
+        lines.push(`P\t${remotePath}`);
+      }
+    }
+    if (lines.length === 0) {
+      continue;
+    }
+    const output = await withSshSession(
+      `ssh://${authority}`,
+      (sessionId) =>
+        runCheckpointStoreScript(
+          sessionId,
+          CHECKPOINT_STORE_RESTORE_SCRIPT,
+          [],
+          `${lines.join("\n")}\n`,
+          signal,
+        ),
+      { signal },
+    );
+    for (const line of output.split("\n")) {
+      const fields = splitTabField(line);
+      if (!fields) {
+        continue;
+      }
+      const [kind, rest] = fields;
+      if (kind === "F") {
+        const failure = splitTabField(rest);
+        const remotePath = failure ? failure[0] : rest;
+        const original = byRemotePath.get(remotePath);
+        if (original) {
+          results.push({
+            path: original,
+            status: "failed",
+            reason: failure?.[1].trim() || undefined,
+          });
+        }
+        continue;
+      }
+      const original = byRemotePath.get(rest);
+      if (!original) {
+        continue;
+      }
+      if (kind === "O") {
+        results.push({ path: original, status: "ok" });
+      } else if (kind === "X") {
+        results.push({ path: original, status: "missing_object" });
+      }
+    }
+  }
+  return { results };
+};
+
+// 对象库清理：删除远程主机上超过保留期且未被引用的对象。
+const executeCheckpointStoreSweep = async (
+  args: RemoteWorkspaceCommandArgs,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> => {
+  const workspacePath = validateSshWorkspacePath(args.path, "path");
+  if (!Array.isArray(args.keep)) {
+    throw new Error("keep must be an array of checkpoint object ids");
+  }
+  const keep = args.keep.filter(
+    (value): value is string =>
+      typeof value === "string" && CHECKPOINT_OBJECT_ID_PATTERN.test(value),
+  );
+  const retentionDays =
+    typeof args.retentionDays === "number" &&
+    Number.isFinite(args.retentionDays)
+      ? Math.max(1, Math.floor(args.retentionDays))
+      : 7;
+  await withSshSession(
+    workspacePath,
+    (sessionId) =>
+      runCheckpointStoreScript(
+        sessionId,
+        CHECKPOINT_STORE_SWEEP_SCRIPT,
+        [String(retentionDays)],
+        keep.length > 0 ? `${keep.join("\n")}\n` : "",
+        signal,
+      ),
+    { signal },
+  );
+  return { swept: true };
 };
 
 const executeCheckpointWriteFile = async (
@@ -2360,64 +2868,6 @@ const executeCheckpointWriteFile = async (
         signal,
       });
       return { bytes: save.bytes };
-    },
-    { signal },
-  );
-};
-
-/** 远程条目是否已不存在：stat 失败按「仍存在」处理，避免掩盖原始删除失败原因。 */
-const isRemoteEntryGone = async (
-  sessionId: string,
-  remotePath: string,
-): Promise<boolean> => {
-  try {
-    return (await statSshEntry(sessionId, remotePath)) === null;
-  } catch {
-    return false;
-  }
-};
-
-/** 去掉 deleteSshFile 的统一包装前缀，只保留 SFTP 原始失败原因。 */
-const describeRemoteDeleteFailure = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/^Failed to delete remote file:\s*/, "");
-};
-
-const executeCheckpointDeleteFile = async (
-  args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal,
-): Promise<Record<string, unknown>> => {
-  const workspacePath = validateSshWorkspacePath(args.path, "path");
-  return withSshSession(
-    workspacePath,
-    async (sessionId, remotePath) => {
-      try {
-        await deleteSshFile(sessionId, remotePath);
-        return { deleted: true };
-      } catch (error) {
-        // 与本地 restore_entry 的 Missing 语义对齐：条目已经不在远程即视为
-        // 删除成功，回滚恢复因此保持幂等，重复恢复不会被 ENOENT 卡死。
-        if (await isRemoteEntryGone(sessionId, remotePath)) {
-          return { deleted: true };
-        }
-        // 带上真实原因，否则用户只看到笼统的「删除远程文件失败」。
-        return { deleted: false, reason: describeRemoteDeleteFailure(error) };
-      }
-    },
-    { signal },
-  );
-};
-
-const executeCheckpointRemoveDir = async (
-  args: RemoteWorkspaceCommandArgs,
-  signal?: AbortSignal,
-): Promise<Record<string, unknown>> => {
-  const workspacePath = validateSshWorkspacePath(args.path, "path");
-  return withSshSession(
-    workspacePath,
-    async (sessionId, remotePath) => {
-      const removed = await removeEmptySshDirectory(sessionId, remotePath);
-      return { removed };
     },
     { signal },
   );
@@ -2798,14 +3248,18 @@ const dispatchRemoteWorkspaceOperation = async (
       return executeCheckpointListTree(args, signal);
     case "checkpoint-read-file-with-stat":
       return executeCheckpointReadFileWithStat(args, signal);
-    case "checkpoint-read-files":
-      return executeCheckpointReadFiles(args, signal);
     case "checkpoint-write-file":
       return executeCheckpointWriteFile(args, signal);
-    case "checkpoint-delete-file":
-      return executeCheckpointDeleteFile(args, signal);
-    case "checkpoint-remove-dir":
-      return executeCheckpointRemoveDir(args, signal);
+    case "checkpoint-store-probe":
+      return executeCheckpointStoreProbe(args, signal);
+    case "checkpoint-store-files":
+      return executeCheckpointStoreFiles(args, signal);
+    case "checkpoint-store-read":
+      return executeCheckpointStoreRead(args, signal);
+    case "checkpoint-store-restore":
+      return executeCheckpointStoreRestore(args, signal);
+    case "checkpoint-store-sweep":
+      return executeCheckpointStoreSweep(args, signal);
     case "checkpoint-abort-scan":
       return executeCheckpointAbortScan(args);
     case "skills-install-dir":

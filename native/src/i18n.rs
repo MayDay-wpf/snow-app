@@ -26,6 +26,7 @@ pub enum CheckpointText {
     AfterCompleted,
     AfterFailed,
     AfterTimeout,
+    RemoteStoreUnavailable,
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +83,10 @@ impl AppLocale {
             (AppLocale::En, AfterTimeout) => "[checkpoint] Remote scan timed out ({0}ms); the scan was aborted, the post-execution snapshot is incomplete, rollback protection may be incomplete",
             (AppLocale::ZhCn, AfterTimeout) => "[checkpoint] 远程扫描超时（{0}ms），已中止扫描，执行后快照未完成，回滚保护可能不完整",
             (AppLocale::ZhTw, AfterTimeout) => "[checkpoint] 遠端掃描逾時（{0}ms），已中止掃描，執行後快照未完成，回滾保護可能不完整",
+
+            (AppLocale::En, RemoteStoreUnavailable) => "[checkpoint] The remote host is missing tools required for SSH checkpoints ({0}); checkpoints are disabled for this host and this invocation has no rollback protection. Install them on the remote host (e.g. coreutils) to restore rollback protection",
+            (AppLocale::ZhCn, RemoteStoreUnavailable) => "[checkpoint] 远程主机缺少 SSH 检查点所需的工具（{0}），已停用该主机的检查点，本次调用无回滚保护。请在远程主机上安装（如 coreutils）后即可恢复回滚保护",
+            (AppLocale::ZhTw, RemoteStoreUnavailable) => "[checkpoint] 遠端主機缺少 SSH 檢查點所需的工具（{0}），已停用該主機的檢查點，本次調用無回滾保護。請在遠端主機上安裝（如 coreutils）後即可恢復回滾保護",
         }
     }
 

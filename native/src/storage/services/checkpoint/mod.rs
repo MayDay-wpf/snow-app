@@ -1046,45 +1046,6 @@ fn store_object(path: &Path) -> Result<String> {
     Ok(object_id)
 }
 
-/// Publish in-memory bytes into the content-addressed object store.
-/// Used by the remote (SSH) checkpoint flows: file content arrives from
-/// Electron via SFTP and is stored with the same BLAKE3 deduplication as
-/// locally captured files.
-fn store_object_bytes(content: &[u8]) -> Result<String> {
-    let object_id = blake3::Hasher::new()
-        .update(content)
-        .finalize()
-        .to_hex()
-        .to_string();
-    if object_path(&object_id)?.is_file() {
-        return Ok(object_id);
-    }
-    let object_dir = object_write_dir(&object_id)?;
-    let final_path = object_dir.join(&object_id);
-    let temporary = object_dir.join(format!("{}.tmp", generate_checkpoint_id()));
-    fs::write(&temporary, content).map_err(|error| {
-        Error::from_reason(format!(
-            "Failed to create checkpoint object '{}': {error}",
-            temporary.display()
-        ))
-    })?;
-    if final_path.exists() {
-        let _ = fs::remove_file(&temporary);
-    } else if let Err(error) = fs::rename(&temporary, &final_path) {
-        // Another session may have published the same content-addressed object
-        // after our exists check. Treat that as a successful deduplicated write.
-        if final_path.exists() {
-            let _ = fs::remove_file(&temporary);
-        } else {
-            let _ = fs::remove_file(&temporary);
-            return Err(Error::from_reason(format!(
-                "Failed to publish checkpoint object: {error}"
-            )));
-        }
-    }
-    Ok(object_id)
-}
-
 fn current_state(path: &Path) -> Result<OriginalState> {
     if !path.exists() {
         return Ok(OriginalState::Missing);

@@ -1427,6 +1427,26 @@ async fn capture_checkpoint_before_tool_remote(
     on_chunk: &BashStreamCallback,
 ) -> napi::Result<ToolCheckpointCapture> {
     if checkpoint_ids.is_empty() {
+        // 主机缺少对象库工具时不会创建检查点：bash 输出中提醒一次安装。
+        if matches!(
+            tool_checkpoint_scope(tool_full_name),
+            ToolCheckpointScope::Worktree
+        ) {
+            if let Some(missing) = checkpoint_work_dir
+                .as_deref()
+                .and_then(crate::storage::services::checkpoint::remote::take_remote_store_reminder)
+            {
+                let locale = crate::i18n::app_locale().await;
+                emit_stream_chunk(
+                    on_chunk,
+                    "stdout",
+                    crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::RemoteStoreUnavailable),
+                        &[&missing],
+                    ),
+                );
+            }
+        }
         return Ok(ToolCheckpointCapture::None);
     }
     // 先定范围再校验 work_dir（与本地版本一致），Skill / 外部 MCP 不阻断。

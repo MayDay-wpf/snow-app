@@ -1,18 +1,20 @@
-//! SSH 工作区的 checkpoint 远程文件访问层。
+//! SSH 工作区的 checkpoint 远程访问层。
 //!
 //! 本地 checkpoint 用 `std::fs` 直接访问工作区；SSH 工作区（`ssh://` URI）
-//! 的文件由 Electron 主进程通过 SFTP 访问，Rust 侧无法直接 IO。本模块把
-//! checkpoint 需要的文件操作（stat / 递归列目录 / 读 / 写 / 删）封装为
-//! 通过 `RemoteWorkspaceCallback` 转发给 Electron 的异步命令，供远程版
-//! checkpoint 流程复用同一套 manifest / 对象存储逻辑。
+//! 的文件由 Electron 主进程通过 SSH 访问，Rust 侧无法直接 IO。本模块把
+//! checkpoint 需要的远程操作封装为通过 `RemoteWorkspaceCallback` 转发给
+//! Electron 的异步命令。
 //!
-//! 性能设计：每次命令转发都是一次跨进程 + SSH 网络往返，因此所有流程都
-//! 尽量合并请求——批量 stat / 批量读文件 / stat+read 合并操作，且 Electron
-//! 侧对命令会话做连接池复用。捕获与查询流程在锁外一次性完成全部远程
-//! IO，锁内只做本地 manifest 读写。
+//! 存储布局：manifest（只含路径与哈希）仍保存在本机，文件内容对象保存在
+//! 远程主机的 `~/.snowapp/checkpoints/objects`（SHA-256 内容寻址）。哈希、
+//! 入库、比对与恢复都由远程 shell 完成，网络上只传路径与哈希；只有查看
+//! diff 时才按需读取单个文件内容。旧版 SSH 检查点的对象仍在本机对象库
+//! （BLAKE3），比对时按内容换算 SHA-256，恢复时从本机上传。
+//!
+//! 远程主机需要 POSIX sh 与 sha256sum / shasum：不满足时不再为该主机创建
+//! 检查点，并在 bash 输出中提醒用户安装。
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -22,7 +24,8 @@ use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 
 use crate::mcp::servers::remote_workspace::{
-    execute_remote_workspace_command, is_ssh_path, RemoteWorkspaceCallback,
+    execute_remote_workspace_command, global_remote_callback, is_ssh_path,
+    RemoteWorkspaceCallback,
 };
 
 use super::ABSOLUTE_PATH_MARKER;
@@ -60,24 +63,58 @@ pub struct RemoteTreeListing {
     pub gitignores: Vec<RemoteGitignore>,
 }
 
-/// 批量读取请求：路径 + 已知大小（用于分批时的带宽预算，未知填 0）。
-#[derive(Clone, Debug)]
-struct RemoteReadRequest {
-    path: String,
-    size_hint: u64,
+/// checkpoint-read-file-with-stat 的读取结果（diff 查看当前文件内容）。
+struct RemoteFileSnapshot {
+    /// 文件内容；不存在或为目录时为 None。
+    content: Option<Vec<u8>>,
+    /// 文件超过调用方给定的读取上限，内容未传输。
+    too_large: bool,
 }
 
-/// stat+read 合并操作的返回（checkpoint-read-file-with-stat）。
-struct RemoteFileSnapshot {
-    stat: Option<RemoteFileStat>,
+/// 远程批量哈希的单个结果（checkpoint-store-files）。
+#[derive(Clone, Debug)]
+enum RemoteHashResult {
+    /// 常规文件及其 SHA-256（入库模式下对象已存在于远程对象库）。
+    File(String),
+    Missing,
+    Directory,
+    /// 未能取得哈希或入库失败（权限不足、文件名含哈希工具转义字符等）。
+    Failed,
+}
+
+/// 远程对象库能力探测结果（checkpoint-store-probe）。
+struct RemoteStoreProbe {
+    supported: bool,
+    missing: Vec<String>,
+    reason: Option<String>,
+}
+
+/// 远程对象库中对象的读取结果（checkpoint-store-read）：content 为 None 且
+/// 未超限表示对象不存在。
+struct RemoteObjectContent {
+    too_large: bool,
     content: Option<Vec<u8>>,
+}
+
+/// 远程批量恢复的单个操作（checkpoint-store-restore），按顺序执行。
+enum RemoteRestoreOp {
+    /// 从远程对象库复制对象到目标路径。
+    Copy { path: String, object_id: String },
+    /// 删除目标文件（不存在视为成功）。
+    Remove { path: String },
+    /// 尝试删除空目录（失败忽略，不回报结果）。
+    RemoveDir { path: String },
+}
+
+/// 远程批量恢复的单个结果。
+struct RemoteRestoreResult {
+    path: String,
+    status: String,
+    reason: Option<String>,
 }
 
 /// 批量 stat 每次命令的路径上限。
 const STAT_BATCH_MAX_PATHS: usize = 512;
-/// 批量读取每次命令的文件数与内容总量上限：控制单次 JSON 响应体积。
-const READ_BATCH_MAX_FILES: usize = 32;
-const READ_BATCH_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// SSH 工作区 checkpoint 的远程文件访问客户端。每个方法发起一次
 /// checkpoint-* 远程命令并等待 Electron 侧 SFTP 完成。持有 callback
@@ -166,95 +203,167 @@ impl<'a> RemoteCheckpointClient<'a> {
         Ok(result)
     }
 
-    /// 批量读取文件内容：按文件数与总大小分批，每批一次命令往返。
-    /// 返回 map 中 `Some(None)` 表示文件在 stat 后消失。
-    async fn read_files(
-        &self,
-        requests: &[RemoteReadRequest],
-    ) -> Result<HashMap<String, Option<Vec<u8>>>> {
-        let mut result: HashMap<String, Option<Vec<u8>>> = HashMap::new();
-        let mut start = 0;
-        while start < requests.len() {
-            let mut end = start;
-            let mut chunk_bytes: u64 = 0;
-            while end < requests.len() {
-                let next_bytes = chunk_bytes.saturating_add(requests[end].size_hint);
-                let full = end > start
-                    && (end - start >= READ_BATCH_MAX_FILES || next_bytes > READ_BATCH_MAX_BYTES);
-                if full {
-                    break;
-                }
-                chunk_bytes = next_bytes;
-                end += 1;
-            }
-            let paths: Vec<String> = requests[start..end]
-                .iter()
-                .map(|request| request.path.clone())
-                .collect();
-            let response = self
-                .run("checkpoint-read-files", json!({ "paths": paths }))
-                .await?;
-            if let Some(contents) = response.get("contents").and_then(Value::as_object) {
-                for (path, content) in contents {
-                    let decoded = match content.as_str() {
-                        Some(encoded) => Some(
-                            base64::engine::general_purpose::STANDARD
-                                .decode(encoded)
-                                .map_err(|error| {
-                                    Error::from_reason(format!(
-                                        "Failed to decode remote checkpoint file content: {error}"
-                                    ))
-                                })?,
-                        ),
-                        None => None,
-                    };
-                    result.insert(path.clone(), decoded);
-                }
-            }
-            start = end;
-        }
-        Ok(result)
-    }
-
-    /// stat + 读内容合并为一次往返（单文件 checkpoint 记录的高频路径）。
-    async fn read_file_with_stat(&self, path: &str) -> Result<RemoteFileSnapshot> {
+    /// stat + 读内容合并为一次往返（diff 查看当前文件内容）。超过
+    /// `max_bytes` 的文件只回元数据（too_large），内容不传输。
+    async fn read_file_with_stat(&self, path: &str, max_bytes: u64) -> Result<RemoteFileSnapshot> {
         let result = self
-            .run("checkpoint-read-file-with-stat", json!({ "path": path }))
+            .run(
+                "checkpoint-read-file-with-stat",
+                json!({ "path": path, "maxBytes": max_bytes }),
+            )
             .await?;
-        if !result.get("exists").and_then(Value::as_bool).unwrap_or(false) {
+        let exists = result.get("exists").and_then(Value::as_bool).unwrap_or(false);
+        let is_directory = result
+            .get("isDirectory")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !exists || is_directory {
             return Ok(RemoteFileSnapshot {
-                stat: None,
                 content: None,
+                too_large: false,
             });
         }
-        let stat = RemoteFileStat {
-            is_directory: result
-                .get("isDirectory")
+        Ok(RemoteFileSnapshot {
+            content: decode_base64_field(&result, "content")?,
+            too_large: result
+                .get("tooLarge")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            size: result.get("size").and_then(Value::as_u64).unwrap_or(0),
-            mtime_ms: result.get("mtimeMs").and_then(Value::as_u64).unwrap_or(0),
-        };
-        let content = if stat.is_directory {
-            None
-        } else {
-            match result.get("content").and_then(Value::as_str) {
-                Some(encoded) => Some(
-                    base64::engine::general_purpose::STANDARD
-                        .decode(encoded)
-                        .map_err(|error| {
-                            Error::from_reason(format!(
-                                "Failed to decode remote checkpoint file content: {error}"
-                            ))
-                        })?,
-                ),
-                None => None,
-            }
-        };
-        Ok(RemoteFileSnapshot {
-            stat: Some(stat),
-            content,
         })
+    }
+
+    /// 远程对象库能力探测：POSIX sh、sha256sum/shasum 与基础命令是否齐全。
+    async fn probe_store(&self, root: &str) -> Result<RemoteStoreProbe> {
+        let result = self
+            .run("checkpoint-store-probe", json!({ "path": root }))
+            .await?;
+        let missing = result
+            .get("missing")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(RemoteStoreProbe {
+            supported: result
+                .get("supported")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            missing,
+            reason: result
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
+    }
+
+    /// 远程批量计算 SHA-256；`store` 为 true 时同时把内容写入远程对象库。
+    /// 一次命令往返完成全部路径（路径经 stdin 传给远程脚本）。
+    async fn hash_files(
+        &self,
+        paths: &[String],
+        store: bool,
+    ) -> Result<HashMap<String, RemoteHashResult>> {
+        let mut hashes = HashMap::new();
+        if paths.is_empty() {
+            return Ok(hashes);
+        }
+        let response = self
+            .run(
+                "checkpoint-store-files",
+                json!({ "paths": paths, "store": store }),
+            )
+            .await?;
+        let Some(results) = response.get("results").and_then(Value::as_object) else {
+            return Ok(hashes);
+        };
+        for (path, item) in results {
+            let hash = item.get("hash").and_then(Value::as_str);
+            let parsed = match (item.get("kind").and_then(Value::as_str), hash) {
+                (Some("file"), Some(hash)) => RemoteHashResult::File(hash.to_string()),
+                (Some("missing"), _) => RemoteHashResult::Missing,
+                (Some("directory"), _) => RemoteHashResult::Directory,
+                _ => RemoteHashResult::Failed,
+            };
+            hashes.insert(path.clone(), parsed);
+        }
+        Ok(hashes)
+    }
+
+    /// 读取远程对象库中的对象（diff 查看 original 内容）。`host_path` 为对象
+    /// 所在主机上的任一 ssh:// 路径；超过 `max_bytes` 只回元数据。
+    async fn read_object(
+        &self,
+        host_path: &str,
+        object_id: &str,
+        max_bytes: u64,
+    ) -> Result<RemoteObjectContent> {
+        let result = self
+            .run(
+                "checkpoint-store-read",
+                json!({ "path": host_path, "objectId": object_id, "maxBytes": max_bytes }),
+            )
+            .await?;
+        Ok(RemoteObjectContent {
+            too_large: result
+                .get("tooLarge")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            content: decode_base64_field(&result, "content")?,
+        })
+    }
+
+    /// 远程批量恢复：同一主机的操作合并为一次远程脚本调用，按顺序执行。
+    async fn restore_batch(&self, ops: &[RemoteRestoreOp]) -> Result<Vec<RemoteRestoreResult>> {
+        if ops.is_empty() {
+            return Ok(Vec::new());
+        }
+        let payload: Vec<Value> = ops
+            .iter()
+            .map(|op| match op {
+                RemoteRestoreOp::Copy { path, object_id } => {
+                    json!({ "kind": "copy", "path": path, "objectId": object_id })
+                }
+                RemoteRestoreOp::Remove { path } => json!({ "kind": "remove", "path": path }),
+                RemoteRestoreOp::RemoveDir { path } => json!({ "kind": "rmdir", "path": path }),
+            })
+            .collect();
+        let response = self
+            .run("checkpoint-store-restore", json!({ "ops": payload }))
+            .await?;
+        Ok(response
+            .get("results")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(RemoteRestoreResult {
+                            path: item.get("path")?.as_str()?.to_string(),
+                            status: item.get("status")?.as_str()?.to_string(),
+                            reason: item
+                                .get("reason")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// 清理远程对象库：删除超过保留期且不在 `keep` 中的对象。
+    async fn sweep_store(&self, host_path: &str, keep: &[String], retention_days: u64) -> Result<()> {
+        self.run(
+            "checkpoint-store-sweep",
+            json!({ "path": host_path, "keep": keep, "retentionDays": retention_days }),
+        )
+        .await?;
+        Ok(())
     }
 
     /// 递归列出远程工作区文件树（含各目录 .gitignore 内容），
@@ -318,43 +427,6 @@ impl<'a> RemoteCheckpointClient<'a> {
         Ok(())
     }
 
-    /// 删除远程文件；文件不存在视为成功（恢复 Missing 语义）。
-    pub async fn delete_file(&self, path: &str) -> Result<()> {
-        let result = self
-            .run("checkpoint-delete-file", json!({ "path": path }))
-            .await?;
-        if result
-            .get("deleted")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            Ok(())
-        } else {
-            // Electron 侧在删除失败时回传 SFTP 的原始原因；带上它才能区分
-            // 权限不足、目标为目录等不同成因。
-            let reason = result
-                .get("reason")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|reason| !reason.is_empty());
-            Err(Error::from_reason(match reason {
-                Some(reason) => format!("Failed to delete remote file '{path}': {reason}"),
-                None => format!("Failed to delete remote file '{path}'"),
-            }))
-        }
-    }
-
-    /// 尝试删除远程空目录；目录不存在或非空时返回 Ok(false)。
-    pub async fn remove_dir(&self, path: &str) -> Result<bool> {
-        let result = self
-            .run("checkpoint-remove-dir", json!({ "path": path }))
-            .await?;
-        Ok(result
-            .get("removed")
-            .and_then(Value::as_bool)
-            .unwrap_or(false))
-    }
-
     async fn run(&self, operation: &str, mut args: Value) -> Result<Value> {
         // 携带 scanId 的命令会在 Electron 侧注册独立的 AbortController：
         // Rust 超时后通过 checkpoint-abort-scan 真正终止仍在进行的扫描。
@@ -385,6 +457,21 @@ impl<'a> RemoteCheckpointClient<'a> {
         }
         Ok(result)
     }
+}
+
+/// 解码响应中的 base64 内容字段；字段缺失或为 null 时返回 None。
+fn decode_base64_field(result: &Value, field: &str) -> Result<Option<Vec<u8>>> {
+    let Some(encoded) = result.get(field).and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map(Some)
+        .map_err(|error| {
+            Error::from_reason(format!(
+                "Failed to decode remote checkpoint content: {error}"
+            ))
+        })
 }
 
 /// 解析 `ssh://user@host:port/path`，返回 (authority, remote_path)。
@@ -510,9 +597,9 @@ pub async fn canonical_work_dir_remote(
 }
 
 // ============================================================================
-// 远程（SSH）checkpoint 流程：与 mod.rs 的本地实现一一对应，文件 IO 全部
-// 通过 RemoteCheckpointClient 转发给 Electron，manifest / 对象存储 / diff
-// 逻辑完全复用本地实现。
+// 远程（SSH）checkpoint 流程：与 mod.rs 的本地实现一一对应。manifest 读写、
+// 链式合并与锁复用本地实现；文件内容的哈希、入库、比对与恢复交给远程
+// 对象库（RemoteCheckpointClient 的 store 系列命令）。
 // ============================================================================
 
 use super::diff_view::{
@@ -527,15 +614,229 @@ use super::{
     merge_chained_manifests, object_path, original_digest, original_line_source,
     original_object_id, pending_state_to_original, read_manifest, register_file_capture_end,
     register_file_capture_start, register_recorded_change, should_skip_manifest_path,
-    should_skip_relative, store_cached_stats, store_object_bytes, work_dir_lock,
-    work_dir_read_guard_async, work_dir_write_guard_async, write_manifest, CachedCheckpointDiff,
-    ChainedEntry, CheckpointEntry, CheckpointFileChange, CheckpointManifest,
-    CheckpointWorktreeCapture, OriginalState, PendingFileState,
+    should_skip_relative, store_cached_stats, work_dir_lock, work_dir_read_guard_async,
+    work_dir_write_guard_async, write_manifest, CachedCheckpointDiff, ChainedEntry,
+    CheckpointEntry, CheckpointFileChange, CheckpointManifest, CheckpointWorktreeCapture,
+    OriginalState, PendingFileState,
 };
 
 use crate::storage::services::checkpoint_skip::{
     should_skip_pending_copy_size, PENDING_COPY_SIZE_LIMIT,
 };
+
+/// 不支持对象库的主机缓存多久后重新探测：用户安装工具后无需重启即可恢复。
+const REMOTE_STORE_UNSUPPORTED_TTL: Duration = Duration::from_secs(60);
+
+struct RemoteStoreSupport {
+    checked_at: Instant,
+    /// None 表示支持；Some 为缺失工具（或不支持原因）的展示文本。
+    unavailable: Option<String>,
+    /// 本进程是否已在 bash 输出中提醒过该主机。
+    reminded: bool,
+}
+
+/// 远程对象库能力缓存：key 为 SSH authority（user@host:port）。
+static REMOTE_STORE_SUPPORT: OnceLock<Mutex<HashMap<String, RemoteStoreSupport>>> =
+    OnceLock::new();
+
+fn remote_store_support() -> std::sync::MutexGuard<'static, HashMap<String, RemoteStoreSupport>> {
+    REMOTE_STORE_SUPPORT
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn ssh_host_key(uri: &str) -> Option<String> {
+    split_ssh_uri(uri).map(|(authority, _)| authority)
+}
+
+fn remote_store_unavailable_error(text: &str) -> Error {
+    Error::from_reason(format!(
+        "Remote host is missing tools required for SSH checkpoints: {text}"
+    ))
+}
+
+/// 确认远程主机可以承载检查点对象库（POSIX sh + sha256sum/shasum + 基础
+/// 命令）。支持的主机在进程内长期缓存；不支持时返回列出缺失工具的错误。
+async fn ensure_remote_store(client: &RemoteCheckpointClient<'_>, root: &str) -> Result<()> {
+    let host = ssh_host_key(root)
+        .ok_or_else(|| Error::from_reason(format!("Invalid SSH working directory: {root}")))?;
+    {
+        let cache = remote_store_support();
+        if let Some(support) = cache.get(&host) {
+            match &support.unavailable {
+                None => return Ok(()),
+                Some(text) if support.checked_at.elapsed() < REMOTE_STORE_UNSUPPORTED_TTL => {
+                    return Err(remote_store_unavailable_error(text));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    let probe = client.probe_store(root).await?;
+    let unavailable = (!probe.supported).then(|| {
+        if probe.missing.is_empty() {
+            probe.reason.clone().unwrap_or_else(|| "sh".to_string())
+        } else {
+            probe.missing.join(", ")
+        }
+    });
+    let mut cache = remote_store_support();
+    let reminded = cache.get(&host).is_some_and(|support| support.reminded);
+    cache.insert(
+        host,
+        RemoteStoreSupport {
+            checked_at: Instant::now(),
+            unavailable: unavailable.clone(),
+            reminded,
+        },
+    );
+    match unavailable {
+        None => Ok(()),
+        Some(text) => Err(remote_store_unavailable_error(&text)),
+    }
+}
+
+/// bash 工具的安装提醒：该主机因缺少工具停用了检查点、且本进程尚未提醒
+/// 过时，返回缺失工具文本并标记为已提醒。
+pub(crate) fn take_remote_store_reminder(work_dir: &str) -> Option<String> {
+    let host = ssh_host_key(work_dir.trim())?;
+    let mut cache = remote_store_support();
+    let support = cache.get_mut(&host)?;
+    let text = support.unavailable.clone()?;
+    if support.reminded {
+        return None;
+    }
+    support.reminded = true;
+    Some(text)
+}
+
+/// 本进程已清理过远程对象库的主机。
+static REMOTE_SWEPT_HOSTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+/// 每个主机每次运行最多清理一次远程对象库（首次为该主机创建检查点后在
+/// 后台进行）。保留集合为本机全部 manifest 引用的对象与指纹缓存中尚未
+/// 写入 manifest 的对象，且只删除超过保留期的对象。
+fn schedule_remote_store_sweep(root: &str) {
+    let Some(host) = ssh_host_key(root) else {
+        return;
+    };
+    {
+        let mut swept = REMOTE_SWEPT_HOSTS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !swept.insert(host) {
+            return;
+        }
+    }
+    let Some(callback) = global_remote_callback() else {
+        return;
+    };
+    let host_path = root.to_string();
+    tokio::spawn(async move {
+        let (keep, retention_days) =
+            match tokio::task::spawn_blocking(super::gc::remote_sweep_inputs).await {
+                Ok(Ok(inputs)) => inputs,
+                Ok(Err(error)) => {
+                    eprintln!("[checkpoint] Remote object sweep skipped: {error}");
+                    return;
+                }
+                Err(error) => {
+                    eprintln!("[checkpoint] Remote object sweep skipped: {error}");
+                    return;
+                }
+            };
+        let client = RemoteCheckpointClient::new(&callback);
+        if let Err(error) = client.sweep_store(&host_path, &keep, retention_days).await {
+            eprintln!("[checkpoint] Remote object sweep failed for '{host_path}': {error}");
+        }
+    });
+}
+
+/// 对象所在位置：旧版 SSH 检查点的对象在本机对象库（BLAKE3），新版在远程
+/// 主机对象库（SHA-256）。两者 id 都是 64 位十六进制，以本机对象文件是否
+/// 存在区分（本机旧对象被回收后按远程处理，结果同样是「对象缺失」）。
+enum ObjectLocation {
+    Local(PathBuf),
+    Remote,
+}
+
+fn locate_object(object_id: &str) -> Result<ObjectLocation> {
+    let path = object_path(object_id)?;
+    Ok(if path.is_file() {
+        ObjectLocation::Local(path)
+    } else {
+        ObjectLocation::Remote
+    })
+}
+
+/// 本机旧对象的 SHA-256 缓存：对象内容寻址，换算结果不会变化。
+static LEGACY_OBJECT_DIGESTS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+const LEGACY_OBJECT_DIGESTS_MAX_ENTRIES: usize = 10_000;
+
+fn legacy_object_digests() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
+    LEGACY_OBJECT_DIGESTS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut file = std::fs::File::open(path).map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to read checkpoint object '{}': {error}",
+            path.display()
+        ))
+    })?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to hash checkpoint object '{}': {error}",
+            path.display()
+        ))
+    })?;
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// 对象的远程比对指纹（SHA-256）：远程对象的 id 即指纹；本机旧对象按内容
+/// 换算 SHA-256（后台线程计算并缓存）。
+async fn object_digest(object_id: &str) -> Result<String> {
+    let ObjectLocation::Local(path) = locate_object(object_id)? else {
+        return Ok(object_id.to_string());
+    };
+    if let Some(digest) = legacy_object_digests().get(object_id).cloned() {
+        return Ok(digest);
+    }
+    let digest = tokio::task::spawn_blocking(move || sha256_file(&path))
+        .await
+        .map_err(join_error)??;
+    let mut cache = legacy_object_digests();
+    if cache.len() >= LEGACY_OBJECT_DIGESTS_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(object_id.to_string(), digest.clone());
+    Ok(digest)
+}
+
+/// 批量求对象的比对指纹：key 为对象 id（参数为已收集好的 id，避免把借用
+/// 迭代器带过 await 点）。
+async fn object_digests(object_ids: Vec<String>) -> Result<HashMap<String, String>> {
+    let mut digests = HashMap::new();
+    for object_id in object_ids {
+        if !digests.contains_key(&object_id) {
+            let digest = object_digest(&object_id).await?;
+            digests.insert(object_id, digest);
+        }
+    }
+    Ok(digests)
+}
 
 /// 远程工作目录校验：URI 规范化后与 manifest 记录值比较。
 fn validate_manifest_work_dir_remote(
@@ -644,195 +945,93 @@ pub(crate) async fn filter_remote_tree(
         .collect())
 }
 
-/// 读取远程文件当前状态（Missing / Object）。与本地 current_state 对齐：
-/// 内容无条件抓取（不应用大小/扩展名跳过）。stat+read 合并为一次往返。
+/// 远程文件当前状态（Missing / Object），内容同时写入远程对象库。与本地
+/// current_state 对齐：内容无条件入库（不应用大小/扩展名跳过）。
 async fn current_state_remote(
     client: &RemoteCheckpointClient<'_>,
     path: &str,
 ) -> Result<OriginalState> {
-    let snapshot = client.read_file_with_stat(path).await?;
-    let Some(stat) = snapshot.stat.as_ref() else {
-        return Ok(OriginalState::Missing);
-    };
-    if stat.is_directory {
-        return Err(Error::from_reason(format!(
+    let mut results = client.hash_files(&[path.to_string()], true).await?;
+    match results.remove(path) {
+        Some(RemoteHashResult::File(object_id)) => Ok(OriginalState::Object { object_id }),
+        Some(RemoteHashResult::Missing) => Ok(OriginalState::Missing),
+        Some(RemoteHashResult::Directory) => Err(Error::from_reason(format!(
             "Checkpoint path is not a regular file: {path}"
-        )));
+        ))),
+        Some(RemoteHashResult::Failed) | None => Err(Error::from_reason(format!(
+            "Failed to capture remote checkpoint content for '{path}'"
+        ))),
     }
-    let Some(content) = snapshot.content else {
-        return Ok(OriginalState::Missing);
-    };
-    Ok(OriginalState::Object {
-        object_id: store_object_bytes(&content)?,
-    })
 }
 
-/// 更新 expected 状态的远程版本。
-async fn update_expected_state_remote(
-    client: &RemoteCheckpointClient<'_>,
-    manifest: &mut CheckpointManifest,
-    absolute: &str,
-    path: &str,
-) -> Result<bool> {
-    let Some(entry) = manifest
-        .entries
-        .iter_mut()
-        .find(|entry| entry.path == path)
-    else {
-        return Ok(false);
-    };
-    entry.expected = Some(current_state_remote(client, absolute).await?);
-    Ok(true)
-}
-
-/// 本地读取条目涉及的对象大小（object_id → 字节数；对象缺失为 None），供
-/// 纯本地分类对比使用。对象内容不读入内存：内容比对用 BLAKE3 内容 id。
-fn load_object_sizes(entries: &[&CheckpointEntry]) -> Result<HashMap<String, Option<u64>>> {
-    let mut sizes: HashMap<String, Option<u64>> = HashMap::new();
-    for entry in entries {
-        let mut states: Vec<&OriginalState> = vec![&entry.original];
-        if let Some(expected) = entry.expected.as_ref() {
-            states.push(expected);
-        }
-        for state in states {
-            if let OriginalState::Object { object_id } = state {
-                if sizes.contains_key(object_id) {
-                    continue;
-                }
-                let size = fs::metadata(object_path(object_id)?)
-                    .ok()
-                    .filter(|meta| meta.is_file())
-                    .map(|meta| meta.len());
-                sizes.insert(object_id.clone(), size);
-            }
-        }
-    }
-    Ok(sizes)
-}
-
-/// 判断某个状态的对比是否需要读取远程文件内容：仅当远端存在、对象可读、
-/// 大小一致且不超过传输上限时才需要（大小不一致直接判"已修改"；超过
-/// 传输上限不读取内容，见 classify_remote_state）。
-fn content_compare_required(
-    stat: Option<&RemoteFileStat>,
-    state: &OriginalState,
-    object_sizes: &HashMap<String, Option<u64>>,
-) -> bool {
-    let OriginalState::Object { object_id } = state else {
-        return false;
-    };
-    let (Some(stat), Some(Some(size))) = (stat, object_sizes.get(object_id)) else {
-        return false;
-    };
-    stat.size == *size && *size <= REMOTE_DIFF_CONTENT_LIMIT
-}
-
-/// 纯本地分类：基于已取回的 stat 与内容对比 original 状态，返回变更类型。
-/// `content`：Some(x) 表示内容已读取（x 为 None 代表文件已消失），None
-/// 表示未读取；调用方必须先通过 content_compare_required 收集并批量读取
-/// 所有需要的内容，未读取而需要内容的场景按"已修改"防御性处理。
-/// 超过传输上限的同尺寸文件不读取内容，大小一致即视为未变化。
+/// 对比当前远程状态与记录状态，返回变更类型（None 表示一致）。`digests`
+/// 为记录状态对象的 SHA-256 比对指纹（见 object_digests）。
 fn classify_remote_state(
-    stat: Option<&RemoteFileStat>,
-    content: Option<Option<&[u8]>>,
-    original: &OriginalState,
-    object_sizes: &HashMap<String, Option<u64>>,
+    current: &RemoteHashResult,
+    state: &OriginalState,
+    digests: &HashMap<String, String>,
     relative: &str,
 ) -> Result<Option<String>> {
-    match original {
-        OriginalState::Missing => Ok(stat.map(|_| "added".to_string())),
-        OriginalState::Object { object_id } => {
-            let Some(stat) = stat else {
-                return Ok(Some("deleted".to_string()));
-            };
-            let Some(size) = object_sizes.get(object_id).copied().flatten() else {
-                return Ok(Some("modified".to_string()));
-            };
-            if stat.size != size {
-                return Ok(Some("modified".to_string()));
+    match state {
+        OriginalState::Missing => Ok((!matches!(current, RemoteHashResult::Missing))
+            .then(|| "added".to_string())),
+        OriginalState::Object { object_id } => Ok(match current {
+            RemoteHashResult::Missing => Some("deleted".to_string()),
+            RemoteHashResult::File(hash) => {
+                (digests.get(object_id) != Some(hash)).then(|| "modified".to_string())
             }
-            if size > REMOTE_DIFF_CONTENT_LIMIT {
-                return Ok(None);
-            }
-            let Some(content) = content else {
-                return Ok(Some("modified".to_string()));
-            };
-            let Some(current) = content else {
-                return Ok(Some("deleted".to_string()));
-            };
-            let current_id = blake3::hash(current).to_hex();
-            Ok((current_id.as_str() != object_id.as_str()).then(|| "modified".to_string()))
-        }
+            RemoteHashResult::Directory | RemoteHashResult::Failed => Some("modified".to_string()),
+        }),
         OriginalState::Git => Err(Error::from_reason(format!(
             "Checkpoint Git baseline is missing for '{relative}'"
         ))),
     }
 }
 
-/// 批量探测追踪条目的当前状态：一次批量 stat + 一次批量内容读取（只读取
-/// 分类所需的大小一致对比内容），替代旧版的全树扫描 + 逐文件串行读取。
-struct ProbedEntries {
-    /// 与输入条目一一对应：stat、已读内容（若有）。
-    items: Vec<EntryProbe>,
-    object_sizes: HashMap<String, Option<u64>>,
-}
-
+/// 追踪条目的远程探测结果：批量 stat（diff 缓存键使用）+ 远程哈希。
 struct EntryProbe {
     entry: CheckpointEntry,
     stat: Option<RemoteFileStat>,
-    content: Option<Option<Vec<u8>>>,
+    current: RemoteHashResult,
 }
 
+struct ProbedEntries {
+    items: Vec<EntryProbe>,
+    /// 条目 original / expected 对象的比对指纹。
+    digests: HashMap<String, String>,
+}
+
+/// 探测追踪条目的当前状态：批量 stat 与远程批量哈希并发进行，文件内容不经
+/// 网络传输；对象比对指纹在本机求得（远程对象即 id，本机旧对象换算）。
 async fn probe_tracked_entries(
     client: &RemoteCheckpointClient<'_>,
     root: &str,
     entries: Vec<CheckpointEntry>,
-    compare_states: &[(usize, OriginalState)],
 ) -> Result<ProbedEntries> {
     let absolute_paths: Vec<String> = entries
         .iter()
         .map(|entry| resolve_remote_manifest_path(root, &entry.path))
         .collect();
-    let stats = client.stat_paths(&absolute_paths).await?;
-    let entry_refs: Vec<&CheckpointEntry> = entries.iter().collect();
-    let object_sizes = load_object_sizes(&entry_refs)?;
-
-    // 分类所需的读取：存在且大小与对象一致的对比状态。
-    let mut read_requests: Vec<RemoteReadRequest> = Vec::new();
-    let mut requested: HashSet<String> = HashSet::new();
-    for (index, state) in compare_states {
-        let absolute = &absolute_paths[*index];
-        if requested.contains(absolute) {
-            continue;
-        }
-        let stat = stats.get(absolute);
-        if content_compare_required(stat, state, &object_sizes) {
-            requested.insert(absolute.clone());
-            read_requests.push(RemoteReadRequest {
-                path: absolute.clone(),
-                size_hint: stat.map(|stat| stat.size).unwrap_or(0),
-            });
-        }
-    }
-    let mut contents = client.read_files(&read_requests).await?;
-
+    let (stats, mut hashes) = tokio::try_join!(
+        client.stat_paths(&absolute_paths),
+        client.hash_files(&absolute_paths, false),
+    )?;
+    let object_ids: Vec<String> = entries
+        .iter()
+        .flat_map(|entry| std::iter::once(&entry.original).chain(entry.expected.as_ref()))
+        .filter_map(original_object_id)
+        .collect();
+    let digests = object_digests(object_ids).await?;
     let items = entries
         .into_iter()
         .zip(absolute_paths)
-        .map(|(entry, absolute)| {
-            let stat = stats.get(&absolute).cloned();
-            let content = contents.remove(&absolute);
-            EntryProbe {
-                entry,
-                stat,
-                content,
-            }
+        .map(|(entry, absolute)| EntryProbe {
+            stat: stats.get(&absolute).cloned(),
+            current: hashes.remove(&absolute).unwrap_or(RemoteHashResult::Failed),
+            entry,
         })
         .collect();
-    Ok(ProbedEntries {
-        items,
-        object_sizes,
-    })
+    Ok(ProbedEntries { items, digests })
 }
 
 /// 带 manifest 锁的异步操作（远程流程内部需要 await SFTP 调用）。
@@ -849,8 +1048,8 @@ where
 }
 
 /// 远程版 before 捕获：一次 list-tree 拿到全树 stat，未变化文件命中指纹
-/// 缓存（mtime+size）零内容 IO；未命中文件按大小/数量分批**并发批量**
-/// 读取（旧版逐文件串行往返），内容存入本地对象库并回写指纹缓存。
+/// 缓存（mtime+size）零内容 IO；未命中文件由远程一次性批量计算哈希并写入
+/// 远程对象库（内容不经网络传输），回写指纹缓存。
 pub(crate) async fn capture_checkpoint_worktree_before_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_ids: Vec<String>,
@@ -891,8 +1090,8 @@ pub(crate) async fn capture_checkpoint_worktree_before_remote(
     let tree = filter_remote_tree(client, &root).await?;
     let mut before_paths = HashSet::new();
     let mut before_states = HashMap::new();
-    // 未命中指纹缓存、需要读取内容的文件（relative, absolute, mtime, size）。
-    let mut pending_reads: Vec<(String, String, u64, u64)> = Vec::new();
+    // 未命中指纹缓存、需要远程入库的文件（relative, absolute, mtime, size）。
+    let mut pending_stores: Vec<(String, String, u64, u64)> = Vec::new();
     for entry in &tree {
         if entry.is_directory {
             continue;
@@ -929,7 +1128,7 @@ pub(crate) async fn capture_checkpoint_worktree_before_remote(
             );
             continue;
         }
-        pending_reads.push((
+        pending_stores.push((
             relative.clone(),
             resolve_remote_manifest_path(&root, relative),
             entry.mtime_ms,
@@ -937,30 +1136,33 @@ pub(crate) async fn capture_checkpoint_worktree_before_remote(
         ));
     }
 
-    let read_requests: Vec<RemoteReadRequest> = pending_reads
+    let store_paths: Vec<String> = pending_stores
         .iter()
-        .map(|(_, absolute, _, size)| RemoteReadRequest {
-            path: absolute.clone(),
-            size_hint: *size,
-        })
+        .map(|(_, absolute, _, _)| absolute.clone())
         .collect();
-    let contents = client.read_files(&read_requests).await?;
-    for (relative, absolute, mtime_ms, size) in pending_reads {
-        let Some(Some(content)) = contents.get(&absolute) else {
+    let mut hashes = client.hash_files(&store_paths, true).await?;
+    for (relative, absolute, mtime_ms, size) in pending_stores {
+        let state = match hashes.remove(&absolute) {
+            Some(RemoteHashResult::File(object_id)) => {
+                fingerprint_store(&work_dir, &relative, mtime_ms, size, object_id.clone());
+                PendingFileState {
+                    object_id: Some(object_id),
+                    skipped: false,
+                    mtime_ms,
+                    size,
+                }
+            }
             // 扫描后被删除：不记录状态（与旧版一致，保留在 before_paths）。
-            continue;
-        };
-        let object_id = store_object_bytes(content)?;
-        fingerprint_store(&work_dir, &relative, mtime_ms, size, object_id.clone());
-        before_states.insert(
-            relative,
-            PendingFileState {
-                object_id: Some(object_id),
-                skipped: false,
+            Some(RemoteHashResult::Missing) => continue,
+            // 无法入库：命令前内容不可恢复，after 阶段跳过该文件。
+            _ => PendingFileState {
+                object_id: None,
+                skipped: true,
                 mtime_ms,
                 size,
             },
-        );
+        };
+        before_states.insert(relative, state);
     }
 
     Ok(Some(CheckpointWorktreeCapture {
@@ -975,9 +1177,8 @@ pub(crate) async fn capture_checkpoint_worktree_before_remote(
 }
 
 /// 远程版 after 记录：一次 list-tree 得到命令后的树，与 before 指纹对比。
-/// 变更判定所需的全部内容对比与 expected 内容抓取都在锁外**一次性批量**
-/// 完成；各 checkpoint 的 manifest 更新只做本地读写，不再逐 checkpoint
-/// 重复远程 IO（旧版每个 checkpoint × 每个变更文件都会重新读一次远端）。
+/// 变更判定与 expected 入库在锁外由远程**一次性批量**完成；各 checkpoint
+/// 的 manifest 更新只做本地读写，不再逐 checkpoint 重复远程 IO。
 pub(crate) async fn record_checkpoint_worktree_after_remote(
     client: &RemoteCheckpointClient<'_>,
     capture: CheckpointWorktreeCapture,
@@ -1021,123 +1222,78 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
     let mut candidates = capture.before_paths.clone();
     candidates.extend(after_stats.keys().cloned());
 
-    // ---- 远程阶段 1：mtime 变化但大小一致的文件批量读内容做哈希对比 ----
-    // （弥补远程 mtime 精度不足导致的同秒改写漏检；大小不同直接判变。）
-    let mut compare_requests: Vec<RemoteReadRequest> = Vec::new();
-    for relative_path in &candidates {
-        let Some(state) = capture.before_states.get(relative_path) else {
-            continue;
-        };
-        if state.skipped || state.object_id.is_none() {
-            continue;
-        }
-        let Some(stat) = after_stats.get(relative_path) else {
-            continue;
-        };
-        let metadata_changed = stat.mtime_ms != state.mtime_ms || stat.size != state.size;
-        if metadata_changed && stat.size == state.size {
-            compare_requests.push(RemoteReadRequest {
-                path: resolve_remote_manifest_path(&root, relative_path),
-                size_hint: stat.size,
-            });
-        }
-    }
-    let compared = client.read_files(&compare_requests).await?;
-
-    // ---- 本地判定变更集 ----
-    struct AfterChange {
-        relative: String,
-        original: OriginalState,
-        /// 命令后仍存在、需要抓取当前内容作为 expected 的文件。
-        needs_expected_content: bool,
-    }
-    let mut changes: Vec<AfterChange> = Vec::new();
+    // ---- 本地按元数据筛选：删除的文件直接得到变更；元数据变化（含新建）
+    // 的文件交给远程一次性哈希并入库，同时得到命令后内容 id（expected），
+    // 也弥补远程 mtime 精度不足导致的同秒改写漏检（以内容哈希为准）。----
+    let mut observed: Vec<(String, OriginalState, OriginalState)> = Vec::new();
+    let mut hash_targets: Vec<String> = Vec::new();
     for relative_path in &candidates {
         if should_skip_relative(Path::new(relative_path)) {
             continue;
         }
         let before_state = capture.before_states.get(relative_path);
-        let after_stat = after_stats.get(relative_path);
-        let change = match before_state {
+        match (before_state, after_stats.get(relative_path)) {
             // 内容抓取被跳过：无法恢复命令前内容，不记录变更。
-            Some(state) if state.skipped => None,
-            Some(state) => match after_stat {
-                None => Some(pending_state_to_original(state)?),
-                // 命令后超过内容抓取上限（由小变大）：expected 无法抓取，
-                // 与新建文件一致不记录（不可回滚），避免整份传输进主进程。
-                Some(stat) if stat.size > PENDING_COPY_SIZE_LIMIT => None,
-                Some(stat) => {
-                    if stat.mtime_ms == state.mtime_ms && stat.size == state.size {
-                        None
-                    } else if stat.size != state.size {
-                        Some(pending_state_to_original(state)?)
-                    } else {
-                        // 大小一致：用阶段 1 批量读取的内容做哈希对比。
-                        let absolute = resolve_remote_manifest_path(&root, relative_path);
-                        let differs = match compared.get(&absolute) {
-                            Some(Some(content)) => {
-                                let current_id = blake3::hash(content).to_hex().to_string();
-                                Some(current_id) != state.object_id
-                            }
-                            Some(None) => true, // 读取间隙被删除
-                            None => true,
-                        };
-                        differs.then(|| pending_state_to_original(state)).transpose()?
-                    }
-                }
-            },
-            // 命令新建：超过内容抓取上限时与 before 侧一致不记录（不可回滚）。
-            None => after_stat
-                .filter(|stat| stat.size <= PENDING_COPY_SIZE_LIMIT)
-                .map(|_| OriginalState::Missing),
-        };
-        let Some(original) = change else {
-            continue;
-        };
-        // 多会话并行防线（与本地一致）：路径已被并行文件工具认领（正在
-        // 追捕或已按同一变更起点记录）时跳过，变化归它负责。
-        if change_owned_by_other_capture(
-            &capture.work_dir,
-            relative_path,
-            before_state.and_then(|state| state.object_id.as_deref()),
-        ) {
-            continue;
+            (Some(state), _) if state.skipped => {}
+            (Some(state), None) => observed.push((
+                relative_path.clone(),
+                pending_state_to_original(state)?,
+                OriginalState::Missing,
+            )),
+            // 命令后超过内容抓取上限（由小变大或新建大文件）：与 before 侧
+            // 一致不记录（不可回滚）。
+            (_, Some(stat)) if stat.size > PENDING_COPY_SIZE_LIMIT => {}
+            (Some(state), Some(stat))
+                if stat.mtime_ms == state.mtime_ms && stat.size == state.size => {}
+            (_, Some(_)) => hash_targets.push(relative_path.clone()),
+            (None, None) => {}
         }
-        changes.push(AfterChange {
-            relative: relative_path.clone(),
-            original,
-            needs_expected_content: after_stat.is_some(),
-        });
     }
 
-    // ---- 远程阶段 2：为变更文件批量抓取命令后的内容（expected 状态）----
-    let expected_requests: Vec<RemoteReadRequest> = changes
+    // ---- 远程阶段：一次命令完成全部候选文件的哈希与入库 ----
+    let target_paths: Vec<String> = hash_targets
         .iter()
-        .filter(|change| change.needs_expected_content)
-        .map(|change| {
-            let stat = after_stats.get(&change.relative);
-            RemoteReadRequest {
-                path: resolve_remote_manifest_path(&root, &change.relative),
-                size_hint: stat.map(|stat| stat.size).unwrap_or(0),
+        .map(|relative| resolve_remote_manifest_path(&root, relative))
+        .collect();
+    let mut hashes = client.hash_files(&target_paths, true).await?;
+    for (relative, absolute) in hash_targets.into_iter().zip(target_paths) {
+        let before_state = capture.before_states.get(&relative);
+        let original = match before_state {
+            Some(state) => pending_state_to_original(state)?,
+            None => OriginalState::Missing,
+        };
+        match hashes.remove(&absolute) {
+            Some(RemoteHashResult::File(object_id)) => {
+                let unchanged = before_state
+                    .is_some_and(|state| state.object_id.as_deref() == Some(object_id.as_str()));
+                if !unchanged {
+                    observed.push((relative, original, OriginalState::Object { object_id }));
+                }
             }
+            // 列树与哈希之间被删除：仅命令前存在的文件构成变更。
+            Some(RemoteHashResult::Missing) if before_state.is_some() => {
+                observed.push((relative, original, OriginalState::Missing));
+            }
+            // 目录或无法入库：命令后内容无法记录，跳过（不可回滚）。
+            _ => {}
+        }
+    }
+
+    // 多会话并行防线（与本地一致）：路径已被并行文件工具认领（正在追捕或
+    // 已按同一变更起点记录）时跳过，变化归它负责。
+    let changes: Vec<(String, OriginalState, OriginalState)> = observed
+        .into_iter()
+        .filter(|(relative, _, _)| {
+            !change_owned_by_other_capture(
+                &capture.work_dir,
+                relative,
+                capture
+                    .before_states
+                    .get(relative)
+                    .and_then(|state| state.object_id.as_deref()),
+            )
         })
         .collect();
-    let expected_contents = client.read_files(&expected_requests).await?;
-    let mut expected_states: HashMap<String, OriginalState> = HashMap::new();
-    for change in &changes {
-        if !change.needs_expected_content {
-            expected_states.insert(change.relative.clone(), OriginalState::Missing);
-            continue;
-        }
-        let absolute = resolve_remote_manifest_path(&root, &change.relative);
-        let expected = match expected_contents.get(&absolute) {
-            Some(Some(content)) => OriginalState::Object {
-                object_id: store_object_bytes(content)?,
-            },
-            _ => OriginalState::Missing,
-        };
-        expected_states.insert(change.relative.clone(), expected);
-    }
 
     // ---- manifest 阶段：纯本地读写，各 checkpoint 共享同一份变更集 ----
     for checkpoint_id in effective_ids {
@@ -1150,16 +1306,13 @@ pub(crate) async fn record_checkpoint_worktree_after_remote(
                 return Ok(());
             }
             let mut changed = false;
-            for change in &changes {
-                let Some(expected) = expected_states.get(&change.relative).cloned() else {
-                    continue;
-                };
+            for (relative, original, expected) in &changes {
                 apply_entry_states(
                     &mut manifest,
                     &capture.work_dir,
-                    &change.relative,
-                    change.original.clone(),
-                    expected,
+                    relative,
+                    original.clone(),
+                    expected.clone(),
                 );
                 changed = true;
             }
@@ -1234,7 +1387,6 @@ pub(crate) async fn record_checkpoint_file_remote(
 
     // before 内容只采样一次；无论该文件是否已有条目都必须登记"正在追捕"
     // （与本地一致），否则本轮编辑期间并行 bash 的全树对比会误记变化。
-    let _object_guard = super::gc::object_writer_guard();
     let original = current_state_remote(client, &absolute).await?;
     register_file_capture_start(&work_dir, &path, original_object_id(&original));
 
@@ -1279,17 +1431,23 @@ pub(crate) async fn record_checkpoint_file_after_remote(
         return Ok(());
     }
 
-    let _object_guard = super::gc::object_writer_guard();
+    // 编辑后内容只采样一次（写入远程对象库），各 checkpoint 共享。
+    let expected = current_state_remote(client, &absolute).await?;
     for checkpoint_id in checkpoint_ids {
         with_manifest_lock_async(&checkpoint_id, || async {
             let mut manifest = read_manifest(&checkpoint_id)?;
             let Some(_root) = validate_capture_work_dir_remote(&manifest, &work_dir) else {
                 return Ok(());
             };
-            if update_expected_state_remote(client, &mut manifest, &absolute, &path).await? {
-                write_manifest(&checkpoint_id, &manifest)?;
-            }
-            Ok(())
+            let Some(entry) = manifest
+                .entries
+                .iter_mut()
+                .find(|entry| entry.path == path)
+            else {
+                return Ok(());
+            };
+            entry.expected = Some(expected.clone());
+            write_manifest(&checkpoint_id, &manifest)
         })
         .await?;
     }
@@ -1298,8 +1456,8 @@ pub(crate) async fn record_checkpoint_file_after_remote(
     Ok(())
 }
 
-/// 远程版变更列表（回滚确认对话框）：只对追踪条目做批量 stat + 共享内容
-/// 读取，不再全树扫描。
+/// 远程版变更列表（回滚确认对话框）：只探测追踪条目（批量 stat + 远程哈希
+/// 比对），不全树扫描，也不传输文件内容。
 pub(crate) async fn list_checkpoint_changes_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_id: String,
@@ -1326,37 +1484,23 @@ pub(crate) async fn list_checkpoint_changes_remote(
     if tracked.is_empty() {
         return Ok(Vec::new());
     }
-    // states_match（expected）与 classify（original）都可能需要内容对比。
-    let mut compare_states: Vec<(usize, OriginalState)> = Vec::new();
-    for (index, entry) in tracked.iter().enumerate() {
-        if let Some(expected) = entry.expected.as_ref() {
-            compare_states.push((index, expected.clone()));
-        }
-        compare_states.push((index, entry.original.clone()));
-    }
-    let probed = probe_tracked_entries(client, &root, tracked, &compare_states).await?;
+    let probed = probe_tracked_entries(client, &root, tracked).await?;
 
     let mut changes = Vec::new();
     for probe in &probed.items {
         let expected = probe.entry.expected.as_ref().ok_or_else(|| {
             Error::from_reason("Checkpoint entry lost its expected state during probe")
         })?;
-        let expected_differs = classify_remote_state(
-            probe.stat.as_ref(),
-            probe.content.as_ref().map(|content| content.as_deref()),
-            expected,
-            &probed.object_sizes,
-            &probe.entry.path,
-        )?
-        .is_some();
+        let expected_differs =
+            classify_remote_state(&probe.current, expected, &probed.digests, &probe.entry.path)?
+                .is_some();
         if expected_differs {
             continue;
         }
         if let Some(change_type) = classify_remote_state(
-            probe.stat.as_ref(),
-            probe.content.as_ref().map(|content| content.as_deref()),
+            &probe.current,
             &probe.entry.original,
-            &probed.object_sizes,
+            &probed.digests,
             &probe.entry.path,
         )? {
             changes.push(CheckpointFileChange {
@@ -1375,8 +1519,6 @@ struct ClassifiedRemoteEntry {
     original: OriginalState,
     source_checkpoint_id: String,
     stat: Option<RemoteFileStat>,
-    /// 分类阶段已读取的当前内容（仅大小与对象一致、需要逐字节对比时才有）。
-    content: Option<Arc<Vec<u8>>>,
     change_type: String,
 }
 
@@ -1384,25 +1526,59 @@ fn join_error(error: tokio::task::JoinError) -> Error {
     Error::from_reason(format!("Checkpoint diff task failed: {error}"))
 }
 
-/// 远程文件当前内容的行来源：分类阶段已读过的直接复用，否则单独读取一次。
-async fn remote_line_source(
+/// 远程文件当前内容的行来源（diff 查看时按需读取）。返回 None 表示超过
+/// 传输上限，调用方按 too_large 展示。
+async fn remote_current_line_source(
     client: &RemoteCheckpointClient<'_>,
-    root: &str,
-    entry: &ClassifiedRemoteEntry,
-) -> Result<LineSource> {
-    if entry.stat.is_none() {
-        return Ok(LineSource::Missing);
-    }
-    if let Some(content) = &entry.content {
-        return Ok(LineSource::Bytes(Arc::clone(content)));
+    absolute: &str,
+    exists: bool,
+) -> Result<Option<LineSource>> {
+    if !exists {
+        return Ok(Some(LineSource::Missing));
     }
     let snapshot = client
-        .read_file_with_stat(&resolve_remote_manifest_path(root, &entry.path))
+        .read_file_with_stat(absolute, REMOTE_DIFF_CONTENT_LIMIT)
         .await?;
-    Ok(snapshot
-        .content
-        .map(|content| LineSource::Bytes(Arc::new(content)))
-        .unwrap_or(LineSource::Missing))
+    if snapshot.too_large {
+        return Ok(None);
+    }
+    Ok(Some(
+        snapshot
+            .content
+            .map(|content| LineSource::Bytes(Arc::new(content)))
+            .unwrap_or(LineSource::Missing),
+    ))
+}
+
+/// original 状态的行来源：本机旧对象流式读取；远程对象按需从对象所在主机
+/// （`absolute` 为条目在该主机上的路径）的对象库读取。返回 None 表示超过
+/// 传输上限。
+async fn remote_original_line_source(
+    client: &RemoteCheckpointClient<'_>,
+    absolute: &str,
+    original: &OriginalState,
+) -> Result<Option<LineSource>> {
+    let OriginalState::Object { object_id } = original else {
+        return original_line_source(original).map(Some);
+    };
+    if let ObjectLocation::Local(path) = locate_object(object_id)? {
+        return Ok(Some(LineSource::File(path)));
+    }
+    let object = client
+        .read_object(absolute, object_id, REMOTE_DIFF_CONTENT_LIMIT)
+        .await?;
+    if object.too_large {
+        return Ok(None);
+    }
+    Ok(Some(match object.content {
+        Some(content) => LineSource::Bytes(Arc::new(content)),
+        None => {
+            eprintln!(
+                "[checkpoint] Warning: remote checkpoint object '{object_id}' not found; falling back to None"
+            );
+            LineSource::Missing
+        }
+    }))
 }
 
 /// 远程版单文件变更统计：original 摘要 + 远程 mtime/size 均未变时复用进程内
@@ -1422,8 +1598,14 @@ async fn remote_file_stats(
             return Ok(DiffStats::too_large());
         }
     }
-    let original = original_line_source(&entry.original)?;
-    let current = remote_line_source(client, root, entry).await?;
+    let absolute = resolve_remote_manifest_path(root, &entry.path);
+    let (original, current) = tokio::try_join!(
+        remote_original_line_source(client, &absolute, &entry.original),
+        remote_current_line_source(client, &absolute, entry.stat.is_some()),
+    )?;
+    let (Some(original), Some(current)) = (original, current) else {
+        return Ok(DiffStats::too_large());
+    };
     let stats = tokio::task::spawn_blocking(move || compute_stats(&original, &current))
         .await
         .map_err(join_error)??;
@@ -1560,16 +1742,13 @@ pub(crate) async fn read_checkpoint_diff_page_remote(
     let plan = match cached_plan(&cache_key, &revision) {
         Some(plan) => plan,
         None => {
-            let current = match stat {
-                Some(_) => client
-                    .read_file_with_stat(&absolute)
-                    .await?
-                    .content
-                    .map(|content| LineSource::Bytes(Arc::new(content)))
-                    .unwrap_or(LineSource::Missing),
-                None => LineSource::Missing,
+            let (original, current) = tokio::try_join!(
+                remote_original_line_source(client, &absolute, &entry.original),
+                remote_current_line_source(client, &absolute, stat.is_some()),
+            )?;
+            let (Some(original), Some(current)) = (original, current) else {
+                return Ok(too_large_page(revision));
             };
-            let original = original_line_source(&entry.original)?;
             let relative = entry.path.clone();
             let plan = tokio::task::spawn_blocking(move || {
                 build_plan(&relative, original, current, revision)
@@ -1585,7 +1764,7 @@ pub(crate) async fn read_checkpoint_diff_page_remote(
 }
 
 /// 远程回滚链上需要报告的条目：按 `include_all` 语义门控并分类变更类型。
-/// 只读取分类所需的内容（大小一致时的逐字节对比），返回规范化后的根路径。
+/// 分类只用远程哈希比对，不传输文件内容；返回规范化后的根路径。
 async fn collect_chain_changes_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_ids: Vec<String>,
@@ -1606,19 +1785,7 @@ async fn collect_chain_changes_remote(
 
     // !include_all 时先用 expected 过滤（回滚预览语义）；original 对比恒定需要。
     let entries = chained_probe_entries(&chained);
-    let mut compare_states: Vec<(usize, OriginalState)> = Vec::new();
-    for (index, entry) in entries.iter().enumerate() {
-        if !include_all {
-            if let Some(expected) = entry.expected.as_ref() {
-                compare_states.push((index, expected.clone()));
-            }
-        }
-        compare_states.push((index, entry.original.clone()));
-    }
-    let ProbedEntries {
-        items,
-        object_sizes,
-    } = probe_tracked_entries(client, &root, entries, &compare_states).await?;
+    let ProbedEntries { items, digests } = probe_tracked_entries(client, &root, entries).await?;
 
     let mut results = Vec::new();
     for (probe, chained_entry) in items.into_iter().zip(chained) {
@@ -1626,23 +1793,17 @@ async fn collect_chain_changes_remote(
             let expected = probe.entry.expected.as_ref().ok_or_else(|| {
                 Error::from_reason("Checkpoint entry lost its expected state during probe")
             })?;
-            let expected_differs = classify_remote_state(
-                probe.stat.as_ref(),
-                probe.content.as_ref().map(|content| content.as_deref()),
-                expected,
-                &object_sizes,
-                &probe.entry.path,
-            )?
-            .is_some();
+            let expected_differs =
+                classify_remote_state(&probe.current, expected, &digests, &probe.entry.path)?
+                    .is_some();
             if expected_differs {
                 continue;
             }
         }
         let Some(change_type) = classify_remote_state(
-            probe.stat.as_ref(),
-            probe.content.as_ref().map(|content| content.as_deref()),
+            &probe.current,
             &probe.entry.original,
-            &object_sizes,
+            &digests,
             &probe.entry.path,
         )?
         else {
@@ -1653,7 +1814,6 @@ async fn collect_chain_changes_remote(
             original: probe.entry.original,
             source_checkpoint_id: chained_entry.source_checkpoint_id,
             stat: probe.stat,
-            content: probe.content.flatten().map(Arc::new),
             change_type,
         });
     }
@@ -1671,8 +1831,9 @@ pub(crate) async fn restore_checkpoint_remote(
 }
 
 /// 远程版回滚链恢复：与本地 `restore_checkpoints` 同语义——按路径合并整条链
-/// （original 取最早的目标状态、expected 取最新的门控状态），只探测追踪条目
-/// （批量 stat + 共享内容读取），不再全树扫描。
+/// （original 取最早的目标状态、expected 取最新的门控状态），只探测追踪条目。
+/// 复制回对象、删除新增文件与清理空目录合并为一次远程脚本调用；旧版检查点
+/// 的本机对象从本机上传。
 pub(crate) async fn restore_checkpoints_remote(
     client: &RemoteCheckpointClient<'_>,
     checkpoint_ids: Vec<String>,
@@ -1694,143 +1855,163 @@ pub(crate) async fn restore_checkpoints_remote(
         return Ok(());
     }
 
-    // 当前树 stat：只恢复仍处于链尾 expected 状态的文件（与本地一致）。
+    // 只恢复仍处于链尾 expected 状态的文件（与本地一致）。
     let entries = chained_probe_entries(&chained);
-    let compare_states: Vec<(usize, OriginalState)> = entries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, entry)| {
-            entry
-                .expected
-                .as_ref()
-                .map(|expected| (index, expected.clone()))
-        })
-        .collect();
-    let probed = probe_tracked_entries(client, &root, entries, &compare_states).await?;
+    let probed = probe_tracked_entries(client, &root, entries).await?;
 
+    let mut operations = Vec::new();
     let mut restored_paths = Vec::new();
     for probe in &probed.items {
         let expected = probe.entry.expected.as_ref().ok_or_else(|| {
             Error::from_reason("Checkpoint entry lost its expected state during probe")
         })?;
-        let expected_differs = classify_remote_state(
-            probe.stat.as_ref(),
-            probe.content.as_ref().map(|content| content.as_deref()),
-            expected,
-            &probed.object_sizes,
-            &probe.entry.path,
-        )?
-        .is_some();
+        let expected_differs =
+            classify_remote_state(&probe.current, expected, &probed.digests, &probe.entry.path)?
+                .is_some();
         if expected_differs {
             continue;
         }
         let destination = resolve_remote_manifest_path(&root, &probe.entry.path);
-        restore_entry_remote(client, &probe.entry, &destination).await?;
+        match &probe.entry.original {
+            OriginalState::Missing => operations.push(RemoteRestoreOp::Remove { path: destination }),
+            OriginalState::Object { object_id } => match locate_object(object_id)? {
+                ObjectLocation::Local(source) => {
+                    upload_legacy_object(client, &source, &destination).await?
+                }
+                ObjectLocation::Remote => operations.push(RemoteRestoreOp::Copy {
+                    path: destination,
+                    object_id: object_id.clone(),
+                }),
+            },
+            OriginalState::Git => {
+                return Err(Error::from_reason("Checkpoint Git baseline is missing"));
+            }
+        }
         restored_paths.push(probe.entry.path.clone());
     }
-    prune_empty_parent_directories_remote(client, &root, &restored_paths).await
+    operations.extend(
+        empty_parent_candidates(&root, &restored_paths)
+            .into_iter()
+            .map(|path| RemoteRestoreOp::RemoveDir { path }),
+    );
+
+    let mut first_failure: Option<String> = None;
+    for result in client.restore_batch(&operations).await? {
+        match result.status.as_str() {
+            "ok" => {}
+            "missing_object" => eprintln!(
+                "[checkpoint] Warning: checkpoint object for '{}' is missing from the remote store; skipping restore",
+                result.path
+            ),
+            _ => {
+                if first_failure.is_none() {
+                    first_failure = Some(match result.reason {
+                        Some(reason) => {
+                            format!("Failed to restore remote file '{}': {reason}", result.path)
+                        }
+                        None => format!("Failed to restore remote file '{}'", result.path),
+                    });
+                }
+            }
+        }
+    }
+    match first_failure {
+        Some(message) => Err(Error::from_reason(message)),
+        None => Ok(()),
+    }
 }
 
-async fn restore_entry_remote(
+/// 旧版 SSH 检查点的本机对象：经 SSH 上传回远程。远程写入经 JSON(base64)
+/// 整体传输，超过传输上限时跳过恢复，避免把整份内容读进主进程。
+async fn upload_legacy_object(
     client: &RemoteCheckpointClient<'_>,
-    entry: &CheckpointEntry,
+    source: &Path,
     destination: &str,
 ) -> Result<()> {
-    match &entry.original {
-        OriginalState::Missing => client.delete_file(destination).await,
-        OriginalState::Object { object_id } => {
-            let source = object_path(object_id)?;
-            // 远程写入经 JSON(base64) 整体传输：旧版本可能记录过超大对象，
-            // 超过传输上限时跳过恢复，避免把整份内容读进主进程导致崩溃。
-            if let Ok(meta) = fs::metadata(&source) {
-                if meta.len() > REMOTE_DIFF_CONTENT_LIMIT {
-                    eprintln!(
-                        "[checkpoint] Warning: remote checkpoint object '{}' ({} bytes) exceeds the transfer limit; skipping restore of '{destination}'",
-                        source.display(),
-                        meta.len()
-                    );
-                    return Ok(());
-                }
-            }
-            let content = match fs::read(&source) {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    eprintln!(
-                        "[checkpoint] Warning: remote checkpoint object '{}' not found on disk: {error}; skipping restore",
-                        source.display()
-                    );
-                    return Ok(());
-                }
-                Err(error) => {
-                    return Err(Error::from_reason(format!(
-                        "Failed to read checkpoint object '{}': {error}",
-                        source.display()
-                    )));
-                }
-            };
-            client.write_bytes(destination, &content).await
+    if let Ok(meta) = tokio::fs::metadata(source).await {
+        if meta.len() > REMOTE_DIFF_CONTENT_LIMIT {
+            eprintln!(
+                "[checkpoint] Warning: checkpoint object '{}' ({} bytes) exceeds the transfer limit; skipping restore of '{destination}'",
+                source.display(),
+                meta.len()
+            );
+            return Ok(());
         }
-        OriginalState::Git => Err(Error::from_reason(
-            "Checkpoint Git baseline is missing",
-        )),
     }
+    let content = match tokio::fs::read(source).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "[checkpoint] Warning: checkpoint object '{}' not found on disk: {error}; skipping restore",
+                source.display()
+            );
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(Error::from_reason(format!(
+                "Failed to read checkpoint object '{}': {error}",
+                source.display()
+            )));
+        }
+    };
+    client.write_bytes(destination, &content).await
 }
 
-/// 回滚后清理空父目录（最深优先，与本地 prune_empty_parent_directories 一致）。
-async fn prune_empty_parent_directories_remote(
-    client: &RemoteCheckpointClient<'_>,
-    root: &str,
-    restored_entries: &[String],
-) -> Result<()> {
-    let mut directories: Vec<String> = restored_entries
-        .iter()
-        .filter_map(|path| {
-            path.rfind('/')
-                .map(|index| path[..index].to_string())
-                .filter(|parent| !parent.is_empty())
-        })
-        .collect();
-    directories.sort_by_key(|directory| std::cmp::Reverse(directory.matches('/').count()));
-    directories.dedup();
+/// 回滚后尝试清理的空父目录（与本地 prune_empty_parent_directories 一致）：
+/// 每个恢复路径在工作区内的全部祖先目录，最深优先。远程逐个 rmdir，非空目录
+/// 自然失败，结果与逐级向上清理相同。工作区外的绝对路径条目不参与清理。
+fn empty_parent_candidates(root: &str, restored_entries: &[String]) -> Vec<String> {
     let root_uri = root.trim_end_matches('/');
-    for directory in directories {
-        let mut current = format!("{root_uri}/{directory}");
-        loop {
-            if current == root_uri || !current.starts_with(&format!("{root_uri}/")) {
+    let mut directories: Vec<String> = Vec::new();
+    for path in restored_entries {
+        if path.starts_with(ABSOLUTE_PATH_MARKER) {
+            continue;
+        }
+        let mut current = path.as_str();
+        while let Some(index) = current.rfind('/') {
+            current = &current[..index];
+            if current.is_empty() {
                 break;
             }
-            if !client.remove_dir(&current).await? {
-                break;
-            }
-            let Some(parent) = current.rfind('/') else {
-                break;
-            };
-            current = current[..parent].to_string();
-            if current.len() <= root_uri.len() {
-                break;
-            }
+            directories.push(current.to_string());
         }
     }
-    Ok(())
+    directories.sort_by(|left, right| {
+        right
+            .matches('/')
+            .count()
+            .cmp(&left.matches('/').count())
+            .then_with(|| left.cmp(right))
+    });
+    directories.dedup();
+    directories
+        .into_iter()
+        .map(|directory| format!("{root_uri}/{directory}"))
+        .collect()
 }
 
-/// 远程版创建 checkpoint：校验远程工作区存在后仅发布本地 manifest
-/// （内容在工具执行前后按需捕获，与本地增量语义一致）。
+/// 远程版创建 checkpoint：校验远程工作区存在且主机具备对象库所需工具后，
+/// 仅发布本地 manifest（内容在工具执行前后按需捕获，与本地增量语义一致）。
+/// 主机缺少工具时不创建检查点，由 bash 输出提醒用户安装。
 pub(crate) async fn create_checkpoint_remote(
     client: &RemoteCheckpointClient<'_>,
     work_dir: String,
 ) -> Result<String> {
     let root = canonical_work_dir_remote(client, &work_dir).await?;
+    ensure_remote_store(client, &root).await?;
     let checkpoint_id = super::generate_checkpoint_id();
-    with_manifest_lock_async(&checkpoint_id, || async {
+    let manifest_root = root.clone();
+    let created = with_manifest_lock_async(&checkpoint_id, || async {
         let manifest = CheckpointManifest {
             version: super::MANIFEST_VERSION,
-            work_dir: root,
+            work_dir: manifest_root,
             git: None,
             entries: Vec::new(),
         };
         write_manifest(&checkpoint_id, &manifest)?;
         Ok(checkpoint_id.clone())
     })
-    .await
+    .await?;
+    schedule_remote_store_sweep(&root);
+    Ok(created)
 }
