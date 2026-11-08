@@ -158,7 +158,7 @@ pub(super) async fn collect_chat_completions_stream(
             }
 
             // 声明 fetch 钩子的插件在此接管传输层，后续仍走同一套解析与记账。
-            if let Some(body) = plugin_response::takeover(cancel_token, tool_guard).await? {
+            if let Some(body) = plugin_response::takeover(cancel_token).await? {
                 break plugin_response::UpstreamBody::Synthetic(body);
             }
 

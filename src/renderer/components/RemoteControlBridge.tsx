@@ -1216,6 +1216,37 @@ export const RemoteControlBridge = ({
     return { directoryId: directory.directoryId, repoPath: directory.path };
   };
 
+  /**
+   * 拉取 / 推送目标：与桌面 GitControl 的 selectedRemote 规则一致——
+   * upstream 跟踪的远端优先，其次 origin，最后第一个远端。
+   */
+  const resolveGitSyncTarget = async (
+    repoPath: string,
+  ): Promise<{ branch: string; remote: string; setUpstream: boolean }> => {
+    const status = await window.snow.gitStatus(repoPath);
+    if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
+    const branch = (status.currentBranch || "").trim();
+    if (!branch) throw new Error("当前处于游离 HEAD，无法拉取或推送");
+    const remotes = await window.snow.gitRemotes(repoPath).catch(() => []);
+    const upstream = status.upstream ?? "";
+    const tracking = upstream
+      ? remotes
+          .filter((item) => upstream.startsWith(`${item.name}/`))
+          .sort((left, right) => right.name.length - left.name.length)[0]
+      : undefined;
+    const remoteName =
+      tracking?.name ??
+      remotes.find((item) => item.name === "origin")?.name ??
+      remotes[0]?.name ??
+      "";
+    if (!remoteName) throw new Error("当前仓库未配置远端");
+    return {
+      branch,
+      remote: remoteName,
+      setUpstream: !upstream || !upstream.startsWith(`${remoteName}/`),
+    };
+  };
+
   /** 会话运行中（流式 / 停止中 / 压缩中）：分支与工作树操作被锁定。 */
   const isGitSessionRunning = (): boolean => {
     const conversation = stateRef.current.conversation;
@@ -3075,6 +3106,48 @@ export const RemoteControlBridge = ({
         }
         dispatchGitBranchesChanged(repoPath);
         return { ok: true, hash: result.hash ?? null };
+      },
+
+      gitPull: async (): Promise<{ ok: true; message: string }> => {
+        const { repoPath } = resolveGitRepo();
+        const { remote, branch } = await resolveGitSyncTarget(repoPath);
+        const result = await window.snow.gitPull(repoPath, remote, branch);
+        if (!result.success) {
+          throw new Error(result.message || "拉取失败");
+        }
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true, message: result.message };
+      },
+
+      gitPush: async (): Promise<{ ok: true; message: string }> => {
+        const { repoPath } = resolveGitRepo();
+        const { remote, branch, setUpstream } =
+          await resolveGitSyncTarget(repoPath);
+        const result = await window.snow.gitPush(
+          repoPath,
+          remote,
+          branch,
+          setUpstream,
+        );
+        if (!result.success) {
+          throw new Error(result.message || "推送失败");
+        }
+        dispatchGitBranchesChanged(repoPath);
+        return { ok: true, message: result.message };
+      },
+
+      gitGenerateCommitMessage: async (): Promise<{ message: string }> => {
+        const { repoPath } = resolveGitRepo();
+        const status = await window.snow.gitStatus(repoPath);
+        if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
+        if (status.stagedCount <= 0) throw new Error("没有已暂存的变更");
+        const result = await window.snow.generateCommitMessage(repoPath);
+        if (result.status === "error") {
+          throw new Error(result.failureReason?.trim() || "生成提交信息失败");
+        }
+        const message = result.content.trim();
+        if (!message) throw new Error("生成结果为空，请重试");
+        return { message: capText(message, MAX_GIT_COMMIT_MESSAGE) };
       },
 
       gitCreateWorktree: async (

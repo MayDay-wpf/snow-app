@@ -14,12 +14,15 @@ import {
   fetchGitDiff,
   fetchGitStatus,
   fetchGitSummary,
+  generateGitCommitMessage,
   gitBindWorktree,
   gitCheckout,
   gitCommit,
   gitCreateBranch,
   gitCreateWorktree,
   gitDiscardFiles,
+  gitPull,
+  gitPush,
   gitRemoveWorktree,
   gitStageAll,
   gitStageFiles,
@@ -33,6 +36,11 @@ import { iconMarkup } from "./icons";
 import { showNotice } from "./notice";
 import { rememberOverlayTrigger } from "./overlays";
 import { openRemotePanel } from "./panels";
+import {
+  createSwipePager,
+  type SwipePager,
+  type SwipeStep,
+} from "./swipePager";
 
 /**
  * 移动端 Git 入口：输入区 chip +「分支 / 变更」双 Tab 面板。
@@ -41,6 +49,9 @@ import { openRemotePanel } from "./panels";
  */
 type GitTab = "branches" | "changes";
 type CreateMode = "branch" | "worktree" | null;
+
+/** Tab 的先后顺序即左右滑动的方向：左滑进入后一个 Tab。 */
+const GIT_TABS: readonly GitTab[] = ["branches", "changes"];
 
 type DiffView = {
   path: string;
@@ -69,6 +80,8 @@ let branchRequest = 0;
 let statusRequest = 0;
 let diffRequest = 0;
 let busy = false;
+/** AI 生成提交信息中：只锁定提交区，不占用 busy（避免误判为 Git 写操作）。 */
+let generatingCommit = false;
 let pendingRemove: string | null = null;
 let pendingDiscard: string | null = null;
 let newBranchName = "";
@@ -80,6 +93,8 @@ let focusField: "branch" | "worktree" | null = null;
 let directoryKey = "";
 let lastSummaryAt = 0;
 let summaryInFlight = false;
+/** 左右滑动与 Tab 点击共用的翻页控制器，在 initGit 中创建。 */
+let swipePager: SwipePager | null = null;
 
 const isGitPanelOpen = (): boolean => $("gitPanel").classList.contains("open");
 
@@ -87,7 +102,8 @@ const gitEmpty = (message: string, error = false): string =>
   `<div class="git-empty${error ? " is-error" : ""}">${escapeHtml(message)}</div>`;
 
 /** 本地分支 / 远程分支 / 工作树 / 提交等按钮的统一禁用态。 */
-const disabledAttr = (): string => (busy ? " disabled" : "");
+const disabledAttr = (): string =>
+  busy || generatingCommit ? " disabled" : "";
 
 const shortPath = (path: string): string => {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -514,7 +530,35 @@ const renderFileRow = (
   );
 };
 
-/** 提交框与撤销确认条：有可操作变更时渲染（提交框吸顶在 Tab 之下）。 */
+/** 变更 Tab 顶部：当前分支 + ahead/behind + 拉取 / 推送。 */
+const renderSyncBar = (): string => {
+  if (!status || !status.isRepo || statusError) return "";
+  const ahead = Math.max(0, status.ahead);
+  const behind = Math.max(0, status.behind);
+  const syncState = [
+    ahead > 0 ? `<span class="git-sync is-ahead">↑${ahead}</span>` : "",
+    behind > 0 ? `<span class="git-sync is-behind">↓${behind}</span>` : "",
+    ahead === 0 && behind === 0
+      ? `<span class="git-sync is-clean">${escapeHtml(t("remote.git.synced"))}</span>`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return (
+    `<div class="git-sync-bar">` +
+    `<span class="git-sync-branch">${iconMarkup("git-branch")}<span>${escapeHtml(
+      status.currentBranch || t("remote.git.unknownBranch"),
+    )}</span></span>` +
+    `<span class="git-sync-meta">${syncState}</span>` +
+    `<span class="git-sync-actions">` +
+    `<button type="button" class="git-icon-btn" data-git-pull aria-label="${escapeHtml(t("remote.git.pull"))}"${disabledAttr()}>${iconMarkup("arrow-down-to-line")}</button>` +
+    `<button type="button" class="git-icon-btn" data-git-push aria-label="${escapeHtml(t("remote.git.push"))}"${disabledAttr()}>${iconMarkup("arrow-up-from-line")}</button>` +
+    `</span>` +
+    `</div>`
+  );
+};
+
+/** 提交框与撤销确认条：有可操作变更时渲染（提交框吸顶在同步栏之下）。 */
 const renderChangesHeader = (): string => {
   if (!status || !status.isRepo || statusError) return "";
   if (
@@ -523,10 +567,16 @@ const renderChangesHeader = (): string => {
     return "";
   }
   const stagedCount = status.files.filter(isStagedFile).length;
+  const aiButton = generatingCommit
+    ? `<button type="button" class="git-ai-commit is-generating" disabled>${iconMarkup("loader-circle")}<span>${escapeHtml(t("remote.git.generatingCommit"))}</span></button>`
+    : `<button type="button" class="git-ai-commit" data-git-ai-commit aria-label="${escapeHtml(t("remote.git.generateCommit"))}"${busy || stagedCount === 0 ? " disabled" : ""}>${iconMarkup("sparkles")}<span>${escapeHtml(t("remote.git.generateCommit"))}</span></button>`;
   const commitBox =
     `<div class="git-commit-box">` +
-    `<textarea data-git-commit-input rows="2" maxlength="4000" placeholder="${escapeHtml(t("remote.git.commitPlaceholder"))}">${escapeHtml(commitMessage)}</textarea>` +
-    `<button type="button" class="git-primary" data-git-commit${busy || !commitMessage.trim() || stagedCount === 0 ? " disabled" : ""}>${escapeHtml(busy ? t("remote.git.committing") : t("remote.git.commit"))}</button>` +
+    `<div class="git-commit-field">` +
+    `<textarea data-git-commit-input rows="2" maxlength="4000" placeholder="${escapeHtml(t("remote.git.commitPlaceholder"))}"${generatingCommit ? " readonly" : ""}>${escapeHtml(commitMessage)}</textarea>` +
+    aiButton +
+    `</div>` +
+    `<button type="button" class="git-primary" data-git-commit${busy || generatingCommit || !commitMessage.trim() || stagedCount === 0 ? " disabled" : ""}>${escapeHtml(busy ? t("remote.git.committing") : t("remote.git.commit"))}</button>` +
     `</div>`;
 
   const discardTarget = pendingDiscard
@@ -597,6 +647,7 @@ const renderChangesList = (): string => {
 };
 
 const renderChangesTab = (): string =>
+  renderSyncBar() +
   renderChangesHeader() +
   `<div id="gitList" class="git-list">${renderChangesList()}</div>`;
 
@@ -719,22 +770,29 @@ const updateTabButtons = (): void => {
 const syncStickyOffsets = (): void => {
   const panel = $("gitPanel");
   const head = panel.querySelector<HTMLElement>(".panel-head");
-  if (!head) return;
-  const height = head.offsetHeight;
-  if (height > 0) panel.style.setProperty("--git-head-h", `${height}px`);
+  if (head) {
+    const height = head.offsetHeight;
+    if (height > 0) panel.style.setProperty("--git-head-h", `${height}px`);
+  }
+  // 变更 Tab 的同步栏高度决定提交框的吸顶偏移（分支 Tab 时为 0）。
+  const syncBar = panel.querySelector<HTMLElement>(".git-sync-bar");
+  panel.style.setProperty("--git-sync-h", `${syncBar?.offsetHeight ?? 0}px`);
 };
 
+const renderTabBody = (value: GitTab): string =>
+  value === "branches" ? renderBranchesTab() : renderChangesTab();
+
 const renderGitPanel = (): void => {
-  syncStickyOffsets();
   const body = $("gitPanelBody");
   updateTabButtons();
   renderGitChangesBadge();
   if (diffView) {
     body.innerHTML = renderDiffView(diffView);
+    syncStickyOffsets();
     return;
   }
-  body.innerHTML =
-    tab === "branches" ? renderBranchesTab() : renderChangesTab();
+  body.innerHTML = renderTabBody(tab);
+  syncStickyOffsets();
   if (focusField) {
     const selector =
       focusField === "branch"
@@ -754,8 +812,16 @@ const renderGitList = (): void => {
   list.innerHTML = renderBranchesList();
 };
 
-const switchTab = (next: GitTab): void => {
-  if (tab === next) return;
+/** 与 step 方向相邻的 Tab；两端没有更多 Tab 时返回 null。 */
+const neighbourTab = (step: SwipeStep): GitTab | null => {
+  const index = GIT_TABS.indexOf(tab) + step;
+  return index >= 0 && index < GIT_TABS.length ? GIT_TABS[index] : null;
+};
+
+/** 翻页动画到位后提交 Tab 切换：更新状态、重绘并加载对应数据。 */
+const commitTab = (step: SwipeStep): void => {
+  const next = neighbourTab(step);
+  if (!next) return;
   tab = next;
   createMode = null;
   pendingRemove = null;
@@ -764,7 +830,6 @@ const switchTab = (next: GitTab): void => {
   diffView = null;
   branchQuery = "";
   updateTabButtons();
-  $("gitPanel").scrollTop = 0;
   renderGitPanel();
   if (next === "branches") {
     void loadBranches();
@@ -773,8 +838,15 @@ const switchTab = (next: GitTab): void => {
   }
 };
 
+/** Tab 点击：与滑动共用同一套翻页动画。 */
+const goToTab = (value: GitTab): void => {
+  if (value === tab) return;
+  swipePager?.go(GIT_TABS.indexOf(value) > GIT_TABS.indexOf(tab) ? 1 : -1);
+};
+
 export const openGitPanel = (): void => {
   rememberOverlayTrigger($("gitChip"));
+  swipePager?.reset();
   tab = "branches";
   createMode = null;
   pendingRemove = null;
@@ -965,6 +1037,49 @@ const submitCommit = (): void => {
   });
 };
 
+/** 拉取 / 推送：失败信息由远控桥透传 git 输出，成功时给一条确认提示。 */
+const pullRemote = (): void => {
+  void runGitAction(() => gitPull(), t("remote.git.pullDone"));
+};
+
+const pushRemote = (): void => {
+  void runGitAction(() => gitPush(), t("remote.git.pushDone"));
+};
+
+/** AI 生成提交信息：结果一次性写入输入框；切换工作区后丢弃旧结果。 */
+const requestCommitMessage = async (): Promise<void> => {
+  if (generatingCommit || busy) return;
+  if (!status || status.stagedCount === 0) {
+    showNotice(t("remote.git.commitNoStaged"), true);
+    return;
+  }
+  const key = directoryKey;
+  generatingCommit = true;
+  renderGitPanel();
+  try {
+    const result = await generateGitCommitMessage();
+    if (key !== directoryKey) return;
+    commitMessage = result.message;
+  } catch (error) {
+    if (key === directoryKey) {
+      showNotice(
+        (error as Error).message || t("remote.git.generateCommitFailed"),
+        true,
+      );
+    }
+  } finally {
+    generatingCommit = false;
+    renderGitPanel();
+    if (key === directoryKey) {
+      const input = $("gitPanelBody").querySelector<HTMLTextAreaElement>(
+        "[data-git-commit-input]",
+      );
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
+};
+
 const openFileDiff = async (index: number, staged: boolean): Promise<void> => {
   const file = status?.files[index];
   if (!file) return;
@@ -1005,6 +1120,7 @@ export const renderGit = (state: SnowRemoteState | null): void => {
   const key = state?.workspace?.directoryId ?? "";
   if (key !== directoryKey) {
     directoryKey = key;
+    swipePager?.reset();
     branchRequest += 1;
     statusRequest += 1;
     diffRequest += 1;
@@ -1024,6 +1140,7 @@ export const renderGit = (state: SnowRemoteState | null): void => {
     newWorktreeBranch = "";
     newWorktreeBase = "HEAD";
     commitMessage = "";
+    generatingCommit = false;
     branchQuery = "";
     lastSummaryAt = 0;
     renderGitChip();
@@ -1047,7 +1164,7 @@ export const initGit = (): void => {
     .forEach((button) => {
       button.onclick = () => {
         const value = button.dataset.gitTab;
-        if (value === "branches" || value === "changes") switchTab(value);
+        if (value === "branches" || value === "changes") goToTab(value);
       };
     });
 
@@ -1096,6 +1213,21 @@ export const initGit = (): void => {
       if (tab === "branches") void loadBranches();
       else void loadStatus();
       void refreshGitSummary(true);
+      return;
+    }
+
+    if (target.closest("[data-git-pull]")) {
+      pullRemote();
+      return;
+    }
+
+    if (target.closest("[data-git-push]")) {
+      pushRemote();
+      return;
+    }
+
+    if (target.closest("[data-git-ai-commit]")) {
+      void requestCommitMessage();
       return;
     }
 
@@ -1285,5 +1417,19 @@ export const initGit = (): void => {
       event.preventDefault();
       submitCreate();
     }
+  });
+
+  // 左右滑动切换「分支 / 变更」两个 Tab：内容跟手平移，松手后按距离与速度弹簧吸附。
+  swipePager = createSwipePager({
+    track: $("gitSwipeTrack"),
+    page: body,
+    peek: $("gitSwipePeek"),
+    scroller: $("gitPanel"),
+    enabled: () => !diffView,
+    renderNeighbour: (step) => {
+      const next = neighbourTab(step);
+      return next ? renderTabBody(next) : null;
+    },
+    onCommit: commitTab,
   });
 };

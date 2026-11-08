@@ -1,4 +1,6 @@
-//! 移动端 Git 面板：只读查询与分支 / 工作树 / 暂存提交动作。
+//! 移动端 Git 面板：只读查询与分支 / 工作树 / 暂存提交 / 同步动作。
+
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Response, StatusCode};
@@ -14,7 +16,10 @@ use super::super::request::{
 };
 use super::super::response::json_response;
 use super::super::{ApiError, ServerContext};
-use super::{bridge_call, ensure_current_pairing};
+use super::{bridge_call, bridge_call_with_timeout, ensure_current_pairing};
+
+/// AI 生成提交信息要等桌面模型返回，等待上限与 Node / 移动端保持一致。
+const GENERATE_COMMIT_MESSAGE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// git ref（分支 / 起始基线）输入校验：与桌面 BranchSelector 的分支名规则一致。
 fn is_git_ref_input(value: &str) -> bool {
@@ -99,7 +104,8 @@ pub(super) async fn summary(
     Ok(json_response(StatusCode::OK, &value, Vec::new()))
 }
 
-/// Git 面板动作：分支切换 / 新建、工作树增删与绑定、暂存与提交。
+/// Git 面板动作：分支切换 / 新建、工作树增删与绑定、暂存与提交、
+/// 拉取与推送、AI 生成提交信息。
 pub(super) async fn action(
     context: &ServerContext,
     headers: &HeaderMap,
@@ -154,6 +160,16 @@ pub(super) async fn action(
             }
             bridge_call("gitCommit", json!([message])).await?
         }
+        "pull" => bridge_call("gitPull", json!([])).await?,
+        "push" => bridge_call("gitPush", json!([])).await?,
+        "generate-commit-message" => {
+            bridge_call_with_timeout(
+                "gitGenerateCommitMessage",
+                json!([]),
+                GENERATE_COMMIT_MESSAGE_TIMEOUT,
+            )
+            .await?
+        }
         "create-worktree" => {
             let branch = payload
                 .get("branch")
@@ -187,7 +203,7 @@ pub(super) async fn action(
         },
         _ => {
             return Err(ApiError::bad_request(
-                "action 必须是 checkout / create-branch / stage / unstage / stage-all / unstage-all / commit / create-worktree / remove-worktree / bind-worktree",
+                "action 必须是 checkout / create-branch / stage / unstage / stage-all / unstage-all / commit / pull / push / generate-commit-message / create-worktree / remove-worktree / bind-worktree",
             ))
         }
     };

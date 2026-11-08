@@ -25,8 +25,9 @@ pub type RemoteBridgeCallback =
     ThreadsafeFunction<RemoteBridgeRequest, Promise<String>, RemoteBridgeRequest, Status, false>;
 
 /// 等待 Node 端 executeJavaScript 返回的上限；Node 侧自身有 10 秒超时，
-/// 这里再留余量，避免请求永久挂起。
-const BRIDGE_TIMEOUT: Duration = Duration::from_secs(12);
+/// 这里再留余量，避免请求永久挂起。长耗时动作（如 AI 生成提交信息）
+/// 通过 [`call_with_timeout`] 单独放宽。
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(12);
 
 static BRIDGE: OnceLock<RemoteBridgeCallback> = OnceLock::new();
 
@@ -50,8 +51,17 @@ pub enum BridgeError {
     Renderer(String),
 }
 
-/// 调用渲染进程桥方法并等待结果。
+/// 调用渲染进程桥方法并等待结果（默认超时）。
 pub async fn call(action: &str, args: Value) -> Result<Value, BridgeError> {
+    call_with_timeout(action, args, DEFAULT_TIMEOUT).await
+}
+
+/// 调用渲染进程桥方法并等待结果，允许长耗时动作使用更长的等待上限。
+pub async fn call_with_timeout(
+    action: &str,
+    args: Value,
+    timeout: Duration,
+) -> Result<Value, BridgeError> {
     let Some(callback) = BRIDGE.get() else {
         return Err(BridgeError::NotReady);
     };
@@ -63,7 +73,7 @@ pub async fn call(action: &str, args: Value) -> Result<Value, BridgeError> {
         .call_async_catch(request)
         .await
         .map_err(|_| BridgeError::Dispatch)?;
-    let raw = tokio::time::timeout(BRIDGE_TIMEOUT, promise)
+    let raw = tokio::time::timeout(timeout, promise)
         .await
         .map_err(|_| BridgeError::Dispatch)?
         .map_err(|_| BridgeError::Dispatch)?;

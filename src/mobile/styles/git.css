@@ -64,6 +64,24 @@
 .git-panel {
   --git-head-h: 62px;
   --git-tabs-h: 48px;
+  /* 变更 Tab 同步栏高度（分支 Tab / 差异视图为 0），由 git.ts 实测写入。 */
+  --git-sync-h: 0px;
+  /* 滑动翻页时内容会越过面板两侧，横向溢出在面板内裁切，不产生横向滚动。 */
+  overflow-x: hidden;
+}
+/* 翻页轨道：当前页与相邻预览页共用一个坐标系，平移由 swipePager.ts 驱动。 */
+.git-swipe-track {
+  position: relative;
+  /* 横向手势交给脚本处理，纵向仍由浏览器原生滚动。 */
+  touch-action: pan-y;
+}
+.git-swipe-peek {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* 预览页只用于动画展示，不接收指针事件，点击始终落在当前页。 */
+  pointer-events: none;
 }
 .git-tabs {
   position: sticky;
@@ -90,6 +108,11 @@
   background: transparent;
   color: var(--muted);
   font-size: 12px;
+  /* 高亮随翻页平滑过渡，与内容滑动保持同一节奏。 */
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 .git-tab .icn {
   width: 14px;
@@ -579,9 +602,74 @@ button.git-row {
   color: var(--amber);
 }
 
-.git-commit-box {
+/* 变更 Tab 顶部：当前分支 + ahead/behind + 拉取 / 推送（吸顶在 tabs 下方）。 */
+.git-sync-bar {
   position: sticky;
   top: calc(var(--git-head-h) + var(--git-tabs-h));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 4px 0 8px;
+  background: var(--panel);
+}
+.git-sync-branch {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.git-sync-branch > .icn {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--accent-color);
+}
+.git-sync-branch > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-sync-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.git-sync {
+  color: var(--muted);
+}
+.git-sync.is-ahead {
+  color: var(--green);
+}
+.git-sync.is-behind {
+  color: var(--amber);
+}
+.git-sync.is-clean {
+  color: var(--dim);
+}
+.git-sync-actions {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+}
+.git-sync-actions .git-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.git-commit-box {
+  position: sticky;
+  top: calc(var(--git-head-h) + var(--git-tabs-h) + var(--git-sync-h, 0px));
   z-index: 1;
   display: grid;
   gap: 8px;
@@ -604,6 +692,42 @@ button.git-row {
 }
 .git-commit-box .git-primary {
   justify-self: end;
+}
+.git-commit-field {
+  position: relative;
+  display: grid;
+}
+/* 底部留白给右下角的 AI 生成按钮。 */
+.git-commit-field textarea {
+  padding-bottom: 36px;
+}
+.git-ai-commit {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--secondary-control-bg);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.git-ai-commit .icn {
+  width: 12px;
+  height: 12px;
+}
+.git-ai-commit.is-generating .icn {
+  animation: spin 0.9s linear infinite;
+}
+.git-ai-commit:disabled {
+  opacity: 0.5;
+}
+.git-ai-commit.is-generating:disabled {
+  opacity: 0.85;
 }
 
 .git-diff-head {
@@ -683,6 +807,7 @@ button.git-row {
 }
 
 /* 浅色主题：输入框 / 代码底与浅色覆盖层保持一致。 */
+html[data-theme="light"] .git-sync-bar,
 html[data-theme="light"] .git-tabs,
 html[data-theme="light"] .git-commit-box {
   background: #fff;

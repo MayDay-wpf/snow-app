@@ -134,7 +134,16 @@ fn api_error_from_bridge(error: BridgeError) -> ApiError {
 }
 
 pub(super) async fn bridge_call(action: &str, args: Value) -> Result<Value, ApiError> {
-    bridge::call(action, args)
+    bridge_call_with_timeout(action, args, bridge::DEFAULT_TIMEOUT).await
+}
+
+/// 同 `bridge_call`，但允许长耗时动作（如 AI 生成提交信息）放宽等待上限。
+pub(super) async fn bridge_call_with_timeout(
+    action: &str,
+    args: Value,
+    timeout: std::time::Duration,
+) -> Result<Value, ApiError> {
+    bridge::call_with_timeout(action, args, timeout)
         .await
         .map_err(api_error_from_bridge)
 }

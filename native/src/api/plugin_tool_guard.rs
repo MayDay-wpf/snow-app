@@ -67,13 +67,6 @@ impl PluginToolGuard {
         Ok(())
     }
 
-    pub(crate) fn ensure_fetch_safe(&self) -> Result<()> {
-        // Even an empty baseline must prevent the hook adding toolSearch-discover.
-        Err(Error::from_reason(
-            "OAuth plugin fetch takeover cannot verify outgoing protected tool declarations",
-        ))
-    }
-
     fn is_plugin_name(&self, name: &str) -> bool {
         crate::mcp::tools::split_tool_full_name(name)
             .is_some_and(|(server, _)| self.servers.contains(server))

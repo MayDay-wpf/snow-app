@@ -223,11 +223,14 @@ export const fetchGitDiff = (
   );
 
 /** Git 动作统一入口：失败时服务端返回可读错误，调用方直接提示。 */
-const postGitAction = <T>(body: Record<string, unknown>): Promise<T> =>
+const postGitAction = <T>(
+  body: Record<string, unknown>,
+  timeoutMs = 60_000,
+): Promise<T> =>
   request("/api/git", {
     method: "POST",
     body: JSON.stringify(body),
-    timeoutMs: 60_000,
+    timeoutMs,
   });
 
 export const gitCheckout = (
@@ -258,6 +261,18 @@ export const gitCommit = (
   message: string,
 ): Promise<{ ok: true; hash: string | null }> =>
   postGitAction({ action: "commit", message });
+
+/** 拉取远端更新（远端与分支由桌面按 upstream 解析）。 */
+export const gitPull = (): Promise<{ ok: true; message: string }> =>
+  postGitAction({ action: "pull" }, 120_000);
+
+/** 推送当前分支（无 upstream 时桌面自动设置跟踪）。 */
+export const gitPush = (): Promise<{ ok: true; message: string }> =>
+  postGitAction({ action: "push" }, 120_000);
+
+/** AI 按已暂存 diff 生成提交信息（等待模型响应，放宽超时）。 */
+export const generateGitCommitMessage = (): Promise<{ message: string }> =>
+  postGitAction({ action: "generate-commit-message" }, 180_000);
 
 export const gitCreateWorktree = (
   branch: string,

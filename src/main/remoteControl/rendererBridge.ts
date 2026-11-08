@@ -12,6 +12,10 @@ import { native } from "../native/nativeBridge";
 
 /** 等待桌面渲染进程返回的上限。 */
 const RENDERER_TIMEOUT_MS = 10_000;
+/** AI 生成类桥调用的等待上限（模型响应可能持续数十秒）。 */
+const LONG_RUNNING_TIMEOUT_MS = 120_000;
+/** 需要放宽等待上限的桥动作。 */
+const LONG_RUNNING_ACTIONS = new Set(["gitGenerateCommitMessage"]);
 
 const withTimeout = <T>(
   operation: Promise<T>,
@@ -61,7 +65,9 @@ const callRemoteRenderer = async (
   })()`;
   const raw = await withTimeout(
     window.webContents.executeJavaScript(invocation, true),
-    RENDERER_TIMEOUT_MS,
+    LONG_RUNNING_ACTIONS.has(action)
+      ? LONG_RUNNING_TIMEOUT_MS
+      : RENDERER_TIMEOUT_MS,
     "桌面 Snow 响应超时，请确认主窗口仍在运行",
   );
   if (raw && typeof raw === "object" && "__snowRemoteError" in raw) {

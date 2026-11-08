@@ -849,6 +849,12 @@ export type SnowRemoteControlApi = {
   gitUnstageAll: () => Promise<{ ok: true }>;
   /** 提交已暂存变更（返回短哈希）。 */
   gitCommit: (message: string) => Promise<{ ok: true; hash: string | null }>;
+  /** 拉取远端更新（远端按 upstream 跟踪关系解析，缺省回退 origin）。 */
+  gitPull: () => Promise<{ ok: true; message: string }>;
+  /** 推送当前分支（无 upstream 时自动设置跟踪）。 */
+  gitPush: () => Promise<{ ok: true; message: string }>;
+  /** 按已暂存 diff 用 AI 生成提交信息。 */
+  gitGenerateCommitMessage: () => Promise<{ message: string }>;
   /** 新建独立工作树（分支名必须是本地不存在的新分支）。 */
   gitCreateWorktree: (
     branch: string,

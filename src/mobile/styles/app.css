@@ -2872,19 +2872,18 @@ html[data-theme="light"] .mode-badge-lite {
 .attachment-card.uploading {
   opacity: 0.72;
 }
-/* 待发送（Pending）消息区：与桌面端一致——贴合输入框上沿的标签页式卡片，
-   行式列表（前沿图标 + 内容 + 立即发送 / 撤回），会话隔离随激活会话切换）。
-   与输入框同宽、同底色，并去掉相接处的边与圆角，拼成一体。 */
+/* 待发送（Pending）消息区：浮在输入框上方的独立小卡片，
+   左右各留 12px，宽度小于输入框，边缘不会探出输入框的圆角轮廓。
+   行式列表（前沿图标 + 内容 + 立即发送 / 撤回），会话隔离随激活会话切换）。 */
 .pending-messages {
   display: none;
   position: relative;
   z-index: 1;
-  margin: 0;
+  margin: 0 12px 6px;
   padding: 4px 10px;
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.11);
-  border-bottom: none;
-  border-radius: 18px 18px 0 0;
+  border-radius: 14px;
   pointer-events: auto;
 }
 .pending-messages.has-items {
@@ -2894,12 +2893,6 @@ html[data-theme="light"] .mode-badge-lite {
 html[data-theme="light"] .pending-messages {
   background: #f5f6f8;
   border-color: var(--line);
-}
-/* 有待发送消息时，输入框去掉顶部边与顶部圆角，与上方的队列拼成同一张卡片。 */
-.pending-messages.has-items + .composer {
-  border-top: none;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
 }
 .pending-list {
   list-style: none;
