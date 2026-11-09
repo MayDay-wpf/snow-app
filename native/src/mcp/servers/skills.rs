@@ -609,7 +609,8 @@ fn load_plugin_skills(project_id: Option<&str>) -> napi::Result<BTreeMap<String,
             continue;
         }
         if let Some(scope) = project_scope.as_ref() {
-            if !scope.effective_enabled(&record.plugin_id, true) {
+            // 项目内默认禁用：插件技能与插件本身一样需要显式启用。
+            if !scope.effective_enabled(&record.plugin_id, false) {
                 continue;
             }
         }

@@ -291,8 +291,9 @@ impl SkillsProjectScopeSettings {
 
 /// 项目级插件作用域：全局安装的插件在指定项目内的启用覆盖。
 ///
-/// 缺省（无记录）表示该项目可用全部已启用插件；显式 `false` 表示该项目禁用该插件。
-/// 与 MCP / Skills 的项目作用域同构，存储为 `project_plugins_scope_<blake3(projectId)>`。
+/// 缺省（无记录）表示该项目**禁用**该插件：全局启用只是总闸，插件安装后仍需在
+/// 各项目内显式启用（`true`）才对项目生效。与 MCP / Skills 的项目作用域同构，
+/// 存储为 `project_plugins_scope_<blake3(projectId)>`。
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PluginsProjectScopeSettings {
@@ -301,7 +302,7 @@ pub struct PluginsProjectScopeSettings {
 }
 
 impl PluginsProjectScopeSettings {
-    /// 插件在该项目内是否可用：无覆盖时跟随全局启用状态。
+    /// 插件在该项目内是否可用：无覆盖时按默认禁用处理。
     pub fn effective_enabled(&self, plugin_id: &str, default_enabled: bool) -> bool {
         self.plugin_overrides
             .get(plugin_id)

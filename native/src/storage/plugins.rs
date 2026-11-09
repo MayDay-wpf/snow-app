@@ -753,7 +753,8 @@ pub fn list_tool_plugin_server_configs(
     let mut configs = Vec::new();
     for (plugin_id, manifest_json, install_path) in rows {
         if let Some(scope) = scope.as_ref() {
-            if !scope.effective_enabled(&plugin_id, true) {
+            // 项目内默认禁用：仅显式启用（pluginOverrides=true）才参与发现。
+            if !scope.effective_enabled(&plugin_id, false) {
                 continue;
             }
         }

@@ -62384,6 +62384,131 @@ img.plugin-icon {
   font-size: 11px;
 }
 
+/* 插件详情底部：工具功能与 Skills 清单 */
+.plugins-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.plugins-detail-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugins-detail-head:hover {
+  color: var(--text-primary);
+}
+
+.plugins-detail-head:focus-visible {
+  outline: 2px solid var(--accent-amber-text);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.plugins-detail-head svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.plugins-detail-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.plugins-detail-section.open .plugins-detail-chevron {
+  transform: rotate(180deg);
+}
+
+.plugins-detail-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.plugins-tool-list,
+.plugins-skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0 2px 0 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.plugins-tool-row,
+.plugins-skill-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.plugins-tool-head,
+.plugins-skill-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plugins-tool-name,
+.plugins-skill-name {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.plugins-tool-id,
+.plugins-skill-path {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugins-tool-desc,
+.plugins-skill-desc {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plugins-detail-empty {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .plugins-item-path {
   overflow: hidden;
   color: var(--text-muted);

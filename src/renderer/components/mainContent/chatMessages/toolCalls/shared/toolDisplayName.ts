@@ -9,11 +9,19 @@
 type TranslateFn = (key: string, options?: { defaultValue?: string }) => string;
 
 /**
- * 提取工具短名：去掉 `prefix-`（内置工具）或 `prefix_`（外部 MCP 规范化名，
- * 如 dbx_list_tables -> list_tables），未匹配时返回原名。
+ * 提取工具短名：内置工具按 `prefix-` 去掉服务器前缀；插件工具全名形如
+ * `plugin_<sanitized>-<tool>`，按第一个连字符切分，避免把公开服务器名
+ * 截断后残留的 `com_snow_do-` 一起显示出来。
  */
-export const getToolShortName = (name: string): string =>
-  name.replace(/^.*?[-_]/, "");
+export const getToolShortName = (name: string): string => {
+  if (name.startsWith("plugin_")) {
+    const separator = name.indexOf("-");
+    if (separator > 0 && separator < name.length - 1) {
+      return name.slice(separator + 1);
+    }
+  }
+  return name.replace(/^.*?[-_]/, "");
+};
 
 export const resolveToolDisplayName = (
   t: TranslateFn,

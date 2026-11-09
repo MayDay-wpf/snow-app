@@ -466,7 +466,7 @@ async fn list_plugins(project_id: Option<&str>) -> napi::Result<Value> {
             })?;
             let project_enabled = scope
                 .as_ref()
-                .map(|scope| scope.effective_enabled(&plugin.plugin_id, true));
+                .map(|scope| scope.effective_enabled(&plugin.plugin_id, false));
             let enabled = plugin.enabled && project_enabled.unwrap_or(true);
             plugins.push(json!({
                 "pluginId": plugin.plugin_id,
