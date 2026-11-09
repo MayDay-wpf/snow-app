@@ -26,11 +26,13 @@ export const PluginMarketIcon = ({
   const [lucideIcon, setLucideIcon] = useState<LucideIconComponent | null>(
     null,
   );
+  const [imageFailed, setImageFailed] = useState(false);
   const resolved = useMemo(() => resolveMarketIcon(icon), [icon]);
 
   useEffect(() => {
     let disposed = false;
     setLucideIcon(null);
+    setImageFailed(false);
     if (resolved?.kind === "lucide") {
       void resolveLucideIcon(resolved.name).then((found) => {
         if (!disposed) {
@@ -43,7 +45,8 @@ export const PluginMarketIcon = ({
     };
   }, [resolved]);
 
-  if (resolved?.kind === "image") {
+  // 图片取不到（离线 / 仓库删图）时回退占位图标
+  if (resolved?.kind === "image" && !imageFailed) {
     return (
       <img
         className="plugin-icon"
@@ -51,6 +54,7 @@ export const PluginMarketIcon = ({
         width={size}
         height={size}
         alt=""
+        onError={() => setImageFailed(true)}
       />
     );
   }

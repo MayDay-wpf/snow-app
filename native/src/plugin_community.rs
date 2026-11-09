@@ -36,7 +36,8 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
 use crate::plugin_market::{
     build_blocking_client, download_with_mirror, extract_archive, github_repo_slug, github_token,
-    locate_plugin_root, marketplace_dir, now_epoch_secs, MAX_PLUGIN_ARCHIVE_BYTES,
+    locate_plugin_root, marketplace_dir, normalize_manifest_icon, now_epoch_secs,
+    MAX_PLUGIN_ARCHIVE_BYTES,
 };
 
 /// 社区插件约定的 GitHub 主题：仓库打上该主题即出现在社区列表。
@@ -536,7 +537,7 @@ fn fetch_community_manifest(
         .unwrap_or_default()
         .trim();
     (
-        normalize_community_icon(raw, &base),
+        normalize_manifest_icon(raw, &base),
         resolve_community_kind(&manifest),
     )
 }
@@ -563,25 +564,6 @@ fn resolve_community_kind(manifest: &serde_json::Value) -> String {
         return "tool".to_string();
     }
     "plugin".to_string()
-}
-
-/// 归一化社区条目图标：只接受受支持的取值，拒绝绝对路径与越界路径。
-fn normalize_community_icon(raw: &str, base: &str) -> String {
-    if raw.is_empty() {
-        return String::new();
-    }
-    let lower = raw.to_ascii_lowercase();
-    if lower.starts_with("lucide:")
-        || lower.starts_with("https://")
-        || lower.starts_with("http://")
-        || lower.starts_with("data:image/")
-    {
-        return raw.to_string();
-    }
-    if raw.starts_with('/') || raw.starts_with('\\') || raw.contains("..") || raw.contains('\\') {
-        return String::new();
-    }
-    format!("{base}{raw}")
 }
 
 /// 序列化返回给渲染层的结果（字段名与 `parseCommunityPlugins` 对应）。

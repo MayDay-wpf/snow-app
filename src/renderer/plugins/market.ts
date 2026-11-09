@@ -56,6 +56,9 @@ const INLINE_ICON_PATTERN = /^data:image\//i;
  * - `http(s)://`：转为 `img-proxy://` 代理地址（CSP 的 `img-src` 只放行该协议）；
  * - `data:image/...`：原样内联渲染；
  * - 其余（含插件内相对路径）：返回 null，由渲染层回退占位图标。
+ *
+ * 官方索引条目缺图标时已由 Rust 侧读取仓库 `plugin.json` 补全为绝对 raw 地址
+ * （见 `native/src/plugin_market.rs`），这里仍保留相对路径的兜底。
  */
 export const resolveMarketIcon = (icon: string): MarketIconSource | null => {
   const trimmed = icon.trim();

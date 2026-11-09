@@ -5,11 +5,15 @@
 //! CDN 长缓存；解析失败时回退分支引用地址（强制刷新先清理 jsDelivr 镜像
 //! 缓存）。成功后写入磁盘缓存，网络不可用时回退上一次成功的缓存。
 //!
+//! 索引条目没有可直接展示的图标时，按条目的仓库地址读取 `plugin.json`
+//! 声明的 `icon` 补全（相对路径展开为 raw 绝对地址，结果缓存 30 天），
+//! 因此市场列表显示的是插件配置里的图标。
+//!
 //! 安装链路（全部在 spawn_blocking 内执行，不阻塞 Node 主线程）：
 //! 下载 zip -> SHA256 校验 -> 解压到临时目录 -> 校验 plugin.json 的 id ->
 //! 复用存储层 `install_plugin_with_source`（source_path 记录仓库地址）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -112,6 +116,315 @@ fn read_registry_disk_cache() -> Option<String> {
     fs::read_to_string(&path)
         .ok()
         .filter(|text| !text.trim().is_empty())
+}
+
+/// 图标补全的整体预算与单请求上限：只在索引缺图标时触发，不拖慢列表。
+const MARKET_ICON_TOTAL_BUDGET: Duration = Duration::from_secs(8);
+const MARKET_ICON_REQUEST_TIMEOUT: Duration = Duration::from_secs(6);
+const MARKET_ICON_MAX_BYTES: u64 = 64 * 1024;
+const MARKET_ICON_WORKERS: usize = 4;
+/// 成功补全的图标缓存有效期：图标极少变化，过期后再读一次仓库清单。
+const MARKET_ICON_CACHE_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// 图标补全缓存（`~/.snowapp/plugin-market/icons.json`）：只记录成功读到的图标。
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+struct MarketIconCache {
+    #[serde(default)]
+    entries: BTreeMap<String, MarketIconCacheEntry>,
+}
+
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+struct MarketIconCacheEntry {
+    #[serde(default)]
+    icon: String,
+    #[serde(default)]
+    fetched_at: u64,
+}
+
+/// 待补全图标的索引条目。
+struct MarketIconJob {
+    index: usize,
+    id: String,
+    slug: String,
+    homepage: String,
+}
+
+fn icon_cache_path() -> Result<PathBuf> {
+    Ok(marketplace_dir()?.join("icons.json"))
+}
+
+fn load_icon_cache() -> MarketIconCache {
+    let Ok(path) = icon_cache_path() else {
+        return MarketIconCache::default();
+    };
+    let Ok(text) = fs::read_to_string(path) else {
+        return MarketIconCache::default();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+fn store_icon_cache(cache: &MarketIconCache) {
+    let Ok(path) = icon_cache_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    if let Ok(text) = serde_json::to_string(cache) {
+        let _ = fs::write(&path, text);
+    }
+}
+
+/// 与渲染层 `resolveMarketIcon` 同口径：可直接展示的图标值。
+fn is_displayable_market_icon(icon: &str) -> bool {
+    let lower = icon.trim().to_ascii_lowercase();
+    lower.starts_with("lucide:")
+        || lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("data:image/")
+}
+
+/// 归一化清单图标：受支持的取值原样返回，插件内相对路径按清单所在目录展开，
+/// 绝对路径与越界路径返回空串（官方索引补全与社区通道共用）。
+pub(crate) fn normalize_manifest_icon(raw: &str, base: &str) -> String {
+    let icon = raw.trim();
+    if icon.is_empty() {
+        return String::new();
+    }
+    if is_displayable_market_icon(icon) {
+        return icon.to_string();
+    }
+    if icon.starts_with('/')
+        || icon.starts_with('\\')
+        || icon.contains("..")
+        || icon.contains('\\')
+    {
+        return String::new();
+    }
+    format!("{base}{icon}")
+}
+
+/// 清单候选地址：(plugin.json 地址, 图标相对路径的展开前缀)。
+///
+/// 单仓多插件时首页形如 `.../tree/<branch>/<dir>`，优先读该子目录；其余回退
+/// 仓库根目录（`HEAD` 指向默认分支），保证单插件仓库同样能补全。
+fn manifest_candidates(slug: &str, homepage: &str) -> Vec<(String, String)> {
+    let mut candidates = Vec::new();
+    if let Some((branch, dir)) = parse_homepage_plugin_dir(homepage, slug) {
+        candidates.push(manifest_url(slug, &branch, &dir));
+        candidates.push(manifest_url(slug, "HEAD", &dir));
+    }
+    candidates.push(manifest_url(slug, "HEAD", ""));
+    candidates
+}
+
+fn manifest_url(slug: &str, reference: &str, dir: &str) -> (String, String) {
+    let base = if dir.is_empty() {
+        format!("https://raw.githubusercontent.com/{slug}/{reference}/")
+    } else {
+        format!("https://raw.githubusercontent.com/{slug}/{reference}/{dir}/")
+    };
+    (format!("{base}plugin.json"), base)
+}
+
+/// 从 GitHub 首页解析插件子目录（`/tree/<branch>/<dir>`），要求属于同一仓库。
+fn parse_homepage_plugin_dir(homepage: &str, slug: &str) -> Option<(String, String)> {
+    let rest = homepage
+        .trim()
+        .trim_end_matches('/')
+        .strip_prefix("https://github.com/")?;
+    let mut segments = rest.splitn(4, '/');
+    let owner = segments.next().filter(|segment| !segment.is_empty())?;
+    let name = segments.next().filter(|segment| !segment.is_empty())?;
+    if !format!("{owner}/{name}").eq_ignore_ascii_case(slug) {
+        return None;
+    }
+    // 只接受 tree：blob 指向单个文件，父目录无法从地址推断。
+    if segments.next()? != "tree" {
+        return None;
+    }
+    let (branch, dir) = segments.next()?.split_once('/')?;
+    let dir = dir.trim_matches('/');
+    if branch.is_empty() || dir.is_empty() {
+        return None;
+    }
+    Some((branch.to_string(), dir.to_string()))
+}
+
+/// 按候选顺序读取仓库清单里声明的图标；全部失败返回空串。
+fn fetch_manifest_icon(
+    client: &reqwest::blocking::Client,
+    slug: &str,
+    homepage: &str,
+    budget: Duration,
+) -> String {
+    for (manifest_url, base) in manifest_candidates(slug, homepage) {
+        let Some(text) = fetch_manifest_text(client, &manifest_url, budget) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let raw = manifest
+            .get("icon")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        return normalize_manifest_icon(raw, &base);
+    }
+    String::new()
+}
+
+fn fetch_manifest_text(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    budget: Duration,
+) -> Option<String> {
+    let response = client
+        .get(url)
+        .timeout(budget.min(MARKET_ICON_REQUEST_TIMEOUT))
+        .send()
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    if matches!(response.content_length(), Some(length) if length > MARKET_ICON_MAX_BYTES) {
+        return None;
+    }
+    let text = response.text().ok()?;
+    (text.len() as u64 <= MARKET_ICON_MAX_BYTES).then_some(text)
+}
+
+/// 补全索引条目图标：条目没有可直接展示的 `icon` 时，读取仓库 `plugin.json`
+/// 声明的图标（相对路径展开为 raw 绝对地址）并写回索引文本。
+fn enrich_registry_icons(text: &str) -> String {
+    let Ok(mut registry) = serde_json::from_str::<serde_json::Value>(text) else {
+        return text.to_string();
+    };
+    let Some(plugins) = registry
+        .get_mut("plugins")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return text.to_string();
+    };
+
+    let mut cache = load_icon_cache();
+    let now = now_epoch_secs();
+    let mut jobs: Vec<MarketIconJob> = Vec::new();
+    for (index, entry) in plugins.iter_mut().enumerate() {
+        let current = entry
+            .get("icon")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if is_displayable_market_icon(current) {
+            continue;
+        }
+        let id = entry
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let repo = entry
+            .get("repo")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let Some(slug) = github_repo_slug(&repo) else {
+            continue;
+        };
+        if id.is_empty() {
+            continue;
+        }
+        let cached = cache.entries.get(&id).filter(|cached| {
+            !cached.icon.is_empty()
+                && now.saturating_sub(cached.fetched_at) < MARKET_ICON_CACHE_TTL_SECS
+        });
+        if let Some(cached) = cached {
+            if let serde_json::Value::Object(map) = entry {
+                map.insert(
+                    "icon".to_string(),
+                    serde_json::Value::String(cached.icon.clone()),
+                );
+            }
+            continue;
+        }
+        let homepage = entry
+            .get("homepage")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        jobs.push(MarketIconJob {
+            index,
+            id,
+            slug,
+            homepage,
+        });
+    }
+
+    if jobs.is_empty() {
+        return registry.to_string();
+    }
+
+    let Ok(client) = build_blocking_client() else {
+        return registry.to_string();
+    };
+    let deadline = Instant::now() + MARKET_ICON_TOTAL_BUDGET;
+    let workers = MARKET_ICON_WORKERS.min(jobs.len()).max(1);
+    let chunk_size = (jobs.len() + workers - 1) / workers;
+    let mut resolved: Vec<(usize, String, String)> = Vec::new();
+    let client_ref = &client;
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(workers);
+        for chunk in jobs.chunks(chunk_size) {
+            handles.push(scope.spawn(move || {
+                let mut found: Vec<(usize, String, String)> = Vec::new();
+                for job in chunk {
+                    let budget = deadline.saturating_duration_since(Instant::now());
+                    if budget.is_zero() {
+                        break;
+                    }
+                    let icon = fetch_manifest_icon(client_ref, &job.slug, &job.homepage, budget);
+                    if !icon.is_empty() {
+                        found.push((job.index, job.id.clone(), icon));
+                    }
+                }
+                found
+            }));
+        }
+        for handle in handles {
+            if let Ok(found) = handle.join() {
+                resolved.extend(found);
+            }
+        }
+    });
+
+    for (index, id, icon) in resolved {
+        if let serde_json::Value::Object(map) = &mut plugins[index] {
+            map.insert("icon".to_string(), serde_json::Value::String(icon.clone()));
+        }
+        cache.entries.insert(
+            id,
+            MarketIconCacheEntry {
+                icon,
+                fetched_at: now,
+            },
+        );
+    }
+
+    // 缓存只保留当前索引里的条目，避免历史条目无限积累。
+    let live: BTreeSet<String> = plugins
+        .iter()
+        .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect();
+    cache.entries.retain(|id, _| live.contains(id));
+    store_icon_cache(&cache);
+
+    registry.to_string()
 }
 
 pub(crate) fn build_blocking_client() -> Result<reqwest::blocking::Client> {
@@ -274,6 +587,14 @@ fn purge_jsdelivr_cache(cdn_url: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 补全图标后写入内存与磁盘缓存：磁盘缓存因此自带图标，离线启动也能显示。
+fn publish_registry(text: String) -> String {
+    let text = enrich_registry_icons(&text);
+    store_registry_memory_cache(&text);
+    store_registry_disk_cache(&text);
+    text
+}
+
 /// 拉取插件市场索引 JSON 文本（带内存 / 磁盘缓存与镜像降级）。
 ///
 /// 索引文件更新后分支引用地址会被 CDN 缓存数分钟到数小时（GitHub raw
@@ -292,11 +613,7 @@ pub fn fetch_registry_blocking(force_refresh: bool) -> Result<String> {
     if let Some(sha) = resolve_registry_commit_sha() {
         for source in commit_addressed_sources(&sha) {
             match fetch_registry_source(&source) {
-                Ok(text) => {
-                    store_registry_memory_cache(&text);
-                    store_registry_disk_cache(&text);
-                    return Ok(text);
-                }
+                Ok(text) => return Ok(publish_registry(text)),
                 Err(error) => last_error = error,
             }
         }
@@ -317,11 +634,7 @@ pub fn fetch_registry_blocking(force_refresh: bool) -> Result<String> {
 
     for source in sources {
         match fetch_registry_source(source) {
-            Ok(text) => {
-                store_registry_memory_cache(&text);
-                store_registry_disk_cache(&text);
-                return Ok(text);
-            }
+            Ok(text) => return Ok(publish_registry(text)),
             Err(error) => last_error = error,
         }
     }
