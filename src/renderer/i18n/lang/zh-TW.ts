@@ -6957,7 +6957,7 @@ export const zhTW = {
   "plugins.toolCount": "{{count}} 個工具",
   "plugins.projectScope.title": "專案範圍",
   "plugins.projectScope.hint":
-    "取消勾選後此外掛在本專案內不可用；勾選則跟隨全域啟用狀態。",
+    "工具外掛安裝後不會自動在各專案啟用：需在專案內明確開啟，且全域開關也要打開。",
   "plugins.projectScope.globalOff": "全域已停用",
   "plugins.projectScope.noProject": "開啟專案後可設定外掛範圍",
   "plugins.projectScope.noToolPlugins": "暫無已安裝的工具外掛",
@@ -6967,6 +6967,11 @@ export const zhTW = {
   "plugins.scope.globalDisabled": "全域停用",
   "plugins.scope.projectEnabled": "本專案可用",
   "plugins.scope.projectDisabled": "本專案已停用",
+  "plugins.scope.projectDefaultDisabled": "本專案預設停用",
+  "plugins.details.tools": "工具功能",
+  "plugins.details.skills": "Skills",
+  "plugins.details.noTools":
+    "未發現工具：請先在全域啟用外掛，並確認其 MCP 伺服器可啟動。",
   "plugins.scope.projectUnavailable": "專案不可用",
   "plugins.scope.projectUnavailableTooltip": "全域未啟用，目前專案不可用",
   "plugins.scope.noProject": "未選專案",
@@ -6982,7 +6987,8 @@ export const zhTW = {
     "面板外掛即在右側面板以標籤頁開啟的外掛：入口是頂欄加號選單的「外掛」分組與右側面板標籤列。部分還提供輸入工具列按鈕、訊息頁尾或工具呼叫卡片。",
   "plugins.tabOAuthHint":
     "宣告了 kind: oauth 與 oauth.entry 的外掛：登入第三方帳號後註冊為一個 API 設定檔。入口在 API 設定 → OAuth 登入。",
-  "plugins.tabToolsHint": "在目前專案啟用工具外掛後，Agent 可按需搜尋其工具。",
+  "plugins.tabToolsHint":
+    "工具外掛預設不在各專案啟用：在專案內明確開啟後，Agent 才能搜尋並使用其工具。",
   "plugins.tabScriptsHint":
     "注入網頁的使用者腳本：輸入框按鈕、右鍵選單以及頁面層級輔助功能。",
   "plugins.tabPlugins": "面板外掛",

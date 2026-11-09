@@ -257,7 +257,7 @@ fn write_skills_project_scope_settings(
     )
 }
 
-/// 项目级插件作用域：全局安装的插件在指定项目内的启用覆盖（缺省跟随全局启用）。
+/// 项目级插件作用域：全局安装的插件在指定项目内的启用覆盖（缺省禁用）。
 pub fn get_plugins_project_scope_settings(
     database_path: &Path,
     project_id: &str,

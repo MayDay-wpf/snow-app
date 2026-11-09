@@ -35,6 +35,19 @@ const compareText = (a: string, b: string): number =>
   a < b ? -1 : a > b ? 1 : 0;
 
 /**
+ * 插件工具全名为 `plugin_<sanitized plugin/server>-<tool>`。公开服务器名由
+ * 宿主派生，若归属索引尚未加载，插件渲染器仍可按最终短名匹配，避免首轮
+ * 工具卡回退成 `com_snow_do-system_info` 这类未本地化名称。
+ */
+const pluginToolShortName = (fullName: string): string | null => {
+  if (!fullName.startsWith("plugin_")) return null;
+  const separator = fullName.indexOf("-");
+  return separator > 0 && separator < fullName.length - 1
+    ? fullName.slice(separator + 1)
+    : null;
+};
+
+/**
  * 渲染器选择器匹配：`tools` 支持工具全名与清单内短名，`prefixes` 同样对
  * 两者生效。工具插件自己的渲染器通常只声明短名（公开服务器名由宿主派生，
  * 插件无从预知）。
@@ -105,7 +118,9 @@ const selectRenderer = (
   };
 
   // 工具插件自己的工具优先交给该插件自带的渲染器：公开服务器名由宿主派生，
-  // 插件无法稳定预知，因此按清单内的工具短名匹配。
+  // 插件无法稳定预知，因此按清单内的工具短名匹配。归属索引未就绪时从完整
+  // 名称推导短名，避免首轮回退到通用卡片。
+  const shortName = owner?.toolName ?? pluginToolShortName(name);
   if (owner) {
     const ownerPlugin = plugins.find(
       (plugin) => plugin.pluginId === owner.pluginId,
@@ -139,7 +154,7 @@ const selectRenderer = (
     )
       continue;
     for (const definition of plugin.toolCallRenderers) {
-      const hit = matchesDefinition(definition, name, owner?.toolName ?? null);
+      const hit = matchesDefinition(definition, name, shortName);
       if (hit)
         matches.push({
           plugin,

@@ -27,11 +27,13 @@ import {
 
 import type {
   PluginsProjectScope,
+  PluginToolInfo,
   PluginToolServerInfo,
 } from "../../../preload/types/plugins";
+import type { SkillDefinition } from "../../../preload/types/mcp";
 import { useEscapeClose } from "../../hooks/useEscapeClose";
 import { useI18n } from "../../i18n";
-import { resolveLocalized } from "../../plugins/manifest";
+import { loadPluginMessages, resolveLocalized } from "../../plugins/manifest";
 import {
   hasMarketUpdate,
   isMarketEntryTooNew,
@@ -87,6 +89,40 @@ const readActiveProjectId = (): string =>
 const readActiveProjectName = (): string =>
   runtimeSnapshot.get().activeDirectory?.name ?? "";
 
+/** 工具展示名：插件语言包 `toolNames.<原始名>`，缺省回退原始工具名。 */
+const toolDisplayName = (
+  messages: Record<string, string> | undefined,
+  tool: PluginToolInfo,
+): string => messages?.[`toolNames.${tool.originalName}`] ?? tool.originalName;
+
+/** 面板展示不需要模型侧的 `[External MCP: server]` 来源前缀。 */
+const stripExternalMcpPrefix = (description: string): string => {
+  const stripped = description
+    .replace(/^\[External MCP: [^\]]*\]\s*/, "")
+    .trim();
+  return stripped || description.trim();
+};
+
+/** 工具说明：插件可用 `toolDescriptions.<原始名>` 覆盖 MCP 描述。 */
+const toolDescription = (
+  messages: Record<string, string> | undefined,
+  tool: PluginToolInfo,
+): string =>
+  messages?.[`toolDescriptions.${tool.originalName}`] ??
+  stripExternalMcpPrefix(tool.description);
+
+/** 技能目录按插件安装目录显示为相对路径，避免整行绝对路径撑开面板。 */
+const relativeToPlugin = (installPath: string, target: string): string => {
+  const root = installPath.replace(/[\\/]+$/, "");
+  if (!root || !target.startsWith(root)) {
+    return target;
+  }
+  return target.slice(root.length).replace(/^[\\/]+/, "");
+};
+
+/** 插件详情内可折叠的区块。 */
+type PluginDetailSection = "tools" | "skills";
+
 export const PluginsPanel = ({
   onClose,
 }: PluginsPanelProps): React.JSX.Element => {
@@ -117,9 +153,28 @@ export const PluginsPanel = ({
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [createRequest, setCreateRequest] = useState("");
   const [createOpen, setCreateOpen] = useState<boolean | null>(null);
-  // 工具插件徽标（已注册工具数）与项目范围开关的数据源。
-  const [toolCounts, setToolCounts] = useState<Record<string, number>>({});
+  // 工具插件徽标与详情区的数据源：已发现的工具清单 / 插件技能 / 插件语言包。
+  const [toolLists, setToolLists] = useState<Record<string, PluginToolInfo[]>>(
+    {},
+  );
+  const [pluginSkills, setPluginSkills] = useState<
+    Record<string, SkillDefinition[]>
+  >({});
+  const [pluginMessages, setPluginMessages] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [scopeOpen, setScopeOpen] = useState(false);
+  // 工具与技能清单默认收起，按插件分别记录展开状态。
+  const [openDetailSections, setOpenDetailSections] = useState<
+    Record<string, boolean>
+  >({});
+  const toggleDetailSection = useCallback(
+    (pluginId: string, section: PluginDetailSection): void => {
+      const key = `${pluginId}:${section}`;
+      setOpenDetailSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    },
+    [],
+  );
   const [scopeOverrides, setScopeOverrides] = useState<Record<string, boolean>>(
     {},
   );
@@ -240,10 +295,10 @@ export const PluginsPanel = ({
     void marketStore.ensureLoaded();
   }, []);
 
-  // 工具插件徽标：发现各工具插件已注册的工具数，未发现时不显示数量。
+  // 工具插件：发现已注册的工具清单（徽标数量与详情区共用）。
   useEffect(() => {
     if (!state.plugins.some((plugin) => plugin.kind === "tool")) {
-      setToolCounts({});
+      setToolLists({});
       return;
     }
 
@@ -254,17 +309,19 @@ export const PluginsPanel = ({
         if (disposed) {
           return;
         }
-        const counts: Record<string, number> = {};
+        const lists: Record<string, PluginToolInfo[]> = {};
         for (const server of servers) {
-          counts[server.pluginId] =
-            (counts[server.pluginId] ?? 0) + server.tools.length;
+          lists[server.pluginId] = [
+            ...(lists[server.pluginId] ?? []),
+            ...server.tools,
+          ];
         }
-        setToolCounts(counts);
+        setToolLists(lists);
       })
       .catch((loadError) => {
         console.error("Failed to load plugin tools:", loadError);
         if (!disposed) {
-          setToolCounts({});
+          setToolLists({});
         }
       });
 
@@ -273,7 +330,68 @@ export const PluginsPanel = ({
     };
   }, [state.plugins]);
 
-  // 项目范围：读取当前项目的插件覆盖（缺省表示跟随全局启用）。
+  // 插件技能：`skills:list` 的 source 形如 `plugin:<pluginId>`，按插件分组展示。
+  useEffect(() => {
+    let disposed = false;
+    void window.snow
+      .listAvailableSkills()
+      .then((skills: SkillDefinition[]) => {
+        if (disposed) {
+          return;
+        }
+        const grouped: Record<string, SkillDefinition[]> = {};
+        for (const skill of skills) {
+          if (!skill.source.startsWith("plugin:")) {
+            continue;
+          }
+          const pluginId = skill.source.slice("plugin:".length);
+          const list = grouped[pluginId] ?? [];
+          list.push(skill);
+          grouped[pluginId] = list;
+        }
+        setPluginSkills(grouped);
+      })
+      .catch((loadError) => {
+        console.error("Failed to load plugin skills:", loadError);
+        if (!disposed) {
+          setPluginSkills({});
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [state.plugins]);
+
+  // 插件语言包：工具名等键由插件自带，宿主只按当前语言读取。
+  useEffect(() => {
+    let disposed = false;
+    void Promise.all(
+      state.plugins.map(
+        async (plugin) =>
+          [plugin.pluginId, await loadPluginMessages(plugin, locale)] as const,
+      ),
+    )
+      .then((entries) => {
+        if (disposed) {
+          return;
+        }
+        const messages: Record<string, Record<string, string>> = {};
+        for (const [pluginId, table] of entries) {
+          messages[pluginId] = table;
+        }
+        setPluginMessages(messages);
+      })
+      .catch((loadError) => {
+        console.error("Failed to load plugin messages:", loadError);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [state.plugins, locale]);
+
+  // 项目范围：读取当前项目的插件覆盖（缺省表示该项目禁用）。
   useEffect(() => {
     if (!projectId) {
       setScopeOverrides({});
@@ -832,7 +950,7 @@ export const PluginsPanel = ({
                         <div className="plugins-scope-hint">
                           {t("plugins.projectScope.hint", {
                             defaultValue:
-                              "Unchecked plugins are unavailable in this project; checked ones follow the global switch.",
+                              "Tool plugins are off in every project by default; enable one here to use it in this project. The global switch must also be on.",
                           })}
                         </div>
                       </div>
@@ -844,8 +962,9 @@ export const PluginsPanel = ({
                         </div>
                       ) : (
                         toolPlugins.map((plugin) => {
+                          // 项目默认禁用：未显式启用时该项目不可用。
                           const effective =
-                            scopeOverrides[plugin.pluginId] ?? plugin.enabled;
+                            scopeOverrides[plugin.pluginId] ?? false;
                           const isScopeBusy =
                             scopeBusyPluginId === plugin.pluginId;
                           return (
@@ -959,6 +1078,9 @@ export const PluginsPanel = ({
                   <div className="plugins-list">
                     {visiblePlugins.map((plugin) => {
                       const isBusy = busyPluginId === plugin.pluginId;
+                      const projectOverride = scopeOverrides[plugin.pluginId];
+                      const projectScopeEnabled = projectOverride === true;
+                      const projectScopeUnset = projectOverride === undefined;
                       const marketEntry = findMarketEntry(
                         market.entries,
                         plugin.pluginId,
@@ -986,6 +1108,16 @@ export const PluginsPanel = ({
                         (total, domain) => total + domain.actions.length,
                         0,
                       );
+                      const pluginToolList = toolLists[plugin.pluginId] ?? [];
+                      const pluginSkillList =
+                        pluginSkills[plugin.pluginId] ?? [];
+                      const pluginMessageTable =
+                        pluginMessages[plugin.pluginId];
+                      const toolsOpen =
+                        openDetailSections[`${plugin.pluginId}:tools`] === true;
+                      const skillsOpen =
+                        openDetailSections[`${plugin.pluginId}:skills`] ===
+                        true;
                       return (
                         <div className="plugins-item" key={plugin.pluginId}>
                           <div className="plugins-item-head">
@@ -1103,8 +1235,7 @@ export const PluginsPanel = ({
                                                   "Disabled globally; unavailable in project",
                                               },
                                             )
-                                          : (scopeOverrides[plugin.pluginId] ??
-                                              true)
+                                          : projectScopeEnabled
                                             ? t(
                                                 "plugins.scope.disableProject",
                                                 {
@@ -1130,8 +1261,7 @@ export const PluginsPanel = ({
                                       aria-checked={
                                         Boolean(projectId) &&
                                         plugin.enabled &&
-                                        (scopeOverrides[plugin.pluginId] ??
-                                          true)
+                                        projectScopeEnabled
                                       }
                                       aria-label={t(
                                         "plugins.scope.projectToggleLabel",
@@ -1146,10 +1276,7 @@ export const PluginsPanel = ({
                                       onClick={() =>
                                         void handleScopeToggle(
                                           plugin,
-                                          !(
-                                            scopeOverrides[plugin.pluginId] ??
-                                            true
-                                          ),
+                                          !projectScopeEnabled,
                                         )
                                       }
                                     >
@@ -1157,8 +1284,7 @@ export const PluginsPanel = ({
                                         className={`plugins-toggle-track${
                                           projectId &&
                                           plugin.enabled &&
-                                          (scopeOverrides[plugin.pluginId] ??
-                                            true)
+                                          projectScopeEnabled
                                             ? " on"
                                             : ""
                                         }`}
@@ -1240,11 +1366,14 @@ export const PluginsPanel = ({
                                     defaultValue: "Tool plugin",
                                   })}
                                 </span>
-                                {toolCounts[plugin.pluginId] > 0 && (
+                                {(toolLists[plugin.pluginId]?.length ?? 0) >
+                                  0 && (
                                   <span className="plugins-item-badge">
                                     {t("plugins.toolCount", {
                                       values: {
-                                        count: toolCounts[plugin.pluginId],
+                                        count:
+                                          toolLists[plugin.pluginId]?.length ??
+                                          0,
                                       },
                                       defaultValue: "{{count}} tools",
                                     })}
@@ -1266,12 +1395,9 @@ export const PluginsPanel = ({
                                 {projectId ? (
                                   <span
                                     className={`plugins-item-badge scope-badge ${
-                                      !plugin.enabled
-                                        ? "project-off"
-                                        : (scopeOverrides[plugin.pluginId] ??
-                                            true)
-                                          ? "project-on"
-                                          : "project-off"
+                                      plugin.enabled && projectScopeEnabled
+                                        ? "project-on"
+                                        : "project-off"
                                     }`}
                                     title={
                                       !plugin.enabled
@@ -1290,14 +1416,22 @@ export const PluginsPanel = ({
                                           defaultValue:
                                             "Unavailable in project",
                                         })
-                                      : (scopeOverrides[plugin.pluginId] ??
-                                          true)
+                                      : projectScopeEnabled
                                         ? t("plugins.scope.projectEnabled", {
                                             defaultValue: "Enabled in project",
                                           })
-                                        : t("plugins.scope.projectDisabled", {
-                                            defaultValue: "Disabled in project",
-                                          })}
+                                        : projectScopeUnset
+                                          ? t(
+                                              "plugins.scope.projectDefaultDisabled",
+                                              {
+                                                defaultValue:
+                                                  "Off by default in project",
+                                              },
+                                            )
+                                          : t("plugins.scope.projectDisabled", {
+                                              defaultValue:
+                                                "Disabled in project",
+                                            })}
                                   </span>
                                 ) : (
                                   <span className="plugins-item-badge scope-badge project-none">
@@ -1374,6 +1508,146 @@ export const PluginsPanel = ({
                             <div className="plugins-privacy-note">
                               {plugin.privacyNote}
                             </div>
+                          )}
+
+                          {(plugin.kind === "tool" ||
+                            pluginToolList.length > 0) && (
+                            <section
+                              className={`plugins-detail-section${
+                                toolsOpen ? " open" : ""
+                              }`}
+                            >
+                              <button
+                                className="plugins-detail-head"
+                                type="button"
+                                aria-expanded={toolsOpen}
+                                onClick={() =>
+                                  toggleDetailSection(plugin.pluginId, "tools")
+                                }
+                              >
+                                <Wrench size={12} strokeWidth={1.8} />
+                                <span className="plugins-detail-title">
+                                  {t("plugins.details.tools", {
+                                    defaultValue: "Tools",
+                                  })}
+                                </span>
+                                <span className="plugins-detail-count">
+                                  {pluginToolList.length}
+                                </span>
+                                <ChevronDown
+                                  className="plugins-detail-chevron"
+                                  size={12}
+                                  strokeWidth={1.8}
+                                />
+                              </button>
+                              {toolsOpen ? (
+                                pluginToolList.length > 0 ? (
+                                  <ul className="plugins-tool-list">
+                                    {pluginToolList.map((tool) => {
+                                      const description = toolDescription(
+                                        pluginMessageTable,
+                                        tool,
+                                      );
+                                      return (
+                                        <li
+                                          className="plugins-tool-row"
+                                          key={tool.name}
+                                        >
+                                          <div className="plugins-tool-head">
+                                            <span className="plugins-tool-name">
+                                              {toolDisplayName(
+                                                pluginMessageTable,
+                                                tool,
+                                              )}
+                                            </span>
+                                            <code className="plugins-tool-id">
+                                              {tool.originalName}
+                                            </code>
+                                          </div>
+                                          {description ? (
+                                            <p
+                                              className="plugins-tool-desc"
+                                              title={description}
+                                            >
+                                              {description}
+                                            </p>
+                                          ) : null}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                ) : (
+                                  <div className="plugins-detail-empty">
+                                    {t("plugins.details.noTools", {
+                                      defaultValue:
+                                        "No tools discovered: enable the plugin globally, then check that its MCP server starts.",
+                                    })}
+                                  </div>
+                                )
+                              ) : null}
+                            </section>
+                          )}
+
+                          {pluginSkillList.length > 0 && (
+                            <section
+                              className={`plugins-detail-section${
+                                skillsOpen ? " open" : ""
+                              }`}
+                            >
+                              <button
+                                className="plugins-detail-head"
+                                type="button"
+                                aria-expanded={skillsOpen}
+                                onClick={() =>
+                                  toggleDetailSection(plugin.pluginId, "skills")
+                                }
+                              >
+                                <Sparkles size={12} strokeWidth={1.8} />
+                                <span className="plugins-detail-title">
+                                  {t("plugins.details.skills", {
+                                    defaultValue: "Skills",
+                                  })}
+                                </span>
+                                <span className="plugins-detail-count">
+                                  {pluginSkillList.length}
+                                </span>
+                                <ChevronDown
+                                  className="plugins-detail-chevron"
+                                  size={12}
+                                  strokeWidth={1.8}
+                                />
+                              </button>
+                              {skillsOpen ? (
+                                <ul className="plugins-skill-list">
+                                  {pluginSkillList.map((skill) => (
+                                    <li
+                                      className="plugins-skill-row"
+                                      key={skill.id}
+                                    >
+                                      <div className="plugins-skill-head">
+                                        <span className="plugins-skill-name">
+                                          {skill.name}
+                                        </span>
+                                        <code
+                                          className="plugins-skill-path"
+                                          title={skill.path}
+                                        >
+                                          {relativeToPlugin(
+                                            plugin.installPath,
+                                            skill.path,
+                                          )}
+                                        </code>
+                                      </div>
+                                      {skill.description ? (
+                                        <p className="plugins-skill-desc">
+                                          {skill.description}
+                                        </p>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </section>
                           )}
 
                           <div
