@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.5.15
+
+### New Features
+
+- **Commit Message Hint**: text already in the commit box is passed to AI commit message generation as a hint (language, tone or a draft), on both desktop and mobile.
+- **Unified Plugin Icons**: plugin icons accept `lucide:Name`, http(s) and `data:image` URLs; OAuth providers fall back to the plugin list icon, and market entries read the icon from the repository's `plugin.json` (cached for 30 days, shown offline too).
+
+### Improvements
+
+- Tool plugins are disabled by default inside a project and must be enabled explicitly before their tools and Skills are injected; plugin details list their tools and Skills in a collapsible section.
+- The memory tools are merged into a single `memory-manage` tool selected by `action`.
+- The archived list header (search and multi-select toolbar) stays fixed outside the scroll area.
+- The mobile Git panel drops swipe paging and switches tabs by tap only.
+
+### Bug Fixes
+
+- Pressing Esc in a modal no longer triggers the interrupt-session shortcut, and only the topmost modal closes.
+- Plugin tool cards no longer fall back to unlocalized tool names.
+
 ## v0.5.14
 
 ### New Features
