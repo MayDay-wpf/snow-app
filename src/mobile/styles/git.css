@@ -66,22 +66,6 @@
   --git-tabs-h: 48px;
   /* 变更 Tab 同步栏高度（分支 Tab / 差异视图为 0），由 git.ts 实测写入。 */
   --git-sync-h: 0px;
-  /* 滑动翻页时内容会越过面板两侧，横向溢出在面板内裁切，不产生横向滚动。 */
-  overflow-x: hidden;
-}
-/* 翻页轨道：当前页与相邻预览页共用一个坐标系，平移由 swipePager.ts 驱动。 */
-.git-swipe-track {
-  position: relative;
-  /* 横向手势交给脚本处理，纵向仍由浏览器原生滚动。 */
-  touch-action: pan-y;
-}
-.git-swipe-peek {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  /* 预览页只用于动画展示，不接收指针事件，点击始终落在当前页。 */
-  pointer-events: none;
 }
 .git-tabs {
   position: sticky;
@@ -108,7 +92,7 @@
   background: transparent;
   color: var(--muted);
   font-size: 12px;
-  /* 高亮随翻页平滑过渡，与内容滑动保持同一节奏。 */
+  /* 点击切换时高亮平滑过渡。 */
   transition:
     background-color 0.2s,
     border-color 0.2s,

@@ -36,11 +36,6 @@ import { iconMarkup } from "./icons";
 import { showNotice } from "./notice";
 import { rememberOverlayTrigger } from "./overlays";
 import { openRemotePanel } from "./panels";
-import {
-  createSwipePager,
-  type SwipePager,
-  type SwipeStep,
-} from "./swipePager";
 
 /**
  * 移动端 Git 入口：输入区 chip +「分支 / 变更」双 Tab 面板。
@@ -49,9 +44,6 @@ import {
  */
 type GitTab = "branches" | "changes";
 type CreateMode = "branch" | "worktree" | null;
-
-/** Tab 的先后顺序即左右滑动的方向：左滑进入后一个 Tab。 */
-const GIT_TABS: readonly GitTab[] = ["branches", "changes"];
 
 type DiffView = {
   path: string;
@@ -93,8 +85,6 @@ let focusField: "branch" | "worktree" | null = null;
 let directoryKey = "";
 let lastSummaryAt = 0;
 let summaryInFlight = false;
-/** 左右滑动与 Tab 点击共用的翻页控制器，在 initGit 中创建。 */
-let swipePager: SwipePager | null = null;
 
 const isGitPanelOpen = (): boolean => $("gitPanel").classList.contains("open");
 
@@ -812,41 +802,27 @@ const renderGitList = (): void => {
   list.innerHTML = renderBranchesList();
 };
 
-/** 与 step 方向相邻的 Tab；两端没有更多 Tab 时返回 null。 */
-const neighbourTab = (step: SwipeStep): GitTab | null => {
-  const index = GIT_TABS.indexOf(tab) + step;
-  return index >= 0 && index < GIT_TABS.length ? GIT_TABS[index] : null;
-};
-
-/** 翻页动画到位后提交 Tab 切换：更新状态、重绘并加载对应数据。 */
-const commitTab = (step: SwipeStep): void => {
-  const next = neighbourTab(step);
-  if (!next) return;
-  tab = next;
+/** Tab 点击：清理临时状态后直接渲染目标 Tab 并加载数据。 */
+const goToTab = (value: GitTab): void => {
+  if (value === tab) return;
+  tab = value;
   createMode = null;
   pendingRemove = null;
   pendingDiscard = null;
   diffRequest += 1;
   diffView = null;
   branchQuery = "";
-  updateTabButtons();
+  $("gitPanel").scrollTop = 0;
   renderGitPanel();
-  if (next === "branches") {
+  if (value === "branches") {
     void loadBranches();
   } else {
     void loadStatus();
   }
 };
 
-/** Tab 点击：与滑动共用同一套翻页动画。 */
-const goToTab = (value: GitTab): void => {
-  if (value === tab) return;
-  swipePager?.go(GIT_TABS.indexOf(value) > GIT_TABS.indexOf(tab) ? 1 : -1);
-};
-
 export const openGitPanel = (): void => {
   rememberOverlayTrigger($("gitChip"));
-  swipePager?.reset();
   tab = "branches";
   createMode = null;
   pendingRemove = null;
@@ -1120,7 +1096,6 @@ export const renderGit = (state: SnowRemoteState | null): void => {
   const key = state?.workspace?.directoryId ?? "";
   if (key !== directoryKey) {
     directoryKey = key;
-    swipePager?.reset();
     branchRequest += 1;
     statusRequest += 1;
     diffRequest += 1;
@@ -1417,19 +1392,5 @@ export const initGit = (): void => {
       event.preventDefault();
       submitCreate();
     }
-  });
-
-  // 左右滑动切换「分支 / 变更」两个 Tab：内容跟手平移，松手后按距离与速度弹簧吸附。
-  swipePager = createSwipePager({
-    track: $("gitSwipeTrack"),
-    page: body,
-    peek: $("gitSwipePeek"),
-    scroller: $("gitPanel"),
-    enabled: () => !diffView,
-    renderNeighbour: (step) => {
-      const next = neighbourTab(step);
-      return next ? renderTabBody(next) : null;
-    },
-    onCommit: commitTab,
   });
 };
