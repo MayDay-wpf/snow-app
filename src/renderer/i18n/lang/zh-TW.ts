@@ -5855,6 +5855,7 @@ export const zhTW = {
   "git.ahead": "領先 {{count}}",
   "git.behind": "落後 {{count}}",
   "git.commitMessagePlaceholder": "提交訊息",
+  "git.aiCommitHint": "AI 產生提交訊息（輸入框內容會作為產生偏好，如：用中文）",
   "git.commit": "提交",
   "git.commitAndPush": "提交並推送",
   "git.commitMode": "切換提交模式",

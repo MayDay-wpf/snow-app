@@ -693,7 +693,7 @@ export const registerGitHandlers = (native: NativeBridge): void => {
   // ===== AI commit message generation =====
   ipcMain.handle(
     "git:generate-commit-message",
-    async (event, repoPath: unknown, streamId: unknown) => {
+    async (event, repoPath: unknown, streamId: unknown, hint: unknown) => {
       if (typeof repoPath !== "string" || !repoPath.trim()) {
         throw new Error("Repository path is required");
       }
@@ -703,6 +703,8 @@ export const registerGitHandlers = (native: NativeBridge): void => {
 
       const normalizedStreamId = streamId.trim();
       const trimmed = repoPath.trim();
+      // 提交信息框里的内容作为生成偏好（如语种）或草稿传给模型。
+      const commitHint = typeof hint === "string" ? hint.trim() : "";
 
       const onChunk = (chunk: ResponsesApiStreamChunk): void => {
         safeSend(event.sender, GIT_COMMIT_MSG_CHUNK_CHANNEL, {
@@ -719,6 +721,7 @@ export const registerGitHandlers = (native: NativeBridge): void => {
           stagedDiff,
           onChunk,
           normalizedStreamId,
+          commitHint,
         );
       }
 
@@ -726,6 +729,7 @@ export const registerGitHandlers = (native: NativeBridge): void => {
         trimmed,
         onChunk,
         normalizedStreamId,
+        commitHint,
       );
     },
   );

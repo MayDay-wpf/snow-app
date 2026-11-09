@@ -3630,11 +3630,13 @@ export type NativeBridge = ImageGenerationNativeApi & {
     repoPath: string,
     onChunk: (chunk: ResponsesApiStreamChunk) => void,
     streamId: string,
+    hint: string,
   ) => Promise<ResponsesApiResult>;
   generateCommitMessageFromDiff: (
     diff: string,
     onChunk: (chunk: ResponsesApiStreamChunk) => void,
     streamId: string,
+    hint: string,
   ) => Promise<ResponsesApiResult>;
   generateThemePalette: (
     imagePath: string,

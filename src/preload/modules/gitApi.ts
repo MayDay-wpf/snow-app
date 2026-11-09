@@ -238,6 +238,8 @@ export const gitApi = {
   }> => ipcRenderer.invoke("git-settings:set", value),
   generateCommitMessage: (
     repoPath: string,
+    /** 提交信息框内容：作为生成偏好（语种/风格）或草稿传给模型。 */
+    hint?: string,
     onChunk?: (chunk: ResponsesApiStreamChunk) => void,
     onStreamId?: (streamId: string) => void,
   ): Promise<ResponsesApiResult> => {
@@ -258,7 +260,7 @@ export const gitApi = {
     ipcRenderer.on(GIT_COMMIT_MSG_CHUNK_CHANNEL, handleChunk);
 
     return ipcRenderer
-      .invoke("git:generate-commit-message", repoPath, streamId)
+      .invoke("git:generate-commit-message", repoPath, streamId, hint ?? "")
       .finally(() => {
         ipcRenderer.removeListener(GIT_COMMIT_MSG_CHUNK_CHANNEL, handleChunk);
       });

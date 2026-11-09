@@ -163,9 +163,17 @@ pub(super) async fn action(
         "pull" => bridge_call("gitPull", json!([])).await?,
         "push" => bridge_call("gitPush", json!([])).await?,
         "generate-commit-message" => {
+            // 手机端提交框内容同样作为生成偏好（语种/风格/草稿）透传。
+            let hint = payload
+                .get("hint")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if hint.chars().count() > MAX_GIT_COMMIT_MESSAGE {
+                return Err(ApiError::bad_request("提交信息偏好不能超过 4000 个字符"));
+            }
             bridge_call_with_timeout(
                 "gitGenerateCommitMessage",
-                json!([]),
+                json!([hint]),
                 GENERATE_COMMIT_MESSAGE_TIMEOUT,
             )
             .await?

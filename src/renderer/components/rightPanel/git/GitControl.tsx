@@ -1145,12 +1145,17 @@ export const GitControl = ({
       return;
     }
 
+    // 提交信息框里已填的内容作为生成偏好（如“用中文”）或草稿交给模型；
+    // 读取后输入框立即清空，随后由流式结果填充。
+    const hint = (commitMessageDrafts.get(targetRepo) ?? "").trim();
+
     startCommitMsgGeneration(targetRepo);
     applyCommitMessage(targetRepo, "");
 
     window.snow
       .generateCommitMessage(
         targetRepo,
+        hint,
         (chunk) => {
           if (chunk.contentDelta) {
             const next =
@@ -1268,25 +1273,33 @@ export const GitControl = ({
               rows={1}
             />
             <div className="git-commit-input-actions">
-              <button
-                type="button"
-                className="git-commit-btn git-ai-commit-btn"
-                onClick={
+              <Tooltip
+                content={
                   isGeneratingCommitMsg
-                    ? handleAbortCommitMessage
-                    : handleGenerateCommitMessage
-                }
-                disabled={
-                  !isGeneratingCommitMsg &&
-                  (actionInProgress !== null || stagedFiles.length === 0)
+                    ? t("chatInput.stopGeneration")
+                    : t("git.aiCommitHint")
                 }
               >
-                {isGeneratingCommitMsg ? (
-                  <Square size={14} strokeWidth={1.8} />
-                ) : (
-                  <Sparkles size={14} strokeWidth={1.8} />
-                )}
-              </button>
+                <button
+                  type="button"
+                  className="git-commit-btn git-ai-commit-btn"
+                  onClick={
+                    isGeneratingCommitMsg
+                      ? handleAbortCommitMessage
+                      : handleGenerateCommitMessage
+                  }
+                  disabled={
+                    !isGeneratingCommitMsg &&
+                    (actionInProgress !== null || stagedFiles.length === 0)
+                  }
+                >
+                  {isGeneratingCommitMsg ? (
+                    <Square size={14} strokeWidth={1.8} />
+                  ) : (
+                    <Sparkles size={14} strokeWidth={1.8} />
+                  )}
+                </button>
+              </Tooltip>
             </div>
           </div>
           <div className="git-commit-split-btn">

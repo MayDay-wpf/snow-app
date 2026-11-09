@@ -359,16 +359,19 @@ pub fn stop_git_watch(repo_path: String) -> napi::Result<()> {
 /// - `repoPath`: git repository path (used to run `git diff --cached`)
 /// - `onChunk`: streaming callback receiving `ResponsesApiStreamChunk`
 /// - `streamId`: unique stream id for cancellation support
+/// - `hint`: text the user left in the commit message box (generation
+///   preference such as language, or a draft to refine); may be empty
 ///
 /// Returns the full `ResponsesApiResult` (`.content` holds the message).
 #[napi(
-    ts_args_type = "repoPath: string, onChunk: (chunk: ResponsesApiStreamChunk) => void, streamId: string",
+    ts_args_type = "repoPath: string, onChunk: (chunk: ResponsesApiStreamChunk) => void, streamId: string, hint: string",
     ts_return_type = "Promise<ResponsesApiResult>"
 )]
 pub async fn generate_commit_message(
     repo_path: String,
     on_chunk: ResponsesApiStreamCallback,
     stream_id: String,
+    hint: String,
 ) -> napi::Result<ResponsesApiResult> {
     // 1. Get staged diff (blocking git command in spawn_blocking)
     let staged_diff = tokio::task::spawn_blocking(move || {
@@ -389,7 +392,7 @@ pub async fn generate_commit_message(
     let cancel_token = crate::api::cancel::create_and_register(&stream_id);
 
     // 3. Stream commit message generation
-    let result = generate_commit_message_stream(staged_diff, on_chunk, cancel_token).await;
+    let result = generate_commit_message_stream(staged_diff, hint, on_chunk, cancel_token).await;
 
     // 4. Unregister stream
     crate::api::cancel::unregister_stream(&stream_id);
@@ -404,13 +407,14 @@ pub async fn generate_commit_message(
 /// produced on the remote host and streamed back to this process before
 /// the AI generation runs here.
 #[napi(
-    ts_args_type = "diff: string, onChunk: (chunk: ResponsesApiStreamChunk) => void, streamId: string",
+    ts_args_type = "diff: string, onChunk: (chunk: ResponsesApiStreamChunk) => void, streamId: string, hint: string",
     ts_return_type = "Promise<ResponsesApiResult>"
 )]
 pub async fn generate_commit_message_from_diff(
     diff: String,
     on_chunk: ResponsesApiStreamCallback,
     stream_id: String,
+    hint: String,
 ) -> napi::Result<ResponsesApiResult> {
     if diff.trim().is_empty() {
         return Err(napi::Error::from_reason(
@@ -419,7 +423,7 @@ pub async fn generate_commit_message_from_diff(
     }
 
     let cancel_token = crate::api::cancel::create_and_register(&stream_id);
-    let result = generate_commit_message_stream(diff, on_chunk, cancel_token).await;
+    let result = generate_commit_message_stream(diff, hint, on_chunk, cancel_token).await;
     crate::api::cancel::unregister_stream(&stream_id);
 
     result

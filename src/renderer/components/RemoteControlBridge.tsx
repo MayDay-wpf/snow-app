@@ -3136,12 +3136,16 @@ export const RemoteControlBridge = ({
         return { ok: true, message: result.message };
       },
 
-      gitGenerateCommitMessage: async (): Promise<{ message: string }> => {
+      gitGenerateCommitMessage: async (
+        hint?: string,
+      ): Promise<{ message: string }> => {
         const { repoPath } = resolveGitRepo();
         const status = await window.snow.gitStatus(repoPath);
         if (!status.isRepo) throw new Error("当前项目不是 Git 仓库");
         if (status.stagedCount <= 0) throw new Error("没有已暂存的变更");
-        const result = await window.snow.generateCommitMessage(repoPath);
+        // 手机端提交框内容作为生成偏好（如语种）或草稿交给模型。
+        const note = typeof hint === "string" ? hint.trim() : "";
+        const result = await window.snow.generateCommitMessage(repoPath, note);
         if (result.status === "error") {
           throw new Error(result.failureReason?.trim() || "生成提交信息失败");
         }

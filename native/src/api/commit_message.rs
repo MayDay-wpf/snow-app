@@ -32,7 +32,9 @@ Based on the provided staged diff, generate a commit message following these rul
 3. If more detail is needed, leave a blank line after the header and add a body explaining what and why (not how).\n\
 4. Output plain text only: never wrap the message in markdown code fences or backticks, never add quotes around it, and never add prefixes like \"AI:\" or explanations about your reasoning.\n\
 5. Output only the commit message, nothing else.\n\
-6. Write the commit message in the same language as the code changes and comments.";
+6. The user may attach a note stating a preference (language, tone, length, type or scope) or an incomplete draft. It always has the highest priority: follow it, and refine a supplied draft instead of writing an unrelated message. A language requested in the note overrides rule 7.\n\
+7. When no language is requested, write the commit message in the same language as the code changes and comments.\n\
+8. Never mention, quote or restate the user's note in the output.";
 
 fn strip_code_fence(raw: &str) -> String {
     let mut text = raw.trim();
@@ -44,9 +46,16 @@ fn strip_code_fence(raw: &str) -> String {
 }
 
 /// Build a `ResponsesApiRequest` for commit-message generation, forcing the
-/// basic model.
-fn build_request(staged_diff: &str) -> ResponsesApiRequest {
-    let diff_content = staged_diff;
+/// basic model. `hint` is the text the user left in the commit message box:
+/// it is treated as a preference (language, tone, ...) or a draft to refine.
+fn build_request(staged_diff: &str, hint: &str) -> ResponsesApiRequest {
+    let hint = hint.trim();
+    let mut user_content = format!("Here is the staged diff:\n\n```\n{staged_diff}\n```");
+    if !hint.is_empty() {
+        user_content.push_str(&format!(
+            "\n\nThe user's note for this commit message (a preference and/or draft; follow it and never repeat it in the output):\n\n```\n{hint}\n```"
+        ));
+    }
 
     ResponsesApiRequest {
         messages: vec![
@@ -62,7 +71,7 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
             crate::api::responses::ResponsesApiMessage {
                 role: "user".to_string(),
                 origin: Some(crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string()),
-                content: format!("Here is the staged diff:\n\n```\n{}\n```", diff_content),
+                content: user_content,
                 tool_results_json: None,
                 thinking: None,
                 thinking_blocks_json: None,
@@ -105,12 +114,20 @@ fn build_request(staged_diff: &str) -> ResponsesApiRequest {
 /// Generate a commit message by streaming from the active API config's basic
 /// model via whichever provider the config specifies.
 ///
+/// `hint` is the text the user typed in the commit message box before asking
+/// for generation; it is forwarded to the model as a preference note or draft.
+///
 /// Returns the `ResponsesApiResult` (we only care about `.content`).
 pub async fn generate_commit_message_stream(
     staged_diff: String,
+    hint: String,
     on_chunk: ResponsesApiStreamCallback,
     cancel_token: CancellationToken,
 ) -> Result<ResponsesApiResult> {
+    // 偏好提示只是短文本，超长（历史草稿误粘贴）时截断，避免撑爆 prompt。
+    const MAX_HINT_CHARS: usize = 4000;
+    let hint: String = hint.trim().chars().take(MAX_HINT_CHARS).collect();
+
     // --- 1. Resolve active API config ---
     let context = tokio::task::spawn_blocking(get_active_api_request_context)
         .await
@@ -131,7 +148,7 @@ pub async fn generate_commit_message_stream(
     let basic_model = resolve_basic_model(None, &api_config.basic_model)?;
 
     // --- 3. Build request with basic model ---
-    let mut request = build_request(&staged_diff);
+    let mut request = build_request(&staged_diff, &hint);
     request.model = Some(basic_model);
     apply_configured_system_prompts(
         &mut request.messages,

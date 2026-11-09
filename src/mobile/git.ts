@@ -1030,10 +1030,12 @@ const requestCommitMessage = async (): Promise<void> => {
     return;
   }
   const key = directoryKey;
+  // 输入框里已有的内容作为生成偏好（如语种）或草稿一并提交。
+  const hint = commitMessage.trim();
   generatingCommit = true;
   renderGitPanel();
   try {
-    const result = await generateGitCommitMessage();
+    const result = await generateGitCommitMessage(hint);
     if (key !== directoryKey) return;
     commitMessage = result.message;
   } catch (error) {

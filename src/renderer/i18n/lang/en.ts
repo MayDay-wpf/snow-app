@@ -6316,6 +6316,8 @@ export const en = {
   "git.ahead": "{{count}} ahead",
   "git.behind": "{{count}} behind",
   "git.commitMessagePlaceholder": "Commit message",
+  "git.aiCommitHint":
+    'Generate commit message with AI (text in the box is sent as a preference, e.g. "in Chinese")',
   "git.commit": "Commit",
   "git.commitAndPush": "Commit and Push",
   "git.commitMode": "Commit Mode",

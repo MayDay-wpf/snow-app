@@ -270,9 +270,14 @@ export const gitPull = (): Promise<{ ok: true; message: string }> =>
 export const gitPush = (): Promise<{ ok: true; message: string }> =>
   postGitAction({ action: "push" }, 120_000);
 
-/** AI 按已暂存 diff 生成提交信息（等待模型响应，放宽超时）。 */
-export const generateGitCommitMessage = (): Promise<{ message: string }> =>
-  postGitAction({ action: "generate-commit-message" }, 180_000);
+/**
+ * AI 按已暂存 diff 生成提交信息（等待模型响应，放宽超时）。
+ * hint 为提交框里已有的内容，作为生成偏好（如语种）或草稿传给模型。
+ */
+export const generateGitCommitMessage = (
+  hint = "",
+): Promise<{ message: string }> =>
+  postGitAction({ action: "generate-commit-message", hint }, 180_000);
 
 export const gitCreateWorktree = (
   branch: string,

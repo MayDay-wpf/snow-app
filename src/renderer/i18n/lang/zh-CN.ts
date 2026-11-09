@@ -5912,6 +5912,7 @@ export const zhCN = {
   "git.ahead": "领先 {{count}}",
   "git.behind": "落后 {{count}}",
   "git.commitMessagePlaceholder": "提交信息",
+  "git.aiCommitHint": "AI 生成提交信息（输入框内容会作为生成偏好，如：用中文）",
   "git.commit": "提交",
   "git.commitAndPush": "提交并推送",
   "git.commitMode": "切换提交模式",
