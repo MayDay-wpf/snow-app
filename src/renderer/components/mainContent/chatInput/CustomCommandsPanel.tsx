@@ -23,6 +23,7 @@ export const CustomCommandsPanel = ({
       closeLabel={t("settings.closeCustomCommandsSettings", {
         defaultValue: "Close custom commands settings",
       })}
+      closeOnEscape
       description={t("settings.customCommandsSettingsInfo", {
         defaultValue:
           "Define slash commands that send a prompt to the AI or run a shell command.",

@@ -487,6 +487,7 @@ export const ProjectCodebasePanel = ({
       <Modal
         className="project-sensitive-command-modal project-codebase-modal"
         closeLabel={t("projectCodebase.close")}
+        closeOnEscape
         description={
           projectId
             ? t("projectCodebase.description", {

@@ -117,6 +117,7 @@ export const FileChangesPanel = ({
     <Modal
       className={`file-changes-modal${isDiffView ? " is-diff-view" : ""}`}
       closeLabel={t("chat.fileChanges.close")}
+      closeOnEscape
       description={t("chat.fileChanges.description")}
       onClose={handleClose}
       open={open}

@@ -39,10 +39,10 @@ export const ProjectPermissionsPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toolPendingDeletion, setToolPendingDeletion] = useState<string | null>(
-    null
+    null,
   );
   const [pendingToolNames, setPendingToolNames] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const pendingToolGenerationsRef = useRef<Map<string, number>>(new Map());
   const loadGenerationRef = useRef(0);
@@ -83,13 +83,13 @@ export const ProjectPermissionsPanel = ({
       let finalToolNames = nextToolNames;
       const approvedSet = new Set([...nextToolNames, ...nextGlobalToolNames]);
       const missingReadonly = readonlyTools.filter(
-        (name) => !approvedSet.has(name)
+        (name) => !approvedSet.has(name),
       );
       if (missingReadonly.length > 0) {
         await window.snow.setToolApprovalProjectToolsApproved(
           projectId,
           missingReadonly,
-          true
+          true,
         );
         window.dispatchEvent(new CustomEvent(TOOL_APPROVALS_CHANGED_EVENT));
         finalToolNames =
@@ -110,15 +110,13 @@ export const ProjectPermissionsPanel = ({
           }
         }
         setToolOptions(
-          [...options.values()].sort((a, b) =>
-            a.label.localeCompare(b.label)
-          )
+          [...options.values()].sort((a, b) => a.label.localeCompare(b.label)),
         );
       }
     } catch (loadError) {
       if (loadGenerationRef.current === generation) {
         setError(
-          loadError instanceof Error ? loadError.message : String(loadError)
+          loadError instanceof Error ? loadError.message : String(loadError),
         );
       }
     } finally {
@@ -160,16 +158,20 @@ export const ProjectPermissionsPanel = ({
         await window.snow.setToolApprovalProjectToolApproved(
           operationProjectId,
           toolName,
-          false
+          false,
         );
         window.dispatchEvent(new CustomEvent(TOOL_APPROVALS_CHANGED_EVENT));
         if (loadGenerationRef.current === generation) {
-          setToolNames((current) => current.filter((name) => name !== toolName));
+          setToolNames((current) =>
+            current.filter((name) => name !== toolName),
+          );
         }
       } catch (deleteError) {
         if (loadGenerationRef.current === generation) {
           setError(
-            deleteError instanceof Error ? deleteError.message : String(deleteError)
+            deleteError instanceof Error
+              ? deleteError.message
+              : String(deleteError),
           );
         }
       } finally {
@@ -183,7 +185,7 @@ export const ProjectPermissionsPanel = ({
         }
       }
     },
-    [projectId, pendingToolNames]
+    [projectId, pendingToolNames],
   );
 
   const confirmDeleteTool = (): void => {
@@ -212,19 +214,23 @@ export const ProjectPermissionsPanel = ({
       await window.snow.setToolApprovalProjectToolsApproved(
         projectId,
         toolNames,
-        true
+        true,
       );
       setSelectedToolNames([]);
       window.dispatchEvent(new CustomEvent(TOOL_APPROVALS_CHANGED_EVENT));
       await loadToolNames();
     } catch (addError) {
-      setError(
-        addError instanceof Error ? addError.message : String(addError)
-      );
+      setError(addError instanceof Error ? addError.message : String(addError));
     } finally {
       setIsAddingTool(false);
     }
-  }, [isAddingTool, loadToolNames, pendingToolNames.size, projectId, selectedToolNames]);
+  }, [
+    isAddingTool,
+    loadToolNames,
+    pendingToolNames.size,
+    projectId,
+    selectedToolNames,
+  ]);
 
   const canAddTools = selectedToolNames.length > 0 && !isAddingTool;
 
@@ -233,6 +239,7 @@ export const ProjectPermissionsPanel = ({
       <Modal
         className="project-sensitive-command-modal"
         closeLabel={t("projectPermissions.close")}
+        closeOnEscape
         description={
           projectId
             ? t("projectPermissions.description", {
@@ -325,8 +332,12 @@ export const ProjectPermissionsPanel = ({
                 </div>
                 <div className="project-sensitive-command-add">
                   <CustomSelect
-                    disabled={isLoading || isAddingTool || pendingToolNames.size > 0}
-                    filterPlaceholder={t("projectPermissions.filterPlaceholder")}
+                    disabled={
+                      isLoading || isAddingTool || pendingToolNames.size > 0
+                    }
+                    filterPlaceholder={t(
+                      "projectPermissions.filterPlaceholder",
+                    )}
                     filterable
                     multiple
                     multipleCountLabel={(count) =>

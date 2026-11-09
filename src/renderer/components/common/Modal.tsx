@@ -21,7 +21,8 @@ type ModalProps = {
   className?: string;
   /**
    * 是否支持按 ESC 关闭。默认关闭：部分弹窗内部存在局部 ESC 语义
-   * （引用面板、下拉列表等），需要逐个显式开启。
+   * （引用面板、下拉列表等），需要逐个显式开启。开启后无论焦点是否在
+   * 弹窗内都能关闭，且不会把 ESC 漏给全局的「中断会话」快捷键。
    */
   closeOnEscape?: boolean;
 };
@@ -49,8 +50,40 @@ export function Modal({
   closeOnEscape = false,
 }: ModalProps): React.JSX.Element {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+
+  // 关闭回调写入 ref：ESC 监听器只依赖 open/closeOnEscape 注册一次，
+  // 弹窗内容高频重渲染不会反复解绑。
+  const closeRef = useRef({ onClose, closeDisabled });
+  closeRef.current = { onClose, closeDisabled };
+
+  useEffect(() => {
+    if (!open || !closeOnEscape) return undefined;
+
+    const handleEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      const target = event.target;
+      const overlay = overlayRef.current;
+      // 叠加的弹窗只关最上层：事件落在别的弹窗/确认框里时交给它自己处理。
+      if (target instanceof Element) {
+        const owner = target.closest(
+          ".app-modal-overlay, .confirm-dialog-overlay",
+        );
+        if (owner && owner !== overlay) return;
+      }
+      event.preventDefault();
+      if (!closeRef.current.closeDisabled) {
+        closeRef.current.onClose();
+      }
+    };
+
+    // 冒泡阶段监听：弹窗内部浮层（画布编辑层、确认框）先 stopPropagation
+    // 时不会再关外层弹窗。
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [open, closeOnEscape]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,18 +101,6 @@ export function Modal({
   }, [open]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // ESC 同时是全局「中断会话」快捷键，因此在弹窗内必须吞掉该事件：
-    // 既不向外冒泡（内部组件的局部 ESC 语义会先行 stopPropagation），
-    // 也不触发浏览器默认行为。
-    if (event.key === "Escape" && closeOnEscape) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!closeDisabled) {
-        onClose();
-      }
-      return;
-    }
-
     if (event.key !== "Tab" || !dialogRef.current) return;
 
     const focusableElements = Array.from(
@@ -112,7 +133,9 @@ export function Modal({
 
   return createPortal(
     open && (
-      <div className="app-modal-overlay">
+      // data-esc-panel：弹窗打开期间 ESC 归弹窗所有，全局快捷键引擎
+      // 据此跳过「中断会话」，避免关闭弹窗时把运行中的会话一并终止。
+      <div className="app-modal-overlay" data-esc-panel ref={overlayRef}>
         <div
           aria-describedby={description ? descriptionId : undefined}
           aria-labelledby={titleId}

@@ -22,7 +22,7 @@ export const ProjectSkillsPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingSkillIds, setPendingSkillIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const loadGenerationRef = useRef(0);
   const pendingSkillGenerationsRef = useRef<Map<string, number>>(new Map());
@@ -48,7 +48,9 @@ export const ProjectSkillsPanel = ({
       }
     } catch (loadError) {
       if (loadGenerationRef.current === generation) {
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
+        setError(
+          loadError instanceof Error ? loadError.message : String(loadError),
+        );
       }
     } finally {
       if (loadGenerationRef.current === generation) {
@@ -71,7 +73,7 @@ export const ProjectSkillsPanel = ({
 
   const toggleSkill = async (
     skill: ProjectSkillDefinition,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (!projectId || pendingSkillGenerationsRef.current.has(skill.id)) {
       return;
@@ -83,24 +85,28 @@ export const ProjectSkillsPanel = ({
     setPendingSkillIds((current) => new Set(current).add(skill.id));
     setError(null);
     setSkills((current) =>
-      current.map((item) => (item.id === skill.id ? { ...item, enabled } : item))
+      current.map((item) =>
+        item.id === skill.id ? { ...item, enabled } : item,
+      ),
     );
 
     try {
       await window.snow.setProjectSkillEnabled(
         operationProjectId,
         skill.id,
-        enabled
+        enabled,
       );
     } catch (updateError) {
       if (loadGenerationRef.current === generation) {
         setSkills((current) =>
           current.map((item) =>
-            item.id === skill.id ? { ...item, enabled: skill.enabled } : item
-          )
+            item.id === skill.id ? { ...item, enabled: skill.enabled } : item,
+          ),
         );
         setError(
-          updateError instanceof Error ? updateError.message : String(updateError)
+          updateError instanceof Error
+            ? updateError.message
+            : String(updateError),
         );
       }
     } finally {
@@ -119,6 +125,7 @@ export const ProjectSkillsPanel = ({
     <Modal
       className="project-sensitive-command-modal project-skills-modal"
       closeLabel={t("projectSkills.close")}
+      closeOnEscape
       description={
         projectId
           ? t("projectSkills.description", {
@@ -147,7 +154,9 @@ export const ProjectSkillsPanel = ({
             <div>
               <span>{t("projectSkills.scopeNote")}</span>
               <small>
-                {t("projectSkills.skillCount", { values: { count: skills.length } })}
+                {t("projectSkills.skillCount", {
+                  values: { count: skills.length },
+                })}
               </small>
             </div>
             <div>

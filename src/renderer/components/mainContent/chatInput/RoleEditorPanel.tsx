@@ -325,6 +325,7 @@ export const RoleEditorPanel = ({
     <Modal
       className="role-editor-modal"
       closeLabel={t("roleEditor.close")}
+      closeOnEscape
       description={
         projectId
           ? t("roleEditor.description", {

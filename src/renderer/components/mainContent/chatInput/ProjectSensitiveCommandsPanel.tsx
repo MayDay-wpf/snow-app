@@ -52,7 +52,7 @@ export const ProjectSensitiveCommandsPanel = ({
   const [commandPendingDeletion, setCommandPendingDeletion] =
     useState<ProjectSensitiveCommandConfigRecord | null>(null);
   const [pendingCommandIds, setPendingCommandIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const pendingCommandGenerationsRef = useRef<Map<string, number>>(new Map());
   const loadGenerationRef = useRef(0);
@@ -75,16 +75,15 @@ export const ProjectSensitiveCommandsPanel = ({
 
     setIsLoading(true);
     try {
-      const nextCommands = await window.snow.listProjectSensitiveCommandConfigs(
-        projectId
-      );
+      const nextCommands =
+        await window.snow.listProjectSensitiveCommandConfigs(projectId);
       if (loadGenerationRef.current === generation) {
         setCommands(nextCommands);
       }
     } catch (loadError) {
       if (loadGenerationRef.current === generation) {
         setError(
-          loadError instanceof Error ? loadError.message : String(loadError)
+          loadError instanceof Error ? loadError.message : String(loadError),
         );
       }
     } finally {
@@ -110,16 +109,16 @@ export const ProjectSensitiveCommandsPanel = ({
 
   const inheritedCommands = useMemo(
     () => commands.filter((command) => command.inherited),
-    [commands]
+    [commands],
   );
   const projectCommands = useMemo(
     () => commands.filter((command) => !command.inherited),
-    [commands]
+    [commands],
   );
   const startAdd = (): void => {
     const maxSortOrder = projectCommands.reduce(
       (max, command) => Math.max(max, command.sortOrder),
-      -1
+      -1,
     );
     setDraft({ ...EMPTY_DRAFT, sortOrder: maxSortOrder + 1 });
     setError(null);
@@ -151,7 +150,7 @@ export const ProjectSensitiveCommandsPanel = ({
     const hasDuplicate = commands.some(
       (command) =>
         command.commandId !== draft.commandId &&
-        command.pattern.trim() === pattern
+        command.pattern.trim() === pattern,
     );
     if (hasDuplicate) {
       setError(t("projectSensitiveCommands.duplicatePattern"));
@@ -171,7 +170,7 @@ export const ProjectSensitiveCommandsPanel = ({
       const nextCommands =
         await window.snow.upsertProjectSensitiveCommandConfig(
           operationProjectId,
-          nextDraft
+          nextDraft,
         );
       if (loadGenerationRef.current === generation) {
         setCommands(nextCommands);
@@ -180,7 +179,7 @@ export const ProjectSensitiveCommandsPanel = ({
     } catch (saveError) {
       if (loadGenerationRef.current === generation) {
         setError(
-          saveError instanceof Error ? saveError.message : String(saveError)
+          saveError instanceof Error ? saveError.message : String(saveError),
         );
       }
     } finally {
@@ -192,7 +191,7 @@ export const ProjectSensitiveCommandsPanel = ({
 
   const toggleCommand = async (
     command: ProjectSensitiveCommandConfigRecord,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> => {
     if (
       !projectId ||
@@ -212,14 +211,14 @@ export const ProjectSensitiveCommandsPanel = ({
     setError(null);
     setCommands((current) =>
       current.map((item) =>
-        item.commandId === command.commandId ? { ...item, enabled } : item
-      )
+        item.commandId === command.commandId ? { ...item, enabled } : item,
+      ),
     );
     try {
       const nextCommands = await window.snow.setProjectSensitiveCommandEnabled(
         operationProjectId,
         command.commandId,
-        enabled
+        enabled,
       );
       if (loadGenerationRef.current === generation) {
         setCommands(nextCommands);
@@ -230,13 +229,13 @@ export const ProjectSensitiveCommandsPanel = ({
           current.map((item) =>
             item.commandId === command.commandId
               ? { ...item, enabled: command.enabled }
-              : item
-          )
+              : item,
+          ),
         );
         setError(
           updateError instanceof Error
             ? updateError.message
-            : String(updateError)
+            : String(updateError),
         );
       }
     } finally {
@@ -255,7 +254,7 @@ export const ProjectSensitiveCommandsPanel = ({
   };
 
   const deleteCommand = async (
-    command: ProjectSensitiveCommandConfigRecord
+    command: ProjectSensitiveCommandConfigRecord,
   ): Promise<void> => {
     if (!projectId || command.inherited || isSaving) {
       return;
@@ -269,7 +268,7 @@ export const ProjectSensitiveCommandsPanel = ({
       const nextCommands =
         await window.snow.deleteProjectSensitiveCommandConfig(
           operationProjectId,
-          command.commandId
+          command.commandId,
         );
       if (loadGenerationRef.current === generation) {
         setCommands(nextCommands);
@@ -282,7 +281,7 @@ export const ProjectSensitiveCommandsPanel = ({
         setError(
           deleteError instanceof Error
             ? deleteError.message
-            : String(deleteError)
+            : String(deleteError),
         );
       }
     } finally {
@@ -295,7 +294,7 @@ export const ProjectSensitiveCommandsPanel = ({
   const renderCommandGroup = (
     title: string,
     description: string,
-    groupCommands: ProjectSensitiveCommandConfigRecord[]
+    groupCommands: ProjectSensitiveCommandConfigRecord[],
   ): React.JSX.Element => (
     <section className="project-sensitive-command-group">
       <div className="project-sensitive-command-group-header">
@@ -406,6 +405,7 @@ export const ProjectSensitiveCommandsPanel = ({
         className="project-sensitive-command-modal"
         closeDisabled={isSaving}
         closeLabel={t("projectSensitiveCommands.close")}
+        closeOnEscape
         description={
           projectId
             ? t("projectSensitiveCommands.description", {
@@ -489,7 +489,7 @@ export const ProjectSensitiveCommandsPanel = ({
                       setDraft((current) =>
                         current
                           ? { ...current, pattern: event.target.value }
-                          : current
+                          : current,
                       )
                     }
                     placeholder="git reset*--hard"
@@ -504,11 +504,11 @@ export const ProjectSensitiveCommandsPanel = ({
                       setDraft((current) =>
                         current
                           ? { ...current, description: event.target.value }
-                          : current
+                          : current,
                       )
                     }
                     placeholder={t(
-                      "settings.sensitiveCommandDescriptionPlaceholder"
+                      "settings.sensitiveCommandDescriptionPlaceholder",
                     )}
                     value={draft.description}
                   />
@@ -522,7 +522,7 @@ export const ProjectSensitiveCommandsPanel = ({
                         setDraft((current) =>
                           current
                             ? { ...current, enabled: event.target.checked }
-                            : current
+                            : current,
                         )
                       }
                       type="checkbox"
@@ -550,12 +550,12 @@ export const ProjectSensitiveCommandsPanel = ({
               {renderCommandGroup(
                 t("projectSensitiveCommands.inheritedTitle"),
                 t("projectSensitiveCommands.inheritedDescription"),
-                inheritedCommands
+                inheritedCommands,
               )}
               {renderCommandGroup(
                 t("projectSensitiveCommands.projectTitle"),
                 t("projectSensitiveCommands.projectDescription"),
-                projectCommands
+                projectCommands,
               )}
             </div>
           </>

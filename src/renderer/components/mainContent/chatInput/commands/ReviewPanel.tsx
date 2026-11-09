@@ -10,10 +10,7 @@ import {
 import { useI18n } from "../../../../i18n";
 import { Modal } from "../../../common/Modal";
 import type { GitLogEntry, GitStatusResult } from "../../../../../preload";
-import {
-  encodeReviewTag,
-  type ReviewTag,
-} from "../fileTagUtils";
+import { encodeReviewTag, type ReviewTag } from "../fileTagUtils";
 
 type ReviewPanelProps = {
   /** Whether the panel is visible. Controlled by the /review command. */
@@ -102,7 +99,7 @@ export const ReviewPanel = ({
       const next = await window.snow.gitLog(
         workDir,
         commits.length,
-        COMMIT_PAGE_SIZE
+        COMMIT_PAGE_SIZE,
       );
       setCommits((prev) => {
         const seen = new Set(prev.map((commit) => commit.hash));
@@ -132,7 +129,7 @@ export const ReviewPanel = ({
           void loadMoreCommits();
         }
       },
-      { root, rootMargin: "48px" }
+      { root, rootMargin: "48px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -157,9 +154,9 @@ export const ReviewPanel = ({
         (file) =>
           file.indexStatus !== " " &&
           file.indexStatus !== "?" &&
-          file.indexStatus !== ""
+          file.indexStatus !== "",
       ),
-    [status]
+    [status],
   );
 
   // 工作区变更：与 GitControl 的划分保持一致 —— 未跟踪（?）或
@@ -169,9 +166,9 @@ export const ReviewPanel = ({
       (status?.files ?? []).filter(
         (file) =>
           file.workdirStatus === "?" ||
-          (file.workdirStatus !== " " && file.workdirStatus !== "")
+          (file.workdirStatus !== " " && file.workdirStatus !== ""),
       ),
-    [status]
+    [status],
   );
 
   const toggle = useCallback((key: string): void => {
@@ -186,36 +183,33 @@ export const ReviewPanel = ({
     });
   }, []);
 
-  const toggleAll = useCallback(
-    (keys: string[]): void => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        const allSelected = keys.every((key) => next.has(key));
-        for (const key of keys) {
-          if (allSelected) {
-            next.delete(key);
-          } else {
-            next.add(key);
-          }
+  const toggleAll = useCallback((keys: string[]): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = keys.every((key) => next.has(key));
+      for (const key of keys) {
+        if (allSelected) {
+          next.delete(key);
+        } else {
+          next.add(key);
         }
-        return next;
-      });
-    },
-    []
-  );
+      }
+      return next;
+    });
+  }, []);
 
   const selectedCount = selected.size;
   const isRepo = status?.isRepo ?? true;
 
   const buildPrompt = async (): Promise<string> => {
     const selectedStaged = stagedFiles.filter((file) =>
-      selected.has(`staged:${file.path}`)
+      selected.has(`staged:${file.path}`),
     );
     const selectedUnstaged = unstagedFiles.filter((file) =>
-      selected.has(`unstaged:${file.path}`)
+      selected.has(`unstaged:${file.path}`),
     );
     const selectedCommits = commits.filter((commit) =>
-      selected.has(`commit:${commit.hash}`)
+      selected.has(`commit:${commit.hash}`),
     );
 
     // 并行拉取所有选中项的 diff（Rust 后端生成）。
@@ -224,19 +218,19 @@ export const ReviewPanel = ({
         selectedStaged.map(async (file) => ({
           file,
           diff: await window.snow.gitFileDiff(workDir, file.path, true),
-        }))
+        })),
       ),
       Promise.all(
         selectedUnstaged.map(async (file) => ({
           file,
           diff: await window.snow.gitFileDiff(workDir, file.path, false),
-        }))
+        })),
       ),
       Promise.all(
         selectedCommits.map(async (commit) => ({
           commit,
           diff: await window.snow.gitCommitDiff(workDir, commit.hash),
-        }))
+        })),
       ),
     ]);
 
@@ -263,7 +257,7 @@ export const ReviewPanel = ({
       if (content.length > MAX_DIFF_CHARS) {
         truncated = true;
         return `${content.slice(0, MAX_DIFF_CHARS)}\n... (${t(
-          "chat.review.promptDiffTruncated"
+          "chat.review.promptDiffTruncated",
         )})`;
       }
       return content;
@@ -275,13 +269,9 @@ export const ReviewPanel = ({
     lines.push(t("chat.review.promptSeverity"));
     lines.push(t("chat.review.promptSummary"));
     lines.push("");
-    lines.push(
-      `${t("chat.review.promptRepo")}: ${workDir}`
-    );
+    lines.push(`${t("chat.review.promptRepo")}: ${workDir}`);
     if (status?.currentBranch) {
-      lines.push(
-        `${t("chat.review.promptBranch")}: ${status.currentBranch}`
-      );
+      lines.push(`${t("chat.review.promptBranch")}: ${status.currentBranch}`);
     }
     lines.push("");
 
@@ -290,7 +280,7 @@ export const ReviewPanel = ({
       for (const { file, diff } of stagedDiffs) {
         appendDiff(
           `- ${statusLabel(file)}`,
-          diffBody(diff.content, diff.isBinary)
+          diffBody(diff.content, diff.isBinary),
         );
       }
       lines.push("");
@@ -301,7 +291,7 @@ export const ReviewPanel = ({
       for (const { file, diff } of unstagedDiffs) {
         appendDiff(
           `- ${statusLabel(file)}`,
-          diffBody(diff.content, diff.isBinary)
+          diffBody(diff.content, diff.isBinary),
         );
       }
       lines.push("");
@@ -312,7 +302,7 @@ export const ReviewPanel = ({
       for (const { commit, diff } of commitDiffs) {
         appendDiff(
           `- ${commit.shortHash} ${commit.date} - ${commit.message}（${commit.author}）`,
-          diffBody(diff.content, diff.isBinary)
+          diffBody(diff.content, diff.isBinary),
         );
       }
       lines.push("");
@@ -370,7 +360,7 @@ export const ReviewPanel = ({
       path: string;
       workdirStatus: string;
     },
-    kind: "staged" | "unstaged"
+    kind: "staged" | "unstaged",
   ): React.JSX.Element => {
     const checked = selected.has(key);
     const isUntracked = file.workdirStatus.trim() === "?";
@@ -397,7 +387,11 @@ export const ReviewPanel = ({
         </span>
         <span
           className={`review-kind is-${
-            isUntracked ? "untracked" : kind === "staged" ? "staged" : "unstaged"
+            isUntracked
+              ? "untracked"
+              : kind === "staged"
+                ? "staged"
+                : "unstaged"
           }`}
         >
           {isUntracked ? "U" : file.status}
@@ -447,7 +441,7 @@ export const ReviewPanel = ({
       listClassName?: string;
       listRef?: React.Ref<HTMLUListElement>;
       footer?: React.ReactNode;
-    }
+    },
   ): React.JSX.Element => (
     <section className="review-section">
       <div className="review-section-header">
@@ -486,6 +480,7 @@ export const ReviewPanel = ({
     <Modal
       className="review-modal"
       closeLabel={t("chat.review.close")}
+      closeOnEscape
       description={t("chat.review.description")}
       onClose={onClose}
       open={open}
@@ -553,9 +548,7 @@ export const ReviewPanel = ({
           </div>
         ) : hasNoContent ? (
           <div className="review-empty">
-            <span className="review-empty-title">
-              {t("chat.review.empty")}
-            </span>
+            <span className="review-empty-title">{t("chat.review.empty")}</span>
           </div>
         ) : (
           <div className="review-content">
@@ -578,19 +571,19 @@ export const ReviewPanel = ({
             {renderSection(
               t("chat.review.sectionStaged"),
               stagedFiles.map((file) =>
-                renderFileRow(`staged:${file.path}`, file, "staged")
+                renderFileRow(`staged:${file.path}`, file, "staged"),
               ),
               stagedFiles.map((file) => `staged:${file.path}`),
-              t("chat.review.noStaged")
+              t("chat.review.noStaged"),
             )}
 
             {renderSection(
               t("chat.review.sectionUnstaged"),
               unstagedFiles.map((file) =>
-                renderFileRow(`unstaged:${file.path}`, file, "unstaged")
+                renderFileRow(`unstaged:${file.path}`, file, "unstaged"),
               ),
               unstagedFiles.map((file) => `unstaged:${file.path}`),
-              t("chat.review.noUnstaged")
+              t("chat.review.noUnstaged"),
             )}
 
             {renderSection(
@@ -603,10 +596,7 @@ export const ReviewPanel = ({
                 listRef: commitsListRef,
                 footer:
                   hasMoreCommits || isLoadingMore ? (
-                    <li
-                      className="review-load-more"
-                      ref={commitsSentinelRef}
-                    >
+                    <li className="review-load-more" ref={commitsSentinelRef}>
                       {isLoadingMore ? (
                         <Loader2 size={13} className="spin" />
                       ) : null}
@@ -617,11 +607,14 @@ export const ReviewPanel = ({
                       <span>{t("chat.review.allLoaded")}</span>
                     </li>
                   ) : undefined,
-              }
+              },
             )}
 
             <div className="review-instructions">
-              <label className="review-instructions-label" htmlFor="review-instructions">
+              <label
+                className="review-instructions-label"
+                htmlFor="review-instructions"
+              >
                 {t("chat.review.instructionsLabel")}
               </label>
               <textarea

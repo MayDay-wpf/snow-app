@@ -679,6 +679,7 @@ export const ProjectMcpPanel = ({
     <Modal
       className="project-mcp-modal"
       closeLabel={t("projectMcp.close")}
+      closeOnEscape
       description={
         projectId
           ? t("projectMcp.description", {
