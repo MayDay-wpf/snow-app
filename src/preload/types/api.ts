@@ -45,7 +45,7 @@ export type OAuthProviderInfo = {
   defaultMaxContextTokens: number;
   /** redirect | manual | device */
   flow: string;
-  /** 插件提供的说明与图标（data: / https: URL）。 */
+  /** 插件提供的说明与图标（lucide:Name / data: / https: URL）。 */
   description?: string;
   icon?: string;
   /** 来源插件 id；内置 provider 为空。 */

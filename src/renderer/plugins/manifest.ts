@@ -413,11 +413,14 @@ export const parsePluginRecord = (record: PluginRecord): PluginView => {
   };
 };
 
-/** 插件图标：lucide:IconName / 相对路径 / 内联或远程 URL。 */
+/** 插件图标：lucide:IconName / 插件内相对路径 / http(s) 或 data:image URL。 */
 export const resolvePluginIcon = (
   icon: string,
 ):
-  { kind: "lucide"; name: string } | { kind: "asset"; path: string } | null => {
+  | { kind: "lucide"; name: string }
+  | { kind: "asset"; path: string }
+  | { kind: "image"; src: string }
+  | null => {
   const trimmed = icon.trim();
   if (!trimmed) {
     return null;
@@ -425,8 +428,8 @@ export const resolvePluginIcon = (
   if (trimmed.toLowerCase().startsWith("lucide:")) {
     return { kind: "lucide", name: trimmed.slice("lucide:".length).trim() };
   }
-  if (/^(https?:|data:)/i.test(trimmed)) {
-    return null;
+  if (/^https?:\/\//i.test(trimmed) || /^data:image\//i.test(trimmed)) {
+    return { kind: "image", src: trimmed };
   }
   return { kind: "asset", path: trimmed };
 };

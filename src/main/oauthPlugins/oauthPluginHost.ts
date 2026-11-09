@@ -52,6 +52,7 @@ type ProviderSpec = {
   pluginId: string;
   displayName: string;
   description: string;
+  /** `lucide:Name` / data URL（插件内相对路径与 https 已在此转成 data URL）。 */
   icon: string;
   flow: "redirect" | "manual" | "device" | "panel";
   callbackPorts: number[];
@@ -193,6 +194,8 @@ const fetchRemoteIcon = (url: string): Promise<string> => {
 const loadIcon = async (pluginDir: string, icon: unknown): Promise<string> => {
   const value = text(icon);
   if (!value) return "";
+  // lucide 名称交给渲染层解析，与插件清单 / 市场 / 脚本图标同一套规则
+  if (value.toLowerCase().startsWith("lucide:")) return value;
   if (/^data:image\//i.test(value)) return value;
   if (/^https:\/\//i.test(value)) return fetchRemoteIcon(value);
   const mime = ICON_MIME_TYPES[extname(value).toLowerCase()];
@@ -255,6 +258,7 @@ const buildSpec = async (
   pluginId: string,
   pluginDir: string,
   definition: Record<string, unknown>,
+  pluginIcon: string,
 ): Promise<ProviderSpec | null> => {
   const id = text(definition.id).toLowerCase();
   if (!PROVIDER_ID_PATTERN.test(id) || BUILTIN_PROVIDER_IDS.has(id)) {
@@ -309,12 +313,17 @@ const buildSpec = async (
   const api = isPlainObject(definition.api) ? definition.api : {};
   const requestMethod = text(api.requestMethod);
   const displayName = localized(definition.name) || id;
+  // provider 图标缺省或读不到时沿用插件清单图标，避免同一插件在两个入口显示不同图标
+  const providerIcon = text(definition.icon);
+  const icon =
+    (providerIcon ? await loadIcon(pluginDir, providerIcon) : "") ||
+    (await loadIcon(pluginDir, pluginIcon));
   return {
     id,
     pluginId,
     displayName,
     description: localized(definition.description),
-    icon: await loadIcon(pluginDir, definition.icon),
+    icon,
     flow,
     callbackPorts: Array.isArray(callback.ports)
       ? callback.ports
@@ -365,6 +374,7 @@ const loadPluginProviders = async (
       record.pluginId,
       record.installPath,
       definition,
+      record.icon,
     );
     if (spec) {
       loaded.push({

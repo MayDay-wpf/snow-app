@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { resolvePluginIcon } from "./manifest";
 import { pluginStore } from "./pluginStore";
 import { resolveLucideIcon } from "./pluginRuntime";
+import { imageProxyUrl } from "../utils/imageProxyUrl";
 
 /** 编辑区 chip 图标尺寸，与既有文件 / 技能 chip 一致。 */
 const ICON_SIZE = 12;
@@ -85,6 +86,10 @@ const loadIcon = async (pluginId: string): Promise<void> => {
           url,
         )}" width="${ICON_SIZE}" height="${ICON_SIZE}" alt="" />`;
       }
+    } else if (resolved?.kind === "image") {
+      html = `<img class="file-chip-icon-inner" src="${escapeAttribute(
+        imageProxyUrl(resolved.src),
+      )}" width="${ICON_SIZE}" height="${ICON_SIZE}" alt="" />`;
     }
     iconCache.set(key, html);
   }

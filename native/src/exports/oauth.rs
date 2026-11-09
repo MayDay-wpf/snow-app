@@ -16,7 +16,7 @@ pub struct OAuthProviderInfo {
     pub default_max_context_tokens: i32,
     /// redirect | manual | device
     pub flow: String,
-    /// 插件提供的说明与图标（data: / https: URL），内置 provider 为空。
+    /// 插件提供的说明与图标（`lucide:Name` / data: / https: URL），内置 provider 为空。
     pub description: Option<String>,
     pub icon: Option<String>,
     /// 来源插件 id；内置 provider 为空。

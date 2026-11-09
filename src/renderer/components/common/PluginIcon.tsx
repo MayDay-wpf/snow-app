@@ -1,11 +1,12 @@
 import { Puzzle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { resolvePluginIcon } from "../../plugins/manifest";
 import {
   resolveLucideIcon,
   type LucideIconComponent,
 } from "../../plugins/pluginRuntime";
+import { imageProxyUrl } from "../../utils/imageProxyUrl";
 
 type PluginIconProps = {
   icon: string;
@@ -14,7 +15,7 @@ type PluginIconProps = {
   className?: string;
 };
 
-/** 插件图标：lucide:Name / 插件内相对路径资源 / 缺失时占位图标。 */
+/** 插件图标：lucide:Name / 插件内相对路径资源 / http(s) 与 data:image URL / 占位图标。 */
 export const PluginIcon = ({
   icon,
   pluginId,
@@ -25,12 +26,14 @@ export const PluginIcon = ({
   const [lucideIcon, setLucideIcon] = useState<LucideIconComponent | null>(
     null,
   );
+  const [imageFailed, setImageFailed] = useState(false);
+  const resolved = useMemo(() => resolvePluginIcon(icon), [icon]);
 
   useEffect(() => {
-    const resolved = resolvePluginIcon(icon);
     let disposed = false;
     setLucideIcon(null);
     setAssetUrl(null);
+    setImageFailed(false);
 
     if (resolved?.kind === "lucide") {
       void resolveLucideIcon(resolved.name).then((found) => {
@@ -52,9 +55,23 @@ export const PluginIcon = ({
     return () => {
       disposed = true;
     };
-  }, [icon, pluginId]);
+  }, [pluginId, resolved]);
 
   const classes = className ? `plugin-icon ${className}` : "plugin-icon";
+
+  // 远程 / 内联图标走图片代理；取不到时回退占位图标
+  if (resolved?.kind === "image" && !imageFailed) {
+    return (
+      <img
+        className={classes}
+        src={imageProxyUrl(resolved.src)}
+        width={size}
+        height={size}
+        alt=""
+        onError={() => setImageFailed(true)}
+      />
+    );
+  }
 
   if (assetUrl) {
     return (
