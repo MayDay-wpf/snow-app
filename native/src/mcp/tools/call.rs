@@ -616,13 +616,12 @@ pub async fn call_mcp_tool(
             .execute_async(tool_name, &args, project_id.as_deref(), conversation_id.as_deref(), model_request_id.as_deref())
             .await
             .validation_feedback(is_sub_agent_call)?
-    } else if let Some(memory_tool) = tool_full_name.strip_prefix("memory-") {
-        // 项目记忆工具集：project_id 由调用链注入（当前会话项目），
+    } else if tool_full_name == "memory-manage" {
+        // 项目记忆统一入口：project_id 由调用链注入（当前会话项目），
         // 工具参数不携带 projectId，模型无法跨项目读写；conversation_id
-        // 同理由调用链注入（memory-save 的溯源锚点，AI 不可填写）。
+        // 同理由调用链注入（action=save 的溯源锚点，AI 不可填写）。
         MemoryService::new()
             .execute_async(
-                memory_tool,
                 &args,
                 project_id.as_deref(),
                 conversation_id.as_deref(),

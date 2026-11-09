@@ -799,7 +799,7 @@ const renderTodo: ToolCallRenderer = (tool) => {
   });
 };
 
-// ── 记忆（memory-*） ───────────────────────────────────────────────────
+// ── 记忆（memory-manage） ──────────────────────────────────────────────
 
 const MEMORY_ACTIONS = ["save", "search", "list", "update", "delete"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
@@ -812,7 +812,7 @@ const MEMORY_ACTION_ICONS: Record<MemoryAction, MobileIconName> = {
   delete: "trash-2",
 };
 
-/** 动作优先取参数，其次取工具名后缀（memory-save → save），与桌面实现一致。 */
+/** 动作优先取参数；旧快照的工具名后缀（memory-save → save）作为兼容回落。 */
 const memoryActionOf = (name: string, args: Json | null): MemoryAction => {
   const fromArgs = args ? asString(args.action) : undefined;
   if (fromArgs && (MEMORY_ACTIONS as readonly string[]).includes(fromArgs))

@@ -279,7 +279,7 @@ export function MainSidebarContent({
     };
   }, [onSelectMainView]);
 
-  // 订阅 AI 记忆写工具的变更广播：memory-save/update/delete 成功后，
+  // 订阅 AI 记忆写工具的变更广播：memory-manage 的写动作成功后，
   // 主进程带项目 ID 广播，命中当前项目时刷新徽标。
   useEffect(() => {
     const unsubscribe = window.snow.onMemoriesChanged((directoryId) => {

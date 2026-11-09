@@ -435,46 +435,41 @@ that stay alive across multiple calls), complementary to `bash-terminal-execute`
 
 ### memory
 
-| Full tool name  | Purpose                                                                                                  | Key parameters                                                                           |
-| --------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `memory-save`   | Save a cross-session project memory (same-title saves merge)                                             | `title`, `content`, `kind`, `importance`, `tags`, `sessionId`                            |
-| `memory-search` | Search project memories by keywords (score-ranked)                                                       | `query`, `kind`, `status`, `limit`                                                       |
-| `memory-list`   | Browse project memories page by page                                                                     | `status`, `kind`, `limit`, `offset`                                                      |
-| `memory-update` | Update a memory entry (omitted fields keep their values)                                                 | `memoryId` (string or array), `title`, `content`, `kind`, `importance`, `status`, `tags` |
-| `memory-delete` | Delete memories (**DESTRUCTIVE**, requires user approval); `memoryId` may be an array for batch deletion | `memoryId` (string or array), `confirmed`                                                |
+| Full tool name  | Purpose                                                                                                                                                                                         | Key parameters                                                                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `memory-manage` | Unified project-memory manager with a required `action`: `save` (same-title saves merge), `search` (score-ranked), `list` (paged), `update`, `delete` (**DESTRUCTIVE**, requires user approval) | `action` (required), `scope`, `kind`, `title`, `content`, `importance`, `tags`, `query`, `status`, `limit`, `offset`, `memoryId` (string or array), `confirmed` |
 
-> **Project isolation & injection**: every memory tool reads/writes scoped to
-> the current conversation's project (`directory_id`) — the model cannot cross
-> projects; the project context is injected by the call chain, so tools take
-> no projectId parameter. The main session's system prompt automatically gets
-> a trailing `## Project Memory` section: active entries with
-> `importance >= 3` are injected top-first (capped at 30 entries / 4000
-> chars), and the section tail carries the current conversation id, guiding
-> `memory-save` to pass it as `sessionId` (the per-conversation provenance
-> anchor). An empty bank gets a short bootstrap hint instead. Sub-agents do
-> not receive the section.
+> `scope` (`action=save` only): `project` (default, this project's memory) | `user` (cross-project user memory, injected into every project's new conversations).
+>
+> **Project isolation & injection**: memories are scoped to the current
+> conversation's project (`directory_id`) — the model cannot cross projects;
+> the project context and the conversation provenance are injected by the call
+> chain, so tools take no projectId / sessionId parameter. The main session's
+> system prompt automatically gets a trailing `## Project Memory` section:
+> active entries with `importance >= 3` are injected top-first (capped at 30
+> entries / 4000 chars). An empty bank gets a short bootstrap hint instead.
+> Sub-agents do not receive the section.
 >
 > The section is frozen per conversation: it is rendered on the first request
 > and stored as a snapshot (`memory_prompt_snapshots` table), then reused
 > verbatim on every later turn — saving or editing memories mid-session never
 > changes the prompt prefix already sent, so the conversation's prompt cache
 > keeps hitting and new memories only take effect in conversations started
-> afterwards (use `memory-search` for the latest state in the running
-> session).
+> afterwards (use `action=search` for the latest state in the running session).
 >
 > When a conversation is deleted, the confirm dialog counts the memories saved
 > from it and lets the user choose whether to delete them as well (kept by
 > default); its injected snapshot always goes away with the conversation.
 >
-> `memory-delete` is destructive: obtain the user's explicit approval via
+> `action=delete` is destructive: obtain the user's explicit approval via
 > `user-interaction-askUserQuestion` first, then retry with `confirmed: true`;
 > calls without it are rejected.
 >
-> `memoryId` accepts a string or an array. `memory-delete` with an array needs one confirmation for the whole batch. `memory-update` with an array applies the same `kind` / `importance` / `status` / `tags` patch to every entry, all-or-nothing; `title` and `content` may only change for a single entry because the title is the dedup key.
+> `memoryId` accepts a string or an array. `action=delete` with an array needs one confirmation for the whole batch. `action=update` with an array applies the same `kind` / `importance` / `status` / `tags` patch to every entry, all-or-nothing; `title` and `content` may only change for a single entry because the title is the dedup key.
 >
 > **User-facing entries**: the memory bank opened from the sidebar "Project
 > Memory" entry supports keyword search (title / tags / content, reusing the
-> `memory-search` ranking, stackable with the status / kind filters, with
+> `action=search` ranking, stackable with the status / kind filters, with
 > matches highlighted); typing `/memory` in chat lists the memories the current
 > conversation (including its sub-agents and WorkFlow nodes) saved or merged,
 > with full content on expand and a jump that locates an entry in the memory

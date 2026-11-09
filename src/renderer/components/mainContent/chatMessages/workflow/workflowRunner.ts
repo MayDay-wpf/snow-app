@@ -2567,7 +2567,7 @@ export function createWorkflowRunner(
                 },
                 toolCall.interactionId,
                 undefined,
-                // 会话溯源：节点内 memory-save 由 Rust 分发层注入节点会话 ID。
+                // 会话溯源：节点内 memory-manage 的保存由 Rust 分发层注入节点会话 ID。
                 conversationId,
                 modelRequestId,
               );

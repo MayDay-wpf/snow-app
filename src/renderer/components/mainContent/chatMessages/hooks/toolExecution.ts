@@ -113,11 +113,14 @@ const prepareToolArguments = (
     }
   }
 
-  if (toolName === "memory-save" && options.responseId) {
+  if (toolName === "memory-manage" && options.responseId) {
     try {
       const parsedArgs = JSON.parse(toolArgs) as Record<string, unknown>;
-      parsedArgs.responseId = options.responseId;
-      toolArgs = JSON.stringify(parsedArgs);
+      // 只有保存动作需要回滚溯源锚点。
+      if (parsedArgs.action === "save") {
+        parsedArgs.responseId = options.responseId;
+        toolArgs = JSON.stringify(parsedArgs);
+      }
     } catch {
       // Invalid JSON is reported by the validation path.
     }
@@ -1012,7 +1015,7 @@ export function createToolExecutor(
                     buildToolChunkHandler(parallelToolCall),
                     parallelToolCall.interactionId,
                     undefined,
-                    // 会话溯源（memory-save 由 Rust 分发层注入会话 ID）：
+                    // 会话溯源（memory-manage 保存由 Rust 分发层注入会话 ID）：
                     // PENDING 会话没有真实会话 id，传 undefined。
                     isPendingSessionKey(effectiveKey)
                       ? undefined
@@ -1122,12 +1125,15 @@ export function createToolExecutor(
         // Preserve the existing specialized parallel paths if the registry is
         // unavailable during startup or native bridge recovery.
       }
-      const isTodoReadAction = (toolCall: ToolCallInfo): boolean => {
+      const isManagerReadAction = (toolCall: ToolCallInfo): boolean => {
         try {
-          return (
-            (JSON.parse(toolCall.arguments || "{}") as { action?: unknown })
-              .action === "get"
-          );
+          const action = (
+            JSON.parse(toolCall.arguments || "{}") as { action?: unknown }
+          ).action;
+          if (toolCall.name === "todo-todo-manage") return action === "get";
+          if (toolCall.name === "memory-manage")
+            return action === "search" || action === "list";
+          return true;
         } catch {
           return false;
         }
@@ -1143,8 +1149,7 @@ export function createToolExecutor(
           name === "sub-agents-continue" ||
           name === "imagegen-generate";
         const isReadonlyTool =
-          readonlyToolNames.has(name) &&
-          (name !== "todo-todo-manage" || isTodoReadAction(toolCalls[i]));
+          readonlyToolNames.has(name) && isManagerReadAction(toolCalls[i]);
         // PENDING 会话还没有真实会话 id，无法关联子代理（执行器内部也会
         // 拒绝），因此不进入并行预启动，交由顺序路径返回结构化错误。
         const skipPendingSubAgent =
@@ -1701,7 +1706,7 @@ export function createToolExecutor(
                       buildToolChunkHandler(toolCall),
                       toolCall.interactionId,
                       undefined,
-                      // 会话溯源（memory-save 由 Rust 分发层注入会话 ID）：
+                      // 会话溯源（memory-manage 保存由 Rust 分发层注入会话 ID）：
                       // PENDING 会话没有真实会话 id，传 undefined。
                       isPendingSessionKey(effectiveKey)
                         ? undefined

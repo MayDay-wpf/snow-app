@@ -1102,7 +1102,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
             },
             subToolCall.interactionId,
             allowedTools,
-            // 会话溯源：子代理内 memory-save 溯源到子代理会话（删除主会话
+            // 会话溯源：子代理内 memory-manage 保存的记忆溯源到子代理会话（删除主会话
             // 时级联子会话一并清理）。
             subConvId,
             modelRequestId,

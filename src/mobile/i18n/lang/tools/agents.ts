@@ -1,6 +1,6 @@
 /**
  * agents 工具族词条：子代理（activate / continue / listSubAgents）、技能执行、
- * 会话待办（todo-todo-manage）与项目记忆（memory-*）卡片的只读复盘文案。
+ * 会话待办（todo-todo-manage）与项目记忆（memory-manage）卡片的只读复盘文案。
  *
  * 键前缀统一 remote.toolCall.agents.*，三语必须同键；族内再分 subAgent /
  * subAgentList / skill / todo / memory 子命名空间。动态键（todo.action.* /

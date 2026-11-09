@@ -111,8 +111,8 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "imagegen-image-describe",
     "codebase-search",
     "todo-todo-manage",
-    "memory-search",
-    "memory-list",
+    // 统一工具整名列入：memory 的写动作由前端按 action 判定只读、删除仍需 confirmed。
+    "memory-manage",
     "sub-agents-getResult",
     "sub-agents-wait",
     "computer-use-screen-info",

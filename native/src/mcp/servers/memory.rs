@@ -1,11 +1,11 @@
 //! 持久记忆（Project Memory）内置 MCP 服务。
 //!
-//! 5 个工具（save / search / list / update / delete）读写 `project_memories`
-//! 表：scope=project 按会话项目（directory_id）隔离；scope=user 写入全局
-//! 作用域（directory_id 空串），跨项目注入。search / list / 注入章节合并
-//! 项目与全局条目，条目带 `scope` 字段。全部 SQLite I/O 走 spawn_blocking，
-//! 项目上下文（directory_id）与会话溯源（conversation_id）由 `call_mcp_tool`
-//! 分发层注入，模型不可能伪造。
+//! 单个 `memory-manage` 工具（action = save / search / list / update / delete）
+//! 读写 `project_memories` 表：scope=project 按会话项目（directory_id）隔离；
+//! scope=user 写入全局作用域（directory_id 空串），跨项目注入。search / list /
+//! 注入章节合并项目与全局条目，条目带 `scope` 字段。全部 SQLite I/O 走
+//! spawn_blocking，项目上下文（directory_id）与会话溯源（conversation_id）
+//! 由 `call_mcp_tool` 分发层注入，模型不可能伪造。
 //!
 //! 系统提示词注入：`build_system_prompt_section` 仿 LSP / imagegen 的
 //! 「方案 B」——域 scope 允许时在系统提示词末尾追加 `## Project Memory`
@@ -40,16 +40,28 @@ impl MemoryService {
     }
 
     /// call.rs 分发入口：`project_id` 为当前会话项目（directory_id），
-    /// scope=project 时作为隔离键；无项目上下文时直接报错。
+    /// action=save 且 scope=project 时作为隔离键；无项目上下文时直接报错。
     /// `conversation_id` 为当前会话 ID（分发层注入，AI 不可填写），仅
-    /// memory-save 用作溯源锚点。
+    /// action=save 用作溯源锚点。
     pub async fn execute_async(
         &self,
-        tool_name: &str,
         args: &Value,
         project_id: Option<&str>,
         conversation_id: Option<&str>,
     ) -> napi::Result<Value> {
+        let action = args
+            .get("action")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "action is required (save | search | list | update | delete)".to_string(),
+                )
+            })?
+            .to_string();
+
         let project_id = project_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -61,7 +73,7 @@ impl MemoryService {
             })?
             .to_string();
 
-        match tool_name {
+        match action.as_str() {
             "save" => self.execute_save(args, &project_id, conversation_id).await,
             "search" => self.execute_search(args, &project_id).await,
             "list" => self.execute_list(args, &project_id).await,
@@ -70,14 +82,14 @@ impl MemoryService {
             other => Err(Error::new(
                 Status::InvalidArg,
                 format!(
-                    "Unknown tool: \"{other}\" for MCP server \"memory\". Available tools: [memory-save, memory-search, memory-list, memory-update, memory-delete]"
+                    "Unknown action: \"{other}\" for memory-manage. Available actions: [save, search, list, update, delete]"
                 ),
             )),
         }
     }
 
     // -----------------------------------------------------------------
-    // memory-save：AI 主动保存记忆（按标题自动去重合并）。
+    // action=save：AI 主动保存记忆（按标题自动去重合并）。
     // -----------------------------------------------------------------
     async fn execute_save(
         &self,
@@ -160,7 +172,7 @@ impl MemoryService {
     }
 
     // -----------------------------------------------------------------
-    // memory-search：按需检索（打分排序 + 召回统计）。
+    // action=search：按需检索（打分排序 + 召回统计）。
     // -----------------------------------------------------------------
     async fn execute_search(&self, args: &Value, project_id: &str) -> napi::Result<Value> {
         let query = required_string(args, "query")?;
@@ -192,7 +204,7 @@ impl MemoryService {
                 "count": 0,
                 "query": query_echo,
                 "message": format!(
-                    "No memories matched the query. The project memory bank holds {} active / {} pending entries; use memory-list to browse by kind.",
+                    "No memories matched the query. The project memory bank holds {} active / {} pending entries; use action=list to browse by kind.",
                     stats.active, stats.pending
                 ),
             }));
@@ -205,7 +217,7 @@ impl MemoryService {
     }
 
     // -----------------------------------------------------------------
-    // memory-list：分页浏览。
+    // action=list：分页浏览。
     // -----------------------------------------------------------------
     async fn execute_list(&self, args: &Value, project_id: &str) -> napi::Result<Value> {
         let status = optional_string(args, "status");
@@ -228,7 +240,7 @@ impl MemoryService {
     }
 
     // -----------------------------------------------------------------
-    // memory-update：修改可编辑字段（None 字段保持不变）。
+    // action=update：修改可编辑字段（缺省字段保持不变）。
     // -----------------------------------------------------------------
     async fn execute_update(&self, args: &Value) -> napi::Result<Value> {
         let memory_ids = id_list_arg(args, "memoryId")?;
@@ -286,9 +298,9 @@ impl MemoryService {
     }
 
     // -----------------------------------------------------------------
-    // memory-delete：删除单条。DESTRUCTIVE：要求 confirmed=true，且工具
-    // 描述强制 AI 先经 user-interaction-askUserQuestion 获得用户同意
-    // （与 config-delete 同规）。
+    // action=delete：删除单条或多条。DESTRUCTIVE：要求 confirmed=true，
+    // 且工具描述强制 AI 先经 user-interaction-askUserQuestion 获得用户
+    // 同意（与 config-delete 同规）。
     // -----------------------------------------------------------------
     async fn execute_delete(&self, args: &Value) -> napi::Result<Value> {
         let memory_ids = id_list_arg(args, "memoryId")?;
@@ -299,7 +311,7 @@ impl MemoryService {
         if !confirmed {
             return Err(Error::new(
                 Status::GenericFailure,
-                "DESTRUCTIVE: memory-delete requires confirmed: true. First ask the user for explicit approval via the user-interaction askUserQuestion tool, then retry with confirmed: true.".to_string(),
+                "DESTRUCTIVE: action=delete requires confirmed: true. First ask the user for explicit approval via the user-interaction askUserQuestion tool, then retry with confirmed: true.".to_string(),
             ));
         }
 
@@ -339,148 +351,69 @@ impl McpService for MemoryService {
         vec![
             McpTool {
                 server_id: SERVER_ID.to_string(),
-                name: "save".to_string(),
-                description: "Save a durable, cross-session memory to the persistent memory bank (SQLite). scope=project (default) writes to the CURRENT project's bank; scope=user writes to the cross-project user memory, which is injected into EVERY project's new conversations. Use for knowledge worth remembering in FUTURE sessions: key technical decisions, user preferences/conventions, the user's durable working style and communication preferences (reply language/length/detail level, formatting habits, how they want code written, how much confirmation they want before acting, tool and workflow preferences, tone), pitfalls and their fixes, project structure facts, task state. NOT for transient session state (use the todo tool for that).\n\nFields:\n- scope (optional): \"project\" (default) | \"user\" — cross-project user preferences must use \"user\"\n- kind (optional): \"fact\" | \"decision\" | \"preference\" | \"pitfall\" | \"task_state\" (default \"fact\")\n- title (required): one concise line; it is the dedup key — saving with an existing title in the same scope MERGES into that entry instead of creating a duplicate\n- content (required): concrete details (paths, commands, reasons); keep under ~400 chars\n- importance (optional, default 2): 1-5. 1-2 = retrieval-only (found via memory-search, never injected) — the default and correct level for specific, task-bound events (a fixed bug, a one-off decision, current task state). >= 3 = auto-injected into the system prompt of EVERY new conversation — reserve it strictly for general knowledge useful to nearly all sessions (build/test commands, core conventions, architecture facts, cross-project user rules); if an entry only matters for one specific topic or task, keep it at 1-2 even if it feels important\n- tags (optional): lowercase keywords for retrieval\n\nUser style: a single clear signal — the user states a preference, pushes back on your reply style, or corrects how you work — is already worth saving as one `preference` entry with scope=\"user\", tagged `user-style`, with a self-describing title (e.g. \"User prefers concise Chinese replies\"). Keep new entries at 1-2 at first and raise them once the pattern looks stable — repeated signals, an explicit standing rule, or an inferred habit that holds up consistently (inferred ones count too, just infer sparingly). Ignore one-off requests and temporary moods.\n\nWhat to save: architecture choices the user confirmed, build/test conventions, \"don't do X\" lessons, environment quirks, recurring user instructions specific to this project. Do NOT save secrets, one-off facts easily re-derived from code, or content the user asked to forget.\n\nInjection timing: entries are injected into the system prompt of conversations started AFTERWARDS only — the running session's injected section is frozen so its prompt cache is never invalidated by saving.".to_string(),
+                name: "manage".to_string(),
+                description: "Unified manager for the persistent, cross-session memory bank. ONE tool with a required \"action\": save | search | list | update | delete. Project scope and the conversation provenance (for save) are injected by the runtime — never pass session/project ids.\n\nACTIONS:\n- save: create or merge (same title in the same scope merges instead of duplicating). Required: title, content. Optional: scope (\"project\" default | \"user\" = cross-project user memory injected into EVERY project), kind (fact|decision|preference|pitfall|task_state, default fact), importance (1-5, default 2), tags (string[]). Save confirmed decisions, conventions, pitfalls/fixes, structure facts, task state, and the user's durable working style — not transient state (that is todo-todo-manage) and never secrets; keep content under ~400 chars.\n- search: required query; optional kind, status (default active), limit (default 10). Ranked by title/tag/content hits, importance and recency; covers the project bank plus the cross-project user memory (entries carry \"scope\").\n- list: optional status, kind, limit (default 50), offset (default 0). Ordered by importance then last update; use to review what is remembered or to get ids.\n- update: required memoryId (string or string[]); optional title/content (single id only — title is the dedup key), kind, importance, status (\"archived\" retires without deleting), tags (replacement). Omitted fields keep their values; a batch shares one kind/importance/status/tags patch.\n- delete: required memoryId (string or string[]); DESTRUCTIVE — first get explicit user approval via user-interaction askUserQuestion, then retry with confirmed: true. Prefer update status=\"archived\" when it may still be useful. One confirmation covers a whole batch.\n\nIMPORTANCE: 1-2 (default) = retrieval-only (specific, task-bound events). >= 3 = auto-injected into the system prompt of EVERY new conversation — reserve it for general knowledge useful to nearly all sessions.\n\nUSER STYLE: save scope=\"user\" entries tagged user-style for the user's durable habits (reply language/length, formatting, code/comment conventions, confirmation appetite, tool preferences) — one entry per topic, merge by title instead of duplicating; a single clear signal is enough.\n\nRESULTS: save -> {memory, created, message}; search -> {results, count, query}; list -> {items, total, hasMore}; update -> {memories, count, message}; delete -> {deleted, deletedCount, message}. Saves only reach conversations started afterwards — the injected section of the current session stays frozen so its prompt cache keeps hitting.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["save", "search", "list", "update", "delete"],
+                            "description": "Operation to run on the memory bank."
+                        },
+                        "memoryId": {
+                            "oneOf": [
+                                { "type": "string", "description": "A single memory id from list/search results." },
+                                { "type": "array", "items": { "type": "string" }, "description": "Several ids; the same patch (update) or one confirmation (delete) applies to all." }
+                            ],
+                            "description": "For update/delete: entry id(s)."
+                        },
                         "scope": {
                             "type": "string",
                             "enum": ["project", "user"],
-                            "description": "project (default) = this project's memory; user = cross-project user memory injected into every project (use it for durable user style/preferences)."
+                            "description": "For save: project (default) = this project's bank; user = cross-project user memory injected into every project (use it for durable user style/preferences)."
                         },
                         "kind": {
                             "type": "string",
                             "enum": ["fact", "decision", "preference", "pitfall", "task_state"],
-                            "description": "Memory category. decision = confirmed technical/architecture choice; preference = user convention/instruction; pitfall = a lesson learned from a failure; task_state = where long-running work left off (task-bound: save at importance 1-2)."
+                            "description": "Memory category (save default fact; optional filter for search/list; optional new value for update)."
                         },
                         "title": {
                             "type": "string",
-                            "description": "Concrete one-line summary; dedup key (same title merges)."
+                            "description": "For save: required one-line summary; dedup key (same title merges). For update: optional new title (single id only)."
                         },
                         "content": {
                             "type": "string",
-                            "description": "Full details worth keeping (paths, symbols, commands, reasons)."
+                            "description": "For save: required details (paths, commands, reasons). For update: optional new content (single id only)."
                         },
                         "importance": {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 5,
-                            "description": "1-5. 1-2 (default): retrieval-only via memory-search — for specific, task-bound events. >= 3: auto-injected into every new conversation's system prompt — general project knowledge only, never topic-specific events."
+                            "description": "1-5, default 2. 1-2 = retrieval-only via action=search; >= 3 = auto-injected into every new conversation — general knowledge only."
                         },
                         "tags": {
                             "type": "array",
                             "items": { "type": "string" },
-                            "description": "Lowercase retrieval keywords."
-                        }
-                    },
-                    "required": ["title", "content"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "search".to_string(),
-                description: "Search the CURRENT project's memory bank AND the cross-project user memory by keywords (entries carry `scope`: project | global). Results are ranked (title/tag/content hits, importance, recency) and only entries with actual text matches are returned. Use when the injected Project Memory section is not enough and you need prior knowledge (past decisions, pitfalls) or the user's saved `user-style` habits.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
+                            "description": "Lowercase retrieval keywords. save: optional; update: replacement list."
+                        },
                         "query": {
                             "type": "string",
-                            "description": "Keywords to search for. Supports natural language; matched against titles, content and tags."
-                        },
-                        "kind": {
-                            "type": "string",
-                            "enum": ["fact", "decision", "preference", "pitfall", "task_state"],
-                            "description": "Optional category filter."
+                            "description": "For search: keywords matched against titles, content and tags."
                         },
                         "status": {
                             "type": "string",
                             "enum": ["active", "pending", "archived"],
-                            "description": "Optional status filter (default \"active\")."
+                            "description": "search/list: optional filter (search defaults to active). update: new status; archived retires without deleting."
                         },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Max results (default 10)."
-                        }
-                    },
-                    "required": ["query"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "list".to_string(),
-                description: "Browse the CURRENT project's memory bank plus the cross-project user memory page by page (each entry carries `scope`: project | global), ordered by importance then last update. Use to review what is already remembered (e.g. before saving, to avoid duplicates) or to audit/clean up entries.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "status": {
-                            "type": "string",
-                            "enum": ["active", "pending", "archived"],
-                            "description": "Optional status filter (empty = all statuses)."
-                        },
-                        "kind": {
-                            "type": "string",
-                            "enum": ["fact", "decision", "preference", "pitfall", "task_state"],
-                            "description": "Optional category filter."
-                        },
-                        "limit": { "type": "integer", "description": "Page size (default 50)." },
-                        "offset": { "type": "integer", "description": "Page offset (default 0)." }
-                    },
-                    "required": []
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "update".to_string(),
-                description: "Update an existing memory entry by id (obtained from memory-list / memory-search results; works for both project and global `scope` entries). Only provided fields change; omitted fields keep their values. Use to refine wording, correct an outdated memory, or change importance/status. memoryId may be an array to apply the same kind / importance / status / tags patch to several entries at once (all-or-nothing). title and content can only be changed for a single memoryId string.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "memoryId": {
-                            "oneOf": [
-                                { "type": "string", "description": "A single memory id from list/search results." },
-                                { "type": "array", "items": { "type": "string" }, "description": "Several memory ids; the same patch is applied to each." }
-                            ],
-                            "description": "Memory id (string), or an array of ids for batch update."
-                        },
-                        "title": { "type": "string", "description": "Optional new title (single memoryId only)." },
-                        "content": { "type": "string", "description": "Optional new content (single memoryId only)." },
-                        "kind": {
-                            "type": "string",
-                            "enum": ["fact", "decision", "preference", "pitfall", "task_state"],
-                            "description": "Optional new category."
-                        },
-                        "importance": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Optional new importance." },
-                        "status": {
-                            "type": "string",
-                            "enum": ["active", "pending", "archived"],
-                            "description": "Optional new status. Use \"archived\" to retire a memory without deleting it."
-                        },
-                        "tags": { "type": "array", "items": { "type": "string" }, "description": "Optional replacement tags." }
-                    },
-                    "required": ["memoryId"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "delete".to_string(),
-                description: "Delete one or more memory entries (memoryId string or array) from the memory bank — project or global `scope`, so removing a cross-project user preference is allowed. DESTRUCTIVE — before calling, you MUST obtain the user's explicit approval via the user-interaction askUserQuestion tool, then retry with confirmed: true; calls without it are rejected. Prefer memory-update with status=\"archived\" when the memory may still be useful later. An array of memoryIds deletes several entries in one call under a single confirmation.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "memoryId": {
-                            "oneOf": [
-                                { "type": "string", "description": "A single memory id from list/search results." },
-                                { "type": "array", "items": { "type": "string" }, "description": "Several memory ids from list/search results." }
-                            ],
-                            "description": "Memory id (string), or an array of ids for batch deletion."
-                        },
+                        "limit": { "type": "integer", "description": "search: max results (default 10). list: page size (default 50)." },
+                        "offset": { "type": "integer", "description": "For list only: page offset (default 0)." },
                         "confirmed": {
                             "type": "boolean",
-                            "description": "MUST be true and may only be set after explicit user approval via askUserQuestion."
+                            "description": "For delete only: MUST be true and only after explicit user approval via askUserQuestion."
                         }
                     },
-                    "required": ["memoryId", "confirmed"]
+                    "required": ["action"]
                 }),
             },
         ]
@@ -492,7 +425,7 @@ impl McpService for MemoryService {
         Err(Error::new(
             Status::GenericFailure,
             format!(
-                "Tool \"{tool_name}\" of server \"memory\" requires the async call_mcp_tool path (project context). Available tools: [memory-save, memory-search, memory-list, memory-update, memory-delete]"
+                "Tool \"{tool_name}\" of server \"memory\" requires the async call_mcp_tool path (project context). Available tools: [memory-manage]"
             ),
         ))
     }
@@ -503,13 +436,7 @@ impl McpService for MemoryService {
 // ---------------------------------------------------------------------------
 
 /// 核心工具全名（域级判定代表集合：全部被全局黑名单禁用 → 域不可用）。
-const CORE_MEMORY_TOOL_NAMES: [&str; 5] = [
-    "memory-save",
-    "memory-search",
-    "memory-list",
-    "memory-update",
-    "memory-delete",
-];
+const CORE_MEMORY_TOOL_NAMES: [&str; 1] = ["memory-manage"];
 
 /// memory 是默认启用的内置服务器：全局黑名单全部禁用，或项目 scope
 /// 显式关闭 builtin:memory 时返回 false（与 collect 阶段 tool_is_enabled
@@ -542,7 +469,7 @@ async fn memory_domain_scope_allowed(project_id: Option<&str>) -> napi::Result<b
 /// - 记忆库为空 → 注入简短引导（让 AI 知道可以开始积累记忆）；
 /// - 有记忆 → importance 头部条目 + 检索/保存指引 + 库统计。
 ///
-/// memory-save 的会话溯源由分发层注入（conversation_id），无需在提示词里
+/// action=save 的会话溯源由分发层注入（conversation_id），无需在提示词里
 /// 引导 AI 传会话 ID。
 pub(crate) async fn build_system_prompt_section(
     project_id: Option<&str>,
@@ -615,7 +542,7 @@ comment conventions, how much confirmation they want, tool preferences). Project
 are reference material (verify them against the actual code when it matters); follow \
 saved user-style preferences unless the current request says otherwise. \
 This section is a snapshot taken when the session started: memories saved or edited \
-afterwards are NOT listed here, so use `memory-search` to look up recent changes.\n",
+afterwards are NOT listed here, so use `memory-manage` (action=\"search\") to look up recent changes.\n",
     );
 
     if records.is_empty() {
@@ -624,13 +551,13 @@ afterwards are NOT listed here, so use `memory-search` to look up recent changes
                 "\nThe bank is currently empty. When you learn durable, cross-session \
 knowledge about this project (confirmed decisions, pitfalls, task state) or the user's \
 durable working style (reply language/format, code conventions, confirmation appetite, \
-tool preferences), save it with `memory-save` — it will be available in future sessions.",
+tool preferences), save it with `memory-manage` (action=\"save\") — it will be available in future sessions.",
             );
         } else {
             section.push_str(&format!(
                 "\nNo entry currently meets the auto-inject importance bar (>= {} for \
 this project, >= {} for cross-project user memory), though the bank holds {} entries. \
-Use `memory-search` to look up prior knowledge when needed.",
+Use `memory-manage` (action=\"search\") to look up prior knowledge when needed.",
                 INJECT_MIN_IMPORTANCE,
                 (INJECT_MIN_IMPORTANCE - 1).max(1),
                 stats.total
@@ -658,7 +585,7 @@ Use `memory-search` to look up prior knowledge when needed.",
         section.push_str(&format!(
             "\nBank stats: {} total ({} active / {} pending / {} archived, including the \
 cross-project user memory). Use \
-`memory-search` for details on any topic, and `memory-save` when you learn \
+`memory-manage` (action=\"search\") for details on any topic, and `memory-manage` (action=\"save\") when you learn \
 durable knowledge worth keeping for future sessions (same-title saves in the same \
 scope merge instead of duplicating). Save the user's preferences and \
 communication style with scope=\"user\", tagged `user-style` (reply language, \
@@ -695,7 +622,7 @@ fn push_memory_lines(
         };
         *used += line.chars().count();
         if *used > INJECT_MAX_CHARS {
-            section.push_str("- ... more entries exist in the bank (use `memory-search`)\n");
+            section.push_str("- ... more entries exist in the bank (use `memory-manage` action=\"search\")\n");
             return true;
         }
         section.push_str(&line);

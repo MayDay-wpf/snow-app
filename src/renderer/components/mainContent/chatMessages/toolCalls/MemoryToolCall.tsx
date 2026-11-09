@@ -37,7 +37,7 @@ type ParsedMemoryArgs = {
   status?: string;
 };
 
-/** 记忆条目（memory-search 的 results / memory-list 的 items 元素）。 */
+/** 记忆条目（action=search 的 results / action=list 的 items 元素）。 */
 type MemoryListItem = {
   /** memory_id，用作列表与展开状态 key；缺失时退回「索引-标题」组合。 */
   key: string;
@@ -89,8 +89,8 @@ const parseArgs = (args: string): ParsedMemoryArgs => {
 
     const result: ParsedMemoryArgs = {};
 
-    // action 不是工具参数：Rust 端 memory 服务按工具名路由
-    // （memory-save 即 action=save），参数里只有 title/content 等纯字段。
+    // memory-manage 统一工具：action 是必填参数（save/search/list/update/delete），
+    // 其余字段按动作使用。
     if (isValidAction(parsed.action)) result.action = parsed.action;
     if (typeof parsed.title === "string") result.title = parsed.title;
     if (typeof parsed.content === "string") result.content = parsed.content;
@@ -113,7 +113,7 @@ const parseArgs = (args: string): ParsedMemoryArgs => {
   }
 };
 
-// 从工具名推导 action：memory-save -> save。
+// 兼容旧会话记录：memory-save -> save；统一工具的 memory-manage 无后缀动作。
 const actionFromName = (name: string): MemoryAction | null => {
   const suffix = name.replace(/^memory-/, "");
   return isValidAction(suffix) ? suffix : null;
@@ -227,7 +227,7 @@ export const MemoryToolCall = ({
     [toolCall.result],
   );
 
-  // 结果列表（memory-search / memory-list）中已展开条目的 key。
+  // 结果列表（action=search / action=list）中已展开条目的 key。
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -406,7 +406,7 @@ export const MemoryToolCall = ({
           ) : null}
         </div>
 
-        {/* Result list (memory-search / memory-list) */}
+        {/* Result list (action=search / action=list) */}
         {resultItems.length > 0 ? (
           <ul className="tool-call-memory-list">
             {resultItems.map((item) => {

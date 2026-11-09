@@ -363,8 +363,8 @@ pub(crate) async fn build_builtin_system_prompt(
     };
     // 项目记忆章节（2026-09-01，仿 LSP/imagegen 方案 B）：项目启用
     // builtin:memory（默认启用）且记忆库可用时，在系统提示词末尾追加
-    // 「Project Memory」章节——importance 头部条目 + memory-search/save
-    // 工具指引。查询失败静默降级为空串。子代理不注入：任务短且上下文
+    // 「Project Memory」章节——importance 头部条目 + memory-manage 工具指引。
+    // 查询失败静默降级为空串。子代理不注入：任务短且上下文
     // 昂贵，记忆操作由主会话统一决策。章节按会话冻结（首轮渲染后存入
     // 快照，之后每轮复用同一份文本）：会话中新增/修改记忆不改动提示词
     // 前缀，整个会话的 prompt cache 始终有效，新记忆只对之后新建的会话

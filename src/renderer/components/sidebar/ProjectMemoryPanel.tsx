@@ -335,7 +335,7 @@ export function ProjectMemoryPanel({
       }
       const statusFilter = filterStatus === "all" ? undefined : filterStatus;
       const kindFilter = filterKind === "all" ? undefined : filterKind;
-      // 非空检索词走关键词检索（与 AI memory-search 同一套相关性排序），
+      // 非空检索词走关键词检索（与 AI memory-manage 的 search 同一套相关性排序），
       // 命中总数用于「共 N 条命中」提示；空检索词沿用浏览分页。
       const request: Promise<MemoryPage> = activeQuery
         ? window.snow.searchProjectMemories(
@@ -931,7 +931,7 @@ export function ProjectMemoryPanel({
               : stats?.total === 0
                 ? t("memory.emptyHint", {
                     defaultValue:
-                      "No memories yet. The AI saves what it learns via memory-save, or add one manually.",
+                      "No memories yet. The AI saves what it learns via memory-manage, or add one manually.",
                   })
                 : t("memory.emptyFilterHint", {
                     defaultValue: "No memories match the current filter.",

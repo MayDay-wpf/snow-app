@@ -63,7 +63,7 @@ pub fn update_project_memory(memory_id: String, patch: MemoryUpdatePatch) -> Res
     services::project_memories::update_memory(&database_path, &memory_id, &patch)
 }
 
-/// 面板关键词检索（分页 + 命中总数），排序与 MCP memory-search 一致。
+/// 面板关键词检索（分页 + 命中总数），排序与 MCP memory-manage 的 search 一致。
 pub fn search_project_memories(
     directory_id: String,
     query: String,

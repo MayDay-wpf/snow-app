@@ -10,7 +10,7 @@
  *   dbx-* / dbx_* 把查询结果表格化（columns + rows，最多 TABLE_ROWS 行，超出给省略
  *   提示），操作名按桌面规则归一（连字符 / 下划线 / 自带 dbx_ 前缀的复合形态）。
  *
- * 归口边界（重要）：待办（todo-todo-manage）与记忆（memory-*）由 tools/agents.ts
+ * 归口边界（重要）：待办（todo-todo-manage）与记忆（memory-manage）由 tools/agents.ts
  * 承担（更新更全的实现，且位于模块合并顺序之前）；本模块不再重复注册这两个族，
  * 避免同名覆盖造成其中一份实现不可达。
  *

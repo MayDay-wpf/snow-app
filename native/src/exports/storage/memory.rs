@@ -57,7 +57,7 @@ pub async fn list_project_memories(
 }
 
 /// 面板关键词检索：与列表同一分页形态（条目 + 命中总数 + 是否有更多），
-/// 排序复用 MCP memory-search 的打分逻辑。
+/// 排序复用 MCP memory-manage 的 search 打分逻辑。
 #[napi]
 pub async fn search_project_memories(
     directory_id: String,

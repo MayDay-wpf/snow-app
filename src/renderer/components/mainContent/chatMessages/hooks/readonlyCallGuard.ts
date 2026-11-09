@@ -204,6 +204,36 @@ export interface ReadonlyCallGuardOptions {
 const READONLY_CACHE_MAX_ENTRIES = 48;
 const READONLY_CACHE_MAX_CHARS = 2_000_000;
 
+/**
+ * 统一 manager 工具的只读动作白名单。整名列入只读名单后，必须再按 action
+ * 收窄：todo 只有 get 只读，memory 只有 search / list 只读。
+ */
+const UNIFIED_READONLY_ACTIONS: Record<string, readonly string[]> = {
+  "todo-todo-manage": ["get"],
+  "memory-manage": ["search", "list"],
+};
+
+const toolActionOf = (toolCall: ToolCallInfo): string | null => {
+  try {
+    const action = (
+      JSON.parse(toolCall.arguments || "{}") as { action?: unknown }
+    ).action;
+    return typeof action === "string" ? action : null;
+  } catch {
+    return null;
+  }
+};
+
+/** 解析不出 action 时按只读处理（保守地不影响非 manager 工具）。 */
+export const isReadonlyActionCall = (toolCall: ToolCallInfo): boolean => {
+  const allowed = UNIFIED_READONLY_ACTIONS[toolCall.name];
+  if (!allowed) {
+    return true;
+  }
+  const action = toolActionOf(toolCall);
+  return action !== null && allowed.includes(action);
+};
+
 export class ReadonlyCallGuard {
   private workspacePath?: string;
   private completedCalls = new Map<string, CallSnapshot>();
@@ -244,17 +274,7 @@ export class ReadonlyCallGuard {
     if (!readonlyToolNames.has(toolCall.name)) {
       return false;
     }
-    if (toolCall.name !== "todo-todo-manage") {
-      return true;
-    }
-    try {
-      return (
-        (JSON.parse(toolCall.arguments || "{}") as { action?: unknown })
-          .action === "get"
-      );
-    } catch {
-      return false;
-    }
+    return isReadonlyActionCall(toolCall);
   }
 
   /**
@@ -367,9 +387,8 @@ export class ReadonlyCallGuard {
         continue;
       }
       if (
-        toolCall.name.startsWith("memory-") &&
-        toolCall.name !== "memory-search" &&
-        toolCall.name !== "memory-list"
+        toolCall.name === "memory-manage" &&
+        !isReadonlyActionCall(toolCall)
       ) {
         this.clearPrefixCaches("memory-");
         continue;
