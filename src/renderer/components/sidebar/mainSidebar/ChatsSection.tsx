@@ -9,6 +9,7 @@ import { useI18n } from "../../../i18n";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
 import { groupConversationsByTime, type TimeGroup } from "./chatTimeGroup";
+import { ArchivedChatHeader } from "./chats/ArchivedChatHeader";
 import { ArchivedChatList } from "./chats/ArchivedChatList";
 import {
   ChatConversationRow,
@@ -383,6 +384,29 @@ export function ChatsSection({
         onDismiss={chatImport.dismissNotice}
         tone={chatImport.notice?.tone ?? "success"}
       />
+      {archived.isArchiveMode ? (
+        <ArchivedChatHeader
+          allSelected={
+            archived.archivedSelectedIds.size ===
+              archived.archivedConversations.length &&
+            archived.archivedConversations.length > 0
+          }
+          archivedCount={archived.archivedConversations.length}
+          hasKeyword={archived.archivedSearchInput.trim().length > 0}
+          isDeleting={archived.deletingArchivedIds.size > 0}
+          isMultiSelect={archived.isArchivedMultiSelect}
+          isRestoring={archived.restoringIds.size > 0}
+          onBatchDelete={archived.handleBatchDeleteArchived}
+          onBatchRestore={() => void archived.handleBatchRestore()}
+          onChangeSearch={archived.setArchivedSearchInput}
+          onDeselectAll={archived.handleArchivedDeselectAll}
+          onEnterMultiSelect={archived.enterArchivedMultiSelect}
+          onExitMultiSelect={archived.handleExitArchivedMultiSelect}
+          onSelectAll={archived.handleArchivedSelectAll}
+          searchInput={archived.archivedSearchInput}
+          selectedCount={archived.archivedSelectedIds.size}
+        />
+      ) : null}
       <div
         className={`section-list${
           layout.isChatDragOver ? " chat-drag-over" : ""
@@ -406,17 +430,10 @@ export function ChatsSection({
             isArchivedMultiSelect={archived.isArchivedMultiSelect}
             isSwitchingDirectory={isSwitchingDirectory}
             loadMoreRef={archived.archivedLoadMoreRef}
-            onBatchDelete={archived.handleBatchDeleteArchived}
-            onBatchRestore={() => void archived.handleBatchRestore()}
-            onChangeArchivedSearch={archived.setArchivedSearchInput}
             onDelete={archived.handleDeleteArchived}
-            onDeselectAll={archived.handleArchivedDeselectAll}
-            onEnterMultiSelect={archived.enterArchivedMultiSelect}
-            onExitMultiSelect={archived.handleExitArchivedMultiSelect}
             onRestore={(conversation) =>
               void archived.handleRestore(conversation)
             }
-            onSelectAll={archived.handleArchivedSelectAll}
             onToggleSelect={archived.handleArchivedToggleSelect}
             restoringIds={archived.restoringIds}
           />
