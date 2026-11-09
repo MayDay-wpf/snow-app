@@ -673,6 +673,12 @@ export const useChatScrollFollow = ({
     let resizeRafId = 0;
     let lastScrollHeight = container.scrollHeight;
     let lastClientHeight = container.clientHeight;
+    let lastClientWidth = container.clientWidth;
+    // 宽度重排帧标记：展开/收起侧边面板、窗口缩放让消息重新折行，同一帧内
+    // 可能分多轮观察投递（平滑视口对齐自然高度后会再投递一次），标记持续到
+    // 下一帧开始，保证这些轮次都按重排处理。
+    let isWidthReflowing = false;
+    let widthReflowRafId = 0;
     const observedChildren = new Set<Element>();
 
     const keepAtBottomSync = (): void => {
@@ -681,6 +687,18 @@ export const useChatScrollFollow = ({
         activeConversationIdRef.current !== activeConversationId
       ) {
         return;
+      }
+
+      const nextClientWidth = container.clientWidth;
+      if (nextClientWidth !== lastClientWidth) {
+        lastClientWidth = nextClientWidth;
+        isWidthReflowing = true;
+        if (widthReflowRafId === 0) {
+          widthReflowRafId = requestAnimationFrame(() => {
+            widthReflowRafId = 0;
+            isWidthReflowing = false;
+          });
+        }
       }
 
       const nextScrollHeight = container.scrollHeight;
@@ -722,9 +740,13 @@ export const useChatScrollFollow = ({
       // Follow first, then derive visibility from the final geometry: otherwise
       // each streamed height change briefly mounts the button before pinToBottom
       // hides it again, restarting its entrance animation every frame.
+      // 宽度重排时只要仍在跟随底部（用户未上翻）就同帧贴底，空闲会话也不例外：
+      // 否则折行变化把底部内容逐帧推出/拉回视口，表现为整片弹跳。
       if (
         shouldStickToBottomRef.current &&
-        (isInitialBottomPositioningRef.current || isFollowActive)
+        (isInitialBottomPositioningRef.current ||
+          isFollowActive ||
+          isWidthReflowing)
       ) {
         if (isFollowActive) {
           followGraceUntilRef.current =
@@ -790,6 +812,9 @@ export const useChatScrollFollow = ({
     return (): void => {
       if (resizeRafId !== 0) {
         cancelAnimationFrame(resizeRafId);
+      }
+      if (widthReflowRafId !== 0) {
+        cancelAnimationFrame(widthReflowRafId);
       }
       container.removeEventListener("load", scheduleResizeCheck, true);
       mutationObserver.disconnect();

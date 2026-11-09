@@ -99,6 +99,9 @@ const STORAGE_INDEPENDENT_METHODS = new Set<string>([
   "teamStopHost",
   "teamShutdownServices",
   "syncTeamService",
+  // 资源管理器右键菜单（注册表写入与目录校验，不触碰数据库）
+  "registerExplorerContextMenu",
+  "resolveShellDirectoryPath",
 ]);
 
 /**

@@ -100,6 +100,8 @@ const child = spawn(require("electron"), [snapshotDir], {
     ELECTRON_RENDERER_URL: "",
     // 未打包也执行真实更新检查与下载（安装仍被拦截）
     SNOW_UPDATE_FORCE_CHECK: "1",
+    // 资源管理器右键菜单：快照目录随会话删除，菜单命令改指向稳定的项目根目录。
+    SNOW_PREVIEW_APP_ROOT: PROJECT_ROOT,
   },
 });
 

@@ -16,3 +16,13 @@
     Quit
   ${EndIf}
 !macroend
+
+!macro customUnInstall
+  # Explorer folder context menu "Open in Snow App" is registered by the app at
+  # runtime (native/src/exports/explorer_menu.rs). Keep it during updates: the
+  # new version rewrites it on startup; remove it only on a real uninstall.
+  ${ifNot} ${isUpdated}
+    DeleteRegKey HKCU "Software\Classes\Directory\shell\SnowApp"
+    DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\SnowApp"
+  ${endIf}
+!macroend

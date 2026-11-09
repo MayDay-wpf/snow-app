@@ -25,6 +25,8 @@ type MainMessageValues = Record<string, string | number>;
 const en: MainMessages = {
   "tray.openApp": "Open Snow App",
   "tray.quit": "Quit",
+  "explorerMenu.openInSnowApp": "Open in Snow App",
+  "explorerMenu.openInSnowAppPreview": "Open in Snow App (Preview)",
   "contextMenu.cut": "Cut",
   "contextMenu.copy": "Copy",
   "contextMenu.paste": "Paste",
@@ -73,6 +75,8 @@ const en: MainMessages = {
 const zhCN: MainMessages = {
   "tray.openApp": "打开 Snow App",
   "tray.quit": "退出",
+  "explorerMenu.openInSnowApp": "在 Snow App 中打开",
+  "explorerMenu.openInSnowAppPreview": "在 Snow App 中打开（预览）",
   "contextMenu.cut": "剪切",
   "contextMenu.copy": "复制",
   "contextMenu.paste": "粘贴",
@@ -120,6 +124,8 @@ const zhCN: MainMessages = {
 const zhTW: MainMessages = {
   "tray.openApp": "開啟 Snow App",
   "tray.quit": "結束",
+  "explorerMenu.openInSnowApp": "在 Snow App 中開啟",
+  "explorerMenu.openInSnowAppPreview": "在 Snow App 中開啟（預覽）",
   "contextMenu.cut": "剪下",
   "contextMenu.copy": "複製",
   "contextMenu.paste": "貼上",

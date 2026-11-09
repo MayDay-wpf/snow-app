@@ -3595,6 +3595,17 @@ export type NativeBridge = ImageGenerationNativeApi & {
     args: string[];
     env?: Record<string, string> | null;
   }) => Promise<boolean>;
+  /** 注册 Windows 资源管理器文件夹右键菜单；非 Windows 平台返回 false。 */
+  registerExplorerContextMenu: (options: {
+    title: string;
+    executable: string;
+    appPath?: string | null;
+    icon: string;
+    switchName: string;
+    preview: boolean;
+  }) => Promise<boolean>;
+  /** 规整右键菜单传入的目录路径并确认目录存在；无效时返回 null。 */
+  resolveShellDirectoryPath: (raw: string) => Promise<string | null>;
   preparePromptOptimization: (streamId: string) => boolean;
   abortPromptOptimization: (streamId: string) => boolean;
   optimizePrompt: (

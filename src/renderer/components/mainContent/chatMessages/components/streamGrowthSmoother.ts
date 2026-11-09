@@ -17,6 +17,12 @@
  * useChatScrollFollow。ResizeObserver 回调里只做「不改变视口尺寸」的操作
  * （武装时显式高度等于当前自然高度），需要改变尺寸的释放
  * 推迟到下一帧，避免在同一轮观察里改动祖先尺寸造成通知丢失。
+ *
+ * 唯一例外是宽度变化（展开/收起侧边面板、窗口缩放）引起的重排：那不是
+ * 内容增长，必须同帧对齐自然高度，否则缩窄时新增高度被逐帧放出、拉宽时
+ * 视口底部留出空白再塌回，整片会话随之弹跳。此时滚动容器本身也在本轮被
+ * 观察到尺寸变化，消息列表（容器直接子元素）属于更深层级，对齐后的高度
+ * 会在同一帧内再次投递给钉底逻辑。
  */
 
 /** 过渡时间常数（ms）：一阶指数趋近，约 3 倍时间常数基本到位。 */
@@ -48,7 +54,9 @@ export const createStreamGrowthSmoother = (
 ): StreamGrowthSmoother => {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let displayed: number | null = null;
-  let target = track.getBoundingClientRect().height;
+  const initialRect = track.getBoundingClientRect();
+  let target = initialRect.height;
+  let trackWidth = initialRect.width;
   let rafId = 0;
   let lastFrameAt = 0;
   let releaseRafId = 0;
@@ -175,11 +183,14 @@ export const createStreamGrowthSmoother = (
 
   const observer = new ResizeObserver((entries) => {
     const entry = entries[entries.length - 1];
-    const nextHeight =
-      entry?.borderBoxSize?.[0]?.blockSize ?? entry?.contentRect.height;
-    if (nextHeight === undefined) {
+    const box = entry?.borderBoxSize?.[0];
+    const nextHeight = box?.blockSize ?? entry?.contentRect.height;
+    const nextWidth = box?.inlineSize ?? entry?.contentRect.width;
+    if (nextHeight === undefined || nextWidth === undefined) {
       return;
     }
+    const isReflow = Math.abs(nextWidth - trackWidth) > 0.5;
+    trackWidth = nextWidth;
     target = nextHeight;
     if (displayed === null) {
       // 未武装：本次增长已按自然高度生效。条件满足时就地武装（显式高度
@@ -188,6 +199,16 @@ export const createStreamGrowthSmoother = (
         armAt(nextHeight);
       }
       return;
+    }
+    if (isReflow) {
+      // 宽度重排：中止在途过渡，视口高度同帧对齐自然高度（见文件头说明）。
+      if (rafId !== 0) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      displayed = target;
+      applyHeight(target);
+      scheduleIdleCheck();
     }
     if (!isAllowed()) {
       scheduleRelease();

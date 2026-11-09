@@ -3,6 +3,7 @@ pub(crate) mod checkpoint;
 pub(crate) mod codebase;
 mod detached_tasks;
 mod engine;
+mod explorer_menu;
 mod formatting;
 mod git;
 mod html_preview;

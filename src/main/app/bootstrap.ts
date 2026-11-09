@@ -71,6 +71,21 @@ import { isInstallerQuitRequest } from "./installerQuit";
 import { sanitizeLauncherEnvironment } from "./launcherEnvironment";
 import { appendTrace, initRuntimeTrace } from "./runtimeTrace";
 import { stopAllDirectoryWatches } from "../utils/fsWatcher";
+import {
+  initExplorerContextMenu,
+  openDirectoryFromShell,
+  readOpenDirectoryArg,
+} from "./explorerContextMenu";
+
+/** 右键菜单打开目录失败只记日志，不影响应用正常启动 / 聚焦。 */
+const logShellOpenFailure = (error: unknown): void => {
+  snowLog.warn({
+    module: "app/bootstrap",
+    func: "openDirectoryFromShell",
+    message: "Failed to open directory from explorer context menu",
+    error: error instanceof Error ? error.message : String(error),
+  });
+};
 
 /** 队长服务是否正在运行（决定关窗后是否托盘常驻）。 */
 const isTeamHostRunning = (): boolean => {
@@ -154,6 +169,13 @@ export const bootstrapApplication = (): void => {
       func: "second-instance",
       message: "Second instance detected, focusing existing window",
     });
+    // 资源管理器右键「在 Snow App 中打开」：切换到（或先添加）该目录对应的项目。
+    const shellDirectory = readOpenDirectoryArg(commandLine);
+    if (shellDirectory) {
+      void openDirectoryFromShell(native, shellDirectory).catch(
+        logShellOpenFailure,
+      );
+    }
     // 使用 getMainWindow() 而非 getAllWindows()[0]：宠物窗口始终存在，
     // getAllWindows()[0] 可能返回宠物窗口而非会话主窗口。
     const existing = getMainWindow();
@@ -248,6 +270,8 @@ export const bootstrapApplication = (): void => {
 
     // 初始化系统托盘（黑白脱色图标 + 悬停快速信息 + 右键菜单）。
     initTray(native);
+    // Windows 资源管理器文件夹右键菜单「在 Snow App 中打开」。
+    initExplorerContextMenu(native);
 
     // 注册全局生效的快捷键（foregroundOnly=false 的动作，默认含 toggleWindow）。
     // native 代理已做 storageReady 门控，会等待 storage 就绪后读取设置再注册。
@@ -327,6 +351,14 @@ export const bootstrapApplication = (): void => {
       // Initialise storage — use raw binding to avoid storageReady deadlock.
       initializeApplicationServices(getRawNative())
         .then(async () => {
+          // 由资源管理器右键菜单拉起：存储与默认项目就绪后再切换到目标项目，
+          // 避免与启动时的默认项目激活互相覆盖。
+          const shellDirectory = readOpenDirectoryArg(process.argv);
+          if (shellDirectory) {
+            void openDirectoryFromShell(native, shellDirectory).catch(
+              logShellOpenFailure,
+            );
+          }
           // 自动备份计划：读取已保存的计划、补跑错过的备份，并注册系统唤醒。
           await initializeBackupScheduler(native).catch((error) => {
             snowLog.warn({
