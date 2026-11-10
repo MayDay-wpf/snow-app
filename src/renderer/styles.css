@@ -18046,6 +18046,106 @@ img.tcg-plugin-icon {
   opacity: 0.7;
 }
 
+/* 工具卡本地媒体预览（plugin-media://）：视频 / 音频 / 图片产物在卡片内查看。
+   颜色只用主题令牌，尺寸有上限，避免长列表被单个产物撑爆。 */
+.plugin-media-audio,
+.plugin-media-image,
+.plugin-media-video {
+  max-width: 100%;
+}
+
+.plugin-media-video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.plugin-media-audio {
+  display: block;
+  width: 100%;
+  height: 32px;
+}
+
+.plugin-media-image-button {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.plugin-media-image-button:hover {
+  border-color: var(--accent-color);
+}
+
+.plugin-media-image-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.plugin-media-image {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.plugin-media-image-inline .plugin-media-image {
+  max-height: 240px;
+}
+
+.plugin-media-image-thumb .plugin-media-image {
+  max-height: 96px;
+}
+
+.plugin-media-thumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.plugin-media-thumb:hover {
+  border-color: var(--accent-color);
+}
+
+.plugin-media-thumb:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.plugin-media-thumb-cover {
+  display: block;
+  width: 200px;
+  height: 112px;
+  object-fit: cover;
+}
+
+.plugin-media-thumb-play {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-island-strong);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+
 /* 工具来源插件标注：工具全名匹配到工具插件时显示精致图标与插件徽章 */
 .tool-call-plugin-origin {
   display: inline-flex;

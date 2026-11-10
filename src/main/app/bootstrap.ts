@@ -31,6 +31,10 @@ import {
   registerHtmlPreviewProtocol,
   registerHtmlPreviewSchemePrivilege,
 } from "./htmlPreviewProtocol";
+import {
+  registerPluginMediaProtocol,
+  registerPluginMediaSchemePrivilege,
+} from "./pluginMediaProtocol";
 import { applySessionProxy } from "./sessionProxy";
 import { ensureBuiltinDocs, ensureBuiltinSkills } from "./ensureBuiltinSkills";
 import {
@@ -120,6 +124,8 @@ export const bootstrapApplication = (): void => {
   registerImageProxySchemePrivilege();
   // html-preview://：HTML 渲染器预览需要独立源（standard）才能按文档隔离。
   registerHtmlPreviewSchemePrivilege();
+  // plugin-media://：工具卡内嵌播放本地产物，同样必须在 whenReady 前声明特权。
+  registerPluginMediaSchemePrivilege();
 
   // Prevent multiple instances — must be called before app.whenReady().
   const gotTheLock = app.requestSingleInstanceLock();
@@ -214,6 +220,9 @@ export const bootstrapApplication = (): void => {
     // 注册 html-preview:// 协议处理器：HTML 渲染器会话内预览（按文档 id 由
     // Rust 解析缓存文件）。
     registerHtmlPreviewProtocol(native);
+    // 注册 plugin-media:// 协议处理器：工具卡产物（视频/音频/图片）内嵌预览，
+    // 只读媒体扩展名文件，支持 Range 拖动进度条。
+    registerPluginMediaProtocol();
     // 对话请求代理层：注册 Rust 回调并确保用户脚本模板存在（模板默认不改变任何请求）。
     registerRequestProxy(native);
     // OAuth 登录插件：注册 Rust 回调并同步已启用插件声明的 provider。
