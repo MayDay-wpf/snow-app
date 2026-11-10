@@ -675,6 +675,24 @@ export const registerGitHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
+    "git:worktrees:list-conversation-bindings",
+    async (_event, conversationIds: unknown) => {
+      if (
+        !Array.isArray(conversationIds) ||
+        conversationIds.some(
+          (conversationId) =>
+            typeof conversationId !== "string" || !conversationId.trim(),
+        )
+      ) {
+        throw new Error("Conversation IDs must be a non-empty string array");
+      }
+      return native.getConversationWorktrees(
+        conversationIds.map((conversationId) => conversationId.trim()),
+      );
+    },
+  );
+
+  ipcMain.handle(
     "git:worktrees:set-conversation",
     async (_event, conversationId: unknown, worktreeId: unknown) => {
       if (typeof conversationId !== "string" || !conversationId.trim()) {

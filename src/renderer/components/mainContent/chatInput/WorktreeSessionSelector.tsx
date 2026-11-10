@@ -11,6 +11,7 @@ import {
 import type { GitWorktreeInfo } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { useChatConversationContext } from "../chatMessages";
+import { notifyConversationWorktreeChanged } from "../../../utils/conversationWorktreeEvents";
 
 /** 清理 Windows 拓展长路径前缀 \\?\ 或 //?/，还原为干净美观的本地绝对路径。 */
 const cleanWorktreePath = (rawPath: string): string => {
@@ -157,6 +158,7 @@ export function WorktreeSessionSelector(): React.JSX.Element | null {
       void window.snow
         .setConversationWorktree(conversationId, worktreeId)
         .then(() => {
+          notifyConversationWorktreeChanged();
           if (!isCurrentRequest(conversationId, directoryId, generation))
             return;
           setCurrent(

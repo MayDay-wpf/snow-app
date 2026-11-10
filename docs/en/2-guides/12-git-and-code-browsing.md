@@ -71,6 +71,9 @@ Git WorkTree allows a single repository to mount multiple physical directories c
 - **Welcome Grid**: on an empty chat screen ("What do you want to work on in xxx?"), Snow scans and displays all current worktrees as interactive cards;
 - **One-Click Session Binding**: clicking any worktree card (e.g. `ui` directory on branch `feature/ui-performance`) immediately creates a dedicated conversation bound to that worktree;
 - **Visual Badge**: the bottom-left chat toolbar displays a green branch badge reflecting the bound worktree, ensuring all tool operations and prompts operate strictly inside that directory.
+- **Chat List Marker**: conversations bound to a non-main worktree show a branch icon and branch name in the sidebar list; hovering reveals the full worktree path. The main worktree equals the project root and shows no marker.
+- **Git Panel and TopBar Follow the Session**: opening such a conversation switches the right-hand Git panel and the TopBar branch selector to that worktree's repository — the changes list, commit graph, commit and push all target the worktree. Missing or invalid bindings (e.g. the worktree was deleted externally) fall back to the project directory.
+- **Switch Boundaries**: changing a branch inside the worktree panel only changes that worktree's checkout and never rewrites the session binding; only selecting another worktree rewrites it.
 
 #### 3. Development, Diff, and Commits in a Worktree
 

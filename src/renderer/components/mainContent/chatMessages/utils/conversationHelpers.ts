@@ -9,6 +9,7 @@ import type {
 } from "./conversationTypes";
 import type { ChatMessageRecord } from "../../../../../preload";
 import { getActiveLocale, tGlobal } from "../../../../i18n";
+import { notifyConversationWorktreeChanged } from "../../../../utils/conversationWorktreeEvents";
 import {
   isResponseHtmlPreviewEligible,
   resolveResponseDisposition,
@@ -199,6 +200,7 @@ export const inheritConversationWorktreeBinding = async (
     childConversationId,
     binding.worktreeId,
   );
+  notifyConversationWorktreeChanged();
   if (worktreeMode) {
     await window.snow.setConversationModes(
       childConversationId,

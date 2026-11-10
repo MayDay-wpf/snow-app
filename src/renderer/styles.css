@@ -1553,6 +1553,23 @@ body.is-panel-resizing * {
   color: var(--accent-secondary, #8b5cf6);
 }
 
+.chat-item-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  max-width: 96px;
+  color: var(--accent-secondary, #8b5cf6);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.chat-item-worktree-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-item-expand-toggle {
   display: inline-flex;
   align-items: center;

@@ -2,6 +2,7 @@ import {
   Archive,
   Check,
   ChevronRight,
+  GitBranch,
   GitFork,
   Loader2,
   Pause,
@@ -13,7 +14,10 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useI18n } from "../../../i18n";
-import type { ChatConversationRecord } from "../../../../preload";
+import type {
+  ChatConversationRecord,
+  ConversationWorktreeInfo,
+} from "../../../../preload";
 import { Tooltip } from "../../common/Tooltip";
 import { useOverlayOpen } from "../../common/useOverlayOpen";
 import { isPendingSessionKey } from "../../mainContent/chatMessages/utils/conversationTypes";
@@ -53,8 +57,18 @@ const trackPointerMove = (): void => {
   );
 };
 
+/** 抹平 Windows 长路径前缀与分隔符差异，用于判断绑定的是否为主工作树。 */
+const normalizeWorktreePath = (value: string): string =>
+  value
+    .replace(/^\\\\\?\\/, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+
 type ChatItemProps = {
   conversation: ChatConversationRecord;
+  /** 会话绑定的 Git 工作树（仅非主工作树展示分支标识）。 */
+  worktree?: ConversationWorktreeInfo | null;
   isActive?: boolean;
   isAttentionRequired?: boolean;
   isStreaming?: boolean;
@@ -96,6 +110,7 @@ type ChatItemProps = {
 
 export function ChatItem({
   conversation,
+  worktree = null,
   isActive = false,
   isAttentionRequired = false,
   isStreaming = false,
@@ -218,6 +233,14 @@ export function ChatItem({
     conversation.summary ||
     conversation.title ||
     t("sidebar.untitledChat", { defaultValue: "Untitled" });
+  // 只标识非主工作树：主工作树等价于在项目根目录开发，逐行标注没有信息量。
+  const worktreeBadge =
+    worktree &&
+    worktree.isValid &&
+    normalizeWorktreePath(worktree.worktreePath) !==
+      normalizeWorktreePath(worktree.repositoryPath)
+      ? worktree
+      : null;
   const showAttentionStatus =
     !isMultiSelectMode && (isAttentionRequired || hasAttentionRequiredSubAgent);
   const showStreamingStatus =
@@ -495,6 +518,19 @@ export function ChatItem({
                     <GitFork size={11} className="chat-item-kind-icon forked" />
                   ) : null}
                 </span>
+              ) : null}
+              {worktreeBadge ? (
+                <Tooltip content={worktreeBadge.worktreePath}>
+                  <span
+                    className="chat-item-worktree"
+                    aria-label={worktreeBadge.branchName ?? "HEAD"}
+                  >
+                    <GitBranch size={11} />
+                    <span className="chat-item-worktree-branch">
+                      {worktreeBadge.branchName ?? "HEAD"}
+                    </span>
+                  </span>
+                </Tooltip>
               ) : null}
               {hasTreeChildren && (
                 <span

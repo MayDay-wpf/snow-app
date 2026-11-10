@@ -39,6 +39,7 @@ import { resolveEditableTarget } from "../../common/GlobalEditContextMenu";
 import { useEditContextMenu } from "../../../hooks/useEditContextMenu";
 import { useChatConversationContext } from "../../mainContent/chatMessages";
 import { rightPanelEvents } from "../rightPanelEvents";
+import { notifyConversationWorktreeChanged } from "../../../utils/conversationWorktreeEvents";
 import { GitControl } from "./GitControl";
 import { WorktreeBaseRefSelect } from "./WorktreeBaseRefSelect";
 import { BRANCHES_CHANGED, useBranchManagement } from "./useBranchManagement";
@@ -615,10 +616,12 @@ export const BranchSelector = ({
     // persisted binding while its tools and checkpoint use the current tree.
     if (!chatContext || isSessionRunning) return;
     if (chatContext.activeConversationId) {
-      void window.snow.setConversationWorktree(
-        chatContext.activeConversationId,
-        wt.worktreeId,
-      );
+      void window.snow
+        .setConversationWorktree(
+          chatContext.activeConversationId,
+          wt.worktreeId,
+        )
+        .then(notifyConversationWorktreeChanged);
     } else {
       chatContext.setPendingWorktreeId(wt.worktreeId);
       const textarea = document.querySelector<HTMLTextAreaElement>(

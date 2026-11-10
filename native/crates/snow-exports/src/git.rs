@@ -9,9 +9,9 @@ use tokio::io::AsyncReadExt;
 use crate::api::commit_message::generate_commit_message_stream;
 use crate::api::responses::{ResponsesApiResult, ResponsesApiStreamCallback};
 use crate::storage::services::git::{
-    GitBranch, GitCheckoutResult, GitCommitFile, GitCommitResult, GitDiffResult, GitIdentity,
-    GitLogEntry, GitPushPullResult, GitRemoteInfo, GitRepoInfo, GitStageResult, GitStatusResult,
-    GitWorktree, GitWorktreeInfo,
+    ConversationWorktreeInfo, GitBranch, GitCheckoutResult, GitCommitFile, GitCommitResult,
+    GitDiffResult, GitIdentity, GitLogEntry, GitPushPullResult, GitRemoteInfo, GitRepoInfo,
+    GitStageResult, GitStatusResult, GitWorktree, GitWorktreeInfo,
 };
 use crate::storage::services::git_watcher::GitChangeCallback;
 use crate::utils::process::{kill_process_tree, poll_child_exit};
@@ -835,6 +835,25 @@ pub async fn get_conversation_worktree(
     })
     .await
     .map_err(|error| napi::Error::from_reason(format!("Failed to get conversation worktree: {error}")))?
+}
+
+#[napi]
+pub async fn get_conversation_worktrees(
+    conversation_ids: Vec<String>,
+) -> napi::Result<Vec<ConversationWorktreeInfo>> {
+    tokio::task::spawn_blocking(move || {
+        let database_path = crate::storage::ensure_database_file()?;
+        crate::storage::services::git::list_conversation_worktrees(
+            &database_path,
+            &conversation_ids,
+        )
+    })
+    .await
+    .map_err(|error| {
+        napi::Error::from_reason(format!(
+            "Failed to list conversation worktrees: {error}"
+        ))
+    })?
 }
 
 #[napi]

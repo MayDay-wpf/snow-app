@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use napi::bindgen_prelude::*;
@@ -18,6 +19,20 @@ pub struct GitWorktreeInfo {
     pub head_oid: String,
     pub is_detached: bool,
     pub is_dirty: bool,
+    pub is_valid: bool,
+}
+
+/// 会话与工作树绑定的轻量视图：会话列表按页批量取用，不触发 git 子进程。
+#[napi(object)]
+#[derive(Clone)]
+pub struct ConversationWorktreeInfo {
+    pub conversation_id: String,
+    pub worktree_id: String,
+    pub directory_id: String,
+    pub repository_path: String,
+    pub worktree_path: String,
+    pub branch_name: Option<String>,
+    /// 工作树仍存在于其仓库中；外部删除后为 false。
     pub is_valid: bool,
 }
 
@@ -620,6 +635,88 @@ pub fn get_conversation_worktree(database_path: &Path, conversation_id: &str) ->
         }));
     }
     inspect_entry(&repository_path, &directory_id, entry, worktree_id).map(Some)
+}
+
+/// 批量读取会话绑定的工作树。每个仓库只执行一次 `git worktree list`，
+/// 用于会话列表按页展示绑定标识。
+pub fn list_conversation_worktrees(
+    database_path: &Path,
+    conversation_ids: &[String],
+) -> Result<Vec<ConversationWorktreeInfo>> {
+    let ids: Vec<&str> = conversation_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?")
+        .take(ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT b.conversation_id, w.worktree_id, w.directory_id, w.repository_path, w.worktree_path, w.branch_name
+           FROM conversation_worktree_bindings b
+           JOIN git_worktrees w ON w.worktree_id = b.worktree_id
+          WHERE b.conversation_id IN ({placeholders})"
+    );
+    let rows = database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut statement = connection.prepare(&sql)?;
+            let mapped = statement.query_map(
+                rusqlite::params_from_iter(ids.iter().copied()),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )?;
+            mapped.collect::<std::result::Result<Vec<_>, _>>()
+        })
+        .map_err(|error| database::database_error(database_path, "list conversation worktrees", error))?;
+
+    // 绑定可能比工作树存活更久（外部删除），逐仓库校验一次路径集合。
+    let mut valid_paths: HashMap<String, Vec<String>> = HashMap::new();
+    for (_, _, _, repository_path, _, _) in &rows {
+        if valid_paths.contains_key(repository_path) {
+            continue;
+        }
+        let paths = list_git_worktree_entries(repository_path)
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|entry| canonical(&entry.path))
+                    .collect()
+            })
+            .unwrap_or_default();
+        valid_paths.insert(repository_path.clone(), paths);
+    }
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(conversation_id, worktree_id, directory_id, repository_path, worktree_path, branch_name)| {
+                let is_valid = valid_paths
+                    .get(&repository_path)
+                    .is_some_and(|paths| paths.contains(&canonical(&worktree_path)));
+                ConversationWorktreeInfo {
+                    conversation_id,
+                    worktree_id,
+                    directory_id,
+                    repository_path,
+                    worktree_path,
+                    branch_name,
+                    is_valid,
+                }
+            },
+        )
+        .collect())
 }
 
 pub fn get_worktree_by_id(database_path: &Path, worktree_id: &str) -> Result<Option<GitWorktreeInfo>> {

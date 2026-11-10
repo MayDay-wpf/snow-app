@@ -36,6 +36,7 @@ import {
 import { useConversationCycleShortcut } from "./chats/useConversationCycleShortcut";
 import { useConversationActions } from "./chats/useConversationActions";
 import { useConversationTree } from "./chats/useConversationTree";
+import { useConversationWorktreeBindings } from "./chats/useConversationWorktreeBindings";
 import { usePausedConversationIds } from "./chats/usePausedConversationIds";
 import { usePinnedConversations } from "./chats/usePinnedConversations";
 import { useChatsSectionInteractions } from "./chats/useChatsSectionInteractions";
@@ -221,6 +222,19 @@ export function ChatsSection({
       ? [{ key: "pinned", conversations: pinned.pinnedConversations }]
       : [];
 
+  const worktreeConversationIds = useMemo(
+    () => [
+      ...pinned.pinnedConversations.map(
+        (conversation) => conversation.conversationId,
+      ),
+      ...list.conversations.map((conversation) => conversation.conversationId),
+    ],
+    [pinned.pinnedConversations, list.conversations],
+  );
+  const worktreeBindings = useConversationWorktreeBindings(
+    worktreeConversationIds,
+  );
+
   // 快捷键切换上一个/下一个会话：列表顺序 = 置顶 + 时间分组（排除运行中组）。
   const cycleOrderIds = useMemo(
     () => [
@@ -306,6 +320,7 @@ export function ChatsSection({
         attentionRequiredConversationIds={attentionRequiredConversationIds}
         completedConversationIds={completedConversationIds}
         conversation={conversation}
+        worktree={worktreeBindings.get(conversationId)}
         expandedWorkflowNodeConversationIds={
           tree.expandedWorkflowNodeConversationIds
         }
