@@ -100,6 +100,7 @@ export const zhTW = {
   "toolCall.lsp.checkedLanguages": "已傳回結果的語言",
   "toolCall.lsp.workspaceRoot": "查詢工作區",
   "toolCall.lsp.failedFiles": "{{count}} 個檔案查詢失敗",
+  "toolCall.lsp.skippedRoots": "未自動搜尋的子工程：{{roots}}",
   "toolCall.lsp.showMore": "顯示更多（剩餘 {{count}} 項）",
   "toolCall.lsp.incompleteEmpty":
     "未取得可顯示結果；查詢不完整，請查看警告後重試。",

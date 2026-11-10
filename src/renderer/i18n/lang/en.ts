@@ -112,6 +112,7 @@ export const en = {
   "toolCall.lsp.checkedLanguages": "Languages with returned results",
   "toolCall.lsp.workspaceRoot": "Queried workspace",
   "toolCall.lsp.failedFiles": "Queries failed for {{count}} file(s)",
+  "toolCall.lsp.skippedRoots": "Not searched automatically: {{roots}}",
   "toolCall.lsp.showMore": "Show more ({{count}} remaining)",
   "toolCall.lsp.incompleteEmpty":
     "No displayable results; query incomplete. Review warnings and retry.",

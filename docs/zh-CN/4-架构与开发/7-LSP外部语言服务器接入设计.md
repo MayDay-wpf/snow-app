@@ -298,7 +298,7 @@ stateDiagram-v2
 ```
 文件级请求（有 filePath）：从文件所在目录向上找最近的技术栈标志
   native/src/x.rs → native/Cargo.toml 命中 → 会话根 = native/（monorepo 每 crate 独立会话）
-项目级请求（无文件）：从项目根向下扫（深度 ≤2）取该语言最浅命中目录
+项目级请求（无文件）：从项目根向下有界扫描取该语言最浅命中目录
 两者都未命中 → LspError::NoLangStack 明确拒绝（不启动、不暴露）
 ```
 
@@ -306,17 +306,18 @@ stateDiagram-v2
 - **技术栈不存在 = 不启动**：无标志文件 → `NoLangStack`（§9）；工具暴露层同一判定（§8.0「暴露 = 可调用」），模型根本看不到必然失败的调用。
 - **状态徽章**：`session_statuses` 的项目过滤用 `starts_with`（技术栈根在项目根之下也能正确归属，manager.rs）。
 - 标志未定义的语言（自定义 lang）：不做栈根约束（项目根即会话根，保持旧行为）。
+- **自动启动范围（2026-11-10）**：工作区符号/诊断默认只使用每种语言最浅一层的栈根，根目录声明的 `package.json` workspaces、`pnpm-workspace.yaml` 与 Cargo workspace members 视为主根；更深的子工程不自动启动，结果通过 `skippedRoots` 全量返回。`filePath`/`workspaceRoot` 明确指向时按需启动，symbol-only 在主根未命中后按需扩展并搜完所有深层根。主根按**项目根**判定：显式指向深层子工程的会话不提升为主根；主根保护只对当前项目生效，主根数超过 `maxSessions` 时仍按 LRU 并写系统日志提示。项目根之外的 workspace 成员不会被扫描，需要时单独打开该目录。
 
 ### 7.3 关键参数
 
 | 参数                 | 默认值                            | 说明                                                                                                                                          |
 | -------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_sessions`       | 3                                 | **跨 (语言, 项目) 总进程数上限**（rust-analyzer 单进程 ~500MB；多项目并发时按 LRU 淘汰最久未用会话）                                          |
+| `max_sessions`       | 5                                 | **跨 (语言, 项目) 总进程数上限**（rust-analyzer 单进程 ~500MB；多项目并发时按 LRU 淘汰最久未用会话，主根会话仅当前项目优先保留）              |
 | `idle_timeout`       | 30 min                            | 空闲回收（无工具调用即回收）；600s → 1800s（2026-08-14 用户决策，减少重服务器冷启动重复支付）                                                 |
 | `initialize_timeout` | 30 s（默认）；**JVM 系 120 s**    | 按服务器提供默认超时表：`jdtls`/`kotlin-lsp` 120s（JVM 启动慢，参考 Anthropic claude-plugins-official 的 `startupTimeout: 120000`），其余 30s |
 | `request_timeout`    | 10 s（diagnostics）/ 5 s（hover） | 单次请求超时                                                                                                                                  |
 | `restart_limit`      | 2                                 | 崩溃连续重启上限                                                                                                                              |
-| 会话淘汰             | LRU                               | 超上限时回收最久未用会话                                                                                                                      |
+| 会话淘汰             | 主根优先 + LRU                    | 超上限时先淘汰按需启动的深层会话（主根保护仅当前项目）；主根之间仍按 LRU，主根数超过上限写系统日志提示                                        |
 
 ### 7.3 进程管理要点
 
@@ -519,7 +520,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 **关键设计**：
 
 1. **一次调用返回双向**：不提供 direction 参数——agent 做影响分析时两个方向都要，拆两次调用浪费一次往返。incoming 调用点位于调用者文件（`from.uri`），outgoing 调用点位于调用者（当前）文件——上下文行读取与 filePath 输出均按此区分。
-2. **能力过滤（§8.7 + §8.7.2 项目感知）**：`call-hierarchy` 暴露于 typescript（tsserver ≥3.80）/go/rust/java/swift；`type-hierarchy` 仅 go/java，且**额外要求当前项目检测到 Go/Java 技术栈**（§8.7.2：复用 detect.rs `detect_project_stack` 深度 ≤2 扫描 go.mod / pom.xml / build.gradle(.kts)；无 project_id / SSH 远程 / 检测不到 → 不暴露。2026-08-15 用户反馈：避免在无关项目诱导 AI 安装 gopls/jdtls）。pyright/clangd/csharp-ls/kotlin/lua 不暴露；intelephense 🔒、ruby-lsp ⚠️（实验）按不支持处理。能力表 2026-08-15 按服务器源码复核（详见附录 F-1 修正注）。
+2. **能力过滤（§8.7 + §8.7.2 项目感知）**：`call-hierarchy` 暴露于 typescript（tsserver ≥3.80）/go/rust/java/swift；`type-hierarchy` 仅 go/java，且**额外要求当前项目检测到 Go/Java 技术栈**（§8.7.2：复用 detect.rs `detect_project_stack` 有界扫描 go.mod / pom.xml / build.gradle(.kts)；无 project_id / SSH 远程 / 检测不到 → 不暴露。2026-08-15 用户反馈：避免在无关项目诱导 AI 安装 gopls/jdtls）。pyright/clangd/csharp-ls/kotlin/lua 不暴露；intelephense 🔒、ruby-lsp ⚠️（实验）按不支持处理。能力表 2026-08-15 按服务器源码复核（详见附录 F-1 修正注）。
 3. **prepare 空结果**：位置未命中条目（如点击表达式）返回空 incoming/outgoing 数组而非错误。
 4. **超时/上限**：复用 `REQUEST_TIMEOUT`(10s) 与 `MAX_REFERENCES`(100)；调用点上下文读取失败留空（同 references）。
 

@@ -580,8 +580,9 @@ impl ServerManager {
         lang: &str,
         project_root: &Path,
         project_id: Option<&str>,
+        primary: bool,
     ) -> Result<(Arc<Mutex<ServerSession>>, bool), LspError> {
-        self.get_or_start_inner(lang, project_root, project_id)
+        self.get_or_start_inner(lang, project_root, project_id, primary)
             .await
     }
 
@@ -591,7 +592,19 @@ impl ServerManager {
         project_root: &Path,
         project_id: Option<&str>,
     ) -> Result<Arc<Mutex<ServerSession>>, LspError> {
-        self.get_or_start_inner(lang, project_root, project_id)
+        self.get_or_start_inner(lang, project_root, project_id, false)
+            .await
+            .map(|(session, _started)| session)
+    }
+
+    /// 主根会话：获取或启动并标记为优先保留。
+    pub async fn get_or_start_primary(
+        &self,
+        lang: &str,
+        project_root: &Path,
+        project_id: Option<&str>,
+    ) -> Result<Arc<Mutex<ServerSession>>, LspError> {
+        self.get_or_start_inner(lang, project_root, project_id, true)
             .await
             .map(|(session, _started)| session)
     }
@@ -601,6 +614,7 @@ impl ServerManager {
         lang: &str,
         project_root: &Path,
         project_id: Option<&str>,
+        primary: bool,
     ) -> Result<(Arc<Mutex<ServerSession>>, bool), LspError> {
         // 先验证本请求有效配置，禁止已有会话绕过禁用/覆盖配置。
         let config_key = project_id.unwrap_or("").trim().to_string();
@@ -651,6 +665,9 @@ impl ServerManager {
                     || guard.exited_code().is_some();
                 if !changed && !crashed {
                     guard.touch();
+                    if primary {
+                        guard.mark_primary_project(&config_key);
+                    }
                     drop(guard);
                     let current = self
                         .sessions
@@ -752,10 +769,13 @@ impl ServerManager {
                         if starting.contains_key(key) {
                             return None;
                         }
-                        Self::reclaimable_last_used(session).map(|used| (key.clone(), used))
+                        Self::reclaimable_last_used(session).map(|(used, owner)| {
+                            let protected = owner.as_deref() == Some(config_key.as_str());
+                            (key.clone(), used, protected)
+                        })
                     })
-                    .min_by_key(|(_, used)| *used)
-                    .map(|(key, _)| key);
+                    .min_by_key(|(_, used, protected)| (*protected, *used))
+                    .map(|(key, _, _)| key);
                 let Some(victim) = victim else {
                     return Err(LspError::ServerFailed(
                         "LSP capacity is occupied by active requests/startups; retry later".into(),
@@ -803,7 +823,7 @@ impl ServerManager {
         let origin = SessionOrigin {
             instance: std::sync::Weak::new(),
             config: config.clone(),
-            project_id: config_key,
+            project_id: config_key.clone(),
         };
         let session = match self
             .start_reserved_session(&key, config, restart_count, &failure_key)
@@ -824,6 +844,9 @@ impl ServerManager {
             Vec::new(),
         )
         .await?;
+        if primary {
+            session.lock().await.mark_primary_project(&config_key);
+        }
         self.failures
             .lock()
             .await
@@ -924,12 +947,15 @@ impl ServerManager {
     }
 
     /// 只有表本身持有的空闲会话可回收；正在等待/运行请求的外部Arc会阻止淘汰。
-    fn reclaimable_last_used(session: &Arc<Mutex<ServerSession>>) -> Option<u64> {
+    fn reclaimable_last_used(session: &Arc<Mutex<ServerSession>>) -> Option<(u64, Option<String>)> {
         let guard = unused_handle(session)?;
         if guard.active_diagnostics() > 0 {
             return None;
         }
-        Some(guard.last_used_ms.load(Ordering::Relaxed))
+        Some((
+            guard.last_used_ms.load(Ordering::Relaxed),
+            guard.primary_project.clone(),
+        ))
     }
 
     fn reclaim_idle_keys(
@@ -941,7 +967,7 @@ impl ServerManager {
             .iter()
             .filter_map(|(key, session)| {
                 Self::reclaimable_last_used(session)
-                    .filter(|used| *used > 0 && now_ms().saturating_sub(*used) > idle_ms)
+                    .filter(|(used, _)| *used > 0 && now_ms().saturating_sub(*used) > idle_ms)
                     .map(|_| key.clone())
             })
             .collect()
@@ -1194,6 +1220,7 @@ impl ServerManager {
         drop(origins);
         drop(starting);
         drop(sessions);
+        let primary_project = guard.primary_project.clone();
         guard.shutdown().await;
         let exited = guard.process_exited();
         drop(guard);
@@ -1212,6 +1239,9 @@ impl ServerManager {
             Self::build_session_status(&key.0, &key.1, &mut guard)
         };
         self.publish_reserved_session(&key, &notify, &replacement, origin, aliases_to_rebind).await?;
+        if let Some(project_id) = primary_project {
+            replacement.lock().await.mark_primary_project(&project_id);
+        }
         // Status was sampled on our replacement before publication; no await
         // after publication can accidentally report a later replacement instance.
         Ok(Some(status))
@@ -1318,6 +1348,18 @@ impl ServerManager {
             .unwrap_or_else(|| physical.clone());
         let owner = super::detect::session_root(&config, &logical).await;
         let fingerprint = config.fingerprint();
+        let primary_project = {
+            let existing = self
+                .sessions
+                .lock()
+                .await
+                .get(&(lang.to_string(), owner.clone()))
+                .cloned();
+            match existing {
+                Some(session) => session.lock().await.primary_project.clone(),
+                None => None,
+            }
+        };
         self.stop_session(lang, project_root).await;
         self.failures.lock().await.retain(|(l, root, fp), _| {
             l != lang || fp != &fingerprint || !(root.starts_with(&physical) || root == &owner)
@@ -1333,6 +1375,12 @@ impl ServerManager {
             }
         }
 
+        if primary_project.is_some() {
+            let session = self.get_or_start_primary(lang, &owner, project_id).await?;
+            let mut guard = session.lock().await;
+            let actual_root = guard.project_root.clone();
+            return Ok(Self::build_session_status(lang, &actual_root, &mut guard));
+        }
         self.start_session(lang, project_root, project_id).await
     }
 }

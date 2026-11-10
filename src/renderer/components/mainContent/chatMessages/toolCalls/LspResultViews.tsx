@@ -133,6 +133,7 @@ export function LspResultNotice({
         meta.incomplete ||
         meta.unsupportedOperations ||
         meta.requiresExplicitCoordinates ||
+        meta.skippedRoots.length > 0 ||
         meta.failedFiles > 0) && (
         <div className="tool-call-lsp-notice-body">
           {meta.truncated && (
@@ -153,6 +154,20 @@ export function LspResultNotice({
           {meta.requiresExplicitCoordinates && (
             <p className="tool-call-lsp-notice-desc">
               {t("toolCall.lsp.requiresCoordinates")}
+            </p>
+          )}
+          {meta.skippedRoots.length > 0 && (
+            <p className="tool-call-lsp-notice-desc">
+              {t("toolCall.lsp.skippedRoots", {
+                values: {
+                  roots: meta.skippedRoots
+                    .map(
+                      (root) =>
+                        `${root.language ? `${root.language}: ` : ""}${root.path}`,
+                    )
+                    .join(", "),
+                },
+              })}
             </p>
           )}
           {meta.failedFiles > 0 && (

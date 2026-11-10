@@ -2,7 +2,7 @@
 use super::{config, detect, manager, types};
 use napi::{Error, Status};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -98,6 +98,60 @@ fn incomplete(value: &Value) -> bool {
         || value["warnings"]
             .as_array()
             .is_some_and(|items| !items.is_empty())
+}
+
+/// 解析项目根（仅显式 workspaceRoot 时需要与请求作用域区分）。
+pub(super) async fn resolved_project_root(project_id: Option<&str>) -> Option<PathBuf> {
+    let project_id = project_id
+        .map(str::to_string)
+        .filter(|id| !id.trim().is_empty())?;
+    tokio::task::spawn_blocking(move || {
+        let storage = crate::storage::initialize_app_storage().ok()?;
+        crate::storage::services::workspace_directories::get_workspace_directory_path(
+            Path::new(&storage.database_path),
+            &project_id,
+        )
+        .ok()
+        .flatten()
+        .map(PathBuf::from)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+pub(super) fn same_path(left: &Path, right: &Path) -> bool {
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    canonical(left) == canonical(right)
+}
+
+/// 项目根下的主根集合（canonical），用于判断显式作用域中的根是否仍属主根。
+pub(super) async fn project_primary_roots(project_root: &Path, lang: &str) -> HashSet<PathBuf> {
+    let root = project_root.to_path_buf();
+    let lang = lang.to_string();
+    tokio::task::spawn_blocking(move || {
+        let discovery = detect::discover_lang_roots(&root, &lang);
+        let (primary, _) = detect::select_primary_roots(&root, &lang, &discovery.roots);
+        primary
+            .into_iter()
+            .filter_map(|path| std::fs::canonicalize(path).ok())
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+fn relative_label(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(|relative| {
+            if relative.as_os_str().is_empty() {
+                ".".to_string()
+            } else {
+                relative.to_string_lossy().replace('\\', "/")
+            }
+        })
+        .unwrap_or_else(|_| "<outside-workspace>".to_string())
 }
 
 fn location_key(item: &Value) -> String {
@@ -281,6 +335,15 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
         "symbols"
     };
     let root = root(args, project_id).await?;
+    let project_root = if args.get("workspaceRoot").is_some() {
+        resolved_project_root(project_id).await
+    } else {
+        Some(root.clone())
+    };
+    let request_is_project_scope = project_root
+        .as_deref()
+        .is_some_and(|project_root| same_path(project_root, &root));
+    let mut project_primaries: HashMap<String, HashSet<PathBuf>> = HashMap::new();
     // The initialized session validates the selected operation.
     let query = if diagnostics {
         String::new()
@@ -314,6 +377,7 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
     let mut items: BTreeMap<String, Value> = BTreeMap::new();
     let mut successful_roots = 0;
     let mut clipped = false;
+    let mut skipped_roots: Vec<Value> = Vec::new();
     for server in configs
         .into_iter()
         .filter(|server| server.enabled && !server.file_extensions.is_empty())
@@ -344,8 +408,48 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
         if discovery.incomplete {
             warnings.push(json!({"language":server.lang,"error":"Technology-stack discovery was incomplete; coverage is not guaranteed"}));
         }
-        if discovery.roots.is_empty() {
+        let (primary_roots, skipped) =
+            detect::select_primary_roots(&root, &server.lang, &discovery.roots);
+        for skipped_root in skipped {
+            skipped_roots.push(json!({
+                "language": server.lang,
+                "path": relative_label(&root, &skipped_root),
+            }));
+        }
+        if primary_roots.is_empty() {
             continue;
+        }
+        let mut primary_flags = Vec::with_capacity(primary_roots.len());
+        if request_is_project_scope {
+            primary_flags.extend(primary_roots.iter().map(|_| true));
+        } else if let Some(project_root) = project_root.as_deref() {
+            if !project_primaries.contains_key(&server.lang) {
+                let set = project_primary_roots(project_root, &server.lang).await;
+                project_primaries.insert(server.lang.clone(), set);
+            }
+            let set = project_primaries
+                .get(&server.lang)
+                .expect("project primary set inserted");
+            primary_flags.extend(primary_roots.iter().map(|root| {
+                std::fs::canonicalize(root)
+                    .ok()
+                    .is_some_and(|path| set.contains(&path))
+            }));
+        } else {
+            primary_flags.extend(primary_roots.iter().map(|_| false));
+        }
+        let policy = manager.resource_policy();
+        if primary_roots.len() > policy.max_sessions {
+            queue_query_log(
+                "warn",
+                "workspace_query_primary_roots",
+                format!(
+                    "trace={trace} op={operation} language={} primaryRoots={} maxSessions={} primary roots exceed the session cap; increase maxSessions",
+                    server.lang,
+                    primary_roots.len(),
+                    policy.max_sessions
+                ),
+            );
         }
         // Capability is checked on the actual initialized session below. Static
         // estimates must not reject capabilities advertised by a custom server.
@@ -358,7 +462,7 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
             warnings.push(json!({"language":server.lang,"error":"Configured language-server command is not installed"}));
             continue;
         }
-        for lang_root in discovery.roots {
+        for (lang_root, is_primary) in primary_roots.into_iter().zip(primary_flags) {
             let root_started = Instant::now();
             let mut session_ms = 0;
             let mut lock_ms = 0;
@@ -367,7 +471,7 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
             let result = async {
                 let acquiring = Instant::now();
                 let acquired = manager
-                    .get_or_start_with_trace(&server.lang, &lang_root, project_id)
+                    .get_or_start_with_trace(&server.lang, &lang_root, project_id, is_primary)
                     .await;
                 session_ms = acquiring.elapsed().as_millis();
                 let (session, cold_start) = acquired?;
@@ -389,16 +493,7 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
             }
             .await;
             let outcome = if result.is_ok() { "ok" } else { "failed" };
-            let root_label = lang_root
-                .strip_prefix(&root)
-                .map(|relative| {
-                    if relative.as_os_str().is_empty() {
-                        ".".to_string()
-                    } else {
-                        relative.display().to_string()
-                    }
-                })
-                .unwrap_or_else(|_| "<outside-workspace>".to_string());
+            let root_label = relative_label(&root, &lang_root);
             queue_query_log(
                 if result.is_ok() { "info" } else { "warn" },
                 "workspace_query_root",
@@ -444,12 +539,20 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
     clipped |= total > limit;
     results.truncate(limit);
     let incomplete = !warnings.is_empty() || clipped;
+    skipped_roots.sort_by(|left, right| {
+        left["path"]
+            .as_str()
+            .cmp(&right["path"].as_str())
+            .then(left["language"].as_str().cmp(&right["language"].as_str()))
+    });
+    let skipped_count = skipped_roots.len();
     let languages: Vec<String> = languages.into_iter().collect();
     let warning_count = warnings.len();
     let mut output = json!({
         "language": if languages.len() == 1 { languages[0].as_str() } else { "multiple" },
         "languages": languages, "workspaceRoot":root, "status":state(successful_roots,incomplete),
         "warnings": warnings, "truncated":clipped, "incomplete":incomplete,
+        "skippedRoots":skipped_roots,
         "count":results.len(), "total":total,
     });
     if diagnostics {
@@ -465,7 +568,7 @@ async fn query(args: &Value, project_id: Option<&str>, diagnostics: bool) -> nap
     queue_query_log(
         "info",
         "workspace_query_total",
-        format!("trace={trace} op={operation} configMs={config_ms} totalMs={} successfulRoots={successful_roots} warningCount={warning_count} status={} resultCount={total}", query_started.elapsed().as_millis(), output["status"].as_str().unwrap_or("unknown")),
+        format!("trace={trace} op={operation} configMs={config_ms} totalMs={} successfulRoots={successful_roots} warningCount={warning_count} skippedRoots={skipped_count} status={} resultCount={total}", query_started.elapsed().as_millis(), output["status"].as_str().unwrap_or("unknown")),
     );
     Ok(output)
 }

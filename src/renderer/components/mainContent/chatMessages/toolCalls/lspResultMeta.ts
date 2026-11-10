@@ -1,4 +1,5 @@
 export type LspResultWarning = { language?: string; message: string };
+export type LspSkippedRoot = { language?: string; path: string };
 export type LspResultMeta = {
   status: "complete" | "partial" | "failed" | "unknown";
   warnings: LspResultWarning[];
@@ -8,6 +9,7 @@ export type LspResultMeta = {
   incomplete: boolean;
   unsupportedOperations: boolean;
   requiresExplicitCoordinates?: boolean;
+  skippedRoots: LspSkippedRoot[];
   failedFiles: number;
 };
 
@@ -70,6 +72,27 @@ export function readLspResultMeta(value: unknown): LspResultMeta {
     result.status === "partial_symbol_search" ||
     result.status === "ambiguous_symbol";
   const unsupportedOperations = result.unsupportedOperations === true;
+  const skippedRoots: LspSkippedRoot[] = Array.isArray(result.skippedRoots)
+    ? result.skippedRoots.flatMap((root): LspSkippedRoot[] => {
+        if (typeof root === "string") {
+          return root.trim() ? [{ path: root }] : [];
+        }
+        if (
+          !record(root) ||
+          typeof root.path !== "string" ||
+          !root.path.trim()
+        ) {
+          return [];
+        }
+        return [
+          {
+            language:
+              typeof root.language === "string" ? root.language : undefined,
+            path: root.path,
+          },
+        ];
+      })
+    : [];
   const explicitStatus =
     result.status === "complete" ||
     result.status === "partial" ||
@@ -120,6 +143,7 @@ export function readLspResultMeta(value: unknown): LspResultMeta {
     truncated,
     incomplete,
     unsupportedOperations,
+    skippedRoots,
     requiresExplicitCoordinates:
       result.requiresExplicitCoordinates === true ||
       result.status === "ambiguous_symbol",

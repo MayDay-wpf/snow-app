@@ -6,7 +6,7 @@ use super::session::{read_line_context, ServerSession};
 use super::types::{LspError, ServerConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -388,6 +388,56 @@ async fn candidate_response(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn search_symbol_in_root(
+    manager: &ServerManager,
+    config: &ServerConfig,
+    root: &Path,
+    project_root: &Path,
+    project_id: Option<&str>,
+    symbol: &str,
+    primary: bool,
+    seen: &mut HashSet<(String, u32, u32)>,
+    matches: &mut Vec<WorkspaceSymbolMatch>,
+    warnings: &mut Vec<Value>,
+) {
+    let session = if primary {
+        manager
+            .get_or_start_primary(&config.lang, root, project_id)
+            .await
+    } else {
+        manager.get_or_start(&config.lang, root, project_id).await
+    };
+    let result = match session {
+        Ok(session) => {
+            let mut guard = session.lock().await;
+            guard.workspace_symbols_for_root(symbol, root).await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(mut value) => {
+            if config.lang == "go" {
+                super::workspace_queries::scope_go_response(&mut value, project_root, false);
+            }
+            if !workspace_response_complete(&value) {
+                warnings.push(json!({"language":config.lang,"root":root,"error":"Partial workspace symbol response"}));
+            }
+            collect_matching_workspace_symbols(
+                &value,
+                symbol,
+                &config.lang,
+                Some(root),
+                seen,
+                matches,
+            );
+        }
+        Err(error) => {
+            warnings.push(json!({"language":config.lang,"root":root,"error":format!("{error:?}")}))
+        }
+    }
+}
+
 pub async fn resolve_symbol_workspace_global_in_root(
     manager: &ServerManager,
     configs: &[ServerConfig],
@@ -416,12 +466,23 @@ pub async fn resolve_symbol_workspace_global_in_root(
             "workspaceRoot must be an existing absolute local directory".into(),
         ));
     }
+    let reference_root = if workspace_root.is_some() {
+        super::workspace_queries::resolved_project_root(project_id).await
+    } else {
+        Some(project_root.clone())
+    };
+    let request_is_project_scope = reference_root
+        .as_deref()
+        .is_some_and(|reference| super::workspace_queries::same_path(reference, &project_root));
+    let mut project_primaries: HashMap<String, HashSet<PathBuf>> = HashMap::new();
     let mut matches = Vec::new();
     let mut seen = HashSet::new();
     let mut warnings = Vec::new();
+    let mut plans = Vec::new();
     for config in configs
         .iter()
         .filter(|c| c.enabled && !c.file_extensions.is_empty())
+        .cloned()
     {
         let root = project_root.clone();
         let lang = config.lang.clone();
@@ -430,37 +491,63 @@ pub async fn resolve_symbol_workspace_global_in_root(
                 .await
                 .map_err(|e| LspError::Internal(e.to_string()))?;
         if discovery.incomplete {
-            warnings.push(json!({"language":config.lang,"error":"Stack discovery is incomplete (scan budget, depth or unreadable path)"}));
+            warnings.push(json!({"language":config.lang,"error":"Stack discovery is incomplete (scan budget or unreadable path)"}));
         }
-        for root in discovery.roots {
-            let result = async {
-                let session = manager
-                    .get_or_start(&config.lang, &root, project_id)
-                    .await?;
-                let mut guard = session.lock().await;
-                let mut value = guard.workspace_symbols_for_root(symbol, &root).await?;
-                if config.lang == "go" {
-                    super::workspace_queries::scope_go_response(&mut value, &project_root, false);
+        let (primary, skipped) =
+            detect::select_primary_roots(&project_root, &config.lang, &discovery.roots);
+        plans.push((config, primary, skipped));
+    }
+    for (config, primary, _) in &plans {
+        for root in primary {
+            let is_primary = if request_is_project_scope {
+                true
+            } else if let Some(reference) = reference_root.as_deref() {
+                if !project_primaries.contains_key(&config.lang) {
+                    let set =
+                        super::workspace_queries::project_primary_roots(reference, &config.lang)
+                            .await;
+                    project_primaries.insert(config.lang.clone(), set);
                 }
-                Ok::<_, LspError>(value)
-            }
+                let set = project_primaries
+                    .get(&config.lang)
+                    .expect("project primary set inserted");
+                std::fs::canonicalize(root)
+                    .ok()
+                    .is_some_and(|path| set.contains(&path))
+            } else {
+                false
+            };
+            search_symbol_in_root(
+                manager,
+                config,
+                root,
+                &project_root,
+                project_id,
+                symbol,
+                is_primary,
+                &mut seen,
+                &mut matches,
+                &mut warnings,
+            )
             .await;
-            match result {
-                Ok(value) => {
-                    if !workspace_response_complete(&value) {
-                        warnings.push(json!({"language":config.lang,"root":root,"error":"Partial workspace symbol response"}));
-                    }
-                    collect_matching_workspace_symbols(
-                        &value,
-                        symbol,
-                        &config.lang,
-                        Some(&root),
-                        &mut seen,
-                        &mut matches,
-                    );
-                }
-                Err(error) => warnings
-                    .push(json!({"language":config.lang,"root":root,"error":format!("{error:?}")})),
+        }
+    }
+    if matches.is_empty() {
+        for (config, _, skipped) in &plans {
+            for root in skipped {
+                search_symbol_in_root(
+                    manager,
+                    config,
+                    root,
+                    &project_root,
+                    project_id,
+                    symbol,
+                    false,
+                    &mut seen,
+                    &mut matches,
+                    &mut warnings,
+                )
+                .await;
             }
         }
     }

@@ -100,6 +100,7 @@ export const zhCN = {
   "toolCall.lsp.checkedLanguages": "已返回结果的语言",
   "toolCall.lsp.workspaceRoot": "查询工作区",
   "toolCall.lsp.failedFiles": "{{count}} 个文件查询失败",
+  "toolCall.lsp.skippedRoots": "未自动搜索的子工程：{{roots}}",
   "toolCall.lsp.showMore": "显示更多（剩余 {{count}} 项）",
   "toolCall.lsp.incompleteEmpty":
     "未获得可展示结果；查询不完整，请查看告警后重试。",

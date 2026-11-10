@@ -44,7 +44,7 @@ pub struct ProjectStackDetection {
     pub marker: String,
 }
 
-/// 检测项目技术栈：扫描 project_root（递归深度 ≤ 2，支持 monorepo 子目录），
+/// 检测项目技术栈：有界扫描 project_root（支持 monorepo 子目录），
 /// 返回 (path, lang) 去重后按 path + lang 字典序排序的结果。project_root
 /// 不存在/不可读 → 空数组。纯文件系统扫描，无副作用。
 #[napi]

@@ -35,7 +35,6 @@ const LANGUAGES: &[&str] = &[
     "swift",
 ];
 const MAX_SCANNED_FILES: usize = 3000;
-const MAX_SCAN_DEPTH: usize = 6;
 const LANG_DETECT_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Default)]
@@ -95,11 +94,12 @@ pub(crate) struct ProjectInventory {
     pub incomplete: bool,
 }
 
-pub(crate) fn scan_project_inventory(root: &Path, max_depth: usize) -> ProjectInventory {
+/// 目录层级不设人为截断：遍历预算只由条目总数约束，避免把正常源码嵌套误判为未完成。
+pub(crate) fn scan_project_inventory(root: &Path) -> ProjectInventory {
     let mut result = ProjectInventory::default();
-    let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
+    let mut queue = VecDeque::from([root.to_path_buf()]);
     let mut visited = 0usize;
-    while let Some((dir, depth)) = queue.pop_front() {
+    while let Some(dir) = queue.pop_front() {
         if visited >= MAX_SCANNED_FILES {
             result.incomplete = true;
             break;
@@ -138,15 +138,11 @@ pub(crate) fn scan_project_inventory(root: &Path, max_depth: usize) -> ProjectIn
             } else if kind.is_file() {
                 result.files.push(entry.path());
             } else if kind.is_dir() && !should_skip_dir(&entry.file_name().to_string_lossy()) {
-                if depth < max_depth {
-                    children.push(entry.path());
-                } else {
-                    result.incomplete = true;
-                }
+                children.push(entry.path());
             }
         }
         children.sort();
-        queue.extend(children.into_iter().map(|path| (path, depth + 1)));
+        queue.extend(children);
     }
     result.files.sort();
     result.directories.sort_by(|a, b| {
@@ -193,7 +189,7 @@ fn stacks_from_inventory(root: &Path, inventory: &ProjectInventory) -> Vec<Proje
 
 pub fn detect_project_stack(project_root: &str) -> Vec<ProjectStackDetection> {
     let root = Path::new(project_root);
-    stacks_from_inventory(root, &scan_project_inventory(root, MAX_SCAN_DEPTH))
+    stacks_from_inventory(root, &scan_project_inventory(root))
 }
 
 pub(crate) fn detect_project_languages_cached(project_root: &str) -> ProjectLanguageProfile {
@@ -211,7 +207,7 @@ pub(crate) fn detect_project_languages_cached(project_root: &str) -> ProjectLang
         }
     }
     let root = Path::new(project_root);
-    let inventory = scan_project_inventory(root, MAX_SCAN_DEPTH);
+    let inventory = scan_project_inventory(root);
     let mut langs: Vec<String> = stacks_from_inventory(root, &inventory)
         .into_iter()
         .map(|d| d.lang)
@@ -269,7 +265,7 @@ pub(crate) fn discover_lang_roots(project_root: &Path, lang: &str) -> LangRootDi
             incomplete: !project_root.is_dir(),
         };
     }
-    let inventory = scan_project_inventory(project_root, MAX_SCAN_DEPTH);
+    let inventory = scan_project_inventory(project_root);
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
     for stack in stacks_from_inventory(project_root, &inventory)
@@ -290,6 +286,128 @@ pub(crate) fn discover_lang_roots(project_root: &Path, lang: &str) -> LangRootDi
 
 pub(crate) fn find_lang_roots(project_root: &Path, lang: &str) -> Vec<PathBuf> {
     discover_lang_roots(project_root, lang).roots
+}
+
+/// 默认自动使用的根：最浅一层栈根 + 根目录声明的工作区成员。
+/// 更深的子工程必须由请求显式指向，避免一次全局查询启动所有示例工程。
+pub(crate) fn select_primary_roots(
+    project_root: &Path,
+    lang: &str,
+    roots: &[PathBuf],
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    if roots.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let depths: Vec<usize> = roots
+        .iter()
+        .map(|root| {
+            root.strip_prefix(project_root)
+                .map(|relative| relative.components().count())
+                .unwrap_or(usize::MAX)
+        })
+        .collect();
+    let min_depth = depths.iter().copied().min().unwrap_or(0);
+    let (includes, excludes) = declared_workspace_patterns(project_root, lang);
+    let mut primary = Vec::new();
+    let mut skipped = Vec::new();
+    for (root, depth) in roots.iter().zip(depths) {
+        let declared = relative_path(project_root, root).is_some_and(|relative| {
+            !relative.is_empty()
+                && matches_any_pattern(&includes, &relative)
+                && !matches_any_pattern(&excludes, &relative)
+        });
+        if depth == min_depth || declared {
+            primary.push(root.clone());
+        } else {
+            skipped.push(root.clone());
+        }
+    }
+    (primary, skipped)
+}
+
+fn relative_path(project_root: &Path, path: &Path) -> Option<String> {
+    path.strip_prefix(project_root)
+        .ok()
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn matches_any_pattern(patterns: &[String], relative: &str) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| glob::Pattern::new(pattern).is_ok_and(|pattern| pattern.matches(relative)))
+}
+
+fn normalize_pattern(pattern: &str) -> Option<String> {
+    let pattern = pattern
+        .trim()
+        .trim_start_matches("./")
+        .trim_end_matches('/');
+    if pattern.is_empty() {
+        None
+    } else {
+        Some(pattern.replace('\\', "/"))
+    }
+}
+
+fn push_pattern(pattern: &str, includes: &mut Vec<String>, excludes: &mut Vec<String>) {
+    match pattern.trim().strip_prefix('!') {
+        Some(negative) => excludes.extend(normalize_pattern(negative)),
+        None => includes.extend(normalize_pattern(pattern)),
+    }
+}
+
+/// 只解析根目录声明的成员与排除；解析失败按最浅层回退，不扩大启动范围。
+fn declared_workspace_patterns(project_root: &Path, lang: &str) -> (Vec<String>, Vec<String>) {
+    let mut includes = Vec::new();
+    let mut excludes = Vec::new();
+    match lang {
+        "typescript" => {
+            if let Ok(text) = std::fs::read_to_string(project_root.join("package.json")) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let workspaces = &value["workspaces"];
+                    let list = workspaces
+                        .as_array()
+                        .or_else(|| workspaces["packages"].as_array());
+                    if let Some(list) = list {
+                        for pattern in list.iter().filter_map(serde_json::Value::as_str) {
+                            push_pattern(pattern, &mut includes, &mut excludes);
+                        }
+                    }
+                }
+            }
+            if let Ok(text) = std::fs::read_to_string(project_root.join("pnpm-workspace.yaml")) {
+                if let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(&text) {
+                    if let Some(list) = value["packages"].as_sequence() {
+                        for pattern in list.iter().filter_map(serde_yaml::Value::as_str) {
+                            push_pattern(pattern, &mut includes, &mut excludes);
+                        }
+                    }
+                }
+            }
+        }
+        "rust" => {
+            if let Ok(text) = std::fs::read_to_string(project_root.join("Cargo.toml")) {
+                if let Ok(value) = text.parse::<toml::Value>() {
+                    if let Some(workspace) = value.get("workspace") {
+                        if let Some(list) = workspace.get("members").and_then(toml::Value::as_array)
+                        {
+                            for pattern in list.iter().filter_map(toml::Value::as_str) {
+                                push_pattern(pattern, &mut includes, &mut excludes);
+                            }
+                        }
+                        if let Some(list) = workspace.get("exclude").and_then(toml::Value::as_array)
+                        {
+                            for pattern in list.iter().filter_map(toml::Value::as_str) {
+                                push_pattern(&format!("!{pattern}"), &mut includes, &mut excludes);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    (includes, excludes)
 }
 
 /// 文件级从文件本身所属栈查找，不回落至主仓/兄弟工作树。
