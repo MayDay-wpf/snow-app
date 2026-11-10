@@ -19,6 +19,8 @@ export type PluginToolCallContext = Readonly<{
     interactionId: string;
     status: "pending" | "running" | "completed" | "error";
     result?: string;
+    /** Epoch ms when the call transitioned to "running"; absent for non-running calls. */
+    startedAt?: number;
     streamingStdout?: string;
     streamingStderr?: string;
   }>;

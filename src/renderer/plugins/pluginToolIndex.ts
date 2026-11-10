@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 /**
  * 工具归属索引：工具插件暴露的工具全名为 `{publicServerName}-{工具名}`，
@@ -63,12 +63,35 @@ const subscribe = (listener: () => void): (() => void) => {
 
 const getSnapshot = (): ReadonlyMap<string, PluginToolOwner> => index;
 
+// The index is built once per session, so a tool that appears after a plugin install
+// (or after a restart of the plugin server) is missing from it. A lookup miss schedules
+// one bounded re-read instead of leaving the tool unowned forever.
+let lastRefreshAt = 0;
+const REFRESH_AFTER_MS = 2000;
+// Bounded: a tool that is simply not a plugin tool must not keep re-reading the list.
+let refreshesLeft = 5;
+
+const refreshWhenUnknown = (): void => {
+  if (inflight || refreshesLeft <= 0) return;
+  const now = Date.now();
+  if (now - lastRefreshAt < REFRESH_AFTER_MS) return;
+  lastRefreshAt = now;
+  refreshesLeft -= 1;
+  inflight = load().finally(() => {
+    inflight = null;
+  });
+};
+
 /** 工具调用所属的工具插件与原始工具名；无归属时返回 null。 */
 export const usePluginToolOwnerInfo = (
   toolName: string,
 ): PluginToolOwner | null => {
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return current.get(toolName) ?? null;
+  const owner = current.get(toolName) ?? null;
+  useEffect(() => {
+    if (!owner) refreshWhenUnknown();
+  }, [owner, toolName]);
+  return owner;
 };
 
 /** 工具调用所属的工具插件 id；无归属时返回 null。 */
@@ -80,12 +103,18 @@ export const useSharedPluginToolOwner = (
   toolNames: string[],
 ): string | null => {
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return useMemo(() => {
+  const pluginId = useMemo(() => {
     if (toolNames.length === 0) return null;
-    const pluginId = current.get(toolNames[0])?.pluginId;
-    if (!pluginId) return null;
-    return toolNames.every((name) => current.get(name)?.pluginId === pluginId)
-      ? pluginId
+    const owner = current.get(toolNames[0]);
+    if (!owner) return null;
+    return toolNames.every(
+      (name) => current.get(name)?.pluginId === owner.pluginId,
+    )
+      ? owner.pluginId
       : null;
   }, [current, toolNames]);
+  useEffect(() => {
+    if (!pluginId) refreshWhenUnknown();
+  }, [pluginId, toolNames]);
+  return pluginId;
 };
