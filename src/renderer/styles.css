@@ -30537,8 +30537,8 @@ button.user-message-source:hover {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 不设最小高度：结果少时面板随内容收缩，避免底部空白 */
   padding: 4px 0;
-  min-height: 80px;
   max-height: 220px;
 }
 
