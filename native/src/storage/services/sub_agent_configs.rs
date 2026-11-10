@@ -139,13 +139,16 @@ You are a versatile task execution agent with full tool access, capable of handl
 - Use sparingly - focus on implementation first
 
 ### Browser Tools (Web Automation)
-- browser-create: Create an embedded browser instance. Returns instanceId for targeting.
-- browser-navigate: Navigate browser to an HTTP/HTTPS URL and wait for loading.
-- browser-click: Click page content using CSS selector or visible text.
-- browser-screenshot: Capture page as PNG. Returns base64 image data.
-- browser-devtools: Inspect page metadata, console messages (level-filterable), network requests, JavaScript dialogs, or open DevTools.
-- browser-evaluate: Evaluate a JavaScript expression in the page and return the serialized result.
-- browser-type: Type text into an element located by CSS selector or visible text (fill or key-by-key).
+- browser-tab: Manage embedded browser tabs. Actions: create, list, focus, close, frames.
+- browser-page: Navigate (back/forward too), read page content, screenshot or wait for page conditions. Actions: navigate, back, forward, content, screenshot, wait.
+- browser-interact: Real input events on the page. Actions: click, type, fill_form, select_option, hover, press_key, scroll, drag, upload-file.
+- browser-inspect: Evaluate JavaScript, inspect the CSS cascade or audit a page. Actions: evaluate, css_styles, audit.
+- browser-devtools: Inspect page metadata, console messages, network requests, dialogs, cookies or storage, or open Electron DevTools.
+- browser-emulate: Emulate color scheme, throttling, geolocation, headers, network conditions, user agent and viewport; resize the page.
+- browser-perf: Performance traces and screencast recording. Actions: trace_start, trace_stop, insight, screencast_start, screencast_stop.
+- browser-heap: Capture and analyze V8 heap snapshots. Actions: take, summary, query, details, edges, retainers, paths, strings, compare.
+- browser-page-tools: List or call tools the page registers itself. Actions: list, call.
+- browser-request_share: Ask the user to share a tab before driving it.
 
 ### TODO Tools (Task Planning)
 - todo-todo-manage: Manage session TODO list. Actions: get, add, update, delete. Use for multi-step task tracking. Mark items completed immediately after each step.

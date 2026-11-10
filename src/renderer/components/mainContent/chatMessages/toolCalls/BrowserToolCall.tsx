@@ -66,6 +66,7 @@ import {
   getBrowserOutcome,
   sanitizeBrowserDisplayValue,
 } from "./browserToolPresentation";
+import { resolveBrowserOperation } from "../../../../../shared/browserToolOperations";
 import "./BrowserToolCall.css";
 
 type BrowserToolCallProps = {
@@ -2260,16 +2261,14 @@ export const BrowserToolCall = ({
   toolCall,
 }: BrowserToolCallProps): React.JSX.Element => {
   const { t } = useI18n();
-  const operation = (
-    toolCall.name.startsWith("browser-")
-      ? toolCall.name.slice("browser-".length)
-      : toolCall.name
-  ) as BrowserOperation;
-
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
     [toolCall.arguments],
   );
+  const operation = resolveBrowserOperation(
+    toolCall.name,
+    parsedArgs,
+  ) as BrowserOperation;
   const parsedResult = useMemo(
     () => parseResult(toolCall.result),
     [toolCall.result],

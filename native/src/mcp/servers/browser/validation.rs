@@ -3,7 +3,12 @@ use super::*;
 use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 
-pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Value> {
+pub(crate) fn validate_and_normalize_args(
+    tool_name: &str,
+    args: &Value,
+) -> napi::Result<(String, Value)> {
+    let operation = resolve_operation(tool_name, args)?;
+    let merged_tool = tool_actions(tool_name).is_some();
     let object = args.as_object().ok_or_else(|| {
         Error::new(
             Status::InvalidArg,
@@ -11,6 +16,12 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
         )
     })?;
     let mut normalized = object.clone();
+    // 合并工具的外层 action 只用于选择 operation，不进入 Electron 参数。
+    if merged_tool {
+        normalized.remove("action");
+    }
+    // 后续分支按 operation 名处理（错误文案与 frameId 允许列表沿用原 operation）。
+    let tool_name = operation.as_str();
     // Only structural identifiers, paths and enums are trimmed. Payload strings
     // (JavaScript, selectors, text, regexes, response bodies and form values) are
     // validated and forwarded verbatim, including significant surrounding spaces.
@@ -1195,7 +1206,7 @@ pub(crate) fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi
         _ => return Err(unknown_tool_error(tool_name)),
     }
 
-    Ok(Value::Object(normalized))
+    Ok((operation, Value::Object(normalized)))
 }
 
 fn required_string<'a>(args: &'a Value, field: &str, tool_name: &str) -> napi::Result<&'a str> {
@@ -1468,7 +1479,7 @@ pub(crate) fn unknown_tool_error(tool_name: &str) -> Error {
     Error::new(
         Status::GenericFailure,
         format!(
-            "Unknown tool: \"{tool_name}\" for MCP server \"browser\". Available tools: [browser-create, browser-navigate, browser-click, browser-hover, browser-type, browser-fill_form, browser-drag, browser-select_option, browser-press_key, browser-scroll, browser-screenshot, browser-wait, browser-devtools, browser-close, browser-focus, browser-list, browser-evaluate, browser-upload-file, browser-back, browser-forward, browser-get_tab_content, browser-frames, browser-request_share, browser-emulate, browser-resize_page, browser-performance_start_trace, browser-performance_stop_trace, browser-performance_analyze_insight, browser-get_css_styles, browser-audit, browser-take_heapsnapshot, browser-get_heapsnapshot_summary, browser-query_heapsnapshot_objects, browser-get_heapsnapshot_object_details, browser-get_heapsnapshot_edges, browser-get_heapsnapshot_retainers, browser-get_heapsnapshot_retaining_paths, browser-get_heapsnapshot_duplicate_strings, browser-compare_heapsnapshots, browser-screencast_start, browser-screencast_stop, browser-list_page_tools, browser-call_page_tool]"
+            "Unknown tool: \"{tool_name}\" for MCP server \"browser\". Available tools: [browser-tab, browser-page, browser-interact, browser-devtools, browser-inspect, browser-emulate, browser-perf, browser-heap, browser-page-tools, browser-request_share]"
         ),
     )
 }

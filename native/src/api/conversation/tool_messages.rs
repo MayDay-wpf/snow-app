@@ -136,7 +136,7 @@ fn parse_tool_result_records(raw: &str) -> Vec<ToolResultRecord> {
 
 /// A tool result split into plain text and multimodal image blocks.
 ///
-/// Screenshot tools (`browser-screenshot`) embed their PNG base64 payload as
+/// Screenshot tools (`browser-page` with action=screenshot) embed their PNG base64 payload as
 /// `@@image:data:image/png;base64,...@@` tags inside the stored result string
 /// (see `formatMcpToolResultForModel` in the renderer). Each provider payload
 /// builder must emit those images as native multimodal content blocks

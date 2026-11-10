@@ -81,7 +81,7 @@ export const ToolCallNode = ({
   }, [defaultOpen]);
 
   // Resolve the badge name: explicit badgeName wins; otherwise look up the
-  // tool name in the i18n `toolNames` table (e.g. "browser-create" → "创建浏览器",
+  // tool name in the i18n `toolNames` table (e.g. "browser-tab" → "标签页管理"),
   // "anysearch-extract" → "网页提取"); finally fall back to the readable short
   // name so external MCP tools never show a raw `batch_search` token.
   const resolvedBadgeName = badgeName || resolveToolDisplayName(t, toolName);
