@@ -225,8 +225,12 @@ fn resolve_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubjec
             Some(input) => Some(input.to_string()),
             None => join_strings(args.get("keys")),
         },
-        "computer-use-type-text" => args.get("text").and_then(Value::as_str).map(str::to_string),
-        "computer-use-perform-actions" => typed_action_text(args),
+        // computer-use：type 动作的 text，以及 steps 里所有 type 步骤的文本。
+        "computer-use-act" => match args.get("action").and_then(Value::as_str) {
+            Some("type") => args.get("text").and_then(Value::as_str).map(str::to_string),
+            Some("steps") => typed_action_text(args),
+            _ => None,
+        },
         "config-manage" => return config_subject(tool_full_name, args),
         _ => None,
     }?;

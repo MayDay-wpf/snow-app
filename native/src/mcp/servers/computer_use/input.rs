@@ -336,130 +336,7 @@ pub fn mouse_location() -> Result<(i32, i32), Failure> {
     with_controller(|controller| controller.mouse_location())
 }
 
-/// 瞬移鼠标到全局坐标。
-pub fn move_mouse_instant(x: i32, y: i32) -> Result<(i32, i32), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        controller.move_to_instant(x, y)?;
-        controller.mouse_location()
-    })
-}
-
-/// 平滑移动鼠标到全局坐标，返回最终位置。
-pub fn smooth_move_mouse(x: i32, y: i32, duration_ms: u64) -> Result<(i32, i32), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        controller.smooth_move_to(x, y, duration_ms)?;
-        controller.mouse_location()
-    })
-}
-
-/// 点击（单击/双击/三击/长按），返回点击时鼠标位置。
-#[allow(clippy::too_many_arguments)]
-pub fn click_mouse(
-    x: Option<i32>,
-    y: Option<i32>,
-    button: Button,
-    clicks: u32,
-    interval_ms: u64,
-    hold_ms: u64,
-    move_duration_ms: u64,
-) -> Result<(i32, i32), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        if let (Some(x), Some(y)) = (x, y) {
-            controller.smooth_move_to(x, y, move_duration_ms)?;
-        }
-        controller.click_times(button, clicks, interval_ms, hold_ms)?;
-        controller.mouse_location()
-    })
-}
-
-/// 拖拽（含长按拖拽），返回释放时鼠标位置。
-#[allow(clippy::too_many_arguments)]
-pub fn drag_mouse(
-    from: Option<(i32, i32)>,
-    to: (i32, i32),
-    button: Button,
-    hold_ms: u64,
-    pre_move_duration_ms: u64,
-    drag_duration_ms: u64,
-    release_at_end: bool,
-) -> Result<(i32, i32), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        controller.drag(
-            from,
-            to,
-            button,
-            hold_ms,
-            pre_move_duration_ms,
-            drag_duration_ms,
-            release_at_end,
-        )?;
-        controller.mouse_location()
-    })
-}
-
-/// 滚动。amount 单位为滚轮格（15° 档），正负号代表方向。
-pub fn scroll_mouse(amount: i32, axis: Axis) -> Result<(), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| controller.scroll(amount, axis))
-}
-
-/// 底层按下/释放鼠标按钮（自定义手势原语）。
-pub fn mouse_button(
-    action_press: bool,
-    button: Button,
-    x: Option<i32>,
-    y: Option<i32>,
-    move_duration_ms: u64,
-) -> Result<(i32, i32), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        if let (Some(x), Some(y)) = (x, y) {
-            controller.smooth_move_to(x, y, move_duration_ms)?;
-        }
-        controller.button(
-            button,
-            if action_press {
-                Direction::Press
-            } else {
-                Direction::Release
-            },
-        )?;
-        controller.mouse_location()
-    })
-}
-
-/// 组合键点击。
-pub fn tap_keys(keys: &[Key]) -> Result<(), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| controller.tap_combination(keys))
-}
-
-/// 底层按键按下/释放（长按场景原语）。
-pub fn key_button(key: Key, action_press: bool) -> Result<(), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| {
-        controller.key(
-            key,
-            if action_press {
-                Direction::Press
-            } else {
-                Direction::Release
-            },
-        )
-    })
-}
-
-/// 输入文本（Unicode，走系统文本通道，非逐键模拟）。
-pub fn type_text(text: &str) -> Result<(), Failure> {
-    ensure_input_permission()?;
-    with_controller(|controller| controller.type_text(text))
-}
-
-/// 在单次互斥锁持有下顺序执行整个动作链（perform-actions）：
+/// 在单次互斥锁持有下顺序执行整个动作链（act 的 steps）：
 /// 链中步骤间不会插入其他键鼠调用（原子性）。失败即停
 /// （continue_on_error=false）或记录后继续；返回已执行步骤
 /// 的结果与结束时鼠标位置。
@@ -520,7 +397,7 @@ fn execute_chain_action(
             duration,
             release_at_end,
         } => {
-            // 省略时长 = 按距离自适应（150-800ms），与 mouse-drag 工具一致
+            // 省略时长 = 按距离自适应（150-800ms），与单动作 drag 一致
             let drag_duration = match duration {
                 Some(explicit) => *explicit,
                 None => {
@@ -570,7 +447,7 @@ fn execute_chain_action(
             controller.key(*key, Direction::Release)
         }
         ChainAction::TypeText { text, x, y } => {
-            // 带坐标：先单击聚焦（与 type-text 工具一致）
+            // 带坐标：先单击聚焦（与单动作 type 一致）
             if let (Some(x), Some(y)) = (x, y) {
                 controller.smooth_move_to(*x, *y, 0)?;
                 controller.click_times(Button::Left, 1, 90, 0)?;

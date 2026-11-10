@@ -116,7 +116,7 @@ impl Failure {
         self.kind.map(ErrorKind::code)
     }
 
-    /// 单行摘要（perform-actions 的步骤级错误用，避免重复环境快照）。
+    /// 单行摘要（act 的步骤级错误用，避免重复环境快照）。
     pub fn labeled(&self) -> String {
         match self.kind {
             None => self.message.clone(),

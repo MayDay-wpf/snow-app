@@ -68,8 +68,8 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         // Electron 桥接，经默认分发路径 spawn_blocking 执行；默认关闭
         // （system_settings DEFAULT_DISABLED_BUILTIN_SERVERS + collect.rs
         // DEFAULT_DISABLED_SERVER_IDS，与 terminal/lsp 同一白名单机制），
-        // 需在 MCP 面板按项目显式启用。键鼠控制工具天然高危，全部走用户
-        // 审批，仅 screen-info 列入 READONLY_TOOL_NAMES。
+        // 需在 MCP 面板按项目显式启用。工具面只有 screen / act 两个：
+        // 截图与全部键鼠动作都走用户审批，仅 screen 的 info 动作免审批。
         //
         // html：HTML 渲染器（会话内实时预览），纯 Rust 规范化 + 内容寻址落盘，
         // 经默认分发路径 spawn_blocking 执行；默认关闭（同上白名单机制），
@@ -113,7 +113,7 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "memory-manage",
     "sub-agents-getResult",
     "sub-agents-wait",
-    "computer-use-screen-info",
+    "computer-use-screen",
     "html-render",
     "toolSearch-tool-search",
 ];
@@ -138,6 +138,8 @@ pub fn tool_readonly_actions() -> Value {
         "todo-todo-manage": ["get"],
         "memory-manage": ["search", "list"],
         "config-manage": ["list", "get", "logs"],
+        // computer-use-screen：只有 info 免审批（截图仍走审批）。
+        "computer-use-screen": ["info"],
     })
 }
 

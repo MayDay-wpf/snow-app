@@ -1,4 +1,4 @@
-//! perform-actions 连续动作链：JSON 解析、前置校验与结果格式化。
+//! act 连续动作链：JSON 解析、前置校验与结果格式化。
 //!
 //! 解析阶段完成全部参数校验（含坐标桌面边界检查），任一步骤非法
 //! 则整条链拒绝执行（不产生半执行状态）；执行副作用统一走
@@ -355,7 +355,7 @@ fn point_text(x: Option<i32>, y: Option<i32>) -> String {
     }
 }
 
-/// 组装 perform-actions 结果 JSON：逐步结果 + 失败定位 + 结束光标。
+/// 组装 act 的结果 JSON：逐步结果 + 失败定位 + 结束光标。
 pub fn format_result(
     total: usize,
     outcomes: &[ChainStepOutcome],
