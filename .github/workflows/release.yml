@@ -34,11 +34,6 @@ jobs:
             arch: arm64
             rust_targets: aarch64-apple-darwin
             build_args: "--mac dmg zip --arm64"
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
-            rust_targets: x86_64-apple-darwin
-            build_args: "--mac dmg zip --x64"
           # Linux 必须固定在 ubuntu-22.04（glibc 2.35）上构建：
           # Rust native bridge 动态链接宿主 glibc，若用更新的 runner
           # （如 ubuntu-latest 的 glibc 2.39），产出的 .deb 将无法在
@@ -105,13 +100,6 @@ jobs:
           SNOW_LINUX_GLIBC_MAX: "2.35"
         run: node scripts/verify-linux-native-glibc.cjs release
 
-      - name: Rename arm64 update yml to avoid collision
-        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
-        run: |
-          if [ -f release/latest-mac.yml ]; then
-            mv release/latest-mac.yml release/latest-mac-arm64.yml
-          fi
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -138,9 +126,6 @@ jobs:
         with:
           path: release
           merge-multiple: true
-
-      - name: Merge macOS update yml (arm64 + x64)
-        run: node scripts/merge-mac-yml.cjs
 
       # 生成无签名更新清单 latest-mac.json（版本号 + 各架构 zip 的 SHA-256）
       - name: Generate latest-mac.json
