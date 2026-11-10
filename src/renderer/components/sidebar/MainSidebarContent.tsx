@@ -171,12 +171,13 @@ export function MainSidebarContent({
     void marketStore.ensureLoaded();
   }, []);
 
-  // 团队协作入口：当前项目已关联团队（且团队协作开关开启）时展示
+  // 团队协作入口：当前项目已关联团队（且团队协作开关开启）时展示；
+  // 徽标汇总未读动态 / 我的任务 / 待我评审 / 加入申请，直接显示累计数量。
   const [teamRefreshKey, setTeamRefreshKey] = useState(0);
   const {
     team: teamInfo,
     enabled: teamEnabled,
-    pendingCount: teamPendingCount,
+    totalCount: teamTotalCount,
   } = useTeamSummary(
     activeDirectory?.directoryId ?? "",
     activeDirectory?.path ?? "",
@@ -521,7 +522,7 @@ export function MainSidebarContent({
         <div className="sidebar-team-entry">
           <TeamEntry
             team={teamInfo}
-            pendingCount={teamPendingCount}
+            badgeCount={teamTotalCount}
             onClick={() => {
               onSwitchContent?.("main");
               onSelectMainView?.("team");

@@ -12,13 +12,25 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { TeamMessage, TeamMessageAttachment } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { dataUrlToBlob, saveBlobToFile } from "../../../utils/imageDownload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import type { TeamData } from "./useTeamData";
 import { TeamAvatar, TeamErrorNotice } from "./TeamShared";
+import {
+  getTeamActivityReadAt,
+  isTeamEventUnread,
+  markTeamActivityRead,
+} from "./teamActivityRead";
 import {
   buildTeamEvents,
   memberName,
@@ -220,6 +232,59 @@ export const TeamActivity = ({
       el.scrollTop = el.scrollHeight;
     }
   }, [feedEvents.length]);
+
+  const teamId = team.team?.teamId ?? "";
+
+  // 未读快照：进入动态页时固定一次，本次浏览期间红点与分隔条位置不再变化。
+  const [unreadKeys, setUnreadKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const unreadTeamRef = useRef("");
+
+  useEffect(() => {
+    if (!teamId || team.loading || unreadTeamRef.current === teamId) {
+      return;
+    }
+    unreadTeamRef.current = teamId;
+    const readAt = getTeamActivityReadAt(teamId);
+    setUnreadKeys(
+      new Set(
+        feedEvents
+          .filter((event) => isTeamEventUnread(event, readAt, myPeerId))
+          .map((event) => event.key),
+      ),
+    );
+  }, [teamId, team.loading, feedEvents, myPeerId]);
+
+  const firstUnreadKey = useMemo(
+    () => feedEvents.find((event) => unreadKeys.has(event.key))?.key ?? "",
+    [feedEvents, unreadKeys],
+  );
+
+  const unreadLabel = t("team.activity.unreadDot", { defaultValue: "未读" });
+
+  const latestEventAt =
+    feedEvents.length > 0 ? feedEvents[feedEvents.length - 1].at : 0;
+
+  // 动态页可见时自动标记已读；窗口隐藏或切到其它页签时不标记。
+  useEffect(() => {
+    if (!teamId || !latestEventAt || team.loading) {
+      return undefined;
+    }
+    const markRead = (): void => markTeamActivityRead(teamId, latestEventAt);
+    if (document.visibilityState === "visible") {
+      const timer = window.setTimeout(markRead, 800);
+      return () => window.clearTimeout(timer);
+    }
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        markRead();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [teamId, latestEventAt, team.loading]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -452,6 +517,8 @@ export const TeamActivity = ({
                 ? outboxState.get(event.refId)
                 : undefined;
             const isDeleting = deletingKeys.includes(event.key);
+            const isUnread = unreadKeys.has(event.key);
+            const isFirstUnread = event.key === firstUnreadKey;
             const deleteButton = isDeleting ? (
               <span
                 className="team-feed-delete is-busy"
@@ -472,86 +539,110 @@ export const TeamActivity = ({
               </button>
             );
             return (
-              <div
-                key={event.key}
-                className={`team-feed-item${isMessage ? " is-message" : " is-event"}${
-                  isMessage && isMine ? " is-mine" : ""
-                }`}
-              >
-                {isMessage ? (
-                  <>
-                    <TeamAvatar
-                      name={authorName}
-                      seed={memberSeed(team.members, event.authorPeerId)}
-                      size={30}
-                    />
-                    <div className="team-feed-message">
-                      <div className="team-feed-message-meta">
-                        {isMine && sendState !== "sending"
-                          ? deleteButton
-                          : null}
-                        <span className="team-feed-author">{authorName}</span>
-                        <span className="team-feed-time">
-                          {timeAgo(event.at, t, now)}
-                        </span>
-                      </div>
-                      <div className="team-feed-bubble-row">
-                        {sendState === "sending" ? (
-                          <span
-                            className="team-feed-send-state is-sending"
-                            title={t("team.activity.sending", {
-                              defaultValue: "发送中…",
-                            })}
-                          >
-                            <LoaderCircle size={13} />
-                          </span>
-                        ) : null}
-                        {sendState === "failed" ? (
-                          <button
-                            type="button"
-                            className="team-feed-send-state is-failed"
-                            onClick={() => retrySend(event.refId ?? "")}
-                            title={t("team.activity.retry", {
-                              defaultValue: "发送失败，点击重发",
-                            })}
-                          >
-                            <CircleAlert size={14} />
-                          </button>
-                        ) : null}
-                        <div className="team-feed-message-bubble">
-                          {(event.content ?? "").trim() ? (
-                            <div className="team-feed-message-text">
-                              {eventText(event)}
-                            </div>
-                          ) : null}
-                          {event.attachments && event.attachments.length > 0 ? (
-                            <MessageAttachments
-                              attachments={event.attachments}
-                              cache={mediaCacheRef.current}
-                              readMedia={team.readMedia}
-                              onPreview={(src) => setPreviewSrc(src)}
+              <Fragment key={event.key}>
+                {isFirstUnread ? (
+                  <div className="team-feed-unread-divider">
+                    {t("team.activity.unreadDivider", {
+                      defaultValue: "{{count}} 条未读动态",
+                      values: { count: unreadKeys.size },
+                    })}
+                  </div>
+                ) : null}
+                <div
+                  className={`team-feed-item${
+                    isMessage ? " is-message" : " is-event"
+                  }${isMessage && isMine ? " is-mine" : ""}${
+                    isUnread ? " is-unread" : ""
+                  }`}
+                >
+                  {isMessage ? (
+                    <>
+                      <TeamAvatar
+                        name={authorName}
+                        seed={memberSeed(team.members, event.authorPeerId)}
+                        size={30}
+                      />
+                      <div className="team-feed-message">
+                        <div className="team-feed-message-meta">
+                          {isMine && sendState !== "sending"
+                            ? deleteButton
+                            : null}
+                          {isUnread ? (
+                            <span
+                              className="team-feed-unread-dot"
+                              title={unreadLabel}
                             />
                           ) : null}
+                          <span className="team-feed-author">{authorName}</span>
+                          <span className="team-feed-time">
+                            {timeAgo(event.at, t, now)}
+                          </span>
+                        </div>
+                        <div className="team-feed-bubble-row">
+                          {sendState === "sending" ? (
+                            <span
+                              className="team-feed-send-state is-sending"
+                              title={t("team.activity.sending", {
+                                defaultValue: "发送中…",
+                              })}
+                            >
+                              <LoaderCircle size={13} />
+                            </span>
+                          ) : null}
+                          {sendState === "failed" ? (
+                            <button
+                              type="button"
+                              className="team-feed-send-state is-failed"
+                              onClick={() => retrySend(event.refId ?? "")}
+                              title={t("team.activity.retry", {
+                                defaultValue: "发送失败，点击重发",
+                              })}
+                            >
+                              <CircleAlert size={14} />
+                            </button>
+                          ) : null}
+                          <div className="team-feed-message-bubble">
+                            {(event.content ?? "").trim() ? (
+                              <div className="team-feed-message-text">
+                                {eventText(event)}
+                              </div>
+                            ) : null}
+                            {event.attachments &&
+                            event.attachments.length > 0 ? (
+                              <MessageAttachments
+                                attachments={event.attachments}
+                                cache={mediaCacheRef.current}
+                                readMedia={team.readMedia}
+                                onPreview={(src) => setPreviewSrc(src)}
+                              />
+                            ) : null}
+                          </div>
                         </div>
                       </div>
+                    </>
+                  ) : (
+                    <div className="team-feed-event">
+                      {isUnread ? (
+                        <span
+                          className="team-feed-unread-dot"
+                          title={unreadLabel}
+                        />
+                      ) : null}
+                      <span className="team-feed-event-icon">
+                        {EVENT_ICON[event.type]}
+                      </span>
+                      <span className="team-feed-event-text">
+                        <span className="team-feed-author">{authorName}</span>{" "}
+                        {eventText(event)}
+                      </span>
+                      <span className="team-feed-time">
+                        {timeAgo(event.at, t, now)}
+                      </span>
+                      {isMine && event.type !== "member" ? deleteButton : null}
                     </div>
-                  </>
-                ) : (
-                  <div className="team-feed-event">
-                    <span className="team-feed-event-icon">
-                      {EVENT_ICON[event.type]}
-                    </span>
-                    <span className="team-feed-event-text">
-                      <span className="team-feed-author">{authorName}</span>{" "}
-                      {eventText(event)}
-                    </span>
-                    <span className="team-feed-time">
-                      {timeAgo(event.at, t, now)}
-                    </span>
-                    {isMine && event.type !== "member" ? deleteButton : null}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </Fragment>
             );
           })
         )}

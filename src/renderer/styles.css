@@ -58511,6 +58511,13 @@ pre.file-viewer-code {
   user-select: none;
   position: relative;
 }
+.team-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
 .team-avatar.is-online::after {
   content: "";
   position: absolute;
@@ -58863,6 +58870,34 @@ pre.file-viewer-code {
   align-items: center;
   justify-content: center;
   margin: 2px 0;
+}
+/* 未读动态：红点标记 + 未读分隔条 */
+.team-feed-unread-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-red, #e5484d);
+  flex-shrink: 0;
+  align-self: center;
+}
+.team-feed-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+  color: var(--accent-red, #e5484d);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.team-feed-unread-divider::before,
+.team-feed-unread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+.team-feed-item.is-unread .team-feed-author {
+  color: var(--text-primary);
 }
 .team-feed-message {
   min-width: 0;
@@ -59443,6 +59478,7 @@ pre.file-viewer-code {
 .team-color-picker {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .team-color-swatch {
@@ -59485,6 +59521,12 @@ pre.file-viewer-code {
   border-color: var(--text-primary);
   color: var(--text-primary);
 }
+/* 头像图片操作按钮：与色板同排，尺寸收紧 */
+.team-avatar-upload {
+  padding: 4px 8px;
+  font-size: 12px;
+  gap: 4px;
+}
 .team-form .custom-select-trigger {
   padding: 7px 10px;
   border-color: var(--border-subtle);
@@ -59505,6 +59547,16 @@ pre.file-viewer-code {
   color: var(--text-tertiary);
   line-height: 1.6;
   margin: 0;
+}
+/* 带图标的提示：图标与首行文字垂直对齐 */
+.team-form-hint.has-icon {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.team-form-hint.has-icon > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
 }
 
 /* ---- 详情 ---- */

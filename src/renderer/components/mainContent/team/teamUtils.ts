@@ -74,9 +74,13 @@ export const AVATAR_COLORS = [
 export const isCustomAvatarColor = (seed: string): boolean =>
   /^#[0-9a-fA-F]{6}$/.test(seed.trim());
 
+/** 头像图片（内嵌 base64 data URL）判定：只认图片，避免渲染外部 URL。 */
+export const isAvatarImage = (seed: string): boolean =>
+  /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(seed.trim());
+
 /**
  * 头像颜色：种子为自定义色（`#rrggbb`）时直接使用，否则按种子前 6 位
- * （十六进制哈希）取调色板颜色。
+ * （十六进制哈希）取调色板颜色；图片种子由头像组件直接渲染图片。
  */
 export const avatarColor = (seed: string): string => {
   const trimmed = seed.trim();

@@ -4,27 +4,36 @@ import { useI18n } from "../../../i18n";
 import { TeamAvatar } from "../../mainContent/team/TeamShared";
 
 /**
- * 侧边栏的团队协作入口：展示当前项目所属团队与本机待办徽标。
+ * 侧边栏的团队协作入口：展示当前项目所属团队与累计待办徽标
+ * （未读动态 + 我的任务 + 待我评审 + 加入申请）。
  * 团队数据存于本机数据库，由队长设备的 WebSocket 服务实时同步。
  */
 export const TeamEntry = ({
   team,
-  pendingCount = 0,
+  badgeCount = 0,
   onClick,
 }: {
   team: TeamInfo | null;
-  pendingCount?: number;
+  badgeCount?: number;
   onClick: () => void;
 }): React.JSX.Element => {
   const { t } = useI18n();
   const displayName = team?.selfName || team?.name || t("team.nameFallback");
+  const label = t("team.sidebarEntry", { defaultValue: "团队协作" });
 
   return (
     <button
       type="button"
       className="nav-item team-entry"
       onClick={onClick}
-      title={t("team.sidebarEntry", { defaultValue: "团队协作" })}
+      title={
+        badgeCount > 0
+          ? `${label} · ${t("team.sidebarBadge", {
+              defaultValue: "{{count}} 条待处理",
+              values: { count: badgeCount },
+            })}`
+          : label
+      }
     >
       {team ? (
         <TeamAvatar
@@ -35,9 +44,9 @@ export const TeamEntry = ({
       ) : (
         <Users size={16} strokeWidth={1.8} />
       )}
-      <span>{t("team.sidebarEntry", { defaultValue: "团队协作" })}</span>
-      {pendingCount > 0 ? (
-        <span className="sidebar-memo-badge">{pendingCount}</span>
+      <span>{label}</span>
+      {badgeCount > 0 ? (
+        <span className="sidebar-memo-badge">{badgeCount}</span>
       ) : null}
     </button>
   );

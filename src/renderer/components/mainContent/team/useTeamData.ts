@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   TeamBlockedMember,
   TeamEventPayload,
@@ -13,7 +13,8 @@ import type {
   TeamState,
   TeamTask,
 } from "../../../../preload";
-import { parseRecords } from "./teamUtils";
+import { buildTeamEvents, parseRecords } from "./teamUtils";
+import { isTeamEventUnread, useTeamActivityReadAt } from "./teamActivityRead";
 
 /** 团队数据层重新加载的节流窗口：同一批变更合并为一次刷新。 */
 const RELOAD_DEBOUNCE_MS = 120;
@@ -57,6 +58,8 @@ export type TeamData = {
   reviews: TeamReview[];
   notes: TeamNote[];
   messages: TeamMessage[];
+  /** 团队动态中未读的条数（不含自己产生的动态）。 */
+  activityUnreadCount: number;
   /** 队长专属：待审核的加入申请。 */
   joinRequests: TeamJoinRequest[];
   /** 队长专属：已拉黑的设备。 */
@@ -147,6 +150,31 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
   const teamIdRef = useRef(teamId);
   teamIdRef.current = teamId;
   const reloadTimerRef = useRef<number | null>(null);
+
+  // 动态未读数：事件流与已读游标都在渲染层推导，游标按团队本地持久化。
+  const selfPeerId = state?.team?.selfPeerId ?? "";
+  const activityReadAt = useTeamActivityReadAt(teamId);
+  const activityEvents = useMemo(
+    () =>
+      buildTeamEvents({
+        messages,
+        tasks,
+        reviews,
+        notes,
+        members: state?.members ?? [],
+      }),
+    [messages, tasks, reviews, notes, state?.members],
+  );
+  const activityUnreadCount = useMemo(
+    () =>
+      activityEvents.reduce(
+        (count, event) =>
+          count +
+          (isTeamEventUnread(event, activityReadAt, selfPeerId) ? 1 : 0),
+        0,
+      ),
+    [activityEvents, activityReadAt, selfPeerId],
+  );
 
   const loadRecords = useCallback(async (id: string) => {
     if (!id) {
@@ -559,6 +587,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
     reviews,
     notes,
     messages,
+    activityUnreadCount,
     joinRequests: state?.joinRequests ?? [],
     blocklist,
     pendingJoin: state?.pendingJoin ?? false,
@@ -595,7 +624,7 @@ export const TEAM_ENABLED_SETTING = "team_collaboration_enabled";
 export const TEAM_ENABLED_CHANGED_EVENT = "snow:team-enabled-changed";
 
 /**
- * 侧边栏入口用的轻量摘要：当前项目所属团队 + 待办数量。
+ * 侧边栏入口用的轻量摘要：当前项目所属团队 + 任务 / 评审 / 动态未读数量。
  * 本机创建 / 加入 / 退出团队或修改身份（`TEAM_STATE_CHANGED_EVENT`）、远端团队事件
  * 到达时立即重新解析，因此头像与徽标无需等待轮询；`refreshKey` 变化同样强制刷新
  * （团队协作开关切换后由侧边栏传入递增计数）。
@@ -607,15 +636,28 @@ export const useTeamSummary = (
 ): {
   team: TeamInfo | null;
   enabled: boolean;
+  /** 指派给我且未完成的任务 + 待我处理的评审。 */
   pendingCount: number;
+  /** 团队动态中他人的未读条目数。 */
+  unreadCount: number;
+  /** 侧边栏入口使用的累计红点数量（动态 + 任务 + 评审 + 加入申请）。 */
+  totalCount: number;
   loading: boolean;
 } => {
   const [state, setState] = useState<TeamState | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  /** 动态事件的最小快照：未读数只依赖时间与作者，不保留完整记录。 */
+  const [activityEvents, setActivityEvents] = useState<
+    { at: number; authorPeerId: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   /** 请求序号：并发刷新时只采纳最后一次结果，避免旧快照覆盖新状态。 */
   const requestSeqRef = useRef(0);
   const reloadTimerRef = useRef<number | null>(null);
+
+  const teamId = state?.team?.teamId ?? "";
+  const selfPeerId = state?.team?.selfPeerId ?? "";
+  const activityReadAt = useTeamActivityReadAt(teamId);
 
   const load = useCallback(async (): Promise<void> => {
     if (!directoryId) {
@@ -633,23 +675,37 @@ export const useTeamSummary = (
       const id = next.team?.teamId ?? "";
       if (!id) {
         setPendingCount(0);
+        setActivityEvents([]);
         return;
       }
-      const [tasks, reviews] = await Promise.all([
+      const [tasks, reviews, notes, messages] = await Promise.all([
         window.snow.teamListRecords(id, "task").catch(() => []),
         window.snow.teamListRecords(id, "review").catch(() => []),
+        window.snow.teamListRecords(id, "note").catch(() => []),
+        window.snow.teamListRecords(id, "message").catch(() => []),
       ]);
       if (seq !== requestSeqRef.current) {
         return;
       }
       const me = next.team?.selfPeerId ?? "";
-      const mineTasks = parseRecords<TeamTask>(tasks).filter(
+      const taskList = parseRecords<TeamTask>(tasks);
+      const reviewList = parseRecords<TeamReview>(reviews);
+      const mineTasks = taskList.filter(
         (task) => task.assigneePeerId === me && task.status !== "done",
       ).length;
-      const myReviews = parseRecords<TeamReview>(reviews).filter(
+      const myReviews = reviewList.filter(
         (review) => review.reviewerPeerId === me && review.status === "pending",
       ).length;
       setPendingCount(mineTasks + myReviews);
+      setActivityEvents(
+        buildTeamEvents({
+          messages: parseRecords<TeamMessage>(messages),
+          tasks: taskList,
+          reviews: reviewList,
+          notes: parseRecords<TeamNote>(notes),
+          members: next.members ?? [],
+        }).map((event) => ({ at: event.at, authorPeerId: event.authorPeerId })),
+      );
     } catch {
       // 静默：入口不因单次读取失败而闪烁
     } finally {
@@ -674,6 +730,7 @@ export const useTeamSummary = (
     if (!directoryId) {
       setState(null);
       setPendingCount(0);
+      setActivityEvents([]);
       return;
     }
     void load();
@@ -699,10 +756,26 @@ export const useTeamSummary = (
     };
   }, [directoryId, scheduleLoad]);
 
+  const unreadCount = useMemo(
+    () =>
+      activityEvents.reduce(
+        (count, event) =>
+          count +
+          (isTeamEventUnread(event, activityReadAt, selfPeerId) ? 1 : 0),
+        0,
+      ),
+    [activityEvents, activityReadAt, selfPeerId],
+  );
+
   return {
     team: state?.team ?? null,
     enabled: state?.enabled ?? false,
     pendingCount,
+    unreadCount,
+    totalCount:
+      pendingCount +
+      unreadCount +
+      (state?.role === "host" ? (state.joinRequests?.length ?? 0) : 0),
     loading,
   };
 };

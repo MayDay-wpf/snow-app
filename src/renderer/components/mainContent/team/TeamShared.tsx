@@ -5,6 +5,7 @@ import { AutoDismissNotice } from "../../AutoDismissNotice";
 import {
   avatarColor,
   initials,
+  isAvatarImage,
   isOnline,
   memberName,
   memberSeed,
@@ -22,20 +23,30 @@ export const TeamAvatar = ({
   seed,
   size = 28,
   online = false,
-}: TeamAvatarProps): React.JSX.Element => (
-  <span
-    className={`team-avatar${online ? " is-online" : ""}`}
-    style={{
-      width: size,
-      height: size,
-      fontSize: Math.max(10, size * 0.38),
-      background: avatarColor(seed || name),
-    }}
-    title={name}
-  >
-    {initials(name)}
-  </span>
-);
+}: TeamAvatarProps): React.JSX.Element => {
+  const seedValue = seed || name;
+  const image = isAvatarImage(seedValue) ? seedValue : "";
+  return (
+    <span
+      className={`team-avatar${online ? " is-online" : ""}${
+        image ? " has-image" : ""
+      }`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(10, size * 0.38),
+        background: image ? "transparent" : avatarColor(seedValue),
+      }}
+      title={name}
+    >
+      {image ? (
+        <img className="team-avatar-image" src={image} alt={name} />
+      ) : (
+        initials(name)
+      )}
+    </span>
+  );
+};
 
 export const TeamMemberChip = ({
   members,

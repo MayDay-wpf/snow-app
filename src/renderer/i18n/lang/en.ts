@@ -6742,6 +6742,7 @@ export const en = {
   "settings.themeBackgroundDeleteError": "Failed to delete background image",
   "settings.usageRefresh": "Refresh usage data",
   "team.sidebarEntry": "Team",
+  "team.sidebarBadge": "{{count}} pending",
   "team.tabs.activity": "Activity",
   "team.tabs.tasks": "Tasks",
   "team.tabs.reviews": "Reviews",
@@ -6793,6 +6794,13 @@ export const en = {
   "team.header.close": "Close team collaboration",
   "team.header.avatarColor": "Avatar color",
   "team.header.avatarDefault": "Default color",
+  "team.header.avatar": "Avatar",
+  "team.header.avatarUpload": "Upload image",
+  "team.header.avatarRemove": "Remove image",
+  "team.header.avatarReadError":
+    "Failed to read the image, please try another one",
+  "team.header.avatarTooLarge":
+    "Image is too large, please choose one under 10MB",
   "team.activity.empty":
     "No team activity yet. Create a task, request a review, or send a message to start collaborating.",
   "team.activity.placeholder": "Send a team message...",
@@ -6805,6 +6813,8 @@ export const en = {
   "team.activity.rejected": 'rejected review "{{title}}"',
   "team.activity.merged": 'merged review "{{title}}"',
   "team.activity.joined": "joined the team",
+  "team.activity.unreadDivider": "{{count}} unread updates",
+  "team.activity.unreadDot": "Unread",
   "team.activity.sending": "Sending…",
   "team.activity.retry": "Failed to send, click to retry",
   "team.activity.delete": "Delete",
