@@ -1129,18 +1129,6 @@ body.is-panel-resizing * {
 }
 
 /* ===== TopBar 团队协作区（团队视图专用） ===== */
-.top-bar-team-name {
-  flex-shrink: 0;
-  max-width: 180px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  -webkit-app-region: no-drag;
-}
-
 .top-bar-team-sync,
 .top-bar-team-me,
 .top-bar-team-edit {
@@ -1170,6 +1158,22 @@ body.is-panel-resizing * {
 
 .top-bar-team-sync.is-error {
   color: var(--accent-red, #e5484d);
+}
+
+/* 运行状态圆点：连接中绿点，断开为红点 */
+.top-bar-team-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent-red, #e5484d);
+  transition: background 0.12s;
+}
+
+.top-bar-team-status-dot.is-online {
+  background: var(--accent-green, #22c55e);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--accent-green, #22c55e) 18%, transparent);
 }
 
 .top-bar-team-sync-text {
@@ -58553,7 +58557,7 @@ pre.file-viewer-code {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 10px;
+  padding: 6px 10px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -58732,7 +58736,7 @@ pre.file-viewer-code {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 13px;
@@ -59308,7 +59312,7 @@ pre.file-viewer-code {
   gap: 8px;
 }
 .team-task-card,
-.team-review-card {
+.team-topic-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -59321,7 +59325,7 @@ pre.file-viewer-code {
   transition: border-color 0.12s;
 }
 .team-task-card:hover,
-.team-review-card:hover {
+.team-topic-card:hover {
   border-color: var(--border-color);
 }
 .team-task-card-top {
@@ -59390,21 +59394,17 @@ pre.file-viewer-code {
   background: var(--accent-green-bg, rgba(48, 164, 108, 0.14));
   color: var(--accent-green, #30a46c);
 }
-.team-status.is-pending {
-  background: var(--accent-amber-bg, rgba(245, 166, 35, 0.14));
-  color: var(--accent-amber, #f5a623);
+.team-status.is-voting {
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
 }
-.team-status.is-approved {
+.team-status.is-open {
   background: var(--accent-green-bg, rgba(48, 164, 108, 0.14));
   color: var(--accent-green, #30a46c);
 }
-.team-status.is-rejected {
+.team-status.is-closed {
   background: var(--accent-red-bg, rgba(229, 72, 77, 0.14));
   color: var(--accent-red, #e5484d);
-}
-.team-status.is-merged {
-  background: var(--accent-blue-bg, rgba(77, 144, 254, 0.14));
-  color: var(--accent-blue, #4d90fe);
 }
 .team-label {
   font-size: 11px;
@@ -59419,32 +59419,202 @@ pre.file-viewer-code {
   gap: 4px;
 }
 
-/* ---- 评审 ---- */
-.team-review-icon {
+/* ---- 议题 ---- */
+.team-topic-icon {
   display: inline-flex;
   color: var(--accent-color);
   flex-shrink: 0;
 }
-.team-review-meta {
+.team-topic-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.team-topic-tally .is-open {
+  color: var(--accent-green, #30a46c);
+}
+.team-topic-tally .is-closed {
+  color: var(--accent-red, #e5484d);
+}
+.team-topic-outcome {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-island);
 }
-.team-branch-tag {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  background: var(--bg-hover);
-  color: var(--accent-blue, #4d90fe);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-.team-review-arrow {
+.team-topic-outcome-label {
+  font-size: 12px;
   color: var(--text-tertiary);
+}
+.team-topic-outcome-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.team-topic-outcome.is-none .team-topic-outcome-value {
+  color: var(--text-tertiary);
+}
+.team-topic-outcome.is-live.is-open .team-topic-outcome-value,
+.team-topic-outcome.is-locked.is-open .team-topic-outcome-value {
+  color: var(--accent-green, #30a46c);
+}
+.team-topic-outcome.is-live.is-closed .team-topic-outcome-value,
+.team-topic-outcome.is-locked.is-closed .team-topic-outcome-value {
+  color: var(--accent-red, #e5484d);
+}
+.team-topic-outcome.is-locked {
+  border-color: var(--accent-amber, #f5a623);
+}
+.team-topic-outcome-hint {
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+.team-topic-vote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.team-topic-vote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.team-topic-vote:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.team-topic-vote:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.team-topic-vote.is-open.is-active {
+  border-color: var(--accent-green, #30a46c);
+  color: var(--accent-green, #30a46c);
+  background: var(--accent-green-bg, rgba(48, 164, 108, 0.14));
+}
+.team-topic-vote.is-closed.is-active {
+  border-color: var(--accent-red, #e5484d);
+  color: var(--accent-red, #e5484d);
+  background: var(--accent-red-bg, rgba(229, 72, 77, 0.14));
+}
+.team-topic-vote-count {
   font-size: 11px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--bg-active);
+}
+.team-topic-voters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.team-topic-voter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 3px 8px 3px 3px;
+  border-radius: 14px;
+  background: var(--surface-island);
+  border: 1px solid var(--border-subtle);
+}
+.team-topic-voter-choice {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+}
+.team-topic-voter.is-open .team-topic-voter-choice {
+  color: var(--accent-green, #30a46c);
+  background: var(--accent-green-bg, rgba(48, 164, 108, 0.14));
+}
+.team-topic-voter.is-closed .team-topic-voter-choice {
+  color: var(--accent-red, #e5484d);
+  background: var(--accent-red-bg, rgba(229, 72, 77, 0.14));
 }
 .team-comment-count {
   font-size: 11px;
   color: var(--text-tertiary);
+}
+/* 成员下拉：头像 + 昵称 */
+.team-select-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.team-select-member .team-avatar.is-online::after {
+  width: 6px;
+  height: 6px;
+  border-width: 1px;
+}
+.team-select-member-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ---- 关联文件（@ 检索） ---- */
+.team-file-mention {
+  min-width: 0;
+}
+.team-file-mention-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 5px 8px;
+  background: var(--surface-island);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color 0.12s;
+}
+.team-file-mention-field:focus-within {
+  border-color: var(--accent-color);
+}
+.team-file-mention-field .file-chip {
+  margin: 0;
+  max-width: 100%;
+}
+/* 关联文件里的标签常驻删除按钮（编辑区之外没有 hover 提示） */
+.team-file-mention-field .file-chip-remove {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.team-file-mention-input {
+  flex: 1 1 140px;
+  min-width: 140px;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 2px;
+}
+.team-file-mention-input::placeholder {
+  color: var(--text-tertiary);
+}
+/* 自定义渲染的下拉项允许收缩，长昵称不会挤掉选中勾 */
+.custom-select-item > span:first-child {
+  min-width: 0;
 }
 
 /* ---- 表单 ---- */
@@ -59633,6 +59803,10 @@ pre.file-viewer-code {
   flex-wrap: wrap;
   gap: 6px;
 }
+.team-detail-files .file-chip {
+  margin: 0;
+  max-width: 100%;
+}
 .team-detail-files code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -59687,6 +59861,61 @@ pre.file-viewer-code {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+/* 详情弹窗底部：统一描边按钮，主操作保持实心，删除/否决保留语义色 */
+.team-detail-actions .team-btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-island);
+  color: var(--text-secondary);
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.team-detail-actions .team-btn:hover:not(:disabled) {
+  border-color: var(--text-muted);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.team-detail-actions .team-btn-primary {
+  border-color: transparent;
+  background: var(--accent-color);
+  color: var(--on-solid);
+}
+.team-detail-actions .team-btn-primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent-color);
+  color: var(--on-solid);
+  opacity: 0.9;
+}
+.team-detail-actions .team-btn-accent {
+  border-color: var(--border-color);
+  color: var(--accent-blue, #4d90fe);
+}
+.team-detail-actions .team-btn-accent:hover:not(:disabled) {
+  border-color: var(--accent-blue, #4d90fe);
+  background: var(--accent-blue-bg, rgba(77, 144, 254, 0.12));
+  color: var(--accent-blue, #4d90fe);
+}
+.team-detail-actions .team-btn-success {
+  border-color: var(--border-color);
+  color: var(--accent-green, #30a46c);
+}
+.team-detail-actions .team-btn-success:hover:not(:disabled) {
+  border-color: var(--accent-green, #30a46c);
+  background: var(--accent-green-bg, rgba(48, 164, 108, 0.12));
+  color: var(--accent-green, #30a46c);
+}
+.team-detail-actions .team-btn-danger {
+  border-color: var(--border-color);
+  color: var(--accent-red, #e5484d);
+}
+.team-detail-actions .team-btn-danger:hover:not(:disabled) {
+  border-color: var(--accent-red, #e5484d);
+  background: var(--accent-red-bg, rgba(229, 72, 77, 0.12));
+  color: var(--accent-red, #e5484d);
 }
 
 /* ---- 评论 ---- */
@@ -59817,30 +60046,49 @@ pre.file-viewer-code {
   word-break: break-word;
 }
 
-/* ---- 笔记 Markdown 编辑器 ---- */
-.team-note-modal {
+/* ---- Markdown 编辑弹窗（知识 / 任务 / 议题共用） ---- */
+.team-note-modal,
+.team-md-modal {
   width: min(1040px, calc(100vw - 48px));
   height: min(88vh, calc(100vh - 48px));
 }
-.team-note-modal .app-modal-body {
+.team-note-modal .app-modal-body,
+.team-md-modal .app-modal-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
-.team-note-modal .app-modal-body .team-form {
+.team-note-modal .app-modal-body .team-form,
+.team-md-modal .app-modal-body .team-form {
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
-.team-note-modal .team-form-label {
+.team-note-modal .team-form-label,
+.team-md-modal .team-form-label {
   flex: 0 0 auto;
 }
+/* 表单行内的字段均分整行宽度（Markdown 弹窗里的 label 默认不拉伸） */
+.team-note-modal .team-form-row .team-form-label,
+.team-md-modal .team-form-row .team-form-label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* 行内下拉同高（带头像的触发按钮会撑高）：固定高度并让内容垂直居中 */
+.team-note-modal .team-form-row .custom-select-trigger,
+.team-md-modal .team-form-row .custom-select-trigger {
+  height: 38px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
 /* 编辑区独占剩余高度：整条链用 flex 传导（flex 拉伸出的高度不能用 % 参照）。 */
-.team-note-modal .team-form-label-grow {
+.team-note-modal .team-form-label-grow,
+.team-md-modal .team-form-label-grow {
   flex: 1 1 auto;
   min-height: 0;
 }
-.team-note-modal .team-form-label-grow .team-md-editor {
+.team-note-modal .team-form-label-grow .team-md-editor,
+.team-md-modal .team-form-label-grow .team-md-editor {
   flex: 1 1 auto;
   min-height: 0;
 }

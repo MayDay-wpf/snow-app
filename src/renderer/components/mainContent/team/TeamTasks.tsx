@@ -3,26 +3,43 @@ import {
   CheckCircle2,
   CircleDot,
   Flag,
-  GitPullRequest,
   Loader2,
+  Pencil,
   Plus,
+  Save,
   Trash2,
   UserCheck,
+  Vote,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import type { TeamReview, TeamTask } from "../../../../preload";
+import type { TeamTask, TeamTopic } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import {
   CustomSelect,
   type CustomSelectOption,
 } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { useChatConversationContext } from "../chatMessages";
 import type { TeamData } from "./useTeamData";
-import { TeamEmpty, TeamErrorNotice, TeamMemberChip } from "./TeamShared";
+import { TeamFileMentionField } from "./TeamFileMentionField";
+import {
+  mdToPlain,
+  TeamMarkdownEditor,
+  TeamNoteMarkdown,
+} from "./TeamMarkdownEditor";
+import {
+  TeamAvatar,
+  TeamEmpty,
+  TeamErrorNotice,
+  TeamMemberChip,
+} from "./TeamShared";
 import {
   formatTime,
+  isOnline,
   memberName,
+  memberSeed,
   newId,
   nowIso,
   TASK_STATUSES,
@@ -70,10 +87,12 @@ const splitList = (value: string): string[] =>
 export const TeamTasks = ({
   team,
   directoryId,
+  directoryPath,
   onNavigateToView,
 }: {
   team: TeamData;
   directoryId: string;
+  directoryPath: string;
   onNavigateToView: (view: import("../types").MainContentView) => void;
 }): React.JSX.Element => {
   const { t } = useI18n();
@@ -93,11 +112,14 @@ export const TeamTasks = ({
     }),
   );
   const { handleNewChat, handleSendMessage } = useChatConversationContext();
-  const [creating, setCreating] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TeamTask | null>(null);
+  const [pendingId, setPendingId] = useState("");
   const [detail, setDetail] = useState<TeamTask | null>(null);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<TeamTask | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clearError = useCallback(() => setError(null), []);
 
@@ -115,6 +137,25 @@ export const TeamTasks = ({
     return options;
   }, [team.members, team.me.name, myPeerId]);
 
+  /** 指派下拉统一渲染：头像 + 昵称（在线时带状态点）。 */
+  const renderMemberOption = (option: CustomSelectOption): React.ReactNode => {
+    if (!option.value) {
+      return option.label;
+    }
+    const member = team.members.find((item) => item.peerId === option.value);
+    return (
+      <span className="team-select-member">
+        <TeamAvatar
+          name={option.label}
+          seed={memberSeed(team.members, option.value)}
+          size={18}
+          online={member ? isOnline(member) : false}
+        />
+        <span className="team-select-member-name">{option.label}</span>
+      </span>
+    );
+  };
+
   const grouped = useMemo(() => {
     const groups: Record<string, TeamTask[]> = {
       todo: [],
@@ -129,12 +170,30 @@ export const TeamTasks = ({
   }, [team.tasks]);
 
   const openCreate = (): void => {
+    setEditingTask(null);
+    setPendingId(newId("task"));
     setDraft({ ...EMPTY_DRAFT, assigneePeerId: myPeerId });
     setError(null);
-    setCreating(true);
+    setFormOpen(true);
   };
 
-  const handleCreate = async (): Promise<void> => {
+  /** 编辑任务：复用同一表单，描述区使用 Markdown 编辑器。 */
+  const openEdit = (task: TeamTask): void => {
+    setEditingTask(task);
+    setPendingId(task.id);
+    setDraft({
+      title: task.title,
+      description: task.description,
+      assigneePeerId: task.assigneePeerId,
+      priority: task.priority,
+      labels: task.labels.join(", "),
+      linkedFiles: task.linkedFiles.join(", "),
+    });
+    setError(null);
+    setFormOpen(true);
+  };
+
+  const handleSave = async (): Promise<void> => {
     if (!draft.title.trim()) {
       setError(t("team.tasks.errorTitle", { defaultValue: "请输入任务标题" }));
       return;
@@ -143,29 +202,56 @@ export const TeamTasks = ({
     setError(null);
     try {
       const now = nowIso();
-      const record: TeamTask = {
-        id: newId("task"),
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        creatorPeerId: myPeerId,
-        assigneePeerId: draft.assigneePeerId || myPeerId,
-        status: "todo",
-        priority: draft.priority as TeamTask["priority"],
-        labels: splitList(draft.labels),
-        linkedFiles: splitList(draft.linkedFiles),
-        createdAt: now,
-        updatedAt: now,
-        history: [
-          {
-            at: now,
-            by: myPeerId,
-            action: "created",
-            detail: draft.title.trim(),
-          },
-        ],
-      };
-      await team.publish("task", record.id, record);
-      setCreating(false);
+      if (editingTask) {
+        // 以记录最新态为基准，避免覆盖其他成员的并发改动（状态 / 认领等）
+        const latest =
+          team.tasks.find((item) => item.id === editingTask.id) ?? editingTask;
+        const updated: TeamTask = {
+          ...latest,
+          title: draft.title.trim(),
+          description: draft.description,
+          assigneePeerId: draft.assigneePeerId || myPeerId,
+          priority: draft.priority as TeamTask["priority"],
+          labels: splitList(draft.labels),
+          linkedFiles: splitList(draft.linkedFiles),
+          updatedAt: now,
+          history: [
+            ...latest.history,
+            {
+              at: now,
+              by: myPeerId,
+              action: "updated",
+              detail: draft.title.trim(),
+            },
+          ],
+        };
+        await team.publish("task", updated.id, updated);
+        setDetail(updated);
+      } else {
+        const record: TeamTask = {
+          id: pendingId || newId("task"),
+          title: draft.title.trim(),
+          description: draft.description,
+          creatorPeerId: myPeerId,
+          assigneePeerId: draft.assigneePeerId || myPeerId,
+          status: "todo",
+          priority: draft.priority as TeamTask["priority"],
+          labels: splitList(draft.labels),
+          linkedFiles: splitList(draft.linkedFiles),
+          createdAt: now,
+          updatedAt: now,
+          history: [
+            {
+              at: now,
+              by: myPeerId,
+              action: "created",
+              detail: draft.title.trim(),
+            },
+          ],
+        };
+        await team.publish("task", record.id, record);
+      }
+      setFormOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -268,7 +354,7 @@ export const TeamTasks = ({
         task.linkedFiles.length > 0
           ? `\n关联文件：${task.linkedFiles.join("、")}`
           : "";
-      const prompt = `请协助我完成团队任务「${task.title}」。\n\n任务描述：\n${task.description || "（无）"}${files}\n\n要求：\n1. 完成后通过 git 提交变更；\n2. 整理改动说明，并在团队中发起代码评审。`;
+      const prompt = `请协助我完成团队任务「${task.title}」。\n\n任务描述：\n${task.description || "（无）"}${files}\n\n要求：\n1. 完成后通过 git 提交变更；\n2. 整理改动说明，并在团队中发起议题讨论。`;
       onNavigateToView("chat");
       handleNewChat(directoryId);
       window.setTimeout(() => {
@@ -285,7 +371,9 @@ export const TeamTasks = ({
     setDeleting(true);
     try {
       await team.remove("task", task.id);
+      // 保留附件：任务描述可能已复制到议题说明，删除媒体会导致引用破图
       setDetail(null);
+      setDeleteTarget(null);
     } catch {
       // 删除失败静默
     } finally {
@@ -293,26 +381,23 @@ export const TeamTasks = ({
     }
   };
 
-  /** 为任务直接创建一条待评审记录（评审页签中可见）。 */
-  const requestReview = async (task: TeamTask): Promise<void> => {
+  /** 为任务直接发起一条议题（议题页签中可见）。 */
+  const requestTopic = async (task: TeamTask): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
       const now = nowIso();
-      const record: TeamReview = {
-        id: newId("review"),
-        title: t("team.reviews.defaultTitle", {
+      const record: TeamTopic = {
+        id: newId("topic"),
+        title: t("team.topics.defaultTitle", {
+          defaultValue: "议题：{{title}}",
           values: { title: task.title },
         }),
+        description: task.description,
         taskId: task.id,
         creatorPeerId: myPeerId,
-        // 指派给他人的任务由对方评审，否则由本人自审
-        reviewerPeerId:
-          task.assigneePeerId && task.assigneePeerId !== myPeerId
-            ? task.assigneePeerId
-            : myPeerId,
-        status: "pending",
-        summary: task.description,
+        votes: [],
+        veto: null,
         createdAt: now,
         updatedAt: now,
         history: [
@@ -320,7 +405,7 @@ export const TeamTasks = ({
         ],
         comments: [],
       };
-      await team.publish("review", record.id, record);
+      await team.publish("topic", record.id, record);
       setDetail(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -351,7 +436,7 @@ export const TeamTasks = ({
         </span>
       </div>
       {task.description ? (
-        <div className="team-task-card-desc">{task.description}</div>
+        <div className="team-task-card-desc">{mdToPlain(task.description)}</div>
       ) : null}
       <div className="team-task-card-bottom">
         <TeamMemberChip members={team.members} peerId={task.assigneePeerId} />
@@ -416,24 +501,33 @@ export const TeamTasks = ({
       )}
 
       <Modal
-        open={creating}
-        title={t("team.tasks.new", { defaultValue: "新建任务" })}
+        open={formOpen}
+        title={
+          editingTask
+            ? t("team.tasks.edit", { defaultValue: "编辑任务" })
+            : t("team.tasks.new", { defaultValue: "新建任务" })
+        }
         closeLabel={t("common.close", { defaultValue: "关闭" })}
-        onClose={() => setCreating(false)}
+        onClose={() => setFormOpen(false)}
+        className="team-md-modal"
         footer={
           <>
             <button
               type="button"
               className="team-btn team-btn-primary"
               disabled={busy}
-              onClick={() => void handleCreate()}
+              onClick={() => void handleSave()}
             >
               {busy ? (
                 <Loader2 size={15} className="spin" />
+              ) : editingTask ? (
+                <Save size={15} />
               ) : (
                 <Plus size={15} />
               )}
-              {t("team.tasks.create", { defaultValue: "创建" })}
+              {editingTask
+                ? t("common.save", { defaultValue: "保存" })
+                : t("team.tasks.create", { defaultValue: "创建" })}
             </button>
           </>
         }
@@ -448,23 +542,30 @@ export const TeamTasks = ({
               autoFocus
             />
           </label>
-          <label className="team-form-label">
+          <div className="team-form-label team-form-label-grow">
             {t("team.tasks.descField", { defaultValue: "描述" })}
-            <textarea
-              className="team-form-input team-form-textarea"
-              rows={4}
+            <TeamMarkdownEditor
               value={draft.description}
-              onChange={(e) =>
-                setDraft({ ...draft, description: e.target.value })
+              onChange={(next) =>
+                setDraft((prev) => ({ ...prev, description: next }))
               }
+              noteId={pendingId}
+              saveMedia={team.saveMedia}
+              readMedia={team.readMedia}
+              placeholder={t("team.md.placeholder", {
+                defaultValue:
+                  "支持 Markdown 语法（**加粗**、`代码`、- 列表等），可直接粘贴或拖入图片…",
+              })}
             />
-          </label>
+          </div>
           <div className="team-form-row">
             <label className="team-form-label">
               {t("team.tasks.assignee", { defaultValue: "指派给" })}
               <CustomSelect
                 value={draft.assigneePeerId}
                 options={memberOptions}
+                renderOption={renderMemberOption}
+                renderLabel={renderMemberOption}
                 onChange={(v) => setDraft({ ...draft, assigneePeerId: v })}
                 portal
               />
@@ -487,16 +588,17 @@ export const TeamTasks = ({
               onChange={(e) => setDraft({ ...draft, labels: e.target.value })}
             />
           </label>
-          <label className="team-form-label">
-            {t("team.tasks.files", { defaultValue: "关联文件（逗号分隔）" })}
-            <input
-              className="team-form-input"
-              value={draft.linkedFiles}
-              onChange={(e) =>
-                setDraft({ ...draft, linkedFiles: e.target.value })
+          <div className="team-form-label">
+            {t("team.tasks.files", { defaultValue: "关联文件" })}
+            <TeamFileMentionField
+              value={splitList(draft.linkedFiles)}
+              onChange={(next) =>
+                setDraft((prev) => ({ ...prev, linkedFiles: next.join("\n") }))
               }
+              directoryId={directoryId}
+              directoryPath={directoryPath}
             />
-          </label>
+          </div>
         </div>
       </Modal>
 
@@ -521,6 +623,28 @@ export const TeamTasks = ({
               </button>
               <button
                 type="button"
+                className="team-btn"
+                disabled={busy || deleting}
+                onClick={() => openEdit(detail)}
+                title={t("team.tasks.edit", { defaultValue: "编辑任务" })}
+              >
+                <Pencil size={15} />
+                {t("common.edit", { defaultValue: "编辑" })}
+              </button>
+              <button
+                type="button"
+                className="team-btn team-btn-accent"
+                disabled={busy || deleting}
+                onClick={() => void requestTopic(detail)}
+                title={t("team.tasks.requestTopic", {
+                  defaultValue: "为当前任务发起团队议题",
+                })}
+              >
+                <Vote size={15} />
+                {t("team.tasks.requestTopic", { defaultValue: "发起议题" })}
+              </button>
+              <button
+                type="button"
                 className="team-btn team-btn-primary"
                 disabled={busy || deleting}
                 onClick={() => void aiTakeTask(detail)}
@@ -533,21 +657,9 @@ export const TeamTasks = ({
               </button>
               <button
                 type="button"
-                className="team-btn team-btn-accent"
-                disabled={busy || deleting}
-                onClick={() => void requestReview(detail)}
-                title={t("team.tasks.requestReview", {
-                  defaultValue: "为当前改动发起代码评审",
-                })}
-              >
-                <GitPullRequest size={15} />
-                {t("team.tasks.requestReview", { defaultValue: "发起评审" })}
-              </button>
-              <button
-                type="button"
                 className="team-btn team-btn-danger"
                 disabled={busy || deleting}
-                onClick={() => void deleteTask(detail)}
+                onClick={() => setDeleteTarget(detail)}
                 title={t("team.tasks.delete", { defaultValue: "删除任务" })}
               >
                 {deleting ? (
@@ -611,7 +723,13 @@ export const TeamTasks = ({
                 <div className="team-detail-section-title">
                   {t("team.tasks.descField", { defaultValue: "描述" })}
                 </div>
-                <div className="team-detail-text">{detail.description}</div>
+                <div className="team-note-markdown">
+                  <TeamNoteMarkdown
+                    className="context-compaction-markdown"
+                    content={detail.description}
+                    readMedia={team.readMedia}
+                  />
+                </div>
               </div>
             ) : null}
             {detail.linkedFiles.length > 0 ? (
@@ -621,7 +739,16 @@ export const TeamTasks = ({
                 </div>
                 <div className="team-detail-files">
                   {detail.linkedFiles.map((file) => (
-                    <code key={file}>{file}</code>
+                    <span
+                      key={file}
+                      className="file-chip team-detail-file"
+                      title={file}
+                    >
+                      <span className="file-chip-icon">
+                        {getFileTypeIcon(file, false, false, { size: 12 })}
+                      </span>
+                      <span className="file-chip-name">{file}</span>
+                    </span>
                   ))}
                 </div>
               </div>
@@ -654,6 +781,27 @@ export const TeamTasks = ({
           </div>
         ) : null}
       </Modal>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        variant="danger"
+        title={t("team.tasks.deleteConfirmTitle", {
+          defaultValue: "删除任务？",
+        })}
+        message={t("team.tasks.deleteConfirmMessage", {
+          defaultValue: "任务「{{title}}」将被删除，且无法恢复。",
+          values: { title: deleteTarget?.title ?? "" },
+        })}
+        confirmLabel={t("team.tasks.delete", { defaultValue: "删除任务" })}
+        cancelLabel={t("common.cancel", { defaultValue: "取消" })}
+        isConfirming={deleting}
+        onConfirm={() => {
+          const target = deleteTarget;
+          if (target) {
+            void deleteTask(target);
+          }
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );

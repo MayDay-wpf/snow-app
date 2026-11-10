@@ -3,8 +3,8 @@ import type {
   TeamMessage,
   TeamMessageAttachment,
   TeamNote,
-  TeamReview,
   TeamTask,
+  TeamTopic,
 } from "../../../../preload";
 
 /** 解析 Rust 侧返回的原始 JSON 记录数组。 */
@@ -151,12 +151,52 @@ export const isOnline = (member: TeamMemberRecord): boolean => {
 };
 
 export const TASK_STATUSES = ["todo", "in_progress", "review", "done"] as const;
-export const REVIEW_STATUSES = [
-  "pending",
-  "approved",
-  "rejected",
-  "merged",
-] as const;
+
+/** 议题投票方向。 */
+export const TOPIC_CHOICES = ["open", "closed"] as const;
+
+/** 议题票数统计（每人一票）。 */
+export const topicTally = (
+  topic: TeamTopic,
+): { open: number; closed: number } => {
+  let open = 0;
+  let closed = 0;
+  for (const vote of topic.votes) {
+    if (vote.choice === "open") {
+      open += 1;
+    } else if (vote.choice === "closed") {
+      closed += 1;
+    }
+  }
+  return { open, closed };
+};
+
+/**
+ * 议题最终结论：队长一票否决优先并锁定；否则按票数多数。
+ * 平票（含无人投票）视为暂未定案。
+ */
+export const topicOutcome = (
+  topic: TeamTopic,
+): {
+  decision: "open" | "closed" | null;
+  locked: boolean;
+  open: number;
+  closed: number;
+} => {
+  const { open, closed } = topicTally(topic);
+  if (topic.veto) {
+    return { decision: topic.veto.decision, locked: true, open, closed };
+  }
+  if (open === closed) {
+    return { decision: null, locked: false, open, closed };
+  }
+  return {
+    decision: open > closed ? "open" : "closed",
+    locked: false,
+    open,
+    closed,
+  };
+};
 
 /** 笔记正文中的附件引用前缀（迁移旧数据时由 Rust 重写而来）。 */
 export const MEDIA_REF_PREFIX = "team-media:";
@@ -201,20 +241,20 @@ export const resolveMediaRefs = async (
 export type TeamEvent = {
   key: string;
   at: number;
-  type: "message" | "task" | "review" | "note" | "member";
+  type: "message" | "task" | "topic" | "note" | "member";
   authorPeerId: string;
-  /** message | created | assigned | status | comment | approved | rejected | merged | joined */
+  /** message | created | assigned | status | comment | vote | veto | joined */
   action: string;
   title?: string;
   detail?: string;
   content?: string;
   attachments?: TeamMessageAttachment[];
-  refKind?: "task" | "review" | "note" | "message";
+  refKind?: "task" | "topic" | "note" | "message";
   refId?: string;
 };
 
 const historyEvents = (
-  kind: "task" | "review",
+  kind: "task" | "topic",
   title: string,
   history: { at: string; by: string; action: string; detail: string }[],
   refId: string,
@@ -234,7 +274,7 @@ const historyEvents = (
 export const buildTeamEvents = (team: {
   messages: TeamMessage[];
   tasks: TeamTask[];
-  reviews: TeamReview[];
+  topics: TeamTopic[];
   notes: TeamNote[];
   members: TeamMemberRecord[];
 }): TeamEvent[] => {
@@ -258,9 +298,9 @@ export const buildTeamEvents = (team: {
     events.push(...historyEvents("task", task.title, task.history, task.id));
   }
 
-  for (const review of team.reviews) {
+  for (const topic of team.topics) {
     events.push(
-      ...historyEvents("review", review.title, review.history, review.id),
+      ...historyEvents("topic", topic.title, topic.history, topic.id),
     );
   }
 

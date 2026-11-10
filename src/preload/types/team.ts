@@ -94,8 +94,8 @@ export type TeamEventPayload = {
   payloadJson: string;
 };
 
-/** 通用记录类型。 */
-export type TeamRecordKind = "message" | "task" | "review" | "note";
+/** 通用记录类型（review 为旧版评审数据，前端不再使用）。 */
+export type TeamRecordKind = "message" | "task" | "topic" | "note";
 
 export type TeamHistoryEntry = {
   at: string;
@@ -127,14 +127,29 @@ export type TeamTask = {
   history: TeamHistoryEntry[];
 };
 
-export type TeamReview = {
+/** 议题投票（每人一票，可改票）。 */
+export type TeamTopicVote = {
+  peerId: string;
+  choice: "open" | "closed";
+  updatedAt: string;
+};
+
+/** 队长一票否决：写下即锁定最终结论，不再变化。 */
+export type TeamTopicVeto = {
+  by: string;
+  decision: "open" | "closed";
+  at: string;
+};
+
+/** 团队议题：成员投票决定开启 / 关闭，队长可一票否决。 */
+export type TeamTopic = {
   id: string;
   title: string;
+  description: string;
   taskId: string | null;
   creatorPeerId: string;
-  reviewerPeerId: string;
-  status: "pending" | "approved" | "rejected" | "merged";
-  summary: string;
+  votes: TeamTopicVote[];
+  veto: TeamTopicVeto | null;
   createdAt: string;
   updatedAt: string;
   history: TeamHistoryEntry[];

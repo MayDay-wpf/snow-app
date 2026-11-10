@@ -1,6 +1,6 @@
 //! 团队协作数据层（数据库版，不依赖 Git）。
 //!
-//! 团队、团队与项目的关联、成员、通用记录（消息 / 任务 / 评审 / 笔记）与
+//! 团队、团队与项目的关联、成员、通用记录（消息 / 任务 / 议题 / 笔记）与
 //! 附件全部存放在应用数据库中；队长设备承载 WebSocket 服务，队员凭邀请码
 //! 加入。本模块只负责数据读写，网络编排见 `crate::team`。
 
@@ -30,8 +30,8 @@ pub fn is_team_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// 记录类型：消息 / 任务 / 评审 / 笔记。
-pub const RECORD_KINDS: [&str; 4] = ["message", "task", "review", "note"];
+/// 记录类型：消息 / 任务 / 议题 / 笔记（review 仅为旧版评审数据兼容保留）。
+pub const RECORD_KINDS: [&str; 5] = ["message", "task", "topic", "note", "review"];
 
 /// 记录类型合法性校验（协议层与数据层共用）。
 pub fn is_record_kind(kind: &str) -> bool {

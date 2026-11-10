@@ -1,4 +1,4 @@
-import { Copy, Loader2, Pencil, Server, Wifi, WifiOff, X } from "lucide-react";
+import { Copy, Loader2, Pencil, Server, X } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../i18n";
 import { TeamAvatar } from "../mainContent/team/TeamShared";
@@ -60,35 +60,19 @@ export const TeamTopBarActions = ({
 
   return (
     <>
-      <span className="top-bar-team-name">{team.teamName}</span>
       <button
         className={`top-bar-team-sync${team.connected ? "" : " is-error"}`}
         type="button"
         aria-label={statusTitle}
         title={statusTitle}
       >
-        {team.connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+        <span
+          className={`top-bar-team-status-dot${team.connected ? " is-online" : ""}`}
+        />
         <span className="top-bar-team-sync-text">{statusText}</span>
       </button>
       {isHost ? (
         <>
-          <button
-            className="top-bar-team-sync"
-            type="button"
-            aria-label={t("team.header.copyInvite", {
-              defaultValue: "复制邀请链接",
-            })}
-            title={team.inviteLink || statusText}
-            disabled={!team.inviteLink}
-            onClick={copyInvite}
-          >
-            <Copy size={13} />
-            <span className="top-bar-team-sync-text">
-              {copied
-                ? t("team.header.inviteCopied", { defaultValue: "已复制" })
-                : t("team.header.invite", { defaultValue: "邀请" })}
-            </span>
-          </button>
           <button
             className={`top-bar-team-sync${team.hostService ? "" : " is-error"}`}
             type="button"
@@ -109,6 +93,23 @@ export const TeamTopBarActions = ({
             )}
             <span className="top-bar-team-sync-text">
               {t("team.header.hostService", { defaultValue: "常驻" })}
+            </span>
+          </button>
+          <button
+            className="top-bar-team-sync"
+            type="button"
+            aria-label={t("team.header.copyInvite", {
+              defaultValue: "复制邀请链接",
+            })}
+            title={team.inviteLink || statusText}
+            disabled={!team.inviteLink}
+            onClick={copyInvite}
+          >
+            <Copy size={13} />
+            <span className="top-bar-team-sync-text">
+              {copied
+                ? t("team.header.inviteCopied", { defaultValue: "已复制" })
+                : t("team.header.invite", { defaultValue: "邀请" })}
             </span>
           </button>
         </>

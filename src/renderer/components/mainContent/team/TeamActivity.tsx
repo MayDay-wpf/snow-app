@@ -3,13 +3,13 @@ import {
   CircleAlert,
   Download,
   FileText,
-  GitPullRequest,
   ListTodo,
   LoaderCircle,
   Paperclip,
   Send,
   Trash2,
   UserPlus,
+  Vote,
   X,
 } from "lucide-react";
 import {
@@ -43,7 +43,7 @@ import {
 
 const EVENT_ICON: Record<string, React.JSX.Element> = {
   task: <ListTodo size={13} strokeWidth={1.8} />,
-  review: <GitPullRequest size={13} strokeWidth={1.8} />,
+  topic: <Vote size={13} strokeWidth={1.8} />,
   note: <BookOpen size={13} strokeWidth={1.8} />,
   member: <UserPlus size={13} strokeWidth={1.8} />,
 };
@@ -100,7 +100,7 @@ const readAsDataUrl = (file: File): Promise<string> =>
   });
 
 /**
- * 团队动态：以聊天会话的形式展示团队的全部协作事件（消息、任务、评审、
+ * 团队动态：以聊天会话的形式展示团队的全部协作事件（消息、任务、议题、
  * 知识、成员加入），底部输入框可发送团队消息。视觉与主聊天面板保持一致。
  */
 export const TeamActivity = ({
@@ -191,11 +191,11 @@ export const TeamActivity = ({
       buildTeamEvents({
         messages: team.messages,
         tasks: team.tasks,
-        reviews: team.reviews,
+        topics: team.topics,
         notes: team.notes,
         members: team.members,
       }),
-    [team.messages, team.tasks, team.reviews, team.notes, team.members],
+    [team.messages, team.tasks, team.topics, team.notes, team.members],
   );
 
   const outboxState = useMemo(
@@ -392,7 +392,7 @@ export const TeamActivity = ({
     void pushMessage(target.record);
   };
 
-  // 删除自己产生的一条动态：消息/知识直接删除记录，任务/评审动态移除对应历史条目。
+  // 删除自己产生的一条动态：消息/知识直接删除记录，任务/议题动态移除对应历史条目。
   const deleteEvent = async (event: TeamEvent): Promise<void> => {
     if (event.authorPeerId !== myPeerId || event.type === "member") {
       return;
@@ -411,7 +411,7 @@ export const TeamActivity = ({
         // 顺带清理该知识名下的附件（正文中的图片引用）
         void team.deleteMedia(event.refId).catch(() => undefined);
       } else if (
-        (event.type === "task" || event.type === "review") &&
+        (event.type === "task" || event.type === "topic") &&
         event.refId
       ) {
         const match = /-h-(\d+)$/.exec(event.key);
@@ -430,15 +430,15 @@ export const TeamActivity = ({
           };
           await team.publish("task", task.id, updated);
         } else {
-          const review = team.reviews.find((item) => item.id === event.refId);
-          if (!review || index < 0 || index >= review.history.length) {
+          const topic = team.topics.find((item) => item.id === event.refId);
+          if (!topic || index < 0 || index >= topic.history.length) {
             return;
           }
           const updated = {
-            ...review,
-            history: review.history.filter((_, i) => i !== index),
+            ...topic,
+            history: topic.history.filter((_, i) => i !== index),
           };
-          await team.publish("review", review.id, updated);
+          await team.publish("topic", topic.id, updated);
         }
       }
     } catch {
@@ -473,20 +473,27 @@ export const TeamActivity = ({
           defaultValue: "评论「{{title}}」：{{detail}}",
           values: { title: event.title ?? "", detail: event.detail ?? "" },
         });
-      case "approved":
-        return t("team.activity.approved", {
-          defaultValue: "批准了评审「{{title}}」",
-          values: { title: event.title ?? "" },
+      case "vote":
+        return t("team.activity.vote", {
+          defaultValue: "在议题「{{title}}」投了{{choice}}",
+          values: {
+            title: event.title ?? "",
+            choice:
+              event.detail === "open"
+                ? t("team.topics.open", { defaultValue: "开启" })
+                : t("team.topics.closed", { defaultValue: "关闭" }),
+          },
         });
-      case "rejected":
-        return t("team.activity.rejected", {
-          defaultValue: "驳回了评审「{{title}}」",
-          values: { title: event.title ?? "" },
-        });
-      case "merged":
-        return t("team.activity.merged", {
-          defaultValue: "合并了评审「{{title}}」",
-          values: { title: event.title ?? "" },
+      case "veto":
+        return t("team.activity.veto", {
+          defaultValue: "一票否决议题「{{title}}」：最终{{choice}}",
+          values: {
+            title: event.title ?? "",
+            choice:
+              event.detail === "open"
+                ? t("team.topics.open", { defaultValue: "开启" })
+                : t("team.topics.closed", { defaultValue: "关闭" }),
+          },
         });
       case "joined":
         return t("team.activity.joined", {
@@ -504,7 +511,7 @@ export const TeamActivity = ({
           <div className="team-feed-empty">
             {t("team.activity.empty", {
               defaultValue:
-                "还没有团队动态。创建任务、发起评审或发一条消息开始协作吧。",
+                "还没有团队动态。创建任务、发起议题或发一条消息开始协作吧。",
             })}
           </div>
         ) : (

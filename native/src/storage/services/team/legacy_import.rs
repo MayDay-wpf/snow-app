@@ -149,7 +149,12 @@ fn read_legacy_records(root: &Path) -> Vec<(String, String, Value)> {
             if record_id.is_empty() {
                 continue;
             }
-            records.push((kind.to_string(), record_id, normalize_payload(kind, value)));
+            records.push((
+                // 旧版评审没有投票模型：迁移为议题，避免迁移后数据不可见
+                if kind == "review" { "topic".to_string() } else { kind.to_string() },
+                record_id,
+                normalize_payload(kind, value),
+            ));
         }
     }
     records
@@ -281,12 +286,25 @@ fn normalize_payload(kind: &str, mut value: Value) -> Value {
                 &mut value,
                 &[
                     ("creatorEmail", "creatorPeerId"),
-                    ("reviewerEmail", "reviewerPeerId"),
+                    ("summary", "description"),
                 ],
             );
             if let Some(comments) = value.get_mut("comments").and_then(Value::as_array_mut) {
                 for comment in comments {
                     rename_keys(comment, &[("authorEmail", "authorPeerId")]);
+                }
+            }
+            // 议题字段：无投票、无否决；旧评审状态与评审人不再使用
+            if let Some(object) = value.as_object_mut() {
+                object.remove("status");
+                object.remove("reviewerPeerId");
+                object.insert("votes".to_string(), Value::Array(Vec::new()));
+                object.insert("veto".to_string(), Value::Null);
+                if !object.contains_key("taskId") {
+                    object.insert("taskId".to_string(), Value::Null);
+                }
+                if !object.contains_key("description") {
+                    object.insert("description".to_string(), Value::String(String::new()));
                 }
             }
         }

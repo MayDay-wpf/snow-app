@@ -8,9 +8,9 @@ import {
   RotateCcw,
   Server,
   Settings,
-  ShieldCheck,
   Trash2,
   Users,
+  Vote,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -31,17 +31,17 @@ import type { MainContentView } from "../types";
 import { TeamActivity } from "./TeamActivity";
 import { TeamMembers } from "./TeamMembers";
 import { TeamNotes } from "./TeamNotes";
-import { TeamReviews } from "./TeamReviews";
 import { TeamSettings } from "./TeamSettings";
 import { TeamSetupView } from "./TeamSetup";
 import { TeamAvatar, TeamErrorNotice } from "./TeamShared";
 import { TeamTasks } from "./TeamTasks";
+import { TeamTopics } from "./TeamTopics";
 import { readAvatarImage } from "./teamAvatarImage";
 import { AVATAR_COLORS, isAvatarImage, isCustomAvatarColor } from "./teamUtils";
 import { useTeamData, type TeamDirectory } from "./useTeamData";
 
 type TeamTab =
-  "activity" | "tasks" | "reviews" | "notes" | "members" | "settings";
+  "activity" | "tasks" | "topics" | "notes" | "members" | "settings";
 
 const TABS: { id: TeamTab; icon: React.JSX.Element; labelKey: string }[] = [
   {
@@ -55,9 +55,9 @@ const TABS: { id: TeamTab; icon: React.JSX.Element; labelKey: string }[] = [
     labelKey: "team.tabs.tasks",
   },
   {
-    id: "reviews",
-    icon: <ShieldCheck size={15} strokeWidth={1.8} />,
-    labelKey: "team.tabs.reviews",
+    id: "topics",
+    icon: <Vote size={15} strokeWidth={1.8} />,
+    labelKey: "team.tabs.topics",
   },
   {
     id: "notes",
@@ -215,9 +215,10 @@ export const TeamPanel = ({
   const myTaskCount = team.tasks.filter(
     (task) => task.assigneePeerId === myPeerId && task.status !== "done",
   ).length;
-  const myReviewCount = team.reviews.filter(
-    (review) =>
-      review.reviewerPeerId === myPeerId && review.status === "pending",
+  // 待我表态：尚未定案且我还没投票的议题
+  const myTopicCount = team.topics.filter(
+    (topic) =>
+      !topic.veto && !topic.votes.some((vote) => vote.peerId === myPeerId),
   ).length;
   // 队长的待审核加入申请：与其它页签一起计入侧边栏的累计红点
   const myJoinRequestCount =
@@ -255,8 +256,8 @@ export const TeamPanel = ({
                 ? team.activityUnreadCount
                 : item.id === "tasks"
                   ? myTaskCount
-                  : item.id === "reviews"
-                    ? myReviewCount
+                  : item.id === "topics"
+                    ? myTopicCount
                     : item.id === "members"
                       ? myJoinRequestCount
                       : 0;
@@ -282,10 +283,11 @@ export const TeamPanel = ({
             <TeamTasks
               team={team}
               directoryId={activeDirectory?.directoryId ?? ""}
+              directoryPath={activeDirectory?.path ?? ""}
               onNavigateToView={onNavigateToView}
             />
           ) : null}
-          {tab === "reviews" ? <TeamReviews team={team} /> : null}
+          {tab === "topics" ? <TeamTopics team={team} /> : null}
           {tab === "notes" ? <TeamNotes team={team} /> : null}
           {tab === "members" ? <TeamMembers team={team} /> : null}
           {tab === "settings" ? (

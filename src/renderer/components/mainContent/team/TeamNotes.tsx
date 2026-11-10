@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import type { TeamNote } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { Modal } from "../../common/Modal";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 import {
   isImageOnlyNote,
   mdToPlain,
@@ -29,6 +30,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
   const [tags, setTags] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<TeamNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clearError = useCallback(() => setError(null), []);
 
@@ -101,6 +103,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
       if (detail?.id === note.id) {
         setDetail(null);
       }
+      setDeleteTarget(null);
     } catch {
       // 删除失败静默
     } finally {
@@ -271,7 +274,8 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
                 type="button"
                 className="team-btn team-btn-danger"
                 disabled={deleting}
-                onClick={() => void deleteNote(detail)}
+                onClick={() => setDeleteTarget(detail)}
+                title={t("team.notes.delete", { defaultValue: "删除知识" })}
               >
                 {deleting ? (
                   <Loader2 size={15} className="spin" />
@@ -320,6 +324,27 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
           </div>
         ) : null}
       </Modal>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        variant="danger"
+        title={t("team.notes.deleteConfirmTitle", {
+          defaultValue: "删除知识？",
+        })}
+        message={t("team.notes.deleteConfirmMessage", {
+          defaultValue: "知识「{{title}}」将被删除，且无法恢复。",
+          values: { title: deleteTarget?.title ?? "" },
+        })}
+        confirmLabel={t("team.notes.delete", { defaultValue: "删除知识" })}
+        cancelLabel={t("common.cancel", { defaultValue: "取消" })}
+        isConfirming={deleting}
+        onConfirm={() => {
+          const target = deleteTarget;
+          if (target) {
+            void deleteNote(target);
+          }
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );

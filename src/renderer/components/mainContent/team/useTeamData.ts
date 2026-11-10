@@ -9,9 +9,9 @@ import type {
   TeamNote,
   TeamProjectLink,
   TeamRecordKind,
-  TeamReview,
   TeamState,
   TeamTask,
+  TeamTopic,
 } from "../../../../preload";
 import { buildTeamEvents, parseRecords } from "./teamUtils";
 import { isTeamEventUnread, useTeamActivityReadAt } from "./teamActivityRead";
@@ -55,7 +55,7 @@ export type TeamData = {
   members: TeamMemberRecord[];
   projects: TeamProjectLink[];
   tasks: TeamTask[];
-  reviews: TeamReview[];
+  topics: TeamTopic[];
   notes: TeamNote[];
   messages: TeamMessage[];
   /** 团队动态中未读的条数（不含自己产生的动态）。 */
@@ -138,7 +138,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
   const [loading, setLoading] = useState(false);
   const [state, setState] = useState<TeamState | null>(null);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
-  const [reviews, setReviews] = useState<TeamReview[]>([]);
+  const [topics, setTopics] = useState<TeamTopic[]>([]);
   const [notes, setNotes] = useState<TeamNote[]>([]);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [blocklist, setBlocklist] = useState<TeamBlockedMember[]>([]);
@@ -159,11 +159,11 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
       buildTeamEvents({
         messages,
         tasks,
-        reviews,
+        topics,
         notes,
         members: state?.members ?? [],
       }),
-    [messages, tasks, reviews, notes, state?.members],
+    [messages, tasks, topics, notes, state?.members],
   );
   const activityUnreadCount = useMemo(
     () =>
@@ -179,19 +179,19 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
   const loadRecords = useCallback(async (id: string) => {
     if (!id) {
       setTasks([]);
-      setReviews([]);
+      setTopics([]);
       setNotes([]);
       setMessages([]);
       return;
     }
-    const [taskList, reviewList, noteList, messageList] = await Promise.all([
+    const [taskList, topicList, noteList, messageList] = await Promise.all([
       loadKind<TeamTask>(id, "task"),
-      loadKind<TeamReview>(id, "review"),
+      loadKind<TeamTopic>(id, "topic"),
       loadKind<TeamNote>(id, "note"),
       loadKind<TeamMessage>(id, "message"),
     ]);
     setTasks(taskList);
-    setReviews(reviewList);
+    setTopics(topicList);
     setNotes(noteList);
     setMessages(messageList);
   }, []);
@@ -277,7 +277,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
             }
             void refreshRecordsForKind(id, kind, {
               setTasks,
-              setReviews,
+              setTopics,
               setNotes,
               setMessages,
             });
@@ -584,7 +584,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
     members: state?.members ?? [],
     projects: state?.projects ?? [],
     tasks,
-    reviews,
+    topics,
     notes,
     messages,
     activityUnreadCount,
@@ -624,7 +624,7 @@ export const TEAM_ENABLED_SETTING = "team_collaboration_enabled";
 export const TEAM_ENABLED_CHANGED_EVENT = "snow:team-enabled-changed";
 
 /**
- * 侧边栏入口用的轻量摘要：当前项目所属团队 + 任务 / 评审 / 动态未读数量。
+ * 侧边栏入口用的轻量摘要：当前项目所属团队 + 任务 / 议题 / 动态未读数量。
  * 本机创建 / 加入 / 退出团队或修改身份（`TEAM_STATE_CHANGED_EVENT`）、远端团队事件
  * 到达时立即重新解析，因此头像与徽标无需等待轮询；`refreshKey` 变化同样强制刷新
  * （团队协作开关切换后由侧边栏传入递增计数）。
@@ -636,11 +636,11 @@ export const useTeamSummary = (
 ): {
   team: TeamInfo | null;
   enabled: boolean;
-  /** 指派给我且未完成的任务 + 待我处理的评审。 */
+  /** 指派给我且未完成的任务 + 待我表态的议题。 */
   pendingCount: number;
   /** 团队动态中他人的未读条目数。 */
   unreadCount: number;
-  /** 侧边栏入口使用的累计红点数量（动态 + 任务 + 评审 + 加入申请）。 */
+  /** 侧边栏入口使用的累计红点数量（动态 + 任务 + 议题 + 加入申请）。 */
   totalCount: number;
   loading: boolean;
 } => {
@@ -678,9 +678,9 @@ export const useTeamSummary = (
         setActivityEvents([]);
         return;
       }
-      const [tasks, reviews, notes, messages] = await Promise.all([
+      const [tasks, topics, notes, messages] = await Promise.all([
         window.snow.teamListRecords(id, "task").catch(() => []),
-        window.snow.teamListRecords(id, "review").catch(() => []),
+        window.snow.teamListRecords(id, "topic").catch(() => []),
         window.snow.teamListRecords(id, "note").catch(() => []),
         window.snow.teamListRecords(id, "message").catch(() => []),
       ]);
@@ -689,19 +689,21 @@ export const useTeamSummary = (
       }
       const me = next.team?.selfPeerId ?? "";
       const taskList = parseRecords<TeamTask>(tasks);
-      const reviewList = parseRecords<TeamReview>(reviews);
+      const topicList = parseRecords<TeamTopic>(topics);
       const mineTasks = taskList.filter(
         (task) => task.assigneePeerId === me && task.status !== "done",
       ).length;
-      const myReviews = reviewList.filter(
-        (review) => review.reviewerPeerId === me && review.status === "pending",
+      // 待我表态：尚未定案且我还没投票的议题
+      const myTopics = topicList.filter(
+        (topic) =>
+          !topic.veto && !topic.votes.some((vote) => vote.peerId === me),
       ).length;
-      setPendingCount(mineTasks + myReviews);
+      setPendingCount(mineTasks + myTopics);
       setActivityEvents(
         buildTeamEvents({
           messages: parseRecords<TeamMessage>(messages),
           tasks: taskList,
-          reviews: reviewList,
+          topics: topicList,
           notes: parseRecords<TeamNote>(notes),
           members: next.members ?? [],
         }).map((event) => ({ at: event.at, authorPeerId: event.authorPeerId })),
@@ -786,15 +788,15 @@ const refreshRecordsForKind = async (
   kind: TeamRecordKind,
   setters: {
     setTasks: (value: TeamTask[]) => void;
-    setReviews: (value: TeamReview[]) => void;
+    setTopics: (value: TeamTopic[]) => void;
     setNotes: (value: TeamNote[]) => void;
     setMessages: (value: TeamMessage[]) => void;
   },
 ): Promise<void> => {
   if (kind === "task") {
     setters.setTasks(await loadKind<TeamTask>(teamId, "task"));
-  } else if (kind === "review") {
-    setters.setReviews(await loadKind<TeamReview>(teamId, "review"));
+  } else if (kind === "topic") {
+    setters.setTopics(await loadKind<TeamTopic>(teamId, "topic"));
   } else if (kind === "note") {
     setters.setNotes(await loadKind<TeamNote>(teamId, "note"));
   } else if (kind === "message") {
