@@ -104,6 +104,7 @@ export type TeamData = {
   readMedia: (mediaId: string) => Promise<string>;
   deleteMedia: (ownerId: string) => Promise<boolean>;
   clearError: () => void;
+  clearJoinRejected: () => void;
 };
 
 const loadKind = async <T>(
@@ -534,6 +535,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
+  const clearJoinRejected = useCallback(() => setJoinRejected(null), []);
 
   const me = {
     peerId: state?.team?.selfPeerId ?? "",
@@ -582,6 +584,7 @@ export const useTeamData = (directory: TeamDirectory | null): TeamData => {
     readMedia,
     deleteMedia,
     clearError,
+    clearJoinRejected,
   };
 };
 

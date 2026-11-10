@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { TeamMemberRecord } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { AutoDismissNotice } from "../../AutoDismissNotice";
 import {
   avatarColor,
   initials,
@@ -86,3 +87,22 @@ export const TeamSectionTitle = ({
 }: {
   children: ReactNode;
 }): React.JSX.Element => <div className="team-section-title">{children}</div>;
+
+const TEAM_ERROR_NOTICE_MS = 4000;
+
+/** 团队模式统一错误提示：顶部浮层自动消失，消失后回调清空错误态。 */
+export const TeamErrorNotice = ({
+  message,
+  onDismiss,
+}: {
+  message: string | null;
+  onDismiss: () => void;
+}): React.JSX.Element | null =>
+  message ? (
+    <AutoDismissNotice
+      message={message}
+      tone="error"
+      durationMs={TEAM_ERROR_NOTICE_MS}
+      onDismiss={onDismiss}
+    />
+  ) : null;

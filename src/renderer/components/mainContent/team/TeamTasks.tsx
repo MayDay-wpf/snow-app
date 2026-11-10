@@ -9,7 +9,7 @@ import {
   Trash2,
   UserCheck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { TeamReview, TeamTask } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import {
@@ -19,7 +19,7 @@ import {
 import { Modal } from "../../common/Modal";
 import { useChatConversationContext } from "../chatMessages";
 import type { TeamData } from "./useTeamData";
-import { TeamEmpty, TeamMemberChip } from "./TeamShared";
+import { TeamEmpty, TeamErrorNotice, TeamMemberChip } from "./TeamShared";
 import {
   formatTime,
   memberName,
@@ -99,6 +99,7 @@ export const TeamTasks = ({
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
 
   const myPeerId = team.me.peerId;
 
@@ -421,7 +422,6 @@ export const TeamTasks = ({
         onClose={() => setCreating(false)}
         footer={
           <>
-            {error ? <span className="team-form-error">{error}</span> : null}
             <button
               type="button"
               className="team-btn team-btn-primary"
@@ -509,7 +509,6 @@ export const TeamTasks = ({
         footer={
           detail ? (
             <div className="team-detail-actions">
-              {error ? <span className="team-form-error">{error}</span> : null}
               <button
                 type="button"
                 className="team-btn"
@@ -655,6 +654,7 @@ export const TeamTasks = ({
           </div>
         ) : null}
       </Modal>
+      <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );
 };

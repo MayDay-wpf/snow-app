@@ -1,6 +1,7 @@
 import { Clock, Link2, Loader2, Plus, Users, X } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useI18n } from "../../../i18n";
+import { TeamErrorNotice } from "./TeamShared";
 import { AVATAR_COLORS } from "./teamUtils";
 import type { TeamData, TeamDirectory } from "./useTeamData";
 
@@ -23,6 +24,7 @@ export const TeamSetupView = ({
   const [inviteLink, setInviteLink] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
 
   const submit = async (): Promise<void> => {
     if (!displayName.trim()) {
@@ -72,7 +74,7 @@ export const TeamSetupView = ({
                 "加入申请已提交，队长同意后你会自动加入团队；请保持应用运行。",
             })}
           </p>
-          {error ? <div className="team-form-error">{error}</div> : null}
+          <TeamErrorNotice message={error} onDismiss={clearError} />
           <button
             type="button"
             className="team-btn"
@@ -210,10 +212,11 @@ export const TeamSetupView = ({
           </div>
         </div>
 
-        {team.joinRejected ? (
-          <div className="team-form-error">{team.joinRejected}</div>
-        ) : null}
-        {error ? <div className="team-form-error">{error}</div> : null}
+        <TeamErrorNotice
+          message={team.joinRejected}
+          onDismiss={team.clearJoinRejected}
+        />
+        <TeamErrorNotice message={error} onDismiss={clearError} />
         <button
           type="button"
           className="team-btn team-btn-primary"

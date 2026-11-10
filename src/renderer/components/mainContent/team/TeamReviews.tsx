@@ -7,7 +7,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { TeamReview } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import {
@@ -16,7 +16,7 @@ import {
 } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
 import type { TeamData } from "./useTeamData";
-import { TeamEmpty, TeamMemberChip } from "./TeamShared";
+import { TeamEmpty, TeamErrorNotice, TeamMemberChip } from "./TeamShared";
 import { formatTime, memberName, newId, nowIso } from "./teamUtils";
 
 const STATUS_LABEL_KEY: Record<string, string> = {
@@ -60,6 +60,7 @@ export const TeamReviews = ({
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
 
   const myPeerId = team.me.peerId;
 
@@ -343,7 +344,6 @@ export const TeamReviews = ({
         size="large"
         footer={
           <>
-            {error ? <span className="team-form-error">{error}</span> : null}
             <button
               type="button"
               className="team-btn team-btn-primary"
@@ -419,7 +419,6 @@ export const TeamReviews = ({
         footer={
           detail ? (
             <div className="team-detail-actions">
-              {error ? <span className="team-form-error">{error}</span> : null}
               <button
                 type="button"
                 className="team-btn team-btn-success"
@@ -599,6 +598,7 @@ export const TeamReviews = ({
           </div>
         ) : null}
       </Modal>
+      <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );
 };

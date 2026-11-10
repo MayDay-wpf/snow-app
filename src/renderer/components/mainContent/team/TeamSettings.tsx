@@ -8,9 +8,9 @@ import {
   Save,
   Server,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
-import { TeamAvatar } from "./TeamShared";
+import { TeamAvatar, TeamErrorNotice } from "./TeamShared";
 import { formatTime } from "./teamUtils";
 import type { TeamData } from "./useTeamData";
 
@@ -30,6 +30,7 @@ export const TeamSettings = ({
 }): React.JSX.Element => {
   const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [portDraft, setPortDraft] = useState(
@@ -268,7 +269,7 @@ export const TeamSettings = ({
         )}
       </div>
 
-      {error ? <div className="team-form-error">{error}</div> : null}
+      <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );
 };

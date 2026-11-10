@@ -1,5 +1,5 @@
 import { BookOpen, Loader2, Plus, Save, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { TeamNote } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { Modal } from "../../common/Modal";
@@ -10,7 +10,7 @@ import {
   TeamNoteMarkdown,
 } from "./TeamMarkdownEditor";
 import type { TeamData } from "./useTeamData";
-import { TeamEmpty, TeamMemberChip } from "./TeamShared";
+import { TeamEmpty, TeamErrorNotice, TeamMemberChip } from "./TeamShared";
 import { formatTime, newId, nowIso, timeAgo } from "./teamUtils";
 
 const splitTags = (value: string): string[] =>
@@ -30,6 +30,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
 
   const myPeerId = team.me.peerId;
 
@@ -198,7 +199,6 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
         className="team-note-modal"
         footer={
           <>
-            {error ? <span className="team-form-error">{error}</span> : null}
             <button
               type="button"
               className="team-btn team-btn-primary"
@@ -320,6 +320,7 @@ export const TeamNotes = ({ team }: { team: TeamData }): React.JSX.Element => {
           </div>
         ) : null}
       </Modal>
+      <TeamErrorNotice message={error} onDismiss={clearError} />
     </div>
   );
 };

@@ -12,13 +12,13 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TeamMessage, TeamMessageAttachment } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { dataUrlToBlob, saveBlobToFile } from "../../../utils/imageDownload";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import type { TeamData } from "./useTeamData";
-import { TeamAvatar } from "./TeamShared";
+import { TeamAvatar, TeamErrorNotice } from "./TeamShared";
 import {
   buildTeamEvents,
   memberName,
@@ -110,6 +110,7 @@ export const TeamActivity = ({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const clearNotice = useCallback(() => setNotice(null), []);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 消息附件 data URL 缓存（气泡缩略图与 lightbox 共用）
@@ -556,18 +557,7 @@ export const TeamActivity = ({
         )}
       </div>
       <div className="team-feed-composer">
-        {notice ? (
-          <div className="team-feed-notice">
-            <span>{notice}</span>
-            <button
-              type="button"
-              onClick={() => setNotice(null)}
-              title={t("common.close", { defaultValue: "关闭" })}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ) : null}
+        <TeamErrorNotice message={notice} onDismiss={clearNotice} />
         {pendingFiles.length > 0 ? (
           <div className="team-feed-pending">
             {pendingFiles.map((file, index) => (

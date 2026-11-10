@@ -11,9 +11,10 @@ import {
   Quote,
   Strikethrough,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { tGlobal, useI18n } from "../../../i18n";
 import { MarkdownBlock } from "../chatMessages/components/markdownRenderer";
+import { TeamErrorNotice } from "./TeamShared";
 import { MEDIA_REF_PREFIX, resolveMediaRefs } from "./teamUtils";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -106,6 +107,7 @@ export const TeamMarkdownEditor = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
   const previewContent = useResolvedMediaContent(value, readMedia);
 
   const insertText = (text: string): void => {
@@ -329,7 +331,7 @@ export const TeamMarkdownEditor = ({
             defaultValue: "支持 Ctrl+V 粘贴截图 / 拖入图片",
           })}
         </span>
-        {error ? <span className="team-form-error">{error}</span> : null}
+        <TeamErrorNotice message={error} onDismiss={clearError} />
       </div>
       <div className="team-md-split">
         <textarea

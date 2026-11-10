@@ -8,11 +8,11 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { TeamMemberRecord } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { TeamAvatar, TeamEmpty } from "./TeamShared";
+import { TeamAvatar, TeamEmpty, TeamErrorNotice } from "./TeamShared";
 import { formatTime, isOnline } from "./teamUtils";
 import type { TeamData } from "./useTeamData";
 
@@ -36,6 +36,7 @@ export const TeamMembers = ({
   );
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const clearRemoveError = useCallback(() => setRemoveError(null), []);
   const [blockingMember, setBlockingMember] = useState<TeamMemberRecord | null>(
     null,
   );
@@ -192,9 +193,7 @@ export const TeamMembers = ({
         </div>
       ) : null}
 
-      {removeError ? (
-        <div className="team-form-error">{removeError}</div>
-      ) : null}
+      <TeamErrorNotice message={removeError} onDismiss={clearRemoveError} />
 
       {sorted.length === 0 ? (
         <TeamEmpty

@@ -721,6 +721,20 @@ pub fn delete_member(database_path: &Path, team_id: &str, peer_id: &str) -> Resu
     })
 }
 
+/// 连接断开时标记成员离线：只更新已有记录，已被移除的成员不会被重新写回。
+pub fn set_member_offline(database_path: &Path, team_id: &str, peer_id: &str) -> Result<()> {
+    let team_id = team_id.trim().to_string();
+    let peer_id = peer_id.trim().to_string();
+    with_connection(database_path, "mark team member offline", move |connection| {
+        connection.execute(
+            "UPDATE team_members SET online = 0, last_seen = ?1
+              WHERE team_id = ?2 AND peer_id = ?3",
+            params![now_rfc3339(), team_id, peer_id],
+        )?;
+        Ok(())
+    })
+}
+
 /// 按重连令牌查找成员，返回 `(team_id, 成员记录)`（队员免审核重连时使用）。
 pub fn find_member_by_token(
     database_path: &Path,

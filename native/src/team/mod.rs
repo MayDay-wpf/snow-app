@@ -153,6 +153,12 @@ pub(crate) fn new_peer_id() -> String {
     )
 }
 
+/// 设备在团队内的固定 peer id：同一设备退出或被移除后再加入，仍是同一身份。
+pub(crate) fn peer_id_for_client(team_id: &str, client_id: &str) -> String {
+    let hash = blake3::hash(format!("{}:{}", team_id.trim(), client_id.trim()).as_bytes());
+    format!("peer-{}", &hash.to_hex()[..20])
+}
+
 /// 本机设备标识：加入申请去重与队长黑名单都以它为依据。
 /// 首次使用时生成并持久化到系统设置，之后保持不变。
 pub fn local_client_id(database_path: &std::path::Path) -> String {
@@ -237,6 +243,20 @@ pub async fn stop_host() {
     if let Some(handle) = handle {
         server::stop(handle).await;
     }
+}
+
+/// 解散团队时关闭队长服务：先通知在线成员与待审核申请者（对方随即清理本地副本），
+/// 等连接把通知发出（上限 3 秒）后再停服务。仅处理本机正在承载的该团队。
+pub async fn disband_host(team_id: &str) {
+    let Some(hub) = host_hub().filter(|hub| hub.team_id == team_id) else {
+        return;
+    };
+    hub.close_all("队长已解散团队");
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    while hub.active_connections() > 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    stop_host().await;
 }
 
 /// 查询队长服务状态（同步、无 I/O）。
@@ -377,22 +397,39 @@ pub fn connect_client(config: ClientConfig) {
     }
 }
 
-/// 待审核队员收到 Welcome 后，把客户端句柄从占位键迁移到真实团队 id。
+/// 收到 Welcome 后把该客户端句柄登记到真实团队 id 下（按句柄 id 精确定位）。
 ///
-/// 否则 `is_client_connected` / `client_send` 永远查不到这条连接：
-/// 界面会显示「未连接队长」，本地改动也推不出去。
-pub fn bind_pending_client(team_id: &str) {
+/// 待审核时句柄挂在占位键下；若真实 id 下残留旧句柄（如被移出后重新加入），
+/// 必须替换掉，否则 `client_send` 会命中已失效的旧连接。
+pub fn bind_client(handle_id: u64, team_id: &str) {
     let team_id = team_id.trim();
     if team_id.is_empty() {
         return;
     }
     let mut clients = client_slot().lock().unwrap_or_else(|e| e.into_inner());
-    if clients.contains_key(team_id) {
+    let Some(key) = clients
+        .iter()
+        .find(|(_, handle)| handle.id == handle_id)
+        .map(|(key, _)| key.clone())
+    else {
+        return;
+    };
+    if key == team_id {
         return;
     }
-    if let Some(handle) = clients.remove(PENDING_CLIENT_KEY) {
-        clients.insert(team_id.to_string(), handle);
+    if let Some(handle) = clients.remove(&key) {
+        if let Some(previous) = clients.insert(team_id.to_string(), handle) {
+            client::stop(&previous);
+        }
     }
+}
+
+/// 客户端任务终止（被移出 / 被拒绝）时移除自己的句柄，不影响后来替换的新句柄。
+pub fn release_client(handle_id: u64) {
+    client_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|_, handle| handle.id != handle_id);
 }
 
 /// 断开队员客户端。
@@ -424,6 +461,7 @@ fn client_handle(team_id: &str) -> Option<Arc<ClientHandle>> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(team_id)
+        .filter(|handle| handle.is_alive())
         .cloned()
 }
 

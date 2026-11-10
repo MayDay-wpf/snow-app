@@ -498,7 +498,7 @@ pub async fn team_leave_team(team_id: String) -> napi::Result<bool> {
     delete_local_team(&database_path, &team_id).await
 }
 
-/// 队长解散团队：停止队长服务并删除本机的团队数据。
+/// 队长解散团队：通知成员被移出、停止队长服务并删除本机的团队数据。
 #[napi]
 pub async fn team_disband_team(team_id: String) -> napi::Result<bool> {
     let database_path = ensure_database_file()?;
@@ -507,7 +507,7 @@ pub async fn team_disband_team(team_id: String) -> napi::Result<bool> {
     if team.role != store::ROLE_HOST {
         return Err(Error::from_reason("只有队长可以解散团队"));
     }
-    team_net::stop_host().await;
+    team_net::disband_host(&team_id).await;
     delete_local_team(&database_path, &team_id).await
 }
 

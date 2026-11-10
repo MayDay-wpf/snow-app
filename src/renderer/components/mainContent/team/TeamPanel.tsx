@@ -25,7 +25,7 @@ import { TeamNotes } from "./TeamNotes";
 import { TeamReviews } from "./TeamReviews";
 import { TeamSettings } from "./TeamSettings";
 import { TeamSetupView } from "./TeamSetup";
-import { TeamAvatar } from "./TeamShared";
+import { TeamAvatar, TeamErrorNotice } from "./TeamShared";
 import { TeamTasks } from "./TeamTasks";
 import { AVATAR_COLORS, isCustomAvatarColor } from "./teamUtils";
 import { useTeamData, type TeamDirectory } from "./useTeamData";
@@ -95,6 +95,7 @@ export const TeamPanel = ({
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [hostServiceBusy, setHostServiceBusy] = useState(false);
+  const clearEditError = useCallback(() => setEditError(null), []);
 
   const openEditIdentity = useCallback((): void => {
     setEditName(team.team?.selfName ?? "");
@@ -254,9 +255,6 @@ export const TeamPanel = ({
         onClose={() => setEditIdentity(false)}
         footer={
           <>
-            {editError ? (
-              <span className="team-form-error">{editError}</span>
-            ) : null}
             <button
               type="button"
               className="team-btn team-btn-primary"
@@ -331,6 +329,7 @@ export const TeamPanel = ({
           ) : null}
         </div>
       </Modal>
+      <TeamErrorNotice message={editError} onDismiss={clearEditError} />
     </div>
   );
 };

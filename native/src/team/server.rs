@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, UdpSocket};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -32,8 +33,12 @@ const JOIN_APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 /// 单条附件上限（与数据层一致：5 MB 原始字节）。
 const MAX_MEDIA_BYTES: usize = store::MEDIA_MAX_BYTES;
 
+/// 连接序号：区分同一成员的新旧连接，旧连接收尾时不能误注销新连接。
+static CONNECTION_SEQ: AtomicU64 = AtomicU64::new(1);
+
 /// 一个在线连接的发送端。
 struct PeerHandle {
+    connection_id: u64,
     sender: mpsc::UnboundedSender<ServerMessage>,
 }
 
@@ -51,6 +56,8 @@ struct PendingJoin {
     name: String,
     color: String,
     created_at: String,
+    /// 登记该申请的连接序号：被新连接接管后，旧连接收尾不得删除新申请。
+    connection_id: u64,
     /// 裁决通道；已被审批或已被新连接接管时为 None。
     decision: Option<oneshot::Sender<JoinDecision>>,
 }
@@ -73,6 +80,17 @@ pub struct Hub {
     peers: Mutex<HashMap<String, PeerHandle>>,
     /// 待审核的加入申请，按 request_id 索引。
     pending: Mutex<HashMap<String, PendingJoin>>,
+    /// 存活连接数（含握手 / 待审核中的连接），解散时据此等待通知发出。
+    connections: AtomicUsize,
+}
+
+/// 连接存活计数守卫：连接任务结束（含提前返回）时自动减一。
+struct ConnectionGuard(std::sync::Arc<Hub>);
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.0.connections.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 impl Hub {
@@ -82,12 +100,38 @@ impl Hub {
             team_id,
             peers: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            connections: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) fn active_connections(&self) -> usize {
+        self.connections.load(Ordering::Relaxed)
+    }
+
+    /// 团队解散：拒绝全部待审核申请，并通知全部在线成员已被移出（各连接随后自行断开）。
+    pub(crate) fn close_all(&self, message: &str) {
+        {
+            let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            for item in pending.values_mut() {
+                if let Some(sender) = item.decision.take() {
+                    let _ = sender.send(JoinDecision::Rejected {
+                        message: message.to_string(),
+                    });
+                }
+            }
+        }
+        let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        for (_, peer) in peers.drain() {
+            let _ = peer.sender.send(ServerMessage::Removed {
+                message: message.to_string(),
+            });
         }
     }
 
     /// 登记一条加入申请；同一设备已有申请时沿用其 request_id 并接管裁决通道。
     fn register_pending(
         &self,
+        connection_id: u64,
         client_id: &str,
         name: &str,
         color: &str,
@@ -106,6 +150,7 @@ impl Hub {
                 name: name.to_string(),
                 color: color.to_string(),
                 created_at: chrono::Utc::now().to_rfc3339(),
+                connection_id,
                 decision: Some(tx),
             },
         );
@@ -129,9 +174,16 @@ impl Hub {
         Ok(())
     }
 
-    fn remove_pending(&self, request_id: &str) {
+    /// 只删除本连接登记的申请（已被同设备新连接接管的保留）。
+    fn remove_pending(&self, request_id: &str, connection_id: u64) {
         let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        pending.remove(request_id);
+        if pending
+            .get(request_id)
+            .map(|item| item.connection_id == connection_id)
+            .unwrap_or(false)
+        {
+            pending.remove(request_id);
+        }
     }
 
     /// 当前待审核申请列表（按提交时间升序）。
@@ -151,14 +203,37 @@ impl Hub {
         items
     }
 
-    fn register(&self, peer_id: &str, sender: mpsc::UnboundedSender<ServerMessage>) {
+    fn register(
+        &self,
+        peer_id: &str,
+        connection_id: u64,
+        sender: mpsc::UnboundedSender<ServerMessage>,
+    ) {
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        peers.insert(peer_id.to_string(), PeerHandle { sender });
+        peers.insert(
+            peer_id.to_string(),
+            PeerHandle {
+                connection_id,
+                sender,
+            },
+        );
     }
 
-    fn unregister(&self, peer_id: &str) {
+    /// 只注销本连接；同一成员已有新连接接管时保留新连接。
+    fn unregister(&self, peer_id: &str, connection_id: u64) {
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        peers.remove(peer_id);
+        if peers
+            .get(peer_id)
+            .map(|peer| peer.connection_id == connection_id)
+            .unwrap_or(false)
+        {
+            peers.remove(peer_id);
+        }
+    }
+
+    fn is_peer_online(&self, peer_id: &str) -> bool {
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        peers.contains_key(peer_id)
     }
 
     /// 踢下线：先送出说明消息，再移除发送端（对应连接随后自行结束）。
@@ -283,6 +358,9 @@ async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<std::sync::Arc<Hub>>
 /// 单条连接的生命周期：握手（令牌重连或邀请码申请审核）→ 快照 → 双向增量 → 断开清理。
 async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
     let (mut tx, mut rx) = socket.split();
+    let connection_id = CONNECTION_SEQ.fetch_add(1, Ordering::Relaxed);
+    hub.connections.fetch_add(1, Ordering::Relaxed);
+    let _guard = ConnectionGuard(hub.clone());
 
     let hello = match tokio::time::timeout(HELLO_TIMEOUT, wait_hello(&mut rx)).await {
         Ok(Some(hello)) => hello,
@@ -339,6 +417,8 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
     }
 
     // 1) 已加入成员凭重连令牌免审核恢复身份。
+    // stale_token：持有令牌但本机已查无此人（团队已解散或已被移出）。
+    let mut stale_token = false;
     let reconnected = if hello.token.trim().is_empty() {
         None
     } else {
@@ -350,6 +430,10 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
         .await
         {
             Ok(Some((team_id, member))) if team_id == hub.team_id => Some(member),
+            Ok(None) => {
+                stale_token = true;
+                None
+            }
             _ => None,
         }
     };
@@ -398,11 +482,17 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
             {
                 Ok(Some(team)) if team.invite_code == hello.invite_code.trim().to_uppercase() => team,
                 Ok(_) => {
-                    let _ = tx
-                        .send(text_message(&ServerMessage::Error {
+                    // 旧成员的令牌与邀请码都已失效：团队已不存在，通知其清理本地副本。
+                    let message = if stale_token {
+                        ServerMessage::Removed {
+                            message: "该团队已解散或你已不在团队中".to_string(),
+                        }
+                    } else {
+                        ServerMessage::Error {
                             message: "邀请码无效或已失效".to_string(),
-                        }))
-                        .await;
+                        }
+                    };
+                    let _ = tx.send(text_message(&message)).await;
                     return;
                 }
                 Err(error) => {
@@ -422,12 +512,13 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
                 return;
             }
 
-            // 已有成员记录（例如退出后重新申请）复用原 peer id，身份保持不变。
+            // 同一设备固定同一 peer id：退出或被移除后再加入，身份与历史记录保持不变。
             let peer_id = known_member
                 .as_ref()
                 .map(|member| member.peer_id.clone())
-                .unwrap_or_else(super::new_peer_id);
+                .unwrap_or_else(|| super::peer_id_for_client(&hub.team_id, &client_id));
             let (request_id, decision_rx) = hub.register_pending(
+                connection_id,
                 &client_id,
                 &display_name(&hello.name),
                 hello.color.trim(),
@@ -440,7 +531,7 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
             emit_pending(&hub).await;
 
             let decision = wait_decision(&mut rx, &mut tx, decision_rx).await;
-            hub.remove_pending(&request_id);
+            hub.remove_pending(&request_id, connection_id);
             emit_pending(&hub).await;
 
             match decision {
@@ -508,18 +599,18 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
     .await;
 
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
-    hub.register(&peer_id, out_tx);
+    hub.register(&peer_id, connection_id, out_tx);
 
     let welcome = ServerMessage::Welcome {
         team: snapshot.team.clone(),
         peer_id: peer_id.clone(),
-        token: member_token,
+        token: member_token.clone(),
         projects: snapshot.projects.clone(),
         members: snapshot.members.clone(),
         records: snapshot.records.clone(),
     };
     if tx.send(text_message(&welcome)).await.is_err() {
-        hub.unregister(&peer_id);
+        hub.unregister(&peer_id, connection_id);
         return;
     }
     broadcast_members(&hub, None).await;
@@ -562,33 +653,18 @@ async fn handle_socket(socket: WebSocket, hub: std::sync::Arc<Hub>) {
         }
     }
 
-    hub.unregister(&peer_id);
+    hub.unregister(&peer_id, connection_id);
     // 断开只标记离线：成员记录与重连令牌保留，队员重连时免审核。
-    let _ = db({
-        let database_path = hub.database_path.clone();
-        let team_id = hub.team_id.clone();
-        let peer_id = peer_id.clone();
-        let name = name.clone();
-        let color = color.clone();
-        move || {
-            store::upsert_member(
-                &database_path,
-                &team_id,
-                &TeamMemberRecord {
-                    peer_id,
-                    name,
-                    color,
-                    role: store::ROLE_MEMBER.to_string(),
-                    online: false,
-                    joined_at: String::new(),
-                    last_seen: String::new(),
-                },
-                "",
-                "",
-            )
-        }
-    })
-    .await;
+    // 已被移除的成员不写回；同一成员已有新连接时保持在线。
+    if !hub.is_peer_online(&peer_id) {
+        let _ = db({
+            let database_path = hub.database_path.clone();
+            let team_id = hub.team_id.clone();
+            let peer_id = peer_id.clone();
+            move || store::set_member_offline(&database_path, &team_id, &peer_id)
+        })
+        .await;
+    }
     broadcast_members(&hub, None).await;
     if hub.is_empty() {
         emit_event("idle", &hub.team_id, "{}".to_string()).await;
