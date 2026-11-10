@@ -96,7 +96,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
                     .get("executionMode")
                     .cloned()
                     .unwrap_or_else(|| json!("auto")),
-                "note": "Channels are independent; enable one or more at once. When none is configured the imagegen-generate tool is hidden from the model. MULTI-MODEL CHANNELS: one channel (a single baseUrl + apiKey, e.g. a relay service) can host several image models — each channel entry's `models` array lists them with their own defaultSize / defaultQuality / supportedRatios / supportedResolutions / supportedThinking / customPrompt, and the entry's top-level `model` is the default primary model. `configured` is true when the channel is enabled, has an apiKey, and has at least one model (either the top-level `model` or an enabled child in `models`). Pass `model` to imagegen-generate with an exact child model id to use that model's own defaults. maxConcurrentImages (top-level global field, 1-8, default 4) caps how many generation requests run in parallel when the agent asks for several images at once; read it with config-get key=maxConcurrentImages, and write it with config-set value={\"maxConcurrentImages\": N} — the value MUST be an object (a bare number is rejected, and the key argument does not select this global field for writes). timeoutSecs (top-level global field, 60-3600, default 300) is the per-request timeout for image generation (including streaming); raise it if complex/high-resolution prompts time out. executionMode (top-level global field, \"auto\" | \"sync\" | \"async\", default \"auto\") configures whether generation blocks the agent loop (sync) or yields immediately and wakes up upon completion (async). Pass provider=<channelId|channelName|openai|gemini> to imagegen-generate to pick a channel. IMPORTANT when writing: an openai channel's baseUrl MUST include the /v1 path segment (e.g. https://api.openai.com/v1, or http://host:port/v1 — the same rule as the conversation API baseUrl); generation requests are built as {baseUrl}/images/generations and {baseUrl}/images/edits, so a bare host root without /v1 returns 404. A gemini channel's baseUrl must include its version segment (default https://generativelanguage.googleapis.com/v1beta). Writing `models` via {<channelId>: {models:[...]}} is a DEEP merge by model id (only the fields you pass change; other models and fields are preserved) — to fully replace the list, use the {channels:[...]} form instead.",
+                "note": "Channels are independent; enable one or more at once. When none is configured the imagegen-generate tool is hidden from the model. MULTI-MODEL CHANNELS: one channel (a single baseUrl + apiKey, e.g. a relay service) can host several image models — each channel entry's `models` array lists them with their own defaultSize / defaultQuality / supportedRatios / supportedResolutions / supportedThinking / customPrompt, and the entry's top-level `model` is the default primary model. `configured` is true when the channel is enabled, has an apiKey, and has at least one model (either the top-level `model` or an enabled child in `models`). Pass `model` to imagegen-generate with an exact child model id to use that model's own defaults. maxConcurrentImages (top-level global field, 1-8, default 4) caps how many generation requests run in parallel when the agent asks for several images at once; read it with action=get key=maxConcurrentImages, and write it with action=set value={\"maxConcurrentImages\": N} — the value MUST be an object (a bare number is rejected, and the key argument does not select this global field for writes). timeoutSecs (top-level global field, 60-3600, default 300) is the per-request timeout for image generation (including streaming); raise it if complex/high-resolution prompts time out. executionMode (top-level global field, \"auto\" | \"sync\" | \"async\", default \"auto\") configures whether generation blocks the agent loop (sync) or yields immediately and wakes up upon completion (async). Pass provider=<channelId|channelName|openai|gemini> to imagegen-generate to pick a channel. IMPORTANT when writing: an openai channel's baseUrl MUST include the /v1 path segment (e.g. https://api.openai.com/v1, or http://host:port/v1 — the same rule as the conversation API baseUrl); generation requests are built as {baseUrl}/images/generations and {baseUrl}/images/edits, so a bare host root without /v1 returns 404. A gemini channel's baseUrl must include its version segment (default https://generativelanguage.googleapis.com/v1beta). Writing `models` via {<channelId>: {models:[...]}} is a DEEP merge by model id (only the fields you pass change; other models and fields are preserved) — to fully replace the list, use the {channels:[...]} form instead.",
             }))
         }
         TOOL_GET => {
@@ -180,7 +180,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
                         None => Err(Error::new(
                             Status::InvalidArg,
                             format!(
-                                "Unknown imagegen channel: \"{key}\". Use config-list scope=imagegen to see available channels."
+                                "Unknown imagegen channel: \"{key}\". Use config-manage action=list scope=imagegen to see available channels."
                             ),
                         )),
                     }
@@ -196,7 +196,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set (an object with channels or channel overrides)",
+                    "value is required for action=set (an object with channels or channel overrides)",
                 )
             })?;
             if !value.is_object() {
@@ -216,7 +216,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
             )?;
             // 保留「最大并发生成数」（顶层全局字段，设置面板可调）：本次
             // value 中显式提供时采用新值（规范化到 1-8 整数），否则沿用
-            // 现有存储值，避免 config-set 重建 {channels} 时把用户配置的
+            // 现有存储值，避免 action=set 重建 {channels} 时把用户配置的
             // 并发上限静默重置。
             let max_concurrent_images = value
                 .get("maxConcurrentImages")
@@ -225,7 +225,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
                 .map(clamp_imagegen_max_concurrent);
             // 保留「生图请求超时（秒）」（顶层全局字段，设置面板可调）：本次
             // value 中显式提供时采用新值（规范化到 60-3600），否则沿用现有
-            // 存储值，避免 config-set 重建 {channels} 时把用户配置的超时
+            // 存储值，避免 action=set 重建 {channels} 时把用户配置的超时
             // 静默重置。
             let timeout_secs = value
                 .get("timeoutSecs")
@@ -369,7 +369,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
         _ => Err(Error::new(
             Status::GenericFailure,
             format!(
-                "Unknown tool: \"{tool_name}\" for MCP server \"{SERVER_ID}\". Available tools: [config-list, config-get, config-set, config-delete]"
+                "Unknown action: \"{tool_name}\" for the imagegen scope. Available actions: [list, get, set, delete]"
             ),
         )),
     }
@@ -384,7 +384,7 @@ pub(crate) fn execute_imagegen_scope(tool_name: &str, args: &Value) -> napi::Res
 /// - `incoming` 中出现的新模型项：追加；
 /// - `incoming` 未提及的旧模型项：保留（非破坏性）。
 ///
-/// 这样 `config-set value={ch:<id>: {models:[{id:"a", defaultQuality:"high"}]}}`
+/// 这样 `config-manage action=set value={ch:<id>: {models:[{id:"a", defaultQuality:"high"}]}}`
 /// 只改动模型 a 的默认质量，不会把模型 b、c 或其他字段静默丢掉。
 fn merge_channel_models(existing: Option<&Value>, incoming: &Value) -> Option<Value> {
     let incoming_items = incoming.as_array()?;

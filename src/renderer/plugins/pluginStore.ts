@@ -188,7 +188,7 @@ export const usePluginStore = (): PluginStoreState =>
     () => state,
   );
 
-// AI 侧（config-set / config-delete 的 plugins 作用域）安装、启停或卸载插件时，
+// AI 侧（config-manage 的 action=set / delete，scope=plugins）安装、启停或卸载插件时，
 // 渲染层无从感知列表变化；主进程广播后统一刷新，侧边栏插件徽标与插件面板同步。
 if (typeof window !== "undefined" && window.snow?.onPluginsChanged) {
   window.snow.onPluginsChanged(() => {

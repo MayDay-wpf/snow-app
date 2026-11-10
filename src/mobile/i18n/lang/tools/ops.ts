@@ -19,12 +19,13 @@ export const opsEn: Record<string, string> = {
   "remote.toolCall.ops.running": "Running…",
   "remote.toolCall.ops.waiting": "Waiting",
 
-  // 配置（config-list / get / set / delete）
+  // 配置（config-manage：list / get / set / delete）
   "remote.toolCall.ops.config.name": "config",
   "remote.toolCall.ops.config.action.list": "List",
   "remote.toolCall.ops.config.action.get": "Read",
   "remote.toolCall.ops.config.action.set": "Write",
   "remote.toolCall.ops.config.action.delete": "Delete",
+  "remote.toolCall.ops.config.action.logs": "Logs",
   "remote.toolCall.ops.config.path": "Path",
   "remote.toolCall.ops.config.allScopes": "all scopes",
   "remote.toolCall.ops.config.scopeValue.global": "global",
@@ -148,12 +149,13 @@ export const opsZhCN: Record<string, string> = {
   "remote.toolCall.ops.running": "执行中…",
   "remote.toolCall.ops.waiting": "等待中",
 
-  // 配置（config-list / get / set / delete）
+  // 配置（config-manage：list / get / set / delete / logs）
   "remote.toolCall.ops.config.name": "配置",
   "remote.toolCall.ops.config.action.list": "列表",
   "remote.toolCall.ops.config.action.get": "读取",
   "remote.toolCall.ops.config.action.set": "写入",
   "remote.toolCall.ops.config.action.delete": "删除",
+  "remote.toolCall.ops.config.action.logs": "日志",
   "remote.toolCall.ops.config.path": "路径",
   "remote.toolCall.ops.config.allScopes": "全部作用域",
   "remote.toolCall.ops.config.scopeValue.global": "全局",
@@ -276,12 +278,13 @@ export const opsZhTW: Record<string, string> = {
   "remote.toolCall.ops.running": "執行中…",
   "remote.toolCall.ops.waiting": "等待中",
 
-  // 設定（config-list / get / set / delete）
+  // 設定（config-manage：list / get / set / delete / logs）
   "remote.toolCall.ops.config.name": "設定",
   "remote.toolCall.ops.config.action.list": "清單",
   "remote.toolCall.ops.config.action.get": "讀取",
   "remote.toolCall.ops.config.action.set": "寫入",
   "remote.toolCall.ops.config.action.delete": "刪除",
+  "remote.toolCall.ops.config.action.logs": "日誌",
   "remote.toolCall.ops.config.path": "路徑",
   "remote.toolCall.ops.config.allScopes": "全部作用域",
   "remote.toolCall.ops.config.scopeValue.global": "全域",

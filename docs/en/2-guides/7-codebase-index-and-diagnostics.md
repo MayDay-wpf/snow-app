@@ -28,7 +28,7 @@ older versions kept in the system settings, plus embedding / reranking / Jev
 configs stored inline in the codebase settings (including configs synced from
 Snow CLI), are migrated into the tables and selected automatically at startup.
 Agents manage the lists with
-`config-set scope=codebase key=embeddingModels|rerankingModels`.
+`config-manage action=set scope=codebase key=embeddingModels|rerankingModels`.
 
 ```mermaid
 flowchart TD
@@ -75,7 +75,7 @@ and **hover** (`lsp-hover`).
 Configuration is persisted in the app database table `lsp_server_configs`
 (**DB-backed, no config file**):
 
-- **Agent config**: `config-set scope=lsp-config key=servers value={...}`
+- **Agent config**: `config-manage action=set scope=lsp-config key=servers value={...}`
   (full replacement, deep-validated; takes effect immediately, no restart).
 - **User config**: Settings → LSP settings (`lsp-settings` page).
 - The legacy `~/.snow/lsp-config.json` (reserved-era file) is imported once on
@@ -113,17 +113,17 @@ Collapsing large UI results reduces rendering work without removing warnings or 
 
 **Troubleshooting** (check in order when LSP is not working):
 
-| Symptom                                        | Check                                                                           | Fix                                                                                                                                                                                      |
-| ---------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lsp-*` tools missing                          | Config exists and enabled (`config-get scope=lsp-config key=servers`)           | `config-set scope=lsp-config key=servers value={...}`; enable in Settings → LSP settings                                                                                                 |
-| Error "not found or cannot start"              | Command in PATH (`which <command>` / ❌ not-installed badge)                    | Install per the `installCommand` hint; enable in Settings after install                                                                                                                  |
-| Error "no LSP server configured for x"         | File extension in the server's `fileExtensions`                                 | Add the extension (e.g. missing `.tsx`); confirm the project language matches the server                                                                                                 |
-| Project has no programming language / mismatch | Project has matching language files (no Language Servers section in the prompt) | Language detection = project markers (Cargo.toml etc.) + extension scan; no match → not injected nor exposed                                                                             |
-| SSH remote project                             | `ssh://` path                                                                   | LSP is local-only; SSH projects never expose lsp-* tools                                                                                                                                 |
-| `crashed; restarts on next use`                | Session crashed (≥2 consecutive restarts error out)                             | Check installation/configuration and startup backoff; do not loop during cooldown                                                                                                        |
-| Dig deeper                                     | Snow App SQLite system logs                                                     | Use `config-logs-read` for the current conversation (conversationId is runtime-injected), filtered to `module=lsp`; development-mode native `[lsp]` fallback logs remain in the terminal |
+| Symptom                                        | Check                                                                               | Fix                                                                                                                                                                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lsp-*` tools missing                          | Config exists and enabled (`config-manage action=get scope=lsp-config key=servers`) | `config-manage action=set scope=lsp-config key=servers value={...}`; enable in Settings → LSP settings                                                                                                                        |
+| Error "not found or cannot start"              | Command in PATH (`which <command>` / ❌ not-installed badge)                        | Install per the `installCommand` hint; enable in Settings after install                                                                                                                                                       |
+| Error "no LSP server configured for x"         | File extension in the server's `fileExtensions`                                     | Add the extension (e.g. missing `.tsx`); confirm the project language matches the server                                                                                                                                      |
+| Project has no programming language / mismatch | Project has matching language files (no Language Servers section in the prompt)     | Language detection = project markers (Cargo.toml etc.) + extension scan; no match → not injected nor exposed                                                                                                                  |
+| SSH remote project                             | `ssh://` path                                                                       | LSP is local-only; SSH projects never expose lsp-* tools                                                                                                                                                                      |
+| `crashed; restarts on next use`                | Session crashed (≥2 consecutive restarts error out)                                 | Check installation/configuration and startup backoff; do not loop during cooldown                                                                                                                                             |
+| Dig deeper                                     | Snow App SQLite system logs                                                         | Use `config-manage` with `action=logs` (`logScope=current`) for the current conversation (conversationId is runtime-injected), filtered to `module=lsp`; development-mode native `[lsp]` fallback logs remain in the terminal |
 
-**Logging**: LSP fallback/failure reasons are written to Snow App SQLite `app_logs`, the same source as Settings → System Logs. `config-logs-read` is scoped to the current conversation; API request/response bodies are truncated, with sensitive-name fields and exact occurrences of the active API key redacted before persistence. This does not guarantee detection of every possible credential format. Request headers are not logged. Filter by `module=lsp` for prompt injection, scope checks and project-root failures. Native stderr remains visible in development terminals. `~/.snow/log/` belongs to Snow CLI and is not accessible through Snow App's config scopes.
+**Logging**: LSP fallback/failure reasons are written to Snow App SQLite `app_logs`, the same source as Settings → System Logs. `config-manage` with `action=logs` and `logScope=current` is scoped to the current conversation; API request/response bodies are truncated, with sensitive-name fields and exact occurrences of the active API key redacted before persistence. This does not guarantee detection of every possible credential format. Request headers are not logged. Filter by `module=lsp` for prompt injection, scope checks and project-root failures. Native stderr remains visible in development terminals. `~/.snow/log/` belongs to Snow CLI and is not accessible through Snow App's config scopes.
 
 ### 2.2 Batch diagnostics and safe rename
 

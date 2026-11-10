@@ -20,7 +20,7 @@ description: >-
   settings; settings.json fields; storage locations; and built-in tools. Use
   this Skill whenever the user asks to configure, inspect, create, author, or
   troubleshoot any of these areas. It covers the config built-in service
-  (config-list/get/set/delete; scopes: settings/snowcfg/proxy/app/
+  (config-manage, action = list/get/set/delete/logs; scopes: settings/snowcfg/proxy/app/
   custom-headers/system-prompt/theme/language/permissions/lsp-config/buddy/
   subAgents/hooks/skills/logs/imagegen/personalization/apiProfiles/
   customHeaderSchemes/mcpServers/requestLogging/scheduledTasks/toolApproval/
@@ -31,10 +31,7 @@ description: >-
   masked secrets, and app-control-openSettings (21 settings pages).
 enable: true
 allowed-tools:
-  - config-list
-  - config-get
-  - config-set
-  - config-delete
+  - config-manage
   - user-interaction-askUserQuestion
   - app-control-openSettings
   - bash-terminal-execute
@@ -60,7 +57,7 @@ allowed-tools:
 / `grep-search`）会展开开头的 `~`，直接把 `~/.snowapp/docs/...` 当路径传入即可；若仍报
 「找不到指定路径」，用 `bash-terminal-execute` 执行 `echo $env:USERPROFILE`（Windows）或
 `echo $HOME`（macOS/Linux）取主目录，再拼绝对路径重试。
-**先执行 `config-list scope=language` 读取界面语言**（支持 `en`/`zh-CN`/`zh-TW`；
+**先执行 `config-manage action=list scope=language` 读取界面语言**（支持 `en`/`zh-CN`/`zh-TW`；
 旧安装可能存兼容值 `zh`，等同简体中文；无法读取时默认中文分支），
 再选择对应文档分支（无法读取时默认中文分支）：
 
@@ -101,10 +98,10 @@ allowed-tools:
 
 ## 2. 按文档执行配置（Then apply the configuration）
 
-**通用流程**：先 `config-list scope=<域>` 查看现状（DB 型域响应附 guidance
+**通用流程**：先 `config-manage action=list scope=<域>` 查看现状（DB 型域响应附 guidance
 使用规则），再按文档步骤执行；查看已安装 skill 的元数据（id/path/状态）用
-`config-list scope=skills`，文档正文用 `filesystem-read` 读取 `~/.snowapp/docs/`；
-需要 `projectId` 时优先读取任意 `config-list` 响应附带的 `currentProjectId`
+`config-manage action=list scope=skills`，文档正文用 `filesystem-read` 读取 `~/.snowapp/docs/`；
+需要 `projectId` 时优先读取任意 `config-manage action=list` 响应附带的 `currentProjectId`
 字段（即当前会话绑定的项目），项目档案 `~/.snow/projects/index.json` 中按
 `knownPaths` 匹配路径后取对应记录的 `projectId` 字段。读取文档时可用
 `filesystem-read` 的 `startLine`/`endLine` **只读相关章节**（锚点见第 1 节表格）。
@@ -139,10 +136,10 @@ allowed-tools:
   来自 SKILL.md 相对扫描根的路径；创建后核对 id/path/enabled 并只读测试。
   → `21-创建与编写Skills.md`
 - **插件（app DB + 文件系统）**：`plugins` 域（key=pluginId，安装用 `"new"`；写
-  `app_plugins` 表 + `~/.snowapp/plugins/<pluginId>/`）。`config-set` 的 value 按
+  `app_plugins` 表 + `~/.snowapp/plugins/<pluginId>/`）。`config-manage action=set` 的 value 按
   字段分发：`{sourceDir}`/`{sourcePath}` 安装或原地更新（先用 filesystem 工具写好
   `plugin.json` 与入口文件）、`{rescan: true}` 重读清单、`{enabled}` 启停；
-  `config-get` 返回插件元数据；`config-delete` 卸载需 confirmed，缺省连目录一起
+  `config-manage action=get` 返回插件元数据；`action=delete` 卸载需 confirmed，缺省连目录一起
   删除（`value={deleteFiles: false}` 只删登记）。→ `2-使用指南/24-插件开发与安装.md`
 - **插件市场与上架（客户端 UI，无 config 域）**：客户端「插件市场」读取
   `github.com/MayDay-wpf/snow-plugin-store` 的 `app/registry.json`（GitHub raw
@@ -172,7 +169,7 @@ allowed-tools:
   `projectId` 区分全局/项目；写入用 `source=manual`，不会被 Snow CLI 同步删除）、
   `requestLogging`（`key=settings`，开启必须带过期时间，到期自动复位）、`toolApproval`
   （项目级工具免确认白名单；全局仍走 `permissions` 域）、`scheduledTasks`（仅
-  `config-set key="new"` 新建任务，契约见 list 返回的 `createGuidance`；改/删/暂停在
+  `config-manage action=set key="new"` 新建任务，契约见 list 返回的 `createGuidance`；改/删/暂停在
   UI）与只读域 `usage`。
   → `3-参考手册/2-内置工具参考.md`
 - **集中开关 / 索引 / 隐私 / 快捷键 / 工作区（DB 域）**：`appSettings`（`liteMode`、
@@ -186,8 +183,8 @@ allowed-tools:
   → `3-参考手册/2-内置工具参考.md`
 - **站点拦截规则**：`blockedPatterns` 是应用全局数组，实际存储在应用数据库系统设置
   `proxy_browser_settings`，影响 `websearch` 结果过滤和 `websearch-fetch` 抓取拒绝，
-  不是项目级配置。用 `config-get scope=appSettings key=blockedPatterns` 读取，
-  `config-set scope=appSettings key=blockedPatterns` 维护（value 为数组整体替换，或
+  不是项目级配置。用 `config-manage action=get scope=appSettings key=blockedPatterns` 读取，
+  `config-manage action=set scope=appSettings key=blockedPatterns` 维护（value 为数组整体替换，或
   `{add|remove|replace: [...]}`）；写入与设置面板一样按 JavaScript `RegExp` 校验规则。
   `config` 的 `proxy` scope 不支持该字段，不要直接
   编辑 `proxy-config.json` 维护运行时拦截规则。→ `4-配置代理与网络.md`、
@@ -195,9 +192,11 @@ allowed-tools:
 - **日志（只读）**：`logs` 域（list 列文件、get 读尾部 `limit` 默认 200 最大
   2000、delete 仅接受精确文件名）。→ `20-用量统计与系统日志.md`
 
-**安全约束（所有域通用）**：config 工具仅读写白名单域，写前类型/结构校验 +
+**安全约束（所有域通用）**：`config-manage` 仅读写白名单域，写前类型/结构校验 +
 自动备份到 `~/.snow/.config-backups/`（成功写入后清理）；`apiKey`/`visionApiKey`/
-自定义请求头/系统提示词读取一律脱敏，**不索要或展示明文**；**`config-delete`
+自定义请求头/系统提示词读取一律脱敏，**不索要或展示明文**；审批按 action 细分：
+`action=list`/`get`/`logs` 默认免审批，`action=set`/`delete` 需审批，「始终允许」写入
+项目级免审批列表的是 `config-manage:set` / `config-manage:delete`；**`action=delete`
 必须先经 `user-interaction` 的 `askUserQuestion` 获得用户明确同意，再带
 `confirmed: true` 调用**（`imagegen` 清空全部渠道、`skills` 卸载、`logs` 删文件）。
 

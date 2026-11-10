@@ -111,18 +111,18 @@ JSON 导入支持 `{ "mcpServers": {...} }`、Claude 风格 `{ "servers": {...} 
 4. UI 手工创建的其他来源条目不受该差集删除影响；
 5. 备份原 `settings.json`，再原子替换文件；成功后删除本次临时备份。
 
-因此它立即影响应用中的 MCP 发现。`value` 是**全量服务器映射**，不要只传想修改的一项，否则其他 `snow-cli` 来源的全局条目会从同步结果中删除。应先 `config-get`，在完整对象上修改，再 `config-set`。
+因此它立即影响应用中的 MCP 发现。`value` 是**全量服务器映射**，不要只传想修改的一项，否则其他 `snow-cli` 来源的全局条目会从同步结果中删除。应先 `config-manage action=get` 读取，在完整对象上修改，再 `config-manage action=set` 写回。
 
 ### 4.2 项目级配置
 
 ```text
-config-get scope=settings key=mcpServers projectId=<projectId>
-config-set scope=settings key=mcpServers projectId=<projectId> value={...完整映射...}
+config-manage action=get scope=settings key=mcpServers projectId=<projectId>
+config-manage action=set scope=settings key=mcpServers projectId=<projectId> value={...完整映射...}
 ```
 
 传 `projectId` 后，`value` 会**全量替换该项目服务器**：先删除现有项目条目，再逐项写入。全局服务器不会被删除，而是与项目服务器一起成为有效配置。项目级写入直接进入应用数据库并立即生效；不要把 `.config-backups` 当作项目 MCP 的持久恢复历史。
 
-`config-delete scope=settings key=mcpServers projectId=<projectId>` 会清空该项目的全部 MCP 服务器，调用前必须明确确认。
+`config-manage action=delete scope=settings key=mcpServers projectId=<projectId>` 会清空该项目的全部 MCP 服务器，调用前必须明确确认。
 
 ## 5. 配置、发现与调用数据流
 
@@ -193,7 +193,7 @@ MCP 设置面板支持**工具级启停**：每个服务器行显示工具数量
 - 禁用语义为**黑名单**：默认全部启用，只有被禁用的工具进入黑名单；
 - 对主会话及使用 `["*"]` 的内置 `agent_general`，服务器级与工具级开关是 **AND 关系**：服务器被禁用时，其下所有工具均不可用，即使工具级开关仍为启用。子代理显式名单仅有上述项目级禁用例外。
 
-工具级启停（全局与项目）由 MCP 设置面板管理并存储在应用数据库，**不写入 settings.json**，也不通过 `config` 服务（`config-list`/`config-get`/`config-set`）配置（UI-only）。
+工具级启停（全局与项目）由 MCP 设置面板管理并存储在应用数据库，**不写入 settings.json**，也不通过 `config-manage`（`action=list`/`get`/`set`）配置（UI-only）。
 
 ## 9. 隐私、凭据与供应链风险
 
@@ -220,7 +220,7 @@ Snow App 的隐私遮罩只有在隐私设置已启用，并且该完整工具�
 
 对全局文件型 config 写入，Snow App 会在 `~/.snow/.config-backups/` 创建写前备份并原子替换目标文件。**本次写入成功后，备份立即删除**；它只是写入期间的临时安全网，不是可依赖的版本历史。失败或并发异常可能留下备份，清理逻辑最多保留每个文件 10 个残留。
 
-项目级 MCP 是数据库全量替换流程，不应依赖上述文件备份。重大调整前应先用 `config-get` 保存经用户批准的非敏感配置副本；不要复制明文凭据到聊天或文档。
+项目级 MCP 是数据库全量替换流程，不应依赖上述文件备份。重大调整前应先用 `config-manage action=get` 保存经用户批准的非敏感配置副本；不要复制明文凭据到聊天或文档。
 
 ## 11. 排错
 

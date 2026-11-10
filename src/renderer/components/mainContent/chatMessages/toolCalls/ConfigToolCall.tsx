@@ -143,10 +143,6 @@ export const ConfigToolCall = ({
   toolCall,
 }: ConfigToolCallProps): React.JSX.Element => {
   const { t } = useI18n();
-  const operation = toolCall.name.startsWith("config-")
-    ? toolCall.name.slice("config-".length)
-    : toolCall.name;
-
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
     [toolCall.arguments],
@@ -156,20 +152,29 @@ export const ConfigToolCall = ({
     [toolCall.result],
   );
 
+  const action = asString(parsedArgs?.action);
+  const operation =
+    action ??
+    (toolCall.name.startsWith("config-")
+      ? toolCall.name.slice("config-".length)
+      : toolCall.name);
+
   const scope = asString(parsedArgs?.scope);
   const key = asString(parsedArgs?.key);
   const effectiveStatus =
     parsedResult.type === "error" ? "error" : toolCall.status;
 
-  /* 折叠态头部摘要：config-list 显示 scope，其余显示 scope/key。 */
+  /* 折叠态头部摘要：list 显示 scope，logs 显示日志范围，其余显示 scope/key。 */
   const displayName =
-    operation === "list"
-      ? (scope ?? t("toolCall.config.allScopes"))
-      : scope
-        ? key
-          ? `${scope}/${key}`
-          : scope
-        : key;
+    operation === "logs"
+      ? (asString(parsedArgs?.logScope) ?? "logs")
+      : operation === "list"
+        ? (scope ?? t("toolCall.config.allScopes"))
+        : scope
+          ? key
+            ? `${scope}/${key}`
+            : scope
+          : key;
 
   /* 折叠态 meta 摘要。 */
   let meta: ReactNode = null;
@@ -200,6 +205,14 @@ export const ConfigToolCall = ({
             {typeof value}
           </span>
         );
+    } else if (operation === "logs") {
+      const items = Array.isArray(data.items) ? data.items.length : 0;
+      meta = (
+        <span className="tool-call-config-meta tool-call-config-meta-ok">
+          <ListChecks size={10} aria-hidden="true" />
+          {t("toolCall.config.entryCount", { values: { count: items } })}
+        </span>
+      );
     } else if (operation === "set") {
       meta = (
         <span className="tool-call-config-meta tool-call-config-meta-ok">

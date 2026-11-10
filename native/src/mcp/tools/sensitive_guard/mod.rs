@@ -3,8 +3,8 @@
 //! 所有能执行命令、或改写「之后会被执行的配置」的工具入口都经过这里：
 //! - bash 命令（`bash-terminal-execute`，在执行器内部自我保护检查之后调用）；
 //! - 终端 PTY 输入（`terminal-send`）与 computer-use 键入文本；
-//! - config-set 写入 hooks 命令、定时任务前置脚本、MCP stdio 启动命令；
-//! - config-set / config-delete 修改敏感规则本身（不看规则命中，每次都要确认）。
+//! - config-manage（action=set）写入 hooks 命令、定时任务前置脚本、MCP stdio 启动命令；
+//! - config-manage（action=set / delete）修改敏感规则本身（不看规则命中，每次都要确认）。
 //!
 //! 命中时必须携带一次性授权令牌：令牌只在用户确认（或决策模型托管放行）后由
 //! 主进程签发，绑定到本模块算出的「操作主体」文本，模型无法伪造或挪用。
@@ -227,7 +227,7 @@ fn resolve_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubjec
         },
         "computer-use-type-text" => args.get("text").and_then(Value::as_str).map(str::to_string),
         "computer-use-perform-actions" => typed_action_text(args),
-        "config-set" | "config-delete" => return config_subject(tool_full_name, args),
+        "config-manage" => return config_subject(tool_full_name, args),
         _ => None,
     }?;
     (!text.trim().is_empty()).then_some(SensitiveSubject {
@@ -258,6 +258,11 @@ fn typed_action_text(args: &Value) -> Option<String> {
 }
 
 fn config_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubject> {
+    // 仅写动作可能有副作用：list/get/logs 直接跳过敏感检查。
+    let action = args.get("action").and_then(Value::as_str).map(str::trim)?;
+    if !matches!(action, "set" | "delete") {
+        return None;
+    }
     let scope = args.get("scope").and_then(Value::as_str)?.trim();
     let key = args
         .get("key")
@@ -267,7 +272,7 @@ fn config_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubject
     let value = decode_config_value(args.get("value"));
 
     if scope == "settings" && key == "sensitiveCommands" {
-        let mut text = format!("{tool_full_name} settings.sensitiveCommands");
+        let mut text = format!("{tool_full_name} (action={action}) settings.sensitiveCommands");
         if let Some(project_id) = args
             .get("projectId")
             .and_then(Value::as_str)
@@ -292,7 +297,7 @@ fn config_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubject
         (scope, key),
         ("hooks", _) | ("scheduledTasks", _) | ("mcpServers", _) | ("settings", "mcpServers")
     );
-    if tool_full_name != "config-set" || !executable_scope {
+    if action != "set" || !executable_scope {
         return None;
     }
     let mut lines = Vec::new();

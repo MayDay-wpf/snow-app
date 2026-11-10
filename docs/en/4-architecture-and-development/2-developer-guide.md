@@ -243,7 +243,7 @@ code: 'InvalidArg'
 
 | Position | Parameter                                                                   | Type           | Notes                                                                          |
 | -------- | --------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------ |
-| 1        | `toolFullName`                                                              | string         | Full tool name, e.g. `config-list`                                             |
+| 1        | `toolFullName`                                                              | string         | Full tool name, e.g. `config-manage`                                           |
 | 2        | `argsJson`                                                                  | string         | JSON string of the arguments                                                   |
 | 3–6      | projectId / checkpointIds / checkpointWorkDir / sensitiveAuthorizationToken | optional       | `undefined` is fine                                                            |
 | 7        | `onChunk`                                                                   | function       | Streaming chunk callback (`BashStreamChunk`)                                   |
@@ -260,8 +260,8 @@ Placeholder pattern for standalone Node scripts (see `scripts/e2e-verify-config.
 const noop = () => undefined;
 const asyncNoop = async () => "";
 const result = await native.callMcpTool(
-  "config-list",
-  JSON.stringify({ scope: "imagegen" }),
+  "config-manage",
+  JSON.stringify({ action: "list", scope: "imagegen" }),
   undefined,
   undefined,
   undefined,

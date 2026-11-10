@@ -20,7 +20,7 @@ const PAGE_SIZE: i32 = 200;
 /// 单次列出上限（与旧 app-control 行为一致）。
 const MAX_ITEMS: usize = 1000;
 
-const GUIDANCE: &str = "MEMOS - notes of the CURRENT project (memo panel, same source as the UI; project sessions inject projectId automatically, other projects are never visible). config-list scope=memos returns every memo with full content; config-get key=<memoId> reads one memo, key=pending|done|all returns a filtered list; config-set key=\"new\" value={content} creates a memo (status pending); config-set key=<memoId> value={status?: \"pending\"|\"done\", content?} updates it (mark done after executing its content); config-delete key=<memoId> (or comma-separated memoIds) confirmed=true deletes permanently - the whole batch is refused if any id is not in the current project; prefer status done when the memo may still be useful.";
+const GUIDANCE: &str = "MEMOS - notes of the CURRENT project (memo panel, same source as the UI; project sessions inject projectId automatically, other projects are never visible). config-manage action=list scope=memos returns every memo with full content; config-manage action=get key=<memoId> reads one memo, key=pending|done|all returns a filtered list; config-manage action=set key=\"new\" value={content} creates a memo (status pending); config-manage action=set key=<memoId> value={status?: \"pending\"|\"done\", content?} updates it (mark done after executing its content); config-manage action=delete key=<memoId> (or comma-separated memoIds) confirmed=true deletes permanently - the whole batch is refused if any id is not in the current project; prefer status done when the memo may still be useful.";
 
 fn storage_error(error: Error) -> Error {
     Error::new(
@@ -157,7 +157,7 @@ fn set_memo(db_path: &Path, project_id: &str, key: &str, value: &Value) -> Resul
         let content = content.ok_or_else(|| {
             Error::new(
                 Status::InvalidArg,
-                "value.content is required to create a memo (config-set scope=memos key=\"new\" value={content: \"...\"})".to_string(),
+                "value.content is required to create a memo (config-manage action=set scope=memos key=\"new\" value={content: \"...\"})".to_string(),
             )
         })?;
         let created = create_memo(db_path, project_id, &content).map_err(storage_error)?;
@@ -250,7 +250,7 @@ pub(crate) fn execute_memos_scope(
     if tool_name != "list" && key.is_empty() {
         return Err(Error::new(
             Status::InvalidArg,
-            format!("memos requires key = memoId (or \"{NEW_KEY}\" for config-set)"),
+            format!("memos requires key = memoId (or \"{NEW_KEY}\" for action=set)"),
         ));
     }
 

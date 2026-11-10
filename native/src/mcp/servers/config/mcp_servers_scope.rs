@@ -503,7 +503,7 @@ fn delete_server(db_path: &Path, project_id: Option<&str>, key: &str) -> Result<
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `mcpServers` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `mcpServers` scope.
 pub(crate) fn execute_mcp_servers_scope(
     tool_name: &str,
     args: &Value,
@@ -569,7 +569,7 @@ pub(crate) fn execute_mcp_servers_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             if !value.is_object() {

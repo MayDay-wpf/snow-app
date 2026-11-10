@@ -15,7 +15,7 @@ export type LspServerConfigInput = {
   initializationOptionsJson?: string | null;
   enabled: boolean;
   sortOrder: number;
-  /** 来源：seed / legacy / manual / config-set 等 */
+  /** 来源：seed / legacy / manual / config-manage 等 */
   source: string;
 };
 

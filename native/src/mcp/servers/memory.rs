@@ -300,7 +300,7 @@ impl MemoryService {
     // -----------------------------------------------------------------
     // action=delete：删除单条或多条。DESTRUCTIVE：要求 confirmed=true，
     // 且工具描述强制 AI 先经 user-interaction-askUserQuestion 获得用户
-    // 同意（与 config-delete 同规）。
+    // 同意（与 config-manage 的 action=delete 同规）。
     // -----------------------------------------------------------------
     async fn execute_delete(&self, args: &Value) -> napi::Result<Value> {
         let memory_ids = id_list_arg(args, "memoryId")?;

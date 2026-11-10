@@ -73,7 +73,8 @@ flowchart TD
 - switching projects loads a different approved-tool set;
 - without an active project, the choice is not persisted as cross-project approval, although the current call can proceed;
 - a persistence failure does not roll back the already approved current call;
-- approval is granted by tool name and does not understand the business risk of each argument set.
+- approval is granted by tool name and does not understand the business risk of each argument set;
+- `config-manage` is approved **per action**, not as a whole: `action=list` / `action=get` / `action=logs` are read-only and need no confirmation, while `action=set` / `action=delete` always ask. “Always approve” stores `config-manage:set` or `config-manage:delete` in the project list, and approvals recorded under the removed tool names are not migrated.
 
 Permanently approve only narrow, auditable, recoverable capabilities. Terminal execution, file writes, browser-state restoration, and external MCP tools are generally better kept behind per-call review.
 
@@ -93,7 +94,7 @@ Interactive terminal commands are **checked by the sensitive-command gate too**:
 
 ## 6. Sensitive-command rules
 
-Sensitive commands are detected using enabled regular expressions (**Settings → Sensitive Commands**, settings page id: `sensitive-command-settings`; agents can also read/write them via `config-set settings sensitiveCommands`). Snow uses global rules plus the effective inherited/overridden project rules. An invalid regex is skipped so it cannot break all subsequent checks. A match exposes the rule ID, pattern, and description in the confirmation UI.
+Sensitive commands are detected using enabled regular expressions (**Settings → Sensitive Commands**, settings page id: `sensitive-command-settings`; agents can also read/write them with `config-manage` (`action=get` / `action=set`, scope `settings`, key `sensitiveCommands`)). Snow uses global rules plus the effective inherited/overridden project rules. An invalid regex is skipped so it cannot break all subsequent checks. A match exposes the rule ID, pattern, and description in the confirmation UI.
 
 After confirmation, Snow issues a token for the **exact command text**. The token lasts about 60 seconds and is deleted when consumed; the Rust Bash executor checks the token, command, and expiry. It cannot authorize a different command or be reused.
 

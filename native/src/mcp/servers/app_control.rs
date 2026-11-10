@@ -46,7 +46,7 @@ impl AppControlService {
         self.dispatch(action, payload, on_app_control).await
     }
 
-    /// 把已校验的动作转发给渲染层执行（config-set 路由也复用此入口）。
+    /// 把已校验的动作转发给渲染层执行（config-manage 的 action=set 路由也复用此入口）。
     pub async fn dispatch(
         &self,
         action: String,
@@ -204,7 +204,7 @@ impl McpService for AppControlService {
     }
 }
 
-/// config-set 中必须由渲染层执行的目标，命中时返回 (action, payload)，否则交给 config 服务。
+/// config-manage 的 action=set 中必须由渲染层执行的目标，命中时返回 (action, payload)，否则交给 config 服务。
 pub fn route_config_set(
     args: &Value,
     project_id: Option<&str>,
@@ -666,7 +666,7 @@ fn validate_manage_scheduled_task_args(
     Ok(("update_scheduled_task".to_string(), Value::Object(payload)))
 }
 
-/// config-delete 中由渲染层执行的目标（当前仅定时任务）。
+/// config-manage 的 action=delete 中由渲染层执行的目标（当前仅定时任务）。
 pub fn route_config_delete(
     args: &Value,
     project_id: Option<&str>,
@@ -684,7 +684,7 @@ pub fn route_config_delete(
         return Some(Err(Error::new(
             Status::InvalidArg,
             format!(
-                "config-delete is destructive and requires explicit user confirmation. Before calling it, use the `askUserQuestion` tool from the `user-interaction` server to show the user which scheduled task will be deleted (scope=`scheduledTasks`, key=`{key}`) together with its run history, wait for approval, then retry with `confirmed: true`."
+                "action=delete is destructive and requires explicit user confirmation. Before calling it, use the `askUserQuestion` tool from the `user-interaction` server to show the user which scheduled task will be deleted (scope=`scheduledTasks`, key=`{key}`) together with its run history, wait for approval, then retry with `confirmed: true`."
             ),
         )));
     }

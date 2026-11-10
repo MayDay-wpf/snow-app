@@ -37,9 +37,9 @@ const RESERVED_NAMES: &[&str] = &[
 ];
 
 const GUIDANCE: &str = "CUSTOM COMMANDS - user-defined slash commands offered in the chat input as /<name> (app database custom_commands table, same source as the Settings > Custom commands panel; effective immediately).\n\
-CREATE/UPDATE: config-set scope=customCommands key=\"new\" value={name, commandType: \"prompt\"|\"bash\", content, description?, enabled?, scope?} creates a command and returns its generated commandId; pass an existing commandId (or its name) as key to update it - omitted fields keep their current values.\n\
+CREATE/UPDATE: config-manage action=set scope=customCommands key=\"new\" value={name, commandType: \"prompt\"|\"bash\", content, description?, enabled?, scope?} creates a command and returns its generated commandId; pass an existing commandId (or its name) as key to update it - omitted fields keep their current values.\n\
 KEY RULES: (1) commandType \"prompt\" sends `content` as a user message when the user runs /<name> (the $ARGUMENTS placeholder is replaced by the text typed after the command, or the text is appended when the placeholder is absent); commandType \"bash\" opens a right-panel terminal tab in the project directory and runs `content` in the real shell; (2) the name accepts letters/digits/hyphen/underscore/dot only (a leading \"/\" is stripped) and must be unique within its scope; the built-in command names (clear, changes, memory, mcp, permissions, role, sensitive, skills, codebase, review, compact, custom, help) are rejected; (3) project sessions auto-inject projectId, so key=\"new\" creates a command for THAT project (a project command shadows a same-named global one); pass projectId=\"\" (or value={scope: \"global\"}) to write a global command that applies to every project; an existing command keeps its scope - create a new one to move it; (4) enabled=false keeps the command in the list but hides it from the chat input.\n\
-READ: config-list scope=customCommands returns metadata + contentPreview for the visible commands (global + current project); config-get scope=customCommands key=<commandId|name> returns the full content; config-delete scope=customCommands key=<commandId|name> confirmed=true deletes it (project commands need the owning project's projectId). Every write is broadcast to the UI, so the chat input's / menu and the Settings > Custom commands panel refresh immediately.";
+READ: config-manage action=list scope=customCommands returns metadata + contentPreview for the visible commands (global + current project); config-manage action=get scope=customCommands key=<commandId|name> returns the full content; config-manage action=delete scope=customCommands key=<commandId|name> confirmed=true deletes it (project commands need the owning project's projectId). Every write is broadcast to the UI, so the chat input's / menu and the Settings > Custom commands panel refresh immediately.";
 
 fn storage_error(error: Error) -> Error {
     Error::new(
@@ -304,7 +304,7 @@ fn set_command(
             Error::new(
                 Status::InvalidArg,
                 format!(
-                    "value.name is required to create a custom command (config-set scope=customCommands key=\"{NEW_KEY}\" value={{name: \"deploy\", commandType: \"prompt\", content: \"...\"}})"
+                    "value.name is required to create a custom command (config-manage action=set scope=customCommands key=\"{NEW_KEY}\" value={{name: \"deploy\", commandType: \"prompt\", content: \"...\"}})"
                 ),
             )
         })?;
@@ -461,7 +461,7 @@ pub(crate) fn execute_custom_commands_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             set_command(db_path, project_id, key, &value)

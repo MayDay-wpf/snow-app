@@ -70,7 +70,7 @@ const SECRET_FIELDS: &[&str] = &["embeddingApiKey", "rerankingApiKey"];
 
 const REINDEX_NOTE: &str = "Changing the selected embedding model (or its model / baseUrl / dimension / key) only affects files indexed AFTER the change; rebuild the codebase index in the UI (Codebase settings) for existing files.";
 
-const MODELS_GUIDANCE: &str = "embeddingModels / rerankingModels are the global model lists (same as API settings > Embedding models / Reranking models). config-set value={upsert?: [{id?, name?, modelName, baseUrl, apiKey, ...}], remove?: [idOrName]}: upsert matches by id (then name), omitted fields keep their values and an empty apiKey keeps the stored key; new entries need modelName and get a generated id. Embedding fields: name, embeddingType (jina|ollama|gemini|mistral), modelName, baseUrl, apiKey, dimensions (0 = omit), contextLength, enabled. Reranking fields: name, modelName, baseUrl, apiKey, contextLength, enabled. Select one for the codebase with key=settings value={embeddingModelId|rerankingModelId: \"<id>\"} (\"\" = none); removing a selected model clears the selection.";
+const MODELS_GUIDANCE: &str = "embeddingModels / rerankingModels are the global model lists (same as API settings > Embedding models / Reranking models). config-manage action=set value={upsert?: [{id?, name?, modelName, baseUrl, apiKey, ...}], remove?: [idOrName]}: upsert matches by id (then name), omitted fields keep their values and an empty apiKey keeps the stored key; new entries need modelName and get a generated id. Embedding fields: name, embeddingType (jina|ollama|gemini|mistral), modelName, baseUrl, apiKey, dimensions (0 = omit), contextLength, enabled. Reranking fields: name, modelName, baseUrl, apiKey, contextLength, enabled. Select one for the codebase with key=settings value={embeddingModelId|rerankingModelId: \"<id>\"} (\"\" = none); removing a selected model clears the selection.";
 
 /// 模型列表键的描述：对应的模型表、允许字段与新建默认值。
 struct ModelListSpec {
@@ -507,7 +507,7 @@ fn write_project_scope(db_path: &Path, project_id: &str, value: &Value) -> Resul
     Ok(())
 }
 
-/// Dispatches `config-list/get/set/delete` for the `codebase` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `codebase` scope.
 pub(crate) fn execute_codebase_scope(
     tool_name: &str,
     args: &Value,
@@ -611,7 +611,7 @@ pub(crate) fn execute_codebase_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             write_project_scope(db_path, project_id, &value)?;
@@ -628,7 +628,7 @@ pub(crate) fn execute_codebase_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             if let Some(spec) = model_spec(key) {
@@ -659,7 +659,7 @@ pub(crate) fn execute_codebase_scope(
         }
         (TOOL_DELETE, _) => Err(Error::new(
             Status::InvalidArg,
-            "codebase does not support delete; write explicit values with config-set instead (project-level fields accept true/false to override and re-writing the previous value to change them back)"
+            "codebase does not support delete; write explicit values with action=set instead (project-level fields accept true/false to override and re-writing the previous value to change them back)"
                 .to_string(),
         )),
         (other, _) => Err(Error::new(

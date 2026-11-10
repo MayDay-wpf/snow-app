@@ -49,14 +49,14 @@ The rules apply as follows:
 
 Use domain boundaries for recommended rules. For example, in JSON tool arguments write `(^|\\.)example\\.com$`: `(^|\\.)` means the start of the domain or a preceding dot, so it matches `example.com` and its subdomains; `$` requires the match to end at the domain boundary and avoids matching a longer domain. Do not pass unvalidated user input as a regular expression.
 
-The AI can maintain the rules through the `appSettings` scope of the `config` tools:
+The AI can maintain the rules through the `appSettings` scope of the `config-manage` tool:
 
-| Call                                               | Purpose                             |
-| -------------------------------------------------- | ----------------------------------- |
-| `config-get scope=appSettings key=blockedPatterns` | Read the current global rule array  |
-| `config-set scope=appSettings key=blockedPatterns` | Add, remove, or fully replace rules |
+| Call                                                             | Purpose                             |
+| ---------------------------------------------------------------- | ----------------------------------- |
+| `config-manage action=get scope=appSettings key=blockedPatterns` | Read the current global rule array  |
+| `config-manage action=set scope=appSettings key=blockedPatterns` | Add, remove, or fully replace rules |
 
-The `value` of `config-set` may be a rule array (full replace), or an object with exactly one operation key:
+The `value` of `config-manage` with `action=set` may be a rule array (full replace), or an object with exactly one operation key:
 
 ```json
 {
@@ -85,18 +85,18 @@ Loopback and private networks always connect directly and bypass the proxy: `loc
 
 No restart is required after changing proxy settings: newly opened or reconnected MCP connections and subsequent AI requests pick up the new configuration immediately.
 
-## 7. AI / CLI Configuration (config tool)
+## 7. AI / CLI Configuration (config-manage tool)
 
-The `config` tool can read and write the file-backed `proxy` scope, but that scope does not support `blockedPatterns`:
+The `config-manage` tool can read and write the file-backed `proxy` scope, but that scope does not support `blockedPatterns`:
 
-| Tool                                                                                                        | Example                                                                            |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `config-get scope=proxy`                                                                                    | View the proxy, search-engine, and browser fields supported by `proxy-config.json` |
-| `config-set scope=proxy value={enabled: true, host: "127.0.0.1", port: 7890}`                               | Enable the proxy                                                                   |
-| `config-set scope=proxy key=searchEngine value="duckduckgo"`                                                | Switch the search engine                                                           |
-| `config-set scope=proxy key=browserPath value="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"` | Set the browser path (escape Windows backslashes)                                  |
+| Tool                                                                                                                      | Example                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `config-manage action=get scope=proxy`                                                                                    | View the proxy, search-engine, and browser fields supported by `proxy-config.json` |
+| `config-manage action=set scope=proxy value={enabled: true, host: "127.0.0.1", port: 7890}`                               | Enable the proxy                                                                   |
+| `config-manage action=set scope=proxy key=searchEngine value="duckduckgo"`                                                | Switch the search engine                                                           |
+| `config-manage action=set scope=proxy key=browserPath value="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"` | Set the browser path (escape Windows backslashes)                                  |
 
-Do not use `config-get scope=proxy key=blockedPatterns` or `config-set scope=proxy key=blockedPatterns` to maintain runtime rules; they are not in the current `PROXY_SCOPE_KEYS` whitelist. Maintain site-blocking rules through the settings panel or the dedicated app-control tools above. File-backed config changes may require an app restart or a UI re-save; dedicated app-control updates write the app database and re-apply proxy settings directly.
+Do not use `config-manage action=get scope=proxy key=blockedPatterns` or `config-manage action=set scope=proxy key=blockedPatterns` to maintain runtime rules; they are not in the current `PROXY_SCOPE_KEYS` whitelist. Maintain site-blocking rules through the settings panel or the dedicated app-control tools above. File-backed config changes may require an app restart or a UI re-save; dedicated app-control updates write the app database and re-apply proxy settings directly.
 
 ## 8. FAQ
 

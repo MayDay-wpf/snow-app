@@ -116,6 +116,7 @@ import {
 import type { ResponsesApiResult } from "../../../../../preload";
 import { createToolExecutor } from "./toolExecution";
 import { ReadonlyCallGuard } from "./readonlyCallGuard";
+import { ensureToolActionPolicy } from "../utils/toolActionPolicy";
 import { resolveGoalContinuation } from "./goalContinuation";
 import { imageGenerationRuntime } from "./imageGenerationRuntime";
 
@@ -719,6 +720,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
       });
       let readonlyToolNamesPromise: Promise<Set<string>> | undefined;
       const getReadonlyToolNames = (): Promise<Set<string>> => {
+        void ensureToolActionPolicy();
         readonlyToolNamesPromise ??= window.snow
           .listReadonlyTools()
           // Permission-readonly does not imply cacheable: these depend on live run state.

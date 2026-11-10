@@ -1,6 +1,6 @@
 # 5-配置 Hooks 与子代理
 
-Snow App 的 Hooks 和子代理配置存储在应用 SQLite 数据库中，与设置 UI 同源。Agent 可通过内置 `config` 服务读写，成功后立即生效。
+Snow App 的 Hooks 和子代理配置存储在应用 SQLite 数据库中，与设置 UI 同源。Agent 可通过内置 `config-manage` 工具读写，成功后立即生效。
 
 ## 1. Hooks
 
@@ -9,7 +9,7 @@ Snow App 的 Hooks 和子代理配置存储在应用 SQLite 数据库中，与�
 - 全局 Hook 对所有项目可用；项目 Hook 需要 `projectId`；
 - 执行某个 `hookType` 时，若该项目有**非空规则数组**，使用项目规则；否则回退同类型全局规则；
 - 项目规则不会与全局规则合并；即使项目规则中的动作全部禁用，只要规则数组非空，也会阻止回退全局规则；
-- 每个 action 只有在 **`enabled` 明确等于 `true`** 时才执行。字段缺省、`null` 或 `false` 都会跳过。设置 UI 保存时会显式写入该字段，通过 config 手写时也必须写。
+- 每个 action 只有在 **`enabled` 明确等于 `true`** 时才执行。字段缺省、`null` 或 `false` 都会跳过。设置 UI 保存时会显式写入该字段，通过 config-manage 手写时也必须写。
 
 ### 1.2 Hook 类型
 
@@ -96,12 +96,12 @@ flowchart TD
 5. 保存并用低风险事件测试；
 6. 查看 Hook 执行记录与应用日志。
 
-### 1.6 通过 `config` 配置
+### 1.6 通过 `config-manage` 配置
 
 全局 command Hook：
 
 ```jsonc
-config-set scope=hooks key=beforeToolCall value={
+config-manage action=set scope=hooks key=beforeToolCall value={
   "rules": [
     {
       "description": "运行只读工具审计",
@@ -122,7 +122,7 @@ config-set scope=hooks key=beforeToolCall value={
 项目 context Hook：
 
 ```jsonc
-config-set scope=hooks key=onUserMessage projectId=<projectId> value={
+config-manage action=set scope=hooks key=onUserMessage projectId=<projectId> value={
   "rules": [
     {
       "description": "注入当前项目技术栈",
@@ -166,12 +166,12 @@ config-set scope=hooks key=onUserMessage projectId=<projectId> value={
 
 推荐流程：
 
-1. `config-list scope=hooks projectId=<projectId>` 查看现状和 `guidance`；
-2. `config-get scope=hooks key=<hookType> projectId=<projectId>` 保存当前值；
-3. `config-set` 写入完整 `rules`；
-4. 立即 `config-get` 回读，逐个检查 `enabled`；
+1. `config-manage action=list scope=hooks projectId=<projectId>` 查看现状和 `guidance`；
+2. `config-manage action=get scope=hooks key=<hookType> projectId=<projectId>` 保存当前值；
+3. `config-manage action=set` 写入完整 `rules`；
+4. 立即 `config-manage action=get` 回读，逐个检查 `enabled`；
 5. 用低风险事件测试退出码与 matcher；
-6. `config-delete` 前展示 scope、key、projectId 和影响并取得明确确认。
+6. `config-manage action=delete` 前展示 scope、key、projectId 和影响并取得明确确认。
 
 Hook 数据库写入会创建写入期间的临时备份，成功后删除本次备份；不要把它当持久历史。
 
@@ -190,7 +190,7 @@ Hook 数据库写入会创建写入期间的临时备份，成功后删除本次
 | `configProfile` | 留空时继承启动它的主会话本次运行所用 API Profile 和当前模型；非空时固定使用指定 Profile。                                                                                                     |
 | `model`         | 仅固定 Profile 时生效；非空时固定模型，省略、留空或 trim 后为空时使用该 Profile 的 `advancedModel`。若该 Profile 的 `advancedModel` 也为空则激活失败，不会回退 `basicModel`。                 |
 
-激活时先查当前项目的同 ID 配置，未命中才回退全局。内置 `agent_general` 不可通过 config 修改或删除。
+激活时先查当前项目的同 ID 配置，未命中才回退全局。内置 `agent_general` 不可通过 config-manage 修改或删除。
 
 主 Agent 的系统提示词会**动态注入当前可用的子代理清单**（含 `agentId`、名称与用途描述）。调用 `sub-agents-activate` 时，主 Agent 应从清单中选择最匹配任务的 `agentId`——存在更合适的配置时**不得默认使用内置 `agent_general`**（它只是通用兜底，仅在无更匹配配置时使用）。清单遵循与激活一致的解析规则：**当前项目的项目级子代理优先**（同 `agentId` 时覆盖全局），未配置项目级的再显示全局/内置。其他项目的子代理不注入。修改配置后新会话立即生效。
 
@@ -202,7 +202,7 @@ Hook 数据库写入会创建写入期间的临时备份，成功后删除本次
 - 全局子代理的显式工具清单候选来自系统服务与全局 MCP 服务，不包含项目自有服务器，与项目无关，不必先选择项目；项目级候选还包括当前项目自有 MCP 服务的工具，以及项目级关闭的服务或工具；
 - 仅内置 `agent_general` 使用 `["*"]`，运行时展开为当前项目全部可用工具，仍受项目启停影响；自定义子代理不能使用 `"*"`；
 - 显式清单必须包含 `filesystem-read` 或 `grep-search` 之一，否则保存失败；
-- 通过 config 写入项目级子代理时，工具名必须是内置工具，或属于当前项目可解析的已配置 MCP 服务器，不要求服务器在项目中启用；全局子代理保存时不做项目校验；
+- 通过 config-manage 写入项目级子代理时，工具名必须是内置工具，或属于当前项目可解析的已配置 MCP 服务器，不要求服务器在项目中启用；全局子代理保存时不做项目校验；
 - 显式名单仅对本次获授权子代理的工具发现与执行豁免项目级服务或工具禁用，包括项目自有 MCP 配置的 `enabled: false`。例外按完整工具名匹配，不开放未勾选工具、不修改项目开关，也不恢复主会话的访问；
 - 全局外部服务的 `enabled: false`、全局工具黑名单、内置工具全局总闸、精简模式、工具就绪与能力条件、代码库索引条件和正常执行授权仍然生效；项目自有服务器只在当前对话项目中解析，不能访问其他项目的服务器。
 
@@ -223,12 +223,12 @@ Hook 数据库写入会创建写入期间的临时备份，成功后删除本次
 5. 保持“跟随主会话（推荐）”，或选择固定 API 配置；固定后可再选择独立模型，留空则使用该配置的高级模型；
 6. 保存后，从主对话发起一个边界清晰的测试任务。
 
-### 2.4 通过 `config` 配置
+### 2.4 通过 `config-manage` 配置
 
 全局子代理示例（`projectId=""` 表示全局）：
 
 ```jsonc
-config-set scope=subAgents key=agent_readonly_reviewer projectId="" value={
+config-manage action=set scope=subAgents key=agent_readonly_reviewer projectId="" value={
   "name": "只读审查员",
   "description": "需要独立审查并返回问题清单时使用",
   "systemPrompt": "你是只读审查员。先验证输入和文件，再按严重级别输出问题与证据。不得修改文件、运行命令或推测缺失业务规则。工具不可用时说明无法验证的部分。",
@@ -241,7 +241,7 @@ config-set scope=subAgents key=agent_readonly_reviewer projectId="" value={
 项目级显式工具示例：
 
 ```jsonc
-config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
+config-manage action=set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
   "name": "项目审查员",
   "description": "审查当前项目代码并返回带路径的发现",
   "systemPrompt": "你是当前项目的只读代码审查员。使用允许工具读取事实，按严重级别、文件路径、证据和修复建议输出；不得修改文件。",
@@ -255,7 +255,7 @@ config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> valu
 }
 ```
 
-写入前先 `config-list scope=subAgents projectId=<projectId>` 获取 guidance 和当前工具环境；写入后 `config-get` 回读。`config-delete` 同样需要用户明确确认。
+写入前先 `config-manage action=list scope=subAgents projectId=<projectId>` 获取 guidance 和当前工具环境；写入后 `config-manage action=get` 回读。`config-manage action=delete` 同样需要用户明确确认。
 
 ### 2.5 子代理与 Hooks 时序
 
@@ -360,4 +360,4 @@ requestId 标识一次逻辑操作。未知回执重试必须复用原 ID 和业
 | 全局子代理找不到项目专属服务的工具           | 全局子代理只列出系统服务与全局 MCP 服务的工具；项目专属服务的工具请使用项目级子代理。                                                      |
 | 子代理找不到工具                             | 核对显式清单中的完整工具名、当前项目的服务来源，以及全局禁用、工具就绪和执行授权；项目级禁用例外不豁免这些条件。                           |
 | 子代理行为依赖主对话                         | 子代理没有主会话历史；把上下文放进任务 prompt 或自包含 `systemPrompt`。                                                                    |
-| 同 ID 激活了错误配置                         | 项目级优先于全局；分别 `config-get` 并核对 `projectId`。                                                                                   |
+| 同 ID 激活了错误配置                         | 项目级优先于全局；分别 `config-manage action=get` 并核对 `projectId`。                                                                     |

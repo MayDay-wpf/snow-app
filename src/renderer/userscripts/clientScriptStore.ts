@@ -150,7 +150,7 @@ export const useClientScriptStore = (): ClientScriptStoreState =>
     () => state,
   );
 
-// 脚本集合变化（含 AI 经 config-set 安装 / 启停 / 删除）统一刷新列表。
+// 脚本集合变化（含 AI 经 config-manage action=set 安装 / 启停 / 删除）统一刷新列表。
 if (typeof window !== "undefined" && window.snow?.onUserscriptsChanged) {
   window.snow.onUserscriptsChanged(() => {
     void clientScriptStore.refresh();

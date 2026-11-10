@@ -67,7 +67,7 @@ impl From<LspError> for napi::Error {
             LspError::NotConfigured(lang) => napi::Error::new(
                 napi::Status::GenericFailure,
                 format!(
-                    "未为语言 \"{lang}\" 配置 LSP 服务器。可用 lsp-config 域配置（config-set scope=lsp-config）"
+                    "未为语言 \"{lang}\" 配置 LSP 服务器。可用 lsp-config 域配置（config-manage action=set scope=lsp-config）"
                 ),
             ),
             LspError::ServerMissing(command, install) => {

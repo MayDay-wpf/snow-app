@@ -100,7 +100,7 @@ blocking problems before suggestions.
 
 `enabled` 和 `allowed_tools` **不是 Skill frontmatter 字段**，不会产生预期效果。注意：下文 config API 的 `value.enabled` 是合法 API 参数，它最终写回的 frontmatter 字段仍是 `enable`。
 
-`allowed-tools` 应填写 Snow App 暴露的完整工具名，例如 `filesystem-read`、`config-list`。它是随 Skill 提示词加载的 Agent 工具白名单约束，不是操作系统沙箱；仍应遵循最小权限原则，不要加入不需要的写入、命令或网络工具。
+`allowed-tools` 应填写 Snow App 暴露的完整工具名，例如 `filesystem-read`、`config-manage`。它是随 Skill 提示词加载的 Agent 工具白名单约束，不是操作系统沙箱；仍应遵循最小权限原则，不要加入不需要的写入、命令或网络工具。
 
 ## 4. 开关与项目级覆盖
 
@@ -117,19 +117,19 @@ blocking problems before suggestions.
 Skills 不是一个可任意写对象的配置文件域。`config` 服务把 `skills` scope 委托给与 UI 相同的 Skills 服务：
 
 ```text
-config-list scope=skills projectId=<projectId>
-config-get  scope=skills key=team/release projectId=<projectId>
-config-set  scope=skills key=team/release projectId=<projectId> value={"enabled":false}
+config-manage action=list scope=skills projectId=<projectId>
+config-manage action=get  scope=skills key=team/release projectId=<projectId>
+config-manage action=set  scope=skills key=team/release projectId=<projectId> value={"enabled":false}
 ```
 
 关键语义：
 
-- `config-list` 返回 `skills` 与 `githubInstalled`；项目视图中的 `defaultEnabled` 是命中 Skill 的 frontmatter `enable`（全局来源技能的总闸），`enabled` 是有效值（全局来源为 `defaultEnabled` 且项目覆盖，覆盖缺省为开；项目目录内的技能覆盖缺省沿用 `defaultEnabled`）；
+- `config-manage action=list` 返回 `skills` 与 `githubInstalled`；项目视图中的 `defaultEnabled` 是命中 Skill 的 frontmatter `enable`（全局来源技能的总闸），`enabled` 是有效值（全局来源为 `defaultEnabled` 且项目覆盖，覆盖缺省为开；项目目录内的技能覆盖缺省沿用 `defaultEnabled`）；
 - 全局切换也使用 `value={"enabled":...}`，但服务会改写 Skill 文件中的 **`enable`**；
 - 传 `projectId` 时只写项目数据库覆盖；对全局来源技能，该覆盖仅在全局总闸开启时生效；
 - 当前会话的 config 工具可能自动注入活动项目 ID；响应中的 `currentProjectId` 可用于确认上下文，需要明确操作全局配置时传空 `projectId`；
 - 安装使用 `value={"url":"owner/repo","location":"global"}`，项目安装使用 `location:"project"` 并传 `projectId`；`key` 是 config API 的必填路由参数，实际安装 ID仍由安装内容派生；
-- 修改后重新 `config-get` 或 `config-list`，核对 `path` 与有效状态。
+- 修改后重新 `config-manage action=get` 或 `action=list`，核对 `path` 与有效状态。
 
 ## 5. 卸载边界
 
@@ -138,12 +138,12 @@ config-set  scope=skills key=team/release projectId=<projectId> value={"enabled"
 设置面板的卸载按钮以及：
 
 ```text
-config-delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
+config-manage action=delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
 ```
 
-只适用于 `~/.snow/skills-registry.json` 中有记录的 GitHub 安装。Agent 调用 `config-delete` 前必须先展示 scope、key、projectId 与影响，并取得用户明确确认。
+只适用于 `~/.snow/skills-registry.json` 中有记录的 GitHub 安装。Agent 调用 `config-manage action=delete` 前必须先展示 scope、key、projectId 与影响，并取得用户明确确认。
 
-卸载会删除注册记录所指向的 `~/.snow/skills/<id>` 或 `<项目>/.snow/skills/<id>` 目录，然后移除注册记录。为避免注册表按 ID 查找时产生歧义，不要在全局和项目范围安装两个同 ID 的 GitHub Skill；先用 `config-list scope=skills` 核对 `githubInstalled`。
+卸载会删除注册记录所指向的 `~/.snow/skills/<id>` 或 `<项目>/.snow/skills/<id>` 目录，然后移除注册记录。为避免注册表按 ID 查找时产生歧义，不要在全局和项目范围安装两个同 ID 的 GitHub Skill；先用 `config-manage action=list scope=skills` 核对 `githubInstalled`。
 
 ### 5.2 手动放置或应用附带的 Skill
 
@@ -157,12 +157,12 @@ config-delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
 
 ## 6. 常见问题
 
-| 症状                                | 原因与处理                                                                        |
-| ----------------------------------- | --------------------------------------------------------------------------------- |
-| Skill 未出现                        | 确认文件名严格为 `SKILL.md`；检查目录是否被跳过；修复未闭合的 `---` 或非法 YAML。 |
-| 开关看似无效                        | frontmatter 应为 `enable`；再检查是否存在项目数据库覆盖或更高优先级同 ID Skill。  |
-| Agent 选不中 Skill                  | 补充具体 `description`，确认 `enable: true`，并刷新技能列表。                     |
-| 工具被拒绝                          | 检查 `allowed-tools` 是否包含精确完整工具名；下划线字段 `allowed_tools` 无效。    |
-| GitHub 仓库提示找不到 Skill         | 根目录没有 `SKILL.md` 且直接子目录也没有；用带子目录的 URL 指向正确层级。         |
-| 卸载返回“not installed from GitHub” | 该 Skill 没有注册记录；核对来源后按手动目录流程处理。                             |
-| 修改的 Skill 没有生效               | 从 `config-list` 查看实际 `path`，排除同 ID 覆盖，再在下一轮重新加载。            |
+| 症状                                | 原因与处理                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| Skill 未出现                        | 确认文件名严格为 `SKILL.md`；检查目录是否被跳过；修复未闭合的 `---` 或非法 YAML。    |
+| 开关看似无效                        | frontmatter 应为 `enable`；再检查是否存在项目数据库覆盖或更高优先级同 ID Skill。     |
+| Agent 选不中 Skill                  | 补充具体 `description`，确认 `enable: true`，并刷新技能列表。                        |
+| 工具被拒绝                          | 检查 `allowed-tools` 是否包含精确完整工具名；下划线字段 `allowed_tools` 无效。       |
+| GitHub 仓库提示找不到 Skill         | 根目录没有 `SKILL.md` 且直接子目录也没有；用带子目录的 URL 指向正确层级。            |
+| 卸载返回“not installed from GitHub” | 该 Skill 没有注册记录；核对来源后按手动目录流程处理。                                |
+| 修改的 Skill 没有生效               | 从 `config-manage action=list` 查看实际 `path`，排除同 ID 覆盖，再在下一轮重新加载。 |

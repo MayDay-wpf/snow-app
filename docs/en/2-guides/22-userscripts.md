@@ -96,35 +96,35 @@ flowchart TD
 
 Already-installed scripts (deduplicated by name) are shown as "Installed" with the button disabled. The search API does not return a total count; pagination relies on `hasMore` (whether the page returned the full requested number of items) to decide if a next page exists.
 
-#### 4. Let the AI install it for you (`config` tool, `userscripts` scope)
+#### 4. Let the AI install it for you (`config-manage` tool, `userscripts` scope)
 
-Besides the UI, you can have the AI manage userscripts directly through the `config` tool without opening the settings page:
+Besides the UI, you can have the AI manage userscripts directly through the `config-manage` tool (with `action=set` / `action=get` / `action=delete`) without opening the settings page:
 
 ```text
 # Recommended flow: write the full source to a file first, then let the backend read the file
 # (avoids passing a huge string in tool arguments)
 filesystem-create writes ./scripts/demo.user.js (full // ==UserScript== content)
-config-set scope=userscripts key="new" value={sourcePath: "/abs/path/demo.user.js"}
+config-manage action=set scope=userscripts key="new" value={sourcePath: "/abs/path/demo.user.js"}
 
 # Small scripts can be inlined directly
-config-set scope=userscripts key="new" value={raw: "// ==UserScript==\n// @name Demo\n// @match https://example.com/*\n// ==/UserScript==\nconsole.log('hi');"}
+config-manage action=set scope=userscripts key="new" value={raw: "// ==UserScript==\n// @name Demo\n// @match https://example.com/*\n// ==/UserScript==\nconsole.log('hi');"}
 
 # Update an existing script
-config-set scope=userscripts key="<scriptId>" value={sourcePath: "..."}  // or {raw: "..."}
+config-manage action=set scope=userscripts key="<scriptId>" value={sourcePath: "..."}  // or {raw: "..."}
 
 # Enable / disable
-config-set scope=userscripts key="<scriptId>" value={enabled: false}
+config-manage action=set scope=userscripts key="<scriptId>" value={enabled: false}
 
 # Read / write GM_* persistent values
-config-set scope=userscripts key="<scriptId>" value={values: {"k": "v"}}
-config-set scope=userscripts key="<scriptId>" value={deleteValues: ["k"]}
-config-get scope=userscripts key="<scriptId>"   // returns metadata + full source + GM values
+config-manage action=set scope=userscripts key="<scriptId>" value={values: {"k": "v"}}
+config-manage action=set scope=userscripts key="<scriptId>" value={deleteValues: ["k"]}
+config-manage action=get scope=userscripts key="<scriptId>"   // returns metadata + full source + GM values
 
 # Uninstall (removes the database record + the on-disk file)
-config-delete scope=userscripts key="<scriptId>" confirmed=true
+config-manage action=delete scope=userscripts key="<scriptId>" confirmed=true
 ```
 
-`key` is the script's `scriptId` (the UUID returned by the list API); `"new"` means create. See the `config` tool's `userscripts` scope in the [built-in tools reference](../3-reference/2-builtin-tools-reference.md).
+`key` is the script's `scriptId` (the UUID returned by the list API); `"new"` means create. See `config-manage`'s `userscripts` scope in the [built-in tools reference](../3-reference/2-builtin-tools-reference.md).
 
 ### Metadata fields
 
@@ -190,15 +190,15 @@ Client UI scripts inject into the **Snow desktop window itself** (the main-windo
 
 Open the **Plugins** page at the bottom of the sidebar (main-content view id `plugins`) and drill into **Plugin list** → **Script plugins**: the page has two top-level tabs, **Plugin list** and **Metadata catalog**, and **Plugin list** itself carries two sub-tabs with counters, **Panel plugins** and **Script plugins**, the latter managing client scripts. Inside the sub-tab you find, from top to bottom, a toolbar (**New script** / **Import file** / **Refresh**), the install-from-URL row, and the script list; while the list is empty a centered empty state (icon + description + **Build with AI** request box) is shown, and both sub-tabs share the same layout. Each row shows the script name, version (with author and run-at), and scope badges, plus an **enable toggle**, **Edit**, and **Delete**:
 
-| Route                 | Steps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New script            | Click **New script** to open the large modal editor — the very same one as in **Settings → Browser settings → Userscripts** (`Modal` plus the line-numbered, highlighted `FileViewerContent`), prefilled with the client-script template (`@snow-target client` plus anchor and slot examples)                                                                                                                                                                                                                      |
-| Edit a script         | Click the pencil button on a row to open the same editor with the virtual file name `<script name>.user.js`; **Save** writes the database, re-matches and takes effect immediately, while closing the modal cancels                                                                                                                                                                                                                                                                                                 |
-| Import a local file   | Click **Import file**, pick a `.user.js` in the system file dialog, then save the source loaded into the same editor (the virtual file name is the picked file's name)                                                                                                                                                                                                                                                                                                                                              |
-| Install from a URL    | Paste a **https** direct link to a `.user.js` and click **Install URL** (same implementation as the built-in browser install; only `https://` is accepted)                                                                                                                                                                                                                                                                                                                                                          |
-| Build with AI         | Describe what you want in the empty-state request box (Enter sends, Shift+Enter inserts a new line) and click **Build with AI**: the Plugins page closes, a new conversation starts and auto-sends the request, the AI loads the `snow-app-docs` skill to locate the built-in docs and reads this guide's client-script chapter, writes a `.user.js`, and installs and enables it through the `config-set` `userscripts` scope. Like its Panel plugins counterpart, this entry only appears while the list is empty |
-| Refresh               | Reloads the list from the database and disk (use after manually editing `~/.snowapp/browser-script/`)                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Let the AI install it | With a script file already at hand, install it through the `config` tool's `userscripts` scope, see below                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Route                 | Steps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New script            | Click **New script** to open the large modal editor — the very same one as in **Settings → Browser settings → Userscripts** (`Modal` plus the line-numbered, highlighted `FileViewerContent`), prefilled with the client-script template (`@snow-target client` plus anchor and slot examples)                                                                                                                                                                                                                                      |
+| Edit a script         | Click the pencil button on a row to open the same editor with the virtual file name `<script name>.user.js`; **Save** writes the database, re-matches and takes effect immediately, while closing the modal cancels                                                                                                                                                                                                                                                                                                                 |
+| Import a local file   | Click **Import file**, pick a `.user.js` in the system file dialog, then save the source loaded into the same editor (the virtual file name is the picked file's name)                                                                                                                                                                                                                                                                                                                                                              |
+| Install from a URL    | Paste a **https** direct link to a `.user.js` and click **Install URL** (same implementation as the built-in browser install; only `https://` is accepted)                                                                                                                                                                                                                                                                                                                                                                          |
+| Build with AI         | Describe what you want in the empty-state request box (Enter sends, Shift+Enter inserts a new line) and click **Build with AI**: the Plugins page closes, a new conversation starts and auto-sends the request, the AI loads the `snow-app-docs` skill to locate the built-in docs and reads this guide's client-script chapter, writes a `.user.js`, and installs and enables it through the `config-manage` `action=set` `userscripts` scope. Like its Panel plugins counterpart, this entry only appears while the list is empty |
+| Refresh               | Reloads the list from the database and disk (use after manually editing `~/.snowapp/browser-script/`)                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Let the AI install it | With a script file already at hand, install it through the `config-manage` tool's `userscripts` scope (`action=set`), see below                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Each row's scope badges are derived from the metadata header — `Sandboxed` / `Full permissions` / `Always on` / `view:<id>` / `area:<name>` / `privacy:<n>` (hover to see the declared scopes) — so you can see what a script does before enabling it.
 
@@ -372,16 +372,16 @@ Saving takes effect immediately, and changing `@snow-view` to `*` (or dropping t
 
 ### Installing client scripts with the AI
 
-The `config` tool's `userscripts` scope is shared with browser scripts: as soon as the metadata header declares `@snow-target client`, the installed script is a client script and appears under **Plugin list → Script plugins** for editing and toggling (the sub-tab's **Build with AI** entry follows the very same pipeline, except that the AI writes the script from your request):
+The `config-manage` tool's `userscripts` scope is shared with browser scripts: as soon as the metadata header declares `@snow-target client`, the installed script is a client script and appears under **Plugin list → Script plugins** for editing and toggling (the sub-tab's **Build with AI** entry follows the very same pipeline, except that the AI writes the script from your request):
 
 ```text
 # 1) write the full source to a file first (header includes @snow-target client)
 filesystem-create writes ./scripts/my-client.user.js
 # 2) install (key "new")
-config-set scope=userscripts key="new" value={sourcePath: "/abs/path/my-client.user.js"}
+config-manage action=set scope=userscripts key="new" value={sourcePath: "/abs/path/my-client.user.js"}
 # 3) toggle / uninstall
-config-set scope=userscripts key="<scriptId>" value={enabled: false}
-config-delete scope=userscripts key="<scriptId>" confirmed=true
+config-manage action=set scope=userscripts key="<scriptId>" value={enabled: false}
+config-manage action=delete scope=userscripts key="<scriptId>" confirmed=true
 ```
 
 AI installs, toggles, and deletions broadcast a change so the UI list refreshes itself. Greasy Fork search and install still serves browser scripts only.
@@ -414,7 +414,7 @@ Browser scripts are injected according to `@run-at`: `document-start` runs befor
 | `@require` dependency didn't work on the first load      | Expected behavior — async warm-up wasn't finished yet; navigate again                                                                                                                                                                                          |
 | `GM_xmlhttpRequest` errors                               | Confirm the URL is `http(s)` and hasn't exceeded the 30-second timeout                                                                                                                                                                                         |
 | Manually edited files under `~/.snowapp/browser-script/` | Click **Refresh** to reload metadata; if database metadata and file content diverge, re-edit and save to resync                                                                                                                                                |
-| Deleting a script                                        | Both the UI and `config-delete` require confirmation; after deletion, the database record and on-disk file are both removed and cannot be restored                                                                                                             |
+| Deleting a script                                        | Both the UI and `config-manage action=delete` require confirmation; after deletion, the database record and on-disk file are both removed and cannot be restored                                                                                               |
 | A client script doesn't take effect                      | Check the scope badges in the **Plugin list → Script plugins** view first: does the view / surface cover the current UI, and was the toggle switched off by the consecutive-failure auto-disable?                                                              |
 | A sandboxed script cannot reach `window.snow`            | Expected behavior; read/write app data through `snow.metadata` / `snow.write` with `@snow-privacy`, or declare `@snow-sandbox false` / `@grant unsafeWindow` when you really need raw app privileges — the panel then shows the amber `Full permissions` badge |
 | Custom styles / buttons vanish after switching views     | A non-`global` script unloads when the view is left, which is expected; add `@snow-scope global` or rebuild inside `snow.on('view-enter', ...)`                                                                                                                |

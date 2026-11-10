@@ -203,7 +203,7 @@ pub fn delete_project_lsp_server_config(
         })
 }
 
-/// 清空项目级全部配置（config-delete scope=lsp-config projectId=... 用）。
+/// 清空项目级全部配置（config-manage action=delete scope=lsp-config projectId=... 用）。
 pub fn clear_project_lsp_server_configs(
     database_path: &Path,
     project_id: &str,

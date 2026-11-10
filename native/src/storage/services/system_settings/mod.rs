@@ -128,7 +128,9 @@ const DEFAULT_DISABLED_BUILTIN_SERVERS: &[&str] =
     &["terminal", "lsp", "computer-use", "browser", "html", "decision"];
 
 /// 默认关闭的单个内置工具（所属服务器默认开启），需按项目显式启用。
-pub const DEFAULT_DISABLED_BUILTIN_TOOLS: &[&str] = &["config-logs-read"];
+/// 合并为单工具后无法再按工具名只关日志（config-manage 同时承载读写），
+/// 因此列表为空：日志查询随 config-manage 一起可用（只读动作免审批）。
+pub const DEFAULT_DISABLED_BUILTIN_TOOLS: &[&str] = &[];
 
 pub fn is_default_disabled_tool(tool_name: &str) -> bool {
     DEFAULT_DISABLED_BUILTIN_TOOLS.contains(&tool_name)

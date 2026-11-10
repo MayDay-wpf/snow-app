@@ -853,7 +853,7 @@ impl McpService for ImageGenService {
                     },
                     "provider": {
                         "type": "string",
-                        "description": "Image channel override: a channel ID or channel name configured in Settings -> Image generation (config-list scope=imagegen lists them), or a protocol type \"openai\" (OpenAI-compatible Images API) / \"gemini\" (Google Gemini Imagen) / \"novelai\" (NovelAI native image.novelai.net API) to pick the first usable channel of that type. Omit or \"auto\" to use the current default channel (see \"Current configuration:\" at the end of the tool description). IMPORTANT: only set this when the user EXPLICITLY asks to override the channel; for normal requests OMIT it. If you must override the model, prefer passing `provider` together with it so the model is sent to the right channel.",
+                        "description": "Image channel override: a channel ID or channel name configured in Settings -> Image generation (config-manage action=list scope=imagegen lists them), or a protocol type \"openai\" (OpenAI-compatible Images API) / \"gemini\" (Google Gemini Imagen) / \"novelai\" (NovelAI native image.novelai.net API) to pick the first usable channel of that type. Omit or \"auto\" to use the current default channel (see \"Current configuration:\" at the end of the tool description). IMPORTANT: only set this when the user EXPLICITLY asks to override the channel; for normal requests OMIT it. If you must override the model, prefer passing `provider` together with it so the model is sent to the right channel.",
                         "default": "auto"
                     },
                     "size": {
@@ -1471,7 +1471,7 @@ pub fn default_channel_context() -> napi::Result<Option<String>> {
 /// 解析生图渠道：显式 `provider` 参数优先；`auto`/缺省时选择第一个可用
 /// 渠道（按设置中的渠道顺序）。`provider` 参数支持三种匹配方式：
 /// - 协议类型："openai" / "gemini"（匹配该协议的第一个可用渠道）
-/// - 渠道 ID（设置面板自动生成，config-list 可查）
+/// - 渠道 ID（设置面板自动生成，config-manage 的 action=list 可查）
 /// - 渠道名称（用户自定义显示名）
 /// 渠道未启用或凭据不全时报错并列出可用渠道，方便 agent 修正参数。
 ///

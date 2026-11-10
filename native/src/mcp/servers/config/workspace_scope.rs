@@ -1,16 +1,16 @@
 //! config 服务 `workspace` 作用域：工作区（项目）清单与关联项目组管理。
 //!
 //! - `key=directories`：工作区清单（directoryId、名称、路径、类型、激活状态、排序、
-//!   路径健康状态）。`config-set value={action:"create", name, parentPath?}` 在
+//!   路径健康状态）。`config-manage action=set value={action:"create", name, parentPath?}` 在
 //!   tools/call.rs 路由到渲染端建项目；删除/重新定位仍由 UI 负责。
-//! - `key=collections`（读写）：项目分组（合集 = 关联项目组）。`config-set` 用
+//! - `key=collections`（读写）：项目分组（合集 = 关联项目组）。`config-manage action=set` 用
 //!   action 分发：`{action:"create", name}` / `{action:"rename", collectionId, name}`
 //!   / `{action:"setColor", collectionId, color}` / `{action:"setMemberLinked",
 //!   collectionId, directoryId, linked}` / `{action:"move", collectionId,
 //!   directoryId, orderedMemberIds?}` / `{action:"reorder", collectionId,
 //!   orderedMemberIds}` / `{action:"removeMember", collectionId, directoryId}`。
 //!   成员带 `linked` 开关：断连的成员仍留在合集里，只是不参与关联。
-//! - `key=collection:<collectionId>`（读 + delete）：读取单个分组；`config-delete`
+//! - `key=collection:<collectionId>`（读 + delete）：读取单个分组；`config-manage action=delete`
 //!   删除分组（需 confirmed）。
 //!
 //! 真源：应用数据库 `workspace_directories` / `project_collections` /
@@ -277,7 +277,7 @@ fn apply_collection_action(db_path: &Path, value: &Value) -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `workspace` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `workspace` scope.
 pub(crate) fn execute_workspace_scope(
     tool_name: &str,
     args: &Value,
@@ -361,7 +361,7 @@ pub(crate) fn execute_workspace_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             apply_collection_action(db_path, &value)

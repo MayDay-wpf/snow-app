@@ -399,7 +399,7 @@ export const useAppControl = ({
               taskId: task.id,
               name: task.name,
               started: true,
-              note: "The run started in the background; read config-get scope=scheduledTasks key=<taskId> for its status and history.",
+              note: "The run started in the background; read config-manage action=get scope=scheduledTasks key=<taskId> for its status and history.",
             });
           }
 

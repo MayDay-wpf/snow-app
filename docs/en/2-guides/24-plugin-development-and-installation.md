@@ -785,25 +785,25 @@ filesystem-create ./my-plugin/plugin.json
 filesystem-create ./my-plugin/index.js
 
 # 2) install (key "new"; the real id comes from plugin.json)
-config-set scope=plugins key="new" value={sourceDir: "/abs/path/my-plugin"}
+config-manage action=set scope=plugins key="new" value={sourceDir: "/abs/path/my-plugin"}
 #   value={sourcePath: "/abs/path/my-plugin/plugin.json"} works as well
 
 # 3) inspect / toggle / reload the manifest
-config-list scope=plugins
-config-get  scope=plugins key=com.example.hello
-config-set  scope=plugins key=com.example.hello value={enabled: false}
-config-set  scope=plugins key=com.example.hello value={rescan: true}
+config-manage action=list scope=plugins
+config-manage action=get  scope=plugins key=com.example.hello
+config-manage action=set  scope=plugins key=com.example.hello value={enabled: false}
+config-manage action=set  scope=plugins key=com.example.hello value={rescan: true}
 
 # 4) uninstall (user confirmation required; deleteFiles defaults to true and removes the folder too)
-config-delete scope=plugins key=com.example.hello confirmed=true
-config-delete scope=plugins key=com.example.hello value={deleteFiles: false} confirmed=true
+config-manage action=delete scope=plugins key=com.example.hello confirmed=true
+config-manage action=delete scope=plugins key=com.example.hello value={deleteFiles: false} confirmed=true
 ```
 
 Key points:
 
 - `sourceDir` and `sourcePath` accept absolute paths, `~/` paths, and paths relative to the current working directory; a file path resolves to its parent folder.
 - The scope reuses exactly the same storage layer as the UI, so folder copying, skipped entries, the database row, and the default-enabled state behave identically; the panel host does **not** auto-refresh its list, it re-reads when the page or a panel opens.
-- Uninstalling is destructive: `config-delete` requires user confirmation first and then `confirmed: true`.
+- Uninstalling is destructive: `config-manage` with `action=delete` requires user confirmation first and then `confirmed: true`.
 
 ### 11. Plugin market (install, update, publish)
 
@@ -902,7 +902,7 @@ flowchart TD
 - The download is pinned to the **immutable Release tag**, so the content installed by one confirmation never changes with later commits. After the author publishes a new Release the row offers **Update** (hover shows `Installed v<old> → v<new>`); updating replaces the plugin in place and keeps its enabled state. Script-collection repositories replace rows in place by script id; their version comes from `@version` in the file header (never compared with the Release tag), so the row only shows "Installed" plus **Reinstall** to pull the latest release.
 - Repository layout rules match the official channel: `plugin.json` at the repository root (or inside a single top-level folder — the zip snapshot adds one `<repo>-<tag>/` level that is detected automatically), with the same entry-file and `privacy` declaration rules.
 - **Without a `plugin.json` the repository is treated as a userscript collection**: the app scans for `.user.js` files (each needs a `==UserScript==` header and `@name`); a single one installs straight away, while several open a picker (name, version, path, description, plus "Installed · will be replaced" for scripts that already exist) with everything checked by default. The script id is the file stem (`plugins/eye-care-ball/eye-care-ball.user.js` → `eye-care-ball`), the same convention as official `kind=script` entries, so installing the same script through either channel updates one row in place. While the picker is open the extracted snapshot is kept in `~/.snowapp/plugin-market/community-tmp/` (purged automatically after an hour of inactivity), so nothing is downloaded twice.
-- Userscripts record their **source repository** (`userscripts.source_repo`, surfaced as `sourceRepo` by `config-get scope=userscripts`; empty for locally authored or link-installed scripts), so a script-collection row also shows "Installed" in the community list and the installed scripts can be reviewed under **Plugin list → Script plugins**. When neither a `plugin.json` nor an installable `.user.js` exists, the install fails and the error names the files it found (pointing at a missing `==UserScript==` header or `@name`).
+- Userscripts record their **source repository** (`userscripts.source_repo`, surfaced as `sourceRepo` by `config-manage action=get scope=userscripts`; empty for locally authored or link-installed scripts), so a script-collection row also shows "Installed" in the community list and the installed scripts can be reviewed under **Plugin list → Script plugins**. When neither a `plugin.json` nor an installable `.user.js` exists, the install fails and the error names the files it found (pointing at a missing `==UserScript==` header or `@name`).
 
 **To get into the official market** (the "Official store" / "Verified" badge, SHA-256 pinning and update prompts): follow the pull-request flow in 11.2 against [snow-plugin-store](https://github.com/MayDay-wpf/snow-plugin-store). Keeping the `snow-plugins` topic beforehand is fine — once indexed, the client removes the repository from the community list and only shows it in the official categories.
 
@@ -1366,13 +1366,13 @@ npm run check
 
 Check that the target directory does not exist on macOS/Linux as well. When using the application's docs copy, change the copy source to `~/.snowapp/docs/examples/text-tools`. `build` produces self-contained `server.js` and `index.js`; `check` runs TypeScript and artifact-consistency checks without starting a persistent MCP service.
 
-After a successful build, select the copied directory under Plugins → Install from directory, or ask the Agent to call `config-set scope=plugins key="new" value={sourceDir: "actual build directory"}`. Once the plugin is globally enabled and explicitly enabled in the current project, it is discoverable by task without `@`. Its skill ID is `com.example.text-tools/text-inspect`. Discovery and invocation still follow host approval; installation grants no no-confirmation permission.
+After a successful build, select the copied directory under Plugins → Install from directory, or ask the Agent to call `config-manage action=set scope=plugins key="new" value={sourceDir: "actual build directory"}`. Once the plugin is globally enabled and explicitly enabled in the current project, it is discoverable by task without `@`. Its skill ID is `com.example.text-tools/text-inspect`. Discovery and invocation still follow host approval; installation grants no no-confirmation permission.
 
 For verification, ask the Agent to inspect text length and line count. Confirm discovery and invocation of `text_inspect`, the tool card and plugin origin, then load the skill when needed. Invalid input must produce an error rather than be replaced with empty text. Disabling the project scope removes the plugin's tools and skills from subsequent requests. Running `node server.js` manually and seeing it wait silently is normal for a stdio service, not a failure. A release needs only `plugin.json`, both build artifacts, `locales/`, `skills/` and referenced assets, not `node_modules/`, `src/` or development scripts. Include every skill reference linked from Markdown.
 
 ## Verification
 
-- `config-list scope=plugins` includes the new plugin with `enabled: true`, and `pluginsDirectory` points at `~/.snowapp/plugins`.
+- `config-manage action=list scope=plugins` includes the new plugin with `enabled: true`, and `pluginsDirectory` points at `~/.snowapp/plugins`.
 - The install folder holds `plugin.json` and the entry file, and its name equals the `id` from `plugin.json`.
 - The page lists the plugin, the plus menu shows its panels, and opening one renders without a load error.
 - For granted domains `denied` from `api.metadata.get` is empty.
@@ -1383,7 +1383,7 @@ For verification, ask the Agent to inspect text length and line count. Confirm d
 - Installed items in the Panel plugins and Script plugins lists likewise show **Update** when the indexed version is newer; clicking it updates in place and keeps the enabled state.
 - Official entries show an "Official store" or "Verified" badge next to the name: `verified: true` renders the green **Verified** badge, anything else the blue **Official store** badge, and hovering explains the rule.
 - Opening **Plugin market → Community plugins** searches automatically and lists the repositories carrying the `snow-plugins` topic, each with an amber Community badge and the notice above the list; pressing Enter after a keyword narrows the result.
-- The community install confirmation shows the repository URL and the "no SHA-256 pinning" risk note; after confirming, the plugin installs, the row shows "Installed", and `config-get scope=plugins key=<id>` reports that repository as `sourcePath`.
+- The community install confirmation shows the repository URL and the "no SHA-256 pinning" risk note; after confirming, the plugin installs, the row shows "Installed", and `config-manage action=get scope=plugins key=<id>` reports that repository as `sourcePath`.
 - A community repository that is also in the official index shows an additional "In official market" badge.
 - A script-collection repository (no `plugin.json`, several `.user.js` files) opens the script picker first, everything checked by default and already-installed scripts marked "Installed · will be replaced"; after confirming, the scripts appear enabled under **Plugin list → Script plugins**.
 - After an OAuth plugin declares `panel.entry`, opening the sign-in dialog shows the plugin panel immediately; a successful `submitTokens()` switches the dialog to its success page and creates a profile with `source = oauth-<id>`.
@@ -1400,7 +1400,7 @@ For verification, ask the Agent to inspect text length and line count. Confirm d
 | `Plugin manifest id 'x' does not match 'y'`                                            | The manifest `id` was changed before a reload; restore it or install under the new id (uninstall the old record first)                                                                                         |
 | The panel reports an invalid entry                                                     | The entry exports neither a default React component nor `mount(container, api)` / `render(...)`                                                                                                                |
 | `denied` contains `privacy-declaration-missing`                                        | Declare the domain in `plugin.json` `privacy`, then reload the manifest (reinstall or `rescan`)                                                                                                                |
-| Nothing changes after hand-editing the install folder                                  | Click **Reload manifest** or run `config-set ... value={rescan: true}`; use **Refresh** to reload the list itself                                                                                              |
+| Nothing changes after hand-editing the install folder                                  | Click **Reload manifest** or run `config-manage action=set ... value={rescan: true}`; use **Refresh** to reload the list itself                                                                                |
 | Keep the source after uninstalling                                                     | Uninstall with `value={deleteFiles: false}` (or back up `~/.snowapp/plugins/<id>/` first); the folder is not deleted                                                                                           |
 | A client script is missing from browser settings                                       | Expected: a script with `@snow-target client` is managed under **Plugins → Plugin list → Script plugins** only, while the browser list shows `browser` and `all`                                               |
 | `api.write` returns `denied.reason = "write-declaration-missing"`                      | The write action needs the `scope` shown in `denied.scope`; declare it in the `plugin.json` `privacy` list, then reinstall or `rescan`                                                                         |

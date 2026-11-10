@@ -6,7 +6,7 @@
 //! - set：key=servers 全量替换（校验沿用 validate_lsp_servers）；保留旧 source 标记
 //! - delete：清空表（破坏性操作，需 confirmed——外层统一处理）
 //!
-//! agent 用现有 config-set scope=lsp-config 即可配置语言服务器（命令/路径/
+//! agent 用现有 config-manage action=set scope=lsp-config 即可配置语言服务器（命令/路径/
 //! 扩展名），立即生效（ServerManager 每次工具调用从表 reload）。
 
 use super::*;
@@ -50,7 +50,7 @@ fn records_to_servers_json(
     Value::Object(servers)
 }
 
-/// 从 args 提取 projectId（config-set/get/delete 的项目级目标）。
+/// 从 args 提取 projectId（config-manage 的 set/get/delete 动作的项目级目标）。
 fn project_id_of(args: &Value) -> Option<String> {
     args.get("projectId")
         .and_then(Value::as_str)
@@ -152,7 +152,7 @@ fn set_lsp_config(args: &Value) -> napi::Result<Value> {
     let key_name = required_string(args, "key")?;
     let project_id = project_id_of(args);
     let value = args.get("value").cloned().ok_or_else(|| {
-        Error::new(Status::InvalidArg, "value is required for config-set".to_string())
+        Error::new(Status::InvalidArg, "value is required for action=set".to_string())
     })?;
 
     match key_name {

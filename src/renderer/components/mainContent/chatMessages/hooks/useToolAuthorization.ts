@@ -18,6 +18,10 @@ import {
 import { APP_CONTROL_MODE_CHANGED_EVENT } from "../../../../hooks/useAppControl";
 import { writeRendererLog } from "../../../../utils/rendererLog";
 import { buildSensitiveCommandContext } from "../utils/sensitiveCommandContext";
+import {
+  ensureToolActionPolicy,
+  toolApprovalKeys,
+} from "../utils/toolActionPolicy";
 
 /** 敏感命令复核日志里命令文本的最大长度（超出截断）。 */
 const SENSITIVE_COMMAND_LOG_MAX_CHARS = 200;
@@ -857,7 +861,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
   // Preparation never publishes a pending authorization. Only the returned
   // confirmation function may do so, after the caller enters its waiting state.
   const prepareToolAuthorization = useCallback(
-    (
+    async (
       toolCall: ToolCallInfo,
       index: number,
       conversationId: string,
@@ -876,9 +880,13 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         return Promise.resolve({ status: "approved" });
       }
 
+      // 单工具 + action 的写动作使用 `工具名:action` 授权键（如 config-manage:set），
+      // 读动作仍用工具全名，避免一次「始终允许」连带放行写入。
+      await ensureToolActionPolicy();
+      const approvalKeys = toolApprovalKeys(toolCall);
       const shouldAutoApprove = () =>
         ctx.yoloModeRef.current ||
-        ctx.alwaysApprovedToolsRef.current.has(toolCall.name);
+        approvalKeys.some((key) => ctx.alwaysApprovedToolsRef.current.has(key));
 
       // Sensitive operation check: even in YOLO mode, commands, terminal input,
       // typed text and executable config writes that match the current
@@ -1328,15 +1336,18 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
 
   const approveToolAuthorizationAlways = useCallback(
     (toolCall: ToolCallInfo): void => {
+      const approvalKeys = toolApprovalKeys(toolCall);
+      const approvalKey =
+        approvalKeys[approvalKeys.length - 1] ?? toolCall.name;
       if (ctx.directoryId) {
         void window.snow
           .setToolApprovalProjectToolApproved(
             ctx.directoryId,
-            toolCall.name,
+            approvalKey,
             true,
           )
           .then(() => {
-            ctx.alwaysApprovedToolsRef.current.add(toolCall.name);
+            ctx.alwaysApprovedToolsRef.current.add(approvalKey);
           })
           .catch(() => {
             // The current execution can continue even if persistence fails.
@@ -1346,7 +1357,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
           );
       } else {
         // No project context: skip persistence and just approve this call.
-        ctx.alwaysApprovedToolsRef.current.add(toolCall.name);
+        ctx.alwaysApprovedToolsRef.current.add(approvalKey);
         settleToolAuthorization(toolCall, { status: "approved" });
       }
     },

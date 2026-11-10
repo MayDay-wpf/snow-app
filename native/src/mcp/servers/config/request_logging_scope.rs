@@ -148,7 +148,7 @@ fn apply_settings(db_path: &Path, value: &Value) -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `requestLogging` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `requestLogging` scope.
 pub(crate) fn execute_request_logging_scope(
     tool_name: &str,
     args: &Value,
@@ -191,14 +191,14 @@ pub(crate) fn execute_request_logging_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             apply_settings(db_path, &value)
         }
         "delete" => Err(Error::new(
             Status::InvalidArg,
-            "requestLogging does not support delete; use config-set with {\"enabled\": false} to turn logging off".to_string(),
+            "requestLogging does not support delete; use action=set with {\"enabled\": false} to turn logging off".to_string(),
         )),
         other => Err(Error::new(
             Status::InvalidArg,

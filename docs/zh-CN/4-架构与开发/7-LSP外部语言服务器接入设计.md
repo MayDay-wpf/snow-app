@@ -333,7 +333,7 @@ stateDiagram-v2
 **`lsp` 服务的工具默认不暴露；仅当 `lsp_server_configs` 表中存在「启用且已安装」（enabled && installed）的语言服务器时才出现在工具列表中（§8.6）。**
 
 - 实现：`has_enabled_server()` 读取表并对 enabled 记录做 PATH 探测——无「启用且已安装」记录 → 返回**空工具列表**（agent 看不到 `lsp-*` 工具，不占 prompt、不产生无效调用）。纯 enabled 不够：命令不在 PATH 的服务器永远无法启动，暴露只会诱导必然失败的调用。
-- 运行中通过 `config-set scope=lsp-config`（agent）或 `lsp-settings` 页面（用户）修改配置后，**下次工具调用自动生效**（每次调用从表 reload，无需重启——优于文件型 scope 的重启语义）。
+- 运行中通过 `config-manage action=set scope=lsp-config`（agent）或 `lsp-settings` 页面（用户）修改配置后，**下次工具调用自动生效**（每次调用从表 reload，无需重启——优于文件型 scope 的重启语义）。
 - 已暴露但目标文件类型未匹配（如只配了 rust，却诊断 .py）→ 按 §9 返回明确错误（**不静默**）。
 - 子代理场景同样受此策略约束（工具列表由全局注册统一控制）。
 - **工具子集按已启用服务器的能力过滤（§8.7）**：暴露的不是固定工具全集，而是「所有启用且已安装服务器能力并集」对应的子集——某 `lsp-*` 工具（如未来的 `lsp-rename`）没有任何已启用服务器支持时，不出现（不占 prompt、不诱导必然失败的调用）。
@@ -344,8 +344,8 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     A[用户: lsp-settings 页面<br/>Phase 2] -->|IPC list/upsert/delete| T[(lsp_server_configs 表<br/>app DB, 真相源)]
-    B[Agent: config-set scope=lsp-config<br/>现有工具, DB-backed] -->|直读写表| T
-    C[Agent: config-get scope=lsp-config] -->|从表聚合返回| T
+    B[Agent: config-manage action=set scope=lsp-config<br/>现有工具, DB-backed] -->|直读写表| T
+    C[Agent: config-manage action=get scope=lsp-config] -->|从表聚合返回| T
     T -->|每次工具调用 reload| M[ServerManager]
     M -->|spawn/请求| P[外部语言服务器进程]
     F[旧 lsp-config.json] -->|首次启动一次性迁移<br/>source=legacy, 之后不再读取| T
@@ -353,8 +353,8 @@ flowchart LR
 
 要点：
 
-- **真相源 = 表**；`lsp-config` scope 从文件型改为 **DB-backed scope**（照 subAgents/hooks/imagegen：config/mod.rs:1269「DB-backed 配置域：直接查应用数据库，与 UI 同源」）——**无文件、无差集同步逻辑**，config-get/set/delete 直读写表。
-- **agent 配置路径**：无需新工具——agent 用现有 `config-set scope=lsp-config` 即可帮用户配置语言服务器（命令/路径/扩展名/开关），**立即生效无需重启**。
+- **真相源 = 表**；`lsp-config` scope 从文件型改为 **DB-backed scope**（照 subAgents/hooks/imagegen：config/mod.rs:1269「DB-backed 配置域：直接查应用数据库，与 UI 同源」）——**无文件、无差集同步逻辑**，`config-manage` 的 `action=get`/`set`/`delete` 直读写表。
+- **agent 配置路径**：无需新工具——agent 用现有 `config-manage action=set scope=lsp-config` 即可帮用户配置语言服务器（命令/路径/扩展名/开关），**立即生效无需重启**。
 - **旧文件迁移**：首次启动表空且 `~/.snow/lsp-config.json` 存在 → 一次性导入（source=legacy，幂等）；导入后文件不再读取。
 - **建表**：`database.rs::create_schema` 加 `CREATE TABLE IF NOT EXISTS lsp_server_configs`（幂等，无迁移版本提升需求）；结构照 mcp_server_configs（database.rs:468）。
 - **预置种子**：种子逻辑写入表（source=seed），按平台分支（附录 B）；不覆盖用户已有记录（仅插入缺失语言）。
@@ -371,7 +371,7 @@ lsp-diagnostics filePaths=[<路径1>, <路径2>]   # 1..30 文件数组（单文
 执行序列（**已按 2026-08-14 实测修订**）：
 
 0. 校验 `filePath` 非 SSH/远程路径（`is_ssh_path` → 报错「远程项目暂不支持 LSP」）；文件 ≤512KB。
-1. `manager` 解析项目根（project_id → `get_workspace_directory_path`；无 project_id 用 filePath 父目录）→ 按 `fileExtensions` 匹配语言（enabled 才可匹配）→ 无匹配返回「该文件类型未配置 LSP 服务器」（含 config-set 建议）。
+1. `manager` 解析项目根（project_id → `get_workspace_directory_path`；无 project_id 用 filePath 父目录）→ 按 `fileExtensions` 匹配语言（enabled 才可匹配）→ 无匹配返回「该文件类型未配置 LSP 服务器」（含 `config-manage action=set` 建议）。
 2. 懒加载会话：查 (语言, 项目根) → 未命中且进程数 < `max_sessions` 则 spawn + initialize（root = 项目根）；已达上限则 LRU 淘汰（**优雅 shutdown** 后启动）。
 3. `textDocument/didOpen`（首次，version=1）+ **`textDocument/didChange`（每次，version 递增、全量内容）强制触发重新诊断** + **`textDocument/didSave`（pull 能力服务器，触发 flycheck）**。
 4. **按服务器能力选择诊断路径**（initialize 响应 `diagnostic_provider`）：
@@ -439,7 +439,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 
 ### 8.3 Phase 3（已完成 2026-08-14）— 更多工具 + 项目级作用域
 
-> Phase 2（前端 `lsp-settings` 页面）已于 2026-08-14 实施完成：preload `lspApi` → IPC `lsp-server-configs:*` → `LspSettingsPanel` + `lspSettings/` 子目录（Editor/List/Summary）→ 注册链（`app_control` VALID_PAGES / `types.ts` / `MainContent` lazy / `settingsItems.ts`）→ i18n 三语言。页面 CRUD 直读写 `lsp_server_configs` 表（真相源），与 `config-set scope=lsp-config` 完全一致。
+> Phase 2（前端 `lsp-settings` 页面）已于 2026-08-14 实施完成：preload `lspApi` → IPC `lsp-server-configs:*` → `LspSettingsPanel` + `lspSettings/` 子目录（Editor/List/Summary）→ 注册链（`app_control` VALID_PAGES / `types.ts` / `MainContent` lazy / `settingsItems.ts`）→ i18n 三语言。页面 CRUD 直读写 `lsp_server_configs` 表（真相源），与 `config-manage action=set scope=lsp-config` 完全一致。
 
 | 工具             | 说明                                                                                                              | 状态                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
@@ -448,7 +448,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 | `lsp-symbols`    | `textDocument/documentSymbol`，树形 name/kind/detail/range/children，比 tree-sitter outline 更准                  | ✅ 已实施（实测 26 符号）                 |
 | `lsp-format`     | `textDocument/formatting`，dryRun 默认 true 不写盘；false 应用 edits 写回 + didChange 同步                        | ✅ 已实施（实测 dryRun 42 edits）         |
 
-**项目级作用域**（2026-08-14 实施）：`project_lsp_server_configs`（system_settings JSON，照 project_mcp_server_configs）——项目配置**覆盖**全局同 lang；`config-set scope=lsp-config projectId=...` 配置；前端 lsp-settings 页全局/项目 tab。会话粒度 (语言 × 项目根) 天然按项目独立进程。
+**项目级作用域**（2026-08-14 实施）：`project_lsp_server_configs`（system_settings JSON，照 project_mcp_server_configs）——项目配置**覆盖**全局同 lang；`config-manage action=set scope=lsp-config projectId=...` 配置；前端 lsp-settings 页全局/项目 tab。会话粒度 (语言 × 项目根) 天然按项目独立进程。
 
 **初始化根目录（2026-08-17 修订）**：initialize 仅使用 `workspaceFolders` 声明项目根目录，明确不保留已废弃的 `rootUri` 兼容字段。
 
@@ -498,7 +498,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 
 - **collect 用静态表、执行用服务器真实能力**：静态表负责「不暴露必然失败的工具」（prompt 卫生）；会话 `initialize` 返回的 `server_capabilities` 负责运行时真相——服务器实际没声明时，调用侧按 §9 报「服务器未声明支持 xxx」（如 pull 诊断已用的 fallback 逻辑同理）。
 - 现有 6 个工具（diagnostics/hover/definition/references/symbols/format）全部服务器都支持（附录 F 底部行），**按能力过滤对现状无行为变化**；过滤生效于 Phase 4 新增工具（completion/rename/code-action/signature-help 等）。
-- 配置修改（config-set / 设置页）后下次 collect 自动生效（沿用 §8.0 的每次 reload 语义）。
+- 配置修改（`config-manage action=set` / 设置页）后下次 collect 自动生效（沿用 §8.0 的每次 reload 语义）。
 
 #### 8.7.3 能力表维护约定
 
@@ -584,7 +584,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 | 场景                                 | 行为                                                                                                                                                                                                                                     |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SSH/远程路径                         | 错误：`远程项目暂不支持 LSP（语言服务器进程在本地运行），请在本地项目中使用`                                                                                                                                                             |
-| 文件类型未配置                       | 错误：`未为 .xyz 配置 LSP 服务器。可用 lsp-config 域配置（config-set scope=lsp-config）`                                                                                                                                                 |
+| 文件类型未配置                       | 错误：`未为 .xyz 配置 LSP 服务器。可用 lsp-config 域配置（config-manage action=set scope=lsp-config）`                                                                                                                                   |
 | **技术栈不存在（§7.2，2026-09-24）** | 错误：`项目中未检测到 {lang} 技术栈标志文件（Cargo.toml, …）。LSP 服务器只在技术栈真实存在时启动：请确认该技术栈位于此项目内，或检查文件路径与项目根是否匹配`——工具暴露层同一判定（§8.0「暴露 = 可调用」），正常路径下模型看不到此类调用 |
 | 启用但未安装（§8.6）                 | 启动会话前 PATH 探测命中 → 错误 + `installCommand` 提示（不等到 spawn ENOENT）                                                                                                                                                           |
 | 命令不存在（spawn ENOENT）           | 错误 + `installCommand` 提示（如 `rustup component add rust-analyzer`）                                                                                                                                                                  |
@@ -613,7 +613,7 @@ lsp-hover items=[{"filePath":"/absolute/path","line":12,"column":4}]
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Phase 0**   | Cargo.toml 依赖；`lsp_server_configs` 表 + storage 服务 + exports；旧文件一次性迁移；`lsp/` 目录骨架；builtin.rs 注册；call.rs 分支；种子逻辑改表（按平台）                                                                                                                                                                                                                                                                                                                                                       | `cargo check` + `npx tsc --noEmit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | **Phase 1**   | 会话生命周期（spawn/initialize/回收/重启）+ `lsp-diagnostics` + `lsp-hover`（配置从表读取）                                                                                                                                                                                                                                                                                                                                                                                                                       | rust-analyzer 实测（见 §12）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Phase 1.5** | **lsp-config scope 数据库化**（DB-backed：config-get/set/delete 直读写表，照 subAgents/imagegen）——**agent 配置路径打通**                                                                                                                                                                                                                                                                                                                                                                                         | config-set 后工具立即生效（无需重启）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Phase 1.5** | **lsp-config scope 数据库化**（DB-backed：`action=get`/`set`/`delete` 直读写表，照 subAgents/imagegen）——**agent 配置路径打通**                                                                                                                                                                                                                                                                                                                                                                                   | `config-manage action=set` 后工具立即生效（无需重启）                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **Phase 2**   | 前端 `lsp-settings` 页面（照 mcp-settings：列表+编辑器+开关+摘要；注册链：app_control VALID_PAGES + types.ts + MainContent lazy + settingsItems.ts + LspSettingsPanel + lspSettings/ 子目录；i18n 三语言同步）                                                                                                                                                                                                                                                                                                    | ✅ 已完成（2026-08-14）：页面 CRUD 与表一致，`app-control-openSettings page=lsp-settings` 可用                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | **Phase 3**   | 更多工具（definition/references/symbols/format）+ 项目级作用域（project_lsp_server_configs + config scope projectId + 前端 tab）                                                                                                                                                                                                                                                                                                                                                                                  | ✅ 已完成（2026-08-14）：工具实测（跨文件 definition/references/format dryRun）+ 项目覆盖语义实测                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | **Phase 4**   | **按服务器能力动态暴露子工具**（§8.7：capabilities.rs 静态能力表 + collect 过滤——用户启用了哪些语言的服务器，就暴露这些服务器支持的工具子集）+ 新增高价值工具（completion / rename / code-action / signature-help，优先级见附录 F）                                                                                                                                                                                                                                                                               | ✅ 已完成（2026-08-14）：能力过滤实测（仅 php 启用 → 8 工具无 rename/code-action；恢复后 10 工具）；4 新工具 gopls 实测（completion 9 条 / rename dryRun 3 edits / code-action 6 项 / signature-help 签名）；运行时二次校验实测（php 调 rename 报不支持错误）                                                                                                                                                                                                                                                                |

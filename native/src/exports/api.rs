@@ -402,6 +402,14 @@ pub fn list_readonly_tools() -> Vec<String> {
     crate::mcp::builtin::list_readonly_tools()
 }
 
+/// 统一工具（单工具 + action）里真正只读的 action 列表：
+/// 前端据此判定免审批、并行与缓存，避免在 TS 里再维护一份名单。
+/// 以 JSON 字符串返回（napi 不支持直接导出 serde_json::Value）。
+#[napi]
+pub fn list_tool_readonly_actions() -> String {
+    crate::mcp::builtin::tool_readonly_actions().to_string()
+}
+
 #[napi]
 pub async fn list_mcp_project_server_tools(
     project_id: String,

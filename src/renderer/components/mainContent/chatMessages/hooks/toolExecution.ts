@@ -21,6 +21,10 @@ import {
 import { SUB_AGENT_MAIN_TOOL_NAMES } from "./subAgentActivation";
 import { loadSubAgentExecutionMode } from "./subAgentExecutionMode";
 import { isPendingSessionKey } from "../utils/conversationTypes";
+import {
+  ensureToolActionPolicy,
+  isReadonlyActionCall,
+} from "../utils/toolActionPolicy";
 import { injectSessionIdIntoToolArgs } from "../utils/toolSessionMetadata";
 import { appendStreamTail } from "../utils/streamTail";
 import type {
@@ -1115,29 +1119,19 @@ export function createToolExecutor(
         }
       };
 
-      // The native registry is the source of truth for side-effect-free tools.
-      // Keep todo/config mutations out even if a future registry entry is too
-      // broad: only todo "get" and config get/list are safe to overlap.
+      // The native registry is the source of truth for side-effect-free tools,
+      // and Rust also supplies the per-action readonly table for unified tools
+      // (config-manage: only list/get/logs may overlap).
       let readonlyToolNames = new Set<string>();
       try {
+        await ensureToolActionPolicy();
         readonlyToolNames = new Set(await window.snow.listReadonlyTools());
       } catch {
         // Preserve the existing specialized parallel paths if the registry is
         // unavailable during startup or native bridge recovery.
       }
-      const isManagerReadAction = (toolCall: ToolCallInfo): boolean => {
-        try {
-          const action = (
-            JSON.parse(toolCall.arguments || "{}") as { action?: unknown }
-          ).action;
-          if (toolCall.name === "todo-todo-manage") return action === "get";
-          if (toolCall.name === "memory-manage")
-            return action === "search" || action === "list";
-          return true;
-        } catch {
-          return false;
-        }
-      };
+      const isManagerReadAction = (toolCall: ToolCallInfo): boolean =>
+        isReadonlyActionCall(toolCall);
 
       const parallelIndices: number[] = [];
       for (let i = 0; i < toolCalls.length; i++) {

@@ -20,7 +20,7 @@ pub(crate) fn execute_personalization_scope(tool_name: &str, args: &Value) -> na
         _ => Err(Error::new(
             Status::GenericFailure,
             format!(
-                "Unknown tool: \"{tool_name}\" for MCP server \"{SERVER_ID}\". Available tools: [config-list, config-get, config-set, config-delete]"
+                "Unknown action: \"{tool_name}\" for MCP server \"{SERVER_ID}\". Available actions: [list, get, set, delete]"
             ),
         )),
     }
@@ -63,7 +63,7 @@ fn atomic_write_role(content: &str) -> napi::Result<()> {
     })
 }
 
-/// config-list personalization：返回键规格（role）+ configured/长度/预览。
+/// config-manage action=list personalization：返回键规格（role）+ configured/长度/预览。
 fn list_personalization_role() -> napi::Result<Value> {
     let content = read_role_file()?;
     let (configured, length, preview) = match &content {
@@ -85,11 +85,11 @@ fn list_personalization_role() -> napi::Result<Value> {
             "preview": preview,
             "value": Value::Null,
         }],
-        "note": "Use config-get scope=personalization key=role to read the full rules; config-set key=role writes the whole file (markdown text); config-delete removes ROLE.md and restores defaults.",
+        "note": "Use config-manage action=get scope=personalization key=role to read the full rules; config-manage action=set key=role writes the whole file (markdown text); config-manage action=delete removes ROLE.md and restores defaults.",
     }))
 }
 
-/// config-get personalization：key=role 返回规则全文（文件不存在时返回 null）。
+/// config-manage action=get personalization：key=role 返回规则全文（文件不存在时返回 null）。
 fn get_personalization_role(args: &Value) -> napi::Result<Value> {
     let key_name = required_string(args, "key")?;
     if key_name != PERSONALIZATION_ROLE_KEY {
@@ -106,7 +106,7 @@ fn get_personalization_role(args: &Value) -> napi::Result<Value> {
     }))
 }
 
-/// config-set personalization：key=role value=<字符串> 备份后原子写入全文。
+/// config-manage action=set personalization：key=role value=<字符串> 备份后原子写入全文。
 fn set_personalization_role(args: &Value) -> napi::Result<Value> {
     let key_name = required_string(args, "key")?;
     if key_name != PERSONALIZATION_ROLE_KEY {
@@ -115,7 +115,7 @@ fn set_personalization_role(args: &Value) -> napi::Result<Value> {
     let value = args.get("value").cloned().ok_or_else(|| {
         Error::new(
             Status::InvalidArg,
-            "value is required for config-set".to_string(),
+            "value is required for action=set".to_string(),
         )
     })?;
     if !value.is_string() {
@@ -142,7 +142,7 @@ fn set_personalization_role(args: &Value) -> napi::Result<Value> {
     }))
 }
 
-/// config-delete personalization：key=role 需 confirmed，删除 ROLE.md（恢复默认）。
+/// config-manage action=delete personalization：key=role 需 confirmed，删除 ROLE.md（恢复默认）。
 fn delete_personalization_role(args: &Value) -> napi::Result<Value> {
     // 破坏性操作二次确认（统一在 execute_async 入口检查；此处防御性兜底）。
     require_delete_confirmation(args)?;

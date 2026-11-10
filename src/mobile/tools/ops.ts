@@ -186,15 +186,15 @@ const joinedText = (value: unknown): string => {
 
 // ── 配置（config-*） ────────────────────────────────────────────────────
 
-const CONFIG_ACTIONS = ["list", "get", "set", "delete"] as const;
+const CONFIG_ACTIONS = ["list", "get", "set", "delete", "logs"] as const;
 type ConfigAction = (typeof CONFIG_ACTIONS)[number];
 
-const configActionOf = (name: string): ConfigAction => {
-  const suffix = name.startsWith("config-")
-    ? name.slice("config-".length)
-    : name;
-  return (CONFIG_ACTIONS as readonly string[]).includes(suffix)
-    ? (suffix as ConfigAction)
+const configActionOf = (name: string, argsAction?: string): ConfigAction => {
+  const candidate =
+    argsAction ??
+    (name.startsWith("config-") ? name.slice("config-".length) : name);
+  return (CONFIG_ACTIONS as readonly string[]).includes(candidate)
+    ? (candidate as ConfigAction)
     : "get";
 };
 
@@ -261,9 +261,14 @@ const renderConfigTool = (tool: SnowRemoteToolCall): HTMLElement | null => {
   const args = parseJsonRecord(tool.arguments);
   const result = parseJsonRecord(tool.result);
   if (isOpaqueTool(tool, args, result)) return null;
-  const action = configActionOf(tool.name);
+  const action = configActionOf(
+    tool.name,
+    args ? asString(args.action) : undefined,
+  );
 
-  const scope = args ? asString(args.scope) : undefined;
+  const scope =
+    (args ? asString(args.scope) : undefined) ??
+    (args ? asString(args.logScope) : undefined);
   const key = args ? asString(args.key) : undefined;
   const projectId = args ? asString(args.projectId) : undefined;
   const operation = args ? asString(args.operation) : undefined;

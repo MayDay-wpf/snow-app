@@ -320,6 +320,8 @@ export const apiConfigApi = {
     ipcRenderer.invoke("permissions:set-always-approved-tools", tools),
   listReadonlyTools: (): Promise<string[]> =>
     ipcRenderer.invoke("permissions:list-readonly-tools"),
+  listToolReadonlyActions: (): Promise<Record<string, string[]>> =>
+    ipcRenderer.invoke("permissions:list-tool-readonly-actions"),
   listApiConfigs: (): Promise<ApiConfigRecord[]> =>
     ipcRenderer.invoke("api-configs:list"),
   listOAuthProviders: (): Promise<OAuthProviderInfo[]> =>

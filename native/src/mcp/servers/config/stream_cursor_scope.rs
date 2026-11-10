@@ -48,7 +48,7 @@ const ICON_SIZE_MAX: f64 = 48.0;
 
 const TYPES_NOTE: &str = "iconType: dot (pulsing dot, default) | lucide (built-in spinning icon, needs lucideName) | snowbot (built-in animated robot) | custom (SVG file, pulse animation) | image (any image incl. GIF, shown as-is without extra animation, height = iconSize, width keeps the aspect ratio) | canvas (JavaScript drawing script). iconSize is 8-48 CSS px. For custom/image/canvas pass value.sourcePath (absolute path; the file is copied into ~/.snowapp/stream-cursors/ and the previous asset is removed); canvas also accepts value.script (inline source) for small scripts.";
 
-const CANVAS_CONTRACT: &str = "CANVAS SCRIPT CONTRACT (iconType=canvas): a classic (non-module) JavaScript file that defines a top-level `function draw(ctx, size, t, dark)`. The host calls it on every animation frame inside a dedicated Web Worker with an OffscreenCanvas: ctx is a CanvasRenderingContext2D that is already cleared and scaled for devicePixelRatio, so draw in CSS pixels inside [0, size] x [0, size]; size is the square edge in CSS px (8-48, user adjustable, so never hardcode it); t is elapsed seconds (multiply it to control speed); dark is true when the app uses the dark theme (use light ink on dark, dark ink on light). Not available: DOM, window, document, matchMedia, import/export, network, app APIs - only plain JS, Math and ctx. Do not start your own requestAnimationFrame loop, do not resize the canvas and do not paint a background (keep it transparent). CONVERTING AN HTML/CANVAS PROTOTYPE: read the prototype, keep its pure drawing helpers and presets verbatim, delete DOM setup (getElementById/createElement/querySelector, buttons, event handlers, rAF loops, canvas.width/style assignments, theme detection), then add draw() that calls the original paint routine; if the original paints at a fixed reference size `ref`, wrap it with ctx.save(); ctx.scale(size / ref, size / ref); ...; ctx.restore(); if it takes a theme flag, pass `dark`; if it has several states/variants, pick one in a constant at the top. Save the result with filesystem-create (e.g. next to the prototype as <name>-cursor.js), check it with `node --check <file>`, then install with config-set scope=streamCursor key=settings value={iconType:\"canvas\", sourcePath:\"/abs/path/<name>-cursor.js\"} (optionally iconSize). Runtime errors are shown under Settings > Theme > Streaming indicator and the chat indicator falls back to the pulsing dot.";
+const CANVAS_CONTRACT: &str = "CANVAS SCRIPT CONTRACT (iconType=canvas): a classic (non-module) JavaScript file that defines a top-level `function draw(ctx, size, t, dark)`. The host calls it on every animation frame inside a dedicated Web Worker with an OffscreenCanvas: ctx is a CanvasRenderingContext2D that is already cleared and scaled for devicePixelRatio, so draw in CSS pixels inside [0, size] x [0, size]; size is the square edge in CSS px (8-48, user adjustable, so never hardcode it); t is elapsed seconds (multiply it to control speed); dark is true when the app uses the dark theme (use light ink on dark, dark ink on light). Not available: DOM, window, document, matchMedia, import/export, network, app APIs - only plain JS, Math and ctx. Do not start your own requestAnimationFrame loop, do not resize the canvas and do not paint a background (keep it transparent). CONVERTING AN HTML/CANVAS PROTOTYPE: read the prototype, keep its pure drawing helpers and presets verbatim, delete DOM setup (getElementById/createElement/querySelector, buttons, event handlers, rAF loops, canvas.width/style assignments, theme detection), then add draw() that calls the original paint routine; if the original paints at a fixed reference size `ref`, wrap it with ctx.save(); ctx.scale(size / ref, size / ref); ...; ctx.restore(); if it takes a theme flag, pass `dark`; if it has several states/variants, pick one in a constant at the top. Save the result with filesystem-create (e.g. next to the prototype as <name>-cursor.js), check it with `node --check <file>`, then install with config-manage action=set scope=streamCursor key=settings value={iconType:\"canvas\", sourcePath:\"/abs/path/<name>-cursor.js\"} (optionally iconSize). Runtime errors are shown under Settings > Theme > Streaming indicator and the chat indicator falls back to the pulsing dot.";
 
 const APPLY_NOTE: &str = "The app is notified after a successful write, so the chat indicator and the theme settings page update immediately.";
 
@@ -327,7 +327,7 @@ fn reset() -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `streamCursor` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `streamCursor` scope.
 pub(crate) fn execute_stream_cursor_scope(tool_name: &str, args: &Value) -> Result<Value> {
     match tool_name {
         TOOL_LIST => Ok(json!({
@@ -358,7 +358,7 @@ pub(crate) fn execute_stream_cursor_scope(tool_name: &str, args: &Value) -> Resu
             ensure_key(args)?;
             let value = args
                 .get("value")
-                .ok_or_else(|| invalid("value is required for config-set"))?;
+                .ok_or_else(|| invalid("value is required for action=set"))?;
             apply(value)
         }
         TOOL_DELETE => {

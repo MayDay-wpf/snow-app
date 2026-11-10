@@ -223,7 +223,7 @@ fn write_setting(db_path: &Path, key: &str, value: &Value) -> Result<Value> {
         BLOCKED_PATTERNS_KEY => {
             return Err(Error::new(
                 Status::GenericFailure,
-                "blockedPatterns writes must go through the config-set tool call (renderer bridge)".to_string(),
+                "blockedPatterns writes must go through the config-manage action=set call (renderer bridge)".to_string(),
             ));
         }
         other => {
@@ -241,7 +241,7 @@ fn write_setting(db_path: &Path, key: &str, value: &Value) -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `appSettings` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `appSettings` scope.
 pub(crate) fn execute_app_settings_scope(
     tool_name: &str,
     args: &Value,
@@ -298,14 +298,14 @@ pub(crate) fn execute_app_settings_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             write_setting(db_path, key, &value)
         }
         TOOL_DELETE => Err(Error::new(
             Status::InvalidArg,
-            "appSettings does not support delete; write the desired value with config-set instead (imageLibraryDir accepts an empty string to restore the default)"
+            "appSettings does not support delete; write the desired value with action=set instead (imageLibraryDir accepts an empty string to restore the default)"
                 .to_string(),
         )),
         other => Err(Error::new(

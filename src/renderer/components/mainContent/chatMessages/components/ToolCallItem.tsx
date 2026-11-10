@@ -4,6 +4,7 @@ import type {
   HookExecutionRecord,
   ToolCallInfo,
 } from "../utils/conversationTypes";
+import { parseToolAction } from "../utils/toolActionPolicy";
 import {
   AskUserQuestionToolCall,
   BashToolCall,
@@ -217,8 +218,12 @@ const renderToolCall = ({
     return <SkillToolCall toolCall={toolCall} />;
   }
 
-  if (toolCall.name === "config-logs-read") {
-    return <AppLogsToolCall toolCall={toolCall} />;
+  if (toolCall.name === "config-manage") {
+    return parseToolAction(toolCall.arguments) === "logs" ? (
+      <AppLogsToolCall toolCall={toolCall} />
+    ) : (
+      <ConfigToolCall toolCall={toolCall} />
+    );
   }
 
   if (toolCall.name.startsWith("config-")) {

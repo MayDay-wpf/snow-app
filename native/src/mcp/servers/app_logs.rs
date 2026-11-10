@@ -2,47 +2,38 @@ use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 use std::path::Path;
 
-use super::super::service::McpService;
-use super::super::tools::McpTool;
-
-pub const SERVER_ID: &str = "config";
-const TOOL_READ: &str = "logs-read";
 const MAX_LIMIT: u64 = 100;
 const MAX_FIELD_CHARS: usize = 4000;
 
-pub struct AppLogsService;
-
-impl AppLogsService {
-    pub fn new() -> Self {
-        Self
+/// config-manage 的 action=logs：只读查询 Snow App SQLite 日志。
+/// `conversationId` 由分发层注入，AI 传值一律被覆盖。
+pub(crate) fn read_logs(args: &Value) -> napi::Result<Value> {
+    let level = optional_string(args, "level")?;
+    if level
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "DEBUG" | "INFO" | "WARN" | "ERROR"))
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "level must be DEBUG, INFO, WARN, or ERROR",
+        ));
     }
-
-    fn read_logs(&self, args: &Value) -> napi::Result<Value> {
-        let level = optional_string(args, "level")?;
-        if level
-            .as_deref()
-            .is_some_and(|value| !matches!(value, "DEBUG" | "INFO" | "WARN" | "ERROR"))
-        {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "level must be DEBUG, INFO, WARN, or ERROR",
-            ));
-        }
-        let module = optional_string(args, "module")?;
-        let scope = optional_string(args, "scope")?.unwrap_or_else(|| "all".to_string());
-        if !matches!(scope.as_str(), "all" | "current") {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "scope must be all or current",
-            ));
-        }
-        let conversation_id = optional_string(args, "conversationId")?;
-        if scope == "current" && conversation_id.is_none() {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "current scope requires the runtime-provided conversationId",
-            ));
-        }
+    let module = optional_string(args, "module")?;
+    // 与配置域的 scope 参数区分：日志范围参数名是 logScope。
+    let log_scope = optional_string(args, "logScope")?.unwrap_or_else(|| "all".to_string());
+    if !matches!(log_scope.as_str(), "all" | "current") {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "logScope must be all or current",
+        ));
+    }
+    let conversation_id = optional_string(args, "conversationId")?;
+    if log_scope == "current" && conversation_id.is_none() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "logScope=current requires the runtime-provided conversationId",
+        ));
+    }
         let max_field_chars = args
             .get("maxFieldChars")
             .and_then(Value::as_u64)
@@ -128,7 +119,7 @@ impl AppLogsService {
             })?;
 
         // Full-log scope is requested explicitly by the caller; current scope keeps the runtime conversation boundary.
-        if scope == "current" {
+        if log_scope == "current" {
             filters.push("conversation_id = ?".to_string());
             values.push(rusqlite::types::Value::Text(conversation_id.unwrap()));
         }
@@ -222,13 +213,12 @@ impl AppLogsService {
             "offset": offset,
             "hasMore": offset.saturating_add(returned as u64) < total as u64,
             "systemSummary": system_summary,
-            "detailScope": if scope == "all" { "all_application_logs" } else { "current_conversation" },
+            "detailScope": if log_scope == "all" { "all_application_logs" } else { "current_conversation" },
             "maxFieldChars": max_field_chars,
             "traceHint": "Group by traceKey/conversationId, then order by createdAt; API request and response rows share the conversation trace when associated. Unassociated rows use their own id as traceKey; no dedicated per-request trace id is currently persisted.",
-            "note": "Returns level, module, function/line, message, input/output, duration, source, context and error; API request/response bodies are exposed as input/output and requestBody/responseBody. scope=all includes all conversations and unassociated logs. Fields are capped by maxFieldChars. API payloads are redacted before persistence; log text outside payloads may also contain sensitive values."
+            "note": "Returns level, module, function/line, message, input/output, duration, source, context and error; API request/response bodies are exposed as input/output and requestBody/responseBody. logScope=all includes all conversations and unassociated logs. Fields are capped by maxFieldChars. API payloads are redacted before persistence; log text outside payloads may also contain sensitive values."
         }))
     }
-}
 
 fn normalize_date_bound(value: String, upper_bound: bool) -> String {
     if value.len() == 10
@@ -275,40 +265,3 @@ fn truncate(value: String, limit: usize) -> String {
     }
 }
 
-impl McpService for AppLogsService {
-    fn id(&self) -> &str {
-        SERVER_ID
-    }
-
-    fn tools(&self) -> Vec<McpTool> {
-        vec![McpTool {
-            server_id: SERVER_ID.to_string(),
-            name: TOOL_READ.to_string(),
-            description: "Read detailed Snow App SQLite system logs across conversations by default. Returns severity, module/function/line, timestamps, conversation trace key, messages, contexts, errors, inputs/outputs, API request/response bodies, duration and source. API payloads are redacted at persistence; text fields are bounded by maxFieldChars (up to 50000 chars). API bodies may contain prompts and user content, but stored API keys are redacted.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "scope": {"type":"string", "enum":["all","current"], "description":"Detail scope; defaults to all application logs, including rows from other conversations and unassociated system logs."},
-                    "level": {"type":"string", "enum":["DEBUG","INFO","WARN","ERROR"], "description":"Optional exact severity level; omit this field to query all levels."},
-                    "module": {"type":"string", "description":"Optional exact subsystem filter (for example api, api_request, api_response, lsp, hooks)."},
-                    "conversationId": {"type":"string", "description":"Runtime-scoped by Snow App to the current conversation; any caller-supplied value is overwritten."},
-                    "since": {"type":"string", "description":"Optional local datetime lower bound: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS."},
-                    "until": {"type":"string", "description":"Optional local datetime upper bound: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS."},
-                    "limit": {"type":"integer", "minimum":1, "maximum":100, "description":"Page size, defaults to 50."},
-                    "offset": {"type":"integer", "minimum":0, "description":"Pagination offset, defaults to 0."},
-                    "maxFieldChars": {"type":"integer", "minimum":1, "maximum":50000, "description":"Maximum characters for each text field; defaults to 4000."}
-                }
-            }),
-        }]
-    }
-
-    fn execute(&self, tool_name: &str, args: &Value) -> napi::Result<Value> {
-        match tool_name {
-            TOOL_READ => self.read_logs(args),
-            _ => Err(Error::new(
-                Status::InvalidArg,
-                format!("Unknown config logs tool: {tool_name}"),
-            )),
-        }
-    }
-}

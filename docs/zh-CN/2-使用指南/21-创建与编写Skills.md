@@ -66,7 +66,7 @@ flowchart TD
 3. 创建入口文件 `<skills-root>/<skill-id>/SKILL.md`；
 4. 按第 5 节模板填写元数据和步骤；
 5. 需要参考资料、模板或脚本时放在同一目录下；
-6. 在 Skills 设置页刷新，或让 Agent 用 `config-list scope=skills` 验证；
+6. 在 Skills 设置页刷新，或让 Agent 用 `config-manage action=list scope=skills` 验证；
 7. 进行一次最小任务测试，确认触发、步骤、权限和输出。
 
 推荐结构：
@@ -103,7 +103,7 @@ Skill 加载后会把目录树和绝对路径告诉 Agent，因此正文可以�
 触发场景：发布前检查构建产物；不要执行发布。
 输出：阻断项、警告、通过项三段。
 只允许 filesystem-read、grep-search。
-先检查是否存在同 ID Skill，创建后用 config-list/config-get 验证路径和字段，
+先检查是否存在同 ID Skill，创建后用 config-manage 的 action=list / action=get 验证路径和字段，
 再用一个只读示例任务测试。不要删除或覆盖已有 Skill，除非我确认。
 ```
 
@@ -223,8 +223,8 @@ allowed-tools:
 让 Agent 执行只读查询：
 
 ```text
-config-list scope=skills projectId=<projectId>
-config-get scope=skills key=<skill-id> projectId=<projectId>
+config-manage action=list scope=skills projectId=<projectId>
+config-manage action=get scope=skills key=<skill-id> projectId=<projectId>
 ```
 
 检查：

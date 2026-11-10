@@ -1,6 +1,6 @@
 # 5-Configure Hooks and Sub-agents
 
-Snow App stores Hooks and sub-agent configuration in the app SQLite database, shared with the Settings UI. The Agent can read and write it through the built-in `config` service, and successful changes take effect immediately.
+Snow App stores Hooks and sub-agent configuration in the app SQLite database, shared with the Settings UI. The Agent can read and write it through the built-in `config-manage` tool, and successful changes take effect immediately.
 
 ## 1. Hooks
 
@@ -97,12 +97,12 @@ flowchart TD
 5. Save and test with a low-risk event;
 6. Inspect Hook execution records and app logs.
 
-### 1.6 Configure through `config`
+### 1.6 Configure through `config-manage`
 
 Global command Hook:
 
 ```jsonc
-config-set scope=hooks key=beforeToolCall value={
+config-manage action=set scope=hooks key=beforeToolCall value={
   "rules": [
     {
       "description": "Run read-only tool auditing",
@@ -123,7 +123,7 @@ config-set scope=hooks key=beforeToolCall value={
 Project context Hook:
 
 ```jsonc
-config-set scope=hooks key=onUserMessage projectId=<projectId> value={
+config-manage action=set scope=hooks key=onUserMessage projectId=<projectId> value={
   "rules": [
     {
       "description": "Inject this project's technology stack",
@@ -167,12 +167,12 @@ When there are multiple actions, set `enabled` explicitly on each one:
 
 Recommended flow:
 
-1. Run `config-list scope=hooks projectId=<projectId>` and read the current state and `guidance`;
-2. Preserve the current value with `config-get scope=hooks key=<hookType> projectId=<projectId>`;
-3. Write the complete `rules` value with `config-set`;
+1. Run `config-manage action=list scope=hooks projectId=<projectId>` and read the current state and `guidance`;
+2. Preserve the current value with `config-manage action=get scope=hooks key=<hookType> projectId=<projectId>`;
+3. Write the complete `rules` value with `config-manage action=set`;
 4. Immediately read it back and inspect every `enabled` field;
 5. Test matcher and exit-code behavior with a low-risk event;
-6. Before `config-delete`, show the scope, key, projectId, and impact and obtain explicit confirmation.
+6. Before `config-manage action=delete`, show the scope, key, projectId, and impact and obtain explicit confirmation.
 
 Hook database writes create a temporary backup during the operation and remove it after success. It is not persistent history.
 
@@ -224,12 +224,12 @@ A sub-agent runs in its own conversation. Opening it shows:
 5. Keep **Follow the parent conversation (recommended)**, or select a pinned API profile. With a pinned profile, optionally select an independent model; leaving it empty uses the profile's advanced model;
 6. Save, then delegate one narrowly scoped test task from the main conversation.
 
-### 2.4 Configure through `config`
+### 2.4 Configure through `config-manage`
 
 Global sub-agent example (`projectId=""` means global):
 
 ```jsonc
-config-set scope=subAgents key=agent_readonly_reviewer projectId="" value={
+config-manage action=set scope=subAgents key=agent_readonly_reviewer projectId="" value={
   "name": "Read-only Reviewer",
   "description": "Use for an independent review and issue list",
   "systemPrompt": "You are a read-only reviewer. Verify inputs and files first, then report issues and evidence by severity. Never modify files, run commands, or guess missing business rules. If a tool is unavailable, identify what cannot be verified.",
@@ -242,7 +242,7 @@ config-set scope=subAgents key=agent_readonly_reviewer projectId="" value={
 Project-scoped explicit tools:
 
 ```jsonc
-config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
+config-manage action=set scope=subAgents key=agent_project_reviewer projectId=<projectId> value={
   "name": "Project Reviewer",
   "description": "Review the current project and return findings with paths",
   "systemPrompt": "You are this project's read-only code reviewer. Use allowed tools to establish facts. Report severity, file path, evidence, and remediation. Never modify files.",
@@ -256,7 +256,7 @@ config-set scope=subAgents key=agent_project_reviewer projectId=<projectId> valu
 }
 ```
 
-Before writing, run `config-list scope=subAgents projectId=<projectId>` to obtain guidance and the current tool environment. Read back with `config-get` after writing. `config-delete` also requires explicit user confirmation.
+Before writing, run `config-manage action=list scope=subAgents projectId=<projectId>` to obtain guidance and the current tool environment. Read back with `config-manage action=get` after writing. `config-manage action=delete` also requires explicit user confirmation. A sub-agent that needs this tool lists `config-manage` in `toolsJson` (tool-level approval is split per action: `list`/`get`/`logs` need no approval, `set`/`delete` do).
 
 ### 2.5 Sub-agent and Hooks sequence
 

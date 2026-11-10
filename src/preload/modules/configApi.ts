@@ -74,7 +74,7 @@ export const configApi = {
     ipcRenderer.invoke("custom-commands:upsert", item),
   deleteCustomCommand: (commandId: string): Promise<void> =>
     ipcRenderer.invoke("custom-commands:delete", commandId),
-  /** 自定义命令被 AI 侧改动（config-set / config-delete 的 customCommands 作用域）后由主进程广播。 */
+  /** 自定义命令被 AI 侧改动（config-manage 的 customCommands 作用域）后由主进程广播。 */
   onCustomCommandsChanged: (callback: () => void): (() => void) => {
     const handler = (): void => {
       callback();

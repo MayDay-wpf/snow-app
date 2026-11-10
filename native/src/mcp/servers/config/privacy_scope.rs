@@ -207,7 +207,7 @@ fn apply_settings(value: &Value) -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `privacy` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `privacy` scope.
 pub(crate) fn execute_privacy_scope(
     tool_name: &str,
     args: &Value,
@@ -250,14 +250,14 @@ pub(crate) fn execute_privacy_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             apply_settings(&value)
         }
         TOOL_DELETE => Err(Error::new(
             Status::InvalidArg,
-            "privacy does not support delete; use config-set with {\"enabled\": false} to turn filtering off"
+            "privacy does not support delete; use action=set with {\"enabled\": false} to turn filtering off"
                 .to_string(),
         )),
         other => Err(Error::new(

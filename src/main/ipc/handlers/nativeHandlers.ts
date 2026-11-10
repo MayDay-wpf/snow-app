@@ -82,6 +82,20 @@ const readConfigScope = (argsJson: string): string | null => {
   }
 };
 
+/** 解析 config-manage 参数中的 action（非法 JSON 或缺失时返回 null）。 */
+const readConfigAction = (argsJson: string): string | null => {
+  try {
+    const parsed: unknown = JSON.parse(argsJson);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const action = (parsed as { action?: unknown }).action;
+    return typeof action === "string" ? action.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
 /** 解析 config-* 参数 key 中逗号分隔的 id 列表。 */
 const readConfigKeyList = (argsJson: string): string[] => {
   try {
@@ -719,6 +733,21 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   );
   ipcMain.handle("permissions:list-readonly-tools", () =>
     native.listReadonlyTools(),
+  );
+
+  // 单工具 + action 的只读动作表（config-manage 等），前端据此判定免审批/缓存。
+  ipcMain.handle(
+    "permissions:list-tool-readonly-actions",
+    (): Record<string, string[]> => {
+      try {
+        return JSON.parse(native.listToolReadonlyActions()) as Record<
+          string,
+          string[]
+        >;
+      } catch {
+        return {};
+      }
+    },
   );
 
   ipcMain.handle("native:sum", (_event, a: number, b: number) =>
@@ -1409,6 +1438,11 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
         // memory 写工具成功后广播记忆变更：AI 可在主对话/子代理/工作流
         // 任意路径改库，仅此处统一可见，侧边栏徽标据此刷新。
         const toolName = toolFullName.trim();
+        // config-manage 的写动作才需要广播（读动作无副作用）。
+        const configAction = readConfigAction(argsJson);
+        const isConfigWrite =
+          toolName === "config-manage" &&
+          (configAction === "set" || configAction === "delete");
         if (
           toolName === "memory-save" ||
           toolName === "memory-update" ||
@@ -1416,49 +1450,34 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
         ) {
           safeSend(event.sender, "memories:changed", normalizedProjectId);
         }
-        // 插件安装/启停/卸载（config-set / config-delete 的 plugins 作用域）
+        // 插件安装/启停/卸载（config-manage 的 plugins 作用域）
         // 成功后广播插件变更：AI 同样可在主对话/子代理/定时任务任意路径改库，
         // 渲染层的插件列表与侧边栏插件徽标仅在此处能感知。
-        if (
-          (toolName === "config-set" || toolName === "config-delete") &&
-          readConfigScope(argsJson) === "plugins"
-        ) {
+        if (isConfigWrite && readConfigScope(argsJson) === "plugins") {
           void syncPluginBackgrounds();
           safeSend(event.sender, "plugins:changed");
         }
-        // 用户脚本（config-set / config-delete 的 userscripts 作用域）：AI 可
+        // 用户脚本（config-manage 的 userscripts 作用域）：AI 可
         // 直接安装客户端脚本，刷新匹配缓存并广播，让脚本列表与注入立即生效。
-        if (
-          (toolName === "config-set" || toolName === "config-delete") &&
-          readConfigScope(argsJson) === "userscripts"
-        ) {
+        if (isConfigWrite && readConfigScope(argsJson) === "userscripts") {
           refreshUserscriptSyncStore(native);
           safeSend(event.sender, "userscripts:changed");
         }
-        // 自定义命令（config-set / config-delete 的 customCommands 作用域）：
+        // 自定义命令（config-manage 的 customCommands 作用域）：
         // AI 写库后渲染层的命令面板与 / 菜单无从感知，广播后统一刷新。
-        if (
-          (toolName === "config-set" || toolName === "config-delete") &&
-          readConfigScope(argsJson) === "customCommands"
-        ) {
+        if (isConfigWrite && readConfigScope(argsJson) === "customCommands") {
           safeSend(event.sender, "customCommands:changed");
         }
         // 备忘录（memos 作用域）：广播刷新备忘面板，delete 时附带被删 memoId。
-        if (
-          (toolName === "config-set" || toolName === "config-delete") &&
-          readConfigScope(argsJson) === "memos"
-        ) {
+        if (isConfigWrite && readConfigScope(argsJson) === "memos") {
           safeSend(
             event.sender,
             "memos:changed",
-            toolName === "config-delete" ? readConfigKeyList(argsJson) : [],
+            configAction === "delete" ? readConfigKeyList(argsJson) : [],
           );
         }
         // 流式指示器（streamCursor 作用域）写入主题设置：通知所有窗口重载主题。
-        if (
-          (toolName === "config-set" || toolName === "config-delete") &&
-          readConfigScope(argsJson) === "streamCursor"
-        ) {
+        if (isConfigWrite && readConfigScope(argsJson) === "streamCursor") {
           for (const win of BrowserWindow.getAllWindows()) {
             safeSend(win.webContents, "theme:settings-changed");
           }

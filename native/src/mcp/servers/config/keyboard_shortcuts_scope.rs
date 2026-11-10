@@ -201,7 +201,7 @@ fn apply_shortcuts(value: &Value) -> Result<Value> {
     }))
 }
 
-/// Dispatches `config-list/get/set/delete` for the `keyboardShortcuts` scope.
+/// Dispatches the `config-manage` list/get/set/delete actions for the `keyboardShortcuts` scope.
 pub(crate) fn execute_keyboard_shortcuts_scope(
     tool_name: &str,
     args: &Value,
@@ -251,14 +251,14 @@ pub(crate) fn execute_keyboard_shortcuts_scope(
             let value = args.get("value").cloned().ok_or_else(|| {
                 Error::new(
                     Status::InvalidArg,
-                    "value is required for config-set".to_string(),
+                    "value is required for action=set".to_string(),
                 )
             })?;
             apply_shortcuts(&value)
         }
         TOOL_DELETE => Err(Error::new(
             Status::InvalidArg,
-            "keyboardShortcuts does not support delete; write the desired keys with config-set (reset a single action by writing its default key)"
+            "keyboardShortcuts does not support delete; write the desired keys with action=set (reset a single action by writing its default key)"
                 .to_string(),
         )),
         other => Err(Error::new(

@@ -5,7 +5,6 @@ use napi::bindgen_prelude::*;
 use serde_json::Value;
 
 use super::servers::app_control::AppControlService;
-// AppLogsService is exposed under the config server namespace.
 use super::servers::bash::BashService;
 use super::servers::browser::BrowserService;
 use super::servers::codebase::CodebaseService;
@@ -57,12 +56,12 @@ fn builtin_services_in_order() -> Vec<Arc<dyn McpService>> {
         // 工具搜索：插件工具默认不进请求，由它按需返完整定义（追加在末尾以
         // 保持既有工具顺序稳定，prompt cache 不受影响）。
         Arc::new(ToolSearchService::new()),
-        // Logs are exposed as config-logs-read; no separate MCP server.
+        // Snow App logs are read through config-manage (action=logs); no separate MCP server.
         // NOTE: new services must be appended to the END of this list to keep
         // the tool order stable (prompt cache); never insert in the middle.
         //
         // SkillsConfigService 已从内置服务注册中移除（硬删除）：技能配置
-        // 统一收敛到 config 服务器的 skills scope（config-set/list/delete，
+        // 统一收敛到 config 服务器的 skills scope（action=set/list/delete，
         // 内部委托 SkillsConfigService 实现），skills-config-* 工具不复存在。
         //
         // computer-use：纯 Rust 实现（xcap 截屏 + enigo 输入模拟），无需
@@ -105,9 +104,8 @@ pub const READONLY_TOOL_NAMES: &[&str] = &[
     "grep-find",
     "websearch-websearch-search",
     "websearch-websearch-fetch",
-    "config-get",
-    "config-list",
-    "config-logs-read",
+    // 单工具 + action：config 的 list/get/logs 才免审批（见 tool_readonly_actions）。
+    "config-manage",
     "imagegen-image-describe",
     "codebase-search",
     "todo-todo-manage",
@@ -131,6 +129,16 @@ pub fn list_readonly_tools() -> Vec<String> {
         .filter(|name| available.contains(**name))
         .map(|name| name.to_string())
         .collect()
+}
+
+/// 统一工具按 action 细分的只读动作表：整名列入 READONLY_TOOL_NAMES 的工具
+/// 只在这些 action 下真正只读（免审批、可并行、可缓存）；其余动作按写操作处理。
+pub fn tool_readonly_actions() -> Value {
+    serde_json::json!({
+        "todo-todo-manage": ["get"],
+        "memory-manage": ["search", "list"],
+        "config-manage": ["list", "get", "logs"],
+    })
 }
 
 /// 返回所有内置服务的工具定义，保持与注册列表一致的固定顺序。

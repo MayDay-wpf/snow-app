@@ -80,7 +80,7 @@ Header schemes are stored in the SQLite `custom_header_schemes` table. They can 
 > (the user must click "Sync Snow CLI custom headers" in the panel). The app's live
 > configuration is the database table above. To let an agent maintain live headers
 > directly, use
-> `config-set scope=customHeaderSchemes key=<schemeId> value={name?, headers?, isActive?}`:
+> `config-manage action=set scope=customHeaderSchemes key=<schemeId> value={name?, headers?, isActive?}`:
 > `headers` is merged (set a header to `null` to remove it) and `isActive:true`
 > activates the scheme exclusively; changes apply to subsequent API requests
 > immediately (in-flight requests are unaffected).
@@ -183,7 +183,7 @@ Snow App supports `en`, `zh-CN`, and `zh-TW`. The language selector is a separat
 - without a localStorage cache, the app first reads the database;
 - without a valid database value, it matches the browser language and falls back to English when no match exists.
 
-`~/.snow/language.json` belongs to the Snow CLI/config tool configuration domain and is not the single source of truth for the current UI language.
+`~/.snow/language.json` belongs to the Snow CLI configuration domain and is not the single source of truth for the current UI language.
 
 ## Desktop Pet
 

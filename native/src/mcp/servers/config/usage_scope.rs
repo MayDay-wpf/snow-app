@@ -164,7 +164,7 @@ fn summary_payload(db_path: &Path, since: &str, until: &str, profile: &str) -> R
     }))
 }
 
-/// Dispatches `config-list/get` for the `usage` scope (read-only).
+/// Dispatches the `config-manage` list/get actions for the `usage` scope (read-only).
 pub(crate) fn execute_usage_scope(
     tool_name: &str,
     args: &Value,

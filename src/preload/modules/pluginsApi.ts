@@ -113,7 +113,7 @@ export const pluginsApi = {
     options: PluginHttpRequestOptions,
   ): Promise<PluginHttpResponse> =>
     ipcRenderer.invoke("plugins:http-request", options),
-  /** 插件集合被 AI 侧改动（config-set / config-delete 的 plugins 作用域）后由主进程广播。 */
+  /** 插件集合被 AI 侧改动（config-manage 的 plugins 作用域）后由主进程广播。 */
   onPluginsChanged: (callback: () => void): (() => void) => {
     const handler = (): void => {
       callback();

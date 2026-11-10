@@ -696,55 +696,35 @@ pub async fn call_mcp_tool(
         UserInteractionService::new()
             .execute_async(&args, &on_user_question)
             .await?
-    } else if tool_full_name == "config-logs-read" {
-        let conversation_id = conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| {
-                Error::new(
-                    Status::GenericFailure,
-                    "Reading Snow App logs requires the current conversation ID",
-                )
-            })?;
-        let mut scoped_args = args.clone();
-        scoped_args["conversationId"] = serde_json::json!(conversation_id);
-        let service = super::super::servers::app_logs::AppLogsService::new();
-        tokio::task::spawn_blocking(move || {
-            super::super::service::McpService::execute(&service, "logs-read", &scoped_args)
-        })
-        .await
-        .map_err(|error| {
-            Error::new(
-                Status::GenericFailure,
-                format!("App log query task failed: {error}"),
-            )
-        })??
     } else if let Some(app_control_tool) = tool_full_name.strip_prefix("app-control-") {
         AppControlService::new()
             .execute_async(app_control_tool, &args, &on_app_control)
             .await
             .tool_feedback(is_sub_agent_call)?
-    } else if let Some(routed) = match tool_full_name.as_str() {
-        "config-set" => route_config_set(&args, project_id.as_deref()),
-        "config-delete" => route_config_delete(&args, project_id.as_deref()),
-        _ => None,
-    } {
-        // 依赖渲染层状态的 config 写操作（定时任务/新建项目/站点拦截）走 app-control 桥。
-        let (action, payload) = routed?;
-        AppControlService::new()
-            .dispatch(action, payload, &on_app_control)
-            .await
-            .tool_feedback(is_sub_agent_call)?
-    } else if let Some(config_tool) = tool_full_name.strip_prefix("config-") {
-        // 传入运行时已知的当前会话 projectId（directoryId）。ConfigService
-        // 内部会将其注入到支持项目级作用域的调用（hooks/subAgents/skills/
-        // settings 项目键），并让 config-list 返回 currentProjectId，
-        // 修复 AI 无法获知当前会话项目ID导致项目级配置落到全局的问题。
-        ConfigService::new()
-            .execute_async(config_tool, &args, project_id.clone())
-            .await
-            .validation_feedback(is_sub_agent_call)?
+    } else if tool_full_name == "config-manage" {
+        // 依赖渲染层状态的写操作（定时任务/新建项目/站点拦截）走 app-control 桥；
+        // 其余动作交给 ConfigService（action=logs 在内部注入会话 ID 后查询）。
+        let routed = match args.get("action").and_then(Value::as_str).map(str::trim) {
+            Some("set") => route_config_set(&args, project_id.as_deref()),
+            Some("delete") => route_config_delete(&args, project_id.as_deref()),
+            _ => None,
+        };
+        if let Some(routed) = routed {
+            let (action, payload) = routed?;
+            AppControlService::new()
+                .dispatch(action, payload, &on_app_control)
+                .await
+                .tool_feedback(is_sub_agent_call)?
+        } else {
+            // 传入运行时已知的当前会话 projectId（directoryId）。ConfigService
+            // 内部会将其注入到支持项目级作用域的调用（hooks/subAgents/skills/
+            // settings 项目键），并让 action=list 返回 currentProjectId，
+            // 修复 AI 无法获知当前会话项目ID导致项目级配置落到全局的问题。
+            ConfigService::new()
+                .execute_async(&args, project_id.clone(), conversation_id.as_deref())
+                .await
+                .validation_feedback(is_sub_agent_call)?
+        }
     } else if tool_full_name == "skills-skill-execute" {
         SkillsService::new()
             .execute(&args, project_id.as_deref())

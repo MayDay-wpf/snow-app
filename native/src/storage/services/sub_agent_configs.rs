@@ -255,7 +255,7 @@ pub fn get_sub_agent_config(
         .map_err(|error| database::database_error(database_path, "get sub-agent config", error))
 }
 
-/// 子代理 toolsJson 的唯一保存校验（UI 与 config-set 共用）：
+/// 子代理 toolsJson 的唯一保存校验（UI 与 config-manage 的 action=set 共用）：
 /// 非空字符串数组、格式合法、不含保留工具、至少一个读取工具；
 /// 通配符 `*` 只能单独出现且仅限内置 agent_general。
 fn validate_sub_agent_tools(agent_id: &str, tools_json: &str) -> Result<()> {

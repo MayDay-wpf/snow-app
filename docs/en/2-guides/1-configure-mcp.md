@@ -111,18 +111,18 @@ The actual order for writing global `settings.mcpServers` is:
 4. Leave UI-manual records from other sources untouched by that diff deletion;
 5. Back up the previous `settings.json`, atomically replace the file, and remove this temporary backup after success.
 
-The change therefore affects MCP discovery immediately. `value` is a **complete server map**. Do not send only the server you want to edit, or other global `snow-cli` entries will be removed by synchronization. Run `config-get`, modify the complete object, and then run `config-set`.
+The change therefore affects MCP discovery immediately. `value` is a **complete server map**. Do not send only the server you want to edit, or other global `snow-cli` entries will be removed by synchronization. Run `config-manage` with `action=get`, modify the complete object, and then run `config-manage` with `action=set`.
 
 ### 4.2 Project configuration
 
 ```text
-config-get scope=settings key=mcpServers projectId=<projectId>
-config-set scope=settings key=mcpServers projectId=<projectId> value={...complete map...}
+config-manage action=get scope=settings key=mcpServers projectId=<projectId>
+config-manage action=set scope=settings key=mcpServers projectId=<projectId> value={...complete map...}
 ```
 
 With `projectId`, `value` **fully replaces that project's servers**: existing project entries are deleted before the new entries are inserted. Global servers remain and are combined with project servers. Project writes go directly to the app database and take effect immediately; do not treat `.config-backups` as persistent history for project MCP configuration.
 
-`config-delete scope=settings key=mcpServers projectId=<projectId>` clears every MCP server owned by that project and requires explicit confirmation first.
+`config-manage action=delete scope=settings key=mcpServers projectId=<projectId>` clears every MCP server owned by that project and requires explicit confirmation first.
 
 ## 5. Configuration, discovery, and call data flow
 
@@ -193,7 +193,7 @@ The MCP Settings panel supports **tool-level toggles**: each server row shows a 
 - Disable semantics are a **blacklist**: everything is enabled by default and only disabled tools enter the blacklist;
 - For the main conversation and the built-in `agent_general` using `["*"]`, server-level and tool-level toggles are an **AND** relationship: when a server is disabled, all of its tools are unavailable even if their tool-level toggles are still enabled. A sub-agent's explicit list has only the project-level disable exception described above.
 
-Tool-level toggles (global and project) are managed by the MCP Settings panel and stored in the app database; they are **not written to settings.json** and are not configured through the `config` service (`config-list`/`config-get`/`config-set`) — UI only.
+Tool-level toggles (global and project) are managed by the MCP Settings panel and stored in the app database; they are **not written to settings.json** and are not configured through `config-manage` (`action=list`/`action=get`/`action=set`) — UI only.
 
 ## 9. Privacy, credentials, and supply-chain risk
 
@@ -220,7 +220,7 @@ Snow App masks a tool result only when privacy settings are enabled **and** that
 
 For global file-backed config writes, Snow App creates a pre-write backup under `~/.snow/.config-backups/` and atomically replaces the target file. **After a successful write, that backup is removed immediately**. It is a temporary write-safety net, not dependable version history. A failed or concurrent operation may leave a backup; cleanup keeps at most 10 leftovers per file.
 
-Project MCP uses a database full-replace flow and should not rely on the file backup above. Before a major change, use `config-get` to preserve an approved, non-sensitive copy. Do not copy plaintext credentials into chat or documentation.
+Project MCP uses a database full-replace flow and should not rely on the file backup above. Before a major change, use `config-manage` (`action=get`) to preserve an approved, non-sensitive copy. Do not copy plaintext credentials into chat or documentation.
 
 ## 11. Troubleshooting
 

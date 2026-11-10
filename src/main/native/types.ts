@@ -975,7 +975,7 @@ export type LspServerConfigInput = {
   initializationOptionsJson?: string | null;
   enabled: boolean;
   sortOrder: number;
-  /** 来源：seed / legacy / manual / config-set 等 */
+  /** 来源：seed / legacy / manual / config-manage 等 */
   source: string;
 };
 
@@ -2740,6 +2740,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   getAlwaysApprovedTools: () => Promise<string[]>;
   setAlwaysApprovedTools: (tools: string[]) => Promise<void>;
   listReadonlyTools: () => Promise<string[]>;
+  /** 单工具 + action 的只读动作表（JSON 字符串，工具名 -> 只读 action 列表）。 */
+  listToolReadonlyActions: () => string;
   listOAuthProviders: () => Promise<OAuthProviderInfo[]>;
   startOAuthLogin: (
     provider: string,

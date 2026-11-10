@@ -14,7 +14,7 @@ Snow App 通过 **API 档案（Profile）** 管理模型服务商的接入信息
 | `~/.snow/config.json` 的 `snowcfg` 字段               | 与 Snow CLI 共享的兼容层/快照，**不是**档案的权威来源         |
 
 > **存储机制速记**：多档案列表存在应用数据库 `api_configs` 表，当前生效档案由
-> `activeProfile` 指定。`config` 工具与 UI 读写的是**当前生效档案**；
+> `activeProfile` 指定。`config-manage` 工具与 UI 读写的是**当前生效档案**；
 > `config.json` 中的 `snowcfg` 只是当前档案的 CLI 兼容镜像。
 
 ## 2. 图形界面配置（多档案）
@@ -108,19 +108,19 @@ token、流式空闲超时、重试次数与延迟），其余参数可直接编
 
 > **DeepSeek 思考模式兼容**：DeepSeek V4 思考模式下，流式处理会为每条助手消息补齐 `reasoning_content` 字段，避免部分供应商接口因该字段缺失返回 400 错误；`showThinking` 开关与 `reasoning_effort` 设置同样适用于该模式。
 
-## 5. AI / 命令行配置（config 工具）
+## 5. AI / 命令行配置（config-manage 工具）
 
-Snow App 内置 `config` 工具，AI Agent 可读写与 UI 同源的配置。API 档案相关：
+Snow App 内置 `config-manage` 工具，AI Agent 可通过 `action` 读写与 UI 同源的配置。API 档案相关：
 
-| 工具                                                    | 用途                                                         |
-| ------------------------------------------------------- | ------------------------------------------------------------ |
-| `config-list scope=snowcfg`                             | 查看当前生效档案的全部配置与键                               |
-| `config-get scope=snowcfg key=baseUrl`                  | 读取单个键（`apiKey` 自动脱敏，如 `sk-****abcd`）            |
-| `config-set scope=snowcfg key=baseUrl value="..."`      | 写入单个键（白名单 + 类型校验 + 自动备份 + 原子写）          |
-| `config-list scope=apiProfiles`                         | 列出**全部档案**（密钥脱敏），含使用引导                     |
-| `config-get scope=apiProfiles key=<档案名>`             | 读取单个档案（密钥脱敏，不存在返回 null）                    |
-| `config-set scope=apiProfiles key=<档案名> value={...}` | 新建/更新档案（写应用数据库，与 UI 同源、立即生效）          |
-| `config-delete scope=apiProfiles key=<档案名>`          | 删除档案（破坏性操作，须先经用户确认再带 `confirmed: true`） |
+| 工具                                                                        | 用途                                                         |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `config-manage action=list scope=snowcfg`                                   | 查看当前生效档案的全部配置与键                               |
+| `config-manage action=get scope=snowcfg key=baseUrl`                        | 读取单个键（`apiKey` 自动脱敏，如 `sk-****abcd`）            |
+| `config-manage action=set scope=snowcfg key=baseUrl value="..."`            | 写入单个键（白名单 + 类型校验 + 自动备份 + 原子写）          |
+| `config-manage action=list scope=apiProfiles`                               | 列出**全部档案**（密钥脱敏），含使用引导                     |
+| `config-manage action=get scope=apiProfiles key=<档案名>`                   | 读取单个档案（密钥脱敏，不存在返回 null）                    |
+| `config-manage action=set scope=apiProfiles key=<档案名> value={...}`       | 新建/更新档案（写应用数据库，与 UI 同源、立即生效）          |
+| `config-manage action=delete scope=apiProfiles key=<档案名> confirmed=true` | 删除档案（破坏性操作，须先经用户确认再带 `confirmed: true`） |
 
 ```mermaid
 flowchart LR
@@ -133,15 +133,15 @@ flowchart LR
 #### ① 查看档案
 
 ```
-config-list scope=apiProfiles   # 全部档案（apiKey/visionApiKey 脱敏，isActive 标出生效档案）
-config-list scope=snowcfg       # 当前生效档案的完整配置
-config-list scope=app           # activeProfile（CLI 兼容层记录的档案名）
+config-manage action=list scope=apiProfiles   # 全部档案（apiKey/visionApiKey 脱敏，isActive 标出生效档案）
+config-manage action=list scope=snowcfg       # 当前生效档案的完整配置
+config-manage action=list scope=app           # activeProfile（CLI 兼容层记录的档案名）
 ```
 
 #### ② 修改密钥
 
 ```
-config-set scope=apiProfiles key=档案名 value={"apiKey": "sk-新密钥"}
+config-manage action=set scope=apiProfiles key=档案名 value={"apiKey": "sk-新密钥"}
 ```
 
 - 密钥为空或省略时**一律保留旧值**——新建无密钥档案后补密钥、或改其他字段时不会丢密钥；
@@ -150,7 +150,7 @@ config-set scope=apiProfiles key=档案名 value={"apiKey": "sk-新密钥"}
 #### ③ 修改模型 / 其他字段
 
 ```
-config-set scope=apiProfiles key=档案名 value={"advancedModel": "新模型"}
+config-manage action=set scope=apiProfiles key=档案名 value={"advancedModel": "新模型"}
 ```
 
 可写字段（全部可选，未提供的字段保留现值）：`displayName`、`baseUrl`、
@@ -163,31 +163,31 @@ config-set scope=apiProfiles key=档案名 value={"advancedModel": "新模型"}
 #### ④ 切换档案
 
 ```
-config-set scope=apiProfiles key=档案名 value={"isActive": true}
+config-manage action=set scope=apiProfiles key=档案名 value={"isActive": true}
 ```
 
 - 写应用数据库 `api_configs.is_active`，**对新会话立即生效**（运行时以 DB 为准）；
 - **会话隔离**：会话在创建时绑定当时生效的档案（`api_profile_name`），
   **切换全局档案不会改变已绑定档案的已有会话**；子代理会话严格绑定档案名，
   删除档案会使该子代理会话失败（不回退）；
-- 旧方式 `config-set scope=app key=activeProfile value="档案名"` 仅写
+- 旧方式 `config-manage action=set scope=app key=activeProfile value="档案名"` 仅写
   `active-profile.json`（CLI 兼容层），不改变运行时生效档案，仅作兼容保留。
 
 #### ⑤ 新建档案（含"无密钥建档 → 用户后补密钥"）
 
 ```
 # 第一步：先建无密钥档案（apiKey 省略即留空）
-config-set scope=apiProfiles key=我的新档案 value={
+config-manage action=set scope=apiProfiles key=我的新档案 value={
   "baseUrl": "https://api.example.com/v1",
   "advancedModel": "gpt-4o",
   "basicModel": "gpt-4o"
 }
 
 # 第二步：用户提供密钥后补上（空密钥语义不会清掉已填密钥）
-config-set scope=apiProfiles key=我的新档案 value={"apiKey": "sk-..."}
+config-manage action=set scope=apiProfiles key=我的新档案 value={"apiKey": "sk-..."}
 
 # 第三步（可选）：切换为生效档案
-config-set scope=apiProfiles key=我的新档案 value={"isActive": true}
+config-manage action=set scope=apiProfiles key=我的新档案 value={"isActive": true}
 ```
 
 也可让用户在 **设置 → API 设置**（`app-control-openSettings page=api-settings`）
@@ -197,7 +197,7 @@ config-set scope=apiProfiles key=我的新档案 value={"isActive": true}
 
 ```
 # 先经 user-interaction askUserQuestion 获得用户明确同意，再执行：
-config-delete scope=apiProfiles key=档案名 confirmed=true
+config-manage action=delete scope=apiProfiles key=档案名 confirmed=true
 ```
 
 删除后存储层自动保证至少一个生效档案（必要时 seed 默认档案）。
@@ -213,12 +213,12 @@ config-delete scope=apiProfiles key=档案名 confirmed=true
 
 ## 6. 常见问题
 
-| 症状             | 原因与处理                                                                                                                         |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 请求返回 401/403 | 检查 `apiKey` 与 `baseUrl` 是否正确、密钥是否过期                                                                                  |
-| 模型不支持思考   | 关闭 `showThinking` 或调整 `chatThinking.reasoning_effort`                                                                         |
-| 视觉模型不可用   | 单独配置 `visionBaseUrl`、`visionApiKey`、`visionModel`                                                                            |
-| 切换档案不生效   | 用 `config-set scope=apiProfiles key=档案名 value={"isActive":true}` 切换（写 DB 立即生效）；`active-profile.json` 仅为 CLI 兼容层 |
+| 症状             | 原因与处理                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 请求返回 401/403 | 检查 `apiKey` 与 `baseUrl` 是否正确、密钥是否过期                                                                                                |
+| 模型不支持思考   | 关闭 `showThinking` 或调整 `chatThinking.reasoning_effort`                                                                                       |
+| 视觉模型不可用   | 单独配置 `visionBaseUrl`、`visionApiKey`、`visionModel`                                                                                          |
+| 切换档案不生效   | 用 `config-manage action=set scope=apiProfiles key=档案名 value={"isActive":true}` 切换（写 DB 立即生效）；`active-profile.json` 仅为 CLI 兼容层 |
 
 ## 6. 参考
 

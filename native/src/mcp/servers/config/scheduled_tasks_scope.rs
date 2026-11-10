@@ -21,16 +21,16 @@ const TOOL_GET: &str = "get";
 const TOOL_SET: &str = "set";
 
 /// 写操作说明（list/get 的 note，以及未经渲染端路由时的拒绝信息）。
-const WRITE_GUIDANCE: &str = "scheduledTasks writes are executed by the app's live scheduler: config-set key=\"new\" creates a task (see createGuidance); config-set key=<taskId> updates / pauses / runs / cancels it (see manageGuidance); config-delete key=<taskId> confirmed=true deletes it. Only tasks of the current project and global tasks can be changed.";
+const WRITE_GUIDANCE: &str = "scheduledTasks writes are executed by the app's live scheduler: config-manage action=set key=\"new\" creates a task (see createGuidance); config-manage action=set key=<taskId> updates / pauses / runs / cancels it (see manageGuidance); config-manage action=delete key=<taskId> confirmed=true deletes it. Only tasks of the current project and global tasks can be changed.";
 
 /// 修改/暂停/立即执行/取消/删除契约。
 fn manage_guidance() -> Value {
     json!({
-        "update": "config-set scope=scheduledTasks key=<taskId> value={name?, prompt?, schedule?, workflow?, apiProfile?, model?, basicModel?, thinkingStrength?, preScript?, preScriptTimeoutMs?, runOnScriptError?, paused?}. Omitted fields keep their current values; null or \"\" clears apiProfile/model/basicModel/thinkingStrength/preScript; schedule REPLACES the whole schedule (re-send wakeWhenClosed if needed) and recomputes the next run; workflow replaces the node graph, workflow=null switches back to a single-prompt task. Changes to a running workflow apply from the next run.",
+        "update": "config-manage action=set scope=scheduledTasks key=<taskId> value={name?, prompt?, schedule?, workflow?, apiProfile?, model?, basicModel?, thinkingStrength?, preScript?, preScriptTimeoutMs?, runOnScriptError?, paused?}. Omitted fields keep their current values; null or \"\" clears apiProfile/model/basicModel/thinkingStrength/preScript; schedule REPLACES the whole schedule (re-send wakeWhenClosed if needed) and recomputes the next run; workflow replaces the node graph, workflow=null switches back to a single-prompt task. Changes to a running workflow apply from the next run.",
         "pause": "value={paused: true|false}; one-time (type=once) tasks cannot be paused. A running workflow keeps its in-flight nodes but starts no new ones while paused.",
-        "runNow": "value={action: \"runNow\"} starts a run immediately in the background (rejected when the task is already running); check progress with config-get key=<taskId>.",
+        "runNow": "value={action: \"runNow\"} starts a run immediately in the background (rejected when the task is already running); check progress with config-manage action=get key=<taskId>.",
         "cancelRun": "value={action: \"cancelRun\"} stops a running WORKFLOW run (remaining nodes are cancelled; nodes already executing finish in their own conversations). A single-prompt run cannot be cancelled here.",
-        "delete": "config-delete scope=scheduledTasks key=<taskId> confirmed=true removes the task and its run history. DESTRUCTIVE: confirm with the user via askUserQuestion first.",
+        "delete": "config-manage action=delete scope=scheduledTasks key=<taskId> confirmed=true removes the task and its run history. DESTRUCTIVE: confirm with the user via askUserQuestion first.",
         "action": "`action` cannot be combined with other fields in the same call."
     })
 }
@@ -38,7 +38,7 @@ fn manage_guidance() -> Value {
 /// 创建契约（原 createScheduledTask 的参数说明）。
 fn create_guidance() -> Value {
     json!({
-        "call": "config-set scope=scheduledTasks key=\"new\" value={...}",
+        "call": "config-manage action=set scope=scheduledTasks key=\"new\" value={...}",
         "behavior": "Tasks are saved in the local database and survive restarts. Each run sends `prompt` to a NEW auto-sent chat conversation with access to all tools. Runs missed while the app is closed are skipped unless schedule.wakeWhenClosed is true. The task binds to the active project (global when none).",
         "fields": {
             "id": "optional idempotency key (max 128 chars); retrying with the same id returns the existing task instead of a duplicate",
@@ -189,7 +189,7 @@ fn task_detail(record: &ScheduledTaskRecord) -> Value {
     detail
 }
 
-/// Dispatches `config-list/get` for the `scheduledTasks` scope（写操作由 call.rs 路由到渲染端）。
+/// Dispatches the `config-manage` list/get actions for the `scheduledTasks` scope（写操作由 call.rs 路由到渲染端）。
 pub(crate) fn execute_scheduled_tasks_scope(
     tool_name: &str,
     args: &Value,

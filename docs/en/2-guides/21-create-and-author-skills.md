@@ -66,7 +66,7 @@ The scan skips directories whose names start with `.` and directories named `tem
 3. Create `<skills-root>/<skill-id>/SKILL.md`;
 4. Fill in metadata and instructions using the template in section 5;
 5. Put references, templates, or scripts in the same Skill directory when needed;
-6. Refresh Skills Settings, or ask the agent to validate with `config-list scope=skills`;
+6. Refresh Skills Settings, or ask the agent to validate with `config-manage action=list scope=skills`;
 7. Run a minimal task and verify triggering, steps, permissions, and output.
 
 Recommended structure:
@@ -104,7 +104,7 @@ Trigger: pre-release artifact checks; do not publish anything.
 Output: blocking issues, warnings, and passed checks.
 Allow only filesystem-read and grep-search.
 Check for a same-ID Skill first. After creation, verify its path and fields with
-config-list/config-get, then run one read-only example. Do not delete or overwrite
+config-manage (action=list / action=get), then run one read-only example. Do not delete or overwrite
 an existing Skill unless I confirm.
 ```
 
@@ -224,8 +224,8 @@ Authoring principles:
 Ask the agent to run read-only queries:
 
 ```text
-config-list scope=skills projectId=<projectId>
-config-get scope=skills key=<skill-id> projectId=<projectId>
+config-manage action=list scope=skills projectId=<projectId>
+config-manage action=get  scope=skills key=<skill-id> projectId=<projectId>
 ```
 
 Verify:

@@ -2,13 +2,13 @@
 
 This reference lists the field structure of every config file under
 `~/.snow/`, for manual editing or for checking values written via the
-`config` tools. The `config` tool whitelist matches this document:
+`config-manage`. The `config-manage` scope whitelist matches this document:
 file-backed settings generally **require an app restart or a UI re-save**
 to take effect (`settings.mcpServers` is the exception — it syncs to the
 app database automatically and takes effect immediately).
 
-> Scope names for reading/writing each file with `config-get`/`config-set`
-> are listed in [2-builtin-tools-reference](./2-builtin-tools-reference.md)
+> Scope names for reading/writing each file with `config-manage` (`action=get` /
+> `action=set`) are listed in [2-builtin-tools-reference](./2-builtin-tools-reference.md)
 > under "File-backed scopes".
 
 ## 1. settings.json (scope: `settings`)
@@ -93,7 +93,7 @@ Proxy and browser config.
 | `browserPath`      | string  | Browser executable path                   |
 | `browserDebugPort` | integer | Browser debug port                        |
 
-> `blockedPatterns` is not a file field in the current `proxy` scope or in `~/.snow/proxy-config.json`, so it must not be maintained with `config-set scope=proxy`. It is stored in the app database system setting `proxy_browser_settings`; use the Proxy & Browser settings panel or `config-get` / `config-set scope=appSettings key=blockedPatterns`.
+> `blockedPatterns` is not a file field in the current `proxy` scope or in `~/.snow/proxy-config.json`, so it must not be maintained with `config-manage action=set scope=proxy`. It is stored in the app database system setting `proxy_browser_settings`; use the Proxy & Browser settings panel or `config-manage` (`action=get` / `action=set` with `scope=appSettings key=blockedPatterns`).
 
 ## 4. active-profile.json (scope: `app`)
 
@@ -112,7 +112,7 @@ Custom request-header schemes (🔒 masked on read).
 > `custom_header_schemes` (same source as the Settings → Custom headers panel).
 > Writing this file alone does not change what the app sends; the user must click
 > "Sync Snow CLI custom headers" in the panel to import it. To let an agent change
-> the app's live headers directly, use `config-set scope=customHeaderSchemes`
+> the app's live headers directly, use `config-manage action=set scope=customHeaderSchemes`
 > (see [built-in tools reference](2-builtin-tools-reference.md#config)).
 
 | Field     | Type   | Sensitive | Description                                                                                                                                         |
@@ -169,10 +169,11 @@ language servers Snow App can launch per language, with their launch
 arguments.
 
 > **Current status: DB-backed config scope (app database `lsp_server_configs`
-> table).** There is no `~/.snow/lsp-config.json` file anymore; the `config`
-> tools hit the table directly (effective immediately, no restart). The legacy
-> file is imported once on first start (source=legacy). `config-set` is
-> full-replacement (same semantics as the old file) with deep validation.
+> table).** There is no `~/.snow/lsp-config.json` file anymore; the
+> `config-manage` tool hits the table directly (effective immediately, no
+> restart). The legacy file is imported once on first start (source=legacy).
+> `config-manage` with `action=set` is full-replacement (same semantics as the
+> old file) with deep validation.
 > Servers are consumed by the `lsp` MCP service (`lsp-diagnostics` /
 > `lsp-hover`, see
 > [2-guides/7-codebase-index-and-diagnostics](../2-guides/7-codebase-index-and-diagnostics.md)).
@@ -210,14 +211,14 @@ Example:
 }
 ```
 
-Read/write via the `config` tools (key-level replace, deep validation before
+Read/write via the `config-manage` tool (key-level replace, deep validation before
 write, automatic backup and atomic write):
 
 ```text
-config-get  scope="lsp-config" key="servers"              # read current config
-config-list scope="lsp-config"                             # list keys and current values
-config-set  scope="lsp-config" key="servers" value={...}   # write (field types validated)
-config-delete scope="lsp-config" key="servers"             # delete (requires confirmation)
+config-manage action=get    scope="lsp-config" key="servers"              # read current config
+config-manage action=list   scope="lsp-config"                             # list keys and current values
+config-manage action=set    scope="lsp-config" key="servers" value={...}   # write (field types validated)
+config-manage action=delete scope="lsp-config" key="servers"              # delete (requires confirmation)
 ```
 
 > As with other file-backed scopes, changes may need an app restart or a UI

@@ -76,7 +76,7 @@ flowchart TD
 flowchart LR
     startup["Main bootstrap"] --> sync["ensureBuiltinSkills and docs"]
     sync --> home["~/.snow skills and docs"]
-    config["config service skills scope"] --> store["SkillsConfigService"]
+    config["config-manage skills scope"] --> store["SkillsConfigService"]
     project["Active project scope"] --> tool["SkillsService dynamic tool"]
     home --> tool
     store --> tool
@@ -289,7 +289,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    ScheduleTimer["Renderer Task Scheduler (Cron / Interval)"] --> TaskRun["config-set scope=scheduledTasks"]
+    ScheduleTimer["Renderer Task Scheduler (Cron / Interval)"] --> TaskRun["config-manage action=set scope=scheduledTasks"]
     TaskRun --> TaskStore[("SQLite scheduled_tasks table")]
     TaskRun --> HookTrigger["Lifecycle Hook (onSessionStart)"]
     HookTrigger --> HeadlessLoop["Headless useAgentLoop automated session"]

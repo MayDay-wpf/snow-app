@@ -107,11 +107,11 @@ The switch and expiry are stored in SQLite `system_settings`. Enable raw request
 
 ## Snow CLI File Logs: `~/.snow/log/`
 
-`~/.snow/log/` belongs to **Snow CLI**, not Snow App's data directory. Snow App's `config` logs scope has been removed; it does not read or delete this directory. CLI file logs are for troubleshooting Snow CLI itself. To diagnose an App/session error, use Settings → System Logs or the read-only built-in `config-logs-read` tool, which queries the `app_logs` table in `~/.snowapp/snowapp.db`.
+`~/.snow/log/` belongs to **Snow CLI**, not Snow App's data directory. Snow App does not read or delete this directory. CLI file logs are for troubleshooting Snow CLI itself. To diagnose an App/session error, use Settings → System Logs or the read-only built-in `config-manage` tool with `action=logs`, which queries the `app_logs` table in `~/.snowapp/snowapp.db`.
 
-## Snow App Built-in Log Tool: `config-logs-read`
+## Snow App Built-in Log Tool: `config-manage` (`action=logs`)
 
-The tool performs read-only queries against Snow App SQLite `app_logs`, with filters for `level`, `module`, time range, and pagination (up to 100 rows per page). Empty/whitespace optional string filters are treated as omitted. `items`, `total`, and `hasMore` remain restricted to the calling conversation; the runtime overwrites any model-supplied `conversationId`. An additional `systemSummary` provides application-wide counts under the same level/module/time filters, without pagination: `total`, `withoutConversationId`, fixed `bySource.main/renderer` and `byLevel.DEBUG/INFO/WARN/ERROR` counts. It never returns identifiers, text, context/errors, paths or request/response bodies from other conversations or unassociated rows. Rows without a conversation ID may be newly written application logs, not necessarily legacy records; they contribute only to counts, not details. A current-conversation `total=0` therefore does not imply there are no system logs; compare `systemSummary.total`.
+The tool performs read-only queries against Snow App SQLite `app_logs`, with filters for `level`, `module`, time range, and pagination (up to 100 rows per page). The `logScope` argument selects the rows: `all` (default, application logs from every conversation plus unassociated system rows) or `current` (the calling conversation only). Empty/whitespace optional string filters are treated as omitted. `items`, `total`, and `hasMore` remain restricted to the calling conversation; the runtime overwrites any model-supplied `conversationId`. An additional `systemSummary` provides application-wide counts under the same level/module/time filters, without pagination: `total`, `withoutConversationId`, fixed `bySource.main/renderer` and `byLevel.DEBUG/INFO/WARN/ERROR` counts. It never returns identifiers, text, context/errors, paths or request/response bodies from other conversations or unassociated rows. Rows without a conversation ID may be newly written application logs, not necessarily legacy records; they contribute only to counts, not details. A current-conversation `total=0` therefore does not imply there are no system logs; compare `systemSummary.total`.
 
 Current-conversation API request/response records include bounded `requestBody` / `responseBody` fields, with secret-named fields and the active API key redacted before persistence. Request headers are never logged. The response body is a normalized provider result, not a byte-for-byte copy of the streamed wire response. Current-conversation `context` and `error` may still contain paths or user data, so redact before sharing.
 
@@ -128,11 +128,11 @@ Stopping a task does not necessarily delete its log file. Before diagnosing or c
 1. Record the time, project, API profile, model, and reproduction steps.
 2. In Usage Statistics, confirm whether the request was recorded, whether its status is error, and whether token values look unusual.
 3. Remember that the date filter affects only the summary; it does not filter the heatmap or current detail table.
-4. Filter System Logs by today and `ERROR` / `WARN`, or call `config-logs-read` with time, level, and module filters. The tool injects the current `conversationId` and includes redacted/truncated request/response bodies for API rows.
+4. Filter System Logs by today and `ERROR` / `WARN`, or call `config-manage action=logs` with time, level, and module filters. The tool injects the current `conversationId` and includes redacted/truncated request/response bodies for API rows.
 5. Expand `module`, `func`, `context`, `error`, and related fields; inspect for secrets before copying.
 6. Enable raw request logging briefly only when ordinary logs are insufficient.
 7. Reproduce once, then disable request logging immediately.
-8. `~/.snow/log/` is Snow CLI's file-log directory, not Snow App logs; Snow App no longer exposes a config scope for reading it.
+8. `~/.snow/log/` is Snow CLI's file-log directory, not Snow App logs; Snow App no longer exposes a `logs` scope for reading it.
 9. If the problem came from a background command, inspect `<workspace>/.snow/logs/` in the current workspace.
 
 ## Redaction Before Sharing

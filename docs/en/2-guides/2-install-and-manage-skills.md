@@ -100,7 +100,7 @@ blocking problems before suggestions.
 
 `enabled` and `allowed_tools` are **not Skill frontmatter fields** and do not have the intended effect. The config API's `value.enabled` below is valid; that API parameter ultimately writes the frontmatter field named `enable`.
 
-Use exact Snow App tool names in `allowed-tools`, such as `filesystem-read` and `config-list`. This is an agent tool whitelist included with the loaded Skill prompt, not an operating-system sandbox. Follow least privilege and omit write, command, or network tools that the workflow does not need.
+Use exact Snow App tool names in `allowed-tools`, such as `filesystem-read` and `config-manage`. This is an agent tool whitelist included with the loaded Skill prompt, not an operating-system sandbox. Follow least privilege and omit write, command, or network tools that the workflow does not need.
 
 ## 4. Toggles and project overrides
 
@@ -112,24 +112,24 @@ In **Settings → Skills Settings** (settings page id: `skills-settings`):
 - The project view lists every Skill available to that project (global ones included) and stores a project override in the app database without editing the Skill file;
 - Effective state: Skills in the global directories need “global `enable` AND project override” (override defaults to on, and the project switch stays greyed out after a global disable); Skills inside the project directories follow the project override, defaulting to their own `enable`.
 
-### 4.2 Manage through the `config` service
+### 4.2 Manage through the `config-manage` tool
 
-Skills are not an arbitrary object-valued configuration file. The `config` service delegates its `skills` scope to the same Skills service used by the UI:
+Skills are not an arbitrary object-valued configuration file. The `config-manage` tool delegates its `skills` scope to the same Skills service used by the UI:
 
 ```text
-config-list scope=skills projectId=<projectId>
-config-get  scope=skills key=team/release projectId=<projectId>
-config-set  scope=skills key=team/release projectId=<projectId> value={"enabled":false}
+config-manage action=list scope=skills projectId=<projectId>
+config-manage action=get  scope=skills key=team/release projectId=<projectId>
+config-manage action=set  scope=skills key=team/release projectId=<projectId> value={"enabled":false}
 ```
 
 Important semantics:
 
-- `config-list` returns `skills` and `githubInstalled`. In a project view, `defaultEnabled` is the resolved Skill's frontmatter `enable` (the gate for globally located Skills) and `enabled` is the effective value (`defaultEnabled` AND the project override for global Skills, override defaults to on; for project-directory Skills the override defaults to `defaultEnabled`);
+- `config-manage` with `action=list` returns `skills` and `githubInstalled`. In a project view, `defaultEnabled` is the resolved Skill's frontmatter `enable` (the gate for globally located Skills) and `enabled` is the effective value (`defaultEnabled` AND the project override for global Skills, override defaults to on; for project-directory Skills the override defaults to `defaultEnabled`);
 - A global toggle also uses `value={"enabled":...}`, but the service rewrites **`enable`** in the Skill file;
 - With `projectId`, the service writes only a project database override; for globally located Skills it takes effect only while the global gate is on;
-- The config tool in the current conversation may auto-inject the active project ID. Use `currentProjectId` in the response to verify context, and pass an empty `projectId` when you explicitly need global configuration;
+- The `config-manage` tool in the current conversation may auto-inject the active project ID. Use `currentProjectId` in the response to verify context, and pass an empty `projectId` when you explicitly need global configuration;
 - Install with `value={"url":"owner/repo","location":"global"}`. For a project installation, use `location:"project"` and pass `projectId`. `key` is required for config API routing, while the actual installation ID is still derived from the installed content;
-- Run `config-get` or `config-list` again after a change and verify the path and effective state.
+- Run `config-manage` (`action=get` or `action=list`) again after a change and verify the path and effective state.
 
 ## 5. Uninstallation boundaries
 
@@ -138,12 +138,12 @@ Important semantics:
 The Settings-panel uninstall action and:
 
 ```text
-config-delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
+config-manage action=delete scope=skills key=<skillId> projectId=<projectId> confirmed=true
 ```
 
-only apply to GitHub installations recorded in `~/.snow/skills-registry.json`. Before an agent calls `config-delete`, it must show the scope, key, projectId, and impact and obtain explicit user confirmation.
+only apply to GitHub installations recorded in `~/.snow/skills-registry.json`. Before an agent calls `config-manage` with `action=delete`, it must show the scope, key, projectId, and impact and obtain explicit user confirmation.
 
-Uninstallation removes the `~/.snow/skills/<id>` or `<project>/.snow/skills/<id>` directory identified by the registry record, then removes that record. To avoid ambiguity in registry lookup by ID, do not install two GitHub Skills with the same ID in global and project scopes. Inspect `githubInstalled` with `config-list scope=skills` first.
+Uninstallation removes the `~/.snow/skills/<id>` or `<project>/.snow/skills/<id>` directory identified by the registry record, then removes that record. To avoid ambiguity in registry lookup by ID, do not install two GitHub Skills with the same ID in global and project scopes. Inspect `githubInstalled` with `config-manage action=list scope=skills` first.
 
 ### 5.2 Manually placed or app-provided Skills
 
@@ -157,12 +157,12 @@ Directory deletion is destructive. An agent must confirm the exact path, source,
 
 ## 6. Troubleshooting
 
-| Symptom                                       | Cause and fix                                                                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Skill does not appear                         | Ensure the filename is exactly `SKILL.md`; check skipped directories; fix an unclosed `---` marker or invalid YAML.  |
-| Toggle appears ineffective                    | Use frontmatter `enable`; then check for a project database override or a higher-precedence same-ID Skill.           |
-| Agent does not select the Skill               | Add a specific `description`, confirm `enable: true`, and refresh the Skill list.                                    |
-| A tool is rejected                            | Ensure `allowed-tools` contains the exact full tool name; `allowed_tools` is invalid.                                |
-| GitHub source reports no Skill                | Neither the root nor an immediate child has `SKILL.md`; point a subdirectory URL at the correct level.               |
-| Uninstall returns “not installed from GitHub” | The Skill has no registry record; verify its source and use the manual-directory workflow.                           |
-| Edits do not take effect                      | Inspect the effective `path` through `config-list`, rule out same-ID shadowing, then load it again on the next turn. |
+| Symptom                                       | Cause and fix                                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill does not appear                         | Ensure the filename is exactly `SKILL.md`; check skipped directories; fix an unclosed `---` marker or invalid YAML.                    |
+| Toggle appears ineffective                    | Use frontmatter `enable`; then check for a project database override or a higher-precedence same-ID Skill.                             |
+| Agent does not select the Skill               | Add a specific `description`, confirm `enable: true`, and refresh the Skill list.                                                      |
+| A tool is rejected                            | Ensure `allowed-tools` contains the exact full tool name; `allowed_tools` is invalid.                                                  |
+| GitHub source reports no Skill                | Neither the root nor an immediate child has `SKILL.md`; point a subdirectory URL at the correct level.                                 |
+| Uninstall returns “not installed from GitHub” | The Skill has no registry record; verify its source and use the manual-directory workflow.                                             |
+| Edits do not take effect                      | Inspect the effective `path` through `config-manage` (`action=list`), rule out same-ID shadowing, then load it again on the next turn. |

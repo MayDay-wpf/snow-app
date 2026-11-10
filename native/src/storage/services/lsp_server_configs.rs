@@ -34,7 +34,7 @@ pub fn delete_lsp_server_config(database_path: &Path, lang: &str) -> Result<()> 
 }
 
 /// 清空全部 LSP 服务器配置。
-/// Phase 1.5 由 config-delete scope=lsp-config 调用（DB-backed scope）。
+/// Phase 1.5 由 config-manage action=delete scope=lsp-config 调用（DB-backed scope）。
 pub fn clear_lsp_server_configs(database_path: &Path) -> Result<()> {
     database::open_connection(database_path)
         .and_then(|connection| {

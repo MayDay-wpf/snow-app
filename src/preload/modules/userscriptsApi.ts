@@ -76,7 +76,7 @@ export const userscriptsApi = {
   ): void => {
     deliverClientScriptData(scriptId, subscriptionId, payloadJson);
   },
-  /** 脚本集合变化广播：AI 经 config-set 安装 / 启停 / 删除时同样能感知。 */
+  /** 脚本集合变化广播：AI 经 config-manage 安装 / 启停 / 删除时同样能感知。 */
   onUserscriptsChanged: (callback: () => void): (() => void) => {
     const handler = (): void => callback();
     ipcRenderer.on("userscripts:changed", handler);
