@@ -738,7 +738,12 @@ pub async fn team_save_media(
         return Err(Error::from_reason("media exceeds size limit"));
     }
 
-    let encoded = team_net::server::encode_media(&bytes);
+    let role = role_of(&database_path, &team_id).await;
+    let encoded = if role == store::ROLE_MEMBER {
+        Some(team_net::server::encode_media(&bytes))
+    } else {
+        None
+    };
     let media_id = team_net::db({
         let database_path = database_path.clone();
         let team_id = team_id.clone();
@@ -748,6 +753,7 @@ pub async fn team_save_media(
             store::save_media(
                 &database_path,
                 &team_id,
+                "",
                 &owner_id,
                 &file_name,
                 is_image,
@@ -758,17 +764,30 @@ pub async fn team_save_media(
     .await
     .map_err(Error::from_reason)?;
 
-    let role = role_of(&database_path, &team_id).await;
     if role == store::ROLE_MEMBER {
-        team_net::client_send(
+        // 附件 id 随消息记录一起同步，必须与本地一致，否则队长侧读不到。
+        let sent = team_net::client_send(
             &team_id,
             ClientMessage::MediaUpload {
-                owner_id,
+                owner_id: owner_id.clone(),
+                media_id: media_id.clone(),
                 file_name,
                 is_image,
-                data: encoded,
+                data: encoded.unwrap_or_default(),
             },
         );
+        if !sent {
+            // 未连上队长：附件没同步出去，消息发出后对方永远读不到，直接失败。
+            team_net::db({
+                let database_path = database_path.clone();
+                let team_id = team_id.clone();
+                let owner_id = owner_id.clone();
+                move || store::delete_media(&database_path, &team_id, &owner_id)
+            })
+            .await
+            .ok();
+            return Err(Error::from_reason("尚未连接队长，附件无法同步"));
+        }
     }
     Ok(media_id)
 }
@@ -789,6 +808,10 @@ pub async fn team_read_media(team_id: String, media_id: String) -> napi::Result<
     .map_err(Error::from_reason)?;
     if let Some((meta, bytes)) = local {
         return Ok(data_url(&meta.file_name, &bytes));
+    }
+    // 队长是数据源头：本地没有就是真的没有，不能走「向队长请求」这条路。
+    if role_of(&database_path, &team_id).await == store::ROLE_HOST {
+        return Err(Error::from_reason("附件不存在"));
     }
     let (file_name, _is_image, bytes) = team_net::client_request_media(&team_id, &media_id)
         .await

@@ -1019,9 +1019,14 @@ fn replace_records_with_connection(
 pub const MEDIA_MAX_BYTES: usize = 5 * 1024 * 1024;
 
 /// 保存附件内容，返回附件 id。
+///
+/// `media_id` 由发送方指定以保证全团队 id 一致（消息记录里引用的就是它）；
+/// 为空时本地生成。
+#[allow(clippy::too_many_arguments)]
 pub fn save_media(
     database_path: &Path,
     team_id: &str,
+    media_id: &str,
     owner_id: &str,
     file_name: &str,
     is_image: bool,
@@ -1031,12 +1036,23 @@ pub fn save_media(
     let owner_id = owner_id.trim().to_string();
     let file_name = file_name.trim().to_string();
     let bytes = bytes.to_vec();
+    let requested_id = media_id.trim().to_string();
     with_connection(database_path, "save team media", move |connection| {
-        let media_id = new_id("media");
+        let media_id = if requested_id.is_empty() {
+            new_id("media")
+        } else {
+            requested_id
+        };
         connection.execute(
             "INSERT INTO team_media (
                 id, team_id, media_id, owner_id, file_name, is_image, size, content, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(team_id, media_id) DO UPDATE SET
+                owner_id = excluded.owner_id,
+                file_name = excluded.file_name,
+                is_image = excluded.is_image,
+                size = excluded.size,
+                content = excluded.content",
             params![
                 new_id("tmd"),
                 team_id,

@@ -720,14 +720,27 @@ const MessageAttachments = ({
   readMedia: (mediaId: string) => Promise<string>;
   onPreview: (src: string) => void;
 }): React.JSX.Element | null => {
+  const { t } = useI18n();
   const images = attachments.filter((a) => a.isImage);
   const files = attachments.filter((a) => !a.isImage);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [retryTick, setRetryTick] = useState(0);
+  // 在途 / 已失败的附件：避免同一附件重复请求（失败后需手动重试）
+  const pendingRef = useRef<Set<string>>(new Set());
+  const failedRef = useRef<Set<string>>(new Set());
+  const aliveRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     for (const item of images) {
-      if (imageUrls[item.id]) {
+      if (pendingRef.current.has(item.id) || failedRef.current.has(item.id)) {
         continue;
       }
       const cached = cache.get(item.id);
@@ -735,21 +748,32 @@ const MessageAttachments = ({
         setImageUrls((prev) => ({ ...prev, [item.id]: cached }));
         continue;
       }
+      pendingRef.current.add(item.id);
       void readMedia(item.id)
         .then((url) => {
-          if (cancelled) {
-            return;
-          }
           cache.set(item.id, url);
-          setImageUrls((prev) => ({ ...prev, [item.id]: url }));
+          pendingRef.current.delete(item.id);
+          if (aliveRef.current) {
+            setImageUrls((prev) => ({ ...prev, [item.id]: url }));
+          }
         })
-        .catch(() => undefined);
+        .catch(() => {
+          failedRef.current.add(item.id);
+          pendingRef.current.delete(item.id);
+          if (aliveRef.current) {
+            setFailedIds((prev) => [...prev, item.id]);
+          }
+        });
     }
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachments, readMedia]);
+  }, [attachments, readMedia, retryTick]);
+
+  const retryMedia = (mediaId: string): void => {
+    failedRef.current.delete(mediaId);
+    pendingRef.current.delete(mediaId);
+    setFailedIds((prev) => prev.filter((id) => id !== mediaId));
+    setRetryTick((prev) => prev + 1);
+  };
 
   const downloadFile = async (item: TeamMessageAttachment): Promise<void> => {
     try {
@@ -780,6 +804,18 @@ const MessageAttachments = ({
                 title={item.name}
               >
                 <img src={imageUrls[item.id]} alt={item.name} />
+              </button>
+            ) : failedIds.includes(item.id) ? (
+              <button
+                key={item.id}
+                type="button"
+                className="team-feed-attach-thumb is-failed"
+                onClick={() => retryMedia(item.id)}
+                title={t("team.activity.mediaUnavailable", {
+                  defaultValue: "附件无法加载，点击重试",
+                })}
+              >
+                <CircleAlert size={14} />
               </button>
             ) : (
               <span key={item.id} className="team-feed-attach-thumb is-loading">

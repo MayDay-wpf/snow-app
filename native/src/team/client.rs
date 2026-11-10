@@ -50,6 +50,9 @@ pub enum JoinOutcome {
 /// 附件响应：文件名、是否图片、原始字节。
 pub type MediaResponse = (String, bool, Vec<u8>);
 
+/// 附件请求的等待通道：成功得到内容，失败立即收到原因。
+type MediaSender = oneshot::Sender<Result<MediaResponse, String>>;
+
 /// 单次连接的结束方式。
 enum ConnectionEnd {
     /// 连接断开（可退避重连）。
@@ -63,7 +66,7 @@ enum ConnectionEnd {
 /// 已连接的队员客户端句柄。
 pub struct ClientHandle {
     outgoing: mpsc::UnboundedSender<ClientMessage>,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<MediaResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, MediaSender>>>,
     shutdown: watch::Sender<bool>,
 }
 
@@ -90,7 +93,7 @@ impl ClientHandle {
             return Err("尚未连接队长".to_string());
         }
         match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
-            Ok(Ok(response)) => Ok(response),
+            Ok(Ok(response)) => response,
             _ => {
                 self.pending
                     .lock()
@@ -106,8 +109,7 @@ impl ClientHandle {
 pub fn connect(config: ClientConfig) -> ClientHandle {
     let (out_tx, out_rx) = mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let pending: Arc<Mutex<HashMap<String, oneshot::Sender<MediaResponse>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let pending: Arc<Mutex<HashMap<String, MediaSender>>> = Arc::new(Mutex::new(HashMap::new()));
     let join = tokio::spawn(run(
         config.clone(),
         out_rx,
@@ -229,7 +231,7 @@ fn ws_url(endpoint: &str) -> String {
 async fn run(
     config: ClientConfig,
     mut outgoing: mpsc::UnboundedReceiver<ClientMessage>,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<MediaResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, MediaSender>>>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let mut backoff = Duration::from_secs(1);
@@ -287,7 +289,7 @@ async fn connect_once(
     token: &mut String,
     team_id: &mut String,
     outgoing: &mut mpsc::UnboundedReceiver<ClientMessage>,
-    pending: &Arc<Mutex<HashMap<String, oneshot::Sender<MediaResponse>>>>,
+    pending: &Arc<Mutex<HashMap<String, MediaSender>>>,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<ConnectionEnd, String> {
     let url = ws_url(&config.endpoint);
@@ -360,7 +362,7 @@ async fn handle_message(
     token: &mut String,
     team_id: &mut String,
     raw: &str,
-    pending: &Arc<Mutex<HashMap<String, oneshot::Sender<MediaResponse>>>>,
+    pending: &Arc<Mutex<HashMap<String, MediaSender>>>,
 ) -> Option<ConnectionEnd> {
     let Ok(message) = serde_json::from_str::<ServerMessage>(raw) else {
         return None;
@@ -563,11 +565,13 @@ async fn handle_message(
                 let database_path = config.database_path.clone();
                 let current_team_id = current_team_id.clone();
                 let owner_id = owner_id.clone();
+                let media_id = media_id.clone();
                 let file_name = file_name.clone();
                 move || {
                     store::save_media(
                         &database_path,
                         &current_team_id,
+                        &media_id,
                         &owner_id,
                         &file_name,
                         is_image,
@@ -578,7 +582,13 @@ async fn handle_message(
             .await;
             let mut pending = pending.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(sender) = pending.remove(&media_id) {
-                let _ = sender.send((file_name, is_image, bytes));
+                let _ = sender.send(Ok((file_name, is_image, bytes)));
+            }
+        }
+        ServerMessage::MediaMissing { media_id } => {
+            let mut pending = pending.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(sender) = pending.remove(&media_id) {
+                let _ = sender.send(Err("队长侧没有该附件".to_string()));
             }
         }
         ServerMessage::Error { message } => {

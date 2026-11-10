@@ -802,6 +802,7 @@ async fn handle_client_message(
         }
         ClientMessage::MediaUpload {
             owner_id,
+            media_id,
             file_name,
             is_image,
             data,
@@ -811,12 +812,14 @@ async fn handle_client_message(
                     let result = db({
                         let database_path = hub.database_path.clone();
                         let team_id = hub.team_id.clone();
+                        let media_id = media_id.clone();
                         let owner_id = owner_id.clone();
                         let file_name = file_name.clone();
                         move || {
                             store::save_media(
                                 &database_path,
                                 &team_id,
+                                &media_id,
                                 &owner_id,
                                 &file_name,
                                 is_image,
@@ -826,6 +829,7 @@ async fn handle_client_message(
                     })
                     .await;
                     match result {
+                        // 沿用发送方的 media_id 回执：记录里引用的就是它。
                         Ok(media_id) => hub.send_to(
                             peer_id,
                             ServerMessage::MediaUploaded { owner_id, media_id },
@@ -866,8 +870,8 @@ async fn handle_client_message(
                 ),
                 Ok(None) => hub.send_to(
                     peer_id,
-                    ServerMessage::Error {
-                        message: "附件不存在".to_string(),
+                    ServerMessage::MediaMissing {
+                        media_id: media_id.clone(),
                     },
                 ),
                 Err(error) => hub.send_to(peer_id, ServerMessage::Error { message: error }),

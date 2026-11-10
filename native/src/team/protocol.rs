@@ -45,8 +45,13 @@ pub enum ClientMessage {
     /// 删除一条记录。
     RecordDelete { kind: String, record_id: String },
     /// 上传附件（`data` 为 base64）。
+    ///
+    /// `media_id` 由发送方生成：队长必须按同一个 id 落库，否则消息记录里
+    /// 引用的附件 id 在队长侧查不到（图片会一直 loading）。
     MediaUpload {
         owner_id: String,
+        #[serde(default)]
+        media_id: String,
         file_name: String,
         #[serde(default)]
         is_image: bool,
@@ -104,6 +109,8 @@ pub enum ServerMessage {
         is_image: bool,
         data: String,
     },
+    /// 队长侧也没有该附件：队员应立即失败，不必等到超时。
+    MediaMissing { media_id: String },
     /// 错误提示（不断开连接，除非错误致命）。
     Error { message: String },
     /// 已被队长移出团队：客户端应停止重连并清理本地团队数据。

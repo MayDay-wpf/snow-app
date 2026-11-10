@@ -6817,6 +6817,7 @@ export const en = {
   "team.activity.fileTooLarge": "{{name}} exceeds 5MB and cannot be sent",
   "team.activity.fileReadFailed": "Failed to read file",
   "team.activity.fileUploadFailed": "Failed to upload attachment, try again",
+  "team.activity.mediaUnavailable": "Attachment failed to load, click to retry",
   "team.activity.tooManyFiles": "At most {{count}} attachments per message",
   "team.activity.removeFile": "Remove",
   "team.activity.fileBlocked": "{{name}} file type is not allowed",

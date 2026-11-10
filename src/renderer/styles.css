@@ -58956,9 +58956,7 @@ pre.file-viewer-code {
 .team-feed-send-state.is-failed:hover {
   opacity: 0.8;
 }
-.team-feed-item.is-mine .team-feed-message {
-  order: -1;
-}
+/* 自己发送：row-reverse 让头像贴在右侧，消息内容在头像左侧 */
 .team-feed-item.is-mine {
   flex-direction: row-reverse;
 }
@@ -59196,6 +59194,16 @@ pre.file-viewer-code {
 }
 .team-feed-attach-thumb.is-loading svg {
   animation: spin 0.9s linear infinite;
+}
+/* 附件读取失败：不再无限转圈，点击可重试 */
+.team-feed-attach-thumb.is-failed {
+  cursor: pointer;
+  color: var(--accent-red, #e5484d);
+  border: 1px dashed var(--border-subtle);
+  background: transparent;
+}
+.team-feed-attach-thumb.is-failed:hover {
+  background: var(--bg-hover);
 }
 .team-feed-attach-file {
   display: inline-flex;

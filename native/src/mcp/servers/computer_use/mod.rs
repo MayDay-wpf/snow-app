@@ -253,7 +253,13 @@ impl McpService for ComputerUseService {
                             "items": {
                                 "type": "object",
                                 "required": ["type"],
-                                "properties": {}
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ACT_STEP_TYPES,
+                                        "description": "Step type; same field names as the matching single action."
+                                    }
+                                }
                             }
                         },
                         "continueOnError": {

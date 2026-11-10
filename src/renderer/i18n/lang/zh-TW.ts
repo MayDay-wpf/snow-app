@@ -6391,6 +6391,7 @@ export const zhTW = {
   "team.activity.fileTooLarge": "{{name}} 超過 5MB，無法傳送",
   "team.activity.fileReadFailed": "檔案讀取失敗",
   "team.activity.fileUploadFailed": "附件上傳失敗，請重試",
+  "team.activity.mediaUnavailable": "附件無法載入，點擊重試",
   "team.activity.tooManyFiles": "一則訊息最多 {{count}} 個附件",
   "team.activity.removeFile": "移除",
   "team.activity.fileBlocked": "{{name}} 類型不支援傳送",

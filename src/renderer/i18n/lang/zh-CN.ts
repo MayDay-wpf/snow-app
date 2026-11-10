@@ -6388,6 +6388,7 @@ export const zhCN = {
   "team.activity.fileTooLarge": "{{name}} 超过 5MB，无法发送",
   "team.activity.fileReadFailed": "文件读取失败",
   "team.activity.fileUploadFailed": "附件上传失败，请重试",
+  "team.activity.mediaUnavailable": "附件无法加载，点击重试",
   "team.activity.tooManyFiles": "一条消息最多 {{count}} 个附件",
   "team.activity.removeFile": "移除",
   "team.activity.fileBlocked": "{{name}} 类型不支持发送",
