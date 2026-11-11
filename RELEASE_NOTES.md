@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.5.16
+
+### New Features
+
+- **Incremental Context Compression**: a new opt-in "Incremental compression" mode (off by default, toggled from the chat input plus menu). Older messages are folded into layered summaries (up to tier 3) while recent messages stay verbatim, so the stable prefix keeps hitting the prompt cache. The original messages remain in the database, and the model can search and expand them on demand with the new read-only `context-recall` tool (exposed only while the mode is enabled and bound to the current conversation).
+- **Edit SSH Workspace Connections**: SSH workspace directories gain an "Edit connection" action that reopens the SSH wizard in edit mode, prefilled with the current host, port, user, remote path and stored credentials. Relinking accepts SSH targets, and remote drafts, file review annotations, diff review comments and custom commands migrate with the directory; cached connections are invalidated so the next use reconnects with the new parameters, and stale credentials are removed when the login identity changes and no other directory uses them.
+- **Team Voting Topics**: the team panel replaces code reviews with topics where members vote open or closed and the host can lock the outcome with a single veto; legacy review records are migrated to topics on import. Tasks and topics can be edited, a shared Markdown editor supports image paste / drop and @-mentioning files, and deleting tasks, topics, comments and notes asks for confirmation.
+- **Team Unread Tracking and Avatars**: the activity feed marks unread entries with an unread divider, and the sidebar entry shows a combined unread badge for activity, tasks, topics and join requests; members can pick an avatar image, which is center-cropped, compressed and synced with member info.
+
+### Improvements
+
+- **Tool consolidation** to shrink the tool definitions injected into the model context:
+  - The config tools (config-list / get / set / delete / logs-read) are merged into `config-manage`, selected by `action`; list / get / logs need no confirmation while set / delete still ask, and "Always allow" is stored as `config-manage:set` or `config-manage:delete` separately. The log reader's scope argument is renamed to `logScope`, and logs are no longer disabled by default.
+  - The 43 browser MCP tools are merged into 10 action-driven domain tools (tab, page, interact, devtools, inspect, emulate, perf, heap, page-tools, request_share).
+  - The 11 Computer Use tools are merged into `screen` (info / screenshot) and `act` (every action plus the steps chain); `act` adds `screenshotAfter` so an action and its follow-up screenshot share one round-trip.
+- **Read-only result reuse replaces loop guards**: read-only calls with identical arguments and unchanged workspace state reuse the cached result, and the duplicate-call abort and tool-free recovery turn are removed. Agent loops in chat, pet chat, Repo Wiki and file search run until model convergence, cancellation or request timeout instead of fixed round budgets; sub-agents drop their model-request and active-duration budgets, and the per-conversation concurrency limit defaults to unlimited.
+- Plus menu item descriptions move into hover tooltips, and the modes flyout sizes to its content.
+- Team error banners are replaced with an auto-dismissing shared notice, and the team top bar status indicator is simplified.
+- The @ file mention popup drops its minimum height, so it no longer leaves blank space at the bottom when there are few results.
+
+### Breaking Changes
+
+- Approvals recorded under the removed config tool names (config-list, config-get, config-set, config-delete, config-logs-read) are not migrated and must be granted again; stored config keys and value formats are unchanged.
+
+### Bug Fixes
+
+- Internal resume messages produced by context compression no longer appear in message navigation, which now uses the persisted user message id to match database rows.
+- Disbanding a team notifies members and pending applicants and waits for removal messages to flush before stopping the host; client and server connection IDs are tracked so stale connections cannot unbind newer ones, peer IDs are derived per device, and removed members are no longer re-added when marked offline.
+- Media IDs are synchronized between the team host and members, so attachments are stored under the ID referenced by the message record and missing media fails fast; saving aborts when not connected to the host, and the UI shows a retryable failed state instead of spinning forever.
+- Native build: the local release profile turns LTO off, since thin-local LTO with incremental compilation can leave undefined `.llvm.<hash>` symbols that crash with SIGSEGV when called; a post-build `nm -u` check cleans and rebuilds once when dangling symbols are found and fails the build if they persist.
+
 ## v0.5.15
 
 ### New Features
