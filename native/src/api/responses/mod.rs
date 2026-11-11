@@ -104,6 +104,9 @@ pub struct ResponsesApiRequest {
     pub analysis_workspace_root: Option<String>,
     pub checkpoint_id: Option<String>,
     pub context_compaction: Option<bool>,
+    /// 与 `context_compaction` 同时为 true 时走分层增量压缩：只把较早的消息区间
+    /// 折叠成摘要（必要时合并已有摘要升层），最近的消息原样保留。
+    pub context_fold: Option<bool>,
     /// Internal auto-compaction resume mode: the compaction handoff is
     /// already persisted as the latest `context_compaction` boundary, so the
     /// request's `messages` are a placeholder that must not be re-injected
@@ -380,6 +383,7 @@ async fn create_response_async(
         directory_id: request.directory_id.as_deref(),
         analysis_workspace_root: request.analysis_workspace_root.as_deref(),
         context_compaction: request.context_compaction.unwrap_or(false),
+        context_fold: request.context_fold.unwrap_or(false),
         resume_after_compaction: request.resume_after_compaction.unwrap_or(false),
         retry_failed_response: request.retry_failed_response.unwrap_or(false),
         skip_context: request.skip_context.unwrap_or(false),
@@ -666,6 +670,7 @@ async fn create_response_async(
                 tool_calls_json: &streamed_response.tool_calls_json,
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),
+                context_fold: prepared_request.context_fold.as_ref(),
                 total_duration_ms: streamed_response.total_duration_ms,
                 retry_failed_response: request.retry_failed_response.unwrap_or(false),
             },

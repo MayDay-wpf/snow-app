@@ -8,6 +8,7 @@ use super::super::database;
 use super::super::ChatConversationRecord;
 use crate::api::conversation::tags::expand_display_tags_in_content;
 
+mod context_folds;
 mod fork_truncate;
 mod manual_exchange;
 mod messages;
@@ -19,6 +20,7 @@ mod sub_agent_runs;
 mod tombstones;
 mod workflow;
 
+pub use self::context_folds::*;
 pub use self::fork_truncate::*;
 pub use self::manual_exchange::*;
 pub use self::messages::*;
@@ -120,6 +122,8 @@ pub struct StoreChatExchangeInput<'a> {
     pub tool_calls_json: &'a str,
     pub directory_id: &'a str,
     pub context_compaction: bool,
+    /// 分层增量压缩：成功时把摘要落成折叠行（携带折叠区间），不再是交接边界。
+    pub context_fold: Option<&'a ContextFoldRecord>,
     pub total_duration_ms: i64,
     /// 重试失败回合（子代理「重试」）：该回合的请求消息已随失败回合落库，本次不再
     /// 重复写入；末尾的失败助手行由本次响应替换，已完成工具结果的证据行原样保留。
@@ -269,10 +273,22 @@ pub fn load_context_messages(
     database_path: &Path,
     conversation_id: &str,
 ) -> Result<Vec<ChatContextMessage>> {
+    Ok(load_context_view(database_path, conversation_id)?
+        .iter()
+        .map(ContextViewItem::to_message)
+        .collect())
+}
+
+/// 当前有效上下文：从最近一条交接式压缩边界开始（折叠行不是边界），并把活跃
+/// 折叠覆盖的原始消息替换为折叠摘要。
+pub fn load_context_view(
+    database_path: &Path,
+    conversation_id: &str,
+) -> Result<Vec<ContextViewItem>> {
     database::open_connection(database_path)
         .and_then(|connection| {
             let mut statement = connection.prepare(
-                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json, origin
+                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json, origin, id, status
                    FROM chat_messages
                   WHERE conversation_id = ?1
                     AND id >= COALESCE(
@@ -280,6 +296,7 @@ pub fn load_context_messages(
                          FROM chat_messages
                         WHERE conversation_id = ?1
                           AND status = 'context_compaction'
+                          AND instr(raw_json, '\"contextFold\"') = 0
                         ORDER BY id DESC
                         LIMIT 1),
                       ''
@@ -292,6 +309,7 @@ pub fn load_context_messages(
                     AND NOT (role = 'assistant' AND status = 'error')
                     AND NOT (
                       role = 'user'
+                      AND NOT (status = 'context_compaction' AND instr(raw_json, '\"contextFold\"') > 0)
                       AND EXISTS (
                         SELECT 1 FROM chat_messages nxt
                          WHERE nxt.conversation_id = chat_messages.conversation_id
@@ -315,6 +333,10 @@ pub fn load_context_messages(
                 let raw_json: String = row.get(3)?;
                 let thinking_raw: String = row.get(4)?;
                 let thinking_blocks_raw: String = row.get(5)?;
+                let status: String = row.get(8)?;
+                let fold = (status == "context_compaction")
+                    .then(|| ContextFoldMeta::parse(&raw_json))
+                    .flatten();
                 let tool_calls_json = if tool_calls_raw.is_empty() || tool_calls_raw == "[]" {
                     None
                 } else {
@@ -349,19 +371,24 @@ pub fn load_context_messages(
                 } else {
                     None
                 };
-                Ok(ChatContextMessage {
-                    role,
-                    origin: row.get(6)?,
-                    content,
-                    tool_calls_json,
-                    tool_results_json,
-                    thinking,
-                    thinking_blocks_json,
+                Ok(ContextRow {
+                    id: row.get(7)?,
+                    fold,
+                    message: ChatContextMessage {
+                        role,
+                        origin: row.get(6)?,
+                        content,
+                        tool_calls_json,
+                        tool_results_json,
+                        thinking,
+                        thinking_blocks_json,
+                    },
                 })
             })?;
 
-            rows.collect()
+            rows.collect::<rusqlite::Result<Vec<_>>>()
         })
+        .map(build_view)
         .map_err(|error| database::database_error(database_path, "load chat context", error))
 }
 
@@ -431,6 +458,17 @@ pub fn store_chat_exchange(
                 input.response_content,
                 input.token_usage,
             );
+            // 折叠压缩只替换被折叠的区间：快照 = 调用输入 - 折叠部分 + 保留的近期消息 + 摘要。
+            let context_usage = match (successful_context_compaction, input.context_fold) {
+                (true, Some(fold)) => Some(ChatTokenUsage {
+                    input_tokens: fold.context_input_tokens(
+                        input.token_usage.input_tokens,
+                        input.token_usage.output_tokens,
+                    ),
+                    ..ChatTokenUsage::default()
+                }),
+                _ => context_usage,
+            };
 
             transaction.execute(
                 "INSERT INTO chat_conversations (
@@ -465,16 +503,23 @@ pub fn store_chat_exchange(
             )?;
 
             if successful_context_compaction {
-                // 压缩即上下文重建：删除会话级提示词冻结快照，下一轮请求按最新
+                // 交接式压缩即上下文重建：删除会话级提示词冻结快照，下一轮请求按最新
                 // 配置重新解析（ROLE.md / API 档案系统提示词 / Project Memory 章节）。
-                super::system_prompt_snapshots::delete_snapshots(
-                    &transaction,
-                    &[input.conversation_id.to_string()],
-                )?;
-                super::project_memories::delete_prompt_snapshots(
-                    &transaction,
-                    &[input.conversation_id.to_string()],
-                )?;
+                // 折叠压缩只替换被折叠的区间，保留快照，系统提示词前缀继续命中缓存。
+                if input.context_fold.is_none() {
+                    super::system_prompt_snapshots::delete_snapshots(
+                        &transaction,
+                        &[input.conversation_id.to_string()],
+                    )?;
+                    super::project_memories::delete_prompt_snapshots(
+                        &transaction,
+                        &[input.conversation_id.to_string()],
+                    )?;
+                }
+                let raw_json = input
+                    .context_fold
+                    .map(|fold| fold.meta.to_raw_json())
+                    .unwrap_or_else(|| input.raw_response_json.to_string());
                 // Persist the checkpoint id on the compaction boundary row so
                 // the rollback flow can restore files modified by the
                 // post-compaction agent loop. Treat the boundary as a user
@@ -491,7 +536,7 @@ pub fn store_chat_exchange(
                     "context_compaction",
                     None,
                     None,
-                    input.raw_response_json,
+                    &raw_json,
                     "",
                     "[]",
                     0,
@@ -817,6 +862,7 @@ pub fn store_failed_chat_exchange(
             tool_calls_json: "[]",
             directory_id,
             context_compaction: false,
+            context_fold: None,
             total_duration_ms: 0,
             retry_failed_response,
         },

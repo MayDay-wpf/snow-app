@@ -23,6 +23,7 @@ const BUILTIN_SERVER_DESCRIPTION_KEYS: Record<string, string> = {
   "builtin:html": "mcpBuiltinServer.desc.html",
   "builtin:decision": "mcpBuiltinServer.desc.decision",
   "builtin:toolSearch": "mcpBuiltinServer.desc.toolSearch",
+  "builtin:context": "mcpBuiltinServer.desc.context",
 };
 
 /** 返回内置服务的 i18n 说明 key；非内置服务返回 undefined。 */

@@ -11,7 +11,7 @@ use crate::prompt::worktree_mode_system_prompt::build_worktree_mode_system_promp
 use crate::storage::initialize_app_storage;
 use crate::storage::services::chat_conversations::{
     get_conversation_directory_id, get_conversation_modes, load_context_messages,
-    resolve_conversation_id, ChatContextMessage,
+    resolve_conversation_id, ChatContextMessage, ContextFoldRecord,
 };
 use crate::storage::services::sub_agent_configs::list_sub_agent_configs;
 use crate::storage::services::system_prompt_snapshots::{
@@ -44,6 +44,8 @@ pub struct PreparedConversationRequest {
     /// (see the host-facts injection in `prepare_context_request`), so the cached
     /// prompt prefix keeps extending across status changes.
     pub host_system_prompts: Vec<String>,
+    /// 分层增量压缩请求的折叠信息，随压缩结果落库；其它请求为 None。
+    pub context_fold: Option<ContextFoldRecord>,
 }
 
 /// 机器注入的宿主事实消息首行。内容未变时不重复追加；界面层用同一个首行把这些
@@ -500,8 +502,11 @@ pub async fn prepare_context_request(
             current_messages,
             user_system_prompts,
             host_system_prompts: Vec::new(),
+            context_fold: None,
         });
     }
+    // 分层增量压缩：压缩指令与历史在会话 id 解析之后按折叠规划生成。
+    let fold_compaction = request.context_compaction && request.context_fold;
     let mut current_messages = if request.resume_after_compaction {
         // Resume after auto-compaction: the handoff is already persisted as
         // the latest `context_compaction` boundary message and will be loaded
@@ -517,6 +522,8 @@ pub async fn prepare_context_request(
             .into_iter()
             .skip(1)
             .collect()
+    } else if fold_compaction {
+        Vec::new()
     } else if request.context_compaction {
         let handoff_prompt = if request.worktree_mode {
             "Create a durable context handoff for the next assistant. You are in WorkTree Mode and the context window was exceeded. Preserve the original request branch, the confirmed repository status, the selected development branch or worktree, completed file changes, pending changes, build status, commit status, and the exact next Git-safe steps.\n\nProgress rules:\n- Judge what is done from actual evidence in the conversation (applied edits, tool results, build/commit output), NOT from TODO status. TODO items are often stale: work is finished but the item is still pending/inProgress.\n- Pending changes must list ONLY work that is genuinely not done. Never repeat completed work there and never ask the next assistant to re-check or re-verify it.\n- Add a `## TODO Sync` section listing every TODO item (id if visible in the latest TODO result, plus content) whose work is done but status is not completed, so the next assistant marks them completed immediately without re-investigating. Write \"None\" if all statuses are accurate.\n\nOutput ONLY the handoff document in Markdown. Do not call tools, address the user, or declare the work complete."
@@ -555,6 +562,7 @@ pub async fn prepare_context_request(
     if current_messages.is_empty()
         && !request.resume_after_compaction
         && !request.retry_failed_response
+        && !fold_compaction
     {
         return Err(Error::from_reason("Chat message content is required"));
     }
@@ -568,6 +576,7 @@ pub async fn prepare_context_request(
             current_messages,
             user_system_prompts: Vec::new(),
             host_system_prompts: Vec::new(),
+            context_fold: None,
         });
     }
 
@@ -591,7 +600,33 @@ pub async fn prepare_context_request(
         request.conversation_id,
         request.previous_response_id,
     )?;
-    let mut messages = load_context_messages(request.database_path, &conversation_id)?;
+    let mut context_fold = None;
+    let mut messages = if fold_compaction {
+        let plan = super::context_fold::plan_context_fold(request.database_path, &conversation_id)?;
+        current_messages.push(plan.instruction);
+        context_fold = Some(plan.record);
+        plan.history
+    } else {
+        load_context_messages(request.database_path, &conversation_id)?
+    };
+    // 压缩发生在工具调用执行之前时，续跑上下文以助手消息结尾（未执行的调用会被
+    // 配对守卫剔除）：补一条内部 user 消息让模型接着当前任务继续。
+    if request.resume_after_compaction
+        && current_messages.is_empty()
+        && messages
+            .last()
+            .is_some_and(|message| message.role.trim() != "user")
+    {
+        current_messages.push(ChatContextMessage {
+            role: "user".to_string(),
+            origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
+            content: super::context_fold::FOLD_RESUME_PROMPT.to_string(),
+            tool_calls_json: None,
+            tool_results_json: None,
+            thinking: None,
+            thinking_blocks_json: None,
+        });
+    }
 
     // Resolve user-configured system prompts (mirrors Snow CLI's
     // `getCustomSystemPromptForConfig`). They are NOT injected into
@@ -733,6 +768,7 @@ pub async fn prepare_context_request(
         current_messages,
         user_system_prompts,
         host_system_prompts,
+        context_fold,
     })
 }
 

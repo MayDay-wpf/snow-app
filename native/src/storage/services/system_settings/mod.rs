@@ -66,6 +66,13 @@ const DEFAULT_TOOL_CORRECTION_SETTING_NAME: &str = "Tool correction";
 const DEFAULT_TOOL_CORRECTION_SETTING_CODE: &str = "tool_correction";
 const DEFAULT_TOOL_CORRECTION_SETTING_VALUE: &str = "true";
 
+// 分层增量压缩（全局，默认关闭）：开启后所有上下文压缩（手动 / 自动 / 子代理 /
+// WorkFlow 节点）改为把较早的消息区间折叠成分层摘要，最近的消息原样保留，
+// 原文仍在库内可被 context-recall 检索与展开。
+const DEFAULT_CONTEXT_FOLD_SETTING_NAME: &str = "Incremental context compression";
+const DEFAULT_CONTEXT_FOLD_SETTING_CODE: &str = "context_fold";
+const DEFAULT_CONTEXT_FOLD_SETTING_VALUE: &str = "false";
+
 const DEFAULT_REQUEST_LOGGING_SETTING_NAME: &str = "Request logging";
 const DEFAULT_REQUEST_LOGGING_SETTING_CODE: &str = "request_logging";
 const DEFAULT_REQUEST_LOGGING_SETTING_VALUE: &str = "false";
@@ -640,6 +647,31 @@ pub fn set_tool_correction(database_path: &Path, enabled: bool) -> Result<()> {
     )
 }
 
+/// 读取「分层增量压缩」开关，未配置时默认关闭。
+pub fn get_context_fold(database_path: &Path) -> Result<bool> {
+    let Some(value) =
+        get_system_setting_value(database_path, DEFAULT_CONTEXT_FOLD_SETTING_CODE)?
+    else {
+        return Ok(false);
+    };
+
+    value.parse::<bool>().map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to parse Incremental context compression setting: {error}"),
+        )
+    })
+}
+
+pub fn set_context_fold(database_path: &Path, enabled: bool) -> Result<()> {
+    set_system_setting(
+        database_path,
+        DEFAULT_CONTEXT_FOLD_SETTING_NAME,
+        DEFAULT_CONTEXT_FOLD_SETTING_CODE,
+        if enabled { "true" } else { "false" },
+    )
+}
+
 pub fn get_request_logging(database_path: &Path) -> Result<bool> {
     let Some(value) =
         get_system_setting_value(database_path, DEFAULT_REQUEST_LOGGING_SETTING_CODE)?
@@ -884,6 +916,12 @@ fn seed_default_settings_with_connection(connection: &Connection) -> rusqlite::R
         DEFAULT_TOOL_CORRECTION_SETTING_NAME,
         DEFAULT_TOOL_CORRECTION_SETTING_CODE,
         DEFAULT_TOOL_CORRECTION_SETTING_VALUE,
+    )?;
+    insert_default_setting(
+        connection,
+        DEFAULT_CONTEXT_FOLD_SETTING_NAME,
+        DEFAULT_CONTEXT_FOLD_SETTING_CODE,
+        DEFAULT_CONTEXT_FOLD_SETTING_VALUE,
     )?;
     insert_default_setting(
         connection,

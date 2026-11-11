@@ -1827,6 +1827,8 @@ export type ResponsesApiRequest = {
   analysisWorkspaceRoot?: string;
   checkpointId?: string;
   contextCompaction?: boolean;
+  /** 与 contextCompaction 同时为 true：分层增量压缩（只折叠较早的消息区间）。 */
+  contextFold?: boolean;
   /**
    * Internal auto-compaction resume mode: the compaction handoff is already
    * persisted as the latest `context_compaction` boundary, so `messages` is a
@@ -2551,6 +2553,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   setAutoFormat: (enabled: boolean) => Promise<void>;
   getToolCorrection: () => Promise<boolean>;
   setToolCorrection: (enabled: boolean) => Promise<void>;
+  getContextFold: () => Promise<boolean>;
+  setContextFold: (enabled: boolean) => Promise<void>;
   /** 退出前落盘尚未执行的延迟自动格式化。 */
   flushPendingFileFormats: () => Promise<void>;
   getConversationModes: (

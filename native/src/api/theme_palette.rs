@@ -80,6 +80,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         analysis_workspace_root: None,
         checkpoint_id: None,
         context_compaction: None,
+        context_fold: None,
         resume_after_compaction: None,
         retry_failed_response: None,
         // Empty tool whitelist: palette generation is a pure vision→JSON task

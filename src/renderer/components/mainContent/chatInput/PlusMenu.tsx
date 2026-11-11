@@ -4,6 +4,7 @@ import {
   Drill,
   Feather,
   GitBranch,
+  Layers,
   Plus,
   ShieldAlert,
   SlidersHorizontal,
@@ -70,6 +71,9 @@ export type PlusMenuProps = {
   toolCorrectionEnabled: boolean;
   onToolCorrectionChange?: (enabled: boolean) => void;
   onRefreshToolCorrection?: () => void | Promise<boolean | void>;
+  contextFoldEnabled: boolean;
+  onContextFoldChange?: (enabled: boolean) => void;
+  onRefreshContextFold?: () => void | Promise<boolean | void>;
 };
 
 type PlusToggleRowProps = {
@@ -151,6 +155,9 @@ export const PlusMenu = ({
   toolCorrectionEnabled,
   onToolCorrectionChange,
   onRefreshToolCorrection,
+  contextFoldEnabled,
+  onContextFoldChange,
+  onRefreshContextFold,
 }: PlusMenuProps): React.JSX.Element => {
   const { t } = useI18n();
   const { replyPredictionEnabled, setReplyPredictionEnabled } =
@@ -207,6 +214,7 @@ export const PlusMenu = ({
         void onRefreshWorkflowMode?.();
         void onRefreshAutoFormat?.();
         void onRefreshToolCorrection?.();
+        void onRefreshContextFold?.();
       }
       return next;
     });
@@ -218,6 +226,7 @@ export const PlusMenu = ({
     onRefreshWorkflowMode,
     onRefreshAutoFormat,
     onRefreshToolCorrection,
+    onRefreshContextFold,
   ]);
 
   const handleItemClick = useCallback(
@@ -418,6 +427,16 @@ export const PlusMenu = ({
               disabled={!onToolCorrectionChange}
               onChange={() => {
                 onToolCorrectionChange?.(!toolCorrectionEnabled);
+              }}
+            />
+            <PlusToggleRow
+              icon={Layers}
+              label={t("plusMenu.contextFold")}
+              description={t("plusMenu.contextFoldDescription")}
+              checked={contextFoldEnabled}
+              disabled={!onContextFoldChange}
+              onChange={() => {
+                onContextFoldChange?.(!contextFoldEnabled);
               }}
             />
           </div>

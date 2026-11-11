@@ -59,6 +59,9 @@ type ChatInputToolbarProps = ComponentProps<typeof ModelSelector> &
     | "toolCorrectionEnabled"
     | "onToolCorrectionChange"
     | "onRefreshToolCorrection"
+    | "contextFoldEnabled"
+    | "onContextFoldChange"
+    | "onRefreshContextFold"
   > & {
     plusMenuSections: PlusMenuSection[];
     commandTriggerRef: RefObject<HTMLButtonElement | null>;
@@ -119,6 +122,9 @@ export const ChatInputToolbar = ({
     toolCorrectionEnabled,
     onToolCorrectionChange,
     onRefreshToolCorrection,
+    contextFoldEnabled,
+    onContextFoldChange,
+    onRefreshContextFold,
     isSubAgentConversation,
     isStreaming,
     runtimeApiConfig,
@@ -177,6 +183,9 @@ export const ChatInputToolbar = ({
           toolCorrectionEnabled={toolCorrectionEnabled}
           onToolCorrectionChange={onToolCorrectionChange}
           onRefreshToolCorrection={onRefreshToolCorrection}
+          contextFoldEnabled={contextFoldEnabled}
+          onContextFoldChange={onContextFoldChange}
+          onRefreshContextFold={onRefreshContextFold}
         />
         <WorktreeSessionSelector />
         <button

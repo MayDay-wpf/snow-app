@@ -122,6 +122,11 @@ async fn collect_mcp_tools(
         crate::storage::services::system_settings::get_lite_mode(&database_path)
     })
     .await?;
+    // 上下文回溯工具只服务于分层增量压缩：开关关闭时不进入请求上下文。
+    let context_fold = with_database_path(|database_path| {
+        crate::storage::services::system_settings::get_context_fold(&database_path)
+    })
+    .await?;
 
     let builtin_tools = get_builtin_tools();
 
@@ -172,6 +177,9 @@ async fn collect_mcp_tools(
             }
             // Exclude image generation when no channel is configured.
             if tool.server_id == "imagegen" && !imagegen_configured {
+                return false;
+            }
+            if tool.server_id == "context" && !context_fold {
                 return false;
             }
             // LSP tools are off by default (§8.0): excluded unless at least
@@ -719,6 +727,7 @@ pub(crate) fn builtin_server_name(server_id: &str) -> &str {
         "html" => "HTML Renderer",
         "decision" => "Decision Model",
         "toolSearch" => "ToolSearch",
+        "context" => "Context Recall",
         _ => server_id,
     }
 }

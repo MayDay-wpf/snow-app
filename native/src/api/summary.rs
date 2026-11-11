@@ -117,6 +117,7 @@ pub async fn generate_conversation_summary(
         analysis_workspace_root: None,
         checkpoint_id: None,
         context_compaction: None,
+        context_fold: None,
         resume_after_compaction: None,
         retry_failed_response: None,
         sub_agent_tools_json: None,

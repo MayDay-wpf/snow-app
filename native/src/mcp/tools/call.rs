@@ -13,6 +13,7 @@ use super::super::servers::bash::{BashService, BashStreamCallback, BashStreamChu
 use super::super::servers::browser::{BrowserCommandCallback, BrowserService};
 use super::super::servers::codebase::CodebaseService;
 use super::super::servers::config::ConfigService;
+use super::super::servers::context_recall::ContextRecallService;
 use super::super::servers::decision::DecisionService;
 use super::super::servers::filesystem::FilesystemService;
 use super::super::servers::grep::GrepService;
@@ -626,6 +627,12 @@ pub async fn call_mcp_tool(
                 project_id.as_deref(),
                 conversation_id.as_deref(),
             )
+            .await
+            .tool_feedback(is_sub_agent_call)?
+    } else if tool_full_name == "context-recall" {
+        // 会话 id 由分发层注入，模型只能读回当前会话被折叠的历史。
+        ContextRecallService::new()
+            .execute_async(&args, conversation_id.as_deref())
             .await
             .tool_feedback(is_sub_agent_call)?
     } else if tool_full_name == "websearch-websearch-search" {

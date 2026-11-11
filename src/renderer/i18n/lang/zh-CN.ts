@@ -1941,6 +1941,7 @@ export const zhCN = {
   "toolNames.bash-terminal-execute": "终端",
   "toolNames.todo-todo-manage": "待办",
   "toolNames.memory-manage": "管理记忆",
+  "toolNames.context-recall": "回溯历史",
   "toolNames.grep-search": "grep",
   "toolNames.grep-find": "查找",
   "toolNames.terminal-open": "打开终端",
@@ -4464,6 +4465,9 @@ export const zhCN = {
   "chatInput.replyPredictionHint": "Tab 采用",
   "plusMenu.toolCorrection": "自动纠错",
   "plusMenu.toolCorrectionDescription": "工具失败后自动修正参数并重试",
+  "plusMenu.contextFold": "分层增量压缩",
+  "plusMenu.contextFoldDescription":
+    "较早的消息折叠为分层摘要，近期消息原样保留，原文可回溯",
   "plusMenu.yoloMode": "YOLO 模式",
   "plusMenu.yoloModeDescription": "无需逐次授权",
   "plusMenu.yoloModeEnabled": "已启用，无需逐次授权",
@@ -4819,6 +4823,8 @@ export const zhCN = {
     "用决策模型对文本、JSON 与图片证据做结构化判定",
   "mcpBuiltinServer.desc.toolSearch":
     "随项目内启用的工具插件自动提供，按需搜索工具，无独立开关",
+  "mcpBuiltinServer.desc.context":
+    "检索与读回分层增量压缩折叠掉的消息（开启该压缩模式时可用）",
   "projectCodebase.title": "项目代码库管理",
   "projectCodebase.description": "管理 {{project}} 的代码库索引",
   "projectCodebase.noProject": "请先选择项目，再打开项目代码库管理面板。",

@@ -1942,6 +1942,7 @@ export const zhTW = {
   "toolNames.bash-terminal-execute": "終端",
   "toolNames.todo-todo-manage": "待辦",
   "toolNames.memory-manage": "管理記憶",
+  "toolNames.context-recall": "回溯歷史",
   "toolNames.grep-search": "grep",
   "toolNames.grep-find": "尋找",
   "toolNames.terminal-open": "開啟終端",
@@ -4406,6 +4407,9 @@ export const zhTW = {
   "chatInput.replyPredictionHint": "Tab 採用",
   "plusMenu.toolCorrection": "自動糾錯",
   "plusMenu.toolCorrectionDescription": "工具失敗後自動修正參數並重試",
+  "plusMenu.contextFold": "分層增量壓縮",
+  "plusMenu.contextFoldDescription":
+    "較早的訊息摺疊為分層摘要，近期訊息原樣保留，原文可回溯",
   "plusMenu.yoloMode": "YOLO 模式",
   "plusMenu.yoloModeDescription": "不需逐次授權",
   "plusMenu.yoloModeEnabled": "已啟用，不需逐次授權",
@@ -4762,6 +4766,8 @@ export const zhTW = {
     "用決策模型對文字、JSON 與圖片證據做結構化判定",
   "mcpBuiltinServer.desc.toolSearch":
     "隨專案內啟用的工具外掛自動提供，按需搜尋工具，無獨立開關",
+  "mcpBuiltinServer.desc.context":
+    "檢索與讀回分層增量壓縮摺疊掉的訊息（開啟該壓縮模式時可用）",
   "projectCodebase.title": "專案程式碼庫管理",
   "projectCodebase.description": "管理 {{project}} 的程式碼庫索引",
   "projectCodebase.noProject": "請先選擇專案，再開啟專案程式碼庫管理面板。",

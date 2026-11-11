@@ -491,6 +491,26 @@ that stay alive across multiple calls), complementary to `bash-terminal-execute`
 > with full content on expand and a jump that locates an entry in the memory
 > bank.
 
+### context
+
+| Full tool name   | Purpose                                                                                                                           | Key parameters                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `context-recall` | Search or expand the original messages that incremental compression folded into summaries in the current conversation (read-only) | `action` (`search` / `expand`), `query`, `regex`, `caseSensitive`, `limit`, `offset`, `section`, `ref`, `maxTokens` |
+
+> **Only injected when incremental compression is on**: toggle "Incremental
+> compression" in the chat input's "+" menu (off by default). When on, every
+> compaction scenario (manual, automatic, sub-agent and WorkFlow node) folds
+> older messages into layered summaries instead of replacing the whole history:
+> the recent tail stays verbatim, summaries are merged into higher tiers (up to
+> tier 3) as they pile up, and the original messages stay in the database, so
+> the stable prefix keeps hitting the prompt cache.
+>
+> `action=search` greps the original text (plain text or regex, no embeddings)
+> and returns the message `ref`, role and the folded `section` it belongs to;
+> `action=expand` returns the original messages of a `section` and/or starting
+> at a `ref`, limited by `maxTokens` (default 6000, at most 16000), with
+> `nextRef` for paging.
+
 ### decision
 
 | Full tool name      | Purpose                                                                                                                                                                                                                | Key parameters                                                    |

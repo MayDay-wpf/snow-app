@@ -63,6 +63,9 @@ export const ChatInput = ({
   toolCorrectionEnabled = true,
   onToolCorrectionChange,
   onRefreshToolCorrection,
+  contextFoldEnabled = false,
+  onContextFoldChange,
+  onRefreshContextFold,
   isCompacting = false,
 }: ChatInputProps): React.JSX.Element => {
   const { t } = useI18n();
@@ -132,6 +135,9 @@ export const ChatInput = ({
       toolCorrectionEnabled={toolCorrectionEnabled}
       onToolCorrectionChange={onToolCorrectionChange}
       onRefreshToolCorrection={onRefreshToolCorrection}
+      contextFoldEnabled={contextFoldEnabled}
+      onContextFoldChange={onContextFoldChange}
+      onRefreshContextFold={onRefreshContextFold}
       isCompacting={isCompacting}
     />
   );

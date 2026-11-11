@@ -145,6 +145,9 @@ export const ChatInputView = ({
   toolCorrectionEnabled,
   onToolCorrectionChange,
   onRefreshToolCorrection,
+  contextFoldEnabled,
+  onContextFoldChange,
+  onRefreshContextFold,
   isCompacting,
   setManualValue,
   setIsManualMode,
@@ -1188,6 +1191,9 @@ export const ChatInputView = ({
             toolCorrectionEnabled={toolCorrectionEnabled}
             onToolCorrectionChange={onToolCorrectionChange}
             onRefreshToolCorrection={onRefreshToolCorrection}
+            contextFoldEnabled={contextFoldEnabled}
+            onContextFoldChange={onContextFoldChange}
+            onRefreshContextFold={onRefreshContextFold}
             handleAbort={handleAbort}
             handleSend={handleSend}
             apiConfigs={apiConfigs}

@@ -121,6 +121,8 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       typeof source.contextCompaction === "boolean"
         ? source.contextCompaction
         : undefined,
+    contextFold:
+      typeof source.contextFold === "boolean" ? source.contextFold : undefined,
     resumeAfterCompaction:
       typeof source.resumeAfterCompaction === "boolean"
         ? source.resumeAfterCompaction

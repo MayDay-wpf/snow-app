@@ -117,13 +117,14 @@ pub fn fork_conversation(
         i64,
         String,
         String,
+        String,
     )> = {
         let mut stmt = transaction
             .prepare(
                 "SELECT message_id, role, content, model, response_id, status, raw_json, thinking, tool_calls_json,
                         interruption_reason, recovery_outcome,
                         input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-                        tool_corrections_json, origin
+                        tool_corrections_json, origin, id
                    FROM chat_messages
                   WHERE conversation_id = ?1
                     AND (?2 = '' OR id <= COALESCE(
@@ -156,6 +157,7 @@ pub fn fork_conversation(
                     row.get(14)?,
                     row.get(15)?,
                     row.get(16)?,
+                    row.get(17)?,
                 ))
             })
             .map_err(|error| database::database_error(database_path, "fork conversation", error))?;
@@ -164,7 +166,23 @@ pub fn fork_conversation(
             .map_err(|error| database::database_error(database_path, "fork conversation", error))?
     };
 
+    // 新行 id 先按顺序生成：折叠行记录的被折叠区间要换成新会话里对应的行 id。
+    let new_row_ids: Vec<String> = message_rows
+        .iter()
+        .map(|_| database::create_snowflake_id())
+        .collect();
+    let id_pairs: Vec<(&str, &str)> = message_rows
+        .iter()
+        .zip(new_row_ids.iter())
+        .map(|(msg, new_id)| (msg.17.as_str(), new_id.as_str()))
+        .collect();
+
     for (index, msg) in message_rows.iter().enumerate() {
+        let raw_json = if msg.5 == "context_compaction" {
+            super::translate_fold_raw_json(&msg.6, &id_pairs).unwrap_or_else(|| msg.6.clone())
+        } else {
+            msg.6.clone()
+        };
         transaction
             .execute(
                 "INSERT INTO chat_messages (
@@ -192,7 +210,7 @@ pub fn fork_conversation(
                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, datetime('now', 'localtime')
              )",
                 params![
-                    database::create_snowflake_id(),
+                    &new_row_ids[index],
                     create_chat_id(&format!("msg{index}")),
                     new_conversation_id,
                     &msg.1,  // role
@@ -200,7 +218,7 @@ pub fn fork_conversation(
                     &msg.3,  // model
                     &msg.4,  // response_id
                     &msg.5,  // status
-                    &msg.6,  // raw_json
+                    &raw_json,
                     &msg.7,  // thinking
                     &msg.8,  // tool_calls_json
                     &msg.9,  // interruption_reason

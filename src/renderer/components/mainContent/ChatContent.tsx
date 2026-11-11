@@ -178,6 +178,16 @@ const ChatContentBody = ({
     setToolCorrectionEnabled(enabled);
     return enabled;
   }, []);
+  const [contextFoldEnabled, setContextFoldEnabled] = useState(false);
+  const refreshContextFold = useCallback(async (): Promise<boolean> => {
+    try {
+      const enabled = await window.snow.getContextFold();
+      setContextFoldEnabled(enabled);
+      return enabled;
+    } catch {
+      return false;
+    }
+  }, []);
   const hasMessages = messages.length > 0;
 
   useProjectSwitchAutoSelect({
@@ -565,6 +575,17 @@ const ChatContentBody = ({
     });
   }, []);
 
+  // 切换分层增量压缩：乐观更新 UI，写入失败时回读真实状态。
+  const handleContextFoldChange = useCallback(
+    (enabled: boolean): void => {
+      setContextFoldEnabled(enabled);
+      void window.snow.setContextFold(enabled).catch(() => {
+        void refreshContextFold();
+      });
+    },
+    [refreshContextFold],
+  );
+
   const handleConfirmRollback = useCallback(
     async (mode: RollbackMode, deleteMemories?: boolean): Promise<void> => {
       // 返回真实 Promise：RollbackConfirmDialog 的确认按钮据此在整个
@@ -789,6 +810,9 @@ const ChatContentBody = ({
                 toolCorrectionEnabled={toolCorrectionEnabled}
                 onToolCorrectionChange={handleToolCorrectionChange}
                 onRefreshToolCorrection={refreshToolCorrection}
+                contextFoldEnabled={contextFoldEnabled}
+                onContextFoldChange={handleContextFoldChange}
+                onRefreshContextFold={refreshContextFold}
                 isCompacting={isCompactingActive}
               />
             )}

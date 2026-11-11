@@ -158,6 +158,7 @@ pub const BUILTIN_SERVER_IDS: &[&str] = &[
     "websearch",
     "imagegen",
     "codebase",
+    "context",
     "browser",
     "config",
     "skills",

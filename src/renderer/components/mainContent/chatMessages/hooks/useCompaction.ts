@@ -12,6 +12,7 @@ import {
   directoryIdToPath,
   formatMessageTime,
   resolveConversationWorkspacePath,
+  tokenUsageFromMessageRecords,
 } from "../utils/conversationHelpers";
 import { appendHookExecutionToMessage, runHook } from "./hookOutcome";
 import {
@@ -23,6 +24,8 @@ import {
  * 上下文压缩逻辑：手动 /compact 和自动阈值触发的压缩。
  * 压缩流独立于正式消息：contextCompaction=true 时 Rust 使用全量有效上下文
  * 生成交接文档，成功后仅持久化一条 status=context_compaction 的用户消息。
+ * 开启分层增量压缩（contextFold）时，Rust 只把较早的消息区间折叠成摘要，
+ * 最近的消息原样留在上下文里，同样只持久化一条折叠摘要行。
  */
 export const useCompaction = (ctx: ConversationContextValue) => {
   const performCompaction = useCallback(
@@ -94,6 +97,8 @@ export const useCompaction = (ctx: ConversationContextValue) => {
       }
 
       const compactionStartedAt = Date.now();
+      // 压缩方式在发起时确定一次，请求与结果处理共用同一份判断。
+      const contextFold = await window.snow.getContextFold().catch(() => false);
       const compactionRequest = {
         messages: [
           {
@@ -106,6 +111,7 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         conversationId,
         directoryId: sessionRef?.directoryId ?? ctx.directoryId,
         contextCompaction: true,
+        contextFold,
         checkpointId,
         // Per-conversation Goal Mode snapshot: the handoff prompt depends on
         // THIS conversation's mode, not the live global ref.
@@ -207,7 +213,8 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         // describe the old full context, while outputTokens describe the handoff.
         // Keep that response untouched for backend usage history, and store a
         // separate post-compaction context snapshot for the next request/UI.
-        if (response.tokenUsage) {
+        // 折叠压缩的快照（保留的近期消息 + 新摘要）由 Rust 落在折叠行上，下面读回。
+        if (response.tokenUsage && !contextFold) {
           ctx.updateSessionField(conversationId, "tokenUsage", {
             inputTokens: response.tokenUsage.outputTokens,
             outputTokens: 0,
@@ -239,6 +246,12 @@ export const useCompaction = (ctx: ConversationContextValue) => {
           "messageRecords",
           toMessageRecordRefs(latestRecords),
         );
+        if (contextFold) {
+          const foldedUsage = tokenUsageFromMessageRecords(latestRecords);
+          if (foldedUsage) {
+            ctx.updateSessionField(conversationId, "tokenUsage", foldedUsage);
+          }
+        }
 
         void window.snow.writeLog("INFO", {
           module: "compaction",
@@ -247,6 +260,7 @@ export const useCompaction = (ctx: ConversationContextValue) => {
           context: JSON.stringify({
             conversationId,
             isAuto,
+            contextFold,
             contentLength: content.length,
             inputTokens: response.tokenUsage?.inputTokens ?? null,
             outputTokens: response.tokenUsage?.outputTokens ?? null,
@@ -254,21 +268,24 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         });
         // Preserve the original task AND its consumed steers across compaction.
         // Keeping only the latest user input would turn a correction into a task.
-        const protectedMessages = isAuto
-          ? sessionRef?.activeTaskMessages?.length
-            ? sessionRef.activeTaskMessages.map((message) => ({ ...message }))
-            : (ctx.sessionsRef.current?.[conversationId]?.messages ?? [])
-                .filter(
-                  (message) =>
-                    message.role === "user" && !message.isContextCompaction,
-                )
-                .slice(-1)
-                .map((message) => ({
-                  role: "user" as const,
-                  origin: message.origin,
-                  content: message.content,
-                }))
-          : undefined;
+        // 折叠压缩保留了近期消息原文（任务原文在其中或已逐字写进摘要），
+        // 再补发会变成一条重复的新请求。
+        const protectedMessages =
+          isAuto && !contextFold
+            ? sessionRef?.activeTaskMessages?.length
+              ? sessionRef.activeTaskMessages.map((message) => ({ ...message }))
+              : (ctx.sessionsRef.current?.[conversationId]?.messages ?? [])
+                  .filter(
+                    (message) =>
+                      message.role === "user" && !message.isContextCompaction,
+                  )
+                  .slice(-1)
+                  .map((message) => ({
+                    role: "user" as const,
+                    origin: message.origin,
+                    content: message.content,
+                  }))
+            : undefined;
         completed = true;
         return { content, checkpointId, protectedMessages };
       } catch (error) {

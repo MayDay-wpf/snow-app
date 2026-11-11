@@ -195,6 +195,10 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   ipcMain.handle("settings:set-tool-correction", (_event, enabled: boolean) =>
     native.setToolCorrection(enabled),
   );
+  ipcMain.handle("settings:get-context-fold", () => native.getContextFold());
+  ipcMain.handle("settings:set-context-fold", (_event, enabled: boolean) =>
+    native.setContextFold(enabled),
+  );
   ipcMain.handle(
     "settings:get-conversation-modes",
     (_event, conversationId: string) =>

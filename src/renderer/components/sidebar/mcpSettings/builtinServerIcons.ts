@@ -7,6 +7,7 @@ import {
   DatabaseSearch,
   FolderTree,
   Globe,
+  History,
   Image as ImageIcon,
   ListTodo,
   MessageCircleQuestion,
@@ -46,6 +47,7 @@ const BUILTIN_SERVER_ICONS: Record<string, LucideIcon> = {
   "builtin:html": CodeXml,
   "builtin:decision": Scale,
   "builtin:toolSearch": Search,
+  "builtin:context": History,
 };
 
 /** 返回内置服务的专属图标；非内置服务返回 undefined。 */

@@ -206,6 +206,8 @@ export type ResponsesApiRequest = {
   analysisWorkspaceRoot?: string | null;
   checkpointId?: string | null;
   contextCompaction?: boolean | null;
+  /** 与 contextCompaction 同时为 true：分层增量压缩（只折叠较早的消息区间）。 */
+  contextFold?: boolean | null;
   /**
    * Internal auto-compaction resume mode: the compaction handoff is already
    * persisted as the latest `context_compaction` boundary, so `messages` is a

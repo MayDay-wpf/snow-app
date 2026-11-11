@@ -181,6 +181,9 @@ export type ChatInputProps = {
   toolCorrectionEnabled?: boolean;
   onToolCorrectionChange?: (enabled: boolean) => void;
   onRefreshToolCorrection?: () => void | Promise<boolean | void>;
+  contextFoldEnabled?: boolean;
+  onContextFoldChange?: (enabled: boolean) => void;
+  onRefreshContextFold?: () => void | Promise<boolean | void>;
   isCompacting?: boolean;
 };
 
@@ -334,5 +337,8 @@ export type ChatInputViewProps = ChatInputState &
     toolCorrectionEnabled: boolean;
     onToolCorrectionChange?: (enabled: boolean) => void;
     onRefreshToolCorrection?: () => void | Promise<boolean | void>;
+    contextFoldEnabled: boolean;
+    onContextFoldChange?: (enabled: boolean) => void;
+    onRefreshContextFold?: () => void | Promise<boolean | void>;
     isCompacting: boolean;
   };

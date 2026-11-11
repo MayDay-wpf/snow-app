@@ -71,6 +71,16 @@ pub fn set_tool_correction(enabled: bool) -> Result<()> {
     services::system_settings::set_tool_correction(&database_path, enabled)
 }
 
+pub fn get_context_fold() -> Result<bool> {
+    let database_path = ensure_database_file()?;
+    services::system_settings::get_context_fold(&database_path)
+}
+
+pub fn set_context_fold(enabled: bool) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::system_settings::set_context_fold(&database_path, enabled)
+}
+
 pub fn get_request_logging() -> Result<bool> {
     let database_path = ensure_database_file()?;
     services::request_logging_settings::get_request_logging(&database_path)

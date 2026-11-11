@@ -141,6 +141,10 @@ export const apiConfigApi = {
     ipcRenderer.invoke("settings:get-tool-correction"),
   setToolCorrection: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke("settings:set-tool-correction", enabled),
+  getContextFold: (): Promise<boolean> =>
+    ipcRenderer.invoke("settings:get-context-fold"),
+  setContextFold: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke("settings:set-context-fold", enabled),
   getConversationModes: (
     conversationId: string,
   ): Promise<ConversationModesResult> =>

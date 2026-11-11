@@ -2060,6 +2060,7 @@ export const en = {
   "toolNames.bash-terminal-execute": "Terminal",
   "toolNames.todo-todo-manage": "Todo",
   "toolNames.memory-manage": "Manage memory",
+  "toolNames.context-recall": "Recall history",
   "toolNames.grep-search": "grep",
   "toolNames.grep-find": "find",
   "toolNames.terminal-open": "Open terminal",
@@ -4751,6 +4752,9 @@ export const en = {
   "plusMenu.toolCorrection": "Auto tool correction",
   "plusMenu.toolCorrectionDescription":
     "Repair failed tool calls and retry automatically",
+  "plusMenu.contextFold": "Incremental compression",
+  "plusMenu.contextFoldDescription":
+    "Fold older messages into layered summaries and keep recent ones; originals stay searchable",
   "plusMenu.yoloMode": "YOLO Mode",
   "plusMenu.yoloModeDescription": "Skip per-tool approval",
   "plusMenu.yoloModeEnabled": "Enabled, no per-tool approval required",
@@ -5158,6 +5162,8 @@ export const en = {
     "Typed judgments on text, JSON and image evidence with a decision model",
   "mcpBuiltinServer.desc.toolSearch":
     "Automatically follows tool plugins enabled in the project; discover tools on demand without a separate switch",
+  "mcpBuiltinServer.desc.context":
+    "Search and read back messages folded by incremental compression (available while it is enabled)",
   "projectCodebase.title": "Project Codebase",
   "projectCodebase.description": "Codebase indexing for {{project}}",
   "projectCodebase.noProject":

@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::storage::services::chat_conversations::ChatContextMessage;
 
 pub mod context;
+mod context_fold;
 mod history_trim;
 pub mod image_optimize;
 pub mod images;
@@ -31,6 +32,8 @@ pub struct ConversationContextRequest<'a> {
     /// Empty when tools are disabled or compaction is active; discovery failures propagate.
     pub allowed_tools: &'a [crate::mcp::tools::McpTool],
     pub context_compaction: bool,
+    /// 与 `context_compaction` 同时为 true：分层增量压缩（只折叠较早的消息区间）。
+    pub context_fold: bool,
     /// Internal auto-compaction resume mode: the latest `context_compaction`
     /// boundary message already persisted in the database is the current
     /// context (loaded by `load_context_messages`), so the caller-supplied

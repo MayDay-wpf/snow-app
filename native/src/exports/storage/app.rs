@@ -204,6 +204,20 @@ pub async fn set_tool_correction(enabled: bool) -> napi::Result<()> {
 }
 
 #[napi]
+pub async fn get_context_fold() -> napi::Result<bool> {
+    tokio::task::spawn_blocking(crate::storage::get_context_fold)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn set_context_fold(enabled: bool) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || crate::storage::set_context_fold(enabled))
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn get_request_logging() -> napi::Result<bool> {
     tokio::task::spawn_blocking(crate::storage::get_request_logging)
         .await
