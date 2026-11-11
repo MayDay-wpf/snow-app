@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useI18n } from "../../../i18n";
+import { getFileTypeIcon } from "../../../utils/fileIcons";
 import { ChatDeleteConfirmDialog } from "./ChatDeleteConfirmDialog";
 import { useMenuPosition } from "./useMenuPosition";
 
@@ -502,12 +503,32 @@ export function ChatItemMenu({
                 </div>
                 {(
                   [
-                    { format: "markdown" as const, label: "Markdown" },
-                    { format: "html" as const, label: "HTML" },
-                    { format: "json" as const, label: "JSON" },
-                    { format: "csv" as const, label: "CSV" },
-                  ] satisfies Array<{ format: ExportFormat; label: string }>
-                ).map(({ format, label }) => (
+                    {
+                      format: "markdown" as const,
+                      label: "Markdown",
+                      fileName: "export.md",
+                    },
+                    {
+                      format: "html" as const,
+                      label: "HTML",
+                      fileName: "export.html",
+                    },
+                    {
+                      format: "json" as const,
+                      label: "JSON",
+                      fileName: "export.json",
+                    },
+                    {
+                      format: "csv" as const,
+                      label: "CSV",
+                      fileName: "export.csv",
+                    },
+                  ] satisfies Array<{
+                    format: ExportFormat;
+                    label: string;
+                    fileName: string;
+                  }>
+                ).map(({ format, label, fileName }) => (
                   <button
                     key={format}
                     type="button"
@@ -515,6 +536,10 @@ export function ChatItemMenu({
                     onClick={() => handleExportSelect(format)}
                     role="menuitem"
                   >
+                    {getFileTypeIcon(fileName, false, false, {
+                      size: 13,
+                      "aria-hidden": true,
+                    })}
                     <span className="chat-item-export-format-label">
                       {label}
                     </span>

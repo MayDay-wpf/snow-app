@@ -39,8 +39,9 @@ import { AppLockSettingsSection } from "./AppLockSettingsSection";
 import { BackupSettingsSection } from "./BackupSettingsSection";
 import { ChangelogSection } from "./ChangelogSection";
 import {
+  clearGeneralSettingsTab,
   OPEN_GENERAL_SETTINGS_TAB_EVENT,
-  consumeGeneralSettingsTab,
+  peekGeneralSettingsTab,
   type GeneralSettingsTab,
 } from "./generalSettingsNavigation";
 import { OrphanProjectCleanupSection } from "./OrphanProjectCleanupSection";
@@ -398,9 +399,10 @@ const NOTIFICATION_SOUND_LABELS: Record<
 
 export function GeneralSettingsPanel(): React.JSX.Element {
   const { locale, setLocale, supportedLocales, t } = useI18n();
-  // 初始 tab 取走外部（侧栏「更新日志」等入口）暂存的目标 tab
+  // 初始 tab 读取外部（侧栏「更新日志」等入口）暂存的目标 tab；渲染阶段只读不清，
+  // 首次进入设置页时渲染被挂起丢弃重来也能拿到同一目标 tab
   const [activeTab, setActiveTab] = useState<GeneralSettingsTab>(
-    () => consumeGeneralSettingsTab() ?? "general",
+    () => peekGeneralSettingsTab() ?? "general",
   );
   const [appVersion, setAppVersion] = useState<string>("");
   const [isChecking, setIsChecking] = useState(false);
@@ -409,13 +411,19 @@ export function GeneralSettingsPanel(): React.JSX.Element {
   );
   const [checkHint, setCheckHint] = useState<CheckHint>(null);
 
-  // 面板已挂载时由事件切换 tab（侧栏「更新日志」等入口直达指定页）；
-  // 事件已送达即取走暂存值，避免面板重新挂载时被旧请求带回该 tab。
+  // 挂载提交后清空暂存值（期间若有新请求到达也一并应用），避免面板重新挂载时
+  // 被旧请求带回该 tab；之后由事件切换 tab（侧栏「更新日志」等入口直达指定页）。
   useEffect(() => {
+    const pendingTab = peekGeneralSettingsTab();
+    clearGeneralSettingsTab();
+    if (pendingTab) {
+      setActiveTab(pendingTab);
+    }
+
     const handler = (event: Event): void => {
       const detail = (event as CustomEvent<{ tab?: GeneralSettingsTab }>)
         .detail;
-      consumeGeneralSettingsTab();
+      clearGeneralSettingsTab();
       if (detail?.tab) {
         setActiveTab(detail.tab);
       }
