@@ -122,6 +122,7 @@ export const gitApi = {
     branch: string,
     name?: string,
     remote = false,
+    force = false,
   ): Promise<GitCheckoutResult> =>
     ipcRenderer.invoke(
       "git:manage-branch",
@@ -130,6 +131,7 @@ export const gitApi = {
       branch,
       name,
       remote,
+      force,
     ),
   gitBranches: (repoPath: string): Promise<GitBranch[]> =>
     ipcRenderer.invoke("git:branches", repoPath),

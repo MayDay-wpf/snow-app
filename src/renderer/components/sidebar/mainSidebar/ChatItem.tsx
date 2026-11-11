@@ -14,6 +14,10 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useI18n } from "../../../i18n";
+import {
+  formatDisplayPath,
+  normalizePathForCompare,
+} from "../../../utils/formatDisplayPath";
 import type {
   ChatConversationRecord,
   ConversationWorktreeInfo,
@@ -56,14 +60,6 @@ const trackPointerMove = (): void => {
     { capture: true, passive: true },
   );
 };
-
-/** 抹平 Windows 长路径前缀与分隔符差异，用于判断绑定的是否为主工作树。 */
-const normalizeWorktreePath = (value: string): string =>
-  value
-    .replace(/^\\\\\?\\/, "")
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "")
-    .toLowerCase();
 
 type ChatItemProps = {
   conversation: ChatConversationRecord;
@@ -237,8 +233,8 @@ export function ChatItem({
   const worktreeBadge =
     worktree &&
     worktree.isValid &&
-    normalizeWorktreePath(worktree.worktreePath) !==
-      normalizeWorktreePath(worktree.repositoryPath)
+    normalizePathForCompare(worktree.worktreePath) !==
+      normalizePathForCompare(worktree.repositoryPath)
       ? worktree
       : null;
   const showAttentionStatus =
@@ -520,7 +516,9 @@ export function ChatItem({
                 </span>
               ) : null}
               {worktreeBadge ? (
-                <Tooltip content={worktreeBadge.worktreePath}>
+                <Tooltip
+                  content={formatDisplayPath(worktreeBadge.worktreePath)}
+                >
                   <span
                     className="chat-item-worktree"
                     aria-label={worktreeBadge.branchName ?? "HEAD"}

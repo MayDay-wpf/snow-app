@@ -150,6 +150,7 @@ export const registerGitHandlers = (native: NativeBridge): void => {
       branch: unknown,
       name: unknown,
       remote: unknown,
+      force: unknown,
     ) => {
       if (
         typeof repoPath !== "string" ||
@@ -157,12 +158,20 @@ export const registerGitHandlers = (native: NativeBridge): void => {
         typeof branch !== "string" ||
         (action !== "create" && action !== "rename" && action !== "delete") ||
         (name !== undefined && typeof name !== "string") ||
-        typeof remote !== "boolean"
+        typeof remote !== "boolean" ||
+        (force !== undefined && typeof force !== "boolean")
       ) {
         throw new Error("Invalid branch management arguments");
       }
       const path = repoPath.trim();
-      const result = await manageGitBranch(path, action, branch, name, remote);
+      const result = await manageGitBranch(
+        path,
+        action,
+        branch,
+        name,
+        remote,
+        force === true,
+      );
       if (result.success) safeSend(event.sender, "git:status-changed", path);
       return result;
     },

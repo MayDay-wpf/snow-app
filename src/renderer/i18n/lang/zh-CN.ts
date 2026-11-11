@@ -54,7 +54,13 @@ export const zhCN = {
   "git.manageRename": "重命名本地分支…",
   "git.manageDelete": "删除本地分支…",
   "git.manageDeleteConfirm":
-    "确定删除本地分支“{{branch}}”？仅允许删除已合并分支，不影响远程服务器，不执行强制删除。",
+    "确定删除本地分支“{{branch}}”？仅允许删除已合并分支，不影响远程服务器；若删除失败，可再次确认强制删除。",
+  "git.manageForceDelete": "强制删除",
+  "git.manageForceDeleteConfirm":
+    "确定强制删除本地分支“{{branch}}”？该分支上未合并的提交将被永久丢弃且无法恢复，远程服务器不受影响。",
+  "git.manageForceDeleteHint":
+    "仅已合并分支可安全删除。确认要丢弃未合并提交时，可使用“强制删除”。",
+  "git.manageSessionRunning": "会话运行中，暂不可切换或修改分支。",
   "git.manageSource": "源分支：{{branch}}",
   "git.manageName": "新分支名称",
   "git.manageOccupied": "分支为当前分支或已被工作树检出，不能修改。",

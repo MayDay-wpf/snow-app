@@ -32,6 +32,10 @@ import type {
   GitWorktreeInfo,
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import {
+  formatDisplayPath,
+  normalizePathForCompare,
+} from "../../../utils/formatDisplayPath";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { EditContextMenu } from "../../common/EditContextMenu";
@@ -90,7 +94,7 @@ const getFolderName = (p: string): string => {
 
 const normPath = (p: string | null | undefined): string => {
   if (!p) return "";
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalizePathForCompare(p);
 };
 
 export const BranchSelector = ({
@@ -1465,7 +1469,7 @@ export const BranchSelector = ({
                             <div
                               key={wt.worktreeId}
                               className={`branch-dropdown-item branch-dropdown-wt-item${isCurrent ? " active" : ""}${isSessionRunning ? " is-disabled" : ""}`}
-                              title={`${wt.worktreePath}${wt.isDirty ? " · 包含未提交修改" : ""}\n${isSessionRunning ? t("plusMenu.modeLockedRunning", { defaultValue: "会话进行中，暂不可切换模式" }) : t("git.clickToBindWorktree", { defaultValue: "点击为此会话选择该工作树" })}`}
+                              title={`${formatDisplayPath(wt.worktreePath)}${wt.isDirty ? " · 包含未提交修改" : ""}\n${isSessionRunning ? t("plusMenu.modeLockedRunning", { defaultValue: "会话进行中，暂不可切换模式" }) : t("git.clickToBindWorktree", { defaultValue: "点击为此会话选择该工作树" })}`}
                               onClick={() => handleSelectWorktreeForChat(wt)}
                             >
                               <div className="branch-dropdown-item-left">
@@ -1664,7 +1668,7 @@ export const BranchSelector = ({
                               }}
                               title={
                                 isOtherWorktree
-                                  ? `${branch.name}\n${t("git.worktreeCheckedOut")}: ${branch.worktreePath}`
+                                  ? `${branch.name}\n${t("git.worktreeCheckedOut")}: ${formatDisplayPath(branch.worktreePath ?? "")}`
                                   : branch.name
                               }
                             >
@@ -1675,7 +1679,9 @@ export const BranchSelector = ({
                                 {isOtherWorktree && (
                                   <span
                                     className="branch-dropdown-item-worktree-badge"
-                                    title={branch.worktreePath || ""}
+                                    title={formatDisplayPath(
+                                      branch.worktreePath ?? "",
+                                    )}
                                   >
                                     <FolderGit2 size={11} strokeWidth={1.8} />
                                     {worktreeFolder}

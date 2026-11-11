@@ -11,6 +11,7 @@ import type {
   GitWorktreeInfo,
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { formatDisplayPath } from "../../../utils/formatDisplayPath";
 import { getWorktreeColor, type ParsedRef } from "./gitGraphRefs";
 import { getWorktreeFolderName, isOtherWorktreePath } from "./gitGraphUtils";
 
@@ -52,7 +53,7 @@ export function GitRefBadge({
   if (worktree) {
     title += `\n${t("git.graphWorktreeTooltip", {
       values: {
-        path: worktree.worktreePath,
+        path: formatDisplayPath(worktree.worktreePath),
         state: worktree.isDirty
           ? t("git.worktreeDirty")
           : t("git.graphWorktreeClean"),
@@ -60,7 +61,7 @@ export function GitRefBadge({
       },
     })}`;
   } else if (isOtherWorktree && worktreePath) {
-    title += `\n${t("git.worktreeCheckedOut")}: ${worktreePath}`;
+    title += `\n${t("git.worktreeCheckedOut")}: ${formatDisplayPath(worktreePath)}`;
   }
 
   const icon =

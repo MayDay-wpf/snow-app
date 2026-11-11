@@ -19,16 +19,12 @@ import {
 } from "lucide-react";
 import type { GitWorktreeInfo } from "../../../preload";
 import { useI18n } from "../../i18n";
+import {
+  formatDisplayPath,
+  normalizePathForCompare,
+} from "../../utils/formatDisplayPath";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { WorktreeBaseRefSelect } from "./git/WorktreeBaseRefSelect";
-
-/** 清理 Windows 拓展长路径前缀 \\?\ 或 //?/，还原为干净美观的本地绝对路径。 */
-const cleanWorktreePath = (rawPath: string): string => {
-  if (!rawPath) return "";
-  let cleaned = rawPath.replace(/^[\\/]{2}\?[\\/]/, "");
-  cleaned = cleaned.replace(/^[\\/]+([a-zA-Z]:)/, "$1");
-  return cleaned;
-};
 
 /** 提取末级工作树文件夹名称（如 chat, clone 等）。 */
 const getFolderName = (p: string): string => {
@@ -36,10 +32,8 @@ const getFolderName = (p: string): string => {
   return parts[parts.length - 1] || p;
 };
 
-const normPath = (p: string | null | undefined): string => {
-  if (!p) return "";
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-};
+const normPath = (p: string | null | undefined): string =>
+  p ? normalizePathForCompare(p) : "";
 
 export function WorktreeManager({
   directoryId,
@@ -517,7 +511,7 @@ export function WorktreeManager({
           {worktrees.length > 0 ? (
             <ul className="git-worktrees-list">
               {worktrees.map((item) => {
-                const cleanedPath = cleanWorktreePath(item.worktreePath);
+                const cleanedPath = formatDisplayPath(item.worktreePath);
                 const folderName = getFolderName(cleanedPath);
                 const isCopied = copiedId === item.worktreeId;
                 const isMain =

@@ -42,6 +42,8 @@ export function useBranchManagement(
   const [target, setTarget] = useState<{
     branch: GitBranch;
     action: "create" | "rename" | "delete";
+    /** Delete only: the safe `-d` attempt failed and the user re-confirmed a forced `-D`. */
+    force?: boolean;
   } | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,8 +70,10 @@ export function useBranchManagement(
       busyRepos.has(repoPath) ||
       sessionRunning ||
       current.current !== repoPath
-    )
+    ) {
+      if (sessionRunning) setError(t("git.manageSessionRunning"));
       return;
+    }
     const token = generation.current;
     setOwnBusy(true);
     busyRepos.add(repoPath);
@@ -100,7 +104,15 @@ export function useBranchManagement(
   };
 
   const checkout = (branch: GitBranch): void => {
-    if (branch.isCurrent || (!branch.isRemote && branch.worktreePath)) return;
+    if (branch.isCurrent) return;
+    if (sessionRunning) {
+      setError(t("git.manageSessionRunning"));
+      return;
+    }
+    if (!branch.isRemote && branch.worktreePath) {
+      setError(t("git.manageOccupied"));
+      return;
+    }
     void execute(async () => {
       const token = generation.current;
       const branches = await window.snow.gitBranches(repoPath);
@@ -178,6 +190,7 @@ export function useBranchManagement(
   const confirm = (): void => {
     if (!target || busy || sessionRunning) return;
     const { branch, action } = target;
+    const force = action === "delete" && target.force === true;
     if (
       action !== "delete" &&
       (!name || name.trim() !== name || name.startsWith("-"))
@@ -208,6 +221,7 @@ export function useBranchManagement(
         branch.name,
         action === "delete" ? undefined : name,
         branch.isRemote,
+        force,
       );
     });
   };
@@ -219,7 +233,9 @@ export function useBranchManagement(
             : "git.manageCreate"
           : target.action === "rename"
             ? "git.manageRename"
-            : "git.manageDelete",
+            : target.force
+              ? "git.manageForceDelete"
+              : "git.manageDelete",
       )
     : t(ownBusy ? "git.manageBusy" : "git.operationFailedGeneric");
   const dialog = (
@@ -230,7 +246,9 @@ export function useBranchManagement(
         target
           ? t(
               target.action === "delete"
-                ? "git.manageDeleteConfirm"
+                ? target.force
+                  ? "git.manageForceDeleteConfirm"
+                  : "git.manageDeleteConfirm"
                 : "git.manageSource",
               { values: { branch: target.branch.name } },
             )
@@ -238,8 +256,24 @@ export function useBranchManagement(
             ? t("git.manageBusy")
             : ""
       }
-      confirmLabel={t(target ? "common.confirm" : "common.close")}
+      confirmLabel={t(
+        target
+          ? target.action === "delete" && target.force
+            ? "git.manageForceDelete"
+            : "common.confirm"
+          : "common.close",
+      )}
       cancelLabel={target ? t("common.cancel") : undefined}
+      extraLabel={
+        target?.action === "delete" && !target.force && error
+          ? t("git.manageForceDelete")
+          : undefined
+      }
+      onExtra={() => {
+        if (!target || target.action !== "delete" || target.force) return;
+        setError(null);
+        setTarget({ ...target, force: true });
+      }}
       isConfirming={ownBusy}
       variant={target?.action === "delete" ? "danger" : "default"}
       onConfirm={target ? confirm : () => setError(null)}
@@ -263,6 +297,11 @@ export function useBranchManagement(
       {error && (
         <p role="alert" style={{ whiteSpace: "pre-wrap" }}>
           {error}
+        </p>
+      )}
+      {target?.action === "delete" && !target.force && error && (
+        <p style={{ color: "var(--text-muted)", fontSize: 12 }}>
+          {t("git.manageForceDeleteHint")}
         </p>
       )}
     </ConfirmDialog>

@@ -12,14 +12,7 @@ import type { GitWorktreeInfo } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { useChatConversationContext } from "../chatMessages";
 import { notifyConversationWorktreeChanged } from "../../../utils/conversationWorktreeEvents";
-
-/** 清理 Windows 拓展长路径前缀 \\?\ 或 //?/，还原为干净美观的本地绝对路径。 */
-const cleanWorktreePath = (rawPath: string): string => {
-  if (!rawPath) return "";
-  let cleaned = rawPath.replace(/^[\\/]{2}\?[\\/]/, "");
-  cleaned = cleaned.replace(/^[\\/]+([a-zA-Z]:)/, "$1");
-  return cleaned;
-};
+import { formatDisplayPath } from "../../../utils/formatDisplayPath";
 
 /** 提取末级工作树文件夹名称。 */
 const getFolderName = (p: string): string => {
@@ -181,7 +174,7 @@ export function WorktreeSessionSelector(): React.JSX.Element | null {
 
   const branchName = current?.branchName ?? t("git.graphDetachedHead");
   const cleanedCurrentPath = current
-    ? cleanWorktreePath(current.worktreePath)
+    ? formatDisplayPath(current.worktreePath)
     : "";
   const isPendingPreselect = !activeConversationId && Boolean(current);
   const currentTitle = current
@@ -276,7 +269,7 @@ export function WorktreeSessionSelector(): React.JSX.Element | null {
             </button>
 
             {worktrees.map((item) => {
-              const cleanedPath = cleanWorktreePath(item.worktreePath);
+              const cleanedPath = formatDisplayPath(item.worktreePath);
               const folderName = getFolderName(cleanedPath);
               const isSelected = current?.worktreeId === item.worktreeId;
 

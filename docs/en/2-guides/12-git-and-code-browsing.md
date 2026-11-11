@@ -14,6 +14,8 @@ This guide covers four code-related areas: the **Git panel** (repositories, bran
 
 The branch selector groups **local branches** and **remote branches** separately. Selecting another entry checks it out and refreshes status. **Create branch** validates the name, rejects duplicates, then creates and switches to the new branch. The branch button's context menu can also copy the current branch name, start branch creation, or refresh the list.
 
+**Delete local branch** in the branch context menu always opens a confirmation dialog and first runs the safe `git branch -d`: only merged branches are removed directly. For an unmerged branch the dialog shows Git's original error; after accepting the loss of those commits, **Force delete** (`git branch -D`) requires another confirmation. Remote branches are never affected. When switching branches, a running session or a branch already checked out in another worktree is reported explicitly instead of failing silently.
+
 ### 1.3 Changes, Staging, and Diffs
 
 | Operation          | Behavior                                                                                                                                      |

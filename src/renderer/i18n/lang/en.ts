@@ -58,7 +58,14 @@ export const en = {
   "git.manageRename": "Rename local branch…",
   "git.manageDelete": "Delete local branch…",
   "git.manageDeleteConfirm":
-    "Delete local branch '{{branch}}'? Only merged branches can be deleted. The remote server is not affected; force deletion is not performed.",
+    "Delete local branch '{{branch}}'? Only merged branches can be deleted safely. The remote server is not affected; if this fails you can confirm a forced delete.",
+  "git.manageForceDelete": "Force delete",
+  "git.manageForceDeleteConfirm":
+    "Force-delete local branch '{{branch}}'? Unmerged commits on this branch will be permanently discarded and cannot be recovered. The remote server is not affected.",
+  "git.manageForceDeleteHint":
+    'Only merged branches can be deleted safely. Use "Force delete" if you accept losing unmerged commits.',
+  "git.manageSessionRunning":
+    "A session is running; branch changes are temporarily unavailable.",
   "git.manageSource": "Source branch: {{branch}}",
   "git.manageName": "New branch name",
   "git.manageOccupied":

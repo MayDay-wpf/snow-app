@@ -151,7 +151,8 @@ fn saved_id(database_path: &Path, directory_id: &str, worktree_path: &str) -> Re
 }
 
 fn canonical(path: &str) -> String {
-    std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path)).to_string_lossy().into_owned()
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    crate::utils::paths::strip_verbatim_prefix(&resolved.to_string_lossy())
 }
 
 /// 清除目录已删除但 git 仍保留的工作树登记（git worktree prune）。

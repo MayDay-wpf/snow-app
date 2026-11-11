@@ -54,7 +54,13 @@ export const zhTW = {
   "git.manageRename": "重新命名本機分支…",
   "git.manageDelete": "刪除本機分支…",
   "git.manageDeleteConfirm":
-    "確定刪除本機分支「{{branch}}」？僅允許刪除已合併分支，不影響遠端伺服器，不執行強制刪除。",
+    "確定刪除本機分支「{{branch}}」？僅允許刪除已合併分支，不影響遠端伺服器；若刪除失敗，可再次確認強制刪除。",
+  "git.manageForceDelete": "強制刪除",
+  "git.manageForceDeleteConfirm":
+    "確定強制刪除本機分支「{{branch}}」？該分支上未合併的提交將被永久丟棄且無法復原，遠端伺服器不受影響。",
+  "git.manageForceDeleteHint":
+    "僅已合併分支可安全刪除。確認要丟棄未合併提交時，可使用「強制刪除」。",
+  "git.manageSessionRunning": "會話執行中，暫不可切換或修改分支。",
   "git.manageSource": "來源分支：{{branch}}",
   "git.manageName": "新分支名稱",
   "git.manageOccupied": "分支為目前分支或已被工作樹檢出，無法修改。",

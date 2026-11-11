@@ -6,6 +6,7 @@ import type {
   GitWorktreeInfo,
 } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { formatDisplayPath } from "../../../utils/formatDisplayPath";
 import { CommitDetail } from "./CommitDetail";
 import { GitRefBadge } from "./GitRefBadge";
 import {
@@ -265,7 +266,7 @@ export function CommitRow({
                         "git.graphWorktreeTooltip",
                         {
                           values: {
-                            path: worktree.worktreePath,
+                            path: formatDisplayPath(worktree.worktreePath),
                             state: worktree.isDirty
                               ? t("git.worktreeDirty")
                               : t("git.graphWorktreeClean"),

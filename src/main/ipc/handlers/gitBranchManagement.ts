@@ -13,6 +13,7 @@ export async function manageGitBranch(
   branch: string,
   name?: string,
   remote = false,
+  force = false,
 ): Promise<GitCheckoutResult> {
   if (pending.has(repoPath))
     return { success: false, message: "Branch operation already in progress" };
@@ -69,8 +70,9 @@ export async function manageGitBranch(
         await validate(name);
         await run(["branch", "-m", "--", branch, name]);
       } else {
-        // Never retry with -D: unmerged branches must return Git's visible error.
-        await run(["branch", "-d", "--", branch]);
+        // Safe delete first; `-D` is only reached after the UI confirms the
+        // unmerged-commit loss, so refs cannot be discarded by a single click.
+        await run(["branch", force ? "-D" : "-d", "--", branch]);
       }
     }
     return { success: true, message: "" };
