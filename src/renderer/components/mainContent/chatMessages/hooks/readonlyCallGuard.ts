@@ -186,13 +186,11 @@ interface CallSnapshot {
   gitSnapshot?: GitSnapshot | null;
   recordedAt: number;
   result: string;
-  hitCount: number;
 }
 
 export interface ReadonlyCallCacheItem {
   result: string;
   fromCache: boolean;
-  isLoopAbort: boolean;
 }
 
 export interface ReadonlyCallFilterResult {
@@ -211,18 +209,9 @@ const READONLY_CACHE_MAX_CHARS = 2_000_000;
 export class ReadonlyCallGuard {
   private workspacePath?: string;
   private completedCalls = new Map<string, CallSnapshot>();
-  private duplicateRecoveryAttempted = false;
 
   constructor(options: ReadonlyCallGuardOptions = {}) {
     this.workspacePath = options.workspacePath;
-  }
-
-  public getDuplicateRecoveryAttempted(): boolean {
-    return this.duplicateRecoveryAttempted;
-  }
-
-  public setDuplicateRecoveryAttempted(attempted: boolean): void {
-    this.duplicateRecoveryAttempted = attempted;
   }
 
   public getReadonlyCallKey(toolCall: ToolCallInfo): string | null {
@@ -289,32 +278,11 @@ export class ReadonlyCallGuard {
         continue;
       }
 
-      priorSnapshot.hitCount += 1;
-
-      // 仅当对完全相同参数的只读调用在物理无变更的情况下重复请求达到熔断阈值（>= 3次）时，
-      // 才作为死循环拦截，避免无休止空耗 Token。
-      if (priorSnapshot.hitCount >= 3) {
-        const result = JSON.stringify({
-          success: false,
-          error: "DUPLICATE_READONLY_TOOL_CALL",
-          message:
-            "This read-only tool call was repeatedly requested 3+ times with identical parameters and no modifications. Loop aborted to prevent unbounded calls. Use the existing result in history.",
-          toolName: toolCall.name,
-        });
-        duplicateReadonlyResults.set(toolCall, {
-          result,
-          fromCache: false,
-          isLoopAbort: true,
-        });
-        continue;
-      }
-
       // 正常只读缓存命中：直接返回此前已执行成功的真实结果，
       // 既避免重复磁盘 I/O，又保证模型获得预期数据并顺利执行后续操作。
       duplicateReadonlyResults.set(toolCall, {
         result: priorSnapshot.result,
         fromCache: true,
-        isLoopAbort: false,
       });
     }
 
@@ -409,7 +377,6 @@ export class ReadonlyCallGuard {
 
   public clearAll(): void {
     this.completedCalls.clear();
-    this.duplicateRecoveryAttempted = false;
   }
 
   private clearWorkspaceCaches(): void {
@@ -534,7 +501,6 @@ export class ReadonlyCallGuard {
       callKey,
       recordedAt: Date.now(),
       result,
-      hitCount: 0,
     };
 
     try {

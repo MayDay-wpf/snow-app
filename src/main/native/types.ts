@@ -1852,9 +1852,7 @@ export type ResponsesApiRequest = {
    * skip-context request treats image tags as plain text.
    */
   parseInlineImages?: boolean;
-  /** Preserve normal conversation context but omit MCP tools for this request. */
-  disableTools?: boolean;
-  /** Request-local recovery instruction. Never persisted as a chat message. */
+  /** Request-local system instruction (sub-agent execution policy). Never persisted. */
   internalRecoveryPrompt?: string;
   goalMode?: boolean;
   worktreeMode?: boolean;

@@ -19,8 +19,6 @@ type OwnedRun = {
   promise: Promise<string>;
   cancel: () => Promise<void>;
   stopPromise?: Promise<void>;
-  /** A budget stop is not user cancellation, but its failure must block a clean drain. */
-  resourceStop?: Promise<void>;
   finished: boolean;
   observer?: Promise<void>;
   error?: Error;
@@ -59,52 +57,19 @@ const requireOwner = (runId: string): OwnedRun => {
   return owner;
 };
 
-/** Retain a non-cancellation resource barrier even if a failed terminal outcome is committed. */
-export const retainOwnedSubAgentResourceStop = (
-  runId: string,
-  stop: Promise<void>,
-): void => {
-  const owner = requireOwner(runId);
-  const previous = owner.resourceStop;
-  owner.resourceStop = Promise.allSettled([
-    ...(previous ? [previous] : []),
-    stop,
-  ]).then((results) => {
-    const failures = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason as unknown] : [],
-    );
-    if (failures.length) {
-      const error = new AggregateError(
-        failures,
-        `RESOURCE_STOP_FAILED: run ${runId} resources did not stop cleanly`,
-      );
-      owner.error ??= error;
-      throw error;
-    }
-  });
-  // Observe rejection immediately, but keep the original rejecting barrier for every drain.
-  void owner.resourceStop.catch(() => undefined);
-};
-
 const drainOwnedRun = async (runId: string, owner: OwnedRun): Promise<void> => {
   const errors = new Set<unknown>();
   let stopPromise: Promise<void> | undefined;
-  let resourceStop: Promise<void> | undefined;
   do {
     stopPromise = owner.stopPromise;
-    resourceStop = owner.resourceStop;
     const results = await Promise.allSettled([
       owner.promise,
       ...(stopPromise ? [stopPromise] : []),
-      ...(resourceStop ? [resourceStop] : []),
     ]);
     for (const result of results)
       if (result.status === "rejected") errors.add(result.reason as unknown);
-    // Include a newly installed cancellation or budget barrier without polling.
-  } while (
-    stopPromise !== owner.stopPromise ||
-    resourceStop !== owner.resourceStop
-  );
+    // Include a newly installed cancellation barrier without polling.
+  } while (stopPromise !== owner.stopPromise);
   if (errors.size) {
     const error = new AggregateError(
       [...errors],

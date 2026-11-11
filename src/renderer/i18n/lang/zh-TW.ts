@@ -818,8 +818,6 @@ export const zhTW = {
   "chat.hook.unknownWarning": "Hooks 有未知警告",
   "chat.hook.unknownBlock": "Hook 已阻止該操作",
   "chat.responseFailedFallback": "AI 回應失敗，請稍後重試。",
-  "chat.agentLoop.duplicateRecoveryFallback":
-    "（已根據先前讀取的內容分析完畢，請參閱上方的工具結果與回答）",
   "chat.agentLoop.goalAutoContinuation": "Goal 模式自動續跑",
   "chat.subAgentModelFixed": "子代理使用啟動時確定的 API 配置和模型",
   "chat.subAgentFinished.completed": "該子代理已完成，會話僅供檢視。",
@@ -1972,10 +1970,6 @@ export const zhTW = {
   "toolCall.decision.type.score": "評分",
   "toolNames.workflow-workflow-generate": "產生工作流程",
   "toolNames.workflow-workflow-resume": "恢復工作流程",
-  "toolCall.duplicateReadonlyProtection.duplicateCall":
-    "重複讀取攔截：此唯讀呼叫已連續多次請求完全相同參數且目標皆未變更，已中止重複執行以防止死循環。請直接利用上下文已有結果推進任務。",
-  "toolCall.duplicateReadonlyProtection.toolsDisabled":
-    "重複讀取保護：本輪為恢復請求已停用工具，但模型仍要求呼叫工具，因此未執行任何工具。",
   "toolCall.common.fromCache": "已復用",
   "toolCall.common.fromCacheHint":
     "已復用先前相同調用的讀取結果，未重複讀取實體檔案",
@@ -3494,7 +3488,7 @@ export const zhTW = {
   "settings.subAgentGlobalConcurrencyHint": "範圍 0-2000，0 表示不限制。",
   "settings.subAgentSessionConcurrencyLabel": "單會話並行上限（0 = 不限制）",
   "settings.subAgentSessionConcurrencyHint":
-    "範圍 0-2000，預設 3；0 表示不限制，非 0 時不得大於全域上限。",
+    "範圍 0-2000，預設 0（不限制）；非 0 時不得大於全域上限。",
   "settings.subAgentConcurrencySaved": "已儲存子代理並行上限。",
   "settings.subAgentConcurrencySaveError": "儲存子代理並行上限失敗",
   "settings.subAgentManageInfo":

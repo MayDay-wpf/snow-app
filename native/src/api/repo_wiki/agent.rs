@@ -29,8 +29,6 @@ const KEEP_RECENT_TOOL_OUTPUTS: usize = 6;
 const OMITTED_OUTPUT: &str = "[earlier tool output omitted to save context]";
 
 const NO_TOOL_PROMPT: &str = "You answered without reading any code. You MUST explore the workspace with the tools first (filesystem-read / grep-search / grep-find), verify against the real source, and only then produce the final answer in the required format.";
-const FINAL_ROUND_PROMPT: &str = "Tool budget is almost exhausted. Do NOT start new exploration. Apply the remaining edits first if any are still pending, otherwise write the final answer now in the required format, based on what you have already read.";
-
 pub(crate) struct ModelContext {
     pub api_config: ApiConfigRecord,
     pub api_key: String,
@@ -130,29 +128,6 @@ fn user_message(method: &str, text: &str) -> Value {
         "gemini" | "interactions" => json!({"role": "user", "parts": [{"text": text}]}),
         _ => json!({"role": "user", "content": text}),
     }
-}
-
-/// 末轮提示：anthropic / gemini 并入最后一条工具结果消息，避免连续 user 轮次。
-fn push_final_nudge(messages: &mut Vec<Value>, method: &str) {
-    if let Some(last) = messages.last_mut() {
-        let is_user = last.get("role").and_then(Value::as_str) == Some("user");
-        match method {
-            "anthropic" if is_user => {
-                if let Some(content) = last.get_mut("content").and_then(Value::as_array_mut) {
-                    content.push(json!({"type": "text", "text": FINAL_ROUND_PROMPT}));
-                    return;
-                }
-            }
-            "gemini" | "interactions" if is_user => {
-                if let Some(parts) = last.get_mut("parts").and_then(Value::as_array_mut) {
-                    parts.push(json!({"text": FINAL_ROUND_PROMPT}));
-                    return;
-                }
-            }
-            _ => {}
-        }
-    }
-    messages.push(user_message(method, FINAL_ROUND_PROMPT));
 }
 
 /// 工具输出的位置：(消息下标, 内容块下标)。
@@ -277,7 +252,6 @@ pub(crate) async fn run_agent(
     ctx: &ModelContext,
     own_system_prompt: &str,
     user_prompt: &str,
-    max_rounds: usize,
     pause: &PauseState,
     executor: &dyn AgentToolExecutor,
     extra_tools: &[McpTool],
@@ -296,7 +270,8 @@ pub(crate) async fn run_agent(
     let method = ctx.api_config.request_method.clone();
     let mut messages = vec![user_message(&method, &first_user)];
 
-    for round in 0..max_rounds {
+    let mut round = 0usize;
+    loop {
         // 暂停时停在下一轮请求之前（进行中的请求照常完成）
         pause.wait_if_paused().await;
         let outcome = match tokio::time::timeout(
@@ -334,14 +309,9 @@ pub(crate) async fn run_agent(
             }
             AgentRound::Continue(append) => {
                 messages.extend(append);
-                if round + 2 == max_rounds {
-                    push_final_nudge(&mut messages, &method);
-                }
                 compact_tool_outputs(&mut messages, &method);
             }
         }
+        round += 1;
     }
-    Err(Error::from_reason(
-        "Reached the tool-call round limit without a final answer",
-    ))
 }

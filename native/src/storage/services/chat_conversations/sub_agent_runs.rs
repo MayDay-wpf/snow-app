@@ -582,8 +582,6 @@ fn validate_snapshot(database_path: &Path, db: &Connection, command: &Value) -> 
         "workspacePath",
         "worktreeMode",
         "collaborationGroup",
-        "maxModelRequests",
-        "maxActiveDurationMs",
     ];
     if snapshot.keys().any(|key| !allowed.contains(&key.as_str())) {
         return Err(fault(
@@ -593,11 +591,6 @@ fn validate_snapshot(database_path: &Path, db: &Connection, command: &Value) -> 
     }
     let snapshot = &command["snapshot"];
     lifecycle::collaboration_group(snapshot)?;
-    for key in ["maxModelRequests", "maxActiveDurationMs"] {
-        if snapshot.get(key).is_some() {
-            number(snapshot, key, 1, 1, i64::MAX as u64)?;
-        }
-    }
     for key in [
         "agentId",
         "agentName",

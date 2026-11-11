@@ -817,8 +817,6 @@ export const zhCN = {
   "chat.hook.unknownWarning": "Hooks 有未知警告",
   "chat.hook.unknownBlock": "Hook 已阻止该操作",
   "chat.responseFailedFallback": "AI 响应失败，请稍后重试。",
-  "chat.agentLoop.duplicateRecoveryFallback":
-    "（已基于此前读取的内容分析完毕，请参见上方工具结果与回答）",
   "chat.agentLoop.goalAutoContinuation": "Goal 模式自动续跑",
   "chat.subAgentModelFixed": "子代理使用启动时确定的 API 配置和模型",
   "chat.subAgentFinished.completed": "该子代理已完成，会话仅供查看。",
@@ -1971,10 +1969,6 @@ export const zhCN = {
   "toolCall.decision.type.score": "评分",
   "toolNames.workflow-workflow-generate": "生成工作流",
   "toolNames.workflow-workflow-resume": "恢复工作流",
-  "toolCall.duplicateReadonlyProtection.duplicateCall":
-    "重复读取拦截：该只读调用已连续多次请求完全相同参数且目标未发生任何变化，已中止重复执行以防止死循环。请直接利用上下文已有结果推进任务。",
-  "toolCall.duplicateReadonlyProtection.toolsDisabled":
-    "重复读取保护：本轮为恢复请求已禁用工具，但模型仍请求调用工具，因此未执行任何工具。",
   "toolCall.common.fromCache": "已复用",
   "toolCall.common.fromCacheHint":
     "已复用此前相同调用的读取结果，未重复读取物理文件",
@@ -3494,7 +3488,7 @@ export const zhCN = {
   "settings.subAgentGlobalConcurrencyHint": "范围 0-2000，0 表示不限制。",
   "settings.subAgentSessionConcurrencyLabel": "单会话并发上限（0 = 不限制）",
   "settings.subAgentSessionConcurrencyHint":
-    "范围 0-2000，默认 3；0 表示不限制，非 0 时不得大于全局上限。",
+    "范围 0-2000，默认 0（不限制）；非 0 时不得大于全局上限。",
   "settings.subAgentConcurrencySaved": "已保存子代理并发上限。",
   "settings.subAgentConcurrencySaveError": "保存子代理并发上限失败",
   "settings.subAgentManageInfo": "子代理配置保存在本地数据库中。",

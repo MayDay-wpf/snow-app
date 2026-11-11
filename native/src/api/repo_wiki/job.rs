@@ -27,10 +27,6 @@ use super::{
 use crate::api::file_search_agent::{strip_code_fences, AgentToolExecutor};
 use crate::mcp::tools::McpTool;
 
-const CATALOG_MAX_ROUNDS: usize = 30;
-/// 目录审视轮次（只做结构判断，比完整分析轻）。
-const CATALOG_REVIEW_MAX_ROUNDS: usize = 12;
-const PAGE_MAX_ROUNDS: usize = 24;
 const PAGE_CONCURRENCY: usize = 3;
 const MAX_SOURCES_PER_PAGE: usize = 200;
 const MAX_RETRIES: u32 = 5;
@@ -580,7 +576,6 @@ async fn generate_catalog(job: &Job) -> Result<(String, String, Vec<WikiPage>)> 
             &job.ctx,
             &system,
             &user,
-            CATALOG_MAX_ROUNDS,
             job.handle.pause.as_ref(),
             &executor,
             &[],
@@ -628,7 +623,6 @@ async fn review_catalog(job: &Job, review: &CatalogReview) -> Result<Vec<String>
         &job.ctx,
         &system,
         &user,
-        CATALOG_REVIEW_MAX_ROUNDS,
         job.handle.pause.as_ref(),
         &executor,
         &[catalog_edit_tool()],
@@ -904,7 +898,6 @@ async fn generate_page(
             &job.ctx,
             &system,
             &user,
-            PAGE_MAX_ROUNDS,
             job.handle.pause.as_ref(),
             &executor,
             &extra_tools,

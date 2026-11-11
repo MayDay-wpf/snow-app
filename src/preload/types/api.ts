@@ -225,11 +225,9 @@ export type ResponsesApiRequest = {
   subAgentSystemPrompt?: string | null;
   subAgentConfigProfile?: string | null;
   skipContext?: boolean | null;
-  /** Preserve normal conversation context but omit MCP tools for this request. */
-  disableTools?: boolean | null;
   /**
-   * Request-local instruction used for internal recovery. It is included with
-   * provider system instructions, never persisted as a conversation message.
+   * Request-local system instruction (sub-agent execution policy). It is
+   * included with provider system instructions, never persisted.
    */
   internalRecoveryPrompt?: string | null;
   goalMode?: boolean | null;

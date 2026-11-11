@@ -213,16 +213,6 @@ export const registerSubAgentRunHost = (native: NativeBridge): void => {
             Array.from(group).length > 80)
         )
           throw new Error("VALIDATION_ERROR: invalid collaboration group");
-        for (const budget of [
-          command.snapshot.maxModelRequests,
-          command.snapshot.maxActiveDurationMs,
-        ]) {
-          if (
-            budget !== undefined &&
-            (!Number.isSafeInteger(budget) || budget <= 0)
-          )
-            throw new Error("VALIDATION_ERROR: invalid execution budget");
-        }
         const modes = await native.getConversationModes(parentId);
         const binding = await native.getConversationWorktree(parentId);
         const directories = await native.listWorkspaceDirectories();

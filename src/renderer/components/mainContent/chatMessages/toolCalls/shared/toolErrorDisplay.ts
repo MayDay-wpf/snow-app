@@ -13,10 +13,6 @@ type ToolErrorTranslate = (
 
 /** 已知内部工具错误码 → 本地化文案 key。 */
 export const TOOL_ERROR_CODE_MESSAGE_KEYS: Record<string, string> = {
-  TOOLS_DISABLED_FOR_DUPLICATE_RECOVERY:
-    "toolCall.duplicateReadonlyProtection.toolsDisabled",
-  DUPLICATE_READONLY_TOOL_CALL:
-    "toolCall.duplicateReadonlyProtection.duplicateCall",
   "Invalid JSON arguments": "toolCall.subAgentMessage.error.invalidArgs",
   "conversationId and message are required":
     "toolCall.subAgentMessage.error.missingArgs",

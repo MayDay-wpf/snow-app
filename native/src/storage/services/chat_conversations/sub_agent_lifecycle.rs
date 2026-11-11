@@ -240,7 +240,7 @@ fn limit_setting(
 /// 单会话上限为 0 时不再限制会话内并发；否则不允许超过全局上限，取两者较小值。
 pub(super) fn has_capacity(db: &Connection, project: &str, parent: &str) -> Result<bool> {
     let global_max = limit_setting(db, "sub_agent_global_max_concurrency", 0, 0, 2000)?;
-    let session_max = limit_setting(db, "sub_agent_max_concurrency", 3, 0, 2000)?;
+    let session_max = limit_setting(db, "sub_agent_max_concurrency", 0, 0, 2000)?;
     let session_limit = if session_max > 0 && global_max > 0 {
         session_max.min(global_max)
     } else {

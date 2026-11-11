@@ -515,7 +515,7 @@ export function SubAgentSettingsPanel({
               onBlur={() => void saveMaxConcurrency("session")}
               title={t("settings.subAgentSessionConcurrencyHint", {
                 defaultValue:
-                  "Range 0-2000, default 3; 0 means unlimited, otherwise never above the global limit.",
+                  "Range 0-2000, default 0 (unlimited); otherwise never above the global limit.",
               })}
             />
           </label>

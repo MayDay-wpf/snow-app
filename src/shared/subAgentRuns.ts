@@ -157,8 +157,6 @@ export type SubAgentExecutionSnapshot = {
   worktreeMode: boolean;
   /** Explicit per-delegation collaboration, further restricted by configured tools. */
   collaborationGroup?: string;
-  maxModelRequests?: number;
-  maxActiveDurationMs?: number;
 };
 export type SubAgentRunRecord = SubAgentRunScope & {
   runId: string;

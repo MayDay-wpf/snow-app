@@ -186,7 +186,7 @@ const NO_TOOL_FOLLOW_UP_PROMPT: &str = "Your previous answer was produced withou
 
 /// 运行自然语言文件搜索 agent：
 /// 模型借助 `grep-search` / `filesystem-read` 两个 MCP 工具在工作区内查找
-/// 与用户自然语言描述匹配的文件，最多执行 `MAX_AGENT_ROUNDS` 轮工具调用。
+/// 与用户自然语言描述匹配的文件，持续调用工具直到模型给出最终答案或被取消、超时。
 /// 请求方案与摘要生成保持一致：responses / anthropic / gemini / chat 四种。
 /// `on_progress` 为可选的进度回调，每次工具调用完成后推送一条摘要。
 pub async fn run_file_search_agent(

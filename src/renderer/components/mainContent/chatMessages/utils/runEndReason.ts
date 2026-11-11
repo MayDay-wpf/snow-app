@@ -22,7 +22,6 @@ export type RunEndReason =
   | "provider_error"
   | "tool_denied"
   | "budget_exhausted"
-  | "loop_guard"
   | "hook_aborted"
   | "internal_error"
   | "unknown";
@@ -35,7 +34,6 @@ const RUN_END_REASON_ERRORS: Partial<Record<RunEndReason, string>> = {
   provider_error: "The provider returned an error",
   tool_denied: "The requested tool calls were not authorized",
   budget_exhausted: "The Goal Mode token budget was exhausted",
-  loop_guard: "Repeated identical read-only calls aborted the run",
   hook_aborted: "A hook aborted the run",
   internal_error: "The run failed inside the app before the provider replied",
 };

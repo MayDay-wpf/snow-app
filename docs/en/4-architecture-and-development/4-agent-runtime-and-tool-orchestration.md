@@ -322,7 +322,7 @@ The execution flow comprises 7 key stages:
 #### 4.2.1 Motivation
 
 LLMs executing multi-step tasks can occasionally hallucinate or enter repetitive read loops with identical arguments (e.g., repeatedly reading the same unchanged file).
-However, a rigid tool-name whitelist or call-history check fails whenever external factors (external editor edits, Git checkouts, sub-agent modifications, or compiler outputs) change files on disk without explicit parent tool calls, causing false positive `DUPLICATE_READONLY_TOOL_CALL` errors and abrupt stream terminations.
+However, a rigid tool-name whitelist or call-history check fails whenever external factors (external editor edits, Git checkouts, sub-agent modifications, or compiler outputs) change files on disk without explicit parent tool calls, causing stale cached results to be reused as if they were current.
 
 Snow App addresses this via **`ReadonlyCallGuard` (`readonlyCallGuard.ts`)**, providing adaptive mutation perception:
 
@@ -346,7 +346,7 @@ flowchart TD
     H -- Repository modified/committed --> C
     H -- Repository completely unchanged --> G
 
-    G --> I[Return deduplication warning, isolate call, guide model to use existing results]
+    G --> I[Reuse the prior real result (cache hit), without re-executing]
 ```
 
 1. **Physical File Inspection (`captureFileSnapshot`)**:
@@ -358,8 +358,6 @@ flowchart TD
    - For search tools (`grep-search`, `codebase-search`): verifies overall repository dirty digest and commit/branch changes.
 3. **Broadened Mutating Tools**:
    - Expands `mayMutateWorkspace` beyond basic file writes to include `terminal-send`, `terminal-open`, `sub-agents-activate`, `sub-agents-continue`, `lsp-rename`, `workflow-generate`, and external MCP write tools.
-4. **Resilient Recovery Protocol**:
-   - In duplicate recovery rounds (`disableTools: true`), provides a graceful text fallback if the model produces no text, eliminating abrupt stream cutoffs.
 
 ### 4.3 Mid-flight Steering
 
@@ -405,8 +403,9 @@ Beyond transport-level network and timeout retries, the Agent Loop supports thre
 1. **Continuable Authorization Rejection (`rejectionKeepsAiFlow`)**:
    - When a user rejects a sensitive tool execution but provides feedback, or when security policies block sensitive commands;
    - The refusal reasoning is embedded as a `role: "tool"` response. The loop continues, enabling the model to adapt its strategy and choose an approved path.
-2. **Duplicate-only Recovery Turn**:
-   - When a batch consists entirely of unchanged read-only duplicates, the system issues a request with `disableTools: true` and an `internalRecoveryPrompt`, instructing the model to summarize existing findings rather than repeating calls.
+2. **Readonly Result Reuse**:
+   - Read-only calls whose arguments and workspace state are unchanged reuse the prior real result without re-executing, and never interrupt the session;
+   - No tool-round or duplicate-count limit exists; the loop ends on model convergence, user cancellation, or request timeout.
 3. **Sub-agent and Workflow Execution Recovery**:
    - Sub-agent or workflow node failures return structured `{ success: false, error }` summaries rather than crashing the primary session, allowing the parent agent to formulate alternative approaches.
 

@@ -65,9 +65,6 @@ const PET_CHAT_ALLOWED_TOOLS = [
   "filesystem-read",
 ] as const;
 
-/** 单次提问内允许的最大工具轮数（防止模型陷入无限调用）。 */
-const MAX_TOOL_ITERATIONS = 5;
-
 /** 注入上下文的消息条数 / 字符预算上限（保护小窗口下的提示词体积）。 */
 const MAX_CONTEXT_MESSAGES = 30;
 const MAX_CONTEXT_CHARS = 14000;
@@ -757,7 +754,7 @@ export const runPetChat = async (
 
   try {
     let content = "";
-    for (let iteration = 0; iteration <= MAX_TOOL_ITERATIONS; iteration += 1) {
+    for (;;) {
       if (run.aborted) {
         break;
       }

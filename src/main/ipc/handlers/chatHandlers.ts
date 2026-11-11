@@ -142,10 +142,6 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
         : undefined,
     skipContext:
       typeof source.skipContext === "boolean" ? source.skipContext : undefined,
-    disableTools:
-      typeof source.disableTools === "boolean"
-        ? source.disableTools
-        : undefined,
     internalRecoveryPrompt:
       typeof source.internalRecoveryPrompt === "string" &&
       source.internalRecoveryPrompt.trim()

@@ -864,8 +864,6 @@ export const en = {
   "chat.hook.unknownBlock": "Hook blocked the action",
   "chat.responseFailedFallback":
     "The AI response failed. Please try again later.",
-  "chat.agentLoop.duplicateRecoveryFallback":
-    "(Analysis finished based on the content read earlier — see the tool results and answer above)",
   "chat.agentLoop.goalAutoContinuation": "Goal Mode auto-continuation",
   "chat.subAgentModelFixed":
     "Sub-agent uses the API profile and model resolved when it started",
@@ -2090,10 +2088,6 @@ export const en = {
   "toolCall.decision.type.score": "score",
   "toolNames.workflow-workflow-generate": "Generate workflow",
   "toolNames.workflow-workflow-resume": "Resume workflow",
-  "toolCall.duplicateReadonlyProtection.duplicateCall":
-    "Repeated read aborted: this read-only call was repeatedly requested 3+ times with identical parameters and unchanged state. Aborted to prevent loop. Please proceed using existing context.",
-  "toolCall.duplicateReadonlyProtection.toolsDisabled":
-    "Duplicate-read protection: tools were disabled for this recovery round, but the model still requested a tool call, so nothing was executed.",
   "toolCall.common.fromCache": "Reused",
   "toolCall.common.fromCacheHint":
     "Reused prior result for identical call without re-reading physical file",
@@ -3700,7 +3694,7 @@ export const en = {
   "settings.subAgentSessionConcurrencyLabel":
     "Per-conversation concurrency limit (0 = unlimited)",
   "settings.subAgentSessionConcurrencyHint":
-    "Range 0-2000, default 3; 0 means unlimited, otherwise never above the global limit.",
+    "Range 0-2000, default 0 (unlimited); otherwise never above the global limit.",
   "settings.subAgentConcurrencySaved": "Saved sub-agent concurrency limit.",
   "settings.subAgentConcurrencySaveError":
     "Failed to save sub-agent concurrency limit",
