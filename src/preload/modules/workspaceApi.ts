@@ -112,6 +112,16 @@ export const workspaceApi = {
     relinkId: string,
   ): Promise<WorkspaceRelinkResult> =>
     ipcRenderer.invoke("workspace-directories:relink-undo", relinkId),
+  /** 修改远程目录的连接信息；数据随新的 directory_id 一起迁移。 */
+  updateSshWorkspaceConnection: (
+    directoryId: string,
+    sshUrl: string,
+  ): Promise<WorkspaceRelinkResult> =>
+    ipcRenderer.invoke(
+      "workspace-directories:update-ssh-connection",
+      directoryId,
+      sshUrl,
+    ),
   listWorkspaceDirectoryRelinks: (
     directoryId: string,
     limit = 50,

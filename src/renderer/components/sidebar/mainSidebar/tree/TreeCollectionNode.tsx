@@ -46,6 +46,8 @@ type TreeCollectionNodeProps = {
   onToggleDirectory: (directoryId: string) => void;
   onDeleteDirectory: (directoryId: string) => void;
   onRenameDirectory: (directoryId: string, newName: string) => Promise<void>;
+  /** 编辑远程目录的连接信息（登录信息 / 端口 / 远程目录） */
+  onEditConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onShowDetails?: (directoryId: string) => void;
   onShowRelinkHistory?: (directoryId: string) => void;
   onToggleMemberLinked: (
@@ -78,6 +80,7 @@ export function TreeCollectionNode({
   onToggleDirectory,
   onDeleteDirectory,
   onRenameDirectory,
+  onEditConnection,
   onShowDetails,
   onShowRelinkHistory,
   onToggleMemberLinked,
@@ -339,6 +342,7 @@ export function TreeCollectionNode({
                   }
                   onRemoveFromCollection={onRemoveFromCollection}
                   onRename={onRenameDirectory}
+                  onEditConnection={onEditConnection}
                   onShowDetails={onShowDetails}
                   onShowRelinkHistory={onShowRelinkHistory}
                   onToggle={onToggleDirectory}

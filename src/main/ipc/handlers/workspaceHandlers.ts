@@ -12,6 +12,12 @@ import {
   normalizeWorkspaceDirectory,
   normalizeWorkspaceDirectoryList,
 } from "../../settings/workspaceDirectories";
+import { parseSshUrl } from "../../ssh/sshManager";
+import { deleteSshCredential } from "../../ssh/sshCredentials";
+import {
+  getSshWorkspaceProfileId,
+  sshConnectionManager,
+} from "../../ssh/sshConnectionManager";
 import { startDirectoryWatch, stopDirectoryWatch } from "../../utils/fsWatcher";
 import { startFileWatch, stopFileWatch } from "../../utils/fileWatcher";
 import { safeSend } from "../../utils/safeSend";
@@ -208,6 +214,85 @@ export const registerWorkspaceHandlers = (native: NativeBridge): void => {
         requireText(directoryId, "Workspace directory ID"),
         normalizedLimit,
       );
+    },
+  );
+
+  // 修改远程目录的连接（登录信息 / 端口 / 远程目录）：走 relink 迁移，
+  // 让会话、记忆、草稿等数据跟随新的 directory_id 一起搬家。
+  ipcMain.handle(
+    "workspace-directories:update-ssh-connection",
+    async (_event, directoryId: unknown, sshUrl: unknown) => {
+      const sourceId = requireText(directoryId, "Workspace directory ID");
+      const targetUrl = requireText(sshUrl, "SSH connection URL");
+      if (!targetUrl.startsWith("ssh://")) {
+        throw new Error("SSH connection URL must start with ssh://");
+      }
+
+      const existing = (await native.listWorkspaceDirectories()).find(
+        (directory) => directory.directoryId === sourceId,
+      );
+      if (!existing || existing.kind !== "ssh") {
+        throw new Error("Only SSH workspace directories can be edited");
+      }
+      // 提前解析一次：无效 URL 在写库前就报错，避免迁移出半成品目录。
+      parseSshUrl(targetUrl);
+
+      const report = await native.relinkWorkspaceDirectory(
+        sourceId,
+        targetUrl,
+        false,
+      );
+
+      // 旧连接的 profile 与可能复用的新 profile 都必须丢弃缓存参数，
+      // 否则仍会拿旧凭据/旧地址重连。
+      for (const path of [existing.path, targetUrl]) {
+        try {
+          sshConnectionManager.invalidate(getSshWorkspaceProfileId(path));
+        } catch {
+          // 路径无法解析成 profile 时无需处理
+        }
+      }
+
+      const directories = await native.listWorkspaceDirectories();
+
+      // 登录身份变化后清理旧凭据；仍被其他目录引用时保留。
+      try {
+        const previous = parseSshUrl(existing.path);
+        const next = parseSshUrl(targetUrl);
+        const previousKey = `${previous.username}@${previous.host}:${previous.port}`;
+        const nextKey = `${next.username}@${next.host}:${next.port}`;
+        if (previousKey !== nextKey) {
+          const stillReferenced = directories.some((directory) => {
+            if (
+              directory.kind !== "ssh" ||
+              directory.directoryId === sourceId
+            ) {
+              return false;
+            }
+            try {
+              const parsed = parseSshUrl(directory.path);
+              return (
+                `${parsed.username}@${parsed.host}:${parsed.port}` ===
+                previousKey
+              );
+            } catch {
+              return false;
+            }
+          });
+          if (!stillReferenced) {
+            deleteSshCredential(
+              previous.host,
+              previous.port,
+              previous.username,
+            );
+          }
+        }
+      } catch {
+        // 解析失败时保留原凭据，避免误删
+      }
+
+      broadcastDirectoryListChanged();
+      return { report, directories };
     },
   );
 

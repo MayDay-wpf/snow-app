@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { localizeSshError } from "../../../utils/sshErrorMessages";
 import type {
+  ParsedSshUrl,
   SshAuthMethod,
   SshConfigHost,
   SshConfigJumpHost,
@@ -32,6 +33,7 @@ import type {
   SshDirectoryEntry,
   SshJumpHost,
   SshJumpHostRecord,
+  WorkspaceDirectoryRecord,
 } from "../../../../preload";
 
 type WizardStep = "connect" | "browse";
@@ -54,8 +56,13 @@ const SSH_ERROR_I18N_KEYS: Record<SshConnectErrorCode, string> = {
 };
 
 type SshConnectWizardProps = {
-  onConfirm: (sshUrl: string) => void;
+  /** 新增模式提交（编辑模式下可省略）。 */
+  onConfirm?: (sshUrl: string) => void;
   onCancel: () => void;
+  /** 编辑模式目标目录：非空时向导用于修改已有远程目录的连接信息。 */
+  directory?: WorkspaceDirectoryRecord | null;
+  /** 编辑模式提交：保存新的连接（目录数据随之迁移）。 */
+  onUpdate?: (sshUrl: string) => Promise<void>;
 };
 
 type CredentialOption = {
@@ -85,8 +92,11 @@ const buildSshUrl = (
 export function SshConnectWizard({
   onConfirm,
   onCancel,
+  directory = null,
+  onUpdate,
 }: SshConnectWizardProps): React.JSX.Element {
   const { t } = useI18n();
+  const isEditing = Boolean(directory && onUpdate);
 
   const [step, setStep] = useState<WizardStep>("connect");
 
@@ -111,6 +121,8 @@ export function SshConnectWizard({
   const [showJumpSecret, setShowJumpSecret] = useState(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<ConnectErrorState | null>(
     null,
   );
@@ -137,6 +149,9 @@ export function SshConnectWizard({
   const pendingNavigationPathRef = useRef<string | null>(null);
   const jumpResolveRequestRef = useRef(0);
   const wizardRef = useRef<HTMLDivElement | null>(null);
+  // 编辑模式：首次进入浏览步骤时定位到原远程目录，而不是根目录。
+  const initialRemotePathRef = useRef("/");
+  const prefilledDirectoryIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     void window.snow.sshListCredentials().then((creds) => {
@@ -157,6 +172,81 @@ export function SshConnectWizard({
   useEffect(() => {
     void window.snow.sshListConfigHosts().then(setConfigHosts);
   }, []);
+
+  // 编辑模式：按原连接串预填表单，并解密已保存的密码 / 口令。
+  useEffect(() => {
+    if (!directory || directory.kind !== "ssh") {
+      return;
+    }
+    if (prefilledDirectoryIdRef.current === directory.directoryId) {
+      return;
+    }
+    prefilledDirectoryIdRef.current = directory.directoryId;
+
+    void (async (): Promise<void> => {
+      let parsed: ParsedSshUrl;
+      try {
+        parsed = await window.snow.sshParseUrl(directory.path);
+      } catch {
+        return;
+      }
+      setHost(parsed.host);
+      setPort(parsed.port);
+      setUsername(parsed.username);
+      const remote = parsed.remotePath || "/";
+      initialRemotePathRef.current = remote;
+      setRemotePath(remote);
+      setPathHistory([remote]);
+      setSelectedPath(remote);
+
+      const credential = await window.snow
+        .sshGetCredential(parsed.host, parsed.port, parsed.username)
+        .catch(() => null);
+      if (!credential) {
+        return;
+      }
+      setAuthMethod(credential.authMethod);
+      setPrivateKeyPath(credential.privateKeyPath ?? "");
+      setRememberCredential(true);
+
+      if (credential.jump) {
+        const jump = credential.jump;
+        setJumpSpec(`${jump.username}@${jump.host}:${jump.port}`);
+        setJumpResolved({
+          host: jump.host,
+          port: jump.port,
+          user: jump.username,
+          identityFile: jump.privateKeyPath,
+        });
+        setJumpKeyPath(jump.privateKeyPath ?? "");
+        if (jump.encryptedSecret) {
+          const jumpSecretValue = await window.snow
+            .sshGetDecryptedJumpSecret(
+              parsed.host,
+              parsed.port,
+              parsed.username,
+            )
+            .catch(() => null);
+          if (jumpSecretValue) {
+            setJumpSecret(jumpSecretValue);
+          }
+        }
+      }
+
+      if (credential.encryptedSecret) {
+        const secret = await window.snow
+          .sshGetDecryptedSecret(parsed.host, parsed.port, parsed.username)
+          .catch(() => null);
+        if (secret) {
+          if (credential.authMethod === "password") {
+            setPassword(secret);
+          } else {
+            setPassphrase(secret);
+          }
+        }
+      }
+    })();
+  }, [directory]);
 
   /** 跳板机连接参数：ssh config 里的 IdentityFile 优先，否则用 SSH agent。 */
   const buildJumpHost = (userId: string): SshJumpHost | undefined => {
@@ -271,7 +361,7 @@ export function SshConnectWizard({
 
   useEffect(() => {
     if (step === "browse" && sessionId) {
-      void loadEntries("/");
+      void loadEntries(initialRemotePathRef.current);
     }
   }, [step, sessionId, loadEntries]);
 
@@ -520,7 +610,7 @@ export function SshConnectWizard({
   };
 
   const handleConfirm = (): void => {
-    if (!selectedPath) {
+    if (!selectedPath || isSaving) {
       return;
     }
     const sshUrl = buildSshUrl(
@@ -529,11 +619,37 @@ export function SshConnectWizard({
       username.trim(),
       selectedPath,
     );
+
+    if (isEditing && onUpdate) {
+      const activeSessionId = sessionId;
+      setIsSaving(true);
+      setSaveError(null);
+      void (async (): Promise<void> => {
+        try {
+          await onUpdate(sshUrl);
+          if (activeSessionId) {
+            void window.snow.sshDisconnect(activeSessionId);
+          }
+        } catch (error) {
+          setSaveError(
+            error instanceof Error
+              ? error.message
+              : t("sidebar.sshEditConnectionError", {
+                  defaultValue: "Failed to update the SSH connection",
+                }),
+          );
+        } finally {
+          setIsSaving(false);
+        }
+      })();
+      return;
+    }
+
     if (sessionId) {
       void window.snow.sshDisconnect(sessionId);
       setSessionId(null);
     }
-    onConfirm(sshUrl);
+    onConfirm?.(sshUrl);
   };
 
   const handleCancel = (): void => {
@@ -573,9 +689,13 @@ export function SshConnectWizard({
           <div className="ssh-wizard-title">
             <Server size={16} />
             <span>
-              {t("sidebar.sshWizardTitle", {
-                defaultValue: "Add SSH Remote Directory",
-              })}
+              {isEditing
+                ? t("sidebar.sshEditWizardTitle", {
+                    defaultValue: "Edit SSH Connection",
+                  })
+                : t("sidebar.sshWizardTitle", {
+                    defaultValue: "Add SSH Remote Directory",
+                  })}
             </span>
           </div>
           <button
@@ -1146,6 +1266,15 @@ export function SshConnectWizard({
               </span>
               <code>{selectedPath ?? remotePath}</code>
             </div>
+
+            {saveError ? (
+              <div className="ssh-wizard-error" role="alert">
+                <AlertCircle size={13} className="ssh-wizard-error-icon" />
+                <div className="ssh-wizard-error-content">
+                  <span>{saveError}</span>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -1186,13 +1315,21 @@ export function SshConnectWizard({
           ) : (
             <button
               className="api-settings-form-btn primary"
-              disabled={!selectedPath}
+              disabled={!selectedPath || isSaving}
               onClick={handleConfirm}
               type="button"
             >
-              <Check size={14} />
+              {isSaving ? (
+                <Loader2 className="spin" size={14} />
+              ) : (
+                <Check size={14} />
+              )}
               <span>
-                {t("sidebar.sshConfirm", { defaultValue: "Confirm" })}
+                {isEditing
+                  ? t("sidebar.sshEditConnectionSave", {
+                      defaultValue: "Save connection",
+                    })
+                  : t("sidebar.sshConfirm", { defaultValue: "Confirm" })}
               </span>
             </button>
           )}

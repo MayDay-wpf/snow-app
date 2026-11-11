@@ -547,6 +547,9 @@ export const App = (): React.JSX.Element => {
     initialPanelWidths.rightPanel,
   );
   const [showSshWizard, setShowSshWizard] = useState(false);
+  // 编辑远程目录连接：非空时向导进入编辑模式（预填原连接信息）
+  const [sshEditTarget, setSshEditTarget] =
+    useState<WorkspaceDirectoryRecord | null>(null);
   // SSH 向导取消回调：向导经合集右键「添加项目」打开时需要清理目标合集
   const sshWizardCanceledRef = useRef<(() => void) | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -1091,6 +1094,25 @@ export const App = (): React.JSX.Element => {
     sshWizardCanceledRef.current = null;
   }, []);
 
+  const handleEditSshConnection = useCallback(
+    (directory: WorkspaceDirectoryRecord): void => {
+      if (directory.kind !== "ssh") {
+        return;
+      }
+      setSshEditTarget(directory);
+    },
+    [],
+  );
+
+  // 保存新的连接：relink 会把会话、记忆、草稿等数据迁到新的 directory_id。
+  const handleSshConnectionUpdate = useCallback(
+    async (directoryId: string, sshUrl: string): Promise<void> => {
+      await window.snow.updateSshWorkspaceConnection(directoryId, sshUrl);
+      setSshEditTarget(null);
+    },
+    [],
+  );
+
   const isChatFloatActive = isRightPanelFullscreen && activeMainView === "chat";
 
   const shellClasses = [
@@ -1462,6 +1484,7 @@ export const App = (): React.JSX.Element => {
               onActiveDirectoryChange={handleActiveDirectoryChange}
               onSelectMainView={setActiveMainView}
               onOpenSshWizard={handleOpenSshWizard}
+              onEditSshConnection={handleEditSshConnection}
               onOpenTerminal={handleOpenTerminal}
               onOpenFile={handleOpenFile}
             />
@@ -1511,8 +1534,17 @@ export const App = (): React.JSX.Element => {
           </div>
           {showSshWizard ? (
             <SshConnectWizard
-              onConfirm={(sshUrl) => void handleSshWizardConfirm(sshUrl)}
               onCancel={handleSshWizardCancel}
+              onConfirm={(sshUrl) => void handleSshWizardConfirm(sshUrl)}
+            />
+          ) : null}
+          {sshEditTarget ? (
+            <SshConnectWizard
+              directory={sshEditTarget}
+              onCancel={() => setSshEditTarget(null)}
+              onUpdate={(sshUrl) =>
+                handleSshConnectionUpdate(sshEditTarget.directoryId, sshUrl)
+              }
             />
           ) : null}
           <ConfirmDialog

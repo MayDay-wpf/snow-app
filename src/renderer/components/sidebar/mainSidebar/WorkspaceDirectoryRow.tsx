@@ -49,6 +49,8 @@ type WorkspaceDirectoryRowProps = {
   onDragStart: (directoryId: string) => void;
   onDrop: (directoryId: string, dataTransfer: DataTransfer) => void;
   onRenameStart?: (directory: WorkspaceDirectoryRecord) => void;
+  /** 编辑远程目录的连接信息（仅 SSH 目录显示） */
+  onEditConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onShowDetails?: (directoryId: string) => void;
   /** 查看该项目的迁移记录（含撤销入口） */
   onShowRelinkHistory?: (directoryId: string) => void;
@@ -103,6 +105,7 @@ export function WorkspaceDirectoryRow({
   onDragStart,
   onDrop,
   onRenameStart,
+  onEditConnection,
   onShowDetails,
   onShowRelinkHistory,
 }: WorkspaceDirectoryRowProps): React.JSX.Element {
@@ -273,6 +276,9 @@ export function WorkspaceDirectoryRow({
           onRemoveFromCollection ? onRemoveFromCollection : undefined
         }
         onRename={onRenameStart ? () => onRenameStart(directory) : undefined}
+        onEditConnection={
+          onEditConnection ? () => onEditConnection(directory) : undefined
+        }
         onShowDetails={
           onShowDetails ? () => onShowDetails(directory.directoryId) : undefined
         }

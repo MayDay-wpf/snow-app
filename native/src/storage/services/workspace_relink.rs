@@ -8,7 +8,9 @@ use serde_json::Value;
 
 use super::super::database;
 use super::super::{WorkspaceRelinkRecord, WorkspaceRelinkReport};
-use super::workspace_directory_health::{fs_identity, KIND_SSH, STATE_MISSING, STATE_OK};
+use super::workspace_directory_health::{
+    fs_identity, KIND_SSH, STATE_MISSING, STATE_OK, STATE_REMOTE,
+};
 
 const KEYED_COLUMNS: &[(&str, &str)] = &[
     ("collection_members", "directory_id"),
@@ -508,6 +510,116 @@ fn directory_path_from_id(directory_id: &str) -> &str {
         .unwrap_or(directory_id)
 }
 
+/// 规范化 SSH 工作区 URL：强制 `ssh://` 前缀，authority 后的路径保持稳定形式，
+/// 使同一连接始终生成同一个 directory_id（避免仅斜杠差异触发无意义迁移）。
+fn normalize_ssh_target(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+    let rest = trimmed.strip_prefix("ssh://").ok_or_else(|| {
+        Error::from_reason(
+            "WORKSPACE_SSH_URL_INVALID: SSH connection URL must start with ssh://",
+        )
+    })?;
+    let (authority, path) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, "/"),
+    };
+    let (username, host_port) = authority.split_once('@').ok_or_else(|| {
+        Error::from_reason(
+            "WORKSPACE_SSH_URL_INVALID: SSH connection URL must include a username",
+        )
+    })?;
+    let host = host_port
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(host_port);
+    if username.trim().is_empty() || host.trim().is_empty() {
+        return Err(Error::from_reason(
+            "WORKSPACE_SSH_URL_INVALID: SSH connection URL must include a username and host",
+        ));
+    }
+    let mut normalized_path = path.trim_end_matches('/').to_string();
+    if normalized_path.is_empty() {
+        normalized_path.push('/');
+    }
+    Ok(format!("ssh://{authority}{normalized_path}"))
+}
+
+/// SSH 目录的显示名（去掉协议前缀，与添加连接时的默认命名保持一致）。
+fn ssh_display_name(url: &str) -> String {
+    url.trim()
+        .strip_prefix("ssh://")
+        .unwrap_or(url.trim())
+        .to_string()
+}
+
+/// 与主进程 getSshProfileKey 一致的连接档案键（user@host:port）。
+fn ssh_profile_key(url: &str) -> Option<String> {
+    let rest = url.trim().strip_prefix("ssh://")?;
+    let authority = rest.split('/').next()?;
+    let (username, host_port) = authority.split_once('@')?;
+    // 与 parseSshUrl 相同：按首个冒号切 host 与 port（缺省 22）。
+    let (host, port) = match host_port.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().unwrap_or(22)),
+        None => (host_port, 22),
+    };
+    if username.is_empty() || host.is_empty() {
+        return None;
+    }
+    Some(format!("ssh-profile:{username}@{host}:{port}"))
+}
+
+/// SSH 工作区独有的项目键：远程草稿、文件评审标注、行内 diff 评论与项目级指令
+/// 随连接一起迁移，避免换用户名/主机/目录后这些数据变成孤儿。
+fn move_ssh_workspace_extras(
+    connection: &Connection,
+    from_id: &str,
+    to_id: &str,
+) -> rusqlite::Result<()> {
+    if table_exists(connection, "remote_drafts")? {
+        // 草稿同时绑定 profile（user@host:port）：换登录信息后同步改写，
+        // 否则旧草稿会因 profile 不匹配而查不到。
+        match ssh_profile_key(directory_path_from_id(to_id)) {
+            Some(profile_id) => {
+                connection.execute(
+                    "UPDATE OR REPLACE remote_drafts
+                        SET workspace_id = ?1, profile_id = ?2
+                      WHERE workspace_id = ?3",
+                    params![to_id, profile_id, from_id],
+                )?;
+            }
+            None => {
+                connection.execute(
+                    "UPDATE OR REPLACE remote_drafts SET workspace_id = ?1 WHERE workspace_id = ?2",
+                    params![to_id, from_id],
+                )?;
+            }
+        }
+    }
+
+    if table_exists(connection, "file_review_annotations")? {
+        connection.execute(
+            "UPDATE OR REPLACE file_review_annotations
+                SET source_key = 'ssh:' || ?1
+              WHERE source_key = 'ssh:' || ?2",
+            params![to_id, from_id],
+        )?;
+    }
+
+    for (table, column) in [
+        ("diff_review_comments", "directory_id"),
+        ("custom_commands", "project_id"),
+    ] {
+        if table_exists(connection, table)? {
+            connection.execute(
+                &format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2"),
+                params![to_id, from_id],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 fn count_move(connection: &Connection, from_id: &str) -> rusqlite::Result<MoveCounts> {
     let from_path = directory_path_from_id(from_id);
 
@@ -662,6 +774,8 @@ fn apply_move(connection: &Connection, from_id: &str, to_id: &str) -> rusqlite::
     }
 
     let settings_keys_moved = move_setting_keys(connection, from_id, to_id)?;
+    // SSH 专属键（草稿 profile、评审标注、diff 评论、项目指令）不参与通用循环
+    move_ssh_workspace_extras(connection, from_id, to_id)?;
     let paths_rewritten = rewrite_path_columns(
         connection,
         directory_path_from_id(from_id),
@@ -891,21 +1005,6 @@ pub fn relink_workspace_directory(
         ));
     }
 
-    let normalized_path = normalize_new_path(new_path);
-    if normalized_path.is_empty() {
-        return Err(Error::from_reason(
-            "WORKSPACE_RELINK_TARGET_NOT_DIR: target path is required".to_string(),
-        ));
-    }
-
-    let target_path = Path::new(&normalized_path);
-    if !target_path.is_dir() {
-        return Err(Error::from_reason(format!(
-            "WORKSPACE_RELINK_TARGET_NOT_DIR: '{}' is not an existing directory",
-            target_path.display()
-        )));
-    }
-
     let source = database::open_connection(database_path)
         .and_then(|connection| load_directory_row(&connection, old_id))
         .map_err(|error| {
@@ -925,14 +1024,33 @@ pub fn relink_workspace_directory(
         ));
     }
 
-    if source.kind == KIND_SSH {
-        return Err(Error::from_reason(
-            "WORKSPACE_RELINK_REMOTE_UNSUPPORTED: remote workspace directories cannot be relinked"
-                .to_string(),
-        ));
-    }
+    // SSH 目录的「迁移」= 修改连接（登录信息 / 端口 / 远程目录），目标不做本地磁盘校验。
+    let is_remote = source.kind == KIND_SSH;
+    let (normalized_path, target_dir) = if is_remote {
+        (normalize_ssh_target(new_path)?, None)
+    } else {
+        let normalized = normalize_new_path(new_path);
+        if normalized.is_empty() {
+            return Err(Error::from_reason(
+                "WORKSPACE_RELINK_TARGET_NOT_DIR: target path is required".to_string(),
+            ));
+        }
+        let target = Path::new(&normalized);
+        if !target.is_dir() {
+            return Err(Error::from_reason(format!(
+                "WORKSPACE_RELINK_TARGET_NOT_DIR: '{}' is not an existing directory",
+                target.display()
+            )));
+        }
+        let target_dir = target.to_path_buf();
+        (normalized, Some(target_dir))
+    };
 
-    let new_id = format!("{LOCAL_KIND}:{normalized_path}");
+    let new_id = if is_remote {
+        format!("{KIND_SSH}:{normalized_path}")
+    } else {
+        format!("{LOCAL_KIND}:{normalized_path}")
+    };
 
     if new_id == source.directory_id {
         let counts = MoveCounts {
@@ -968,16 +1086,31 @@ pub fn relink_workspace_directory(
         })?;
 
     let merged = existing_target.is_some();
-    let new_basename = path_basename(&normalized_path);
-    let derived_name =
-        source.name.trim().is_empty() || source.name.trim() == path_basename(&source.path);
+    // SSH 目录改连接时不允许并到已有目录：合并会删掉源记录，语义上更像「换连接失败」。
+    if is_remote && merged {
+        return Err(Error::from_reason(format!(
+            "WORKSPACE_RELINK_TARGET_OCCUPIED: remote workspace '{new_id}' already exists"
+        )));
+    }
+    // 默认名（本地=目录名，SSH=去掉协议前缀的连接串）：仍是默认名时跟随新目标更新
+    let source_default_name = if is_remote {
+        ssh_display_name(&source.path)
+    } else {
+        path_basename(&source.path)
+    };
+    let new_default_name = if is_remote {
+        ssh_display_name(&normalized_path)
+    } else {
+        path_basename(&normalized_path)
+    };
+    let derived_name = source.name.trim().is_empty() || source.name.trim() == source_default_name;
     let keep_name = if merged {
         existing_target
             .as_ref()
             .map(|target| target.name.clone())
             .unwrap_or_default()
     } else if derived_name {
-        new_basename.clone()
+        new_default_name
     } else {
         source.name.clone()
     };
@@ -1006,7 +1139,16 @@ pub fn relink_workspace_directory(
     }
 
     let relink_id = database::create_snowflake_id();
-    let identity = fs_identity(target_path);
+    // 远端目录没有本地身份信息，健康状态固定为 remote。
+    let target_state = if is_remote {
+        STATE_REMOTE
+    } else {
+        STATE_OK
+    };
+    let identity = target_dir
+        .as_deref()
+        .map(fs_identity)
+        .unwrap_or_default();
 
     let counts = run_in_transaction(database_path, "relink workspace directory", |connection| {
         warn_unregistered_project_key_tables(connection);
@@ -1042,7 +1184,7 @@ pub fn relink_workspace_directory(
                             updated_at = datetime('now', 'localtime')
                       WHERE directory_id = ?5",
                     params![
-                        STATE_OK,
+                        target_state,
                         identity,
                         normalized_path,
                         source.sort_order,
@@ -1071,7 +1213,7 @@ pub fn relink_workspace_directory(
                         new_id,
                         normalized_path,
                         keep_name,
-                        STATE_OK,
+                        target_state,
                         identity,
                         source.directory_id
                     ],
@@ -1209,15 +1351,18 @@ pub fn undo_workspace_directory_relink(
     } else {
         old_path.clone()
     };
-    let restored = Path::new(&restored_path);
-    let restored_exists = restored.is_dir();
-    let state = if restored_exists {
+    // 远端目录不校验本地磁盘，状态恒为 remote。
+    let restored_is_remote = source.kind == KIND_SSH;
+    let restored_exists = !restored_is_remote && Path::new(&restored_path).is_dir();
+    let state = if restored_is_remote {
+        STATE_REMOTE
+    } else if restored_exists {
         STATE_OK
     } else {
         STATE_MISSING
     };
     let restored_identity = if restored_exists {
-        fs_identity(restored)
+        fs_identity(Path::new(&restored_path))
     } else {
         String::new()
     };

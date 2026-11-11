@@ -80,6 +80,8 @@ type WorkspaceDirectoryListProps = {
   onRemoveFromCollection: (collectionId: string, directoryId: string) => void;
   /** 重命名目录显示名；返回 Promise 时提交期间保持编辑态直到完成 */
   onRename?: (directoryId: string, newName: string) => void | Promise<void>;
+  /** 编辑远程目录的连接信息（登录信息 / 端口 / 远程目录） */
+  onEditConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onRenameCollection: (collection: ProjectCollectionRecord) => void;
   onShowDetails?: (directoryId: string) => void;
   /** 查看该项目的迁移记录（含撤销入口） */
@@ -122,6 +124,7 @@ export function WorkspaceDirectoryList({
   onToggleMemberLinked,
   onRemoveFromCollection,
   onRename,
+  onEditConnection,
   onRenameCollection,
   onShowDetails,
   onShowRelinkHistory,
@@ -432,6 +435,7 @@ export function WorkspaceDirectoryList({
             }
             onRenameCancel={handleRenameCancel}
             onRenameSubmit={handleRenameSubmit}
+            onEditConnection={onEditConnection}
             onShowDetails={onShowDetails}
             onShowRelinkHistory={onShowRelinkHistory}
           />
@@ -633,6 +637,7 @@ export function WorkspaceDirectoryList({
                 onRenameCancel={handleRenameCancel}
                 onRenameStart={handleRenameStart}
                 onRenameSubmit={handleRenameSubmit}
+                onEditConnection={onEditConnection}
                 onShowDetails={onShowDetails}
                 onShowRelinkHistory={onShowRelinkHistory}
               />

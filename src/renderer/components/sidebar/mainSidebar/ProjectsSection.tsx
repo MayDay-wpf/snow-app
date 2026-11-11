@@ -34,6 +34,8 @@ type ProjectsSectionProps = {
   onSwitchContent?: (content: "main" | "explorer") => void;
   onSwitchToExplorer?: (directoryId: string) => void;
   onOpenSshWizard?: () => void;
+  /** 编辑远程目录的连接信息（登录信息 / 端口 / 远程目录） */
+  onEditSshConnection?: (directory: WorkspaceDirectoryRecord) => void;
   /** 会话区域是否已收起：收起时项目列表撑满剩余高度 */
   isChatsCollapsed: boolean;
 };
@@ -46,6 +48,7 @@ export function ProjectsSection({
   onSwitchingDirectoryChange,
   onSwitchToExplorer,
   onOpenSshWizard,
+  onEditSshConnection,
   isChatsCollapsed,
 }: ProjectsSectionProps): React.JSX.Element {
   const { t } = useI18n();
@@ -266,6 +269,7 @@ export function ProjectsSection({
               void removeProjectFromCollection(collectionId, directoryId)
             }
             onRename={handleRenameDirectory}
+            onEditConnection={onEditSshConnection}
             onRenameCollection={addFlow.handleRenameCollectionOpen}
             onShowDetails={handleShowDetails}
             onShowRelinkHistory={handleShowRelinkHistory}

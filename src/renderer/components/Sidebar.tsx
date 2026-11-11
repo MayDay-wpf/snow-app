@@ -16,6 +16,7 @@ import { rightPanelEvents } from "./rightPanel/rightPanelEvents";
 import { shortcutEvents } from "./shortcutEvents";
 import { APP_CONTROL_OPEN_SETTINGS_EVENT } from "../hooks/useAppControl";
 import type { MainContentView } from "./mainContent/types";
+import type { WorkspaceDirectoryRecord } from "../../preload";
 import type { SidebarContentKey, SidebarContentProps } from "./sidebar/types";
 
 // 资源管理器按需加载（与右侧面板共用同一 chunk），避免首次渲染时同步加载。
@@ -33,6 +34,8 @@ type SidebarProps = {
   onSelectMainView: SidebarContentProps["onSelectMainView"];
   /** 打开 SSH 连接向导；onCanceled 在向导被取消时回调（用于清理一次性状态）。 */
   onOpenSshWizard?: (options?: { onCanceled?: () => void }) => void;
+  /** 打开 SSH 连接向导编辑已有远程目录的连接信息。 */
+  onEditSshConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onOpenTerminal?: SidebarContentProps["onOpenTerminal"];
   onOpenFile?: (
     filePath: string,
@@ -52,6 +55,7 @@ export const Sidebar = ({
   onActiveDirectoryChange,
   onSelectMainView,
   onOpenSshWizard,
+  onEditSshConnection,
   onOpenTerminal,
   onOpenFile,
 }: SidebarProps): React.JSX.Element => {
@@ -219,6 +223,7 @@ export const Sidebar = ({
     onSwitchContent: handleSwitchContent,
     onSwitchToExplorer: handleSwitchToExplorer,
     onOpenSshWizard,
+    onEditSshConnection,
     onOpenTerminal,
     onOpenFile,
   };

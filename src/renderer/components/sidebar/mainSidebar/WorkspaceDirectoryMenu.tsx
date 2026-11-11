@@ -10,6 +10,7 @@ import {
   Link2,
   Loader2,
   Pencil,
+  ServerCog,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -51,6 +52,8 @@ type WorkspaceDirectoryMenuProps = {
   /** 从合集移出（关联成员行菜单项，非成员行不传） */
   onRemoveFromCollection?: () => void;
   onRename?: () => void;
+  /** 编辑远程目录的连接（登录信息 / 端口 / 远程目录），仅 SSH 目录提供 */
+  onEditConnection?: () => void;
   onShowDetails?: () => void;
   /** 查看该项目的迁移记录（含撤销入口） */
   onShowRelinkHistory?: () => void;
@@ -80,6 +83,7 @@ export function WorkspaceDirectoryMenu({
   onOpenChange,
   onRemoveFromCollection,
   onRename,
+  onEditConnection,
   onShowDetails,
   onShowRelinkHistory,
   contextMenuAnchor = null,
@@ -272,6 +276,14 @@ export function WorkspaceDirectoryMenu({
     onRename?.();
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
+  };
+
+  const handleEditConnectionClick = (): void => {
+    setIsButtonOpen(false);
+    onContextMenuCloseRef.current?.();
+    setShowConfirm(false);
+    setIsOpenWithOpen(false);
+    onEditConnection?.();
   };
 
   const handleDeleteClick = (): void => {
@@ -586,6 +598,21 @@ export function WorkspaceDirectoryMenu({
                     <span>
                       {t("sidebar.directoryActionRename", {
                         defaultValue: "Rename",
+                      })}
+                    </span>
+                  </button>
+                ) : null}
+                {kind === "ssh" && onEditConnection ? (
+                  <button
+                    type="button"
+                    className="workspace-directory-menu-item"
+                    onClick={handleEditConnectionClick}
+                    role="menuitem"
+                  >
+                    <ServerCog size={13} />
+                    <span>
+                      {t("sidebar.directoryActionEditConnection", {
+                        defaultValue: "Edit connection",
                       })}
                     </span>
                   </button>

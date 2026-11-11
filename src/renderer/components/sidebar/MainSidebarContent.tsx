@@ -93,6 +93,7 @@ export function MainSidebarContent({
   onSwitchContent,
   onSwitchToExplorer,
   onOpenSshWizard,
+  onEditSshConnection,
 }: SidebarContentProps): React.JSX.Element {
   const { t } = useI18n();
   const { mode: sidebarDisplayMode } = useSidebarDisplayMode();
@@ -800,6 +801,7 @@ export function MainSidebarContent({
           activeSessionDirectoryIds={activeSessionDirectoryIds}
           notificationGroups={crossProjectNotifications}
           onActiveDirectoryChange={onActiveDirectoryChange}
+          onEditSshConnection={onEditSshConnection}
           onOpenSshWizard={onOpenSshWizard}
           onSwitchToExplorer={onSwitchToExplorer}
           onSwitchingDirectoryChange={setIsSwitchingDirectory}
@@ -815,6 +817,7 @@ export function MainSidebarContent({
             onSwitchingDirectoryChange={setIsSwitchingDirectory}
             onSwitchContent={onSwitchContent}
             onSwitchToExplorer={onSwitchToExplorer}
+            onEditSshConnection={onEditSshConnection}
             onOpenSshWizard={onOpenSshWizard}
             isChatsCollapsed={isChatsCollapsed}
           />

@@ -42,6 +42,8 @@ type SidebarProjectTreeProps = {
   ) => void;
   onSwitchToExplorer?: (directoryId: string) => void;
   onOpenSshWizard?: () => void;
+  /** 编辑远程目录的连接信息（登录信息 / 端口 / 远程目录） */
+  onEditSshConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onSwitchingDirectoryChange: (isSwitchingDirectory: boolean) => void;
 };
 
@@ -52,6 +54,7 @@ export function SidebarProjectTree({
   onActiveDirectoryChange,
   onSwitchToExplorer,
   onOpenSshWizard,
+  onEditSshConnection,
   onSwitchingDirectoryChange,
 }: SidebarProjectTreeProps): React.JSX.Element {
   const { t } = useI18n();
@@ -537,6 +540,7 @@ export function SidebarProjectTree({
                   }
                   onRenameCollection={addFlow.handleRenameCollectionOpen}
                   onRenameDirectory={handleRenameDirectory}
+                  onEditConnection={onEditSshConnection}
                   onShowDetails={handleShowDetails}
                   onShowRelinkHistory={handleShowRelinkHistory}
                   onToggleCollection={handleToggleCollectionExpanded}
@@ -571,6 +575,7 @@ export function SidebarProjectTree({
                 }
                 onLinkProjects={openLinkProjects}
                 onRename={handleRenameDirectory}
+                onEditConnection={onEditSshConnection}
                 onShowDetails={handleShowDetails}
                 onShowRelinkHistory={handleShowRelinkHistory}
                 onToggle={handleToggleDirectory}

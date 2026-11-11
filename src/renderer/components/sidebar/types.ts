@@ -14,6 +14,8 @@ export type SidebarContentProps = {
   onSwitchToExplorer?: (directoryId: string) => void;
   /** 打开 SSH 连接向导；onCanceled 在向导被取消时回调（用于清理一次性状态）。 */
   onOpenSshWizard?: (options?: { onCanceled?: () => void }) => void;
+  /** 打开 SSH 连接向导编辑已有远程目录的连接信息。 */
+  onEditSshConnection?: (directory: WorkspaceDirectoryRecord) => void;
   /** 在指定路径打开终端（本地路径或 ssh:// 路径）；不传时使用当前活动目录。 */
   onOpenTerminal?: (cwd?: string) => void;
   onOpenFile?: (

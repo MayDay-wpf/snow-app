@@ -246,6 +246,34 @@ export class SshConnectionManager {
     return clonePublicState(entry);
   }
 
+  /**
+   * 凭据/连接参数变更后强制重建：断开现有传输并清空已缓存参数，
+   * 下次 acquire 会以新载荷重新握手（引用计数与状态广播保持不变）。
+   */
+  invalidate(profileId: string): void {
+    const entry = this.entries.get(profileId);
+    if (!entry) {
+      return;
+    }
+    if (entry.reconnectTimer) {
+      clearTimeout(entry.reconnectTimer);
+      entry.reconnectTimer = undefined;
+    }
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = undefined;
+    }
+    const sessionId = entry.sessionId;
+    entry.sessionId = undefined;
+    entry.status = "idle";
+    entry.reconnectAttempt = 0;
+    entry.lastError = undefined;
+    if (sessionId) {
+      disconnectSsh(sessionId);
+    }
+    this.emit(entry);
+  }
+
   dispose(): void {
     for (const entry of this.entries.values()) {
       this.stop(entry, "idle");

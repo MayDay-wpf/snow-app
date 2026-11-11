@@ -35,6 +35,8 @@ type TreeProjectNodeProps = {
   onToggle: (directoryId: string) => void;
   onDelete: (directoryId: string) => void;
   onRename: (directoryId: string, newName: string) => Promise<void>;
+  /** 编辑远程目录的连接信息（登录信息 / 端口 / 远程目录） */
+  onEditConnection?: (directory: WorkspaceDirectoryRecord) => void;
   onLinkProjects?: (directoryId: string) => void;
   onShowDetails?: (directoryId: string) => void;
   onShowRelinkHistory?: (directoryId: string) => void;
@@ -67,6 +69,7 @@ export function TreeProjectNode({
   onToggle,
   onDelete,
   onRename,
+  onEditConnection,
   onLinkProjects,
   onShowDetails,
   onShowRelinkHistory,
@@ -336,6 +339,9 @@ export function TreeProjectNode({
                 : undefined
             }
             onRename={handleRenameStart}
+            onEditConnection={
+              onEditConnection ? () => onEditConnection(directory) : undefined
+            }
             onShowDetails={
               onShowDetails ? () => onShowDetails(directoryId) : undefined
             }
