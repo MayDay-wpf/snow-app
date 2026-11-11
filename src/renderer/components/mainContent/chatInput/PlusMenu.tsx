@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -23,6 +24,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../../i18n";
+import { Tooltip } from "../../common/Tooltip";
 import { useReplyPredictionPreference } from "../../../hooks/useReplyPredictionPreference";
 import { useDropdownDirection } from "./useDropdownDirection";
 
@@ -87,7 +89,7 @@ type PlusToggleRowProps = {
   onChange?: () => void;
 };
 
-// 整行使用 label 承载原生激活，内部开关用 span，避免 JS 冒泡导致双重切换
+// 说明文字改为悬停 Tooltip，锁定提示一并合入
 const PlusToggleRow = ({
   icon: Icon,
   label,
@@ -98,30 +100,43 @@ const PlusToggleRow = ({
   lockedTitle,
   onChange,
 }: PlusToggleRowProps): React.JSX.Element => (
-  <label
-    className={`plus-menu-item plus-menu-yolo-item${locked ? " is-locked" : ""}`}
-    title={locked ? lockedTitle : undefined}
+  <Tooltip
+    placement="right"
+    content={
+      locked && lockedTitle ? (
+        <>
+          <div>{description}</div>
+          <div className="plus-menu-tooltip-locked">{lockedTitle}</div>
+        </>
+      ) : (
+        description
+      )
+    }
   >
-    <Icon size={14} className="plus-menu-item-icon" />
-    <span className="plus-menu-item-content">
-      <span className="plus-menu-item-label">{label}</span>
-      <span className="plus-menu-item-description">{description}</span>
-    </span>
-    <span className="toggle-switch plus-menu-yolo-switch">
-      <input
-        aria-label={label}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-        type="checkbox"
-      />
-      <span className="toggle-slider" />
-    </span>
-  </label>
+    {/* 整行使用 label 承载原生激活，内部开关用 span，避免 JS 冒泡导致双重切换 */}
+    <label
+      className={`plus-menu-item plus-menu-yolo-item${locked ? " is-locked" : ""}`}
+    >
+      <Icon size={14} className="plus-menu-item-icon" />
+      <span className="plus-menu-item-content">
+        <span className="plus-menu-item-label">{label}</span>
+      </span>
+      <span className="toggle-switch plus-menu-yolo-switch">
+        <input
+          aria-label={label}
+          checked={checked}
+          disabled={disabled}
+          onChange={onChange}
+          type="checkbox"
+        />
+        <span className="toggle-slider" />
+      </span>
+    </label>
+  </Tooltip>
 );
 
-// 模式二级面板尺寸（固定定位挂到 body，避免被下拉容器裁切）
-const MODE_FLYOUT_WIDTH = 300;
+// 模式二级面板定位参数（固定定位挂到 body，宽度随内容）
+const MODE_FLYOUT_MIN_WIDTH = 200;
 const MODE_FLYOUT_GAP = 6;
 
 export const PlusMenu = ({
@@ -271,9 +286,10 @@ export const PlusMenu = ({
     }
     const rect = trigger.getBoundingClientRect();
     const maxHeight = Math.min(420, Math.round(window.innerHeight * 0.6));
+    const width = modesFlyoutRef.current?.offsetWidth || MODE_FLYOUT_MIN_WIDTH;
     let left = rect.right + MODE_FLYOUT_GAP;
-    if (left + MODE_FLYOUT_WIDTH > window.innerWidth - 8) {
-      left = Math.max(8, rect.left - MODE_FLYOUT_WIDTH - MODE_FLYOUT_GAP);
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - width - MODE_FLYOUT_GAP);
     }
     const height = Math.min(
       modesFlyoutRef.current?.offsetHeight ?? maxHeight,
@@ -303,7 +319,8 @@ export const PlusMenu = ({
       window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", updateModeFlyoutPosition);
     };
-  }, [isModesOpen, updateModeFlyoutPosition]);
+    // goalMode 切换会增减预算行，需重新测量尺寸
+  }, [isModesOpen, goalMode, updateModeFlyoutPosition]);
 
   const modeItemTitle = modesLocked
     ? t("plusMenu.modeLockedRunning")
@@ -369,9 +386,8 @@ export const PlusMenu = ({
               <div className="plus-menu-section-title">{section.label}</div>
               {section.items.map((item) => {
                 const ItemIcon = item.icon;
-                return (
+                const button = (
                   <button
-                    key={item.id}
                     className="plus-menu-item"
                     onClick={() => handleItemClick(item)}
                     type="button"
@@ -379,13 +395,19 @@ export const PlusMenu = ({
                     <ItemIcon size={14} className="plus-menu-item-icon" />
                     <div className="plus-menu-item-content">
                       <span className="plus-menu-item-label">{item.label}</span>
-                      {item.description && (
-                        <span className="plus-menu-item-description">
-                          {item.description}
-                        </span>
-                      )}
                     </div>
                   </button>
+                );
+                return item.description ? (
+                  <Tooltip
+                    key={item.id}
+                    placement="right"
+                    content={item.description}
+                  >
+                    {button}
+                  </Tooltip>
+                ) : (
+                  <Fragment key={item.id}>{button}</Fragment>
                 );
               })}
               {sectionIndex < sections.length - 1 && (
@@ -472,7 +494,6 @@ export const PlusMenu = ({
                   ref={modesFlyoutRef}
                   className="plus-menu-modes-flyout"
                   style={{
-                    width: MODE_FLYOUT_WIDTH,
                     left: modeFlyoutPosition?.left ?? 0,
                     top: modeFlyoutPosition?.top ?? 0,
                     visibility: modeFlyoutPosition ? "visible" : "hidden",

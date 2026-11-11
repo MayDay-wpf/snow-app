@@ -29730,8 +29730,8 @@ button.user-message-source:hover {
 
 .plus-menu-dropdown {
   position: absolute;
-  min-width: 320px;
-  max-width: 360px;
+  min-width: 200px;
+  max-width: 280px;
   max-height: min(520px, 70vh);
   display: flex;
   flex-direction: column;
@@ -29878,6 +29878,19 @@ button.user-message-source:hover {
   margin: 4px 8px;
   background: var(--border-light);
 }
+
+/* 菜单项外包 Tooltip 时撑满整行 */
+.plus-menu-dropdown .tooltip-wrapper,
+.plus-menu-modes-flyout .tooltip-wrapper {
+  display: flex;
+  width: 100%;
+}
+
+.plus-menu-tooltip-locked {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
 .plus-menu-yolo-item {
   cursor: pointer;
 }
@@ -29917,6 +29930,9 @@ button.user-message-source:hover {
 .plus-menu-modes-flyout {
   position: fixed;
   z-index: 120;
+  width: max-content;
+  min-width: 200px;
+  max-width: 360px;
   max-height: min(420px, 60vh);
   overflow-y: auto;
   overscroll-behavior: contain;

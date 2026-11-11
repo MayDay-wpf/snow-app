@@ -928,6 +928,8 @@ pub fn list_user_messages(
                     AND role = 'user'
                     -- 机器注入的宿主事实消息不进入用户消息导航。
                     AND content NOT LIKE '## Host Facts%'
+                    -- 折叠压缩续跑提示（内部消息）同样不进入导航。
+                    AND NOT (origin = 'internal' AND content LIKE '[Context compressed]%')
                   ORDER BY id ASC",
             )?;
 

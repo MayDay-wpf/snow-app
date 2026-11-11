@@ -223,8 +223,12 @@ export const useCompaction = (ctx: ConversationContextValue) => {
           });
         }
 
+        // 用库行 id：用户消息导航按库 id 定位 DOM，响应 id 对不上。
         const compactionMessage: ChatConversationMessage = {
-          id: response.id || createMessageId("user"),
+          id:
+            response.persistedUserMessageIds?.[0] ||
+            response.id ||
+            createMessageId("user"),
           role: "user",
           origin: "internal",
           content,

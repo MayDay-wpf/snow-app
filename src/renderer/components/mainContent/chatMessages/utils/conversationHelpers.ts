@@ -286,6 +286,9 @@ type McpImageContentBlock = {
  */
 const HOST_FACTS_MARKER = "## Host Facts";
 
+/** 折叠压缩续跑提示首行，同属模型上下文；与 context_fold.rs 的 FOLD_RESUME_PROMPT 一致。 */
+const FOLD_RESUME_MARKER = "[Context compressed]";
+
 /** 图片块：带真实 base64，或 data 为占位符、图片已由 Rust 落盘到 upload/。 */
 const isMcpImageContentBlock = (
   value: unknown,
@@ -818,7 +821,8 @@ export const buildConversationMessages = (
           record.role === "user" &&
           record.origin === "internal" &&
           (/^\n\n\[Hook (?:Warning|Context)\]\n/.test(record.content) ||
-            record.content.startsWith(HOST_FACTS_MARKER))
+            record.content.startsWith(HOST_FACTS_MARKER) ||
+            record.content.startsWith(FOLD_RESUME_MARKER))
         ),
     )
     .map((record) => {
