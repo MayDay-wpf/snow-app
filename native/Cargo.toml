@@ -144,6 +144,7 @@ codegen-units = 4
 # -- local: npm run build 使用，关 LTO + 增量 + 高并行，改动后快速重编 --
 [profile.local]
 inherits = "release"
-lto = false
+# "off" 关闭 crate 内 thin-local LTO：它与增量编译叠加会留下悬空的 .llvm.<hash> 符号，调用即 SIGSEGV
+lto = "off"
 codegen-units = 256
 incremental = true

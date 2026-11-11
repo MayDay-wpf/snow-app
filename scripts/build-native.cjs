@@ -128,6 +128,55 @@ function getArtifactPath(t) {
   return join(nativeDir, "target", t.triple, buildProfile, t.artifact);
 }
 
+// 增量产物偶发把 crate 内部符号链接成未定义的 .llvm.<hash>，dylib 允许动态查找故链接不报错，运行时调用即空指针崩溃。
+function findDanglingLlvmSymbols(artifactPath) {
+  if (process.platform === "win32") return [];
+  const result = spawnSync("nm", ["-u", artifactPath], {
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (result.status !== 0 || !result.stdout) return [];
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes(".llvm."));
+}
+
+// 检出悬空符号时清掉本 crate 的增量缓存重编一次，仍有则中断构建。
+function ensureNoDanglingSymbols(t) {
+  const artifactPath = getArtifactPath(t);
+  let dangling = findDanglingLlvmSymbols(artifactPath);
+  if (dangling.length === 0) return;
+  console.warn(
+    `Detected ${dangling.length} dangling .llvm symbols in ${artifactPath}, cleaning snow_native and rebuilding...`,
+  );
+  const cleanResult = spawnSync(
+    cargoCommand,
+    [
+      "clean",
+      "--manifest-path",
+      join(nativeDir, "Cargo.toml"),
+      "--profile",
+      buildProfile,
+      "--target",
+      t.triple,
+      "-p",
+      "snow_native",
+    ],
+    { cwd: projectRoot, stdio: "inherit" },
+  );
+  if (cleanResult.status !== 0) {
+    process.exit(cleanResult.status ?? 1);
+  }
+  runCargoBuild(t.triple);
+  dangling = findDanglingLlvmSymbols(artifactPath);
+  if (dangling.length > 0) {
+    throw new Error(
+      `Native artifact still has dangling symbols:\n${dangling.slice(0, 10).join("\n")}`,
+    );
+  }
+}
+
 function copyNativeBinding(artifactPath, outputPath, platformName) {
   // 先写临时文件再原子替换：原地覆盖会让 macOS 代码签名缓存命中旧 inode，
   // 新版进程加载该 .node 时会被内核以 SIGKILL(Code Signature Invalid) 终止。
@@ -181,6 +230,7 @@ if (buildUniversal) {
   for (const t of darwinTargets) {
     console.log(`Building Rust native for ${t.triple}...`);
     runCargoBuild(t.triple);
+    ensureNoDanglingSymbols(t);
   }
 
   const arm64Artifact = getArtifactPath(darwinTargets[0]);
@@ -240,6 +290,7 @@ if (buildUniversal) {
     throw new Error(`Cargo build artifact not found: ${artifactPath}`);
   }
 
+  ensureNoDanglingSymbols(target);
   copyNativeBinding(artifactPath, outputPath, target.platformName);
 
   const staleUniversal = join(nativeDir, darwinUniversalOutput);
