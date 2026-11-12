@@ -54,3 +54,12 @@ rust_xlsxwriter = "0.96"
 pdf-extract = "0.12"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

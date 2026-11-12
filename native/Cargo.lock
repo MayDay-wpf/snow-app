@@ -3937,6 +3937,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
+ "winreg",
 ]
 
 [[package]]
@@ -3982,6 +3983,7 @@ dependencies = [
  "snow-support",
  "tokio",
  "windows-sys 0.59.0",
+ "winreg",
 ]
 
 [[package]]
@@ -4192,6 +4194,7 @@ dependencies = [
  "tiktoken-rs",
  "tokio",
  "uuid",
+ "windows-sys 0.59.0",
  "zip 8.6.0",
 ]
 
