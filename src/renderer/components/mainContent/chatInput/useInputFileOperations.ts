@@ -13,6 +13,7 @@ import {
   INSERT_FILE_TAGS_EVENT,
   INSERT_QUOTE_TAG_EVENT,
   buildTextSnippetSummary,
+  createChipHtml,
   createElementChipHtml,
   createFileSelectionChipHtml,
   createImageChipHtml,
@@ -35,6 +36,7 @@ import {
 } from "./fileTagUtils";
 import { TEXT_SNIPPET_THRESHOLD } from "./constants";
 import { attachEditableHistory, getEditableHistory } from "./editableHistory";
+import { captureSelectionIn, placeSelectionAt } from "./dropCaret";
 import { type PlusMenuSection } from "./PlusMenu";
 import {
   TERMINAL_INSERT_TEXT_EVENT,
@@ -60,8 +62,8 @@ export type InputFileOperationsResult = {
   insertFileTags: (tags: (MentionTag | FileSelectionTag)[]) => void;
   insertElementTag: (tag: ElementTag) => void;
   insertImageFromFile: (file: File) => void;
-  insertImageFiles: (files: File[]) => void;
-  insertExternalFiles: (files: File[]) => void;
+  insertImageFiles: (files: File[], target?: Range | null) => void;
+  insertExternalFiles: (files: File[], target?: Range | null) => void;
   insertDroppedPlainText: (text: string) => void;
   insertWebTag: (tag: WebTag) => void;
   handleSelectFiles: () => Promise<void>;
@@ -94,6 +96,26 @@ const findWebChipByUrl = (
   }
   return exact ?? fallback;
 };
+
+const readImageChipHtml = (file: File): Promise<string | null> =>
+  new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        resolve(null);
+        return;
+      }
+      const mimeMatch = file.type.match(/^image\/([a-z]+)$/);
+      const imageTag: ImageTag = {
+        name: `image.${mimeMatch ? mimeMatch[1] : "png"}`,
+        dataUrl,
+      };
+      resolve(createImageChipHtml(imageTag));
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
 
 export const useInputFileOperations = ({
   textareaRef,
@@ -411,102 +433,89 @@ export const useInputFileOperations = ({
     };
   }, [syncContent, textareaRef]);
 
-  const insertImageFromFile = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        if (!dataUrl) {
-          return;
-        }
-        const mimeMatch = file.type.match(/^image\/([a-z]+)$/);
-        const imageTag: ImageTag = {
-          name: `image.${mimeMatch ? mimeMatch[1] : "png"}`,
-          dataUrl,
-        };
-        if (textareaRef.current) {
-          textareaRef.current.focus();
-        }
-        insertHtmlAtSelection(createImageChipHtml(imageTag));
-        syncContent();
-      };
-      reader.readAsDataURL(file);
+  // 异步插入的落点：显式传入的拖放位置优先，否则取调用时的光标
+  const captureAnchor = useCallback(
+    (target?: Range | null): Range | null =>
+      target ??
+      captureSelectionIn(textareaRef.current) ??
+      lastCaretRangeRef.current?.cloneRange() ??
+      null,
+    [textareaRef],
+  );
+
+  // 多段 chip 按原顺序一次插入到落点，撤销栈只记一步
+  const insertChipsAt = useCallback(
+    (parts: (string | null)[], anchor: Range | null) => {
+      const el = textareaRef.current;
+      const html = parts.filter((part): part is string => !!part).join(" ");
+      if (!el || !html) {
+        return;
+      }
+      placeSelectionAt(el, anchor);
+      insertHtmlAtSelection(html);
+      syncContent();
     },
     [syncContent, textareaRef],
   );
 
+  const insertImageFiles = useCallback(
+    (files: File[], target?: Range | null) => {
+      if (files.length === 0) {
+        return;
+      }
+      const anchor = captureAnchor(target);
+      void Promise.all(files.map(readImageChipHtml)).then((parts) => {
+        insertChipsAt(parts, anchor);
+      });
+    },
+    [captureAnchor, insertChipsAt],
+  );
+
+  const insertImageFromFile = useCallback(
+    (file: File) => {
+      insertImageFiles([file]);
+    },
+    [insertImageFiles],
+  );
+
   const insertExternalFiles = useCallback(
-    (files: File[]) => {
+    (files: File[], target?: Range | null) => {
       if (!files || files.length === 0) {
         return;
       }
+      const anchor = captureAnchor(target);
       void window.snow
         .resolveDroppedFiles(files)
-        .then((entries) => {
-          if (entries.length === 0) {
-            return;
-          }
-          const imageFiles: File[] = [];
-          const fileTags: FileTag[] = [];
-          entries.forEach((entry, idx) => {
-            const matchedFile = files[idx];
-            const isImage =
-              !entry.isDirectory &&
-              ((matchedFile && matchedFile.type.startsWith("image/")) ||
-                /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(entry.path));
-            if (isImage && matchedFile) {
-              imageFiles.push(matchedFile);
-            } else {
+        .then((entries) =>
+          Promise.all(
+            entries.map((entry, idx): Promise<string | null> => {
+              const matchedFile = files[idx];
+              const isImage =
+                !entry.isDirectory &&
+                ((matchedFile && matchedFile.type.startsWith("image/")) ||
+                  /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(entry.path));
+              if (isImage && matchedFile) {
+                return readImageChipHtml(matchedFile);
+              }
               const name =
                 entry.path.split(/[\\/]/).filter(Boolean).pop() || entry.path;
-              fileTags.push({
+              const tag: FileTag = {
                 path: entry.path,
                 name,
                 isDirectory: entry.isDirectory,
-              });
-            }
-          });
-          for (const imageFile of imageFiles) {
-            insertImageFromFile(imageFile);
-          }
-          if (fileTags.length > 0) {
-            insertFileTags(fileTags);
-          }
+              };
+              return Promise.resolve(createChipHtml(tag));
+            }),
+          ),
+        )
+        .then((parts) => {
+          insertChipsAt(parts, anchor);
         })
         .catch(() => {
           // Ignore path resolution failures
         });
     },
-    [insertFileTags, insertImageFromFile],
-  );
-
-  const insertImageFiles = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) {
-        return;
-      }
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-      }
-      for (const file of files) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          if (!dataUrl) {
-            return;
-          }
-          const mimeMatch = file.type.match(/^image\/([a-z]+)$/);
-          const imageTag: ImageTag = {
-            name: `image.${mimeMatch ? mimeMatch[1] : "png"}`,
-            dataUrl,
-          };
-          insertHtmlAtSelection(createImageChipHtml(imageTag));
-          syncContent();
-        };
-        reader.readAsDataURL(file);
-      }
-    },
-    [syncContent, textareaRef],
+    [captureAnchor, insertChipsAt],
   );
 
   const insertDroppedPlainText = useCallback(

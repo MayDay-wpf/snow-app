@@ -39,6 +39,13 @@ import {
 } from "../../sidebar/mainSidebar/conversationDrag";
 import type { InputFileOperationsResult } from "./useInputFileOperations";
 import type { SendKeyMode } from "./types";
+import {
+  autoScrollForDrag,
+  createDropCaretIndicator,
+  placeSelectionAt,
+  resolveDropRange,
+  type DropCaretIndicator,
+} from "./dropCaret";
 
 type HistoryMessage = {
   content: string;
@@ -62,7 +69,6 @@ type UseContentEditableInteractionsOptions = {
     | "syncContent"
     | "insertFileTag"
     | "insertFileTags"
-    | "insertImageFromFile"
     | "insertImageFiles"
     | "insertExternalFiles"
     | "insertDroppedPlainText"
@@ -119,7 +125,6 @@ export const useContentEditableInteractions = ({
     syncContent,
     insertFileTag,
     insertFileTags,
-    insertImageFromFile,
     insertImageFiles,
     insertExternalFiles,
     insertDroppedPlainText,
@@ -135,7 +140,32 @@ export const useContentEditableInteractions = ({
   const commandPanelRef = useRef<CommandPanelHandle>(null);
   const commandTriggerRef = useRef<HTMLButtonElement>(null);
   const isDraggingOverRef = useRef(false);
+  const dropCaretRef = useRef<DropCaretIndicator | null>(null);
   const historyIndexRef = useRef(-1);
+
+  const clearDragState = useCallback(() => {
+    isDraggingOverRef.current = false;
+    textareaRef.current?.classList.remove("drag-over");
+    dropCaretRef.current?.hide();
+  }, [textareaRef]);
+
+  // 拖拽在别处结束/取消时兜底收起指示条
+  useEffect(() => {
+    window.addEventListener("dragend", clearDragState, true);
+    window.addEventListener("drop", clearDragState, true);
+    return () => {
+      window.removeEventListener("dragend", clearDragState, true);
+      window.removeEventListener("drop", clearDragState, true);
+    };
+  }, [clearDragState]);
+
+  useEffect(
+    () => () => {
+      dropCaretRef.current?.dispose();
+      dropCaretRef.current = null;
+    },
+    [],
+  );
 
   const deleteMentionQuery = useCallback(() => {
     const el = textareaRef.current;
@@ -281,8 +311,7 @@ export const useContentEditableInteractions = ({
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
-      isDraggingOverRef.current = false;
-      textareaRef.current?.classList.remove("drag-over");
+      clearDragState();
 
       const terminalData = event.dataTransfer.getData(TERMINAL_DRAG_MIME);
       if (terminalData) {
@@ -295,6 +324,15 @@ export const useContentEditableInteractions = ({
           // Ignore malformed terminal drag data
         }
         return;
+      }
+
+      // 按松手坐标定位插入点；异步插入沿用这一落点
+      const root = textareaRef.current;
+      const dropRange = root
+        ? resolveDropRange(root, event.clientX, event.clientY)
+        : null;
+      if (root) {
+        placeSelectionAt(root, dropRange);
       }
 
       const conversationPayload = readConversationDragPayload(
@@ -319,8 +357,9 @@ export const useContentEditableInteractions = ({
       const imageFiles = droppedFiles.filter((file) =>
         file.type.startsWith("image/"),
       );
-      if (imageFiles.length > 0) {
-        insertImageFiles(imageFiles);
+      // 纯图片直接读图；混合文件走路径解析，保持原始顺序
+      if (imageFiles.length > 0 && imageFiles.length === droppedFiles.length) {
+        insertImageFiles(imageFiles, dropRange);
         return;
       }
 
@@ -335,7 +374,7 @@ export const useContentEditableInteractions = ({
               files.push(file);
             }
           }
-          insertExternalFiles(files);
+          insertExternalFiles(files, dropRange);
           return;
         }
         const plainText = event.dataTransfer.getData("text/plain");
@@ -469,6 +508,7 @@ export const useContentEditableInteractions = ({
       }
     },
     [
+      clearDragState,
       endConversationDrag,
       insertDroppedPlainText,
       insertExternalFiles,
@@ -496,6 +536,7 @@ export const useContentEditableInteractions = ({
           payload.directoryId === effectiveDirectoryId &&
           (!hasTarget || payload.conversationId !== activeConversationId);
         if (!conversationAllowed) {
+          clearDragState();
           return;
         }
       }
@@ -508,17 +549,34 @@ export const useContentEditableInteractions = ({
         hasTerminal ||
         hasConversationDrag;
       if (!allowed) {
+        clearDragState();
         return;
       }
       event.preventDefault();
       event.dataTransfer.dropEffect = hasTerminal ? "link" : "copy";
-      if (!isDraggingOverRef.current && textareaRef.current) {
-        isDraggingOverRef.current = true;
-        textareaRef.current.classList.add("drag-over");
+      const root = textareaRef.current;
+      if (!root) {
+        return;
       }
+      if (!isDraggingOverRef.current) {
+        isDraggingOverRef.current = true;
+        root.classList.add("drag-over");
+      }
+      autoScrollForDrag(root, event.clientY);
+      // 终端拖入是开启监听而非插入内容，不显示插入位置
+      if (hasTerminal) {
+        dropCaretRef.current?.hide();
+        return;
+      }
+      dropCaretRef.current ??= createDropCaretIndicator();
+      dropCaretRef.current.show(
+        root,
+        resolveDropRange(root, event.clientX, event.clientY),
+      );
     },
     [
       activeConversationId,
+      clearDragState,
       conversationDirectoryId,
       isSubAgentConversation,
       projectId,
@@ -528,12 +586,14 @@ export const useContentEditableInteractions = ({
 
   const handleDragLeave = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      if (event.currentTarget === event.target) {
-        isDraggingOverRef.current = false;
-        textareaRef.current?.classList.remove("drag-over");
+      // 移入内部 chip 也会触发 dragleave，只在真正离开编辑区时清理
+      const related = event.relatedTarget as Node | null;
+      if (related && event.currentTarget.contains(related)) {
+        return;
       }
+      clearDragState();
     },
-    [textareaRef],
+    [clearDragState],
   );
 
   const checkInputTriggers = useCallback(() => {
@@ -669,12 +729,14 @@ export const useContentEditableInteractions = ({
         }
       }
       if (imageItems.length > 0) {
+        const imageFiles: File[] = [];
         for (const imageItem of imageItems) {
           const file = imageItem.getAsFile();
           if (file) {
-            insertImageFromFile(file);
+            imageFiles.push(file);
           }
         }
+        insertImageFiles(imageFiles);
       }
       if (fileItems.length > 0) {
         const pastedFiles: File[] = [];
@@ -753,7 +815,7 @@ export const useContentEditableInteractions = ({
     [
       checkInputTriggers,
       insertExternalFiles,
-      insertImageFromFile,
+      insertImageFiles,
       isMentionOpen,
       syncContent,
       textareaRef,

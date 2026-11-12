@@ -28896,6 +28896,25 @@ button.user-message-source:hover {
   background: var(--focus-ring);
 }
 
+/* 拖放插入位置指示条（dropCaret.ts，fixed 挂在 body） */
+.chat-drop-caret {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text-primary);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.08s ease;
+}
+
+.chat-drop-caret.visible {
+  opacity: 1;
+}
+
 /* ===== 输入框手动高度 / 大屏输入 ===== */
 /* 顶部拖拽把手 */
 .input-resize-handle {
