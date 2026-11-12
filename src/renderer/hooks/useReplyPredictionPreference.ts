@@ -21,6 +21,9 @@ const subscribe = (listener: () => void): (() => void) => {
 
 const getSnapshot = (): boolean => current;
 
+/** 非组件场景同步读取开关。 */
+export const isReplyPredictionEnabled = getSnapshot;
+
 /** 回复预测开关（默认关闭），模块级共享，多处订阅即时同步。 */
 export const useReplyPredictionPreference = (): {
   replyPredictionEnabled: boolean;

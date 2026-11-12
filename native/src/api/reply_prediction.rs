@@ -132,7 +132,7 @@ fn prepare(conversation_id: &str, profile: Option<&str>) -> Result<Option<Prepar
         .and_then(|item| item.get("role"))
         .and_then(serde_json::Value::as_str)
         == Some("assistant");
-    if !last_is_assistant {
+    if !last_is_assistant || is_delegated_conversation(&path, conversation_id)? {
         return Ok(None);
     }
 
@@ -172,6 +172,20 @@ fn prepare(conversation_id: &str, profile: Option<&str>) -> Result<Option<Prepar
         payload: crate::mcp::privacy_mask::mask_local(&payload),
         usage,
     }))
+}
+
+/// 子代理与编排节点会话由上游驱动，用户不会在其中输入，不做预测。
+fn is_delegated_conversation(path: &Path, conversation_id: &str) -> Result<bool> {
+    let error = |_: rusqlite::Error| Error::from_reason("Unable to read reply prediction context");
+    let connection = crate::storage::database::open_connection(path).map_err(error)?;
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sub_agent_sessions WHERE conversation_id = ?1)
+                 OR EXISTS(SELECT 1 FROM workflow_node_sessions WHERE conversation_id = ?1)",
+            params![conversation_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(error)
 }
 
 /// 最近若干轮的 user/assistant 正文：助手消息取尾部，用户消息取头部。
@@ -286,9 +300,7 @@ fn sanitize_prediction(raw: &str) -> String {
             text = rest.trim_start();
         }
     }
-    let text = text.trim_matches(|c: char| {
-        matches!(c, '"' | '\'' | '`' | '“' | '”' | '「' | '」')
-    });
+    let text = strip_wrapping_quotes(text);
     if is_assistant_voice(text) {
         return String::new();
     }
@@ -298,6 +310,40 @@ fn sanitize_prediction(raw: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+/// 开闭引号对（含中文与日文引号）。
+const QUOTE_PAIRS: [(char, char); 7] = [
+    ('"', '"'),
+    ('\'', '\''),
+    ('`', '`'),
+    ('“', '”'),
+    ('‘', '’'),
+    ('「', '」'),
+    ('『', '』'),
+];
+
+/// 只剥离模型额外包裹的外层引号：首尾成对且内部不含同类引号才算外层，
+/// 正文自带的引号（如 `"输入框"有问题`、单个开头引号）原样保留。
+fn strip_wrapping_quotes(text: &str) -> &str {
+    let mut text = text.trim();
+    loop {
+        let mut chars = text.chars();
+        let (Some(first), Some(last)) = (chars.next(), chars.next_back()) else {
+            return text;
+        };
+        let Some(&(open, close)) = QUOTE_PAIRS
+            .iter()
+            .find(|(open, close)| *open == first && *close == last)
+        else {
+            return text;
+        };
+        let inner = &text[first.len_utf8()..text.len() - last.len_utf8()];
+        if inner.contains(open) || inner.contains(close) {
+            return text;
+        }
+        text = inner.trim();
+    }
 }
 
 /// 助手口吻的典型开场白。模型偶尔会退化成「需要我帮你……吗」这类补充询问，

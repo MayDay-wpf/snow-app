@@ -728,8 +728,6 @@ export const ChatInputView = ({
       isStreaming,
       disabled: isSubAgentConversation,
       value,
-      apiProfile: selectedApiProfile || undefined,
-      messages,
     },
   );
   // 回滚目标列表优先接管按键：列表打开时 ↑/↓/Enter/Esc 不再触达输入区逻辑

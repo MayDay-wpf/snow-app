@@ -23,6 +23,10 @@ import { useI18n } from "../../../../i18n";
 import { acquireSshWorkspaceLease } from "../../../../ssh/sshConnectionStore";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import {
+  discardReplyPrediction,
+  scheduleReplyPrediction,
+} from "../../chatInput/replyPredictionStore";
+import {
   parseContentSegments,
   summarizeContentAsPlainText,
 } from "../../chatInput/fileTagUtils";
@@ -442,6 +446,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
         sessionRef.isAbortRequested = false;
         sessionRef.runId = currentRunId;
         sessionRef.activeSendOptions = capturedOptions;
+        discardReplyPrediction(sessionKey);
         if (!internalSubAgentInput)
           sessionRef.activeTaskMessages = [
             {
@@ -2503,6 +2508,42 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               }
             }
             scheduleSubAgentParent(finalSessionKey, ctx);
+          }
+
+          // 回复预测：不论会话是否在前台都调度，结果存入会话池，切回时显示。
+          if (
+            ownsSession &&
+            !runFailed() &&
+            !isRunCancelled(finalSessionKey) &&
+            !isPendingSessionKey(finalSessionKey)
+          ) {
+            const predictionKey = finalSessionKey;
+            scheduleReplyPrediction({
+              conversationId: predictionKey,
+              apiProfile: capturedOptions.apiProfile || undefined,
+              canPredict: () => {
+                const predictionRef =
+                  ctx.sessionsRefData.current.get(predictionKey);
+                if (
+                  !predictionRef ||
+                  predictionRef.isSending ||
+                  predictionRef.subAgentTerminated ||
+                  ctx.subAgentSessionEventsRef.current[predictionKey] ||
+                  (ctx.inputDraftsRef.current[predictionKey] ?? "").trim()
+                ) {
+                  return false;
+                }
+                const messages =
+                  ctx.sessionsRef.current[predictionKey]?.messages ?? [];
+                const last = messages[messages.length - 1];
+                return (
+                  last?.role === "assistant" &&
+                  last.status !== "error" &&
+                  last.status !== "incomplete" &&
+                  last.status !== "sending"
+                );
+              },
+            });
           }
 
           // If this is a background conversation (not the active one),
