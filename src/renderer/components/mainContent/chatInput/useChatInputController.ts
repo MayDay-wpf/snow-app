@@ -46,6 +46,7 @@ import {
   placeCaretAtEditableEnd,
   renumberImageChips,
 } from "./fileTagUtils";
+import { getEditableHistory } from "./editableHistory";
 type UseChatInputControllerParams = {
   projectId?: string;
   conversationId?: string;
@@ -504,6 +505,7 @@ export const useChatInputController = ({
     if (autoSendTextarea) {
       autoSendTextarea.innerHTML = "";
       autoSendTextarea.dataset.empty = "true";
+      getEditableHistory(autoSendTextarea)?.reset();
       adjustHeight();
     }
     setValue("");
@@ -553,6 +555,8 @@ export const useChatInputController = ({
       textarea.dataset.empty = isEditableContentEmpty(draftToRestore)
         ? "true"
         : "false";
+      // 回滚写回可撤销，撤销后回到写回前的输入
+      getEditableHistory(textarea)?.record();
       // 回滚消息已回写：同步清除该会话的旧草稿。否则 onDraftRestored 把
       // draftToRestore 置回 null 后，草稿恢复 effect 会用回滚前的输入内容
       // 覆盖刚回写的消息（输入框非空时回滚即触发，表现为"消息有概率无法回写"）。
@@ -583,8 +587,9 @@ export const useChatInputController = ({
     [adjustHeight, conversationId, saveInputDraft],
   );
 
+  // resetHistory：切换会话恢复草稿时清空撤销栈；其余整体替换记为可撤销一步
   const restoreContent = useCallback(
-    (content: string) => {
+    (content: string, options?: { resetHistory?: boolean }) => {
       setValue(content);
       // 同步镜像：/clear 会令 ChatInput 因 key 变化重建，重建前若只靠
       // setValue 的异步更新，卸载清理会用旧值（如过滤词 /clear）把残留
@@ -600,6 +605,12 @@ export const useChatInputController = ({
         textareaRef.current.dataset.empty = isEditableContentEmpty(content)
           ? "true"
           : "false";
+        const history = getEditableHistory(textareaRef.current);
+        if (options?.resetHistory) {
+          history?.reset();
+        } else {
+          history?.record();
+        }
         requestAnimationFrame(() => {
           adjustHeight();
           focusEditableAtEnd(textareaRef.current);
@@ -620,7 +631,7 @@ export const useChatInputController = ({
     }
     const draft = getInputDraft?.(conversationId);
     if (draft) {
-      restoreContent(draft);
+      restoreContent(draft, { resetHistory: true });
     }
   }, [
     conversationId,
@@ -716,6 +727,7 @@ export const useChatInputController = ({
       if (textareaRef.current) {
         textareaRef.current.innerHTML = "";
         textareaRef.current.dataset.empty = "true";
+        getEditableHistory(textareaRef.current)?.reset();
         requestAnimationFrame(() => {
           adjustHeight();
         });

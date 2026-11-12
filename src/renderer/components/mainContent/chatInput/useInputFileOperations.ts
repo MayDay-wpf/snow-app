@@ -1,5 +1,11 @@
 import { FilePlus, FolderPlus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import {
@@ -28,6 +34,7 @@ import {
   type WebTag,
 } from "./fileTagUtils";
 import { TEXT_SNIPPET_THRESHOLD } from "./constants";
+import { attachEditableHistory, getEditableHistory } from "./editableHistory";
 import { type PlusMenuSection } from "./PlusMenu";
 import {
   TERMINAL_INSERT_TEXT_EVENT,
@@ -142,6 +149,7 @@ export const useInputFileOperations = ({
     }
   }, [textareaRef]);
 
+  // 所有内容变化都经 syncContent，在此统一记入撤销栈
   const syncContent = useCallback(() => {
     if (textareaRef.current) {
       renumberImageChips();
@@ -150,8 +158,26 @@ export const useInputFileOperations = ({
       textareaRef.current.dataset.empty = isEditableContentEmpty(content)
         ? "true"
         : "false";
+      getEditableHistory(textareaRef.current)?.record(content);
     }
   }, [handleChange, renumberImageChips, textareaRef]);
+
+  const syncContentRef = useRef(syncContent);
+  useLayoutEffect(() => {
+    syncContentRef.current = syncContent;
+  }, [syncContent]);
+
+  // layout 阶段挂载，早于草稿恢复等 effect，保证基线为初始内容
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) {
+      return;
+    }
+    return attachEditableHistory(el, {
+      readContent: readEditableContent,
+      onRestore: () => syncContentRef.current(),
+    });
+  }, [textareaRef]);
 
   const insertFileTag = useCallback(
     (tag: MentionTag) => {
@@ -372,6 +398,8 @@ export const useInputFileOperations = ({
           inserted.after(document.createTextNode(" "));
         }
       }
+      // 异步快照补全不是用户操作，并入网页引用插入那一步
+      getEditableHistory(el)?.amendNext();
       syncContent();
     };
     window.addEventListener(WEB_SNAPSHOT_RESULT_EVENT, handleSnapshotResult);
