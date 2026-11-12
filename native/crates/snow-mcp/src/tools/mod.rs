@@ -1,0 +1,2181 @@
+use std::path::Path;
+use std::time::{Duration, Instant};
+
+use futures::{stream, StreamExt};
+use napi::bindgen_prelude::*;
+use serde_json::Value;
+
+use crate::mcp::servers::bash::stream_io::emit_stream_chunk;
+use crate::mcp::servers::bash::BashStreamCallback;
+use crate::storage::services::checkpoint::remote::RemoteCheckpointClient;
+use crate::storage::services::checkpoint::CheckpointWorktreeCapture;
+use crate::storage::services::system_settings::{McpGlobalScopeSettings, McpProjectScopeSettings};
+
+enum ToolCheckpointCapture {
+    None,
+    /// 需要回滚保护的文件集合。常规文件工具只含目标文件；剪切（filesystem-copy
+    /// deleteSource=true）会同时包含源文件——两个文件都必须留下 before/after，
+    /// 否则回滚会丢掉被搬走的代码。
+    Files {
+        checkpoint_ids: Vec<String>,
+        work_dir: String,
+        file_paths: Vec<String>,
+    },
+    Worktree(Option<CheckpointWorktreeCapture>),
+}
+
+/// 持有完整 before → 工具执行 → after 周期的异步锁。单文件工具共享目录
+/// 读锁并按文件串行；bash 与外部 MCP 不参与执行级锁，跨会话的长时间
+/// 命令/网络请求不会互相阻塞（见 `tool_checkpoint_scope`）。
+/// 字段只用于 RAII，离开调用作用域时自动释放。
+enum ToolCheckpointOperationGuard {
+    None,
+    /// 一次调用可能改写多个文件（剪切）：所有文件锁按路径排序后依次获取，
+    /// 全部到手再进入目录共享锁，交叉持锁不会死锁。
+    Files {
+        _work_dir_guard: tokio::sync::OwnedRwLockReadGuard<()>,
+        _file_guards: Vec<tokio::sync::OwnedMutexGuard<()>>,
+    },
+}
+
+use super::builtin::{get_builtin_servers_with_tools, get_builtin_tools};
+use super::servers::remote_workspace::{
+    is_ssh_path, is_windows_absolute_path, resolve_remote_project_workspace,
+    resolve_remote_workspace_path, RemoteWorkspaceCallback,
+};
+
+pub use snow_tools::{file_tracking, remote_path, result_limit};
+
+mod call;
+mod collect;
+pub mod sensitive_guard;
+mod worktree_execution;
+
+pub use snow_tools::sub_agents::SUB_AGENT_COMMS_TOOL_FULL_NAMES;
+pub use call::call_mcp_tool;
+pub use call::begin_external_tool_execution;
+pub use collect::{
+    ensure_project_tool_enabled,
+    builtin_scope_server_id, builtin_server_name, load_global_scope, load_project_scope,
+    server_id_from_tool_name, with_database_path,
+};
+pub use collect::{
+    collect_all_mcp_tools, collect_all_mcp_tools_for_workspace,
+    collect_allowed_mcp_tools_for_workspace, collect_restricted_mcp_tools_for_workspace,
+    diagnose_sub_agent_tools,
+};
+pub use snow_tools::serialize::{
+    tools_as_anthropic_json, tools_as_gemini_json, tools_as_openai_chat_json,
+    tools_as_openai_responses_json,
+};
+
+// NOTE: list_mcp_tools 和 call_mcp_tool 的 #[napi] 导出在 exports/api.rs 中，
+// 此处仅保留内部函数供 exports 层调用。
+
+pub use snow_tools::contract::*;
+
+/// 项目 MCP 服务器工具发现的并发度：外部服务器并行连接发现，
+/// 避免串行等待（与 external 模块的 DISCOVERY_CONCURRENCY 一致）。
+const PROJECT_SERVER_DISCOVERY_CONCURRENCY: usize = 4;
+
+
+pub async fn list_mcp_tools() -> napi::Result<Vec<McpToolDefinition>> {
+    let tools = collect_all_mcp_tools(None, false, None).await?;
+    Ok(to_tool_definitions(&tools))
+}
+
+pub async fn list_mcp_server_tools(config_server_id: String) -> napi::Result<Vec<McpToolStatus>> {
+    let tools = super::external::discover_server_tools(None, &config_server_id, true).await?;
+    let global_scope = load_global_scope().await?;
+    Ok(to_tool_statuses(&tools, global_scope.as_ref()))
+}
+
+pub async fn list_mcp_project_servers(
+    project_id: String,
+) -> napi::Result<Vec<McpProjectServerStatus>> {
+    collect_server_statuses(Some(project_id), true).await
+}
+
+/// 项目 MCP 服务器快速列表：外部服务器工具**只读进程内缓存**（不连接
+/// 服务器），未命中的服务器以 `tools_pending` 标记，由前端在后台补发现。
+/// 保存 / 启停 / 删除配置后的列表刷新走这里 —— 配置写入本就只应做持久化，
+/// 不能被慢服务器（如 Windows 上冷启动的 npx stdio）的 connect +
+/// tools/list 拖住。
+pub async fn list_mcp_project_servers_cached(
+    project_id: String,
+) -> napi::Result<Vec<McpProjectServerStatus>> {
+    collect_server_statuses(Some(project_id), false).await
+}
+
+/// 全局 MCP 服务器目录（不依赖项目，供全局子代理选择工具）：只含系统服务与
+/// 全局 MCP 服务器，只叠加全局层开关（精简模式、服务器启用态、全局工具黑名单）。
+pub async fn list_mcp_global_servers() -> napi::Result<Vec<McpProjectServerStatus>> {
+    collect_server_statuses(None, true).await
+}
+
+/// 全局内置服务器目录（MCP 设置全局「系统内置」页），不连接外部服务器。
+pub async fn list_mcp_global_builtin_servers() -> napi::Result<Vec<McpProjectServerStatus>> {
+    let mut servers = collect_server_statuses(None, false).await?;
+    servers.retain(|server| server.source == "system");
+    Ok(servers)
+}
+
+/// `project_id` 为 None 时输出全局目录：不读取项目 scope，也不含项目专属服务器。
+async fn collect_server_statuses(
+    project_id: Option<String>,
+    discover_missing_tools: bool,
+) -> napi::Result<Vec<McpProjectServerStatus>> {
+    let project_id = project_id
+        .map(|value| required_value(value, "Project id"))
+        .transpose()?;
+    let scope = load_project_scope(project_id.as_deref()).await?;
+    let global_scope = load_global_scope().await?;
+
+    // Image generation tool is only globally available when at least one
+    // channel (OpenAI / Gemini) is configured and enabled in Settings ->
+    // Image generation. When both are unconfigured the server is globally
+    // disabled so the front-end toggle reflects the real state (instead of
+    // appearing enabled while the tool is silently excluded from context).
+    let imagegen_configured =
+        tokio::task::spawn_blocking(|| crate::mcp::servers::imagegen::is_imagegen_configured())
+            .await
+            .map_err(|error| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to check image generation configuration: {error}"),
+                )
+            })??;
+
+    // 精简模式（全局）：启用后 LITE_MODE_DISABLED_SERVER_IDS 中的内置
+    // 服务器（browser / app-control / terminal）在所有项目中视为禁用，
+    // 前端开关据此显示为关闭。
+    let lite_mode = with_database_path(|database_path| {
+        crate::storage::services::system_settings::get_lite_mode(&database_path)
+    })
+    .await?;
+
+    let tool_search_available = !super::external::available_plugin_servers(
+        project_id.as_deref(), scope.as_ref(),
+    ).await?.is_empty();
+    let is_global_catalog = project_id.is_none();
+    let mut servers = get_builtin_servers_with_tools()
+        .into_iter()
+        .map(|(server_id, tools)| {
+            let scope_server_id = builtin_scope_server_id(&server_id);
+            let mut enabled = if server_id == "toolSearch" {
+                tool_search_available
+            } else {
+                scope
+                    .as_ref()
+                    .is_none_or(|scope| scope.is_server_enabled(&scope_server_id))
+            };
+            // 精简模式生效：相关服务器全局禁用（前端据此显示为关闭状态；
+            // 手动重新启用任一服务器会自动关闭精简模式，见
+            // set_mcp_project_server_enabled）。
+            if lite_mode && LITE_MODE_DISABLED_SERVER_IDS.contains(&server_id.as_str()) {
+                enabled = false;
+            }
+            let server_globally_disabled = server_id != "toolSearch"
+                && global_scope
+                    .as_ref()
+                    .is_some_and(|global| global.is_server_disabled(&scope_server_id));
+            // Reflect imagegen configuration state in global_enabled / error
+            // so the front-end toggle stays in sync with collect_all_mcp_tools.
+            // The error field uses a stable code (not a localized string) that
+            // the front-end maps to the user's language.
+            let (mut global_enabled, error) = if server_id == "imagegen" && !imagegen_configured {
+                (false, Some("imagegen:not_configured".to_string()))
+            } else if server_id == "toolSearch" && !tool_search_available {
+                enabled = false;
+                (false, Some(super::servers::tool_search::NO_ENABLED_PLUGINS.to_string()))
+            } else {
+                (true, None)
+            };
+            // 全局目录：全局开关即 enabled；项目列表：全局开关作为只读总闸。
+            if is_global_catalog {
+                enabled = enabled && !server_globally_disabled;
+            } else if server_globally_disabled {
+                global_enabled = false;
+            }
+            let mut tool_statuses = to_server_tool_statuses(&tools, scope.as_ref(), global_scope.as_ref());
+            if server_id == "toolSearch" {
+                for tool in &mut tool_statuses {
+                    tool.enabled = tool_search_available;
+                    tool.global_enabled = tool_search_available;
+                }
+            }
+            McpProjectServerStatus {
+                id: scope_server_id,
+                name: builtin_server_name(&server_id).to_string(),
+                source: "system".to_string(),
+                global_enabled,
+                enabled,
+                tools: tool_statuses,
+                // 内置服务器工具来自进程内注册表，无需发现。
+                tools_pending: false,
+                error,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // 外部服务器：全量模式并发发现已启用服务器的工具并随列表一并返回
+    // （进程内 TTL 缓存，重复请求直接命中，无需前端逐个 IPC）；快速模式
+    // 只读缓存，未命中的服务器以 tools_pending 交给前端后台补发现。
+    // 单个服务器发现失败只记录 error、工具留空，不影响其他服务器
+    // 与整体列表——避免「一个服务器连不上，全部工具加载失败」。
+    let discovered = stream::iter(
+        super::external::discover_project_servers(project_id.as_deref())
+            .await?
+            .into_iter()
+            .map(|external_server| {
+                let project_id = project_id.clone();
+                let scope = scope.clone();
+                let global_scope = global_scope.clone();
+                let scope_server_id =
+                    super::external::project_scope_server_id(&external_server.config_server_id);
+                let project_owned = external_server.source == "project";
+                let enabled = external_server.enabled
+                    && (project_owned
+                        || scope
+                            .as_ref()
+                            .is_none_or(|scope| scope.is_server_enabled(&scope_server_id)));
+                let global_enabled = external_server.global_enabled;
+                async move {
+                    let (tools, tools_pending, error) = if enabled && global_enabled {
+                        if discover_missing_tools {
+                            match super::external::discover_server_tools(
+                                project_id.as_deref(),
+                                &external_server.config_server_id,
+                                false,
+                            )
+                            .await
+                            {
+                                Ok(found) => (
+                                    to_server_tool_statuses(
+                                        &found,
+                                        scope.as_ref(),
+                                        global_scope.as_ref(),
+                                    ),
+                                    false,
+                                    None,
+                                ),
+                                Err(discovery_error) => {
+                                    (Vec::new(), false, Some(discovery_error.reason.clone()))
+                                }
+                            }
+                        } else {
+                            match super::external::cached_discovery_tools(
+                                project_id.as_deref(),
+                                &external_server.config_server_id,
+                                &external_server.public_name,
+                            ) {
+                                Some(cached) => (
+                                    to_server_tool_statuses(
+                                        &cached,
+                                        scope.as_ref(),
+                                        global_scope.as_ref(),
+                                    ),
+                                    false,
+                                    None,
+                                ),
+                                None => (Vec::new(), true, None),
+                            }
+                        }
+                    } else {
+                        (Vec::new(), false, None)
+                    };
+                    McpProjectServerStatus {
+                        id: scope_server_id,
+                        name: external_server.name,
+                        source: external_server.source,
+                        global_enabled,
+                        enabled,
+                        tools,
+                        tools_pending,
+                        error,
+                    }
+                }
+            }),
+    )
+    .buffered(PROJECT_SERVER_DISCOVERY_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    servers.extend(discovered);
+
+    Ok(servers)
+}
+
+pub async fn list_mcp_project_server_tools(
+    project_id: String,
+    server_id: String,
+) -> napi::Result<Vec<McpProjectToolStatus>> {
+    let project_id = required_value(project_id, "Project id")?;
+    let server_id = required_value(server_id, "MCP server id")?;
+    let scope = load_project_scope(Some(&project_id))
+        .await?
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "Project id is required to list project MCP server tools".to_string(),
+            )
+            })?;
+    let global_scope = load_global_scope().await?;
+
+    if let Some(builtin_server_id) = server_id.strip_prefix("builtin:") {
+        let tools = get_builtin_servers_with_tools()
+            .into_iter()
+            .find(|(known_server_id, _)| known_server_id == builtin_server_id)
+            .map(|(_, tools)| tools)
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("Unknown MCP project server: {server_id}"),
+                )
+            })?;
+        let mut statuses = to_project_tool_statuses(&tools, &scope, global_scope.as_ref());
+        if builtin_server_id == "toolSearch" {
+            let available = !super::external::available_plugin_servers(
+                Some(&project_id),
+                Some(&scope),
+            )
+            .await?
+            .is_empty();
+            for tool in &mut statuses {
+                tool.enabled = available;
+                tool.global_enabled = available;
+            }
+        }
+        return Ok(statuses);
+    }
+
+    let external_server_id = server_id.strip_prefix("external:").ok_or_else(|| {
+        Error::new(
+            Status::InvalidArg,
+            format!("Unknown MCP project server: {server_id}"),
+        )
+    })?;
+    let tools =
+        super::external::discover_server_tools(Some(&project_id), external_server_id, false)
+            .await?;
+    Ok(to_project_tool_statuses(&tools, &scope, global_scope.as_ref()))
+}
+
+
+pub async fn set_mcp_project_server_enabled(
+    project_id: String,
+    server_id: String,
+    enabled: bool,
+) -> napi::Result<()> {
+    let project_id = required_value(project_id, "Project id")?;
+    let server_id = required_value(server_id, "MCP server id")?;
+    if server_id == "builtin:toolSearch" {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    let known_server = if let Some(builtin_server_id) = server_id.strip_prefix("builtin:") {
+        get_builtin_servers_with_tools()
+            .iter()
+            .any(|(known_server_id, _)| known_server_id == builtin_server_id)
+    } else if let Some(external_server_id) = server_id.strip_prefix("external:") {
+        super::external::discover_project_servers(Some(&project_id))
+            .await?
+            .iter()
+            .any(|server| server.config_server_id == external_server_id)
+    } else {
+        false
+    };
+    if !known_server {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("Unknown MCP project server: {server_id}"),
+        ));
+    }
+
+    // 全局总闸关闭的内置服务器不允许在项目内启用。
+    if enabled && server_id.starts_with("builtin:") {
+        let globally_disabled = load_global_scope()
+            .await?
+            .is_some_and(|global| global.is_server_disabled(&server_id));
+        if globally_disabled {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!("MCP server is disabled globally: {server_id}"),
+            ));
+        }
+    }
+
+    // 精简模式自动关闭：用户在 MCP 面板手动重新启用被精简模式禁用的
+    // 服务器（browser / app-control / terminal）时，立即关闭精简模式
+    // ——用户显式选择优先于模式限制。
+    if enabled
+        && server_id
+            .strip_prefix("builtin:")
+            .is_some_and(|id| LITE_MODE_DISABLED_SERVER_IDS.contains(&id))
+    {
+        let lite_mode = with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
+        if lite_mode {
+            with_database_path(|database_path| {
+                crate::storage::services::system_settings::set_lite_mode(&database_path, false)
+            })
+            .await?;
+        }
+    }
+
+    // 服务器启停只写 scope 黑名单，工具列表在读取时过滤（见
+    // to_project_tool_statuses / tool_is_enabled），发现缓存内容与启停无关，
+    // 因此这里不失效缓存——避免启停一台服务器把其他服务器也拖进重连。
+
+    if let Some(external_server_id) = server_id.strip_prefix("external:") {
+        let project_servers =
+            super::external::discover_project_servers(Some(&project_id)).await?;
+        if project_servers.iter().any(|server| {
+            server.config_server_id == external_server_id && server.source == "project"
+        }) {
+            let external_server_id = external_server_id.to_string();
+            return with_database_path(move |database_path| {
+                crate::storage::services::project_mcp_server_configs::set_project_mcp_server_enabled(
+                    &database_path,
+                    &project_id,
+                    &external_server_id,
+                    enabled,
+                )
+            })
+            .await;
+        }
+    }
+
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_project_server_enabled(
+            &database_path,
+            &project_id,
+            &server_id,
+            enabled,
+        )
+    })
+    .await
+}
+
+pub async fn set_mcp_project_tool_enabled(
+    project_id: String,
+    tool_name: String,
+    enabled: bool,
+) -> napi::Result<()> {
+    let project_id = required_value(project_id, "Project id")?;
+    let tool_name = required_value(tool_name, "MCP tool name")?;
+    if tool_name.starts_with("toolSearch-") {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    let tool_exists = if let Some(server_id) = server_id_from_tool_name(&tool_name) {
+        if get_builtin_servers_with_tools()
+            .iter()
+            .any(|(builtin_server_id, _)| builtin_server_id == server_id)
+        {
+            get_builtin_tools()
+                .iter()
+                .any(|tool| tool.full_name() == tool_name)
+        } else {
+            super::external::resolve_project_scope_server(Some(&project_id), &tool_name)
+                .await?
+                .is_some()
+        }
+    } else {
+        false
+    };
+    if !tool_exists {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("Unknown MCP project tool: {tool_name}"),
+        ));
+    }
+
+    // 工具启停是读取时应用的黑名单，发现缓存内容不变，无需失效。
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_project_tool_enabled(
+            &database_path,
+            &project_id,
+            &tool_name,
+            enabled,
+        )
+    })
+    .await
+}
+
+/// 全局启停内置服务器（总闸）：关闭后所有项目不可用且项目层无法覆盖。
+/// 启用被精简模式禁用的服务器时自动关闭精简模式（与项目级一致）。
+pub async fn set_mcp_global_server_enabled(server_id: String, enabled: bool) -> napi::Result<()> {
+    let server_id = required_value(server_id, "MCP server id")?;
+    if server_id == "builtin:toolSearch" {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    let builtin_server_id = server_id
+        .strip_prefix("builtin:")
+        .filter(|id| {
+            get_builtin_servers_with_tools()
+                .iter()
+                .any(|(known_server_id, _)| known_server_id == id)
+        })
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!("Unknown built-in MCP server: {server_id}"),
+            )
+        })?;
+
+    if enabled && LITE_MODE_DISABLED_SERVER_IDS.contains(&builtin_server_id) {
+        let lite_mode = with_database_path(|database_path| {
+            crate::storage::services::system_settings::get_lite_mode(&database_path)
+        })
+        .await?;
+        if lite_mode {
+            with_database_path(|database_path| {
+                crate::storage::services::system_settings::set_lite_mode(&database_path, false)
+            })
+            .await?;
+        }
+    }
+
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_global_server_enabled(
+            &database_path,
+            &server_id,
+            enabled,
+        )
+    })
+    .await
+}
+
+/// 全局启停单个工具：校验工具存在于全局可见的工具集（内置或全局外部服务器）。
+pub async fn set_mcp_tool_enabled(tool_name: String, enabled: bool) -> napi::Result<()> {
+    let tool_name = required_value(tool_name, "MCP tool name")?;
+    if tool_name.starts_with("toolSearch-") {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    ensure_global_tool_exists(&tool_name).await?;
+
+    // 工具启停是读取时应用的黑名单，发现缓存内容不变，无需失效。
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_global_tool_enabled(
+            &database_path,
+            &tool_name,
+            enabled,
+        )
+    })
+    .await
+}
+
+/// 全局批量启停工具：逐个校验存在性，全部通过后一次写入存储。
+pub async fn set_mcp_tools_enabled(tool_names: Vec<String>, enabled: bool) -> napi::Result<()> {
+    if tool_names.iter().any(|name| name.trim().starts_with("toolSearch-")) {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    for tool_name in &tool_names {
+        let tool_name = required_value(tool_name.clone(), "MCP tool name")?;
+        ensure_global_tool_exists(&tool_name).await?;
+    }
+
+    // 工具启停是读取时应用的黑名单，发现缓存内容不变，无需失效。
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_global_tools_enabled(
+            &database_path,
+            &tool_names,
+            enabled,
+        )
+    })
+    .await
+}
+
+/// 项目批量启停工具：逐个校验存在性（builtin/external 分支），全部通过后一次写入存储。
+pub async fn set_mcp_project_tools_enabled(
+    project_id: String,
+    tool_names: Vec<String>,
+    enabled: bool,
+) -> napi::Result<()> {
+    let project_id = required_value(project_id, "Project id")?;
+    if tool_names.iter().any(|name| name.trim().starts_with("toolSearch-")) {
+        return Err(Error::from_reason(
+            super::servers::tool_search::AUTOMATIC_ONLY,
+        ));
+    }
+    for tool_name in &tool_names {
+        let tool_name = required_value(tool_name.clone(), "MCP tool name")?;
+        let tool_exists = if let Some(server_id) = server_id_from_tool_name(&tool_name) {
+            if get_builtin_servers_with_tools()
+                .iter()
+                .any(|(builtin_server_id, _)| builtin_server_id == server_id)
+            {
+                get_builtin_tools()
+                    .iter()
+                    .any(|tool| tool.full_name() == tool_name)
+            } else {
+                super::external::resolve_project_scope_server(Some(&project_id), &tool_name)
+                    .await?
+                    .is_some()
+            }
+        } else {
+            false
+        };
+        if !tool_exists {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("Unknown MCP project tool: {tool_name}"),
+            ));
+        }
+    }
+
+    // 工具启停是读取时应用的黑名单，发现缓存内容不变，无需失效。
+    with_database_path(move |database_path| {
+        crate::storage::services::system_settings::set_mcp_project_tools_enabled(
+            &database_path,
+            &project_id,
+            &tool_names,
+            enabled,
+        )
+    })
+    .await
+}
+
+/// 校验工具存在于全局可见的工具集（内置工具或已配置的全局外部服务器）中。
+async fn ensure_global_tool_exists(tool_name: &str) -> Result<()> {
+    if let Some(server_id) = server_id_from_tool_name(tool_name) {
+        if get_builtin_servers_with_tools()
+            .iter()
+            .any(|(builtin_server_id, _)| builtin_server_id == server_id)
+        {
+            if get_builtin_tools()
+                .iter()
+                .any(|tool| tool.full_name() == tool_name)
+            {
+                return Ok(());
+            }
+        } else if super::external::resolve_project_scope_server(None, tool_name)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+    }
+    Err(Error::new(
+        Status::InvalidArg,
+        format!("Unknown MCP tool: {tool_name}"),
+    ))
+}
+
+fn to_tool_definitions(tools: &[McpTool]) -> Vec<McpToolDefinition> {
+    tools
+        .iter()
+        .map(|tool| McpToolDefinition {
+            name: tool.full_name(),
+            description: tool.description.clone(),
+            input_schema_json: serialize_input_schema(tool),
+        })
+        .collect()
+}
+
+/// 项目工具状态：`enabled` 为有效态（全局黑名单优先，项目层无法覆盖），
+/// `global_enabled` 单独标出全局层状态供前端只读展示。
+fn to_project_tool_statuses(
+    tools: &[McpTool],
+    scope: &McpProjectScopeSettings,
+    global_scope: Option<&McpGlobalScopeSettings>,
+) -> Vec<McpProjectToolStatus> {
+    tools
+        .iter()
+        .map(|tool| {
+            let full_name = tool.full_name();
+            let global_enabled = !global_scope.is_some_and(|global| global.is_tool_disabled(&full_name));
+            McpProjectToolStatus {
+                enabled: global_enabled && scope.is_tool_enabled(&full_name),
+                global_enabled,
+                name: full_name,
+                description: tool.description.clone(),
+                input_schema_json: serialize_input_schema(tool),
+            }
+        })
+        .collect()
+}
+
+/// 服务器工具开关：有项目 scope 时与项目列表一致；无项目（全局目录）时只看全局黑名单。
+fn to_server_tool_statuses(
+    tools: &[McpTool],
+    scope: Option<&McpProjectScopeSettings>,
+    global_scope: Option<&McpGlobalScopeSettings>,
+) -> Vec<McpProjectToolStatus> {
+    let Some(scope) = scope else {
+        return tools
+            .iter()
+            .map(|tool| {
+                let full_name = tool.full_name();
+                let global_enabled = !global_scope
+                    .is_some_and(|global| global.disabled_tool_names.contains(&full_name));
+                McpProjectToolStatus {
+                    enabled: global_enabled,
+                    global_enabled,
+                    name: full_name,
+                    description: tool.description.clone(),
+                    input_schema_json: serialize_input_schema(tool),
+                }
+            })
+            .collect();
+    };
+    to_project_tool_statuses(tools, scope, global_scope)
+}
+
+/// 工具状态转换：enabled 反映全局 scope 黑名单（默认全部启用）。
+fn to_tool_statuses(
+    tools: &[McpTool],
+    global_scope: Option<&McpGlobalScopeSettings>,
+) -> Vec<McpToolStatus> {
+    tools
+        .iter()
+        .map(|tool| {
+            let full_name = tool.full_name();
+            McpToolStatus {
+                enabled: !global_scope
+                    .is_some_and(|scope| scope.disabled_tool_names.contains(&full_name)),
+                name: full_name,
+                description: tool.description.clone(),
+                input_schema_json: serialize_input_schema(tool),
+            }
+        })
+        .collect()
+}
+
+fn serialize_input_schema(tool: &McpTool) -> String {
+    serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn required_value(value: String, label: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{label} is required"),
+        ));
+    }
+
+    Ok(normalized.to_string())
+}
+
+async fn prepare_remote_workspace_args(
+    tool_full_name: &str,
+    mut args: Value,
+    project_id: Option<&str>,
+) -> napi::Result<(Value, bool)> {
+    let path_fields = remote_workspace_path_fields(tool_full_name);
+    // 首个字段是本次调用的主路径，决定本机 / SSH 通道；其余字段必须落在同一
+    // 工作区（filesystem-copy 同时涉及目标文件与源文件）。
+    let Some(primary_path) = path_fields
+        .first()
+        .and_then(|field| args.get(*field))
+        .and_then(Value::as_str)
+    else {
+        return Ok((args, false));
+    };
+    // Windows 盘符与 UNC 路径属于 App Host（本机）路径，不能拼入 SSH
+    // 工作区；直接走本机通道，由 Electron 在本机读取。
+    if is_windows_absolute_path(primary_path) {
+        return Ok((args, false));
+    }
+    let remote_project_workspace = resolve_remote_project_workspace(project_id).await?;
+    let mut uses_remote_workspace = false;
+
+    for path_field in path_fields {
+        let Some(path) = args.get(*path_field).and_then(Value::as_str) else {
+            continue;
+        };
+        // 本机绝对路径与 SSH 工作区路径混用会让其中一个文件在错误的机器上
+        // 被读写，直接拦截。
+        if is_windows_absolute_path(path) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "[BLOCKED] 跨区域操作被拒绝：{path_field}（{path}）是本机路径，与本次调用的其他 SSH 工作区路径混用。同一次调用的所有路径必须位于同一工作区。"
+                ),
+            ));
+        }
+        if is_ssh_path(path) {
+            // ssh:// 路径必须属于当前项目 SSH 工作区，否则是跨区域操作，
+            // 直接拦截，避免缺失 workspaceRoot 时 Electron 抛底层异常。
+            let Some(workspace_path) = remote_project_workspace.as_deref() else {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "[BLOCKED] 跨区域操作被拒绝：{path_field}（{path}）是 SSH 工作区路径，但当前项目不是 SSH 工作区。工具只能访问当前项目工作区内的路径。"
+                    ),
+                ));
+            };
+            let in_workspace = matches!(
+                (
+                    remote_path::normalize_ssh_path(workspace_path),
+                    remote_path::normalize_ssh_path(path),
+                ),
+                (
+                    Some((workspace_authority, workspace_segments)),
+                    Some((candidate_authority, candidate_segments)),
+                ) if workspace_authority == candidate_authority
+                    && remote_path::remote_segments_start_with(
+                        &candidate_segments,
+                        &workspace_segments,
+                    )
+            );
+            if !in_workspace {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "[BLOCKED] 跨区域操作被拒绝：{path} 不属于当前项目的 SSH 工作区（{workspace_path}）。工具只能访问当前项目工作区内的路径。"
+                    ),
+                ));
+            }
+            uses_remote_workspace = true;
+            continue;
+        }
+
+        // 相对路径只在当前项目确实是 SSH 工作区时才解析到远端。
+        let Some(workspace_path) = remote_project_workspace.as_deref() else {
+            continue;
+        };
+        args[*path_field] = Value::String(resolve_remote_workspace_path(workspace_path, path));
+        uses_remote_workspace = true;
+    }
+
+    if uses_remote_workspace {
+        if let Some(workspace_path) = remote_project_workspace.as_deref() {
+            args["workspaceRoot"] = Value::String(workspace_path.to_string());
+        }
+    }
+    Ok((args, uses_remote_workspace))
+}
+
+fn remote_workspace_path_fields(tool_full_name: &str) -> &'static [&'static str] {
+    match tool_full_name {
+        "filesystem-read" | "filesystem-replace_edit" | "filesystem-create" => &["filePath"],
+        // 复制/剪切会同时读写源文件与目标文件，两个路径都必须解析到远端。
+        "filesystem-copy" => &["filePath", "sourceFilePath"],
+        "grep-search" | "grep-find" => &["path"],
+        "bash-terminal-execute" => &["workingDirectory"],
+        _ => &[],
+    }
+}
+
+/// 解析 project_id 对应的本地（非 SSH）工作区根目录。
+/// 通过应用数据库中的 workspace_directories 表查询该项目的本地根路径。
+/// 数据库访问放在 Tokio 阻塞池中执行，避免阻塞 N-API 异步运行时。
+/// SSH 工作区不在此处理，由 prepare_remote_workspace_args 统一路由到远端。
+pub(crate) async fn resolve_local_project_root(
+    project_id: Option<&str>,
+) -> napi::Result<Option<String>> {
+    let Some(project_id) = project_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let project_id = project_id.to_string();
+
+    let workspace_path = tokio::task::spawn_blocking(move || {
+        let storage_info = crate::storage::initialize_app_storage()?;
+        let database_path = std::path::PathBuf::from(storage_info.database_path);
+        crate::storage::services::workspace_directories::get_workspace_directory_path(
+            &database_path,
+            &project_id,
+        )
+    })
+    .await
+    .map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to resolve local project workspace: {error}"),
+        )
+    })??;
+
+    Ok(workspace_path.filter(|path| !is_ssh_path(path)))
+}
+
+/// bash 工具未显式提供 workingDirectory 时的兜底：默认使用当前会话项目的
+/// 工作区根目录 —— SSH 项目解析为远端工作区 URI，本地项目解析为
+/// workspace_directories 中登记的项目根路径。必须在远程 / 本地路径解析之前
+/// 运行，否则 SSH 项目会因缺少主路径字段被误判为本机通道（checkpoint 也会
+/// 走错分支）。无法解析出项目工作区（如未绑定项目的全局会话）时保持原样，
+/// 由 BashService 报出明确的参数错误。
+async fn default_bash_working_directory(
+    tool_full_name: &str,
+    mut args: Value,
+    project_id: Option<&str>,
+) -> napi::Result<Value> {
+    if tool_full_name != "bash-terminal-execute" {
+        return Ok(args);
+    }
+    let provided = args
+        .get("workingDirectory")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    if provided.is_some() {
+        return Ok(args);
+    }
+
+    let workspace_root = match resolve_remote_project_workspace(project_id).await? {
+        Some(remote_workspace) => Some(remote_workspace),
+        None => resolve_local_project_root(project_id).await?,
+    };
+    if let Some(workspace_root) = workspace_root {
+        args["workingDirectory"] = Value::String(workspace_root);
+    }
+    Ok(args)
+}
+
+/// 将本地 filesystem / grep 工具的相对路径解析到当前项目根目录。
+/// 当 AI 以 "."、"./src"、"src/main.ts" 等相对路径调用工具时，避免路径被
+/// Rust 解析为 Electron 进程的工作目录（通常并非项目根目录）。grep 未提供 path
+/// 时也应默认搜索项目根目录，而不是 Electron 进程目录。
+/// 绝对路径、SSH 路径或无法解析出项目根目录时保持原样。
+///
+/// grep 在项目根上整体搜索时额外注入关联项目组（合集）的兄弟根目录
+/// （`linkedRoots`），让一次搜索覆盖组内全部项目；限定子目录时保持单根。
+async fn resolve_local_workspace_args(
+    tool_full_name: &str,
+    mut args: Value,
+    project_id: Option<&str>,
+) -> napi::Result<Value> {
+    let (path_field, default_to_workspace) = match tool_full_name {
+        "grep-search" | "grep-find" => ("path", true),
+        name if name.starts_with("filesystem-") => ("filePath", false),
+        _ => return Ok(args),
+    };
+
+    let requested_path = args
+        .get(path_field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string);
+    let Some(requested_path) =
+        requested_path.or_else(|| default_to_workspace.then(|| ".".to_string()))
+    else {
+        return Ok(args);
+    };
+    if is_ssh_path(&requested_path) {
+        return Ok(args);
+    }
+
+    // 主目录写法（`~/.snowapp/docs/...`，内置文档与技能普遍如此记录路径）先展开为
+    // 绝对路径：否则会被当作相对路径拼到项目根下，得到 `<项目根>/~/.snowapp/...`，
+    // 而下游的 `~` 展开（只识别开头字符）此时已不生效，最终报「找不到指定路径」。
+    let requested_path = {
+        let expanded = crate::utils::paths::expand_home_dir(&requested_path);
+        if expanded != requested_path {
+            args[path_field] = Value::String(expanded.clone());
+        }
+        expanded
+    };
+
+    // 绝对路径本身无需重写，但 grep / find 直接指向项目根时仍要覆盖关联项目组；
+    // 其余绝对路径调用（filesystem-read 等）保持原样、省掉一次项目根解析。
+    if Path::new(&requested_path).is_absolute() {
+        let searches_project_root =
+            tool_full_name == "grep-search" || tool_full_name == "grep-find";
+        let project_root = if searches_project_root {
+            resolve_local_project_root(project_id).await?
+        } else {
+            None
+        };
+        if searches_project_root
+            && project_root
+                .as_deref()
+                .is_some_and(|root| paths_equal_ignore_case(&requested_path, root))
+        {
+            inject_linked_project_roots(&mut args, project_id, &requested_path).await?;
+        }
+        return Ok(args);
+    }
+
+    let Some(project_root) = resolve_local_project_root(project_id).await? else {
+        return Ok(args);
+    };
+    let resolved = if requested_path == "." {
+        project_root.clone()
+    } else {
+        Path::new(&project_root)
+            .join(&requested_path)
+            .to_string_lossy()
+            .to_string()
+    };
+    let searches_whole_project = (tool_full_name == "grep-search"
+        || tool_full_name == "grep-find")
+        && paths_equal_ignore_case(&resolved, &project_root);
+    args[path_field] = Value::String(resolved);
+    if searches_whole_project {
+        inject_linked_project_roots(&mut args, project_id, &project_root).await?;
+    }
+    Ok(args)
+}
+
+/// 路径比较：Windows 下大小写不敏感（磁盘路径），尾部分隔符不影响相等判定。
+fn paths_equal_ignore_case(left: &str, right: &str) -> bool {
+    let trim = |value: &str| value.trim_end_matches(['/', '\\']).to_string();
+    trim(left).eq_ignore_ascii_case(&trim(right))
+}
+
+/// grep 针对项目根的整体搜索：把关联项目组（合集）中的兄弟根目录写入
+/// `linkedRoots`，由 GrepService 一次覆盖全部根。未关联项目保持原样。
+async fn inject_linked_project_roots(
+    args: &mut Value,
+    project_id: Option<&str>,
+    current_root: &str,
+) -> napi::Result<()> {
+    let Some(project_id) = project_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let project_id = project_id.to_string();
+
+    let group = tokio::task::spawn_blocking(move || {
+        let storage_info = crate::storage::initialize_app_storage()?;
+        let database_path = std::path::PathBuf::from(storage_info.database_path);
+        crate::storage::services::project_collections::resolve_linked_project_roots(
+            &database_path,
+            &project_id,
+        )
+    })
+    .await
+    .map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to resolve linked project roots: {error}"),
+        )
+    })??;
+
+    let Some(group) = group else {
+        return Ok(());
+    };
+
+    let sibling_roots: Vec<String> = group
+        .roots
+        .iter()
+        .filter(|root| {
+            !is_ssh_path(&root.path) && !paths_equal_ignore_case(&root.path, current_root)
+        })
+        .map(|root| root.path.clone())
+        .collect();
+
+    if sibling_roots.is_empty() {
+        return Ok(());
+    }
+    args["linkedRoots"] = serde_json::json!(sibling_roots);
+    Ok(())
+}
+
+/// 本地工作区根目录：项目根 + 关联项目组的兄弟根；SSH 或无项目时为空。
+async fn resolve_local_workspace_roots(project_id: Option<&str>) -> napi::Result<Vec<String>> {
+    let Some(project_root) = resolve_local_project_root(project_id).await? else {
+        return Ok(Vec::new());
+    };
+    let mut probe = serde_json::json!({});
+    inject_linked_project_roots(&mut probe, project_id, &project_root).await?;
+    let mut roots = vec![project_root];
+    if let Some(siblings) = probe.get("linkedRoots").and_then(Value::as_array) {
+        roots.extend(siblings.iter().filter_map(Value::as_str).map(str::to_string));
+    }
+    Ok(roots)
+}
+
+fn parse_tool_args(tool_full_name: &str, args_json: &str) -> napi::Result<Value> {
+    serde_json::from_str(args_json).map_err(|error| {
+        let received = args_json.chars().take(200).collect::<String>();
+        let suffix = if args_json.chars().count() > 200 {
+            "..."
+        } else {
+            ""
+        };
+
+        Error::new(
+            Status::InvalidArg,
+            format!(
+                "Failed to parse arguments JSON for tool \"{tool_full_name}\": {error}. Received: {received}{suffix}"
+            ),
+        )
+    })
+}
+
+#[derive(Clone, Copy)]
+enum ToolCheckpointScope {
+    None,
+    File,
+    Worktree,
+}
+
+/// 一次工具调用会改写的文件路径（剪切会同时改写源文件与目标文件）。去重并按路径
+/// 排序：加锁顺序一致，交叉持锁不会死锁；checkpoint 也对同一集合记录快照，
+/// 回滚才能把两个文件一起还原。
+fn checkpoint_file_paths(tool_full_name: &str, args: &Value) -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    if let Some(path) = args.get("filePath").and_then(Value::as_str) {
+        paths.push(path.to_string());
+    }
+    if tool_full_name == "filesystem-copy"
+        && args
+            .get("deleteSource")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        if let Some(path) = args.get("sourceFilePath").and_then(Value::as_str) {
+            paths.push(path.to_string());
+        }
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// 只有能可靠捕获变更的内置工具参与 checkpoint。其余工具（含全部外部 MCP）
+/// 一律视为不修改工作区：不取目录/文件执行锁，避免慢速外部请求把同项目其他
+/// 会话的文件编辑与回滚串行化；代价是这些调用不在回滚覆盖范围内。
+fn tool_checkpoint_scope(tool_full_name: &str) -> ToolCheckpointScope {
+    match tool_full_name {
+        "filesystem-replace_edit" | "filesystem-create" | "filesystem-copy" => {
+            ToolCheckpointScope::File
+        }
+        "bash-terminal-execute" => ToolCheckpointScope::Worktree,
+        _ => ToolCheckpointScope::None,
+    }
+}
+
+async fn acquire_tool_checkpoint_operation_guard(
+    tool_full_name: &str,
+    scope: ToolCheckpointScope,
+    args: &Value,
+    checkpoint_work_dir: Option<&str>,
+) -> napi::Result<ToolCheckpointOperationGuard> {
+    let Some(work_dir) = checkpoint_work_dir else {
+        return Ok(ToolCheckpointOperationGuard::None);
+    };
+
+    match scope {
+        ToolCheckpointScope::File => {
+            let file_paths = checkpoint_file_paths(tool_full_name, args);
+            if file_paths.is_empty() {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "filePath is required for checkpoint operation locking".to_string(),
+                ));
+            }
+            // 先按路径顺序等齐所有文件锁，再进入目录共享锁：等待同文件的调用不会
+            // 长期占住目录读锁，回滚可在两次文件编辑之间公平取得独占锁。
+            let mut file_guards = Vec::with_capacity(file_paths.len());
+            for file_path in &file_paths {
+                let file_lock =
+                    crate::storage::services::checkpoint::checkpoint_file_operation_lock(
+                        work_dir, file_path,
+                    )?;
+                file_guards.push(file_lock.lock_owned().await);
+            }
+            let work_dir_lock =
+                crate::storage::services::checkpoint::checkpoint_operation_lock(work_dir)?;
+            let work_dir_guard = work_dir_lock.read_owned().await;
+            Ok(ToolCheckpointOperationGuard::Files {
+                _work_dir_guard: work_dir_guard,
+                _file_guards: file_guards,
+            })
+        }
+        // bash 与外部 MCP 执行期间不持有执行级锁：跨会话命令与慢速外部请求
+        // 并行运行，回滚/预览也不被长时间调用阻塞。bash 的变更捕获由
+        // before/after 扫描内部的短时共享读锁与回滚纪元（见 checkpoint 模块）保证。
+        ToolCheckpointScope::Worktree | ToolCheckpointScope::None => {
+            Ok(ToolCheckpointOperationGuard::None)
+        }
+    }
+}
+
+fn require_checkpoint_work_dir(checkpoint_work_dir: Option<String>) -> napi::Result<String> {
+    checkpoint_work_dir.ok_or_else(|| {
+        Error::new(
+            Status::InvalidArg,
+            "Checkpoint working directory is required".to_string(),
+        )
+    })
+}
+
+fn capture_checkpoint_before_tool(
+    tool_full_name: &str,
+    args: &Value,
+    checkpoint_ids: Vec<String>,
+    checkpoint_work_dir: Option<String>,
+) -> napi::Result<ToolCheckpointCapture> {
+    if checkpoint_ids.is_empty() {
+        return Ok(ToolCheckpointCapture::None);
+    }
+    // 先定范围再校验 work_dir，Skill / 外部 MCP 不被前置阶段阻断。
+    match tool_checkpoint_scope(tool_full_name) {
+        ToolCheckpointScope::None => Ok(ToolCheckpointCapture::None),
+        ToolCheckpointScope::File => {
+            let work_dir = require_checkpoint_work_dir(checkpoint_work_dir)?;
+            let file_paths = checkpoint_file_paths(tool_full_name, args);
+            if file_paths.is_empty() {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "filePath is required for checkpoint capture".to_string(),
+                ));
+            }
+            // 每个文件各留一份 before 快照：剪切时源文件与目标文件都必须可回滚。
+            for file_path in &file_paths {
+                crate::storage::services::checkpoint::record_checkpoint_file(
+                    checkpoint_ids.clone(),
+                    work_dir.clone(),
+                    file_path.clone(),
+                )?;
+            }
+            Ok(ToolCheckpointCapture::Files {
+                checkpoint_ids,
+                work_dir,
+                file_paths,
+            })
+        }
+        ToolCheckpointScope::Worktree => {
+            // 软失败：快照失败降级为无回滚保护，不阻断命令。
+            let locale = crate::i18n::app_locale_blocking();
+            let Some(work_dir) = checkpoint_work_dir else {
+                eprintln!(
+                    "{}",
+                    crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::MissingWorkDir),
+                        &[],
+                    )
+                );
+                return Ok(ToolCheckpointCapture::Worktree(None));
+            };
+            match crate::storage::services::checkpoint::capture_checkpoint_worktree_before(
+                checkpoint_ids,
+                work_dir,
+            ) {
+                Ok(capture) => Ok(ToolCheckpointCapture::Worktree(capture)),
+                Err(error) => {
+                    eprintln!(
+                        "{}",
+                        crate::i18n::fill(
+                            locale.checkpoint_text(crate::i18n::CheckpointText::BeforeFailed),
+                            &[&error],
+                        )
+                    );
+                    Ok(ToolCheckpointCapture::Worktree(None))
+                }
+            }
+        }
+    }
+}
+
+/// 远程 checkpoint 阶段软超时上限（秒），超时跳过快照/变更记录，
+/// 避免工具调用卡死（快照仅用于回滚保护，跳过只损失回滚能力）。
+/// 实际值由通用设置写入 system_settings，读取失败回落默认值。
+const REMOTE_CHECKPOINT_TIMEOUT_SETTING: &str = "checkpoint_remote_scan_timeout_secs";
+const REMOTE_CHECKPOINT_TIMEOUT_DEFAULT_SECS: u64 = 30;
+const REMOTE_CHECKPOINT_TIMEOUT_MIN_SECS: u64 = 5;
+const REMOTE_CHECKPOINT_TIMEOUT_MAX_SECS: u64 = 600;
+
+/// 读取远程 checkpoint 扫描超时（毫秒）；缺失或非法回落默认值，越界截断。
+async fn remote_checkpoint_timeout_ms() -> u64 {
+    let raw = tokio::task::spawn_blocking(|| {
+        crate::storage::get_system_setting_value(REMOTE_CHECKPOINT_TIMEOUT_SETTING.to_string())
+    })
+    .await
+    .ok()
+    .and_then(|result| result.ok())
+    .flatten();
+    let secs = raw
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(REMOTE_CHECKPOINT_TIMEOUT_DEFAULT_SECS)
+        .clamp(
+            REMOTE_CHECKPOINT_TIMEOUT_MIN_SECS,
+            REMOTE_CHECKPOINT_TIMEOUT_MAX_SECS,
+        );
+    secs * 1000
+}
+
+/// 远程（SSH）工具的 checkpoint before 捕获：文件 IO 经 Electron SFTP 完成，
+/// 与本地版本行为一致（filesystem 工具记录单文件，bash 记录整个工作区）。
+async fn capture_checkpoint_before_tool_remote(
+    tool_full_name: &str,
+    args: &Value,
+    checkpoint_ids: Vec<String>,
+    checkpoint_work_dir: Option<String>,
+    on_remote_workspace_command: &RemoteWorkspaceCallback,
+    on_chunk: &BashStreamCallback,
+) -> napi::Result<ToolCheckpointCapture> {
+    if checkpoint_ids.is_empty() {
+        // 主机缺少对象库工具时不会创建检查点：bash 输出中提醒一次安装。
+        if matches!(
+            tool_checkpoint_scope(tool_full_name),
+            ToolCheckpointScope::Worktree
+        ) {
+            if let Some(missing) = checkpoint_work_dir
+                .as_deref()
+                .and_then(crate::storage::services::checkpoint::remote::take_remote_store_reminder)
+            {
+                let locale = crate::i18n::app_locale().await;
+                emit_stream_chunk(
+                    on_chunk,
+                    "stdout",
+                    crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::RemoteStoreUnavailable),
+                        &[&missing],
+                    ),
+                );
+            }
+        }
+        return Ok(ToolCheckpointCapture::None);
+    }
+    // 先定范围再校验 work_dir（与本地版本一致），Skill / 外部 MCP 不阻断。
+    match tool_checkpoint_scope(tool_full_name) {
+        ToolCheckpointScope::None => Ok(ToolCheckpointCapture::None),
+        ToolCheckpointScope::File => {
+            // 回滚语义不变：记录失败按工具错误上抛。
+            let work_dir = require_checkpoint_work_dir(checkpoint_work_dir)?;
+            let file_paths = checkpoint_file_paths(tool_full_name, args);
+            if file_paths.is_empty() {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "filePath is required for checkpoint capture".to_string(),
+                ));
+            }
+            let client = RemoteCheckpointClient::new(on_remote_workspace_command);
+            for file_path in &file_paths {
+                crate::storage::services::checkpoint::remote::record_checkpoint_file_remote(
+                    &client,
+                    checkpoint_ids.clone(),
+                    work_dir.clone(),
+                    file_path.clone(),
+                )
+                .await?;
+            }
+            Ok(ToolCheckpointCapture::Files {
+                checkpoint_ids,
+                work_dir,
+                file_paths,
+            })
+        }
+        ToolCheckpointScope::Worktree => {
+            // 跨项目时命令作用范围在会话项目之外，扫描会话项目无意义，
+            // 降级并明确提示，不套用当前项目的 checkpoint。
+            let locale = crate::i18n::app_locale().await;
+            if let Some(work_dir) = checkpoint_work_dir.as_deref() {
+                if let Some(reason) = remote_bash_checkpoint_skip_reason(args, work_dir) {
+                    let reason_text = locale.checkpoint_skip_reason(&reason);
+                    emit_stream_chunk(
+                        on_chunk,
+                        "stdout",
+                        crate::i18n::fill(
+                            locale
+                                .checkpoint_text(crate::i18n::CheckpointText::SkipOutsideWorkspace),
+                            &[&reason_text],
+                        ),
+                    );
+                    return Ok(ToolCheckpointCapture::Worktree(None));
+                }
+            }
+            let Some(work_dir) = checkpoint_work_dir else {
+                emit_stream_chunk(
+                    on_chunk,
+                    "stdout",
+                    crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::MissingWorkDir),
+                        &[],
+                    ),
+                );
+                return Ok(ToolCheckpointCapture::Worktree(None));
+            };
+            // SFTP 遍历可能很慢：使用独立超时上限（不与命令 timeout 挂钩），
+            // 超时/失败软失败降级，并通知 Electron 中止仍在进行的扫描。
+            let timeout_ms = remote_checkpoint_timeout_ms().await;
+            let scan_id = uuid::Uuid::new_v4().to_string();
+            let client = RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
+            let started = Instant::now();
+            emit_stream_chunk(
+                on_chunk,
+                "stdout",
+                crate::i18n::fill(
+                    locale.checkpoint_text(crate::i18n::CheckpointText::ScanStarted),
+                    &[],
+                ),
+            );
+            let captured = tokio::time::timeout(
+                Duration::from_millis(timeout_ms),
+                crate::storage::services::checkpoint::remote::capture_checkpoint_worktree_before_remote(
+                    &client,
+                    checkpoint_ids,
+                    work_dir,
+                ),
+            )
+            .await;
+            match captured {
+                Ok(Ok(capture)) => {
+                    emit_stream_chunk(
+                        on_chunk,
+                        "stdout",
+                        crate::i18n::fill(
+                            locale.checkpoint_text(crate::i18n::CheckpointText::ScanCompleted),
+                            &[&started.elapsed().as_millis()],
+                        ),
+                    );
+                    Ok(ToolCheckpointCapture::Worktree(capture))
+                }
+                Ok(Err(error)) => {
+                    emit_stream_chunk(
+                        on_chunk,
+                        "stdout",
+                        crate::i18n::fill(
+                            locale.checkpoint_text(crate::i18n::CheckpointText::BeforeFailed),
+                            &[&error],
+                        ),
+                    );
+                    Ok(ToolCheckpointCapture::Worktree(None))
+                }
+                Err(_) => {
+                    // 超时后真正取消 Electron/SFTP 侧仍在运行的扫描。
+                    client.abort_scan().await;
+                    emit_stream_chunk(
+                        on_chunk,
+                        "stdout",
+                        crate::i18n::fill(
+                            locale.checkpoint_text(crate::i18n::CheckpointText::BeforeTimeout),
+                            &[&timeout_ms],
+                        ),
+                    );
+                    Ok(ToolCheckpointCapture::Worktree(None))
+                }
+            }
+        }
+    }
+}
+
+/// 远程（SSH）工具的 checkpoint after 捕获。`on_chunk` 可选：bash 分支的
+/// 流式回调已被执行器按值占用，传 None 仅失去提示（超时保护仍生效）。
+async fn capture_checkpoint_after_tool_remote(
+    capture: ToolCheckpointCapture,
+    on_remote_workspace_command: &RemoteWorkspaceCallback,
+    on_chunk: Option<&BashStreamCallback>,
+) -> napi::Result<()> {
+    // 流式提示按界面语言本地化（bash 分支 on_chunk 被占用时走日志）。
+    let locale = crate::i18n::app_locale().await;
+    let warn = |message: String| {
+        if let Some(chunk) = on_chunk {
+            emit_stream_chunk(chunk, "stdout", message);
+        } else {
+            eprintln!("{message}");
+        }
+    };
+    match capture {
+        ToolCheckpointCapture::Files {
+            checkpoint_ids,
+            work_dir,
+            file_paths,
+        } => {
+            // 回滚语义不变：记录失败仍按工具错误上抛。
+            let client = RemoteCheckpointClient::new(on_remote_workspace_command);
+            for file_path in file_paths {
+                crate::storage::services::checkpoint::remote::record_checkpoint_file_after_remote(
+                    &client,
+                    checkpoint_ids.clone(),
+                    work_dir.clone(),
+                    file_path,
+                )
+                .await?;
+            }
+            Ok(())
+        }
+        ToolCheckpointCapture::Worktree(Some(capture)) => {
+            // 命令已结束：after 失败只意味着变更记录不完整，软失败降级，
+            // 不能把已成功的命令结果覆盖为失败（避免模型重试）。
+            let timeout_ms = remote_checkpoint_timeout_ms().await;
+            let scan_id = uuid::Uuid::new_v4().to_string();
+            let client = RemoteCheckpointClient::with_scan_id(on_remote_workspace_command, scan_id);
+            let started = Instant::now();
+            if on_chunk.is_some() {
+                warn(crate::i18n::fill(
+                    locale.checkpoint_text(crate::i18n::CheckpointText::AfterStarted),
+                    &[],
+                ));
+            }
+            let recorded = tokio::time::timeout(
+                Duration::from_millis(timeout_ms),
+                crate::storage::services::checkpoint::remote::record_checkpoint_worktree_after_remote(
+                    &client, capture,
+                ),
+            )
+            .await;
+            match recorded {
+                Ok(Ok(())) => {
+                    warn(crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::AfterCompleted),
+                        &[&started.elapsed().as_millis()],
+                    ));
+                    Ok(())
+                }
+                Ok(Err(error)) => {
+                    warn(crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::AfterFailed),
+                        &[&error],
+                    ));
+                    Ok(())
+                }
+                Err(_) => {
+                    // 超时后真正取消 Electron/SFTP 侧仍在运行的扫描。
+                    client.abort_scan().await;
+                    warn(crate::i18n::fill(
+                        locale.checkpoint_text(crate::i18n::CheckpointText::AfterTimeout),
+                        &[&timeout_ms],
+                    ));
+                    Ok(())
+                }
+            }
+        }
+        ToolCheckpointCapture::None | ToolCheckpointCapture::Worktree(None) => Ok(()),
+    }
+}
+
+fn capture_checkpoint_after_tool(capture: ToolCheckpointCapture) -> napi::Result<()> {
+    match capture {
+        ToolCheckpointCapture::Files {
+            checkpoint_ids,
+            work_dir,
+            file_paths,
+        } => {
+            for file_path in file_paths {
+                crate::storage::services::checkpoint::record_checkpoint_file_after(
+                    checkpoint_ids.clone(),
+                    work_dir.clone(),
+                    file_path,
+                )?;
+            }
+            Ok(())
+        }
+        ToolCheckpointCapture::Worktree(Some(capture)) => {
+            // 软失败：after 记录失败只意味着回滚保护可能不完整，不能把
+            // 已经成功的工具结果覆盖为失败（避免模型重试已执行的命令）。
+            match crate::storage::services::checkpoint::record_checkpoint_worktree_after(capture) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    eprintln!(
+                        "{}",
+                        crate::i18n::fill(
+                            crate::i18n::app_locale_blocking()
+                                .checkpoint_text(crate::i18n::CheckpointText::AfterFailed),
+                            &[&error],
+                        )
+                    );
+                    Ok(())
+                }
+            }
+        }
+        ToolCheckpointCapture::None | ToolCheckpointCapture::Worktree(None) => Ok(()),
+    }
+}
+
+/// 判断 bash 命令是否只读（可安全跳过 checkpoint 工作区快照）。
+/// 保守策略：只有明确命中的只读模式才返回 true；命令链逐语句判定
+/// （`cd /b && sed -n '1,200p' f` 读取项目外文件不需要当前项目保护）。
+fn is_readonly_bash_command(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return true;
+    }
+
+    // 重定向到文件（> file / >> file）会修改工作区；排除 >/dev/null 与 >& 形式
+    if has_file_redirect(trimmed) {
+        return false;
+    }
+
+    // `set -euo pipefail; cmd`、`set -x && cmd`、`set -o pipefail\ncmd`
+    // 这类 Shell 状态前缀本身不修改工作区文件（非交互 SSH exec 不写
+    // history），剥离后继续按只读规则分析剩余命令——避免仅因包含 `set`
+    // 或分号就触发全工作区 checkpoint 快照。
+    if let Some(rest) = strip_shell_state_prefix(trimmed) {
+        return is_readonly_bash_command(rest);
+    }
+
+    // 命令链：按语句分隔符拆分后逐条判定；无法可靠拆分时保守保留快照。
+    if trimmed.contains([';', '&', '\n']) || trimmed.contains("||") {
+        let Some(statements) = split_shell_statements(trimmed) else {
+            return false;
+        };
+        return statements
+            .iter()
+            .all(|statement| is_readonly_single_statement(statement));
+    }
+
+    is_readonly_single_statement(trimmed)
+}
+
+/// 单条语句（不含语句分隔符）的只读判定。
+fn is_readonly_single_statement(statement: &str) -> bool {
+    let trimmed = statement.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return true;
+    }
+    if has_file_redirect(trimmed) {
+        return false;
+    }
+
+    // 管道 / 命令替换 / 子 shell / 输入重定向无法静态判定读写性，保守保留。
+    if trimmed.contains(['|', '`', '<', '(', '{', ';', '&', '\n']) {
+        return false;
+    }
+
+    // curl -o/-O/--output、wget --output-file 等会把响应写入文件。
+    if trimmed.contains(" -o") || trimmed.contains(" -O") || trimmed.contains("--output") {
+        return false;
+    }
+
+    // sed 的严格纯打印形式（如 `sed -n '1,200p' file`）只输出不写文件。
+    if is_readonly_sed_print(trimmed) {
+        return true;
+    }
+
+    // 只读命令模式白名单。注意：sed/awk 未列入（sed -i / awk 重定向会写
+    // 文件，仅上面的纯打印形式例外），node/python/curl/wget/git 写类子命令
+    // 未列入；time/for/while/if/source 等控制流/包裹关键字未列入（可包裹
+    // 任意命令，无法静态判定），均保守保留 checkpoint。
+    const READONLY_PATTERNS: &[&str] = &[
+        // 纯读命令（可带参数）
+        "echo",
+        "ls",
+        "pwd",
+        "grep",
+        "rg",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "find",
+        "which",
+        "type",
+        "date",
+        "printf",
+        "dirname",
+        "basename",
+        "readlink",
+        "realpath",
+        "stat",
+        "file",
+        "tree",
+        "du",
+        "df",
+        "nproc",
+        "uname",
+        "hostname",
+        "ps",
+        "top",
+        "ping",
+        "nslookup",
+        "dig",
+        "history",
+        "jobs",
+        "true",
+        "false",
+        "sleep",
+        "test",
+        "[",
+        "exit",
+        "cd",
+        "export",
+        "unset",
+        "set",
+        // git 只读子命令（写类子命令 add/commit/push/pull/checkout 等不在列）
+        "git status",
+        "git log",
+        "git diff",
+        "git branch",
+        "git rev-parse",
+        "git remote",
+        "git show",
+        "git ls-files",
+        "git tag",
+        "git blame",
+        "git reflog",
+        "git describe",
+        "git shortlog",
+        "git config --get",
+        "git help",
+        // 只读网络探测
+        "curl -I",
+        "curl -i",
+        "curl -sI",
+        "wget --spider",
+    ];
+
+    READONLY_PATTERNS.iter().any(|pattern| {
+        let p = pattern.trim_end();
+        trimmed == p
+            || (trimmed.len() > p.len()
+                && trimmed.starts_with(p)
+                && trimmed.as_bytes()[p.len()].is_ascii_whitespace())
+    })
+}
+
+/// 按 shell 词法拆分语句为 token（去引号、处理反斜杠转义）；引号不闭合
+/// 返回 None，调用方保守处理。
+fn tokenize_shell_tokens(statement: &str) -> Option<Vec<String>> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut has_current = false;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut chars = statement.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_single {
+            if c == '\'' {
+                in_single = false;
+            } else {
+                current.push(c);
+            }
+            continue;
+        }
+        if in_double {
+            match c {
+                '\\' => {
+                    // 双引号内仅 \" \\ \$ \` 保留转义语义，其余情况反斜杠
+                    // 按字面保留（此处只需 token 文本，不做展开）。
+                    match chars.peek() {
+                        Some(&next @ ('"' | '\\' | '$' | '`')) => {
+                            chars.next();
+                            current.push(next);
+                        }
+                        _ => current.push('\\'),
+                    }
+                }
+                '"' => in_double = false,
+                _ => current.push(c),
+            }
+            continue;
+        }
+        match c {
+            c if c.is_whitespace() => {
+                if has_current {
+                    tokens.push(std::mem::take(&mut current));
+                    has_current = false;
+                }
+            }
+            '\'' => {
+                in_single = true;
+                has_current = true;
+            }
+            '"' => {
+                in_double = true;
+                has_current = true;
+            }
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                    has_current = true;
+                }
+            }
+            _ => {
+                current.push(c);
+                has_current = true;
+            }
+        }
+    }
+    if in_single || in_double {
+        return None;
+    }
+    if has_current {
+        tokens.push(current);
+    }
+    Some(tokens)
+}
+
+/// 按语句分隔符（`;`、`&`、`&&`、`||`、换行）拆分 shell 命令，忽略引号内
+/// 分隔符；管道 `|` 不拆分（属语句内部结构）。引号不闭合返回 None。
+fn split_shell_statements(command: &str) -> Option<Vec<&str>> {
+    let bytes = command.as_bytes();
+    let mut statements: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_single {
+            if c == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            match c {
+                b'\\' => i += 1, // 跳过被转义的字符
+                b'"' => in_double = false,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => in_single = true,
+            b'"' => in_double = true,
+            b'\\' => i += 1, // 跳过被转义的字符（含转义的换行/分号）
+            b';' | b'\n' => {
+                statements.push(&command[start..i]);
+                start = i + 1;
+            }
+            b'&' => {
+                let sep_len = if bytes.get(i + 1) == Some(&b'&') {
+                    2
+                } else {
+                    1
+                };
+                statements.push(&command[start..i]);
+                start = i + sep_len;
+                i += sep_len - 1;
+            }
+            b'|' if bytes.get(i + 1) == Some(&b'|') => {
+                statements.push(&command[start..i]);
+                start = i + 2;
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if in_single || in_double {
+        return None;
+    }
+    statements.push(&command[start..]);
+    Some(statements)
+}
+
+/// 严格识别 sed 的纯打印形式（如 `sed -n '1,200p' file`）：脚本仅允许
+/// 数字/$ 行地址 + `p` 命令，禁止 -i（原地写）与 -f（脚本文件），其余
+/// 形式（正则地址、w/e 命令等）保守保留 checkpoint。
+fn is_readonly_sed_print(statement: &str) -> bool {
+    let Some(tokens) = tokenize_shell_tokens(statement) else {
+        return false;
+    };
+    let mut iter = tokens.iter().map(String::as_str);
+    if iter.next() != Some("sed") {
+        return false;
+    }
+    let mut scripts: Vec<&str> = Vec::new();
+    let mut expect_script = false;
+    for token in iter {
+        if expect_script {
+            scripts.push(token);
+            expect_script = false;
+            continue;
+        }
+        if let Some(long_flag) = token.strip_prefix("--") {
+            // 仅放行与写行为无关的长选项；--in-place / --file 等一律保守。
+            if long_flag == "silent" || long_flag == "quiet" || long_flag == "posix" {
+                continue;
+            }
+            return false;
+        }
+        if let Some(flags) = token.strip_prefix('-') {
+            if flags.is_empty() {
+                return false;
+            }
+            // -i 原地写、-f 从文件读脚本（内容无法静态校验）→ 保守。
+            if flags.contains('i') || flags.contains('f') {
+                return false;
+            }
+            if flags.contains('e') {
+                expect_script = true;
+            }
+            continue;
+        }
+        if scripts.is_empty() {
+            // 无 -e 时第一个非选项参数即脚本，其余为输入文件（只读）。
+            scripts.push(token);
+        }
+    }
+    !scripts.is_empty()
+        && scripts.iter().all(|script| {
+            script
+                .split(';')
+                .all(|expression| is_line_address_print(expression))
+        })
+}
+
+/// 行地址区间 + `p` 打印表达式：`p`、`1p`、`1,200p`、`1,$p` 等。
+fn is_line_address_print(expression: &str) -> bool {
+    let Some(address) = expression.trim().strip_suffix('p') else {
+        return false;
+    };
+    let address = address.trim();
+    if address.is_empty() {
+        return true;
+    }
+    address.split(',').all(|part| {
+        let part = part.trim();
+        part == "$" || (!part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
+/// 判断远程 bash 命令是否应跳过当前会话项目的 checkpoint 扫描。
+/// Some(原因) = 命令作用范围在会话项目之外（扫描会话项目无意义，
+/// 不能把当前项目的 checkpoint 当作有效保护）；None = 保守保留扫描。
+fn remote_bash_checkpoint_skip_reason(
+    args: &Value,
+    work_dir: &str,
+) -> Option<crate::i18n::CheckpointSkipReason> {
+    let Some((workspace_authority, workspace_segments)) = remote_path::normalize_ssh_path(work_dir)
+    else {
+        return None; // 工作区无法解析时保守保留扫描
+    };
+
+    // 1. workingDirectory（已解析为 ssh:// URI）不在会话项目工作区内。
+    let mut cwd_segments = workspace_segments.clone();
+    if let Some(working_directory) = args
+        .get("workingDirectory")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if !is_ssh_path(working_directory) {
+            return Some(crate::i18n::CheckpointSkipReason::NotSshWorkingDir {
+                dir: working_directory.to_string(),
+            });
+        }
+        let Some((authority, segments)) = remote_path::normalize_ssh_path(working_directory) else {
+            return None; // 无法解析时保守保留扫描
+        };
+        if authority != workspace_authority
+            || !remote_path::remote_segments_start_with(&segments, &workspace_segments)
+        {
+            return Some(crate::i18n::CheckpointSkipReason::WorkingDirOutside {
+                dir: working_directory.to_string(),
+            });
+        }
+        cwd_segments = segments;
+    }
+
+    // 2. 命令体：仅当能静态确认所有可能的写入都在工作区之外时跳过扫描。
+    let command = args.get("command").and_then(Value::as_str)?;
+    command_targets_outside_workspace(command, &cwd_segments, &workspace_segments)
+        .then_some(crate::i18n::CheckpointSkipReason::WritesOutside)
+}
+
+/// 沿命令链追踪实际执行目录（cd 语句）与路径证据，判断是否所有可能的
+/// 写入都在项目工作区之外；任何不确定情况返回 false（保守保留扫描）。
+fn command_targets_outside_workspace(
+    command: &str,
+    initial_cwd: &[String],
+    workspace_segments: &[String],
+) -> bool {
+    let Some(statements) = split_shell_statements(command) else {
+        return false;
+    };
+    let mut cwd: Option<Vec<String>> = Some(initial_cwd.to_vec());
+    let mut writes_inside_or_uncertain = false;
+    let mut writes_outside = false;
+    for raw_statement in statements {
+        let statement = raw_statement.trim();
+        if statement.is_empty() || statement.starts_with('#') {
+            continue;
+        }
+        // cd 语句：更新 cwd；目标无法静态确定时记为不确定。
+        if let Some(target) = pure_cd_target(statement) {
+            cwd = match (cwd.take(), target) {
+                (_, None) | (None, _) => None,
+                (Some(base), Some(target)) => Some(resolve_cd_target(&base, &target)),
+            };
+            continue;
+        }
+        if is_shell_state_statement(statement) {
+            continue;
+        }
+        if is_readonly_single_statement(statement) {
+            continue;
+        }
+
+        // 可能写入的语句：按 cwd 位置与绝对路径证据判断写入位置。
+        let cwd_inside_or_uncertain = match &cwd {
+            None => true,
+            Some(segments) => remote_path::remote_segments_start_with(segments, workspace_segments),
+        };
+        let Some(tokens) = tokenize_shell_tokens(statement) else {
+            return false; // 无法解析 → 保守保留扫描
+        };
+        let mut absolute_inside = false;
+        let mut absolute_outside = false;
+        for token in &tokens {
+            if token.starts_with('/') {
+                let segments = resolve_cd_target(&[], token);
+                if remote_path::remote_segments_start_with(&segments, workspace_segments) {
+                    absolute_inside = true;
+                } else {
+                    absolute_outside = true;
+                }
+            }
+        }
+        if cwd_inside_or_uncertain || absolute_inside {
+            writes_inside_or_uncertain = true;
+        }
+        if !cwd_inside_or_uncertain || absolute_outside {
+            writes_outside = true;
+        }
+    }
+    writes_outside && !writes_inside_or_uncertain
+}
+
+/// 识别纯 `cd` 语句的目标：外层 None = 非纯 cd；Some(None) = 目标无法
+/// 静态确定；Some(Some(target)) = 字面目标路径。
+fn pure_cd_target(statement: &str) -> Option<Option<String>> {
+    let tokens = tokenize_shell_tokens(statement)?;
+    let mut iter = tokens.iter().map(String::as_str);
+    if iter.next() != Some("cd") {
+        return None;
+    }
+    let mut target: Option<String> = None;
+    for token in iter {
+        if let Some(stripped) = token.strip_prefix('-') {
+            // cd -P / -L 等选项；`cd -`（上一目录）同样无法静态确定。
+            if stripped.is_empty() {
+                return Some(None);
+            }
+            continue;
+        }
+        if target.is_some() {
+            return None; // 多个位置参数 → 非纯 cd，按普通语句保守处理
+        }
+        target = Some(token.to_string());
+    }
+    Some(target.and_then(|value| {
+        if value.contains(['~', '$', '`']) {
+            None // 依赖运行时展开，无法静态确定
+        } else {
+            Some(value)
+        }
+    }))
+}
+
+/// 解析 cd 目标为目录段序列（词法归一化 `.` / `..`，不做 IO）。
+fn resolve_cd_target(base: &[String], target: &str) -> Vec<String> {
+    let mut segments = if target.starts_with('/') {
+        Vec::new()
+    } else {
+        base.to_vec()
+    };
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            value => segments.push(value.to_string()),
+        }
+    }
+    segments
+}
+
+/// 判断语句是否为纯 shell 状态语句（set/export/unset 等，不写工作区）。
+fn is_shell_state_statement(statement: &str) -> bool {
+    let Some(tokens) = tokenize_shell_tokens(statement) else {
+        return false;
+    };
+    matches!(
+        tokens.first().map(String::as_str),
+        Some("set" | "export" | "unset" | "readonly" | "shopt" | ":")
+    )
+}
+
+/// 剥离 `set` 开头的 Shell 状态语句前缀（如 `set -euo pipefail; cmd`、
+/// `set -x && cmd`、`set -o pipefail\ncmd`）。`set` 只修改 shell 选项与
+/// 位置参数，不写工作区文件（非交互 SSH exec 不写 history），剥离后由
+/// 调用方继续分析剩余命令。当第一个语句无法确认是纯 `set` 调用（含命令
+/// 替换、子 shell、重定向等副作用构造）时返回 None，保守保留 checkpoint。
+fn strip_shell_state_prefix(command: &str) -> Option<&str> {
+    let rest = command.strip_prefix("set")?;
+    // set 后必须是空白、-、+ 或直接结束；`setx ...` 等非 set 命令不剥离。
+    match rest.chars().next() {
+        None => return Some(""),
+        Some(c) if c.is_whitespace() || c == '-' || c == '+' => {}
+        Some(_) => return None,
+    }
+
+    let bytes = command.as_bytes();
+    let mut i = "set".len();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut suspicious = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_single {
+            if c == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if c == b'\\' {
+                i += 2; // 双引号内转义：跳过下一个字符
+                continue;
+            }
+            if c == b'"' {
+                in_double = false;
+            } else if c == b'$' && bytes.get(i + 1) == Some(&b'(') {
+                suspicious = true; // "$(cmd)" 在双引号内仍执行命令替换
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => in_single = true,
+            b'"' => in_double = true,
+            // 语句分隔符：`;`、换行、`&&`、`||`
+            b';' | b'\n' => {
+                return if suspicious {
+                    None
+                } else {
+                    Some(command[i + 1..].trim_start())
+                }
+            }
+            b'&' | b'|' if bytes.get(i + 1) == Some(&c) => {
+                return if suspicious {
+                    None
+                } else {
+                    Some(command[i + 2..].trim_start())
+                }
+            }
+            // 命令替换 / 子 shell / 重定向等副作用构造 → 不剥离
+            b'`' | b'(' | b'{' | b'<' | b'>' => suspicious = true,
+            b'$' if bytes.get(i + 1) == Some(&b'(') => suspicious = true,
+            _ => {}
+        }
+        i += 1;
+    }
+    // 无分隔符：整条命令就是 set 语句，交由白名单匹配。
+    None
+}
+
+/// 检测命令字符串中的文件重定向（`>` / `>>`），排除 `>/dev/null` 与 `>&` / `2>&1`。
+fn has_file_redirect(command: &str) -> bool {
+    let bytes = command.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'>' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j] == b'>' {
+                j += 1;
+            }
+            let after = command[j..].trim_start();
+            if !after.starts_with("/dev/null") && !after.starts_with('&') {
+                return true;
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}

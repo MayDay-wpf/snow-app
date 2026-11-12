@@ -1,0 +1,33 @@
+[package]
+name = "snow-remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-process = { path = "../snow-process" }
+snow-text = { path = "../snow-text" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-storage = { path = "../snow-storage" }
+snow-storage-services = { path = "../snow-storage-services" }
+snow-net = { path = "../snow-net" }
+napi.workspace = true
+napi-derive = "3.2.4"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+url = "2"
+percent-encoding = "2"
+sha2 = "0.10"
+blake3 = "1"
+base64 = "0.22"
+futures = "0.3.31"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+native-tls = "0.2"
+tokio-native-tls = "0.3"
+getrandom = "0.2"
+chrono = "0.4.38"

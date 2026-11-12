@@ -1,0 +1,39 @@
+[package]
+name = "snow-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-storage = { path = "../snow-storage" }
+snow-net = { path = "../snow-net" }
+snow-ai = { path = "../snow-ai" }
+snow-runtime = { path = "../snow-runtime" }
+snow-text = { path = "../snow-text" }
+snow-process = { path = "../snow-process" }
+napi.workspace = true
+napi-derive = "3.2.4"
+tokio.workspace = true
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+futures.workspace = true
+blake3 = "1"
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }
+chrono.workspace = true
+tokio-util = { version = "0.7", features = ["compat"] }
+http = "1"
+percent-encoding = "2"
+url = "2"
+reqwest = { version = "0.12.5", features = ["json", "stream"] }
+rmcp = { version = "3.0.1", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+    "reqwest-native-tls",
+] }
+rmcp-reqwest = { package = "reqwest", version = "0.13", default-features = false, features = [
+    "json",
+    "stream",
+] }

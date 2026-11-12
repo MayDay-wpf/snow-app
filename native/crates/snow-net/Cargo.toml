@@ -1,0 +1,21 @@
+[package]
+name = "snow-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-runtime = { path = "../snow-runtime" }
+snow-process = { path = "../snow-process" }
+napi.workspace = true
+tokio.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+tokio-util = { version = "0.7", features = ["compat"] }
+url = "2"
+reqwest = { version = "0.12.5", features = ["blocking", "json", "stream", "multipart", "gzip", "brotli", "deflate"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.7"

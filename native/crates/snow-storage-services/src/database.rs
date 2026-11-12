@@ -1,0 +1,1268 @@
+//! 建表、迁移与修复；连接池在 snow-storage-core。
+
+pub use snow_storage_core::database::*;
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use napi::bindgen_prelude::*;
+use rusqlite::Connection;
+
+use super::{
+    migrations,
+    models::{DatabaseOptimizeResult, DatabaseRepairResult},
+    services,
+};
+
+pub fn ensure_database(database_path: &Path) -> Result<()> {
+    // First attempt: normal open + schema creation.
+    match open_connection(database_path).and_then(|connection| create_schema(&connection)) {
+        Ok(()) => Ok(()),
+        Err(first_error) => {
+            // If the error looks like corruption, attempt recovery before
+            // surfacing the failure to the caller. This prevents a permanent
+            // "database disk image is malformed" brick on startup.
+            if is_corruption_error(&first_error) {
+                eprintln!(
+                    "Snow App database corruption detected ({}). Attempting recovery...",
+                    first_error
+                );
+                match recover_database(database_path, create_schema) {
+                    Ok(()) => {
+                        eprintln!("Snow App database recovered successfully.");
+                        Ok(())
+                    }
+                    Err(recover_error) => {
+                        // Recovery failed — surface the original error so the
+                        // caller sees the root cause, but log the recovery
+                        // failure too.
+                        eprintln!("Snow App database recovery failed: {}", recover_error);
+                        Err(database_error(database_path, "initialize", first_error))
+                    }
+                }
+            } else {
+                Err(database_error(database_path, "initialize", first_error))
+            }
+        }
+    }
+}
+
+/// Returns true when a rusqlite error indicates the database file is
+/// physically corrupted (b-tree page corruption, invalid page numbers, etc.).
+fn is_corruption_error(error: &rusqlite::Error) -> bool {
+    // Check SQLite primary error code first — more reliable than string matching.
+    if let rusqlite::Error::SqliteFailure(err_code, _) = error {
+        match err_code.code {
+            rusqlite::ErrorCode::DatabaseCorrupt => return true,
+            rusqlite::ErrorCode::NotADatabase => return true,
+            _ => {}
+        }
+    }
+    // Fall back to string matching for edge cases where the error code
+    // doesn't directly map but the message mentions corruption.
+    let message = error.to_string().to_lowercase();
+    message.contains("malformed") || message.contains("not a database")
+}
+
+/// Attempts to recover data from a corrupted SQLite database by dumping all
+/// recoverable rows into a new database file, then atomically replacing the
+/// corrupted file. The old file is preserved with a `.corrupt.bak` suffix.
+///
+/// `schema_builder` decides which table structure the recovered database gets:
+/// the runtime database uses the full app schema, the archive database uses
+/// the archive-only schema. It must be idempotent (`CREATE TABLE IF NOT EXISTS`).
+pub(crate) fn recover_database(
+    database_path: &Path,
+    schema_builder: fn(&Connection) -> rusqlite::Result<()>,
+) -> Result<()> {
+    // 恢复过程会 rename/删除数据库文件；池中任何空闲连接都会持有文件句柄
+    // （Windows 上 rename 会直接失败），因此先清空连接池。
+    close_pooled_connections();
+
+    let parent = database_path
+        .parent()
+        .ok_or_else(|| Error::from_reason("Cannot determine database parent directory"))?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let backup_path = parent.join(format!(
+        "{}.corrupt.{timestamp}.bak",
+        database_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("snowapp.db")
+    ));
+
+    let recovered_path = parent.join(format!(
+        "{}.recovered",
+        database_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("snowapp.db")
+    ));
+
+    // Remove any stale recovered file (plus its WAL/SHM sidecars) from a
+    // previous failed attempt. A leftover sidecar would otherwise be
+    // reattached to the fresh empty database on the next open.
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}{suffix}",
+            recovered_path.display()
+        )));
+    }
+
+    // Open the corrupted database in read-only mode and run the SQLite
+    // `.recover` equivalent: iterate every table, dump CREATE + INSERT
+    // statements into the new database.
+    let recovered_conn = open_connection(&recovered_path)
+        .map_err(|e| Error::from_reason(format!("Failed to create recovered database: {e}")))?;
+
+    // Step 1: Use the corrupt database's schema. We open a separate read-only
+    // connection to iterate tables and copy data row by row, tolerating
+    // per-row errors (corrupted rows are simply skipped).
+    let read_only_conn = Connection::open_with_flags(
+        database_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| Error::from_reason(format!("Failed to open corrupted database read-only: {e}")))?;
+
+    // Set a busy timeout so we don't fail if another connection holds a lock.
+    let _ = read_only_conn.busy_timeout(Duration::from_secs(5));
+
+    // Build the schema in the recovered database first (using the caller's
+    // schema builder, which is idempotent with CREATE TABLE IF NOT EXISTS).
+    schema_builder(&recovered_conn).map_err(|e| {
+        Error::from_reason(format!(
+            "Failed to create schema in recovered database: {e}"
+        ))
+    })?;
+
+    // Copy data from each table.
+    let table_names: Vec<String> = read_only_conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        .map_err(|e| Error::from_reason(format!("Failed to list tables: {e}")))?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| Error::from_reason(format!("Failed to query table names: {e}")))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for table_name in &table_names {
+        // Skip internal tables.
+        if table_name.starts_with("sqlite_") {
+            continue;
+        }
+
+        // Read column names for this table from the corrupted database.
+        let columns_result: rusqlite::Result<Vec<String>> = read_only_conn
+            .prepare(&format!("SELECT * FROM \"{table_name}\" LIMIT 0"))
+            .and_then(|stmt| {
+                let count = stmt.column_count();
+                Ok((0..count)
+                    .map(|i| stmt.column_name(i).unwrap_or("").to_string())
+                    .collect())
+            });
+
+        let columns = match columns_result {
+            Ok(cols) if !cols.is_empty() => cols,
+            _ => continue, // Can't determine columns, skip this table.
+        };
+
+        let column_list = columns
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // Read all rows from the corrupted database, tolerating errors.
+        let select_result =
+            read_only_conn.prepare(&format!("SELECT {column_list} FROM \"{table_name}\""));
+
+        if let Ok(mut select_stmt) = select_result {
+            // We iterate rows, skipping any that trigger corruption errors.
+            let column_count = columns.len();
+            let mut recovered_count = 0u64;
+            let mut skipped_count = 0u64;
+
+            // Use query_map for clean rows, but fall back to manual iteration
+            // so we can continue past errors.
+            let rows_result = select_stmt.query([]);
+
+            if let Ok(mut rows) = rows_result {
+                loop {
+                    match rows.next() {
+                        Ok(Some(row)) => {
+                            // Read each column value, trying multiple types
+                            // to handle diverse column types gracefully.
+                            let mut values: Vec<String> = Vec::with_capacity(column_count);
+                            for i in 0..column_count {
+                                let cell = row.get::<_, rusqlite::types::Value>(i);
+                                let formatted = match cell {
+                                    Ok(rusqlite::types::Value::Null) | Err(_) => "NULL".to_string(),
+                                    Ok(rusqlite::types::Value::Integer(v)) => v.to_string(),
+                                    Ok(rusqlite::types::Value::Real(v)) => v.to_string(),
+                                    Ok(rusqlite::types::Value::Text(s)) => {
+                                        format!("'{}'", s.replace('\'', "''"))
+                                    }
+                                    Ok(rusqlite::types::Value::Blob(bytes)) => {
+                                        let hex: String =
+                                            bytes.iter().map(|b| format!("{b:02x}")).collect();
+                                        format!("X'{hex}'")
+                                    }
+                                };
+                                values.push(formatted);
+                            }
+
+                            let value_list = values.join(", ");
+                            let insert_sql = format!(
+                                "INSERT OR IGNORE INTO \"{table_name}\" ({column_list}) VALUES ({value_list})"
+                            );
+
+                            if let Err(e) = recovered_conn.execute(&insert_sql, []) {
+                                eprintln!("Recovery: failed to insert row into {table_name}: {e}");
+                                skipped_count += 1;
+                            } else {
+                                recovered_count += 1;
+                            }
+                        }
+                        Ok(None) => break, // End of cursor.
+                        Err(e) => {
+                            // Row read error — likely corruption. Log and
+                            // try to continue to the next row.
+                            eprintln!("Recovery: skipping corrupted row in {table_name}: {e}");
+                            skipped_count += 1;
+                            // If the error is fatal (cursor is dead), break.
+                            if e.to_string().to_lowercase().contains("malformed") {
+                                break;
+                            }
+                            // For non-fatal errors, the cursor may still be
+                            // usable — but rusqlite doesn't let us resume
+                            // easily, so break to avoid an infinite loop.
+                            break;
+                        }
+                    }
+                }
+
+                eprintln!(
+                    "Recovery: table '{table_name}' — {recovered_count} rows recovered, {skipped_count} skipped"
+                );
+            }
+        }
+    }
+
+    // Run schema migrations again after row copy. Recovery inserts legacy rows
+    // into the fresh schema, so api_configs canonicalization must see them.
+    schema_builder(&recovered_conn).map_err(|e| {
+        Error::from_reason(format!("Failed to finalize recovered database schema: {e}"))
+    })?;
+
+    // user_version is set by the schema builder itself (create_schema writes
+    // CURRENT_SCHEMA_VERSION; the archive builder leaves it unset, which the
+    // archive service tolerates).
+
+    // Explicitly checkpoint and truncate the WAL so every recovered row lives
+    // in the main database file before the connection is dropped and the file
+    // is renamed into place. SQLite normally checkpoints on close, but a silent
+    // checkpoint failure would leave recovered rows in the -wal sidecar —
+    // which the renames below do not move, losing the data.
+    let _ = recovered_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+    drop(recovered_conn);
+    drop(read_only_conn);
+    // drop 会把 recovered 连接还回池中，rename 前必须再清一次。
+    close_pooled_connections();
+
+    // Remove WAL/SHM sidecar files of the corrupted database.
+    let wal_path = PathBuf::from(format!("{}-wal", database_path.display()));
+    let shm_path = PathBuf::from(format!("{}-shm", database_path.display()));
+    let _ = fs::remove_file(&wal_path);
+    let _ = fs::remove_file(&shm_path);
+
+    // Atomically replace the corrupted database with the recovered one.
+    // First, rename the corrupted file to a backup.
+    fs::rename(database_path, &backup_path).map_err(|e| {
+        Error::from_reason(format!(
+            "Failed to back up corrupted database to '{}': {e}",
+            backup_path.display()
+        ))
+    })?;
+
+    // Then move the recovered file into place.
+    fs::rename(&recovered_path, database_path).map_err(|e| {
+        // If the rename fails, try to restore the backup so we don't leave
+        // the user with no database at all.
+        let _ = fs::rename(&backup_path, database_path);
+        Error::from_reason(format!("Failed to move recovered database into place: {e}"))
+    })?;
+
+    // Clean up any leftover sidecars of the recovered file (normally removed
+    // by SQLite on close; this guards the case where the explicit checkpoint
+    // above could not run and left rows in the -wal).
+    for suffix in ["-wal", "-shm"] {
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}{suffix}",
+            recovered_path.display()
+        )));
+    }
+
+    eprintln!(
+        "Recovery complete. Corrupted database backed up to '{}'",
+        backup_path.display()
+    );
+
+    Ok(())
+}
+
+pub(crate) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
+    // Pre-schema migrations run BEFORE CREATE TABLE so that tables with
+    // incompatible legacy structures (e.g. INTEGER primary keys) can be
+    // dropped and recreated with the current schema.
+    migrations::run_pre_schema_migrations(connection)?;
+
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS system_settings (
+           id TEXT PRIMARY KEY NOT NULL,
+           setting_name TEXT NOT NULL,
+           setting_code TEXT NOT NULL UNIQUE,
+           setting_value TEXT NOT NULL,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+
+         CREATE TABLE IF NOT EXISTS api_configs (
+           id TEXT PRIMARY KEY NOT NULL,
+           profile_name TEXT NOT NULL UNIQUE,
+           display_name TEXT NOT NULL,
+           is_active INTEGER NOT NULL DEFAULT 0,
+           base_url TEXT NOT NULL DEFAULT '',
+           base_url_mode TEXT NOT NULL DEFAULT 'auto',
+           api_key TEXT NOT NULL DEFAULT '',
+           request_method TEXT NOT NULL DEFAULT 'chat',
+           advanced_model TEXT NOT NULL DEFAULT '',
+           basic_model TEXT NOT NULL DEFAULT '',
+           supports_vision INTEGER NOT NULL DEFAULT 1,
+           vision_base_url TEXT NOT NULL DEFAULT '',
+           vision_base_url_mode TEXT NOT NULL DEFAULT 'auto',
+           vision_api_key TEXT NOT NULL DEFAULT '',
+           vision_request_method TEXT NOT NULL DEFAULT 'chat',
+           vision_model TEXT NOT NULL DEFAULT '',
+           max_context_tokens INTEGER,
+           max_tokens INTEGER,
+           stream_idle_timeout_sec INTEGER,
+           enable_auto_compress INTEGER NOT NULL DEFAULT 1,
+           auto_compress_threshold INTEGER,
+           max_retries INTEGER NOT NULL DEFAULT 5,
+           retry_base_delay_ms INTEGER NOT NULL DEFAULT 3000,
+           partial_retry_max_chars INTEGER NOT NULL DEFAULT 1000,
+           system_prompt_ids_json TEXT NOT NULL DEFAULT '',
+           custom_header_scheme_id TEXT NOT NULL DEFAULT '',
+           config_json TEXT NOT NULL DEFAULT '{}',
+           source TEXT NOT NULL DEFAULT 'manual',
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+
+CREATE INDEX IF NOT EXISTS idx_api_configs_active
+           ON api_configs(is_active);
+         CREATE INDEX IF NOT EXISTS idx_api_configs_source
+           ON api_configs(source);
+
+         CREATE TABLE IF NOT EXISTS system_prompts (
+           id TEXT PRIMARY KEY NOT NULL,
+           prompt_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           content TEXT NOT NULL DEFAULT '',
+           is_active INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           scope TEXT NOT NULL DEFAULT 'global',
+           project_id TEXT,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_system_prompts_active
+           ON system_prompts(is_active);
+
+         CREATE TABLE IF NOT EXISTS custom_header_schemes (
+           id TEXT PRIMARY KEY NOT NULL,
+           scheme_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           headers_json TEXT NOT NULL DEFAULT '{}',
+           is_active INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_custom_header_schemes_active
+           ON custom_header_schemes(is_active);
+
+         CREATE TABLE IF NOT EXISTS custom_commands (
+           id TEXT PRIMARY KEY NOT NULL,
+           command_id TEXT NOT NULL UNIQUE,
+           scope TEXT NOT NULL DEFAULT 'global',
+           project_id TEXT NOT NULL DEFAULT '',
+           name TEXT NOT NULL DEFAULT '',
+           command_type TEXT NOT NULL DEFAULT 'prompt',
+           content TEXT NOT NULL DEFAULT '',
+           description TEXT NOT NULL DEFAULT '',
+           enabled INTEGER NOT NULL DEFAULT 1,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_custom_commands_scope
+           ON custom_commands(scope, project_id, sort_order);
+
+         CREATE TABLE IF NOT EXISTS workspace_directories (
+           id TEXT PRIMARY KEY NOT NULL,
+           directory_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           path TEXT NOT NULL DEFAULT '',
+           kind TEXT NOT NULL DEFAULT 'local',
+           is_active INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'manual',
+           fs_identity TEXT NOT NULL DEFAULT '',
+           path_state TEXT NOT NULL DEFAULT 'unknown',
+           path_checked_at TEXT,
+           last_known_path TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+          CREATE INDEX IF NOT EXISTS idx_workspace_directories_active
+            ON workspace_directories(is_active);
+          CREATE INDEX IF NOT EXISTS idx_workspace_directories_kind
+            ON workspace_directories(kind);
+
+          CREATE TABLE IF NOT EXISTS git_worktrees (
+            worktree_id TEXT PRIMARY KEY NOT NULL,
+            directory_id TEXT NOT NULL,
+            repository_path TEXT NOT NULL,
+            worktree_path TEXT NOT NULL,
+            branch_name TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(directory_id, worktree_path)
+          );
+          CREATE INDEX IF NOT EXISTS idx_git_worktrees_directory
+            ON git_worktrees(directory_id);
+          CREATE TABLE IF NOT EXISTS conversation_worktree_bindings (
+            conversation_id TEXT PRIMARY KEY NOT NULL,
+            worktree_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY(worktree_id) REFERENCES git_worktrees(worktree_id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_conversation_worktree_bindings_worktree
+            ON conversation_worktree_bindings(worktree_id);
+
+          CREATE TABLE IF NOT EXISTS workspace_directory_relinks (
+           id TEXT PRIMARY KEY NOT NULL,
+           old_directory_id TEXT NOT NULL,
+           new_directory_id TEXT NOT NULL,
+           old_path TEXT NOT NULL DEFAULT '',
+           new_path TEXT NOT NULL DEFAULT '',
+           moved_by TEXT NOT NULL DEFAULT 'manual',
+           report_json TEXT NOT NULL DEFAULT '{}',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           undone_at TEXT
+         );
+         CREATE INDEX IF NOT EXISTS idx_workspace_directory_relinks_old
+           ON workspace_directory_relinks(old_directory_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_workspace_directory_relinks_new
+           ON workspace_directory_relinks(new_directory_id, created_at DESC);
+
+         CREATE TABLE IF NOT EXISTS project_collections (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           color TEXT NOT NULL DEFAULT '',
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+CREATE TABLE IF NOT EXISTS collection_members (
+           id TEXT PRIMARY KEY NOT NULL,
+           collection_id TEXT NOT NULL,
+           directory_id TEXT NOT NULL,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           linked INTEGER NOT NULL DEFAULT 1,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(collection_id, directory_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_collection_members_collection
+           ON collection_members(collection_id, sort_order);
+
+         CREATE TABLE IF NOT EXISTS mcp_server_configs (
+           id TEXT PRIMARY KEY NOT NULL,
+           server_id TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL DEFAULT '',
+           transport_type TEXT NOT NULL DEFAULT 'stdio',
+           url TEXT NOT NULL DEFAULT '',
+           command TEXT NOT NULL DEFAULT '',
+           args_json TEXT NOT NULL DEFAULT '[]',
+           env_json TEXT NOT NULL DEFAULT '{}',
+           headers_json TEXT NOT NULL DEFAULT '{}',
+           enabled INTEGER NOT NULL DEFAULT 1,
+           timeout_ms INTEGER,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'manual',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_mcp_server_configs_enabled
+           ON mcp_server_configs(enabled);
+         CREATE INDEX IF NOT EXISTS idx_mcp_server_configs_source
+           ON mcp_server_configs(source);
+
+         CREATE TABLE IF NOT EXISTS lsp_server_configs (
+           id TEXT PRIMARY KEY NOT NULL,
+           lang TEXT NOT NULL UNIQUE,
+           command TEXT NOT NULL DEFAULT '',
+           args_json TEXT NOT NULL DEFAULT '[]',
+           file_extensions_json TEXT NOT NULL DEFAULT '[]',
+           install_command TEXT NOT NULL DEFAULT '',
+           initialization_options_json TEXT NOT NULL DEFAULT '{}',
+           enabled INTEGER NOT NULL DEFAULT 1,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'manual',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_lsp_server_configs_enabled
+           ON lsp_server_configs(enabled);
+         CREATE INDEX IF NOT EXISTS idx_lsp_server_configs_source
+           ON lsp_server_configs(source);
+
+         CREATE TABLE IF NOT EXISTS lsp_diagnostic_cache (
+           file_path   TEXT PRIMARY KEY NOT NULL,
+           mtime_ms    INTEGER NOT NULL,
+           size        INTEGER NOT NULL,
+           result_json TEXT NOT NULL,
+           updated_at  INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_lsp_diagnostic_cache_updated_at
+           ON lsp_diagnostic_cache(updated_at);
+
+CREATE TABLE IF NOT EXISTS userscripts (
+            script_id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL DEFAULT '1.0',
+            description TEXT NOT NULL DEFAULT '',
+            namespace TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL DEFAULT '',
+            icon TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            run_at TEXT NOT NULL DEFAULT 'document-idle',
+            noframes INTEGER NOT NULL DEFAULT 1,
+            grant_json TEXT NOT NULL DEFAULT '[]',
+            matches_json TEXT NOT NULL DEFAULT '[]',
+            includes_json TEXT NOT NULL DEFAULT '[]',
+            excludes_json TEXT NOT NULL DEFAULT '[]',
+            requires_json TEXT NOT NULL DEFAULT '[]',
+            target TEXT NOT NULL DEFAULT 'browser',
+            view_json TEXT NOT NULL DEFAULT '[]',
+            surface_json TEXT NOT NULL DEFAULT '[]',
+            scope TEXT NOT NULL DEFAULT '',
+            sandbox INTEGER NOT NULL DEFAULT 1,
+            privacy_json TEXT NOT NULL DEFAULT '[]',
+            file_path TEXT NOT NULL DEFAULT '',
+            source_repo TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+         CREATE INDEX IF NOT EXISTS idx_userscripts_enabled
+           ON userscripts(enabled, updated_at);
+
+         CREATE TABLE IF NOT EXISTS userscript_values (
+           script_id TEXT NOT NULL,
+           key TEXT NOT NULL,
+           value TEXT NOT NULL,
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           PRIMARY KEY (script_id, key),
+           FOREIGN KEY(script_id) REFERENCES userscripts(script_id) ON DELETE CASCADE
+         );
+
+CREATE TABLE IF NOT EXISTS app_plugins (
+           plugin_id TEXT PRIMARY KEY NOT NULL,
+           name_json TEXT NOT NULL DEFAULT '{}',
+           description_json TEXT NOT NULL DEFAULT '{}',
+           version TEXT NOT NULL DEFAULT '1.0.0',
+           author TEXT NOT NULL DEFAULT '',
+           homepage TEXT NOT NULL DEFAULT '',
+           license TEXT NOT NULL DEFAULT '',
+           icon TEXT NOT NULL DEFAULT '',
+           render_mode TEXT NOT NULL DEFAULT 'esm',
+           entry TEXT NOT NULL DEFAULT 'index.js',
+           enabled INTEGER NOT NULL DEFAULT 1,
+           install_path TEXT NOT NULL DEFAULT '',
+           source_path TEXT NOT NULL DEFAULT '',
+           manifest_json TEXT NOT NULL DEFAULT '{}',
+           panels_json TEXT NOT NULL DEFAULT '[]',
+           locales_json TEXT NOT NULL DEFAULT '{}',
+           styles_json TEXT NOT NULL DEFAULT '[]',
+           privacy_json TEXT NOT NULL DEFAULT '[]',
+           privacy_note TEXT NOT NULL DEFAULT '',
+           min_app_version TEXT NOT NULL DEFAULT '',
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_app_plugins_enabled
+           ON app_plugins(enabled, sort_order);
+
+         CREATE TABLE IF NOT EXISTS app_plugin_values (
+           plugin_id TEXT NOT NULL,
+           key TEXT NOT NULL,
+           value TEXT NOT NULL,
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           PRIMARY KEY (plugin_id, key),
+           FOREIGN KEY(plugin_id) REFERENCES app_plugins(plugin_id) ON DELETE CASCADE
+         );
+
+         CREATE TABLE IF NOT EXISTS sub_agent_configs (
+           id TEXT PRIMARY KEY NOT NULL,
+           agent_id TEXT NOT NULL,
+           name TEXT NOT NULL,
+           description TEXT NOT NULL DEFAULT '',
+           system_prompt TEXT NOT NULL DEFAULT '',
+           tools_json TEXT NOT NULL DEFAULT '[]',
+           config_profile TEXT NOT NULL DEFAULT '',
+           model TEXT NOT NULL DEFAULT '',
+           builtin INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'manual',
+           project_id TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(agent_id, project_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_sub_agent_configs_builtin
+           ON sub_agent_configs(builtin);
+         CREATE INDEX IF NOT EXISTS idx_sub_agent_configs_source
+           ON sub_agent_configs(source);
+
+         CREATE TABLE IF NOT EXISTS sensitive_command_configs (
+           id TEXT PRIMARY KEY NOT NULL,
+           command_id TEXT NOT NULL UNIQUE,
+           pattern TEXT NOT NULL,
+           description TEXT NOT NULL DEFAULT '',
+           enabled INTEGER NOT NULL DEFAULT 1,
+           is_preset INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'manual',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_sensitive_command_configs_enabled
+           ON sensitive_command_configs(enabled);
+         CREATE INDEX IF NOT EXISTS idx_sensitive_command_configs_source
+           ON sensitive_command_configs(source);
+
+         CREATE TABLE IF NOT EXISTS chat_conversations (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL UNIQUE,
+           title TEXT NOT NULL DEFAULT '',
+           summary TEXT NOT NULL DEFAULT '',
+           last_message_preview TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            model TEXT NOT NULL DEFAULT '',
+            api_profile_name TEXT NOT NULL DEFAULT '',
+            thinking_strength TEXT,
+            responses_fast_mode INTEGER,
+            last_response_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+             cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+             cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+             total_duration_ms INTEGER NOT NULL DEFAULT 0,
+             -- 最近一次 AI run 的累计用量与墙钟总耗时（摘要条回显用）；
+             -- 与 input_tokens 等「最后一次请求快照」列语义不同。
+             run_input_tokens INTEGER NOT NULL DEFAULT 0,
+             run_output_tokens INTEGER NOT NULL DEFAULT 0,
+             run_cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+             run_cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+             last_run_duration_ms INTEGER NOT NULL DEFAULT 0,
+             run_ttft_sum_ms INTEGER NOT NULL DEFAULT 0,
+             run_request_count INTEGER NOT NULL DEFAULT 0,
+             directory_id TEXT NOT NULL DEFAULT '',
+             forked_from_conversation_id TEXT NOT NULL DEFAULT '',
+              fork_message_count INTEGER NOT NULL DEFAULT 0,
+              -- Per-conversation Goal/WorkTree/WorkFlow Mode overrides. NULL
+              -- flags are legacy/unset rows and are read as disabled
+              -- (synonymous with 0); a NULL goal_mode_token_budget falls back
+              -- to the global default budget.
+              goal_mode INTEGER,
+              worktree_mode INTEGER,
+              workflow_mode INTEGER,
+              goal_mode_token_budget INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated_at
+           ON chat_conversations(updated_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_chat_conversations_status
+           ON chat_conversations(status);
+
+         CREATE TABLE IF NOT EXISTS sub_agent_sessions (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL UNIQUE,
+           parent_conversation_id TEXT NOT NULL,
+           agent_id TEXT NOT NULL,
+           agent_name TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'running',
+           error_message TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE,
+           FOREIGN KEY(parent_conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS idx_sub_agent_sessions_parent
+           ON sub_agent_sessions(parent_conversation_id, created_at ASC, id ASC);
+         CREATE INDEX IF NOT EXISTS idx_sub_agent_sessions_status
+           ON sub_agent_sessions(run_status);
+
+         CREATE TABLE IF NOT EXISTS workflow_node_sessions (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL UNIQUE,
+           parent_conversation_id TEXT NOT NULL,
+           flow_id TEXT NOT NULL DEFAULT '',
+           flow_checkpoint_id TEXT NOT NULL DEFAULT '',
+           node_id TEXT NOT NULL,
+           node_name TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'pending',
+           error_message TEXT NOT NULL DEFAULT '',
+           handoff_content TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE,
+           FOREIGN KEY(parent_conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_flow
+           ON workflow_node_sessions(parent_conversation_id, flow_id);
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_parent
+           ON workflow_node_sessions(parent_conversation_id, created_at ASC, id ASC);
+         CREATE INDEX IF NOT EXISTS idx_workflow_node_sessions_status
+           ON workflow_node_sessions(run_status);
+
+         -- WorkFlow run-level state: survives app restarts so a flow can be
+         -- resumed from the last executed node instead of losing all progress.
+         -- One row per (parent_conversation_id, flow_id); the runner updates it
+         -- as each node starts/finishes. flow_id = the triggering
+         -- workflow-generate tool call's interaction id (multi-flow isolation).
+         CREATE TABLE IF NOT EXISTS workflow_runs (
+           id TEXT PRIMARY KEY NOT NULL,
+           parent_conversation_id TEXT NOT NULL,
+           flow_id TEXT NOT NULL DEFAULT '',
+           run_status TEXT NOT NULL DEFAULT 'running',
+           current_node_index INTEGER NOT NULL DEFAULT 0,
+           last_handoff TEXT NOT NULL DEFAULT '',
+           total_tokens INTEGER NOT NULL DEFAULT 0,
+           flow_checkpoint_id TEXT NOT NULL DEFAULT '',
+           directory_id TEXT NOT NULL DEFAULT '',
+           error_message TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           UNIQUE(parent_conversation_id, flow_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
+           ON workflow_runs(parent_conversation_id, flow_id);
+
+         -- WorkFlow canvas persistence: replaces localStorage so the canvas
+         -- survives app restarts, is exported with the DB and has no 5MB cap.
+         CREATE TABLE IF NOT EXISTS workflow_canvases (
+           parent_conversation_id TEXT NOT NULL,
+           interaction_id TEXT NOT NULL,
+           canvas_json TEXT NOT NULL DEFAULT '{}',
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           PRIMARY KEY (parent_conversation_id, interaction_id)
+         );
+
+         -- Conversation tombstones: ids removed from the runtime database by
+         -- delete/archive (cascade targets included). A run that is still
+         -- finishing (aborting stream, sub-agent, WorkFlow node) checks this
+         -- table and drops its late persistence instead of recreating the
+         -- conversation row. Restoring from the archive clears the entry.
+         CREATE TABLE IF NOT EXISTS deleted_conversations (
+           conversation_id TEXT PRIMARY KEY NOT NULL,
+           deleted_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+
+         CREATE TABLE IF NOT EXISTS chat_messages (
+           id TEXT PRIMARY KEY NOT NULL,
+           message_id TEXT NOT NULL UNIQUE,
+           conversation_id TEXT NOT NULL,
+           role TEXT NOT NULL,
+           origin TEXT NOT NULL DEFAULT 'unknown',
+           content TEXT NOT NULL,
+           model TEXT NOT NULL DEFAULT '',
+           response_id TEXT NOT NULL DEFAULT '',
+           checkpoint_id TEXT NOT NULL DEFAULT '',
+           status TEXT NOT NULL DEFAULT 'sent',
+           interruption_reason TEXT,
+           recovery_outcome TEXT,
+           raw_json TEXT NOT NULL DEFAULT '{}',
+           thinking TEXT NOT NULL DEFAULT '',
+           thinking_duration_ms INTEGER NOT NULL DEFAULT 0,
+           thinking_token_count INTEGER NOT NULL DEFAULT 0,
+             thinking_blocks_json TEXT NOT NULL DEFAULT '[]',
+             tool_calls_json TEXT NOT NULL DEFAULT '[]',
+             tool_corrections_json TEXT NOT NULL DEFAULT '{}',
+             input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+             cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+             retry_attempts INTEGER NOT NULL DEFAULT 0,
+             retry_error TEXT NOT NULL DEFAULT '',
+             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id
+           ON chat_messages(conversation_id, id ASC);
+         CREATE INDEX IF NOT EXISTS idx_chat_messages_response_id
+           ON chat_messages(response_id);
+
+         CREATE TABLE IF NOT EXISTS todo_items (
+           id TEXT PRIMARY KEY NOT NULL,
+           session_id TEXT NOT NULL,
+           content TEXT NOT NULL,
+           status TEXT NOT NULL DEFAULT 'pending',
+           response_id TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           parent_id TEXT
+         );
+         CREATE INDEX IF NOT EXISTS idx_todo_items_session
+           ON todo_items(session_id);
+
+         CREATE TABLE IF NOT EXISTS usage_records (
+           id TEXT PRIMARY KEY NOT NULL,
+           conversation_id TEXT NOT NULL DEFAULT '',
+           response_id TEXT NOT NULL DEFAULT '',
+           model TEXT NOT NULL DEFAULT '',
+           api_profile_name TEXT NOT NULL DEFAULT '',
+           api_config_id TEXT NOT NULL DEFAULT '',
+           request_method TEXT NOT NULL DEFAULT '',
+           input_tokens INTEGER NOT NULL DEFAULT 0,
+           output_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+           status TEXT NOT NULL DEFAULT '',
+           is_sub_agent INTEGER NOT NULL DEFAULT 0,
+           directory_id TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_usage_records_created_at
+           ON usage_records(created_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_usage_records_conversation_id
+           ON usage_records(conversation_id, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_usage_records_model
+           ON usage_records(model);
+         CREATE INDEX IF NOT EXISTS idx_usage_records_api_profile_name
+           ON usage_records(api_profile_name);
+
+         CREATE TABLE IF NOT EXISTS app_logs (
+           id TEXT PRIMARY KEY NOT NULL,
+           level TEXT NOT NULL DEFAULT 'INFO',
+           module TEXT NOT NULL DEFAULT '',
+           func TEXT NOT NULL DEFAULT '',
+           line INTEGER,
+           message TEXT NOT NULL DEFAULT '',
+           input TEXT NOT NULL DEFAULT '',
+           output TEXT NOT NULL DEFAULT '',
+           duration TEXT NOT NULL DEFAULT '',
+           context TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            conversation_id TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'main',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_app_logs_created_at
+           ON app_logs(created_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_app_logs_level
+           ON app_logs(level);
+          CREATE INDEX IF NOT EXISTS idx_app_logs_module
+            ON app_logs(module);
+
+         CREATE TABLE IF NOT EXISTS memos (
+           id TEXT PRIMARY KEY NOT NULL,
+           memo_id TEXT NOT NULL UNIQUE,
+           directory_id TEXT NOT NULL DEFAULT '',
+           content TEXT NOT NULL DEFAULT '',
+           status TEXT NOT NULL DEFAULT 'pending',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_memos_directory_status_created
+           ON memos(directory_id, status, created_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_memos_directory_created
+           ON memos(directory_id, created_at DESC, id DESC);
+
+         -- Diff 行内评论：按 directory_id + file_path 隔离；side 为
+         -- old | new；line_content 为行内容快照，用于展示时过期校验。
+         CREATE TABLE IF NOT EXISTS diff_review_comments (
+           id TEXT PRIMARY KEY NOT NULL,
+           comment_id TEXT NOT NULL UNIQUE,
+           directory_id TEXT NOT NULL DEFAULT '',
+           file_path TEXT NOT NULL DEFAULT '',
+           side TEXT NOT NULL DEFAULT 'new',
+           line_number INTEGER NOT NULL DEFAULT 0,
+           line_content TEXT NOT NULL DEFAULT '',
+           content TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         );
+         CREATE INDEX IF NOT EXISTS idx_diff_review_comments_file
+           ON diff_review_comments(directory_id, file_path, created_at ASC, id ASC);
+
+         CREATE TABLE IF NOT EXISTS scheduled_tasks (
+           id TEXT PRIMARY KEY NOT NULL,
+           directory_id TEXT NOT NULL DEFAULT '',
+           name TEXT NOT NULL DEFAULT '',
+           prompt TEXT NOT NULL DEFAULT '',
+           schedule_json TEXT NOT NULL DEFAULT '{}',
+           api_profile TEXT,
+           basic_model TEXT,
+           model TEXT,
+           thinking_strength TEXT,
+           status TEXT NOT NULL DEFAULT 'pending',
+           paused INTEGER NOT NULL DEFAULT 0,
+           next_run_at TEXT,
+           last_run_at TEXT,
+           run_count INTEGER NOT NULL DEFAULT 0,
+           last_error TEXT,
+           pre_script TEXT,
+           pre_script_timeout_ms INTEGER,
+           run_on_script_error INTEGER NOT NULL DEFAULT 0,
+           skip_count INTEGER NOT NULL DEFAULT 0,
+           last_skipped_at TEXT,
+           last_skip_reason TEXT,
+           workflow_json TEXT NOT NULL DEFAULT '',
+           workflow_run_json TEXT NOT NULL DEFAULT '',
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_directory
+           ON scheduled_tasks(directory_id, created_at ASC, id ASC);
+
+          CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+            id TEXT PRIMARY KEY NOT NULL,
+            task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+            run_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            duration_ms INTEGER,
+            error TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
+            ON scheduled_task_runs(task_id, run_at ASC, id ASC);
+
+          -- 团队协作（不依赖 Git）：团队、团队↔项目关联、成员、通用记录与附件
+          -- 全部落在数据库里。队长设备承载 WebSocket 服务，队员凭邀请码加入。
+          CREATE TABLE IF NOT EXISTS teams (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'member',
+            invite_code TEXT NOT NULL DEFAULT '',
+            host_peer_id TEXT NOT NULL DEFAULT '',
+            host_name TEXT NOT NULL DEFAULT '',
+            host_endpoint TEXT NOT NULL DEFAULT '',
+            self_peer_id TEXT NOT NULL DEFAULT '',
+            self_name TEXT NOT NULL DEFAULT '',
+            self_color TEXT NOT NULL DEFAULT '',
+            host_service INTEGER NOT NULL DEFAULT 0,
+            member_token TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+
+          CREATE TABLE IF NOT EXISTS team_projects (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL,
+            directory_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(team_id, directory_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_team_projects_directory
+            ON team_projects(directory_id);
+
+          CREATE TABLE IF NOT EXISTS team_members (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL,
+            peer_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            color TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'member',
+            online INTEGER NOT NULL DEFAULT 0,
+            joined_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            last_seen TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            client_id TEXT NOT NULL DEFAULT '',
+            token TEXT NOT NULL DEFAULT '',
+            UNIQUE(team_id, peer_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_team_members_team
+            ON team_members(team_id, joined_at ASC, id ASC);
+
+          -- 黑名单：被队长拉黑的设备（client_id）无法再次加入，直到解除。
+          CREATE TABLE IF NOT EXISTS team_blocklist (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(team_id, client_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_team_blocklist_team
+            ON team_blocklist(team_id, created_at ASC, id ASC);
+
+          CREATE TABLE IF NOT EXISTS team_records (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(team_id, kind, record_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_team_records_team
+            ON team_records(team_id, kind, updated_at ASC, id ASC);
+
+          CREATE TABLE IF NOT EXISTS team_media (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL,
+            media_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL DEFAULT '',
+            file_name TEXT NOT NULL DEFAULT '',
+            is_image INTEGER NOT NULL DEFAULT 0,
+            size INTEGER NOT NULL DEFAULT 0,
+            content BLOB,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(team_id, media_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_team_media_owner
+            ON team_media(team_id, owner_id);
+
+          -- 项目级持久记忆（Project Memory）：按 directory_id 隔离的跨会话
+          -- AI 记忆条目。kind: fact | decision | preference | pitfall |
+          -- task_state；source: agent(AI 工具写入) | auto(蒸馏) | user(手动)；
+          -- status: active | pending(待确认) | archived。注入系统提示词时按
+          -- importance + updated_at 排序取前 N 条。
+          CREATE TABLE IF NOT EXISTS project_memories (
+            id TEXT PRIMARY KEY NOT NULL,
+            memory_id TEXT NOT NULL UNIQUE,
+            directory_id TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'fact',
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'agent',
+            status TEXT NOT NULL DEFAULT 'active',
+            importance INTEGER NOT NULL DEFAULT 2,
+            conversation_id TEXT NOT NULL DEFAULT '',
+            response_id TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            last_recalled_at TEXT,
+            recall_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_project_memories_directory
+            ON project_memories(directory_id, status, importance DESC, updated_at DESC, id DESC);
+
+          -- Project Memory 注入快照：会话首次注入时冻结一份「## Project
+          -- Memory」章节文本，会话存续期间保持稳定，避免新增/修改记忆改动
+          -- 提示词前缀导致整段 prompt cache 失效；新记忆只对之后新建的会话
+          -- 生效。会话删除时随会话一并清理。
+          CREATE TABLE IF NOT EXISTS memory_prompt_snapshots (
+            conversation_id TEXT PRIMARY KEY NOT NULL,
+            directory_id TEXT NOT NULL DEFAULT '',
+            section TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+
+          -- 会话级系统提示词配置快照：首次渲染时冻结 ROLE.md 解析结果与 API
+          -- 档案系统提示词，会话存续期间保持稳定；目录 / API 档案变化时重建，
+          -- 压缩（上下文重建）成功后删除，下一轮按最新配置重新解析。
+          CREATE TABLE IF NOT EXISTS system_prompt_snapshots (
+            conversation_id TEXT PRIMARY KEY NOT NULL,
+            directory_id TEXT NOT NULL DEFAULT '',
+            api_prompt_ids_json TEXT NOT NULL DEFAULT '',
+            role_content TEXT,
+            role_overrides_builtin INTEGER NOT NULL DEFAULT 0,
+            user_prompts_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+          );
+     ",
+    )?;
+
+    // Ensure the codebase embed sessions table exists. Defined in a separate
+    // module so the schema lives next to its CRUD functions.
+    services::codebase_embed_sessions::ensure_sessions_table(connection)?;
+    services::remote_drafts::ensure_remote_drafts_table(connection)?;
+    // 敏感命令偏好学习记录（用户在拦截提示中的选择）。
+    services::sensitive_command_feedback::ensure_feedback_table(connection)?;
+
+    // Ensure the image library table exists (generated images index).
+    services::image_library::ensure_image_library_table(connection)?;
+    services::image_generation::ensure_image_generation_tables(connection)?;
+    // 嵌入 / 重排 / 决策模型表（post-schema 迁移会把旧设置导入其中）。
+    services::model_registry::ensure_model_tables(connection)?;
+
+    // Post-schema migrations run AFTER CREATE TABLE to add columns that
+    // older databases lack but fresh databases already have. Each migration
+    // is idempotent. Includes the local per-conversation mode columns and
+    // the sub-agent project_id rebuild (see migrations.rs).
+    migrations::run_post_schema_migrations(connection)?;
+    services::chat_conversations::ensure_sub_agent_run_tables(connection)?;
+    migrations::migrate_sub_agent_dispatch_identity(connection)?;
+
+    connection.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
+
+    Ok(())
+}
+
+/// 修复时清理已废弃的会话列（旧库保留备份，仅在用户主动修复时删除）。
+fn drop_legacy_conversation_columns(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(chat_conversations)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+
+    if columns.iter().any(|column| column == "emoji") {
+        connection.execute("ALTER TABLE chat_conversations DROP COLUMN emoji", [])?;
+    }
+
+    Ok(())
+}
+
+/// 对数据库执行「修复」：先做 `PRAGMA integrity_check` 完整性检查；完好则
+/// 补齐 schema/迁移并执行 `VACUUM` 压缩优化，发现损坏则调用 [recover_database]
+/// 恢复数据。返回修复结果（是否实际执行了数据恢复）。
+///
+/// 修复期间的写操作全程持有全局写锁，避免与并发写事务互抢锁；
+/// busy_timeout 与 `open_connection` 对齐（30 秒），大库 VACUUM 不误报超时。
+///
+/// 注意：这里刻意不切换 journal_mode（`open_connection` 会强制 WAL）——
+/// 归档库必须保持 rollback journal 模式，所以仅设置外键与 busy timeout。
+pub(crate) fn repair_database(
+    database_path: &Path,
+    schema_builder: fn(&Connection) -> rusqlite::Result<()>,
+) -> Result<DatabaseRepairResult> {
+    let connection = Connection::open(database_path)
+        .map_err(|error| database_error(database_path, "repair", error))?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .map_err(|error| database_error(database_path, "repair", error))?;
+    connection
+        .busy_timeout(Duration::from_secs(30))
+        .map_err(|error| database_error(database_path, "repair", error))?;
+
+    // 1) 完整性检查：所有输出行均为 "ok" 才视为健康。检查本身无法执行
+    //    （如 header 损坏 SQLITE_NOTADB、schema 页损坏 SQLITE_CORRUPT）同样
+    //    是重度损坏的证据——与检查出不 ok 一样进入恢复流程，而不是直接把
+    //    错误抛给用户。启动路径 ensure_database 对此类错误本就会自动恢复，
+    //    手动修复保持一致。
+    let integrity_check: rusqlite::Result<Vec<String>> = (|| {
+        let mut stmt = connection.prepare("PRAGMA integrity_check")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+    })();
+
+    let integrity_lines = match integrity_check {
+        Ok(lines) => lines,
+        Err(error) => {
+            eprintln!(
+                "Snow App database integrity check failed to run at '{}' ({error}). Treating as damaged.",
+                database_path.display()
+            );
+            vec![format!("integrity check failed to run: {error}")]
+        }
+    };
+
+    if integrity_lines.iter().all(|line| line.trim() == "ok") {
+        // 2a) 完好 → 先补 schema/迁移（缺列、缺表、过期的 user_version），
+        // 清理废弃列后 VACUUM 压缩优化。整段写操作持有全局写锁。
+        with_write_lock(|| -> rusqlite::Result<()> {
+            schema_builder(&connection)?;
+            drop_legacy_conversation_columns(&connection)?;
+            connection.execute_batch("VACUUM")?;
+            Ok(())
+        })
+        .map_err(|error| database_error(database_path, "repair", error))?;
+        return Ok(DatabaseRepairResult {
+            repaired: false,
+            message: "Integrity check passed; schema repaired and database optimized via VACUUM."
+                .to_string(),
+        });
+    }
+
+    // 2b) 发现损坏 → 先释放检查连接，再走数据恢复流程。
+    drop(connection);
+    let detail = integrity_lines.join("; ");
+    eprintln!(
+        "Snow App database integrity check failed at '{}' ({}). Attempting recovery...",
+        database_path.display(),
+        detail
+    );
+    // 恢复过程会重命名数据库文件，同样持有全局写锁，避免与并发写交叉。
+    with_write_lock(|| recover_database(database_path, schema_builder))?;
+    Ok(DatabaseRepairResult {
+        repaired: true,
+        message: format!("Database was damaged and has been recovered. Detected issues: {detail}"),
+    })
+}
+
+/// 对数据库执行「空间优化」：`VACUUM` 重建文件回收已删除数据占用的空闲页，
+/// 再对 WAL 库执行 `wal_checkpoint(TRUNCATE)` 把 `-wal` 文件截断为零，
+/// 确保空间真正归还磁盘。返回释放的字节数（永不为负）。
+///
+/// 注意：与 [repair_database] 一致，刻意不切换 journal_mode
+/// （`open_connection` 会强制 WAL，而归档库必须保持 rollback journal 模式）。
+/// 调用方负责将本函数置于 spawn_blocking 中执行，避免阻塞 Node.js 主线程。
+pub(crate) fn optimize_database(database_path: &Path) -> Result<DatabaseOptimizeResult> {
+    let bytes_before = database_disk_usage_bytes(database_path);
+
+    {
+        let connection = Connection::open(database_path)
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(|error| database_error(database_path, "optimize", error))?;
+
+        connection
+            .execute_batch("VACUUM")
+            .map_err(|error| database_error(database_path, "vacuum during optimize", error))?;
+        // WAL 库：截断 -wal 文件；若其它连接正在读取可能临时失败，
+        // 仅影响本次回收精度，不应视为错误
+        let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+    }
+
+    let bytes_after = database_disk_usage_bytes(database_path);
+    Ok(DatabaseOptimizeResult {
+        bytes_freed: i64::try_from(bytes_before.saturating_sub(bytes_after)).unwrap_or(i64::MAX),
+    })
+}
+
+/// 统计数据库的磁盘总占用：主文件 + `-wal` + `-shm`（不存在的侧文件按 0 计）。
+fn database_disk_usage_bytes(database_path: &Path) -> u64 {
+    ["", "-wal", "-shm"]
+        .into_iter()
+        .filter_map(|suffix| {
+            let mut file_name = database_path.as_os_str().to_os_string();
+            file_name.push(suffix);
+            fs::metadata(PathBuf::from(file_name))
+                .ok()
+                .map(|metadata| metadata.len())
+        })
+        .sum()
+}
+

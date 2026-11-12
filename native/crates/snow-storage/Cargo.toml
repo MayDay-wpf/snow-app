@@ -1,0 +1,28 @@
+[package]
+name = "snow-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-runtime = { path = "../snow-runtime" }
+snow-text = { path = "../snow-text" }
+snow-process = { path = "../snow-process" }
+napi.workspace = true
+napi-derive = "3.2.4"
+tokio.workspace = true
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }
+chrono.workspace = true
+base64 = "0.22"
+blake3 = "1"
+similar = "2"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+sha2 = "0.10"
+dirs-next.workspace = true

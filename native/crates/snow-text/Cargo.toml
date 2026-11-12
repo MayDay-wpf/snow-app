@@ -1,0 +1,20 @@
+[package]
+name = "snow-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+napi.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+regex = "1"
+tiktoken-rs = "0.6"
+rust_xlsxwriter = "0.96"
+csv = "1.4"
+calamine = "0.36"
+encoding_rs = "0.8"
+chardetng = "0.1"
+pdf-extract = "0.12"
+zip = { version = "8", default-features = false, features = ["deflate"] }

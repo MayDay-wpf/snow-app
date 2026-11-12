@@ -1,0 +1,17 @@
+[package]
+name = "snow-storage-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-runtime = { path = "../snow-runtime" }
+napi.workspace = true
+napi-derive = "3.2.4"
+tokio.workspace = true
+serde_json.workspace = true
+reqwest = { version = "0.12.5", default-features = false }
+serde = { version = "1.0.204", features = ["derive"] }
+blake3 = "1"
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }

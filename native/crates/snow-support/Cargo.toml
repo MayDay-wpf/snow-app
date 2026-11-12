@@ -1,0 +1,12 @@
+[package]
+name = "snow-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+napi.workspace = true
+dirs-next.workspace = true
+futures.workspace = true
+chrono.workspace = true
+ctor = "1"

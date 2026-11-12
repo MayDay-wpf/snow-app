@@ -1,0 +1,28 @@
+[package]
+name = "snow-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-storage = { path = "../snow-storage" }
+snow-net = { path = "../snow-net" }
+snow-runtime = { path = "../snow-runtime" }
+snow-text = { path = "../snow-text" }
+napi.workspace = true
+napi-derive = "3.2.4"
+tokio.workspace = true
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+reqwest = { version = "0.12.5", default-features = false }
+url = "2"
+sha2 = "0.10"
+base64 = "0.22"
+tokio-util = { version = "0.7", features = ["compat"] }
+futures.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+uuid = { version = "1", features = ["v4"] }
+chrono.workspace = true
+getrandom = "0.2"

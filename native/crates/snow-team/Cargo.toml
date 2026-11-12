@@ -1,0 +1,24 @@
+[package]
+name = "snow-team"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-storage-core = { path = "../snow-storage-core" }
+snow-net = { path = "../snow-net" }
+snow-runtime = { path = "../snow-runtime" }
+napi.workspace = true
+napi-derive = "3.2.4"
+chrono = "0.4.38"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+futures.workspace = true
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }
+axum = { version = "0.8", features = ["ws"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+blake3 = "1"
+percent-encoding = "2"

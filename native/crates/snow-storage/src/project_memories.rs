@@ -1,0 +1,1297 @@
+//! 项目级持久记忆（project_memories 表）的存储服务。
+//!
+//! 记忆按 `directory_id` 做项目隔离，是跨会话的 AI 知识库：AI 通过内置
+//! memory 工具集读写，系统提示词按 importance 取头部条目注入，渲染器
+//! 面板经 NAPI 导出做手动管理。所有函数由调用方放入 `spawn_blocking`
+//! 执行，绝不阻塞 Node.js 事件循环。
+//!
+//! 错误处理模式（与 memos.rs 一致）：内部 `*_with_connection` helper 一律
+//! 返回 `rusqlite::Result`，入口函数在边界处经 `database_error` 转换为
+//! napi::Error；参数校验错误直接返回 napi::Error。
+//!
+//! 检索采用轻量打分方案（SQLite 未启用 FTS5，单项目记忆量级小）：
+//! 标题/内容/标签命中 + 重要性 + 近期性 + 召回次数加权排序。
+
+use std::path::Path;
+
+use chrono::NaiveDateTime;
+use napi::bindgen_prelude::*;
+use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
+
+use snow_storage_core::database;
+use snow_storage_core::models::{MemoryPage, MemoryRecord, MemoryStats};
+
+/// 记忆类别（写入侧校验；未知值报错而非静默归并，避免污染统计）。
+pub const MEMORY_KINDS: [&str; 5] = [
+    "fact",
+    "decision",
+    "preference",
+    "pitfall",
+    "task_state",
+];
+
+/// 记忆状态：active（注入+可检索）| pending（蒸馏待确认）| archived（归档）。
+pub const MEMORY_STATUSES: [&str; 3] = ["active", "pending", "archived"];
+
+/// 记忆来源：agent（AI 工具写入）| auto（自动蒸馏）| user（手动面板）。
+pub const MEMORY_SOURCES: [&str; 3] = ["agent", "auto", "user"];
+
+/// SQLite 绑定变量上限保护：IN 子句按 900 一批分块执行。
+const MEMORY_SQL_CHUNK: usize = 900;
+
+/// 记忆写入入参。`title` 是去重键（同项目内规范化后同名视为同一条）。
+pub struct MemoryUpsertInput<'a> {
+    pub directory_id: &'a str,
+    pub kind: &'a str,
+    pub title: &'a str,
+    pub content: &'a str,
+    pub source: &'a str,
+    pub status: &'a str,
+    pub importance: i32,
+    pub conversation_id: &'a str,
+    /// 溯源响应（保存该记忆的 assistant response id），回滚清理的锚点。
+    pub response_id: &'a str,
+    pub tags: Vec<String>,
+}
+
+/// 记忆更新补丁：`None` 字段保持原值不变。
+pub struct MemoryUpdatePatch {
+    pub kind: Option<String>,
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub importance: Option<i32>,
+    pub status: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+// ---------------------------------------------------------------------------
+// 校验与归一化
+// ---------------------------------------------------------------------------
+
+fn normalize_kind(value: &str) -> Result<&'static str> {
+    let normalized = value.trim().to_ascii_lowercase();
+    MEMORY_KINDS
+        .iter()
+        .find(|kind| **kind == normalized)
+        .copied()
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!("Memory kind must be one of: {}", MEMORY_KINDS.join(" | ")),
+            )
+        })
+}
+
+fn normalize_status(value: &str) -> Result<&'static str> {
+    let normalized = value.trim().to_ascii_lowercase();
+    MEMORY_STATUSES
+        .iter()
+        .find(|status| **status == normalized)
+        .copied()
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Memory status must be one of: {}",
+                    MEMORY_STATUSES.join(" | ")
+                ),
+            )
+        })
+}
+
+fn normalize_source(value: &str) -> Result<&'static str> {
+    let normalized = value.trim().to_ascii_lowercase();
+    MEMORY_SOURCES
+        .iter()
+        .find(|source| **source == normalized)
+        .copied()
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Memory source must be one of: {}",
+                    MEMORY_SOURCES.join(" | ")
+                ),
+            )
+        })
+}
+
+fn clamp_importance(value: i32) -> i32 {
+    value.clamp(1, 5)
+}
+
+/// 规范化标题（去重键）：压缩空白 + 转小写。
+fn normalize_title_key(title: &str) -> String {
+    title
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn serialize_tags(tags: &[String]) -> String {
+    serde_json::to_string(tags).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn parse_tags(raw: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(raw).unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// 行映射
+// ---------------------------------------------------------------------------
+
+const MEMORY_COLUMNS: &str = "id, memory_id, directory_id, kind, title, content, source, \
+     status, importance, conversation_id, response_id, tags_json, \
+     last_recalled_at, recall_count, created_at, updated_at";
+
+fn map_memory_row(row: &Row) -> rusqlite::Result<MemoryRecord> {
+    let tags_json: String = row.get(11)?;
+    let directory_id: String = row.get(2)?;
+    let scope = if directory_id.is_empty() {
+        "global"
+    } else {
+        "project"
+    };
+    Ok(MemoryRecord {
+        id: row.get(0)?,
+        memory_id: row.get(1)?,
+        directory_id,
+        scope: scope.to_string(),
+        kind: row.get(3)?,
+        title: row.get(4)?,
+        content: row.get(5)?,
+        source: row.get(6)?,
+        status: row.get(7)?,
+        importance: row.get(8)?,
+        conversation_id: row.get(9)?,
+        response_id: row.get(10)?,
+        tags: parse_tags(&tags_json),
+        last_recalled_at: row.get(12)?,
+        recall_count: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+    })
+}
+
+fn fetch_memory_by_memory_id(
+    connection: &Connection,
+    memory_id: &str,
+) -> rusqlite::Result<Option<MemoryRecord>> {
+    let sql = format!(
+        "SELECT {MEMORY_COLUMNS} FROM project_memories WHERE memory_id = ?1"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let mut rows = statement.query_map(params![memory_id], map_memory_row)?;
+    match rows.next() {
+        Some(value) => Ok(Some(value?)),
+        None => Ok(None),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 写入（含按标题去重合并）
+// ---------------------------------------------------------------------------
+
+/// 新增或合并记忆：同项目内已存在规范化同名（非 archived）条目时合并
+/// 更新（content 覆盖、importance 取较大值、tags 取并集），返回
+/// `(记录, 是否新建)`。这避免 AI 反复保存同一主题产生重复条目。
+pub fn upsert_memory(
+    database_path: &Path,
+    input: &MemoryUpsertInput,
+) -> Result<(MemoryRecord, bool)> {
+    // —— 参数校验（napi 层错误）——
+    let kind = normalize_kind(input.kind)?;
+    let source = normalize_source(input.source)?;
+    let status = normalize_status(input.status)?;
+    let title = input.title.trim();
+    let content = input.content.trim();
+    if title.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Memory title is required and must not be empty".to_string(),
+        ));
+    }
+    if content.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Memory content is required and must not be empty".to_string(),
+        ));
+    }
+    // directory_id 为空串 = 跨项目用户记忆（全局作用域），仅 MCP 的
+    // scope=user 写入；面板与普通保存始终携带项目 ID。
+
+    // —— DB 操作（rusqlite 错误在边界统一转换）——
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open database", error))?;
+    upsert_memory_with_connection(
+        &connection,
+        input,
+        kind,
+        source,
+        status,
+        title,
+        content,
+    )
+    .map_err(|error| database::database_error(database_path, "upsert memory", error))
+}
+
+fn upsert_memory_with_connection(
+    connection: &Connection,
+    input: &MemoryUpsertInput,
+    kind: &str,
+    _source: &str,
+    status: &str,
+    title: &str,
+    content: &str,
+) -> rusqlite::Result<(MemoryRecord, bool)> {
+    let title_key = normalize_title_key(title);
+
+    // 同项目内规范化同名且未归档 → 合并更新而非新增。归一化在 Rust 侧
+    // 折叠内部空白 + 转小写，SQL 侧以 trim + lower 匹配首尾空白差异。
+    let existing: Option<(String, i32, String)> = connection
+        .query_row(
+            "SELECT memory_id, importance, tags_json FROM project_memories
+              WHERE directory_id = ?1 AND status <> 'archived' AND lower(trim(title)) = ?2
+              ORDER BY updated_at DESC LIMIT 1",
+            params![input.directory_id.trim(), title_key],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+
+    if let Some((existing_memory_id, existing_importance, existing_tags_json)) = existing {
+        let importance = clamp_importance(input.importance.max(existing_importance));
+        let mut tags = parse_tags(&existing_tags_json);
+        for tag in input.tags.iter().map(|tag| tag.trim().to_lowercase()) {
+            if !tag.is_empty() && !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+        connection.execute(
+            "UPDATE project_memories
+                SET kind = ?1, content = ?2, importance = ?3, status = ?4,
+                    tags_json = ?5, response_id = ?6, updated_at = datetime('now', 'localtime')
+              WHERE memory_id = ?7",
+            params![
+                kind,
+                content,
+                importance,
+                status,
+                serialize_tags(&tags),
+                input.response_id.trim(),
+                existing_memory_id,
+            ],
+        )?;
+        let record = fetch_memory_by_memory_id(connection, &existing_memory_id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        return Ok((record, false));
+    }
+
+    let memory_id = database::create_snowflake_id();
+    connection.execute(
+        "INSERT INTO project_memories
+           (id, memory_id, directory_id, kind, title, content, source, status,
+            importance, conversation_id, response_id, tags_json,
+            created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                 datetime('now', 'localtime'), datetime('now', 'localtime'))",
+        params![
+            database::create_snowflake_id(),
+            memory_id,
+            input.directory_id.trim(),
+            kind,
+            title,
+            content,
+            _source,
+            status,
+            clamp_importance(input.importance),
+            input.conversation_id.trim(),
+            input.response_id.trim(),
+            serialize_tags(&input.tags),
+        ],
+    )?;
+    let record = fetch_memory_by_memory_id(connection, &memory_id)?
+        .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    Ok((record, true))
+}
+
+/// 更新单条记忆的可编辑字段（`None` 保持不变）。条目不存在时报错。
+pub fn update_memory(
+    database_path: &Path,
+    memory_id: &str,
+    patch: &MemoryUpdatePatch,
+) -> Result<MemoryRecord> {
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open database", error))?;
+    apply_memory_patch(&connection, database_path, memory_id, patch)
+}
+
+/// 把同一补丁套用到多条记忆（批量更新）。单 IMMEDIATE 事务保证原子性：
+/// 任一条不存在或补丁非法都会整体回滚；返回值与 `memory_ids` 顺序一致。
+pub fn update_memories(
+    database_path: &Path,
+    memory_ids: &[String],
+    patch: &MemoryUpdatePatch,
+) -> Result<Vec<MemoryRecord>> {
+    let mut connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "update memories", error))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| database::database_error(database_path, "update memories", error))?;
+    let mut records = Vec::with_capacity(memory_ids.len());
+    for memory_id in memory_ids {
+        records.push(apply_memory_patch(&transaction, database_path, memory_id, patch)?);
+    }
+    transaction
+        .commit()
+        .map_err(|error| database::database_error(database_path, "update memories", error))?;
+    Ok(records)
+}
+
+/// 校验并写入单条补丁，回读更新后的记录（`update_memory` 与 `update_memories` 共用）。
+fn apply_memory_patch(
+    connection: &Connection,
+    database_path: &Path,
+    memory_id: &str,
+    patch: &MemoryUpdatePatch,
+) -> Result<MemoryRecord> {
+    // —— 参数校验 ——
+    let kind = match &patch.kind {
+        Some(value) => Some(normalize_kind(value)?),
+        None => None,
+    };
+    let status = match &patch.status {
+        Some(value) => Some(normalize_status(value)?),
+        None => None,
+    };
+    if let Some(title) = &patch.title {
+        if title.trim().is_empty() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "Memory title must not be empty".to_string(),
+            ));
+        }
+    }
+    if let Some(content) = &patch.content {
+        if content.trim().is_empty() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "Memory content must not be empty".to_string(),
+            ));
+        }
+    }
+    if kind.is_none()
+        && status.is_none()
+        && patch.title.is_none()
+        && patch.content.is_none()
+        && patch.importance.is_none()
+        && patch.tags.is_none()
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "At least one field to update must be provided (title / content / kind / importance / status / tags)".to_string(),
+        ));
+    }
+
+    // —— DB 操作 ——
+    let updated = connection
+        .execute(
+            "UPDATE project_memories SET
+               kind = COALESCE(?2, kind),
+               title = COALESCE(?3, title),
+               content = COALESCE(?4, content),
+               importance = COALESCE(?5, importance),
+               status = COALESCE(?6, status),
+               tags_json = COALESCE(?7, tags_json),
+               updated_at = datetime('now', 'localtime')
+             WHERE memory_id = ?1",
+            params![
+                memory_id.trim(),
+                kind,
+                patch.title.as_deref().map(str::trim),
+                patch.content.as_deref().map(str::trim),
+                patch.importance.map(clamp_importance),
+                status,
+                patch.tags.as_ref().map(|tags| serialize_tags(tags)),
+            ],
+        )
+        .map_err(|error| database::database_error(database_path, "update memory", error))?;
+    if updated == 0 {
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!("Memory not found: {}", memory_id.trim()),
+        ));
+    }
+    fetch_memory_by_memory_id(connection, memory_id.trim())
+        .map_err(|error| database::database_error(database_path, "reload updated memory", error))?
+        .ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Memory not found: {}", memory_id.trim()),
+            )
+        })
+}
+
+/// 删除单条记忆。返回是否确实删除了条目。
+pub fn delete_memory(database_path: &Path, memory_id: &str) -> Result<bool> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .execute(
+                    "DELETE FROM project_memories WHERE memory_id = ?1",
+                    params![memory_id.trim()],
+                )
+                .map(|deleted| deleted > 0)
+        })
+        .map_err(|error| database::database_error(database_path, "delete memory", error))
+}
+
+/// 清空项目记忆库（用户「一键清空」），返回删除条数。
+pub fn clear_project_memories(database_path: &Path, directory_id: &str) -> Result<i32> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .execute(
+                    "DELETE FROM project_memories WHERE directory_id = ?1",
+                    params![directory_id.trim()],
+                )
+                .map(|deleted| deleted as i32)
+        })
+        .map_err(|error| database::database_error(database_path, "clear memories", error))
+}
+
+// ---------------------------------------------------------------------------
+// 会话级维护（会话删除联动）
+// ---------------------------------------------------------------------------
+
+/// 列出某个会话保存的记忆（面板「查看该会话贡献的记忆」/删除前确认）。
+/// 仅按 conversation_id 匹配；溯源为空的记忆不返回。
+pub fn list_memories_by_conversation(
+    database_path: &Path,
+    conversation_id: &str,
+    limit: i32,
+) -> Result<Vec<MemoryRecord>> {
+    let safe_limit = if limit > 0 { limit } else { 50 };
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let sql = format!(
+                "SELECT {MEMORY_COLUMNS} FROM project_memories
+                  WHERE conversation_id = ?1
+                  ORDER BY updated_at DESC, id DESC LIMIT ?2"
+            );
+            let mut statement = connection.prepare(&sql)?;
+            let rows = statement.query_map(params![conversation_id.trim(), safe_limit], map_memory_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|error| database::database_error(database_path, "list memories by conversation", error))
+}
+
+/// 列出多个会话（主会话 + 其子代理 / WorkFlow 节点会话）保存的记忆，
+/// 按更新时间倒序合并返回。分块查询以规避 SQLite 变量数量上限，
+/// 合并后在内存中统一排序并截断到 `limit`。
+pub fn list_memories_by_conversation_ids(
+    database_path: &Path,
+    conversation_ids: &[String],
+    limit: i32,
+) -> Result<Vec<MemoryRecord>> {
+    let ids: Vec<String> = conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let safe_limit = if limit > 0 { limit } else { 200 };
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut items: Vec<MemoryRecord> = Vec::new();
+            for chunk in ids.chunks(MEMORY_SQL_CHUNK) {
+                let placeholders = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("?{}", index + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT {MEMORY_COLUMNS} FROM project_memories
+                      WHERE conversation_id IN ({placeholders})
+                      ORDER BY updated_at DESC, id DESC"
+                );
+                let mut statement = connection.prepare(&sql)?;
+                let rows = statement.query_map(rusqlite::params_from_iter(chunk.iter().cloned()), map_memory_row)?;
+                items.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+            }
+            items.sort_by(|left, right| {
+                right
+                    .updated_at
+                    .cmp(&left.updated_at)
+                    .then_with(|| right.id.cmp(&left.id))
+            });
+            items.truncate(safe_limit as usize);
+            Ok(items)
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "list memories by conversations", error)
+        })
+}
+
+/// 删除某个会话保存的全部记忆（手动维护入口），返回删除条数。
+pub fn delete_memories_by_conversation(
+    database_path: &Path,
+    conversation_id: &str,
+) -> Result<i32> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .execute(
+                    "DELETE FROM project_memories WHERE conversation_id = ?1",
+                    params![conversation_id.trim()],
+                )
+                .map(|deleted| deleted as i32)
+        })
+        .map_err(|error| database::database_error(database_path, "delete memories by conversation", error))
+}
+
+/// 会话删除联动钩子：删除这些会话保存的全部记忆（含级联子会话 ID 集）。
+///
+/// 用户在删除确认弹窗中勾选「同时删除记忆」时才被调用（默认保留——
+/// 记忆是项目级知识资产，不随来源会话消失）；由 chat_conversations
+/// 删除流程在事务内执行，保证原子性。返回 rusqlite::Result 以便调用方
+/// 统一经 database_error 转换。
+pub fn delete_memories_by_conversation_ids(
+    connection: &Connection,
+    conversation_ids: &[String],
+) -> rusqlite::Result<i32> {
+    let ids: Vec<String> = conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0i32;
+    for chunk in ids.chunks(MEMORY_SQL_CHUNK) {
+        let placeholders = chunk
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection.prepare(&format!(
+            "DELETE FROM project_memories WHERE conversation_id IN ({placeholders})"
+        ))?;
+        deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
+    }
+    Ok(deleted)
+}
+
+// ---------------------------------------------------------------------------
+// 系统提示词注入快照（按会话冻结，保证 prompt cache 前缀稳定）
+// ---------------------------------------------------------------------------
+
+pub fn read_prompt_snapshot(database_path: &Path, conversation_id: &str) -> Result<Option<String>> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(None);
+    }
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT section FROM memory_prompt_snapshots WHERE conversation_id = ?1",
+                    params![conversation_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "read memory prompt snapshot", error)
+        })
+}
+
+pub fn write_prompt_snapshot(
+    database_path: &Path,
+    conversation_id: &str,
+    directory_id: &str,
+    section: &str,
+) -> Result<()> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() || section.is_empty() {
+        return Ok(());
+    }
+    let directory_id = directory_id.trim();
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO memory_prompt_snapshots (conversation_id, directory_id, section)
+                     VALUES (?1, ?2, ?3)
+                     ON CONFLICT(conversation_id) DO NOTHING",
+                    params![conversation_id, directory_id, section],
+                )
+                .map(|_| ())
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "store memory prompt snapshot", error)
+        })
+}
+
+/// 会话删除联动钩子：清理这些会话（含级联子会话 ID 集）的注入快照。由
+/// chat_conversations 删除流程在事务内执行。
+pub fn delete_prompt_snapshots(
+    connection: &Connection,
+    conversation_ids: &[String],
+) -> rusqlite::Result<i32> {
+    let ids: Vec<String> = conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0i32;
+    for chunk in ids.chunks(MEMORY_SQL_CHUNK) {
+        let placeholders = chunk
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection.prepare(&format!(
+            "DELETE FROM memory_prompt_snapshots WHERE conversation_id IN ({placeholders})"
+        ))?;
+        deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
+    }
+    Ok(deleted)
+}
+
+// ---------------------------------------------------------------------------
+// 回滚联动（按响应锚点圈定被回滚轮次保存的记忆）
+// ---------------------------------------------------------------------------
+
+/// 列出回滚将被清理的记忆：主会话中 `response_id` 落在截断边界之后消息
+/// 范围内的条目，加上级联会话（WorkFlow 节点等整体删除的会话）的全部条目。
+///
+/// 边界解析与 `truncate_conversation_from_message/from_response` 一致：
+/// 优先用持久化消息行 id（失败/中断轮次没有 responseId），否则用边界
+/// responseId 定位行；两者皆空（回滚首条消息）时返回该会话全部记忆。
+/// `cascade_conversation_ids` 的记忆无范围限制地全部返回——这些会话会
+/// 随回滚整体级联删除。
+pub fn list_memories_for_rollback(
+    database_path: &Path,
+    conversation_id: &str,
+    boundary_message_id: Option<&str>,
+    boundary_response_id: Option<&str>,
+    cascade_conversation_ids: &[String],
+) -> Result<Vec<MemoryRecord>> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cascade_ids: Vec<String> = cascade_conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            // 定位截断边界的起始行 id；无边界（回滚首条消息）时为 None。
+            let boundary_row_id: Option<String> = match (
+                boundary_message_id.map(str::trim).filter(|value| !value.is_empty()),
+                boundary_response_id.map(str::trim).filter(|value| !value.is_empty()),
+            ) {
+                (Some(message_id), _) => connection
+                    .query_row(
+                        "SELECT id FROM chat_messages
+                          WHERE conversation_id = ?1 AND id = ?2 LIMIT 1",
+                        params![conversation_id, message_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?,
+                (None, Some(response_id)) => connection
+                    .query_row(
+                        "SELECT id FROM chat_messages
+                          WHERE conversation_id = ?1 AND response_id = ?2
+                          LIMIT 1",
+                        params![conversation_id, response_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?,
+                (None, None) => None,
+            };
+
+            // 主会话范围记忆：response_id 锚定到边界行之后仍存在的响应。
+            let main_sql = match boundary_row_id {
+                Some(_) => format!(
+                    "SELECT {MEMORY_COLUMNS} FROM project_memories
+                      WHERE conversation_id = ?1
+                        AND response_id <> ''
+                        AND response_id IN (
+                          SELECT response_id FROM chat_messages
+                            WHERE conversation_id = ?1
+                              AND response_id <> ''
+                              AND id >= ?2
+                        )"
+                ),
+                None => format!(
+                    "SELECT {MEMORY_COLUMNS} FROM project_memories
+                      WHERE conversation_id = ?1"
+                ),
+            };
+            let main_memories: Vec<MemoryRecord> = match boundary_row_id {
+                Some(row_id) => {
+                    let mut statement = connection.prepare(&main_sql)?;
+                    let rows = statement.query_map(
+                        params![conversation_id, row_id],
+                        map_memory_row,
+                    )?;
+                    rows.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+                None => {
+                    let mut statement = connection.prepare(&main_sql)?;
+                    let rows = statement.query_map(params![conversation_id], map_memory_row)?;
+                    rows.collect::<rusqlite::Result<Vec<_>>>()?
+                }
+            };
+
+            // 级联会话记忆：会话整体删除，其全部记忆都在清理范围。
+            let mut records = main_memories;
+            if !cascade_ids.is_empty() {
+                for chunk in cascade_ids.chunks(MEMORY_SQL_CHUNK) {
+                    let placeholders = chunk
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| format!("?{}", index + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let sql = format!(
+                        "SELECT {MEMORY_COLUMNS} FROM project_memories
+                          WHERE conversation_id IN ({placeholders})"
+                    );
+                    let mut statement = connection.prepare(&sql)?;
+                    let rows = statement
+                        .query_map(rusqlite::params_from_iter(chunk.iter().cloned()), map_memory_row)?;
+                    for record in rows.collect::<rusqlite::Result<Vec<_>>>()? {
+                        if !records
+                            .iter()
+                            .any(|existing| existing.memory_id == record.memory_id)
+                        {
+                            records.push(record);
+                        }
+                    }
+                }
+            }
+
+            Ok(records)
+        })
+        .map_err(|error| database::database_error(database_path, "list memories for rollback", error))
+}
+
+/// 按 memory_id 批量删除记忆（回滚确认后清理）。单个 IMMEDIATE 事务
+/// 保证原子性，返回删除条数；不存在的 id 静默跳过。
+pub fn delete_memories_by_memory_ids(
+    database_path: &Path,
+    memory_ids: &[String],
+) -> Result<i32> {
+    let ids: Vec<String> = memory_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    let deleted = delete_memories_by_memory_ids_with_connection(&transaction, &ids)
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    transaction
+        .commit()
+        .map_err(|error| database::database_error(database_path, "delete memories by ids", error))?;
+    Ok(deleted)
+}
+
+fn delete_memories_by_memory_ids_with_connection(
+    connection: &Connection,
+    memory_ids: &[String],
+) -> rusqlite::Result<i32> {
+    let mut deleted = 0i32;
+    for chunk in memory_ids.chunks(MEMORY_SQL_CHUNK) {
+        let placeholders = chunk
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection.prepare(&format!(
+            "DELETE FROM project_memories WHERE memory_id IN ({placeholders})"
+        ))?;
+        deleted += statement.execute(rusqlite::params_from_iter(chunk.iter().cloned()))? as i32;
+    }
+    Ok(deleted)
+}
+
+/// 统计一组会话（含级联子会话）关联的记忆条数。删除确认弹窗用它决定
+/// 是否展示「同时删除记忆」选项——为 0 时不打扰用户。
+pub fn count_memories_by_conversation_ids(
+    database_path: &Path,
+    conversation_ids: &[String],
+) -> Result<i32> {
+    let ids: Vec<String> = conversation_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut count = 0i32;
+            for chunk in ids.chunks(MEMORY_SQL_CHUNK) {
+                let placeholders = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("?{}", index + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut statement = connection.prepare(&format!(
+                    "SELECT COUNT(*) FROM project_memories WHERE conversation_id IN ({placeholders})"
+                ))?;
+                let chunk_count: i32 = statement.query_row(
+                    rusqlite::params_from_iter(chunk.iter().cloned()),
+                    |row| row.get(0),
+                )?;
+                count += chunk_count;
+            }
+            Ok(count)
+        })
+        .map_err(|error| database::database_error(database_path, "count memories by conversation", error))
+}
+
+// ---------------------------------------------------------------------------
+// 查询
+// ---------------------------------------------------------------------------
+
+/// 分页列出项目记忆。`status_filter` / `kind_filter` 为空串表示不过滤。
+pub fn list_memories(
+    database_path: &Path,
+    directory_id: &str,
+    status_filter: Option<&str>,
+    kind_filter: Option<&str>,
+    limit: i32,
+    offset: i32,
+) -> Result<MemoryPage> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            query_memories_page(
+                &connection,
+                directory_id.trim(),
+                status_filter.unwrap_or(""),
+                kind_filter.unwrap_or(""),
+                limit,
+                offset,
+            )
+        })
+        .map_err(|error| database::database_error(database_path, "list memories", error))
+}
+
+fn query_memories_page(
+    connection: &Connection,
+    directory_id: &str,
+    status_filter: &str,
+    kind_filter: &str,
+    limit: i32,
+    offset: i32,
+) -> rusqlite::Result<MemoryPage> {
+    let safe_limit = if limit > 0 { limit } else { 50 };
+    let safe_offset = if offset > 0 { offset } else { 0 };
+    let status_ok = MEMORY_STATUSES.contains(&status_filter);
+    let kind_ok = MEMORY_KINDS.contains(&kind_filter);
+
+    // WHERE 子句按 (status_ok, kind_ok) 依次占用 ?1..?n；LIMIT/OFFSET 由
+    // 内部 sanitize 过的整数直接内联（非用户可控文本，无注入风险），
+    // 避免各分支占位符数量不一致造成 rusqlite 参数个数校验失败。
+    let where_clause = match (status_ok, kind_ok) {
+        (true, true) => {
+            "WHERE (directory_id = ?1 OR directory_id = '') AND status = ?2 AND kind = ?3"
+        }
+        (true, false) => "WHERE (directory_id = ?1 OR directory_id = '') AND status = ?2",
+        (false, true) => "WHERE (directory_id = ?1 OR directory_id = '') AND kind = ?2",
+        (false, false) => "WHERE (directory_id = ?1 OR directory_id = '')",
+    };
+
+    let total: i32 = {
+        let sql = format!("SELECT COUNT(*) FROM project_memories {where_clause}");
+        let mut statement = connection.prepare(&sql)?;
+        match (status_ok, kind_ok) {
+            (true, true) => statement
+                .query_row(params![directory_id, status_filter, kind_filter], |row| {
+                    row.get(0)
+                })?,
+            (true, false) => statement.query_row(params![directory_id, status_filter], |row| {
+                row.get(0)
+            })?,
+            (false, true) => statement.query_row(params![directory_id, kind_filter], |row| {
+                row.get(0)
+            })?,
+            (false, false) => statement.query_row(params![directory_id], |row| row.get(0))?,
+        }
+    };
+
+    let sql = format!(
+        "SELECT {MEMORY_COLUMNS} FROM project_memories {where_clause}
+          ORDER BY importance DESC, updated_at DESC, id DESC
+          LIMIT {safe_limit} OFFSET {safe_offset}"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let items: Vec<MemoryRecord> = match (status_ok, kind_ok) {
+        (true, true) => statement
+            .query_map(
+                params![directory_id, status_filter, kind_filter],
+                map_memory_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+        (true, false) => statement
+            .query_map(params![directory_id, status_filter], map_memory_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+        (false, true) => statement
+            .query_map(params![directory_id, kind_filter], map_memory_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+        (false, false) => statement
+            .query_map(params![directory_id], map_memory_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    };
+
+    Ok(MemoryPage {
+        has_more: (safe_offset + safe_limit) < total,
+        items,
+        total,
+    })
+}
+
+/// 项目记忆库统计（面板徽标与注入章节汇总）。
+pub fn get_memory_stats(database_path: &Path, directory_id: &str) -> Result<MemoryStats> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            // COALESCE 必不可少：空集上 SUM 返回 NULL 而非 0，NULL 读入 i32
+            // 会触发 InvalidColumnType，导致无记忆项目的统计整体失败（与
+            // usage_records 的写法保持一致）。
+            let (total, active, pending, archived): (i32, i32, i32, i32) = connection.query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0)
+                   FROM project_memories
+                  WHERE directory_id = ?1 OR directory_id = ''",
+                params![directory_id.trim()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+            Ok(MemoryStats {
+                total,
+                active,
+                pending,
+                archived,
+            })
+        })
+        .map_err(|error| database::database_error(database_path, "count memories", error))
+}
+
+/// 系统提示词注入用的头部记忆：active + importance >= min_importance，
+/// 按 importance、更新时间倒序取前 `max_entries` 条。
+/// 合并全局（directory_id 空串）跨项目用户记忆，且其门槛放宽一级
+/// （软性偏好也尽量生效），全局条目排在项目条目之前。
+pub fn top_memories_for_injection(
+    database_path: &Path,
+    directory_id: &str,
+    min_importance: i32,
+    max_entries: i32,
+) -> Result<Vec<MemoryRecord>> {
+    let global_min_importance = (min_importance - 1).max(1);
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let sql = format!(
+                "SELECT {MEMORY_COLUMNS} FROM project_memories
+                  WHERE (directory_id = ?1 OR directory_id = '')
+                    AND status = 'active'
+                    AND (importance >= ?2 OR (directory_id = '' AND importance >= ?4))
+                  ORDER BY (directory_id = '') DESC, importance DESC, updated_at DESC, id DESC
+                  LIMIT ?3"
+            );
+            let mut statement = connection.prepare(&sql)?;
+            let rows = statement.query_map(
+                params![
+                    directory_id.trim(),
+                    min_importance,
+                    max_entries,
+                    global_min_importance
+                ],
+                map_memory_row,
+            )?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|error| database::database_error(database_path, "load injection memories", error))
+}
+
+// ---------------------------------------------------------------------------
+// 检索打分
+// ---------------------------------------------------------------------------
+
+/// 按查询词检索记忆：标题/内容/标签命中加权 + 重要性 + 近期性 + 召回
+/// 次数排序；同时为命中条目累加召回统计（治理衰减依据）。
+/// `status_filter` 为 "active" / "pending" / "archived" / ""（active+pending）。
+pub fn search_memories(
+    database_path: &Path,
+    directory_id: &str,
+    query: &str,
+    kind_filter: Option<&str>,
+    status_filter: Option<&str>,
+    limit: i32,
+) -> Result<Vec<MemoryRecord>> {
+    let (directory_id, query, kind_filter, status_filter) =
+        normalize_search_params(directory_id, query, kind_filter, status_filter)?;
+    // MCP 检索：未显式指定状态时只检索「生效中」的条目（active + pending）。
+    let statuses: Vec<&str> = if MEMORY_STATUSES.contains(&status_filter) {
+        vec![status_filter]
+    } else {
+        vec!["active", "pending"]
+    };
+
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open database", error))?;
+    let (results, _total) = search_memories_with_connection(
+        &connection,
+        directory_id,
+        query,
+        &statuses,
+        kind_filter,
+        if limit > 0 { limit } else { 10 },
+        0,
+    )
+    .map_err(|error| database::database_error(database_path, "search memories", error))?;
+    Ok(results)
+}
+
+/// 面板关键词检索：返回分页命中条目 + 命中总数，排序与 MCP 的
+/// `search_memories` 完全一致（同一套打分与召回统计）。
+/// 与 MCP 检索的唯一差别是「未指定状态时不过滤状态」——面板的「全部」
+/// 语义含 archived，与列表浏览保持一致。
+pub fn search_memories_page(
+    database_path: &Path,
+    directory_id: &str,
+    query: &str,
+    kind_filter: Option<&str>,
+    status_filter: Option<&str>,
+    limit: i32,
+    offset: i32,
+) -> Result<MemoryPage> {
+    let (directory_id, query, kind_filter, status_filter) =
+        normalize_search_params(directory_id, query, kind_filter, status_filter)?;
+    let statuses: Vec<&str> = if MEMORY_STATUSES.contains(&status_filter) {
+        vec![status_filter]
+    } else {
+        Vec::new()
+    };
+    let safe_limit = if limit > 0 { limit } else { 30 };
+    let safe_offset = if offset > 0 { offset } else { 0 };
+
+    let connection = database::open_connection(database_path)
+        .map_err(|error| database::database_error(database_path, "open database", error))?;
+    let (items, total) = search_memories_with_connection(
+        &connection,
+        directory_id,
+        query,
+        &statuses,
+        kind_filter,
+        safe_limit,
+        safe_offset,
+    )
+    .map_err(|error| database::database_error(database_path, "search memories", error))?;
+
+    Ok(MemoryPage {
+        has_more: safe_offset + (items.len() as i32) < total,
+        items,
+        total,
+    })
+}
+
+/// 检索参数归一化：校验检索词与项目，非法 kind / status 静默忽略。
+/// 返回 (项目 ID, 检索词, kind 过滤, status 过滤)。
+fn normalize_search_params<'a>(
+    directory_id: &'a str,
+    query: &'a str,
+    kind_filter: Option<&'a str>,
+    status_filter: Option<&'a str>,
+) -> Result<(&'a str, &'a str, Option<&'a str>, &'a str)> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Search query must not be empty".to_string(),
+        ));
+    }
+    let directory_id = directory_id.trim();
+    if directory_id.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Memory search requires a selected project (directory id)".to_string(),
+        ));
+    }
+    let kind_filter = kind_filter
+        .map(str::trim)
+        .filter(|value| MEMORY_KINDS.contains(value));
+    Ok((
+        directory_id,
+        query,
+        kind_filter,
+        status_filter.unwrap_or("").trim(),
+    ))
+}
+
+/// 打分检索的公共实现：返回（当前页条目, 命中总数）。
+/// `statuses` 为空表示不限制状态；其中的值都来自 MEMORY_STATUSES 白名单，
+/// kind 亦已经过白名单校验，因此直接内联进 SQL（非用户可控文本，无注入风险），
+/// 避免占位符数量随组合变化造成参数个数校验失败。
+fn search_memories_with_connection(
+    connection: &Connection,
+    directory_id: &str,
+    query: &str,
+    statuses: &[&str],
+    kind_filter: Option<&str>,
+    limit: i32,
+    offset: i32,
+) -> rusqlite::Result<(Vec<MemoryRecord>, i32)> {
+    let mut sql = format!(
+        "SELECT {MEMORY_COLUMNS} FROM project_memories WHERE (directory_id = ?1 OR directory_id = '')"
+    );
+    if !statuses.is_empty() {
+        let list = statuses
+            .iter()
+            .map(|status| format!("'{status}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str(&format!(" AND status IN ({list})"));
+    }
+    if let Some(kind) = kind_filter {
+        sql.push_str(&format!(" AND kind = '{kind}'"));
+    }
+    sql.push_str(" ORDER BY importance DESC, updated_at DESC, id DESC");
+
+    let mut statement = connection.prepare(&sql)?;
+    let rows: Vec<MemoryRecord> = statement
+        .query_map(params![directory_id], map_memory_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let now = chrono::Local::now().naive_local();
+    let query_lower = query.to_lowercase();
+    let tokens: Vec<String> = query_lower
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .map(String::from)
+        .collect();
+
+    let mut scored: Vec<(f64, MemoryRecord)> = rows
+        .into_iter()
+        .filter_map(|record| {
+            let (score, hit) = score_memory(&record, &query_lower, &tokens, now);
+            hit.then(|| (score, record))
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let total = scored.len() as i32;
+    let safe_offset = if offset > 0 { offset as usize } else { 0 };
+    let safe_limit = if limit > 0 { limit as usize } else { 1 };
+    let results: Vec<MemoryRecord> = scored
+        .into_iter()
+        .skip(safe_offset)
+        .take(safe_limit)
+        .map(|(_, record)| record)
+        .collect();
+
+    // 累加召回统计（失败静默——统计仅用于治理，不影响检索结果）。
+    for record in results.iter() {
+        let _ = connection.execute(
+            "UPDATE project_memories
+                SET last_recalled_at = datetime('now', 'localtime'),
+                    recall_count = recall_count + 1
+              WHERE memory_id = ?1",
+            params![record.memory_id],
+        );
+    }
+
+    Ok((results, total))
+}
+
+/// 打分：返回 `(分数, 是否有文本命中)`。无任何文本命中的条目不进入
+/// 结果（否则结果退化为按重要性的普通列表，失去检索意义）。
+fn score_memory(
+    record: &MemoryRecord,
+    query_lower: &str,
+    tokens: &[String],
+    now: NaiveDateTime,
+) -> (f64, bool) {
+    let title_lower = record.title.to_lowercase();
+    let content_lower = record.content.to_lowercase();
+    let mut score = 0.0f64;
+    let mut hit = false;
+
+    // 整句子串命中（对 CJK 无分词场景尤其重要）。
+    if !query_lower.is_empty() && title_lower.contains(query_lower) {
+        score += 6.0;
+        hit = true;
+    }
+    if !query_lower.is_empty() && content_lower.contains(query_lower) {
+        score += 3.0;
+        hit = true;
+    }
+    for token in tokens {
+        // 单字符 ASCII token 噪声大，跳过；单 CJK 字符保留（有区分度）。
+        if token.len() < 2 && token.chars().all(|c| c.is_ascii()) {
+            continue;
+        }
+        if title_lower.contains(token.as_str()) {
+            score += 3.0;
+            hit = true;
+        }
+        if content_lower.contains(token.as_str()) {
+            score += 1.5;
+            hit = true;
+        }
+        if record.tags.iter().any(|tag| tag.to_lowercase() == *token) {
+            score += 2.0;
+            hit = true;
+        }
+    }
+
+    // 重要性（1-5）：稳定的基础权重。
+    score += record.importance as f64;
+    // 近期性：90 天内线性衰减的加成。
+    if let Ok(updated_at) = NaiveDateTime::parse_from_str(&record.updated_at, "%Y-%m-%d %H:%M:%S") {
+        let days = (now - updated_at).num_days().max(0) as f64;
+        score += 2.0 * (1.0 - (days / 90.0).min(1.0));
+    }
+    // 召回次数：微弱加成，封顶避免热条目固化。
+    score += 0.1 * record.recall_count.min(10) as f64;
+
+    (score, hit)
+}

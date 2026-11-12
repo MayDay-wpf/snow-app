@@ -1,0 +1,24 @@
+[package]
+name = "snow-retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-storage-core = { path = "../snow-storage-core" }
+snow-storage = { path = "../snow-storage" }
+snow-storage-services = { path = "../snow-storage-services" }
+snow-ai = { path = "../snow-ai" }
+snow-net = { path = "../snow-net" }
+snow-providers = { path = "../snow-providers" }
+snow-runtime = { path = "../snow-runtime" }
+snow-text = { path = "../snow-text" }
+snow-tools = { path = "../snow-tools" }
+napi.workspace = true
+napi-derive = "3.2.4"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+chrono = "0.4.38"
+reqwest = { version = "0.12.5", features = ["json", "stream"] }
+uuid = { version = "1", features = ["v4"] }

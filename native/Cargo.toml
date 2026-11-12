@@ -5,9 +5,39 @@ edition = "2021"
 license = "MIT"
 
 [lib]
+name = "snow_native"
 crate-type = ["cdylib"]
 
+# 业务实现拆到 crates/*，本包只保留 napi 导出面与组装初始化。
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.5.16"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde_json = "1.0.120"
+napi = { version = "3.2.4", default-features = false, features = ["napi4", "async"] }
+tokio = { version = "1.39.2", features = ["io-util", "process", "rt", "rt-multi-thread", "sync", "time", "net", "fs"] }
+futures = "0.3.31"
+dirs-next = "2.0.0"
+chrono = "0.4.38"
+
 [dependencies]
+snow-exports = { path = "crates/snow-exports" }
+snow-support = { path = "crates/snow-support" }
+snow-process = { path = "crates/snow-process" }
+snow-runtime = { path = "crates/snow-runtime" }
+snow-text = { path = "crates/snow-text" }
+snow-storage-core = { path = "crates/snow-storage-core" }
+snow-net = { path = "crates/snow-net" }
+snow-storage = { path = "crates/snow-storage" }
+snow-ai = { path = "crates/snow-ai" }
+snow-tools = { path = "crates/snow-tools" }
+snow-providers = { path = "crates/snow-providers" }
 chrono = "0.4.38"
 blake3 = "1"
 sha2 = "0.10"

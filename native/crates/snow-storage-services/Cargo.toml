@@ -1,0 +1,56 @@
+[package]
+name = "snow-storage-services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-process = { path = "../snow-process" }
+snow-text = { path = "../snow-text" }
+snow-storage-core = { path = "../snow-storage-core" }
+snow-storage = { path = "../snow-storage" }
+snow-ai = { path = "../snow-ai" }
+snow-tools = { path = "../snow-tools" }
+snow-net = { path = "../snow-net" }
+snow-hooks = { path = "../snow-hooks" }
+snow-team = { path = "../snow-team" }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+napi-derive = "3.2.4"
+sha1 = "0.10"
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = "0.1"
+cipher = "0.4"
+des = "0.8"
+getrandom = "0.2"
+napi.workspace = true
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+tokio.workspace = true
+chrono = "0.4.38"
+blake3 = "1"
+sha2 = "0.10"
+base64 = "0.22"
+dirs-next = "2.0.0"
+futures = "0.3.31"
+ctor = "1"
+reqwest = { version = "0.12.5", features = ["blocking", "json", "stream", "multipart"] }
+flate2 = "1"
+libc = "0.2"
+tar = "0.4"
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }
+notify = "6"
+regex = "1"
+similar = "2"
+tiktoken-rs = "0.6"
+uuid = { version = "1", features = ["v4"] }
+calamine = "0.36"
+chardetng = "0.1"
+csv = "1.4"
+encoding_rs = "0.8"
+rust_xlsxwriter = "0.96"
+pdf-extract = "0.12"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

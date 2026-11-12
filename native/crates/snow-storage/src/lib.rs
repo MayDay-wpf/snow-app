@@ -1,0 +1,30 @@
+//! 存储领域服务：会话、检查点、项目集合与迁移。
+
+pub mod api_configs;
+pub mod chat_conversations;
+pub mod checkpoint;
+pub mod configured_prompts;
+pub mod checkpoint_skip;
+pub mod context_attachments;
+pub mod custom_header_schemes;
+pub mod failure;
+pub mod gitignore;
+pub mod i18n;
+pub mod image_optimize;
+pub mod media;
+pub mod mcp_server_configs;
+pub mod migrations;
+pub mod ports;
+pub mod project_collections;
+pub mod project_mcp_server_configs;
+pub mod project_memories;
+pub mod project_memories_api;
+pub mod remote_host;
+pub mod storage_locations;
+pub mod system_prompt_snapshots;
+pub mod system_prompts;
+pub mod tags;
+pub mod tool_messages;
+pub mod tool_plugin_configs;
+pub mod usage_records;
+pub mod workspace_directories;

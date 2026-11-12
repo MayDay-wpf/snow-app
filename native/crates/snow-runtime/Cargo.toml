@@ -1,0 +1,11 @@
+[package]
+name = "snow-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+napi.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["compat"] }

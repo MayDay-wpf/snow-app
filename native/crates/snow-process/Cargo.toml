@@ -1,0 +1,24 @@
+[package]
+name = "snow-process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+snow-support = { path = "../snow-support" }
+snow-storage-core = { path = "../snow-storage-core" }
+tokio.workspace = true
+napi.workspace = true
+napi-derive = "3.2.4"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

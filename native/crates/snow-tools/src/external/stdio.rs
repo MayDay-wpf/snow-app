@@ -1,0 +1,370 @@
+use std::collections::HashMap;
+use std::process::Stdio;
+
+use napi::{Error, Result};
+use rmcp::model::ClientInfo;
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService};
+
+use snow_process::process_tree::ProcessTreeGuard;
+use snow_process::terminal::{detect_shell_family, resolve_login_path};
+use snow_storage_core::models::McpServerConfigRecord;
+
+use crate::protocol::RemoteMcpTool;
+
+pub(super) type StdioRunningClient = RunningService<rmcp::RoleClient, ClientInfo>;
+
+fn legacy_handshake_key(config: &McpServerConfigRecord) -> String {
+    let fingerprint = format!(
+        "{}\n{}\n{}",
+        config.command.trim(),
+        config.args_json,
+        config.env_json
+    );
+    format!("stdio:{}", blake3::hash(fingerprint.as_bytes()).to_hex())
+}
+
+pub(super) struct StdioMcpClient {
+    client: StdioRunningClient,
+    /// 进程树回收句柄（Job Object / 进程组），避免 gopls 等后代残留（issue #88）
+    guard: Option<ProcessTreeGuard>,
+}
+
+impl StdioMcpClient {
+    pub(super) async fn connect(config: &McpServerConfigRecord) -> Result<Self> {
+        if config.command.trim().is_empty() {
+            return Err(Error::from_reason(format!(
+                "External MCP server {} has no command",
+                config.name
+            )));
+        }
+
+        let memory_key = legacy_handshake_key(config);
+        if super::requires_legacy_handshake(&memory_key) {
+            eprintln!(
+                "[MCP] stdio server {} is known to require the legacy initialize handshake, skipping server/discover probe",
+                config.name
+            );
+            return Self::connect_legacy(config).await;
+        }
+
+        // 优先尝试 2026-07-28 无状态协议。SDK 的 Auto 模式只对规范协商错误
+        // （-32601 Method Not Found / -32022 Unsupported Protocol Version）
+        // 自动降级或换版本重试；旧服务器若返回其他 JSON-RPC 错误（如 deepwiki
+        // 的 -32600 "Unsupported protocol version"），需在下面用 legacy
+        // initialize 握手手动重试一次。
+        let auto_lifecycle = ClientLifecycleMode::Auto {
+            preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+            legacy_version: Some(rmcp::model::ProtocolVersion::V_2025_11_25),
+        };
+
+        let client_info = ClientInfo::default();
+
+        // 旧 SDK 服务器（如 fastmcp 构建的 firecrawl-mcp）对带 `_meta` 的
+        // `server/discover` 探测会静默不响应——既不返回 JSON-RPC 错误也不
+        // 关闭连接，导致 Auto 协商无限挂起。加超时：超时视为服务器不支持
+        // 2026-07-28 无状态协议，回退 legacy initialize 握手重连。取 3 秒
+        // （issue #172）：正常探测往返远小于该值，超时即回退；响应慢的
+        // 服务器可能被误判，但 legacy 握手仍可正常使用，且结果被记忆。
+        const DISCOVER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+        let (transport, guard) = spawn_transport(config).await?;
+        let auto_result = tokio::time::timeout(
+            DISCOVER_PROBE_TIMEOUT,
+            client_info
+                .clone()
+                .serve_with_lifecycle(transport, auto_lifecycle),
+        )
+        .await;
+
+        match auto_result {
+            Ok(Ok(running)) => Ok(Self {
+                client: running,
+                guard: Some(guard),
+            }),
+            Ok(Err(error)) if super::should_retry_with_legacy_handshake(&error) => {
+                // 服务器不支持 server/discover（规范 JSON-RPC 错误 / discover
+                // 阶段传输失败，如旧服务器收到 discover 探测直接退出导致写
+                // 管道失败，issue #119 的 HTTP 同类场景）。记录回退原因便于
+                // 诊断，先清理第一次启动的进程树，再 spawn 重试（issue #88）
+                eprintln!(
+                    "[MCP] stdio server {} does not support server/discover ({error}), falling back to legacy initialize",
+                    config.name
+                );
+                drop(guard);
+                match Self::connect_legacy(config).await {
+                    Ok(client) => {
+                        super::remember_legacy_handshake(&memory_key);
+                        Ok(client)
+                    }
+                    // 重试失败时保留原始 Auto 错误（含版本协商诊断信息）
+                    Err(_) => Err(Error::from_reason(format!(
+                        "Failed to initialize external MCP stdio server {}: {error}",
+                        config.name
+                    ))),
+                }
+            }
+            Ok(Err(error)) => Err(Error::from_reason(format!(
+                "Failed to initialize external MCP stdio server {}: {error}",
+                config.name
+            ))),
+            Err(_elapsed) => {
+                // 探测超时：guard 回收已启动的进程树后，connect_legacy 重新 spawn
+                drop(guard);
+                match Self::connect_legacy(config).await {
+                    Ok(client) => {
+                        super::remember_legacy_handshake(&memory_key);
+                        Ok(client)
+                    }
+                    Err(_) => Err(Error::from_reason(format!(
+                        "Failed to initialize external MCP stdio server {}: Auto negotiate timed out (no response to server/discover), legacy initialize handshake also failed",
+                        config.name
+                    ))),
+                }
+            }
+        }
+    }
+
+    /// 旧版本回退：直接以 legacy `initialize` 握手建立连接，跳过
+    /// Auto 模式对 2026-07-28 无状态协议的 `server/discover` 探测。
+    /// 当 Auto 协商降级后的连接不稳定（如旧 SDK 服务器调用时报
+    /// Transport closed）时，用本方法重连可绕过协商探测路径。
+    pub(super) async fn connect_legacy(config: &McpServerConfigRecord) -> Result<Self> {
+        if config.command.trim().is_empty() {
+            return Err(Error::from_reason(format!(
+                "External MCP server {} has no command",
+                config.name
+            )));
+        }
+
+        let client_info = ClientInfo::default();
+        let (transport, guard) = spawn_transport(config).await?;
+        let running = client_info
+            .serve_with_lifecycle(transport, ClientLifecycleMode::Initialize)
+            .await
+            .map_err(|error| {
+                Error::from_reason(format!(
+                    "Failed to initialize external MCP stdio server {}: {error}",
+                    config.name
+                ))
+            })?;
+
+        Ok(Self {
+            client: running,
+            guard: Some(guard),
+        })
+    }
+
+    pub(super) async fn list_all_tools(&self) -> Result<Vec<RemoteMcpTool>> {
+        let tools = self.client.list_all_tools().await.map_err(|error| {
+            Error::from_reason(format!("External MCP tools/list failed: {error}"))
+        })?;
+        Ok(tools.into_iter().map(rmcp_tool_to_remote).collect())
+    }
+
+    pub(super) async fn call_tool(
+        &self,
+        name: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let params = rmcp::model::CallToolRequestParams::new(name.to_string());
+        let params = if let Some(obj) = arguments.as_object() {
+            params.with_arguments(obj.clone())
+        } else {
+            params
+        };
+
+        let result = self.client.call_tool(params).await.map_err(|error| {
+            Error::from_reason(format!("External MCP tools/call failed: {error}"))
+        })?;
+
+        Ok(call_tool_result_to_value(result))
+    }
+
+    pub(super) async fn close(mut self) {
+        // 先优雅关闭 transport，再兜底回收整棵进程树（含 gopls 等后代，issue #88）
+        let _ = self.client.close().await;
+        if let Some(mut guard) = self.guard.take() {
+            guard.terminate();
+        }
+    }
+}
+
+/// Spawns the stdio subprocess for an external MCP server, together with a
+/// [`ProcessTreeGuard`] that reaps the whole process tree on close /
+/// timeout / retry (issue #88).
+async fn spawn_transport(
+    config: &McpServerConfigRecord,
+) -> Result<(rmcp::transport::TokioChildProcess, ProcessTreeGuard)> {
+    let command_name = config.command.trim();
+    let args = parse_string_array(&config.args_json, "args")?;
+    let environment = parse_string_map(&config.env_json, "environment")?;
+
+    // GUI 启动的 Electron（macOS Finder / Windows 资源管理器）进程 PATH 不完整，
+    // 不含 Homebrew/nvm 等路径，导致 npx 等命令无法解析。注入 login shell
+    // （Unix 上冒号分隔）或注册表（Windows 上分号分隔）的 PATH。
+    // WSL 命令跳过：resolve_login_path 在 Windows 上返回的是注册表 + 继承的
+    // 合并 PATH（分号分隔），注入会覆盖 WSL 内有效的 Linux PATH（冒号分隔）；
+    // WSL 通过 bash -l 自行从 .profile 加载正确的 Linux PATH。
+    let login_path = if detect_shell_family(command_name) != "wsl" {
+        resolve_login_path().await
+    } else {
+        None
+    };
+
+    // Windows 上 Rust 的 Command（CreateProcess）不会按 PATHEXT 搜索
+    // .cmd/.bat 文件。npx、uvx 等命令实际是 npx.cmd、uvx.bat，直接
+    // Command::new("npx") 会报 "program not found"。这里先用 login PATH
+    // 做 PATHEXT 解析，若命中 .cmd/.bat 则自动套 cmd /c 包装。
+    #[cfg(target_os = "windows")]
+    let (actual_command, prefix_args) = {
+        let fallback_path = std::env::var("PATH").unwrap_or_default();
+        let path_env = login_path.as_deref().unwrap_or(&fallback_path);
+        resolve_windows_command(command_name, path_env)
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (actual_command, prefix_args) = (command_name.to_string(), Vec::<String>::new());
+
+    let mut command = snow_process::process::cmd_async(&actual_command);
+    command.args(&prefix_args);
+    command.args(args);
+
+    // Unix：子进程设为独立进程组组长（pgid == pid），guard 用 kill(-pgid) 回收整棵树
+    #[cfg(unix)]
+    {
+        command.process_group(0);
+    }
+
+    if let Some(path) = login_path {
+        command.env("PATH", path);
+    }
+
+    // 配置里显式声明的 env 最后注入，覆盖 login PATH（如用户自定义 PATH）。
+    command.envs(environment);
+
+    // Use the builder so we can pipe stderr for diagnostics while keeping
+    // stdin/stdout piped (the defaults).
+    let (transport, stderr_opt) = rmcp::transport::TokioChildProcess::builder(command)
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            Error::from_reason(format!(
+                "Failed to start external MCP server {}: {error}",
+                config.name
+            ))
+        })?;
+
+    // spawn 成功后立即登记 PID 并建立进程树回收句柄（issue #88），
+    // guard 随 transport 一起析构，任何失败/超时/退出路径都会回收整棵树
+    let pid = transport.id().unwrap_or(0);
+    let guard = ProcessTreeGuard::new(&config.name, pid);
+    if pid != 0 {
+        eprintln!("[External MCP {}] spawned pid={pid}", config.name);
+    }
+
+    // 排空子进程 stderr：不读取的话，管道缓冲（约 64KB）写满后子进程会
+    // 阻塞，且服务器启动/调用失败的诊断日志会丢失。这里把 stderr 转发
+    // 到应用日志，方便排查 spawn/握手/调用失败（如 issue #51 场景）。
+    if let Some(stderr) = stderr_opt {
+        let server_name = config.name.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut reader = stderr;
+            let mut buffer = vec![0u8; 4096];
+            loop {
+                match reader.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let text = String::from_utf8_lossy(&buffer[..n]);
+                        eprintln!("[External MCP {} stderr] {}", server_name, text.trim_end());
+                    }
+                }
+            }
+        });
+    }
+
+    Ok((transport, guard))
+}
+
+fn rmcp_tool_to_remote(tool: rmcp::model::Tool) -> RemoteMcpTool {
+    let name = tool.name.to_string();
+    let description = tool.description.as_deref().unwrap_or_default().to_string();
+    let input_schema = serde_json::to_value(tool.input_schema.as_ref())
+        .unwrap_or_else(|_| serde_json::json!({ "type": "object", "properties": {} }));
+    RemoteMcpTool {
+        name,
+        description,
+        input_schema,
+    }
+}
+
+fn call_tool_result_to_value(result: rmcp::model::CallToolResult) -> serde_json::Value {
+    serde_json::to_value(&result)
+        .unwrap_or_else(|_| serde_json::json!({ "content": [], "isError": false }))
+}
+
+fn parse_string_array(value: &str, field: &str) -> Result<Vec<String>> {
+    serde_json::from_str(value)
+        .map_err(|error| Error::from_reason(format!("Invalid external MCP {field} JSON: {error}")))
+}
+
+fn parse_string_map(value: &str, field: &str) -> Result<HashMap<String, String>> {
+    serde_json::from_str(value)
+        .map_err(|error| Error::from_reason(format!("Invalid external MCP {field} JSON: {error}")))
+}
+
+/// On Windows, resolves a bare command name against PATH + PATHEXT.
+/// Rust's `std::process::Command` (CreateProcess) only finds `.exe`
+/// files — it does NOT search PATHEXT for `.cmd`/`.bat`. So commands
+/// like `npx` (npx.cmd) or `uvx` (uvx.bat) fail with "program not
+/// found" unless wrapped in `cmd /c`.
+///
+/// Returns `(executable, prefix_args)`:
+/// - `.cmd`/`.bat` → `("cmd", ["/c", resolved_path])`
+/// - `.exe` or other → `(resolved_path, [])`
+/// - not found → `(command_name, [])` (let CreateProcess fail with a clear error)
+#[cfg(target_os = "windows")]
+fn resolve_windows_command(command_name: &str, path_env: &str) -> (String, Vec<String>) {
+    use std::path::PathBuf;
+
+    let lower = command_name.to_lowercase();
+    let has_path_sep = command_name.contains('\\') || command_name.contains('/');
+
+    // Already a .cmd/.bat file — must wrap with cmd /c
+    if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+        return (
+            "cmd".to_string(),
+            vec!["/c".to_string(), command_name.to_string()],
+        );
+    }
+
+    // Already has a path separator or .exe extension — use as-is
+    if has_path_sep || lower.ends_with(".exe") {
+        return (command_name.to_string(), Vec::new());
+    }
+
+    // Bare command name — search PATH with PATHEXT extensions
+    let pathext: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC".to_string())
+        .split(';')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    for dir in path_env.split(';') {
+        if dir.is_empty() {
+            continue;
+        }
+        for ext in &pathext {
+            let candidate = PathBuf::from(dir).join(format!("{}{}", command_name, ext));
+            if candidate.exists() {
+                let resolved = candidate.to_string_lossy().to_string();
+                if ext == ".cmd" || ext == ".bat" {
+                    return ("cmd".to_string(), vec!["/c".to_string(), resolved]);
+                }
+                return (resolved, Vec::new());
+            }
+        }
+    }
+
+    // Not found in PATH — return as-is and let CreateProcess produce the error
+    (command_name.to_string(), Vec::new())
+}

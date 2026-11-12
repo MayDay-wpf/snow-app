@@ -1,0 +1,1363 @@
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::process::Stdio;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+
+use uuid::Uuid;
+
+use crate::exports::terminal::{
+    detect_shell_family, is_windows_wsl_shell, load_terminal_shell_path, resolve_login_path,
+    resolve_shell_and_args,
+};
+use crate::storage::services::app_logs::{insert_app_log, AppLogInput};
+
+use napi::bindgen_prelude::*;
+use napi::threadsafe_function::ThreadsafeFunction;
+use napi_derive::napi;
+use serde_json::{json, Value};
+use tokio::io::AsyncWriteExt;
+
+use super::super::service::McpService;
+use super::super::tools::McpTool;
+use super::remote_workspace::{
+    execute_remote_workspace_command, is_ssh_path, resolve_remote_project_workspace,
+    RemoteWorkspaceCallback,
+};
+
+pub mod detached;
+mod diagnostics;
+mod platform;
+mod safety;
+mod session;
+pub(crate) mod stream_io;
+
+use stream_io::{BoundedCapture, CapturedOutput};
+
+fn set_inherited_env_default(process: &mut tokio::process::Command, key: &str, value: &str) {
+    if value.is_empty() || std::env::var_os(key).is_some() {
+        return;
+    }
+    process.env(key, value);
+}
+
+pub struct BashService;
+
+#[napi(object)]
+pub struct BashStreamChunk {
+    pub stream: String,
+    pub data: String,
+}
+
+pub type BashStreamCallback =
+    ThreadsafeFunction<BashStreamChunk, Unknown<'static>, BashStreamChunk, Status, false>;
+
+/// A live interactive bash session that keeps its stdin pipe open so the
+/// user can send input after the process has started.  Sessions are stored
+/// in a global registry keyed by a UUID so the frontend can write to them
+/// via `write_interactive_stdin` without holding any Rust object across the
+/// NAPI boundary.
+struct InteractiveSession {
+    stdin: tokio::process::ChildStdin,
+}
+
+static INTERACTIVE_SESSIONS: OnceLock<tokio::sync::Mutex<HashMap<String, InteractiveSession>>> =
+    OnceLock::new();
+
+fn interactive_sessions() -> &'static tokio::sync::Mutex<HashMap<String, InteractiveSession>> {
+    INTERACTIVE_SESSIONS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+/// Write user-supplied input to a live interactive session's stdin.
+/// The session is looked up by the UUID that was emitted as the
+/// `interactive_session` stream chunk.  After writing, the stdin pipe is
+/// **not** closed — the process may still need more input later.
+pub async fn write_interactive_stdin(session_id: String, input: String) -> napi::Result<()> {
+    let mut sessions = interactive_sessions().lock().await;
+    let session = sessions.get_mut(&session_id).ok_or_else(|| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Interactive session not found or already terminated: {session_id}"),
+        )
+    })?;
+    session
+        .stdin
+        .write_all(input.as_bytes())
+        .await
+        .map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to write to interactive session stdin: {e}"),
+            )
+        })?;
+    Ok(())
+}
+
+/// Remove (and drop) a finished interactive session from the registry.
+async fn remove_interactive_session(session_id: &str) {
+    let mut sessions = interactive_sessions().lock().await;
+    sessions.remove(session_id);
+}
+
+impl BashService {
+    pub fn new() -> Self {
+        BashService
+    }
+}
+
+const SERVER_ID: &str = "bash";
+const DEFAULT_TIMEOUT_MS: u64 = 30000;
+
+#[derive(Default)]
+struct BashExecutionTimings {
+    argument_parse_ms: u64,
+    sensitive_check_ms: u64,
+    remote_resolve_ms: u64,
+    remote_dispatch_ms: u64,
+    terminal_settings_ms: u64,
+    shell_resolve_ms: u64,
+    login_path_ms: u64,
+    spawn_ms: u64,
+    session_ms: Option<u64>,
+    first_output_ms: Option<u64>,
+    process_wait_ms: u64,
+    pipe_drain_ms: u64,
+    total_ms: u64,
+}
+
+struct BashExecutionLog<'a> {
+    level: &'a str,
+    message: &'a str,
+    status: &'a str,
+    route: &'a str,
+    timeout_ms: u64,
+    is_interactive: bool,
+    detached: bool,
+    session_id: Option<&'a str>,
+    tool_execution_id: Option<&'a str>,
+    exit_code: Option<i32>,
+    captured_stdout_bytes: usize,
+    captured_stderr_bytes: usize,
+    timings: BashExecutionTimings,
+}
+
+fn log_bash_execution(entry: BashExecutionLog<'_>) {
+    let duration = format!("{}ms", entry.timings.total_ms);
+    let context = json!({
+        "toolName": "bash-terminal-execute",
+        "status": entry.status,
+        "route": entry.route,
+        "timeoutMs": entry.timeout_ms,
+        "interactive": entry.is_interactive,
+        "detached": entry.detached,
+        "sessionId": entry.session_id,
+        "toolExecutionId": entry.tool_execution_id,
+        "exitCode": entry.exit_code,
+        "capturedStdoutBytes": entry.captured_stdout_bytes,
+        "capturedStderrBytes": entry.captured_stderr_bytes,
+        "timings": {
+            "argumentParseMs": entry.timings.argument_parse_ms,
+            "sensitiveCheckMs": entry.timings.sensitive_check_ms,
+            "remoteResolveMs": entry.timings.remote_resolve_ms,
+            "remoteDispatchMs": entry.timings.remote_dispatch_ms,
+            "terminalSettingsMs": entry.timings.terminal_settings_ms,
+            "shellResolveMs": entry.timings.shell_resolve_ms,
+            "loginPathMs": entry.timings.login_path_ms,
+            "spawnMs": entry.timings.spawn_ms,
+            "sessionMs": entry.timings.session_ms,
+            "firstOutputMs": entry.timings.first_output_ms,
+            "processWaitMs": entry.timings.process_wait_ms,
+            "pipeDrainMs": entry.timings.pipe_drain_ms,
+            "totalMs": entry.timings.total_ms,
+        }
+    })
+    .to_string();
+    let input = AppLogInput {
+        level: entry.level.to_string(),
+        module: "tool_execution".to_string(),
+        func: "bash_terminal_execute".to_string(),
+        line: None,
+        message: entry.message.to_string(),
+        input: None,
+        output: None,
+        duration: Some(duration),
+        context: Some(context),
+        error: None,
+        source: "main".to_string(),
+    };
+
+    // Tool logging must never extend the command's critical path. Resolve the
+    // cached database path and perform the SQLite insert on the blocking pool;
+    // failures are intentionally ignored so diagnostics cannot break tools.
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Ok(database_path) = crate::storage::ensure_database_file() {
+            let _ = insert_app_log(&database_path, &input);
+        }
+    });
+}
+
+/// 常驻会话路径下 SNOW_* 环境变量按次下发：与一次性路径 `set_inherited_env_default`
+/// 的规则一致（宿主进程已有的值优先）；没有会话身份时清理上一条命令可能残留的值。
+fn build_session_env_prelude(session_id: Option<&str>, working_directory: &str) -> String {
+    match session_id {
+        Some(session_id) => {
+            let assignments = [
+                ("SNOW_SESSION_ID", session_id.to_string()),
+                ("TRELLIS_CONTEXT_ID", format!("snow-{session_id}")),
+                ("SNOW_CWD", working_directory.trim().to_string()),
+                ("SNOW_PLATFORM", "snow-app".to_string()),
+            ];
+            assignments
+                .into_iter()
+                .filter(|(key, _)| std::env::var_os(key).is_none())
+                .map(|(key, value)| format!("$env:{key} = '{}'", value.replace('\'', "''")))
+                .collect::<Vec<String>>()
+                .join("; ")
+        }
+        None => {
+            "Remove-Item Env:SNOW_SESSION_ID,Env:TRELLIS_CONTEXT_ID,Env:SNOW_CWD,Env:SNOW_PLATFORM \
+             -ErrorAction SilentlyContinue"
+                .to_string()
+        }
+    }
+}
+
+/// 本地执行结果的统一组装（一次性进程路径与常驻会话路径共用，保证字段与状态文案一致）。
+struct LocalResult<'a> {
+    status: &'a str,
+    reason: Option<&'a str>,
+    error: Option<String>,
+    stdout: String,
+    stderr: String,
+    exit_code: Option<i32>,
+    output_complete: bool,
+    command: &'a str,
+    executed_at: &'a str,
+    is_interactive: bool,
+    elapsed_ms: u64,
+    timeout_ms: u64,
+    /// 超出捕获上限被省略的字节数（stdout + stderr 合计）。
+    truncated_bytes: u64,
+    /// 进程被信号/系统异常终止时的名称（正常退出为 None）。
+    signal: Option<&'a str>,
+}
+
+fn build_local_result(result: LocalResult<'_>) -> Value {
+    let (outcome_kind, outcome_failed) =
+        diagnostics::classify_exit(result.command, result.exit_code, result.signal);
+    let diagnostics_payload = diagnostics::analyze(diagnostics::DiagnosticInput {
+        command: result.command,
+        stdout: &result.stdout,
+        stderr: &result.stderr,
+        exit_code: result.exit_code,
+        output_complete: result.output_complete,
+        truncated_bytes: result.truncated_bytes,
+    });
+    let mut payload = json!({
+        "status": result.status,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exitCode": result.exit_code,
+        "command": result.command,
+        "executedAt": result.executed_at,
+        "interactive": result.is_interactive,
+        "elapsedMs": result.elapsed_ms,
+        "timeoutMs": result.timeout_ms,
+        "outputComplete": result.output_complete,
+        "outcome": {
+            "kind": outcome_kind,
+            "failed": outcome_failed,
+            "signal": result.signal,
+        },
+        "diagnostics": diagnostics_payload,
+    });
+    if result.truncated_bytes > 0 {
+        payload["truncatedBytes"] = json!(result.truncated_bytes);
+    }
+    if let Some(reason) = result.reason {
+        payload["reason"] = json!(reason);
+    }
+    if let Some(error) = result.error {
+        payload["error"] = json!(error);
+    }
+    payload
+}
+
+fn build_local_spawn_failed_result(
+    error: String,
+    command: &str,
+    working_directory: &str,
+    executed_at: &str,
+    elapsed_ms: u64,
+    timeout_ms: u64,
+) -> Value {
+    json!({
+        "status": "spawn_failed",
+        "reason": "spawn_error",
+        "elapsedMs": elapsed_ms,
+        "timeoutMs": timeout_ms,
+        "exitCode": null,
+        "stdout": "",
+        "stderr": "",
+        "outputComplete": true,
+        "command": command,
+        "workingDirectory": working_directory,
+        "executedAt": executed_at,
+        "error": error,
+        "outcome": {
+            "kind": "spawn_failed",
+            "failed": true,
+            "signal": null,
+        },
+        "diagnostics": {
+            "version": 1,
+            "complete": true,
+            "commandKind": "unknown",
+            "counts": { "error": 0, "warning": 0 },
+            "items": [],
+        },
+    })
+}
+
+impl McpService for BashService {
+    fn id(&self) -> &str {
+        SERVER_ID
+    }
+
+    fn tools(&self) -> Vec<McpTool> {
+        vec![McpTool {
+            server_id: SERVER_ID.to_string(),
+            name: "terminal-execute".to_string(),
+            description: "Execute terminal commands like npm, git, build scripts, etc. Commands ALWAYS run in the shell configured in Terminal settings (shellPath); when unset, the auto-detected default terminal is used (PowerShell -> CMD -> Git Bash -> COMSPEC on Windows). BEST PRACTICE: For file modifications, prefer filesystem tools first. Primary use cases: (1) Running build/test/lint scripts, (2) Version control operations, (3) Package management, (4) System utilities.\n\nWARM SHELL: the PowerShell family (pwsh / Windows PowerShell) reuses one persistent shell session across calls so consecutive commands start in milliseconds instead of paying a fresh shell startup for every command. The working directory is reset for each command, while process-level state (environment variables, `$global:` variables) persists between commands like in an interactive terminal. Its output is a pipe rather than a TTY, so programs that switch to block buffering when stdout is not a terminal (python, node, ...) may stay silent until they exit — pass their unbuffered flag (e.g. `python -u`) when you need live progress from a long-running command. Because that session's stdin carries the command protocol, commands that read stdin (Read-Host, password prompts, interactive installers) MUST pass isInteractive:true — in the warm shell they error out or hang instead of seeing end-of-input.\n\nLONG-RUNNING SERVICES (dev servers, watchers, databases): pass detach:true to run the command in the background. The call returns immediately with { pid, logPath }; the service keeps running and writes its output to the log file. Monitor it by reading logPath (filesystem-read), stop it with taskkill /PID <pid> (Windows) or kill <pid> (POSIX). Do NOT run a long-running service in the foreground: it blocks until the timeout and the whole process tree is force-killed.\n\nINTERACTIVE commands (password prompts, y/n confirmations): set isInteractive:true so the command is not killed by the timeout (24h upper bound) and the UI shows an input box.\n\ntimeout: default 30000ms. When a foreground command may legitimately run longer (builds, installs), pass an explicit larger timeout. Ignored when detach:true.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Terminal command to execute directly."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "REQUIRED: A short, user-friendly explanation of what this command will do, so the user can understand it at a glance. MUST be written in the SAME language as the user's latest query."
+                    },
+                    "workingDirectory": {
+                        "type": "string",
+                        "description": "Working directory where the command should be executed. Defaults to the current project's workspace directory when omitted. Can be a local path (e.g., \"D:/projects/myapp\")."
+                    },
+                    "timeout": {
+                        "type": "number",
+                        "description": "Timeout in milliseconds (default: 30000). Ignored when detach is true."
+                    },
+                    "isInteractive": {
+                        "type": "boolean",
+                        "description": "Set to true if the command requires user input (e.g., password prompts, y/n confirmations, interactive installers). Interactive commands bypass the timeout (24h limit) and show an input box in the UI. Default: false. Cannot be combined with detach."
+                    },
+                    "detach": {
+                        "type": "boolean",
+                        "description": "Run the command in the background and return immediately. Output is written to <workingDirectory>/.snow/logs/<name>-<timestamp>.log; the result contains { detached: true, pid, logPath, hint }. Use for long-running services: monitor via filesystem-read on logPath, stop via taskkill /PID <pid> (Windows) / kill <pid> (POSIX). Default: false. Cannot be combined with isInteractive; not supported for remote (SSH) workspaces."
+                    },
+                    "sessionId": {
+                        "type": "string",
+                        "description": "System-injected session identifier (do not supply). Exposed to the child process as SNOW_SESSION_ID so Trellis scripts can track the active task."
+                    }
+                },
+                "required": ["command", "description", "timeout"]
+            }),
+        }]
+    }
+
+    fn execute(&self, tool_name: &str, _args: &Value) -> napi::Result<Value> {
+        match tool_name {
+            "terminal-execute" => Err(Error::new(
+                Status::GenericFailure,
+                "The Bash tool must be executed through the asynchronous streaming executor"
+                    .to_string(),
+            )),
+            _ => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Unknown tool: \"{}\" for MCP server \"bash\". Available tools: [bash-terminal-execute]",
+                    tool_name
+                ),
+            )),
+        }
+    }
+}
+
+impl BashService {
+    pub async fn execute_terminal_stream(
+        &self,
+        args: &Value,
+        project_id: Option<&str>,
+        sensitive_authorization_token: Option<&str>,
+        on_chunk: BashStreamCallback,
+        on_remote_workspace_command: &RemoteWorkspaceCallback,
+    ) -> napi::Result<Value> {
+        let execution_started = Instant::now();
+        let command = args
+            .get("command")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::new(Status::InvalidArg, "command is required".to_string()))?
+            .to_string();
+
+        // A short user-facing explanation of the command, written by the
+        // model in the user's language.  Required so the UI can always show
+        // why a command is being executed.
+        let description = args
+            .get("description")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "description is required: provide a brief user-friendly explanation of the command in the user's language"
+                        .to_string(),
+                )
+            })?
+            .to_string();
+
+        // workingDirectory 缺失时已由 tools::default_bash_working_directory 兜底为
+        // 当前项目工作区目录；这里仍为空只可能是会话未绑定项目工作区，报参数错误。
+        let working_directory = args
+            .get("workingDirectory")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "workingDirectory is required: the session is not bound to a project workspace directory"
+                        .to_string(),
+                )
+            })?
+            .to_string();
+
+        let timeout = args
+            .get("timeout")
+            .and_then(Value::as_u64)
+            .unwrap_or(DEFAULT_TIMEOUT_MS);
+        let executed_at = chrono::Local::now().to_rfc3339();
+        // 进程身份校验用的毫秒时间戳（与 executed_at 同源，避免两次取时差）。
+        let executed_at_ms = chrono::Local::now().timestamp_millis();
+
+        // Optional session identity injected by the renderer (never supplied by
+        // the model). Exposed to child processes as SNOW_SESSION_ID /
+        // TRELLIS_CONTEXT_ID so Trellis scripts (active_task.py) can resolve
+        // the current session — matching the Snow CLI contract.
+        let session_id = args
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string());
+
+        // When isInteractive is true the command expects to receive user
+        // input at runtime (password prompts, y/n confirmations, etc.).
+        // The flag only controls how the terminal session is presented
+        // (input box, no timeout) — it never bypasses the sensitive-command
+        // gate, which is enforced below for interactive commands too.
+        let is_interactive = args
+            .get("isInteractive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // When detach is true the command runs in the background: the call
+        // returns immediately with { pid, logPath } and the process keeps
+        // running, writing its output to a log file under
+        // <workingDirectory>/.snow/logs/. This is the supported way to start
+        // long-running services (dev servers, watchers, databases) without
+        // blocking the agent until the timeout.
+        let detach = args.get("detach").and_then(Value::as_bool).unwrap_or(false);
+        let argument_parse_ms = execution_started.elapsed().as_millis() as u64;
+        let durable = args
+            .get("durable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        if detach && is_interactive {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "detach cannot be combined with isInteractive: a detached command has no stdin"
+                    .to_string(),
+            ));
+        }
+        if durable && (detach || is_interactive) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "durable cannot be combined with detach or isInteractive".to_string(),
+            ));
+        }
+
+        let self_destruct = safety::is_self_destructive_command(&command);
+        if self_destruct.is_self_destructive {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "[SELF-PROTECTION] Command blocked: {}. {}",
+                    self_destruct.reason, self_destruct.suggestion
+                ),
+            ));
+        }
+
+        // Sensitive commands require a short-lived, one-time authorization
+        // token issued after explicit user confirmation. The token travels
+        // outside the model-controlled tool arguments and is bound to this
+        // exact command. The check is the same unified guard every other
+        // command-executing entry point goes through.
+        //
+        // Interactive commands are checked the same way: the isInteractive
+        // flag is model-controlled and must not be allowed to bypass the
+        // sensitive-command gate. Legitimate interactive commands (npm init,
+        // git add -i, ...) do not match any rule and are unaffected.
+        let sensitive_check_started = Instant::now();
+        let sensitive_gate = crate::mcp::tools::sensitive_guard::enforce(
+            "bash-terminal-execute",
+            args,
+            project_id,
+            sensitive_authorization_token,
+        )
+        .await;
+        let sensitive_check_ms = sensitive_check_started.elapsed().as_millis() as u64;
+        sensitive_gate?;
+
+        let remote_resolve_started = Instant::now();
+        let remote_working_directory = if is_ssh_path(&working_directory) {
+            Some(working_directory.clone())
+        } else {
+            resolve_remote_project_workspace(project_id).await?
+        };
+        let remote_resolve_ms = remote_resolve_started.elapsed().as_millis() as u64;
+        if let Some(remote_working_directory) = remote_working_directory {
+            if detach {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "detach is not supported for remote (SSH) workspaces yet".to_string(),
+                ));
+            }
+            let mut remote_args = args.clone();
+            remote_args["workingDirectory"] = Value::String(remote_working_directory);
+            remote_args["durable"] = Value::Bool(durable);
+            // Register a cancellation token for the remote execution so the
+            // stop button / session abort can settle the pending Electron
+            // promise immediately (mirrors the local-process registration
+            // further down). The id is streamed as a `tool_execution` chunk
+            // so the frontend can target this call for cancellation.
+            let tool_execution_id = Uuid::new_v4().to_string();
+            let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
+            stream_io::emit_stream_chunk(&on_chunk, "tool_execution", tool_execution_id.clone());
+            let remote_dispatch_started = Instant::now();
+            let result = execute_remote_workspace_command(
+                on_remote_workspace_command,
+                "bash-terminal-execute",
+                &remote_args,
+                Some(&cancel_token),
+            )
+            .await;
+            let remote_dispatch_ms = remote_dispatch_started.elapsed().as_millis() as u64;
+            crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+            let exit_code = result
+                .as_ref()
+                .ok()
+                .and_then(|value| value.get("exitCode"))
+                .and_then(Value::as_i64)
+                .map(|value| value as i32);
+            let (level, status, message) = match (&result, exit_code) {
+                (Ok(_), Some(0) | None) => {
+                    ("INFO", "completed", "Remote terminal command completed")
+                }
+                (Ok(_), Some(_)) => (
+                    "WARN",
+                    "non_zero_exit",
+                    "Remote terminal command exited with a non-zero status",
+                ),
+                (Err(_), _) => ("ERROR", "failed", "Remote terminal command failed"),
+            };
+            log_bash_execution(BashExecutionLog {
+                level,
+                message,
+                status,
+                route: "remote",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: false,
+                session_id: session_id.as_deref(),
+                tool_execution_id: Some(&tool_execution_id),
+                exit_code,
+                captured_stdout_bytes: 0,
+                captured_stderr_bytes: 0,
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    remote_dispatch_ms,
+                    total_ms: execution_started.elapsed().as_millis() as u64,
+                    ..BashExecutionTimings::default()
+                },
+            });
+            return result;
+        }
+        if durable {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "durable is only supported for remote (SSH) workspaces".to_string(),
+            ));
+        }
+
+        let terminal_settings_started = Instant::now();
+        let shell_path = load_terminal_shell_path().await?;
+        let terminal_settings_ms = terminal_settings_started.elapsed().as_millis() as u64;
+        let shell_resolve_started = Instant::now();
+        let (shell, shell_args) =
+            resolve_shell_and_args(&shell_path, &command, Some(&working_directory)).await?;
+        let shell_resolve_ms = shell_resolve_started.elapsed().as_millis() as u64;
+
+        let shell_family = detect_shell_family(&shell);
+        // Windows 宿主上 WSL 的工作目录只能通过 `--cd` 参数传递（见 build_shell_args）：
+        // 把 Linux 路径（/home/...）或 WSL UNC 路径设置为 Windows 子进程的
+        // current_dir，会在 Windows 启动 wsl.exe 前校验目录时失败
+        // （ERROR_DIRECTORY，os error 267），命令根本没有进入 WSL。
+        // 与集成终端 ptyManager.ts 对 WSL 的处理保持一致
+        //（cwd 仅通过 --cd 传递，spawnCwd = undefined）。
+        let host_cwd_supported = !is_windows_wsl_shell(&shell_family);
+
+        // resolve_login_path 在 Windows 上返回注册表 + 继承 PATH 的合并值
+        //（分号分隔）。这对 powershell/cmd 有用，但注入给 WSL 会破坏 Linux 的
+        // PATH（Linux 用冒号分隔）。WSL 通过 `bash -lc` 自行从 .profile 加载
+        // Linux PATH，因此跳过注入。
+        let login_path_started = Instant::now();
+        let login_path = if shell_family == "wsl" {
+            None
+        } else {
+            resolve_login_path().await
+        };
+        let login_path_ms = login_path_started.elapsed().as_millis() as u64;
+
+        let callback = Arc::new(on_chunk);
+
+        // 常驻会话优先：PowerShell 家族（pwsh / Windows PowerShell）冷启动成本最高
+        // （本机实测 pwsh 7 ≈ 360ms，高压时段新建进程可被拖到十几秒），复用常驻
+        // 会话把这份开销摊薄成一次。交互式命令需要 stdin、detach 要立刻返回、
+        // cmd/Git Bash/WSL 冷启动本身极低，这三类继续走下面的一次性进程路径。
+        if !detach && !is_interactive && shell_family == "powershell" {
+            let effective_timeout = Duration::from_millis(timeout);
+            let tool_execution_id = Uuid::new_v4().to_string();
+            let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
+            stream_io::emit_stream_chunk(&callback, "tool_execution", tool_execution_id.clone());
+            let env_prelude = build_session_env_prelude(session_id.as_deref(), &working_directory);
+            let outcome = session::execute(session::SessionCommand {
+                shell: &shell,
+                working_directory: &working_directory,
+                command: &command,
+                env_prelude: &env_prelude,
+                login_path: login_path.as_deref(),
+                on_chunk: Arc::clone(&callback),
+                cancel_token: &cancel_token,
+                tool_execution_id: &tool_execution_id,
+                timeout: effective_timeout,
+            })
+            .await;
+            crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+            let elapsed_ms = execution_started.elapsed().as_millis() as u64;
+            let effective_timeout_ms = effective_timeout.as_millis() as u64;
+            let (level, status, message, exit_code) = match &outcome.status {
+                session::SessionStatus::Completed {
+                    exit_code: 0, ..
+                } => ("INFO", "completed", "Terminal command completed", Some(0)),
+                session::SessionStatus::Completed { exit_code, .. } => (
+                    "WARN",
+                    "non_zero_exit",
+                    "Terminal command exited with a non-zero status",
+                    Some(*exit_code),
+                ),
+                session::SessionStatus::TimedOut { watchdog } => (
+                    "WARN",
+                    "timeout",
+                    if *watchdog {
+                        "Terminal command timed out (renderer watchdog)"
+                    } else {
+                        "Terminal command timed out"
+                    },
+                    None,
+                ),
+                session::SessionStatus::Cancelled { .. } => {
+                    ("INFO", "cancelled", "Terminal command was cancelled", None)
+                }
+                session::SessionStatus::Failed { .. } => {
+                    ("ERROR", "failed", "Terminal process wait failed", None)
+                }
+                session::SessionStatus::SpawnFailed { .. } => (
+                    "ERROR",
+                    "spawn_failed",
+                    "Terminal process failed to spawn",
+                    None,
+                ),
+            };
+            log_bash_execution(BashExecutionLog {
+                level,
+                message,
+                status,
+                route: "local",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: false,
+                session_id: session_id.as_deref(),
+                tool_execution_id: Some(&tool_execution_id),
+                exit_code,
+                captured_stdout_bytes: outcome.stdout.len(),
+                captured_stderr_bytes: outcome.stderr.len(),
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    terminal_settings_ms,
+                    shell_resolve_ms,
+                    login_path_ms,
+                    spawn_ms: outcome.spawn_ms,
+                    session_ms: Some(outcome.session_ms),
+                    first_output_ms: outcome.first_output_ms,
+                    process_wait_ms: outcome.wait_ms,
+                    total_ms: elapsed_ms,
+                    ..BashExecutionTimings::default()
+                },
+            });
+
+            let truncated_bytes = outcome.truncated_bytes;
+            return Ok(match outcome.status {
+                session::SessionStatus::SpawnFailed { error } => build_local_spawn_failed_result(
+                    format!("Failed to spawn process: {error}"),
+                    &command,
+                    &working_directory,
+                    &executed_at,
+                    elapsed_ms,
+                    effective_timeout_ms,
+                ),
+                session::SessionStatus::Completed { exit_code, signal } => {
+                    build_local_result(LocalResult {
+                        status: "completed",
+                        reason: None,
+                        error: None,
+                        stdout: outcome.stdout,
+                        stderr: outcome.stderr,
+                        exit_code: Some(exit_code),
+                        output_complete: outcome.output_complete,
+                        command: &command,
+                        executed_at: &executed_at,
+                        is_interactive,
+                        elapsed_ms,
+                        timeout_ms: effective_timeout_ms,
+                        truncated_bytes,
+                        signal: signal.as_deref(),
+                    })
+                }
+                session::SessionStatus::TimedOut { watchdog } => build_local_result(LocalResult {
+                    status: "timed_out",
+                    reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
+                    error: Some(format!("Command timed out after {timeout}ms: {command}")),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                    truncated_bytes,
+                    signal: None,
+                }),
+                session::SessionStatus::Cancelled { reason } => build_local_result(LocalResult {
+                    status: "cancelled",
+                    reason: Some(&reason),
+                    error: Some(format!("Command was stopped by the user: {command}")),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                    truncated_bytes,
+                    signal: None,
+                }),
+                session::SessionStatus::Failed { error } => build_local_result(LocalResult {
+                    status: "failed",
+                    reason: Some("process_wait_failed"),
+                    error: Some(error),
+                    stdout: outcome.stdout,
+                    stderr: outcome.stderr,
+                    exit_code: None,
+                    output_complete: outcome.output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                    truncated_bytes,
+                    signal: None,
+                }),
+            });
+        }
+
+        let mut process = crate::utils::process::cmd_async(&shell);
+        process
+            .args(&shell_args)
+            .stdin(if is_interactive {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .kill_on_drop(!detach)
+            .env("LANG", "en_US.UTF-8")
+            .env("LC_ALL", "en_US.UTF-8")
+            // Electron 运行时会把自身模式注入主进程（NODE_ENV=production/
+            // development），泄漏给用户 shell 后 npm 会默认 omit devDependencies
+            //（NODE_ENV=production 时跳过 dev 依赖，vite 等本地命令装不上）。
+            // 剥离该变量，与用户自己开的普通终端行为保持一致。
+            .env_remove("NODE_ENV");
+        if host_cwd_supported {
+            process.current_dir(&working_directory);
+        }
+
+        // detach 模式：stdout/stderr 直接重定向到 .snow/logs/ 下的日志文件，
+        // 进程孤儿化后由子进程持有的句柄继续写入；前台模式用管道供流式
+        // 输出。kill_on_drop(!detach) 保证任务返回后 detach 进程不会被连带
+        // 终止。
+        let detach_log_path = if detach {
+            let path = platform::create_detach_log_path(&working_directory, &command)?;
+            let log_file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to open detach log file {}: {error}", path.display()),
+                    )
+                })?;
+            process
+                .stdout(Stdio::from(log_file.try_clone().map_err(|error| {
+                    Error::new(
+                        Status::GenericFailure,
+                        format!("Failed to clone detach log handle: {error}"),
+                    )
+                })?))
+                .stderr(Stdio::from(log_file));
+            Some(path)
+        } else {
+            process.stdout(Stdio::piped()).stderr(Stdio::piped());
+            None
+        };
+
+        // Snow platform contract: expose the current session identity and
+        // workspace to child processes so Trellis can resolve an active task.
+        // Inherited explicit values win over Snow's defaults.
+        if let Some(ref session_id) = session_id {
+            set_inherited_env_default(&mut process, "SNOW_SESSION_ID", session_id);
+            set_inherited_env_default(
+                &mut process,
+                "TRELLIS_CONTEXT_ID",
+                &format!("snow-{session_id}"),
+            );
+            set_inherited_env_default(&mut process, "SNOW_CWD", working_directory.trim());
+            set_inherited_env_default(&mut process, "SNOW_PLATFORM", "snow-app");
+        }
+
+        if let Some(ref path) = login_path {
+            process.env("PATH", path);
+        }
+
+        // On Unix, place the child in its own process group so that
+        // kill_process_tree can terminate the entire tree with a
+        // single kill(-pgid, SIGKILL).
+        #[cfg(not(target_os = "windows"))]
+        {
+            process.process_group(0);
+        }
+
+        let spawn_started = Instant::now();
+        let mut child = match process.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let spawn_ms = spawn_started.elapsed().as_millis() as u64;
+                log_bash_execution(BashExecutionLog {
+                    level: "ERROR",
+                    message: "Terminal process failed to spawn",
+                    status: "spawn_failed",
+                    route: "local",
+                    timeout_ms: timeout,
+                    is_interactive,
+                    detached: detach,
+                    session_id: session_id.as_deref(),
+                    tool_execution_id: None,
+                    exit_code: None,
+                    captured_stdout_bytes: 0,
+                    captured_stderr_bytes: 0,
+                    timings: BashExecutionTimings {
+                        argument_parse_ms,
+                        sensitive_check_ms,
+                        remote_resolve_ms,
+                        terminal_settings_ms,
+                        shell_resolve_ms,
+                        login_path_ms,
+                        spawn_ms,
+                        total_ms: execution_started.elapsed().as_millis() as u64,
+                        ..BashExecutionTimings::default()
+                    },
+                });
+                return Ok(build_local_spawn_failed_result(
+                    format!("Failed to spawn process: {error}"),
+                    &command,
+                    &working_directory,
+                    &executed_at,
+                    execution_started.elapsed().as_millis() as u64,
+                    timeout,
+                ));
+            }
+        };
+        let spawn_ms = spawn_started.elapsed().as_millis() as u64;
+
+        // Windows：绑定 Job Object，宿主崩溃或退出时连带杀掉整棵命令进程树；
+        // detach 需要进程孤儿化，不绑定。
+        #[cfg(target_os = "windows")]
+        let _process_tree = if detach {
+            None
+        } else {
+            child
+                .id()
+                .map(|pid| crate::utils::process_tree::ProcessTreeGuard::new("bash-command", pid))
+        };
+
+        // detach 模式：不等待、不注册取消 token、不读取输出。拿到 PID 后
+        // 立即返回；child 句柄移交后台任务登记表（kill_on_drop=false 保证进程
+        // 继续运行，登记表用 try_wait 判定存活并回收），返回值携带
+        // taskId / pid / logPath / hint，agent 据此监控日志与终止进程。
+        if let Some(log_path) = detach_log_path {
+            let pid = child.id().unwrap_or(0);
+            let log_path_text = log_path.to_string_lossy().replace('\\', "/");
+            // 登记到后台任务表：任务管理器据此列出 / 终止该进程。taskId 随结果
+            // 返回，前端点击「后台运行」徽章即可定位到对应任务。
+            // 归属项目根：任务管理器按项目过滤后台任务，不能用 workingDirectory
+            // 顶替（WorkTree 与显式子目录都会偏离项目根）。
+            let project_root = crate::mcp::tools::resolve_local_project_root(project_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let task_id = detached::register(
+                child,
+                pid,
+                command.clone(),
+                description.clone(),
+                working_directory.clone(),
+                project_root,
+                log_path_text.clone(),
+                executed_at.clone(),
+                executed_at_ms,
+                session_id.clone(),
+            );
+            // WSL 命令的 pid 是 wsl.exe 壳进程：taskkill /PID 只会杀掉壳，
+            // WSL 实例内的 Linux 进程可能残留，需要额外给出 Linux 侧的
+            // 停止方式（pkill / wsl --terminate）。
+            let wsl_hint = if platform::is_wsl_command(&command) {
+                " Stop the Linux-side process with `wsl -d <distro> -- pkill -f <pattern>` or `wsl --terminate <distro>`, since taskkill only kills the wsl.exe wrapper."
+            } else {
+                ""
+            };
+            log_bash_execution(BashExecutionLog {
+                level: "INFO",
+                message: "Detached terminal process started",
+                status: "detached",
+                route: "local",
+                timeout_ms: timeout,
+                is_interactive,
+                detached: true,
+                session_id: session_id.as_deref(),
+                tool_execution_id: None,
+                exit_code: None,
+                captured_stdout_bytes: 0,
+                captured_stderr_bytes: 0,
+                timings: BashExecutionTimings {
+                    argument_parse_ms,
+                    sensitive_check_ms,
+                    remote_resolve_ms,
+                    terminal_settings_ms,
+                    shell_resolve_ms,
+                    login_path_ms,
+                    spawn_ms,
+                    total_ms: execution_started.elapsed().as_millis() as u64,
+                    ..BashExecutionTimings::default()
+                },
+            });
+            return Ok(json!({
+                "detached": true,
+                "taskId": task_id,
+                "pid": pid,
+                "logPath": log_path_text,
+                "command": command,
+                "workingDirectory": working_directory,
+                "startedAt": executed_at,
+                "exitCode": null,
+                "hint": format!(
+                    "Detached process started (PID {pid}). Monitor: read the log file with filesystem-read. Stop: taskkill /PID {pid} (Windows) or kill {pid} (POSIX).{wsl_hint}"
+                )
+            }));
+        }
+
+        // Register a cancellation token for this execution so the process can
+        // be killed on demand instead of waiting for the timeout: the UI
+        // shows a stop button and session aborts kill every in-flight bash
+        // process.  The id is streamed to the frontend as a
+        // `tool_execution` chunk (mirroring how `interactive_session` ids
+        // are delivered) so the tool call can be targeted for cancellation.
+        let tool_execution_id = Uuid::new_v4().to_string();
+        let cancel_token = crate::api::cancel::register_tool_execution(&tool_execution_id);
+        stream_io::emit_stream_chunk(&callback, "tool_execution", tool_execution_id.clone());
+
+        // For interactive sessions, take the stdin pipe and register the
+        // session so the frontend can write user input via
+        // `write_interactive_stdin`.  Emit a special stream chunk with
+        // stream="interactive_session" and data=<session_id> so the
+        // frontend knows the session ID to use.
+        let interactive_session_id = if is_interactive {
+            if let Some(stdin) = child.stdin.take() {
+                let session_id = Uuid::new_v4().to_string();
+                let mut sessions = interactive_sessions().lock().await;
+                sessions.insert(session_id.clone(), InteractiveSession { stdin });
+                drop(sessions);
+
+                stream_io::emit_stream_chunk(&callback, "interactive_session", session_id.clone());
+                Some(session_id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let first_output_ms = Arc::new(OnceLock::new());
+        // Shared accumulation buffers mirror everything the readers consume
+        // so a partial stdout/stderr survives even when a reader task must
+        // be aborted before EOF (stop / timeout with a surviving grandchild).
+        let stdout_accumulated = Arc::new(std::sync::Mutex::new(BoundedCapture::default()));
+        let stderr_accumulated = Arc::new(std::sync::Mutex::new(BoundedCapture::default()));
+        let stdout_task = child.stdout.take().map(|stdout| {
+            tokio::spawn(stream_io::read_stream(
+                stdout,
+                "stdout",
+                Arc::clone(&callback),
+                Arc::clone(&first_output_ms),
+                execution_started,
+                Arc::clone(&stdout_accumulated),
+            ))
+        });
+        let stderr_task = child.stderr.take().map(|stderr| {
+            tokio::spawn(stream_io::read_stream(
+                stderr,
+                "stderr",
+                Arc::clone(&callback),
+                Arc::clone(&first_output_ms),
+                execution_started,
+                Arc::clone(&stderr_accumulated),
+            ))
+        });
+
+        // Interactive commands use a much longer timeout because they
+        // wait for user input.  We use 24 hours as the upper bound.
+        let effective_timeout = if is_interactive {
+            Duration::from_secs(86400)
+        } else {
+            Duration::from_millis(timeout)
+        };
+
+        let process_wait_started = Instant::now();
+        let wait_result = tokio::select! {
+            // Cancellation and timeout are safety-critical. Prefer them over a
+            // process that becomes ready at the same time, so a stop request
+            // can never be lost to a successful exit-detection branch.
+            // (Exit detection polls `try_wait`, never `Child::wait()`: on
+            // Windows the latter depends on a shared OS wait-thread pool whose
+            // callbacks can be delayed, and dropping a mid-wait future can
+            // block a tokio worker — which would stall even this timeout.)
+            biased;
+            _ = cancel_token.cancelled() => {
+                stream_io::kill_process_tree(&mut child).await;
+                // The renderer countdown watchdog aborts with reason
+                // "timeout" when the deadline elapses; only an explicit stop
+                // button / session abort ("user", "shutdown") is reported as
+                // a user cancellation, so an automatic timeout is never
+                // misreported as "stopped by the user".
+                let cancel_reason = crate::api::cancel::take_tool_cancel_reason(&tool_execution_id)
+                    .unwrap_or_else(|| "user".to_string());
+                if cancel_reason == "timeout" {
+                    ProcessWaitResult::TimedOut { watchdog: true }
+                } else {
+                    ProcessWaitResult::Cancelled(cancel_reason)
+                }
+            }
+            _ = tokio::time::sleep(effective_timeout) => {
+                stream_io::kill_process_tree(&mut child).await;
+                ProcessWaitResult::TimedOut { watchdog: false }
+            }
+            status = stream_io::poll_child_exit(&mut child) => match status {
+                Ok(status) => ProcessWaitResult::Completed {
+                    exit_code: status.code().unwrap_or(1),
+                    signal: diagnostics::exit_signal(&status),
+                },
+                Err(error) => {
+                    stream_io::kill_process_tree(&mut child).await;
+                    ProcessWaitResult::Failed(error.to_string())
+                }
+            },
+        };
+        let process_wait_ms = process_wait_started.elapsed().as_millis() as u64;
+
+        // Clean up the interactive session after the process exits.
+        if let Some(ref session_id) = interactive_session_id {
+            remove_interactive_session(session_id).await;
+        }
+
+        // Drain the output pipes with a bounded wait in every outcome so a
+        // tool call can never hang forever.
+        //
+        // On Windows a grandchild launched by the shell (e.g.
+        // `Start-Process` starting a Django dev server) inherits the shell's
+        // stdout/stderr pipe write handles. The pipe therefore never reaches
+        // EOF while that grandchild is alive, even after the shell itself has
+        // exited — an unbounded read would leave the tool call stuck in
+        // "running" and wedge the agent loop. A short safety timeout turns
+        // the drain into a bounded wait and lets the call complete with
+        // whatever was captured.
+        //
+        // After a stop/timeout the process tree is already killed, so the
+        // pipes normally reach EOF almost immediately: a short drain
+        // deadline recovers the stdout/stderr produced before termination
+        // (the structured result carries it for the model and the UI). If a
+        // surviving grandchild still holds a pipe open, the deadline aborts
+        // the readers and the shared accumulation buffers provide whatever
+        // was captured — output is never silently discarded.
+        //
+        // The cancellation token stays registered until the drain finishes:
+        // once the shell exits while a grandchild still holds the pipes open,
+        // this drain phase is the only part of the execution still pending,
+        // so the stop button keeps targeting the execution (even though the
+        // wait itself is bounded) instead of silently no-oping.
+        let pipe_drain_started = Instant::now();
+        let drain_deadline = if matches!(
+            wait_result,
+            ProcessWaitResult::Cancelled(_) | ProcessWaitResult::TimedOut { .. }
+        ) {
+            // Stop/timeout: the tree kill already closed the write ends, so
+            // EOF arrives quickly; keep the wait short to settle the call.
+            Some(Duration::from_millis(1000))
+        } else {
+            // Normal exit: tolerate a grandchild holding one pipe open.
+            Some(Duration::from_secs(3))
+        };
+        // Drain stdout and stderr concurrently. A grandchild that keeps one
+        // pipe open can therefore delay completion by at most the single
+        // bounded drain deadline, never twice that deadline.
+        let ((stdout, stdout_complete), (stderr, stderr_complete)) = tokio::join!(
+            await_stream_task(stdout_task, drain_deadline, &stdout_accumulated),
+            await_stream_task(stderr_task, drain_deadline, &stderr_accumulated),
+        );
+        let output_complete = stdout_complete && stderr_complete;
+        let truncated_bytes = stdout.omitted.saturating_add(stderr.omitted);
+        let pipe_drain_ms = pipe_drain_started.elapsed().as_millis() as u64;
+
+        // No further cancellation can target this execution once the
+        // process has settled and the pipe drain has finished.
+        crate::api::cancel::unregister_tool_execution(&tool_execution_id);
+
+        let (level, status, message, exit_code) = match &wait_result {
+            ProcessWaitResult::Completed { exit_code: 0, .. } => {
+                ("INFO", "completed", "Terminal command completed", Some(0))
+            }
+            ProcessWaitResult::Completed { exit_code, .. } => (
+                "WARN",
+                "non_zero_exit",
+                "Terminal command exited with a non-zero status",
+                Some(*exit_code),
+            ),
+            ProcessWaitResult::TimedOut { watchdog } => (
+                "WARN",
+                "timeout",
+                if *watchdog {
+                    "Terminal command timed out (renderer watchdog)"
+                } else {
+                    "Terminal command timed out"
+                },
+                None,
+            ),
+            ProcessWaitResult::Cancelled(_) => {
+                ("INFO", "cancelled", "Terminal command was cancelled", None)
+            }
+            ProcessWaitResult::Failed(_) => {
+                ("ERROR", "failed", "Terminal process wait failed", None)
+            }
+        };
+        log_bash_execution(BashExecutionLog {
+            level,
+            message,
+            status,
+            route: "local",
+            timeout_ms: timeout,
+            is_interactive,
+            detached: false,
+            session_id: session_id.as_deref(),
+            tool_execution_id: Some(&tool_execution_id),
+            exit_code,
+            captured_stdout_bytes: stdout.text.len(),
+            captured_stderr_bytes: stderr.text.len(),
+            timings: BashExecutionTimings {
+                argument_parse_ms,
+                sensitive_check_ms,
+                remote_resolve_ms,
+                terminal_settings_ms,
+                shell_resolve_ms,
+                login_path_ms,
+                spawn_ms,
+                first_output_ms: first_output_ms.get().copied(),
+                process_wait_ms,
+                pipe_drain_ms,
+                total_ms: execution_started.elapsed().as_millis() as u64,
+                ..BashExecutionTimings::default()
+            },
+        });
+
+        // Structured result for every terminal state (completed / timed_out /
+        // cancelled / failed): the status and reason fields let the model and
+        // the UI distinguish an automatic timeout from a user stop, and the
+        // partial stdout/stderr captured before termination is preserved
+        // instead of being thrown away with an opaque error.
+        let elapsed_ms = execution_started.elapsed().as_millis() as u64;
+        let effective_timeout_ms = effective_timeout.as_millis() as u64;
+        match wait_result {
+            ProcessWaitResult::Completed { exit_code, signal } => {
+                Ok(build_local_result(LocalResult {
+                    status: "completed",
+                    reason: None,
+                    error: None,
+                    stdout: stdout.text,
+                    stderr: stderr.text,
+                    exit_code: Some(exit_code),
+                    output_complete,
+                    command: &command,
+                    executed_at: &executed_at,
+                    is_interactive,
+                    elapsed_ms,
+                    timeout_ms: effective_timeout_ms,
+                    truncated_bytes,
+                    signal: signal.as_deref(),
+                }))
+            }
+            ProcessWaitResult::TimedOut { watchdog } => Ok(build_local_result(LocalResult {
+                status: "timed_out",
+                reason: Some(if watchdog { "watchdog_timeout" } else { "timeout" }),
+                error: Some(format!("Command timed out after {timeout}ms: {command}")),
+                stdout: stdout.text,
+                stderr: stderr.text,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
+                truncated_bytes,
+                signal: None,
+            })),
+            ProcessWaitResult::Cancelled(reason) => Ok(build_local_result(LocalResult {
+                status: "cancelled",
+                reason: Some(&reason),
+                error: Some(format!("Command was stopped by the user: {command}")),
+                stdout: stdout.text,
+                stderr: stderr.text,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
+                truncated_bytes,
+                signal: None,
+            })),
+            ProcessWaitResult::Failed(error) => Ok(build_local_result(LocalResult {
+                status: "failed",
+                reason: Some("process_wait_failed"),
+                error: Some(format!("Failed to wait for process: {error}")),
+                stdout: stdout.text,
+                stderr: stderr.text,
+                exit_code: None,
+                output_complete,
+                command: &command,
+                executed_at: &executed_at,
+                is_interactive,
+                elapsed_ms,
+                timeout_ms: effective_timeout_ms,
+                truncated_bytes,
+                signal: None,
+            })),
+        }
+    }
+}
+
+enum ProcessWaitResult {
+    Completed {
+        exit_code: i32,
+        signal: Option<String>,
+    },
+    /// The execution deadline elapsed. `watchdog` is true when the renderer
+    /// countdown fired the abort (reason "timeout") slightly before the
+    /// backend's own deadline, false for the backend deadline itself.
+    TimedOut { watchdog: bool },
+    /// Cancelled by an explicit user/shutdown abort; carries the reason.
+    Cancelled(String),
+    Failed(String),
+}
+
+/// Await a stream reader task.  When `safety_timeout` is provided, the wait
+/// is bounded so we never block indefinitely if a grandchild somehow survives
+/// and keeps a pipe open.  Returns the captured output plus whether the
+/// reader drained to EOF (false = the output may be partial).  On abort or
+/// drain timeout the shared accumulation buffer provides whatever was read.
+async fn await_stream_task(
+    task: Option<tokio::task::JoinHandle<CapturedOutput>>,
+    safety_timeout: Option<Duration>,
+    accumulated: &std::sync::Mutex<BoundedCapture>,
+) -> (CapturedOutput, bool) {
+    match task {
+        Some(mut handle) => match safety_timeout {
+            Some(dur) => {
+                // Await by reference so the handle survives a timeout and can
+                // be aborted afterwards. JoinHandle is Unpin, and `&mut F`
+                // implements Future when F does, so `&mut handle` works here.
+                match tokio::time::timeout(dur, &mut handle).await {
+                    Ok(Ok(output)) => (output, true),
+                    // The drain timed out (a grandchild keeps a pipe write
+                    // handle open and EOF never arrives) or the reader
+                    // failed. Abort it and recover the captured bytes from
+                    // the shared buffer so no output is lost.
+                    _ => {
+                        handle.abort();
+                        (stream_io::finalize_accumulated_output(accumulated), false)
+                    }
+                }
+            }
+            None => match handle.await {
+                Ok(output) => (output, true),
+                Err(_) => (stream_io::finalize_accumulated_output(accumulated), false),
+            },
+        },
+        None => (
+            CapturedOutput {
+                text: String::new(),
+                omitted: 0,
+            },
+            true,
+        ),
+    }
+}

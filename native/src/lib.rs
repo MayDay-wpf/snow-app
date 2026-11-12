@@ -1,14 +1,3 @@
-pub(crate) mod exports;
-mod hooks;
-mod i18n;
-mod mcp;
-mod plugin_community;
-mod plugin_market;
-mod plugin_ws;
-pub mod prompt;
-mod remote_control;
-mod storage;
-mod team;
-mod utils;
+//! napi 导出面：业务实现全部在 crates/*，本包只做重导出与模块装配。
 
-pub mod api;
+pub use snow_exports::*;
