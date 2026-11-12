@@ -2,6 +2,7 @@ import { ipcRenderer } from "electron";
 import type {
   RepoWikiEvent,
   RepoWikiRecord,
+  RepoWikiSettingsOptions,
   RepoWikiStartOptions,
 } from "../types";
 
@@ -58,6 +59,8 @@ export const repoWikiApi = {
     enabled: boolean,
   ): Promise<void> =>
     ipcRenderer.invoke("repo-wiki:set-auto-refresh", projectPath, enabled),
+  repoWikiUpdateSettings: (options: RepoWikiSettingsOptions): Promise<void> =>
+    ipcRenderer.invoke("repo-wiki:update-settings", options),
   repoWikiNotifyTurnEnded: (projectPath: string): Promise<boolean> =>
     ipcRenderer.invoke("repo-wiki:notify-turn-ended", projectPath),
   repoWikiFilePath: (projectPath: string): Promise<string> =>

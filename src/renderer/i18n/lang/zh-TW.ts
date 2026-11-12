@@ -6864,6 +6864,13 @@ export const zhTW = {
   "repoWiki.noRetry": "不重試",
   "repoWiki.diagrams": "產生圖表",
   "repoWiki.diagramsHint": "有原始碼依據時產生 Mermaid 圖",
+  "repoWiki.diagramsOn": "開啟",
+  "repoWiki.diagramsOff": "關閉",
+  "repoWiki.editSettings": "編輯",
+  "repoWiki.editSettingsTitle": "編輯產生設定",
+  "repoWiki.editSettingsDescription":
+    "已產生的頁面維持不變；之後的自動更新與單頁重試會使用新設定。若要依新設定整體重寫，請使用「重新產生」。",
+  "repoWiki.editSettingsBusy": "請先停止執行中的任務再修改設定",
   "repoWiki.phaseAnalyzing": "正在分析程式碼庫",
   "repoWiki.phaseCatalog": "正在產生目錄",
   "repoWiki.phasePages": "正在產生頁面",

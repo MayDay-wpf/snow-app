@@ -7317,6 +7317,14 @@ export const en = {
   "repoWiki.noRetry": "No retry",
   "repoWiki.diagrams": "Diagrams",
   "repoWiki.diagramsHint": "Mermaid diagrams backed by source",
+  "repoWiki.diagramsOn": "On",
+  "repoWiki.diagramsOff": "Off",
+  "repoWiki.editSettings": "Edit",
+  "repoWiki.editSettingsTitle": "Edit generation settings",
+  "repoWiki.editSettingsDescription":
+    "Existing pages are kept as they are. Auto updates and page retries use the new settings; use Regenerate to rewrite the whole wiki.",
+  "repoWiki.editSettingsBusy":
+    "Stop the running task before editing the settings",
   "repoWiki.phaseAnalyzing": "Analyzing the codebase",
   "repoWiki.phaseCatalog": "Generating the catalog",
   "repoWiki.phasePages": "Generating pages",

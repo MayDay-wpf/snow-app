@@ -29,7 +29,7 @@ use crate::mcp::tools::McpTool;
 
 const PAGE_CONCURRENCY: usize = 3;
 const MAX_SOURCES_PER_PAGE: usize = 200;
-const MAX_RETRIES: u32 = 5;
+pub(super) const MAX_RETRIES: u32 = 5;
 
 /// 自动更新触发的目录审视输入。
 pub(super) struct CatalogReview {
@@ -57,7 +57,7 @@ struct Job {
     view: WikiReadView,
 }
 
-fn normalize_language(language: &str) -> String {
+pub(super) fn normalize_language(language: &str) -> String {
     if language.trim().to_lowercase().starts_with("zh") {
         "zh-CN".to_string()
     } else {

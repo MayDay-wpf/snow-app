@@ -6856,6 +6856,13 @@ export const zhCN = {
   "repoWiki.noRetry": "不重试",
   "repoWiki.diagrams": "生成图表",
   "repoWiki.diagramsHint": "有源码依据时生成 Mermaid 图",
+  "repoWiki.diagramsOn": "开启",
+  "repoWiki.diagramsOff": "关闭",
+  "repoWiki.editSettings": "编辑",
+  "repoWiki.editSettingsTitle": "编辑生成配置",
+  "repoWiki.editSettingsDescription":
+    "已生成的页面保持不变；之后的自动更新与单页重试使用新配置。需要按新配置整体重写时请使用「重新生成」。",
+  "repoWiki.editSettingsBusy": "请先停止正在运行的任务再修改配置",
   "repoWiki.phaseAnalyzing": "正在分析代码库",
   "repoWiki.phaseCatalog": "正在生成目录",
   "repoWiki.phasePages": "正在生成页面",

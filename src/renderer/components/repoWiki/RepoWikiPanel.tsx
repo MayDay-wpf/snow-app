@@ -12,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pause,
+  Pencil,
   Play,
   RefreshCw,
   Square,
@@ -116,10 +117,15 @@ export const RepoWikiPanel = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [wikiFilePath, setWikiFilePath] = useState("");
+  const [isEditingSettings, setIsEditingSettings] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedPageId(null);
     setIsSetupOpen(false);
+    setIsEditingSettings(false);
+    setSettingsError(null);
     setActionError(null);
     setWikiFilePath("");
     if (projectPath) {
@@ -291,6 +297,40 @@ export const RepoWikiPanel = ({
     }
   };
 
+  const openSettingsEditor = (): void => {
+    setSettingsError(null);
+    setIsEditingSettings(true);
+  };
+
+  const closeSettingsEditor = (): void => {
+    setSettingsError(null);
+    setIsEditingSettings(false);
+  };
+
+  const handleSaveSettings = async (
+    values: RepoWikiSetupValues,
+  ): Promise<void> => {
+    if (!target) return;
+    setIsSavingSettings(true);
+    setSettingsError(null);
+    try {
+      await window.snow.repoWikiUpdateSettings({
+        projectPath: target.path,
+        language: values.language,
+        apiProfile: values.apiProfile || undefined,
+        model: values.model.trim() || undefined,
+        diagrams: values.diagrams,
+        retries: values.retries,
+      });
+      setIsEditingSettings(false);
+      await reload();
+    } catch (error) {
+      setSettingsError(errorText(error));
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   const phaseLabel = (phase: string): string => {
     switch (phase) {
       case "analyzing":
@@ -425,45 +465,100 @@ export const RepoWikiPanel = ({
     );
   };
 
-  const renderMeta = (record: RepoWikiRecord): React.JSX.Element => (
-    <dl className="repo-wiki-meta">
-      <dt>{t("repoWiki.metaBranch", { defaultValue: "Branch" })}</dt>
-      <dd>{record.branch ?? "-"}</dd>
-      <dt>{t("repoWiki.metaCommit", { defaultValue: "Commit" })}</dt>
-      <dd className="mono">
-        {record.commit ? record.commit.slice(0, 12) : "-"}
-      </dd>
-      <dt>{t("repoWiki.language", { defaultValue: "Language" })}</dt>
-      <dd>{record.language === "en" ? "English" : "简体中文"}</dd>
-      <dt>{t("repoWiki.model", { defaultValue: "Model" })}</dt>
-      <dd>
-        {record.model}
-        {record.apiProfile ? ` · ${record.apiProfile}` : ""}
-      </dd>
-      <dt>{t("repoWiki.metaUpdated", { defaultValue: "Updated" })}</dt>
-      <dd>{formatTime(record.generatedAt ?? record.updatedAt)}</dd>
-      <dt>{t("repoWiki.metaPages", { defaultValue: "Pages" })}</dt>
-      <dd>
-        {donePages}/{pages.length}
-        {failedPages > 0
-          ? ` · ${t("repoWiki.failedCount", {
-              values: { count: failedPages },
-              defaultValue: "{{count}} failed",
-            })}`
-          : ""}
-      </dd>
-      <dt>{t("repoWiki.metaFile", { defaultValue: "Wiki file" })}</dt>
-      <dd>
-        {wikiFilePath ? (
-          <code className="md-file-path" data-file-path={wikiFilePath}>
-            {wikiFilePath}
-          </code>
-        ) : (
-          "-"
-        )}
-      </dd>
-    </dl>
-  );
+  const renderMeta = (record: RepoWikiRecord): React.JSX.Element => {
+    if (isEditingSettings) {
+      return (
+        <RepoWikiSetupCard
+          description={t("repoWiki.editSettingsDescription", {
+            defaultValue:
+              "Existing pages are kept as they are. Auto updates and page retries use the new settings; use Regenerate to rewrite the whole wiki.",
+          })}
+          error={settingsError}
+          initialValues={defaultSetupValues(record)}
+          isSubmitting={isSavingSettings}
+          key={`${record.projectPath}:settings`}
+          onCancel={closeSettingsEditor}
+          onSubmit={(values) => void handleSaveSettings(values)}
+          submitLabel={t("common.save", { defaultValue: "Save" })}
+          title={t("repoWiki.editSettingsTitle", {
+            defaultValue: "Edit generation settings",
+          })}
+          variant="inline"
+        />
+      );
+    }
+    return (
+      <div className="repo-wiki-meta">
+        <dl className="repo-wiki-meta-list">
+          <dt>{t("repoWiki.metaBranch", { defaultValue: "Branch" })}</dt>
+          <dd>{record.branch ?? "-"}</dd>
+          <dt>{t("repoWiki.metaCommit", { defaultValue: "Commit" })}</dt>
+          <dd className="mono">
+            {record.commit ? record.commit.slice(0, 12) : "-"}
+          </dd>
+          <dt>{t("repoWiki.language", { defaultValue: "Language" })}</dt>
+          <dd>{record.language === "en" ? "English" : "简体中文"}</dd>
+          <dt>{t("repoWiki.apiProfile", { defaultValue: "API config" })}</dt>
+          <dd>{record.apiProfile || "-"}</dd>
+          <dt>{t("repoWiki.model", { defaultValue: "Model" })}</dt>
+          <dd>{record.model || "-"}</dd>
+          <dt>{t("repoWiki.retries", { defaultValue: "Retries per page" })}</dt>
+          <dd>
+            {record.retries > 0
+              ? record.retries
+              : t("repoWiki.noRetry", { defaultValue: "No retry" })}
+          </dd>
+          <dt>{t("repoWiki.diagrams", { defaultValue: "Diagrams" })}</dt>
+          <dd>
+            {record.diagrams
+              ? t("repoWiki.diagramsOn", { defaultValue: "On" })
+              : t("repoWiki.diagramsOff", { defaultValue: "Off" })}
+          </dd>
+          <dt>{t("repoWiki.metaUpdated", { defaultValue: "Updated" })}</dt>
+          <dd>{formatTime(record.generatedAt ?? record.updatedAt)}</dd>
+          <dt>{t("repoWiki.metaPages", { defaultValue: "Pages" })}</dt>
+          <dd>
+            {donePages}/{pages.length}
+            {failedPages > 0
+              ? ` · ${t("repoWiki.failedCount", {
+                  values: { count: failedPages },
+                  defaultValue: "{{count}} failed",
+                })}`
+              : ""}
+          </dd>
+          <dt>{t("repoWiki.metaFile", { defaultValue: "Wiki file" })}</dt>
+          <dd>
+            {wikiFilePath ? (
+              <code className="md-file-path" data-file-path={wikiFilePath}>
+                {wikiFilePath}
+              </code>
+            ) : (
+              "-"
+            )}
+          </dd>
+        </dl>
+        <button
+          className="repo-wiki-btn repo-wiki-meta-edit"
+          disabled={isRunning}
+          onClick={openSettingsEditor}
+          title={
+            isRunning
+              ? t("repoWiki.editSettingsBusy", {
+                  defaultValue:
+                    "Stop the running task before editing the settings",
+                })
+              : t("repoWiki.editSettingsTitle", {
+                  defaultValue: "Edit generation settings",
+                })
+          }
+          type="button"
+        >
+          <Pencil size={12} />
+          <span>{t("repoWiki.editSettings", { defaultValue: "Edit" })}</span>
+        </button>
+      </div>
+    );
+  };
 
   const renderPage = (page: RepoWikiPage): React.JSX.Element => {
     if (!page.content) {
@@ -774,7 +869,10 @@ export const RepoWikiPanel = ({
                   </label>
                   <button
                     className={`repo-wiki-icon-btn${isMetaOpen ? " active" : ""}`}
-                    onClick={() => setIsMetaOpen((prev) => !prev)}
+                    onClick={() => {
+                      if (isMetaOpen) closeSettingsEditor();
+                      setIsMetaOpen(!isMetaOpen);
+                    }}
                     title={t("repoWiki.metadata", { defaultValue: "Metadata" })}
                     type="button"
                   >

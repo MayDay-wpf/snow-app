@@ -72,3 +72,5 @@ export type RepoWikiStartOptions = {
   diagrams: boolean;
   retries: number;
 };
+
+export type RepoWikiSettingsOptions = Omit<RepoWikiStartOptions, "projectName">;

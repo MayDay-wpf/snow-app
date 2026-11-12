@@ -22,6 +22,11 @@ const requirePath = (value: unknown): string => {
 const optionalString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
+const normalizeRetries = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(5, Math.max(0, Math.floor(value)))
+    : 0;
+
 export const registerRepoWikiHandlers = (native: NativeBridge): void => {
   // Rust 任务事件广播到所有窗口
   native.setRepoWikiEventHandler((event: RepoWikiEvent) => {
@@ -39,10 +44,6 @@ export const registerRepoWikiHandlers = (native: NativeBridge): void => {
 
   ipcMain.handle("repo-wiki:start", (_event, options: unknown) => {
     const record = (options ?? {}) as Record<string, unknown>;
-    const retries =
-      typeof record.retries === "number" && Number.isFinite(record.retries)
-        ? Math.min(5, Math.max(0, Math.floor(record.retries)))
-        : 0;
     return native.repoWikiStart({
       projectPath: requirePath(record.projectPath),
       projectName: optionalString(record.projectName),
@@ -50,7 +51,19 @@ export const registerRepoWikiHandlers = (native: NativeBridge): void => {
       apiProfile: optionalString(record.apiProfile),
       model: optionalString(record.model),
       diagrams: record.diagrams !== false,
-      retries,
+      retries: normalizeRetries(record.retries),
+    });
+  });
+
+  ipcMain.handle("repo-wiki:update-settings", (_event, options: unknown) => {
+    const record = (options ?? {}) as Record<string, unknown>;
+    return native.repoWikiUpdateSettings({
+      projectPath: requirePath(record.projectPath),
+      language: record.language === "en" ? "en" : "zh-CN",
+      apiProfile: optionalString(record.apiProfile),
+      model: optionalString(record.model),
+      diagrams: record.diagrams !== false,
+      retries: normalizeRetries(record.retries),
     });
   });
 

@@ -1,7 +1,9 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::api::repo_wiki::{self, RepoWikiEventCallback, RepoWikiStartOptions};
+use crate::api::repo_wiki::{
+    self, RepoWikiEventCallback, RepoWikiSettingsOptions, RepoWikiStartOptions,
+};
 use crate::utils::panic_guard::guard_panic;
 
 /// 主进程注册一次：Wiki 任务的状态/页面/活动事件经此回调广播。
@@ -65,6 +67,12 @@ pub async fn repo_wiki_delete(project_path: String) -> Result<bool> {
 #[napi]
 pub async fn repo_wiki_set_auto_refresh(project_path: String, enabled: bool) -> Result<()> {
     guard_panic(repo_wiki::set_auto_refresh(project_path, enabled)).await
+}
+
+/// 修改已生成 Wiki 的生成配置（运行中的任务不可修改）。
+#[napi]
+pub async fn repo_wiki_update_settings(options: RepoWikiSettingsOptions) -> Result<()> {
+    guard_panic(repo_wiki::update_settings(options)).await
 }
 
 /// 回合结束通知：返回是否启动了增量刷新。

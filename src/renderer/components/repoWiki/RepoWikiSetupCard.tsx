@@ -25,6 +25,8 @@ type RepoWikiSetupCardProps = {
   /** 空项目可直接从 JSON 导入已有 Wiki */
   onImport?: () => void;
   isImporting?: boolean;
+  /** inline：嵌入信息面板的紧凑样式 */
+  variant?: "card" | "inline";
 };
 
 const RETRY_OPTIONS = [0, 1, 2, 3, 4, 5];
@@ -40,6 +42,7 @@ export const RepoWikiSetupCard = ({
   onCancel,
   onImport,
   isImporting = false,
+  variant = "card",
 }: RepoWikiSetupCardProps): React.JSX.Element => {
   const { t } = useI18n();
   const [values, setValues] = useState<RepoWikiSetupValues>(initialValues);
@@ -123,7 +126,9 @@ export const RepoWikiSetupCard = ({
     config.displayName.trim() || config.profileName;
 
   return (
-    <div className="repo-wiki-setup-card">
+    <div
+      className={`repo-wiki-setup-card${variant === "inline" ? " inline" : ""}`}
+    >
       <div className="repo-wiki-setup-head">
         <span className="repo-wiki-setup-icon" aria-hidden="true">
           <BookOpen size={18} />

@@ -11,6 +11,7 @@ import {
   Loader2,
   Pencil,
   ServerCog,
+  Terminal,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { ShortcutHint } from "../../ShortcutHint";
 import { FileManagerIcon } from "../../icons/fileManagerIcons";
 import { IdeIcon } from "../../icons/ideIcons";
 import { requestOpenRepoWiki } from "../../repoWiki/repoWikiNavigation";
+import { rightPanelEvents } from "../../rightPanel/rightPanelEvents";
 import {
   getFileManagerLabelKey,
   useOpenWithApps,
@@ -301,6 +303,21 @@ export function WorkspaceDirectoryMenu({
     onShowDetails?.();
   };
 
+  const handleOpenTerminalClick = (): void => {
+    setIsButtonOpen(false);
+    onContextMenuCloseRef.current?.();
+    setShowConfirm(false);
+    setIsOpenWithOpen(false);
+    if (!directoryPath) {
+      return;
+    }
+    // 空命令只新建终端 tab；SSH 目录的 ssh:// 路径由 ptyManager 解析
+    rightPanelEvents.emit("open-terminal-command", {
+      cwd: directoryPath,
+      command: "",
+    });
+  };
+
   const handleOpenWikiClick = (): void => {
     setIsButtonOpen(false);
     onContextMenuCloseRef.current?.();
@@ -557,6 +574,21 @@ export function WorkspaceDirectoryMenu({
                   </span>
                   <ShortcutHint action="openProjectExplorer" />
                 </button>
+                {directoryPath ? (
+                  <button
+                    type="button"
+                    className="workspace-directory-menu-item"
+                    onClick={handleOpenTerminalClick}
+                    role="menuitem"
+                  >
+                    <Terminal size={13} />
+                    <span>
+                      {t("sidebar.explorerOpenInTerminal", {
+                        defaultValue: "Open in Terminal",
+                      })}
+                    </span>
+                  </button>
+                ) : null}
                 {canOpenWith ? (
                   <button
                     type="button"

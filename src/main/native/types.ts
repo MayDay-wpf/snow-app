@@ -2110,6 +2110,15 @@ export type RepoWikiStartOptions = {
   retries: number;
 };
 
+export type RepoWikiSettingsOptions = {
+  projectPath: string;
+  language: string;
+  apiProfile?: string;
+  model?: string;
+  diagrams: boolean;
+  retries: number;
+};
+
 /** `git clone` 的实时进度：一条 stderr 进度行 + 解析出的百分比。 */
 export type GitCloneProgress = {
   line: string;
@@ -3370,6 +3379,7 @@ export type NativeBridge = ImageGenerationNativeApi & {
     projectPath: string,
     enabled: boolean,
   ) => Promise<void>;
+  repoWikiUpdateSettings: (options: RepoWikiSettingsOptions) => Promise<void>;
   repoWikiNotifyTurnEnded: (projectPath: string) => Promise<boolean>;
   repoWikiFilePath: (projectPath: string) => string;
   /** Registers the SSH remote-command dispatcher used by checkpoint APIs. */

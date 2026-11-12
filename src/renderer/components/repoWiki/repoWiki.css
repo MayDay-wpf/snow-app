@@ -311,15 +311,39 @@
 }
 
 .repo-wiki-meta {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   margin: 0 4px 10px 12px;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--surface-island-muted);
   font-size: 12px;
+  flex-shrink: 0;
+}
+
+.repo-wiki-meta-list {
+  display: grid;
+  flex: 1;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  min-width: 0;
+  margin: 0;
+}
+
+.repo-wiki-meta-edit {
+  flex-shrink: 0;
+}
+
+/* 信息面板内嵌的配置编辑表单 */
+.repo-wiki-setup-card.inline {
+  gap: 12px;
+  max-width: none;
+  width: auto;
+  margin: 0 4px 10px 12px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
 }
 
@@ -620,6 +644,7 @@
   }
 
   .repo-wiki-meta,
+  .repo-wiki-setup-card.inline,
   .repo-wiki-progress,
   .repo-wiki-inline-error {
     margin-left: 0;

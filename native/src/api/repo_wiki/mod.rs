@@ -31,6 +31,18 @@ pub struct RepoWikiStartOptions {
     pub retries: u32,
 }
 
+/// 已生成 Wiki 的生成配置（只改配置，不重新生成）。
+#[napi(object)]
+pub struct RepoWikiSettingsOptions {
+    pub project_path: String,
+    /// zh-CN | en
+    pub language: String,
+    pub api_profile: Option<String>,
+    pub model: Option<String>,
+    pub diagrams: bool,
+    pub retries: u32,
+}
+
 #[napi(object)]
 #[derive(Clone, Default)]
 pub struct RepoWikiEvent {
@@ -350,6 +362,46 @@ pub async fn set_auto_refresh(project_path: String, enabled: bool) -> Result<()>
     };
     wiki.auto_refresh = enabled;
     store::save_wiki(&wiki).await
+}
+
+/// 修改生成配置：档案/模型按生成时同样规则解析校验，之后的自动更新与单页重试使用新配置。
+pub async fn update_settings(options: RepoWikiSettingsOptions) -> Result<()> {
+    require_project_path(&options.project_path)?;
+    let project_path = normalize_project_path(&options.project_path);
+    ensure_settings_editable(&project_path)?;
+    if store::load_wiki(&project_path).await?.is_none() {
+        return Err(Error::from_reason("Wiki has not been generated yet"));
+    }
+    let ctx = agent::resolve_model_context(
+        options.api_profile.as_deref().unwrap_or(""),
+        options.model.as_deref().unwrap_or(""),
+        false,
+        &project_path,
+    )
+    .await?;
+    // 解析期间可能已启动自动刷新，重新确认并读取最新数据
+    ensure_settings_editable(&project_path)?;
+    let Some(mut wiki) = store::load_wiki(&project_path).await? else {
+        return Err(Error::from_reason("Wiki has not been generated yet"));
+    };
+    wiki.api_profile = ctx.profile_name.clone();
+    wiki.model = ctx.model.clone();
+    wiki.language = job::normalize_language(&options.language);
+    wiki.diagrams = options.diagrams;
+    wiki.retries = options.retries.min(job::MAX_RETRIES);
+    wiki.updated_at = store::now_ms();
+    store::save_wiki(&wiki).await?;
+    emit(job::build_event(&wiki, "status"));
+    Ok(())
+}
+
+fn ensure_settings_editable(project_path: &str) -> Result<()> {
+    if running_job(project_path).is_some() {
+        return Err(Error::from_reason(
+            "Stop the running wiki task before editing its settings",
+        ));
+    }
+    Ok(())
 }
 
 pub fn file_path(project_path: &str) -> Result<String> {
