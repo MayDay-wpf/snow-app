@@ -1173,6 +1173,8 @@ export type SensitiveCommandDecisionRecord = {
   contextTruncated?: boolean;
   /** 开关打开但没有可用上下文，按无上下文判定。 */
   contextEmpty?: boolean;
+  /** 偏好学习：本次判定附带的相似历史选择条数。 */
+  preferenceRecords?: number;
   /** 决策模型不可用（未选择 / 已停用 / 配置不完整 / 请求失败）的原因；此时回退人工确认。 */
   error?: string | null;
 };
@@ -3070,6 +3072,12 @@ export type NativeBridge = ImageGenerationNativeApi & {
     conversationContext?: string,
     matchedRulesJson?: string,
   ) => Promise<SensitiveCommandDecisionRecord | null>;
+  /** 偏好学习：记录用户在拦截提示中的选择（JSON）；开关未开启时返回 false。 */
+  recordSensitiveCommandFeedback: (feedbackJson: string) => Promise<boolean>;
+  /** 偏好学习：已记录条数。 */
+  getSensitiveCommandFeedbackCount: () => Promise<number>;
+  /** 偏好学习：清空记录，返回删除条数。 */
+  clearSensitiveCommandFeedback: () => Promise<number>;
   /** 决策 / 嵌入 / 重排模型连接自检：结果持久化并返回，失败写入系统日志。 */
   testDecisionModelConnection: (
     input: DecisionModelTestInput,

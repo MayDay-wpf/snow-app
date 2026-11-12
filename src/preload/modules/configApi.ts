@@ -279,6 +279,15 @@ export const configApi = {
       conversationContext,
       matchedRulesJson,
     ),
+  /** 偏好学习：记录用户在拦截提示中的选择（JSON）；开关未开启时返回 false。 */
+  recordSensitiveCommandFeedback: (feedbackJson: string): Promise<boolean> =>
+    ipcRenderer.invoke("sensitive-command-feedback:record", feedbackJson),
+  /** 偏好学习：已记录条数。 */
+  getSensitiveCommandFeedbackCount: (): Promise<number> =>
+    ipcRenderer.invoke("sensitive-command-feedback:count"),
+  /** 偏好学习：清空记录，返回删除条数。 */
+  clearSensitiveCommandFeedback: (): Promise<number> =>
+    ipcRenderer.invoke("sensitive-command-feedback:clear"),
   /** 决策 / 嵌入 / 重排模型连接自检（传入当前表单值），结果会持久化。 */
   testDecisionModelConnection: (
     input: DecisionModelTestInput,

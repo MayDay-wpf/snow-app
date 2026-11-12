@@ -16,6 +16,8 @@
  *   决策模型）。OpenAI 走多轮 input，TypeSafe Jev 放进 state。
  * - contextMessageCount：附带的最近消息条数，默认 8，范围 1-50。渲染层按上限
  *   构建片段，Rust 按该值保留最新的若干条。
+ * - learnPreferences：自动学习用户偏好，默认关闭。开启后记录用户在拦截提示中
+ *   的同意 / 拒绝（含模型拒绝但用户同意），建议与托管判定都附带相似记录。
  */
 
 export const SENSITIVE_COMMAND_ASSIST_SETTING_NAME =
@@ -48,6 +50,7 @@ export type SensitiveCommandAssistSettings = {
   askOnDeny: boolean;
   useConversationContext: boolean;
   contextMessageCount: number;
+  learnPreferences: boolean;
 };
 
 export const DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTINGS: SensitiveCommandAssistSettings =
@@ -58,6 +61,7 @@ export const DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTINGS: SensitiveCommandAssistSe
     askOnDeny: false,
     useConversationContext: false,
     contextMessageCount: DEFAULT_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
+    learnPreferences: false,
   };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -88,6 +92,7 @@ export const readSensitiveCommandAssistSettings = (
         parsed.contextMessageCount === undefined
           ? DEFAULT_SENSITIVE_COMMAND_CONTEXT_MESSAGES
           : normalizeContextMessageCount(parsed.contextMessageCount),
+      learnPreferences: parsed.learnPreferences === true,
     };
   } catch {
     return { ...DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTINGS };
@@ -107,4 +112,5 @@ export const toSensitiveCommandAssistJson = (
     contextMessageCount: normalizeContextMessageCount(
       settings.contextMessageCount,
     ),
+    learnPreferences: settings.learnPreferences,
   });

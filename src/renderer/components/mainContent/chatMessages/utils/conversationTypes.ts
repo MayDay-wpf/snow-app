@@ -180,6 +180,8 @@ export type ToolCallInfo = {
     contextTruncated?: boolean;
     /** 开关打开但没有可用上下文，按无上下文判定。 */
     contextEmpty?: boolean;
+    /** 偏好学习：判定附带的相似历史选择条数。 */
+    preferenceRecords?: number;
     /** 决策模型不可用 / 请求失败的原因：判定无效，已回退人工确认。 */
     error?: string;
   };
@@ -627,6 +629,8 @@ export type SensitiveCommandDecisionInfo = {
   contextTruncated?: boolean;
   /** 开关打开但没有可用上下文，按无上下文判定。 */
   contextEmpty?: boolean;
+  /** 偏好学习：判定附带的相似历史选择条数。 */
+  preferenceRecords?: number;
   /** 决策模型不可用 / 请求失败的原因：判定无效，已回退人工确认。 */
   error?: string;
 };

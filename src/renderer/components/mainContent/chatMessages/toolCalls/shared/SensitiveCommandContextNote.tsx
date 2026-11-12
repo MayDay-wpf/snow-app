@@ -4,9 +4,10 @@ type ContextUsage = {
   contextMessages?: number;
   contextTruncated?: boolean;
   contextEmpty?: boolean;
+  preferenceRecords?: number;
 };
 
-/** 判定所用的会话上下文说明；开关关闭（无字段）时不渲染。 */
+/** 判定所用的会话上下文与历史偏好说明；都未参与时不渲染。 */
 export const SensitiveCommandContextNote = ({
   decision,
   className,
@@ -16,22 +17,36 @@ export const SensitiveCommandContextNote = ({
 }): React.JSX.Element | null => {
   const { t } = useI18n();
 
-  const isEnabled =
+  const isContextEnabled =
     typeof decision.contextMessages === "number" ||
     decision.contextEmpty === true ||
     decision.contextTruncated === true;
-  if (!isEnabled) {
+  const preferenceCount = decision.preferenceRecords ?? 0;
+  if (!isContextEnabled && preferenceCount <= 0) {
     return null;
   }
 
   const count = decision.contextMessages ?? 0;
-  const label = decision.contextEmpty
-    ? decision.contextTruncated
-      ? t("sensitiveCommand.decisionContextDropped")
-      : t("sensitiveCommand.decisionContextEmpty")
-    : decision.contextTruncated
-      ? t("sensitiveCommand.decisionContextTruncated", { values: { count } })
-      : t("sensitiveCommand.decisionContextUsed", { values: { count } });
+  const contextLabel = !isContextEnabled
+    ? ""
+    : decision.contextEmpty
+      ? decision.contextTruncated
+        ? t("sensitiveCommand.decisionContextDropped")
+        : t("sensitiveCommand.decisionContextEmpty")
+      : decision.contextTruncated
+        ? t("sensitiveCommand.decisionContextTruncated", { values: { count } })
+        : t("sensitiveCommand.decisionContextUsed", { values: { count } });
 
-  return <span className={className}>{label}</span>;
+  return (
+    <>
+      {contextLabel ? <span className={className}>{contextLabel}</span> : null}
+      {preferenceCount > 0 ? (
+        <span className={className}>
+          {t("sensitiveCommand.decisionPreferencesUsed", {
+            values: { count: preferenceCount },
+          })}
+        </span>
+      ) : null}
+    </>
+  );
 };

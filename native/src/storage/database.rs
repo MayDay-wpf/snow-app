@@ -17,6 +17,7 @@ use super::{
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 70: sensitive_command_feedback table (learned user decisions on sensitive commands).
 /// 69: chat message origin, preserving unknown provenance for existing rows.
 /// 68: system_prompt_snapshots table (per-conversation frozen ROLE.md rules and
 /// API-configured system prompts; dropped on successful context compaction).
@@ -63,7 +64,7 @@ use super::{
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-const CURRENT_SCHEMA_VERSION: i64 = 69;
+const CURRENT_SCHEMA_VERSION: i64 = 70;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;
@@ -1392,6 +1393,8 @@ CREATE TABLE IF NOT EXISTS app_plugins (
     // module so the schema lives next to its CRUD functions.
     services::codebase_embed_sessions::ensure_sessions_table(connection)?;
     services::remote_drafts::ensure_remote_drafts_table(connection)?;
+    // 敏感命令偏好学习记录（用户在拦截提示中的选择）。
+    services::sensitive_command_feedback::ensure_feedback_table(connection)?;
 
     // Ensure the image library table exists (generated images index).
     services::image_library::ensure_image_library_table(connection)?;

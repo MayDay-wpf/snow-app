@@ -747,6 +747,23 @@ export const registerConfigHandlers = (native: NativeBridge): void => {
     },
   );
 
+  // 偏好学习：记录 / 计数 / 清空用户在敏感命令拦截提示中的选择。
+  ipcMain.handle(
+    "sensitive-command-feedback:record",
+    (_event, feedbackJson: unknown) => {
+      if (typeof feedbackJson !== "string" || !feedbackJson.trim()) {
+        return Promise.resolve(false);
+      }
+      return native.recordSensitiveCommandFeedback(feedbackJson);
+    },
+  );
+  ipcMain.handle("sensitive-command-feedback:count", () =>
+    native.getSensitiveCommandFeedbackCount(),
+  );
+  ipcMain.handle("sensitive-command-feedback:clear", () =>
+    native.clearSensitiveCommandFeedback(),
+  );
+
   // 决策 / 嵌入 / 重排模型连接自检：配置页传入当前表单值（可未保存），
   // Rust 发送最小请求、持久化结果并把失败写入系统日志。
   ipcMain.handle("model-health:test-decision", (_event, input: unknown) => {

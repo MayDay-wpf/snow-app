@@ -40,11 +40,11 @@ const DEFAULT_CODEBASE_SETTING_VALUE: &str = "{\"profileName\":\"default\",\"emb
 // 敏感命令的决策模型辅助（全局）：命中敏感规则的命令在弹出确认前先请决策
 // 模型判定是否可直接放行（`enabled`）。`delegate` 打开时判定直接生效
 // （允许则放行、拒绝则拒绝），关闭时只在拦截提示中作为建议展示；托管下
-// `askOnDeny` 打开时拒绝改为弹出人工确认。
+// `askOnDeny` 打开时拒绝改为弹出人工确认；`learnPreferences` 打开时记录用户选择供每次判定参考。
 const DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTING_NAME: &str = "Sensitive command decision assist";
 const DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTING_CODE: &str = "sensitive_command_assist";
 const DEFAULT_SENSITIVE_COMMAND_ASSIST_SETTING_VALUE: &str =
-    "{\"enabled\":false,\"modelId\":\"\",\"delegate\":false,\"askOnDeny\":false}";
+    "{\"enabled\":false,\"modelId\":\"\",\"delegate\":false,\"askOnDeny\":false,\"learnPreferences\":false}";
 
 const DEFAULT_YOLO_MODE_SETTING_NAME: &str = "YOLO mode";
 const DEFAULT_YOLO_MODE_SETTING_CODE: &str = "yolo_mode";
@@ -405,6 +405,8 @@ pub struct SensitiveCommandAssistSettings {
     pub use_conversation_context: bool,
     /// 附带的最近消息条数；缺省/越界由调用方回落与钳制。
     pub context_message_count: Option<u32>,
+    /// 偏好学习，默认关闭：记录用户在拦截提示中的选择，判定时（建议 / 托管）附带相似记录。
+    pub learn_preferences: bool,
 }
 
 pub fn seed_default_settings(database_path: &Path) -> Result<()> {

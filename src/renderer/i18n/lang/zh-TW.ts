@@ -3462,6 +3462,17 @@ export const zhTW = {
   "settings.sensitiveCommandAssistContextCount": "傳送的對話則數",
   "settings.sensitiveCommandAssistContextCountInfo":
     "預設 {{default}}，範圍 {{min}}-{{max}}。則數越多判定依據越完整，但傳送的內容也越多；超出 state 預算的部分會從最早的訊息開始截斷。",
+  "settings.sensitiveCommandAssistLearn": "自動學習使用者偏好",
+  "settings.sensitiveCommandAssistLearnInfo":
+    "預設關閉。開啟後會在本機記錄你在敏感命令攔截提示中的同意與拒絕（包括決策模型判定拒絕、但你選擇同意的命令）。無論判定作為建議顯示還是由模型託管，每次判定都會附帶最相似的若干筆記錄傳給決策模型，讓它依你以往的選擇重新決定允許還是拒絕。",
+  "settings.sensitiveCommandAssistLearnRecords": "已學習的記錄",
+  "settings.sensitiveCommandAssistLearnRecordsInfo":
+    "已記錄 {{count}} 次選擇，最多保留最近 1000 筆；清空後決策模型將不再參考你的歷史選擇。",
+  "settings.sensitiveCommandAssistLearnRecordsUnknown": "無法讀取記錄筆數。",
+  "settings.sensitiveCommandAssistLearnClear": "清空記錄",
+  "settings.sensitiveCommandAssistLearnClearTitle": "清空學習記錄",
+  "settings.sensitiveCommandAssistLearnClearConfirm":
+    "確定刪除全部 {{count}} 筆學習記錄？決策模型將不再看到你以往的選擇。",
   "settings.sensitiveCommandAssistAskOnDenyNeedAssist":
     "請先啟用決策模型輔助。",
   "settings.sensitiveCommandAssistAskOnDenyNeedModel":
@@ -4490,6 +4501,8 @@ export const zhTW = {
   "sensitiveCommand.decisionContextEmpty": "無可用對話上下文，按無上下文判定",
   "sensitiveCommand.decisionContextDropped":
     "對話上下文超出預算已全部截斷，按無上下文判定",
+  "sensitiveCommand.decisionPreferencesUsed":
+    "參考了你在相似命令上的 {{count}} 筆歷史選擇",
   "sensitiveCommand.severityBadge": "{{level}}風險",
   "sensitiveCommand.severityScore": "風險分值 {{value}} / {{max}}",
   "sensitiveCommand.severity.low": "低",

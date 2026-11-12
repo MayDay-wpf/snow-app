@@ -709,6 +709,8 @@ pub struct SensitiveCommandDecisionRecord {
     pub context_truncated: bool,
     /// 开关打开但没有可用上下文，按无上下文判定。
     pub context_empty: bool,
+    /// 偏好学习：本次判定附带的相似历史选择条数（未参与时为 0）。
+    pub preference_records: u32,
     /// 决策模型不可用（未选择 / 已停用 / 配置不完整 / 请求失败）时的原因：
     /// 此时判定无效，调用方回退人工确认并展示该原因。
     pub error: Option<String>,

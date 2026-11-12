@@ -18,6 +18,7 @@ import {
 import { APP_CONTROL_MODE_CHANGED_EVENT } from "../../../../hooks/useAppControl";
 import { writeRendererLog } from "../../../../utils/rendererLog";
 import { buildSensitiveCommandContext } from "../utils/sensitiveCommandContext";
+import { summarizeContentAsPlainText } from "../../chatInput/fileTagUtils";
 import {
   ensureToolActionPolicy,
   toolApprovalKeys,
@@ -46,18 +47,90 @@ const pickContextUsage = (decision: {
   contextMessages?: number;
   contextTruncated?: boolean;
   contextEmpty?: boolean;
+  preferenceRecords?: number;
 }): {
   contextMessages?: number;
   contextTruncated?: boolean;
   contextEmpty?: boolean;
-} =>
-  decision.contextEnabled
+  preferenceRecords?: number;
+} => ({
+  ...(decision.contextEnabled
     ? {
         contextMessages: decision.contextMessages ?? 0,
         contextTruncated: decision.contextTruncated === true,
         contextEmpty: decision.contextEmpty === true,
       }
-    : {};
+    : {}),
+  // 偏好学习附带了历史记录时才写字段。
+  ...(decision.preferenceRecords
+    ? { preferenceRecords: decision.preferenceRecords }
+    : {}),
+});
+
+/** 不算用户理由的默认拒绝文案（不作为学习记录的备注）。 */
+const DEFAULT_REJECTION_REASONS = new Set([
+  "User declined tool execution",
+  "Tool execution interrupted",
+]);
+
+/**
+ * 偏好学习：把用户在敏感命令拦截提示中的选择交给 Rust 记录。
+ * 开关由 Rust 读取设置判定；规则修改与预检查失败不走决策模型，也不参与学习。
+ */
+const reportSensitiveCommandFeedback = (
+  toolCall: ToolCallInfo,
+  decision: ToolAuthorizationDecision,
+  projectId: string | undefined,
+): void => {
+  const matches = toolCall.sensitiveCommandMatches ?? [];
+  const operation = toolCall.sensitiveOperation;
+  if (
+    matches.length === 0 ||
+    !operation ||
+    operation.kind === "protected" ||
+    matches.some((match) => match.commandId === SENSITIVE_CHECK_FAILED_RULE_ID)
+  ) {
+    return;
+  }
+  const rejectionReason =
+    decision.status === "rejected" ? decision.reason.trim() : "";
+  if (rejectionReason === "Tool execution interrupted") {
+    return;
+  }
+
+  const decisionInfo = toolCall.sensitiveCommandDecision;
+  const modelVerdict =
+    decisionInfo && !decisionInfo.error
+      ? decisionInfo.allow
+        ? "allow"
+        : "deny"
+      : null;
+  const userNote =
+    rejectionReason && !DEFAULT_REJECTION_REASONS.has(rejectionReason)
+      ? summarizeContentAsPlainText(rejectionReason)
+      : null;
+
+  window.snow
+    .recordSensitiveCommandFeedback(
+      JSON.stringify({
+        projectId: projectId ?? "",
+        command: operation.subject,
+        ruleIds: matches.map((match) => match.commandId),
+        modelVerdict,
+        modelReason: modelVerdict ? decisionInfo?.reason : null,
+        userDecision: decision.status,
+        userNote,
+      }),
+    )
+    .catch((error: unknown) => {
+      writeRendererLog("WARN", {
+        module: "sensitive_command",
+        func: "reportSensitiveCommandFeedback",
+        message: "Failed to record sensitive command preference",
+        context: error instanceof Error ? error.message : String(error),
+      });
+    });
+};
 
 /** 权限面板增删项目级免审批工具后派发，授权流程据此重新加载合并列表。 */
 export const TOOL_APPROVALS_CHANGED_EVENT = "tool-approvals:changed";
@@ -755,6 +828,14 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
         });
       }
 
+      reportSensitiveCommandFeedback(
+        pending.toolCall,
+        decision,
+        ctx.sessionsRefData.current.get(
+          toolCall.authorizationConversationId ?? "",
+        )?.directoryId,
+      );
+
       pending.resolve(decision);
     },
     [
@@ -762,6 +843,7 @@ export const useToolAuthorization = (ctx: ConversationContextValue) => {
       ctx.setPendingToolAuthorizations,
       ctx.setPendingToolAuthorizationsBySession,
       ctx.updateSessionMessages,
+      ctx.sessionsRefData,
     ],
   );
 

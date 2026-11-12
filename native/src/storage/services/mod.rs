@@ -46,6 +46,7 @@ pub mod remote_drafts;
 pub mod request_logging_settings;
 pub mod scheduled_tasks;
 pub mod sensitive_command_configs;
+pub mod sensitive_command_feedback;
 pub mod sub_agent_configs;
 pub mod storage_locations;
 pub mod system_prompt_snapshots;

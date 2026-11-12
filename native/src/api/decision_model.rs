@@ -44,6 +44,7 @@ use crate::api::model_health::{
     observe_call, post_json, ModelCallReport, ModelKind, ModelRequestError, CONNECTION_TEST_FUNC,
 };
 use crate::storage::services::codebase_index::SearchResult;
+use crate::storage::services::sensitive_command_feedback::PreferenceExample;
 use crate::storage::services::system_settings::get_system_setting_value;
 use crate::storage::SensitiveCommandMatchResult;
 
@@ -644,6 +645,8 @@ pub struct CommandDecision {
     pub severity_error: Option<String>,
     /// 会话上下文的使用情况；开关关闭时为 None。
     pub context: Option<ContextUsage>,
+    /// 实际附带的历史偏好条数（聚合后）。
+    pub preference_examples: usize,
 }
 
 /// 一条命令的判定上下文：命令文本、模型写的说明与实际执行目录。
@@ -658,7 +661,18 @@ pub struct CommandContext<'a> {
     pub matched_rules: &'a [SensitiveCommandMatchResult],
     /// 会话上下文（时间正序）；None = 开关关闭，Some(空) = 开关打开但无内容。
     pub conversation: Option<&'a [ConversationMessage]>,
+    /// 用户在相似命令上的历史选择；None = 偏好学习未参与本次判定。
+    pub preferences: Option<&'a [PreferenceExample]>,
 }
+
+/// verdict 问题的基础说明。
+const VERDICT_INSTRUCTIONS: &str = "Judging the real effect of this exact command in this working directory, does it have to wait for the user's confirmation before it runs?";
+
+/// 历史偏好在 state 中的说明。
+const USER_PREFERENCE_NOTE: &str = "This user's own past choices in the confirmation prompt for earlier commands that matched sensitive rules, most similar first. userDecision is what the user chose; modelVerdict is what the decision model suggested at that time; overrodeModelDeny marks commands the user approved even though the model said deny; times counts repeats of the same command and choice. userNote is the reason the user gave when rejecting.";
+
+/// 有历史偏好时追加到 verdict 问题的说明。
+const USER_PREFERENCE_INSTRUCTIONS: &str = "userPreferenceHistory records how this user decided on similar commands before; treat it as the user's standing preference. If the pending command has essentially the same effect as commands the user approved (especially repeatedly, or after overriding a deny), answer allow; if it matches commands the user rejected, answer deny. Only transfer a preference to commands with the same effect: a different target path, branch, remote, host or destructive flag can change the risk.";
 
 /// 会话片段的结构上限：超出视为调用方传参异常；也是可配置条数的上限。
 pub const MAX_CONTEXT_MESSAGES: usize = 50;
@@ -1051,6 +1065,21 @@ pub async fn evaluate_command(
         ),
     );
 
+    // 偏好学习：只附带有相似记录的情况，空列表不改变请求体。
+    let preferences = context.preferences.filter(|items| !items.is_empty());
+    let preference_examples = preferences.map_or(0, <[PreferenceExample]>::len);
+    if let Some(preferences) = preferences {
+        state.insert(
+            "userPreferenceHistory".to_string(),
+            json!({ "note": USER_PREFERENCE_NOTE, "decisions": preferences }),
+        );
+    }
+    let verdict_instructions = if preference_examples > 0 {
+        format!("{VERDICT_INSTRUCTIONS} {USER_PREFERENCE_INSTRUCTIONS}")
+    } else {
+        VERDICT_INSTRUCTIONS.to_string()
+    };
+
     let mut reason_criteria = Map::new();
     for (key, description) in REASON_CATEGORIES {
         reason_criteria.insert((*key).to_string(), json!(description));
@@ -1065,7 +1094,7 @@ pub async fn evaluate_command(
     let questions = json!({
         (VERDICT_QUESTION_ID): {
             "type": "choice",
-            "instructions": "Judging the real effect of this exact command in this working directory, does it have to wait for the user's confirmation before it runs?",
+            "instructions": verdict_instructions,
             "criteria": {
                 (ALLOW_OPTION): "Low risk — it can run unattended. It only reads, or it touches generated or regenerable artifacts (build output, caches, temporary files, package or dependency directories), or its effect stays inside the working directory and is easy to undo. A matched rule is not a risk by itself: rules also fire on file names, arguments and commit messages. Typical cases: inspecting files, builds, tests, formatting, cleaning build output, installing dependencies, git status/diff/add/commit inside the project.",
                 (DENY_OPTION): "Real risk of an effect the user did not ask for and could not easily undo: deleting or overwriting source code, documents, databases or paths outside the working directory; wiping data that cannot be regenerated; changing system or environment state (permissions, packages, services, processes); publishing or sending data off this machine; or the target is unknown so the effect cannot be bounded. Typical cases: recursive deletion of unresolved paths, disk formatting, force push, dropping a database, piping local files to a remote host.",
@@ -1163,6 +1192,7 @@ pub async fn evaluate_command(
                 severity_score,
                 severity_error,
                 context: context_usage,
+                preference_examples,
             })
         },
     )
@@ -1350,6 +1380,7 @@ async fn log_command_decision(config: &DecisionModelConfig, decision: &CommandDe
                 "contextMessages": decision.context.map(|usage| usage.messages),
                 "contextTruncated": decision.context.map(|usage| usage.truncated),
                 "contextEmpty": decision.context.map(|usage| usage.empty),
+                "preferenceExamples": decision.preference_examples,
             })
             .to_string(),
         ),

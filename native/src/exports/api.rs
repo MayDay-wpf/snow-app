@@ -593,6 +593,7 @@ pub async fn evaluate_sensitive_command_decision(
         context_messages: 0,
         context_truncated: false,
         context_empty: false,
+        preference_records: 0,
         error: Some(error),
     };
 
@@ -657,6 +658,42 @@ pub async fn evaluate_sensitive_command_decision(
         None
     };
 
+    // 偏好学习：建议与托管两种模式都附带与本命令相似的历史选择。读取失败只少了
+    // 参考依据（判定更保守），记 WARN 后照常判定。
+    let preferences = if assist.learn_preferences {
+        let db_path = database_path.clone();
+        let candidate = command.clone();
+        let rule_ids: Vec<String> = matched_rules
+            .iter()
+            .map(|rule| rule.command_id.clone())
+            .collect();
+        let project = usage_directory_id.clone();
+        let loaded = tokio::task::spawn_blocking(move || {
+            crate::storage::services::sensitive_command_feedback::find_relevant_preferences(
+                &db_path, &candidate, &rule_ids, &project,
+            )
+            .map_err(|error| error.reason.clone())
+        })
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+        match loaded {
+            Ok(items) => Some(items),
+            Err(error) => {
+                crate::storage::services::app_logs::log_api_warning(
+                    &database_path,
+                    "evaluate_sensitive_command_decision",
+                    "Failed to load learned sensitive command preferences; judging without them",
+                    &error,
+                )
+                .await;
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let verdict = crate::api::decision_model::evaluate_command(
         &config,
         &crate::api::decision_model::DecisionUsageScope {
@@ -670,6 +707,7 @@ pub async fn evaluate_sensitive_command_decision(
             working_directory: &working_directory,
             matched_rules: &matched_rules,
             conversation: conversation.as_deref(),
+            preferences: preferences.as_deref(),
         },
     )
     .await;
@@ -690,11 +728,58 @@ pub async fn evaluate_sensitive_command_decision(
                 context_messages: u32::try_from(usage.messages).unwrap_or(u32::MAX),
                 context_truncated: usage.truncated,
                 context_empty: usage.empty,
+                preference_records: u32::try_from(verdict.preference_examples)
+                    .unwrap_or(u32::MAX),
                 error: None,
             }
         }
         Err(error) => unavailable(model_name, error.reason.clone()),
     }))
+}
+
+/// 偏好学习：记录用户在敏感命令拦截提示中的一次选择（JSON）。
+/// 开关以 Rust 读取的设置为准，未开启时直接忽略并返回 false。
+#[napi]
+pub async fn record_sensitive_command_feedback(feedback: String) -> napi::Result<bool> {
+    let database_path = PathBuf::from(initialize_app_storage()?.database_path);
+    tokio::task::spawn_blocking(move || -> napi::Result<bool> {
+        let assist =
+            crate::storage::services::system_settings::get_sensitive_command_assist(&database_path)?;
+        if !assist.enabled || !assist.learn_preferences {
+            return Ok(false);
+        }
+        let input =
+            crate::storage::services::sensitive_command_feedback::parse_feedback_input(&feedback)?;
+        crate::storage::services::sensitive_command_feedback::insert_feedback(
+            &database_path,
+            &input,
+        )?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("Failed to record sensitive command feedback: {e}")))?
+}
+
+/// 偏好学习：已记录的用户选择条数。
+#[napi]
+pub async fn get_sensitive_command_feedback_count() -> napi::Result<u32> {
+    let database_path = PathBuf::from(initialize_app_storage()?.database_path);
+    tokio::task::spawn_blocking(move || {
+        crate::storage::services::sensitive_command_feedback::count_feedback(&database_path)
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("Failed to count sensitive command feedback: {e}")))?
+}
+
+/// 偏好学习：清空全部记录，返回删除条数。
+#[napi]
+pub async fn clear_sensitive_command_feedback() -> napi::Result<u32> {
+    let database_path = PathBuf::from(initialize_app_storage()?.database_path);
+    tokio::task::spawn_blocking(move || {
+        crate::storage::services::sensitive_command_feedback::clear_feedback(&database_path)
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("Failed to clear sensitive command feedback: {e}")))?
 }
 
 /// 解析调用方预检查给出的命中项（`SensitiveOperationCheckRecord.matches` 的 JSON）。

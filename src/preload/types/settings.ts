@@ -647,6 +647,8 @@ export type SensitiveCommandDecisionRecord = {
   contextTruncated?: boolean;
   /** 开关打开但没有可用上下文，按无上下文判定。 */
   contextEmpty?: boolean;
+  /** 偏好学习：本次判定附带的相似历史选择条数。 */
+  preferenceRecords?: number;
   /** 决策模型不可用（未选择 / 已停用 / 配置不完整 / 请求失败）的原因；此时回退人工确认。 */
   error?: string | null;
 };

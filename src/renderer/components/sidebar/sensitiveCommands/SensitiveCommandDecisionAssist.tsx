@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { BrainCircuit, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { BrainCircuit, Loader2, ShieldCheck, Trash2 } from "lucide-react";
 import {
   enabledDecisionModels,
   findDecisionModel,
@@ -16,6 +16,7 @@ import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
 import { ModelSettingsJumpButton } from "../apiSettings/ModelSettingsJumpButton";
 import { Tooltip } from "../../common/Tooltip";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 
 type SensitiveCommandDecisionAssistProps = {
   settings: SensitiveCommandAssistSettings;
@@ -37,6 +38,8 @@ type SensitiveCommandDecisionAssistProps = {
  *   关闭时判定只在拦截提示中作为建议展示，是否执行仍由用户决定。
  * - 拒绝时仍让我确认：默认关闭，仅托管开启时可用。开启后允许仍直接放行，
  *   拒绝则转为人工确认，由用户复核后决定是否执行。
+ * - 自动学习用户偏好：默认关闭。记录用户在拦截提示中的选择，建议与托管判定
+ *   时由 Rust 挑出相似记录交给决策模型；可查看条数并清空。
  */
 export function SensitiveCommandDecisionAssist({
   settings,
@@ -202,6 +205,56 @@ export function SensitiveCommandDecisionAssist({
   };
   const isCountDisabled = isContextDisabled || !settings.useConversationContext;
 
+  // 偏好学习：前置条件与会话上下文一致；记录数在开关变化时刷新。
+  const isLearnDisabled = isContextDisabled;
+  const [feedbackCount, setFeedbackCount] = useState<number | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearPending, setClearPending] = useState(false);
+  const [clearError, setClearError] = useState("");
+
+  const refreshFeedbackCount = useCallback(() => {
+    window.snow
+      .getSensitiveCommandFeedbackCount()
+      .then(setFeedbackCount)
+      .catch(() => setFeedbackCount(null));
+  }, []);
+
+  useEffect(() => {
+    refreshFeedbackCount();
+  }, [refreshFeedbackCount, settings.learnPreferences]);
+
+  const confirmClearFeedback = async (): Promise<void> => {
+    setClearPending(false);
+    setIsClearing(true);
+    setClearError("");
+    try {
+      await window.snow.clearSensitiveCommandFeedback();
+      setFeedbackCount(0);
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : String(error));
+      refreshFeedbackCount();
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  const learnToggle = (
+    <span className="toggle-switch">
+      <input
+        type="checkbox"
+        checked={settings.enabled && settings.learnPreferences}
+        disabled={isLearnDisabled}
+        aria-label={t("settings.sensitiveCommandAssistLearn", {
+          defaultValue: "Learn my preferences automatically",
+        })}
+        onChange={(event) =>
+          onChange({ ...settings, learnPreferences: event.target.checked })
+        }
+      />
+      <span className="toggle-slider" aria-hidden="true" />
+    </span>
+  );
+
   return (
     <section
       className={`sensitive-command-assist${isActive ? " is-active" : ""}`}
@@ -260,6 +313,9 @@ export function SensitiveCommandDecisionAssist({
                   askOnDeny: event.target.checked ? settings.askOnDeny : false,
                   useConversationContext: event.target.checked
                     ? settings.useConversationContext
+                    : false,
+                  learnPreferences: event.target.checked
+                    ? settings.learnPreferences
                     : false,
                 })
               }
@@ -418,7 +474,73 @@ export function SensitiveCommandDecisionAssist({
             />
           </span>
         </label>
+
+        <label className="sensitive-command-assist-row">
+          <span className="sensitive-command-assist-row-copy">
+            <strong>
+              {t("settings.sensitiveCommandAssistLearn", {
+                defaultValue: "Learn my preferences automatically",
+              })}
+            </strong>
+            <small>
+              {t("settings.sensitiveCommandAssistLearnInfo", {
+                defaultValue:
+                  "Off by default. When on, your allow and deny choices in the sensitive command prompt are recorded on this device, including commands the decision model denied but you allowed. Every judgement, whether shown as a suggestion or delegated, sends the most similar records to the decision model so it can follow your past choices.",
+              })}
+            </small>
+          </span>
+          {contextHint === "" ? (
+            learnToggle
+          ) : (
+            <Tooltip content={contextHint}>{learnToggle}</Tooltip>
+          )}
+        </label>
+
+        <div className="sensitive-command-assist-row">
+          <span className="sensitive-command-assist-row-copy">
+            <strong>
+              {t("settings.sensitiveCommandAssistLearnRecords", {
+                defaultValue: "Learned records",
+              })}
+            </strong>
+            <small>
+              {feedbackCount === null
+                ? t("settings.sensitiveCommandAssistLearnRecordsUnknown", {
+                    defaultValue: "Record count unavailable.",
+                  })
+                : t("settings.sensitiveCommandAssistLearnRecordsInfo", {
+                    values: { count: feedbackCount },
+                    defaultValue:
+                      "{{count}} choices recorded. Up to the latest 1000 are kept; clearing them makes the decision model judge without your history.",
+                  })}
+            </small>
+          </span>
+          <button
+            className="api-settings-action-btn secondary"
+            type="button"
+            disabled={isBusy || isClearing || !feedbackCount}
+            onClick={() => setClearPending(true)}
+          >
+            {isClearing ? (
+              <Loader2 size={15} className="spin" />
+            ) : (
+              <Trash2 size={15} />
+            )}
+            <span>
+              {t("settings.sensitiveCommandAssistLearnClear", {
+                defaultValue: "Clear records",
+              })}
+            </span>
+          </button>
+        </div>
       </div>
+
+      {clearError !== "" ? (
+        <span className="sensitive-command-assist-warning">
+          <ShieldCheck size={13} strokeWidth={1.8} aria-hidden="true" />
+          {clearError}
+        </span>
+      ) : null}
 
       {unavailableHint !== "" ? (
         <span className="sensitive-command-assist-warning">
@@ -426,6 +548,25 @@ export function SensitiveCommandDecisionAssist({
           {unavailableHint}
         </span>
       ) : null}
+
+      <ConfirmDialog
+        open={clearPending}
+        title={t("settings.sensitiveCommandAssistLearnClearTitle", {
+          defaultValue: "Clear learned records",
+        })}
+        message={t("settings.sensitiveCommandAssistLearnClearConfirm", {
+          values: { count: feedbackCount ?? 0 },
+          defaultValue:
+            "Delete all {{count}} learned choices? The decision model will no longer see your past decisions.",
+        })}
+        confirmLabel={t("settings.sensitiveCommandAssistLearnClear", {
+          defaultValue: "Clear records",
+        })}
+        cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => void confirmClearFeedback()}
+        onCancel={() => setClearPending(false)}
+        variant="danger"
+      />
     </section>
   );
 }

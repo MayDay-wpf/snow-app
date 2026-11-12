@@ -6746,6 +6746,12 @@ body.is-panel-resizing * {
   flex: 0 0 auto;
 }
 
+/* 行内操作按钮（清空学习记录）不随文案收缩 */
+.sensitive-command-assist-row > .api-settings-action-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .sensitive-command-assist-number input {
   width: 72px;
   min-height: 28px;

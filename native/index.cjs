@@ -93,6 +93,10 @@ const requiredExports = [
   "diagnoseSubAgentTools",
   // 敏感命令决策模型辅助（拦截提示展示判定 / 托管执行）
   "evaluateSensitiveCommandDecision",
+  // 敏感命令偏好学习（记录用户选择 / 计数 / 清空）
+  "recordSensitiveCommandFeedback",
+  "getSensitiveCommandFeedbackCount",
+  "clearSensitiveCommandFeedback",
   // 敏感操作统一守卫的授权前预检查（命令 / 终端输入 / 配置写入 / 规则修改）
   "checkToolSensitiveOperation",
   // 决策 / 嵌入 / 重排模型连接自检与失败可见性（配置页测试连接、索引失败回看、日志模块筛选）

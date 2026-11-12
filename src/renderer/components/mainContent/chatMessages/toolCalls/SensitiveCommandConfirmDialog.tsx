@@ -89,6 +89,8 @@ type SensitiveCommandDecision = {
   contextMessages?: number;
   contextTruncated?: boolean;
   contextEmpty?: boolean;
+  /** 偏好学习附带的历史选择条数。 */
+  preferenceRecords?: number;
   /** 决策模型不可用 / 请求失败的原因（此时判定无效，已回退人工确认）。 */
   error?: string;
 };

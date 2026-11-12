@@ -3664,6 +3664,18 @@ export const en = {
     "Conversation messages to send",
   "settings.sensitiveCommandAssistContextCountInfo":
     "Default {{default}}, range {{min}}-{{max}}. More messages give a fuller picture but send more content; whatever exceeds the state budget is truncated from the oldest end.",
+  "settings.sensitiveCommandAssistLearn": "Learn my preferences automatically",
+  "settings.sensitiveCommandAssistLearnInfo":
+    "Off by default. When on, your allow and deny choices in the sensitive command prompt are recorded on this device, including commands the decision model denied but you allowed. Every judgement, whether shown as a suggestion or delegated, sends the most similar records to the decision model so it can follow your past choices.",
+  "settings.sensitiveCommandAssistLearnRecords": "Learned records",
+  "settings.sensitiveCommandAssistLearnRecordsInfo":
+    "{{count}} choices recorded. Up to the latest 1000 are kept; clearing them makes the decision model judge without your history.",
+  "settings.sensitiveCommandAssistLearnRecordsUnknown":
+    "Record count unavailable.",
+  "settings.sensitiveCommandAssistLearnClear": "Clear records",
+  "settings.sensitiveCommandAssistLearnClearTitle": "Clear learned records",
+  "settings.sensitiveCommandAssistLearnClearConfirm":
+    "Delete all {{count}} learned choices? The decision model will no longer see your past decisions.",
   "settings.sensitiveCommandAssistAskOnDenyNeedAssist":
     "Enable decision model assist first.",
   "settings.sensitiveCommandAssistAskOnDenyNeedModel":
@@ -4845,6 +4857,8 @@ export const en = {
     "No conversation context was available; judged without it",
   "sensitiveCommand.decisionContextDropped":
     "Conversation context exceeded the budget and was dropped; judged without it",
+  "sensitiveCommand.decisionPreferencesUsed":
+    "Considered {{count}} of your past choices on similar commands",
   "sensitiveCommand.severityBadge": "{{level}} risk",
   "sensitiveCommand.severityScore": "Risk score {{value}} / {{max}}",
   "sensitiveCommand.severity.low": "Low",
