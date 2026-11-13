@@ -165,6 +165,10 @@ export const useUserQuestion = (ctx: ConversationContextValue) => {
             new Error("No active tool call matches this user question"),
           );
         }
+        // 会话已被中止（含子代理取消）：晚到的提问直接拒绝，不再发布卡片。
+        if (sessionsRefData.current.get(target.sessionKey)?.isAbortRequested) {
+          return Promise.reject(new Error("User question interrupted"));
+        }
 
         updateSessionMessagesRef.current(target.sessionKey, (currentMessages) =>
           currentMessages.map((message) => {

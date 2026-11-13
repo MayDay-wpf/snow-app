@@ -1841,15 +1841,43 @@ const executeSubAgentHook = async (
     }),
   );
   if (decide) {
+    let approved = false;
     try {
-      const approved = wait
+      approved = wait
         ? await wait("hook_decision", () => decide!)
         : await decide;
       return approved
         ? { kind: "success" }
         : { kind: "abort", message: "Sub-agent hook decision was rejected" };
     } finally {
-      if (decisionId) ctx.pendingHookDecisionRef.current.delete(decisionId);
+      if (decisionId) {
+        ctx.pendingHookDecisionRef.current.delete(decisionId);
+        // 外部结算（取消）也要撤下决策按钮，避免卡片残留可点。
+        const settledId = decisionId;
+        ctx.updateSessionMessages(
+          prepared.scope.parentConversationId,
+          (messages) =>
+            messages.map((message) =>
+              message.hookExecutions?.some(
+                (execution) => execution._decisionId === settledId,
+              )
+                ? {
+                    ...message,
+                    hookExecutions: message.hookExecutions.map((execution) =>
+                      execution._decisionId === settledId
+                        ? {
+                            ...execution,
+                            pendingDecision: false,
+                            status: approved ? "pass" : "abort",
+                            _resolveDecision: undefined,
+                          }
+                        : execution,
+                    ),
+                  }
+                : message,
+            ),
+        );
+      }
     }
   }
   if (result.outcome.kind === "pass")
@@ -1857,6 +1885,86 @@ const executeSubAgentHook = async (
   if (result.outcome.kind === "abort")
     return { kind: "abort", message: result.outcome.message };
   return { kind: "warn", message: result.outcome.message };
+};
+
+/**
+ * 结算并撤下子会话的全部待授权 / 待回答项：ref 与 UI 列表必须一起清，
+ * 否则卡片残留会让会话一直被判为「需处理 / 运行中」而无法删除。
+ */
+const releaseSubAgentInteractions = (
+  ctx: ConversationContextValue,
+  conversationId: string,
+  reason: string,
+): void => {
+  for (const [id, pending] of ctx.pendingToolAuthorizationRef.current) {
+    if (pending.toolCall.authorizationConversationId !== conversationId)
+      continue;
+    ctx.pendingToolAuthorizationRef.current.delete(id);
+    pending.resolve({ status: "rejected", reason });
+  }
+  // 按会话归属过滤 UI 列表（不依赖 ref 命中，兜底取消后才发布的卡片）。
+  const ownsCard = (toolCall: ToolCallInfo): boolean =>
+    toolCall.authorizationConversationId === conversationId;
+  ctx.setPendingToolAuthorizations((current) =>
+    current.some(ownsCard)
+      ? current.filter((toolCall) => !ownsCard(toolCall))
+      : current,
+  );
+  ctx.setPendingToolAuthorizationsBySession((prev) => {
+    let changed = false;
+    const next: Record<string, ToolCallInfo[]> = {};
+    for (const [key, entries] of Object.entries(prev)) {
+      const kept = entries.filter((entry) => !ownsCard(entry));
+      if (kept.length !== entries.length) changed = true;
+      if (kept.length > 0) next[key] = kept;
+    }
+    return changed ? next : prev;
+  });
+
+  let questionsReleased = false;
+  for (const [questionId, pending] of ctx.pendingUserQuestionRef.current) {
+    if (pending.sessionKey !== conversationId) continue;
+    questionsReleased = true;
+    const target = ctx.userQuestionTargetRef.current.get(pending.interactionId);
+    if (target) {
+      ctx.updateSessionMessages(target.sessionKey, (messages) =>
+        messages.map((message) =>
+          message.id !== target.assistantMessageId
+            ? message
+            : {
+                ...message,
+                toolCalls: message.toolCalls?.map((toolCall) =>
+                  toolCall.interactionId === pending.interactionId &&
+                  toolCall.userQuestion?.questionId === questionId
+                    ? {
+                        ...toolCall,
+                        userQuestion: {
+                          ...toolCall.userQuestion,
+                          status: "cancelled" as const,
+                          interrupted: true,
+                          selectedOptions: [],
+                          customAnswers: [],
+                          revertable: false,
+                        },
+                      }
+                    : toolCall,
+                ),
+              },
+        ),
+      );
+    }
+    ctx.pendingUserQuestionRef.current.delete(questionId);
+    ctx.userQuestionTargetRef.current.delete(pending.interactionId);
+    pending.reject(new Error(reason));
+  }
+  if (questionsReleased) {
+    ctx.setPendingUserQuestionConversationIds((prev) => {
+      if (!prev.has(conversationId)) return prev;
+      const next = new Set(prev);
+      next.delete(conversationId);
+      return next;
+    });
+  }
 };
 
 /** Stops only resources belonging to the captured sub-session, never the selected chat. */
@@ -1868,17 +1976,7 @@ const stopSubAgentResources = async (
   const ref = ctx.sessionsRefData.current.get(conversationId);
   if (ref) ref.isAbortRequested = true;
   cancelSubAgentRunWaits(ownerId);
-  for (const [id, pending] of ctx.pendingToolAuthorizationRef.current) {
-    if (pending.toolCall.authorizationConversationId !== conversationId)
-      continue;
-    ctx.pendingToolAuthorizationRef.current.delete(id);
-    pending.resolve({ status: "rejected", reason: "Sub-agent run cancelled" });
-  }
-  for (const [id, pending] of ctx.pendingUserQuestionRef.current) {
-    if (pending.sessionKey !== conversationId) continue;
-    ctx.pendingUserQuestionRef.current.delete(id);
-    pending.reject(new Error("Sub-agent run cancelled"));
-  }
+  releaseSubAgentInteractions(ctx, conversationId, "Sub-agent run cancelled");
   for (const [id, pending] of ctx.pendingHookDecisionRef.current) {
     if (pending.sessionKey !== conversationId) continue;
     ctx.pendingHookDecisionRef.current.delete(id);
@@ -2136,6 +2234,8 @@ const finishSubAgentSession = (
     runtimeConfig,
   } = prepared;
   if (subAgentSessionOwners.get(conversationId) !== ownerId) return;
+  // 终态兜底：回收本轮残留的授权卡片 / 提问（取消竞态下晚发布的项）。
+  releaseSubAgentInteractions(ctx, conversationId, "Sub-agent run finished");
   const ref = ctx.sessionsRefData.current.get(conversationId);
   if (ref) {
     ref.subAgentTerminated = true;
@@ -2534,6 +2634,11 @@ const dispatchPreparedSubAgentRun = async (
             ref.isSending = false;
             ref.subAgentTerminated = true;
           }
+          releaseSubAgentInteractions(
+            ctx,
+            actualConversationId,
+            "Sub-agent run could not be settled",
+          );
           ctx.updateSessionMessages(actualConversationId, (messages) => [
             ...messages,
             {
