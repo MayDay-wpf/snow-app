@@ -39,6 +39,8 @@ export type ApiConfigFormData = {
   /** 1M 上下文开关（anthropic 请求方式）。独立存储于 snowcfg.enable1mContext，
    *  开启后所有 anthropic 请求都会携带 context-1m beta 头，不依赖模型名标记。 */
   oneMContext: boolean;
+  /** Anthropic prompt 缓存 TTL（snowcfg.anthropicCacheTtl）："5m" | "1h"。 */
+  anthropicCacheTtl: string;
   responsesVerbosity: string;
   /** Responses Fast Mode 档位："" = 关闭，"fast" = priority，"ultrafast"。 */
   responsesServiceTier: string;

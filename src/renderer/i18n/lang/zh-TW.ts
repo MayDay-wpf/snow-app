@@ -2532,6 +2532,11 @@ export const zhTW = {
   "settings.apiOneMContextHint":
     "開啟後所有 Anthropic 請求自動攜帶 context-1m beta 頭，宣告 100 萬上下文能力（適用於 Anthropic 及要求顯式啟用 1M 上下文的閘道/轉發）。",
   "settings.apiMaxContext": "最大上下文（tokens）",
+  "settings.apiAnthropicCacheTtl": "上下文快取 TTL",
+  "settings.apiAnthropicCacheTtl5m": "5 分鐘",
+  "settings.apiAnthropicCacheTtl1h": "1 小時",
+  "settings.apiAnthropicCacheTtlHint":
+    "cache_control 斷點的快取存活時間。1 小時的快取寫入單價較高，適合輪次間隔較長的對話。",
   "settings.apiTokenPresetsHint": "可選擇常見 token 規格，也可直接填寫自訂值。",
   "settings.apiMaxTokens": "最大輸出 tokens",
   "settings.apiMaxTokensHint": "留空則請求時不傳該參數。",

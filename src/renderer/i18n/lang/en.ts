@@ -2678,6 +2678,11 @@ export const en = {
   "settings.apiOneMContextHint":
     "When enabled, all Anthropic requests send the context-1m beta header to declare 1M-token context support (for Anthropic and gateways/proxies that require explicit 1M opt-in).",
   "settings.apiMaxContext": "Max context (tokens)",
+  "settings.apiAnthropicCacheTtl": "Prompt cache TTL",
+  "settings.apiAnthropicCacheTtl5m": "5 minutes",
+  "settings.apiAnthropicCacheTtl1h": "1 hour",
+  "settings.apiAnthropicCacheTtlHint":
+    "TTL of cache_control breakpoints. 1 hour costs more on cache writes but suits long idle gaps between turns.",
   "settings.apiTokenPresetsHint":
     "Choose a common token limit or enter a custom value.",
   "settings.apiMaxTokens": "Max tokens",

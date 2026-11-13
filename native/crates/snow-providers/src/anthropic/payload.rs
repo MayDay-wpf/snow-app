@@ -70,6 +70,28 @@ pub fn config_json_enables_one_m_context(config_json: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 读取 prompt 缓存 TTL（snowcfg.anthropicCacheTtl），仅支持 5m / 1h，默认 5m。
+pub fn config_json_cache_ttl(config_json: &str) -> &'static str {
+    let ttl = serde_json::from_str::<Value>(config_json)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .get("snowcfg")?
+                .get("anthropicCacheTtl")?
+                .as_str()
+                .map(str::to_string)
+        });
+    match ttl.as_deref().map(str::trim) {
+        Some("1h") => "1h",
+        _ => "5m",
+    }
+}
+
+/// 构造 cache_control 块。
+pub fn anthropic_cache_control(ttl: &str) -> Value {
+    json!({ "type": "ephemeral", "ttl": ttl })
+}
+
 pub fn get_persistent_user_id() -> &'static str {
     PERSISTENT_USER_ID.get_or_init(|| {
         let session_id = Uuid::new_v4();
@@ -115,6 +137,7 @@ pub(super) fn build_anthropic_payload(
     let model = strip_one_m_context_marker(&model);
 
     let skip_image_parsing = request.skips_inline_image_parsing();
+    let cache_ttl = config_json_cache_ttl(&api_config.config_json);
     let has_user_system_prompts = !user_system_prompts.is_empty();
     // When user-configured system prompts exist, they occupy the `system`
     // slot exclusively. The built-in system prompt (already injected as a
@@ -324,7 +347,7 @@ pub(super) fn build_anthropic_payload(
                 {
                     "type": "text",
                     "text": builtin_text,
-                    "cache_control": { "type": "ephemeral", "ttl": "5m" }
+                    "cache_control": anthropic_cache_control(cache_ttl)
                 }
             ]
         });
@@ -374,7 +397,7 @@ pub(super) fn build_anthropic_payload(
             .map(|(index, text)| {
                 let mut block = json!({ "type": "text", "text": text });
                 if index == system_parts.len() - 1 {
-                    block["cache_control"] = json!({ "type": "ephemeral", "ttl": "5m" });
+                    block["cache_control"] = anthropic_cache_control(cache_ttl);
                 }
                 block
             })
@@ -404,7 +427,7 @@ pub(super) fn build_anthropic_payload(
     // from cache hits.  Matches snow-cli's convertToAnthropicMessages logic.
     // Skip the leading built-in prompt user message (index 0) when user
     // system prompts are present, since it already carries cache_control.
-    apply_last_user_message_cache_control(&mut payload, has_user_system_prompts);
+    apply_last_user_message_cache_control(&mut payload, has_user_system_prompts, cache_ttl);
 
     Ok(payload)
 }
@@ -416,6 +439,7 @@ pub(super) fn build_anthropic_payload(
 pub fn apply_last_user_message_cache_control(
     payload: &mut Value,
     has_user_system_prompts: bool,
+    cache_ttl: &str,
 ) {
     if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
         let total = messages.len();
@@ -442,13 +466,13 @@ pub fn apply_last_user_message_cache_control(
                         {
                             "type": "text",
                             "text": text,
-                            "cache_control": { "type": "ephemeral", "ttl": "5m" }
+                            "cache_control": anthropic_cache_control(cache_ttl)
                         }
                     ]);
                 }
                 Some(Value::Array(arr)) => {
                     if let Some(last_block) = arr.last_mut() {
-                        last_block["cache_control"] = json!({ "type": "ephemeral", "ttl": "5m" });
+                        last_block["cache_control"] = anthropic_cache_control(cache_ttl);
                     }
                 }
                 _ => {}

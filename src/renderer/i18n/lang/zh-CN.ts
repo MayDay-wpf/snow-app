@@ -2531,6 +2531,11 @@ export const zhCN = {
   "settings.apiOneMContextHint":
     "开启后所有 Anthropic 请求自动携带 context-1m beta 头，声明 100 万上下文能力（适用于 Anthropic 及要求显式启用 1M 上下文的网关/中转）。",
   "settings.apiMaxContext": "最大上下文（tokens）",
+  "settings.apiAnthropicCacheTtl": "上下文缓存 TTL",
+  "settings.apiAnthropicCacheTtl5m": "5 分钟",
+  "settings.apiAnthropicCacheTtl1h": "1 小时",
+  "settings.apiAnthropicCacheTtlHint":
+    "cache_control 断点的缓存存活时间。1 小时的缓存写入单价更高，适合轮次间隔较长的会话。",
   "settings.apiTokenPresetsHint":
     "可选择常见 token 规格，也可直接填写自定义值。",
   "settings.apiMaxTokens": "最大输出 tokens",

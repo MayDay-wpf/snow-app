@@ -95,6 +95,11 @@ export const extractGoogleSearchFromConfigJson = (
 export const extractOneMContextFromConfigJson = (configJson: string): boolean =>
   readSnowcfg(configJson).enable1mContext === true;
 
+/** 读取 Anthropic 缓存 TTL（snowcfg.anthropicCacheTtl，默认 5m）。 */
+export const extractAnthropicCacheTtlFromConfigJson = (
+  configJson: string,
+): string => (readSnowcfg(configJson).anthropicCacheTtl === "1h" ? "1h" : "5m");
+
 /** 读取 gemini 视觉（图片模型）渠道的谷歌搜索联网开关（snowcfg.visionGoogleSearch） */
 export const extractVisionGoogleSearchFromConfigJson = (
   configJson: string,
@@ -319,6 +324,9 @@ export function apiConfigToForm(config: ApiConfigRecord): ApiConfigFormData {
     ),
     googleSearch: extractGoogleSearchFromConfigJson(config.configJson),
     oneMContext: extractOneMContextFromConfigJson(config.configJson),
+    anthropicCacheTtl: extractAnthropicCacheTtlFromConfigJson(
+      config.configJson,
+    ),
     visionGoogleSearch: extractVisionGoogleSearchFromConfigJson(
       config.configJson,
     ),
@@ -412,6 +420,7 @@ export const emptyApiConfigForm = (
   customHeaderSchemeId: "",
   thinkingValue: DEFAULT_THINKING_VALUE,
   oneMContext: false,
+  anthropicCacheTtl: "5m",
   responsesVerbosity: "",
   responsesServiceTier: "",
   responsesWebSocket: false,
@@ -488,6 +497,7 @@ export function toApiConfigPayload(
       responsesWebSocket: data.responsesWebSocket,
       googleSearch: data.googleSearch,
       enable1mContext: data.oneMContext,
+      anthropicCacheTtl: data.anthropicCacheTtl === "1h" ? "1h" : "5m",
       visionGoogleSearch: data.visionGoogleSearch,
       visionThinking: data.visionThinkingEnabled
         ? {

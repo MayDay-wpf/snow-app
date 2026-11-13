@@ -665,6 +665,40 @@ export function ApiSettingsFormFields({
               </small>
             </div>
           )}
+          {data.requestMethod === "anthropic" && (
+            <label className="api-settings-field">
+              <span>
+                {t("settings.apiAnthropicCacheTtl", {
+                  defaultValue: "Prompt cache TTL",
+                })}
+              </span>
+              <CustomSelect
+                value={data.anthropicCacheTtl}
+                options={[
+                  {
+                    value: "5m",
+                    label: t("settings.apiAnthropicCacheTtl5m", {
+                      defaultValue: "5 minutes",
+                    }),
+                  },
+                  {
+                    value: "1h",
+                    label: t("settings.apiAnthropicCacheTtl1h", {
+                      defaultValue: "1 hour",
+                    }),
+                  },
+                ]}
+                onChange={(value) => onChange("anthropicCacheTtl", value)}
+                disabled={disabled}
+              />
+              <small className="api-settings-hint-text">
+                {t("settings.apiAnthropicCacheTtlHint", {
+                  defaultValue:
+                    "TTL of cache_control breakpoints. 1 hour costs more on cache writes but suits long idle gaps between turns.",
+                })}
+              </small>
+            </label>
+          )}
           <label className="api-settings-field">
             <span>
               {t("settings.apiMaxContext", {

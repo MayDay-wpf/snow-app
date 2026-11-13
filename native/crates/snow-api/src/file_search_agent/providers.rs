@@ -519,6 +519,7 @@ pub(crate) async fn run_anthropic_round(
     // metadata.user_id 用于跟踪与缓存路由、thinking 跟随 thinking 配置，
     // 避免 agent 请求与正常聊天行为产生差异。
     // 与主流程（api/anthropic/payload.rs）一致：每条系统提示词各自一个 text 块，最后一块带 cache_control。
+    let cache_ttl = config_json_cache_ttl(&api_config.config_json);
     let last_system_index = system_prompts.len().saturating_sub(1);
     let system_blocks: Vec<Value> = system_prompts
         .iter()
@@ -526,7 +527,7 @@ pub(crate) async fn run_anthropic_round(
         .map(|(index, text)| {
             let mut block = json!({"type": "text", "text": text});
             if index == last_system_index {
-                block["cache_control"] = json!({"type": "ephemeral", "ttl": "5m"});
+                block["cache_control"] = anthropic_cache_control(cache_ttl);
             }
             block
         })
@@ -541,7 +542,7 @@ pub(crate) async fn run_anthropic_round(
     }
     // 与主流程一致：给最后一条 user 消息的最后一个内容块加 cache_control，
     // 让多轮工具调用复用缓存前缀。
-    apply_last_user_message_cache_control(&mut payload, false);
+    apply_last_user_message_cache_control(&mut payload, false, cache_ttl);
 
     let client = crate::api::http_client::build_proxied_client().await?;
 
