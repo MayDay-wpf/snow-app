@@ -28,7 +28,7 @@ Listed in registration order:
 | `imagegen`         | AI image generation & editing (OpenAI / Gemini multiple channels; **hidden on demand when no channel is configured**)                                                                                                                                                                                                                                |
 | `skills`           | Skill loading and execution (**dynamically registered**: hidden from the tool list when no enabled skill exists)                                                                                                                                                                                                                                     |
 | `memory`           | Project-level persistent memory (cross-session AI knowledge bank: save / search / list / update / delete, isolated to the current conversation's project)                                                                                                                                                                                            |
-| `decision`         | Decision-model judgments (TypeSafe Jev / OpenAI Decisions): answer predicate / choice / score questions about text, JSON and local image evidence (**off by default; enable per project in the MCP panel**)                                                                                                                                          |
+| `decision`         | Decision-model judgments (TypeSafe Jev / OpenAI Decisions / Gemini Decisions): answer predicate / choice / score questions about text, JSON and local image evidence (**off by default; enable per project in the MCP panel**)                                                                                                                       |
 
 ## 3. Tool Details
 
@@ -548,7 +548,7 @@ Parameters:
 > image fails the whole call with its path and **nothing is sent**; images are
 > read and sent only when this tool is called explicitly.
 >
-> **Both providers support images**: OpenAI Decisions uses `input_image`
+> **All three providers support images**: OpenAI Decisions uses `input_image`
 > (shared evidence in `input`; question-level images turn `instructions` into an
 > `input_text` + `input_image` array). An endpoint that only speaks the
 > pre-GA protocol rejects that array with a 400; the request then falls back to
@@ -558,8 +558,14 @@ Parameters:
 > and later) uses the top-level `assets` map with reference strings, and the
 > `TypeSafe-Danger-Zone-Images: true` header is sent automatically. Jev also
 > requires both sides of an image to be at least 280 px; smaller images are
-> rejected locally. A refused question returns `refused: true` while the other
-> questions still get answers.
+> rejected locally. Gemini Decisions (`gemini-decision-1`) sends images as
+> `image` content blocks in `input`; its question instructions accept text only,
+> so question-level images always go into the shared `input` with the same
+> `Image for question "<name>" (<file>)` labels (an image shared by several
+> questions is sent once), and predicate becomes `noul` with
+> `true_description` / `false_description` criteria. A refused question returns `refused: true` while the other
+> questions still get answers. Gemini has no per-question refusal: a request
+> blocked by its safety filters fails as a whole with HTTP 400.
 >
 > The tool sends local evidence to an external decision model API, so it is not
 > on the read-only auto-approval list.

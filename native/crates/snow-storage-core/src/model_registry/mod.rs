@@ -28,8 +28,10 @@ pub const DEFAULT_RERANKING_CONTEXT_LENGTH: i32 = 4096;
 
 pub const DECISION_PROVIDER_TYPESAFE: &str = "typesafe";
 pub const DECISION_PROVIDER_OPENAI: &str = "openai";
+pub const DECISION_PROVIDER_GEMINI: &str = "gemini";
 pub const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 pub const DEFAULT_TYPESAFE_MODEL: &str = "jev-latest";
 pub const DEFAULT_TYPESAFE_NAME: &str = "Jev (TypeSafe)";
 const BASE_URL_MODE_AUTO: &str = "auto";
@@ -177,14 +179,14 @@ impl RerankingModelEntry {
     }
 }
 
-/// 单个决策模型配置（TypeSafe System One / OpenAI Decisions）。
+/// 单个决策模型配置（TypeSafe System One / OpenAI Decisions / Gemini Decisions）。
 #[napi(object)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct DecisionModelEntry {
     pub id: String,
     pub name: String,
-    /// "typesafe" | "openai"。
+    /// "typesafe" | "openai" | "gemini"。
     pub provider: String,
     pub base_url: String,
     /// "auto" | "custom"。
@@ -212,11 +214,12 @@ impl Default for DecisionModelEntry {
 impl DecisionModelEntry {
     fn normalized(mut self) -> Self {
         self.id = self.id.trim().to_string();
-        self.provider = if self.provider.trim() == DECISION_PROVIDER_OPENAI {
-            DECISION_PROVIDER_OPENAI.to_string()
-        } else {
-            DECISION_PROVIDER_TYPESAFE.to_string()
-        };
+        self.provider = match self.provider.trim() {
+            DECISION_PROVIDER_OPENAI => DECISION_PROVIDER_OPENAI,
+            DECISION_PROVIDER_GEMINI => DECISION_PROVIDER_GEMINI,
+            _ => DECISION_PROVIDER_TYPESAFE,
+        }
+        .to_string();
         self.base_url_mode = if self.base_url_mode.trim() == BASE_URL_MODE_CUSTOM {
             BASE_URL_MODE_CUSTOM.to_string()
         } else {
@@ -227,11 +230,12 @@ impl DecisionModelEntry {
         self.base_url = self.base_url.trim().to_string();
         // 自动模式留空时写入 provider 默认端点（与前端展示一致）。
         if self.base_url.is_empty() && self.base_url_mode == BASE_URL_MODE_AUTO {
-            self.base_url = if self.provider == DECISION_PROVIDER_OPENAI {
-                DEFAULT_OPENAI_BASE_URL.to_string()
-            } else {
-                DEFAULT_TYPESAFE_BASE_URL.to_string()
-            };
+            self.base_url = match self.provider.as_str() {
+                DECISION_PROVIDER_OPENAI => DEFAULT_OPENAI_BASE_URL,
+                DECISION_PROVIDER_GEMINI => DEFAULT_GEMINI_BASE_URL,
+                _ => DEFAULT_TYPESAFE_BASE_URL,
+            }
+            .to_string();
         }
         self.api_key = self.api_key.trim().to_string();
         self

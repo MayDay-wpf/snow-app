@@ -1,23 +1,29 @@
-//! 决策模型客户端（TypeSafe System One / OpenAI Decisions）。
+//! 决策模型客户端（TypeSafe System One / OpenAI Decisions / Gemini Decisions）。
 //!
 //! 决策模型不生成文本，只对给定 state 逐条回答问题：代码库审查用它判定每条结果
 //! 是否相关，敏感命令辅助用它判定命令能否直接执行、给出理由分类与风险等级
-//! （score 问题：OpenAI 用 `levels`，TypeSafe Jev 用有序 `criteria`）。
+//! （score 问题：OpenAI 用 `levels`，TypeSafe Jev / Gemini 用有序 `criteria`）。
 //!
 //! 代码库审查有两种问题类型：未配置阈值时用 choice（relevant / irrelevant），
 //! 配置了相关性阈值时改用 predicate。OpenAI Decisions 叫 predicate，TypeSafe
-//! Jev 的同一能力叫 noul（yes/no 概率），请求体与响应字段在 provider 适配层互转。
+//! Jev 与 Gemini 的同一能力叫 noul（yes/no 概率），请求体与响应字段在 provider 适配层互转。
 //!
-//! 两种 provider 共用同一条链路：构建 state 与问题 -> 按 provider 生成请求体 ->
-//! 把两种响应折叠成 `answers: { <name>: { choice, confidence, probability } }`
+//! 三种 provider 共用同一条链路：构建 state 与问题 -> 按 provider 生成请求体 ->
+//! 把响应折叠成 `answers: { <name>: { choice, confidence, probability } }`
 //! -> 同一段解释代码。任何传输或协议失败都返回错误，由调用方决定回退。
+//!
+//! Gemini Decisions（gemini-decision-1，v1beta/decisions）：`x-goog-api-key` 鉴权，
+//! `input` 为 Interactions 内容块（text / image），questions 是 map；没有多轮与题级
+//! 图片协议，会话与题级图片都序列化进共享 input。
 //!
 //! `evaluate_custom` 是 `decision-evaluate` 工具的通用入口，支持图片证据：
 //! OpenAI 走 `input_image`（共享证据进 input，题级图片按 GA 形态进 instructions 数组），
-//! TypeSafe Jev 走顶层 `assets` + 引用串，并带 `TypeSafe-Danger-Zone-Images` 头。
+//! TypeSafe Jev 走顶层 `assets` + 引用串，并带 `TypeSafe-Danger-Zone-Images` 头，
+//! Gemini 走 input 的 `image` 内容块（题级图片按题名标注）。
 //!
 //! 敏感命令判定可选附带会话片段：TypeSafe Jev 没有多轮协议，按官方 state 用法放进
-//! state 的 `recentConversation`；OpenAI Decisions 按 GA 形态发原生多轮 `input`。
+//! state 的 `recentConversation`；OpenAI Decisions 按 GA 形态发原生多轮 `input`；
+//! Gemini 按官方建议把会话序列化成 input 文本。
 //!
 //! 官方 Decisions 端点在 GA 前只接受纯文本与 user 消息的 `input_text` / `input_image`
 //! 内容块（多轮消息、`function_call` 项、题级图片的 `instructions` 数组都会被判为
@@ -54,6 +60,12 @@ const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 /// OpenAI Decisions 官方端点（Base URL 留空时的回落值）。
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
+/// Gemini Decisions 官方端点（Base URL 留空时的回落值）。
+const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
+/// Gemini API Key 请求头。
+const GOOGLE_API_KEY_HEADER: &str = "x-goog-api-key";
+
 const CUSTOM_BASE_URL_MODE: &str = "custom";
 const AUTO_BASE_URL_MODE: &str = "auto";
 
@@ -72,6 +84,13 @@ const TYPESAFE_LIMITS: DecisionLimits = DecisionLimits {
 /// 模型上下文 1.05M token，输入超 272k token 按 2 倍计价。题数取 50 对齐结果上限；
 /// 200k 字符 state 按 2 字符/token 约 100k token，远低于计价拐点。
 const OPENAI_LIMITS: DecisionLimits = DecisionLimits {
+    max_questions: 50,
+    max_state_chars: 200_000,
+};
+
+/// Gemini Decisions 预算。依据官方文档（2026-11-13 查阅，gemini-decision-1）：每请求 1-1000 题，
+/// input + 全部问题共用 262,144 token 上下文。题数取 50 对齐结果上限；200k 字符约 100k token。
+const GEMINI_LIMITS: DecisionLimits = DecisionLimits {
     max_questions: 50,
     max_state_chars: 200_000,
 };
@@ -161,6 +180,7 @@ const REASON_CATEGORIES: &[(&str, &str)] = &[
 pub enum DecisionProvider {
     Typesafe,
     Openai,
+    Gemini,
 }
 
 impl DecisionProvider {
@@ -168,6 +188,7 @@ impl DecisionProvider {
         match self {
             DecisionProvider::Typesafe => "typesafe",
             DecisionProvider::Openai => "openai",
+            DecisionProvider::Gemini => "gemini",
         }
     }
 
@@ -176,6 +197,7 @@ impl DecisionProvider {
     pub fn from_str(value: &str) -> Self {
         match value.trim() {
             "openai" => DecisionProvider::Openai,
+            "gemini" => DecisionProvider::Gemini,
             _ => DecisionProvider::Typesafe,
         }
     }
@@ -184,6 +206,7 @@ impl DecisionProvider {
         match self {
             DecisionProvider::Typesafe => DEFAULT_TYPESAFE_BASE_URL,
             DecisionProvider::Openai => DEFAULT_OPENAI_BASE_URL,
+            DecisionProvider::Gemini => DEFAULT_GEMINI_BASE_URL,
         }
     }
 
@@ -192,6 +215,7 @@ impl DecisionProvider {
         match self {
             DecisionProvider::Typesafe => TYPESAFE_LIMITS,
             DecisionProvider::Openai => OPENAI_LIMITS,
+            DecisionProvider::Gemini => GEMINI_LIMITS,
         }
     }
 }
@@ -392,6 +416,7 @@ fn resolve_provider_endpoint(
     match provider {
         DecisionProvider::Typesafe => resolve_systemone_endpoint(base_url, base_url_mode),
         DecisionProvider::Openai => resolve_decisions_endpoint(base_url),
+        DecisionProvider::Gemini => resolve_gemini_endpoint(base_url, base_url_mode),
     }
 }
 
@@ -694,10 +719,10 @@ const MAX_OPENAI_FUNCTION_NAME_CHARS: usize = 64;
 /// 工具调用没有输出时的占位。
 const MISSING_TOOL_OUTPUT: &str = "[no output recorded]";
 
-/// 会话片段的说明：TypeSafe 放进 state，OpenAI 的兼容形态渲染成 input 文本。
+/// 会话片段的说明：TypeSafe 放进 state，OpenAI 兼容形态与 Gemini 渲染成 input 文本。
 const CONVERSATION_CONTEXT_NOTE: &str = "Recent conversation before this command, oldest first. User messages show what the user actually asked for; the command under review was proposed by the assistant, not typed by the user.";
 
-/// OpenAI 待判定命令的前缀：GA 形态放在末尾的 developer 消息里，兼容形态接在会话文本之后，避免被当成用户请求。
+/// 待判定命令的前缀：OpenAI GA 形态放在末尾的 developer 消息里，OpenAI 兼容形态与 Gemini 接在会话文本之后，避免被当成用户请求。
 const OPENAI_PENDING_COMMAND_PREFIX: &str = "The conversation above is context only. The assistant now proposes the command below; the user did not type it. Judge this pending command (JSON):";
 
 /// 渲染层裁剪后的一条会话消息（JSON 数组元素，camelCase）。
@@ -945,7 +970,7 @@ fn openai_conversation_text(messages: &[ConversationMessage]) -> String {
 
 /// 带会话上下文的请求体：`(GA 形态, 兼容形态)`。
 ///
-/// TypeSafe 只有一种写法，兼容形态为 None；OpenAI 的兼容形态把会话渲染成文本，
+/// TypeSafe / Gemini 只有一种写法，兼容形态为 None；OpenAI 的兼容形态把会话渲染成文本，
 /// 供只支持 GA 前协议的端点回退。
 fn build_context_request_body(
     config: &DecisionModelConfig,
@@ -954,6 +979,7 @@ fn build_context_request_body(
     messages: &[ConversationMessage],
 ) -> (Value, Option<Value>) {
     match config.provider {
+        DecisionProvider::Gemini => (gemini_context_body(config, state, questions, messages), None),
         DecisionProvider::Typesafe => {
             let mut state = state.clone();
             if let Some(object) = state.as_object_mut() {
@@ -1279,7 +1305,7 @@ fn resolve_severity(
                 format!("The {provider_name} decision model returned an invalid severity probability")
             })?;
 
-        // OpenAI 带 label，按 label 校验；TypeSafe 只有档位序号。
+        // OpenAI 带 label，按 label 校验；TypeSafe / Gemini 只有档位序号。
         let rank = match level.get("label").and_then(Value::as_str) {
             Some(label) => SEVERITY_LEVELS
                 .iter()
@@ -1445,12 +1471,15 @@ struct DecisionResponse<T> {
 
 /// 解析 Decisions API 的 `usage`；Jev 不返回 usage，返回 None。
 ///
-/// `cached_tokens` / `cache_write_tokens` 都包含在 `input_tokens` 内，
-/// 只作为缓存维度记录，不重复累加。
+/// OpenAI 用 `input_tokens`，`cached_tokens` / `cache_write_tokens` 都包含在其中，
+/// 只作为缓存维度记录，不重复累加；Gemini 用 `total_input_tokens`，无缓存明细。
 fn parse_token_usage(parsed: &Value) -> Option<DecisionTokenUsage> {
     let usage = parsed.get("usage")?;
-    // input_tokens 缺失视为没有 usage 数据，不写 0 值记录。
-    let input_tokens = usage.get("input_tokens").and_then(Value::as_i64)?;
+    // input token 缺失视为没有 usage 数据，不写 0 值记录。
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(Value::as_i64)
+        .or_else(|| usage.get("total_input_tokens").and_then(Value::as_i64))?;
     let details = usage.get("input_tokens_details");
     let detail = |key: &str| {
         details
@@ -1534,7 +1563,7 @@ where
     let (status, text) = post_json(
         ModelKind::Decision,
         endpoint,
-        build_headers(&config.api_key, provider, options.with_images),
+        build_headers(&config.api_key, provider, options.with_images, endpoint),
         &body,
         timeout,
     )
@@ -1681,7 +1710,7 @@ async fn record_decision_usage(
 
 /// 连接自检：发一条最小请求，响应必须带答案。
 ///
-/// typesafe 要求 `answers` 是对象；openai 要求 `answers` 是非空数组。
+/// typesafe 要求 `answers` 是对象；openai / gemini 要求 `answers` 非空。
 pub async fn test_connection(config: &DecisionModelConfig) -> ModelCallReport<()> {
     let state = json!({ "purpose": "Snow App connection test" });
     let questions = json!({
@@ -1715,7 +1744,7 @@ pub async fn test_connection(config: &DecisionModelConfig) -> ModelCallReport<()
                         ))
                     }
                 }
-                DecisionProvider::Openai => {
+                DecisionProvider::Openai | DecisionProvider::Gemini => {
                     if answers.map(|map| !map.is_empty()).unwrap_or(false) {
                         Ok(())
                     } else {
@@ -1823,6 +1852,8 @@ pub async fn evaluate_custom(
         || questions.iter().any(|question| !question.images.is_empty());
     let (body, fallback) = match config.provider {
         DecisionProvider::Typesafe => (typesafe_custom_body(config, evidence, questions), None),
+        // Gemini 题目只收文本，题级图片直接进共享 input，无需兼容回退。
+        DecisionProvider::Gemini => (gemini_custom_body(config, evidence, questions), None),
         DecisionProvider::Openai => (
             openai_custom_body(config, evidence, questions, OpenaiQuestionImagesForm::Instructions),
             // 题级图片只有 GA 形态能表达；没有题级图片时请求体本身已兼容。
@@ -2147,8 +2178,8 @@ fn labeled_entry(key: &str, value: &str, description: &Option<String>) -> Value 
 ///
 /// 问题在内部统一保存为「id -> { type, instructions, criteria }」：TypeSafe 侧
 /// 原样发送（predicate 改名为 noul），openai 侧把 criteria 映射成 `choices`
-/// （predicate 只带 type/name/instructions），state 作为 JSON 文本放进 `input` 的
-/// input_text 内容块（OpenAI 的 input 不接受结构化 JSON 内容块）。
+/// （predicate 只带 type/name/instructions），gemini 侧转成官方 criteria 字段；
+/// openai / gemini 的 state 都作为 JSON 文本放进 `input`（两者都不接受结构化 JSON 块）。
 fn build_request_body(
     config: &DecisionModelConfig,
     state: &Value,
@@ -2171,7 +2202,227 @@ fn build_request_body(
             }],
             "questions": openai_questions(questions),
         }),
+        DecisionProvider::Gemini => json!({
+            "model": config.model,
+            "input": [gemini_text_block(openai_input_text(state))],
+            "questions": gemini_questions(questions),
+        }),
     }
+}
+
+/// Gemini 文本内容块。
+fn gemini_text_block(text: impl Into<String>) -> Value {
+    json!({ "type": "text", "text": text.into() })
+}
+
+/// Gemini 相邻文本块无分隔拼接，追加换行再入列。
+fn push_gemini_text(input: &mut Vec<Value>, text: &str) {
+    input.push(gemini_text_block(format!("{text}\n")));
+}
+
+/// Gemini noul 问题：criteria 用 true_description / false_description，都缺省时省略。
+fn gemini_noul(instructions: Value, when_true: Option<&str>, when_false: Option<&str>) -> Value {
+    let mut object = json!({
+        "type": NOUL_QUESTION_TYPE,
+        "instructions": instructions,
+    });
+    let mut criteria = Map::new();
+    if let Some(text) = when_true.map(str::trim).filter(|text| !text.is_empty()) {
+        criteria.insert("true_description".to_string(), json!(text));
+    }
+    if let Some(text) = when_false.map(str::trim).filter(|text| !text.is_empty()) {
+        criteria.insert("false_description".to_string(), json!(text));
+    }
+    if !criteria.is_empty() {
+        object["criteria"] = Value::Object(criteria);
+    }
+    object
+}
+
+/// 内部问题对象 -> Gemini questions（map）。choice 描述缺失写空串；score 档位为非空描述数组。
+fn gemini_questions(questions: &Value) -> Value {
+    let Some(map) = questions.as_object() else {
+        return Value::Object(Map::new());
+    };
+
+    let mut converted = Map::new();
+    for (name, question) in map {
+        let instructions = question
+            .get("instructions")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let value = match question.get("type").and_then(Value::as_str) {
+            Some(PREDICATE_QUESTION_TYPE) => {
+                let criteria = question.get("criteria");
+                let when_true = criteria.and_then(|c| c.get("true")).and_then(Value::as_str);
+                let when_false = criteria.and_then(|c| c.get("false")).and_then(Value::as_str);
+                gemini_noul(instructions, when_true, when_false)
+            }
+            Some(SCORE_QUESTION_TYPE) => json!({
+                "type": SCORE_QUESTION_TYPE,
+                "instructions": instructions,
+                "criteria": score_levels(question)
+                    .iter()
+                    .map(|level| {
+                        Value::String(score_level_text(
+                            level.get("label").and_then(Value::as_str).unwrap_or_default(),
+                            level.get("description").and_then(Value::as_str),
+                        ))
+                    })
+                    .collect::<Vec<Value>>(),
+            }),
+            _ => json!({
+                "type": CHOICE_QUESTION_TYPE,
+                "instructions": instructions,
+                "criteria": question
+                    .get("criteria")
+                    .and_then(Value::as_object)
+                    .map(|criteria| {
+                        criteria
+                            .iter()
+                            .map(|(option, description)| {
+                                let text = description.as_str().unwrap_or_default();
+                                (option.clone(), json!(text))
+                            })
+                            .collect::<Map<String, Value>>()
+                    })
+                    .unwrap_or_default(),
+            }),
+        };
+        converted.insert(name.clone(), value);
+    }
+    Value::Object(converted)
+}
+
+/// Gemini 带会话上下文的请求体：没有多轮协议，按官方建议把会话序列化成文本。
+fn gemini_context_body(
+    config: &DecisionModelConfig,
+    state: &Value,
+    questions: &Value,
+    messages: &[ConversationMessage],
+) -> Value {
+    let mut input: Vec<Value> = Vec::new();
+    if !messages.is_empty() {
+        push_gemini_text(&mut input, &format!("{}\n", openai_conversation_text(messages)));
+    }
+    input.push(gemini_text_block(format!(
+        "{OPENAI_PENDING_COMMAND_PREFIX}\n{}",
+        openai_input_text(state)
+    )));
+
+    json!({
+        "model": config.model,
+        "input": input,
+        "questions": gemini_questions(questions),
+    })
+}
+
+/// Gemini 共享 input 中登记一张图片：同一张图只发送一次，返回其标注。
+fn push_gemini_image(
+    input: &mut Vec<Value>,
+    labels: &mut HashMap<String, String>,
+    image: &EvidenceImage,
+    label: String,
+) {
+    if labels.contains_key(&image.key) {
+        return;
+    }
+    push_gemini_text(input, &label);
+    input.push(json!({
+        "type": "image",
+        "data": image.data_base64,
+        "mime_type": image.format.mime(),
+    }));
+    labels.insert(image.key.clone(), label);
+}
+
+/// Gemini 通用判定请求体：题目只接受文本，题级图片进共享 input 并按题名标注。
+fn gemini_custom_body(
+    config: &DecisionModelConfig,
+    evidence: &EvidenceInput,
+    questions: &[CustomQuestion],
+) -> Value {
+    let mut input: Vec<Value> = Vec::new();
+    if let Some(text) = &evidence.text {
+        push_gemini_text(&mut input, text);
+    }
+    if let Some(data) = &evidence.json {
+        push_gemini_text(&mut input, &openai_input_text(data));
+    }
+
+    let mut labels: HashMap<String, String> = HashMap::new();
+    for (index, image) in evidence.images.iter().enumerate() {
+        push_gemini_image(
+            &mut input,
+            &mut labels,
+            image,
+            format!("Image {} ({})", index + 1, image.label),
+        );
+    }
+    for question in questions {
+        for image in &question.images {
+            push_gemini_image(
+                &mut input,
+                &mut labels,
+                image,
+                openai_shared_image_label(&question.name, &image.label),
+            );
+        }
+    }
+    // input 不能为空。
+    if input.is_empty() {
+        push_gemini_text(&mut input, "No shared evidence.");
+    }
+
+    let mut converted = Map::new();
+    for question in questions {
+        let mut text = question.instructions.clone();
+        if !question.images.is_empty() {
+            let referenced: Vec<&str> = question
+                .images
+                .iter()
+                .filter_map(|image| labels.get(&image.key).map(String::as_str))
+                .collect();
+            text.push_str(&format!(
+                "\nThis question's images are in the shared input, labelled: {}.",
+                referenced.join("; ")
+            ));
+        }
+
+        let value = match &question.kind {
+            CustomQuestionKind::Predicate {
+                when_true,
+                when_false,
+            } => gemini_noul(json!(text), when_true.as_deref(), when_false.as_deref()),
+            CustomQuestionKind::Choice { options } => json!({
+                "type": CHOICE_QUESTION_TYPE,
+                "instructions": text,
+                "criteria": options
+                    .iter()
+                    .map(|(value, description)| {
+                        (value.clone(), json!(description.clone().unwrap_or_default()))
+                    })
+                    .collect::<Map<String, Value>>(),
+            }),
+            CustomQuestionKind::Score { levels } => json!({
+                "type": SCORE_QUESTION_TYPE,
+                "instructions": text,
+                "criteria": levels
+                    .iter()
+                    .map(|(label, description)| {
+                        Value::String(score_level_text(label, description.as_deref()))
+                    })
+                    .collect::<Vec<Value>>(),
+            }),
+        };
+        converted.insert(question.name.clone(), value);
+    }
+
+    json!({
+        "model": config.model,
+        "input": input,
+        "questions": converted,
+    })
 }
 
 /// TypeSafe（Jev）没有 predicate 这个名字，yes/no 概率问题叫 noul，字段一致。
@@ -2274,9 +2525,9 @@ fn openai_questions(questions: &Value) -> Value {
     )
 }
 
-/// 把两种响应折叠成 `name -> { choice, confidence, probability }`。
+/// 把三种响应折叠成 `name -> { choice, confidence, probability }`。
 ///
-/// typesafe 的 answers 是对象（noul 概率在 `noul` 字段）；openai 的 answers 是
+/// typesafe / gemini 的 answers 是对象（noul 概率在 `noul` 字段）；openai 的 answers 是
 /// 数组，按 name 折叠（predicate 概率在 `probability` 字段）。refusal 答案默认按
 /// 错误返回，绝不当作 allow；`allow_refusal` 时折叠为 `{ refusal: true }`。
 fn normalize_answers(
@@ -2292,7 +2543,7 @@ fn normalize_answers(
     })?;
 
     match provider {
-        DecisionProvider::Typesafe => {
+        DecisionProvider::Typesafe | DecisionProvider::Gemini => {
             let map = answers.as_object().ok_or_else(|| {
                 format!(
                     "The {} decision model response is missing the 'answers' object",
@@ -2345,7 +2596,9 @@ fn normalize_answers(
 /// choice 答案额外带 `probabilities: { <value>: p }`。
 fn normalize_answer(answer: &Value, provider: DecisionProvider) -> Value {
     let probability = match provider {
-        DecisionProvider::Typesafe => answer.get("noul").or_else(|| answer.get("probability")),
+        DecisionProvider::Typesafe | DecisionProvider::Gemini => {
+            answer.get("noul").or_else(|| answer.get("probability"))
+        }
         DecisionProvider::Openai => answer.get("probability"),
     };
 
@@ -2383,7 +2636,7 @@ fn normalize_answer(answer: &Value, provider: DecisionProvider) -> Value {
     })
 }
 
-/// choice 各选项概率：TypeSafe 是 `{value: p}` 对象，OpenAI 是 `[{ value, probability }]`。
+/// choice 各选项概率：TypeSafe / Gemini 是 `{value: p}` 对象，OpenAI 是 `[{ value, probability }]`。
 fn normalize_choice_probabilities(answer: &Value) -> Value {
     match answer.get("probabilities") {
         Some(Value::Object(map)) => Value::Object(map.clone()),
@@ -2403,7 +2656,7 @@ fn normalize_choice_probabilities(answer: &Value) -> Value {
     }
 }
 
-/// score 的档位概率：TypeSafe 是 `{"0": p}` 对象（无 label），OpenAI 是
+/// score 的档位概率：TypeSafe / Gemini 是 `{"0": p}` 对象（无 label），OpenAI 是
 /// `[{ value, label, probability }]` 数组。序号无法解析时 index 为 null，交给调用方报错。
 fn normalize_score_levels(answer: &Value) -> Value {
     let level_index = |value: Option<&Value>| -> Value {
@@ -2525,13 +2778,61 @@ fn resolve_decisions_endpoint(base_url: &str) -> String {
     format!("{normalized}/v1/decisions")
 }
 
-fn build_headers(api_key: &str, provider: DecisionProvider, with_images: bool) -> HeaderMap {
+/// Gemini Decisions 端点：自定义模式原样使用，自动模式补齐 /v1beta/decisions。
+fn resolve_gemini_endpoint(base_url: &str, base_url_mode: &str) -> String {
+    let normalized = normalize_base_url(base_url);
+
+    if base_url_mode == CUSTOM_BASE_URL_MODE {
+        return normalized;
+    }
+
+    if normalized.is_empty() {
+        return format!("{DEFAULT_GEMINI_BASE_URL}/decisions");
+    }
+
+    if normalized.ends_with("/decisions") {
+        return normalized;
+    }
+
+    if normalized.ends_with("/v1beta") || normalized.ends_with("/v1") {
+        return format!("{normalized}/decisions");
+    }
+
+    format!("{normalized}/v1beta/decisions")
+}
+
+/// Google 官方域名（googleapis.com）只认 `x-goog-api-key`。
+fn is_google_endpoint(endpoint: &str) -> bool {
+    reqwest::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == "googleapis.com" || host.ends_with(".googleapis.com"))
+}
+
+fn build_headers(
+    api_key: &str,
+    provider: DecisionProvider,
+    with_images: bool,
+    endpoint: &str,
+) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
     headers.insert("Accept", HeaderValue::from_static("application/json"));
 
-    if let Ok(value) = HeaderValue::from_str(&format!("Bearer {api_key}")) {
-        headers.insert("Authorization", value);
+    // Gemini 用 x-goog-api-key；官方端点带无效 Bearer 会被拒，只有中转端点再补 Bearer。
+    let with_bearer = match provider {
+        DecisionProvider::Gemini => {
+            if let Ok(value) = HeaderValue::from_str(api_key) {
+                headers.insert(GOOGLE_API_KEY_HEADER, value);
+            }
+            !is_google_endpoint(endpoint)
+        }
+        DecisionProvider::Typesafe | DecisionProvider::Openai => true,
+    };
+    if with_bearer {
+        if let Ok(value) = HeaderValue::from_str(&format!("Bearer {api_key}")) {
+            headers.insert("Authorization", value);
+        }
     }
 
     // Jev 的图片能力默认关闭，请求含图片时必须显式开启。

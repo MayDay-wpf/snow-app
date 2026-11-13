@@ -3059,6 +3059,7 @@ export const en = {
   "settings.decisionModelProvider": "Provider",
   "settings.decisionModelProviderTypesafe": "TypeSafe System One",
   "settings.decisionModelProviderOpenai": "OpenAI Decisions",
+  "settings.decisionModelProviderGemini": "Gemini Decisions",
   "settings.decisionModelModel": "Model name",
   "settings.decisionModelBaseUrl": "Base URL",
   "settings.decisionModelBaseUrlMode": "Base URL mode",

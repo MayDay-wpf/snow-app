@@ -1,6 +1,6 @@
 //! 决策模型内置 MCP 服务：`decision-evaluate`。
 //!
-//! 用已配置的决策模型（TypeSafe Jev / OpenAI Decisions）对文本、JSON 与本地图片
+//! 用已配置的决策模型（TypeSafe Jev / OpenAI Decisions / Gemini Decisions）对文本、JSON 与本地图片
 //! 证据回答 predicate / choice / score 问题，返回结构化答案。
 //!
 //! - 只在显式调用时读取并发送图片，不自动附带会话内容或截图
@@ -50,7 +50,7 @@ const MAX_SENT_EDGE: u32 = 1568;
 /// TypeSafe 单边下限：低于该值会被 API 拒绝，本地提前报错。
 const TYPESAFE_MIN_EDGE: u32 = 280;
 
-const TOOL_DESCRIPTION: &str = "Ask the configured decision model (TypeSafe Jev or OpenAI Decisions) typed questions about evidence and get structured answers back: predicate (probability that a statement is true), choice (one of fixed options with per-option probabilities) or score (rating on ordered levels). Evidence can be text, JSON and LOCAL image files (PNG or JPEG), e.g. verifying a browser-page screenshot against expectations or checking whether a generated image meets requirements. Put evidence shared by all questions in `evidence`; give a question its own candidate images with `questions[].images` (e.g. one question per candidate, each compared with a shared reference image in evidence). Image rules: PNG/JPEG only, at most 16 MiB per file and 16 distinct images per call; images are downscaled to a 1568 px long edge before sending; TypeSafe additionally needs both sides >= 280 px after scaling. Paths may be absolute or relative to the project root (`upload/...` resolves to the app upload directory) and must stay inside the project workspace, the Snow App data directory, the image library or the system temp directory. Unreadable, unsupported or oversized images fail the whole call with the path in the error and nothing is sent. Images are read and sent only when you call this tool. Uses `model` when given, otherwise the default decision tool model from Settings > API > Decision models.";
+const TOOL_DESCRIPTION: &str = "Ask the configured decision model (TypeSafe Jev, OpenAI Decisions or Gemini Decisions) typed questions about evidence and get structured answers back: predicate (probability that a statement is true), choice (one of fixed options with per-option probabilities) or score (rating on ordered levels). Evidence can be text, JSON and LOCAL image files (PNG or JPEG), e.g. verifying a browser-page screenshot against expectations or checking whether a generated image meets requirements. Put evidence shared by all questions in `evidence`; give a question its own candidate images with `questions[].images` (e.g. one question per candidate, each compared with a shared reference image in evidence). Image rules: PNG/JPEG only, at most 16 MiB per file and 16 distinct images per call; images are downscaled to a 1568 px long edge before sending; TypeSafe additionally needs both sides >= 280 px after scaling. Paths may be absolute or relative to the project root (`upload/...` resolves to the app upload directory) and must stay inside the project workspace, the Snow App data directory, the image library or the system temp directory. Unreadable, unsupported or oversized images fail the whole call with the path in the error and nothing is sent. Images are read and sent only when you call this tool. Uses `model` when given, otherwise the default decision tool model from Settings > API > Decision models.";
 
 pub struct DecisionService;
 
@@ -851,7 +851,7 @@ fn format_answer(question: &QuestionSpec, answer: Option<&Value>) -> Value {
     output
 }
 
-/// 按问题定义的档位顺序取各档概率：OpenAI 以 label 对齐，TypeSafe 以序号对齐。
+/// 按问题定义的档位顺序取各档概率：OpenAI 以 label 对齐，TypeSafe / Gemini 以序号对齐。
 fn score_level_probabilities(
     levels: &[(String, Option<String>)],
     answer_levels: Option<&Value>,

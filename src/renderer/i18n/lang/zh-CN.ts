@@ -2897,6 +2897,7 @@ export const zhCN = {
   "settings.decisionModelProvider": "提供方",
   "settings.decisionModelProviderTypesafe": "TypeSafe System One",
   "settings.decisionModelProviderOpenai": "OpenAI Decisions",
+  "settings.decisionModelProviderGemini": "Gemini Decisions",
   "settings.decisionModelModel": "模型名称",
   "settings.decisionModelBaseUrl": "Base URL",
   "settings.decisionModelBaseUrlMode": "Base URL 模式",

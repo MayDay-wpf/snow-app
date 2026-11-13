@@ -480,7 +480,7 @@ pub async fn check_tool_sensitive_operation(
 }
 
 /// Evaluate a command that matched a sensitive rule with the configured decision
-/// model (TypeSafe System One or OpenAI Decisions).
+/// model (TypeSafe System One, OpenAI Decisions or Gemini Decisions).
 ///
 /// The verdict is a risk judgement of the command's real effect in
 /// `workingDirectory` (with the model's own `description` as context) — a rule

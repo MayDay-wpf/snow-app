@@ -1,6 +1,6 @@
 /**
- * 决策模型（Decision model）：TypeSafe System One / OpenAI Decisions 一类的
- * 「判定型」模型，不生成文本，只对给定状态逐条给出选择。
+ * 决策模型（Decision model）：TypeSafe System One / OpenAI Decisions / Gemini Decisions
+ * 一类的「判定型」模型，不生成文本，只对给定状态逐条给出选择。
  *
  * 真源是 Rust 侧的 decision_models 表（model_registry），通过
  * window.snow.listDecisionModels / upsertDecisionModel 读写。代码库、decision-evaluate
@@ -12,11 +12,17 @@ import type { DecisionModelEntry } from "../../preload";
 export const DECISION_TOOL_MODEL_SETTING_NAME = "Decision tool model";
 export const DECISION_TOOL_MODEL_SETTING_CODE = "decision_tool_model";
 
-export type DecisionModelProvider = "typesafe" | "openai";
+export type DecisionModelProvider = "typesafe" | "openai" | "gemini";
 
 export const DECISION_MODEL_PROVIDER_TYPESAFE: DecisionModelProvider =
   "typesafe";
 export const DECISION_MODEL_PROVIDER_OPENAI: DecisionModelProvider = "openai";
+export const DECISION_MODEL_PROVIDER_GEMINI: DecisionModelProvider = "gemini";
+export const DECISION_MODEL_PROVIDERS: DecisionModelProvider[] = [
+  DECISION_MODEL_PROVIDER_TYPESAFE,
+  DECISION_MODEL_PROVIDER_OPENAI,
+  DECISION_MODEL_PROVIDER_GEMINI,
+];
 export const DEFAULT_DECISION_MODEL_PROVIDER: DecisionModelProvider =
   DECISION_MODEL_PROVIDER_TYPESAFE;
 
@@ -34,6 +40,14 @@ export const DEFAULT_OPENAI_DECISION_MODEL_BASE_URL =
 export const DEFAULT_OPENAI_DECISION_MODEL_MODEL = "gpt-6-luna";
 /** 新建 OpenAI Decisions 决策模型时的默认名称。 */
 export const DEFAULT_OPENAI_DECISION_MODEL_NAME = "OpenAI Decisions";
+
+/** 官方 Gemini Decisions 端点（v1beta，Base URL 留空时 Rust 也回落到该地址）。 */
+export const DEFAULT_GEMINI_DECISION_MODEL_BASE_URL =
+  "https://generativelanguage.googleapis.com/v1beta";
+/** Gemini Decisions 默认模型名。 */
+export const DEFAULT_GEMINI_DECISION_MODEL_MODEL = "gemini-decision-1";
+/** 新建 Gemini Decisions 决策模型时的默认名称。 */
+export const DEFAULT_GEMINI_DECISION_MODEL_NAME = "Gemini Decisions";
 
 export type DecisionModelBaseUrlMode = "auto" | "custom";
 
@@ -65,34 +79,49 @@ export const createDecisionModelId = (): string =>
 
 export const normalizeDecisionModelProvider = (
   value: unknown,
-): DecisionModelProvider =>
-  toText(value) === DECISION_MODEL_PROVIDER_OPENAI
-    ? DECISION_MODEL_PROVIDER_OPENAI
-    : DECISION_MODEL_PROVIDER_TYPESAFE;
+): DecisionModelProvider => {
+  const text = toText(value);
+  return (
+    DECISION_MODEL_PROVIDERS.find((provider) => provider === text) ??
+    DECISION_MODEL_PROVIDER_TYPESAFE
+  );
+};
+
+const PROVIDER_DEFAULTS: Record<
+  DecisionModelProvider,
+  { baseUrl: string; model: string; name: string }
+> = {
+  typesafe: {
+    baseUrl: DEFAULT_DECISION_MODEL_BASE_URL,
+    model: DEFAULT_DECISION_MODEL_MODEL,
+    name: DEFAULT_DECISION_MODEL_NAME,
+  },
+  openai: {
+    baseUrl: DEFAULT_OPENAI_DECISION_MODEL_BASE_URL,
+    model: DEFAULT_OPENAI_DECISION_MODEL_MODEL,
+    name: DEFAULT_OPENAI_DECISION_MODEL_NAME,
+  },
+  gemini: {
+    baseUrl: DEFAULT_GEMINI_DECISION_MODEL_BASE_URL,
+    model: DEFAULT_GEMINI_DECISION_MODEL_MODEL,
+    name: DEFAULT_GEMINI_DECISION_MODEL_NAME,
+  },
+};
 
 /** provider 对应的默认 Base URL（新建与切换 provider 时使用）。 */
 export const decisionModelDefaultBaseUrl = (
   provider: DecisionModelProvider,
-): string =>
-  provider === DECISION_MODEL_PROVIDER_OPENAI
-    ? DEFAULT_OPENAI_DECISION_MODEL_BASE_URL
-    : DEFAULT_DECISION_MODEL_BASE_URL;
+): string => PROVIDER_DEFAULTS[provider].baseUrl;
 
 /** provider 对应的默认模型名。 */
 export const decisionModelDefaultModel = (
   provider: DecisionModelProvider,
-): string =>
-  provider === DECISION_MODEL_PROVIDER_OPENAI
-    ? DEFAULT_OPENAI_DECISION_MODEL_MODEL
-    : DEFAULT_DECISION_MODEL_MODEL;
+): string => PROVIDER_DEFAULTS[provider].model;
 
 /** provider 对应的新建默认名称。 */
 export const decisionModelDefaultName = (
   provider: DecisionModelProvider,
-): string =>
-  provider === DECISION_MODEL_PROVIDER_OPENAI
-    ? DEFAULT_OPENAI_DECISION_MODEL_NAME
-    : DEFAULT_DECISION_MODEL_NAME;
+): string => PROVIDER_DEFAULTS[provider].name;
 
 /** 新建决策模型的默认值（按 provider 预填端点与模型名）。 */
 export const createDecisionModel = (
@@ -139,11 +168,9 @@ export const resolveDecisionModelEndpoint = (
   model: Pick<DecisionModelConfig, "provider" | "baseUrl" | "baseUrlMode">,
 ): string => {
   const baseUrl = model.baseUrl.trim().replace(/\/+$/, "");
+  const provider = normalizeDecisionModelProvider(model.provider);
 
-  if (
-    normalizeDecisionModelProvider(model.provider) ===
-    DECISION_MODEL_PROVIDER_OPENAI
-  ) {
+  if (provider === DECISION_MODEL_PROVIDER_OPENAI) {
     if (!baseUrl) {
       return `${DEFAULT_OPENAI_DECISION_MODEL_BASE_URL}/decisions`;
     }
@@ -158,6 +185,19 @@ export const resolveDecisionModelEndpoint = (
 
   if (model.baseUrlMode === DECISION_MODEL_BASE_URL_MODE_CUSTOM) {
     return baseUrl;
+  }
+
+  if (provider === DECISION_MODEL_PROVIDER_GEMINI) {
+    if (!baseUrl) {
+      return `${DEFAULT_GEMINI_DECISION_MODEL_BASE_URL}/decisions`;
+    }
+    if (baseUrl.endsWith("/decisions")) {
+      return baseUrl;
+    }
+    if (baseUrl.endsWith("/v1beta") || baseUrl.endsWith("/v1")) {
+      return `${baseUrl}/decisions`;
+    }
+    return `${baseUrl}/v1beta/decisions`;
   }
 
   if (!baseUrl) {

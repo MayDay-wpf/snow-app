@@ -6,10 +6,10 @@
 //!   vector search results and removes irrelevant chunks. If more than 50% of
 //!   the results are deemed irrelevant, the model is asked to generate a
 //!   refined search query and the search is retried (up to 3 attempts total).
-//! * **Decision model** (TypeSafe System One / Jev or OpenAI Decisions) — it
+//! * **Decision model** (TypeSafe System One / Jev, OpenAI Decisions or Gemini Decisions) — it
 //!   answers one yes/no question per result, which is cheaper and faster than a
 //!   generative review. When the project sets a relevance threshold it asks the
-//!   probability question instead (predicate, or noul on TypeSafe) and filters
+//!   probability question instead (predicate, or noul on TypeSafe / Gemini) and filters
 //!   by the returned probability. Its verdict *is* the review: the LLM is never
 //!   asked to judge the same results again. A decision model cannot write a refined
 //!   query, so when its verdict sends the loop into a re-search the LLM is used
