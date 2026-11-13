@@ -24,6 +24,7 @@ import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import { OAuthQuotaPanel } from "../../common/OAuthQuotaPanel";
 import { ThinkingStrengthMenu } from "./ThinkingStrengthMenu";
+import { getThinkingTint } from "./thinkingIcons";
 import { useDropdownDirection } from "./useDropdownDirection";
 import type { MainContentView } from "../types";
 import type { ChatInputActions, ChatInputState } from "./types";
@@ -123,6 +124,14 @@ export const ModelSelector = ({
   onNavigateToView,
 }: ModelSelectorProps): React.JSX.Element => {
   const { t } = useI18n();
+  // 思考强度按档位取进度条同色
+  const thinkingTintStyle = useMemo(() => {
+    if (thinkingError || isLoadingApiConfig) {
+      return undefined;
+    }
+    const tint = getThinkingTint(thinkingOptions, thinkingValue);
+    return tint ? { color: tint } : undefined;
+  }, [isLoadingApiConfig, thinkingError, thinkingOptions, thinkingValue]);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [apiProfileSearchQuery, setApiProfileSearchQuery] = useState("");
   // 键盘导航高亮索引（-1 = 未高亮）
@@ -447,6 +456,7 @@ export const ModelSelector = ({
         </span>
         <span
           className="model-trigger-thinking"
+          style={thinkingTintStyle}
           title={
             thinkingError ??
             (isLoadingApiConfig
@@ -521,7 +531,7 @@ export const ModelSelector = ({
                   ) : thinkingError ? (
                     <AlertCircle size={14} />
                   ) : (
-                    <ActiveThinkingIcon size={14} />
+                    <ActiveThinkingIcon size={14} style={thinkingTintStyle} />
                   )}
                   <span className="model-menu-value-text">{thinkingLabel}</span>
                   <ChevronRight size={12} />

@@ -2321,10 +2321,7 @@ export function ScheduledTasksPanel({
                 options={thinkingOptions}
                 inheritLabel={inheritThinkingLabel}
                 subtitle={requestMethod}
-                onSelect={(value) => {
-                  setThinkingStrength(value);
-                  setIsThinkingMenuOpen(false);
-                }}
+                onSelect={(value) => setThinkingStrength(value)}
               />
             </div>
           )}

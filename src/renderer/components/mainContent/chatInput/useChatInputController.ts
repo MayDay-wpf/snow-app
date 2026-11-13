@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { BrainCircuit } from "lucide-react";
+import { ThinkingHighIcon } from "./thinkingIcons";
 import type { ApiConfigRecord, Model } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { isImeComposing } from "../../../../shared/imeKeyboard";
@@ -992,7 +992,7 @@ export const useChatInputController = ({
 
     return {
       label: matchingOption?.label ?? effectiveThinkingValue,
-      icon: matchingOption?.icon ?? BrainCircuit,
+      icon: matchingOption?.icon ?? ThinkingHighIcon,
     };
   }, [effectiveThinkingValue, thinkingOptions]);
 
@@ -1002,8 +1002,8 @@ export const useChatInputController = ({
         return;
       }
 
+      // 进度条连续调节，选择后保持菜单打开
       setThinkingOverride(nextValue);
-      setIsModelMenuOpen(false);
       setThinkingError(null);
     },
     [runtimeApiConfig],
