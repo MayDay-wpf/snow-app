@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, MoveVertical } from "lucide-react";
 
 import { useI18n } from "../../i18n";
+import { getSshConnectionStatusLabel } from "../../ssh/sshConnectionStatus";
+import { useSshWorkspaceGate } from "../../ssh/sshConnectionStore";
 import type { GitFileStatus, GitStatusResult } from "./git";
 import { GitControl, GitGraph, useGitRepos } from "./git";
 import { openGitFileDiff } from "./git/openGitFileDiff";
@@ -57,17 +59,32 @@ export function GitPanelContent({
 
   const workspacePath = activeDirectory?.path ? activeDirectory.path : null;
 
-  const { repos, selectedRepoPath, setSelectedRepoPath } =
-    useGitRepos(workspacePath);
+  const {
+    repos,
+    selectedRepoPath,
+    setSelectedRepoPath,
+    phase,
+    error: repoError,
+    canOperate,
+    identity,
+    refresh: refreshRepos,
+  } = useGitRepos(workspacePath);
+
+  // 显式重连入口：连接被拦下（离线 / 认证失败等）时由状态卡片触发。
+  const sshGate = useSshWorkspaceGate(activeDirectory);
+  const sshGateLabel = sshGate.status
+    ? getSshConnectionStatusLabel(t, sshGate.status)
+    : "";
 
   const repoPath = selectedRepoPath;
 
-  // 切换仓库后旧的 status 立即失效（其中的 currentBranch 属于上一个仓库）：
-  // 在渲染期间同步清空（React 的「渲染期间调整 state」模式），避免旧分支名
-  // 被当成新仓库的分支传给提交图；新 status 由 GitControl 重新回报。
-  const [statusRepoPath, setStatusRepoPath] = useState(repoPath);
-  if (statusRepoPath !== repoPath) {
-    setStatusRepoPath(repoPath);
+  // 连接身份（工作区 + profile + 代际）或仓库变化时，旧 status 立即失效：
+  // 其中的 currentBranch 属于上一个仓库 / 上一条连接。在渲染期间同步清空
+  // （React 的「渲染期间调整 state」模式），新 status 由 GitControl 重新回报。
+  const dataIdentity = `${identity}|${repoPath ?? ""}`;
+  const [statusIdentity, setStatusIdentity] = useState(dataIdentity);
+  if (statusIdentity !== dataIdentity) {
+    setStatusIdentity(dataIdentity);
     setGitStatus(null);
   }
 
@@ -199,17 +216,93 @@ export function GitPanelContent({
             </span>
           </div>
         ) : null}
-        <GitControl
-          repoPath={repoPath}
-          directoryId={activeDirectory?.directoryId}
-          repos={repos}
-          onRepoSelect={setSelectedRepoPath}
-          onFileSelect={handleFileSelect}
-          onStatusChange={setGitStatus}
-          onOpenFile={onOpenFile}
-          onOpenTerminal={onOpenTerminal}
-          onHistoryRefresh={handleHistoryRefresh}
-        />
+        {/* 扫描失败但保留了上次成功结果：明确提示数据可能过期，仍可继续操作。 */}
+        {phase === "error" && repoPath ? (
+          <div className="git-status-limit-hint" title={repoError ?? undefined}>
+            <AlertTriangle size={13} strokeWidth={1.9} />
+            <span>{t("git.repoScanFailed")}</span>
+          </div>
+        ) : null}
+        {workspacePath === null ? (
+          <div className="git-control">
+            <div className="git-control-empty">
+              {t("git.noWorkspaceDirectory")}
+            </div>
+          </div>
+        ) : !canOperate ? (
+          // 远程连接不可用：数据子树整体卸载，避免状态轮询与操作继续发请求。
+          <div className="git-control">
+            <div className="git-control-state">
+              <span>
+                {phase === "waiting"
+                  ? t("git.waitingConnection", {
+                      defaultValue: "Waiting for the SSH connection...",
+                    })
+                  : t("git.connectionUnavailable", {
+                      values: { status: sshGateLabel },
+                      defaultValue: "SSH connection unavailable",
+                    })}
+              </span>
+              <button
+                type="button"
+                className="git-control-state-btn"
+                onClick={sshGate.requestConnection}
+              >
+                {t("git.reconnect", { defaultValue: "Reconnect" })}
+              </button>
+            </div>
+          </div>
+        ) : !repoPath && phase === "scanning" ? (
+          <div className="git-control">
+            <div className="git-control-loading">
+              {t("git.scanningRepos", {
+                defaultValue: "Scanning for git repositories...",
+              })}
+            </div>
+          </div>
+        ) : !repoPath && phase === "error" ? (
+          <div className="git-control">
+            <div className="git-control-state is-error">
+              <span title={repoError ?? undefined}>
+                {t("git.repoScanFailed")}
+              </span>
+              <button
+                type="button"
+                className="git-control-state-btn"
+                onClick={() => void refreshRepos()}
+              >
+                {t("git.retry", { defaultValue: "Retry" })}
+              </button>
+            </div>
+          </div>
+        ) : !repoPath ? (
+          <div className="git-control">
+            <div className="git-control-state">
+              <span>{t("git.noReposFound")}</span>
+              <button
+                type="button"
+                className="git-control-state-btn"
+                onClick={() => void refreshRepos()}
+              >
+                {t("git.retry", { defaultValue: "Retry" })}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <GitControl
+            key={dataIdentity}
+            repoPath={repoPath}
+            directoryId={activeDirectory?.directoryId}
+            repos={repos}
+            onRepoSelect={setSelectedRepoPath}
+            onFileSelect={handleFileSelect}
+            onStatusChange={setGitStatus}
+            onOpenFile={onOpenFile}
+            onOpenTerminal={onOpenTerminal}
+            onHistoryRefresh={handleHistoryRefresh}
+            onRediscoverRepos={refreshRepos}
+          />
+        )}
       </div>
 
       <div
@@ -252,8 +345,9 @@ export function GitPanelContent({
           flexShrink: 0,
         }}
       >
-        {repoPath ? (
+        {repoPath && canOperate ? (
           <GitGraph
+            key={dataIdentity}
             repoPath={repoPath}
             directoryId={activeDirectory?.directoryId}
             branch={gitStatus?.currentBranch ?? null}

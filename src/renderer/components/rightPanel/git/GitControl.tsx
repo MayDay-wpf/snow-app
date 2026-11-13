@@ -49,6 +49,11 @@ type GitControlProps = {
   onOpenTerminal?: (cwd: string) => void;
   /** 手动刷新或历史发生变化（提交、推送、拉取成功）时触发，供上层刷新提交图。 */
   onHistoryRefresh?: () => void;
+  /**
+   * 手动刷新前重新发现仓库（由面板提供）。返回 false 表示扫描失败或连接
+   * 不可用，此时不应继续刷新（可能已失效的）仓库状态。
+   */
+  onRediscoverRepos?: () => Promise<boolean>;
 };
 
 const isSelectedKey = (section: "staged" | "unstaged", path: string) =>
@@ -110,6 +115,7 @@ export const GitControl = ({
   onOpenFile,
   onOpenTerminal,
   onHistoryRefresh,
+  onRediscoverRepos,
 }: GitControlProps): React.JSX.Element => {
   const { t } = useI18n();
   const { status, isLoading, error, refresh } = useGitStatus(repoPath);
@@ -464,12 +470,31 @@ export const GitControl = ({
     loadRemotes();
   }, [loadRemotes]);
   const handleRefresh = useCallback(() => {
+    if (isRefreshing) {
+      return;
+    }
     setIsRefreshing(true);
-    onHistoryRefresh?.();
-    void refresh().finally(() => {
-      setIsRefreshing(false);
-    });
-  }, [refresh, onHistoryRefresh]);
+    const targetRepo = currentRepoRef.current;
+    void (async (): Promise<void> => {
+      try {
+        // 先重新发现仓库：连接或工作目录可能在点击前已变化，不能继续刷新
+        // 已经失效的仓库。
+        const discovered = onRediscoverRepos ? await onRediscoverRepos() : true;
+        if (!discovered) {
+          // 扫描失败或连接不可用：保留现有内容，等用户再次重试。
+          return;
+        }
+        if (currentRepoRef.current !== targetRepo) {
+          // 仓库已因重扫而切换：面板按新身份重新挂载并加载，无需刷新旧仓库。
+          return;
+        }
+        onHistoryRefresh?.();
+        await refresh();
+      } finally {
+        setIsRefreshing(false);
+      }
+    })();
+  }, [isRefreshing, onRediscoverRepos, onHistoryRefresh, refresh]);
 
   const handleFileSelect = useCallback(
     (

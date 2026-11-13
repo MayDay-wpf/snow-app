@@ -37952,6 +37952,37 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   color: var(--accent-red);
 }
 
+/* 仓库列表的连接 / 扫描状态卡片（含重试与重连入口）。 */
+.git-control-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.git-control-state.is-error {
+  color: var(--accent-red);
+}
+
+.git-control-state-btn {
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.git-control-state-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-blue, #3b82f6);
+}
+
 /* Branch Selector */
 .branch-selector {
   position: relative;

@@ -141,6 +141,69 @@ const getStatus = (workspacePath: string): SshConnectionStatus | null => {
   return state.profiles[profileId]?.status ?? "idle";
 };
 
+// ===== 工作区连接的完整快照（Git 面板等需要 profile 与连接代际） =====
+
+export type SshWorkspaceConnectionInfo = {
+  /** 解析出的 profile ID；未解析成功时为 null。 */
+  profileId: string | null;
+  status: SshConnectionStatus | null;
+  /** 每次成功建连后自增：同路径重连也能被识别为新连接。 */
+  generation: number;
+  lastError: string | null;
+  /** 工作区 → profile 的解析仍在进行。 */
+  resolving: boolean;
+};
+
+// useSyncExternalStore 要求快照引用稳定：同一 revision 内复用同一对象，
+// 连接状态或解析进度变化（commit 推进 revision）时才重新计算。
+const connectionInfoCache = new Map<
+  string,
+  { revision: number; info: SshWorkspaceConnectionInfo }
+>();
+
+const getConnectionInfo = (
+  workspacePath: string,
+): SshWorkspaceConnectionInfo => {
+  const cached = connectionInfoCache.get(workspacePath);
+  if (cached && cached.revision === state.revision) {
+    return cached.info;
+  }
+  const profileId = state.resolved[workspacePath] ?? null;
+  const profile = profileId ? (state.profiles[profileId] ?? null) : null;
+  const info: SshWorkspaceConnectionInfo = {
+    profileId,
+    status: getStatus(workspacePath),
+    generation: profile?.generation ?? 0,
+    lastError: profile?.lastError ?? null,
+    resolving: state.resolving[workspacePath] === true,
+  };
+  connectionInfoCache.set(workspacePath, { revision: state.revision, info });
+  return info;
+};
+
+/**
+ * SSH 工作区的完整连接快照；非 `ssh://` 路径返回 null。
+ *
+ * 与 `useSshConnectionStatus` 的区别：这里额外提供 profileId、generation 与
+ * lastError，供需要「连接身份」调用方（如 Git 面板按重连代际重新加载）使用。
+ * 只读取共享状态，不在这里发起建连。
+ */
+export const useSshWorkspaceConnection = (
+  workspacePath: string | null | undefined,
+): SshWorkspaceConnectionInfo | null => {
+  const path =
+    workspacePath && workspacePath.startsWith("ssh://") ? workspacePath : "";
+  const info = useSyncExternalStore(path ? subscribe : subscribeNothing, () =>
+    path ? getConnectionInfo(path) : null,
+  );
+  useEffect(() => {
+    if (path) {
+      void ensureResolved(path);
+    }
+  }, [path]);
+  return path ? info : null;
+};
+
 let activeSequence = 0;
 let activeProfileId: string | null = null;
 
