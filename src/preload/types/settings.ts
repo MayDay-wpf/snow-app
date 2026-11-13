@@ -364,6 +364,31 @@ export type ModelUsageBreakdown = {
   totalTokens: number;
 };
 
+export type HourlyUsageCell = {
+  weekday: number;
+  hour: number;
+  totalRequests: number;
+  totalTokens: number;
+};
+
+export type UsageActivity = {
+  hourly: HourlyUsageCell[];
+  activeDays: number;
+  averageActiveDayTokens: number;
+  busiestDay: string;
+  busiestDayTokens: number;
+  currentStreak: number;
+  longestStreak: number;
+  firstDay: string;
+};
+
+export type UsageProfileInfo = {
+  name: string;
+  topModel: string;
+  totalTokens: number;
+  totalRequests: number;
+};
+
 export type AppLogRecord = {
   id: string;
   level: string;

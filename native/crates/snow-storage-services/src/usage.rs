@@ -63,6 +63,20 @@ pub fn list_usage_profile_names() -> Result<Vec<String>> {
     services::usage_records::list_usage_profile_names(&database_path)
 }
 
+pub fn get_usage_activity(
+    since: String,
+    until: String,
+    profile_name: String,
+) -> Result<services::usage_records::UsageActivity> {
+    let database_path = ensure_database_file()?;
+    services::usage_records::get_usage_activity(&database_path, &since, &until, &profile_name)
+}
+
+pub fn list_usage_profiles() -> Result<Vec<services::usage_records::UsageProfileInfo>> {
+    let database_path = ensure_database_file()?;
+    services::usage_records::list_usage_profiles(&database_path)
+}
+
 pub fn delete_usage_records(since: String, until: String) -> Result<u32> {
     let database_path = ensure_database_file()?;
     services::usage_records::delete_usage_records(&database_path, &since, &until)

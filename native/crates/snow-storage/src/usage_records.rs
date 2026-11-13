@@ -113,6 +113,42 @@ pub struct ModelUsageBreakdown {
     pub total_tokens: i64,
 }
 
+/// One weekday x hour bucket of the activity grid.
+#[napi(object)]
+pub struct HourlyUsageCell {
+    /// 0 = Sunday ... 6 = Saturday (SQLite `%w`).
+    pub weekday: i32,
+    pub hour: i32,
+    pub total_requests: i64,
+    pub total_tokens: i64,
+}
+
+/// Activity facts for the heatmap footer plus the weekday x hour grid.
+#[napi(object)]
+pub struct UsageActivity {
+    pub hourly: Vec<HourlyUsageCell>,
+    /// Days with any tokens in range.
+    pub active_days: i64,
+    pub average_active_day_tokens: i64,
+    /// Empty when no activity.
+    pub busiest_day: String,
+    pub busiest_day_tokens: i64,
+    /// Consecutive active days ending today or yesterday.
+    pub current_streak: i64,
+    pub longest_streak: i64,
+    /// Earliest active day in range, empty when none.
+    pub first_day: String,
+}
+
+/// Profile name with its most used model, for the filter pills.
+#[napi(object)]
+pub struct UsageProfileInfo {
+    pub name: String,
+    pub top_model: String,
+    pub total_tokens: i64,
+    pub total_requests: i64,
+}
+
 /// Persist a single usage record. Errors are propagated so the caller can
 /// decide whether to log-and-continue or abort. The insertion runs in its
 /// own short-lived connection, matching the pattern used by other services.
@@ -389,6 +425,174 @@ pub fn list_usage_profile_names(database_path: &Path) -> Result<Vec<String>> {
         .map_err(|error| {
             database::database_error(database_path, "list usage profile names", error)
         })
+}
+
+/// Activity facts and weekday x hour grid over a calendar-day range.
+/// Empty `since`/`until`/`profile_name` skip that filter.
+pub fn get_usage_activity(
+    database_path: &Path,
+    since: &str,
+    until: &str,
+    profile_name: &str,
+) -> Result<UsageActivity> {
+    let (where_sql, values) = build_usage_filter(since, until, profile_name, true);
+
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let query_params = to_sql_params(&values);
+
+            let hourly_sql = format!(
+                "SELECT CAST(strftime('%w', created_at) AS INTEGER) AS wd,
+                        CAST(strftime('%H', created_at) AS INTEGER) AS hr,
+                        COUNT(*),
+                        COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0)
+                   FROM usage_records{where_sql}
+                  GROUP BY wd, hr"
+            );
+            let mut statement = connection.prepare(&hourly_sql)?;
+            let hourly = statement
+                .query_map(query_params.as_slice(), |row| {
+                    Ok(HourlyUsageCell {
+                        weekday: row.get(0)?,
+                        hour: row.get(1)?,
+                        total_requests: row.get(2)?,
+                        total_tokens: row.get(3)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            // 整数儒略日便于判断相邻日期
+            let daily_sql = format!(
+                "SELECT CAST(julianday(date(created_at)) AS INTEGER) AS jd,
+                        date(created_at) AS day,
+                        COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS tokens
+                   FROM usage_records{where_sql}
+                  GROUP BY day
+                 HAVING tokens > 0
+                  ORDER BY day ASC"
+            );
+            let mut statement = connection.prepare(&daily_sql)?;
+            let days = statement
+                .query_map(query_params.as_slice(), |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let today: i64 = connection.query_row(
+                "SELECT CAST(julianday(date('now', 'localtime')) AS INTEGER)",
+                [],
+                |row| row.get(0),
+            )?;
+
+            Ok(summarize_activity(hourly, &days, today))
+        })
+        .map_err(|error| database::database_error(database_path, "get usage activity", error))
+}
+
+fn summarize_activity(
+    hourly: Vec<HourlyUsageCell>,
+    days: &[(i64, String, i64)],
+    today: i64,
+) -> UsageActivity {
+    let active_days = days.len() as i64;
+    let total: i64 = days.iter().map(|(_, _, tokens)| *tokens).sum();
+    let busiest = days.iter().max_by_key(|(_, _, tokens)| *tokens);
+
+    let mut longest = 0i64;
+    let mut run = 0i64;
+    let mut prev: Option<i64> = None;
+    for (jd, _, _) in days {
+        run = match prev {
+            Some(p) if *jd == p + 1 => run + 1,
+            _ => 1,
+        };
+        longest = longest.max(run);
+        prev = Some(*jd);
+    }
+    // 最后活跃日为今天或昨天时，末段连续即当前连续
+    let current = match prev {
+        Some(last) if last >= today - 1 => run,
+        _ => 0,
+    };
+
+    UsageActivity {
+        hourly,
+        active_days,
+        average_active_day_tokens: if active_days > 0 { total / active_days } else { 0 },
+        busiest_day: busiest.map(|(_, day, _)| day.clone()).unwrap_or_default(),
+        busiest_day_tokens: busiest.map(|(_, _, tokens)| *tokens).unwrap_or(0),
+        current_streak: current,
+        longest_streak: longest,
+        first_day: days.first().map(|(_, day, _)| day.clone()).unwrap_or_default(),
+    }
+}
+
+/// Distinct profiles with their most used model, ordered by tokens desc.
+pub fn list_usage_profiles(database_path: &Path) -> Result<Vec<UsageProfileInfo>> {
+    database::open_connection(database_path)
+        .and_then(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT api_profile_name,
+                        model,
+                        COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0),
+                        COUNT(*)
+                   FROM usage_records
+                  WHERE TRIM(api_profile_name) <> ''
+                  GROUP BY api_profile_name, model",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(fold_profiles(rows))
+        })
+        .map_err(|error| database::database_error(database_path, "list usage profiles", error))
+}
+
+fn fold_profiles(rows: Vec<(String, String, i64, i64)>) -> Vec<UsageProfileInfo> {
+    // (信息, 主力模型 token 数)
+    let mut profiles: Vec<(UsageProfileInfo, i64)> = Vec::new();
+    for (name, model, tokens, requests) in rows {
+        let index = match profiles.iter().position(|(info, _)| info.name == name) {
+            Some(index) => index,
+            None => {
+                profiles.push((
+                    UsageProfileInfo {
+                        name,
+                        top_model: String::new(),
+                        total_tokens: 0,
+                        total_requests: 0,
+                    },
+                    -1,
+                ));
+                profiles.len() - 1
+            }
+        };
+        let (info, best) = &mut profiles[index];
+        info.total_tokens += tokens;
+        info.total_requests += requests;
+        if !model.trim().is_empty() && tokens > *best {
+            *best = tokens;
+            info.top_model = model;
+        }
+    }
+    let mut result: Vec<UsageProfileInfo> = profiles.into_iter().map(|(info, _)| info).collect();
+    result.sort_by(|a, b| {
+        b.total_tokens
+            .cmp(&a.total_tokens)
+            .then(b.total_requests.cmp(&a.total_requests))
+    });
+    result
 }
 
 /// Builds the `WHERE` clause and its bound values shared by the usage

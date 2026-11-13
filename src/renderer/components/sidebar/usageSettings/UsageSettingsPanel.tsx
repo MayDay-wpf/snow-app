@@ -9,9 +9,11 @@ import {
 } from "lucide-react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { CustomSelect } from "../../common/CustomSelect";
 import { DailyTrendChart } from "./DailyTrendChart";
 import { ModelDonutChart } from "./ModelDonutChart";
+import { Sparkline } from "./Sparkline";
+import { heatColor, UsageHourGrid } from "./UsageHourGrid";
+import { UsageProfilePills } from "./UsageProfilePills";
 import { translateRequestMethod } from "./requestMethod";
 import { UsageDateFilter } from "./UsageDateFilter";
 import { getActiveLocale, useI18n } from "../../../i18n";
@@ -21,7 +23,10 @@ import {
 } from "../../TopBar/settingsPageActionsStore";
 import type {
   DailyUsageBreakdown,
+  HourlyUsageCell,
   ModelUsageBreakdown,
+  UsageActivity,
+  UsageProfileInfo,
   UsageRecord,
   UsageRecordPage,
   UsageSummary,
@@ -142,6 +147,12 @@ const MONTH_LABELS = [
   "Dec",
 ];
 
+type HeatmapCell = {
+  date: string;
+  value: number;
+  data: DailyUsageBreakdown | null;
+};
+
 export function UsageSettingsPanel(): React.JSX.Element {
   const { t } = useI18n();
   const [records, setRecords] = useState<UsageRecord[]>([]);
@@ -153,10 +164,16 @@ export function UsageSettingsPanel(): React.JSX.Element {
   );
   // 配置（档案）筛选：空字符串表示全部配置。
   const [profileFilter, setProfileFilter] = useState<string>(ALL_PROFILES);
-  const [profileNames, setProfileNames] = useState<string[]>([]);
+  const [profiles, setProfiles] = useState<UsageProfileInfo[]>([]);
   const [dailyData, setDailyData] = useState<DailyUsageBreakdown[]>([]);
   // 趋势图数据：按当前筛选区间请求，与年度热力图（整年）区分开。
   const [trendData, setTrendData] = useState<DailyUsageBreakdown[]>([]);
+  // 年度活跃度：统计行 + 按小时网格
+  const [activity, setActivity] = useState<UsageActivity | null>(null);
+  const [heatmapMode, setHeatmapMode] = useState<"day" | "hour">("day");
+  // 悬停某天时按需拉取的模型分布缓存
+  const dayModelCacheRef = useRef(new Map<string, ModelUsageBreakdown[]>());
+  const hoveredDateRef = useRef("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -244,10 +261,10 @@ export function UsageSettingsPanel(): React.JSX.Element {
 
   const loadProfileNames = useCallback(async () => {
     try {
-      const names = await window.snow.listUsageProfileNames();
-      setProfileNames(names ?? []);
+      const list = await window.snow.listUsageProfiles();
+      setProfiles(list ?? []);
     } catch {
-      setProfileNames([]);
+      setProfiles([]);
     }
   }, []);
 
@@ -257,33 +274,41 @@ export function UsageSettingsPanel(): React.JSX.Element {
         new Date(now.getTime() - ONE_YEAR_MS),
       );
       const heatmapUntil = formatDateForInput(now);
-      const [summaryResult, dailyResult, modelResult, trendResult] =
-        await Promise.all([
-          window.snow.getUsageSummary(
-            sinceDateTime,
-            untilDateTime,
-            profileFilter,
-          ),
-          window.snow.getUsageDailyBreakdown(
-            heatmapSince,
-            heatmapUntil,
-            profileFilter,
-          ),
-          window.snow.getUsageModelBreakdown(
-            sinceDateTime,
-            untilDateTime,
-            profileFilter,
-          ),
-          window.snow.getUsageDailyBreakdown(
-            sinceDateTime,
-            untilDateTime,
-            profileFilter,
-          ),
-        ]);
+      const [
+        summaryResult,
+        dailyResult,
+        modelResult,
+        trendResult,
+        activityResult,
+      ] = await Promise.all([
+        window.snow.getUsageSummary(
+          sinceDateTime,
+          untilDateTime,
+          profileFilter,
+        ),
+        window.snow.getUsageDailyBreakdown(
+          heatmapSince,
+          heatmapUntil,
+          profileFilter,
+        ),
+        window.snow.getUsageModelBreakdown(
+          sinceDateTime,
+          untilDateTime,
+          profileFilter,
+        ),
+        window.snow.getUsageDailyBreakdown(
+          sinceDateTime,
+          untilDateTime,
+          profileFilter,
+        ),
+        window.snow.getUsageActivity(heatmapSince, heatmapUntil, profileFilter),
+      ]);
+      dayModelCacheRef.current.clear();
       setSummary(summaryResult);
       setDailyData(dailyResult ?? []);
       setModelBreakdown(modelResult ?? []);
       setTrendData(trendResult ?? []);
+      setActivity(activityResult ?? null);
     } catch (e) {
       setError(
         e instanceof Error
@@ -324,19 +349,6 @@ export function UsageSettingsPanel(): React.JSX.Element {
     setProfileFilter(value);
     setOffset(0);
   }, []);
-
-  const profileOptions = useMemo(
-    () => [
-      {
-        value: ALL_PROFILES,
-        label: t("settings.usageProfileAll", {
-          defaultValue: "All profiles",
-        }),
-      },
-      ...profileNames.map((name) => ({ value: name, label: name })),
-    ],
-    [profileNames, t],
-  );
 
   const clearSinceDateTime = clearSinceDate ? `${clearSinceDate} 00:00:00` : "";
   const clearUntilDateTime = clearUntilDate ? `${clearUntilDate} 23:59:59` : "";
@@ -463,6 +475,86 @@ export function UsageSettingsPanel(): React.JSX.Element {
     return filled;
   }, [trendData, sinceDate, untilDate]);
 
+  // 指标卡：数值 + 副行 + 区间内逐日迷你趋势
+  const kpiCards = useMemo(() => {
+    if (!summary) return [];
+    const days = Math.max(1, filledTrendData.length);
+    const perDay = (value: number) =>
+      t("settings.usagePerDay", {
+        defaultValue: "≈ {{value}} a day",
+        values: { value: formatTokens(Math.round(value / days)) },
+      });
+    const pct = (num: number, den: number) =>
+      den > 0 ? `${((num / den) * 100).toFixed(1)}%` : "0%";
+    const series = (pick: (d: DailyUsageBreakdown) => number) =>
+      filledTrendData.map(pick);
+    const successRate =
+      summary.totalRequests > 0
+        ? `${((1 - summary.errorRequests / summary.totalRequests) * 100).toFixed(1)}%`
+        : "100%";
+    return [
+      {
+        id: "total",
+        label: t("settings.usageTotalTokens", { defaultValue: "Total tokens" }),
+        value: formatTokens(summary.totalTokens),
+        sub: perDay(summary.totalTokens),
+        series: series((d) => d.totalTokens),
+        color: "var(--accent-green)",
+      },
+      {
+        id: "input",
+        label: t("settings.usageInputTokens", { defaultValue: "Input tokens" }),
+        value: formatTokens(summary.totalInputTokens),
+        sub: `${t("settings.usageCacheCreation", { defaultValue: "Cache write" })} ${formatTokens(summary.totalCacheCreationInputTokens)}`,
+        series: series((d) => d.totalInputTokens),
+        color: "var(--accent-blue)",
+      },
+      {
+        id: "output",
+        label: t("settings.usageOutputTokens", {
+          defaultValue: "Output tokens",
+        }),
+        value: formatTokens(summary.totalOutputTokens),
+        sub: perDay(summary.totalOutputTokens),
+        series: series((d) => d.totalOutputTokens),
+        color: "var(--accent-orange, #d97757)",
+      },
+      {
+        id: "cache",
+        label: t("settings.usageCacheHitRate", {
+          defaultValue: "Cache hit rate",
+        }),
+        value: pct(summary.totalCacheReadInputTokens, summary.totalInputTokens),
+        sub: t("settings.usageCacheReadSub", {
+          defaultValue: "{{value}} read from cache",
+          values: { value: formatTokens(summary.totalCacheReadInputTokens) },
+        }),
+        series: series((d) =>
+          d.totalInputTokens > 0
+            ? d.totalCacheReadInputTokens / d.totalInputTokens
+            : 0,
+        ),
+        color: "#14b8a6",
+      },
+      {
+        id: "requests",
+        label: t("settings.usageTotalRequests", {
+          defaultValue: "Total requests",
+        }),
+        value: summary.totalRequests.toLocaleString(),
+        sub: t("settings.usageSuccessSub", {
+          defaultValue: "{{rate}} success · {{errors}} errors",
+          values: {
+            rate: successRate,
+            errors: summary.errorRequests.toLocaleString(),
+          },
+        }),
+        series: series((d) => d.totalRequests),
+        color: "var(--text-muted)",
+      },
+    ];
+  }, [summary, filledTrendData, t]);
+
   const heatmapCells = useMemo(() => {
     const map = new Map<string, DailyUsageBreakdown>();
     for (const item of dailyData) {
@@ -497,6 +589,61 @@ export function UsageSettingsPanel(): React.JSX.Element {
     }
     return max;
   }, [heatmapCells]);
+
+  // 热力图下方的年度活跃度统计（Rust 端计算）
+  const activityFacts = useMemo(() => {
+    if (!activity) return [];
+    const formatDay = (value: string) => {
+      const date = new Date(`${value}T00:00:00`);
+      return Number.isNaN(date.getTime())
+        ? value
+        : date.toLocaleDateString(getActiveLocale(), {
+            month: "short",
+            day: "numeric",
+            weekday: "short",
+          });
+    };
+    return [
+      {
+        id: "active",
+        label: t("settings.usageActiveDays", { defaultValue: "Active days" }),
+        value: `${activity.activeDays} / ${heatmapCells.length}`,
+        sub: t("settings.usageActiveDaysSub", {
+          defaultValue: "Days with any tokens",
+        }),
+      },
+      {
+        id: "average",
+        label: t("settings.usageActiveDayAvg", {
+          defaultValue: "An active day",
+        }),
+        value: formatTokens(activity.averageActiveDayTokens),
+        sub: t("settings.usageActiveDayAvgSub", {
+          defaultValue: "Tokens on average",
+        }),
+      },
+      {
+        id: "busiest",
+        label: t("settings.usageBusiestDay", { defaultValue: "Busiest day" }),
+        value: activity.busiestDay
+          ? formatTokens(activity.busiestDayTokens)
+          : "-",
+        sub: activity.busiestDay ? formatDay(activity.busiestDay) : "",
+      },
+      {
+        id: "streak",
+        label: t("settings.usageStreak", { defaultValue: "Streak" }),
+        value: t("settings.usageDays", {
+          defaultValue: "{{count}} days",
+          values: { count: String(activity.currentStreak) },
+        }),
+        sub: t("settings.usageLongestStreak", {
+          defaultValue: "Longest {{count}} days",
+          values: { count: String(activity.longestStreak) },
+        }),
+      },
+    ];
+  }, [activity, heatmapCells.length, t]);
 
   const heatmapColumns = useMemo(() => {
     const columns: {
@@ -569,19 +716,8 @@ export function UsageSettingsPanel(): React.JSX.Element {
     return labels;
   }, [heatmapColumns]);
 
-  const getHeatmapColor = (value: number): string => {
-    // 0 tokens or no data at all: neutral gray. Any non-zero usage maps to a
-    // green ramp (light -> dark) so the heatmap reads as a single hue gradient
-    // instead of mixing in unrelated grays and blues.
-    if (value === 0 || maxHeatmapValue === 0) return "var(--bg-tertiary)";
-    const ratio = value / maxHeatmapValue;
-    if (ratio >= 0.75) return "var(--accent-green)";
-    if (ratio >= 0.5)
-      return "color-mix(in srgb, var(--accent-green) 65%, var(--bg-tertiary))";
-    if (ratio >= 0.25)
-      return "color-mix(in srgb, var(--accent-green) 40%, var(--bg-tertiary))";
-    return "color-mix(in srgb, var(--accent-green) 20%, var(--bg-tertiary))";
-  };
+  const getHeatmapColor = (value: number): string =>
+    heatColor(value, maxHeatmapValue);
 
   const formatTokensLocale = (value: number): string => formatTokens(value);
 
@@ -654,11 +790,10 @@ export function UsageSettingsPanel(): React.JSX.Element {
     setTooltipContent(null);
   };
 
-  const renderHeatmapTooltip = (cell: {
-    date: string;
-    value: number;
-    data: DailyUsageBreakdown | null;
-  }): React.ReactNode => {
+  const renderHeatmapTooltip = (
+    cell: HeatmapCell,
+    models: ModelUsageBreakdown[] | null,
+  ): React.ReactNode => {
     if (!cell.data) {
       return (
         <div className="usage-floating-tooltip">
@@ -743,9 +878,106 @@ export function UsageSettingsPanel(): React.JSX.Element {
             {d.errorRequests.toLocaleString()} ({errorRate})
           </span>
         </div>
+        <div className="usage-floating-tooltip-divider" />
+        {models === null ? (
+          <div className="usage-floating-tooltip-hint">
+            {t("settings.usageLoading", { defaultValue: "Loading..." })}
+          </div>
+        ) : (
+          models.slice(0, 3).map((m) => (
+            <div
+              key={`${m.model}-${m.requestMethod}`}
+              className="usage-floating-tooltip-row"
+            >
+              <span className="usage-floating-tooltip-label usage-floating-tooltip-model">
+                {m.model || "-"}
+              </span>
+              <span className="usage-floating-tooltip-value">
+                {formatTokensLocale(m.totalTokens)}
+              </span>
+            </div>
+          ))
+        )}
+        <div className="usage-floating-tooltip-hint">
+          {t("settings.usageHeatmapClickHint", {
+            defaultValue: "Click to look at this day alone",
+          })}
+        </div>
       </div>
     );
   };
+
+  // 悬停先显示当天汇总，模型分布按需拉取后再刷新
+  const handleHeatmapEnter = (cell: HeatmapCell, x: number, y: number) => {
+    hoveredDateRef.current = cell.date;
+    if (!cell.data) {
+      showTooltip(renderHeatmapTooltip(cell, []), x, y);
+      return;
+    }
+    const cached = dayModelCacheRef.current.get(cell.date);
+    showTooltip(renderHeatmapTooltip(cell, cached ?? null), x, y);
+    if (cached) return;
+    const profile = profileFilter;
+    void window.snow
+      .getUsageModelBreakdown(
+        `${cell.date} 00:00:00`,
+        `${cell.date} 23:59:59`,
+        profile,
+      )
+      .then((rows) => {
+        const list = rows ?? [];
+        dayModelCacheRef.current.set(cell.date, list);
+        if (hoveredDateRef.current === cell.date) {
+          setTooltipContent(renderHeatmapTooltip(cell, list));
+        }
+      })
+      .catch(() => {
+        if (hoveredDateRef.current === cell.date) {
+          setTooltipContent(renderHeatmapTooltip(cell, []));
+        }
+      });
+  };
+
+  const handleHeatmapLeave = () => {
+    hoveredDateRef.current = "";
+    hideTooltip();
+  };
+
+  // 点击某天：筛选区间收窄到当天，再次点击恢复近 7 天
+  const handleHeatmapClick = (cell: HeatmapCell) => {
+    if (!cell.date) return;
+    if (sinceDate === cell.date && untilDate === cell.date) {
+      handlePresetChange("last7days");
+      return;
+    }
+    setSinceDate(cell.date);
+    setUntilDate(cell.date);
+    setDatePreset("custom");
+  };
+
+  const renderHourTooltip = (cell: HourlyUsageCell): React.ReactNode => (
+    <div className="usage-floating-tooltip">
+      <div className="usage-floating-tooltip-title">
+        {`${WEEKDAY_LABELS[cell.weekday]} ${String(cell.hour).padStart(2, "0")}:00 - ${String(cell.hour).padStart(2, "0")}:59`}
+      </div>
+      <div className="usage-floating-tooltip-row">
+        <span className="usage-floating-tooltip-label">
+          {t("settings.usageTotalTokens", { defaultValue: "Total tokens" })}
+        </span>
+        <span className="usage-floating-tooltip-value">
+          {formatTokensLocale(cell.totalTokens)}
+        </span>
+      </div>
+      <div className="usage-floating-tooltip-row">
+        <span className="usage-floating-tooltip-label">
+          {t("settings.usageTotalRequests", { defaultValue: "Total requests" })}
+        </span>
+        <span className="usage-floating-tooltip-value">
+          {cell.totalRequests.toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
 
   const renderRecordTooltip = (record: UsageRecord): React.ReactNode => (
     <div className="usage-floating-tooltip">
@@ -841,28 +1073,11 @@ export function UsageSettingsPanel(): React.JSX.Element {
         onDismiss={() => setClearNotice("")}
       />
 
-      <div className="usage-profile-filter-bar">
-        <span className="usage-date-filter-label">
-          {t("settings.usageProfileFilterLabel", {
-            defaultValue: "API profile",
-          })}
-        </span>
-        <CustomSelect
-          value={profileFilter}
-          options={profileOptions}
-          onChange={handleProfileFilterChange}
-          filterable
-          title={t("settings.usageProfileFilterLabel", {
-            defaultValue: "API profile",
-          })}
-          filterPlaceholder={t("settings.usageProfileFilterSearch", {
-            defaultValue: "Search profiles",
-          })}
-          noMatchText={t("settings.usageProfileFilterNoMatch", {
-            defaultValue: "No matching profile",
-          })}
-        />
-      </div>
+      <UsageProfilePills
+        profiles={profiles}
+        value={profileFilter}
+        onChange={handleProfileFilterChange}
+      />
 
       <UsageDateFilter
         preset={datePreset}
@@ -875,95 +1090,14 @@ export function UsageSettingsPanel(): React.JSX.Element {
 
       {summary && (
         <div className="usage-summary-cards">
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageCacheHitRate", {
-                defaultValue: "Cache hit rate",
-              })}
-            </span>
-            <span className="usage-summary-card-value">
-              {summary.totalInputTokens > 0
-                ? `${(
-                    (summary.totalCacheReadInputTokens /
-                      summary.totalInputTokens) *
-                    100
-                  ).toFixed(1)}%`
-                : "0%"}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageTotalTokens", { defaultValue: "Total tokens" })}
-            </span>
-            <span className="usage-summary-card-value">
-              {formatTokensLocale(summary.totalTokens)}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageInputTokens", { defaultValue: "Input tokens" })}
-            </span>
-            <span className="usage-summary-card-value">
-              {formatTokensLocale(summary.totalInputTokens)}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageOutputTokens", {
-                defaultValue: "Output tokens",
-              })}
-            </span>
-            <span className="usage-summary-card-value">
-              {formatTokensLocale(summary.totalOutputTokens)}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageCacheCreation", {
-                defaultValue: "Cache write",
-              })}
-            </span>
-            <span className="usage-summary-card-value">
-              {formatTokensLocale(summary.totalCacheCreationInputTokens)}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageCacheRead", { defaultValue: "Cache read" })}
-            </span>
-            <span className="usage-summary-card-value">
-              {formatTokensLocale(summary.totalCacheReadInputTokens)}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageTotalRequests", {
-                defaultValue: "Total requests",
-              })}
-            </span>
-            <span className="usage-summary-card-value">
-              {summary.totalRequests.toLocaleString()}
-            </span>
-          </div>
-          <div className="usage-summary-card">
-            <span className="usage-summary-card-label">
-              {t("settings.usageSuccessRate", { defaultValue: "Success rate" })}
-            </span>
-            <span className="usage-summary-card-value">
-              {summary.totalRequests > 0
-                ? `${(
-                    (1 - summary.errorRequests / summary.totalRequests) *
-                    100
-                  ).toFixed(1)}%`
-                : "100%"}
-            </span>
-            <span className="usage-summary-card-sub">
-              {t("settings.usageErrorRequests", {
-                defaultValue: "Error requests",
-              })}
-              : {summary.errorRequests.toLocaleString()}
-            </span>
-          </div>
+          {kpiCards.map((card) => (
+            <div key={card.id} className="usage-summary-card">
+              <span className="usage-summary-card-label">{card.label}</span>
+              <span className="usage-summary-card-value">{card.value}</span>
+              <span className="usage-summary-card-sub">{card.sub}</span>
+              <Sparkline values={card.series} color={card.color} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -1000,82 +1134,134 @@ export function UsageSettingsPanel(): React.JSX.Element {
 
       <div className="usage-heatmap-section">
         <div className="usage-heatmap-header">
-          <strong>
-            {t("settings.usageHeatmapTitle", {
-              defaultValue: "Daily usage heatmap",
-            })}
-          </strong>
-        </div>
-        <div className="usage-heatmap-scroll">
-          <div className="usage-heatmap-month-labels">
-            {monthLabels.map((ml, i) => {
-              const totalCols = heatmapColumns.length;
-              const totalGaps = (totalCols - 1) * 2;
-              return (
-                <span
-                  key={i}
-                  className="usage-heatmap-month-label"
-                  style={{
-                    left: `calc((100% - ${totalGaps}px) * ${
-                      ml.startCol / totalCols
-                    } + ${ml.startCol * 2}px)`,
-                    width: `calc((100% - ${totalGaps}px) * ${
-                      ml.colSpan / totalCols
-                    } + ${(ml.colSpan - 1) * 2}px)`,
-                  }}
-                >
-                  {ml.label}
-                </span>
-              );
-            })}
+          <div className="usage-heatmap-title">
+            <strong>
+              {t("settings.usageHeatmapTitle", {
+                defaultValue: "Daily usage heatmap",
+              })}
+            </strong>
+            <span className="settings-item-description">
+              {heatmapMode === "day"
+                ? t("settings.usageHeatmapDayInfo", {
+                    defaultValue:
+                      "Tokens per day · hover a day for its models, click it to look at it alone",
+                  })
+                : t("settings.usageHeatmapHourInfo", {
+                    defaultValue:
+                      "Tokens by weekday and hour over the last year",
+                  })}
+            </span>
           </div>
-          <div className="usage-heatmap-container">
-            <div className="usage-heatmap-weekday-labels">
-              {WEEKDAY_LABELS.map((label, i) => (
-                <span
-                  key={label}
-                  className={`usage-heatmap-weekday-label ${
-                    i % 2 === 0 ? "visible" : ""
-                  }`}
-                >
-                  {label}
+          <div className="segmented-tabs" role="tablist">
+            {(["day", "hour"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={heatmapMode === mode}
+                className={`segmented-tab${heatmapMode === mode ? " active" : ""}`}
+                onClick={() => setHeatmapMode(mode)}
+              >
+                <span>
+                  {mode === "day"
+                    ? t("settings.usageByDay", { defaultValue: "By day" })
+                    : t("settings.usageByHour", { defaultValue: "By hour" })}
                 </span>
-              ))}
-            </div>
-            <div className="usage-heatmap-grid">
-              {heatmapColumns.map((column, colIndex) => (
-                <div key={colIndex} className="usage-heatmap-column">
-                  {column.map((cell, rowIndex) =>
-                    cell.date ? (
-                      <div
-                        key={`${colIndex}-${rowIndex}`}
-                        className="usage-heatmap-cell"
-                        style={{ backgroundColor: getHeatmapColor(cell.value) }}
-                        onMouseEnter={(e) =>
-                          showTooltip(
-                            renderHeatmapTooltip(cell),
-                            e.clientX,
-                            e.clientY,
-                          )
-                        }
-                        onMouseMove={(e) =>
-                          positionTooltip(e.clientX, e.clientY)
-                        }
-                        onMouseLeave={hideTooltip}
-                      />
-                    ) : (
-                      <div
-                        key={`${colIndex}-${rowIndex}`}
-                        className="usage-heatmap-cell empty"
-                      />
-                    ),
-                  )}
-                </div>
-              ))}
-            </div>
+              </button>
+            ))}
           </div>
         </div>
+        {heatmapMode === "hour" ? (
+          <UsageHourGrid
+            cells={activity?.hourly ?? []}
+            weekdayLabels={WEEKDAY_LABELS}
+            onHover={(cell, x, y) => showTooltip(renderHourTooltip(cell), x, y)}
+            onMove={positionTooltip}
+            onLeave={hideTooltip}
+          />
+        ) : (
+          <div className="usage-heatmap-scroll">
+            <div className="usage-heatmap-month-labels">
+              {monthLabels.map((ml, i) => {
+                const totalCols = heatmapColumns.length;
+                const totalGaps = (totalCols - 1) * 2;
+                return (
+                  <span
+                    key={i}
+                    className="usage-heatmap-month-label"
+                    style={{
+                      left: `calc((100% - ${totalGaps}px) * ${
+                        ml.startCol / totalCols
+                      } + ${ml.startCol * 2}px)`,
+                      width: `calc((100% - ${totalGaps}px) * ${
+                        ml.colSpan / totalCols
+                      } + ${(ml.colSpan - 1) * 2}px)`,
+                    }}
+                  >
+                    {ml.label}
+                  </span>
+                );
+              })}
+            </div>
+            <div className="usage-heatmap-container">
+              <div className="usage-heatmap-weekday-labels">
+                {WEEKDAY_LABELS.map((label, i) => (
+                  <span
+                    key={label}
+                    className={`usage-heatmap-weekday-label ${
+                      i % 2 === 0 ? "visible" : ""
+                    }`}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <div className="usage-heatmap-grid">
+                {heatmapColumns.map((column, colIndex) => (
+                  <div key={colIndex} className="usage-heatmap-column">
+                    {column.map((cell, rowIndex) =>
+                      cell.date ? (
+                        <div
+                          key={`${colIndex}-${rowIndex}`}
+                          className={`usage-heatmap-cell clickable${
+                            sinceDate === cell.date && untilDate === cell.date
+                              ? " selected"
+                              : ""
+                          }`}
+                          style={{
+                            backgroundColor: getHeatmapColor(cell.value),
+                          }}
+                          onMouseEnter={(e) =>
+                            handleHeatmapEnter(cell, e.clientX, e.clientY)
+                          }
+                          onMouseMove={(e) =>
+                            positionTooltip(e.clientX, e.clientY)
+                          }
+                          onMouseLeave={handleHeatmapLeave}
+                          onClick={() => handleHeatmapClick(cell)}
+                        />
+                      ) : (
+                        <div
+                          key={`${colIndex}-${rowIndex}`}
+                          className="usage-heatmap-cell empty"
+                        />
+                      ),
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="usage-heatmap-legend">
+          {activity?.firstDay ? (
+            <span className="usage-heatmap-since">
+              {t("settings.usageRecordedSince", {
+                defaultValue: "Recorded since {{date}}",
+                values: { date: activity.firstDay },
+              })}
+            </span>
+          ) : null}
           <span className="usage-heatmap-legend-label">
             {t("settings.usageLess", { defaultValue: "Less" })}
           </span>
@@ -1112,6 +1298,17 @@ export function UsageSettingsPanel(): React.JSX.Element {
             {t("settings.usageMore", { defaultValue: "More" })}
           </span>
         </div>
+        {activity && (
+          <div className="usage-activity-facts">
+            {activityFacts.map((fact) => (
+              <div key={fact.id} className="usage-activity-fact">
+                <span className="usage-activity-fact-label">{fact.label}</span>
+                <span className="usage-activity-fact-value">{fact.value}</span>
+                <span className="usage-activity-fact-sub">{fact.sub}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {modelBreakdown.length > 0 && (

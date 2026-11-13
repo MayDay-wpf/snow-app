@@ -30,6 +30,8 @@ import type {
   ResponsesApiStreamChunk,
   ThemeBackgroundHistoryEntry,
   ThemeSettings,
+  UsageActivity,
+  UsageProfileInfo,
   UsageRecordPage,
   UsageSummary,
 } from "../types";
@@ -493,6 +495,16 @@ export const apiConfigApi = {
   /** 用量记录中出现过的 API 配置名称，供配置筛选下拉框使用。 */
   listUsageProfileNames: (): Promise<string[]> =>
     ipcRenderer.invoke("usage:list-profile-names"),
+  /** 按小时网格与活跃度统计（日期粒度）。 */
+  getUsageActivity: (
+    since: string,
+    until: string,
+    profileName: string,
+  ): Promise<UsageActivity> =>
+    ipcRenderer.invoke("usage:get-activity", since, until, profileName),
+  /** 档案列表及其主力模型。 */
+  listUsageProfiles: (): Promise<UsageProfileInfo[]> =>
+    ipcRenderer.invoke("usage:list-profiles"),
   /** 按日期范围删除用量记录（空字符串跳过对应边界），返回删除条数。 */
   deleteUsageRecords: (since: string, until: string): Promise<number> =>
     ipcRenderer.invoke("usage:delete-records", since, until),

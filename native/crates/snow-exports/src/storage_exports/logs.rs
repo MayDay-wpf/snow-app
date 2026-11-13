@@ -66,6 +66,27 @@ pub async fn list_usage_profile_names() -> napi::Result<Vec<String>> {
 }
 
 #[napi]
+pub async fn get_usage_activity(
+    since: String,
+    until: String,
+    profile_name: String,
+) -> napi::Result<crate::storage::services::usage_records::UsageActivity> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::get_usage_activity(since, until, profile_name)
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+#[napi]
+pub async fn list_usage_profiles(
+) -> napi::Result<Vec<crate::storage::services::usage_records::UsageProfileInfo>> {
+    tokio::task::spawn_blocking(crate::storage::list_usage_profiles)
+        .await
+        .map_err(map_spawn_error)?
+}
+
+#[napi]
 pub async fn delete_usage_records(since: String, until: String) -> napi::Result<u32> {
     tokio::task::spawn_blocking(move || crate::storage::delete_usage_records(since, until))
         .await

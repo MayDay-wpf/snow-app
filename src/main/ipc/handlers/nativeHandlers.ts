@@ -1718,6 +1718,18 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
   );
 
   ipcMain.handle(
+    "usage:get-activity",
+    (_event, since: unknown, until: unknown, profileName: unknown) => {
+      const sinceStr = typeof since === "string" ? since.trim() : "";
+      const untilStr = typeof until === "string" ? until.trim() : "";
+      const profile = typeof profileName === "string" ? profileName.trim() : "";
+      return native.getUsageActivity(sinceStr, untilStr, profile);
+    },
+  );
+
+  ipcMain.handle("usage:list-profiles", () => native.listUsageProfiles());
+
+  ipcMain.handle(
     "usage:delete-records",
     (_event, since: unknown, until: unknown) => {
       const sinceStr = typeof since === "string" ? since.trim() : "";

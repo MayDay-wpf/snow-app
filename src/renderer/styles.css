@@ -53731,7 +53731,7 @@ pre.file-viewer-code {
 
 .usage-summary-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -53999,13 +53999,14 @@ pre.file-viewer-code {
 .usage-donut {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   min-width: 0;
   flex: 1;
 }
 
-.usage-donut svg {
+.usage-donut > svg {
   flex-shrink: 0;
   width: 116px;
   height: 116px;
@@ -54034,7 +54035,7 @@ pre.file-viewer-code {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 0;
+  min-width: 180px;
   flex: 1;
 }
 
@@ -54316,6 +54317,241 @@ pre.file-viewer-code {
   font-size: 10px;
   color: var(--text-muted);
   margin: 0 2px;
+}
+
+/* 热力图标题：主标题 + 说明 */
+.usage-heatmap-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 按天/按小时切换按内容定宽，避免文字被截断 */
+.usage-heatmap-header .segmented-tab {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+}
+
+.usage-heatmap-header .segmented-tab > span {
+  overflow: visible;
+}
+
+.usage-donut-legend-item .model-brand-icon {
+  flex-shrink: 0;
+}
+
+.usage-heatmap-cell.clickable {
+  cursor: pointer;
+}
+
+.usage-heatmap-cell.selected {
+  border-color: var(--text-primary);
+}
+
+.usage-heatmap-since {
+  margin-right: auto;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* 热力图下方的活跃度统计行 */
+.usage-activity-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.usage-activity-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.usage-activity-fact-label,
+.usage-activity-fact-sub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-activity-fact-value {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 按小时网格：星期 x 24 小时 */
+.usage-hour-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-hour-grid-hours,
+.usage-hour-grid-row {
+  display: grid;
+  grid-template-columns: 24px repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  align-items: center;
+}
+
+.usage-hour-grid-hours span {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-muted);
+}
+
+.usage-hour-grid-weekday {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.usage-hour-grid-row .usage-heatmap-cell {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.6;
+}
+
+/* 指标卡迷你趋势线 */
+.usage-sparkline {
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin-top: 4px;
+}
+
+/* 档案筛选：横向按钮，溢出时横向滚动；禁止在纵向弹性容器中被压缩 */
+.usage-profile-pills {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.usage-profile-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.usage-profile-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-profile-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.usage-profile-pill.active {
+  border-color: var(--border-light);
+  background: var(--bg-active);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* 趋势图：排除缓存读取开关 */
+.usage-chart-toggle {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.usage-chart-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.usage-chart-toggle.active {
+  border-color: var(--border-light);
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.usage-trend-bar {
+  transition: opacity 0.12s;
+}
+
+.usage-trend-bar.dim {
+  opacity: 0.45;
+}
+
+.usage-chart-tooltip-label .usage-chart-legend-dot {
+  display: inline-block;
+  margin-right: 5px;
+}
+
+/* 模型排行：名称 + 请求数 + token + 占比 */
+.usage-donut-legend-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.usage-donut-legend-sub {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.usage-donut-legend-value {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-donut-legend-tail {
+  padding: 2px 4px 0 18px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.usage-floating-tooltip-hint {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.usage-floating-tooltip-model {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .usage-table-section {

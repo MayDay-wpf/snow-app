@@ -278,6 +278,31 @@ export type ModelUsageBreakdown = {
   totalTokens: number;
 };
 
+export type HourlyUsageCell = {
+  weekday: number;
+  hour: number;
+  totalRequests: number;
+  totalTokens: number;
+};
+
+export type UsageActivity = {
+  hourly: HourlyUsageCell[];
+  activeDays: number;
+  averageActiveDayTokens: number;
+  busiestDay: string;
+  busiestDayTokens: number;
+  currentStreak: number;
+  longestStreak: number;
+  firstDay: string;
+};
+
+export type UsageProfileInfo = {
+  name: string;
+  topModel: string;
+  totalTokens: number;
+  totalRequests: number;
+};
+
 export type AppLogInput = {
   level: string;
   module: string;
@@ -3743,6 +3768,12 @@ export type NativeBridge = ImageGenerationNativeApi & {
     profileName: string,
   ) => Promise<ModelUsageBreakdown[]>;
   listUsageProfileNames: () => Promise<string[]>;
+  getUsageActivity: (
+    since: string,
+    until: string,
+    profileName: string,
+  ) => Promise<UsageActivity>;
+  listUsageProfiles: () => Promise<UsageProfileInfo[]>;
   deleteUsageRecords: (since: string, until: string) => Promise<number>;
   writeAppLog: (input: AppLogInput) => Promise<void>;
   /** Executes a scheduled-task pre-script (shell command) in the project cwd. */

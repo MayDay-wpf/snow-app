@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import type { ModelUsageBreakdown } from "../../../../preload";
+import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import { isChatRequestMethod, translateRequestMethod } from "./requestMethod";
 
-const TOP_N = 6;
+const TOP_N = 5;
 const VIEW = 132;
 const RADIUS = 46;
 const STROKE = 16;
@@ -24,8 +25,11 @@ const OTHER_COLOR = "var(--text-muted)";
 
 type Segment = {
   label: string;
+  model: string;
   value: number;
   requests: number;
+  isOther: boolean;
+  count: number;
   fraction: number;
   arcLen: number;
   dashOffset: number;
@@ -62,14 +66,20 @@ export function ModelDonutChart({
     };
     const items = top.map((m) => ({
       label: modelLabel(m),
+      model: m.model,
       value: m.totalTokens,
       requests: m.totalRequests,
+      isOther: false,
+      count: 1,
     }));
     if (restTokens > 0) {
       items.push({
         label: t("settings.usageOthers", { defaultValue: "Others" }),
+        model: "",
         value: restTokens,
         requests: restRequests,
+        isOther: true,
+        count: rest.length,
       });
     }
     const total = items.reduce((sum, it) => sum + it.value, 0);
@@ -78,12 +88,15 @@ export function ModelDonutChart({
       const fraction = total > 0 ? it.value / total : 0;
       const seg: Segment = {
         label: it.label,
+        model: it.model,
         value: it.value,
         requests: it.requests,
+        isOther: it.isOther,
+        count: it.count,
         fraction,
         arcLen: fraction * CIRCUMFERENCE,
         dashOffset: CIRCUMFERENCE * (1 - acc),
-        color: i < COLORS.length ? COLORS[i] : OTHER_COLOR,
+        color: it.isOther ? OTHER_COLOR : COLORS[i % COLORS.length],
       };
       acc += fraction;
       return seg;
@@ -174,25 +187,54 @@ export function ModelDonutChart({
         </text>
       </svg>
       <div className="usage-donut-legend">
-        {segments.map((seg, i) => (
-          <div
-            key={seg.label}
-            className="usage-donut-legend-item"
-            onMouseEnter={(e) => showTooltipAt(i, e)}
-            onMouseLeave={hideTooltip}
-          >
-            <span
-              className="usage-donut-legend-dot"
-              style={{ backgroundColor: seg.color }}
-            />
-            <span className="usage-donut-legend-label" title={seg.label}>
-              {seg.label}
-            </span>
-            <span className="usage-donut-legend-pct">
-              {(seg.fraction * 100).toFixed(1)}%
-            </span>
-          </div>
-        ))}
+        {segments.map((seg, i) =>
+          seg.isOther ? (
+            <div
+              key="__others"
+              className="usage-donut-legend-tail"
+              onMouseEnter={(e) => showTooltipAt(i, e)}
+              onMouseLeave={hideTooltip}
+            >
+              {t("settings.usageOthersTogether", {
+                defaultValue: "{{count}} more, {{pct}} together",
+                values: {
+                  count: String(seg.count),
+                  pct: `${(seg.fraction * 100).toFixed(1)}%`,
+                },
+              })}
+            </div>
+          ) : (
+            <div
+              key={seg.label}
+              className="usage-donut-legend-item"
+              onMouseEnter={(e) => showTooltipAt(i, e)}
+              onMouseLeave={hideTooltip}
+            >
+              <span
+                className="usage-donut-legend-dot"
+                style={{ backgroundColor: seg.color }}
+              />
+              <ModelBrandIcon model={seg.model} size={14} />
+              <span className="usage-donut-legend-text">
+                <span className="usage-donut-legend-label" title={seg.label}>
+                  {seg.label}
+                </span>
+                <span className="usage-donut-legend-sub">
+                  {t("settings.usageRequestsCount", {
+                    defaultValue: "{{count}} requests",
+                    values: { count: seg.requests.toLocaleString() },
+                  })}
+                </span>
+              </span>
+              <span className="usage-donut-legend-value">
+                {formatTokens(seg.value)}
+              </span>
+              <span className="usage-donut-legend-pct">
+                {(seg.fraction * 100).toFixed(1)}%
+              </span>
+            </div>
+          ),
+        )}
       </div>
       {activeSegment && tooltip && (
         <div
