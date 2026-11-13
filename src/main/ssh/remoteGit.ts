@@ -1,4 +1,10 @@
-import { executeSshCommand, listSshDirectory, parseSshUrl } from "./sshManager";
+import {
+  executeSshCommand,
+  listSshDirectory,
+  parseSshUrl,
+  SshOperationError,
+  type SshDirectoryEntry,
+} from "./sshManager";
 import {
   buildRemoteWorkspaceUri,
   normalizeRemotePath,
@@ -52,6 +58,18 @@ const SKIP_DIRS = new Set([
   ".swiftpm",
   ".build",
 ]);
+
+// 目录扫描的错误分类：`git status` 在非仓库目录下的固定回答，只有这种结果
+// 才允许降级为「不是仓库」；其余错误必须向上抛出，避免把可用仓库误判为空。
+const NOT_A_GIT_REPO_PATTERN = /not a git repository|not a git work tree/i;
+
+// 远程子树读取失败里「无权限 / 不存在」属于可以跳过的目录（/root、/proc、
+// 扫描期间被删除等）；会话失效、传输中断等必须让整次扫描失败。
+const SKIPPABLE_DIRECTORY_ERROR_PATTERN =
+  /permission denied|no such file|not found|not a directory/i;
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 // ===== Command execution =====
 
@@ -233,10 +251,13 @@ export const remoteGetGitStatus = async (
       "--find-renames",
       "-uall",
     ]);
-  } catch {
-    // Not a git repository (or git rejected the path) — the UI shows the
-    // "not a repo" empty state instead of a raw git error.
-    return emptyResult();
+  } catch (error) {
+    // 非仓库目录 git 会明确回答 "not a git repository"；连接中断、命令超时、
+    // 远端缺少 git 等错误必须向上抛出，不能伪装成「不是 Git 仓库」。
+    if (NOT_A_GIT_REPO_PATTERN.test(errorText(error))) {
+      return emptyResult();
+    }
+    throw error;
   }
 
   const { header, entries } = parsePorcelainZ(statusOut);
@@ -1385,15 +1406,6 @@ export const remoteDiscoverGitRepos = async (
   return withSshSession(workspacePath, async (sessionId) => {
     const repos: GitRepoInfo[] = [];
 
-    const isRepoRoot = async (remotePath: string): Promise<boolean> => {
-      try {
-        const entries = await listSshDirectory(sessionId, remotePath);
-        return entries.some((entry) => entry.name === ".git");
-      } catch {
-        return false;
-      }
-    };
-
     const getCurrentBranch = async (remotePath: string): Promise<string> => {
       try {
         const branch = (
@@ -1408,30 +1420,32 @@ export const remoteDiscoverGitRepos = async (
       }
     };
 
-    const scan = async (remotePath: string, depth: number): Promise<void> => {
-      if (await isRepoRoot(remotePath)) {
-        const uri = buildRemoteWorkspaceUri(
-          workspacePath,
-          remotePath,
-          remoteRootPath,
-        );
-        const name = remotePath.split("/").filter(Boolean).pop() ?? remotePath;
-        repos.push({
-          path: uri,
-          name,
-          currentBranch: await getCurrentBranch(remotePath),
-        });
+    const addRepo = async (remotePath: string): Promise<void> => {
+      const uri = buildRemoteWorkspaceUri(
+        workspacePath,
+        remotePath,
+        remoteRootPath,
+      );
+      const name = remotePath.split("/").filter(Boolean).pop() ?? remotePath;
+      repos.push({
+        path: uri,
+        name,
+        currentBranch: await getCurrentBranch(remotePath),
+      });
+    };
+
+    // 一次 readdir 同时判断「本层是不是仓库」与「是否继续下钻」，避免每个
+    // 目录读两遍。子目录错误按可跳过（无权限 / 已删除）与致命错误区分处理。
+    const walk = async (
+      remotePath: string,
+      entries: SshDirectoryEntry[],
+      depth: number,
+    ): Promise<void> => {
+      if (entries.some((entry) => entry.name === ".git")) {
+        await addRepo(remotePath);
         return;
       }
-
       if (depth >= MAX_DISCOVERY_DEPTH) {
-        return;
-      }
-
-      let entries;
-      try {
-        entries = await listSshDirectory(sessionId, remotePath);
-      } catch {
         return;
       }
 
@@ -1439,27 +1453,33 @@ export const remoteDiscoverGitRepos = async (
         if (!entry.isDirectory || SKIP_DIRS.has(entry.name)) {
           continue;
         }
-        await scan(entry.path, depth + 1);
+        let childEntries: SshDirectoryEntry[];
+        try {
+          childEntries = await listSshDirectory(sessionId, entry.path);
+        } catch (error) {
+          if (SKIPPABLE_DIRECTORY_ERROR_PATTERN.test(errorText(error))) {
+            continue;
+          }
+          throw error;
+        }
+        await walk(entry.path, childEntries, depth + 1);
       }
     };
 
-    // The workspace root itself may be a repo.
-    if (await isRepoRoot(remoteRootPath)) {
-      const uri = buildRemoteWorkspaceUri(
-        workspacePath,
-        remoteRootPath,
-        remoteRootPath,
-      );
-      const name =
-        remoteRootPath.split("/").filter(Boolean).pop() ?? remoteRootPath;
-      repos.push({
-        path: uri,
-        name,
-        currentBranch: await getCurrentBranch(remoteRootPath),
+    // 根目录读不出来通常是会话或传输问题：必须报错，不能返回空列表让界面
+    // 误判「这个工作区没有仓库」。
+    let rootEntries: SshDirectoryEntry[];
+    try {
+      rootEntries = await listSshDirectory(sessionId, remoteRootPath);
+    } catch (error) {
+      throw new SshOperationError({
+        code: "SSH_GIT_DISCOVERY_FAILED",
+        operation: "git_discover",
+        message: `Failed to read remote workspace directory: ${errorText(error)}`,
       });
-    } else {
-      await scan(remoteRootPath, 0);
     }
+
+    await walk(remoteRootPath, rootEntries, 0);
 
     repos.sort((a, b) => a.path.localeCompare(b.path));
     return repos;
