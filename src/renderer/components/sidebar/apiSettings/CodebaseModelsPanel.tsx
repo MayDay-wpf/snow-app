@@ -24,12 +24,16 @@ import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
+import { ModelNameCell } from "../../common/ModelNameCell";
 import { CODEBASE_SETTING_CODE } from "../codebaseSettings/codebaseSettingsConstants";
 import {
   ModelConnectionStatus,
   ModelTestButton,
 } from "../modelHealth/ModelConnectionStatus";
 import type { ModelConnectionTestResult } from "../../../../preload";
+import { EmbeddingTypeIcon, renderSchemeOption } from "./RequestMethodIcon";
+
+const renderEmbeddingTypeOption = renderSchemeOption(EmbeddingTypeIcon);
 
 export type CodebaseModelKind = "embedding" | "reranking";
 
@@ -587,7 +591,9 @@ export function CodebaseModelsPanel({
                         </span>
                       ) : null}
                     </td>
-                    <td>{model.modelName}</td>
+                    <td>
+                      <ModelNameCell model={model.modelName} />
+                    </td>
                     {isEmbedding ? (
                       <td>{embeddingTypeLabel(model.embeddingType)}</td>
                     ) : null}
@@ -749,6 +755,8 @@ export function CodebaseModelsPanel({
                 <CustomSelect
                   value={draft.embeddingType}
                   options={EMBEDDING_TYPE_OPTIONS}
+                  renderOption={renderEmbeddingTypeOption}
+                  renderLabel={renderEmbeddingTypeOption}
                   onChange={(value) => updateDraft("embeddingType", value)}
                   disabled={isSaving}
                 />

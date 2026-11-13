@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { ModelNameCell } from "../../common/ModelNameCell";
 import { ModelTestButton } from "../modelHealth/ModelConnectionStatus";
 import { ApiModelTestModal } from "./ApiModelTestModal";
 import {
@@ -357,7 +358,11 @@ export function ApiSettingsTable({
                       </button>
                     </td>
                     <td className="cell-url">{config.baseUrl || "-"}</td>
-                    <td>{config.advancedModel || config.basicModel || "-"}</td>
+                    <td>
+                      <ModelNameCell
+                        model={config.advancedModel || config.basicModel || ""}
+                      />
+                    </td>
                     <td>
                       <span className="badge method">
                         {config.requestMethod}

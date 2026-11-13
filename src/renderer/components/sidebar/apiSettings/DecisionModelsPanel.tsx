@@ -37,11 +37,15 @@ import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
+import { ModelNameCell } from "../../common/ModelNameCell";
 import {
   ModelConnectionStatus,
   ModelTestButton,
 } from "../modelHealth/ModelConnectionStatus";
 import type { ModelConnectionTestResult } from "../../../../preload";
+import { DecisionProviderIcon, renderSchemeOption } from "./RequestMethodIcon";
+
+const renderDecisionProviderOption = renderSchemeOption(DecisionProviderIcon);
 
 /**
  * 决策模型管理面板（API 配置页的「决策模型」标签页）。
@@ -540,7 +544,9 @@ export function DecisionModelsPanel(): React.JSX.Element {
                     <td className="cell-name">
                       <strong>{model.name}</strong>
                     </td>
-                    <td>{model.model}</td>
+                    <td>
+                      <ModelNameCell model={model.model} />
+                    </td>
                     <td className="cell-url">
                       {resolveDecisionModelEndpoint(model) || "-"}
                     </td>
@@ -729,6 +735,8 @@ export function DecisionModelsPanel(): React.JSX.Element {
                     }),
                   },
                 ]}
+                renderOption={renderDecisionProviderOption}
+                renderLabel={renderDecisionProviderOption}
                 onChange={(value) =>
                   changeProvider(normalizeDecisionModelProvider(value))
                 }

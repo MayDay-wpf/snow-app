@@ -361,7 +361,7 @@ export const PluginCommunityPanel = (): React.JSX.Element => {
                       </span>
                     ) : null}
                   </span>
-                  <span className="plugins-item-meta">
+                  <span className="plugins-item-meta plugin-market-meta">
                     <span className="plugin-market-downloads">
                       <Star size={11} strokeWidth={1.8} />
                       {formatCompactCount(entry.stars)}

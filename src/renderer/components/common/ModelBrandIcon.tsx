@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ModelIcon, modelMappings } from "@lobehub/icons";
 import { Bot } from "lucide-react";
+import { BrandAvatar, matchCustomBrand } from "./customBrandIcons";
 
 type ModelBrandIconProps = {
   /** 模型名称，用于模糊匹配品牌图标。 */
@@ -24,6 +25,8 @@ export function ModelBrandIcon({
   className,
   shape = "circle",
 }: ModelBrandIconProps): React.JSX.Element {
+  const customBrand = useMemo(() => matchCustomBrand(model), [model]);
+
   // 与 ModelIcon 内部相同的匹配逻辑（keywords 正则，不区分大小写），
   // 仅用于判断是否有品牌图标可显示。
   const matched = useMemo(() => {
@@ -32,9 +35,20 @@ export function ModelBrandIcon({
       return false;
     }
     return modelMappings.some((item) =>
-      item.keywords.some((keyword) => new RegExp(keyword, "i").test(name))
+      item.keywords.some((keyword) => new RegExp(keyword, "i").test(name)),
     );
   }, [model]);
+
+  if (customBrand) {
+    return (
+      <BrandAvatar
+        brand={customBrand}
+        size={size}
+        shape={shape}
+        className={["model-brand-icon", className].filter(Boolean).join(" ")}
+      />
+    );
+  }
 
   const rootClassName = [
     "model-brand-icon",

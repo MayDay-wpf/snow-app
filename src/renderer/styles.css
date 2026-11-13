@@ -22801,7 +22801,8 @@ img.tool-call-plugin-origin-icon {
 
 /* 模型品牌图标：渠道内多模型 Tab 与渠道表格「模型」列，复用全局 ModelBrandIcon */
 .imagegen-model-tab-icon,
-.imagegen-table-model-icon {
+.imagegen-table-model-icon,
+.model-name-cell-icon {
   flex-shrink: 0;
   vertical-align: middle;
 }
@@ -55605,7 +55606,8 @@ pre.file-viewer-code {
 }
 
 /* 表格「模型」列：主模型 + 多模型计数单行展示，长 ID 截断不撑高行 */
-.imagegen-table-model {
+.imagegen-table-model,
+.model-name-cell {
   display: inline-flex;
   max-width: 220px;
   min-width: 0;
@@ -55613,7 +55615,8 @@ pre.file-viewer-code {
   gap: 4px;
 }
 
-.imagegen-table-model-id {
+.imagegen-table-model-id,
+.model-name-cell-id {
   overflow: hidden;
   color: var(--text-primary);
   font-size: 12px;
@@ -63730,6 +63733,13 @@ img.plugin-icon {
 
 .plugin-market-downloads {
   display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 星标与后续文本同为 flex 项，垂直居中对齐 */
+.plugin-market-meta {
+  display: flex;
   align-items: center;
   gap: 4px;
 }
