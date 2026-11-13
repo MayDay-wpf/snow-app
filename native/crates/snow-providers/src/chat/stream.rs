@@ -209,9 +209,8 @@ pub(super) async fn collect_chat_completions_stream(
                         ));
 
                         if !should_retry(&error, attempt, retry_options) {
-                            return Err(Error::from_reason(crate::api::failure::bounded_provider_detail(&error.reason, 768, Some(api_key))));
+                            return Err(error);
                         }
-                        let error = Error::from_reason(crate::api::failure::bounded_provider_detail(&error.reason, 768, Some(api_key)));
 
                         // Emit retry status to frontend
                         on_chunk.call(
@@ -261,9 +260,8 @@ pub(super) async fn collect_chat_completions_stream(
                 }
                 Err(error) => {
                     if !should_retry(&error, attempt, retry_options) {
-                        return Err(Error::from_reason(crate::api::failure::bounded_provider_detail(&error.reason, 768, Some(api_key))));
+                        return Err(error);
                     }
-                    let error = Error::from_reason(crate::api::failure::bounded_provider_detail(&error.reason, 768, Some(api_key)));
 
                     // Emit retry status to frontend
                     on_chunk.call(
@@ -352,7 +350,6 @@ pub(super) async fn collect_chat_completions_stream(
                     &mut stream_finished,
                     &mut finish_reason_seen,
                     &mut failure,
-                    api_key,
                 );
                 let content_delta = content_chunks[content_start_index..].join("");
                 let thinking_delta = thinking_chunks[thinking_start_index..].join("");
@@ -461,7 +458,6 @@ pub(super) async fn collect_chat_completions_stream(
             user_cancelled: cancel_token.is_cancelled(),
         };
         let decision = decide_stream_recovery(cause, attempt, retry_options, progress);
-        let retry_error = crate::api::failure::bounded_provider_detail(&retry_error, 768, Some(api_key));
 
         match decision {
             StreamRecoveryDecision::Cancelled => {

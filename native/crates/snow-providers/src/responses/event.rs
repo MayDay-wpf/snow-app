@@ -175,7 +175,7 @@ impl ResponsesFailure {
             })
         });
         Self {
-            detail: ProviderFailure::from_event(event, None),
+            detail: ProviderFailure::from_event(event),
             transport_failure,
             connection_expired,
             throttle_reason,

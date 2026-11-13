@@ -240,8 +240,7 @@ async fn create_chat_completion_response_async(
     {
         Ok(result) => result,
         Err(error) => {
-            let failure =
-                crate::api::failure::ProviderFailure::from_message(&error.reason, Some(api_key));
+            let failure = crate::api::failure::ProviderFailure::from_message(&error.reason);
             // The conversation boundary logs once its final persisted ID exists.
             return Err(Error::from_reason(failure.reason().unwrap_or_default()));
         }

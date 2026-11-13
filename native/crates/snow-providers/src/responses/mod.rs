@@ -477,7 +477,7 @@ async fn create_response_async(
     // 整段改写与传输接管只能走 HTTP/SSE：WebSocket 没有整段响应体，也无法让插件
     // 接管连接；逐事件钩子在两条传输上都生效。
     let force_http_transport = crate::api::oauth::plugin::response::requires_http_transport();
-    let streamed_response = crate::api::failure::with_api_key(api_key, async {
+    let streamed_response = async {
         if responses_web_socket_enabled(&api_config.config_json) && !force_http_transport {
             ws::collect_streaming_response_ws(
                 database_path.clone(),
@@ -513,13 +513,12 @@ async fn create_response_async(
             )
             .await
         }
-    })
+    }
     .await;
     let streamed_response = match streamed_response {
         Ok(result) => result,
         Err(error) => {
-            let failure =
-                crate::api::failure::ProviderFailure::from_message(&error.reason, Some(api_key));
+            let failure = crate::api::failure::ProviderFailure::from_message(&error.reason);
             // The conversation boundary logs once its final persisted ID exists.
             return Err(Error::from_reason(failure.reason().unwrap_or_default()));
         }

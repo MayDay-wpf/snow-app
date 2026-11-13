@@ -25,7 +25,6 @@ pub(super) fn process_sse_event_block(
     stream_finished: &mut bool,
     finish_reason_seen: &mut bool,
     failure: &mut Option<ProviderFailure>,
-    api_key: &str,
 ) {
     // Process each `data:` line independently as a separate SSE event.
     // This matches the TypeScript reference implementation where each line
@@ -67,7 +66,6 @@ pub(super) fn process_sse_event_block(
             token_usage,
             tool_args_delta,
             finish_reason_seen,
-            api_key,
         ) {
             *failure = Some(process_error);
             tool_calls.clear();
@@ -107,7 +105,6 @@ pub(super) fn process_sse_event_block(
                 token_usage,
                 tool_args_delta,
                 finish_reason_seen,
-                api_key,
             ) {
                 *failure = Some(process_error);
                 tool_calls.clear();
@@ -135,11 +132,10 @@ fn process_chat_completion_event(
     token_usage: &mut ChatTokenUsage,
     tool_args_delta: &mut String,
     finish_reason_seen: &mut bool,
-    api_key: &str,
 ) -> std::result::Result<(), ProviderFailure> {
     if event.get("error").is_some_and(|error| !error.is_null()) {
         if let Some(id) = read_string(event, "id") { *response_id = id; }
-        return Err(ProviderFailure::from_event(event, Some(api_key)));
+        return Err(ProviderFailure::from_event(event));
     }
 
     if let Some(id) = read_string(event, "id") {

@@ -278,7 +278,6 @@ pub async fn create_response_stream(
         );
     }
 
-    let failure_api_key = api_config.api_key.clone();
     let result = match api_config.request_method.as_str() {
         "chat" => {
             create_chat_completion_response_stream(
@@ -390,9 +389,7 @@ pub async fn create_response_stream(
             Ok(response)
         }
         Err(error) => {
-            let failure = crate::api::failure::ProviderFailure::from_message(
-                &error.reason, Some(&failure_api_key),
-            );
+            let failure = crate::api::failure::ProviderFailure::from_message(&error.reason);
             let failure_reason = failure.reason();
             if cancel_token.is_cancelled() {
                 return Ok(ResponsesApiResult {

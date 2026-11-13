@@ -36,7 +36,6 @@ use url::Url;
 
 use crate::api::common::StreamSink;
 use crate::api::common::{emit_stream_chunk, emit_tool_args_probe, ThinkingStreamTracker};
-use crate::api::failure::bounded_provider_detail;
 use crate::api::http_client::{app_user_agent, load_proxy_config, resolve_transport_proxy_url};
 use crate::api::oauth::plugin::response as plugin_response;
 use crate::api::responses::ResponsesApiStreamChunk;
@@ -847,9 +846,7 @@ pub(super) async fn collect_streaming_response_ws(
         let started = match started {
             Ok(started) => started,
             Err(failure) => {
-                // Policy metadata and cause classification use the original error;
-                // only the bounded redacted copy may leave the transport boundary.
-                let safe_error = bounded_provider_detail(&failure.error.reason, 768, Some(api_key));
+                let safe_error = failure.error.reason.clone();
                 // 复用的连接在发送阶段就失效（服务端已回收）：允许一次不计预算的
                 // 快速换新重发（复用收益不该被一条过期连接吃掉），随后一律走统一的
                 // 有限预算与退避，避免并发下反复复用失效连接。这条重发同样留痕
@@ -1118,7 +1115,7 @@ pub(super) async fn collect_streaming_response_ws(
                 unreachable!("terminal and cancellation are handled before transport recovery")
             }
         };
-        let safe_retry_error = bounded_provider_detail(&retry_error, 768, Some(api_key));
+        let safe_retry_error = retry_error.clone();
         let progress_snapshot = attempt_state.progress(cancel_token.is_cancelled());
         let decision = decide_stream_recovery(cause, attempt, retry_options, progress_snapshot);
 

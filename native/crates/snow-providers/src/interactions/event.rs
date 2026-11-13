@@ -2,15 +2,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use regex::Regex;
 use crate::diagnostic as eprintln;
 use serde_json::{json, Value};
 
-use crate::api::common::{read_first_i64, truncate_utf8_safe};
+use crate::api::common::read_first_i64;
 use crate::storage::services::chat_conversations::ChatTokenUsage;
-
-const MAX_PROVIDER_FAILURE_CODE_BYTES: usize = 128;
-const MAX_PROVIDER_FAILURE_MESSAGE_BYTES: usize = 768;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InteractionsProviderFailure {
@@ -24,13 +20,13 @@ impl InteractionsProviderFailure {
         let code = error
             .get("code")
             .and_then(provider_error_code)
-            .map(|value| bounded_provider_detail(&value, MAX_PROVIDER_FAILURE_CODE_BYTES))
+            .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         let message = error
             .get("message")
             .or_else(|| event.get("message"))
             .and_then(Value::as_str)
-            .map(|value| bounded_provider_detail(value, MAX_PROVIDER_FAILURE_MESSAGE_BYTES))
+            .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| String::from("Interactions API request failed"));
         Self { code, message }
@@ -83,67 +79,6 @@ fn provider_error_code(value: &Value) -> Option<String> {
         Value::String(code) => Some(code.clone()),
         Value::Number(code) => Some(code.to_string()),
         _ => None,
-    }
-}
-
-fn bounded_provider_detail(value: &str, max_bytes: usize) -> String {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let redacted = redact_provider_detail(&normalized);
-    if redacted.len() <= max_bytes {
-        return redacted;
-    }
-    let visible = truncate_utf8_safe(&redacted, max_bytes.saturating_sub(3));
-    format!("{visible}...")
-}
-
-fn redact_provider_detail(value: &str) -> String {
-    const PATTERNS: &[(&str, &str)] = &[
-        (
-            r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}",
-            "${1} [REDACTED]",
-        ),
-        (
-            r#"(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|refresh[_-]?token|secret|password|authorization|signature)=)[^&\s\"'<>]+"#,
-            "${1}[REDACTED]",
-        ),
-        (
-            r#"(?i)([\"']?(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|secret|password|authorization|cookie)[\"']?\s*[:=]\s*[\"'])([^\"']*)([\"'])"#,
-            "${1}[REDACTED]${3}",
-        ),
-        (
-            r#"(?i)(\b(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|secret|password|authorization|cookie)\b\s*[:=]\s*)[^\s,;&}\]\"'\[]+"#,
-            "${1}[REDACTED]",
-        ),
-        (
-            r#"(?i)((?:^|[,{;]\s*)[\"']?(?:prompt|input|contents?)[\"']?\s*[:=]\s*[\"'])([^\"']*)([\"'])"#,
-            "${1}[REDACTED]${3}",
-        ),
-        (
-            r#"(?i)((?:^|[,{;]\s*)[\"']?(?:prompt|input|contents?)[\"']?\s*[:=]\s*)[^,;}\]\"'\[]+"#,
-            "${1}[REDACTED]",
-        ),
-    ];
-
-    PATTERNS
-        .iter()
-        .fold(value.to_string(), |redacted, (pattern, replacement)| {
-            Regex::new(pattern)
-                .expect("provider redaction regex")
-                .replace_all(&redacted, *replacement)
-                .into_owned()
-        })
-}
-
-pub(super) fn bounded_provider_error_response(value: &str) -> String {
-    if let Ok(event) = serde_json::from_str::<Value>(value) {
-        return InteractionsProviderFailure::from_error_event(&event).reason();
-    }
-
-    let detail = bounded_provider_detail(value, MAX_PROVIDER_FAILURE_MESSAGE_BYTES);
-    if detail.is_empty() {
-        String::from("Interactions API request failed")
-    } else {
-        detail
     }
 }
 

@@ -370,15 +370,9 @@ pub async fn takeover(cancel_token: &CancellationToken) -> Result<Option<Synthet
         .unwrap_or_default()
         .to_string();
     if !(200..300).contains(&status) {
-        let access_token = hook
-            .account
-            .get("accessToken")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
         return Err(Error::from_reason(format!(
             "OAuth plugin fetch returned {}: {}",
-            status,
-            snow_storage::failure::bounded_provider_detail(&body, 512, Some(access_token))
+            status, body
         )));
     }
     Ok(Some(SyntheticBody::Whole {

@@ -197,7 +197,6 @@ pub(super) async fn collect_interactions_stream(
                             .text()
                             .await
                             .unwrap_or_else(|_| "Failed to read response body".to_string());
-                        let error_text = super::event::bounded_provider_error_response(&error_text);
                         let error = Error::from_reason(format!(
                             "Interactions stream request failed: {status} {error_text}"
                         ));
