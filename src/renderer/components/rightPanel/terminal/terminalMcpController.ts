@@ -41,8 +41,8 @@ const tabMetadata = new Map<string, { title: string; cwd: string }>();
 const tabWaiters = new Map<string, Set<TabWaiter>>();
 
 /**
- * 最近聚焦的终端 tab：由右侧面板按「面板激活 tab」同步写入（与 terminal-list
- * 的 isActive 同源）。可能指向尚未挂载或已关闭的 tab，解析时由
+ * 最近聚焦的终端 tab：由右侧面板按「面板激活 tab」同步写入（与 terminal-manage
+ * action=list 的 isActive 同源）。可能指向尚未挂载或已关闭的 tab，解析时由
  * getFallbackTabId 校验，失效则回退到最后注册的实例。
  */
 let focusedTabId: string | null = null;
@@ -134,7 +134,7 @@ export const executeTerminalMcpCommand = async (
   const tabId = useFocusedTab ? getFallbackTabId() : requestedTabId;
   if (!tabId) {
     throw new Error(
-      `No terminal tab is available for terminal-${operation}; open a terminal tab first`,
+      `No terminal tab is available for terminal-manage action=${operation}; open a terminal tab first`,
     );
   }
 

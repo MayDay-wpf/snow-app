@@ -357,7 +357,7 @@ flowchart TD
    - For file reads: verifies whether the specific file is modified, staged, or untracked in Git;
    - For search tools (`grep-search`, `codebase-search`): verifies overall repository dirty digest and commit/branch changes.
 3. **Broadened Mutating Tools**:
-   - Expands `mayMutateWorkspace` beyond basic file writes to include `terminal-send`, `terminal-open`, `sub-agents-activate`, `sub-agents-continue`, `lsp-rename`, `workflow-generate`, and external MCP write tools.
+   - Expands `mayMutateWorkspace` beyond basic file writes to include `terminal-manage`, `sub-agents-activate`, `sub-agents-continue`, `lsp-rename`, `workflow-generate`, and external MCP write tools.
 
 ### 4.3 Mid-flight Steering
 

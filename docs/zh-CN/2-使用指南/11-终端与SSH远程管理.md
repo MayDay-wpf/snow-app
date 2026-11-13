@@ -171,7 +171,7 @@ flowchart TD
     macOS/Linux：zsh → bash → fish → sh → `$SHELL`），AI 命令与集成
     终端的检测结果完全一致。
   - **路径校验**：保存非空 Shell 路径时会校验文件存在性，无效路径将被
-    拒绝保存；`terminal-open` 传入不存在的 Shell 路径也会直接报错，
+    拒绝保存；`terminal-manage`（`action=open`）传入不存在的 Shell 路径也会直接报错，
     不会静默回退到默认 Shell。
   - 网络代理字段已从终端设置中移除（终端内命令如需代理，请在 Shell
     环境自行配置 `HTTP_PROXY`/`HTTPS_PROXY` 等环境变量）。

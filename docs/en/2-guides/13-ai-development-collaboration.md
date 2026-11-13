@@ -12,12 +12,12 @@
 
 ### 1.1 The fundamental difference
 
-| Dimension     | `bash-terminal-execute` (one-shot)                                                 | `terminal-*` (persistent PTY)                                           |
-| ------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Lifecycle     | Ends when the command ends; `detach:true` keeps it running in background           | Tab stays alive across calls                                            |
-| Log access    | detach writes `<workspace>/.snow/logs/<name>-<ts>.log`; read via `filesystem-read` | `terminal-read` reads the screen buffer; `terminal-wait` waits for idle |
-| Interactivity | None (one-shot); `isInteractive:true` waits for input                              | Fully interactive: signals, passwords, keys                             |
-| Best for      | Build, test, lint, one-off scripts                                                 | **dev servers, long-running processes, anything you need to watch**     |
+| Dimension     | `bash-terminal-execute` (one-shot)                                                 | `terminal-manage` (persistent PTY)                                  |
+| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Lifecycle     | Ends when the command ends; `detach:true` keeps it running in background           | Tab stays alive across calls                                        |
+| Log access    | detach writes `<workspace>/.snow/logs/<name>-<ts>.log`; read via `filesystem-read` | `action=read` reads the screen buffer; `action=wait` waits for idle |
+| Interactivity | None (one-shot); `isInteractive:true` waits for input                              | Fully interactive: signals, passwords, keys                         |
+| Best for      | Build, test, lint, one-off scripts                                                 | **dev servers, long-running processes, anything you need to watch** |
 
 ### 1.2 Decision table (check before launching any process)
 
@@ -28,7 +28,7 @@ Before starting a process, ask: how long does it live, and how do I read its out
    → bash-terminal-execute (foreground, wait for the result)
 
 ② Long-running service (dev server / cargo run / tauri dev)
-   → prefer terminal-open + terminal-send, watch output with terminal-read
+   → prefer terminal-manage open + send, watch output with read
    → or bash-terminal-execute detach:true (get pid + logPath, poll with filesystem-read)
 
 ③ Service already running (whoever started it)
@@ -39,7 +39,7 @@ Before starting a process, ask: how long does it live, and how do I read its out
      location or ask the user
 
 ④ Needs interaction (password / confirmation / signals)
-   → terminal-open + terminal-send (PTY channel)
+   → terminal-manage open + send (PTY channel)
 ```
 
 ### 1.3 When to switch from "background (detach)" to a PTY tab
@@ -50,8 +50,8 @@ interactive control**:
 ```
 1. Confirm the process was started by the AI (has logPath / pid), not by the user
 2. Terminate gracefully: kill <pid> (locate via detach info)
-3. terminal-open a new PTY → terminal-send to restart the service
-4. terminal-read / terminal-wait for live logs → start debugging
+3. terminal-manage open a new PTY → send to restart the service
+4. terminal-manage read / wait for live logs → start debugging
 ```
 
 > Principle: **probe first, reuse when possible; switch only when interaction or
@@ -68,8 +68,8 @@ Tool mapping per phase:
 
 | Phase          | Backend (Rust/Node)                                                                                                                        | Frontend (WebView)                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Feedback loop  | `bash-terminal-execute` runs tests/repro; `terminal-*` starts services                                                                     | `browser-create/navigate` loads the page; `browser-click/type` reproduces                                               |
-| Capture errors | `terminal-read` (PTY screen) / `filesystem-read` (detach log) / `grep-search` logs                                                         | `browser-devtools action=console` (JS errors); `action=network` (failed requests + bodies)                              |
+| Feedback loop  | `bash-terminal-execute` runs tests/repro; `terminal-manage` starts services                                                                | `browser-create/navigate` loads the page; `browser-click/type` reproduces                                               |
+| Capture errors | `terminal-manage action=read` (PTY screen) / `filesystem-read` (detach log) / `grep-search` logs                                           | `browser-devtools action=console` (JS errors); `action=network` (failed requests + bodies)                              |
 | Locate code    | `lsp-references` / `lsp-goto` from stack traces; `grep-search` / `codebase-search`                                                         | same + `browser-evaluate` for runtime state                                                                             |
 | Perf locating  | layered timing / profiler / `EXPLAIN QUERY PLAN`                                                                                           | `browser-devtools action=trace` (long tasks); `action=network` (waterfall); `browser-evaluate` with `performance.now()` |
 | Verify fix     | `bash-terminal-execute` re-runs tests                                                                                                      | `browser-wait` + `browser-screenshot` + re-check console                                                                |
@@ -86,12 +86,12 @@ Tool mapping per phase:
 You: "frontend error / backend 500 / slow"
   │
   ▼
-① Auto-start: terminal-open → backend (cargo run) → frontend (pnpm dev)
+① Auto-start: terminal-manage open → backend (cargo run) → frontend (pnpm dev)
   │
 ② Auto-reproduce: browser-navigate → page → click/type the user path
   │
 ③ Auto-capture (dual channel):
-   backend  → terminal-read / detach logPath / grep logs
+   backend  → terminal-manage read / detach logPath / grep logs
    frontend → browser-devtools console + network
   │
 ④ Auto-locate: LSP call-chain → find the bug point

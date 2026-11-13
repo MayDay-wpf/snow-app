@@ -693,9 +693,9 @@ pub async fn call_mcp_tool(
             .execute_async(tool_name, &args, &on_browser_command)
             .await
             .tool_feedback(is_sub_agent_call)?
-    } else if let Some(tool_name) = tool_full_name.strip_prefix("terminal-") {
+    } else if tool_full_name == "terminal-manage" {
         TerminalService::new()
-            .execute_async(tool_name, &args, &on_terminal_command)
+            .execute_async(&args, &on_terminal_command)
             .await
             .tool_feedback(is_sub_agent_call)?
     } else if tool_full_name == "user-interaction-askUserQuestion" {

@@ -1,5 +1,5 @@
 /**
- * 命名按键 → 终端字节序列映射（terminal-send 的 keys 参数使用）。
+ * 命名按键 → 终端字节序列映射（terminal-manage action=send 的 keys 参数使用）。
  *
  * 终端按键在 PTY 中本质是字节流：Enter 是 \r，方向键是 CSI 序列，
  * Ctrl 组合是控制字符。Agent 无法直接"按键"，只能写字节，因此这里

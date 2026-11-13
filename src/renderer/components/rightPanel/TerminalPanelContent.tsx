@@ -326,7 +326,7 @@ export const TerminalPanelContent = ({
   }, []);
 
   // Register this terminal tab with the MCP controller so that
-  // terminal-send/read/resize/wait commands can reach it.
+  // terminal-manage send/read/resize/wait commands can reach it.
   useTerminalMcpInstance(tabId, cwd, termRef, ptyIdRef);
 
   // GPU 渲染设置镜像同步：effect 定义在主 effect 之前，保证主 effect 创建

@@ -2,7 +2,7 @@
 //!
 //! 所有能执行命令、或改写「之后会被执行的配置」的工具入口都经过这里：
 //! - bash 命令（`bash-terminal-execute`，在执行器内部自我保护检查之后调用）；
-//! - 终端 PTY 输入（`terminal-send`）与 computer-use 键入文本；
+//! - 终端 PTY 输入（`terminal-manage` action=send）与 computer-use 键入文本；
 //! - config-manage（action=set）写入 hooks 命令、定时任务前置脚本、MCP stdio 启动命令；
 //! - config-manage（action=set / delete）修改敏感规则本身（不看规则命中，每次都要确认）。
 //!
@@ -221,7 +221,10 @@ fn resolve_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubjec
             .and_then(Value::as_str)
             .map(str::to_string),
         // 终端两种输入模式：input 文本；keys 中未知的按键名会原样作为文本发送。
-        "terminal-send" => match args.get("input").and_then(Value::as_str) {
+        "terminal-manage" if tool_action(args) == Some("send") => match args
+            .get("input")
+            .and_then(Value::as_str)
+        {
             Some(input) => Some(input.to_string()),
             None => join_strings(args.get("keys")),
         },
@@ -238,6 +241,10 @@ fn resolve_subject(tool_full_name: &str, args: &Value) -> Option<SensitiveSubjec
         kind: SubjectKind::Command,
         text,
     })
+}
+
+fn tool_action(args: &Value) -> Option<&str> {
+    args.get("action").and_then(Value::as_str).map(str::trim)
 }
 
 fn join_strings(value: Option<&Value>) -> Option<String> {

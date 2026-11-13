@@ -1898,7 +1898,7 @@ export const RightPanel = forwardRef<RightPanelRef, RightPanelProps>(
         }));
     }, [tabs, activeTabId]);
 
-    // MCP 默认目标与 terminal-list 的 isActive 同源：面板激活 tab 为终端时
+    // MCP 默认目标与 terminal-manage action=list 的 isActive 同源：面板激活 tab 为终端时
     // 记为最近聚焦。分屏下点击另一组的终端只会切换聚焦组、不改变组内激活
     // tab，因此不能依赖终端实例自身的 isActive。
     const activeTabIsTerminal =

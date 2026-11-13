@@ -1,7 +1,12 @@
-const SESSION_AWARE_TERMINAL_TOOLS = new Set([
-  "bash-terminal-execute",
-  "terminal-open",
-]);
+/** 需要注入会话 ID 的终端调用：bash 全部动作，terminal-manage 仅 open。 */
+const isSessionAwareTerminalCall = (
+  toolName: string,
+  args: Record<string, unknown>,
+): boolean =>
+  toolName === "bash-terminal-execute" ||
+  (toolName === "terminal-manage" &&
+    typeof args.action === "string" &&
+    args.action.trim() === "open");
 
 /**
  * Attach Snow-owned session metadata after model arguments have been parsed.
@@ -14,12 +19,13 @@ export const injectSessionIdIntoToolArgs = (
   analysisWorkspaceRoot?: string,
 ): string => {
   const normalizedSessionId = sessionId?.trim();
-  const injectSession =
-    !!normalizedSessionId && SESSION_AWARE_TERMINAL_TOOLS.has(toolName);
+  const maybeInjectSession =
+    !!normalizedSessionId &&
+    (toolName === "bash-terminal-execute" || toolName === "terminal-manage");
   const injectAnalysisRoot =
     analysisWorkspaceRoot !== undefined &&
     (toolName.startsWith("lsp-") || toolName === "grep-search");
-  if (!injectSession && !injectAnalysisRoot) {
+  if (!maybeInjectSession && !injectAnalysisRoot) {
     return argsJson;
   }
 
@@ -34,7 +40,7 @@ export const injectSessionIdIntoToolArgs = (
     if (injectAnalysisRoot && !Object.hasOwn(args, "workspaceRoot")) {
       args.workspaceRoot = analysisWorkspaceRoot;
     }
-    if (injectSession) {
+    if (maybeInjectSession && isSessionAwareTerminalCall(toolName, args)) {
       args.sessionId = normalizedSessionId;
     }
     return JSON.stringify(args);

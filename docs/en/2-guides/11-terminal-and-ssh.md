@@ -182,7 +182,7 @@ The **File transfers** bar at the bottom of the explorer appears on demand: coll
     Git Bash → COMSPEC; macOS/Linux: zsh → bash → fish → sh → `$SHELL`),
     and the AI commands and the integrated terminal resolve to the same result.
   - **Path validation**: Saving a non-empty shell path validates file
-    existence — invalid paths are rejected. `terminal-open` also fails
+    existence — invalid paths are rejected. `terminal-manage` (`action=open`) also fails
     immediately when given a non-existent shell path instead of silently
     falling back to the default shell.
   - The network proxy field has been removed from Terminal settings (for

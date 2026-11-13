@@ -26,9 +26,19 @@ type TFunc = ReturnType<typeof useI18n>["t"];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Extract the operation name from the full tool name.
- *  "terminal-open" → "open", "terminal-send" → "send", etc. */
-const parseOperation = (toolName: string): string => {
+/** 操作名：terminal-manage 取 args.action；历史记录中的旧工具名取后缀。 */
+const parseOperation = (toolName: string, args: string): string => {
+  if (toolName === "terminal-manage") {
+    try {
+      const parsed: unknown = JSON.parse(args);
+      if (isRecord(parsed) && typeof parsed.action === "string") {
+        return parsed.action.trim();
+      }
+    } catch {
+      // 参数流式未完成时回退
+    }
+    return "manage";
+  }
   const match = toolName.match(/^terminal-(\w+)$/);
   return match ? match[1] : toolName;
 };
@@ -110,7 +120,7 @@ export const TerminalToolCall = ({
   toolCall,
 }: TerminalToolCallProps): React.JSX.Element => {
   const { t } = useI18n();
-  const operation = parseOperation(toolCall.name);
+  const operation = parseOperation(toolCall.name, toolCall.arguments);
   const parsedArgs = useMemo(
     () => parseArgs(toolCall.arguments),
     [toolCall.arguments],

@@ -163,6 +163,13 @@ pub(super) fn force_worktree_execution_args(
     binding: &ConversationWorktreeBinding,
 ) -> napi::Result<Value> {
     let root = &binding.path;
+    let terminal_action = if tool_full_name == "terminal-manage" {
+        args.get("action")
+            .and_then(Value::as_str)
+            .map(|action| action.trim().to_owned())
+    } else {
+        None
+    };
     if tool_full_name == "bash-terminal-execute" {
         if args.get("detach").and_then(Value::as_bool) == Some(true) {
             return Err(Error::new(
@@ -171,14 +178,12 @@ pub(super) fn force_worktree_execution_args(
             ));
         }
         args["workingDirectory"] = Value::String(root.clone());
-    } else if tool_full_name == "terminal-open" {
-        args["cwd"] = Value::String(root.clone());
-    } else if tool_full_name == "terminal-send" {
+    } else if terminal_action.as_deref() == Some("send") {
         // PTYs are persistent and are not owned by a conversation/worktree in
         // the terminal bridge. Refuse sending commands to an arbitrary tab.
         return Err(Error::new(
             Status::GenericFailure,
-            "WorkTree terminal-send is unavailable because terminal tabs are not bound to a conversation/worktree; use bash-terminal-execute for serialized WorkTree commands".to_string(),
+            "WorkTree terminal-manage action=send is unavailable because terminal tabs are not bound to a conversation/worktree; use bash-terminal-execute for serialized WorkTree commands".to_string(),
         ));
     } else if tool_full_name == "grep-search" || tool_full_name == "grep-find" {
         let requested = args
@@ -243,9 +248,8 @@ pub(super) fn force_worktree_execution_args(
         }
     }
 
-    // Prevent a PTY-open call from carrying an attacker/model-supplied cwd even
-    // when the command name is normalized through an alias.
-    if tool_full_name == "terminal-open" {
+    // PTY open 一律钉在工作树根目录，忽略模型传入的 cwd。
+    if terminal_action.as_deref() == Some("open") {
         args["cwd"] = Value::String(root.clone());
     }
     Ok(args)

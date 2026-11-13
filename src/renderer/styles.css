@@ -19753,7 +19753,7 @@ img.tool-call-plugin-origin-icon {
   cursor: not-allowed;
 }
 
-/* Terminal Tool Call (terminal-open/send/read/resize/wait/close/focus/list) */
+/* Terminal Tool Call (terminal-manage: open/send/read/resize/wait/close/focus/list) */
 .tool-call-terminal-body {
   gap: 10px;
 }
@@ -19967,7 +19967,7 @@ img.tool-call-plugin-origin-icon {
   text-overflow: ellipsis;
 }
 
-/* terminal-send 的 keys 按键序列展示 */
+/* terminal-manage action=send 的 keys 按键序列展示 */
 .tool-call-terminal-keys {
   display: flex;
   flex-wrap: wrap;

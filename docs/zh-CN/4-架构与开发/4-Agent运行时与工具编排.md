@@ -363,7 +363,7 @@ flowchart TD
 不仅包含内置文件写工具，还将以下工具广义化纳入变动源（`mayMutateWorkspace`）：
 
 - 文件创建、编辑与复制（`filesystem-create`, `filesystem-replace_edit`, `filesystem-copy`）；
-- 终端与命令行执行（`bash-terminal-execute`, `terminal-send`, `terminal-open`）；
+- 终端与命令行执行（`bash-terminal-execute`, `terminal-manage`）；
 - 子代理与外部工作流（`sub-agents-activate`, `sub-agents-continue`, `workflow-generate`, `workflow-resume`）；
 - 语言服务器批量重命名（`lsp-rename`）；
 - 外部第三方写操作 MCP 工具。

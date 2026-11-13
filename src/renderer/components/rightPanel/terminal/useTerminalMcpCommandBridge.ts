@@ -25,7 +25,7 @@ export type TerminalMcpTabCallbacks = {
   openTab: (
     cwd: string,
     tabId?: string,
-    options?: TerminalOpenOptions
+    options?: TerminalOpenOptions,
   ) => string;
   closeTab: (tabId: string) => boolean;
   focusTab: (tabId: string) => boolean;
@@ -34,8 +34,7 @@ export type TerminalMcpTabCallbacks = {
 
 const resolveTabId = (argsJson: string): string | null => {
   const args = parseTerminalMcpCommandArgs(argsJson);
-  const requested =
-    typeof args.tabId === "string" ? args.tabId.trim() : "";
+  const requested = typeof args.tabId === "string" ? args.tabId.trim() : "";
   if (!requested || requested.toLowerCase() === "current") {
     return getFocusedTerminalTabId();
   }
@@ -44,7 +43,7 @@ const resolveTabId = (argsJson: string): string | null => {
 
 export const useTerminalMcpCommandBridge = (
   callbacks: TerminalMcpTabCallbacks,
-  activeDirectory?: WorkspaceDirectoryRecord | null
+  activeDirectory?: WorkspaceDirectoryRecord | null,
 ): void => {
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
@@ -70,10 +69,7 @@ export const useTerminalMcpCommandBridge = (
                 ? args.sessionId.trim() || undefined
                 : undefined;
             const activeDir = activeDirRef.current;
-            const cwd =
-              requestedCwd ||
-              activeDir?.path ||
-              "";
+            const cwd = requestedCwd || activeDir?.path || "";
             // SSH 终端由系统 ssh 启动远端 $SHELL -l，本地 shellPath 不参与
             const isSshCwd = cwd.trimStart().startsWith("ssh://");
             const tabId = createTerminalTabId();
@@ -111,7 +107,7 @@ export const useTerminalMcpCommandBridge = (
             const tabId = resolveTabId(request.argsJson);
             if (!tabId) {
               throw new Error(
-                "No terminal tab is available to close; open a terminal tab first"
+                "No terminal tab is available to close; open a terminal tab first",
               );
             }
             const closed = cb.closeTab(tabId);
@@ -129,7 +125,9 @@ export const useTerminalMcpCommandBridge = (
             const tabId =
               typeof args.tabId === "string" ? args.tabId.trim() : "";
             if (!tabId) {
-              throw new Error("tabId is required for terminal-focus");
+              throw new Error(
+                "tabId is required for terminal-manage action=focus",
+              );
             }
             const focused = cb.focusTab(tabId);
             if (!focused) {
@@ -155,10 +153,10 @@ export const useTerminalMcpCommandBridge = (
             // individual TerminalPanelContent instance handler.
             return executeTerminalMcpCommand(
               request.operation,
-              request.argsJson
+              request.argsJson,
             );
         }
-      }
+      },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

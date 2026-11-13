@@ -703,9 +703,9 @@ export const renderBashCard: ToolCallRenderer = (tool) => {
   });
 };
 
-// ── terminal-* ───────────────────────────────────────────────────────────
+// ── terminal-manage ──────────────────────────────────────────────────────
 
-/** 桌面临端 MCP 的全部工具名（native/src/mcp/servers/terminal.rs）。 */
+/** 桌面终端 MCP（terminal-manage）的全部 action。 */
 const TERMINAL_OPERATIONS = [
   "open",
   "send",
@@ -718,9 +718,18 @@ const TERMINAL_OPERATIONS = [
 ] as const;
 type TerminalOperation = (typeof TERMINAL_OPERATIONS)[number];
 
-/** 未知后缀（如未来新增的 terminal-xxx）返回 null，交给 generic 兜底。 */
-const parseTerminalOperation = (name: string): TerminalOperation | null => {
-  const operation = name.slice("terminal-".length);
+/** terminal-manage 取 args.action，历史旧工具名取后缀；未知返回 null 交给 generic 兜底。 */
+const parseTerminalOperation = (
+  name: string,
+  record: JsonRecord | null,
+): TerminalOperation | null => {
+  const action = record?.action;
+  const operation =
+    name === "terminal-manage"
+      ? typeof action === "string"
+        ? action.trim()
+        : ""
+      : name.slice("terminal-".length);
   return (TERMINAL_OPERATIONS as readonly string[]).includes(operation)
     ? (operation as TerminalOperation)
     : null;
@@ -872,14 +881,14 @@ const awaitingRow = (data: JsonRecord): HTMLElement | null => {
   return row;
 };
 
-/** 按键序列芯片（terminal-send 的 keys 模式）。 */
+/** 按键序列芯片（action=send 的 keys 模式）。 */
 const keyChips = (keys: string[]): HTMLElement => {
   const list = el("div", "tc-exec-keys");
   for (const key of keys) list.append(el("code", "tc-exec-key", key));
   return list;
 };
 
-/** 输入行（terminal-send 的 input 模式，`>` 提示符）。 */
+/** 输入行（action=send 的 input 模式，`>` 提示符）。 */
 const inputBlock = (input: string): HTMLElement => {
   const pre = el("pre", "tc-exec-input");
   const prompt = el("span", "tc-exec-input-prompt", ">");
@@ -1116,10 +1125,11 @@ const terminalResultBody = (
 };
 
 export const renderTerminalCard: ToolCallRenderer = (tool) => {
-  const operation = parseTerminalOperation(tool.name);
+  const record = parseJsonRecord(tool.arguments);
+  const operation = parseTerminalOperation(tool.name, record);
   if (!operation) return null;
 
-  const args = parseTerminalArgs(parseJsonRecord(tool.arguments));
+  const args = parseTerminalArgs(record);
   const result = parseTerminalResult(tool.result);
   const isRunning = tool.status === "running";
   const status: ToolStatus = result.type === "error" ? "error" : tool.status;

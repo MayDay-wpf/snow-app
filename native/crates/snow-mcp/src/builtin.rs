@@ -145,6 +145,9 @@ pub fn tool_readonly_actions() -> Value {
         "config-manage": ["list", "get", "logs"],
         // computer-use-screen：只有 info 免审批（截图仍走审批）。
         "computer-use-screen": ["info"],
+        // terminal-manage 不在只读名单里：此表只用于拆分审批键，观察类动作共用
+        // 工具名，send/open/close 等写动作各自使用 `terminal-manage:action`。
+        "terminal-manage": ["list", "read", "wait"],
     })
 }
 

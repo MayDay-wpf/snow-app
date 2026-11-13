@@ -6,9 +6,16 @@ use serde_json::{json, Value};
 use crate::contract::{McpService, McpTool};
 
 const SERVER_ID: &str = "terminal";
+const TOOL_NAME: &str = "manage";
+const TOOL_FULL_NAME: &str = "terminal-manage";
+const ACTIONS: &[&str] = &[
+    "open", "send", "read", "wait", "list", "focus", "resize", "close",
+];
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MIN_TIMEOUT_MS: u64 = 1_000;
 const MAX_WAIT_READ_MS: u64 = 60_000;
+
+const MANAGE_DESCRIPTION: &str = "Control interactive terminal tabs (live PTY sessions in the right panel) with one tool: required field \"action\" - one of open | send | read | wait | list | focus | resize | close. Unlike bash-terminal-execute (one-shot command that exits), a terminal tab keeps a persistent login shell alive across calls - use it for dev servers, watchers, REPLs, interactive prompts and TUIs.\n\nACTIONS:\n- open: open a new tab and return its tabId. Optional cwd (defaults to the active project directory; SSH projects open a remote shell) and shellPath (custom shell executable such as /bin/zsh or wsl.exe; defaults to the terminal settings or the system login shell).\n- send: type into the PTY as if the user typed it. Exactly one of: input (free text; a trailing newline is appended automatically so the command executes) or keys (ordered named keys: enter, tab, backspace, esc, up, down, left, right, home, end, pageup, pagedown, insert, delete, ctrl+c, ctrl+d, ctrl+z, f1-f12; mapped to terminal bytes, NO newline appended, unknown names are sent verbatim). Tab completion, history and prompts work normally.\n- read: the currently visible screen text (ANSI stripped, not the full scrollback). Optional waitMs (0-60000, default 0) waits for more output before reading.\n- wait: block until the tab produces no new output for idleMs (100-5000, default 500) or timeoutMs elapses (>= 1000, default 30000, no upper limit for long builds). Returns only the output produced since the last delivered checkpoint (incremental); use read for the full current screen.\n- list: all open terminal tabs with tabId, title, cwd and active state.\n- focus: bring the tab given by tabId (required) to the foreground.\n- resize: set the PTY size; cols (1-500) and rows (1-200) are required.\n- close: close the tab and kill its PTY process.\n\ntabId: optional for send / read / wait / resize / close - omit it (or pass \"current\") to target the most recently focused terminal tab.\n\nEXAMPLES:\n- {action:\"open\"}\n- {action:\"send\", input:\"npm run dev\"}\n- {action:\"wait\", idleMs:1000}\n- {action:\"send\", keys:[\"ctrl+c\"]}\n- {action:\"close\", tabId:\"...\"}";
 
 #[napi(object)]
 pub struct TerminalCommand {
@@ -26,15 +33,16 @@ impl TerminalService {
         TerminalService
     }
 
+    /// 按 action 校验参数后交给 Electron 终端桥；operation 即 action 名。
     pub async fn execute_async(
         &self,
-        tool_name: &str,
         args: &Value,
         on_command: &TerminalCommandCallback,
     ) -> napi::Result<Value> {
-        let normalized_args = validate_and_normalize_args(tool_name, args)?;
+        let action = parse_action(args)?;
+        let normalized_args = validate_and_normalize_args(action, args)?;
         let command = TerminalCommand {
-            operation: tool_name.to_string(),
+            operation: action.to_string(),
             args_json: serde_json::to_string(&normalized_args).map_err(|error| {
                 Error::new(
                     Status::GenericFailure,
@@ -74,190 +82,135 @@ impl McpService for TerminalService {
     }
 
     fn tools(&self) -> Vec<McpTool> {
-        vec![
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "open".to_string(),
-                description: "Open a new terminal tab in the right panel with a live interactive PTY session. Returns a tabId for explicitly targeting it later. The terminal uses a persistent shell process (login shell) that stays alive across multiple send/read operations — unlike bash-terminal-execute which runs a single one-shot command and exits. If cwd is omitted, the active project's directory is used automatically — for SSH projects this opens a remote shell, for local projects it opens a local shell.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "cwd": {
-                            "type": "string",
-                            "description": "Working directory for the terminal session. Defaults to the project root."
-                        },
-                        "shellPath": {
-                            "type": "string",
-                            "description": "Optional path to a custom shell executable (e.g. /bin/zsh, wsl.exe). If omitted, the system default login shell is used."
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "send".to_string(),
-                description: "Send input to a terminal tab's PTY (as if the user typed it). Two mutually exclusive modes: (1) `input` — free text; a trailing newline is appended automatically if omitted so the command executes; (2) `keys` — an ordered list of named keys / control sequences (e.g. enter, tab, up, down, left, right, backspace, esc, ctrl+c, ctrl+d, home, end, pageup, pagedown, f1-f12) for interactive prompts and TUI navigation; named keys are mapped to the proper terminal bytes and NO newline is appended, so sending e.g. [\"up\",\"enter\"] presses ArrowUp then Enter. Unknown key names are sent verbatim as text. Omit tabId to target the most recently focused terminal tab. The input is written to the shell's stdin and processed interactively — tab completion, history, and prompts all work normally.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "Optional terminal tab ID. Omit it or use current to target the most recently focused terminal tab."
-                        },
-                        "input": {
-                            "type": "string",
-                            "description": "Text to send to the terminal. For executing a command, append a newline character (or omit it — one is appended automatically)."
-                        },
-                        "keys": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            },
-                            "description": "Ordered list of named keys to send instead of text: enter, tab, backspace, esc, up, down, left, right, home, end, pageup, pagedown, insert, delete, ctrl+c, ctrl+d, ctrl+z, f1-f12. Each name is mapped to the terminal's byte sequence; unknown names are sent verbatim. No newline is appended. Mutually exclusive with input."
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "read".to_string(),
-                description: "Read the current visible text content of a terminal tab's xterm screen buffer. Returns the rendered text (ANSI codes stripped) currently displayed in the terminal, including the prompt and any output. Omit tabId to read the most recently focused terminal tab. This captures what is currently on screen, not the full scrollback history.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "Optional terminal tab ID. Omit it or use current to target the most recently focused terminal tab."
-                        },
-                        "waitMs": {
-                            "type": "number",
-                            "description": "Optional: wait this many milliseconds for additional output before reading the screen buffer (default 0 = read immediately). Useful for capturing command output that is still being produced.",
-                            "default": 0,
-                            "minimum": 0,
-                            "maximum": MAX_WAIT_READ_MS
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "resize".to_string(),
-                description: "Resize a terminal tab's PTY dimensions (columns and rows). This updates both the PTY process and the xterm display. Omit tabId to resize the most recently focused terminal tab.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "Optional terminal tab ID. Omit it or use current to target the most recently focused terminal tab."
-                        },
-                        "cols": {
-                            "type": "number",
-                            "description": "Number of columns (character width). Must be at least 1.",
-                            "minimum": 1,
-                            "maximum": 500
-                        },
-                        "rows": {
-                            "type": "number",
-                            "description": "Number of rows (line height). Must be at least 1.",
-                            "minimum": 1,
-                            "maximum": 200
-                        }
-                    },
-                    "required": ["cols", "rows"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "wait".to_string(),
-                description: "Wait for a terminal tab to become idle (no new output) for a specified quiet period. Useful for detecting when a long-running command has finished producing output. Returns only the newly produced terminal text since the last delivered checkpoint (incremental: previously returned history is not repeated; use terminal-read to capture the full current screen). Omit tabId to wait on the most recently focused terminal tab.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "Optional terminal tab ID. Omit it or use current to target the most recently focused terminal tab."
-                        },
-                        "timeoutMs": {
-                            "type": "number",
-                            "description": "Maximum time to wait for idle state in milliseconds (default 30000, minimum 1000). No upper limit — long-running builds may take minutes or hours.",
-                            "default": DEFAULT_TIMEOUT_MS,
-                            "minimum": MIN_TIMEOUT_MS
-                        },
-                        "idleMs": {
-                            "type": "number",
-                            "description": "Quiet period (no output) in milliseconds that signals the terminal is idle (default 500).",
-                            "default": 500,
-                            "minimum": 100,
-                            "maximum": 5000
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "close".to_string(),
-                description: "Close a terminal tab and kill its PTY process. Omit tabId to close the most recently focused terminal tab. Use the list tool to see available terminal tabs and their IDs.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "Optional terminal tab ID to close. Omit it or use current to close the most recently focused terminal tab."
-                        }
-                    }
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "focus".to_string(),
-                description: "Switch to (activate) a terminal tab by its tab ID, bringing it to the foreground. Use the list tool to see available terminal tabs and their IDs.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "tabId": {
-                            "type": "string",
-                            "description": "The terminal tab ID to switch to."
-                        }
-                    },
-                    "required": ["tabId"]
-                }),
-            },
-            McpTool {
-                server_id: SERVER_ID.to_string(),
-                name: "list".to_string(),
-                description: "List all open terminal tabs with their tab IDs, titles, working directories, and active state. Use this to discover available terminal tabs before closing or switching.".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {}
-                }),
-            },
-        ]
+        vec![McpTool {
+            server_id: SERVER_ID.to_string(),
+            name: TOOL_NAME.to_string(),
+            description: MANAGE_DESCRIPTION.to_string(),
+            input_schema: manage_input_schema(),
+        }]
     }
 
     fn execute(&self, tool_name: &str, _args: &Value) -> napi::Result<Value> {
-        match tool_name {
-            "open" | "send" | "read" | "resize" | "wait" | "close" | "focus" | "list" => {
-                Err(Error::new(
-                    Status::GenericFailure,
-                    "Terminal tools must be executed through the asynchronous Electron command bridge"
-                        .to_string(),
-                ))
-            }
-            _ => Err(unknown_tool_error(tool_name)),
+        if tool_name == TOOL_NAME {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "Terminal tools must be executed through the asynchronous Electron command bridge"
+                    .to_string(),
+            ));
         }
+        Err(unknown_tool_error(tool_name))
     }
 }
 
-fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Value> {
+fn manage_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ACTIONS,
+                "description": "Terminal operation to run; each action's arguments are listed in the tool description."
+            },
+            "tabId": {
+                "type": "string",
+                "description": "Target terminal tab ID. Required for focus; optional for send/read/wait/resize/close (omit or use current for the most recently focused tab)."
+            },
+            "cwd": {
+                "type": "string",
+                "description": "open: working directory of the new session. Defaults to the project root."
+            },
+            "shellPath": {
+                "type": "string",
+                "description": "open: custom shell executable (e.g. /bin/zsh, wsl.exe). Omit for the configured / system default login shell."
+            },
+            "input": {
+                "type": "string",
+                "description": "send: text to type; a trailing newline is appended automatically when missing. Mutually exclusive with keys."
+            },
+            "keys": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "send: ordered named keys (enter, tab, backspace, esc, up, down, left, right, home, end, pageup, pagedown, insert, delete, ctrl+c, ctrl+d, ctrl+z, f1-f12); no newline appended. Mutually exclusive with input."
+            },
+            "waitMs": {
+                "type": "number",
+                "description": "read: wait this many ms for more output before reading (default 0).",
+                "default": 0,
+                "minimum": 0,
+                "maximum": MAX_WAIT_READ_MS
+            },
+            "timeoutMs": {
+                "type": "number",
+                "description": "wait: maximum wait in ms (default 30000, minimum 1000, no upper limit).",
+                "default": DEFAULT_TIMEOUT_MS,
+                "minimum": MIN_TIMEOUT_MS
+            },
+            "idleMs": {
+                "type": "number",
+                "description": "wait: quiet period in ms that counts as idle (default 500).",
+                "default": 500,
+                "minimum": 100,
+                "maximum": 5000
+            },
+            "cols": {
+                "type": "number",
+                "description": "resize: number of columns (required for resize).",
+                "minimum": 1,
+                "maximum": 500
+            },
+            "rows": {
+                "type": "number",
+                "description": "resize: number of rows (required for resize).",
+                "minimum": 1,
+                "maximum": 200
+            }
+        },
+        "required": ["action"]
+    })
+}
+
+fn parse_action(args: &Value) -> napi::Result<&'static str> {
+    let raw = args
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!(
+                    "action is required for {TOOL_FULL_NAME} ({})",
+                    ACTIONS.join(" | ")
+                ),
+            )
+        })?;
+    ACTIONS
+        .iter()
+        .copied()
+        .find(|action| *action == raw)
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                format!(
+                    "Unknown action \"{raw}\" for {TOOL_FULL_NAME}. Valid actions: {}",
+                    ACTIONS.join(" | ")
+                ),
+            )
+        })
+}
+
+fn validate_and_normalize_args(action: &str, args: &Value) -> napi::Result<Value> {
     let object = args.as_object().ok_or_else(|| {
         Error::new(
             Status::InvalidArg,
-            format!("Arguments for terminal-{tool_name} must be a JSON object"),
+            format!("Arguments for {TOOL_FULL_NAME} must be a JSON object"),
         )
     })?;
     let mut normalized = object.clone();
+    // action 已转成 operation，不再下发给终端桥
+    normalized.remove("action");
 
-    match tool_name {
+    match action {
         "open" => {
             optional_non_empty_string(args, "cwd")?;
             // SSH 工作区的 shellPath 是远端路径，不能用 App Host 本地文件
@@ -299,15 +252,15 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
             if has_input && has_keys {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    "input and keys are mutually exclusive for terminal-send".to_string(),
+                    format!("input and keys are mutually exclusive for {TOOL_FULL_NAME} action=send"),
                 ));
             }
             if has_keys {
-                validate_keys_array(args, tool_name)?;
+                validate_keys_array(args)?;
             } else if !has_input {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    "input or keys is required for terminal-send".to_string(),
+                    format!("input or keys is required for {TOOL_FULL_NAME} action=send"),
                 ));
             }
             if let Some(input_str) = normalized.get("input").and_then(Value::as_str) {
@@ -324,6 +277,14 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
         }
         "resize" => {
             optional_non_empty_string(args, "tabId")?;
+            for field in ["cols", "rows"] {
+                if args.get(field).map_or(true, Value::is_null) {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        format!("{field} is required for {TOOL_FULL_NAME} action=resize"),
+                    ));
+                }
+            }
             let cols = bounded_u64(args, "cols", 80, 1, 500)?;
             let rows = bounded_u64(args, "rows", 24, 1, 200)?;
             normalized.insert("cols".to_string(), json!(cols));
@@ -341,10 +302,15 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
             optional_non_empty_string(args, "tabId")?;
         }
         "focus" => {
-            required_non_empty_string(args, "tabId", tool_name)?;
+            required_non_empty_string(args, "tabId", action)?;
         }
         "list" => {}
-        _ => return Err(unknown_tool_error(tool_name)),
+        _ => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("Unknown action \"{action}\" for {TOOL_FULL_NAME}"),
+            ))
+        }
     }
 
     Ok(Value::Object(normalized))
@@ -353,7 +319,7 @@ fn validate_and_normalize_args(tool_name: &str, args: &Value) -> napi::Result<Va
 fn required_non_empty_string<'a>(
     args: &'a Value,
     field: &str,
-    tool_name: &str,
+    action: &str,
 ) -> napi::Result<&'a str> {
     args.get(field)
         .and_then(Value::as_str)
@@ -362,7 +328,7 @@ fn required_non_empty_string<'a>(
         .ok_or_else(|| {
             Error::new(
                 Status::InvalidArg,
-                format!("{field} is required for terminal-{tool_name}"),
+                format!("{field} is required for {TOOL_FULL_NAME} action={action}"),
             )
         })
 }
@@ -388,10 +354,8 @@ fn optional_non_empty_string<'a>(args: &'a Value, field: &str) -> napi::Result<O
     }
 }
 
-/// 校验 shellPath 指向真实存在的可执行文件：含路径分隔符的路径（绝对或
-/// 相对）必须存在，否则直接拒绝——避免 PTY 静默回退到默认 shell 后智能体
-/// 收到"成功"却与预期不符。纯文件名（如 `wsl.exe`、`bash`）允许，由 PTY
-/// 层按 PATH 解析，无法在参数校验阶段确认。
+/// 含路径分隔符的 shellPath 必须存在，避免 PTY 静默回退到默认 shell；
+/// 纯文件名交给 PTY 层按 PATH 解析。
 fn validate_shell_path(path: &str) -> napi::Result<()> {
     let has_separator = path.contains('/') || path.contains('\\');
     if has_separator && !std::path::Path::new(path).exists() {
@@ -403,9 +367,8 @@ fn validate_shell_path(path: &str) -> napi::Result<()> {
     Ok(())
 }
 
-/// 校验 terminal-send 的 `keys` 数组：元素必须为非空字符串，且数量有上限，
-/// 防止 Agent 一次性发送超大按键序列。
-fn validate_keys_array(args: &Value, tool_name: &str) -> napi::Result<()> {
+/// send 的 keys：非空字符串数组，数量有上限。
+fn validate_keys_array(args: &Value) -> napi::Result<()> {
     const MAX_KEYS: usize = 64;
     match args.get("keys") {
         None | Some(Value::Null) => Ok(()),
@@ -413,7 +376,7 @@ fn validate_keys_array(args: &Value, tool_name: &str) -> napi::Result<()> {
             if items.is_empty() {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    "keys must not be empty for terminal-send".to_string(),
+                    format!("keys must not be empty for {TOOL_FULL_NAME} action=send"),
                 ));
             }
             if items.len() > MAX_KEYS {
@@ -426,13 +389,13 @@ fn validate_keys_array(args: &Value, tool_name: &str) -> napi::Result<()> {
                 let Some(text) = item.as_str() else {
                     return Err(Error::new(
                         Status::InvalidArg,
-                        format!("keys entries must be strings for terminal-{tool_name}"),
+                        "keys entries must be strings".to_string(),
                     ));
                 };
                 if text.trim().is_empty() {
                     return Err(Error::new(
                         Status::InvalidArg,
-                        format!("keys entries must not be empty for terminal-{tool_name}"),
+                        "keys entries must not be empty".to_string(),
                     ));
                 }
             }
@@ -440,7 +403,7 @@ fn validate_keys_array(args: &Value, tool_name: &str) -> napi::Result<()> {
         }
         Some(_) => Err(Error::new(
             Status::InvalidArg,
-            format!("keys must be an array of strings for terminal-{tool_name}"),
+            "keys must be an array of strings".to_string(),
         )),
     }
 }
@@ -471,9 +434,7 @@ fn bounded_u64(
     Ok(value)
 }
 
-/// Like `bounded_u64` but with only a lower bound (no upper limit).
-/// Used for `timeoutMs` in terminal-wait where long-running builds
-/// may take minutes or hours.
+/// 仅有下限的整数参数（wait 的 timeoutMs，长构建可能持续数小时）。
 fn optional_u64_with_min(
     args: &Value,
     field: &str,
@@ -503,7 +464,7 @@ fn unknown_tool_error(tool_name: &str) -> Error {
     Error::new(
         Status::GenericFailure,
         format!(
-            "Unknown tool: \"{tool_name}\" for MCP server \"terminal\". Available tools: [terminal-open, terminal-send, terminal-read, terminal-resize, terminal-wait, terminal-close, terminal-focus, terminal-list]"
+            "Unknown tool: \"{tool_name}\" for MCP server \"terminal\". Available tools: [{TOOL_FULL_NAME}]"
         ),
     )
 }
