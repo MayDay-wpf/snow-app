@@ -8633,6 +8633,67 @@ body.is-panel-resizing * {
   line-height: 1.4;
 }
 
+.api-model-test-modal .app-modal-body {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.api-model-test-modal .app-modal-footer {
+  position: relative;
+  z-index: 0;
+}
+
+.api-model-test-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.api-model-test-selection,
+.api-model-test-response {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.api-model-test-profile {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.api-model-test-response > strong {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.api-model-test-response > pre {
+  min-height: 180px;
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .api-model-test-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .api-settings-form-section {
   display: flex;
   flex-direction: column;

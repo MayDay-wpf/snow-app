@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { ModelTestButton } from "../modelHealth/ModelConnectionStatus";
+import { ApiModelTestModal } from "./ApiModelTestModal";
 import {
   DISABLED_STATUS_LABEL,
   ENABLED_STATUS_LABEL,
@@ -58,6 +60,10 @@ export function ApiSettingsTable({
   const [pendingDeletion, setPendingDeletion] = useState<
     ApiConfigItem[] | null
   >(null);
+  const [testConfig, setTestConfig] = useState<ApiConfigItem | null>(null);
+  const [testingProfileName, setTestingProfileName] = useState<string | null>(
+    null,
+  );
   const filteredConfigs = useMemo(
     () => filterApiConfigs(configs, searchQuery),
     [configs, searchQuery],
@@ -359,6 +365,11 @@ export function ApiSettingsTable({
                     </td>
                     <td className="api-settings-table-actions-col">
                       <div className="api-settings-table-actions">
+                        <ModelTestButton
+                          iconOnly
+                          testing={testingProfileName === config.profileName}
+                          onClick={() => setTestConfig(config)}
+                        />
                         <button
                           className="icon-btn ghost"
                           onClick={() => reorder.moveUp(config.profileName)}
@@ -441,6 +452,14 @@ export function ApiSettingsTable({
           }).replace("{count}", String(filteredConfigs.length))}
         </span>
       )}
+
+      <ApiModelTestModal
+        config={testConfig}
+        onClose={() => setTestConfig(null)}
+        onTestingChange={(profileName, testing) =>
+          setTestingProfileName(testing ? profileName : null)
+        }
+      />
 
       <ConfirmDialog
         open={pendingDeletion !== null}

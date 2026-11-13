@@ -7466,6 +7466,17 @@ export const zhTW = {
   "modelHealth.compactOk": "正常 · {{latency}}",
   "modelHealth.compactFailedStatus": "失敗 · HTTP {{status}}",
   "modelHealth.testError": "測試連線失敗：{{message}}",
+  "settings.apiModelTestTitle": "測試 API 模型",
+  "settings.apiModelTestDescription":
+    "使用此檔案選擇的請求方式、系統提示詞和自訂請求標頭傳送「Say 1」。",
+  "settings.apiModelTestSelectModel": "模型",
+  "settings.apiModelTestLoadingPrompts": "正在載入檔案系統提示詞…",
+  "settings.apiModelTestModelPlaceholder": "選擇或輸入模型",
+  "settings.apiModelTestResponse": "回應內容",
+  "settings.apiModelTestWaiting": "等待回應…",
+  "settings.apiModelTestEmpty": "串流回應將顯示於此。",
+  "settings.apiModelTestStart": "測試模型",
+  "settings.apiModelTestSaveError": "測試已完成，但無法儲存測試結果。",
   "modelHealth.decisionApiKeyEmpty":
     "API Key 為空：該決策模型無法發起請求，使用方會回退（程式碼庫審查改用 LLM，敏感命令回退人工確認）。",
   "modelHealth.embeddingApiKeyEmpty":

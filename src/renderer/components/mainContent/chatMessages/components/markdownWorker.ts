@@ -326,10 +326,10 @@ markdown.renderer.rules.handoff_block = (tokens, idx): string => {
 };
 
 /**
- * linkify 会把 `README.md` 这类裸文本误识别为链接：`.md` 是 IANA 顶级域名
- * （黑山共和国），`README.md` 会被转成 `http://README.md`，点击会打开
- * 浏览器而不是右侧文件阅读器。这里把"单段 host + 文件扩展名 TLD"的伪链接
- * 在 token 层面还原为纯文本（保留原文，不渲染成 <a>）。
+ * linkify 对 `word.tld` 的模糊匹配会误判技术名词：`.md`（摩尔多瓦）、`.ai`、
+ * `.net` 都是真实顶级域，`README.md`、`design.ai`、`ASP.NET` 都会被拼成
+ * `http://` 链接，点击直接跳浏览器。这里在匹配阶段丢弃这类伪域名，原文照常
+ * 显示为纯文本。
  */
 const FAKE_LINK_FILE_EXTENSIONS = new Set([
   "md",
@@ -414,54 +414,36 @@ const FAKE_LINK_FILE_EXTENSIONS = new Set([
   "gitignore",
 ]);
 
-const isFakeLinkUrl = (href: string): boolean => {
-  if (!/^https?:\/\//i.test(href)) {
+/**
+ * 伪域名判定：只看 linkify 的模糊匹配（schema 为空），显式协议（https://）
+ * 与邮箱（mailto:）一律放行。顶级域是已知文件扩展名，或含大写字母
+ * （ASP.NET、VB.NET、Socket.IO），都不当作站点。
+ */
+const isFakeFuzzyDomain = (match: {
+  schema: string;
+  text: string;
+}): boolean => {
+  if (match.schema !== "") {
     return false;
   }
-  try {
-    const url = new URL(href);
-    // 仅处理单段 host（形如 README.md、design.ai）：无子域、无路径。
-    const match = url.hostname.match(/^[^.]+\.([a-z0-9]+)$/i);
-    if (!match) {
-      return false;
-    }
-    return FAKE_LINK_FILE_EXTENSIONS.has(match[1].toLowerCase());
-  } catch {
+  // text 可能带端口与路径（github.com/a），只取 host 的顶级域。
+  const host = match.text.split(/[/?#]/)[0].replace(/:\d*$/, "");
+  const dot = host.lastIndexOf(".");
+  const tld = dot < 0 ? "" : host.slice(dot + 1);
+  if (!tld) {
     return false;
   }
+  if (tld !== tld.toLowerCase()) {
+    return true;
+  }
+  return FAKE_LINK_FILE_EXTENSIONS.has(tld.toLowerCase());
 };
 
-// 在 linkify 规则之后把伪链接 token 序列拍平成单个文本 token。
-markdown.core.ruler.after("linkify", "de-linkify-fake-links", (state) => {
-  for (const blockToken of state.tokens) {
-    if (blockToken.type !== "inline" || !blockToken.children) {
-      continue;
-    }
-    const children = blockToken.children;
-    for (let i = 0; i < children.length; i += 1) {
-      const token = children[i];
-      if (token.type !== "link_open") {
-        continue;
-      }
-      const href = token.attrGet("href") ?? "";
-      if (!isFakeLinkUrl(href)) {
-        continue;
-      }
-      // 收集 link_open 到对应 link_close 之间的文本，替换为纯文本 token。
-      let end = i + 1;
-      while (end < children.length && children[end].type !== "link_close") {
-        end += 1;
-      }
-      const text = children
-        .slice(i + 1, end)
-        .map((t) => t.content ?? "")
-        .join("");
-      const textToken = new state.Token("text", "", 0);
-      textToken.content = text;
-      children.splice(i, end - i + 1, textToken);
-    }
-  }
-});
+// 在匹配阶段过滤：伪域名从不建链，比建链后再拆 token 更省事。
+const originalLinkifyMatch = markdown.linkify.match.bind(markdown.linkify);
+markdown.linkify.match = (text: string) =>
+  originalLinkifyMatch(text)?.filter((match) => !isFakeFuzzyDomain(match)) ??
+  null;
 
 /** 来源徽章：带 title 摘要的 http(s) 链接替换为徽章（favicon + 缩略标题），
  *  悬停摘要/点击跳转由 React 层从 data-* 读取；无 title 链接保持原样。 */

@@ -7457,6 +7457,17 @@ export const zhCN = {
   "modelHealth.compactOk": "正常 · {{latency}}",
   "modelHealth.compactFailedStatus": "失败 · HTTP {{status}}",
   "modelHealth.testError": "测试连接失败：{{message}}",
+  "settings.apiModelTestTitle": "测试 API 模型",
+  "settings.apiModelTestDescription":
+    "使用此档案选择的请求方式、系统提示词和自定义请求头发送“Say 1”。",
+  "settings.apiModelTestSelectModel": "模型",
+  "settings.apiModelTestLoadingPrompts": "正在加载档案系统提示词…",
+  "settings.apiModelTestModelPlaceholder": "选择或输入模型",
+  "settings.apiModelTestResponse": "响应内容",
+  "settings.apiModelTestWaiting": "等待响应…",
+  "settings.apiModelTestEmpty": "流式响应将在此显示。",
+  "settings.apiModelTestStart": "测试模型",
+  "settings.apiModelTestSaveError": "测试已完成，但无法保存测试结果。",
   "modelHealth.decisionApiKeyEmpty":
     "API Key 为空：该决策模型无法发起请求，使用方会回退（代码库审查改用 LLM，敏感命令回退人工确认）。",
   "modelHealth.embeddingApiKeyEmpty":

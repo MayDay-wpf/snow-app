@@ -7959,6 +7959,18 @@ export const en = {
   "modelHealth.compactOk": "OK · {{latency}}",
   "modelHealth.compactFailedStatus": "Failed · HTTP {{status}}",
   "modelHealth.testError": "Connection test failed: {{message}}",
+  "settings.apiModelTestTitle": "Test API model",
+  "settings.apiModelTestDescription":
+    "Send “Say 1” using this profile's request method, system prompts, and custom headers.",
+  "settings.apiModelTestSelectModel": "Model",
+  "settings.apiModelTestLoadingPrompts": "Loading profile system prompts...",
+  "settings.apiModelTestModelPlaceholder": "Select or enter a model",
+  "settings.apiModelTestResponse": "Response",
+  "settings.apiModelTestWaiting": "Waiting for response…",
+  "settings.apiModelTestEmpty": "The streaming response will appear here.",
+  "settings.apiModelTestStart": "Test model",
+  "settings.apiModelTestSaveError":
+    "The test completed, but its result could not be saved.",
   "modelHealth.decisionApiKeyEmpty":
     "The API key is empty: this decision model cannot send requests, so its users fall back (codebase review uses the LLM, sensitive commands ask for manual confirmation).",
   "modelHealth.embeddingApiKeyEmpty":
