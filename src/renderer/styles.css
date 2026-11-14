@@ -53786,29 +53786,33 @@ pre.file-viewer-code {
   white-space: nowrap;
 }
 
-/* 配置筛选行：位于日期筛选栏上方，风格与之一致 */
-.usage-profile-filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
+/* 配置筛选：与日期筛选同排，下拉支持搜索；外观与相邻控件一致 */
+.usage-profile-select {
+  flex-shrink: 0;
+  width: 190px;
 }
 
-.usage-profile-filter-bar .custom-select {
-  min-width: 200px;
-  max-width: 320px;
-}
-
-.usage-profile-filter-bar .custom-select-trigger {
+.usage-profile-select .custom-select-trigger {
   padding: 4px 8px;
-  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  font-size: 12px;
+}
+
+.usage-profile-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.usage-profile-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-date-filter-label-gap {
+  margin-left: 6px;
 }
 
 .usage-date-preset-select {
@@ -54460,56 +54464,6 @@ pre.file-viewer-code {
   margin-top: 4px;
 }
 
-/* 档案筛选：横向按钮，溢出时横向滚动；禁止在纵向弹性容器中被压缩 */
-.usage-profile-pills {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding-bottom: 2px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.usage-profile-pill {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 5px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s,
-    border-color 0.12s;
-}
-
-.usage-profile-pill > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.usage-profile-pill:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.usage-profile-pill.active {
-  border-color: var(--border-light);
-  background: var(--bg-active);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
 /* 趋势图：排除缓存读取开关 */
 .usage-chart-toggle {
   margin-left: auto;
@@ -54747,6 +54701,29 @@ pre.file-viewer-code {
 .usage-cell-profile {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 单元格内的图标 + 文本：图标固定尺寸，文本按剩余宽度省略 */
+.usage-cell-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.usage-cell-with-icon .model-brand-icon {
+  flex-shrink: 0;
+}
+
+.usage-cell-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-cell-icon-muted {
+  flex-shrink: 0;
+  color: var(--text-muted);
 }
 
 .usage-cell-method {

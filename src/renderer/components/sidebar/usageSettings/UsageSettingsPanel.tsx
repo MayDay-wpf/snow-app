@@ -4,16 +4,17 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Layers,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { ModelBrandIcon } from "../../common/ModelBrandIcon";
 import { DailyTrendChart } from "./DailyTrendChart";
 import { ModelDonutChart } from "./ModelDonutChart";
 import { Sparkline } from "./Sparkline";
 import { heatColor, UsageHourGrid } from "./UsageHourGrid";
-import { UsageProfilePills } from "./UsageProfilePills";
 import { translateRequestMethod } from "./requestMethod";
 import { UsageDateFilter } from "./UsageDateFilter";
 import { getActiveLocale, useI18n } from "../../../i18n";
@@ -1073,16 +1074,15 @@ export function UsageSettingsPanel(): React.JSX.Element {
         onDismiss={() => setClearNotice("")}
       />
 
-      <UsageProfilePills
-        profiles={profiles}
-        value={profileFilter}
-        onChange={handleProfileFilterChange}
-      />
-
       <UsageDateFilter
         preset={datePreset}
         sinceDate={sinceDate}
         untilDate={untilDate}
+        profile={{
+          profiles,
+          value: profileFilter,
+          onChange: handleProfileFilterChange,
+        }}
         onPresetChange={handlePresetChange}
         onSinceDateChange={handleSinceDateChange}
         onUntilDateChange={handleUntilDateChange}
@@ -1364,7 +1364,14 @@ export function UsageSettingsPanel(): React.JSX.Element {
               <tbody>
                 {modelBreakdown.map((item) => (
                   <tr key={`${item.model}-${item.requestMethod}`}>
-                    <td className="usage-cell-model">{item.model || "-"}</td>
+                    <td className="usage-cell-model">
+                      <span className="usage-cell-with-icon">
+                        <ModelBrandIcon model={item.model} size={14} />
+                        <span className="usage-cell-label">
+                          {item.model || "-"}
+                        </span>
+                      </span>
+                    </td>
                     <td className="usage-cell-method">
                       {translateRequestMethod(item.requestMethod, t)}
                     </td>
@@ -1559,13 +1566,27 @@ export function UsageSettingsPanel(): React.JSX.Element {
                         {formatDateTime(record.createdAt)}
                       </td>
                       <td className="usage-cell-model">
-                        {record.model || "-"}
+                        <span className="usage-cell-with-icon">
+                          <ModelBrandIcon model={record.model} size={14} />
+                          <span className="usage-cell-label">
+                            {record.model || "-"}
+                          </span>
+                        </span>
                       </td>
                       <td className="usage-cell-method">
                         {translateRequestMethod(record.requestMethod, t)}
                       </td>
                       <td className="usage-cell-profile">
-                        {record.apiProfileName || "-"}
+                        <span className="usage-cell-with-icon">
+                          <Layers
+                            size={13}
+                            strokeWidth={1.8}
+                            className="usage-cell-icon-muted"
+                          />
+                          <span className="usage-cell-label">
+                            {record.apiProfileName || "-"}
+                          </span>
+                        </span>
                       </td>
                       <td className="usage-cell-number">
                         {formatTokens(record.inputTokens)}
