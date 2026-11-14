@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.5.17
+
+### New Features
+
+- **Usage Activity Insights**: the usage panel gains KPI cards with sparklines, profile filter pills, a weekday × hour heatmap with click-to-filter, and activity facts (active days, streaks, busiest day). The daily trend chart stacks uncached input, cache reads and output, with an option to hide cache reads so the other series stay readable.
+- **Chat Input Editing**: undo / redo now covers the contenteditable input, including inserted chips and attachments; dropped files and pasted images land at the drop caret, the editor auto-scrolls near its edges, and the in-app drag preview no longer covers the caret.
+- **API Model Test**: each API profile can send a short streaming test request using its own request method, system prompts and custom headers; the result is stored as model health data and shown from the API settings table.
+- **Sensitive Command Preference Learning**: allow / deny choices made in command prompts are recorded locally (latest 1000 kept) and the most similar past choices are passed to the decision model as a reference; the new "Learn my preferences automatically" setting shows the record count and can clear it.
+- **Editable Wiki Generation Settings**: an existing Repo Wiki's language, profile, model, diagrams and retry settings can be changed without regenerating; generated pages stay as they are and later updates use the new settings.
+- **Gemini Decisions Provider**: Gemini (`gemini-decision-1`) joins TypeSafe Jev and OpenAI Decisions as a third decision provider, with a 200k character context budget.
+- **Background Reply Prediction**: reply prediction is scheduled after every completed turn even when the conversation is not active, and cached predictions are restored when switching back.
+
+### Improvements
+
+- Thinking strength is picked with a gradient drag slider (per-level ticks, keyboard support, level-tinted icons) that stays open while adjusting.
+- The eight `terminal-*` tools are consolidated into a single `terminal-manage` tool selected by `action`, shrinking the tool surface injected into the model context.
+- The Anthropic prompt cache TTL (5m or 1h) is configurable in API settings and honored at every `cache_control` breakpoint, including file search.
+- Model tables share a model name cell with custom brand icons for brands missing from LobeHub icons (TypeSafe, SubQ).
+- Provider failure details are stored and shown verbatim instead of being redacted and truncated, and filenames or technical terms such as `README.md`, `ASP.NET` and `design.ai` are no longer turned into fake links.
+- The native backend is split into layered workspace crates (`crates/*`); the root package keeps only the N-API export surface and bootstrap wiring.
+
+### Breaking Changes
+
+- Approvals recorded for the removed `terminal-*` tools are not migrated: read-only actions share one `terminal-manage` approval and write actions are recorded separately as `terminal-manage:<action>`. Legacy tool names in history still render.
+
+### Bug Fixes
+
+- Aborting a sub-agent clears its pending authorizations, questions and hook decisions and rejects questions arriving after the abort, so the session no longer stays marked as busy or awaiting input.
+- The SSH Git panel waits for the connection to become ready and rediscovers repositories, showing explicit scanning, waiting, failed and unavailable states with retry / reconnect actions.
+
 ## v0.5.16
 
 ### New Features
