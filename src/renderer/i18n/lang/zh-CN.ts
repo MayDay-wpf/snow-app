@@ -4081,6 +4081,7 @@ export const zhCN = {
   "settings.themeFontSystemDefault": "系统默认",
   "settings.themeFontBundledZcoolXiaoWei": "站酷小薇（内置）",
   "settings.themeFontBundledJostLight": "Jost Light（内置）",
+  "settings.themeFontBundledPorscheSans": "保时捷（内置）",
   "settings.themeTypographyTitle": "排版",
   "settings.themeTypographyInfo":
     "调整界面字号（整页缩放，13px 为 100%）、正文字重与聊天区 / 代码排版。",

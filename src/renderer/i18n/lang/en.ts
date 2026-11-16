@@ -4330,6 +4330,7 @@ export const en = {
   "settings.themeFontSystemDefault": "System default",
   "settings.themeFontBundledZcoolXiaoWei": "ZCOOL XiaoWei (built-in)",
   "settings.themeFontBundledJostLight": "Jost Light (built-in)",
+  "settings.themeFontBundledPorscheSans": "Porsche Sans (built-in)",
   "settings.themeTypographyTitle": "Typography",
   "settings.themeTypographyInfo":
     "Adjust the UI font size (whole-app zoom, 13px = 100%), body font weight, and chat / code typography.",

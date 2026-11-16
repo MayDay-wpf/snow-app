@@ -4083,6 +4083,7 @@ export const zhTW = {
   "settings.themeFontSystemDefault": "系統預設",
   "settings.themeFontBundledZcoolXiaoWei": "站酷小薇（內置）",
   "settings.themeFontBundledJostLight": "Jost Light（內置）",
+  "settings.themeFontBundledPorscheSans": "保時捷（內置）",
   "settings.themeTypographyTitle": "排版",
   "settings.themeTypographyInfo":
     "調整介面字號（整頁縮放，13px 為 100%）、正文字重與聊天區 / 程式碼排版。",

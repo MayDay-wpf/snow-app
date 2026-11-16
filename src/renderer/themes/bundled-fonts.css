@@ -20,3 +20,11 @@
   font-style: normal;
   font-display: swap;
 }
+
+@font-face {
+  font-family: "Porsche Sans";
+  src: url("../assets/fonts/porsche-sans-sc-subset.woff2") format("woff2");
+  font-weight: 150 700;
+  font-style: normal;
+  font-display: swap;
+}

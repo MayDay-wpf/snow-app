@@ -31,6 +31,11 @@ const COMMON_FONTS: CommonFont[] = [
     labelKey: "settings.themeFontBundledJostLight",
     value: "'Jost Light', 'PingFang SC', 'Microsoft YaHei', sans-serif",
   },
+  {
+    label: "Porsche Sans (built-in)",
+    labelKey: "settings.themeFontBundledPorscheSans",
+    value: "'Porsche Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  },
   // 常见系统字体。
   { label: "Arial", value: "Arial, sans-serif" },
   { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
