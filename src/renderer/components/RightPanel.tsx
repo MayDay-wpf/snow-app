@@ -55,6 +55,7 @@ import { runtimeSnapshot } from "../plugins/runtimeSnapshot";
 // 预取起始页，避免首次创建浏览器实例时异步拉取 chunk 造成「不进预设起始页」
 // 与时序类问题（useBrowserHomepage 的模块级状态在 lazy 加载前不存在）。
 import { BrowserPanelContent } from "./rightPanel/BrowserPanelContent";
+import { WebsiteFavicon } from "./rightPanel/browser/WebsiteFavicon";
 import {
   useBrowserMcpCommandBridge,
   type BrowserMcpTabCallbacks,
@@ -290,8 +291,19 @@ const getTabIcon = (tab: RightPanelTab): React.ReactNode => {
       return <GitBranch {...panelIconProps} />;
     case "terminal":
       return <Terminal {...panelIconProps} />;
-    case "browser":
-      return <Globe {...panelIconProps} />;
+    case "browser": {
+      // 站点 favicon 优先（与地址栏/书签栏同一套 img-proxy 加载），
+      // 无地址或加载失败时回退地球图标。
+      const browserUrl = (tab.data as BrowserTabData | undefined)?.url ?? "";
+      return (
+        <WebsiteFavicon
+          url={browserUrl}
+          size={13}
+          className="right-panel-tab-favicon"
+          fallback={<Globe {...panelIconProps} />}
+        />
+      );
+    }
     case "codebase":
       return <Database {...panelIconProps} />;
     case "explorer":

@@ -44042,6 +44042,11 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   opacity: 0.7;
 }
 
+/* 浏览器 tab 的站点 favicon：保持全彩（不套线条图标的 0.7 透明度） */
+.right-panel-tab-favicon {
+  flex-shrink: 0;
+}
+
 .right-panel-tab-close {
   display: inline-flex;
   align-items: center;
