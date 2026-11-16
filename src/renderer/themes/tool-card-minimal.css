@@ -1,0 +1,385 @@
+/* ============================================================
+   Transcript style: minimal（参考 Codex App）
+
+   仅在根节点 data-tool-card-style="minimal" 时生效：
+   - 每轮中间过程折叠为「已处理 Xs」行（.turn-work）
+   - 工具组标题显示活动摘要，工具行为无底色的纯文本行
+   选择器额外带 .tcg / .tcn 祖先，压过主题预设的同名规则。
+   ============================================================ */
+
+/* ---------- 轮次折叠块 ---------- */
+
+/* 标题行在生成过程中常驻，结束时只折叠下方内容，块本身不重新插入。 */
+.turn-work {
+  display: block;
+  width: min(100%, calc(var(--chat-content-max, 720px) - 40px));
+}
+
+.turn-work-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.turn-work-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.turn-work-toggle:hover {
+  color: var(--text-primary);
+}
+
+.turn-work-meta {
+  color: var(--text-muted, var(--text-tertiary));
+  font-weight: 400;
+}
+
+.turn-work-meta::before {
+  content: "\00B7";
+  margin-right: 6px;
+}
+
+.turn-work-alert {
+  flex-shrink: 0;
+  color: var(--accent-red);
+}
+
+.turn-work-chevron {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition:
+    transform 0.24s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.12s ease;
+}
+
+.turn-work-toggle:hover .turn-work-chevron {
+  opacity: 1;
+}
+
+.turn-work.is-open .turn-work-chevron {
+  transform: rotate(90deg);
+}
+
+.turn-work-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+/* 内容区：1fr ↔ 0fr 的高度过渡，收起后再卸载内容，避免瞬间消失 */
+.turn-work-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 0.3s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.24s ease;
+}
+
+.turn-work-body.is-collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.3s cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 0.18s ease;
+}
+
+.turn-work-body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+}
+
+/* 仅在收起过程中裁剪，展开态保持可见溢出（工具卡浮层不被切掉） */
+.turn-work-body.is-collapsed .turn-work-body-inner {
+  overflow: hidden;
+}
+
+/* 生成中：标题做轻微呼吸，和最终态的静态文案区分 */
+.turn-work.is-live .turn-work-label {
+  animation: turn-work-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes turn-work-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- 工具组：活动摘要标题 ---------- */
+
+:root[data-tool-card-style="minimal"] .tcg {
+  margin-bottom: 4px;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-toggle {
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px 0 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  clip-path: none;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  transform: none;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-toggle:hover,
+:root[data-tool-card-style="minimal"] .tcg .tcg-toggle:active {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary);
+  transform: none;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-label {
+  order: 1;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-plugins {
+  order: 2;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-time {
+  display: none;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-status-icon {
+  display: inline-flex;
+  order: 3;
+  flex-shrink: 0;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-alert {
+  color: var(--accent-red);
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-chevron {
+  order: 4;
+  color: currentColor;
+  opacity: 0.55;
+  transition:
+    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.12s ease;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-toggle:hover .tcg-chevron {
+  opacity: 1;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-list {
+  gap: 0;
+  padding-left: 0;
+  margin-top: 2px;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-list::before {
+  content: none;
+}
+
+/* ---------- 工具行：纯文本，无底色与状态点 ---------- */
+
+:root[data-tool-card-style="minimal"] .tcn > .tcn-header {
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1.2;
+  transition: color 0.12s ease;
+}
+
+:root[data-tool-card-style="minimal"] .tcn > .tcn-header:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-dot,
+:root[data-tool-card-style="minimal"] .tcn .tcn-sep {
+  display: none;
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn
+  .tcn-header
+  .tool-call-tool-name-icon {
+  width: 13px;
+  height: 13px;
+  opacity: 1;
+  color: var(--text-tertiary);
+}
+
+:root[data-tool-card-style="minimal"] .tcn--running .tool-call-tool-name-icon {
+  color: var(--accent-blue);
+}
+
+:root[data-tool-card-style="minimal"] .tcn--error .tool-call-tool-name-icon {
+  color: var(--accent-red);
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-header .tool-call-tool-name {
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn
+  .tcn-header:hover
+  .tool-call-tool-name {
+  color: var(--text-primary);
+}
+
+/* 运行中：工具名做呼吸提示，替代状态点 */
+:root[data-tool-card-style="minimal"]
+  .tcn--running
+  > .tcn-header
+  .tool-call-tool-name {
+  animation: tcn-minimal-pulse 1.4s ease-in-out infinite;
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn--error
+  > .tcn-header
+  .tool-call-tool-name {
+  color: var(--accent-red);
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn--pending
+  > .tcn-header
+  .tool-call-tool-name {
+  color: var(--text-muted, var(--text-tertiary));
+}
+
+@keyframes tcn-minimal-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn
+  .tcn-header
+  .tool-call-plugin-origin {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-plugin-chip {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-name {
+  max-width: min(70%, 520px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-name > svg {
+  display: none;
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-name--running {
+  color: var(--text-muted, var(--text-tertiary));
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-meta {
+  font-size: 12px;
+  color: var(--text-muted, var(--text-tertiary));
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-chevron {
+  opacity: 0;
+  transition:
+    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.12s ease;
+}
+
+:root[data-tool-card-style="minimal"] .tcn > .tcn-header:hover .tcn-chevron,
+:root[data-tool-card-style="minimal"] .tcn[open] > .tcn-header .tcn-chevron {
+  opacity: 0.8;
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-body {
+  margin-left: 0;
+  padding: 4px 0 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-work,
+  .turn-work-toggle,
+  .turn-work-chevron,
+  .turn-work-body,
+  :root[data-tool-card-style="minimal"] .tcg .tcg-chevron,
+  :root[data-tool-card-style="minimal"] .tcn .tcn-chevron {
+    animation: none;
+    transition: none;
+  }
+
+  .turn-work.is-live .turn-work-label,
+  :root[data-tool-card-style="minimal"]
+    .tcn--running
+    > .tcn-header
+    .tool-call-tool-name {
+    animation: none;
+  }
+}

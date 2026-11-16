@@ -356,6 +356,7 @@ export const ReviewPanel = ({
     key: string,
     file: {
       status: string;
+      indexStatus: string;
       oldPath: string | null;
       path: string;
       workdirStatus: string;
@@ -364,6 +365,11 @@ export const ReviewPanel = ({
   ): React.JSX.Element => {
     const checked = selected.has(key);
     const isUntracked = file.workdirStatus.trim() === "?";
+    // 按分区派生显示码：AD（索引新增 + 工作区删除）在变更区应显示 D。
+    const sectionCode = (
+      kind === "staged" ? file.indexStatus : file.workdirStatus
+    ).trim();
+    const displayCode = isUntracked ? "U" : sectionCode || file.status;
     return (
       <li
         className={`review-file-row${checked ? " is-selected" : ""}`}
@@ -394,7 +400,7 @@ export const ReviewPanel = ({
                 : "unstaged"
           }`}
         >
-          {isUntracked ? "U" : file.status}
+          {displayCode}
         </span>
       </li>
     );

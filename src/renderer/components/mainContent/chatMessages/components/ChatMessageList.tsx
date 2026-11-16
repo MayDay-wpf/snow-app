@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,8 +11,11 @@ import { GitFork, Zap } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import { ChatStreamIndicator } from "./ChatStreamIndicator";
 import { VirtualizedMessage } from "./VirtualizedMessage";
+import { TurnWorkBlock } from "./TurnWorkBlock";
 import type { ChatConversationMessage } from "../utils/conversationTypes";
 import type { ChatRunStats } from "../utils/types";
+import { parseMessageTime } from "../utils/toolActivitySummary";
+import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 import { useViewportVirtualization } from "../hooks/useViewportVirtualization";
 import { useChatConversationContext } from "./ChatConversationContext";
 import {
@@ -41,6 +45,30 @@ type ChatMessageListProps = {
 // (跳过 tool 消息),数值取小足够覆盖首屏 + 初始定位到底部后的视口。
 const INITIAL_VIRTUAL_HEAD_COUNT = 3;
 const INITIAL_VIRTUAL_WINDOW_SIZE = 24;
+
+type TurnWorkItem = {
+  message: ChatConversationMessage;
+  index: number;
+};
+
+type TurnWork = {
+  /** 本轮仍在生成：标题显示进行中，内容保持展开。 */
+  live: boolean;
+  durationMs: number | null;
+  toolCount: number;
+  hasError: boolean;
+  /** 本轮的中间响应（不含最终回答）。 */
+  items: TurnWorkItem[];
+  /** 中间响应里有待授权工具：强制展开，避免授权卡片被折叠。 */
+  forceOpen: boolean;
+};
+
+type TurnFolding = {
+  /** 中间响应的 renderKey -> 所属轮次 key（轮次 key 即首条中间响应的 renderKey） */
+  workKeys: Map<string, string>;
+  /** 轮次 key -> 折叠块数据 */
+  blocks: Map<string, TurnWork>;
+};
 
 export const ChatMessageList = ({
   messages,
@@ -269,6 +297,118 @@ export const ChatMessageList = ({
     return pinned;
   }, [activeConversationId, lastAssistantMessageId, messages, renderKeyOf]);
 
+  // 极简模式（参考 Codex App）：每轮除最终回答外的中间响应收进一个折叠块，
+  // 标题行常驻（生成中显示进行中），结束后只把内容以高度过渡收起。
+  const isMinimalTranscript = useToolCardStyle() === "minimal";
+  const [turnOpenOverrides, setTurnOpenOverrides] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map<string, boolean>());
+  const toggleTurn = useCallback((turnKey: string, next: boolean): void => {
+    setTurnOpenOverrides((prev) => {
+      const map = new Map(prev);
+      map.set(turnKey, next);
+      return map;
+    });
+  }, []);
+
+  const turnFolding = useMemo<TurnFolding | null>(() => {
+    if (!isMinimalTranscript) {
+      return null;
+    }
+    const runActive = isStreaming || isRunActive || isAborting;
+    const workKeys = new Map<string, string>();
+    const blocks = new Map<string, TurnWork>();
+    const collect = (
+      start: number,
+      end: number,
+      userTime: number | null,
+      isLastTurn: boolean,
+    ): void => {
+      const assistants: TurnWorkItem[] = [];
+      for (let i = start; i < end; i++) {
+        if (messages[i].role === "assistant") {
+          assistants.push({ message: messages[i], index: i });
+        }
+      }
+      if (assistants.length < 2) {
+        return;
+      }
+      const turnKey = renderKeyOf(assistants[0].message.id);
+      const live = isLastTurn && runActive;
+
+      // 待授权工具必须露出来，不能被折叠挡住。
+      let forceOpen = false;
+      for (const { message } of assistants) {
+        for (const toolCall of message.toolCalls ?? []) {
+          if (toolCall.authorizationConversationId === activeConversationId) {
+            forceOpen = true;
+          }
+        }
+      }
+
+      // 生成中被用户手动收起：后续追加的输出也一并收进折叠块（含正在流式的
+      // 这条），否则收起后新的步骤仍会冒在块外面。
+      const collapsedLive =
+        live && !forceOpen && turnOpenOverrides.get(turnKey) === false;
+      const work = collapsedLive ? assistants : assistants.slice(0, -1);
+      for (const item of work) {
+        workKeys.set(renderKeyOf(item.message.id), turnKey);
+      }
+
+      let toolCount = 0;
+      let hasError = false;
+      for (const { message } of work) {
+        if (message.status === "error") {
+          hasError = true;
+        }
+        for (const toolCall of message.toolCalls ?? []) {
+          toolCount++;
+          if (toolCall.status === "error") {
+            hasError = true;
+          }
+        }
+      }
+      const endTime = parseMessageTime(
+        assistants[assistants.length - 1].message.timestamp,
+      );
+      blocks.set(turnKey, {
+        live,
+        durationMs:
+          live || userTime === null || endTime === null || endTime <= userTime
+            ? null
+            : endTime - userTime,
+        toolCount,
+        hasError,
+        items: work,
+        forceOpen,
+      });
+    };
+    let start = 0;
+    let userTime: number | null = null;
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role !== "user") {
+        continue;
+      }
+      // 首条用户消息之前的前缀是翻页裁切出的半轮，保持展开不折叠
+      if (i > 0) {
+        collect(start, i, userTime, false);
+      }
+      start = i + 1;
+      userTime = parseMessageTime(messages[i].timestamp);
+    }
+    collect(start, messages.length, userTime, true);
+    return { workKeys, blocks };
+  }, [
+    isMinimalTranscript,
+    isStreaming,
+    isRunActive,
+    isAborting,
+    messages,
+    renderKeyOf,
+    activeConversationId,
+    turnOpenOverrides,
+  ]);
+
   // 挂载时的初始可见窗口(仅当列表大到窗口无法覆盖全部时才起作用):
   // 切换会话后 chat-area 整体重建,新 ChatMessageList 挂载时若以
   // visibleIds === null 起步,首次提交会同步全量渲染整个消息列表
@@ -423,18 +563,15 @@ export const ChatMessageList = ({
     );
   };
 
-  // Keep the fork divider outside virtualization so it is always present when
-  // visible (it is a single small node and never needs height preservation).
-  const renderItem = (
+  // 单条消息的渲染（虚拟化包裹 + 消息内容）；极简模式的轮次折叠块复用同一份。
+  const renderMessageNode = (
     message: ChatConversationMessage,
     index: number,
-  ): React.JSX.Element => {
-    const renderKey = renderKeyOf(message.id);
-
-    // Tool messages return null; render an empty keyed placeholder so React
-    // keeps stable keys across renders.
+  ): React.JSX.Element | null => {
+    // Tool messages return null; render an empty placeholder so React keeps
+    // stable keys across renders.
     if (message.role === "tool") {
-      return <div className="chat-message-hidden" key={renderKey} />;
+      return <div className="chat-message-hidden" />;
     }
 
     // 新一轮回复刚挂上、尚未收到任何内容的 assistant 占位：真实渲染只是一个
@@ -458,7 +595,7 @@ export const ChatMessageList = ({
         )
       );
     if (isEmptyPendingAssistant) {
-      return <div className="chat-message-hidden" key={renderKey} />;
+      return <div className="chat-message-hidden" />;
     }
 
     const className = `chat-message-group ${
@@ -474,8 +611,7 @@ export const ChatMessageList = ({
 
     return (
       <VirtualizedMessage
-        id={renderKey}
-        key={renderKey}
+        id={renderKeyOf(message.id)}
         itemIndex={index}
         itemClassName={className}
         virtualization={virtualization}
@@ -496,6 +632,54 @@ export const ChatMessageList = ({
         onApproveToolAuthorizationAlways={approveToolAuthorizationAlways}
         onRejectToolAuthorization={rejectToolAuthorization}
       />
+    );
+  };
+
+  // Keep the fork divider outside virtualization so it is always present when
+  // visible (it is a single small node and never needs height preservation).
+  const renderItem = (
+    message: ChatConversationMessage,
+    index: number,
+  ): React.JSX.Element | null => {
+    const renderKey = renderKeyOf(message.id);
+    const turnKey = turnFolding?.workKeys.get(renderKey);
+    const block = turnKey ? turnFolding?.blocks.get(turnKey) : undefined;
+
+    // 轮次折叠块：首条中间响应位置渲染整块（标题行 + 中间过程），
+    // 其余中间响应不再单独占位。
+    if (block && turnKey) {
+      if (turnKey !== renderKey) {
+        return null;
+      }
+      // 手动开合优先；未手动时进行中的轮次展开，其余收起。
+      const override = turnOpenOverrides.get(turnKey);
+      const expanded = block.forceOpen || (override ?? block.live);
+      return (
+        <TurnWorkBlock
+          key={renderKey}
+          live={block.live}
+          durationMs={block.durationMs}
+          stepCount={block.items.length}
+          toolCount={block.toolCount}
+          hasError={block.hasError}
+          expanded={expanded}
+          onToggle={() => toggleTurn(turnKey, !expanded)}
+        >
+          {block.items.map((item) => (
+            <Fragment key={renderKeyOf(item.message.id)}>
+              {renderMessageNode(item.message, item.index)}
+            </Fragment>
+          ))}
+        </TurnWorkBlock>
+      );
+    }
+
+    if (turnKey) {
+      return null;
+    }
+
+    return (
+      <Fragment key={renderKey}>{renderMessageNode(message, index)}</Fragment>
     );
   };
 

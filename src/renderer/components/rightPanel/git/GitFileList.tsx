@@ -101,6 +101,26 @@ const getStatusLabel = (status: string): string => {
   }
 };
 
+/** 分区显示码：暂存区看索引态、变更区看工作区态。
+ *  同一个条目（如 AD：索引新增 + 工作区删除）在两侧含义不同，
+ *  不能用后端合成的单一 status 判断。 */
+const getSectionStatus = (
+  file: GitFileStatus,
+  section: "staged" | "unstaged",
+): string => {
+  if (section === "staged") {
+    return file.indexStatus.trim() || file.status;
+  }
+  const workdir = file.workdirStatus;
+  if (workdir === "?") {
+    return "U";
+  }
+  if (workdir === "!") {
+    return "I";
+  }
+  return workdir.trim() || file.status;
+};
+
 type GitTreeFolder = {
   name: string;
   path: string;
@@ -258,8 +278,9 @@ export const GitFileList = ({
 
   const buildMenuItems = (file: GitFileStatus): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [];
-    // 已删除（D）文件在磁盘上不存在，查看类操作不可用。
-    const isDeleted = file.status === "D";
+    // 已删除（D）文件在磁盘上不存在，查看类操作不可用；按分区判断，
+    // AD 条目只有变更区（工作区删除）才算删除。
+    const isDeleted = getSectionStatus(file, section) === "D";
     if (onOpenFile) {
       items.push({
         id: "open",
@@ -435,7 +456,7 @@ export const GitFileList = ({
         repoPath,
         path: file.path,
         section,
-        status: file.status,
+        status: getSectionStatus(file, section),
       };
       event.dataTransfer.setData("application/json", JSON.stringify(tag));
       event.dataTransfer.effectAllowed = "copy";
@@ -454,6 +475,7 @@ export const GitFileList = ({
     );
     const fileName = lastSep === -1 ? file.path : file.path.slice(lastSep + 1);
     const dirPath = lastSep === -1 ? "" : file.path.slice(0, lastSep + 1);
+    const displayStatus = getSectionStatus(file, section);
     return (
       <div
         key={`${section}-${file.path}`}
@@ -468,11 +490,11 @@ export const GitFileList = ({
         draggable
         onDragStart={(event) => handleFileDragStart(event, file)}
       >
-        <span className={`git-file-status ${getStatusColor(file.status)}`}>
-          {getStatusLabel(file.status)}
+        <span className={`git-file-status ${getStatusColor(displayStatus)}`}>
+          {getStatusLabel(displayStatus)}
         </span>
         <span
-          className={`git-file-name${file.status === "D" ? " deleted" : ""}`}
+          className={`git-file-name${displayStatus === "D" ? " deleted" : ""}`}
           title={file.path}
         >
           {getFileTypeIcon(

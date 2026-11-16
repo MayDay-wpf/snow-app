@@ -5,6 +5,8 @@ import { resolveLocalized } from "../../../../plugins/manifest";
 import { usePluginStore } from "../../../../plugins/pluginStore";
 import { useSharedPluginToolOwner } from "../../../../plugins/pluginToolIndex";
 import type { ToolCallInfo } from "../utils/conversationTypes";
+import { summarizeToolActivity } from "../utils/toolActivitySummary";
+import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 import { MessageTimestamp } from "./MessageTimestamp";
 
 type ToolCallGroupProps = {
@@ -30,7 +32,10 @@ export const ToolCallGroup = ({
   children,
 }: ToolCallGroupProps): React.JSX.Element => {
   const { t, locale } = useI18n();
-  const [isOpen, setIsOpen] = useState(true);
+  const isMinimal = useToolCardStyle() === "minimal";
+  // 未手动开合时：极简模式仅运行中展开，其余风格默认展开
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const isOpen = userOpen ?? (isMinimal ? isRunning : true);
 
   const toolNames = useMemo(
     () => toolCalls?.map((tc) => tc.name) ?? [],
@@ -46,22 +51,29 @@ export const ToolCallGroup = ({
     return plugin ? [plugin] : [];
   }, [ownerPluginId, pluginsState.plugins]);
 
-  const label = isRunning
-    ? t("toolCall.group.runningSteps", {
-        defaultValue: "{{count}} steps",
-        values: { count },
-      })
-    : t("toolCall.group.steps", {
-        defaultValue: "{{count}} steps",
-        values: { count },
-      });
+  const activitySummary = useMemo(
+    () => (isMinimal && toolCalls ? summarizeToolActivity(toolCalls, t) : ""),
+    [isMinimal, toolCalls, t],
+  );
+
+  const label = activitySummary
+    ? activitySummary
+    : isRunning
+      ? t("toolCall.group.runningSteps", {
+          defaultValue: "{{count}} steps",
+          values: { count },
+        })
+      : t("toolCall.group.steps", {
+          defaultValue: "{{count}} steps",
+          values: { count },
+        });
 
   return (
     <div className={`tcg${hasError ? " tcg--has-error" : ""}`}>
       <button
         type="button"
         className="tcg-toggle"
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => setUserOpen(!isOpen)}
         aria-expanded={isOpen}
       >
         <span className="tcg-label">{label}</span>

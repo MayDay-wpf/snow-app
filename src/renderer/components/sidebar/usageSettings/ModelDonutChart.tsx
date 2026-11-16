@@ -24,6 +24,8 @@ const COLORS = [
 const OTHER_COLOR = "var(--text-muted)";
 
 type Segment = {
+  /** 唯一标识：同名模型会合并，重名会破坏 React 复用。 */
+  key: string;
   label: string;
   model: string;
   value: number;
@@ -53,22 +55,40 @@ export function ModelDonutChart({
   );
 
   const segments = useMemo<Segment[]>(() => {
-    const sorted = [...data].sort((a, b) => b.totalTokens - a.totalTokens);
+    // 同名模型可能来自多种协议，先按展示标签合并，避免重复 key 与占比叠加。
+    const grouped = new Map<
+      string,
+      { model: string; value: number; requests: number }
+    >();
+    for (const row of data) {
+      const model = row.model || "-";
+      const label = isChatRequestMethod(row.requestMethod)
+        ? model
+        : `${model} · ${translateRequestMethod(row.requestMethod, t)}`;
+      const current = grouped.get(label);
+      if (current) {
+        current.value += row.totalTokens;
+        current.requests += row.totalRequests;
+      } else {
+        grouped.set(label, {
+          model: row.model,
+          value: row.totalTokens,
+          requests: row.totalRequests,
+        });
+      }
+    }
+    const sorted = [...grouped.entries()].sort(
+      (a, b) => b[1].value - a[1].value,
+    );
     const top = sorted.slice(0, TOP_N);
     const rest = sorted.slice(TOP_N);
-    const restTokens = rest.reduce((sum, r) => sum + r.totalTokens, 0);
-    const restRequests = rest.reduce((sum, r) => sum + r.totalRequests, 0);
-    // 非对话请求（如决策模型）标注来源，避免与同名模型的聊天统计混在一起。
-    const modelLabel = (item: ModelUsageBreakdown): string => {
-      const model = item.model || "-";
-      if (isChatRequestMethod(item.requestMethod)) return model;
-      return `${model} · ${translateRequestMethod(item.requestMethod, t)}`;
-    };
-    const items = top.map((m) => ({
-      label: modelLabel(m),
-      model: m.model,
-      value: m.totalTokens,
-      requests: m.totalRequests,
+    const restTokens = rest.reduce((sum, [, g]) => sum + g.value, 0);
+    const restRequests = rest.reduce((sum, [, g]) => sum + g.requests, 0);
+    const items = top.map(([label, g]) => ({
+      label,
+      model: g.model,
+      value: g.value,
+      requests: g.requests,
       isOther: false,
       count: 1,
     }));
@@ -87,6 +107,7 @@ export function ModelDonutChart({
     return items.map((it, i) => {
       const fraction = total > 0 ? it.value / total : 0;
       const seg: Segment = {
+        key: it.isOther ? "__others" : it.label,
         label: it.label,
         model: it.model,
         value: it.value,
@@ -152,7 +173,7 @@ export function ModelDonutChart({
         />
         {segments.map((seg, i) => (
           <circle
-            key={seg.label}
+            key={seg.key}
             className={`usage-donut-segment${
               activeIndex !== null && activeIndex !== i ? " dim" : ""
             }`}
@@ -205,7 +226,7 @@ export function ModelDonutChart({
             </div>
           ) : (
             <div
-              key={seg.label}
+              key={seg.key}
               className="usage-donut-legend-item"
               onMouseEnter={(e) => showTooltipAt(i, e)}
               onMouseLeave={hideTooltip}

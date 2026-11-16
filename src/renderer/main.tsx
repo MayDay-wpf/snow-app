@@ -35,6 +35,7 @@ import "./themes/preset-rococo.css";
 import "./themes/layout-layered.css";
 import "./themes/layout-flush.css";
 import "./themes/tool-card-chips.css";
+import "./themes/tool-card-minimal.css";
 import { initToolCardStyle } from "./utils/toolCardStyle";
 import { installImeKeyboardGuard } from "../shared/imeKeyboard";
 import { installDragPreviewOffset } from "./utils/dragPreview";

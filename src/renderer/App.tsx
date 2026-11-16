@@ -26,6 +26,7 @@ import { SshConnectWizard } from "./components/sidebar/mainSidebar/SshConnectWiz
 import { ConfirmDialog } from "./components/common/ConfirmDialog";
 import { AppLockOverlay } from "./components/AppLockOverlay";
 import { ShortcutHelpOverlay } from "./components/ShortcutHelpOverlay";
+import { TranscriptStyleNotice } from "./components/TranscriptStyleNotice";
 import { rightPanelEvents } from "./components/rightPanel/rightPanelEvents";
 import {
   OPEN_PROJECT_MCP_PANEL_EVENT,
@@ -223,7 +224,7 @@ const getMaxPanelWidth = (
  * 注：toggleWindow 不在此注册——它由主进程 globalShortcut 处理，
  * 窗口隐藏时也要能呼出，渲染进程 keydown 无法覆盖该场景。
  */
-const ShortcutHandlerBridge = (): null => {
+const ShortcutHandlerBridge = (): React.JSX.Element => {
   const { registerHandler } = useKeyboardShortcutsSettings();
   const { handleAbort, streamingConversationIds } =
     useChatConversationContext();
@@ -242,7 +243,6 @@ const ShortcutHandlerBridge = (): null => {
   // 工具卡风格切换：固定快捷键 mod+shift+u（不进可配置快捷键面板，
   // 界面上也不提供开关；帮助浮层里单独列出）。
   useEffect(() => installToolCardStyleShortcut(), []);
-
   useEffect(() => {
     const unsubCancel = registerHandler("cancelSession", () => {
       handleAbortRef.current();
@@ -439,7 +439,7 @@ const ShortcutHandlerBridge = (): null => {
   // 启动快捷键引擎的 document keydown 监听
   useKeyboardShortcuts();
 
-  return null;
+  return <TranscriptStyleNotice />;
 };
 
 export const App = (): React.JSX.Element => {

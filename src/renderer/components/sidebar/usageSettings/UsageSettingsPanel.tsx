@@ -175,6 +175,9 @@ export function UsageSettingsPanel(): React.JSX.Element {
   // 悬停某天时按需拉取的模型分布缓存
   const dayModelCacheRef = useRef(new Map<string, ModelUsageBreakdown[]>());
   const hoveredDateRef = useRef("");
+  // 请求序号：切换配置/日期时丢弃过期响应，避免旧数据覆盖新筛选。
+  const recordsSeqRef = useRef(0);
+  const statsSeqRef = useRef(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -232,6 +235,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
 
   const loadRecords = useCallback(
     async (pageOffset: number) => {
+      const seq = ++recordsSeqRef.current;
       setIsLoading(true);
       setError("");
       try {
@@ -242,10 +246,12 @@ export function UsageSettingsPanel(): React.JSX.Element {
           PAGE_SIZE,
           pageOffset,
         );
+        if (seq !== recordsSeqRef.current) return;
         setRecords(page.items ?? []);
         setTotal(page.total ?? 0);
         setOffset(pageOffset);
       } catch (e) {
+        if (seq !== recordsSeqRef.current) return;
         setError(
           e instanceof Error
             ? e.message
@@ -254,7 +260,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
               }),
         );
       } finally {
-        setIsLoading(false);
+        if (seq === recordsSeqRef.current) setIsLoading(false);
       }
     },
     [profileFilter, t],
@@ -270,6 +276,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
   }, []);
 
   const loadSummaryAndHeatmap = useCallback(async () => {
+    const seq = ++statsSeqRef.current;
     try {
       const heatmapSince = formatDateForInput(
         new Date(now.getTime() - ONE_YEAR_MS),
@@ -304,6 +311,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
         ),
         window.snow.getUsageActivity(heatmapSince, heatmapUntil, profileFilter),
       ]);
+      if (seq !== statsSeqRef.current) return;
       dayModelCacheRef.current.clear();
       setSummary(summaryResult);
       setDailyData(dailyResult ?? []);
@@ -311,6 +319,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
       setTrendData(trendResult ?? []);
       setActivity(activityResult ?? null);
     } catch (e) {
+      if (seq !== statsSeqRef.current) return;
       setError(
         e instanceof Error
           ? e.message
@@ -347,6 +356,18 @@ export function UsageSettingsPanel(): React.JSX.Element {
   );
 
   const handleProfileFilterChange = useCallback((value: string) => {
+    // 切换配置时先丢弃在途请求与残留图表数据，避免新旧统计叠加。
+    recordsSeqRef.current += 1;
+    statsSeqRef.current += 1;
+    dayModelCacheRef.current.clear();
+    hoveredDateRef.current = "";
+    setRecords([]);
+    setTotal(0);
+    setSummary(null);
+    setModelBreakdown([]);
+    setDailyData([]);
+    setTrendData([]);
+    setActivity(null);
     setProfileFilter(value);
     setOffset(0);
   }, []);

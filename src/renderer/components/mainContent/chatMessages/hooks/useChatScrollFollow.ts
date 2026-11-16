@@ -322,6 +322,10 @@ export const useChatScrollFollow = ({
     pinToBottom();
   }, [activeConversationId, messages, pinToBottom]);
 
+  // 翻页收敛后的补查：新页高度不足以把视口推离顶部阈值时（例如极简模式
+  // 折叠后的轮次很矮），不会再有 scroll 事件触发下一页，需主动复查一次。
+  const recheckLoadOlderRef = useRef<() => void>(() => {});
+
   // 结束一轮翻页滚动恢复：释放在途标记并唤醒等待该轮收敛的调用方（用户消息
   // 定位需要按页推进），避免等待一个永不抵达的信号。
   const finishScrollRestore = useCallback((): void => {
@@ -332,6 +336,7 @@ export const useChatScrollFollow = ({
     if (settle) {
       settle();
     }
+    requestAnimationFrame(() => recheckLoadOlderRef.current());
   }, []);
 
   const applyAnchorCorrection = useCallback((): boolean => {
@@ -1377,6 +1382,11 @@ export const useChatScrollFollow = ({
     hasMoreMessages,
     isLoadingOlderMessages,
   ]);
+
+  // 翻页收尾后主动复查一次顶部阈值（滚动事件不会在翻页后自行重放）。
+  useEffect(() => {
+    recheckLoadOlderRef.current = handleChatScroll;
+  }, [handleChatScroll]);
 
   const handleScrollToBottom = useCallback(
     (options?: { animate?: boolean }): void => {
