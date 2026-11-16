@@ -889,4 +889,41 @@ export const getFileTypeIcon = (
   );
 };
 
-export { File, Folder, FolderOpen, FileCode, FileJson, FileText, FileImage };
+// 文件夹背板轮廓：沿用 lucide Folder 的路径（含左侧标签）
+const FOLDER_BODY_PATH =
+  "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z";
+
+// 打开状态的前托盘：上宽下窄的梯形，四角微圆
+const FOLDER_TRAY_PATH =
+  "M3.5 10.6h17l-.85 7.9a1.55 1.55 0 0 1-1.55 1.35H5.9a1.55 1.55 0 0 1-1.55-1.35Z";
+
+/**
+ * 多层立体文件夹图标（仅当前打开的项目使用），固定为「打开」形态。
+ * 四层叠色：深色背板（露出的边缘即厚度）→ 亮色内页 → 主色前托盘 → 口沿高光。
+ * 轮廓沿用 lucide Folder 路径、不做缩放；填充墨迹比描边细一圈，故调用方用 16 对齐其它行的 15。
+ */
+export const getLayeredFolderIcon = (size = 15): React.JSX.Element => (
+  <svg
+    aria-hidden="true"
+    className="list-icon list-icon--current-project"
+    height={size}
+    viewBox="0 0 24 24"
+    width={size}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    {/* 背板：后壁与标签，最暗一层，四周露出即为厚度 */}
+    <path d={FOLDER_BODY_PATH} fill="var(--folder-back)" />
+    {/* 内页：从后壁里露出的一叠纸张 */}
+    <path d="M5 6.6h14v4.8H5Z" fill="var(--folder-sheet)" />
+    {/* 前托盘：主色，盖住内页下半截 */}
+    <path d={FOLDER_TRAY_PATH} fill="var(--folder-front)" />
+    {/* 口沿高光：托盘上沿的受光边 */}
+    <path
+      d="M4.2 11h15.6"
+      opacity="0.75"
+      stroke="var(--folder-highlight)"
+      strokeLinecap="round"
+      strokeWidth="0.8"
+    />
+  </svg>
+);

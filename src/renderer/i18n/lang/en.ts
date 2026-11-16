@@ -228,7 +228,7 @@ export const en = {
   "sidebar.linkProjectsEmpty":
     "No other projects available — add another directory first.",
   "sidebar.linkProjectsConfirm": "Link",
-  "sidebar.collectionDotTitle": "Linked project group: {{name}}",
+  "sidebar.collectionLinkTitle": "Linked project group: {{name}}",
   "sidebar.projectGridMemberUnlinked": "Unlinked — kept in the collection only",
   "sidebar.createProjectTitle": "Create a new project",
   "sidebar.createProjectNamePlaceholder": "Project name",

@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Link2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
@@ -226,9 +226,8 @@ export function TreeProjectNode({
       >
         {isEditing ? (
           <div className="list-item tree-project-row-edit">
-            {getDirectoryIcon(directory)}
+            {getDirectoryIcon(directory, { currentProject: isActive })}
             <input
-              ref={editInputRef}
               className="workspace-directory-rename-input"
               type="text"
               value={editingValue}
@@ -276,41 +275,52 @@ export function TreeProjectNode({
               title={directory.path}
               type="button"
             >
-              {collectionColor && memberLinked ? (
-                <span
-                  aria-hidden="true"
-                  className="workspace-directory-collection-dot"
-                  style={{ background: collectionColor }}
-                  title={t("sidebar.collectionDotTitle", {
-                    values: { name: collectionName ?? "" },
-                    defaultValue: "Linked project group: {{name}}",
-                  })}
-                />
-              ) : null}
-              {getDirectoryIcon(directory)}
+              {getDirectoryIcon(directory, { currentProject: isActive })}
               <span className="list-label">
                 {displayName ?? directory.name}
               </span>
+              {/* 关联合集标识：图标取合集颜色，放在目录名右侧避免左侧图标错位 */}
+              {collectionColor && memberLinked ? (
+                <Tooltip
+                  content={t("sidebar.collectionLinkTitle", {
+                    values: { name: collectionName ?? "" },
+                    defaultValue: "Linked project group: {{name}}",
+                  })}
+                  placement="top"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="workspace-directory-collection-mark"
+                    style={{ color: collectionColor }}
+                  >
+                    <Link2 size={12} />
+                  </span>
+                </Tooltip>
+              ) : null}
               {sshStatus ? <SshConnectionBadge status={sshStatus} /> : null}
               <DirectoryPathBadge directory={directory} />
               {hasActiveSession ? (
-                <span
-                  className="tree-project-session-dot"
-                  title={t("sidebar.treeRunningSession", {
+                <Tooltip
+                  content={t("sidebar.treeRunningSession", {
                     defaultValue: "A session is running in this project",
                   })}
-                />
+                  placement="top"
+                >
+                  <span className="tree-project-session-dot" />
+                </Tooltip>
               ) : null}
               {notificationCount ? (
-                <span
-                  className="workspace-directory-notification-badge"
-                  title={t("sidebar.directoryNotificationBadgeTitle", {
+                <Tooltip
+                  content={t("sidebar.directoryNotificationBadgeTitle", {
                     values: { count: notificationCount },
                     defaultValue: "{{count}} notification(s) in this project",
                   })}
+                  placement="top"
                 >
-                  {notificationCount}
-                </span>
+                  <span className="workspace-directory-notification-badge">
+                    {notificationCount}
+                  </span>
+                </Tooltip>
               ) : null}
             </button>
           </>

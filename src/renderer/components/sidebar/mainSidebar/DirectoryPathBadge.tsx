@@ -2,6 +2,7 @@ import { FolderX, HardDriveDownload, ShieldAlert } from "lucide-react";
 
 import type { WorkspaceDirectoryRecord } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { Tooltip } from "../../common/Tooltip";
 
 const FAILED_PATH_STATES = new Set([
   "missing",
@@ -52,13 +53,17 @@ export function DirectoryPathBadge({
           };
 
   return (
-    <span
-      className={`workspace-directory-path-badge ${badge.className}`}
-      title={`${badge.label}${
-        directory.lastKnownPath ? ` · ${directory.lastKnownPath}` : ""
-      }`}
+    <Tooltip
+      content={
+        directory.lastKnownPath
+          ? `${badge.label} · ${directory.lastKnownPath}`
+          : badge.label
+      }
+      placement="top"
     >
-      {badge.icon}
-    </span>
+      <span className={`workspace-directory-path-badge ${badge.className}`}>
+        {badge.icon}
+      </span>
+    </Tooltip>
   );
 }

@@ -208,7 +208,7 @@ export const zhTW = {
   "sidebar.linkProjectsSelectLabelEmpty": "選擇要關聯的專案",
   "sidebar.linkProjectsEmpty": "暫無可關聯的其它專案，請先新增目錄。",
   "sidebar.linkProjectsConfirm": "關聯",
-  "sidebar.collectionDotTitle": "關聯專案組：{{name}}",
+  "sidebar.collectionLinkTitle": "已關聯專案組：{{name}}",
   "sidebar.projectGridMemberUnlinked": "已斷連 — 僅保留在合集中",
   "sidebar.createProjectTitle": "新增專案",
   "sidebar.createProjectNamePlaceholder": "專案名稱",

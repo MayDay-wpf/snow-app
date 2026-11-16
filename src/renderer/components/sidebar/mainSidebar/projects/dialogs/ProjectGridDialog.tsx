@@ -2,6 +2,7 @@ import {
   Check,
   GripVertical,
   Library,
+  Link2,
   Link2Off,
   Search,
   Server,
@@ -17,6 +18,7 @@ import type {
   WorkspaceDirectoryRecord,
 } from "../../../../../../preload";
 import { FormDialog } from "../../../../common/FormDialog";
+import { Tooltip } from "../../../../common/Tooltip";
 import { buildDirectoryDisplayNames } from "../../directoryDisplayName";
 import type { DirectoryDragDropController } from "../useDirectoryDragDrop";
 
@@ -282,28 +284,38 @@ export function ProjectGridDialog({
         >
           {memberInfo ? (
             memberInfo.linked ? (
-              <span
-                aria-hidden="true"
-                className="project-collection-dot"
-                style={{ background: memberInfo.color }}
-                title={t("sidebar.collectionDotTitle", {
+              <Tooltip
+                content={t("sidebar.collectionLinkTitle", {
                   values: { name: group.collection?.name ?? "" },
                   defaultValue: "Linked project group: {{name}}",
                 })}
-              />
-            ) : (
-              <span
-                aria-label={t("sidebar.projectGridMemberUnlinked", {
-                  defaultValue: "Unlinked — kept in the collection only",
-                })}
-                className="project-grid-card-unlinked-mark"
-                role="img"
-                title={t("sidebar.projectGridMemberUnlinked", {
-                  defaultValue: "Unlinked — kept in the collection only",
-                })}
+                placement="top"
               >
-                <Link2Off size={12} />
-              </span>
+                <span
+                  aria-hidden="true"
+                  className="project-grid-card-link-mark"
+                  style={{ color: memberInfo.color }}
+                >
+                  <Link2 size={12} />
+                </span>
+              </Tooltip>
+            ) : (
+              <Tooltip
+                content={t("sidebar.projectGridMemberUnlinked", {
+                  defaultValue: "Unlinked — kept in the collection only",
+                })}
+                placement="top"
+              >
+                <span
+                  aria-label={t("sidebar.projectGridMemberUnlinked", {
+                    defaultValue: "Unlinked — kept in the collection only",
+                  })}
+                  className="project-grid-card-unlinked-mark"
+                  role="img"
+                >
+                  <Link2Off size={12} />
+                </span>
+              </Tooltip>
             )
           ) : null}
           <span className="project-grid-card-icon">

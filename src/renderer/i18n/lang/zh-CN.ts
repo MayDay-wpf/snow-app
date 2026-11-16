@@ -208,7 +208,7 @@ export const zhCN = {
   "sidebar.linkProjectsSelectLabelEmpty": "选择要关联的项目",
   "sidebar.linkProjectsEmpty": "暂无可关联的其它项目，请先添加目录。",
   "sidebar.linkProjectsConfirm": "关联",
-  "sidebar.collectionDotTitle": "关联项目组：{{name}}",
+  "sidebar.collectionLinkTitle": "已关联项目组：{{name}}",
   "sidebar.projectGridMemberUnlinked": "已断连 — 仅保留在合集中",
   "sidebar.createProjectTitle": "新建项目",
   "sidebar.createProjectNamePlaceholder": "项目名称",

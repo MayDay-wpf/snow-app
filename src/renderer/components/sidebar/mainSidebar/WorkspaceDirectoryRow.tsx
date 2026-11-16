@@ -1,10 +1,14 @@
-import { Server } from "lucide-react";
+import { Link2, Server } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 
 import { useI18n } from "../../../i18n";
 import { useSshConnectionStatus } from "../../../ssh/sshConnectionStore";
-import { getFileTypeIcon } from "../../../utils/fileIcons";
+import {
+  getFileTypeIcon,
+  getLayeredFolderIcon,
+} from "../../../utils/fileIcons";
+import { Tooltip } from "../../common/Tooltip";
 import type { WorkspaceDirectoryRecord } from "../../../../preload";
 import { DirectoryPathBadge } from "./DirectoryPathBadge";
 import { SshConnectionBadge } from "./SshConnectionBadge";
@@ -58,7 +62,14 @@ type WorkspaceDirectoryRowProps = {
 
 export const getDirectoryIcon = (
   directory: WorkspaceDirectoryRecord,
+  options?: { currentProject?: boolean },
 ): React.JSX.Element => {
+  // 当前打开的项目：多层立体文件夹图标（仅本地目录，SSH 用 Server 图标）。
+  // 填充版比描边版墨迹少一圈（20/24 vs 22/24），16 才与其它行的 15 视觉等宽
+  if (directory.kind !== "ssh" && options?.currentProject) {
+    return getLayeredFolderIcon(16);
+  }
+
   // SSH 目录始终用 Server 图标：图标表达类型，激活态由行高亮样式承担
   if (directory.kind === "ssh") {
     return <Server className="list-icon list-icon--ssh" size={15} />;
@@ -195,7 +206,7 @@ export function WorkspaceDirectoryRow({
     >
       {isEditing ? (
         <div className="list-item">
-          {getDirectoryIcon(directory)}
+          {getDirectoryIcon(directory, { currentProject: isActive })}
           <input
             ref={editInputRef}
             className="workspace-directory-rename-input"
@@ -226,31 +237,40 @@ export function WorkspaceDirectoryRow({
           title={directory.path}
           type="button"
         >
+          {getDirectoryIcon(directory, { currentProject: isActive })}
+          <span className="list-label">{displayName ?? directory.name}</span>
+          {/* 关联合集标识：图标取合集颜色，放在目录名右侧避免左侧图标错位 */}
           {collectionColor && memberLinked ? (
-            <span
-              aria-hidden="true"
-              className="workspace-directory-collection-dot"
-              style={{ background: collectionColor }}
-              title={t("sidebar.collectionDotTitle", {
+            <Tooltip
+              content={t("sidebar.collectionLinkTitle", {
                 values: { name: collectionName ?? "" },
                 defaultValue: "Linked project group: {{name}}",
               })}
-            />
+              placement="top"
+            >
+              <span
+                aria-hidden="true"
+                className="workspace-directory-collection-mark"
+                style={{ color: collectionColor }}
+              >
+                <Link2 size={12} />
+              </span>
+            </Tooltip>
           ) : null}
-          {getDirectoryIcon(directory)}
-          <span className="list-label">{displayName ?? directory.name}</span>
           {sshStatus ? <SshConnectionBadge status={sshStatus} /> : null}
           <DirectoryPathBadge directory={directory} />
           {notificationCount ? (
-            <span
-              className="workspace-directory-notification-badge"
-              title={t("sidebar.directoryNotificationBadgeTitle", {
+            <Tooltip
+              content={t("sidebar.directoryNotificationBadgeTitle", {
                 values: { count: notificationCount },
                 defaultValue: "{{count}} notification(s) in this project",
               })}
+              placement="top"
             >
-              {notificationCount}
-            </span>
+              <span className="workspace-directory-notification-badge">
+                {notificationCount}
+              </span>
+            </Tooltip>
           ) : null}
         </button>
       )}

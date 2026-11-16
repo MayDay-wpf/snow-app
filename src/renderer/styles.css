@@ -2941,6 +2941,27 @@ body.is-panel-resizing * {
   cursor: pointer;
 }
 
+/* 当前打开的工作目录：图标多层上色 + 蓝字加粗，不加底色（避免与 hover 混淆） */
+.workspace-directory-list .list-item.active {
+  color: var(--accent-blue-text);
+  font-weight: 600;
+}
+
+/* 多层立体文件夹图标的色阶：主色往暗处压出厚度、往亮处提受光。
+   明暗基准用黑/白而非主题文字色，保证亮色与暗色主题下立体方向一致 */
+.list-icon--current-project {
+  --folder-back: color-mix(in srgb, var(--accent-blue) 58%, #0d2b5c);
+  --folder-front: color-mix(in srgb, var(--accent-blue) 92%, #4c8dff);
+  --folder-sheet: color-mix(in srgb, var(--accent-blue) 34%, #fff);
+  --folder-highlight: color-mix(in srgb, #fff 62%, transparent);
+}
+
+/* 暗色主题：背板压得更沉，内页收暗一档，避免整块发白 */
+:root[data-theme="dark"] .list-icon--current-project {
+  --folder-back: color-mix(in srgb, var(--accent-blue) 40%, #08203f);
+  --folder-sheet: color-mix(in srgb, var(--accent-blue) 52%, #fff);
+}
+
 /* ===== 项目合集（project collections） ===== */
 
 .project-collections {
@@ -3091,14 +3112,28 @@ body.is-panel-resizing * {
   font-size: 11px;
 }
 
-.project-collection-dot,
-.workspace-directory-collection-dot {
+.project-collection-dot {
   flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--text-primary) 14%, transparent);
+}
+
+/* 成员项目行的合集标识：icon 颜色由合集颜色内联指定 */
+.workspace-directory-collection-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  line-height: 0;
+}
+
+/* 行尾图标/徽标套 Tooltip 后：包装盒不参与收缩、内容垂直居中 */
+.workspace-directory-row .tooltip-wrapper,
+.project-grid-card .tooltip-wrapper {
+  flex-shrink: 0;
+  align-items: center;
 }
 
 /* 项目条目通知徽标：该项目的跨项目通知会话数 */
@@ -3209,6 +3244,42 @@ body.is-panel-resizing * {
   )
   .tree-project-row {
   padding-right: 30px;
+}
+
+/* 关联合集标识占住行尾：列表模式其余徽标没有偏移规则，按出现的组合给 ⋯ 按钮留位
+   （带 SSH 徽标的行由上面的内边距兜底，这里排除） */
+.workspace-directory-row:not(.tree-project-row-wrap):has(
+    .workspace-directory-collection-mark
+  ):not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 22px;
+}
+
+.workspace-directory-row:not(.tree-project-row-wrap):has(
+    .workspace-directory-collection-mark
+  ):has(.workspace-directory-path-badge):not(
+    :has(.workspace-directory-ssh-badge)
+  )
+  .workspace-directory-actions-wrapper {
+  right: 46px;
+}
+
+.workspace-directory-row:not(.tree-project-row-wrap):has(
+    .workspace-directory-collection-mark
+  ):has(.workspace-directory-notification-badge):not(
+    :has(.workspace-directory-ssh-badge)
+  )
+  .workspace-directory-actions-wrapper {
+  right: 46px;
+}
+
+.workspace-directory-row:not(.tree-project-row-wrap):has(
+    .workspace-directory-collection-mark
+  ):has(.workspace-directory-path-badge):has(
+    .workspace-directory-notification-badge
+  ):not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 70px;
 }
 
 .workspace-directory-load-more,
@@ -3999,7 +4070,8 @@ body.is-panel-resizing * {
   color: var(--text-secondary);
 }
 
-.project-grid-card-unlinked-mark {
+.project-grid-card-unlinked-mark,
+.project-grid-card-link-mark {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -64994,10 +65066,7 @@ img.plugin-icon {
   background: var(--bg-hover);
 }
 
-.tree-project-row-wrap.active {
-  background: var(--bg-tertiary);
-}
-
+/* 树视图当前打开的项目：同样只靠多层立体图标 + 蓝字定位，不加底色/竖条 */
 .tree-project-row-wrap.drag-over {
   background: var(--bg-hover);
 }
@@ -65083,7 +65152,8 @@ img.plugin-icon {
 }
 
 .tree-project-row-wrap.active .tree-project-row {
-  color: var(--text-primary);
+  color: var(--accent-blue-text);
+  font-weight: 600;
 }
 
 .tree-project-session-dot {
@@ -65154,6 +65224,76 @@ img.plugin-icon {
   )
   .workspace-directory-actions-wrapper {
   right: 4px;
+}
+
+/* 关联合集标识占住行尾：按行尾实际出现的徽标组合左移 ⋯ 按钮（标识 12px + 6px 间距）
+   SSH 徽标的行已由上面的内边距兜底，这里排除 */
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-collection-mark):not(
+    :has(.workspace-directory-ssh-badge)
+  )
+  .workspace-directory-actions-wrapper {
+  right: 22px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(
+    .workspace-directory-collection-mark
+  ).has-status-dot:not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 38px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(
+    .workspace-directory-collection-mark
+  ).has-notification-badge:not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 44px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(
+    .workspace-directory-collection-mark
+  ).has-status-dot.has-notification-badge:not(
+    :has(.workspace-directory-ssh-badge)
+  )
+  .workspace-directory-actions-wrapper {
+  right: 56px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-collection-mark):has(
+    .workspace-directory-path-badge
+  ):not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 44px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-collection-mark):has(
+    .workspace-directory-path-badge
+  ).has-status-dot:not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 56px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-collection-mark):has(
+    .workspace-directory-path-badge
+  ).has-notification-badge:not(:has(.workspace-directory-ssh-badge))
+  .workspace-directory-actions-wrapper {
+  right: 66px;
+}
+
+:where(.sidebar-tree-list)
+  .tree-project-row-wrap:has(.workspace-directory-collection-mark):has(
+    .workspace-directory-path-badge
+  ).has-status-dot.has-notification-badge:not(
+    :has(.workspace-directory-ssh-badge)
+  )
+  .workspace-directory-actions-wrapper {
+  right: 78px;
 }
 
 @keyframes tree-session-pulse {
