@@ -297,7 +297,7 @@ export const ChatMessageList = ({
     return pinned;
   }, [activeConversationId, lastAssistantMessageId, messages, renderKeyOf]);
 
-  // 极简模式（参考 Codex App）：每轮除最终回答外的中间响应收进一个折叠块，
+  // 极简模式：每轮除最终回答外的中间响应收进一个折叠块，
   // 标题行常驻（生成中显示进行中），结束后只把内容以高度过渡收起。
   const isMinimalTranscript = useToolCardStyle() === "minimal";
   const [turnOpenOverrides, setTurnOpenOverrides] = useState<

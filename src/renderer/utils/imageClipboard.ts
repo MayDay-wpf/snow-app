@@ -9,18 +9,6 @@
  * 各种来源统一解析成 data URL，避免每个组件重复实现。
  */
 
-import { srcToBlob } from "./imageDownload";
-
-/** Blob → data URL（主进程 createFromDataURL 需要 data URL 而不是 Blob）。 */
-const blobToDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () =>
-      reject(reader.error ?? new Error("Failed to read image blob"));
-    reader.readAsDataURL(blob);
-  });
-
 export type CopyImageSourceOptions = {
   /** 已渲染的图片地址：data URL、img-proxy:// 或 http(s)。 */
   src?: string;
@@ -46,9 +34,10 @@ export const copyImageToClipboard = async (
     dataUrl = (await window.snow.resolveLibraryImage(libraryPath)) ?? "";
   }
   if (!dataUrl && src) {
+    // 非 data URL（img-proxy:// / http(s)）交主进程读取，避免渲染进程跨源 fetch 被拦截
     dataUrl = src.startsWith("data:")
       ? src
-      : await blobToDataUrl(await srcToBlob(src));
+      : await window.snow.readImageSource(src);
   }
   if (!dataUrl) {
     return false;

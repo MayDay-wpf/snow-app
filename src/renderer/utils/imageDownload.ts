@@ -24,13 +24,9 @@ export const srcToBlob = async (src: string): Promise<Blob> => {
   if (src.startsWith("data:")) {
     return dataUrlToBlob(src);
   }
-  // img-proxy:// 是主进程注册的自定义协议（CSP connect-src 已放行），
-  // fetch 由主进程代理转发，无 CORS 限制。
-  const response = await fetch(src);
-  if (!response.ok) {
-    throw new Error(`fetch image failed: ${response.status}`);
-  }
-  return response.blob();
+  // img-proxy:// 是自定义协议且未开启 CORS，渲染进程 fetch 会被跨源拦截，
+  // 统一交由主进程按同一代理逻辑读取后回传 data URL。
+  return dataUrlToBlob(await window.snow.readImageSource(src));
 };
 
 /**
@@ -39,7 +35,7 @@ export const srcToBlob = async (src: string): Promise<Blob> => {
  */
 export const saveBlobToFile = async (
   blob: Blob,
-  filename: string
+  filename: string,
 ): Promise<void> => {
   const picker = (
     window as unknown as {
@@ -98,9 +94,10 @@ export const extensionForBlob = (blob: Blob): string => {
   return "png";
 };
 
-/** 下载一张图片（data URL 或 http(s) URL），供灯箱等场景使用。 */
+/**
+ * 保存一张图片（data URL / http(s) / img-proxy://），供灯箱等场景使用。
+ * 由主进程读取并弹出原生保存框，不依赖渲染进程的用户手势与跨源读取。
+ */
 export const downloadImageSrc = async (src: string): Promise<void> => {
-  const blob = await srcToBlob(src);
-  const filename = `image-${Date.now()}.${extensionForBlob(blob)}`;
-  await saveBlobToFile(blob, filename);
+  await window.snow.saveImageSources([src]);
 };

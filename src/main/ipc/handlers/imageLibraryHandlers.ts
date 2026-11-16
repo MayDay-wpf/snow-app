@@ -1,5 +1,26 @@
-import { ipcMain, BrowserWindow, dialog } from "electron";
+import { app, ipcMain, BrowserWindow, dialog } from "electron";
+import { writeFile } from "fs/promises";
+import { join } from "path";
 import type { NativeBridge } from "../../native/types";
+import { readImageSource } from "../../app/imageProxyProtocol";
+
+/** 按图片 MIME 推断保存扩展名，未知类型回退为 png。 */
+const extensionForMime = (mimeType: string): string => {
+  const lower = mimeType.toLowerCase();
+  if (lower.includes("webp")) {
+    return "webp";
+  }
+  if (lower.includes("jpeg") || lower.includes("jpg")) {
+    return "jpg";
+  }
+  if (lower.includes("gif")) {
+    return "gif";
+  }
+  if (lower.includes("svg")) {
+    return "svg";
+  }
+  return "png";
+};
 
 /**
  * 图像管理系统（Image Library）IPC。
@@ -11,8 +32,87 @@ import type { NativeBridge } from "../../native/types";
  * - `images:library-list`：列出全部生成图片（按时间倒序）
  * - `images:library-delete`：删除图片（物理文件 + 索引 + 同步重写会话消息）
  * - `images:resolve-library-image`：把 image/ 相对路径解析为 data URL
+ * - `images:read-source`：把任意图片来源（data / img-proxy / http(s)）读为 data URL
+ * - `images:save-sources`：原生对话框保存图片（单张选文件，多张选目录）
  */
 export const registerImageLibraryHandlers = (native: NativeBridge): void => {
+  ipcMain.handle(
+    "images:read-source",
+    async (_event, src: unknown): Promise<string> => {
+      if (typeof src !== "string" || src.trim() === "") {
+        throw new Error("Invalid image source");
+      }
+      const { bytes, mimeType } = await readImageSource(src.trim(), native);
+      return `data:${mimeType};base64,${bytes.toString("base64")}`;
+    },
+  );
+
+  ipcMain.handle(
+    "images:save-sources",
+    async (event, sources: unknown): Promise<number> => {
+      if (!Array.isArray(sources)) {
+        throw new Error("Invalid image sources");
+      }
+      const safeSources = sources.filter(
+        (src): src is string => typeof src === "string" && src.trim() !== "",
+      );
+      // 先读取全部图片（单张失败跳过），扩展名据真实 MIME 决定
+      const images: { bytes: Buffer; extension: string }[] = [];
+      for (const src of safeSources) {
+        try {
+          const { bytes, mimeType } = await readImageSource(src.trim(), native);
+          images.push({ bytes, extension: extensionForMime(mimeType) });
+        } catch (error) {
+          console.warn("[images:save-sources] read failed:", error);
+        }
+      }
+      if (images.length === 0) {
+        throw new Error("No readable image to save");
+      }
+
+      const browserWindow = BrowserWindow.fromWebContents(event.sender);
+      const base = `snow-app-${Date.now()}`;
+
+      if (images.length === 1) {
+        const [image] = images;
+        const options: Electron.SaveDialogOptions = {
+          defaultPath: join(
+            app.getPath("downloads"),
+            `${base}.${image.extension}`,
+          ),
+          filters: [{ name: "Image", extensions: [image.extension] }],
+        };
+        const result = browserWindow
+          ? await dialog.showSaveDialog(browserWindow, options)
+          : await dialog.showSaveDialog(options);
+        if (result.canceled || !result.filePath) {
+          return 0;
+        }
+        await writeFile(result.filePath, image.bytes);
+        return 1;
+      }
+
+      const options: Electron.OpenDialogOptions = {
+        defaultPath: app.getPath("downloads"),
+        properties: ["openDirectory", "createDirectory"],
+      };
+      const result = browserWindow
+        ? await dialog.showOpenDialog(browserWindow, options)
+        : await dialog.showOpenDialog(options);
+      const dir = result.canceled ? null : result.filePaths[0];
+      if (!dir) {
+        return 0;
+      }
+      for (let i = 0; i < images.length; i++) {
+        await writeFile(
+          join(dir, `${base}-${i + 1}.${images[i].extension}`),
+          images[i].bytes,
+        );
+      }
+      return images.length;
+    },
+  );
+
   ipcMain.handle("images:library-root", async (): Promise<string> => {
     return native.getImageLibraryRoot();
   });
@@ -28,7 +128,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid image library directory");
       }
       await native.setImageLibraryDir(dir.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -46,8 +146,8 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
       const result = browserWindow
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
-      return result.canceled ? null : result.filePaths[0] ?? null;
-    }
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   );
 
   ipcMain.handle("images:library-list", async (): Promise<unknown> => {
@@ -61,7 +161,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid image library id");
       }
       await native.deleteImageLibraryImage(id.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -71,7 +171,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         return null;
       }
       return native.readImageLibraryFile(relativePath.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -81,13 +181,13 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         return 0;
       }
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return 0;
       }
       return native.countConversationImages(safeIds);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -97,13 +197,13 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         return 0;
       }
       const safeIds = conversationIds.filter(
-        (id): id is string => typeof id === "string" && id.trim() !== ""
+        (id): id is string => typeof id === "string" && id.trim() !== "",
       );
       if (safeIds.length === 0) {
         return 0;
       }
       return native.deleteConversationImages(safeIds);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -113,15 +213,12 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid image library target directory");
       }
       return native.prepareImageLibraryMigration(targetDir.trim());
-    }
+    },
   );
 
-  ipcMain.handle(
-    "images:library-migrate-chunk",
-    async (): Promise<unknown> => {
-      return native.migrateImageLibraryChunk();
-    }
-  );
+  ipcMain.handle("images:library-migrate-chunk", async (): Promise<unknown> => {
+    return native.migrateImageLibraryChunk();
+  });
 
   ipcMain.handle("images:library-migrate-commit", async (): Promise<void> => {
     await native.commitImageLibraryMigration();
@@ -144,7 +241,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Album name must not be empty");
       }
       return native.createImageAlbum(name.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -157,7 +254,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Album name must not be empty");
       }
       return native.renameImageAlbum(id.trim(), name.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -167,7 +264,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid album id");
       }
       await native.deleteImageAlbum(id.trim());
-    }
+    },
   );
 
   ipcMain.handle(
@@ -184,7 +281,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
           ? albumId.trim()
           : null;
       await native.setImageAlbum(imageId.trim(), normalizedAlbumId);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -201,7 +298,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
           ? imageId.trim()
           : null;
       return native.setImageAlbumCover(albumId.trim(), normalizedImageId);
-    }
+    },
   );
 
   ipcMain.handle(
@@ -214,9 +311,9 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid album id list");
       }
       await native.reorderImageAlbums(
-        orderedIds.map((id) => (id as string).trim())
+        orderedIds.map((id) => (id as string).trim()),
       );
-    }
+    },
   );
 
   ipcMain.handle(
@@ -241,7 +338,7 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         ? await dialog.showOpenDialog(browserWindow, options)
         : await dialog.showOpenDialog(options);
       return result.canceled ? null : result.filePaths;
-    }
+    },
   );
 
   ipcMain.handle(
@@ -251,9 +348,10 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
         throw new Error("Invalid image file paths");
       }
       const safePaths = filePaths.filter(
-        (path): path is string => typeof path === "string" && path.trim() !== ""
+        (path): path is string =>
+          typeof path === "string" && path.trim() !== "",
       );
       return native.importImageFiles(safePaths);
-    }
+    },
   );
 };

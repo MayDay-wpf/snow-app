@@ -35,6 +35,14 @@ export const imageLibraryApi = {
   resolveLibraryImage: (relativePath: string): Promise<string | null> =>
     ipcRenderer.invoke("images:resolve-library-image", relativePath),
 
+  /** 由主进程读取任意图片来源（data URL / img-proxy:// / http(s)），返回 data URL */
+  readImageSource: (src: string): Promise<string> =>
+    ipcRenderer.invoke("images:read-source", src),
+
+  /** 原生对话框保存图片：单张弹保存框，多张选目录批量写入；返回保存数量（取消为 0） */
+  saveImageSources: (sources: string[]): Promise<number> =>
+    ipcRenderer.invoke("images:save-sources", sources),
+
   /** 统计指定会话中引用的图库图片数量（删除会话确认框用） */
   countConversationImages: (conversationIds: string[]): Promise<number> =>
     ipcRenderer.invoke("images:conversation-images-count", conversationIds),
@@ -82,7 +90,7 @@ export const imageLibraryApi = {
   /** 设置相册手动封面（imageId 传 null 清除，回退最新一张图） */
   setImageAlbumCover: (
     albumId: string,
-    imageId: string | null
+    imageId: string | null,
   ): Promise<ImageAlbumRecord> =>
     ipcRenderer.invoke("images:album-set-cover", albumId, imageId),
 

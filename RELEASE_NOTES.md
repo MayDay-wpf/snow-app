@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.5.18
+
+### New Features
+
+- **Minimal Transcript Style**: a third transcript style, `minimal` , folds each turn's intermediate responses into a collapsible "Worked for ..." block, keeps the header visible while generating, and shows activity summaries (files read, searches, commands) for tool groups. The `mod+shift+u` shortcut now cycles `classic` -> `chips` -> `minimal`, with a transient notice showing the selected style.
+- **Browser Logpoints and Route Fault Injection**: new logpoint actions capture runtime variables without editing source or pausing the page, and `scriptList` / `scriptSearch` look up scripts and source text through source maps. `route` gains abort, delayed responses, method and resource type matching, hit limits, `proxyTo` forwarding and `bodyFile` responses, and the new `routeList` reports active rules with hit counts. Cross-origin mocks receive CORS headers and synthesized OPTIONS preflights.
+- **Porsche Sans Font Preset**: a subsetted Porsche Sans variable font (weight 150-700) is bundled and available as a built-in font in theme settings.
+- **Browser Tab Favicons**: browser tabs in the right panel show the site's favicon, with a fallback icon when it cannot be loaded.
+
+### Improvements
+
+- **Current Project Highlight**: the active project in the sidebar is marked with a layered folder icon and an accent-colored bold label instead of a background fill; linked collection membership appears as a colored link mark beside the project name. Native title tooltips on directory rows, grid cards and tree nodes are replaced with the shared Tooltip component.
+- **Usage Profile Filter**: the horizontal profile pills become a searchable dropdown integrated into the date filter bar, and model and profile cells in usage tables show model brand icons.
+
+### Bug Fixes
+
+- Responses requests skip user and assistant messages whose content ends up empty, and drop reasoning items with neither encrypted content nor text. Cancelled turns no longer send `content: []` or in-progress placeholders, which compatibility gateways turn into empty parts and reject with a 400.
+
 ## v0.5.17
 
 ### New Features

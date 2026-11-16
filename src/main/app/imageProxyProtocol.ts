@@ -7,6 +7,7 @@ import type { NativeBridge } from "../native/types";
 import {
   IMG_PROXY_SCHEME,
   decodeImageProxyUrl,
+  imageProxyUrl,
   isAbsoluteImagePath,
   isLocalImageProxyUrl,
 } from "../../renderer/utils/imageProxyUrl";
@@ -214,87 +215,138 @@ export const registerImageProxyProtocol = (native: NativeBridge): void => {
   }
   registered = true;
 
-  protocol.handle(IMG_PROXY_SCHEME, async (request) => {
-    try {
-      // 本地图片分支：host 为 local
-      if (isLocalImageProxyUrl(request.url)) {
-        return await serveLocalImage(request.url, native);
-      }
+  protocol.handle(IMG_PROXY_SCHEME, (request) =>
+    respondImageProxy(request.url, native),
+  );
+};
 
-      const originalUrl = decodeImageProxyUrl(request.url);
+/** img-proxy:// 请求的统一响应：协议处理器与主进程内读取（readImageSource）共用。 */
+const respondImageProxy = async (
+  proxyUrl: string,
+  native: NativeBridge,
+): Promise<Response> => {
+  try {
+    // 本地图片分支：host 为 local
+    if (isLocalImageProxyUrl(proxyUrl)) {
+      return await serveLocalImage(proxyUrl, native);
+    }
 
-      // 仅允许 http/https，防止通过代理绕过 CSP 访问 file:/data: 等资源。
-      if (!/^https?:\/\//i.test(originalUrl)) {
-        return new Response("Forbidden: only http(s) URLs can be proxied", {
-          status: 403,
-        });
-      }
+    const originalUrl = decodeImageProxyUrl(proxyUrl);
 
-      // 头像走本地磁盘缓存：命中即返回，不再打上游（断网也能显示）。
-      const avatar = isAvatarUrl(originalUrl);
-      if (avatar) {
-        const cached = await serveCachedAvatar(originalUrl);
-        if (cached) {
-          return cached;
-        }
-      }
-
-      const upstream = await net.fetch(originalUrl, {
-        redirect: "follow",
-        // 避免主进程挂载本地 Cookie 仓库泄露给第三方图床。
-        credentials: "omit",
-      });
-
-      if (!upstream.ok) {
-        return new Response(`Upstream responded ${upstream.status}`, {
-          status: upstream.status,
-        });
-      }
-
-      // 校验 Content-Type，避免被当作图片代理拉取 HTML/JSON 等。
-      const contentType = upstream.headers.get("content-type") ?? "";
-      if (!contentType.toLowerCase().startsWith("image/")) {
-        return new Response(`Unsupported content-type: ${contentType}`, {
-          status: 415,
-        });
-      }
-
-      // 限制响应体大小，防止超大文件耗尽内存。
-      const contentLength = Number(upstream.headers.get("content-length") ?? 0);
-      if (contentLength > MAX_IMAGE_BYTES) {
-        return new Response("Image too large", { status: 413 });
-      }
-
-      // 读取后转发，避免上游流式响应被 Chromium 挂起；同时便于二次大小校验。
-      const buffer = await upstream.arrayBuffer();
-      if (buffer.byteLength > MAX_IMAGE_BYTES) {
-        return new Response("Image too large", { status: 413 });
-      }
-
-      // 回写头像缓存（不阻塞本次响应）。
-      if (avatar) {
-        void cacheAvatar(originalUrl, Buffer.from(buffer));
-      }
-
-      const headers = new Headers();
-      headers.set("Content-Type", contentType);
-      // 普通图片 no-store 避免改图不刷新；favicon 允许缓存（站点图标基本不变）。
-      headers.set(
-        "Cache-Control",
-        isFaviconUrl(originalUrl) ? "public, max-age=86400" : "no-store",
-      );
-
-      return new Response(buffer, {
-        status: 200,
-        headers,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return new Response(`Failed to proxy image: ${message}`, {
-        status: 502,
+    // 仅允许 http/https，防止通过代理绕过 CSP 访问 file:/data: 等资源。
+    if (!/^https?:\/\//i.test(originalUrl)) {
+      return new Response("Forbidden: only http(s) URLs can be proxied", {
+        status: 403,
       });
     }
-  });
+
+    // 头像走本地磁盘缓存：命中即返回，不再打上游（断网也能显示）。
+    const avatar = isAvatarUrl(originalUrl);
+    if (avatar) {
+      const cached = await serveCachedAvatar(originalUrl);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const upstream = await net.fetch(originalUrl, {
+      redirect: "follow",
+      // 避免主进程挂载本地 Cookie 仓库泄露给第三方图床。
+      credentials: "omit",
+    });
+
+    if (!upstream.ok) {
+      return new Response(`Upstream responded ${upstream.status}`, {
+        status: upstream.status,
+      });
+    }
+
+    // 校验 Content-Type，避免被当作图片代理拉取 HTML/JSON 等。
+    const contentType = upstream.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      return new Response(`Unsupported content-type: ${contentType}`, {
+        status: 415,
+      });
+    }
+
+    // 限制响应体大小，防止超大文件耗尽内存。
+    const contentLength = Number(upstream.headers.get("content-length") ?? 0);
+    if (contentLength > MAX_IMAGE_BYTES) {
+      return new Response("Image too large", { status: 413 });
+    }
+
+    // 读取后转发，避免上游流式响应被 Chromium 挂起；同时便于二次大小校验。
+    const buffer = await upstream.arrayBuffer();
+    if (buffer.byteLength > MAX_IMAGE_BYTES) {
+      return new Response("Image too large", { status: 413 });
+    }
+
+    // 回写头像缓存（不阻塞本次响应）。
+    if (avatar) {
+      void cacheAvatar(originalUrl, Buffer.from(buffer));
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", contentType);
+    // 普通图片 no-store 避免改图不刷新；favicon 允许缓存（站点图标基本不变）。
+    headers.set(
+      "Cache-Control",
+      isFaviconUrl(originalUrl) ? "public, max-age=86400" : "no-store",
+    );
+
+    return new Response(buffer, {
+      status: 200,
+      headers,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return new Response(`Failed to proxy image: ${message}`, {
+      status: 502,
+    });
+  }
+};
+
+/**
+ * 在主进程内读取任意图片来源的字节：data URL、img-proxy:// 代理地址或 http(s) URL。
+ *
+ * 渲染进程对 img-proxy:// 发起 fetch 属于跨源请求（自定义协议未开启 CORS），
+ * 会被 Chromium 直接拒绝，因此保存 / 复制图片统一交给主进程按同一代理逻辑读取。
+ */
+export const readImageSource = async (
+  src: string,
+  native: NativeBridge,
+): Promise<{ bytes: Buffer; mimeType: string }> => {
+  if (src.startsWith("data:")) {
+    const commaIndex = src.indexOf(",");
+    if (commaIndex < 0) {
+      throw new Error("Invalid image data URL");
+    }
+    const header = src.slice(0, commaIndex);
+    const mimeType = /^data:([^;,]+)/.exec(header)?.[1] ?? "image/png";
+    const payload = src.slice(commaIndex + 1);
+    const bytes = header.includes(";base64")
+      ? Buffer.from(payload, "base64")
+      : Buffer.from(decodeURIComponent(payload), "utf8");
+    return { bytes, mimeType };
+  }
+
+  const proxyUrl = src.startsWith(`${IMG_PROXY_SCHEME}://`)
+    ? src
+    : imageProxyUrl(src);
+  if (!proxyUrl.startsWith(`${IMG_PROXY_SCHEME}://`)) {
+    throw new Error("Unsupported image source");
+  }
+
+  const response = await respondImageProxy(proxyUrl, native);
+  if (!response.ok) {
+    throw new Error(
+      `Read image failed: ${response.status} ${await response.text()}`,
+    );
+  }
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    mimeType: response.headers.get("content-type") ?? "image/png",
+  };
 };
 
 /**

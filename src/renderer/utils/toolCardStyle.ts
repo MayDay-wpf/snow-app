@@ -5,7 +5,7 @@ import { matchKey } from "./shortcutUtils";
  * 会话记录显示方案：
  * - classic：经典时间线工具卡
  * - chips：紧凑胶囊工具行
- * - minimal：极简（参考 Codex App），每轮中间过程折叠为「已处理 Xs」
+ * - minimal：极简，每轮中间过程折叠为「已处理 Xs」
  */
 export type ToolCardStyle = "classic" | "chips" | "minimal";
 

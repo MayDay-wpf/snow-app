@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertCircle,
+  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -14,12 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
-import {
-  downloadImageSrc,
-  extensionForBlob,
-  saveBlobToFile,
-  srcToBlob,
-} from "../../../../utils/imageDownload";
+import { downloadImageSrc } from "../../../../utils/imageDownload";
 import { imageProxyUrl } from "../../../../utils/imageProxyUrl";
 import { copyImageToClipboard } from "../../../../utils/imageClipboard";
 import type { ToolCallInfo } from "../utils/conversationTypes";
@@ -203,8 +199,7 @@ export const ImageGenToolCall = ({
   }, [toolCall.arguments]);
 
   // ------------------------------------------------------------------
-  // 批量下载：优先一次选择目录写入全部（showDirectoryPicker），
-  // 回退为逐张保存（每张弹一次原生保存框）。
+  // 批量保存：交由主进程读取全部图片并弹出原生目录选择框一次写入。
   // ------------------------------------------------------------------
 
   // 图片真实宽高比探测：index → width/height，加载完成后驱动卡片比例
@@ -336,64 +331,43 @@ export const ImageGenToolCall = ({
     }
   }, [galleryItems, copyingImage]);
 
+  // 灯箱「复制图片」的过程反馈：复制中显示加载、成功后短暂显示「已复制」
+  const [copyingLightbox, setCopyingLightbox] = useState(false);
+  const [copiedLightbox, setCopiedLightbox] = useState(false);
+
+  const handleCopyLightbox = useCallback(
+    async (src: string): Promise<void> => {
+      if (!src || copyingLightbox) {
+        return;
+      }
+      setCopyingLightbox(true);
+      try {
+        const ok = await copyImageToClipboard({ src });
+        if (!ok) {
+          return;
+        }
+        setCopiedLightbox(true);
+        window.setTimeout(() => setCopiedLightbox(false), 1500);
+      } catch (error) {
+        console.warn("[imagegen] copy lightbox image failed:", error);
+      } finally {
+        setCopyingLightbox(false);
+      }
+    },
+    [copyingLightbox],
+  );
+
   const handleDownloadAll = useCallback(async (): Promise<void> => {
     if (downloadingAll || galleryItems.length === 0) {
       return;
     }
     setDownloadingAll(true);
     try {
-      // 1. 收集全部 Blob：单张失败跳过，不中断其余
-      const blobs: Blob[] = [];
-      for (const item of galleryItems) {
-        try {
-          if (item.src) {
-            blobs.push(await srcToBlob(item.src));
-          }
-        } catch (error) {
-          console.warn("[imagegen] downloadAll failed for", item.key, error);
-        }
-      }
-      if (blobs.length === 0) {
-        return;
-      }
-      const base = `snow-app-${Date.now()}`;
-
-      // 2. 优先：一次选目录批量写入
-      const pickDirectory = (
-        window as unknown as {
-          showDirectoryPicker?: () => Promise<{
-            getFileHandle: (
-              name: string,
-              opts: { create: boolean },
-            ) => Promise<{
-              createWritable: () => Promise<{
-                write: (blob: Blob) => Promise<void>;
-                close: () => Promise<void>;
-              }>;
-            }>;
-          }>;
-        }
-      ).showDirectoryPicker;
-      if (typeof pickDirectory === "function") {
-        const dir = await pickDirectory();
-        for (let i = 0; i < blobs.length; i++) {
-          const fileHandle = await dir.getFileHandle(
-            `${base}-${i + 1}.${extensionForBlob(blobs[i])}`,
-            { create: true },
-          );
-          const writable = await fileHandle.createWritable();
-          await writable.write(blobs[i]);
-          await writable.close();
-        }
-      } else {
-        // 3. 回退：逐张保存（每张一次原生保存框）
-        for (let i = 0; i < blobs.length; i++) {
-          await saveBlobToFile(
-            blobs[i],
-            `${base}-${i + 1}.${extensionForBlob(blobs[i])}`,
-          );
-        }
-      }
+      // 主进程读取全部图片（单张失败跳过）并弹出原生目录 / 文件选择框写入，
+      // 不依赖渲染进程的用户手势与跨源读取
+      await window.snow.saveImageSources(
+        galleryItems.map((item) => item.src).filter(Boolean),
+      );
     } catch (error) {
       console.warn("[imagegen] downloadAll failed", error);
     } finally {
@@ -761,17 +735,23 @@ export const ImageGenToolCall = ({
               type="button"
               className="tool-call-imagegen-download"
               title={t("toolCall.imagegen.copyImageHint")}
-              onClick={() => {
-                if (!lightboxSrc) {
-                  return;
-                }
-                copyImageToClipboard({ src: lightboxSrc }).catch((error) => {
-                  console.warn("[imagegen] copy lightbox image failed:", error);
-                });
-              }}
+              disabled={copyingLightbox}
+              onClick={() => void handleCopyLightbox(lightboxSrc)}
             >
-              <Copy size={13} aria-hidden="true" />
-              {t("toolCall.imagegen.copyImage")}
+              {copyingLightbox ? (
+                <Loader2
+                  className="tool-call-icon-spinning"
+                  size={13}
+                  aria-hidden="true"
+                />
+              ) : copiedLightbox ? (
+                <Check size={13} aria-hidden="true" />
+              ) : (
+                <Copy size={13} aria-hidden="true" />
+              )}
+              {copiedLightbox
+                ? t("toolCall.imagegen.imageCopied")
+                : t("toolCall.imagegen.copyImage")}
             </button>
             <button
               type="button"
