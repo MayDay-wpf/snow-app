@@ -99,6 +99,10 @@ pub(super) fn build_responses_payload(
                             "image_url": image.data_url,
                         })
                     }));
+                    // 无配对 call 且无内容时不要推送空 content 数组。
+                    if content_blocks.is_empty() {
+                        continue;
+                    }
                     input.push(json!({
                         "type": "message",
                         "role": "user",
@@ -145,7 +149,10 @@ pub(super) fn build_responses_payload(
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
             .and_then(|v| v.as_array().map(|a| a.clone()))
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .filter(is_replayable_reasoning_item)
+            .collect();
         let has_reasoning = !reasoning_items.is_empty();
 
         if content.is_empty()
@@ -235,15 +242,6 @@ pub(super) fn build_responses_payload(
             continue;
         }
 
-        // Emit persisted reasoning items as independent top-level items
-        // before the assistant message (store:false requires manual
-        // round-trip of encrypted_content).
-        if role == "assistant" {
-            for item in &reasoning_items {
-                input.push(item.clone());
-            }
-        }
-
         // Build content blocks: user uses input_text, assistant uses output_text.
         let mut content_blocks = Vec::new();
 
@@ -279,9 +277,17 @@ pub(super) fn build_responses_payload(
             }
         }
 
-        // 解析后无任何内容块（如整条消息只有一个渲染为空的引用会话标签）：
-        // 跳过该消息，避免向 API 推送空内容块。
-        if content_blocks.is_empty() && !content.is_empty() {
+        // 推理项先回放（store:false 需手动带回 encrypted_content），
+        // 正文没有任何内容块时只保留推理项、不追加空 message。
+        if role == "assistant" {
+            for item in &reasoning_items {
+                input.push(item.clone());
+            }
+        }
+
+        // 无任何内容块时不追加普通 message 项：正文为空、仅含推理的取消回合
+        // 曾推送 content: []，兼容网关转成空 parts 后 400。
+        if content_blocks.is_empty() {
             continue;
         }
 
@@ -378,6 +384,40 @@ pub(super) fn build_responses_payload(
     }
 
     Ok(payload)
+}
+
+/// 可回放的 reasoning 项：必须带 encrypted_content 或摘要/正文文本。
+/// 取消回合遗留的 `{"type":"reasoning","status":"in_progress","summary":[]}`
+/// 只是占位符，回放会被兼容网关转成空 parts 并 400。
+fn is_replayable_reasoning_item(item: &Value) -> bool {
+    let Some(object) = item.as_object() else {
+        return false;
+    };
+    // 非 reasoning 条目（如跨供应商遗留的历史块）保持原样。
+    if object.get("type").and_then(Value::as_str) != Some("reasoning") {
+        return true;
+    }
+    if object
+        .get("encrypted_content")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return true;
+    }
+    ["summary", "content", "reasoning_text"]
+        .iter()
+        .any(|key| object.get(*key).is_some_and(has_text_payload))
+}
+
+fn has_text_payload(value: &Value) -> bool {
+    match value {
+        Value::String(text) => !text.trim().is_empty(),
+        Value::Array(items) => items.iter().any(has_text_payload),
+        Value::Object(object) => ["text", "summary_text", "content", "value"]
+            .iter()
+            .any(|key| object.get(*key).is_some_and(has_text_payload)),
+        _ => false,
+    }
 }
 
 fn normalize_message_role(role: &str) -> &str {
