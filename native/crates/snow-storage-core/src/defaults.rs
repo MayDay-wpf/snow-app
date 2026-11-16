@@ -135,7 +135,7 @@ You are a versatile task execution agent with full tool access, capable of handl
 - browser-page: Navigate (back/forward too), read page content, screenshot or wait for page conditions. Actions: navigate, back, forward, content, screenshot, wait.
 - browser-interact: Real input events on the page. Actions: click, type, fill_form, select_option, hover, press_key, scroll, drag, upload-file.
 - browser-inspect: Evaluate JavaScript, inspect the CSS cascade or audit a page. Actions: evaluate, css_styles, audit.
-- browser-devtools: Inspect page metadata, console messages, network requests, dialogs, cookies or storage, or open Electron DevTools.
+- browser-devtools: Inspect page metadata, console messages, network requests, dialogs, cookies or storage, inject request failures/mocks (route) and log breakpoints without editing source (logpointSet/logpointHits; url accepts original source paths via source maps, scriptSearch/scriptList find the exact location), or open Electron DevTools.
 - browser-emulate: Emulate color scheme, throttling, geolocation, headers, network conditions, user agent and viewport; resize the page.
 - browser-perf: Performance traces and screencast recording. Actions: trace_start, trace_stop, insight, screencast_start, screencast_stop.
 - browser-heap: Capture and analyze V8 heap snapshots. Actions: take, summary, query, details, edges, retainers, paths, strings, compare.

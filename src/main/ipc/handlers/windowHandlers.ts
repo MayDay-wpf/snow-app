@@ -34,6 +34,7 @@ import {
   clearNetworkRecords,
   ensureNetworkRecording,
   ensureWebContentsDebugger,
+  getBrowserRouteRules,
   getBrowserWebContents,
   getNetworkRecord,
   queryNetworkDetails,
@@ -41,6 +42,21 @@ import {
   setBrowserNetworkState,
   setBrowserRouteRules,
 } from "./browserNetworkRecorder";
+import {
+  clearBrowserLogpointHits,
+  clearBrowserLogpoints,
+  getBrowserLogpointHits,
+  initBrowserLogpoints,
+  listBrowserLogpoints,
+  removeBrowserLogpoint,
+  setBrowserLogpoint,
+  type BrowserLogpointSpec,
+} from "./browserLogpoints";
+import {
+  initBrowserScripts,
+  listBrowserScripts,
+  searchBrowserScripts,
+} from "./browserScripts";
 import {
   clearConsoleRecords,
   getConsoleRecord,
@@ -323,6 +339,8 @@ export const openBrowserDevTools = (contents: WebContents): void => {
 export const registerWindowHandlers = (_native: NativeBridge): void => {
   registerBrowserFrameHandlers();
   initBrowserConsoleRecorder();
+  initBrowserScripts(_native);
+  initBrowserLogpoints();
   // 注入主窗口关闭请求处理器（close 拦截后按设置自动执行：询问/退出/最小化）。
   bindCloseRequestHandler();
 
@@ -1232,18 +1250,121 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
   // 路由 mock：设置拦截规则（全量替换；空数组 = 恢复真实网络）。
   ipcMain.handle(
     "browser:route-set",
-    (_event, webContentsId: number, rules: unknown) =>
+    (_event, webContentsId: number, rules: unknown, options?: unknown) =>
       setBrowserRouteRules(
         typeof webContentsId === "number" ? webContentsId : -1,
         Array.isArray(rules)
           ? (rules as Parameters<typeof setBrowserRouteRules>[1])
           : [],
+        {
+          resetHits:
+            options !== null &&
+            typeof options === "object" &&
+            (options as { resetHits?: unknown }).resetHits === true,
+        },
       ),
   );
   ipcMain.handle("browser:route-clear", (_event, webContentsId: number) =>
     clearBrowserRouteRules(
       typeof webContentsId === "number" ? webContentsId : -1,
     ),
+  );
+  // 路由 mock 规则列表（含命中次数），供 AI 确认当前生效的异常注入。
+  ipcMain.handle("browser:route-list", (_event, webContentsId: number) => ({
+    rules: getBrowserRouteRules(
+      typeof webContentsId === "number" ? webContentsId : -1,
+    ),
+  }));
+  // 日志断点：不改源码，命中时把运行时变量写进 console 并自动继续。
+  ipcMain.handle(
+    "browser:logpoint-set",
+    (_event, webContentsId: number, spec: unknown) =>
+      setBrowserLogpoint(
+        typeof webContentsId === "number" ? webContentsId : -1,
+        (spec !== null && typeof spec === "object"
+          ? spec
+          : {}) as BrowserLogpointSpec,
+      ),
+  );
+  ipcMain.handle(
+    "browser:logpoint-remove",
+    (_event, webContentsId: number, logpointId: string) =>
+      removeBrowserLogpoint(
+        typeof webContentsId === "number" ? webContentsId : -1,
+        typeof logpointId === "string" ? logpointId : "",
+      ),
+  );
+  ipcMain.handle("browser:logpoint-clear", (_event, webContentsId: number) =>
+    clearBrowserLogpoints(
+      typeof webContentsId === "number" ? webContentsId : -1,
+    ),
+  );
+  ipcMain.handle("browser:logpoint-list", (_event, webContentsId: number) =>
+    listBrowserLogpoints(
+      typeof webContentsId === "number" ? webContentsId : -1,
+    ),
+  );
+  ipcMain.handle(
+    "browser:logpoint-hits",
+    (_event, webContentsId: number, options?: unknown) => {
+      const raw =
+        options !== null && typeof options === "object"
+          ? (options as Record<string, unknown>)
+          : {};
+      return getBrowserLogpointHits(
+        typeof webContentsId === "number" ? webContentsId : -1,
+        {
+          logpointId:
+            typeof raw.logpointId === "string" ? raw.logpointId : undefined,
+          limit: typeof raw.limit === "number" ? raw.limit : undefined,
+        },
+      );
+    },
+  );
+  ipcMain.handle(
+    "browser:logpoint-hits-clear",
+    (_event, webContentsId: number) => ({
+      cleared: clearBrowserLogpointHits(
+        typeof webContentsId === "number" ? webContentsId : -1,
+      ),
+    }),
+  );
+  // 已解析脚本与原始源码列表 / 源码搜索：为日志断点提供可用的 url 与行列。
+  ipcMain.handle(
+    "browser:script-list",
+    (_event, webContentsId: number, options?: unknown) => {
+      const raw =
+        options !== null && typeof options === "object"
+          ? (options as Record<string, unknown>)
+          : {};
+      return listBrowserScripts(
+        typeof webContentsId === "number" ? webContentsId : -1,
+        {
+          filter: typeof raw.filter === "string" ? raw.filter : undefined,
+          sources: raw.sources === true,
+          limit: typeof raw.limit === "number" ? raw.limit : undefined,
+        },
+      );
+    },
+  );
+  ipcMain.handle(
+    "browser:script-search",
+    (_event, webContentsId: number, options?: unknown) => {
+      const raw =
+        options !== null && typeof options === "object"
+          ? (options as Record<string, unknown>)
+          : {};
+      return searchBrowserScripts(
+        typeof webContentsId === "number" ? webContentsId : -1,
+        {
+          query: typeof raw.query === "string" ? raw.query : "",
+          url: typeof raw.url === "string" ? raw.url : undefined,
+          isRegex: raw.isRegex === true,
+          caseSensitive: raw.caseSensitive === true,
+          limit: typeof raw.limit === "number" ? raw.limit : undefined,
+        },
+      );
+    },
   );
   // 登录态保存：cookie + localStorage → safeStorage 加密落盘（~/.snowapp/browser-state/）。
   ipcMain.handle(

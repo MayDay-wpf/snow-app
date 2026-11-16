@@ -48,6 +48,7 @@ percent-encoding = "2"
 getrandom = "0.2"
 notify = "6"
 regex = "1"
+sourcemap = "9"
 similar = "2"
 tiktoken-rs = "0.6"
 uuid = { version = "1", features = ["v4"] }

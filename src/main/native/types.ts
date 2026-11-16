@@ -29,6 +29,20 @@ export type AppStorageInfo = {
   archiveDatabasePath: string;
 };
 
+/** source map 换算结果：行列均为 0 起，列按 UTF-16 计。 */
+export type BrowserSourceMapLocation = {
+  sourceLine: number;
+  sourceColumn: number;
+  generatedLine: number;
+  generatedColumn: number;
+};
+export type BrowserScriptTextMatch = {
+  sourceIndex?: number | null;
+  line: number;
+  column: number;
+  snippet: string;
+};
+
 export type ApiConfigInput = {
   profileName: string;
   /** 编辑重命名时传原配置名;新建/未改名时不传。 */
@@ -3995,6 +4009,36 @@ export type NativeBridge = ImageGenerationNativeApi & {
     title: string | null,
     targetPath: string,
   ) => Promise<void>;
+  /** 浏览器脚本：解析并缓存 source map（JSON 文本或 data: URL），返回 sources。 */
+  browserSourceMapLoad: (key: string, content: string) => Promise<string[]>;
+  /** 浏览器脚本：每个 source 是否带 sourcesContent。 */
+  browserSourceMapContentFlags: (key: string) => Promise<boolean[]>;
+  /** 浏览器脚本：原始位置换算为生成位置（0 起行列）。 */
+  browserSourceMapResolve: (
+    key: string,
+    sourceIndex: number,
+    line: number,
+    column: number | null,
+  ) => Promise<BrowserSourceMapLocation | null>;
+  /** 浏览器脚本：在 source map 的原始源码内容里搜索。 */
+  browserSourceMapSearch: (
+    key: string,
+    query: string,
+    isRegex: boolean,
+    caseSensitive: boolean,
+    limit: number,
+    sourceIndexes: number[] | null,
+  ) => Promise<BrowserScriptTextMatch[]>;
+  /** 浏览器脚本：在一段脚本文本里搜索。 */
+  browserScriptTextSearch: (
+    content: string,
+    query: string,
+    isRegex: boolean,
+    caseSensitive: boolean,
+    limit: number,
+  ) => Promise<BrowserScriptTextMatch[]>;
+  /** 浏览器脚本：释放 key 以 prefix 开头的 source map 缓存。 */
+  browserSourceMapRelease: (prefix: string) => Promise<void>;
   deleteImageLibraryImage: (id: string) => Promise<void>;
   countConversationImages: (conversationIds: string[]) => Promise<number>;
   deleteConversationImages: (conversationIds: string[]) => Promise<number>;

@@ -6,27 +6,27 @@ tools of the built-in `browser` server and typical workflows.
 
 ## 1. Tools Overview
 
-| Tool                                                 | Purpose                                                                                                                                                                                                                                |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser-create`                                     | Create a browser instance (optional initial URL)                                                                                                                                                                                       |
-| `browser-navigate`                                   | Navigate to a URL                                                                                                                                                                                                                      |
-| `browser-click`                                      | Click page elements with real mouse events (CSS selector / visible text / accessibility ref)                                                                                                                                           |
-| `browser-type`                                       | Type text into an element (set at once or key by key; ref targeting supported)                                                                                                                                                         |
-| `browser-wait`                                       | Wait for text/element to appear or disappear, or a fixed duration                                                                                                                                                                      |
-| `browser-press_key`                                  | Press a keyboard key or combination (Enter/Tab/Escape/arrows, `Ctrl+A`-style)                                                                                                                                                          |
-| `browser-scroll`                                     | Scroll the document or an inner scroll container (feeds, virtual lists) and report whether it moved plus the before/after position                                                                                                     |
-| `browser-select_option`                              | Select option(s) in a dropdown (match by value or label)                                                                                                                                                                               |
-| `browser-hover`                                      | Hover an element (triggers hover overlays)                                                                                                                                                                                             |
-| `browser-upload-file`                                | Upload file(s) (CDP injection, no dialog)                                                                                                                                                                                              |
-| `browser-back` / `browser-forward`                   | Browser history back/forward (waits for navigation)                                                                                                                                                                                    |
-| `browser-navigate_back` / `browser-navigate_forward` | Browser history back/forward (no navigation wait)                                                                                                                                                                                      |
-| `browser-evaluate`                                   | Run arbitrary JavaScript in the page and return the result                                                                                                                                                                             |
-| `browser-screenshot`                                 | Capture the page as PNG (full page supported)                                                                                                                                                                                          |
-| `browser-devtools`                                   | Text/accessibility-tree snapshot / performance trace / console messages / network requests & details / offline simulation / route mocking / encrypted login-state save & restore / cookie management / dialog handling / open DevTools |
-| `browser-close`                                      | Close a browser tab                                                                                                                                                                                                                    |
-| `browser-focus`                                      | Switch to a tab                                                                                                                                                                                                                        |
-| `browser-list`                                       | List all open tabs (tabs not shared with the agent only return `instanceId` and a placeholder title, `url` is null)                                                                                                                    |
-| `browser-request_share`                              | Ask the user to share a tab with the agent (in-app confirmation bar; a refusal or timeout returns `shared: false`)                                                                                                                     |
+| Tool                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser-create`                                     | Create a browser instance (optional initial URL)                                                                                                                                                                                                                                                                                                            |
+| `browser-navigate`                                   | Navigate to a URL                                                                                                                                                                                                                                                                                                                                           |
+| `browser-click`                                      | Click page elements with real mouse events (CSS selector / visible text / accessibility ref)                                                                                                                                                                                                                                                                |
+| `browser-type`                                       | Type text into an element (set at once or key by key; ref targeting supported)                                                                                                                                                                                                                                                                              |
+| `browser-wait`                                       | Wait for text/element to appear or disappear, or a fixed duration                                                                                                                                                                                                                                                                                           |
+| `browser-press_key`                                  | Press a keyboard key or combination (Enter/Tab/Escape/arrows, `Ctrl+A`-style)                                                                                                                                                                                                                                                                               |
+| `browser-scroll`                                     | Scroll the document or an inner scroll container (feeds, virtual lists) and report whether it moved plus the before/after position                                                                                                                                                                                                                          |
+| `browser-select_option`                              | Select option(s) in a dropdown (match by value or label)                                                                                                                                                                                                                                                                                                    |
+| `browser-hover`                                      | Hover an element (triggers hover overlays)                                                                                                                                                                                                                                                                                                                  |
+| `browser-upload-file`                                | Upload file(s) (CDP injection, no dialog)                                                                                                                                                                                                                                                                                                                   |
+| `browser-back` / `browser-forward`                   | Browser history back/forward (waits for navigation)                                                                                                                                                                                                                                                                                                         |
+| `browser-navigate_back` / `browser-navigate_forward` | Browser history back/forward (no navigation wait)                                                                                                                                                                                                                                                                                                           |
+| `browser-evaluate`                                   | Run arbitrary JavaScript in the page and return the result                                                                                                                                                                                                                                                                                                  |
+| `browser-screenshot`                                 | Capture the page as PNG (full page supported)                                                                                                                                                                                                                                                                                                               |
+| `browser-devtools`                                   | Text/accessibility-tree snapshot / performance trace / console messages / network requests & details / offline simulation / API mocking and fault injection (failures, latency, test-server forwarding) / logpoints (runtime variables without editing source) / encrypted login-state save & restore / cookie management / dialog handling / open DevTools |
+| `browser-close`                                      | Close a browser tab                                                                                                                                                                                                                                                                                                                                         |
+| `browser-focus`                                      | Switch to a tab                                                                                                                                                                                                                                                                                                                                             |
+| `browser-list`                                       | List all open tabs (tabs not shared with the agent only return `instanceId` and a placeholder title, `url` is null)                                                                                                                                                                                                                                         |
+| `browser-request_share`                              | Ask the user to share a tab with the agent (in-app confirmation bar; a refusal or timeout returns `shared: false`)                                                                                                                                                                                                                                          |
 
 ## 2. Typical Workflows
 
@@ -94,7 +94,7 @@ browser-devtools action=networkState state=offline instanceId=<id>
 
 Cross-origin/OOPIF iframe network records, console entries and dialogs are captured and answered per frame CDP session: the network list includes `cdpFrameId` and `requestId` is a frame-scoped detail key, console entries carry `cdpFrameId`, and the dialog list marks `frame` as `main`/`iframe`. A missing frame session fails explicitly instead of falling back to the main frame.
 
-### 2.3 Mock APIs (route interception)
+### 2.3 Mock APIs, inject failures (route interception)
 
 ```text
 # Intercept requests matching /api/users and return custom JSON
@@ -104,14 +104,103 @@ browser-devtools action=route pattern="/api/users" body='{"code":0,"data":[]}' c
 # Simulate a server error
 browser-devtools action=route pattern="/login" status=500 body='{"error":"boom"}' instanceId=<id>
 
+# Make the request fail outright (network down / API gone), optional CDP error reason
+browser-devtools action=route pattern="/api/orders" abort=ConnectionRefused instanceId=<id>
+
+# Inject latency (respond after 3 seconds)
+browser-devtools action=route pattern="/api/search" delayMs=3000 body='{"data":[]}' instanceId=<id>
+
+# Match one method / resource type only, and apply just once (test retry logic)
+browser-devtools action=route pattern="/api/pay" method=POST times=1 abort=TimedOut instanceId=<id>
+
+# Serve the body from a local file (re-read per request: edit the file, not the frontend)
+browser-devtools action=route pattern="/api/config" bodyFile=/Users/me/mocks/config.json contentType=application/json instanceId=<id>
+
+# Replace real responses: forward the request to a test server and return its response
+browser-devtools action=route pattern="/api/" proxyTo=https://staging.example.com/api/ instanceId=<id>
+
+# Inspect active rules with hit counts
+browser-devtools action=routeList instanceId=<id>
+
 # Remove all mock rules and restore real network
 browser-devtools action=routeClear instanceId=<id>
 ```
 
-Re-registering the same pattern overwrites the rule; multiple rules are active
-at once (matched in registration order).
+Re-calling the same pattern replaces that rule; several rules can be active at once
+(matched in registration order). Hit counts survive unchanged rules and reset when a
+rule changes, so `times` can be replayed. When `proxyTo` forwarding fails the page
+receives a 502 with a JSON error instead of a hanging request; the method, request
+headers and body are forwarded, and response headers are passed back except transport
+headers such as content-length / content-encoding / host.
 
-### 2.4 Interact with the page
+### 2.4 Logpoints (inspect runtime variables without editing source)
+
+```text
+# Set a logpoint by source path (resolved through source maps; line numbers match the file on disk)
+browser-devtools action=logpointSet url="src/cart.ts" lineNumber=42 \
+  expressions='["cart.total","cart.items.length"]' instanceId=<id>
+
+# Not sure where? Search first: returns url / lineNumber / columnNumber ready for logpointSet
+browser-devtools action=scriptSearch query="function checkout" instanceId=<id>
+browser-devtools action=scriptSearch query="submitOrder\\(" isRegex=true url="app." instanceId=<id>
+
+# List parsed scripts; sources=true also lists original source files from source maps
+browser-devtools action=scriptList filter="app" sources=true instanceId=<id>
+
+# Set a logpoint on one line: record local variables on hit, execution continues
+browser-devtools action=logpointSet url="/static/js/app.4f2c.js" lineNumber=482 \
+  expressions='["userId","state.items.length","payload.id"]' label="checkout" instanceId=<id>
+
+# Only record under a condition (avoids noise)
+browser-devtools action=logpointSet url="/static/js/app.4f2c.js" lineNumber=482 \
+  condition="state.items.length > 0" expressions='["state.items[0]"]' maxHits=10 instanceId=<id>
+
+# Match the script URL by regex (hashed bundle names)
+browser-devtools action=logpointSet url="/app\\.[0-9a-f]+\\.js$" urlRegex=true \
+  lineNumber=482 expressions='["userId"]' instanceId=<id>
+
+# Read collected hits and variable values
+browser-devtools action=logpointHits instanceId=<id>
+browser-devtools action=logpointHits logpointId=<logpointId> limit=20 instanceId=<id>
+
+# List / remove / clear logpoints and hits
+browser-devtools action=logpointList instanceId=<id>
+browser-devtools action=logpointRemove logpointId=<logpointId> instanceId=<id>
+browser-devtools action=logpointClear instanceId=<id>
+browser-devtools action=logpointHitsClear instanceId=<id>
+```
+
+Logpoints use CDP `Debugger.setBreakpointByUrl` with a generated condition: on a hit
+the values are formatted inside the page and sent back, and the condition always
+returns `false`, so the page keeps running - no pause and no source edit.
+
+- **Location**: `url` first matches an original source file from a source map (full
+  URL or path suffix such as `src/cart.ts`); `lineNumber` is then the line of the file
+  on disk. Otherwise it is a **literal substring** of a loaded script URL, and
+  `/regex/` or `urlRegex=true` matches script URLs by regular expression (source maps
+  are not consulted). `lineNumber` and `columnNumber` are both 1-based; minified
+  single-line bundles need `columnNumber`, which `scriptSearch` returns. After a
+  rebuild and reload, source-path logpoints are re-resolved automatically.
+- **Binding feedback**: `logpointSet` returns `bound`, `locations` (where it actually
+  landed) and `warning` (no match yet, line past the end of the script, line moved to
+  the next executable code, ...). A path matching several source files, or a line with
+  no executable code after it, is rejected. Scripts that have not loaded yet stay
+  pending and bind when they load.
+- **Values**: expressions run **before** the line executes (a variable declared on
+  that line is not set yet) and hits are keyed by the expression text. An expression
+  that throws only affects itself and shows `[Thrown: ...]`; `undefined`, `Error`,
+  `Map`, `Set`, circular references and DOM nodes all have readable forms, and deep or
+  long values are truncated. Use the minified variable names in minified code.
+- **No hits?** `logpointHits` returns `diagnostics` with each logpoint's bound state,
+  warning and last evaluation error, which separates "not bound", "line never ran" and
+  "expression threw".
+- **Other**: a logpoint retires after `maxHits` (default 20, max 50) and is skipped
+  inside the page once the limit is reached. Opening the page's DevTools takes the
+  debugger, so logpoints pause until it is closed (`logpointList` reports `suspended`
+  meanwhile) and are then restored. The debugger domain is switched off when idle
+  after all logpoints are cleared. Hits never leak into `action=console` records.
+
+### 2.5 Interact with the page
 
 ```text
 # Click (by CSS selector, visible text, or accessibility ref)
@@ -148,7 +237,7 @@ browser-navigate_forward instanceId=<id>
 browser-evaluate expression="document.title" instanceId=<id>
 ```
 
-### 2.5 Action receipts and bounded observation (observe / expect)
+### 2.6 Action receipts and bounded observation (observe / expect)
 
 `browser-click`, `browser-type`, `browser-fill_form`, `browser-select_option` and
 `browser-press_key` split their receipt so "the event was dispatched" is never
@@ -190,7 +279,7 @@ Notes:
   `urlRedaction`; read search conditions from `observation.state.searchFields` instead of
   relying on the address bar.
 
-### 2.6 Performance analysis (trace)
+### 2.7 Performance analysis (trace)
 
 ```text
 # Record 3s of performance data; returns long-task/event stats (main-thread jank)
@@ -203,7 +292,7 @@ Long tasks (runnable events >50ms) are the core jank indicator; `topEventTypes`
 shows the main event mix — combine with `action=network` and `action=console`
 for deeper diagnosis.
 
-### 2.7 Screenshot and close
+### 2.8 Screenshot and close
 
 ```text
 browser-screenshot instanceId=<id> fullPage=true

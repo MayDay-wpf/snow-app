@@ -1844,16 +1844,86 @@ export const windowApi = {
     webContentsId: number,
     rules: {
       pattern: string;
+      method?: string;
+      resourceType?: string;
       status?: number;
       body?: string;
+      bodyFile?: string;
       contentType?: string;
       headers?: Record<string, string>;
+      abort?: string;
+      delayMs?: number;
+      proxyTo?: string;
+      times?: number;
     }[],
+    options?: { resetHits?: boolean },
   ): Promise<{ active: number }> =>
-    ipcRenderer.invoke("browser:route-set", webContentsId, rules),
+    ipcRenderer.invoke("browser:route-set", webContentsId, rules, options),
   /** 清除全部路由 mock 规则。 */
   browserRouteClear: (webContentsId: number): Promise<{ active: number }> =>
     ipcRenderer.invoke("browser:route-clear", webContentsId),
+  /** 查询当前生效的路由 mock 规则与命中次数。 */
+  browserRouteList: (
+    webContentsId: number,
+  ): Promise<{ rules: Record<string, unknown>[] }> =>
+    ipcRenderer.invoke("browser:route-list", webContentsId),
+  /** 设置（或按 id 覆盖）日志断点：不改源码，命中即记录变量。 */
+  browserLogpointSet: (
+    webContentsId: number,
+    spec: {
+      id?: string;
+      url: string;
+      urlRegex?: boolean;
+      lineNumber: number;
+      columnNumber?: number;
+      condition?: string;
+      expressions?: string[];
+      label?: string;
+      maxHits?: number;
+    },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke("browser:logpoint-set", webContentsId, spec),
+  /** 移除指定日志断点。 */
+  browserLogpointRemove: (
+    webContentsId: number,
+    logpointId: string,
+  ): Promise<{ removed: boolean; active: number }> =>
+    ipcRenderer.invoke("browser:logpoint-remove", webContentsId, logpointId),
+  /** 清除全部日志断点与已采集命中。 */
+  browserLogpointClear: (webContentsId: number): Promise<{ cleared: number }> =>
+    ipcRenderer.invoke("browser:logpoint-clear", webContentsId),
+  /** 列出当前日志断点及其命中次数。 */
+  browserLogpointList: (webContentsId: number): Promise<unknown> =>
+    ipcRenderer.invoke("browser:logpoint-list", webContentsId),
+  /** 读取日志断点命中记录（最近的在后）。 */
+  browserLogpointHits: (
+    webContentsId: number,
+    options?: { logpointId?: string; limit?: number },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke("browser:logpoint-hits", webContentsId, options),
+  /** 清空已采集的命中记录（断点本身保留）。 */
+  browserLogpointHitsClear: (
+    webContentsId: number,
+  ): Promise<{ cleared: number }> =>
+    ipcRenderer.invoke("browser:logpoint-hits-clear", webContentsId),
+  /** 列出已解析脚本（sources=true 时含 source map 里的原始源码）。 */
+  browserScriptList: (
+    webContentsId: number,
+    options?: { filter?: string; sources?: boolean; limit?: number },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke("browser:script-list", webContentsId, options),
+  /** 在脚本与原始源码里搜索文本，返回可用于日志断点的行列。 */
+  browserScriptSearch: (
+    webContentsId: number,
+    options: {
+      query: string;
+      url?: string;
+      isRegex?: boolean;
+      caseSensitive?: boolean;
+      limit?: number;
+    },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke("browser:script-search", webContentsId, options),
   /** 保存登录态（cookie + localStorage）为加密文件；返回文件路径与统计，不回显内容。 */
   browserStorageSave: (
     webContentsId: number,

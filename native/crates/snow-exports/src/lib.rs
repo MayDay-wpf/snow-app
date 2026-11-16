@@ -1,4 +1,5 @@
 pub mod api_exports;
+pub mod browser_scripts;
 pub mod checkpoint;
 pub mod codebase;
 pub mod detached_tasks;

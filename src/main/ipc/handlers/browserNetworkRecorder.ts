@@ -1,5 +1,5 @@
 import { app, session, webContents } from "electron";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { redactBrowserText } from "../../../shared/browserRedaction";
 import { snowLog } from "../../../utils/snowLogger";
@@ -735,7 +735,7 @@ export const initBrowserWebviewRegistry = (): void => {
           handleNetworkLoadingFailed(contents.id, params, session);
           break;
         case "Fetch.requestPaused":
-          handleFetchRequestPaused(contents, params, session);
+          void handleFetchRequestPaused(contents, params, session);
           break;
         case "Page.frameNavigated": {
           const frame = (
@@ -782,6 +782,7 @@ export const initBrowserWebviewRegistry = (): void => {
       cdpNetworkRecords.delete(contents.id);
       mainFrameIds.delete(contents.id);
       routeRules.delete(contents.id);
+      routeHitCounts.delete(contents.id);
     });
   });
 };
@@ -1173,13 +1174,48 @@ export const setBrowserNetworkState = async (
 
 export type BrowserRouteRule = {
   pattern: string;
+  /** 仅匹配该 HTTP 方法（大小写不敏感）；省略匹配全部。 */
+  method?: string;
+  /** 仅匹配该 CDP 资源类型（XHR/Fetch/Script…）；省略匹配全部。 */
+  resourceType?: string;
   status?: number;
   body?: string;
+  /** 从本地文件读取响应体（每次请求时重新读取，便于改文件即换数据）。 */
+  bodyFile?: string;
   contentType?: string;
   headers?: Record<string, string>;
+  /** 直接让请求失败（CDP errorReason，如 Aborted/TimedOut/ConnectionRefused）。 */
+  abort?: string;
+  /** 命中后延迟再响应，模拟慢接口。 */
+  delayMs?: number;
+  /** 把请求转发到测试服务器并把真实响应回灌给页面。 */
+  proxyTo?: string;
+  /** 最多生效次数；耗尽的规则自动跳过并放行真实请求。 */
+  times?: number;
 };
 
+export type BrowserRouteRuleState = BrowserRouteRule & { hits: number };
+
 const routeRules = new Map<number, BrowserRouteRule[]>();
+/** webContentsId -> pattern -> 命中次数（按 pattern 保留，便于反复提交规则时延续 times）。 */
+const routeHitCounts = new Map<number, Map<string, number>>();
+
+const ROUTE_MAX_BODY_BYTES = 5 * 1024 * 1024;
+const ROUTE_MAX_DELAY_MS = 10_000;
+
+export const ROUTE_ERROR_REASONS = [
+  "Failed",
+  "Aborted",
+  "TimedOut",
+  "AccessDenied",
+  "ConnectionClosed",
+  "ConnectionReset",
+  "ConnectionRefused",
+  "ConnectionAborted",
+  "InternetDisconnected",
+  "AddressUnreachable",
+  "BlockedByClient",
+] as const;
 
 /** pattern 匹配：/regex/ 形式按正则，否则按子串匹配。 */
 const matchesPattern = (url: string, pattern: string): boolean => {
@@ -1265,10 +1301,33 @@ const disableFetchInterception = async (
   }
 };
 
+/** 判定两条规则是否等价：等价时保留命中计数，改动后重新计数。 */
+const isSameRouteRule = (
+  left: BrowserRouteRule,
+  right: BrowserRouteRule,
+): boolean => {
+  const strip = (rule: BrowserRouteRule): string =>
+    JSON.stringify([
+      rule.method ?? "",
+      rule.resourceType ?? "",
+      rule.status ?? null,
+      rule.body ?? null,
+      rule.bodyFile ?? null,
+      rule.contentType ?? null,
+      rule.headers ?? {},
+      rule.abort ?? null,
+      rule.delayMs ?? null,
+      rule.proxyTo ?? null,
+      rule.times ?? null,
+    ]);
+  return strip(left) === strip(right);
+};
+
 /** 设置路由 mock 规则（全量替换；空数组 = 清除并恢复真实网络）。 */
 export const setBrowserRouteRules = async (
   webContentsId: number,
   rules: BrowserRouteRule[],
+  options: { resetHits?: boolean } = {},
 ): Promise<{ active: number }> => {
   const contents = getBrowserWebContents(webContentsId);
   await ensureWebContentsDebugger(contents);
@@ -1277,7 +1336,29 @@ export const setBrowserRouteRules = async (
       "Browser debugger is unavailable; close the page DevTools and retry",
     );
   }
+  const previousRules = routeRules.get(webContentsId) ?? [];
+  const previousHits = routeHitCounts.get(webContentsId);
+  const nextHits = new Map<string, number>();
+  for (const rule of rules) {
+    const previous = previousRules.find(
+      (item) => item.pattern === rule.pattern,
+    );
+    // 规则内容未变时延续命中次数，改动过的规则从 0 重新计数（times 可重放）。
+    const keep =
+      options.resetHits !== true &&
+      previous !== undefined &&
+      isSameRouteRule(previous, rule);
+    nextHits.set(
+      rule.pattern,
+      keep ? (previousHits?.get(rule.pattern) ?? 0) : 0,
+    );
+  }
   routeRules.set(webContentsId, rules);
+  if (rules.length === 0) {
+    routeHitCounts.delete(webContentsId);
+  } else {
+    routeHitCounts.set(webContentsId, nextHits);
+  }
   if (rules.length > 0) {
     await enableFetchInterception(contents);
   } else {
@@ -1289,6 +1370,18 @@ export const setBrowserRouteRules = async (
 export const clearBrowserRouteRules = async (
   webContentsId: number,
 ): Promise<{ active: number }> => setBrowserRouteRules(webContentsId, []);
+
+/** 查询当前生效的规则与各自命中次数（不含请求体等大字段以外的原始内容）。 */
+export const getBrowserRouteRules = (
+  webContentsId: number,
+): BrowserRouteRuleState[] => {
+  const rules = routeRules.get(webContentsId) ?? [];
+  const hits = routeHitCounts.get(webContentsId);
+  return rules.map((rule) => ({
+    ...rule,
+    hits: hits?.get(rule.pattern) ?? 0,
+  }));
+};
 
 const logFetchFailure = (
   contents: Electron.WebContents,
@@ -1303,20 +1396,260 @@ const logFetchFailure = (
   });
 };
 
-const handleFetchRequestPaused = (
+const bumpRouteHit = (webContentsId: number, pattern: string): number => {
+  let counts = routeHitCounts.get(webContentsId);
+  if (!counts) {
+    counts = new Map();
+    routeHitCounts.set(webContentsId, counts);
+  }
+  const next = (counts.get(pattern) ?? 0) + 1;
+  counts.set(pattern, next);
+  return next;
+};
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const isRouteMethodMatch = (rule: BrowserRouteRule, method: string): boolean =>
+  !rule.method || rule.method.trim().toUpperCase() === method.toUpperCase();
+
+const isRouteTypeMatch = (
+  rule: BrowserRouteRule,
+  resourceType: string,
+): boolean =>
+  !rule.resourceType ||
+  rule.resourceType.trim().toLowerCase() === resourceType.toLowerCase();
+
+/** 规则命中判断：pattern + method + resourceType + 剩余次数。 */
+const findMatchingRouteRule = (
+  webContentsId: number,
+  url: string,
+  method: string,
+  resourceType: string,
+  options: { ignoreMethod?: boolean } = {},
+): BrowserRouteRule | undefined => {
+  const rules = routeRules.get(webContentsId);
+  if (!rules || rules.length === 0) {
+    return undefined;
+  }
+  const hits = routeHitCounts.get(webContentsId);
+  return rules.find((rule) => {
+    if (!matchesPattern(url, rule.pattern)) return false;
+    if (!options.ignoreMethod && !isRouteMethodMatch(rule, method)) {
+      return false;
+    }
+    if (!isRouteTypeMatch(rule, resourceType)) return false;
+    if (typeof rule.times === "number" && rule.times > 0) {
+      return (hits?.get(rule.pattern) ?? 0) < rule.times;
+    }
+    return true;
+  });
+};
+
+/** 请求头按大小写不敏感读取。 */
+const readHeader = (headers: unknown, name: string): string | undefined => {
+  if (headers === null || typeof headers !== "object") return undefined;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(
+    headers as Record<string, unknown>,
+  )) {
+    if (key.toLowerCase() === wanted && typeof value === "string") {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * 跨域 mock 的 CORS 补齐：页面以跨域 XHR/fetch 访问时，Chromium 仍会对
+ * Fetch.fulfillRequest 的响应做 CORS 校验，必须回显 Origin 才可用。
+ * 已有同名头（来自 proxyTo）先移除，避免重复导致 UA 拒绝。
+ */
+const applyCorsHeaders = (
+  headers: { name: string; value: string }[],
+  requestOrigin: string | undefined,
+): void => {
+  if (!requestOrigin) return;
+  for (let index = headers.length - 1; index >= 0; index -= 1) {
+    if (headers[index].name.toLowerCase().startsWith("access-control-")) {
+      headers.splice(index, 1);
+    }
+  }
+  headers.push(
+    { name: "Access-Control-Allow-Origin", value: requestOrigin },
+    { name: "Access-Control-Allow-Credentials", value: "true" },
+    { name: "Vary", value: "Origin" },
+  );
+};
+
+/** 预检请求（OPTIONS）在命中 mock 时直接合成放行响应，避免打到真实服务器失败。 */
+const fulfillRoutePreflight = (
+  contents: Electron.WebContents,
+  requestId: string,
+  requestOrigin: string | undefined,
+  requestedHeaders: string | undefined,
+  sessionId: string | undefined,
+): void => {
+  const headers: { name: string; value: string }[] = [
+    {
+      name: "Access-Control-Allow-Methods",
+      value: "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS",
+    },
+    {
+      name: "Access-Control-Allow-Headers",
+      value: requestedHeaders || "Content-Type,Authorization",
+    },
+    { name: "Access-Control-Max-Age", value: "600" },
+  ];
+  applyCorsHeaders(headers, requestOrigin);
+  void sessionCommand(
+    contents,
+    "Fetch.fulfillRequest",
+    { requestId, responseCode: 204, responseHeaders: headers },
+    sessionId,
+  ).catch(() => undefined);
+};
+
+/** 读取规则响应体：bodyFile 每次请求重读（改文件即换数据），与 body 二选一。 */
+const readRouteBody = async (
+  rule: BrowserRouteRule,
+): Promise<Buffer | null> => {
+  if (rule.bodyFile) {
+    const data = await readFile(rule.bodyFile);
+    return data.byteLength > ROUTE_MAX_BODY_BYTES
+      ? data.subarray(0, ROUTE_MAX_BODY_BYTES)
+      : data;
+  }
+  if (rule.body !== undefined) {
+    const buffer = Buffer.from(rule.body, "utf8");
+    return buffer.byteLength > ROUTE_MAX_BODY_BYTES
+      ? buffer.subarray(0, ROUTE_MAX_BODY_BYTES)
+      : buffer;
+  }
+  return null;
+};
+
+const SKIPPED_PROXY_HEADERS = new Set([
+  "content-length",
+  "content-encoding",
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "host",
+]);
+
+/** 把请求转发到测试服务器：用页面原始方法/请求头/请求体取回真实响应。 */
+const fetchRouteProxy = async (
+  rule: BrowserRouteRule,
+  request: {
+    url: string;
+    method: string;
+    headers?: unknown;
+    postData?: unknown;
+  },
+): Promise<{
+  status: number;
+  headers: Record<string, string>;
+  body: Buffer;
+}> => {
+  const target = rule.proxyTo as string;
+  const headers: Record<string, string> = {};
+  if (request.headers !== null && typeof request.headers === "object") {
+    for (const [name, value] of Object.entries(
+      request.headers as Record<string, unknown>,
+    )) {
+      if (
+        typeof value === "string" &&
+        !SKIPPED_PROXY_HEADERS.has(name.toLowerCase())
+      ) {
+        headers[name] = value;
+      }
+    }
+  }
+  if (rule.headers) {
+    Object.assign(headers, rule.headers);
+  }
+  const method = (rule.method ?? request.method ?? "GET").toUpperCase();
+  const body =
+    typeof request.postData === "string" &&
+    method !== "GET" &&
+    method !== "HEAD"
+      ? request.postData
+      : undefined;
+  const response = await fetch(target, { method, headers, body });
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, name) => {
+    if (!SKIPPED_PROXY_HEADERS.has(name.toLowerCase())) {
+      responseHeaders[name] = value;
+    }
+  });
+  return { status: response.status, headers: responseHeaders, body: buffer };
+};
+
+const handleFetchRequestPaused = async (
   contents: Electron.WebContents,
   params: unknown,
   sessionId: string,
-): void => {
+): Promise<void> => {
   const requestId = (params as { requestId?: unknown } | null)?.requestId;
   if (typeof requestId !== "string") {
     return;
   }
-  const url = (params as { request?: { url?: unknown } } | null)?.request?.url;
-  const urlText = typeof url === "string" ? url : "";
-  const rules = routeRules.get(contents.id);
-  const rule = rules?.find((r) => matchesPattern(urlText, r.pattern));
+  const paused = params as {
+    request?: {
+      url?: unknown;
+      method?: unknown;
+      headers?: unknown;
+      postData?: unknown;
+    };
+    resourceType?: unknown;
+  } | null;
+  const urlText =
+    typeof paused?.request?.url === "string" ? paused.request.url : "";
+  const method =
+    typeof paused?.request?.method === "string" ? paused.request.method : "GET";
+  const resourceType =
+    typeof paused?.resourceType === "string" ? paused.resourceType : "";
   const targetSession = sessionId || undefined;
+  const requestOrigin = readHeader(paused?.request?.headers, "origin");
+  // 预检先于真实请求：命中规则时直接放行，避免真实服务器 CORS 不通过。
+  if (method.toUpperCase() === "OPTIONS") {
+    const preflightRule = findMatchingRouteRule(
+      contents.id,
+      urlText,
+      method,
+      resourceType,
+      { ignoreMethod: true },
+    );
+    if (!preflightRule) {
+      void sessionCommand(
+        contents,
+        "Fetch.continueRequest",
+        { requestId },
+        targetSession,
+      ).catch((error) =>
+        logFetchFailure(contents, "handleFetchRequestPaused", error),
+      );
+      return;
+    }
+    fulfillRoutePreflight(
+      contents,
+      requestId,
+      requestOrigin,
+      readHeader(paused?.request?.headers, "access-control-request-headers"),
+      targetSession,
+    );
+    return;
+  }
+  const rule = findMatchingRouteRule(
+    contents.id,
+    urlText,
+    method,
+    resourceType,
+  );
   if (!rule) {
     void sessionCommand(
       contents,
@@ -1328,23 +1661,82 @@ const handleFetchRequestPaused = (
     );
     return;
   }
+  if (typeof rule.delayMs === "number" && rule.delayMs > 0) {
+    await sleep(Math.min(rule.delayMs, ROUTE_MAX_DELAY_MS));
+  }
+  bumpRouteHit(contents.id, rule.pattern);
+  if (rule.abort) {
+    void sessionCommand(
+      contents,
+      "Fetch.failRequest",
+      { requestId, errorReason: rule.abort },
+      targetSession,
+    ).catch((error) =>
+      logFetchFailure(contents, "handleFetchRequestPaused", error),
+    );
+    return;
+  }
+  let status = rule.status ?? 200;
   const headers: { name: string; value: string }[] = Object.entries(
     rule.headers ?? {},
   ).map(([name, value]) => ({ name, value }));
-  if (rule.contentType) {
-    headers.push({ name: "Content-Type", value: rule.contentType });
+  let body: Buffer | null = null;
+  if (rule.proxyTo) {
+    // 转发失败时明确回 502，避免页面拿到挂起请求。
+    try {
+      const proxied = await fetchRouteProxy(rule, {
+        url: urlText,
+        method,
+        headers: paused?.request?.headers,
+        postData: paused?.request?.postData,
+      });
+      status = proxied.status;
+      body = proxied.body;
+      for (const [name, value] of Object.entries(proxied.headers)) {
+        headers.push({ name, value });
+      }
+      if (rule.contentType)
+        headers.push({ name: "Content-Type", value: rule.contentType });
+    } catch (error) {
+      body = Buffer.from(
+        JSON.stringify({
+          error: "Route proxy request failed",
+          detail: redactBrowserText(describeError(error)),
+        }),
+        "utf8",
+      );
+      status = 502;
+      if (!headers.some((item) => item.name.toLowerCase() === "content-type")) {
+        headers.push({ name: "Content-Type", value: "application/json" });
+      }
+    }
+  } else {
+    try {
+      body = await readRouteBody(rule);
+    } catch (error) {
+      body = Buffer.from(
+        JSON.stringify({
+          error: "Route body file could not be read",
+          detail: redactBrowserText(describeError(error)),
+        }),
+        "utf8",
+      );
+      status = 500;
+    }
+    if (rule.contentType) {
+      headers.push({ name: "Content-Type", value: rule.contentType });
+    }
   }
+  // 跨域请求需要回显 Origin，否则页面拿不到 mock 数据。
+  applyCorsHeaders(headers, requestOrigin);
   void sessionCommand(
     contents,
     "Fetch.fulfillRequest",
     {
       requestId,
-      responseCode: rule.status ?? 200,
+      responseCode: status,
       responseHeaders: headers,
-      body:
-        rule.body !== undefined
-          ? Buffer.from(rule.body, "utf8").toString("base64")
-          : undefined,
+      body: body ? body.toString("base64") : undefined,
     },
     targetSession,
   ).catch((error) =>

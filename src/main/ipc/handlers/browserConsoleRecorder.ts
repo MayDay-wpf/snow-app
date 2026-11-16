@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { isBrowserLogpointMessage } from "./browserLogpoints";
 import { registerDebuggerMessageListener } from "./browserNetworkRecorder";
 
 /**
@@ -267,6 +268,10 @@ const handleConsoleAPICalled = (
         generation.filter((entry) => entry.cdpFrameId !== frameId),
       );
     }
+    return;
+  }
+  // 日志断点的命中日志由 browserLogpoints 单独回收，不进控制台记录。
+  if (isBrowserLogpointMessage(p.args)) {
     return;
   }
   const args = Array.isArray(p.args) ? p.args.map(serializeRemoteArg) : [];

@@ -383,11 +383,16 @@ type TagTone = "blue" | "green" | "amber" | "neutral";
 const Tag = ({
   children,
   tone = "neutral",
+  title,
 }: {
   children: React.ReactNode;
   tone?: TagTone;
+  title?: string;
 }): React.JSX.Element => (
-  <span className={`tool-call-browser-tag tool-call-browser-tag-${tone}`}>
+  <span
+    className={`tool-call-browser-tag tool-call-browser-tag-${tone}`}
+    title={title}
+  >
     {children}
   </span>
 );
@@ -1957,6 +1962,351 @@ const DevtoolsAxView = ({
   );
 };
 
+/** routeList：当前生效的路由 mock 规则与命中次数。 */
+const DevtoolsRouteListView = ({
+  data,
+}: {
+  data: Record<string, unknown> | null;
+}): React.JSX.Element | null => {
+  const { t } = useI18n();
+  if (!data) {
+    return null;
+  }
+  const rules = Array.isArray(data.rules)
+    ? data.rules.filter((item) => isRecord(item))
+    : [];
+  if (rules.length === 0) {
+    return (
+      <div className="tool-call-browser-empty">
+        <Route size={14} aria-hidden="true" />
+        <span>{t("toolCall.browser.routeNoRules")}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="tool-call-browser-network">
+      {rules.slice(0, 50).map((item, index) => {
+        const rule = item as Record<string, unknown>;
+        const abort = asString(rule.abort);
+        const proxyTo = asString(rule.proxyTo);
+        const status = asNumber(rule.status);
+        const delayMs = asNumber(rule.delayMs);
+        const times = asNumber(rule.times);
+        return (
+          <div
+            key={`${asString(rule.pattern) ?? index}`}
+            className="tool-call-browser-network-row"
+          >
+            <Tag tone={abort ? "amber" : "blue"}>
+              {asString(rule.method) ?? "ALL"}
+            </Tag>
+            <span
+              className="tool-call-browser-network-url"
+              title={asString(rule.pattern) ?? ""}
+            >
+              {asString(rule.pattern) ?? ""}
+            </span>
+            {abort ? <Tag tone="amber">{abort}</Tag> : null}
+            {!abort && status !== undefined ? <Tag>{status}</Tag> : null}
+            {proxyTo ? (
+              <Tag tone="blue" title={proxyTo}>
+                {getHost(proxyTo)}
+              </Tag>
+            ) : null}
+            {delayMs ? <Tag tone="amber">{delayMs}ms</Tag> : null}
+            {times ? <Tag>{`x${times}`}</Tag> : null}
+            <span className="tool-call-browser-network-duration">
+              {t("toolCall.browser.routeHits", {
+                values: { count: asNumber(rule.hits) ?? 0 },
+              })}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** logpointList：当前生效的日志断点。 */
+const DevtoolsLogpointListView = ({
+  data,
+}: {
+  data: Record<string, unknown> | null;
+}): React.JSX.Element | null => {
+  const { t } = useI18n();
+  const logpoints = Array.isArray(data?.logpoints)
+    ? data.logpoints.filter((item) => isRecord(item))
+    : [];
+  if (!data) {
+    return null;
+  }
+  if (logpoints.length === 0) {
+    return (
+      <div className="tool-call-browser-empty">
+        <Braces size={14} aria-hidden="true" />
+        <span>{t("toolCall.browser.logpointNoItems")}</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      {asNumber(data.autoResumed) ? (
+        <div className="tool-call-browser-empty">
+          <Activity size={14} aria-hidden="true" />
+          <span>
+            {t("toolCall.browser.logpointAutoResumed", {
+              values: { count: asNumber(data.autoResumed) ?? 0 },
+            })}
+          </span>
+        </div>
+      ) : null}
+      <div className="tool-call-browser-network">
+        {logpoints.slice(0, 50).map((item, index) => {
+          const logpoint = item as Record<string, unknown>;
+          const id = asString(logpoint.id) ?? `#${index + 1}`;
+          const url = asString(logpoint.url) ?? "";
+          const line = asNumber(logpoint.lineNumber) ?? 0;
+          const hits = asNumber(logpoint.hits) ?? 0;
+          const expressions = Array.isArray(logpoint.expressions)
+            ? logpoint.expressions.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [];
+          return (
+            <div key={id} className="tool-call-browser-network-row">
+              <Tag tone="blue">{id}</Tag>
+              <span className="tool-call-browser-network-url" title={url}>
+                {getHost(url) || truncateLabel(url, 48)}
+              </span>
+              <Tag>
+                {t("toolCall.browser.logpointLine", { values: { line } })}
+              </Tag>
+              <span className="tool-call-browser-network-duration">
+                {t("toolCall.browser.logpointHitCount", {
+                  values: { count: hits },
+                })}
+              </span>
+              {logpoint.exhausted === true ? (
+                <Tag tone="amber">
+                  {t("toolCall.browser.logpointExhausted")}
+                </Tag>
+              ) : (
+                <Tag
+                  tone={logpoint.bound === true ? "green" : "amber"}
+                  title={asString(logpoint.warning) ?? ""}
+                >
+                  {t(
+                    logpoint.bound === true
+                      ? "toolCall.browser.logpointBound"
+                      : "toolCall.browser.logpointUnbound",
+                  )}
+                </Tag>
+              )}
+              {expressions.length > 0 ? (
+                <code
+                  className="tool-call-browser-ax-uid"
+                  title={expressions.join(", ")}
+                >
+                  {truncateLabel(expressions.join(", "), 40)}
+                </code>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+};
+
+/** scriptList：已解析脚本与 source map 里的原始源码。 */
+const DevtoolsScriptListView = ({
+  data,
+}: {
+  data: Record<string, unknown> | null;
+}): React.JSX.Element | null => {
+  const { t } = useI18n();
+  if (!data) {
+    return null;
+  }
+  const scripts = Array.isArray(data.scripts)
+    ? data.scripts.filter((item) => isRecord(item))
+    : [];
+  if (scripts.length === 0) {
+    return (
+      <div className="tool-call-browser-empty">
+        <Braces size={14} aria-hidden="true" />
+        <span>{t("toolCall.browser.scriptNoItems")}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="tool-call-browser-network">
+      {scripts.slice(0, 50).map((item, index) => {
+        const script = item as Record<string, unknown>;
+        const url = asString(script.url) ?? "";
+        return (
+          <div
+            key={`${url}-${index}`}
+            className="tool-call-browser-network-row"
+          >
+            <Tag tone={script.kind === "source" ? "green" : "blue"}>
+              {asString(script.kind) ?? "script"}
+            </Tag>
+            <span className="tool-call-browser-network-url" title={url}>
+              {truncateLabel(url, 72)}
+            </span>
+            {asNumber(script.lines) !== undefined ? (
+              <span className="tool-call-browser-network-duration">
+                {`${asNumber(script.lines) ?? 0} L`}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** scriptSearch：脚本与原始源码里的文本命中。 */
+const DevtoolsScriptSearchView = ({
+  data,
+}: {
+  data: Record<string, unknown> | null;
+}): React.JSX.Element | null => {
+  const { t } = useI18n();
+  if (!data) {
+    return null;
+  }
+  const matches = Array.isArray(data.matches)
+    ? data.matches.filter((item) => isRecord(item))
+    : [];
+  if (matches.length === 0) {
+    return (
+      <div className="tool-call-browser-empty">
+        <Braces size={14} aria-hidden="true" />
+        <span>{t("toolCall.browser.scriptNoMatches")}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="tool-call-browser-headers">
+      {matches.slice(0, 50).map((item, index) => {
+        const match = item as Record<string, unknown>;
+        const url = asString(match.url) ?? "";
+        const position = `${asNumber(match.lineNumber) ?? 0}:${asNumber(match.columnNumber) ?? 0}`;
+        return (
+          <div
+            key={`${url}-${position}-${index}`}
+            className="tool-call-browser-headers-row"
+          >
+            <code
+              className="tool-call-browser-headers-key"
+              title={`${url}:${position}`}
+            >
+              {`${truncateLabel(url.slice(url.lastIndexOf("/") + 1), 32)}:${position}`}
+            </code>
+            <span className="tool-call-browser-headers-value">
+              {asString(match.snippet) ?? ""}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** logpointHits：命中记录与运行时变量值。 */
+const DevtoolsLogpointHitsView = ({
+  data,
+}: {
+  data: Record<string, unknown> | null;
+}): React.JSX.Element | null => {
+  const { t } = useI18n();
+  const hits = Array.isArray(data?.hits)
+    ? data.hits.filter((item) => isRecord(item))
+    : [];
+  if (!data) {
+    return null;
+  }
+  if (hits.length === 0) {
+    const diagnostics = Array.isArray(data.diagnostics)
+      ? data.diagnostics.filter((item) => isRecord(item))
+      : [];
+    return (
+      <>
+        <div className="tool-call-browser-empty">
+          <Braces size={14} aria-hidden="true" />
+          <span>{t("toolCall.browser.logpointNoHits")}</span>
+        </div>
+        {diagnostics.length > 0 ? (
+          <div className="tool-call-browser-tags">
+            {diagnostics.slice(0, 10).map((item, index) => {
+              const logpoint = item as Record<string, unknown>;
+              const id = asString(logpoint.id) ?? `#${index + 1}`;
+              return (
+                <Tag
+                  key={id}
+                  tone={logpoint.bound === true ? "green" : "amber"}
+                  title={
+                    asString(logpoint.lastError) ??
+                    asString(logpoint.warning) ??
+                    ""
+                  }
+                >
+                  {id}:{" "}
+                  {t(
+                    logpoint.bound === true
+                      ? "toolCall.browser.logpointBound"
+                      : "toolCall.browser.logpointUnbound",
+                  )}
+                </Tag>
+              );
+            })}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+  return (
+    <>
+      {hits.slice(-20).map((item, index) => {
+        const hit = item as Record<string, unknown>;
+        const vars = isRecord(hit.vars) ? hit.vars : {};
+        const location = `${getHost(asString(hit.url) ?? "") || truncateLabel(asString(hit.url) ?? "", 40)}:${asNumber(hit.lineNumber) ?? 0}`;
+        return (
+          <section
+            key={`${asString(hit.logpointId) ?? "hit"}-${index}`}
+            className="tool-call-section"
+          >
+            <span className="tool-call-section-label">
+              {t("toolCall.browser.logpointHitCount", {
+                values: { count: asNumber(hit.hit) ?? index + 1 },
+              })}
+            </span>
+            <div className="tool-call-browser-tags">
+              <Tag tone="blue">{asString(hit.logpointId) ?? ""}</Tag>
+              <Tag title={asString(hit.url) ?? ""}>{location}</Tag>
+              {asString(hit.label) ? (
+                <Tag tone="green">{asString(hit.label)}</Tag>
+              ) : null}
+            </div>
+            <div className="tool-call-browser-headers">
+              {Object.entries(vars).map(([key, value]) => (
+                <div key={key} className="tool-call-browser-headers-row">
+                  <code className="tool-call-browser-headers-key">{key}</code>
+                  <span className="tool-call-browser-headers-value">
+                    {typeof value === "string" ? value : String(value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </>
+  );
+};
+
 const DevtoolsView = ({
   args,
   data,
@@ -2012,12 +2362,146 @@ const DevtoolsView = ({
         const pattern = asString(
           isRecord(data.rule) ? data.rule.pattern : undefined,
         );
+        const rule = isRecord(data.rule) ? data.rule : null;
+        const abort = asString(rule?.abort);
+        const proxyTo = asString(rule?.proxyTo);
+        const delayMs = asNumber(rule?.delayMs);
+        const label = abort
+          ? t("toolCall.browser.routeAbort")
+          : proxyTo
+            ? t("toolCall.browser.routeProxy")
+            : t("toolCall.browser.routeActive");
         return (
-          <StatusRow icon={Route} label={t("toolCall.browser.routeActive")}>
+          <StatusRow
+            icon={abort ? AlertCircle : proxyTo ? Link2 : Route}
+            label={label}
+          >
             {pattern ? <Tag tone="blue">{pattern}</Tag> : null}
+            {abort ? <Tag tone="amber">{abort}</Tag> : null}
+            {proxyTo ? (
+              <Tag tone="blue" title={proxyTo}>
+                {getHost(proxyTo)}
+              </Tag>
+            ) : null}
+            {delayMs ? (
+              <Tag tone="amber">
+                {t("toolCall.browser.routeDelay")} {delayMs}ms
+              </Tag>
+            ) : null}
           </StatusRow>
         );
       }
+      case "routeList": {
+        const rules = Array.isArray(data.rules)
+          ? data.rules.filter((item) => isRecord(item))
+          : [];
+        if (rules.length === 0) {
+          return (
+            <StatusRow
+              icon={Route}
+              label={t("toolCall.browser.routeNoRules")}
+            />
+          );
+        }
+        return (
+          <div className="tool-call-browser-network">
+            {rules.slice(0, 50).map((item, index) => {
+              const rule = item as Record<string, unknown>;
+              const hits = asNumber(rule.hits) ?? 0;
+              const abort = asString(rule.abort);
+              const proxyTo = asString(rule.proxyTo);
+              return (
+                <div
+                  key={`${asString(rule.pattern) ?? index}`}
+                  className="tool-call-browser-network-row"
+                >
+                  <Tag tone={abort ? "amber" : "blue"}>
+                    {asString(rule.method) ?? "ALL"}
+                  </Tag>
+                  <span
+                    className="tool-call-browser-network-url"
+                    title={asString(rule.pattern) ?? ""}
+                  >
+                    {asString(rule.pattern) ?? ""}
+                  </span>
+                  {abort ? <Tag tone="amber">{abort}</Tag> : null}
+                  {proxyTo ? (
+                    <Tag tone="blue" title={proxyTo}>
+                      {getHost(proxyTo)}
+                    </Tag>
+                  ) : null}
+                  <span className="tool-call-browser-network-duration">
+                    {t("toolCall.browser.routeHits", {
+                      values: { count: hits },
+                    })}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+      case "logpointSet": {
+        const logpoint = isRecord(data.logpoint) ? data.logpoint : null;
+        return (
+          <StatusRow icon={Braces} label={t("toolCall.browser.logpointSet")}>
+            {logpoint ? (
+              <Tag tone="blue" title={asString(logpoint.url) ?? ""}>
+                {getHost(asString(logpoint.url) ?? "") ||
+                  truncateLabel(asString(logpoint.url) ?? "", 32)}
+              </Tag>
+            ) : null}
+            {logpoint && asNumber(logpoint.lineNumber) !== undefined ? (
+              <Tag>
+                {t("toolCall.browser.logpointLine", {
+                  values: { line: asNumber(logpoint.lineNumber) ?? 0 },
+                })}
+              </Tag>
+            ) : null}
+            {logpoint ? (
+              <Tag
+                tone={logpoint.bound === true ? "green" : "amber"}
+                title={asString(logpoint.warning) ?? ""}
+              >
+                {t(
+                  logpoint.bound === true
+                    ? "toolCall.browser.logpointBound"
+                    : "toolCall.browser.logpointUnbound",
+                )}
+              </Tag>
+            ) : null}
+          </StatusRow>
+        );
+      }
+      case "logpointRemove":
+        return (
+          <StatusRow
+            icon={Eraser}
+            label={t("toolCall.browser.logpointRemoved")}
+          >
+            {asString(data.logpointId) ? (
+              <Tag tone="blue">{asString(data.logpointId)}</Tag>
+            ) : null}
+          </StatusRow>
+        );
+      case "logpointClear":
+        return (
+          <StatusRow
+            icon={Eraser}
+            label={t("toolCall.browser.logpointCleared")}
+          >
+            <Tag>{asNumber(data.cleared) ?? 0}</Tag>
+          </StatusRow>
+        );
+      case "logpointHitsClear":
+        return (
+          <StatusRow
+            icon={Eraser}
+            label={t("toolCall.browser.logpointHitsCleared")}
+          >
+            <Tag>{asNumber(data.cleared) ?? 0}</Tag>
+          </StatusRow>
+        );
       case "routeClear":
         return (
           <StatusRow icon={Eraser} label={t("toolCall.browser.routeCleared")} />
@@ -2081,6 +2565,11 @@ const DevtoolsView = ({
     action === "ax" ||
     action === "trace" ||
     action === "open" ||
+    action === "logpointList" ||
+    action === "logpointHits" ||
+    action === "scriptList" ||
+    action === "scriptSearch" ||
+    action === "routeList" ||
     stateRow !== null;
   const fallbackText =
     action === "trace" && data
@@ -2116,6 +2605,17 @@ const DevtoolsView = ({
         <DevtoolsNetworkDetailView data={data} />
       ) : null}
       {action === "cookies" ? <DevtoolsCookiesView data={data} /> : null}
+      {action === "routeList" ? <DevtoolsRouteListView data={data} /> : null}
+      {action === "logpointList" ? (
+        <DevtoolsLogpointListView data={data} />
+      ) : null}
+      {action === "logpointHits" ? (
+        <DevtoolsLogpointHitsView data={data} />
+      ) : null}
+      {action === "scriptList" ? <DevtoolsScriptListView data={data} /> : null}
+      {action === "scriptSearch" ? (
+        <DevtoolsScriptSearchView data={data} />
+      ) : null}
       {action === "dialog" && data?.dialogs ? (
         <DevtoolsDialogsView data={data} />
       ) : null}

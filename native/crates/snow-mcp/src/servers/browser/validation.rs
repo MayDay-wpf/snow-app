@@ -281,7 +281,16 @@ pub(crate) fn validate_and_normalize_args(
                     | "networkDetails"
                     | "networkState"
                     | "route"
+                    | "routeList"
                     | "routeClear"
+                    | "logpointSet"
+                    | "logpointList"
+                    | "logpointHits"
+                    | "logpointHitsClear"
+                    | "logpointRemove"
+                    | "logpointClear"
+                    | "scriptList"
+                    | "scriptSearch"
                     | "storageSave"
                     | "storageRestore"
                     | "cookies"
@@ -292,7 +301,7 @@ pub(crate) fn validate_and_normalize_args(
             ) {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    "action must be one of snapshot, console, console_message, open, network, network_detail, network_clear, networkDetails, networkState, route, routeClear, storageSave, storageRestore, cookies, cookieDelete, ax, trace, or dialog for browser-devtools"
+                    "action must be one of snapshot, console, console_message, open, network, network_detail, network_clear, networkDetails, networkState, route, routeList, routeClear, logpointSet, logpointList, logpointHits, logpointHitsClear, logpointRemove, logpointClear, scriptList, scriptSearch, storageSave, storageRestore, cookies, cookieDelete, ax, trace, or dialog for browser-devtools"
                         .to_string(),
                 ));
             }
@@ -393,12 +402,67 @@ pub(crate) fn validate_and_normalize_args(
                 }
             }
             // route：pattern 必填；status 限 100-599；headers 必须为字符串映射。
+            // 异常注入参数（abort/delayMs/proxyTo/bodyFile/times）在此统一限界。
             if action == "route" {
                 required_non_empty_string(args, "pattern", "devtools")?;
                 if args.get("body").is_some() {
                     required_string(args, "body", "devtools")?;
                 }
                 optional_non_empty_string(args, "contentType")?;
+                optional_non_empty_string(args, "method")?;
+                optional_non_empty_string(args, "resourceType")?;
+                if let Some(body_file) = optional_non_empty_string(args, "bodyFile")? {
+                    validate_absolute_path(body_file, "bodyFile")?;
+                }
+                if let Some(proxy_to) = optional_non_empty_string(args, "proxyTo")? {
+                    if !(proxy_to.starts_with("http://")
+                        || proxy_to.starts_with("https://"))
+                    {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            "proxyTo must start with http:// or https:// for browser-devtools route"
+                                .to_string(),
+                        ));
+                    }
+                }
+                if let Some(abort) = optional_non_empty_string(args, "abort")? {
+                    if !matches!(
+                        abort,
+                        "Failed"
+                            | "Aborted"
+                            | "TimedOut"
+                            | "AccessDenied"
+                            | "ConnectionClosed"
+                            | "ConnectionReset"
+                            | "ConnectionRefused"
+                            | "ConnectionAborted"
+                            | "InternetDisconnected"
+                            | "AddressUnreachable"
+                            | "BlockedByClient"
+                    ) {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            "abort must be a CDP network error reason such as Failed, Aborted, TimedOut, ConnectionRefused, or BlockedByClient for browser-devtools route"
+                                .to_string(),
+                        ));
+                    }
+                }
+                if args
+                    .get("delayMs")
+                    .is_some_and(|value| !value.is_null() && value.as_u64().is_none())
+                {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        "delayMs must be a non-negative integer for browser-devtools route"
+                            .to_string(),
+                    ));
+                }
+                if let Some(value) = optional_bounded_u64(args, "delayMs", 0, 10_000)? {
+                    normalized.insert("delayMs".to_string(), json!(value));
+                }
+                if let Some(value) = optional_bounded_u64(args, "times", 1, 1_000)? {
+                    normalized.insert("times".to_string(), json!(value));
+                }
                 if let Some(status) = args.get("status") {
                     if !status.is_null() {
                         let code = status.as_u64().ok_or_else(|| {
@@ -434,6 +498,86 @@ pub(crate) fn validate_and_normalize_args(
                             }
                         }
                     }
+                }
+            }
+            // logpointSet：不改源码的日志断点，仅需脚本 URL 与行号。
+            if action == "logpointSet" {
+                let url = required_non_empty_string(args, "url", "devtools")?;
+                // 正则形式必须可编译，避免 CDP 侧静默失效；/正则/ 先剥掉外层斜杠。
+                let trimmed = url.trim();
+                let body = trimmed
+                    .strip_prefix('/')
+                    .and_then(|rest| rest.strip_suffix('/'))
+                    .filter(|inner| !inner.is_empty())
+                    .unwrap_or(trimmed);
+                if args.get("urlRegex").and_then(Value::as_bool) == Some(true)
+                    && regex::Regex::new(body).is_err()
+                {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        "url must be a valid regular expression when urlRegex=true for browser-devtools logpointSet"
+                            .to_string(),
+                    ));
+                }
+                let line = args.get("lineNumber").and_then(Value::as_u64).ok_or_else(|| {
+                    Error::new(
+                        Status::InvalidArg,
+                        "lineNumber is required for browser-devtools logpointSet".to_string(),
+                    )
+                })?;
+                if line == 0 {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        "lineNumber must be at least 1 for browser-devtools logpointSet".to_string(),
+                    ));
+                }
+                optional_boolean(args, "urlRegex")?;
+                optional_non_empty_string(args, "condition")?;
+                optional_non_empty_string(args, "label")?;
+                optional_non_empty_string(args, "logpointId")?;
+                if let Some(column) = args.get("columnNumber") {
+                    if !column.is_null() && !column.as_u64().is_some_and(|value| value >= 1) {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            "columnNumber must be an integer >= 1 for browser-devtools logpointSet"
+                                .to_string(),
+                        ));
+                    }
+                }
+                validate_string_array(args, "expressions", 20)?;
+                if let Some(value) = optional_bounded_u64(args, "maxHits", 1, 50)? {
+                    normalized.insert("maxHits".to_string(), json!(value));
+                }
+            }
+            // logpointHits：可选按断点过滤与条数上限。
+            if action == "logpointHits" {
+                optional_non_empty_string(args, "logpointId")?;
+                if let Some(value) = optional_bounded_u64(args, "limit", 1, 200)? {
+                    normalized.insert("limit".to_string(), json!(value));
+                }
+            }
+            // logpointRemove：必须指明要移除的断点。
+            if action == "logpointRemove" {
+                required_non_empty_string(args, "logpointId", "devtools")?;
+            }
+            // scriptList：可选是否展开 source map 的原始源码。
+            if action == "scriptList" {
+                optional_boolean(args, "sources")?;
+            }
+            // scriptSearch：query 必填；正则在 Rust 侧执行，提前校验可编译。
+            if action == "scriptSearch" {
+                let query = required_non_empty_string(args, "query", "devtools")?;
+                optional_non_empty_string(args, "url")?;
+                optional_boolean(args, "isRegex")?;
+                optional_boolean(args, "caseSensitive")?;
+                if args.get("isRegex").and_then(Value::as_bool) == Some(true)
+                    && regex::Regex::new(query).is_err()
+                {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        "query must be a valid regular expression (Rust regex syntax, no look-around) when isRegex=true for browser-devtools scriptSearch"
+                            .to_string(),
+                    ));
                 }
             }
             // storageSave/storageRestore：文件名白名单（防路径穿越；实际路径由主进程拼接）。

@@ -1608,13 +1608,215 @@ const devtoolsView = (ctx: BrowserContext): Node[] => {
     }
     case "route": {
       const pattern = readString(recordOf(data.rule) ?? {}, "pattern");
+      const rule = recordOf(data.rule) ?? {};
+      const abort = readString(rule, "abort");
+      const proxyTo = readString(rule, "proxyTo");
+      const delayMs = readNumber(rule, "delayMs");
       nodes.push(
         statusRow(
-          "git-branch",
-          tr("browser.routeActive"),
+          abort ? "shield-alert" : "git-branch",
+          abort
+            ? tr("browser.routeAbort")
+            : proxyTo
+              ? tr("browser.routeProxy")
+              : tr("browser.routeActive"),
           ...(pattern ? [tag(pattern)] : []),
+          ...(abort ? [tag(abort)] : []),
+          ...(proxyTo ? [tag(hostOf(proxyTo))] : []),
+          ...(delayMs ? [tag(`${delayMs}ms`)] : []),
         ),
       );
+      break;
+    }
+    case "routeList": {
+      const rules = (readArray(data, "rules") ?? [])
+        .map(recordOf)
+        .filter((rule): rule is JsonRecord => rule !== null);
+      if (rules.length === 0) {
+        nodes.push(noteRow("empty", "git-branch", tr("browser.routeNoRules")));
+        break;
+      }
+      nodes.push(
+        rowList(
+          rules.map((rule) => {
+            const abort = readString(rule, "abort");
+            const proxyTo = readString(rule, "proxyTo");
+            return statusRow(
+              abort ? "shield-alert" : "git-branch",
+              `${readString(rule, "method") ?? "ALL"} ${readString(rule, "pattern") ?? ""}`,
+              ...(abort ? [tag(abort)] : []),
+              ...(proxyTo ? [tag(hostOf(proxyTo))] : []),
+              tag(
+                tr("browser.routeHits", {
+                  count: readNumber(rule, "hits") ?? 0,
+                }),
+              ),
+            );
+          }),
+        ),
+      );
+      break;
+    }
+    case "logpointSet": {
+      const logpoint = recordOf(data.logpoint) ?? {};
+      const url = readString(logpoint, "url") ?? "";
+      nodes.push(
+        statusRow(
+          "code-xml",
+          tr("browser.logpointSet"),
+          ...(url ? [tag(hostOf(url) || url)] : []),
+          ...(readNumber(logpoint, "lineNumber") !== undefined
+            ? [
+                tag(
+                  tr("browser.logpointLine", {
+                    line: readNumber(logpoint, "lineNumber") ?? 0,
+                  }),
+                ),
+              ]
+            : []),
+        ),
+      );
+      break;
+    }
+    case "logpointRemove":
+      nodes.push(
+        statusRow(
+          "x",
+          tr("browser.logpointRemoved"),
+          ...(readString(data, "logpointId")
+            ? [tag(readString(data, "logpointId") as string)]
+            : []),
+        ),
+      );
+      break;
+    case "logpointClear":
+      nodes.push(
+        statusRow(
+          "x",
+          tr("browser.logpointCleared"),
+          tag(String(readNumber(data, "cleared") ?? 0)),
+        ),
+      );
+      break;
+    case "logpointHitsClear":
+      nodes.push(
+        statusRow(
+          "x",
+          tr("browser.logpointHitsCleared"),
+          tag(String(readNumber(data, "cleared") ?? 0)),
+        ),
+      );
+      break;
+    case "logpointList": {
+      const logpoints = (readArray(data, "logpoints") ?? [])
+        .map(recordOf)
+        .filter((item): item is JsonRecord => item !== null);
+      if (logpoints.length === 0) {
+        nodes.push(noteRow("empty", "code-xml", tr("browser.logpointNoItems")));
+        break;
+      }
+      nodes.push(
+        rowList(
+          logpoints.map((logpoint) =>
+            statusRow(
+              "code-xml",
+              readString(logpoint, "id") ?? "",
+              tag(hostOf(readString(logpoint, "url") ?? "") || ""),
+              tag(
+                tr("browser.logpointLine", {
+                  line: readNumber(logpoint, "lineNumber") ?? 0,
+                }),
+              ),
+              tag(
+                tr("browser.logpointHitCount", {
+                  count: readNumber(logpoint, "hits") ?? 0,
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      break;
+    }
+    case "logpointHits": {
+      const hits = (readArray(data, "hits") ?? [])
+        .map(recordOf)
+        .filter((hit): hit is JsonRecord => hit !== null);
+      if (hits.length === 0) {
+        nodes.push(noteRow("empty", "code-xml", tr("browser.logpointNoHits")));
+        break;
+      }
+      for (const hit of hits.slice(-10)) {
+        const vars = recordOf(hit.vars) ?? {};
+        const rows: HTMLElement[] = [];
+        for (const [key, value] of Object.entries(vars)) {
+          const row = el("div", "tc-web-row");
+          row.append(monoEl(key));
+          row.append(
+            textSpan(
+              "tc-web-row-text",
+              typeof value === "string" ? value : String(value),
+            ),
+          );
+          rows.push(row);
+        }
+        nodes.push(
+          section(
+            tr("browser.logpointVars"),
+            rowList(
+              rows.length > 0 ? rows : [noteRow("empty", "code-xml", "-")],
+            ),
+          ),
+        );
+      }
+      break;
+    }
+    case "scriptList": {
+      const scripts = (readArray(data, "scripts") ?? [])
+        .map(recordOf)
+        .filter((item): item is JsonRecord => item !== null);
+      if (scripts.length === 0) {
+        nodes.push(noteRow("empty", "code-xml", tr("browser.scriptNoItems")));
+        break;
+      }
+      nodes.push(
+        rowList(
+          scripts
+            .slice(0, 30)
+            .map((script) =>
+              statusRow(
+                "code-xml",
+                readString(script, "url") ?? "",
+                tag(readString(script, "kind") ?? "script"),
+              ),
+            ),
+        ),
+      );
+      break;
+    }
+    case "scriptSearch": {
+      const matches = (readArray(data, "matches") ?? [])
+        .map(recordOf)
+        .filter((item): item is JsonRecord => item !== null);
+      if (matches.length === 0) {
+        nodes.push(noteRow("empty", "code-xml", tr("browser.scriptNoMatches")));
+        break;
+      }
+      const rows: HTMLElement[] = [];
+      for (const match of matches.slice(0, 30)) {
+        const url = readString(match, "url") ?? "";
+        const row = el("div", "tc-web-row");
+        row.append(
+          monoEl(
+            `${url.slice(url.lastIndexOf("/") + 1)}:${readNumber(match, "lineNumber") ?? 0}:${readNumber(match, "columnNumber") ?? 0}`,
+          ),
+        );
+        row.append(
+          textSpan("tc-web-row-text", readString(match, "snippet") ?? ""),
+        );
+        rows.push(row);
+      }
+      nodes.push(rowList(rows));
       break;
     }
     case "routeClear":

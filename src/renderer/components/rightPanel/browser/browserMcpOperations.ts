@@ -57,10 +57,17 @@ const withGuestInputFocus = async <T>(
 // clearBrowserRouteRulesForInstance 清理,避免跨实例残留/误提交。
 type BrowserRouteRule = {
   pattern: string;
+  method?: string;
+  resourceType?: string;
   status?: number;
   body?: string;
+  bodyFile?: string;
   contentType?: string;
   headers?: Record<string, string>;
+  abort?: string;
+  delayMs?: number;
+  proxyTo?: string;
+  times?: number;
 };
 
 const browserRouteRulesByInstance = new Map<string, BrowserRouteRule[]>();
@@ -2355,8 +2362,11 @@ const devtools = async (
     const pattern = requiredPayloadString(args, "pattern");
     const rule: BrowserRouteRule = {
       pattern,
+      method: optionalString(args, "method"),
+      resourceType: optionalString(args, "resourceType"),
       status: typeof args.status === "number" ? args.status : undefined,
       body: typeof args.body === "string" ? args.body : undefined,
+      bodyFile: optionalString(args, "bodyFile"),
       contentType:
         typeof args.contentType === "string" ? args.contentType : undefined,
       headers:
@@ -2364,6 +2374,16 @@ const devtools = async (
         typeof args.headers === "object" &&
         !Array.isArray(args.headers)
           ? (args.headers as Record<string, string>)
+          : undefined,
+      abort: optionalString(args, "abort"),
+      delayMs:
+        typeof args.delayMs === "number"
+          ? Math.max(0, Math.min(10_000, Math.floor(args.delayMs)))
+          : undefined,
+      proxyTo: optionalString(args, "proxyTo"),
+      times:
+        typeof args.times === "number" && args.times > 0
+          ? Math.floor(args.times)
           : undefined,
     };
     // 同一 pattern 覆盖，其余规则保留；全量提交给主进程。
@@ -2382,7 +2402,30 @@ const devtools = async (
     return {
       ...(await currentPageMetadata(webview, instanceId)),
       active: result.active,
-      rule: { pattern },
+      rule: {
+        pattern,
+        ...(rule.method ? { method: rule.method } : {}),
+        ...(rule.status !== undefined ? { status: rule.status } : {}),
+        ...(rule.abort ? { abort: rule.abort } : {}),
+        ...(rule.delayMs ? { delayMs: rule.delayMs } : {}),
+        ...(rule.proxyTo ? { proxyTo: rule.proxyTo } : {}),
+        ...(rule.times ? { times: rule.times } : {}),
+      },
+      note: rule.abort
+        ? `Requests matching ${pattern} now fail with ${rule.abort}; reload the page or retry the action to see page behavior.`
+        : rule.proxyTo
+          ? `Requests matching ${pattern} are forwarded to ${rule.proxyTo} and the real response is returned to the page.`
+          : `Requests matching ${pattern} return the mocked response; reload or retry to apply.`,
+    };
+  }
+  if (action === "routeList") {
+    const result = await window.snow.browserRouteList(
+      webview.getWebContentsId(),
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      rules: result.rules,
+      active: result.rules.length,
     };
   }
   if (action === "routeClear") {
@@ -2393,6 +2436,167 @@ const devtools = async (
     return {
       ...(await currentPageMetadata(webview, instanceId)),
       active: result.active,
+    };
+  }
+  if (action === "logpointSet") {
+    const url = requiredPayloadString(args, "url");
+    const lineNumber =
+      typeof args.lineNumber === "number" ? args.lineNumber : undefined;
+    if (
+      lineNumber === undefined ||
+      !Number.isFinite(lineNumber) ||
+      lineNumber < 1
+    ) {
+      throw new Error("lineNumber must be an integer >= 1 for a logpoint");
+    }
+    const expressions = Array.isArray(args.expressions)
+      ? args.expressions.filter(
+          (item): item is string =>
+            typeof item === "string" && item.trim() !== "",
+        )
+      : undefined;
+    const result = await window.snow.browserLogpointSet(
+      webview.getWebContentsId(),
+      {
+        id: optionalString(args, "logpointId"),
+        url,
+        urlRegex: args.urlRegex === true,
+        lineNumber: Math.floor(lineNumber),
+        columnNumber:
+          typeof args.columnNumber === "number"
+            ? Math.floor(args.columnNumber)
+            : undefined,
+        condition: optionalPayloadString(args, "condition"),
+        expressions,
+        label: optionalString(args, "label"),
+        maxHits:
+          typeof args.maxHits === "number"
+            ? Math.floor(args.maxHits)
+            : undefined,
+      },
+    );
+    const record =
+      result !== null && typeof result === "object"
+        ? (result as Record<string, unknown>)
+        : {};
+    const logpoint =
+      record.logpoint !== null && typeof record.logpoint === "object"
+        ? (record.logpoint as Record<string, unknown>)
+        : {};
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      ...record,
+      note:
+        logpoint.bound === true
+          ? "Bound. Values are captured before that line executes on its next run; read them with action=logpointHits."
+          : "Not bound to a script location yet - see logpoint.warning. Use action=scriptSearch / scriptList to find the exact url, lineNumber and columnNumber.",
+    };
+  }
+  if (action === "logpointRemove") {
+    const logpointId = requiredPayloadString(args, "logpointId");
+    const result = await window.snow.browserLogpointRemove(
+      webview.getWebContentsId(),
+      logpointId,
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      removed: result.removed,
+      active: result.active,
+      logpointId,
+    };
+  }
+  if (action === "logpointClear") {
+    const result = await window.snow.browserLogpointClear(
+      webview.getWebContentsId(),
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      cleared: result.cleared,
+    };
+  }
+  if (action === "logpointList") {
+    const result = (await window.snow.browserLogpointList(
+      webview.getWebContentsId(),
+    )) as {
+      logpoints?: unknown[];
+      autoResumed?: number;
+      suspended?: string;
+    } | null;
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      logpoints: Array.isArray(result?.logpoints) ? result?.logpoints : [],
+      active: Array.isArray(result?.logpoints) ? result?.logpoints.length : 0,
+      autoResumed: result?.autoResumed ?? 0,
+      ...(result?.suspended ? { suspended: result.suspended } : {}),
+    };
+  }
+  if (action === "logpointHits") {
+    const result = (await window.snow.browserLogpointHits(
+      webview.getWebContentsId(),
+      {
+        logpointId: optionalString(args, "logpointId"),
+        limit:
+          typeof args.limit === "number" ? Math.floor(args.limit) : undefined,
+      },
+    )) as {
+      hits?: unknown[];
+      total?: number;
+      diagnostics?: unknown[];
+      suspended?: string;
+    } | null;
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      hits: Array.isArray(result?.hits) ? result?.hits : [],
+      total: typeof result?.total === "number" ? result.total : 0,
+      ...(Array.isArray(result?.diagnostics)
+        ? { diagnostics: result.diagnostics }
+        : {}),
+      ...(result?.suspended ? { suspended: result.suspended } : {}),
+    };
+  }
+  if (action === "scriptList") {
+    const result = await window.snow.browserScriptList(
+      webview.getWebContentsId(),
+      {
+        filter: optionalString(args, "filter"),
+        sources: args.sources === true,
+        limit:
+          typeof args.limit === "number" ? Math.floor(args.limit) : undefined,
+      },
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      ...(result !== null && typeof result === "object"
+        ? (result as Record<string, unknown>)
+        : {}),
+    };
+  }
+  if (action === "scriptSearch") {
+    const result = await window.snow.browserScriptSearch(
+      webview.getWebContentsId(),
+      {
+        query: requiredPayloadString(args, "query"),
+        url: optionalString(args, "url"),
+        isRegex: args.isRegex === true,
+        caseSensitive: args.caseSensitive === true,
+        limit:
+          typeof args.limit === "number" ? Math.floor(args.limit) : undefined,
+      },
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      ...(result !== null && typeof result === "object"
+        ? (result as Record<string, unknown>)
+        : {}),
+    };
+  }
+  if (action === "logpointHitsClear") {
+    const result = await window.snow.browserLogpointHitsClear(
+      webview.getWebContentsId(),
+    );
+    return {
+      ...(await currentPageMetadata(webview, instanceId)),
+      cleared: result.cleared,
     };
   }
   if (action === "storageSave") {

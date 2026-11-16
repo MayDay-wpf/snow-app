@@ -6,6 +6,7 @@ use serde_json::Value;
 use super::super::service::McpService;
 use super::super::tools::McpTool;
 
+pub mod source_map;
 mod tool_definitions;
 mod validation;
 

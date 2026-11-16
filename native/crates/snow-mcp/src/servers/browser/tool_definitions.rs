@@ -443,17 +443,17 @@ fn interact_tool() -> McpTool {
 }
 
 fn devtools_tool() -> McpTool {
-    plain(
-        "devtools",
-        "Inspect developer-tools data of the agent's working tab or an explicit instanceId. action=snapshot (page metadata and text; maxContentLength), ax (compact, ref-addressable accessibility tree keeping control values and states; verbose, maxNodes), console (captured messages; level, types, pageIdx/pageSize, includePreserved, clearConsole), console_message (one message by msgid), network (compact request list; filter, resourceTypes, methods, includeHeaders, includePreserved, pagination), network_detail (one request by numeric requestId), network_clear, networkDetails (full headers and bodies of one CDP requestId; maxBodyBytes, requestFilePath/responseFilePath), networkState (online/offline), route (mock responses: pattern, status, body, contentType, headers), routeClear, storageSave/storageRestore (cookies and localStorage to an encrypted file; fileName), cookies (values masked unless showValues=true), cookieDelete (domain+name), trace (durationMs), dialog (list or answer pending dialogs with dialogResponse), open (Electron DevTools).",
-        json!({
+    let description = "Inspect developer-tools data of the agent's working tab or an explicit instanceId. action=snapshot (page metadata and text; maxContentLength), ax (compact, ref-addressable accessibility tree keeping control values and states; verbose, maxNodes), console (captured messages; level, types, pageIdx/pageSize, includePreserved, clearConsole), console_message (one message by msgid), network (compact request list; filter, resourceTypes, methods, includeHeaders, includePreserved, pagination), network_detail (one request by numeric requestId), network_clear, networkDetails (full headers and bodies of one CDP requestId; maxBodyBytes, requestFilePath/responseFilePath), networkState (online/offline), route (mock or break a request: pattern plus status/body/bodyFile/contentType/headers/abort/delayMs/proxyTo/method/resourceType/times), routeList (active mock rules with hit counts), routeClear, logpointSet (log breakpoint without editing source: url is a loaded script or an original source path resolved through source maps such as \"src/cart.ts\", lineNumber/columnNumber, expressions/condition/label/maxHits; values are captured before the line runs and execution continues; the result reports bound, locations and warning), logpointList, logpointHits (captured variables plus diagnostics for logpoints without hits; logpointId, limit), logpointHitsClear, logpointRemove (logpointId), logpointClear, scriptList (parsed scripts; filter, sources=true adds original source files from source maps, limit), scriptSearch (find text in scripts and original sources and get the exact lineNumber/columnNumber for logpointSet; query, url, isRegex, caseSensitive, limit), storageSave/storageRestore (cookies and localStorage to an encrypted file; fileName), cookies (values masked unless showValues=true), cookieDelete (domain+name), trace (durationMs), dialog (list or answer pending dialogs with dialogResponse), open (Electron DevTools).";
+    let mut props = json!({
             "instanceId": instance_id_schema(),
             "frameId": frame_id_schema(),
             "action": {
                 "type": "string",
                 "enum": [
                     "snapshot", "console", "console_message", "open", "network", "network_detail",
-                    "network_clear", "networkDetails", "networkState", "route", "routeClear",
+                    "network_clear", "networkDetails", "networkState", "route", "routeList", "routeClear",
+                    "logpointSet", "logpointList", "logpointHits", "logpointHitsClear",
+                    "logpointRemove", "logpointClear", "scriptList", "scriptSearch",
                     "storageSave", "storageRestore", "cookies", "cookieDelete", "ax", "trace", "dialog"
                 ],
                 "description": "Developer tools action (default snapshot).",
@@ -490,7 +490,7 @@ fn devtools_tool() -> McpTool {
             },
             "filter": {
                 "type": "string",
-                "description": "network: only requests whose URL matches this regexp."
+                "description": "network: only requests whose URL matches this regexp. scriptList: only scripts/sources whose URL matches this regexp (case-insensitive)."
             },
             "static": {
                 "type": "boolean",
@@ -499,7 +499,7 @@ fn devtools_tool() -> McpTool {
             },
             "limit": {
                 "type": "integer",
-                "description": "network: maximum requests returned (default 50, range 1-200).",
+                "description": "network: maximum requests returned (default 50, range 1-200). logpointHits / scriptList: maximum entries (default 50). scriptSearch: maximum matches (default 20, capped at 100).",
                 "default": 50,
                 "minimum": 1,
                 "maximum": 200
@@ -572,10 +572,6 @@ fn devtools_tool() -> McpTool {
                 "enum": ["online", "offline"],
                 "description": "networkState: offline makes all requests fail, online restores connectivity."
             },
-            "pattern": {
-                "type": "string",
-                "description": "route: URL pattern to mock. Plain text = substring match; /regex/ = regular expression, e.g. \"/api/users\"."
-            },
             "status": {
                 "type": "integer",
                 "description": "route: HTTP status of the mocked response (default 200, range 100-599).",
@@ -631,9 +627,125 @@ fn devtools_tool() -> McpTool {
                 "type": "string",
                 "description": "cookieDelete: cookie name to delete (with domain)."
             }
-        }),
-        &[],
-    )
+        });
+    extend(&mut props, devtools_fault_props());
+    extend(&mut props, devtools_logpoint_props());
+    plain("devtools", description, props, &[])
+}
+
+/// route 的异常注入与真实响应替换参数（拆分避免 json! 宏递归超限）。
+fn devtools_fault_props() -> Value {
+    json!({
+        "pattern": {
+            "type": "string",
+            "description": "route: URL pattern to mock. Plain text = substring match; /regex/ = regular expression, e.g. \"/api/users\"."
+        },
+        "method": {
+            "type": "string",
+            "description": "route: only match this HTTP method (case-insensitive), e.g. \"POST\". Omit to match every method."
+        },
+        "resourceType": {
+            "type": "string",
+            "description": "route: only match this CDP resource type, e.g. \"XHR\", \"Fetch\", \"Script\". Omit to match every type."
+        },
+        "abort": {
+            "type": "string",
+            "enum": [
+                "Failed", "Aborted", "TimedOut", "AccessDenied", "ConnectionClosed",
+                "ConnectionReset", "ConnectionRefused", "ConnectionAborted",
+                "InternetDisconnected", "AddressUnreachable", "BlockedByClient"
+            ],
+            "description": "route: make matching requests fail instead of answering, using this network error. Use it to test error paths and retry logic."
+        },
+        "delayMs": {
+            "type": "integer",
+            "description": "route: delay the mocked response by this many ms (0-10000) to simulate a slow API.",
+            "minimum": 0,
+            "maximum": 10000
+        },
+        "proxyTo": {
+            "type": "string",
+            "description": "route: forward matching requests to this URL (test server) and return its real response to the page, keeping the frontend untouched."
+        },
+        "bodyFile": {
+            "type": "string",
+            "description": "route: absolute path of a file used as the response body, re-read on every request so editing the file changes the data without new rules."
+        },
+        "times": {
+            "type": "integer",
+            "description": "route: apply this rule at most N times, then let real requests through (useful for transient failures).",
+            "minimum": 1,
+            "maximum": 1000
+        }
+    })
+}
+
+/// logpoint 系列参数（同理拆分）。
+fn devtools_logpoint_props() -> Value {
+    json!({
+        "url": {
+            "type": "string",
+            "description": "logpointSet: an original source path from a source map, exact or as a path suffix (e.g. \"src/cart.ts\"; line numbers then match the file on disk), or any distinctive part of a loaded script URL (literal substring); pass /regex/ or set urlRegex=true to match script URLs by regular expression. scriptSearch: optional substring restricting which scripts/sources are searched."
+        },
+        "urlRegex": {
+            "type": "boolean",
+            "description": "logpointSet: treat url as a regular expression over loaded script URLs instead of a literal substring (source maps are not consulted).",
+            "default": false
+        },
+        "lineNumber": {
+            "type": "integer",
+            "description": "logpointSet: 1-based line number in the coordinates of url; a line without executable code moves to the next possible location.",
+            "minimum": 1
+        },
+        "columnNumber": {
+            "type": "integer",
+            "description": "logpointSet: optional 1-based column number; required in practice for minified single-line bundles (take it from scriptSearch).",
+            "minimum": 1
+        },
+        "expressions": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {"type": "string"},
+            "description": "logpointSet: expressions evaluated in the scope of the location before the line runs (a variable declared on that line is not set yet), e.g. [\"userId\", \"state.items.length\"]. Hits key each value by its expression text; an expression that throws yields [Thrown: ...] without losing the other values. In minified bundles use the minified variable names."
+        },
+        "condition": {
+            "type": "string",
+            "description": "logpointSet: optional guard expression; the logpoint only records when it evaluates truthy."
+        },
+        "label": {
+            "type": "string",
+            "description": "logpointSet: human-readable label shown with the hits."
+        },
+        "maxHits": {
+            "type": "integer",
+            "description": "logpointSet: disable the logpoint after this many hits (default 20, range 1-50).",
+            "minimum": 1,
+            "maximum": 50
+        },
+        "logpointId": {
+            "type": "string",
+            "description": "logpointSet: reuse an id to replace that logpoint. logpointHits: only return hits of this logpoint. logpointRemove: id of the logpoint to remove."
+        },
+        "query": {
+            "type": "string",
+            "description": "scriptSearch: text to find (literal unless isRegex=true)."
+        },
+        "isRegex": {
+            "type": "boolean",
+            "description": "scriptSearch: treat query as a regular expression (Rust regex syntax, no look-around; default false).",
+            "default": false
+        },
+        "caseSensitive": {
+            "type": "boolean",
+            "description": "scriptSearch: case-sensitive matching (default false).",
+            "default": false
+        },
+        "sources": {
+            "type": "boolean",
+            "description": "scriptList: also list original source files from source maps (loads the source maps; default false).",
+            "default": false
+        }
+    })
 }
 
 fn inspect_tool() -> McpTool {
